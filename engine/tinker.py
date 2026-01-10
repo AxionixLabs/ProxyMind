@@ -6,6 +6,7 @@
 #
 
 import random
+import typing
 from loguru import logger
 from rich.text import Text
 from rich.console import Console
@@ -14,6 +15,21 @@ from rich.logging import (
 )
 from engine.design import Design
 from utils import const
+
+
+class _ProxyMindBaseError(BaseException):
+    pass
+
+
+class ProxyMindError(_ProxyMindBaseError):
+
+    def __init__(self, msg: typing.Any):
+        self.msg = msg
+
+    def __str__(self):
+        return f"<{const.APP_DESC}Error> {self.msg}"
+
+    __repr__ = __str__
 
 
 class Active(object):

@@ -12,6 +12,7 @@ from mcp import (
 from mcp.client.streamable_http import streamable_http_client
 from engine.design import Design
 from engine.manage import McpServer
+from engine.parser import Parser
 from engine.terminal import Terminal
 from engine.tinker import Active
 from utils import request
@@ -28,7 +29,7 @@ async def mind_boot() -> McpServer:
 
     root = Path(__file__).parent
 
-    program = Path(root, "agent", "mcp_server.py")
+    program = Path(root, "mcp_server.py")
     # program = Path(root, "applications", "mcp_server.app", "Contents", "MacOS", "mcp_server")
     # program = Path(root, "applications", "mcp_server.dist", "mcp_server.exe")
 
@@ -56,7 +57,7 @@ async def mind_trip(
             "openai/gpt-oss-20b",
             "qwen/qwen3-32b",
         ],
-    ] = "llama-3.3-70b-versatile"
+    ] = "llama-3.1-8b-instant"
 ) -> None:
 
     async def exec_looper() -> None:
@@ -98,6 +99,7 @@ async def mind_trip(
 
 async def mind_loop() -> None:
     doc = """\
+
     /help              显示帮助
     /quit              退出
     /repeat N <goal>   将目标重复执行 N 次
@@ -122,13 +124,20 @@ async def main() -> None:
     # lsof -ti :3333 | xargs kill -9
     # Get-NetTCPConnection -LocalPort 3333 | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
 
+    parser = Parser()
     server = await mind_boot()
 
     await server.mcp_begin()
     signal.signal(signal.SIGINT, signal_processor)
 
-    try: await mind_loop()
+    try:
+        cmd_lines = parser.parse_cmd
+
+        if focus := cmd_lines.focus: await mind_trip(focus)
+        else: await mind_loop()
+
     except Exception as e: logger.error(e); raise e
+
     finally: await server.mcp_final()
 
 
