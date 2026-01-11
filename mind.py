@@ -11,7 +11,7 @@ from mcp import (
 )
 from mcp.client.streamable_http import streamable_http_client
 from engine.design import Design
-from engine.manage import McpServer
+from engine.manage import ServerManage
 from engine.parser import Parser
 from engine.terminal import Terminal
 from engine.tinker import Active
@@ -24,19 +24,19 @@ def signal_processor(*_, **__) -> None:
     sys.exit(0)
 
 
-async def mind_boot() -> McpServer:
+async def mind_boot() -> ServerManage:
     Active.active("DEBUG")
 
     root = Path(__file__).parent
 
-    program = Path(root, "mcp_server.py")
+    program = Path(root, "mcp_app", "mcp_server.py")
     # program = Path(root, "applications", "mcp_server.app", "Contents", "MacOS", "mcp_server")
     # program = Path(root, "applications", "mcp_server.dist", "mcp_server.exe")
 
     if sys.platform == "darwin":
         await Terminal.cmd_line(["chmod", "+x", program])
 
-    return McpServer(program)
+    return ServerManage(program)
 
 
 async def mind_trip(
@@ -119,11 +119,6 @@ async def mind_loop() -> None:
 
 
 async def main() -> None:
-    # nuitka --macos-create-app-bundle --show-progress --output-dir=applications agent/mcp_server.py
-    # nuitka --mode=standalone --product-name=Mind --product-version=1.0.0 --windows-icon-from-ico=schematic/resources/icons/butterfly.ico --show-progress --show-memory --assume-yes-for-downloads --output-dir=applications agent/mcp_server.py
-    # lsof -ti :3333 | xargs kill -9
-    # Get-NetTCPConnection -LocalPort 3333 | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
-
     parser = Parser()
     server = await mind_boot()
 

@@ -11,12 +11,11 @@ import typing
 import asyncio
 from pathlib import Path
 from loguru import logger
-from engine.device import Device
 from engine.terminal import Terminal
 from utils import const
 
 
-class McpServer(object):
+class ServerManage(object):
 
     def __init__(self, program: Path | str):
         self.program = str(program)
@@ -57,47 +56,6 @@ class McpServer(object):
             self.transports.kill()
 
         logger.info(f"♻️ {const.APP_DESC} MCP stopped ...")
-
-
-class Manage(object):
-
-    device_list: list[Device] = []
-
-    def __init__(self, adb: str) -> None:
-        self.adb = adb
-
-    async def refresh(self) -> list[Device]:
-        if not self.device_list:
-            self.device_list = await self.devices()
-
-        if not self.device_list:
-            raise RuntimeError("Device not connected ...")
-        return self.device_list
-
-    async def devices(self) -> list[Device]:
-        resp = await Terminal.cmd_line([self.adb, "devices"])
-
-        if not resp or not (lines := [line.strip() for line in resp.splitlines() if line.strip()]):
-            return []
-
-        if "not found" in resp.lower() or resp.lower().startswith("adb:") or resp.lower().startswith("error"):
-            return []
-
-        device_list: list[Device] = []
-        for line in lines:
-            if line.lower().startswith("list of devices"):
-                continue
-
-            if len(parts := line.split()) < 2:
-                continue
-
-            serial, status = parts[0], parts[1]
-            if status != "device":
-                continue
-
-            device_list.append(Device(self.adb, serial))
-
-        return device_list
 
 
 if __name__ == '__main__':

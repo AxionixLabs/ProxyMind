@@ -25,7 +25,7 @@ class Memrix(object):
             cls.__instance = super(Memrix, cls).__new__(cls)
         return cls.__instance
 
-    def __init__(self) -> None:
+    def __init__(self):
         if not self.__initialized:
             self.transports: typing.Optional[asyncio.subprocess.Process] = None
             self.token: typing.Optional[str] = None
