@@ -24,21 +24,6 @@ def signal_processor(*_, **__) -> None:
     sys.exit(0)
 
 
-async def mind_boot() -> ServerManage:
-    Active.active("DEBUG")
-
-    root = Path(__file__).parent
-
-    program = Path(root, "mcp_app", "mcp_server.py")
-    # program = Path(root, "applications", "mcp_server.app", "Contents", "MacOS", "mcp_server")
-    # program = Path(root, "applications", "mcp_server.dist", "mcp_server.exe")
-
-    if sys.platform == "darwin":
-        await Terminal.cmd_line(["chmod", "+x", program])
-
-    return ServerManage(program)
-
-
 async def mind_trip(
     message: str,
     model: typing.Union[
@@ -118,11 +103,31 @@ async def mind_loop() -> None:
         await mind_trip(raw)
 
 
+async def mind_boot() -> ServerManage:
+    pass
+
+
 async def main() -> None:
     parser = Parser()
-    server = await mind_boot()
 
-    await server.mcp_begin()
+    Active.active("DEBUG")
+
+    root = Path(__file__).parent
+
+    # program = Path(root, "mcp_app", "mcp_server.py")
+    program = Path(root, "applications", "mcp_server.app", "Contents", "MacOS", "mcp_server")
+    # program = Path(root, "applications", "mcp_server.dist", "mcp_server.exe")
+
+    if sys.platform == "darwin":
+        await Terminal.cmd_line(["chmod", "+x", program])
+
+    server = ServerManage()
+
+    if program.name.endswith("py"):
+        await server.mcp_begin([sys.executable, str(program)])
+    else:
+        await server.mcp_begin([str(program)])
+
     signal.signal(signal.SIGINT, signal_processor)
 
     try:

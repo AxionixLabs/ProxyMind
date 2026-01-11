@@ -6,10 +6,8 @@
 #                           |___/
 #
 
-import sys
 import typing
 import asyncio
-from pathlib import Path
 from loguru import logger
 from engine.terminal import Terminal
 from utils import const
@@ -17,8 +15,7 @@ from utils import const
 
 class ServerManage(object):
 
-    def __init__(self, program: Path | str):
-        self.program = str(program)
+    def __init__(self):
         self.transports: typing.Optional[asyncio.subprocess.Process] = None
 
     async def input_stream(self) -> None:
@@ -29,11 +26,10 @@ class ServerManage(object):
         async for line in self.transports.stderr:
             logger.debug(line.decode(const.CHARSET, const.IGNORE).strip())
 
-    async def mcp_begin(self) -> None:
+    async def mcp_begin(self, cmd: list[str]) -> None:
         if self.transports and self.transports.returncode is None:
             return None
 
-        cmd = [sys.executable, self.program]  # todo
         self.transports = await Terminal.cmd_link(cmd)
 
         asyncio.create_task(self.input_stream())
