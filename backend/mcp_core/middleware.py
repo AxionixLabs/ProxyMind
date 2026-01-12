@@ -114,7 +114,8 @@ def exception_middleware(tool_name: str):
                     trace_id=trace_id,
                     duration_ms=int((time.perf_counter() - t0) * 1000)
                 )
-                return as_mcp_result(payload)
+                # return as_mcp_result(payload)
+                return payload
 
             except asyncio.CancelledError:
                 payload = fail(

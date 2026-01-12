@@ -47,6 +47,7 @@ async def mind_trip(message: str, model: str = "llama-3.1-8b-instant") -> None:
             for step in steps:
                 action = step["action"]
                 result = await session.call_tool(action["action"], action["args"])
+                print(result)
 
                 if result.isError: return logger.error(f"{result.structuredContent}")
                 else: logger.info(f"{result.structuredContent}")

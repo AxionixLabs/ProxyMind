@@ -9,11 +9,13 @@
 import asyncio
 from loguru import logger
 from mcp.server import FastMCP
+from backend.mcp_core.middleware import exception_middleware
 
 
 def bind(mcp: FastMCP) -> None:
 
     @mcp.tool()
+    @exception_middleware("sleep")
     async def sleep(delay: float) -> None:
         """
         等待指定秒数。
@@ -40,7 +42,7 @@ def bind(mcp: FastMCP) -> None:
         """
 
         logger.info(f"Wait {delay}")
-        await asyncio.sleep(delay)
+        return await asyncio.sleep(delay)
 
 
 if __name__ == '__main__':
