@@ -118,6 +118,9 @@ class Device(object):
         if match := re.search(r"([a-zA-Z0-9._]+/[a-zA-Z0-9._$]+)", resp):
             return match.group(1)
 
+        if match := re.search(r"\bu\d+\s+([a-zA-Z0-9._]+)\b", resp):
+            return match.group(1)
+
         return None
 
     async def dump_ui_xml(self) -> str | None:
