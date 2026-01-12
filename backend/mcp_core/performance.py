@@ -59,7 +59,7 @@ class Memrix(object):
         await asyncio.sleep(5)
 
     async def task_begin(self, mode: typing.Literal["--storm", "--sleek"], focus: str, imply: str) -> None:
-        cmd = [mode, "--focus", focus, "--scene", self.scene, "--imply", imply, "--watch"]
+        cmd = [mode, "--seed", focus, "--scene", self.scene, "--imply", imply, "--canopy"]
         await self.engine(cmd)
 
     async def task_final(self) -> None:

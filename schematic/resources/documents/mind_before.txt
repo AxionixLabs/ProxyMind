@@ -1,0 +1,26 @@
+﻿欢迎使用 Mind :: 代理思维 安装向导
+Welcome to the installation of Memrix (Mind Engine)
+
+在继续之前，请阅读以下重要事项：
+Before proceeding, please read the following important notes:
+
+1. 系统要求：请确认您的计算机符合最低运行需求。
+   System Requirements: Ensure your computer meets the minimum requirements.
+
+2. 安装建议：建议关闭其他运行中的程序以避免干扰。
+   Installation Tip: Close other running applications to avoid interference.
+
+3. 数据备份：为了安全起见，请备份重要数据。
+   Data Backup: For safety, back up important data beforehand.
+
+4. 安装时间：过程可能需要几分钟，请耐心等待。
+   Installation Time: May take a few minutes to complete.
+
+5. 网络连接：某些功能可能在安装时需要联网支持。
+   Network Connection: Some features may require internet access during setup.
+
+点击“下一步”即表示您同意本软件的使用条款与授权协议。
+By clicking "Next", you agree to the terms and license agreement of this software.
+
+感谢您的使用，祝体验愉快。
+Thank you, and enjoy your experience.

@@ -6,9 +6,11 @@
 #                           |___/
 #
 
+import shutil
 import typing
 import asyncio
 from loguru import logger
+from engine.device import Device
 from engine.terminal import Terminal
 from utils import const
 
@@ -52,6 +54,49 @@ class ServerManage(object):
             self.transports.kill()
 
         logger.info(f"♻️ {const.APP_DESC} MCP stopped ...")
+
+
+class DeviceManage(object):
+
+    __device_list: list[Device] = []
+
+    def __init__(self):
+        self.__lock = asyncio.Lock()
+
+    @staticmethod
+    async def __connect_devices() -> list[Device]:
+        resp = await Terminal.cmd_line(["adb", "devices"])
+
+        if not resp or not (lines := [line.strip() for line in resp.splitlines() if line.strip()]):
+            return []
+
+        if "not found" in (low := resp.lower()) or low.startswith("adb:") or low.startswith("error"):
+            return []
+
+        device_list: list[Device] = [
+            Device(parts[0]) for line in lines[1:]
+            if len(parts := line.split()) >= 2
+            if parts[1] == "device"
+        ]
+
+        await asyncio.gather(
+            *(device.st_load_info() for device in device_list)
+        )
+
+        return device_list
+
+    async def refresh(self, *, force: bool = False) -> list[Device]:
+        async with self.__lock:
+            if not shutil.which("adb"):
+                raise RuntimeError(f"ADB not found in PATH")
+
+            if force or not self.__device_list:
+                self.__device_list = await self.__connect_devices()
+
+            if not self.__device_list:
+                raise RuntimeError("Device not connected ...")
+
+            return list(self.__device_list)
 
 
 if __name__ == '__main__':

@@ -32,9 +32,9 @@ class Parser(object):
         )
 
         mutually_exclusive = self.__parse_engine.add_argument_group(
-            title="\033[1m^* 核心操控 *^\033[0m",
+            title="\033[1m^* Ω / OMEGA :: 主序协议 *^\033[0m",
             description=textwrap.dedent(f'''\
-                \033[1;33m参数互斥\033[0m
+                \033[1;33m互斥: P0 :: Primary Protocols\033[0m
             '''),
         )
         major_group = mutually_exclusive.add_mutually_exclusive_group()
@@ -44,10 +44,17 @@ class Parser(object):
         major_group.add_argument(
             "--apply", type=str,
             help=textwrap.dedent(f'''\
-                \033[1;34m^*思维凭证*^\033[0m
+                \033[1;34m^*原点协议*^\033[0m
                 -------------------------
-                - 使用激活码向远程授权中心发起请求，获取签名后的授权数据。
-                - 授权数据将绑定当前设备指纹，并以 LIC 文件形式存储在本地。
+                原点协议用于启动系统授权初始化流程。
+
+                - 通过激活码向远程授权中心发送协议请求。
+                - 授权中心返回经签名校验的授权数据。
+                - 授权数据将与当前设备指纹进行绑定。
+                - 最终以 LIC 授权文件形式写入本地存储。
+
+                该协议仅在首次授权或授权重建场景中触发。
+                授权完成后，系统将自动进入能力解锁状态。
 
             ''')
         )
@@ -55,17 +62,18 @@ class Parser(object):
         # Workflow: ======================== 参数兼容 ========================
 
         minor_group = self.__parse_engine.add_argument_group(
-            title="\033[1m^* 环境桥接 *^\033[0m",
+            title="\033[1m^* Σ / SIGMA :: 协议矩阵 *^\033[0m",
             description=textwrap.dedent(f'''\
-                \033[1;32m参数兼容\033[0m
+                \033[1;32m兼容: P1 :: Context Injection\033[0m
             '''),
         )
         minor_group.add_argument(
-            "--focus", type=str, default=None,
+            "--exec", type=str, default=None,
             help=textwrap.dedent(f'''\
-                \033[1;36m^*数据魔方*^\033[0m
+                \033[1;36m^*提示注入*^\033[0m
                 -------------------------
-                - 传递提示词。
+                - 注入提示词 / 上下文，引导引擎生成更稳定的执行轨迹。
+                - 适用于：复现特定场景、约束输出风格、固定策略偏好。
 
             ''')
         )
@@ -73,18 +81,18 @@ class Parser(object):
         # Workflow: ======================== 参数兼容 ========================
 
         extra_group = self.__parse_engine.add_argument_group(
-            title="\033[1m^* 观象引擎 *^\033[0m",
+            title="\033[1m^* Φ / PHI :: 反射协议 *^\033[0m",
             description=textwrap.dedent(f'''\
-                \033[1;32m参数兼容\033[0m
+                \033[1;32m观测: P2 :: Trace & Telemetry\033[0m
             '''),
         )
         extra_group.add_argument(
-            "--watch", action="store_true",
+            "--horizon", action="store_true",
             help=textwrap.dedent(f'''\
-                \033[1;36m^*洞察之镜*^\033[0m
+                \033[1;36m^*轨迹观测*^\033[0m
                 -------------------------
-                - 启动调试反射视角，用于观察系统运行轨迹与隐藏信息。
-                - 展示最详细的调试输出，追踪函数调用与变量变化。
+                - 开启反射视角，输出系统运行轨迹与隐藏信息。
+                - 展示最详细的调试信息：关键分支选择、函数调用链、变量变化。
 
             ''')
         )

@@ -1,0 +1,23 @@
+﻿恭喜！Mind :: 代理思维 已成功安装。
+Congratulations! Mind has been successfully installed.
+
+在开始之前，请注意以下事项：
+Before you get started, please read the following:
+
+1. 启动方式：请在命令行中执行 `mind` 命令以启动程序。
+   Launch: Open a terminal and run the `mind` command to start the program.
+
+2. 推荐终端：为获得最佳显示效果，建议使用支持富文本的终端，如 Windows Terminal 或 iTerm2。
+   Recommended Terminal: For optimal visual experience, use a rich-text terminal such as Windows Terminal or iTerm2.
+
+3. 用户指南：请访问 [https://github.com/PlaxtonFlarion/SoftwareCenter] 获取使用文档与更新说明。
+   User Guide: Visit [https://github.com/PlaxtonFlarion/SoftwareCenter] for manuals and update notes.
+
+4. 软件更新：如获得新版本，请在卸载旧版本后重新安装。
+   Updates: To update, uninstall the old version and install the new release.
+
+5. 用户支持：若需帮助，请通过您的授权渠道联系支持人员。
+   Support: For assistance, contact support through your licensed access channel.
+
+感谢您的安装，祝使用愉快！
+Thank you for installing. Enjoy your experience!

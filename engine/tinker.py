@@ -13,15 +13,15 @@ from rich.console import Console
 from rich.logging import (
     LogRecord, RichHandler
 )
-from engine.design import Design
+from mindcore.design import Design
 from utils import const
 
 
-class _ProxyMindBaseError(BaseException):
+class _MindBaseError(BaseException):
     pass
 
 
-class ProxyMindError(_ProxyMindBaseError):
+class MindError(_MindBaseError):
 
     def __init__(self, msg: typing.Any):
         self.msg = msg

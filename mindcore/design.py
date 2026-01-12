@@ -1,0 +1,94 @@
+#  ____            _
+# |  _ \  ___  ___(_) __ _ _ __
+# | | | |/ _ \/ __| |/ _` | '_ \
+# | |_| |  __/\__ \ | (_| | | | |
+# |____/ \___||___/_|\__, |_| |_|
+#                    |___/
+#
+
+import random
+import typing
+import textwrap
+from rich.console import Console
+from utils import const
+
+
+class Design(object):
+
+    console: typing.Optional["Console"] = Console()
+
+    def __init__(self, design_level: str = const.SHOW_LEVEL):
+        self.design_level = design_level
+
+    class Doc(object):
+
+        @classmethod
+        def log(cls, text: typing.Any) -> None:
+            Design.console.print(const.PRINT_HEAD, f"[bold]{text}")
+
+        @classmethod
+        def suc(cls, text: typing.Any) -> None:
+            Design.console.print(const.PRINT_HEAD, f"{const.SUC}{text}")
+
+        @classmethod
+        def wrn(cls, text: typing.Any) -> None:
+            Design.console.print(const.PRINT_HEAD, f"{const.WRN}{text}")
+
+        @classmethod
+        def err(cls, text: typing.Any) -> None:
+            Design.console.print(const.PRINT_HEAD, f"{const.ERR}{text}")
+
+    @staticmethod
+    def startup_logo() -> None:
+        """
+        显示项目 LOGO（ASCII banner），使用 rich 渲染。
+        """
+        color = random.choice([
+            "#7C3AED",
+            "#A855F7",
+            "#6366F1",
+            "#3B82F6",
+            "#22D3EE",
+            "#06B6D4",
+            "#10B981",
+            "#2DD4BF",
+            "#F472B6",
+            "#FB7185",
+            "#FBBF24",
+            "#A3E635",
+            "#7C3AED",
+            "#A855F7",
+            "#6366F1",
+            "#3B82F6",
+            "#60A5FA",
+            "#22D3EE",
+            "#06B6D4",
+            "#2DD4BF",
+            "#10B981",
+            "#34D399",
+            "#0EA5E9",
+            "#38BDF8",
+        ])
+
+        banner_standard = textwrap.dedent(f"""\
+             __  __ _           _
+            |  \/  (_)_ __   __| |
+            | |\/| | | '_ \ / _` |
+            | |  | | | | | | (_| |
+            |_|  |_|_|_| |_|\__,_|
+        """)
+        banner_speed = textwrap.dedent(f"""\
+            ______  _______       _________
+            ___   |/  /__(_)____________  /
+            __  /|_/ /__  /__  __ \  __  /
+            _  /  / / _  / _  / / / /_/ /
+            /_/  /_/  /_/  /_/ /_/\__,_/
+        """)
+        banner = random.choice([banner_standard, banner_speed])
+
+        Design.console.print(f"[bold {color}]{banner}")
+        Design.console.print(const.DECLARE)
+
+
+if __name__ == '__main__':
+    pass
