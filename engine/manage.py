@@ -12,6 +12,7 @@ import asyncio
 from loguru import logger
 from engine.device import Device
 from engine.terminal import Terminal
+from engine.tinker import MindError
 from utils import const
 
 
@@ -88,13 +89,13 @@ class DeviceManage(object):
     async def refresh(self, *, force: bool = False) -> list[Device]:
         async with self.__lock:
             if not shutil.which("adb"):
-                raise RuntimeError(f"ADB not found in PATH")
+                raise MindError(f"ADB not found in PATH")
 
             if force or not self.__device_list:
                 self.__device_list = await self.__connect_devices()
 
             if not self.__device_list:
-                raise RuntimeError("Device not connected ...")
+                raise MindError("Device not connected ...")
 
             return list(self.__device_list)
 

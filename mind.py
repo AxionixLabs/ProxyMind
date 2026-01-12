@@ -21,7 +21,9 @@ from mcp import (
 )
 from mcp.client.streamable_http import streamable_http_client
 from mindcore.design import Design
-from engine.manage import ServerManage
+from engine.manage import (
+    ServerManage, DeviceManage
+)
 from engine.tinker import (
     MindError, Active
 )
@@ -48,6 +50,9 @@ async def mind_trip(message: str, model: str = "llama-3.1-8b-instant") -> None:
 
                 if result.isError: return logger.error(result.content[0].text)
                 else: logger.info(f"{result.content[0].text}")
+
+    device_list = await DeviceManage().refresh()
+    for device in device_list: logger.debug(device)
 
     async with streamable_http_client("http://127.0.0.1:3333/mcp") as (r, w, _):
         async with ClientSession(r, w) as session:
@@ -88,14 +93,17 @@ async def mind_loop() -> None:
 
     ask = "[bold #AFD7FF]\n🤔 输入目标或 /help[/]"
 
-    while (raw := Prompt.ask(ask)) not in {"/quit", "quit", "exit"}:
+    while (raw := Prompt.ask(ask, console=Design.console)) not in {"/quit", "quit", "exit"}:
         if raw.strip() in {"/help", "help"}:
             Design.console.print(doc); continue
 
-        if m := re.match(r"^/repeat\s+(\d+)\s+(.+)$", raw.strip()):
-            await mind_trip(f"{m.group(2)}，循环 {int(m.group(1))} 次"); continue
+        try:
+            if m := re.match(r"^/repeat\s+(\d+)\s+(.+)$", raw.strip()):
+                await mind_trip(f"{m.group(2)}，循环 {int(m.group(1))} 次"); continue
+            await mind_trip(raw)
 
-        await mind_trip(raw)
+        except MindError as e: logger.warning(e)
+        except Exception as e: logger.error(e)
 
 
 async def main() -> None:
@@ -239,7 +247,8 @@ async def main() -> None:
         if ex := cmd_lines.exec: await mind_trip(ex)
         else: await mind_loop()
 
-    except Exception as e: logger.error(e); raise e
+    except MindError as e: logger.warning(e)
+    except Exception as e: logger.error(e)
 
     finally: await server.mcp_final()
 

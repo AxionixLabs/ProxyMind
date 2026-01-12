@@ -7,7 +7,7 @@
 #
 
 from mcp.server import FastMCP
-from mcp_core.manage import DeviceManage
+from engine.manage import DeviceManage
 
 
 def register_all_tools(mcp: FastMCP, manage: DeviceManage) -> None:
