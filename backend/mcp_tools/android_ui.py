@@ -9,12 +9,14 @@ import typing
 import asyncio
 from loguru import logger
 from mcp.server import FastMCP
+from backend.mcp_core.middleware import exception_middleware
 from engine.manage import DeviceManage
 
 
 def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
     @mcp.tool()
+    @exception_middleware("swipe_unlock")
     async def swipe_unlock() -> None:
         """
         点亮屏幕并通过上滑手势尝试解锁设备。
@@ -52,6 +54,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
+    @exception_middleware("tap")
     async def tap(x: int, y: int) -> typing.Any:
         """
         在指定屏幕绝对坐标执行点击操作。
@@ -81,6 +84,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
+    @exception_middleware("swipe")
     async def swipe(x1: int, y1: int, x2: int, y2: int, duration: int = 300) -> typing.Any:
         """
         从起点坐标滑动到终点坐标。
@@ -112,6 +116,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
+    @exception_middleware("key_event")
     async def key_event(keycode: int) -> typing.Any:
         """
         向设备发送 Android 系统按键事件。
@@ -187,6 +192,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
+    @exception_middleware("click")
     async def click(by: typing.Literal["text", "id", "desc"], value: str) -> typing.Any:
         """
         按指定 UI 属性精确匹配并点击第一个命中的控件。
@@ -231,6 +237,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
+    @exception_middleware("send_keys")
     async def send_keys(text: str) -> typing.Any:
         """
         向当前已聚焦的输入框逐行输入文本。
@@ -266,6 +273,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
+    @exception_middleware("combo_key")
     async def combo_key(first: int, *others: int) -> typing.Any:
         """
         执行组合按键操作（模拟多个按键几乎同时触发）。

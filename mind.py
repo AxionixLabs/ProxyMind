@@ -48,11 +48,11 @@ async def mind_trip(message: str, model: str = "llama-3.1-8b-instant") -> None:
                 action = step["action"]
                 result = await session.call_tool(action["action"], action["args"])
 
-                if result.isError: return logger.error(result.content[0].text)
-                else: logger.info(f"{result.content[0].text}")
+                if result.isError: return logger.error(f"{result.structuredContent}")
+                else: logger.info(f"{result.structuredContent}")
 
-    device_list = await DeviceManage().refresh()
-    for device in device_list: logger.debug(device)
+    # device_list = await DeviceManage().refresh()
+    # for device in device_list: logger.debug(device)
 
     async with streamable_http_client("http://127.0.0.1:3333/mcp") as (r, w, _):
         async with ClientSession(r, w) as session:
@@ -225,14 +225,8 @@ async def main() -> None:
         logger.debug(f"TLS: {tls}")
     logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}\n")
 
-    # root = Path(__file__).parent
-
-    # helix = Path(root, "backend", "helix.py")
-    # helix = Path(root, "applications", "helix.app", "Contents", "MacOS", "helix")
-    # helix = Path(root, "applications", "helix.dist", "helix.exe")
-
-    # if sys.platform == "darwin":
-    #     await Terminal.cmd_line(["chmod", "+x", helix])
+    root = Path(__file__).parent
+    helix = str(Path(root, "backend", "helix.py"))
 
     server = ServerManage()
 
