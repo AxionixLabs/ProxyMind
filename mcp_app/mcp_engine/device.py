@@ -11,7 +11,6 @@ import uuid
 import typing
 import asyncio
 import xml.etree.ElementTree as Et
-from pathlib import Path
 from engine.terminal import Terminal
 from utils import const
 
