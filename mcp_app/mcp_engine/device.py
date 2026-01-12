@@ -7,6 +7,7 @@
 
 import re
 import time
+import uuid
 import typing
 import asyncio
 import xml.etree.ElementTree as Et
@@ -143,23 +144,34 @@ class Device(object):
 
         return None
 
-    async def screenshot(self, out_dir: str = ".") -> str:
-        (out := Path(out_dir)).mkdir(parents=True, exist_ok=True)
+    async def screenshot(self) -> str:
+        filename = f"screenshot_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
+        remote   = f"/data/local/tmp/{filename}"
 
-        filename = f"screenshot_{time.strftime('%Y%m%d_%H%M%S')}.png"
-        remote   = f"/sdcard/{filename}"
-        local    = out / filename
-
-        cmd = self.prefix + ["shell", "screencap", "-p", remote]
+        cmd = self.prefix + [
+            "shell", "screencap", "-p", remote
+        ]
         await Terminal.cmd_line(cmd)
 
-        cmd = self.prefix + ["pull", remote, str(local)]
-        await Terminal.cmd_line(cmd)
+        return remote
 
-        cmd = self.prefix + ["shell", "rm", "-f", remote]
-        await Terminal.cmd_line(cmd)
+    async def pull(self, remote: str, local: str) -> dict:
+        cmd = self.prefix + [
+            "pull", remote, local
+        ]
+        return await Terminal.cmd_line(cmd)
 
-        return str(local)
+    async def push(self, local: str, remote: str) -> dict:
+        cmd = self.prefix + [
+            "push", local, remote
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    async def remove(self, remote: str) -> dict:
+        cmd = self.prefix + [
+            "shell", "rm", "-f", remote
+        ]
+        return await Terminal.cmd_line(cmd)
 
 
 if __name__ == '__main__':
