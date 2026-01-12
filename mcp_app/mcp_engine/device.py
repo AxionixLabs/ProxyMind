@@ -75,6 +75,18 @@ class Device(object):
 
         return m.group() if (m := re.search(r"(?<=scale:\s)\d+", resp, re.S)) else None
 
+    async def st_wm_size(self) -> tuple[int, int] | None:
+        cmd = self.prefix + [
+            "shell", "wm", "size"
+        ]
+        if not (resp := await Terminal.cmd_line(cmd)):
+            return None
+
+        if not (m := re.search(r"Physical size:\s*(\d+)x(\d+)", resp)):
+            return None
+
+        return int(m.group(1)), int(m.group(2))
+
     async def is_screen_on(self) -> bool:
         cmd = self.prefix + [
             "shell", "dumpsys", "power", "|", "grep", "mWakefulness"
@@ -91,6 +103,20 @@ class Device(object):
         return (
             "goldfish" in self.hardware or "ranchu" in self.hardware or "sdk" in self.model
         )
+
+    async def swipe_unlock(self) -> None:
+        if not await self.is_screen_on():
+            await self.key_event(26)
+            await asyncio.sleep(0.2)
+
+        w, h = await self.st_wm_size()
+
+        x = w // 2
+        y1 = int(h * 0.80)
+        y2 = int(h * 0.35)
+
+        await self.swipe(x, y1, x, y2, 1000)
+        await asyncio.sleep(0.2)
 
     # workflow: ==== MCP Tool ====
     async def tap(self, x: int, y: int) -> typing.Any:
