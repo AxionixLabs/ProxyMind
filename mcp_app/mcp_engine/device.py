@@ -20,19 +20,24 @@ class Device(object):
     def __init__(self, serial: str):
         self.serial = serial
 
-        self.brand        : str | None = None
-        self.model        : str | None = None
-        self.manufacturer : str | None = None
-        self.sdk          : str | None = None
-        self.version      : str | None = None
+        self.brand    : str | None = None
+        self.model    : str | None = None
+        self.version  : str | None = None
+        self.hardware : str | None = None
+        self.sdk      : str | None = None
+        self.abi      : str | None = None
+
+        self.locale   : str | None = None
+        self.timezone : str | None = None
+
+        self.debuggable : bool | None = None
+        self.secure     : bool | None = None
 
     def __str__(self):
         return (
-            f"<Device {self.brand} "
-            f"serial={self.serial} "
-            f"manufacturer={self.manufacturer} "
-            f"sdk={self.sdk} "
-            f"version={self.version}>"
+            f"<Device {self.brand} {self.model} "
+            f"serial={self.serial} version={self.version} hardware={self.hardware} sdk={self.sdk} abi={self.abi} "
+            f"locale={self.locale} timezone={self.timezone} debuggable={self.debuggable} secure={self.secure}>"
         )
 
     __repr__ = __str__
@@ -47,13 +52,45 @@ class Device(object):
 
         pick: typing.Callable[
             [str], str
-        ] = lambda x: m if (m := re.search(rf"\[{re.escape(x)}]: \[(.*?)]", resp)) else "Unknown"
+        ] = lambda x: m.group(1) if (m := re.search(rf"\[{re.escape(x)}]: \[(.*?)]", resp)) else "Unknown"
 
-        self.brand        = pick("ro.product.brand")
-        self.model        = pick("ro.product.model")
-        self.manufacturer = pick("ro.product.manufacturer")
-        self.sdk          = pick("ro.build.version.sdk")
-        self.version      = pick("ro.build.version.release")
+        self.brand    = pick("ro.product.brand")
+        self.model    = pick("ro.product.model")
+        self.version  = pick("ro.build.version.release")
+        self.hardware = pick("ro.hardware")
+        self.sdk      = pick("ro.build.version.sdk")
+        self.abi      = pick("ro.product.cpu.abi")
+
+        self.locale   = pick("persist.sys.locale")
+        self.timezone = pick("persist.sys.timezone")
+
+        self.debuggable = pick("ro.debuggable") == "1"
+        self.secure     = pick("ro.secure")     == "1"
+
+    async def st_battery(self) -> int | None:
+        cmd = self.prefix + [
+            "shell", "dumpsys", "battery"
+        ]
+        resp = await Terminal.cmd_line(cmd)
+
+        return m.group() if (m := re.search(r"(?<=scale:\s)\d+", resp, re.S)) else None
+
+    async def is_screen_on(self) -> bool:
+        cmd = self.prefix + [
+            "shell", "dumpsys", "power", "|", "grep", "mWakefulness"
+        ]
+        return "Awake" in await Terminal.cmd_line(cmd)
+
+    async def is_screen_lock(self) -> bool:
+        cmd = self.prefix + [
+            "shell", "dumpsys", "window", "|", "grep", "mDreamingLockscreen"
+        ]
+        return "Awake" in await Terminal.cmd_line(cmd)
+
+    async def is_emulator(self) -> bool:
+        return (
+            "goldfish" in self.hardware or "ranchu" in self.hardware or "sdk" in self.model
+        )
 
     # workflow: ==== MCP Tool ====
     async def tap(self, x: int, y: int) -> typing.Any:
