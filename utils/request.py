@@ -71,7 +71,7 @@ async def stream_planner(
 async def stream_self_heal(
     page_id: str,
     platform: str,
-    by: typing.Literal["text", "id", "desc", "xpath", "css", "bbox"],
+    by: typing.Literal["text", "id", "desc", "xpath", "bbox"],
     value: str,
     page_dump: str,
     screenshot: str,
