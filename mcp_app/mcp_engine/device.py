@@ -10,9 +10,12 @@ import time
 import uuid
 import typing
 import asyncio
+import tempfile
 import xml.etree.ElementTree as Et
 from engine.terminal import Terminal
-from utils import const
+from utils import (
+    const, request
+)
 
 
 class Device(object):
@@ -234,6 +237,31 @@ class Device(object):
             "shell", "rm", "-f", remote
         ]
         return await Terminal.cmd_line(cmd)
+
+    async def self_heal(self, by: typing.Literal["text", "id", "desc", "xpath", "bbox"], value: str) -> None:
+        page_id   = await self.current_activity() or ""
+        platform  = "android"
+        by        = by
+        value     = value
+        page_dump = await self.dump_ui_xml()
+
+        if not page_dump: return None
+
+        print(page_id)
+        print(platform)
+        print(by)
+        print(value)
+        print(page_dump)
+
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            remote = await self.screenshot()
+            await self.pull(remote, tmp.name)
+            print("temp_file:", tmp.name)
+
+            async for _ in request.stream_self_heal(page_id, platform, by, value, page_dump, tmp.name):
+                 pass
+
+            await self.remove(remote)
 
 
 if __name__ == '__main__':
