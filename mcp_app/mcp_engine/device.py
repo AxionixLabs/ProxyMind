@@ -109,7 +109,7 @@ class Device(object):
 
     async def current_activity(self) -> str | None:
         cmd = self.prefix + [
-            "shell", "dumpsys", "window", "|", "findstr", "mCurrentFocus"
+            "shell", "dumpsys", "window", "|", "grep", "mCurrentFocus"
         ]
 
         if not (resp := await Terminal.cmd_line(cmd)):
