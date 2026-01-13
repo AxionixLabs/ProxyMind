@@ -211,6 +211,30 @@ class Device(object):
 
         return await Terminal.cmd_line_shell(shell_cmd)
 
+    # workflow: ==== MCP Tool ====
+    async def deep_link(self, url: str) -> typing.Any:
+        """通过深度链接启动指定的应用服务。"""
+        cmd = self.prefix + [
+            "shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url
+        ]
+        return await Terminal.cmd_line_shell(" ".join(cmd))
+
+    # workflow: ==== MCP Tool ====
+    async def app_start(self, package: str) -> typing.Any:
+        """启动指定包名的应用。"""
+        cmd = self.prefix + [
+            "shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== MCP Tool ====
+    async def force_stop(self, package: str) -> typing.Any:
+        """强制停止指定包名的应用。"""
+        cmd = self.prefix + [
+            "shell", "am", "force-stop", package
+        ]
+        return await Terminal.cmd_line(cmd)
+
     async def current_activity(self) -> str | None:
         """获取当前前台 Activity 标识。"""
         cmd = self.prefix + [
