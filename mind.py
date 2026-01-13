@@ -49,9 +49,9 @@ async def mind_trip(message: str, model: str = "llama-3.1-8b-instant") -> None:
             for step in steps:
                 action = step["action"]
                 result = await session.call_tool(name := action["action"], action["args"])
-                
-                if result.isError: return logger.error(f"{name} -> {result.content[0].text}")
-                else: logger.info(f"{name} -> {result.structuredContent}")
+                if result.isError: 
+                    return logger.error(f"{name} -> {result.content[0].text}")
+                logger.info(f"{name} -> {result.structuredContent}")
 
     async with streamable_http_client("http://127.0.0.1:3333/mcp") as (r, w, _):
         async with ClientSession(r, w) as session:
