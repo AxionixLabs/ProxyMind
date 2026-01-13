@@ -47,13 +47,9 @@ async def mind_trip(message: str, model: str = "llama-3.1-8b-instant") -> None:
             for step in steps:
                 action = step["action"]
                 result = await session.call_tool(action["action"], action["args"])
-                print(result)
-
-                if result.isError: return logger.error(f"{result.structuredContent}")
+                
+                if result.isError: return logger.error(f"{result.content[0].text}")
                 else: logger.info(f"{result.structuredContent}")
-
-    # device_list = await DeviceManage().refresh()
-    # for device in device_list: logger.debug(device)
 
     async with streamable_http_client("http://127.0.0.1:3333/mcp") as (r, w, _):
         async with ClientSession(r, w) as session:
@@ -93,7 +89,7 @@ async def mind_loop() -> None:
     """
 
     ask = "[bold #AFD7FF]\n🤔 输入目标或 /help[/]"
-
+    
     while (raw := Prompt.ask(ask, console=Design.console)) not in {"/quit", "quit", "exit"}:
         if raw.strip() in {"/help", "help"}:
             Design.console.print(doc); continue
@@ -110,9 +106,6 @@ async def mind_loop() -> None:
 async def main() -> None:
 
     async def authorized() -> None:
-        """
-        检查目录下的所有文件是否具备执行权限，如果文件没有执行权限，则自动添加 +x 权限。
-        """
         if platform != "darwin":
             return None
 
@@ -136,24 +129,14 @@ async def main() -> None:
     # Notes: ========== Start from here ==========
     Design.startup_logo()
 
-    # 解析命令行参数
-    parser = Parser()
+    parser    = Parser()
     cmd_lines = parser.parse_cmd
 
-    # 如果没有提供命令行参数，则显示帮助文档，并退出程序
-    # if len(system_parameter_list := sys.argv) == 1:
-    #     return parser.parse_engine.print_help()
-
-    # 获取命令行参数（去掉第一个参数，即脚本名称）
-    # wires = system_parameter_list[1:]
-
-    # 获取当前操作系统平台和应用名称
-    platform = sys.platform.strip().lower()
-    software = os.path.basename(os.path.abspath(sys.argv[0])).strip().lower()
+    platform   = sys.platform.strip().lower()
+    software   = os.path.basename(os.path.abspath(sys.argv[0])).strip().lower()
     sys_symbol = os.sep
     env_symbol = os.path.pathsep
 
-    # 根据应用名称确定工作目录和配置目录
     if software == f"{const.APP_NAME}.exe":
         mind_work = os.path.dirname(os.path.abspath(sys.argv[0]))
         mind_feasible = os.path.dirname(mind_work)
@@ -225,26 +208,23 @@ async def main() -> None:
     for tls in tools:
         logger.debug(f"TLS: {tls}")
     logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}\n")
-
+    
+    server = ServerManage()
+    
+    # ==== 本地调试 ====
     root = Path(__file__).parent
     helix = str(Path(root, "backend", "helix.py"))
 
-    server = ServerManage()
-
-    if helix.endswith("py"):
-        await server.mcp_begin([sys.executable, str(helix)])
-    else:
-        await server.mcp_begin([str(helix)])
+    if helix.endswith("py"): await server.mcp_begin([sys.executable, helix])
+    else: await server.mcp_begin([helix])
 
     signal.signal(signal.SIGINT, signal_processor)
-
+    
     try:
         if ex := cmd_lines.exec: await mind_trip(ex)
         else: await mind_loop()
-
     except MindError as e: logger.warning(e)
     except Exception as e: logger.error(e)
-
     finally: await server.mcp_final()
 
 
