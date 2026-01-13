@@ -274,7 +274,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
     @mcp.tool()
     @exception_middleware("combo_key")
-    async def combo_key(first: int, *others: int) -> typing.Any:
+    async def combo_key(first: int, others: list[int]) -> typing.Any:
         """
         执行组合按键操作（模拟多个按键几乎同时触发）。
 
