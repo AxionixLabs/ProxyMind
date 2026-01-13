@@ -36,7 +36,8 @@ async def streaming(
 
             if event["type"] == "error":
                 yield event; break
-            await on_event(event); yield event
+
+            on_event(event); yield event
 
 
 async def stream_planner(
@@ -44,7 +45,7 @@ async def stream_planner(
     timeout: float = 60.0
 ) -> typing.AsyncGenerator[dict, None]:
 
-    async def handle_event(event: dict) -> None:
+    def handle_event(event: dict) -> None:
         match event.get("type"):
             case "thinking":
                 logger.info(f"🟣 {event['content']}")
@@ -82,7 +83,7 @@ async def stream_self_heal(
     **kwargs
 ) -> typing.AsyncGenerator[dict, None]:
 
-    async def handle_event(event: dict) -> None:
+    def handle_event(event: dict) -> None:
         match event.get("type"):
             case "thinking":
                 logger.info(f"🟣 {event['content']}")

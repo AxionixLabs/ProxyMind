@@ -115,6 +115,15 @@ class Device(object):
         )
 
     # workflow: ==== MCP Tool ====
+    async def lock_screen(self) -> None:
+        """锁定屏幕（熄屏进入锁屏状态）。"""
+        if not await self.is_screen_on():
+            return None
+
+        await self.key_event(26)
+        await asyncio.sleep(0.2)
+
+    # workflow: ==== MCP Tool ====
     async def swipe_unlock(self) -> None:
         """点亮屏幕并上滑解锁。"""
 
@@ -154,17 +163,20 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== MCP Tool ====
-    async def key_event(self, keycode: int) -> typing.Any:
-        """发送 Android 按键事件。"""
+    async def key_event(self, keycode: int, longpress: bool = False) -> typing.Any:
+        """向设备发送 Android 系统按键事件（支持普通按键与长按）。"""
         cmd = self.prefix + [
-            "shell", "input", "keyevent", str(keycode)
+            "shell", "input", "keyevent"
         ]
+        if longpress: cmd += ["--longpress"]
+        cmd += [str(keycode)]
+
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== MCP Tool ====
     async def click(self, by: typing.Literal["text", "id", "desc"], value: str | list) -> typing.Any:
         """根据选择器点击对应节点中心点。"""
-        if not (xml := await self.dump_ui_xml()):
+        if not (xml := await self.current_xml()):
             return None
 
         if by == "bbox":
@@ -235,6 +247,22 @@ class Device(object):
         ]
         return await Terminal.cmd_line(cmd)
 
+    # workflow: ==== MCP Tool ====
+    async def open_notification(self) -> typing.Any:
+        """打开通知栏（Notification Panel）。"""
+        cmd = self.prefix + [
+            "shell", "cmd", "statusbar", "expand-notifications"
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== MCP Tool ====
+    async def open_quick_settings(self) -> typing.Any:
+        """打开快速设置面板（Quick Settings Panel）。"""
+        cmd = self.prefix + [
+            "shell", "cmd", "statusbar", "expand-settings"
+        ]
+        return await Terminal.cmd_line(cmd)
+
     async def current_activity(self) -> str | None:
         """获取当前前台 Activity 标识。"""
         cmd = self.prefix + [
@@ -252,7 +280,7 @@ class Device(object):
 
         return None
 
-    async def dump_ui_xml(self) -> str | None:
+    async def current_xml(self) -> str | None:
         """导出当前 UI 层级 XML。"""
         xml_file = "/data/local/tmp/window_dump.xml"
 
@@ -312,7 +340,7 @@ class Device(object):
         platform  = "android"
         by        = by
         value     = value
-        page_dump = await self.dump_ui_xml()
+        page_dump = await self.current_xml()
 
         if not page_dump: return None
 

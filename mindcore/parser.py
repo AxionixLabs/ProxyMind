@@ -18,7 +18,10 @@ class Parser(object):
     def __init__(self):
         custom_made_usage = f"""\
         --------------------------------------------
-        \033[1;35m{const.APP_NAME}\033[0m exec "example"
+        \033[1;35m{const.APP_NAME}\033[0m --exec "Unlock the device"
+        \033[1;35m{const.APP_NAME}\033[0m --exec "Wait 2 seconds and tap Music"
+        \033[1;35m{const.APP_NAME}\033[0m --exec "Unlock, wait 1 second, then tap 500,1000"
+        \033[1;35m{const.APP_NAME}\033[0m --horizon
         """
         self.__parse_engine = argparse.ArgumentParser(
             const.APP_NAME,

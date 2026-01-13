@@ -15,12 +15,12 @@ APP_LICENSE = r"Proprietary License"
 CHARSET     = r"UTF-8"
 IGNORE      = "ignore"
 
-AUTHOR  = r"AceKeppel"
-EMAIL   = r"AceKeppel@outlook.com"
-APP_URL = r"https://github.com/PlaxtonFlarion/SoftwareCenter"
+AUTHOR      = r"AceKeppel"
+EMAIL       = r"AceKeppel@outlook.com"
+APP_URL     = r"https://github.com/PlaxtonFlarion/SoftwareCenter"
 
-PUBLISHER = f"{APP_DESC} Technologies Inc."
-COPYRIGHT = f"Copyright (C) {APP_YEAR} {APP_DESC}. All rights reserved."
+PUBLISHER   = f"{APP_DESC} Technologies Inc."
+COPYRIGHT   = f"Copyright (C) {APP_YEAR} {APP_DESC}. All rights reserved."
 
 DECLARE = f"""\
 [bold][bold #00D7AF]>>> {APP_DESC} :: {APP_CN} <<<[/]
