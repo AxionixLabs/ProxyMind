@@ -314,6 +314,96 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
             *(device.combo_key(first, *others) for device in device_list)
         )
 
+    @mcp.tool()
+    @exception_middleware("deep_link")
+    async def deep_link(url: str) -> typing.Any:
+        """
+        通过深度链接启动指定的应用服务或页面。
+
+        参数：
+        - url: 深度链接 URL（如 scheme://path）
+
+        行为：
+        - 通过 adb shell am start -a VIEW -d 启动
+        - 在所有已连接设备上并发执行
+
+        返回：
+        - 各设备深链启动结果列表
+
+        示例：
+        deep_link("application://camera/live")
+
+        Agent 使用语义：
+        当需要通过协议链接直接跳转应用内部页面时使用。
+        """
+
+        device_list = await manage.refresh()
+
+        logger.info(f"Deep link {url}")
+        return await asyncio.gather(
+            *(device.deep_link(url) for device in device_list)
+        )
+
+    @mcp.tool()
+    @exception_middleware("app_start")
+    async def app_start(package: str) -> typing.Any:
+        """
+        启动指定包名的应用。
+
+        参数：
+        - package: 应用包名（如 com.xx.app）
+
+        行为：
+        - 通过 adb monkey 启动应用主入口
+        - 在所有已连接设备上并发执行
+
+        返回：
+        - 各设备启动结果列表
+
+        示例：
+        app_start("com.android.settings")
+
+        Agent 使用语义：
+        当用户语义为“打开/启动某应用”时优先使用该方法。
+        """
+
+        device_list = await manage.refresh()
+
+        logger.info(f"App start {package}")
+        return await asyncio.gather(
+            *(device.app_start(package) for device in device_list)
+        )
+
+    @mcp.tool()
+    @exception_middleware("force_stop")
+    async def force_stop(package: str) -> typing.Any:
+        """
+        强制停止指定包名的应用。
+
+        参数：
+        - package: 应用包名
+
+        行为：
+        - 通过 adb shell am force-stop 终止应用进程
+        - 在所有已连接设备上并发执行
+
+        返回：
+        - 各设备停止结果列表
+
+        示例：
+        force_stop("com.android.settings")
+
+        Agent 使用语义：
+        当需要重启应用、清理状态或关闭后台应用时使用。
+        """
+
+        device_list = await manage.refresh()
+
+        logger.info(f"Force stop {package}")
+        return await asyncio.gather(
+            *(device.force_stop(package) for device in device_list)
+        )
+
 
 if __name__ == '__main__':
     pass
