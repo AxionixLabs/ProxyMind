@@ -11,9 +11,6 @@ from engine.manage import DeviceManage
 
 
 def register_all_tools(mcp: FastMCP, manage: DeviceManage) -> None:
-    """
-    统一注册入口：只要 import 模块，就会触发 @mcp.tool() 注册。
-    """
     from mcp_tools import (
         ui, toolbox
     )
