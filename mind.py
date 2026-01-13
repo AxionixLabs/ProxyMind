@@ -41,7 +41,7 @@ def signal_processor(*_, **__) -> None:
     sys.exit(0)
 
 
-async def mind_trip(message: str, model: str | None = "llama-3.1-8b-instant") -> None:
+async def mind_trip(message: str, model: str | None = "llama-3.3-70b-versatile") -> None:
     """Mind Trip"""
 
     async def exec_looper() -> typing.Optional[bool]:
@@ -103,7 +103,7 @@ async def mind_loop() -> None:
         "qwen/qwen3-32b"
     ]
 
-    model = "llama-3.1-8b-instant"
+    model = "llama-3.3-70b-versatile"
 
     doc = """\
     [bold]
