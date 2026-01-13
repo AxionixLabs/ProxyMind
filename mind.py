@@ -35,21 +35,23 @@ from utils import (
 
 
 def signal_processor(*_, **__) -> None:
+    """signal processor"""
     Design.console.print()
     logger.info(f"📞 Received signal {signal.SIGINT} ...")
     sys.exit(0)
 
 
 async def mind_trip(message: str, model: str = "llama-3.1-8b-instant") -> None:
+    """mind trip"""
 
     async def exec_looper() -> None:
         for i in range(plan.get("loop_count", 1)):
             for step in steps:
                 action = step["action"]
-                result = await session.call_tool(action["action"], action["args"])
+                result = await session.call_tool(name := action["action"], action["args"])
                 
-                if result.isError: return logger.error(f"{result.content[0].text}")
-                else: logger.info(f"{result.structuredContent}")
+                if result.isError: return logger.error(f"{name} -> {result.content[0].text}")
+                else: logger.info(f"{name} -> {result.structuredContent}")
 
     async with streamable_http_client("http://127.0.0.1:3333/mcp") as (r, w, _):
         async with ClientSession(r, w) as session:
@@ -80,6 +82,7 @@ async def mind_trip(message: str, model: str = "llama-3.1-8b-instant") -> None:
 
 
 async def mind_loop() -> None:
+    """mind loop"""
     doc = """\
 
     /help              显示帮助
@@ -104,6 +107,7 @@ async def mind_loop() -> None:
 
 
 async def main() -> None:
+    """main"""
 
     async def authorized() -> None:
         if platform != "darwin":
