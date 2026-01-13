@@ -6,7 +6,7 @@
 #            |___/
 #
 
-from mcp.server import FastMCP
+from mcp.server    import FastMCP
 from engine.manage import DeviceManage
 
 
@@ -15,11 +15,11 @@ def register_all_tools(mcp: FastMCP, manage: DeviceManage) -> None:
     统一注册入口：只要 import 模块，就会触发 @mcp.tool() 注册。
     """
     from mcp_tools import (
-        android_ui, helpers
+        ui, toolbox
     )
 
-    android_ui.bind(mcp, manage)
-    helpers.bind(mcp)
+    ui.bind(mcp, manage)
+    toolbox.bind(mcp)
 
 
 if __name__ == '__main__':

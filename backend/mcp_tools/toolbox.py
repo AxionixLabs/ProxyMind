@@ -1,21 +1,20 @@
-#  _   _      _
-# | | | | ___| |_ __   ___ _ __ ___
-# | |_| |/ _ \ | '_ \ / _ \ '__/ __|
-# |  _  |  __/ | |_) |  __/ |  \__ \
-# |_| |_|\___|_| .__/ \___|_|  |___/
-#              |_|
+#  _____           _ _
+# |_   _|__   ___ | | |__   _____  __
+#   | |/ _ \ / _ \| | '_ \ / _ \ \/ /
+#   | | (_) | (_) | | |_) | (_) >  <
+#   |_|\___/ \___/|_|_.__/ \___/_/\_\
 #
 
 import asyncio
 from loguru import logger
 from mcp.server import FastMCP
-from backend.mcp_core.middleware import exception_middleware
+from backend.middlewares.mid_task import task_middleware
 
 
 def bind(mcp: FastMCP) -> None:
 
     @mcp.tool()
-    @exception_middleware("sleep")
+    @task_middleware("sleep")
     async def sleep(delay: float) -> None:
         """
         等待指定秒数。

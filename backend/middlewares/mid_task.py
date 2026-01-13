@@ -1,8 +1,8 @@
-#  __  __ _     _     _ _
-# |  \/  (_) __| | __| | | _____      ____ _ _ __ ___
-# | |\/| | |/ _` |/ _` | |/ _ \ \ /\ / / _` | '__/ _ \
-# | |  | | | (_| | (_| | |  __/\ V  V / (_| | | |  __/
-# |_|  |_|_|\__,_|\__,_|_|\___| \_/\_/ \__,_|_|  \___|
+#  _____         _      __  __ _     _     _ _
+# |_   _|_ _ ___| | __ |  \/  (_) __| | __| | | _____      ____ _ _ __ ___
+#   | |/ _` / __| |/ / | |\/| | |/ _` |/ _` | |/ _ \ \ /\ / / _` | '__/ _ \
+#   | | (_| \__ \   <  | |  | | | (_| | (_| | |  __/\ V  V / (_| | | |  __/
+#   |_|\__,_|___/_|\_\ |_|  |_|_|\__,_|\__,_|_|\___| \_/\_/ \__,_|_|  \___|
 #
 
 import time
@@ -20,7 +20,7 @@ now_iso: typing.Callable[
 ] = lambda: datetime.now(timezone.utc).isoformat()
 
 
-def exception_middleware(tool_name: str):
+def task_middleware(tool_name: str):
 
     def decorator(func):
         @functools.wraps(func)
@@ -76,7 +76,7 @@ def exception_middleware(tool_name: str):
             except Exception as e:
                 payload = {
                     "ok"          : False,
-                    "code"        : "TOOL_CRASH",
+                    "code"        : "TOOL CRASH",
                     "message"     : str(e),
                     "tool"        : tool_name,
                     "args"        : snapshot,
@@ -89,7 +89,7 @@ def exception_middleware(tool_name: str):
                     "meta"        : {}
                 }
                 logger.error(payload)
-                raise  e
+                raise e
 
         return wrapper
 

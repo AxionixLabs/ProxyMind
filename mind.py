@@ -35,23 +35,26 @@ from utils import (
 
 
 def signal_processor(*_, **__) -> None:
-    """signal processor"""
-    Design.console.print()
-    logger.info(f"📞 Received signal {signal.SIGINT} ...")
+    """Signal Processor"""
+    Design.console.print("\n\n")
+    logger.info(f"☎️ SYNC ▸ {const.APP_DESC} MCP neural core detaching.")
     sys.exit(0)
 
 
-async def mind_trip(message: str, model: str = "llama-3.1-8b-instant") -> None:
-    """mind trip"""
+async def mind_trip(message: str, model: str | None = "llama-3.1-8b-instant") -> None:
+    """Mind Trip"""
 
-    async def exec_looper() -> None:
+    async def exec_looper() -> typing.Optional[bool]:
         for i in range(plan.get("loop_count", 1)):
             for step in steps:
                 action = step["action"]
                 result = await session.call_tool(name := action["action"], action["args"])
-                if result.isError: 
-                    return logger.error(f"{name} -> {result.content[0].text}")
-                logger.info(f"{name} -> {result.structuredContent}")
+
+                if result.isError:
+                    return logger.error(f"🔴 {result.content[0].text}")
+                logger.info(f"🔶 {name} -> {result.structuredContent}")
+
+        return True
 
     async with streamable_http_client("http://127.0.0.1:3333/mcp") as (r, w, _):
         async with ClientSession(r, w) as session:
@@ -78,36 +81,72 @@ async def mind_trip(message: str, model: str = "llama-3.1-8b-instant") -> None:
             async for plan in request.stream_planner(payload):
                 if not (steps := plan.get("steps")):
                     continue
-                await exec_looper()
+                if not await exec_looper():
+                    break
 
 
 async def mind_loop() -> None:
-    """mind loop"""
+    """Mind Loop"""
+
+    model_list = [
+        "compound-beta",
+        "compound-beta-mini",
+        "gemma2-9b-it",
+        "llama-3.1-8b-instant",
+        "llama-3.3-70b-versatile",
+        "meta-llama/llama-4-maverick-17b-128e-instruct",
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "meta-llama/llama-guard-4-12b",
+        "moonshotai/kimi-k2-instruct",
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3-32b"
+    ]
+
+    model = "llama-3.1-8b-instant"
+
     doc = """\
+    [bold]
+    [bold #87FFAF]/help, /h[/]                 显示帮助
+    [bold #FFD75F]/quit, /q, quit, exit[/]     退出
+    [bold #5FD7FF]/repeat N <goal>[/]          将目标重复执行 N 次
+    [bold #D7AFFF]/model <name>[/]             切换模型
+    [/]"""
 
-    /help              显示帮助
-    /quit              退出
-    /repeat N <goal>   将目标重复执行 N 次
-    /tools             查看可用工具（如果你有输出方法）
-    """
-
-    ask = "[bold #AFD7FF]\n🤔 输入目标或 /help[/]"
-    
-    while (raw := Prompt.ask(ask, console=Design.console)) not in {"/quit", "quit", "exit"}:
-        if raw.strip() in {"/help", "help"}:
+    while True:
+        ask = f"\n[bold #D7FFAF]🤔 <{model}>[/]\n[bold #AFD7FF]ready 输入目标或 /help[/]"
+        if (raw := Prompt.ask(ask, console=Design.console).strip()) in {"/help", "/h"}:
             Design.console.print(doc); continue
 
+        if raw in {"/quit", "/q", "quit", "exit"}:
+            break
+
+        if mod := re.match(r"^\s*/model(?:\s+(.*))?\s*$", raw, re.IGNORECASE):
+            if name := mod.group(1).strip() if mod.group(1) else None:
+                if name in model_list:
+                    model = name; Design.console.print(f"[bold #5FFF87]🧬 Model switched to: {model}")
+                else: Design.console.print(f"[bold #FF5F5F]🚫 Model invalid: {name}")
+            else:
+                for i in model_list: Design.console.print(f"[bold #5FFF87]  • {i}[/]")
+            continue
+
         try:
-            if m := re.match(r"^/repeat\s+(\d+)\s+(.+)$", raw.strip()):
-                await mind_trip(f"{m.group(2)}，循环 {int(m.group(1))} 次"); continue
-            await mind_trip(raw)
+            pattern = re.compile(r"^\s*/repeat\s+(\d+)\s+(.+?)\s*$")
+
+            if m := pattern.match(raw, re.IGNORECASE):
+                await mind_trip(
+                    message=f"{m.group(2).strip()}，循环 {int(m.group(1))} 次", model=model
+                )
+                continue
+
+            await mind_trip(message=raw, model=model)
 
         except MindError as e: logger.warning(e)
         except Exception as e: logger.error(e)
 
 
 async def main() -> None:
-    """main"""
+    """Main"""
 
     async def authorized() -> None:
         if platform != "darwin":
@@ -130,14 +169,27 @@ async def main() -> None:
         ):
             logger.debug(f"Authorize: {resp}")
 
+    async def privileged() -> typing.Any:
+        if platform == "win32":
+            pwsh = shutil.which("pwsh") or shutil.which("powershell")
+            if not pwsh: return None
+            cmd = [
+                pwsh, "Get-NetTCPConnection", "-LocalPort", "3333", "|", "ForEach-Object",
+                "{ Stop-Process -Id $_.OwningProcess -Force }"
+            ]
+        else:
+            cmd = ["lsof", "-ti", ":3333", "|", "xargs", "kill", "-9"]
+
+        return await Terminal.cmd_line(cmd)
+
     # Notes: ========== Start from here ==========
     Design.startup_logo()
 
-    parser    = Parser()
+    parser = Parser()
     cmd_lines = parser.parse_cmd
 
-    platform   = sys.platform.strip().lower()
-    software   = os.path.basename(os.path.abspath(sys.argv[0])).strip().lower()
+    platform = sys.platform.strip().lower()
+    software = os.path.basename(os.path.abspath(sys.argv[0])).strip().lower()
     sys_symbol = os.sep
     env_symbol = os.path.pathsep
 
@@ -166,12 +218,10 @@ async def main() -> None:
     # Notes: ========== 工具路径设置 ==========
     if platform == "win32":
         supports = os.path.join(turbo, "helix.dist").format()
-        helix = "helix.exe"
-        helix = os.path.join(supports, helix)
+        helix = os.path.join(supports, "helix.exe")
     elif platform == "darwin":
         supports = os.path.join(turbo, "helix.app").format()
-        helix = "helix"
-        helix = os.path.join(supports, "Contents", "MacOS", helix)
+        helix = os.path.join(supports, "Contents", "MacOS", "helix")
     else:
         raise MindError(f"{const.APP_DESC} is not supported on this platform: {platform}.")
 
@@ -212,25 +262,42 @@ async def main() -> None:
     for tls in tools:
         logger.debug(f"TLS: {tls}")
     logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}\n")
-    
+
+    # ==== 清理端口 ====
+    await privileged()
+
     server = ServerManage()
-    
+
     # ==== 本地调试 ====
     root = Path(__file__).parent
     helix = str(Path(root, "backend", "helix.py"))
 
-    if helix.endswith("py"): await server.mcp_begin([sys.executable, helix])
-    else: await server.mcp_begin([helix])
+    if helix.endswith("py"):
+        await server.mcp_begin([sys.executable, helix, "--level", level])
+    else:
+        await server.mcp_begin([helix, "--level", level])
 
     signal.signal(signal.SIGINT, signal_processor)
-    
-    try:
-        if ex := cmd_lines.exec: await mind_trip(ex)
-        else: await mind_loop()
-    except MindError as e: logger.warning(e)
-    except Exception as e: logger.error(e)
-    finally: await server.mcp_final()
+
+    if ex := cmd_lines.exec:
+        await mind_trip(ex)
+    else:
+        await mind_loop()
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        main_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(main_loop)
+        main_loop.run_until_complete(main())
+    except MindError as _error:
+        Design.Doc.err(_error)
+        Design.show_fail()
+        sys.exit(1)
+    except KeyboardInterrupt:
+        sys.exit(Design.show_exit())
+    except asyncio.CancelledError:
+        sys.exit(Design.show_done())
+    else:
+        sys.exit(Design.show_done())
+

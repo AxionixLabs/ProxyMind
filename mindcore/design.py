@@ -40,9 +40,6 @@ class Design(object):
 
     @staticmethod
     def startup_logo() -> None:
-        """
-        显示项目 LOGO（ASCII banner），使用 rich 渲染。
-        """
         color = random.choice([
             "#7C3AED",
             "#A855F7",
@@ -88,6 +85,36 @@ class Design(object):
 
         Design.console.print(f"[bold {color}]{banner}")
         Design.console.print(const.DECLARE)
+
+    @staticmethod
+    def show_done() -> None:
+        task_done = textwrap.dedent(f"""\
+            [bold #00FF88]
+            ╭────────────────────────────────────────╮
+            │             {const.APP_DESC} Task Done             │
+            ╰────────────────────────────────────────╯
+        """)
+        Design.console.print(task_done)
+
+    @staticmethod
+    def show_exit() -> None:
+        task_exit = textwrap.dedent(f"""\
+            [bold #FFEE55]
+            ╭────────────────────────────────────────╮
+            │             {const.APP_DESC} Task Exit             │
+            ╰────────────────────────────────────────╯
+        """)
+        Design.console.print(task_exit)
+
+    @staticmethod
+    def show_fail() -> None:
+        task_fail = textwrap.dedent(f"""\
+            [bold #FF4444]
+            ╭────────────────────────────────────────╮
+            │             {const.APP_DESC} Task Fail             │
+            ╰────────────────────────────────────────╯
+        """)
+        Design.console.print(task_fail)
 
 
 if __name__ == '__main__':

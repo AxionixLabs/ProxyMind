@@ -39,13 +39,13 @@ class ServerManage(object):
 
         await asyncio.sleep(1)
 
-        logger.info(f"Ⓜ️ {const.APP_DESC} MCP started ...")
+        logger.info(f"Ⓜ️ SYNC ▸ {const.APP_DESC} MCP neural core online.")
 
     async def mcp_final(self) -> None:
         if not self.transports or self.transports.returncode is not None:
             return None
 
-        logger.info(f"☣️ {const.APP_DESC} MCP Stopping ...")
+        logger.info(f"☣️ SYNC ▸ {const.APP_DESC} MCP neural core shutting down...")
 
         self.transports.terminate()
         try:
@@ -53,7 +53,7 @@ class ServerManage(object):
         except asyncio.TimeoutError:
             self.transports.kill()
 
-        logger.info(f"♻️ {const.APP_DESC} MCP stopped ...")
+        logger.info(f"♻️ SYNC ▸ {const.APP_DESC} MCP neural core offline.")
 
 
 class DeviceManage(object):

@@ -34,9 +34,9 @@ async def streaming(
             except json.JSONDecodeError:
                 continue
 
-            await on_event(event)
-
-            yield event
+            if event["type"] == "error":
+                yield event; break
+            await on_event(event); yield event
 
 
 async def stream_planner(
@@ -56,7 +56,7 @@ async def stream_planner(
             case "done":
                 logger.info(f"🟢 Plan done ...")
             case "error":
-                logger.warning(f"🔴 Error {event.get('message')}")
+                logger.error(f"🔴 Error {event.get('message')}")
 
     url = f"https://api.appserverx.com/planner"
     headers = {
@@ -64,8 +64,10 @@ async def stream_planner(
     }
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        async for line in streaming(client, url, headers, payload, handle_event):
-            yield line
+        async for data in streaming(client, url, headers, payload, handle_event):
+            if data.get("type") == "error":
+                yield data; break
+            yield data
 
 
 async def stream_self_heal(
@@ -89,7 +91,7 @@ async def stream_self_heal(
             case "done":
                 logger.info(f"🟢 Heal done ...")
             case "error":
-                logger.warning(f"🔴 Error {event.get('message')}")
+                logger.error(f"🔴 Error {event.get('message')}")
 
     url = "https://api.appserverx.com/self-heal"
     headers = {
@@ -110,8 +112,10 @@ async def stream_self_heal(
     }
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        async for line in streaming(client, url, headers, payload, handle_event):
-            yield line
+        async for data in streaming(client, url, headers, payload, handle_event):
+            if data.get("type") == "error":
+                yield data; break
+            yield data
 
 
 if __name__ == '__main__':

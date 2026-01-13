@@ -1,22 +1,22 @@
-#     _              _           _     _   _   _ ___
-#    / \   _ __   __| |_ __ ___ (_) __| | | | | |_ _|
-#   / _ \ | '_ \ / _` | '__/ _ \| |/ _` | | | | || |
-#  / ___ \| | | | (_| | | | (_) | | (_| | | |_| || |
-# /_/   \_\_| |_|\__,_|_|  \___/|_|\__,_|  \___/|___|
+#  _   _ ___
+# | | | |_ _|
+# | | | || |
+# | |_| || |
+#  \___/|___|
 #
 
 import typing
 import asyncio
 from loguru import logger
 from mcp.server import FastMCP
-from backend.mcp_core.middleware import exception_middleware
+from backend.middlewares.mid_task import task_middleware
 from engine.manage import DeviceManage
 
 
 def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
     @mcp.tool()
-    @exception_middleware("swipe_unlock")
+    @task_middleware("swipe_unlock")
     async def swipe_unlock() -> None:
         """
         点亮屏幕并通过上滑手势尝试解锁设备。
@@ -54,7 +54,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
-    @exception_middleware("swipe")
+    @task_middleware("swipe")
     async def swipe(x1: int, y1: int, x2: int, y2: int, duration: int = 300) -> typing.Any:
         """
         从起点坐标滑动到终点坐标。
@@ -71,8 +71,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         - 各设备滑动操作结果列表
 
         示例：
-        swipe(500, 1500, 500, 500)
-        swipe(100, 800, 900, 800, duration=500)
+        swipe(100, 800, 900, 800, duration=300)
 
         Agent 使用语义：
         用于页面滚动、列表翻页、拖动操作。
@@ -86,7 +85,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
-    @exception_middleware("tap")
+    @task_middleware("tap")
     async def tap(x: int, y: int) -> typing.Any:
         """
         在指定屏幕绝对坐标执行点击操作。
@@ -116,7 +115,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
-    @exception_middleware("key_event")
+    @task_middleware("key_event")
     async def key_event(keycode: int) -> typing.Any:
         """
         向设备发送 Android 系统按键事件。
@@ -192,7 +191,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
-    @exception_middleware("click")
+    @task_middleware("click")
     async def click(by: typing.Literal["text", "id", "desc"], value: str) -> typing.Any:
         """
         按指定 UI 属性精确匹配并点击第一个命中的控件。
@@ -217,16 +216,9 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
         示例：
         click(by="text", value="登录")
-        click(by="id", value="com.xx:id/login_btn")
-        click(by="desc", value="login_button")
 
         Agent 使用语义：
         当需要对明确 UI 元素执行点击操作时使用。
-
-        约束：
-        - 仅支持精确匹配
-        - 不支持 contains / 正则 / 模糊匹配
-        - UI 文案或 ID 变化将导致匹配失败
         """
 
         device_list = await manage.refresh()
@@ -237,7 +229,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
-    @exception_middleware("send_keys")
+    @task_middleware("send_keys")
     async def send_keys(text: str) -> typing.Any:
         """
         向当前已聚焦的输入框逐行输入文本。
@@ -245,7 +237,6 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         功能说明：
         - 仅向当前获得输入焦点的控件输入文本
         - 不进行任何控件定位或点击操作
-        - 遇到换行符 \\n 时自动分行输入并模拟回车
 
         参数：
         - text: 要输入的文本内容，可包含换行符
@@ -259,7 +250,6 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
         示例：
         send_keys(text="username")
-        send_keys(text="user\\npassword")
 
         Agent 使用语义：
         当输入框已处于焦点状态时使用。
@@ -273,7 +263,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
-    @exception_middleware("combo_key")
+    @task_middleware("combo_key")
     async def combo_key(first: int, others: list[int]) -> typing.Any:
         """
         执行组合按键操作（模拟多个按键几乎同时触发）。
@@ -298,9 +288,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         - 各设备组合按键执行结果列表
 
         示例：
-        combo_key(25, 26)        # 音量减 + 电源（截图）
-        combo_key(24, 26)        # 音量加 + 电源
-        combo_key(3, 4)          # HOME + BACK（示例）
+        combo_key(25, 26)  # 音量减 + 电源（截图）
 
         Agent 使用语义：
         当需要模拟系统组合按键（如截图、系统快捷操作）时使用。
@@ -315,7 +303,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
-    @exception_middleware("deep_link")
+    @task_middleware("deep_link")
     async def deep_link(url: str) -> typing.Any:
         """
         通过深度链接启动指定的应用服务或页面。
@@ -345,7 +333,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
-    @exception_middleware("app_start")
+    @task_middleware("app_start")
     async def app_start(package: str) -> typing.Any:
         """
         启动指定包名的应用。
@@ -375,7 +363,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
-    @exception_middleware("force_stop")
+    @task_middleware("force_stop")
     async def force_stop(package: str) -> typing.Any:
         """
         强制停止指定包名的应用。
