@@ -138,18 +138,18 @@ class Device(object):
         await asyncio.sleep(0.2)
 
     # workflow: ==== MCP Tool ====
-    async def tap(self, x: int, y: int) -> typing.Any:
-        """点击指定坐标。"""
-        cmd = self.prefix + [
-            "shell", "input", "tap", str(x), str(y)
-        ]
-        return await Terminal.cmd_line(cmd)
-
-    # workflow: ==== MCP Tool ====
     async def swipe(self, x1: int, y1: int, x2: int, y2: int, duration: int = 300) -> typing.Any:
         """从起点滑动到终点。"""
         cmd = self.prefix + [
             "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration)
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== MCP Tool ====
+    async def tap(self, x: int, y: int) -> typing.Any:
+        """点击指定坐标。"""
+        cmd = self.prefix + [
+            "shell", "input", "tap", str(x), str(y)
         ]
         return await Terminal.cmd_line(cmd)
 
