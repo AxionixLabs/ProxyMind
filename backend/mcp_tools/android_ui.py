@@ -54,36 +54,6 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
-    @exception_middleware("tap")
-    async def tap(x: int, y: int) -> typing.Any:
-        """
-        在指定屏幕绝对坐标执行点击操作。
-
-        参数：
-        - x: 屏幕横坐标
-        - y: 屏幕纵坐标
-
-        行为：
-        - 在所有已连接设备上并发执行点击
-
-        返回：
-        - 各设备点击操作结果列表
-
-        示例：
-        tap(x=540, y=1680)
-
-        Agent 使用语义：
-        当无法通过控件属性定位时使用坐标点击。
-        """
-
-        device_list = await manage.refresh()
-
-        logger.info(f"Tap {x} {y}")
-        return await asyncio.gather(
-            *(device.tap(x, y) for device in device_list)
-        )
-
-    @mcp.tool()
     @exception_middleware("swipe")
     async def swipe(x1: int, y1: int, x2: int, y2: int, duration: int = 300) -> typing.Any:
         """
@@ -113,6 +83,36 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         logger.info(f"Swipe {x1} {y1} {x2} {y2} {duration}")
         return await asyncio.gather(
             *(device.swipe(x1, y1, x2, y2, duration) for device in device_list)
+        )
+
+    @mcp.tool()
+    @exception_middleware("tap")
+    async def tap(x: int, y: int) -> typing.Any:
+        """
+        在指定屏幕绝对坐标执行点击操作。
+
+        参数：
+        - x: 屏幕横坐标
+        - y: 屏幕纵坐标
+
+        行为：
+        - 在所有已连接设备上并发执行点击
+
+        返回：
+        - 各设备点击操作结果列表
+
+        示例：
+        tap(x=540, y=1680)
+
+        Agent 使用语义：
+        当无法通过控件属性定位时使用坐标点击。
+        """
+
+        device_list = await manage.refresh()
+
+        logger.info(f"Tap {x} {y}")
+        return await asyncio.gather(
+            *(device.tap(x, y) for device in device_list)
         )
 
     @mcp.tool()
