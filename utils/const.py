@@ -30,6 +30,8 @@ Version [bold #FFD75F]{APP_VERSION}[/] :: Licensed software. Authorization requi
 """
 
 # ========【路径与资源配置】========
+LIC_FILE         = f"{APP_NAME}_signature.lic"
+
 SCHEMATIC        = r"schematic"
 SUPPORTS         = r"supports"
 STRUCTURE        = r"Structure"
