@@ -76,9 +76,11 @@ class Mind(object):
 
     async def exec_looper(self, plan: dict, steps: list, session: ClientSession) -> typing.AsyncGenerator[str, None]:
         """Exec Looper"""
-        for i in range(plan.get("loop_count", 1)):
-            yield self.sse({"type": "exec", "tips": f"loop={i}"})
+        loop_count = plan.get("loop_count", 1)
 
+        yield self.sse({"type": "exec", "tips": f"Loop Count -> {loop_count}"})
+
+        for i in range(loop_count):
             for step in steps:
                 action = step["action"]
                 result = await session.call_tool(name := action["action"], action["args"])

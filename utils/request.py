@@ -33,7 +33,7 @@ async def streaming(
                 event = json.loads(line[len("data:"):].strip())
             except json.JSONDecodeError:
                 continue
-                
+
             yield event; on_event(event)
 
 
@@ -48,9 +48,9 @@ async def stream_planner(
                 logger.info(f"🟣 {event['content']}")
             case "plan":
                 if steps := event.get("steps"):
-                    for step in steps: logger.info(f"🟠 {step['action']}")
+                    for step in steps: logger.info(f"🔵 {step['action']}")
                 else:
-                    logger.warning(f"🔴 {event}")
+                    logger.warning(f"🟠 {event}")
             case "done":
                 logger.info(f"🟢 Plan done ...")
             case "error":
@@ -83,7 +83,7 @@ async def stream_self_heal(
             case "thinking":
                 logger.info(f"🟣 {event['content']}")
             case "heal":
-                logger.info(f"🟠 {event.get('message')}")
+                logger.info(f"🔵 {event.get('message')}")
             case "done":
                 logger.info(f"🟢 Heal done ...")
             case "error":
