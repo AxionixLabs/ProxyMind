@@ -30,9 +30,10 @@ Version [bold #FFD75F]{APP_VERSION}[/] :: Licensed software. Authorization requi
 """
 
 # ========【路径与资源配置】========
-SCHEMATIC = r"schematic"
-SUPPORTS  = r"supports"
-STRUCTURE = r"Structure"
+SCHEMATIC        = r"schematic"
+SUPPORTS         = r"supports"
+STRUCTURE        = r"Structure"
+SRC_OPERA_PLACE  = f"{APP_DESC}_Mix"
 
 # ========【日志与显示设置】========
 PRINT_HEAD = f"[bold #EEEEEE]{APP_DESC} ::[/]"
