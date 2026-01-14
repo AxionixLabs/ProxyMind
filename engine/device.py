@@ -331,17 +331,13 @@ class Device(object):
 
     async def healing(self, by: typing.Literal["text", "id", "desc", "xpath"], value: str) -> None:
         """执行自愈流程定位并处理目标控件。"""
-        page_id   = await self.current_activity() or ""
         platform  = "android"
-        by        = by
-        value     = value
-        page_dump = await self.current_xml()
-
-        if not page_dump: return None
+        page_id   = await self.current_activity() or ""
+        page_dump = await self.current_xml() or ""
+        by, value = by, value
 
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-            image = await self.screenshot()
-            await self.pull(image, tmp.name)
+            await self.pull(image := await self.screenshot(), tmp.name)
 
             async for _ in request.stream_self_heal(page_id, platform, by, value, page_dump, tmp.name):
                  pass
