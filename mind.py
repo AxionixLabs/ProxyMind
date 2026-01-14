@@ -8,6 +8,7 @@
 import os
 import re
 import sys
+import json
 import stat
 import shutil
 import signal
@@ -34,117 +35,169 @@ from utils import (
 )
 
 
-def signal_processor(*_, **__) -> None:
-    """Signal Processor"""
-    Design.console.print("\n\n")
-    logger.info(f"☎️ SYNC ▸ {const.APP_DESC} MCP neural core detaching.")
-    sys.exit(0)
+class Mind(object):
+    """Mind"""
 
+    __remote: dict = {}
 
-async def mind_trip(message: str, model: str | None = "llama-3.3-70b-versatile") -> None:
-    """Mind Trip"""
+    def __init__(self, wires: list, level: str, power: int, remote: dict, *args, **kwargs):
+        self.wires = wires  # 命令参数
+        self.level = level  # 日志级别
+        self.power = power  # 最大进程
 
-    async def exec_looper() -> typing.Optional[bool]:
+        self.remote: dict = remote or {}  # workflow: 远程全局配置
+
+        _, _ = args, kwargs
+
+        self.task_event: asyncio.Event = asyncio.Event()
+        self.url = "http://127.0.0.1:3333/mcp"
+
+        self.sse: typing.Callable[
+            [dict], str
+        ] = lambda x: f"data: {json.dumps(x, ensure_ascii=False)}\n\n"
+
+    @property
+    def remote(self) -> dict:
+        """Remote"""
+        return self.__remote
+
+    @remote.setter
+    def remote(self, value: dict) -> None:
+        """Remote"""
+        self.__remote = value if isinstance(value, dict) else {}
+
+    def signal_processor(self, *_, **__) -> None:
+        """Signal Processor"""
+        Design.console.print()
+        Design.show_exit()
+        logger.info(f"☎️ SYNC ▸ {const.APP_DESC} MCP neural core detaching.")
+        self.task_event.set()
+        sys.exit(130)
+
+    async def exec_looper(self, plan: dict, steps: list, session: ClientSession) -> typing.AsyncGenerator[str, None]:
+        """Exec Looper"""
         for i in range(plan.get("loop_count", 1)):
+            yield self.sse({"type": "exec", "tips": f"loop={i}"})
+
             for step in steps:
                 action = step["action"]
                 result = await session.call_tool(name := action["action"], action["args"])
 
                 if result.isError:
-                    return logger.error(f"🔴 {result.content[0].text}")
-                logger.info(f"🔶 {name} -> {result.structuredContent}")
+                    yield self.sse({"type": "error", "tips": result.content[0].text}); return
+                yield self.sse({"type": "exec", "tips": f"{name} -> {result.structuredContent}"})
 
-        return True
+        yield self.sse({"type": "exec", "tips": "done"})
 
-    async with streamable_http_client("http://127.0.0.1:3333/mcp") as (r, w, _):
-        async with ClientSession(r, w) as session:
-            await session.initialize()
+    async def mind_trip(self, message: str, model: typing.Optional[str] = "llama-3.3-70b-versatile") -> None:
+        """Mind Trip"""
+        async with streamable_http_client(self.url) as (r, w, _):
+            async with ClientSession(r, w) as session:
+                await session.initialize()
 
-            list_tools: ListToolsResult = await session.list_tools()
+                list_tools: ListToolsResult = await session.list_tools()
 
-            openai_tools = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description" : tool.description,
-                        "parameters"  : tool.inputSchema
+                openai_tools = [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": tool.name,
+                            "description" : tool.description,
+                            "parameters"  : tool.inputSchema
+                        }
                     }
-                }
-                for tool in list_tools.tools
-            ]
+                    for tool in list_tools.tools
+                ]
 
-            for tool in openai_tools: logger.debug(f"⚙️ Tool {tool['function']['name']}")
+                for tool in openai_tools: logger.debug(f"⚙️ Tool {tool['function']['name']}")
 
-            payload = {"model": model, "message": message, "tools": openai_tools}
+                payload = {"model": model, "message": message, "tools": openai_tools}
 
-            async for plan in request.stream_planner(payload):
-                if not (steps := plan.get("steps")):
-                    continue
-                if not await exec_looper():
-                    break
+                # workflow: ==== Request Streaming ====
+                async for plan in request.stream_planner(payload):
+                    if plan.get("type") == "error":
+                        return logger.error(f"🔴 Error {plan.get('message')}")
+
+                    if not (steps := plan.get("steps")):
+                        continue
+
+                    # workflow: ==== Exec Streaming ====
+                    async for line in self.exec_looper(plan, steps, session):
+                        try:
+                            exec_event = json.loads(line[len("data:"):].strip())
+                        except json.JSONDecodeError:
+                            continue
+
+                        if exec_event.get("type") == "error":
+                            return logger.error(f"🔴 {exec_event.get('tips')}")
+                        logger.info(f"🔶 {exec_event.get('tips')}")
+
+    async def mind_loop(self) -> None:
+        """Mind Loop"""
+
+        def exchange_model() -> typing.Optional[str]:
+            if (model_name := m.group(1).strip() if m.group(1) else None) and model_name in model_list:
+                Design.console.print(f"[bold #5FFF87]🧬 Model switched to: {model}")
+                return model_name
+
+            for name in model_list:
+                Design.console.print(f"[bold #5FFF87]  • {name}[/]")
+
+            return Design.console.print(f"[bold #FF5F5F]\n🚫 Model invalid: /model {const.ERR}{model_name}")
+
+        model_list = [
+            "compound-beta",
+            "compound-beta-mini",
+            "gemma2-9b-it",
+            "llama-3.1-8b-instant",
+            "llama-3.3-70b-versatile",
+            "meta-llama/llama-4-maverick-17b-128e-instruct",
+            "meta-llama/llama-4-scout-17b-16e-instruct",
+            "meta-llama/llama-guard-4-12b",
+            "moonshotai/kimi-k2-instruct",
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
+            "qwen/qwen3-32b"
+        ]
+
+        model = "llama-3.3-70b-versatile"
+
+        quit_set: set[str] = {"/quit", "/q", "quit", "exit"}
+        help_set: set[str] = {"/help", "/h"}
+
+        doc = """\
+        [bold]
+        [bold #87FFAF]/help, /h[/]                 显示帮助
+        [bold #FFD75F]/quit, /q, quit, exit[/]     退出
+        [bold #5FD7FF]/again N <goal>[/]           将目标重复执行 N 次
+        [bold #D7AFFF]/model <name>[/]             切换模型
+        [/]"""
+
+        re_model = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
+        re_again = re.compile(r"^\s*/again\s+(\d+)\s+(.+?)\s*$", re.IGNORECASE)
+
+        while not self.task_event.is_set():
+            ask = f"\n[bold #D7FFAF]🤔 <{model}>[/]\n[bold #AFD7FF]ready 输入目标或 /help[/]"
+
+            if (raw := Prompt.ask(ask, console=Design.console).strip()) in quit_set:
+                break
+
+            if raw in help_set:
+                Design.console.print(doc); continue
+
+            if m := re_model.match(raw):
+                model = exchange_model() or model; continue
+
+            try:
+                message = f"{hit.group(2).strip()}，循环 {int(hit.group(1))} 次" if (
+                    hit := re_again.match(raw)
+                ) else raw; await self.mind_trip(message, model)
+
+            except MindError as e: logger.warning(f"193: {e}")
+            except Exception as e: logger.warning(f"194: {e}")
 
 
-async def mind_loop() -> None:
-    """Mind Loop"""
-
-    model_list = [
-        "compound-beta",
-        "compound-beta-mini",
-        "gemma2-9b-it",
-        "llama-3.1-8b-instant",
-        "llama-3.3-70b-versatile",
-        "meta-llama/llama-4-maverick-17b-128e-instruct",
-        "meta-llama/llama-4-scout-17b-16e-instruct",
-        "meta-llama/llama-guard-4-12b",
-        "moonshotai/kimi-k2-instruct",
-        "openai/gpt-oss-120b",
-        "openai/gpt-oss-20b",
-        "qwen/qwen3-32b"
-    ]
-
-    model = "llama-3.3-70b-versatile"
-
-    doc = """\
-    [bold]
-    [bold #87FFAF]/help, /h[/]                 显示帮助
-    [bold #FFD75F]/quit, /q, quit, exit[/]     退出
-    [bold #5FD7FF]/repeat N <goal>[/]          将目标重复执行 N 次
-    [bold #D7AFFF]/model <name>[/]             切换模型
-    [/]"""
-
-    while True:
-        ask = f"\n[bold #D7FFAF]🤔 <{model}>[/]\n[bold #AFD7FF]ready 输入目标或 /help[/]"
-        if (raw := Prompt.ask(ask, console=Design.console).strip()) in {"/help", "/h"}:
-            Design.console.print(doc); continue
-
-        if raw in {"/quit", "/q", "quit", "exit"}:
-            break
-
-        if mod := re.match(r"^\s*/model(?:\s+(.*))?\s*$", raw, re.IGNORECASE):
-            if name := mod.group(1).strip() if mod.group(1) else None:
-                if name in model_list:
-                    model = name; Design.console.print(f"[bold #5FFF87]🧬 Model switched to: {model}")
-                else: Design.console.print(f"[bold #FF5F5F]🚫 Model invalid: {name}")
-            else:
-                for i in model_list: Design.console.print(f"[bold #5FFF87]  • {i}[/]")
-            continue
-
-        try:
-            pattern = re.compile(r"^\s*/repeat\s+(\d+)\s+(.+?)\s*$")
-
-            if m := pattern.match(raw, re.IGNORECASE):
-                await mind_trip(
-                    message=f"{m.group(2).strip()}，循环 {int(m.group(1))} 次", model=model
-                )
-                continue
-
-            await mind_trip(message=raw, model=model)
-
-        except MindError as e: logger.warning(e)
-        except Exception as e: logger.error(e)
-
-
+# """Main"""
 async def main() -> None:
     """Main"""
 
@@ -174,7 +227,7 @@ async def main() -> None:
             pwsh = shutil.which("pwsh") or shutil.which("powershell")
             if not pwsh: return None
             cmd = [
-                pwsh, "-Command", "Get-NetTCPConnection", "-LocalPort", "3333", 
+                pwsh, "-Command", "Get-NetTCPConnection", "-LocalPort", "3333",
                 "-ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }"
             ]
         else:
@@ -185,14 +238,20 @@ async def main() -> None:
     # Notes: ========== Start from here ==========
     Design.startup_logo()
 
+    # 解析命令行参数
     parser = Parser()
     cmd_lines = parser.parse_cmd
 
+    # 获取命令行参数
+    wires = sys.argv[1:]
+
+    # 获取当前操作系统平台和应用名称
     platform = sys.platform.strip().lower()
     software = os.path.basename(os.path.abspath(sys.argv[0])).strip().lower()
     sys_symbol = os.sep
     env_symbol = os.path.pathsep
 
+    # 根据应用名称确定工作目录和配置目录
     if software == f"{const.APP_NAME}.exe":
         mind_work = os.path.dirname(os.path.abspath(sys.argv[0]))
         mind_feasible = os.path.dirname(mind_work)
@@ -213,7 +272,16 @@ async def main() -> None:
     ):
         os.makedirs(initial_source, exist_ok=True)
 
+    if not os.path.exists(
+        src_opera_place := os.path.join(initial_source, const.SRC_OPERA_PLACE).format()
+    ):
+        os.makedirs(src_opera_place, exist_ok=True)
+
+    # 激活日志
     Active.active(level := "DEBUG" if cmd_lines.horizon else "INFO")
+
+    # Notes: ========== 授权流程 ==========
+    # todo
 
     # Notes: ========== 工具路径设置 ==========
     if platform == "win32":
@@ -263,30 +331,55 @@ async def main() -> None:
         logger.debug(f"TLS: {tls}")
     logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}\n")
 
-    # ==== 清理端口 ====
+    # 清理端口
     await privileged()
 
-    server = ServerManage()
+    # 启动服务
+    server: ServerManage = ServerManage()
 
-    # ==== 本地调试 ====
+    # ========== 本地调试 ==========
     root = Path(__file__).parent
-    helix = str(Path(root, "backend", "helix.py"))
+    helix = str(root / "backend" / "helix.py")
 
     if helix.endswith("py"):
         await server.mcp_begin([sys.executable, helix, "--level", level])
     else:
         await server.mcp_begin([helix, "--level", level])
 
-    signal.signal(signal.SIGINT, signal_processor)
+    positions = (
+        cmd_lines.exec, cmd_lines.horizon
+    )
+    keywords = {}
+    remote = {}
+
+    mind = Mind(wires, level, power, remote, *positions, **keywords)
+
+    signal.signal(signal.SIGINT, mind.signal_processor)
 
     try:
-        if ex := cmd_lines.exec: await mind_trip(ex)
-        else: await mind_loop()
+        if ex := cmd_lines.exec:
+            await mind.mind_trip(ex)
+        else:
+            await mind.mind_loop()
     finally:
         await server.mcp_final()
 
 
+# """Test"""
+async def test() -> None:
+    pass
+
+
 if __name__ == '__main__':
+    #  __  __ _           _
+    # |  \/  (_)_ __   __| |
+    # | |\/| | | '_ \ / _` |
+    # | |  | | | | | | (_| |
+    # |_|  |_|_|_| |_|\__,_|
+    #
+
+    # asyncio.run(test())
+
     try:
         main_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(main_loop)
@@ -301,4 +394,3 @@ if __name__ == '__main__':
         sys.exit(Design.show_done())
     else:
         sys.exit(Design.show_done())
-
