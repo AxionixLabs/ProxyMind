@@ -179,11 +179,6 @@ class Device(object):
         if not (xml := await self.current_xml()):
             return None
 
-        if by == "bbox":
-            x1, y1, x2, y2 = value
-            center = (x1 + x2) // 2, (y1 + y2) // 2
-            return await self.tap(center[0], center[1])
-
         match by:
             case "id": by = "resource-id"
             case "desc": by = "content-desc"

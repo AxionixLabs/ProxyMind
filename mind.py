@@ -193,8 +193,8 @@ class Mind(object):
                     hit := re_again.match(raw)
                 ) else raw; await self.mind_trip(message, model)
 
-            except MindError as e: logger.warning(f"193: {e}")
-            except Exception as e: logger.warning(f"194: {e}")
+            except MindError as e: logger.warning(e)
+            except Exception as e: logger.warning(e)
 
 
 # """Main"""
