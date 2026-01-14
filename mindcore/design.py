@@ -116,6 +116,10 @@ class Design(object):
         """)
         Design.console.print(task_fail)
 
+    @staticmethod
+    async def compile_animation() -> None:
+        pass
+
 
 if __name__ == '__main__':
     pass

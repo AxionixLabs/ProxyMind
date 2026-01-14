@@ -48,6 +48,31 @@ ERR = f"[bold #FFFFFF on #FF6347]"
 
 PRINT_FORMAT = f"<level>{{level: <8}}</level> | <level>{{message}}</level>"
 
+# ========【应用授权】========
+BOOTSTRAP_URL      = f"https://api.appserverx.com/bootstrap"
+TEMPLATE_META_URL  = f""
+BUSINESS_CASE_URL  = f""
+SPEECH_META_URL    = f""
+SPEECH_VOICE_URL   = f""
+GLOBAL_CF_URL      = f"https://api.appserverx.com/global-configuration"
+PREDICT_URL        = r""
+TOOLKIT_META_URL   = r""
+MODEL_META_URL     = r""
+X_TEMPLATE_VERSION = f""
+SHARED_SECRET      = r"xosspWbJNo9hUjR4OceTuSLshorCn0IXucTKO0hmdSI="
+
+PUBLIC_KEY: bytes = b"""
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA8xbL4fLFhG4cj0hpoPVS
+3nd9bNgIyvUO3I2yNzY/Rq29idRPOgDfbaGQZuCjiPNAidS9+7HwqLXUqV7+OMKW
+ACQ+wHGgjpeFF9ZqG6WvHEWZgors8RAppL9kUEs9v5BoO0COD1Hm86TZWI8J46sL
+Ebw2XAVKM6SKeTlITZEvINufS7biPBwO3dAIY7dB6x2upiBEQFdI2XZMV3GSLZ6W
+EkE6ZWS3oMID84lFzUPIXxRxA59rlAKZ+fSCJxvg4HxeeR7nkTi0HCdF6h7VtPV5
+RJGiJMXLK0kZ4Q2G7uA1ORJNa5E9n534nhFquHbjF6WJ07GTz8Y1tmYqdovQ1dtP
+cwIDAQAB
+-----END PUBLIC KEY-----
+"""
+
 
 if __name__ == '__main__':
     pass

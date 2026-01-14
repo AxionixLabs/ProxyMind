@@ -21,6 +21,8 @@ from mcp import (
     ClientSession, ListToolsResult
 )
 from mcp.client.streamable_http import streamable_http_client
+from mindcore.api import Api
+from mindcore import authorize
 from mindcore.design import Design
 from engine.manage import (
     ServerManage, DeviceManage
@@ -283,15 +285,20 @@ async def main() -> None:
     Active.active(level := "DEBUG" if cmd_lines.horizon else "INFO")
 
     # Notes: ========== 授权流程 ==========
-    # todo
+    # lic_file = Path(src_opera_place) / const.LIC_FILE
+    #
+    # if apply_code := cmd_lines.apply:
+    #     return await authorize.receive_license(apply_code, lic_file)
+    #
+    # await authorize.verify_license(lic_file)
 
     # Notes: ========== 工具路径设置 ==========
     if platform == "win32":
-        supports = os.path.join(turbo, "helix.dist").format()
-        helix = os.path.join(supports, "helix.exe")
+        supports = os.path.join(turbo, "Windows").format()
+        helix = os.path.join(supports, "helix.dist", "helix.exe")
     elif platform == "darwin":
-        supports = os.path.join(turbo, "helix.app").format()
-        helix = os.path.join(supports, "Contents", "MacOS", "helix")
+        supports = os.path.join(turbo, "MacOS").format()
+        helix = os.path.join(supports, "helix.app", "Contents", "MacOS", "helix")
     else:
         raise MindError(f"{const.APP_DESC} is not supported on this platform: {platform}.")
 
@@ -309,9 +316,9 @@ async def main() -> None:
     # Notes: ========== 配置与启动 ==========
 
     # 远程全局配置
-    # todo
+    global_config_task = asyncio.create_task(Api.remote_config())
     # 启动仪式
-    # todo
+    # TODO
 
     logger.debug(f"{'=' * 15} 系统调试 {'=' * 15}")
     logger.debug(f"操作系统: {platform}")
@@ -352,7 +359,7 @@ async def main() -> None:
         cmd_lines.exec, cmd_lines.horizon
     )
     keywords = {}
-    remote = {}
+    remote = await global_config_task
 
     mind = Mind(wires, level, power, remote, *positions, **keywords)
 
