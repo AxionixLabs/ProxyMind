@@ -174,8 +174,8 @@ async def main() -> None:
             pwsh = shutil.which("pwsh") or shutil.which("powershell")
             if not pwsh: return None
             cmd = [
-                pwsh, "Get-NetTCPConnection", "-LocalPort", "3333", "|", "ForEach-Object",
-                "{ Stop-Process -Id $_.OwningProcess -Force }"
+                pwsh, "-Command", "Get-NetTCPConnection", "-LocalPort", "3333", 
+                "-ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }"
             ]
         else:
             cmd = ["lsof", "-ti", ":3333", "|", "xargs", "kill", "-9"]
