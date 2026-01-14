@@ -279,10 +279,11 @@ async def main() -> None:
 
     signal.signal(signal.SIGINT, signal_processor)
 
-    if ex := cmd_lines.exec:
-        await mind_trip(ex)
-    else:
-        await mind_loop()
+    try:
+        if ex := cmd_lines.exec: await mind_trip(ex)
+        else: await mind_loop()
+    finally:
+        await server.mcp_final()
 
 
 if __name__ == '__main__':
