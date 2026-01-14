@@ -12,6 +12,7 @@ import asyncio
 from loguru import logger
 from engine.device import Device
 from engine.terminal import Terminal
+from engine.tinker import MindError
 from utils import const
 
 
@@ -22,11 +23,13 @@ class ServerManage(object):
 
     async def input_stream(self) -> None:
         async for line in self.transports.stdout:
-            logger.debug(line.decode(const.CHARSET, const.IGNORE).strip())
+            stream = line.decode(const.CHARSET, const.IGNORE).strip()
+            logger.debug(" ".join(stream.split()))
 
     async def error_stream(self) -> None:
         async for line in self.transports.stderr:
-            logger.debug(line.decode(const.CHARSET, const.IGNORE).strip())
+            stream = line.decode(const.CHARSET, const.IGNORE).strip()
+            logger.debug(" ".join(stream.split()))
 
     async def mcp_begin(self, cmd: list[str]) -> None:
         if self.transports and self.transports.returncode is None:
@@ -37,9 +40,14 @@ class ServerManage(object):
         asyncio.create_task(self.input_stream())
         asyncio.create_task(self.error_stream())
 
-        await asyncio.sleep(1)
+        for _ in range(5):
+            if self.transports is not None:
+                return logger.info(
+                    f"Ⓜ️ SYNC ▸ {const.APP_DESC} MCP neural core online."
+                )
+            await asyncio.sleep(1)
 
-        logger.info(f"Ⓜ️ SYNC ▸ {const.APP_DESC} MCP neural core online.")
+        raise MindError(f"Application startup failure")
 
     async def mcp_final(self) -> None:
         if not self.transports or self.transports.returncode is not None:
