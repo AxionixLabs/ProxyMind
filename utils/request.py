@@ -35,7 +35,7 @@ async def streaming(
                 continue
 
             if event["type"] == "error":
-                yield event; break
+                yield event; return
 
             on_event(event); yield event
 
@@ -67,7 +67,7 @@ async def stream_planner(
     async with httpx.AsyncClient(timeout=timeout) as client:
         async for data in streaming(client, url, headers, payload, handle_event):
             if data.get("type") == "error":
-                yield data; break
+                yield data; return
             yield data
 
 
@@ -115,7 +115,7 @@ async def stream_self_heal(
     async with httpx.AsyncClient(timeout=timeout) as client:
         async for data in streaming(client, url, headers, payload, handle_event):
             if data.get("type") == "error":
-                yield data; break
+                yield data; return
             yield data
 
 
