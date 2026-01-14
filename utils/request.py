@@ -33,11 +33,8 @@ async def streaming(
                 event = json.loads(line[len("data:"):].strip())
             except json.JSONDecodeError:
                 continue
-
-            if event["type"] == "error":
-                yield event; return
-
-            on_event(event); yield event
+                
+            yield event; on_event(event)
 
 
 async def stream_planner(
@@ -66,8 +63,6 @@ async def stream_planner(
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         async for data in streaming(client, url, headers, payload, handle_event):
-            if data.get("type") == "error":
-                yield data; return
             yield data
 
 
@@ -114,8 +109,6 @@ async def stream_self_heal(
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         async for data in streaming(client, url, headers, payload, handle_event):
-            if data.get("type") == "error":
-                yield data; return
             yield data
 
 
