@@ -13,7 +13,7 @@ APP_VERSION = r"1.0.0"
 APP_YEAR    = r"2026"
 APP_LICENSE = r"Proprietary License"
 CHARSET     = r"UTF-8"
-IGNORE      = "ignore"
+IGNORE      = r"ignore"
 
 AUTHOR      = r"AceKeppel"
 EMAIL       = r"AceKeppel@outlook.com"

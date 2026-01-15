@@ -7,7 +7,7 @@
 
 import typing
 import asyncio
-from utils import const
+from mindnova import const
 
 
 class Terminal(object):

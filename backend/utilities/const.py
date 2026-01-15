@@ -6,7 +6,7 @@
 #
 
 # ========【应用基础信息】========
-APP_ITEM    = r"HelixServer"
+APP_ITEM    = r"HelixAI"
 APP_NAME    = r"helix"
 APP_DESC    = r"Helix"
 APP_CN      = r"双螺旋"
@@ -14,6 +14,7 @@ APP_VERSION = r"1.0.0"
 APP_YEAR    = r"2026"
 APP_LICENSE = r"Proprietary License"
 CHARSET     = r"UTF-8"
+IGNORE      = r"ignore"
 
 AUTHOR      = r"AceKeppel"
 EMAIL       = r"AceKeppel@outlook.com"

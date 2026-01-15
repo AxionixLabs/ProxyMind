@@ -14,7 +14,7 @@ import typing
 import hashlib
 import secrets
 from engine.tinker import MindError
-from utils import const
+from mindnova import const
 
 
 class Channel(object):

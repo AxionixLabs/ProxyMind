@@ -6,7 +6,7 @@
 #                       |_|
 #
 
-from utils import const
+from mindnova import const
 from setuptools import setup, find_packages
 
 with open('requirements.txt') as f:

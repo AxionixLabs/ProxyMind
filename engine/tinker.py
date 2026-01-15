@@ -14,7 +14,7 @@ from rich.logging import (
     LogRecord, RichHandler
 )
 from mindcore.design import Design
-from utils import const
+from mindnova import const
 
 
 class _MindBaseError(BaseException):

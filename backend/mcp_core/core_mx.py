@@ -1,8 +1,8 @@
-#   ____           _
-#  / ___|___  _ __| |_ _____  __
-# | |   / _ \| '__| __/ _ \ \/ /
-# | |__| (_) | |  | ||  __/>  <
-#  \____\___/|_|   \__\___/_/\_\
+#   ____                 __  ____  __
+#  / ___|___  _ __ ___  |  \/  \ \/ /
+# | |   / _ \| '__/ _ \ | |\/| |\  /
+# | |__| (_) | | |  __/ | |  | |/  \
+#  \____\___/|_|  \___| |_|  |_/_/\_\
 #
 
 import re
@@ -12,7 +12,7 @@ import typing
 import asyncio
 from loguru import logger
 from engine.terminal import Terminal
-from utils import const
+from backend.utilities import const
 
 
 class Memrix(object):

@@ -13,9 +13,7 @@ import asyncio
 import tempfile
 import xml.etree.ElementTree as Et
 from engine.terminal import Terminal
-from utils import (
-    const, request
-)
+from mindnova import const, request
 
 
 class Device(object):
@@ -114,55 +112,130 @@ class Device(object):
             "goldfish" in self.hardware or "ranchu" in self.hardware or "sdk" in self.model
         )
 
-    # workflow: ==== MCP Tool ====
-    async def lock_screen(self) -> None:
-        """锁定屏幕（熄屏进入锁屏状态）。"""
-        if not await self.is_screen_on():
-            return None
+    # workflow: ==== App Control MCP Tool ====
+    async def deep_link(self, url: str) -> typing.Any:
+        """通过深度链接启动指定的应用服务。"""
+        cmd = self.prefix + [
+            "shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url
+        ]
+        return await Terminal.cmd_line_shell(" ".join(cmd))
 
-        await self.key_event(26)
-        await asyncio.sleep(0.2)
+    # workflow: ==== App Control MCP Tool ====
+    async def app_start(self, package: str) -> typing.Any:
+        """启动指定包名的应用。"""
+        cmd = self.prefix + [
+            "shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"
+        ]
+        return await Terminal.cmd_line(cmd)
 
-    # workflow: ==== MCP Tool ====
+    # workflow: ==== App Control MCP Tool ====
+    async def app_stop(self, package: str) -> typing.Any:
+        """强制停止指定包名的应用。"""
+        cmd = self.prefix + [
+            "shell", "am", "force-stop", package
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== File Control MCP Tool ====
+    async def pull(self, remote: str, local: str) -> typing.Any:
+        """从设备拉取文件到本地。"""
+        cmd = self.prefix + [
+            "pull", remote, local
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== File Control MCP Tool ====
+    async def push(self, local: str, remote: str) -> typing.Any:
+        """将本地文件推送到设备。"""
+        cmd = self.prefix + [
+            "push", local, remote
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== File Control MCP Tool ====
+    async def remove(self, path: str) -> typing.Any:
+        """删除设备上的文件。"""
+        cmd = self.prefix + [
+            "shell", "rm", "-f", path
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== Media Control MCP Tool ====
+    async def screenshot(self) -> str:
+        """在设备上截屏并返回远端路径。"""
+        filename = f"screenshot_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
+        remote   = f"/data/local/tmp/{filename}"
+
+        cmd = self.prefix + [
+            "shell", "screencap", "-p", remote
+        ]
+        await Terminal.cmd_line(cmd)
+
+        return remote
+
+    # workflow: ==== System Control MCP Tool ====
+    async def open_notification(self) -> typing.Any:
+        """打开通知栏（Notification Panel）。"""
+        cmd = self.prefix + [
+            "shell", "cmd", "statusbar", "expand-notifications"
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== System Control MCP Tool ====
+    async def open_quick_settings(self) -> typing.Any:
+        """打开快速设置面板（Quick Settings Panel）。"""
+        cmd = self.prefix + [
+            "shell", "cmd", "statusbar", "expand-settings"
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== System Control MCP Tool ====
+    async def combo_key(self, first: int, *others: int) -> typing.Any:
+        """组合按键执行。"""
+        if not others: return None
+
+        commands = [f"input keyevent {other}" for other in others]
+
+        shell_cmd = " ".join(
+            self.prefix + ["shell", "input", "keyevent"]
+        ) + f" --longpress {first} & sleep 0.03; " + "; ".join(commands)
+
+        return await Terminal.cmd_line_shell(shell_cmd)
+
+    # workflow: ==== System Control MCP Tool ====
     async def swipe_unlock(self) -> None:
         """点亮屏幕并上滑解锁。"""
+        await self.screen_set(True)
 
-        # 1️⃣ 点亮屏幕
-        if not await self.is_screen_on():
-            await self.key_event(26)
-            await asyncio.sleep(0.2)
-
-        # 2️⃣ 获取屏幕尺寸
         w, h = await self.st_wm_size()
 
-        # 3️⃣ 计算上滑路径（符合人类手势）
         x = w // 2
         y1 = int(h * 0.80)
         y2 = int(h * 0.35)
 
-        # 4️⃣ 执行滑动解锁
         await self.swipe(x, y1, x, y2, 1000)
-
-        # 5️⃣ 稳定等待
         await asyncio.sleep(0.2)
 
-    # workflow: ==== MCP Tool ====
-    async def swipe(self, x1: int, y1: int, x2: int, y2: int, duration: int = 300) -> typing.Any:
-        """从起点滑动到终点。"""
-        cmd = self.prefix + [
-            "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration)
-        ]
-        return await Terminal.cmd_line(cmd)
+    # workflow: ==== System Control MCP Tool ====
+    async def screen_on(self) -> None:
+        """点亮屏幕。"""
+        return await self.screen_set(True)
 
-    # workflow: ==== MCP Tool ====
-    async def tap(self, x: int, y: int) -> typing.Any:
-        """点击指定坐标。"""
-        cmd = self.prefix + [
-            "shell", "input", "tap", str(x), str(y)
-        ]
-        return await Terminal.cmd_line(cmd)
+    # workflow: ==== System Control MCP Tool ====
+    async def screen_off(self) -> None:
+        """熄屏锁屏。"""
+        return await self.screen_set(False)
 
-    # workflow: ==== MCP Tool ====
+    # workflow: ==== System ====
+    async def screen_set(self, on: bool, settle: float = 0.2) -> None:
+        """统一控制屏幕电源态。"""
+        if on == await self.is_screen_on():
+            return None
+
+        await self.key_event(26)
+        await asyncio.sleep(settle)
+
+    # workflow: ==== System ====
     async def key_event(self, keycode: int, longpress: bool = False) -> typing.Any:
         """向设备发送 Android 系统按键事件（支持普通按键与长按）。"""
         cmd = self.prefix + [
@@ -173,7 +246,23 @@ class Device(object):
 
         return await Terminal.cmd_line(cmd)
 
-    # workflow: ==== MCP Tool ====
+    # workflow: ==== UI Interaction MCP Tool ====
+    async def swipe(self, x1: int, y1: int, x2: int, y2: int, duration: int = 300) -> typing.Any:
+        """从起点滑动到终点。"""
+        cmd = self.prefix + [
+            "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration)
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== UI Interaction MCP Tool ====
+    async def tap(self, x: int, y: int) -> typing.Any:
+        """点击指定坐标。"""
+        cmd = self.prefix + [
+            "shell", "input", "tap", str(x), str(y)
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== UI Interaction MCP Tool ====
     async def click(self, by: typing.Literal["text", "id", "desc"], value: str | list) -> typing.Any:
         """根据选择器点击对应节点中心点。"""
         if not (xml := await self.current_xml()):
@@ -197,7 +286,7 @@ class Device(object):
 
         return await self.tap(center[0], center[1])
 
-    # workflow: ==== MCP Tool ====
+    # workflow: ==== UI Interaction MCP Tool ====
     async def send_keys(self, text: str) -> typing.Any:
         """向当前焦点输入文本。"""
         cmd = self.prefix + [
@@ -205,59 +294,27 @@ class Device(object):
         ]
         return await Terminal.cmd_line(cmd)
 
-    # workflow: ==== MCP Tool ====
-    async def combo_key(self, first: int, *others: int) -> typing.Any:
-        """组合按键执行。"""
-        if not others: return None
-
-        commands = [f"input keyevent {other}" for other in others]
-
-        shell_cmd = " ".join(
-            self.prefix + ["shell", "input", "keyevent"]
-        ) + f" --longpress {first} & sleep 0.03; " + "; ".join(commands)
-
-        return await Terminal.cmd_line_shell(shell_cmd)
-
-    # workflow: ==== MCP Tool ====
-    async def deep_link(self, url: str) -> typing.Any:
-        """通过深度链接启动指定的应用服务。"""
+    # workflow: ==== UI Interaction MCP Tool ====
+    async def current_package(self) -> str | None:
+        """获取当前前台应用包名。"""
         cmd = self.prefix + [
-            "shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url
+            "shell", "dumpsys", "window", "|", "grep", "mCurrentFocus"
         ]
-        return await Terminal.cmd_line_shell(" ".join(cmd))
 
-    # workflow: ==== MCP Tool ====
-    async def app_start(self, package: str) -> typing.Any:
-        """启动指定包名的应用。"""
-        cmd = self.prefix + [
-            "shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"
-        ]
-        return await Terminal.cmd_line(cmd)
+        if not (resp := await Terminal.cmd_line(cmd)):
+            return None
 
-    # workflow: ==== MCP Tool ====
-    async def force_stop(self, package: str) -> typing.Any:
-        """强制停止指定包名的应用。"""
-        cmd = self.prefix + [
-            "shell", "am", "force-stop", package
-        ]
-        return await Terminal.cmd_line(cmd)
+        # 1) 优先从 package/activity 提取 package
+        if m := re.search(r"([a-zA-Z0-9._]+)/[a-zA-Z0-9._$]+", resp):
+            return m.group(1)
 
-    # workflow: ==== MCP Tool ====
-    async def open_notification(self) -> typing.Any:
-        """打开通知栏（Notification Panel）。"""
-        cmd = self.prefix + [
-            "shell", "cmd", "statusbar", "expand-notifications"
-        ]
-        return await Terminal.cmd_line(cmd)
+        # 2) 退化：从 "u0 com.xxx.app" 这类结构提取 package
+        if m := re.search(r"\bu\d+\s+([a-zA-Z0-9._]+)\b", resp):
+            return m.group(1)
 
-    # workflow: ==== MCP Tool ====
-    async def open_quick_settings(self) -> typing.Any:
-        """打开快速设置面板（Quick Settings Panel）。"""
-        cmd = self.prefix + [
-            "shell", "cmd", "statusbar", "expand-settings"
-        ]
-        return await Terminal.cmd_line(cmd)
+        return None
 
+    # workflow: ==== UI Interaction MCP Tool ====
     async def current_activity(self) -> str | None:
         """获取当前前台 Activity 标识。"""
         cmd = self.prefix + [
@@ -267,14 +324,17 @@ class Device(object):
         if not (resp := await Terminal.cmd_line(cmd)):
             return None
 
+        # 1) 优先从 package/activity 提取 activity
         if match := re.search(r"([a-zA-Z0-9._]+/[a-zA-Z0-9._$]+)", resp):
             return match.group(1)
 
+        # 2) 退化：从 "u0 com.xxx.app" 这类结构提取 package
         if match := re.search(r"\bu\d+\s+([a-zA-Z0-9._]+)\b", resp):
             return match.group(1)
 
         return None
 
+    # workflow: ==== UI Interaction MCP Tool ====
     async def current_xml(self) -> str | None:
         """导出当前 UI 层级 XML。"""
         xml_file = "/data/local/tmp/window_dump.xml"
@@ -295,39 +355,6 @@ class Device(object):
             await asyncio.sleep(0.2)
 
         return None
-
-    async def screenshot(self) -> str:
-        """在设备上截屏并返回远端路径。"""
-        filename = f"screenshot_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
-        remote   = f"/data/local/tmp/{filename}"
-
-        cmd = self.prefix + [
-            "shell", "screencap", "-p", remote
-        ]
-        await Terminal.cmd_line(cmd)
-
-        return remote
-
-    async def pull(self, remote: str, local: str) -> dict:
-        """从设备拉取文件到本地。"""
-        cmd = self.prefix + [
-            "pull", remote, local
-        ]
-        return await Terminal.cmd_line(cmd)
-
-    async def push(self, local: str, remote: str) -> dict:
-        """将本地文件推送到设备。"""
-        cmd = self.prefix + [
-            "push", local, remote
-        ]
-        return await Terminal.cmd_line(cmd)
-
-    async def remove(self, remote: str) -> dict:
-        """删除设备上的文件。"""
-        cmd = self.prefix + [
-            "shell", "rm", "-f", remote
-        ]
-        return await Terminal.cmd_line(cmd)
 
     async def healing(self, by: typing.Literal["text", "id", "desc", "xpath"], value: str) -> None:
         """执行自愈流程定位并处理目标控件。"""

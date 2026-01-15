@@ -10,7 +10,7 @@ import random
 import typing
 import textwrap
 from rich.console import Console
-from utils import const
+from mindnova import const
 
 
 class Design(object):

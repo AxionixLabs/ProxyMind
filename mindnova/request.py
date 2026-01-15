@@ -11,7 +11,7 @@ import httpx
 import base64
 import typing
 from loguru import logger
-from utils import const
+from mindnova import const
 
 
 async def streaming(

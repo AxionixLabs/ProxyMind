@@ -22,19 +22,16 @@ from mcp import (
 )
 from mcp.client.streamable_http import streamable_http_client
 from mindcore.api import Api
-from mindcore import authorize
 from mindcore.design import Design
 from engine.manage import (
-    ServerManage, DeviceManage
+    ServerManage
 )
 from engine.tinker import (
     MindError, Active
 )
 from engine.terminal import Terminal
 from mindcore.parser import Parser
-from utils import (
-    const, request
-)
+from mindnova import const, request
 
 
 class Mind(object):

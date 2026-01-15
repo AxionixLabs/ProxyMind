@@ -1,8 +1,9 @@
-#  _   _ ___
-# | | | |_ _|
-# | | | || |
-# | |_| || |
-#  \___/|___|
+#  ____            _                    ____            _             _
+# / ___| _   _ ___| |_ ___ _ __ ___    / ___|___  _ __ | |_ _ __ ___ | |
+# \___ \| | | / __| __/ _ \ '_ ` _ \  | |   / _ \| '_ \| __| '__/ _ \| |
+#  ___) | |_| \__ \ ||  __/ | | | | | | |__| (_) | | | | |_| | | (_) | |
+# |____/ \__, |___/\__\___|_| |_| |_|  \____\___/|_| |_|\__|_|  \___/|_|
+#        |___/
 #
 
 import typing
@@ -14,127 +15,6 @@ from engine.manage import DeviceManage
 
 
 def bind(mcp: FastMCP, manage: DeviceManage) -> None:
-
-    @mcp.tool()
-    @task_middleware("lock_screen")
-    async def lock_screen() -> None:
-        """Class: system; Action: 锁屏/熄屏(POWER=26); Args: none; Use: 结束交互/重置状态; Return: None; Notes: screen-on 才执行, 已锁屏 no-op."""
-        device_list = await manage.refresh()
-
-        logger.info("Lock screen")
-        await asyncio.gather(
-            *(device.lock_screen() for device in device_list), return_exceptions=True
-        )
-
-    @mcp.tool()
-    @task_middleware("press_power")
-    async def press_power(longpress: bool = False) -> typing.Any:
-        """Class: system; Action: 电源键(keycode=26); Args: longpress(bool)=False; Use: 锁屏/电源菜单; Return: list[device_result]; Notes: longpress 仅在用户明确“长按电源”时使用."""
-        device_list = await manage.refresh()
-
-        logger.info("KeyEvent POWER")
-        return await asyncio.gather(
-            *(device.key_event(26, longpress) for device in device_list), return_exceptions=True
-        )
-
-    @mcp.tool()
-    @task_middleware("swipe_unlock")
-    async def swipe_unlock() -> None:
-        """Class: system; Action: 点亮并上滑解锁; Args: none; Use: UI 操作前确保可交互; Return: None; Notes: 不处理密码/指纹等二次验证."""
-        device_list = await manage.refresh()
-
-        logger.info("Swipe unlock")
-        await asyncio.gather(
-            *(device.swipe_unlock() for device in device_list), return_exceptions=True
-        )
-
-    @mcp.tool()
-    @task_middleware("swipe")
-    async def swipe(x1: int, y1: int, x2: int, y2: int, duration: int = 300) -> typing.Any:
-        """Class: ui; Action: 坐标滑动; Args: x1,y1,x2,y2(int), duration(ms)=300; Use: 滚动/翻页/拖拽; Return: list[device_result]; Notes: absolute coords."""
-        device_list = await manage.refresh()
-
-        logger.info(f"Swipe {x1} {y1} {x2} {y2} {duration}")
-        return await asyncio.gather(
-            *(device.swipe(x1, y1, x2, y2, duration) for device in device_list), return_exceptions=True
-        )
-
-    @mcp.tool()
-    @task_middleware("tap")
-    async def tap(x: int, y: int) -> typing.Any:
-        """Class: ui; Action: 坐标点击; Args: x(int), y(int); Use: 无法定位控件时兜底; Return: list[device_result]; Notes: absolute coords."""
-        device_list = await manage.refresh()
-
-        logger.info(f"Tap {x} {y}")
-        return await asyncio.gather(
-            *(device.tap(x, y) for device in device_list), return_exceptions=True
-        )
-
-    @mcp.tool()
-    @task_middleware("click")
-    async def click(by: typing.Literal["text", "id", "desc"], value: str) -> typing.Any:
-        """Class: ui; Action: 精确属性定位点击; Args: by(text|id|desc), value(str exact); Use: 优先用于可定位控件; Return: list[device_result]; Notes: no fuzzy, not found => no-op per-device."""
-        device_list = await manage.refresh()
-
-        logger.info(f"Click by {by} value={value}")
-        return await asyncio.gather(
-            *(device.click(by, value) for device in device_list), return_exceptions=True
-        )
-
-    @mcp.tool()
-    @task_middleware("send_keys")
-    async def send_keys(text: str) -> typing.Any:
-        """Class: ui; Action: 输入文本到当前焦点; Args: text(str); Use: 输入框已聚焦时输入; Return: list[device_result]; Notes: 不负责定位/点击, 无焦点可能失败."""
-        device_list = await manage.refresh()
-
-        logger.info(f"Send keys {text}")
-        return await asyncio.gather(
-            *(device.send_keys(text) for device in device_list), return_exceptions=True
-        )
-
-    @mcp.tool()
-    @task_middleware("combo_key")
-    async def combo_key(first: int, others: list[int]) -> typing.Any:
-        """Class: system; Action: 组合按键(first长按+others); Args: first(int keycode), others(list[int]); Use: 截图/系统快捷键; Return: list[device_result]; Notes: shell-level, 近同时触发."""
-        device_list = await manage.refresh()
-
-        logger.info(f"Combo key first={first} others={others}")
-        return await asyncio.gather(
-            *(device.combo_key(first, *others) for device in device_list), return_exceptions=True
-        )
-
-    @mcp.tool()
-    @task_middleware("deep_link")
-    async def deep_link(url: str) -> typing.Any:
-        """Class: app; Action: 深链跳转(am start VIEW); Args: url(str); Use: 直达应用内部页面/服务; Return: list[device_result]; Notes: 需系统存在 handler."""
-        device_list = await manage.refresh()
-
-        logger.info(f"Deep link {url}")
-        return await asyncio.gather(
-            *(device.deep_link(url) for device in device_list), return_exceptions=True
-        )
-
-    @mcp.tool()
-    @task_middleware("app_start")
-    async def app_start(package: str) -> typing.Any:
-        """Class: app; Action: 启动应用(monkey); Args: package(str); Use: 用户语义“打开/启动某应用”优先; Return: list[device_result]; Notes: 启动主入口, 非指定 Activity."""
-        device_list = await manage.refresh()
-
-        logger.info(f"App start {package}")
-        return await asyncio.gather(
-            *(device.app_start(package) for device in device_list), return_exceptions=True
-        )
-
-    @mcp.tool()
-    @task_middleware("force_stop")
-    async def force_stop(package: str) -> typing.Any:
-        """Class: app; Action: 强制停止应用(force-stop); Args: package(str); Use: 重启应用/清理状态; Return: list[device_result]; Notes: 终止进程与后台任务."""
-        device_list = await manage.refresh()
-
-        logger.info(f"Force stop {package}")
-        return await asyncio.gather(
-            *(device.force_stop(package) for device in device_list), return_exceptions=True
-        )
 
     @mcp.tool()
     @task_middleware("open_notification")
@@ -156,6 +36,50 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         logger.info("Open quick settings panel")
         return await asyncio.gather(
             *(device.open_quick_settings() for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
+    @task_middleware("combo_key")
+    async def combo_key(first: int, others: list[int]) -> typing.Any:
+        """Class: system; Action: 组合按键(first长按+others); Args: first(int keycode), others(list[int]); Use: 截图/系统快捷键; Return: list[device_result]; Notes: shell-level, 近同时触发."""
+        device_list = await manage.refresh()
+
+        logger.info(f"Combo key first={first} others={others}")
+        return await asyncio.gather(
+            *(device.combo_key(first, *others) for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
+    @task_middleware("swipe_unlock")
+    async def swipe_unlock() -> None:
+        """Class: system; Action: 点亮并上滑解锁; Args: none; Use: UI 操作前确保可交互; Return: None; Notes: 不处理密码/指纹等二次验证."""
+        device_list = await manage.refresh()
+
+        logger.info("Swipe unlock")
+        await asyncio.gather(
+            *(device.swipe_unlock() for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
+    @task_middleware("screen_on")
+    async def screen_on() -> None:
+        """Class: system; Action: 点亮屏幕(keycode=26); Args: none; Use: 确保设备可交互; Return: None; Notes: 幂等：已亮则 no-op，仅在熄屏时发送 POWER。"""
+        device_list = await manage.refresh()
+
+        logger.info("Screen ON")
+        await asyncio.gather(
+            *(device.screen_on() for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
+    @task_middleware("screen_off")
+    async def screen_off() -> None:
+        """Class: system; Action: 锁屏/熄屏(keycode=26); Args: none; Use: 结束交互/重置状态; Return: None; Notes: screen-on 才执行, 已锁屏 no-op."""
+        device_list = await manage.refresh()
+
+        logger.info("Screen OFF")
+        await asyncio.gather(
+            *(device.screen_off() for device in device_list), return_exceptions=True
         )
 
     @mcp.tool()
@@ -200,6 +124,17 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         logger.info("KeyEvent MENU")
         return await asyncio.gather(
             *(device.key_event(82, longpress) for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
+    @task_middleware("press_power")
+    async def press_power(longpress: bool = False) -> typing.Any:
+        """Class: system; Action: 电源键(keycode=26); Args: longpress(bool)=False; Use: 锁屏/电源菜单; Return: list[device_result]; Notes: longpress 仅在用户明确“长按电源”时使用."""
+        device_list = await manage.refresh()
+
+        logger.info("KeyEvent POWER")
+        return await asyncio.gather(
+            *(device.key_event(26, longpress) for device in device_list), return_exceptions=True
         )
 
     @mcp.tool()

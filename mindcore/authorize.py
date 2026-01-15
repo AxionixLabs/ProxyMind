@@ -30,7 +30,7 @@ from engine.channel import Channel
 from engine.terminal import Terminal
 from engine.tinker import MindError
 from mindcore.design import Design
-from utils import const
+from mindnova import const
 
 
 def mask_fields(data: dict, keys: list[str], mask_char: str = "*", keep: int = 4) -> dict:

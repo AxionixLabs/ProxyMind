@@ -12,7 +12,7 @@ from engine.channel import (
     Channel, Messenger
 )
 from mindcore import authorize
-from utils import const
+from mindnova import const
 
 
 class Api(object):

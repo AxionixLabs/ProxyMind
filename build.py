@@ -23,7 +23,7 @@ from engine.tinker import (
 )
 from engine.terminal import Terminal
 from mindcore.design import Design
-from utils import const
+from mindnova import const
 
 nuitka_version = "2.8.9"  # 编译器版本
 
