@@ -16,6 +16,7 @@ nuitka --macos-create-app-bundle --macos-app-name=Mind --macos-app-version=1.0.0
 
 ---
 
+## Mind AppId
 ```
 AppId={{2FB8B36B-1BE1-4A97-9203-E89D50F0BE6E}
 ```
