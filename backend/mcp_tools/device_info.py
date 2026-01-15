@@ -5,7 +5,6 @@
 # |____/ \___| \_/ |_|\___\___| |___|_| |_|_|  \___/
 #
 
-import asyncio
 from loguru import logger
 from mcp.server import FastMCP
 from backend.middlewares.mid_task import task_middleware
@@ -15,49 +14,12 @@ from engine.manage import DeviceManage
 def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
     @mcp.tool()
-    @task_middleware("get_serial")
-    async def get_serial() -> None:
-        pass
+    @task_middleware("device_info")
+    async def device_info() -> list[dict]:
+        device_list = await manage.refresh()
 
-    @mcp.tool()
-    @task_middleware("get_model")
-    async def get_model() -> None:
-        pass
-
-    @mcp.tool()
-    @task_middleware("get_brand")
-    async def get_brand() -> None:
-        pass
-
-    @mcp.tool()
-    @task_middleware("get_sdk")
-    async def get_sdk() -> None:
-        pass
-
-    @mcp.tool()
-    @task_middleware("get_resolution")
-    async def get_resolution() -> None:
-        pass
-
-    @mcp.tool()
-    @task_middleware("get_battery")
-    async def get_battery() -> None:
-        pass
-
-    @mcp.tool()
-    @task_middleware("get_network")
-    async def get_network() -> None:
-        pass
-
-    @mcp.tool()
-    @task_middleware("get_orientation")
-    async def get_orientation() -> None:
-        pass
-
-    @mcp.tool()
-    @task_middleware("get_language")
-    async def get_language() -> None:
-        pass
+        logger.info(f"Get device info")
+        return [device.device_info for device in device_list]
 
 
 if __name__ == '__main__':

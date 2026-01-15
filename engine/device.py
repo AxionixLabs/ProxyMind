@@ -34,6 +34,20 @@ class Device(object):
         self.debuggable : bool | None = None
         self.secure     : bool | None = None
 
+        self.device_info : dict = {
+            "serial"     : self.serial,
+            "brand"      : self.brand,
+            "model"      : self.model,
+            "version"    : self.version,
+            "hardware"   : self.hardware,
+            "sdk"        : self.sdk,
+            "abi"        : self.abi,
+            "locale"     : self.locale,
+            "timezone"   : self.timezone,
+            "debuggable" : self.debuggable,
+            "secure"     : self.secure
+        }
+
     def __str__(self):
         return (
             f"<Device {self.brand} {self.model} "
