@@ -85,7 +85,9 @@ class Mind(object):
                 result = await session.call_tool(name := action["action"], action["args"])
 
                 if result.isError:
-                    yield self.sse({"type": "error", "tips": result.content[0].text}); return
+                    yield self.sse(
+                        {"type": "error", "tips": result.content[0].text}
+                    ); return
                 yield self.sse({"type": "exec", "tips": f"{name} -> {result.structuredContent}"})
 
         yield self.sse({"type": "exec", "tips": "done"})
@@ -117,10 +119,13 @@ class Mind(object):
                 # workflow: ==== Request Streaming ====
                 async for plan in request.stream_planner(payload):
                     if plan.get("type") == "error":
-                        return logger.error(f"🔴 Error {plan.get('message')}")
+                        return logger.error(f"🔴 Error {plan}")
+
+                    if not (steps := plan.get("steps")):
+                        continue
 
                     # workflow: ==== Exec Streaming ====
-                    async for line in self.exec_looper(plan, plan.get("steps"), session):
+                    async for line in self.exec_looper(plan, steps, session):
                         try:
                             exec_event = json.loads(line[len("data:"):].strip())
                         except json.JSONDecodeError:
@@ -192,7 +197,7 @@ class Mind(object):
                 ) else raw; await self.mind_trip(message, model)
 
             except MindError as e: logger.warning(e)
-            except Exception as e: logger.warning(e)
+            except Exception as e: logger.warning(e); raise e
 
 
 # """Main"""
