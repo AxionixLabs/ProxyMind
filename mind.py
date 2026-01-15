@@ -119,11 +119,8 @@ class Mind(object):
                     if plan.get("type") == "error":
                         return logger.error(f"🔴 Error {plan.get('message')}")
 
-                    if not (steps := plan.get("steps")):
-                        continue
-
                     # workflow: ==== Exec Streaming ====
-                    async for line in self.exec_looper(plan, steps, session):
+                    async for line in self.exec_looper(plan, plan.get("steps"), session):
                         try:
                             exec_event = json.loads(line[len("data:"):].strip())
                         except json.JSONDecodeError:

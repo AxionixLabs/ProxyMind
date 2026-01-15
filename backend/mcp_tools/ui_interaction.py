@@ -16,6 +16,50 @@ from engine.manage import DeviceManage
 def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
     @mcp.tool()
+    @task_middleware("swipe_up")
+    async def swipe_up(x: int, y: int, duration: int = 300) -> typing.Any:
+        """Class: ui; Action: 上方向滑动; Args: x,y(int), duration(ms)=300; Use: 页面向上滚动/翻页; Return: list[device_result]; Notes: semantic swipe."""
+        device_list = await manage.refresh()
+
+        return await asyncio.gather(
+            *(device.swipe_direction("up", x, y, duration)
+              for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
+    @task_middleware("swipe_down")
+    async def swipe_down(x: int, y: int, duration: int = 300) -> typing.Any:
+        """Class: ui; Action: 下方向滑动; Args: x,y(int), duration(ms)=300; Use: 页面向下滚动/返回; Return: list[device_result]; Notes: semantic swipe."""
+        device_list = await manage.refresh()
+
+        return await asyncio.gather(
+            *(device.swipe_direction("down", x, y, duration)
+              for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
+    @task_middleware("swipe_left")
+    async def swipe_left(x: int, y: int, duration: int = 300) -> typing.Any:
+        """Class: ui; Action: 左方向滑动; Args: x,y(int), duration(ms)=300; Use: 左翻页/轮播切换; Return: list[device_result]; Notes: semantic swipe."""
+        device_list = await manage.refresh()
+
+        return await asyncio.gather(
+            *(device.swipe_direction("left", x, y, duration)
+              for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
+    @task_middleware("swipe_right")
+    async def swipe_right(x: int, y: int, duration: int = 300) -> typing.Any:
+        """Class: ui; Action: 右方向滑动; Args: x,y(int), duration(ms)=300; Use: 右翻页/进入下一屏; Return: list[device_result]; Notes: semantic swipe."""
+        device_list = await manage.refresh()
+
+        return await asyncio.gather(
+            *(device.swipe_direction("right", x, y, duration)
+              for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
     @task_middleware("swipe")
     async def swipe(x1: int, y1: int, x2: int, y2: int, duration: int = 300) -> typing.Any:
         """Class: ui; Action: 坐标滑动; Args: x1,y1,x2,y2(int), duration(ms)=300; Use: 滚动/翻页/拖拽; Return: list[device_result]; Notes: absolute coords."""

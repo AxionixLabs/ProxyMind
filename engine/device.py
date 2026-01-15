@@ -269,6 +269,32 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== UI Interaction MCP Tool ====
+    async def swipe_direction(
+        self,
+        direction: typing.Literal["up", "down", "left", "right"],
+        x: int,
+        y: int,
+        duration: int = 300,
+    ) -> typing.Any:
+        """以锚点为参考，按方向进行语义滑动，根据屏幕尺寸自动计算终点坐标。"""
+
+        w, h = await self.st_wm_size()
+
+        x1, y1 = x, y
+
+        match direction:
+            case "up"    : x2, y2 = x1, max(0, int(h * 0.25))
+            case "down"  : x2, y2 = x1, min(h - 1, int(h * 0.75))
+            case "left"  : x2, y2 = max(0, int(w * 0.25)), y1
+            case "right" : x2, y2 = min(w - 1, int(w * 0.75)), y1
+            case _: return None
+
+        cmd = self.prefix + [
+            "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration)
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== UI Interaction MCP Tool ====
     async def tap(self, x: int, y: int) -> typing.Any:
         """点击指定坐标。"""
         cmd = self.prefix + [
