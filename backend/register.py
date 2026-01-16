@@ -27,7 +27,7 @@ def register_all_tools(mcp: FastMCP, manage: DeviceManage) -> None:
     media_control.bind(mcp, manage)
     system_control.bind(mcp, manage)
     ui_interaction.bind(mcp, manage)
-    zest.bind(mcp)
+    zest.bind(mcp, manage)
 
 
 if __name__ == '__main__':
