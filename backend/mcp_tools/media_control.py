@@ -19,7 +19,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @task_middleware("screenshot")
     async def screenshot() -> typing.Any:
         """Class: media; Action: 截取当前屏幕截图; Args: none; Use: 取证/调试/执行后验证; Return: list[device_result]; Notes: 截图结果（可能包含路径/bytes/metadata，依 device 实现而定）"""
-        device_list = await manage.refresh()
+        device_list = manage.snapshot
 
         logger.info("Screenshot")
         return await asyncio.gather(
