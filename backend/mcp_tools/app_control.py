@@ -35,7 +35,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
         logger.info(f"App start {package}")
         return await asyncio.gather(
-            *(device.app_start(package) for device in device_list), return_exceptions=True
+            *(device.app_start(package, activity) for device in device_list), return_exceptions=True
         )
 
     @mcp.tool()
