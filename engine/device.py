@@ -135,10 +135,18 @@ class Device(object):
         return await Terminal.cmd_line_shell(" ".join(cmd))
 
     # workflow: ==== App Control MCP Tool ====
-    async def app_start(self, package: str) -> typing.Any:
-        """启动指定包名的应用。"""
+    async def app_start(self, package: str, activity: typing.Optional[str] = None) -> typing.Any:
+        """启动指定 Android 应用，可选择精确启动 Activity 或默认 Launcher 入口。"""
+        action, category = "android.intent.action.MAIN", "android.intent.category.LAUNCHER"
+
+        if activity:
+            cmd = self.prefix + [
+                "am", "start", "-a", action, "-c", category, "-n", f"{package}/{activity}"
+            ]
+            return await Terminal.cmd_line(cmd)
+
         cmd = self.prefix + [
-            "shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"
+            "shell", "monkey", "-p", package, "-c", category, "1"
         ]
         return await Terminal.cmd_line(cmd)
 
@@ -277,17 +285,15 @@ class Device(object):
         duration: int = 300,
     ) -> typing.Any:
         """以锚点为参考，按方向进行语义滑动，根据屏幕尺寸自动计算终点坐标。"""
-
         w, h = await self.st_wm_size()
 
-        x1, y1 = x, y
+        x1, y1, x2, y2 = x, y, 0, 0
 
         match direction:
             case "up"    : x2, y2 = x1, max(0, int(h * 0.25))
             case "down"  : x2, y2 = x1, min(h - 1, int(h * 0.75))
             case "left"  : x2, y2 = max(0, int(w * 0.25)), y1
             case "right" : x2, y2 = min(w - 1, int(w * 0.75)), y1
-            case _: return None
 
         cmd = self.prefix + [
             "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration)
