@@ -10,6 +10,7 @@ import re
 import sys
 import json
 import stat
+import time
 import shutil
 import signal
 import typing
@@ -51,6 +52,9 @@ class Mind(object):
         self.task_event: asyncio.Event = asyncio.Event()
         self.url = "http://127.0.0.1:3333/mcp"
 
+        self.last_refresh_ts = 0.0
+        self.ttl_sec         = 1.0
+
         self.sse: typing.Callable[
             [dict], str
         ] = lambda x: f"data: {json.dumps(x, ensure_ascii=False)}\n\n"
@@ -73,6 +77,19 @@ class Mind(object):
         self.task_event.set()
         sys.exit(130)
 
+    async def exec_status(self, session: ClientSession) -> None:
+        if ((now := time.time()) - self.last_refresh_ts) < self.ttl_sec:
+            return None
+
+        tools = {
+            "name": "refresh_with_ttl", "arguments": {"ttl_sec": self.ttl_sec}
+        }
+
+        if (resp := await session.call_tool(**tools)).isError:
+            raise MindError(resp.content[0].text)
+
+        self.last_refresh_ts = now
+
     async def exec_looper(self, plan: dict, steps: list, session: ClientSession) -> typing.AsyncGenerator[str, None]:
         """Exec Looper"""
         loop_count = plan.get("loop_count", 1)
@@ -82,6 +99,15 @@ class Mind(object):
         for i in range(loop_count):
             for step in steps:
                 action = step["action"]
+
+                # ✅ 每次执行工具前，先确保 server 侧设备缓存是新的（TTL 控频）
+                try:
+                    await self.exec_status(session)
+                except MindError as e:
+                    yield self.sse(
+                        {"type": "error", "tips": f"Device refresh failed: {e}"}
+                    ); return
+                    
                 result = await session.call_tool(name := action["action"], action["args"])
 
                 if result.isError:
