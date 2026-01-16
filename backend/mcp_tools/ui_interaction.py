@@ -93,6 +93,17 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
+    @task_middleware("double_click")
+    async def double_click(x: int, y: int) -> typing.Any:
+        """Class: ui; Action: 双击坐标; Args: x(int), y(int); Use: 触发双击手势; Return: list[device_result]; Notes: adb input tap x y; sleep 0.08; input tap x y."""
+        device_list = await manage.refresh()
+
+        logger.info(f"DoubleClick {x} {y}")
+        return await asyncio.gather(
+            *(device.double_click(x, y) for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
     @task_middleware("send_keys")
     async def send_keys(text: str) -> typing.Any:
         """Class: ui; Action: 输入文本到当前焦点; Args: text(str); Use: 输入框已聚焦时输入; Return: list[device_result]; Notes: 不负责定位/点击, 无焦点可能失败."""
