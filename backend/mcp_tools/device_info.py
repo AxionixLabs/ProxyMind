@@ -19,7 +19,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @task_middleware("snapshot")
     async def snapshot() -> typing.Any:
         """Class: device; Action: 采集设备状态快照; Args: none; Use: 查看所有设备型号/状态/联网/屏幕/电量；Return: list[device_result]; Notes: 每台设备并发采集，失败设备返回异常结果。"""
-        device_list = await manage.refresh()
+        device_list = manage.snapshot
 
         logger.info("Get device snapshot")
         return await asyncio.gather(
