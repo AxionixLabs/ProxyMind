@@ -425,6 +425,15 @@ class Device(object):
         return await self.tap(center[0], center[1])
 
     # workflow: ==== UI Interaction MCP Tool ====
+    async def double_click(self, x: int, y: int) -> typing.Any:
+        """在同一坐标执行双击（两次 tap，中间等待 0.08 秒）。"""
+        cmd = (
+            " ".join(self.prefix)
+            + f" shell input tap {x} {y}; sleep 0.08; input tap {x} {y}"
+        )
+        return await Terminal.cmd_line_shell(cmd)
+
+    # workflow: ==== UI Interaction MCP Tool ====
     async def send_keys(self, text: str) -> typing.Any:
         """向当前焦点输入文本。"""
         cmd = self.prefix + [
