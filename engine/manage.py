@@ -74,6 +74,11 @@ class DeviceManage(object):
 
     @property
     def snapshot(self) -> list[Device]:
+        if not self.device_list:
+            raise RuntimeError(
+                "Device not connected ... (call refresh_with_ttl first)"
+            )
+
         return list(self.device_list)
 
     async def connect(self) -> list[Device]:
