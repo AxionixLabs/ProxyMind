@@ -184,6 +184,14 @@ class Device(object):
 
         return await Terminal.cmd_line(cmd)
 
+    # workflow: ==== App Control MCP Tool ====
+    async def app_clear(self, package: str) -> typing.Any:
+        """清除指定应用的数据与缓存（等价于系统设置中的“清除数据”）。"""
+        cmd = self.prefix + [
+            "shell", "pm", "clear", package
+        ]
+        return await Terminal.cmd_line(cmd)
+
     # workflow: ==== File Control MCP Tool ====
     async def pull(self, remote: str, local: str) -> typing.Any:
         """从设备拉取文件到本地。"""
