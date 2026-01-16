@@ -88,6 +88,7 @@ class Mind(object):
         if (resp := await session.call_tool(**tools)).isError:
             raise MindError(resp.content[0].text)
 
+        logger.info(f"⚜️ Heartbeat {resp.structuredContent}")
         self.last_refresh_ts = now
 
     async def exec_looper(self, plan: dict, steps: list, session: ClientSession) -> typing.AsyncGenerator[str, None]:
