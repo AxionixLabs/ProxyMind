@@ -83,6 +83,72 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
+    @task_middleware("bluetooth_on")
+    async def bluetooth_on() -> typing.Any:
+        """Class: system; Action: 打开蓝牙(svc); Args: none; Use: 打开蓝牙；Return: list[device_result]; Notes: adb shell svc bluetooth enable."""
+        device_list = await manage.refresh()
+
+        logger.info("Bluetooth ON")
+        return await asyncio.gather(
+            *(device.bluetooth_set("enable") for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
+    @task_middleware("bluetooth_off")
+    async def bluetooth_off() -> typing.Any:
+        """Class: system; Action: 关闭蓝牙(svc); Args: none; Use: 关闭蓝牙；Return: list[device_result]; Notes: adb shell svc bluetooth disable."""
+        device_list = await manage.refresh()
+
+        logger.info("Bluetooth OFF")
+        return await asyncio.gather(
+            *(device.bluetooth_set("disable") for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
+    @task_middleware("wifi_on")
+    async def wifi_on() -> typing.Any:
+        """Class: system; Action: 打开WiFi(svc); Args: none; Use: 打开WiFi；Return: list[device_result]; Notes: adb shell svc wifi enable."""
+        device_list = await manage.refresh()
+
+        logger.info("WiFi ON")
+        return await asyncio.gather(
+            *(device.wifi_set("enable") for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
+    @task_middleware("wifi_off")
+    async def wifi_off() -> typing.Any:
+        """Class: system; Action: 关闭WiFi(svc); Args: none; Use: 关闭WiFi；Return: list[device_result]; Notes: adb shell svc wifi disable."""
+        device_list = await manage.refresh()
+
+        logger.info("WiFi OFF")
+        return await asyncio.gather(
+            *(device.wifi_set("disable") for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
+    @task_middleware("data_on")
+    async def data_on() -> typing.Any:
+        """Class: system; Action: 打开移动数据(svc); Args: none; Use: 打开移动数据；Return: list[device_result]; Notes: adb shell svc data enable."""
+        device_list = await manage.refresh()
+
+        logger.info("Mobile Data ON")
+        return await asyncio.gather(
+            *(device.data_set("enable") for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
+    @task_middleware("data_off")
+    async def data_off() -> typing.Any:
+        """Class: system; Action: 关闭移动数据(svc); Args: none; Use: 关闭移动数据；Return: list[device_result]; Notes: adb shell svc data disable."""
+        device_list = await manage.refresh()
+
+        logger.info("Mobile Data OFF")
+        return await asyncio.gather(
+            *(device.data_set("disable") for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
     @task_middleware("go_home")
     async def go_home(longpress: bool = False) -> typing.Any:
         """Class: system; Action: 回到桌面(keycode=3); Args: longpress(bool)=False; Use: 系统导航回桌面; Return: list[device_result]; Notes: “长按主页”才用 longpress=True."""
