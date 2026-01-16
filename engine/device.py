@@ -34,7 +34,22 @@ class Device(object):
         self.debuggable : bool | None = None
         self.secure     : bool | None = None
 
-        self.device_info : dict = {
+    def __str__(self):
+        return (
+            f"<Device {self.brand} {self.model} "
+            f"serial={self.serial} version={self.version} hardware={self.hardware} sdk={self.sdk} abi={self.abi} "
+            f"locale={self.locale} timezone={self.timezone} debuggable={self.debuggable} secure={self.secure}>"
+        )
+
+    __repr__ = __str__
+
+    @property
+    def prefix(self) -> list[str]:
+        return ["adb", "-s", self.serial]
+
+    @property
+    def device_info(self) -> dict:
+        return {
             "serial"     : self.serial,
             "brand"      : self.brand,
             "model"      : self.model,
@@ -48,19 +63,21 @@ class Device(object):
             "secure"     : self.secure
         }
 
-    def __str__(self):
-        return (
-            f"<Device {self.brand} {self.model} "
-            f"serial={self.serial} version={self.version} hardware={self.hardware} sdk={self.sdk} abi={self.abi} "
-            f"locale={self.locale} timezone={self.timezone} debuggable={self.debuggable} secure={self.secure}>"
-        )
+    async def snapshot(self) -> dict:
+        """采集并返回该设备当前所有状态快照。"""
+        battery     = await self.st_battery()
+        wm_size     = await self.st_wm_size()
+        online      = await self.is_online()
+        emulator    = await self.is_emulator()
+        screen_lock = await self.is_screen_lock()
 
-    __repr__ = __str__
-
-    @property
-    def prefix(self) -> list[str]:
-        """构建当前设备的 adb 命令前缀。"""
-        return ["adb", "-s", self.serial]
+        return self.device_info | {
+            "battery"     : battery,
+            "wm_size"     : {"w": wm_size[0], "h": wm_size[1]} if wm_size else None,
+            "online"      : online,
+            "emulator"    : emulator,
+            "screen_lock" : screen_lock
+        }
 
     async def st_load_info(self) -> None:
         """从 adb getprop 加载并填充设备属性。"""
@@ -106,25 +123,32 @@ class Device(object):
 
         return int(m.group(1)), int(m.group(2))
 
-    async def is_screen_on(self) -> bool:
-        """检查屏幕是否处于点亮状态。"""
-        cmd = self.prefix + [
-            "shell", "dumpsys", "power", "|", "grep", "mWakefulness"
-        ]
-        return "Awake" in await Terminal.cmd_line(cmd)
-
+    async def is_online(self) -> bool:
+        """是否能真正访问互联网。"""
+        resp = await Terminal.cmd_line(
+            self.prefix + ["shell", "ping", "-c", "1", "8.8.8.8"]
+        )
+        return bool(resp and "1 packets transmitted" in resp)
+    
+    async def is_emulator(self) -> bool:
+        """根据硬件/机型特征判断是否为模拟器。"""
+        return (
+            "goldfish" in self.hardware or "ranchu" in self.hardware or "sdk" in self.model
+        )
+    
     async def is_screen_lock(self) -> bool:
         """检查是否正在显示锁屏。"""
         cmd = self.prefix + [
             "shell", "dumpsys", "window", "|", "grep", "mDreamingLockscreen"
         ]
         return "Awake" in await Terminal.cmd_line(cmd)
-
-    async def is_emulator(self) -> bool:
-        """根据硬件/机型特征判断是否为模拟器。"""
-        return (
-            "goldfish" in self.hardware or "ranchu" in self.hardware or "sdk" in self.model
-        )
+    
+    async def is_screen_on(self) -> bool:
+        """检查屏幕是否处于点亮状态。"""
+        cmd = self.prefix + [
+            "shell", "dumpsys", "power", "|", "grep", "mWakefulness"
+        ]
+        return "Awake" in await Terminal.cmd_line(cmd)
 
     # workflow: ==== App Control MCP Tool ====
     async def deep_link(self, url: str) -> typing.Any:
