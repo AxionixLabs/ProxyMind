@@ -158,6 +158,32 @@ class Device(object):
         ]
         return await Terminal.cmd_line(cmd)
 
+    # workflow: ==== App Control MCP Tool ====
+    async def app_install(self, apk: str, replace: bool = True, downgrade: bool = False, test: bool = False) -> typing.Any:
+        """安装 APK。"""
+        cmd = self.prefix + ["install"]
+
+        if replace: cmd.append("-r")
+        if downgrade: cmd.append("-d")
+        if test: cmd.append("-t")
+
+        cmd.append(apk)
+
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== App Control MCP Tool ====
+    async def app_uninstall(self, package: str, *, keep_data: bool = False) -> typing.Any:
+        """卸载指定包名的应用。"""
+        cmd = self.prefix + [
+            "shell", "pm", "uninstall"
+        ]
+
+        if keep_data: cmd.append("-k")
+
+        cmd.append(package)
+
+        return await Terminal.cmd_line(cmd)
+
     # workflow: ==== File Control MCP Tool ====
     async def pull(self, remote: str, local: str) -> typing.Any:
         """从设备拉取文件到本地。"""
