@@ -13,7 +13,9 @@ import asyncio
 import tempfile
 import xml.etree.ElementTree as Et
 from engine.terminal import Terminal
-from mindnova import const, request
+from mindnova import (
+    const, request
+)
 
 
 class Device(object):
