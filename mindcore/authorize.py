@@ -4,9 +4,6 @@
 #   / ___ \ |_| | |_| | | | (_) | |  | |/ /  __/
 #  /_/   \_\__,_|\__|_| |_|\___/|_|  |_/___\___|
 #
-# ==== Notes: License ====
-# Copyright (c) 2024  Memrix :: 记忆星核
-# This file is licensed under the Memrix :: 记忆星核 License. See the LICENSE.md file for more details.
 
 import json
 import uuid
