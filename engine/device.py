@@ -193,7 +193,13 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== App Control MCP Tool ====
-    async def app_install(self, apk: str, replace: bool = True, downgrade: bool = False, test: bool = False) -> typing.Any:
+    async def app_install(
+        self, 
+        apk: str, 
+        replace: bool = True, 
+        downgrade: bool = False, 
+        test: bool = False
+    ) -> typing.Any:
         """安装 APK。"""
         cmd = self.prefix + ["install"]
 
