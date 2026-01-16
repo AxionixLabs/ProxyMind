@@ -62,7 +62,8 @@ class Device(object):
             "debuggable" : self.debuggable,
             "secure"     : self.secure
         }
-
+        
+    # workflow: ==== Device Info MCP Tool ====
     async def snapshot(self) -> dict:
         """采集并返回该设备当前所有状态快照。"""
         battery     = await self.st_battery()
@@ -78,7 +79,8 @@ class Device(object):
             "emulator"    : emulator,
             "screen_lock" : screen_lock
         }
-
+        
+    # workflow: ==== Device ====
     async def st_load_info(self) -> None:
         """从 adb getprop 加载并填充设备属性。"""
         if not (resp := await Terminal.cmd_line(self.prefix + ["shell", "getprop"])):
@@ -101,6 +103,7 @@ class Device(object):
         self.debuggable = pick("ro.debuggable") == "1"
         self.secure     = pick("ro.secure")     == "1"
 
+    # workflow: ==== Device ====
     async def st_battery(self) -> int | None:
         """读取电池 scale 数值。"""
         cmd = self.prefix + [
@@ -110,6 +113,7 @@ class Device(object):
 
         return m.group() if (m := re.search(r"(?<=scale:\s)\d+", resp, re.S)) else None
 
+    # workflow: ==== Device ====
     async def st_wm_size(self) -> tuple[int, int] | None:
         """获取物理屏幕分辨率。"""
         cmd = self.prefix + [
@@ -122,27 +126,31 @@ class Device(object):
             return None
 
         return int(m.group(1)), int(m.group(2))
-
+    
+    # workflow: ==== Device ====
     async def is_online(self) -> bool:
         """是否能真正访问互联网。"""
         resp = await Terminal.cmd_line(
             self.prefix + ["shell", "ping", "-c", "1", "8.8.8.8"]
         )
         return bool(resp and "1 packets transmitted" in resp)
-    
+
+    # workflow: ==== Device ====
     async def is_emulator(self) -> bool:
         """根据硬件/机型特征判断是否为模拟器。"""
         return (
             "goldfish" in self.hardware or "ranchu" in self.hardware or "sdk" in self.model
         )
-    
+
+    # workflow: ==== Device ====
     async def is_screen_lock(self) -> bool:
         """检查是否正在显示锁屏。"""
         cmd = self.prefix + [
             "shell", "dumpsys", "window", "|", "grep", "mDreamingLockscreen"
         ]
         return "Awake" in await Terminal.cmd_line(cmd)
-    
+
+    # workflow: ==== Device ====
     async def is_screen_on(self) -> bool:
         """检查屏幕是否处于点亮状态。"""
         cmd = self.prefix + [
