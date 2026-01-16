@@ -20,7 +20,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @task_middleware("deep_link")
     async def deep_link(url: str) -> typing.Any:
         """Class: app; Action: 深链跳转(am start VIEW); Args: url(str); Use: 直达应用内部页面/服务; Return: list[device_result]; Notes: 需系统存在 handler."""
-        device_list = await manage.refresh()
+        device_list = manage.snapshot
 
         logger.info(f"Deep link {url}")
         return await asyncio.gather(
@@ -31,7 +31,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @task_middleware("app_start")
     async def app_start(package: str, activity: typing.Optional[str] = None) -> typing.Any:
         """Class: app; Action: 启动应用(am/monkey); Args: package(str), activity(str|None); Use: 打开/启动某应用，可指定 Activity 精确启动; Return: list[device_result]; Notes: activity 为空则走 monkey 启动主入口，非空则 am start -n package/activity."""
-        device_list = await manage.refresh()
+        device_list = manage.snapshot
 
         logger.info(f"App start {package}")
         return await asyncio.gather(
@@ -42,7 +42,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @task_middleware("app_stop")
     async def app_stop(package: str) -> typing.Any:
         """Class: app; Action: 强制停止应用(force-stop); Args: package(str); Use: 重启应用/清理状态; Return: list[device_result]; Notes: 终止进程与后台任务."""
-        device_list = await manage.refresh()
+        device_list = manage.snapshot
 
         logger.info(f"App stop {package}")
         return await asyncio.gather(
@@ -53,7 +53,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @task_middleware("app_install")
     async def app_install(apk: str, replace: bool = True, downgrade: bool = False, test: bool = False) -> typing.Any:
         """Class: app; Action: 安装APK; Args: apk(str), replace(bool), downgrade(bool), test(bool); Use: 安装/部署某应用；Return: list[device_result]; Notes: replace=-r, downgrade=-d, test=-t."""
-        device_list = await manage.refresh()
+        device_list = manage.snapshot
 
         logger.info(
             f"App install apk={apk} replace={replace} downgrade={downgrade} test={test}"
@@ -68,7 +68,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @task_middleware("app_uninstall")
     async def app_uninstall(package: str, keep_data: bool = False) -> typing.Any:
         """Class: app; Action: 卸载应用; Args: package(str), keep_data(bool); Use: 卸载/移除某应用；Return: list[device_result]; Notes: keep_data=True 时使用 pm uninstall -k 保留数据目录。"""
-        device_list = await manage.refresh()
+        device_list = manage.snapshot
 
         logger.info(f"App uninstall package={package} keep_data={keep_data}")
         return await asyncio.gather(
@@ -80,7 +80,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @task_middleware("app_clear")
     async def app_clear(package: str) -> typing.Any:
         """Class: app; Action: 清除应用数据; Args: package(str); Use: 清除应用数据/重置应用；Return: list[device_result]; Notes: 等价于 pm clear，不卸载应用。"""
-        device_list = await manage.refresh()
+        device_list = manage.snapshot
 
         logger.info(f"App clear package={package}")
         return await asyncio.gather(
