@@ -34,6 +34,13 @@ Version [bold #FFD75F]{APP_VERSION}[/] :: Licensed software. Authorization requi
 PRINT_HEAD   = f"🧬"
 PRINT_FORMAT = f"<level>{{message}}</level>"
 
+# ========【服务授权】========
+# openssl rand -base64 64 | tr '+/' '-_' | tr -d '=\n'
+MASTER   = r"7zUyfFya8Av0_ixhxKgLeGfVkKF0xy5qQw9pGnEobEZx6kgjKmrUVHiUvdlibNKwybf_H1vRt7_-2PfMLmtACA%"
+ISSUER   = r"https://auth.helix.local/issuer"
+AUDIENCE = r"helix-mcp-api"
+RS_URL   = r"http://127.0.0.1:3333/mcp"
+
 
 if __name__ == '__main__':
     pass

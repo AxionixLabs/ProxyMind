@@ -75,9 +75,7 @@ class DeviceManage(object):
     @property
     def snapshot(self) -> list[Device]:
         if not self.device_list:
-            raise RuntimeError(
-                "Device not connected ... (call refresh_with_ttl first)"
-            )
+            raise RuntimeError("Device not connected")
 
         return list(self.device_list)
 
@@ -88,7 +86,7 @@ class DeviceManage(object):
         resp = await Terminal.cmd_line(["adb", "devices"])
 
         if not resp or not (lines := [line.strip() for line in resp.splitlines() if line.strip()]):
-            raise RuntimeError("Device not connected ...")
+            raise RuntimeError("Device not connected")
 
         if "not found" in (low := resp.lower()) or low.startswith("adb:") or low.startswith("error"):
             raise RuntimeError(f"ADB error: {resp.strip()}")
@@ -105,15 +103,12 @@ class DeviceManage(object):
 
         return self.snapshot
 
-    async def refresh(self) -> list[Device]:
-        async with self.lock:
-            return await self.connect()
-
-    async def refresh_with_ttl(self, ttl_sec: float = 1.0) -> list[Device]:
+    async def refresh(self, ttl_sec: float = 1.0) -> list[Device]:
         if self.device_list and (time.time() - self.last_refresh_ts) < ttl_sec:
             return self.snapshot
 
-        return await self.refresh()
+        async with self.lock:
+            return await self.connect()
 
 
 if __name__ == '__main__':

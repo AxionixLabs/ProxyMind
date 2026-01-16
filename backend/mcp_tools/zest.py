@@ -22,10 +22,10 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         return await asyncio.sleep(delay)
 
     @mcp.tool()
-    @task_middleware("refresh_with_ttl")
-    async def refresh_with_ttl(ttl_sec: float = 1.0) -> dict:
+    @task_middleware("refresh")
+    async def refresh(ttl_sec: float = 1.0) -> dict:
         """Class: tool; Action: 刷新设备列表(TTL缓存); Args: ttl_sec(float); Use: 执行前获取/更新可用设备; Return: {devices:int,serials:list[str]}; Notes: ttl内复用缓存, 超时才重扫adb."""
-        device_list = await manage.refresh_with_ttl(ttl_sec)
+        device_list = await manage.refresh(ttl_sec)
 
         return {
             "devices": len(device_list),

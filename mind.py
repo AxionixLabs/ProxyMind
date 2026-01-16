@@ -11,6 +11,7 @@ import sys
 import json
 import stat
 import time
+import httpx
 import shutil
 import signal
 import typing
@@ -24,15 +25,16 @@ from mcp import (
 from mcp.client.streamable_http import streamable_http_client
 from mindcore.api import Api
 from mindcore.design import Design
-from engine.manage import (
-    ServerManage
-)
+from engine.manage import ServerManage
 from engine.tinker import (
     MindError, Active
 )
 from engine.terminal import Terminal
 from mindcore.parser import Parser
-from mindnova import const, request
+from mindnova.auth import mint_token
+from mindnova import (
+    const, request
+)
 
 
 class Mind(object):
@@ -77,19 +79,19 @@ class Mind(object):
         self.task_event.set()
         sys.exit(130)
 
-    async def exec_status(self, session: ClientSession) -> None:
+    async def exec_status(self, session: ClientSession) -> typing.Optional[dict]:
         if ((now := time.time()) - self.last_refresh_ts) < self.ttl_sec:
-            return None
+            return logger.debug(f"⚜️ ttl-hit: skip refresh ttl={self.ttl_sec:.3f}s")
 
         tools = {
-            "name": "refresh_with_ttl", "arguments": {"ttl_sec": self.ttl_sec}
+            "name": "refresh", "arguments": {"ttl_sec": self.ttl_sec}
         }
 
         if (resp := await session.call_tool(**tools)).isError:
-            raise MindError(resp.content[0].text)
+            return {"type": "error", "tips": resp.content[0].text}
 
-        logger.info(f"⚜️ Heartbeat {resp.structuredContent}")
         self.last_refresh_ts = now
+        return logger.debug(f"⚜️ {resp.structuredContent}")
 
     async def exec_looper(self, plan: dict, steps: list, session: ClientSession) -> typing.AsyncGenerator[str, None]:
         """Exec Looper"""
@@ -102,65 +104,66 @@ class Mind(object):
                 action = step["action"]
 
                 # ✅ 每次执行工具前，先确保 server 侧设备缓存是新的（TTL 控频）
-                try:
-                    await self.exec_status(session)
-                except MindError as e:
-                    yield self.sse(
-                        {"type": "error", "tips": f"Device refresh failed: {e}"}
-                    ); return
-                    
+                if (status := await self.exec_status(session)) and status.get("type") == "error":
+                    yield self.sse(status)
+                    return
+
                 result = await session.call_tool(name := action["action"], action["args"])
 
                 if result.isError:
-                    yield self.sse(
-                        {"type": "error", "tips": result.content[0].text}
-                    ); return
+                    yield self.sse({"type": "error", "tips": result.content[0].text})
+                    return
+
                 yield self.sse({"type": "exec", "tips": f"{name} -> {result.structuredContent}"})
 
         yield self.sse({"type": "exec", "tips": "done"})
 
     async def mind_trip(self, message: str, model: typing.Optional[str] = "llama-3.3-70b-versatile") -> None:
         """Mind Trip"""
-        async with streamable_http_client(self.url) as (r, w, _):
-            async with ClientSession(r, w) as session:
-                await session.initialize()
 
-                list_tools: ListToolsResult = await session.list_tools()
+        headers = {"Authorization": f"Bearer {mint_token()}"}
 
-                openai_tools = [
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": tool.name,
-                            "description" : tool.description,
-                            "parameters"  : tool.inputSchema
+        async with httpx.AsyncClient(headers=headers) as client:
+            async with streamable_http_client(self.url, http_client=client) as (r, w, _):
+                async with ClientSession(r, w) as session:
+                    await session.initialize()
+
+                    list_tools: ListToolsResult = await session.list_tools()
+
+                    openai_tools = [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": tool.name,
+                                "description" : tool.description,
+                                "parameters"  : tool.inputSchema
+                            }
                         }
-                    }
-                    for tool in list_tools.tools
-                ]
+                        for tool in list_tools.tools
+                    ]
 
-                for tool in openai_tools: logger.debug(f"⚙️ Tool {tool['function']['name']}")
+                    for tool in openai_tools: logger.debug(f"⚙️ Tool {tool['function']['name']}")
 
-                payload = {"model": model, "message": message, "tools": openai_tools}
+                    payload = {"model": model, "message": message, "tools": openai_tools}
 
-                # workflow: ==== Request Streaming ====
-                async for plan in request.stream_planner(payload):
-                    if plan.get("type") == "error":
-                        return logger.error(f"🔴 Error {plan}")
+                    # workflow: ==== Request Streaming ====
+                    async for plan in request.stream_planner(payload):
+                        if plan.get("type") == "error":
+                            return logger.error(f"🔴 Error {plan}")
 
-                    if not (steps := plan.get("steps")):
-                        continue
-
-                    # workflow: ==== Exec Streaming ====
-                    async for line in self.exec_looper(plan, steps, session):
-                        try:
-                            exec_event = json.loads(line[len("data:"):].strip())
-                        except json.JSONDecodeError:
+                        if not (steps := plan.get("steps")):
                             continue
 
-                        if exec_event.get("type") == "error":
-                            return logger.error(f"🔴 {exec_event.get('tips')}")
-                        logger.info(f"🔶 {exec_event.get('tips')}")
+                        # workflow: ==== Exec Streaming ====
+                        async for line in self.exec_looper(plan, steps, session):
+                            try:
+                                exec_event = json.loads(line[len("data:"):].strip())
+                            except json.JSONDecodeError:
+                                continue
+
+                            if exec_event.get("type") == "error":
+                                return logger.error(f"🔴 {exec_event.get('tips')}")
+                            logger.info(f"🔶 {exec_event.get('tips')}")
 
     async def mind_loop(self) -> None:
         """Mind Loop"""
@@ -190,7 +193,8 @@ class Mind(object):
             "qwen/qwen3-32b"
         ]
 
-        model = "llama-3.3-70b-versatile"
+        # model = "llama-3.3-70b-versatile"
+        model = "deepseek-chat"
 
         quit_set: set[str] = {"/quit", "/q", "quit", "exit"}
         help_set: set[str] = {"/help", "/h"}
@@ -224,7 +228,7 @@ class Mind(object):
                 ) else raw; await self.mind_trip(message, model)
 
             except MindError as e: logger.warning(e)
-            except Exception as e: logger.warning(e); raise e
+            except Exception as e: logger.error(e)
 
 
 # """Main"""

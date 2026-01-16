@@ -5,28 +5,38 @@
 # |_| |_|\___|_|_/_/\_\
 #
 
-from mcp.server                 import FastMCP
-from engine.manage              import DeviceManage
-from register                   import register_all_tools
-from backend.mcp_core.cli       import Cli
-from backend.utilities          import const
-from backend.utilities.pipeline import Active
+from pydantic                     import AnyHttpUrl
+from mcp.server.fastmcp           import FastMCP
+from mcp.server.auth.settings     import AuthSettings
+from engine.manage                import DeviceManage
+from backend.mcp_core.cli         import Cli
+from backend.middlewares.mid_auth import HelixTokenVerifier
+from backend.utilities            import const
+from backend.utilities.pipeline   import Active
+from register                     import register_all_tools
 
+cli = Cli()
+cmd_lines = cli.parse_cmd
+log_level = cmd_lines.level
 
 mcp = FastMCP(
     name=const.APP_DESC,
     website_url=const.APP_URL,
     host="127.0.0.1",
     port=3333,
-    json_response=True
+    log_level=log_level,
+    json_response=True,
+    token_verifier=HelixTokenVerifier(),
+    auth=AuthSettings(
+        issuer_url=AnyHttpUrl(const.ISSUER),
+        resource_server_url=AnyHttpUrl(const.RS_URL),
+        required_scopes=["user"]
+    )
 )
 
 
 def main() -> None:
-    cli = Cli()
-    cmd_lines = cli.parse_cmd
-
-    Active.active(cmd_lines.level)
+    Active.active(log_level)
 
     register_all_tools(mcp, DeviceManage())
 

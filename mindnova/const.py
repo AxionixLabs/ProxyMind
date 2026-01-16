@@ -48,6 +48,13 @@ ERR = f"[bold #FFFFFF on #FF6347]"
 
 PRINT_FORMAT = f"<level>{{level: <8}}</level> | <level>{{message}}</level>"
 
+# ========【服务授权】========
+# openssl rand -base64 64 | tr '+/' '-_' | tr -d '=\n'
+MASTER   = r"7zUyfFya8Av0_ixhxKgLeGfVkKF0xy5qQw9pGnEobEZx6kgjKmrUVHiUvdlibNKwybf_H1vRt7_-2PfMLmtACA%"
+ISSUER   = r"https://auth.helix.local/issuer"
+AUDIENCE = r"helix-mcp-api"
+STEP_SEC = 300
+
 # ========【应用授权】========
 BOOTSTRAP_URL      = f"https://api.appserverx.com/bootstrap"
 TEMPLATE_META_URL  = f""
