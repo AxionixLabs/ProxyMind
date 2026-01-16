@@ -29,7 +29,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
     @mcp.tool()
     @task_middleware("app_start")
-    async def app_start(package: str) -> typing.Any:
+    async def app_start(package: str, activity: typing.Optional[str] = None) -> typing.Any:
         """Class: app; Action: 启动应用(am/monkey); Args: package(str), activity(str|None); Use: 用户语义“打开/启动某应用”，可指定 Activity 精确启动; Return: list[device_result]; Notes: activity 为空则走 monkey 启动主入口，非空则 am start -n package/activity."""
         device_list = await manage.refresh()
 
