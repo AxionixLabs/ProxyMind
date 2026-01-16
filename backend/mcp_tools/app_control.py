@@ -76,6 +76,18 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
               for device in device_list), return_exceptions=True
         )
 
+    @mcp.tool()
+    @task_middleware("app_clear")
+    async def app_clear(package: str) -> typing.Any:
+        """Class: app; Action: 清除应用数据; Args: package(str); Use: 清除应用数据/重置应用；Return: list[device_result]; Notes: 等价于 pm clear，不卸载应用。"""
+        device_list = await manage.refresh()
+
+        logger.info(f"App clear package={package}")
+        return await asyncio.gather(
+            *(device.app_clear(package)
+              for device in device_list), return_exceptions=True
+        )
+
 
 if __name__ == '__main__':
     pass
