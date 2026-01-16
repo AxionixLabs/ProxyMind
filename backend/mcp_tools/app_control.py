@@ -30,7 +30,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @mcp.tool()
     @task_middleware("app_start")
     async def app_start(package: str, activity: typing.Optional[str] = None) -> typing.Any:
-        """Class: app; Action: 启动应用(am/monkey); Args: package(str), activity(str|None); Use: 用户语义“打开/启动某应用”，可指定 Activity 精确启动; Return: list[device_result]; Notes: activity 为空则走 monkey 启动主入口，非空则 am start -n package/activity."""
+        """Class: app; Action: 启动应用(am/monkey); Args: package(str), activity(str|None); Use: 打开/启动某应用，可指定 Activity 精确启动; Return: list[device_result]; Notes: activity 为空则走 monkey 启动主入口，非空则 am start -n package/activity."""
         device_list = await manage.refresh()
 
         logger.info(f"App start {package}")
@@ -47,6 +47,33 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         logger.info(f"App stop {package}")
         return await asyncio.gather(
             *(device.app_stop(package) for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
+    @task_middleware("app_install")
+    async def app_install(apk: str, replace: bool = True, downgrade: bool = False, test: bool = False) -> typing.Any:
+        """Class: app; Action: 安装APK; Args: apk(str), replace(bool), downgrade(bool), test(bool); Use: 安装/部署某应用；Return: list[device_result]; Notes: replace=-r, downgrade=-d, test=-t."""
+        device_list = await manage.refresh()
+
+        logger.info(
+            f"App install apk={apk} replace={replace} downgrade={downgrade} test={test}"
+        )
+
+        return await asyncio.gather(
+            *(device.app_install(apk, replace, downgrade, test)
+              for device in device_list), return_exceptions=True
+        )
+
+    @mcp.tool()
+    @task_middleware("app_uninstall")
+    async def app_uninstall(package: str, keep_data: bool = False) -> typing.Any:
+        """Class: app; Action: 卸载应用; Args: package(str), keep_data(bool); Use: 卸载/移除某应用；Return: list[device_result]; Notes: keep_data=True 时使用 pm uninstall -k 保留数据目录。"""
+        device_list = await manage.refresh()
+
+        logger.info(f"App uninstall package={package} keep_data={keep_data}")
+        return await asyncio.gather(
+            *(device.app_uninstall(package, keep_data=keep_data)
+              for device in device_list), return_exceptions=True
         )
 
 
