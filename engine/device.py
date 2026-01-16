@@ -326,6 +326,30 @@ class Device(object):
         await asyncio.sleep(settle)
 
     # workflow: ==== System ====
+    async def bluetooth_set(self, status: typing.Literal["enable", "disable"]) -> typing.Any:
+        """控制蓝牙状态。"""
+        cmd = self.prefix + [
+            "shell", "svc", "bluetooth", status
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== System ====
+    async def wifi_set(self, status: typing.Literal["enable", "disable"]) -> typing.Any:
+        """控制 WiFi 状态。"""
+        cmd = self.prefix + [
+            "shell", "svc", "wifi", status
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== System ====
+    async def data_set(self, status: typing.Literal["enable", "disable"]) -> typing.Any:
+        """控制移动数据状态。"""
+        cmd = self.prefix + [
+            "shell", "svc", "data", status
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== System ====
     async def key_event(self, keycode: int, longpress: bool = False) -> typing.Any:
         """向设备发送 Android 系统按键事件（支持普通按键与长按）。"""
         cmd = self.prefix + [
