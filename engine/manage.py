@@ -6,6 +6,7 @@
 #                           |___/
 #
 
+import time
 import shutil
 import typing
 import asyncio
@@ -66,45 +67,48 @@ class ServerManage(object):
 
 class DeviceManage(object):
 
-    __device_list: list[Device] = []
-
     def __init__(self):
-        self.__lock = asyncio.Lock()
+        self.lock = asyncio.Lock()
+        self.device_list: list[Device] = []
+        self.last_refresh_ts: float = 0.0
 
-    @staticmethod
-    async def __connect_devices() -> list[Device]:
+    @property
+    def snapshot(self) -> list[Device]:
+        return list(self.device_list)
+
+    async def connect(self) -> list[Device]:
+        if not shutil.which("adb"):
+            raise RuntimeError("ADB not found in PATH")
+
         resp = await Terminal.cmd_line(["adb", "devices"])
 
         if not resp or not (lines := [line.strip() for line in resp.splitlines() if line.strip()]):
-            return []
+            raise RuntimeError("Device not connected ...")
 
         if "not found" in (low := resp.lower()) or low.startswith("adb:") or low.startswith("error"):
-            return []
+            raise RuntimeError(f"ADB error: {resp.strip()}")
 
-        device_list: list[Device] = [
+        self.device_list = [
             Device(parts[0]) for line in lines[1:]
-            if len(parts := line.split()) >= 2
-            if parts[1] == "device"
+            if len(parts := line.split()) >= 2 and parts[1] == "device"
         ]
+        self.last_refresh_ts = time.time()
 
         await asyncio.gather(
-            *(device.st_load_info() for device in device_list)
+            *(device.st_load_info() for device in self.device_list)
         )
 
-        return device_list
+        return self.snapshot
 
-    async def refresh(self, *, force: bool = False) -> list[Device]:
-        async with self.__lock:
-            if not shutil.which("adb"):
-                raise RuntimeError(f"ADB not found in PATH")
+    async def refresh(self) -> list[Device]:
+        async with self.lock:
+            return await self.connect()
 
-            if force or not self.__device_list:
-                self.__device_list = await self.__connect_devices()
+    async def refresh_with_ttl(self, ttl_sec: float = 1.0) -> list[Device]:
+        if self.device_list and (time.time() - self.last_refresh_ts) < ttl_sec:
+            return self.snapshot
 
-            if not self.__device_list:
-                raise RuntimeError("Device not connected ...")
-
-            return list(self.__device_list)
+        return await self.refresh()
 
 
 if __name__ == '__main__':
