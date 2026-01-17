@@ -36,6 +36,7 @@ SCHEMATIC        = r"schematic"
 SUPPORTS         = r"supports"
 STRUCTURE        = r"Structure"
 SRC_OPERA_PLACE  = f"{APP_DESC}_Mix"
+PREF             = f"{APP_NAME}_pref.json"
 
 # ========【日志与显示设置】========
 PRINT_HEAD = f"[bold #EEEEEE]{APP_DESC} ::[/]"
@@ -53,7 +54,6 @@ PRINT_FORMAT = f"<level>{{level: <8}}</level> | <level>{{message}}</level>"
 MASTER   = r"7zUyfFya8Av0_ixhxKgLeGfVkKF0xy5qQw9pGnEobEZx6kgjKmrUVHiUvdlibNKwybf_H1vRt7_-2PfMLmtACA%"
 ISSUER   = r"https://auth.helix.local/issuer"
 AUDIENCE = r"helix-mcp-api"
-STEP_SEC = 300
 
 # ========【应用授权】========
 BOOTSTRAP_URL      = f"https://api.appserverx.com/bootstrap"

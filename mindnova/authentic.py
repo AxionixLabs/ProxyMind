@@ -30,9 +30,10 @@ def derive_hs256_secret(*, step_sec: int = 300, ts: int | None = None) -> str:
     return base64.urlsafe_b64encode(digest).decode(const.CHARSET).rstrip("=")
 
 
-def mint_token(ttl_sec: int = 3600) -> str:
-    now = int(time.time())
-    secret = derive_hs256_secret(step_sec=300, ts=now)
+def manufacture_token(ttl_sec: int = 3600) -> str:
+    now    = int(time.time())
+    secret = derive_hs256_secret(ts=now)
+
     payload = {
         "iss"   : const.ISSUER,
         "aud"   : const.AUDIENCE,
@@ -42,6 +43,7 @@ def mint_token(ttl_sec: int = 3600) -> str:
         "exp"   : now + ttl_sec,
         "jti"   : secrets.token_urlsafe(16)
     }
+
     return jwt.encode(payload, secret, algorithm="HS256")
 
 

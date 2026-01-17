@@ -12,6 +12,7 @@ import json
 import stat
 import time
 import httpx
+import random
 import shutil
 import signal
 import typing
@@ -19,10 +20,7 @@ import asyncio
 from pathlib import Path
 from loguru import logger
 from rich.prompt import Prompt
-from mcp import (
-    ClientSession, ListToolsResult
-)
-from mcp.client.streamable_http import streamable_http_client
+from mcp import ClientSession
 from mindcore.api import Api
 from mindcore.design import Design
 from engine.manage import ServerManage
@@ -31,7 +29,7 @@ from engine.tinker import (
 )
 from engine.terminal import Terminal
 from mindcore.parser import Parser
-from mindnova.auth import mint_token
+from mindcore.profile import Preferences
 from mindnova import (
     const, request
 )
@@ -49,10 +47,10 @@ class Mind(object):
 
         self.remote: dict = remote or {}  # workflow: 远程全局配置
 
-        _, _ = args, kwargs
+        _ = args
+        self.pref: Preferences = kwargs["pref"]
 
         self.task_event: asyncio.Event = asyncio.Event()
-        self.url = "http://127.0.0.1:3333/mcp"
 
         self.last_refresh_ts = 0.0
         self.ttl_sec         = 1.0
@@ -118,83 +116,62 @@ class Mind(object):
 
         yield self.sse({"type": "exec", "tips": "done"})
 
-    async def mind_trip(self, message: str, model: typing.Optional[str] = "llama-3.3-70b-versatile") -> None:
+    async def mind_trip(self, model: str, apikey: str, message: str) -> None:
         """Mind Trip"""
+        if not model or not apikey:
+            missing = ", ".join(x for x, ok in [("model", bool(model)), ("api_key", bool(apikey))] if not ok)
+            raise MindError(f"Missing required field(s): {missing}")
 
-        headers = {"Authorization": f"Bearer {mint_token()}"}
+        async for session, payload in request.stream_session_call(model, apikey, message):
 
-        async with httpx.AsyncClient(headers=headers) as client:
-            async with streamable_http_client(self.url, http_client=client) as (r, w, _):
-                async with ClientSession(r, w) as session:
-                    await session.initialize()
+            # workflow: ==== Plan Streaming ====
+            async for plan in request.stream_planner(payload):
+                if plan.get("type") == "error":
+                    return logger.error(f"🔴 Error {plan}")
 
-                    list_tools: ListToolsResult = await session.list_tools()
+                if not (steps := plan.get("steps")):
+                    continue
 
-                    openai_tools = [
-                        {
-                            "type": "function",
-                            "function": {
-                                "name": tool.name,
-                                "description" : tool.description,
-                                "parameters"  : tool.inputSchema
-                            }
-                        }
-                        for tool in list_tools.tools
-                    ]
+                # workflow: ==== Exec Streaming ====
+                async for line in self.exec_looper(plan, steps, session):
+                    try:
+                        exec_event = json.loads(line[len("data:"):].strip())
+                    except json.JSONDecodeError:
+                        continue
 
-                    for tool in openai_tools: logger.debug(f"⚙️ Tool {tool['function']['name']}")
-
-                    payload = {"model": model, "message": message, "tools": openai_tools}
-
-                    # workflow: ==== Request Streaming ====
-                    async for plan in request.stream_planner(payload):
-                        if plan.get("type") == "error":
-                            return logger.error(f"🔴 Error {plan}")
-
-                        if not (steps := plan.get("steps")):
-                            continue
-
-                        # workflow: ==== Exec Streaming ====
-                        async for line in self.exec_looper(plan, steps, session):
-                            try:
-                                exec_event = json.loads(line[len("data:"):].strip())
-                            except json.JSONDecodeError:
-                                continue
-
-                            if exec_event.get("type") == "error":
-                                return logger.error(f"🔴 {exec_event.get('tips')}")
-                            logger.info(f"🔶 {exec_event.get('tips')}")
+                    if exec_event.get("type") == "error":
+                        return logger.error(f"🔴 {exec_event.get('tips')}")
+                    logger.info(f"🔶 {exec_event.get('tips')}")
 
     async def mind_loop(self) -> None:
         """Mind Loop"""
+        async def exchange_pref(types: typing.Literal["model", "apikey"]) -> typing.Optional[str]:
+            if pref_name := m.group(1).strip() if m.group(1) else None:
+                return pref_name
 
-        def exchange_model() -> typing.Optional[str]:
-            if (model_name := m.group(1).strip() if m.group(1) else None) and model_name in model_list:
-                Design.console.print(f"[bold #5FFF87]🧬 Model switched to: {model}")
-                return model_name
+            match types:
+                case "model":
+                    styles = [
+                        "llama-3.3-70b-versatile", "openai/gpt-oss-120b", "gpt-4o-mini", "deepseek-chat"
+                    ]
+                case "apikey":
+                    styles = [
+                        "sk-...   (API Key)", "gsk_...  (API Key)", "ds-...   (API Key)", "<token>  (Pure token)"
+                    ]
+                case _: styles = []
 
-            for name in model_list:
-                Design.console.print(f"[bold #5FFF87]  • {name}[/]")
+            for s in styles: Design.console.print(f"[bold {rc}]  • {s}[/]")
+            return Design.console.print(f"[bold #FF5F5F]\n🚫 {types} invalid: /{types} {const.ERR}{pref_name}")
 
-            return Design.console.print(f"[bold #FF5F5F]\n🚫 Model invalid: /model {const.ERR}{model_name}")
-
-        model_list = [
-            "compound-beta",
-            "compound-beta-mini",
-            "gemma2-9b-it",
-            "llama-3.1-8b-instant",
-            "llama-3.3-70b-versatile",
-            "meta-llama/llama-4-maverick-17b-128e-instruct",
-            "meta-llama/llama-4-scout-17b-16e-instruct",
-            "meta-llama/llama-guard-4-12b",
-            "moonshotai/kimi-k2-instruct",
-            "openai/gpt-oss-120b",
-            "openai/gpt-oss-20b",
-            "qwen/qwen3-32b"
+        cp = [
+            "#5FFF87", "#87FFAF", "#5FD7FF", "#D7AFFF", "#FFD75F",
+            "#FF5F5F", "#FF87D7", "#AF87FF", "#00D7AF", "#00AFFF",
+            "#FFAF00", "#AFD7FF",
         ]
+        rc = random.choice(cp)
 
-        # model = "llama-3.3-70b-versatile"
-        model = "deepseek-chat"
+        model  = self.pref.model
+        apikey = self.pref.apikey
 
         quit_set: set[str] = {"/quit", "/q", "quit", "exit"}
         help_set: set[str] = {"/help", "/h"}
@@ -202,33 +179,54 @@ class Mind(object):
         doc = """\
         [bold]
         [bold #87FFAF]/help, /h[/]                 显示帮助
-        [bold #FFD75F]/quit, /q, quit, exit[/]     退出
-        [bold #5FD7FF]/again N <goal>[/]           将目标重复执行 N 次
+        [bold #FF5F5F]/quit, /q, quit, exit[/]     退出
         [bold #D7AFFF]/model <name>[/]             切换模型
+        [bold #FF87D7]/apikey <key>[/]             切换密钥
+        [bold #5FD7FF]/again N <goal>[/]           将目标重复执行 N 次
         [/]"""
 
-        re_model = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
-        re_again = re.compile(r"^\s*/again\s+(\d+)\s+(.+?)\s*$", re.IGNORECASE)
+        re_again  = re.compile(r"^\s*/again\s+(\d+)\s+(.+?)\s*$", re.IGNORECASE)
+        re_model  = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
+        re_apikey = re.compile(r"^\s*/apikey(?:\s+(.*))?\s*$", re.IGNORECASE)
 
         while not self.task_event.is_set():
-            ask = f"\n[bold #D7FFAF]🤔 <{model}>[/]\n[bold #AFD7FF]ready 输入目标或 /help[/]"
+            ask = f"\n[bold {rc}]🤔 <{model}>[/]\n[bold #AFD7FF]ready 输入目标或 /help[/]"
 
             if (raw := Prompt.ask(ask, console=Design.console).strip()) in quit_set:
                 break
 
             if raw in help_set:
-                Design.console.print(doc); continue
+                Design.console.print(doc)
+                continue
 
             if m := re_model.match(raw):
-                model = exchange_model() or model; continue
+                model = await exchange_pref("model") or model
+                continue
 
-            try:
-                message = f"{hit.group(2).strip()}，循环 {int(hit.group(1))} 次" if (
-                    hit := re_again.match(raw)
-                ) else raw; await self.mind_trip(message, model)
+            if m := re_apikey.match(raw):
+                apikey = await exchange_pref("apikey") or apikey
+                continue
 
-            except MindError as e: logger.warning(e)
-            except Exception as e: logger.error(e)
+            message = f"{hit.group(2).strip()}，循环 {int(hit.group(1))} 次" if (
+                hit := re_again.match(raw)
+            ) else raw
+
+            await self.calling(model=model, apikey=apikey, message=message)
+
+    async def calling(self, *, model: str = None, apikey: str = None, message: str) -> None:
+        model  = model  or self.pref.model
+        apikey = apikey or self.pref.apikey
+
+        try:
+            return await self.mind_trip(model, apikey, message)
+        except* httpx.HTTPStatusError as eg:
+            for e in eg.exceptions:
+                body = e.response.extensions.get("error_body", b"")
+                text = body.decode(const.CHARSET, errors="replace")
+                logger.error(f"❌ {e.response.status_code} {text}")
+        except* Exception as eg:
+            for e in eg.exceptions:
+                logger.error(f"❌ {type(e).__name__}: {e}")
 
 
 # """Main"""
@@ -270,7 +268,7 @@ async def main() -> None:
         return await Terminal.cmd_line(cmd)
 
     # Notes: ========== Start from here ==========
-    Design.startup_logo()
+    await Design.particle_aggregate()
 
     # 解析命令行参数
     parser = Parser()
@@ -314,6 +312,12 @@ async def main() -> None:
     # 激活日志
     Active.active(level := "DEBUG" if cmd_lines.horizon else "INFO")
 
+    pref_file = os.path.join(initial_source, const.SRC_OPERA_PLACE, const.PREF)
+    pref = Preferences(pref_file)
+
+    if cmd_lines.pref:
+        return await pref.view_perf()
+
     # Notes: ========== 授权流程 ==========
     # lic_file = Path(src_opera_place) / const.LIC_FILE
     #
@@ -347,8 +351,6 @@ async def main() -> None:
 
     # 远程全局配置
     global_config_task = asyncio.create_task(Api.remote_config())
-    # 启动仪式
-    # TODO
 
     logger.debug(f"{'=' * 15} 系统调试 {'=' * 15}")
     logger.debug(f"操作系统: {platform}")
@@ -370,10 +372,9 @@ async def main() -> None:
         logger.debug(f"TLS: {tls}")
     logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}\n")
 
-    # 清理端口
+    await pref.load_pref()
     await privileged()
 
-    # 启动服务
     server: ServerManage = ServerManage()
 
     # ========== 本地调试 ==========
@@ -388,7 +389,9 @@ async def main() -> None:
     positions = (
         cmd_lines.exec, cmd_lines.horizon
     )
-    keywords = {}
+    keywords = {
+        "pref": pref
+    }
     remote = await global_config_task
 
     mind = Mind(wires, level, power, remote, *positions, **keywords)
@@ -396,8 +399,8 @@ async def main() -> None:
     signal.signal(signal.SIGINT, mind.signal_processor)
 
     try:
-        if ex := cmd_lines.exec:
-            await mind.mind_trip(ex)
+        if exec_dialogue := cmd_lines.exec:
+            await mind.calling(message=exec_dialogue)
         else:
             await mind.mind_loop()
     finally:

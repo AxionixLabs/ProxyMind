@@ -393,7 +393,6 @@ async def post_build() -> None:
         await edit_plist_fields(ops, rename[-1], {"CFBundleExecutable": launch[0].name})
 
     # Notes: ==== Start from here ====
-    Design.startup_logo()
     await Design.compile_animation()
 
     build_start_time = time.time()

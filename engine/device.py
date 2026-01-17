@@ -10,7 +10,9 @@ import time
 import uuid
 import typing
 import asyncio
+import secrets
 import tempfile
+from pathlib import Path
 import xml.etree.ElementTree as Et
 from engine.terminal import Terminal
 from mindnova import (
@@ -64,7 +66,7 @@ class Device(object):
             "debuggable" : self.debuggable,
             "secure"     : self.secure
         }
-        
+
     # workflow: ==== Device Info MCP Tool ====
     async def snapshot(self) -> dict:
         """采集并返回该设备当前所有状态快照。"""
@@ -81,7 +83,7 @@ class Device(object):
             "emulator"    : emulator,
             "screen_lock" : screen_lock
         }
-        
+
     # workflow: ==== Device ====
     async def st_load_info(self) -> None:
         """从 adb getprop 加载并填充设备属性。"""
@@ -128,7 +130,7 @@ class Device(object):
             return None
 
         return int(m.group(1)), int(m.group(2))
-    
+
     # workflow: ==== Device ====
     async def is_online(self) -> bool:
         """是否能真正访问互联网。"""
@@ -194,10 +196,10 @@ class Device(object):
 
     # workflow: ==== App Control MCP Tool ====
     async def app_install(
-        self, 
-        apk: str, 
-        replace: bool = True, 
-        downgrade: bool = False, 
+        self,
+        apk: str,
+        replace: bool = True,
+        downgrade: bool = False,
         test: bool = False
     ) -> typing.Any:
         """安装 APK。"""
@@ -235,8 +237,15 @@ class Device(object):
     # workflow: ==== File Control MCP Tool ====
     async def pull(self, remote: str, local: str) -> typing.Any:
         """从设备拉取文件到本地。"""
+        unique = secrets.token_hex(6)
+
+        if (p := Path(local)).suffix:
+            destination = p.with_name(f"{p.stem}_{self.serial}_{unique}{p.suffix}")
+        else:
+            destination = p / f"pull_{self.serial}_{unique}.bin"
+
         cmd = self.prefix + [
-            "pull", remote, local
+            "pull", remote, destination
         ]
         return await Terminal.cmd_line(cmd)
 

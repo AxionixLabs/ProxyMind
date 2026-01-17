@@ -5,7 +5,10 @@
 #   |_| |_|_| |_|_|\_\___|_|
 #
 
+import sys
+import json
 import random
+import shutil
 import typing
 from loguru import logger
 from rich.text import Text
@@ -13,6 +16,7 @@ from rich.console import Console
 from rich.logging import (
     LogRecord, RichHandler
 )
+from engine.terminal import Terminal
 from mindcore.design import Design
 from mindnova import const
 
@@ -75,6 +79,27 @@ class Active(object):
         logger.add(
             Active._RichSink(Design.console), level=log_level, format=const.PRINT_FORMAT
         )
+
+
+class FileAssist(object):
+
+    @staticmethod
+    async def open(file: str) -> typing.Optional[str]:
+        if sys.platform == "win32":
+            cmd = ["notepad++"] if shutil.which("notepad++") else ["Notepad"]
+        else:
+            cmd = ["open", "-W", "-a", "TextEdit"]
+        return await Terminal.cmd_line(cmd + [file])
+
+    @staticmethod
+    def read_json(file: str) -> dict:
+        with open(file, "r", encoding=const.CHARSET) as f:
+            return json.loads(f.read())
+
+    @staticmethod
+    def dump_json(src: str, dst: dict) -> None:
+        with open(src, "w", encoding=const.CHARSET) as f:
+            f.write(json.dumps(dst, indent=4, separators=(",", ":"), ensure_ascii=False))
 
 
 if __name__ == '__main__':

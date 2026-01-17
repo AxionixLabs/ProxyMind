@@ -45,7 +45,7 @@ class HelixTokenVerifier(TokenVerifier):
 
         for ts in (now := int(time.time()), now - step_sec, now + step_sec):
             # 基于 master secret + 时间桶(bucket)派生出本窗口的临时 HS256 secret
-            secret = derive_hs256_secret(step_sec=step_sec, ts=ts)
+            secret = derive_hs256_secret(ts=ts)
 
             try:
                 # 校验 JWT 签名(HS256) + issuer/audience + exp/iss/aud 必须存在
