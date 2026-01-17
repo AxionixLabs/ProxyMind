@@ -40,8 +40,8 @@ PREF             = f"{APP_NAME}_pref.json"
 
 # ========【日志与显示设置】========
 PRINT_HEAD = f"[bold #EEEEEE]{APP_DESC} ::[/]"
-SHOW_LEVEL = r"WARNING"
-NOTE_LEVEL = r"INFO"
+SHOW_LEVEL = r"INFO"
+NOTE_LEVEL = r"DEBUG"
 
 SUC = f"[bold #FFFFFF on #32CD32]"
 WRN = f"[bold #000000 on #FFFF00]"
