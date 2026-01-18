@@ -7,6 +7,7 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import re
+import json
 import time
 import uuid
 import typing
@@ -521,7 +522,7 @@ class Device(object):
                 writer.close()
                 await writer.wait_closed()
 
-            server = await asyncio.start_server(handler, host="127.0.0.1", port=9595)
+            server = await asyncio.start_server(handler, host="127.0.0.1", port=3311)
             async with server:
                 await watcher_event.wait()
                 server.close()
@@ -529,17 +530,13 @@ class Device(object):
 
         watcher_event: asyncio.Event = asyncio.Event()
 
-        message = f"""\
-        ====Token====
-        {(token := f"Token: {const.APP_DESC}.{secrets.token_hex(8)}")}
-        ====EOF====
-        ====Page ID====
-        {await self.current_activity() or ""}
-        ====EOF====
-        ====Page Dump====
-        {await self.current_xml() or ""}
-        ====EOF====
-        """
+        token = f"Token: {const.APP_DESC}.{secrets.token_hex(8)}"
+
+        payload = {
+            "token"     : token,
+            "page_id"   : await self.current_activity() or "",
+            "page_dump" : await self.current_xml() or ""
+        }
 
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
             await self.pull(image := await self.screenshot(), tmp.name)
@@ -551,7 +548,7 @@ class Device(object):
                     progress_token=progress_token,
                     progress=1.0,
                     total=1.0,
-                    message=message
+                    message=json.dumps(payload, ensure_ascii=False)
                 )
                 await watcher()
 
