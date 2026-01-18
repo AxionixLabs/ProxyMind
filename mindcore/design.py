@@ -135,6 +135,84 @@ class Design(object):
         Design.console.print(task_fail)
 
     @staticmethod
+    async def typewriter(
+        live: Live,
+        delta: str,
+        out: str,
+        begin_delay: float,
+        final_delay: float,
+        *,
+        cursor: str = "█"
+    ) -> tuple[str, float]:
+
+        pause: float         = 0.06
+        jitter: float        = 0.0025
+        breathe_every: int   = 80
+        breathe_pause: float = 0.18
+        glitch: float        = 0.01
+        flush_chars: int     = 3
+        flush_ms: float      = 0.02
+
+        loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+
+        n, pending, last_flush = max(len(delta), 1), 0, loop.time()
+
+        render: typing.Callable[
+            [str], None
+        ] = lambda x: live.update(Text(x + cursor, style="bold #EEEEEE"))
+
+        for i, ch in enumerate(delta):
+            # 线性加速 + 抖动
+            d = begin_delay + (final_delay - begin_delay) * (i / (n - 1 if n > 1 else 1))
+            d = max(0.0, d + random.uniform(-jitter, jitter))
+
+            # 标点分级停顿
+            if ch in "，,": d += pause * 0.6
+            elif ch in "。.!！?？": d += pause * 1.4
+            elif ch in "；;：:": d += pause
+
+            # 偶发 glitch
+            if glitch and ch not in "\n\r\t" and ch.strip() and random.random() < glitch:
+                live.update(Text(out + random.choice("▓▒░") + cursor))
+                await asyncio.sleep(0.010); render(out)
+
+            out += ch; pending += 1
+
+            now = loop.time()
+            if pending >= flush_chars or (now - last_flush) >= flush_ms:
+                render(out); last_flush = now; pending = 0
+
+            if breathe_every and (len(out) % breathe_every == 0):
+                d += breathe_pause
+            await asyncio.sleep(d)
+
+        if pending: render(out)
+
+        return out, final_delay
+
+    @staticmethod
+    async def cursor_blink(
+        live: Live,
+        out: str,
+        *,
+        cursor: str = "█"
+    ) -> None:
+
+        shades = ["#CFCFCF", "#E6E6E6", "#D8D8D8"]
+
+        for _ in range(2):
+            live.update(Text(out + cursor, style=f"bold {shades[1]}"))
+            await asyncio.sleep(0.08)
+
+            live.update(Text(out + " ", style=f"bold {shades[0]}"))
+            await asyncio.sleep(0.06)
+
+        live.update(Text(out, style=f"bold {shades[2]}"))
+        await asyncio.sleep(0.05)
+
+        live.update(Text(out, style="bold #C6C6C6"))
+
+    @staticmethod
     def build_file_tree(file_path: str) -> None:
         """
         显示树状图。

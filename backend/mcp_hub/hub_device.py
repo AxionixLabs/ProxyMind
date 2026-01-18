@@ -15,10 +15,9 @@ import secrets
 import tempfile
 from pathlib import Path
 import xml.etree.ElementTree as Et
+from mcp.server.fastmcp import FastMCP
 from engine.terminal import Terminal
-from backend.utilities import (
-    const, request
-)
+from backend.utilities import const
 
 
 class Device(object):
@@ -511,22 +510,50 @@ class Device(object):
 
         return None
 
-    async def healing(
-        self,
-        old_by: typing.Literal["text", "id", "desc", "xpath"],
-        old_value: str
-    ) -> None:
+    async def healing(self, mcp: FastMCP) -> None:
         """执行自愈流程定位并处理目标控件。"""
 
-        platform  = "android"
-        page_id   = await self.current_activity() or ""
-        page_dump = await self.current_xml() or ""
+        async def watcher() -> None:
+            """启动本地监听器，接收令牌指令后触发关闭事件。"""
+            async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+                if (await reader.read(100)).decode().strip() == token:
+                    watcher_event.set()
+                writer.close()
+                await writer.wait_closed()
+
+            server = await asyncio.start_server(handler, host="127.0.0.1", port=9595)
+            async with server:
+                await watcher_event.wait()
+                server.close()
+                await server.wait_closed()
+
+        watcher_event: asyncio.Event = asyncio.Event()
+
+        message = f"""\
+        ====Token====
+        {(token := f"Token: {const.APP_DESC}.{secrets.token_hex(8)}")}
+        ====EOF====
+        ====Page ID====
+        {await self.current_activity() or ""}
+        ====EOF====
+        ====Page Dump====
+        {await self.current_xml() or ""}
+        ====EOF====
+        """
 
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
             await self.pull(image := await self.screenshot(), tmp.name)
 
-            async for _ in request.stream_self_heal(page_id, platform, old_by, old_value, page_dump, tmp.name):
-                pass
+            ctx = mcp.get_context().request_context
+
+            if progress_token := ctx.meta.progressToken:
+                await ctx.session.send_progress_notification(
+                    progress_token=progress_token,
+                    progress=1.0,
+                    total=1.0,
+                    message=message
+                )
+                await watcher()
 
             await self.remove(image)
 

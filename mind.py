@@ -5,6 +5,7 @@
 # |_|  |_|_|_| |_|\__,_|
 #
 
+# ====[ 内置模块 ]====
 import os
 import re
 import sys
@@ -17,10 +18,21 @@ import shutil
 import signal
 import typing
 import asyncio
+
+# ====[ from: 内置模块 ]====
 from pathlib import Path
+
+# ====[ from: 第三方库 ]====
 from loguru import logger
+from rich.live import Live
+from rich.text import Text
 from rich.prompt import Prompt
-from mcp import ClientSession
+from mcp import (
+    ClientSession, ListToolsResult
+)
+from mcp.client.streamable_http import streamable_http_client
+
+# ====[ from: 本地模块 ]====
 from mindcore.api import Api
 from mindcore.design import Design
 from engine.manage import ServerManage
@@ -31,7 +43,7 @@ from engine.terminal import Terminal
 from mindcore.parser import Parser
 from mindcore.profile import Preferences
 from mindnova import (
-    const, request
+    authentic, const, request
 )
 
 
@@ -60,16 +72,18 @@ class Mind(object):
             [dict], str
         ] = lambda x: f"data: {json.dumps(x, ensure_ascii=False)}\n\n"
 
+        self.stream_out     = ""
+        self.stream_delay   = 0.010
+        self.stream_cursors = ["█", "▉", "▋"]
+
         self.design: Design = Design(self.level)
 
     @property
     def remote(self) -> dict:
-        """Remote"""
         return self.__remote
 
     @remote.setter
     def remote(self, value: dict) -> None:
-        """Remote"""
         self.__remote = value if isinstance(value, dict) else {}
 
     def signal_processor(self, *_, **__) -> None:
@@ -81,6 +95,7 @@ class Mind(object):
         sys.exit(130)
 
     async def exec_status(self, session: ClientSession) -> typing.Optional[dict]:
+        """Exec Status"""
         if ((now := time.time()) - self.last_refresh_ts) < self.ttl_sec:
             return logger.debug(f"⚜️ ttl-hit: skip refresh ttl={self.ttl_sec:.3f}s")
 
@@ -117,40 +132,108 @@ class Mind(object):
 
                 yield self.sse({"type": "exec", "tips": f"{name} -> {result.structuredContent}"})
 
-        yield self.sse({"type": "exec", "tips": "done"})
+        yield self.sse({"type": "done"})
 
     async def mind_trip(self, model: str, apikey: str, message: str) -> None:
         """Mind Trip"""
+
+        async def capture(response: httpx.Response) -> None:
+            """Capture"""
+            if response.status_code >= 400:
+                try:
+                    response.extensions["error_body"] = await response.aread()
+                except Exception as e:
+                    _ = e
+                    response.extensions["error_body"] = b""
+
         if not model or not apikey:
             missing = ", ".join(
                 x for x, ok in [("model", bool(model)), ("api_key", bool(apikey))] if not ok
             )
             raise MindError(f"Missing required field(s): {missing}")
 
-        async for session, payload in request.stream_session_call(model, apikey, message):
+        url = "http://127.0.0.1:3333/mcp"
+        headers = {
+            "Authorization": f"Bearer {authentic.manufacture_token()}"
+        }
 
-            # workflow: ==== Plan Streaming ====
-            async for plan in request.stream_planner(payload):
-                if plan.get("type") == "error":
-                    return logger.error(f"🔴 Error {plan}")
+        async with httpx.AsyncClient(headers=headers, event_hooks={"response": [capture]}) as client:
 
-                if not (steps := plan.get("steps")):
+            # workflow: ==== Tool Streaming ====
+            async with streamable_http_client(url, http_client=client) as (r, w, _):
+                async with ClientSession(r, w) as session:
+                    await session.initialize()
+
+                    list_tools: ListToolsResult = await session.list_tools()
+
+                    openai_tools: list[dict[str, typing.Any]] = [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": tool.name,
+                                "description" : tool.description,
+                                "parameters"  : tool.inputSchema
+                            }
+                        }
+                        for tool in list_tools.tools
+                    ]
+
+                    for tool in openai_tools:
+                        logger.debug(f"⚙️ Tool {tool['function']['name']}")
+
+                    # workflow: ==== Plan Streaming ====
+                    async for plan in request.stream_planner(model, apikey, message, openai_tools):
+                        if plan.get("type") == "error":
+                            return logger.error(f"🔴 Error {plan}")
+
+                        if not (steps := plan.get("steps")):
+                            continue
+
+                        # workflow: ==== Exec Streaming ====
+                        async for line in self.exec_looper(plan, steps, session):
+                            try:
+                                exec_event = json.loads(line[len("data:"):].strip())
+                            except json.JSONDecodeError:
+                                continue
+
+                            if exec_event.get("type") == "error":
+                                return logger.error(f"🔴 {exec_event.get('tips')}")
+                            logger.info(f"🔶 {exec_event.get('tips')}")
+
+    async def mind_chat(self, model: str, apikey: str, message: str) -> None:
+        """Mind Chat"""
+        if not model or not apikey:
+            missing = ", ".join(
+                x for x, ok in [("model", bool(model)), ("api_key", bool(apikey))] if not ok
+            )
+            raise MindError(f"Missing required field(s): {missing}")
+
+        out    = self.stream_out
+        delay  = self.stream_delay
+        cursor = random.choice(self.stream_cursors)
+
+        with Live(Text(), console=Design.console, refresh_per_second=60) as live:
+
+            # workflow: ==== Chat Streaming ====
+            async for chat in request.stream_chat(model, apikey, message):
+                if chat.get("type") == "error":
+                    return logger.error(f"🔴 {chat.get('tips')}")
+
+                if (chat.get("type")) != "chat":
                     continue
 
-                # workflow: ==== Exec Streaming ====
-                async for line in self.exec_looper(plan, steps, session):
-                    try:
-                        exec_event = json.loads(line[len("data:"):].strip())
-                    except json.JSONDecodeError:
-                        continue
+                out, delay = await Design.typewriter(
+                    live, chat.get("message", ""), out, delay, max(0.0015, delay * 0.65), cursor=cursor
+                )
 
-                    if exec_event.get("type") == "error":
-                        return logger.error(f"🔴 {exec_event.get('tips')}")
-                    logger.info(f"🔶 {exec_event.get('tips')}")
+            await Design.cursor_blink(live, out, cursor=cursor)
+
+        Design.console.print()
 
     async def mind_loop(self) -> None:
         """Mind Loop"""
-        async def exchange_pref(types: typing.Literal["model", "apikey"]) -> typing.Optional[str]:
+
+        async def exchange(types: typing.Literal["model", "apikey"]) -> typing.Optional[str]:
             if pref_name := m.group(1).strip() if m.group(1) else None:
                 return pref_name
 
@@ -183,52 +266,135 @@ class Mind(object):
 
         doc = """\
         [bold]
-        [bold #87FFAF]/help, /h[/]                 显示帮助
-        [bold #FF5F5F]/quit, /q, quit, exit[/]     退出
-        [bold #D7AFFF]/model <name>[/]             切换模型
-        [bold #FF87D7]/apikey <key>[/]             切换密钥
-        [bold #5FD7FF]/again N <goal>[/]           将目标重复执行 N 次
+        [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
+        [bold #FF5F5F]/quit, /q, quit, exit[/]     断开会话（安全退出）
+        [bold #AFD7FF]/model <name>[/]             引擎切换（选择推理内核）
+        [bold #AFD7FF]/apikey <key>[/]             凭证更新（替换访问密钥）
+        [bold #AFD7FF]/again N <goal>[/]           复现回放（目标 × N 次）
+        [bold #FFD75F]/mind[/]                     编排模式（工具执行）
+        [bold #FFD75F]/chat[/]                     问答模式（自由对话）
+        [bold #FFD75F]/fast[/]                     性能模式（压测采集）
         [/]"""
 
         re_again  = re.compile(r"^\s*/again\s+(\d+)\s+(.+?)\s*$", re.IGNORECASE)
         re_model  = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
         re_apikey = re.compile(r"^\s*/apikey(?:\s+(.*))?\s*$", re.IGNORECASE)
 
-        while not self.task_event.is_set():
-            ask = f"\n[bold {rc}]🤔 <{model}>[/]\n[bold #AFD7FF]ready 输入目标或 /help[/]"
+        # 主题
+        tag: typing.Literal["MIND", "CHAT", "FAST"] = "CHAT"
 
-            if (raw := Prompt.ask(ask, console=Design.console).strip()) in quit_set:
-                break
+        theme = {
+            "MIND": {
+                "banner"   : "╔═⟦ 𝕄𝕚𝕟𝕕 ⟧═╗",
+                "prompt"   : "│ 〉Mind",
+                "tag"      : "#5FD7FF",
+                "prompt_c" : "#87FFAF",
+                "model"    : "#5FFF87",
+                "ready"    : "#AFD7FF",
+                "hint"     : "#5FD7FF",
+            },
+            "CHAT": {
+                "banner"   : "╔═⟦ 𝕮𝖍𝖆𝖙 ⟧═╗",
+                "prompt"   : "│ 〉Chat",
+                "tag"      : "#FF87D7",
+                "prompt_c" : "#FFD75F",
+                "model"    : "#FFAF5F",
+                "ready"    : "#D7AFFF",
+                "hint"     : "#FF87D7",
+            },
+            "FAST": {
+                "banner"   : "╔═⟦ 𝙁𝘼𝙎𝙏 ⟧═╗",
+                "prompt"   : "│ 〉Fast",
+                "tag"      : "#FFAF00",
+                "prompt_c" : "#FFD75F",
+                "model"    : "#FFAF00",
+                "ready"    : "#AFD7FF",
+                "hint"     : "#FFAF00",
+            }
+        }
+
+        while not self.task_event.is_set():
+            th = theme[tag]
+            ask = (
+                f"\n[bold {th['tag']}]{th['banner']}[/]"
+                f"\n[bold {th['prompt_c']}]{th['prompt']}[/] [bold {th['model']}]⟪{model}⟫[/]"
+                f"\n[bold {th['ready']}]ready 输入目标或 /help[/]"
+            )
+
+            try:
+                if (raw := Prompt.ask(ask, console=Design.console).strip()) in quit_set:
+                    break
+            except (EOFError, UnicodeDecodeError):
+                continue
 
             if raw in help_set:
                 Design.console.print(doc)
                 continue
 
+            if raw.lower() == "/mind":
+                tag = "MIND"
+                Design.console.print(f"[bold {theme['MIND']['hint']}]Exchange → Mind[/]")
+                continue
+
+            if raw.lower() == "/chat":
+                tag = "CHAT"
+                Design.console.print(f"[bold {theme['CHAT']['hint']}]Exchange → Chat[/]")
+                continue
+
+            if raw.lower() == "/fast":
+                tag = "FAST"
+                Design.console.print(f"[bold {theme['FAST']['hint']}]Exchange → Fast[/]")
+                continue
+
             if m := re_model.match(raw):
-                model = await exchange_pref("model") or model
+                model = await exchange("model") or model
                 continue
 
             if m := re_apikey.match(raw):
-                apikey = await exchange_pref("apikey") or apikey
+                apikey = await exchange("apikey") or apikey
                 continue
 
-            message = f"{hit.group(2).strip()}，循环 {int(hit.group(1))} 次" if (
-                hit := re_again.match(raw)
-            ) else raw
+            if (hit := re_again.match(raw)) and tag == "MIND":
+                message = f"{hit.group(2).strip()}，循环 {int(hit.group(1))} 次"
+            else:
+                message = raw
 
-            await self.calling(model=model, apikey=apikey, message=message)
+            match tag:
+                case "MIND": current = self.mind_trip
+                case "CHAT": current = self.mind_chat
+                case "FAST": current = self.mind_chat
+                case _: current = self.mind_chat
 
-    async def calling(self, *, model: str = None, apikey: str = None, message: str) -> None:
+            await self.calling(model, apikey, message=message, current=current)
+
+    async def calling(
+        self,
+        model: str = None,
+        apikey: str = None,
+        *,
+        message: str,
+        current: typing.Callable
+    ) -> None:
+
         model  = model  or self.pref.model
         apikey = apikey or self.pref.apikey
 
         try:
-            return await self.mind_trip(model, apikey, message)
+            return await current(model, apikey, message)
+
+        except* asyncio.CancelledError:
+            logger.error(f"❌ request cancelled (network/proxy/close)")
+
+        except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as eg:
+            for e in eg.exceptions:
+                logger.error(f"❌ {type(e).__name__}: {e!r}")
+
         except* httpx.HTTPStatusError as eg:
             for e in eg.exceptions:
                 body = e.response.extensions.get("error_body", b"")
                 text = body.decode(const.CHARSET, errors="replace")
                 logger.error(f"❌ {e.response.status_code} {text}")
+
         except* Exception as eg:
             for e in eg.exceptions:
                 logger.error(f"❌ {type(e).__name__}: {e}")
@@ -405,7 +571,9 @@ async def main() -> None:
 
     try:
         if exec_dialogue := cmd_lines.exec:
-            await mind.calling(message=exec_dialogue)
+            await mind.calling(
+                message=exec_dialogue, current=mind.mind_trip
+            )
         else:
             await mind.mind_loop()
     finally:

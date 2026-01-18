@@ -38,59 +38,37 @@ def task_middleware(tool_name: str):
             try:
                 data = await func(*args, **kwargs)
 
-                payload = {
-                    "ok"          : True,
-                    "code"        : "OK",
-                    "message"     : "OK",
-                    "tool"        : tool_name,
-                    "args"        : snapshot,
-                    "trace_id"    : trace_id,
-                    "ts"          : now_iso(),
-                    "duration_ms" : int((time.perf_counter() - t0) * 1000),
-                    "retryable"   : False,
-                    "severity"    : "info",
-                    "data"        : data,
-                    "meta"        : {}
-                }
-                logger.info(payload)
-
+                logger.info({
+                    "ok"     : 1,
+                    "tool"   : tool_name,
+                    "trace"  : trace_id,
+                    "dur_ms" : int((time.perf_counter() - t0) * 1000),
+                    "args"   : snapshot,
+                })
                 return data
 
-            except asyncio.CancelledError as e:
-                payload = {
-                    "ok"          : False,
-                    "code"        : "CANCELLED",
-                    "message"     : "Tool execution cancelled",
-                    "tool"        : tool_name,
-                    "args"        : snapshot,
-                    "trace_id"    : trace_id,
-                    "ts"          : now_iso(),
-                    "duration_ms" : int((time.perf_counter() - t0) * 1000),
-                    "retryable"   : False,
-                    "severity"    : "warn",
-                    "data"        : None,
-                    "meta"        : {}
-                }
-                logger.warning(payload)
-                raise e
+            except asyncio.CancelledError:
+                logger.warning({
+                    "ok"     : 0,
+                    "tool"   : tool_name,
+                    "trace"  : trace_id,
+                    "code"   : f"CANCELLED",
+                    "dur_ms" : int((time.perf_counter() - t0) * 1000),
+                    "args"   : snapshot,
+                })
+                raise
 
             except Exception as e:
-                payload = {
-                    "ok"          : False,
-                    "code"        : "TOOL CRASH",
-                    "message"     : str(e),
-                    "tool"        : tool_name,
-                    "args"        : snapshot,
-                    "trace_id"    : trace_id,
-                    "ts"          : now_iso(),
-                    "duration_ms" : int((time.perf_counter() - t0) * 1000),
-                    "retryable"   : False,
-                    "severity"    : "error",
-                    "data"        : None,
-                    "meta"        : {}
-                }
-                logger.error(payload)
-                raise e
+                logger.error({
+                    "ok"     : 0,
+                    "tool"   : tool_name,
+                    "trace"  : trace_id,
+                    "code"   : f"CRASH",
+                    "err"    : f"{type(e).__name__}: {e}",
+                    "dur_ms" : int((time.perf_counter() - t0) * 1000),
+                    "args"   : snapshot
+                })
+                raise
 
         return wrapper
 

@@ -8,41 +8,21 @@
 
 import json
 import httpx
+import base64
 import typing
 from loguru import logger
-from mcp import (
-    ClientSession, ListToolsResult
-)
-from mcp.client.streamable_http import streamable_http_client
-from mindnova import (
-    authentic, const
-)
+from engine.channel import Channel
+from mindnova import const
 
 
-async def stream_planner(
-    payload: dict[str, typing.Any],
-    timeout: float = 60.0
+async def __streaming(
+    url: str,
+    headers: dict,
+    payload: dict,
+    timeout: float = 60.0,
+    on_event: typing.Optional[typing.Callable] = None
 ) -> typing.AsyncGenerator[dict, None]:
-    """Stream Planner"""
-
-    def on_event(event_dict: dict) -> None:
-        match event_dict.get("type"):
-            case "thinking":
-                logger.info(f"🟣 {event_dict['content']}")
-            case "plan":
-                if steps := event_dict.get("steps"):
-                    for step in steps: logger.info(f"🔵 {step['action']}")
-                else:
-                    logger.warning(f"🟠 {event_dict}")
-            case "done":
-                logger.info(f"🟢 Plan done ...")
-            case "error":
-                logger.error(f"🔴 Error {event_dict.get('message')}")
-
-    url = f"https://api.appserverx.com/planner"
-    headers = {
-        "Accept": "text/event-stream", "Content-Type": "application/json"
-    }
+    """Streaming"""
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
@@ -68,61 +48,113 @@ async def stream_planner(
 
                 yield event
 
-                on_event(event)
+                if on_event:
+                    try:
+                        on_event(event)
+                    except Exception as e:
+                        logger.debug(f"on_event failed: {type(e).__name__}: {e}")
 
 
-async def stream_session_call(
+async def stream_planner(
     model: str,
     apikey: str,
-    message: str
-) -> typing.AsyncGenerator[tuple[ClientSession, dict], None]:
-    """Stream Session Call"""
+    message: str,
+    openai_tools: list[dict],
+    timeout: float = 60.0
+) -> typing.AsyncGenerator[dict, None]:
+    """Stream Planner"""
 
-    async def capture_error(response: httpx.Response) -> None:
-        if response.status_code >= 400:
-            try:
-                response.extensions["error_body"] = await response.aread()
-            except Exception as e:
-                _ = e; response.extensions["error_body"] = b""
+    def on_event(event_dict: dict) -> None:
+        match event_dict.get("type"):
+            case "thinking":
+                logger.info(f"🟣 {event_dict['message']}")
+            case "plan":
+                if steps := event_dict.get("steps"):
+                    for step in steps: logger.info(f"🔵 {step['action']}")
+                else:
+                    logger.warning(f"🟠 {event_dict}")
+            case "done":
+                logger.info(f"🟢 Plan done ...")
+            case "error":
+                logger.error(f"🔴 Error {event_dict.get('message')}")
 
-    url = "http://127.0.0.1:3333/mcp"
-    headers = {
-        "Authorization": f"Bearer {authentic.manufacture_token()}"
+    url = f"https://api.appserverx.com/planner"
+    headers = Channel.make_headers()
+    payload = {
+        "model"   : model,
+        "apikey"  : apikey,
+        "message" : message,
+        "tools"   : openai_tools
     }
 
-    http_client = httpx.AsyncClient(headers=headers, event_hooks={"response": [capture_error]})
+    async for event in __streaming(url, headers, payload, timeout, on_event):
+        yield event
 
-    async with streamable_http_client(url, http_client=http_client) as (r, w, _):
-        async with ClientSession(r, w) as session:
-            await session.initialize()
 
-            list_tools: ListToolsResult = await session.list_tools()
+async def stream_self_heal(
+    model: str,
+    apikey: str,
+    page_id: str,
+    platform: str,
+    by: typing.Literal["text", "id", "desc", "xpath"],
+    value: str,
+    page_dump: str,
+    screenshot: str,
+    timeout: float = 60.0,
+    *_,
+    **kwargs
+) -> typing.AsyncGenerator[dict, None]:
+    """Stream Self Heal"""
 
-            openai_tools = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description" : tool.description,
-                        "parameters"  : tool.inputSchema
-                    }
-                }
-                for tool in list_tools.tools
-            ]
+    def on_event(event_dict: dict) -> None:
+        match event_dict.get("type"):
+            case "thinking":
+                logger.info(f"🟣 {event_dict['message']}")
+            case "heal":
+                logger.info(f"🔵 {event_dict.get('message')}")
+            case "done":
+                logger.info(f"🟢 Heal done ...")
+            case "error":
+                logger.error(f"🔴 Error {event_dict.get('message')}")
 
-            for tool in openai_tools:
-                logger.debug(f"⚙️ Tool {tool['function']['name']}")
+    url = "https://api.appserverx.com/self-heal"
+    headers = Channel.make_headers()
 
-            payload = {
-                "model"   : model,
-                "apikey"  : apikey,
-                "message" : message,
-                "tools"   : openai_tools
-            }
+    with open(screenshot, "rb") as f:
+        image_b64 = base64.b64encode(f.read()).decode()
 
-            yield session, payload
+    payload = {
+        "model"       : model,
+        "apikey"      : apikey,
+        "app_id"      : const.APP_DESC,
+        "page_id"     : page_id,
+        "platform"    : platform,
+        "old_locator" : {"by": by, "value": value},
+        "page_dump"   : page_dump,
+        "screenshot"  : f"data:image/png;base64,{image_b64}",
+        "context"     : kwargs
+    }
 
-    await http_client.aclose()
+    async for event in __streaming(url, headers, payload, timeout, on_event):
+        yield event
+
+
+async def stream_chat(
+    model: str,
+    apikey: str,
+    message: str,
+    timeout: float = 60.0
+) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
+    """Stream Chat"""
+
+    url = f"https://api.appserverx.com/chat"
+    headers = Channel.make_headers()
+    payload = {
+        "model": model, "apikey": apikey, "message": message
+    }
+
+    async for event in __streaming(url, headers, payload, timeout):
+        yield event
 
 
 if __name__ == '__main__':
