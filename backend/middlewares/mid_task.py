@@ -4,6 +4,7 @@
 #   | | (_| \__ \   <  | |  | | | (_| | (_| | |  __/\ V  V / (_| | | |  __/
 #   |_|\__,_|___/_|\_\ |_|  |_|_|\__,_|\__,_|_|\___| \_/\_/ \__,_|_|  \___|
 #
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import time
 import uuid

@@ -4,13 +4,14 @@
 # | |  | |  __/ (_| | | (_| | | |__| (_) | | | | |_| | | (_) | |
 # |_|  |_|\___|\__,_|_|\__,_|  \____\___/|_| |_|\__|_|  \___/|_|
 #
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
 import asyncio
 from loguru import logger
 from mcp.server import FastMCP
 from backend.middlewares.mid_task import task_middleware
-from engine.manage import DeviceManage
+from backend.mcp_hub.hub_manage import DeviceManage
 
 
 def bind(mcp: FastMCP, manage: DeviceManage) -> None:

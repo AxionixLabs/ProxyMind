@@ -5,6 +5,8 @@
 #  |____/ \___|\__|\__,_| .__/
 #                       |_|
 #
+# Notes: ✦ Mind ✦ Copyright (c) 2026.
+# Notes: Licensed use only · Redistribution requires explicit permission and approval.
 
 from mindnova import const
 from setuptools import setup, find_packages

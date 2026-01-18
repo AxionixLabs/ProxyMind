@@ -1,9 +1,10 @@
-#  ____             _
-# |  _ \  _____   _(_) ___ ___
-# | | | |/ _ \ \ / / |/ __/ _ \
-# | |_| |  __/\ V /| | (_|  __/
-# |____/ \___| \_/ |_|\___\___|
+#  _   _       _       ____             _
+# | | | |_   _| |__   |  _ \  _____   _(_) ___ ___
+# | |_| | | | | '_ \  | | | |/ _ \ \ / / |/ __/ _ \
+# |  _  | |_| | |_) | | |_| |  __/\ V /| | (_|  __/
+# |_| |_|\__,_|_.__/  |____/ \___| \_/ |_|\___\___|
 #
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import re
 import time
@@ -15,12 +16,13 @@ import tempfile
 from pathlib import Path
 import xml.etree.ElementTree as Et
 from engine.terminal import Terminal
-from mindnova import (
+from backend.utilities import (
     const, request
 )
 
 
 class Device(object):
+    """Device class."""
 
     def __init__(self, serial: str):
         self.serial = serial
@@ -321,16 +323,6 @@ class Device(object):
         await self.swipe(x, y1, x, y2, 1000)
         await asyncio.sleep(0.2)
 
-    # workflow: ==== System Control MCP Tool ====
-    async def screen_on(self) -> None:
-        """点亮屏幕。"""
-        return await self.screen_set(True)
-
-    # workflow: ==== System Control MCP Tool ====
-    async def screen_off(self) -> None:
-        """熄屏锁屏。"""
-        return await self.screen_set(False)
-
     # workflow: ==== System ====
     async def screen_set(self, on: bool, settle: float = 0.2) -> None:
         """统一控制屏幕电源态。"""
@@ -392,6 +384,7 @@ class Device(object):
         duration: int = 300,
     ) -> typing.Any:
         """以锚点为参考，按方向进行语义滑动，根据屏幕尺寸自动计算终点坐标。"""
+
         w, h = await self.st_wm_size()
 
         x1, y1, x2, y2 = x, y, 0, 0
@@ -518,8 +511,13 @@ class Device(object):
 
         return None
 
-    async def healing(self, old_by: typing.Literal["text", "id", "desc", "xpath"], old_value: str) -> None:
+    async def healing(
+        self,
+        old_by: typing.Literal["text", "id", "desc", "xpath"],
+        old_value: str
+    ) -> None:
         """执行自愈流程定位并处理目标控件。"""
+
         platform  = "android"
         page_id   = await self.current_activity() or ""
         page_dump = await self.current_xml() or ""

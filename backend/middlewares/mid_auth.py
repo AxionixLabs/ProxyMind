@@ -4,6 +4,7 @@
 #  / ___ \ |_| | |_| | | | | |  | | | (_| | (_| | |  __/\ V  V / (_| | | |  __/
 # /_/   \_\__,_|\__|_| |_| |_|  |_|_|\__,_|\__,_|_|\___| \_/\_/ \__,_|_|  \___|
 #
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import jwt
 import hmac
@@ -35,6 +36,7 @@ def derive_hs256_secret(*, step_sec: int = 300, ts: int | None = None) -> str:
 
 
 class HelixTokenVerifier(TokenVerifier):
+    """HelixTokenVerifier class."""
 
     async def verify_token(self, token: str) -> typing.Optional[AccessToken]:
         """

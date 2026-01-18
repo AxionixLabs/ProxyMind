@@ -5,10 +5,11 @@
 # |_| \_\___|\__, |\__,_|\___||___/\__|
 #               |_|
 #
+# Notes: ✦ Mind ✦ Copyright (c) 2026.
+# Notes: Licensed use only · Redistribution requires explicit permission and approval.
 
 import json
 import httpx
-import base64
 import typing
 from loguru import logger
 from mcp import (
@@ -20,56 +21,25 @@ from mindnova import (
 )
 
 
-async def streaming(
-    client: httpx.AsyncClient,
-    url: str,
-    headers: dict[str, typing.Any],
-    payload: dict[str, typing.Any],
-    on_event: typing.Callable,
-) -> typing.AsyncGenerator[dict, None]:
-
-    async with client.stream("POST", url, headers=headers, json=payload) as resp:
-        try:
-            resp.raise_for_status()
-        except httpx.HTTPStatusError:
-            body = await resp.aread()
-            yield {
-                "type": "error",
-                "code": resp.status_code,
-                "tips": body.decode(const.CHARSET, errors="replace")
-            }
-            return
-
-        async for line in resp.aiter_lines():
-            if not line or not line.startswith("data:"):
-                continue
-
-            try:
-                event = json.loads(line[len("data:"):].strip())
-            except json.JSONDecodeError:
-                continue
-
-            yield event; on_event(event)
-
-
 async def stream_planner(
     payload: dict[str, typing.Any],
     timeout: float = 60.0
 ) -> typing.AsyncGenerator[dict, None]:
+    """Stream Planner"""
 
-    def handle_event(event: dict) -> None:
-        match event.get("type"):
+    def on_event(event_dict: dict) -> None:
+        match event_dict.get("type"):
             case "thinking":
-                logger.info(f"🟣 {event['content']}")
+                logger.info(f"🟣 {event_dict['content']}")
             case "plan":
-                if steps := event.get("steps"):
+                if steps := event_dict.get("steps"):
                     for step in steps: logger.info(f"🔵 {step['action']}")
                 else:
-                    logger.warning(f"🟠 {event}")
+                    logger.warning(f"🟠 {event_dict}")
             case "done":
                 logger.info(f"🟢 Plan done ...")
             case "error":
-                logger.error(f"🔴 Error {event.get('message')}")
+                logger.error(f"🔴 Error {event_dict.get('message')}")
 
     url = f"https://api.appserverx.com/planner"
     headers = {
@@ -77,54 +47,30 @@ async def stream_planner(
     }
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        async for data in streaming(client, url, headers, payload, handle_event):
-            yield data
+        async with client.stream("POST", url, headers=headers, json=payload) as resp:
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError:
+                body = await resp.aread()
+                yield {
+                    "type" : "error",
+                    "code" : resp.status_code,
+                    "tips" : body.decode(const.CHARSET, errors="replace")
+                }
+                return
 
+            async for line in resp.aiter_lines():
+                if not line or not line.startswith("data:"):
+                    continue
 
-async def stream_self_heal(
-    page_id: str,
-    platform: str,
-    by: typing.Literal["text", "id", "desc", "xpath"],
-    value: str,
-    page_dump: str,
-    screenshot: str,
-    timeout: float = 60.0,
-    *_,
-    **kwargs
-) -> typing.AsyncGenerator[dict, None]:
+                try:
+                    event = json.loads(line[len("data:"):].strip())
+                except json.JSONDecodeError:
+                    continue
 
-    def handle_event(event: dict) -> None:
-        match event.get("type"):
-            case "thinking":
-                logger.info(f"🟣 {event['content']}")
-            case "heal":
-                logger.info(f"🔵 {event.get('message')}")
-            case "done":
-                logger.info(f"🟢 Heal done ...")
-            case "error":
-                logger.error(f"🔴 Error {event.get('message')}")
+                yield event
 
-    url = "https://api.appserverx.com/self-heal"
-    headers = {
-        "Accept": "text/event-stream", "Content-Type": "application/json"
-    }
-
-    with open(screenshot, "rb") as f:
-        image_b64 = base64.b64encode(f.read()).decode()
-
-    payload = {
-        "app_id"      : const.APP_DESC,
-        "page_id"     : page_id,
-        "platform"    : platform,
-        "old_locator" : {"by": by, "value": value},
-        "page_dump"   : page_dump,
-        "screenshot"  : f"data:image/png;base64,{image_b64}",
-        "context"     : kwargs
-    }
-
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        async for data in streaming(client, url, headers, payload, handle_event):
-            yield data
+                on_event(event)
 
 
 async def stream_session_call(
@@ -132,11 +78,7 @@ async def stream_session_call(
     apikey: str,
     message: str
 ) -> typing.AsyncGenerator[tuple[ClientSession, dict], None]:
-
-    url = "http://127.0.0.1:3333/mcp"
-    headers = {
-        "Authorization": f"Bearer {authentic.manufacture_token()}"
-    }
+    """Stream Session Call"""
 
     async def capture_error(response: httpx.Response) -> None:
         if response.status_code >= 400:
@@ -144,6 +86,11 @@ async def stream_session_call(
                 response.extensions["error_body"] = await response.aread()
             except Exception as e:
                 _ = e; response.extensions["error_body"] = b""
+
+    url = "http://127.0.0.1:3333/mcp"
+    headers = {
+        "Authorization": f"Bearer {authentic.manufacture_token()}"
+    }
 
     http_client = httpx.AsyncClient(headers=headers, event_hooks={"response": [capture_error]})
 
@@ -165,7 +112,8 @@ async def stream_session_call(
                 for tool in list_tools.tools
             ]
 
-            for tool in openai_tools: logger.debug(f"⚙️ Tool {tool['function']['name']}")
+            for tool in openai_tools:
+                logger.debug(f"⚙️ Tool {tool['function']['name']}")
 
             payload = {
                 "model"   : model,

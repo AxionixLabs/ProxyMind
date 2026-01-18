@@ -5,6 +5,7 @@
 # |_|   |_| .__/ \___|_|_|_| |_|\___|
 #         |_|
 #
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import random
 import typing
@@ -18,10 +19,12 @@ from backend.utilities import const
 
 
 class _HelixBaseError(BaseException):
+    """_HelixBaseError class."""
     pass
 
 
 class HelixError(_HelixBaseError):
+    """HelixError class."""
 
     def __init__(self, msg: typing.Any):
         self.msg = msg
@@ -33,6 +36,7 @@ class HelixError(_HelixBaseError):
 
 
 class Active(object):
+    """Active class."""
 
     console: Console = Console()
 

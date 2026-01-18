@@ -5,9 +5,10 @@
 # |_| \_\___|\__, |_|___/\__\___|_|
 #            |___/
 #
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-from mcp.server    import FastMCP
-from engine.manage import DeviceManage
+from mcp.server.fastmcp         import FastMCP
+from backend.mcp_hub.hub_manage import DeviceManage
 
 
 def register_all_tools(mcp: FastMCP, manage: DeviceManage) -> None:

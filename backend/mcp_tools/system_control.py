@@ -5,13 +5,14 @@
 # |____/ \__, |___/\__\___|_| |_| |_|  \____\___/|_| |_|\__|_|  \___/|_|
 #        |___/
 #
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
 import asyncio
 from loguru import logger
 from mcp.server import FastMCP
 from backend.middlewares.mid_task import task_middleware
-from engine.manage import DeviceManage
+from backend.mcp_hub.hub_manage import DeviceManage
 
 
 def bind(mcp: FastMCP, manage: DeviceManage) -> None:
@@ -68,7 +69,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
         logger.info("Screen ON")
         await asyncio.gather(
-            *(device.screen_on() for device in device_list), return_exceptions=True
+            *(device.screen_set(True) for device in device_list), return_exceptions=True
         )
 
     @mcp.tool()
@@ -79,7 +80,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
         logger.info("Screen OFF")
         await asyncio.gather(
-            *(device.screen_off() for device in device_list), return_exceptions=True
+            *(device.screen_set(False) for device in device_list), return_exceptions=True
         )
 
     @mcp.tool()

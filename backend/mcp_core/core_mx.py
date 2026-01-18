@@ -4,6 +4,7 @@
 # | |__| (_) | | |  __/ | |  | |/  \
 #  \____\___/|_|  \___| |_|  |_/_/\_\
 #
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import re
 import time
@@ -16,6 +17,7 @@ from backend.utilities import const
 
 
 class Memrix(object):
+    """Memrix class."""
 
     __instance: typing.Optional["Memrix"] = None
     __initialized: bool = False

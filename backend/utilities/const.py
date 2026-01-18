@@ -4,6 +4,7 @@
 # | |__| (_) | | | \__ \ |_
 #  \____\___/|_| |_|___/\__|
 #
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 # ========【应用基础信息】========
 APP_ITEM    = r"HelixAI"

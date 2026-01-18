@@ -4,6 +4,8 @@
 #  |  __/ (_| | |  \__ \  __/ |
 #  |_|   \__,_|_|  |___/\___|_|
 #
+# Notes: ✦ Mind ✦ Copyright (c) 2026.
+# Notes: Licensed use only · Redistribution requires explicit permission and approval.
 
 import typing
 import argparse
@@ -12,6 +14,7 @@ from mindnova import const
 
 
 class Parser(object):
+    """Parser class."""
 
     __parse_engine: typing.Optional["argparse.ArgumentParser"] = None
 

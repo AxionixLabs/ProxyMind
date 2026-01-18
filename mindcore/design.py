@@ -5,6 +5,8 @@
 # |____/ \___||___/_|\__, |_| |_|
 #                    |___/
 #
+# Notes: ✦ Mind ✦ Copyright (c) 2026.
+# Notes: Licensed use only · Redistribution requires explicit permission and approval.
 
 import random
 import typing
@@ -19,6 +21,7 @@ from mindnova import const
 
 
 class Design(object):
+    """Design class."""
 
     console: typing.Optional["Console"] = Console()
 
@@ -26,6 +29,7 @@ class Design(object):
         self.design_level = design_level
 
     class Particle(object):
+        """Particle class."""
 
         __slots__ = ("x", "y", "tx", "ty")
 
@@ -36,6 +40,7 @@ class Design(object):
             self.ty = ty
 
     class Doc(object):
+        """Doc class."""
 
         @classmethod
         def log(cls, text: typing.Any) -> None:

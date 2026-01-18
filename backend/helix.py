@@ -4,12 +4,13 @@
 # |  _  |  __/ | |>  <
 # |_| |_|\___|_|_/_/\_\
 #
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 from pydantic                     import AnyHttpUrl
 from mcp.server.fastmcp           import FastMCP
 from mcp.server.auth.settings     import AuthSettings
-from engine.manage                import DeviceManage
 from backend.mcp_core.core_cli    import Cli
+from backend.mcp_hub.hub_manage   import DeviceManage
 from backend.middlewares.mid_auth import HelixTokenVerifier
 from backend.utilities            import const
 from backend.utilities.pipeline   import Active

@@ -4,6 +4,8 @@
 # | |__| (_) | | | \__ \ |_
 #  \____\___/|_| |_|___/\__|
 #
+# Notes: ✦ Mind ✦ Copyright (c) 2026.
+# Notes: Licensed use only · Redistribution requires explicit permission and approval.
 
 APP_ITEM    = r"ProxyMind"
 APP_NAME    = r"mind"

@@ -11,6 +11,7 @@ from mindnova import const
 
 
 class Terminal(object):
+    """Terminal class."""
 
     @staticmethod
     async def cmd_line(cmd: list[str]) -> typing.Any:

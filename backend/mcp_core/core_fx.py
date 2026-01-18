@@ -4,6 +4,7 @@
 # | |__| (_) | | |  __/ |  _|  /  \
 #  \____\___/|_|  \___| |_|   /_/\_\
 #
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import re
 import time
@@ -16,7 +17,7 @@ from backend.utilities import const
 
 
 class Framix(object):
-    """Framix"""
+    """Framix class."""
 
     __instance: typing.Optional["Framix"] = None
     __initialized: bool = False

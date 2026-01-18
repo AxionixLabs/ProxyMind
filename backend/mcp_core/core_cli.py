@@ -4,6 +4,7 @@
 # | |__| (_) | | |  __/ | |___| | |
 #  \____\___/|_|  \___|  \____|_|_|
 #
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
 import argparse
@@ -12,13 +13,14 @@ from backend.utilities import const
 
 
 class Cli(object):
+    """Cli class."""
 
     __parse_engine: typing.Optional["argparse.ArgumentParser"] = None
 
     def __init__(self):
         custom_made_usage = f"""\
         --------------------------------------------
-        \033[1;35m{const.APP_NAME}\033[0m --level
+        \033[1;35m{const.APP_NAME}\033[0m --level DEBUG / INFO / WARN / ERROR / CRITICAL
         """
         self.__parse_engine = argparse.ArgumentParser(
             const.APP_NAME,

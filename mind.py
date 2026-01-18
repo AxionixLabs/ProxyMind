@@ -4,6 +4,8 @@
 # | |  | | | | | | (_| |
 # |_|  |_|_|_| |_|\__,_|
 #
+# Notes: ✦ Mind ✦ Copyright (c) 2026.
+# Notes: Licensed use only · Redistribution requires explicit permission and approval.
 
 import os
 import re
@@ -36,7 +38,7 @@ from mindnova import (
 
 
 class Mind(object):
-    """Mind"""
+    """Mind class."""
 
     __remote: dict = {}
 
@@ -51,6 +53,7 @@ class Mind(object):
         self.pref: Preferences = kwargs["pref"]
 
         self.task_event: asyncio.Event = asyncio.Event()
+        self.task_info: dict = {}
 
         self.last_refresh_ts = 0.0
         self.ttl_sec         = 1.0
@@ -58,6 +61,8 @@ class Mind(object):
         self.sse: typing.Callable[
             [dict], str
         ] = lambda x: f"data: {json.dumps(x, ensure_ascii=False)}\n\n"
+
+        self.design: Design = Design(self.level)
 
     @property
     def remote(self) -> dict:
@@ -119,7 +124,9 @@ class Mind(object):
     async def mind_trip(self, model: str, apikey: str, message: str) -> None:
         """Mind Trip"""
         if not model or not apikey:
-            missing = ", ".join(x for x, ok in [("model", bool(model)), ("api_key", bool(apikey))] if not ok)
+            missing = ", ".join(
+                x for x, ok in [("model", bool(model)), ("api_key", bool(apikey))] if not ok
+            )
             raise MindError(f"Missing required field(s): {missing}")
 
         async for session, payload in request.stream_session_call(model, apikey, message):

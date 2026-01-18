@@ -1,9 +1,11 @@
-#     _         _   _
-#    / \  _   _| |_| |__
-#   / _ \| | | | __| '_ \
-#  / ___ \ |_| | |_| | | |
-# /_/   \_\__,_|\__|_| |_|
+#     _         _   _                _   _
+#    / \  _   _| |_| |__   ___ _ __ | |_(_) ___
+#   / _ \| | | | __| '_ \ / _ \ '_ \| __| |/ __|
+#  / ___ \ |_| | |_| | | |  __/ | | | |_| | (__
+# /_/   \_\__,_|\__|_| |_|\___|_| |_|\__|_|\___|
 #
+# Notes: ✦ Mind ✦ Copyright (c) 2026.
+# Notes: Licensed use only · Redistribution requires explicit permission and approval.
 
 import jwt
 import hmac

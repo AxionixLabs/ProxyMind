@@ -4,6 +4,8 @@
 #  | |_) | |_| | | | (_| |
 #  |____/ \__,_|_|_|\__,_|
 #
+# Notes: ✦ Mind ✦ Copyright (c) 2026.
+# Notes: Licensed use only · Redistribution requires explicit permission and approval.
 
 import re
 import sys

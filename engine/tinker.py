@@ -22,10 +22,12 @@ from mindnova import const
 
 
 class _MindBaseError(BaseException):
+    """_MindBaseError class."""
     pass
 
 
 class MindError(_MindBaseError):
+    """MindError class."""
 
     def __init__(self, msg: typing.Any):
         self.msg = msg
@@ -37,6 +39,7 @@ class MindError(_MindBaseError):
 
 
 class Active(object):
+    """Active class."""
 
     class _RichSink(RichHandler):
         debug_color = [
@@ -82,6 +85,7 @@ class Active(object):
 
 
 class FileAssist(object):
+    """FileAssist class."""
 
     @staticmethod
     async def open(file: str) -> typing.Optional[str]:
