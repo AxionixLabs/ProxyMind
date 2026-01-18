@@ -5,8 +5,6 @@
 # |_| \_\___|\__, |\__,_|\___||___/\__|
 #               |_|
 #
-# Notes: ✦ Mind ✦ Copyright (c) 2026.
-# Notes: Licensed use only · Redistribution requires explicit permission and approval.
 
 import json
 import httpx

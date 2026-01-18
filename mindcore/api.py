@@ -5,8 +5,6 @@
 #  /_/   \_\ .__/|_|
 #          |_|
 #
-# Notes: ✦ Mind ✦ Copyright (c) 2026.
-# Notes: Licensed use only · Redistribution requires explicit permission and approval.
 
 import typing
 from loguru import logger

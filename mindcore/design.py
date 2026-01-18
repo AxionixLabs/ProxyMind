@@ -5,8 +5,6 @@
 # |____/ \___||___/_|\__, |_| |_|
 #                    |___/
 #
-# Notes: ✦ Mind ✦ Copyright (c) 2026.
-# Notes: Licensed use only · Redistribution requires explicit permission and approval.
 
 import random
 import typing

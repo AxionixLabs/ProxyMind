@@ -4,8 +4,6 @@
 #  |  __/| | | (_) |  _| | |  __/
 #  |_|   |_|  \___/|_| |_|_|\___|
 #
-# Notes: ✦ Mind ✦ Copyright (c) 2026.
-# Notes: Licensed use only · Redistribution requires explicit permission and approval.
 
 import os
 import json

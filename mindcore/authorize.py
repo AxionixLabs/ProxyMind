@@ -4,8 +4,6 @@
 #   / ___ \ |_| | |_| | | | (_) | |  | |/ /  __/
 #  /_/   \_\__,_|\__|_| |_|\___/|_|  |_/___\___|
 #
-# Notes: ✦ Mind ✦ Copyright (c) 2026.
-# Notes: Licensed use only · Redistribution requires explicit permission and approval.
 
 import json
 import uuid
