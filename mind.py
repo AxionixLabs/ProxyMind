@@ -63,7 +63,7 @@ class Mind(object):
         self.pref: Preferences = kwargs["pref"]
 
         self.task_event: asyncio.Event = asyncio.Event()
-        self.task_info: dict = {}
+        self.task_info: list = []
 
         self.last_refresh_ts = 0.0
         self.ttl_sec         = 1.0
@@ -88,10 +88,10 @@ class Mind(object):
 
     def signal_processor(self, *_, **__) -> None:
         """Signal Processor"""
+        self.task_event.set()
         Design.console.print()
         Design.show_exit()
-        logger.info(f"☎️ SYNC ▸ {const.APP_DESC} MCP neural core detaching.")
-        self.task_event.set()
+        logger.debug(f"SYNC ▸ {const.APP_DESC} MCP neural core detaching.")
         sys.exit(130)
 
     async def exec_status(self, session: ClientSession) -> typing.Optional[dict]:
@@ -104,7 +104,7 @@ class Mind(object):
         }
 
         if (resp := await session.call_tool(**tools)).isError:
-            return {"type": "error", "tips": resp.content[0].text}
+            return {"type": "error", "content": resp.content[0].text}
 
         self.last_refresh_ts = now
         return logger.debug(f"⚜️ {resp.structuredContent}")
@@ -113,7 +113,7 @@ class Mind(object):
         """Exec Looper"""
         loop_count = plan.get("loop_count", 1)
 
-        yield self.sse({"type": "exec", "tips": f"Loop Count -> {loop_count}"})
+        yield self.sse({"type": "exec", "content": f"Loop Count -> {loop_count}"})
 
         for i in range(loop_count):
             for step in steps:
@@ -127,15 +127,20 @@ class Mind(object):
                 result = await session.call_tool(name := action["action"], action["args"])
 
                 if result.isError:
-                    yield self.sse({"type": "error", "tips": result.content[0].text})
+                    yield self.sse({"type": "error", "content": result.content[0].text})
                     return
 
-                yield self.sse({"type": "exec", "tips": f"{name} -> {result.structuredContent}"})
+                yield self.sse({"type": "exec", "content": f"{name} -> {result.structuredContent}"})
 
-        yield self.sse({"type": "done"})
+        yield self.sse({"type": "done", "content": "finished"})
 
     async def mind_trip(self, model: str, apikey: str, message: str) -> None:
         """Mind Trip"""
+
+        async def off_live_state() -> None:
+            animation_event.set()
+            await animation
+            self.task_info.clear()
 
         async def capture(response: httpx.Response) -> None:
             """Capture"""
@@ -190,15 +195,25 @@ class Mind(object):
                             continue
 
                         # workflow: ==== Exec Streaming ====
+                        animation_event: asyncio.Event = asyncio.Event()
+                        animation = asyncio.create_task(
+                            self.design.deep_thinking(self.task_info, animation_event)
+                        )
+
                         async for line in self.exec_looper(plan, steps, session):
                             try:
                                 exec_event = json.loads(line[len("data:"):].strip())
                             except json.JSONDecodeError:
                                 continue
 
+                            self.task_info.append(content := exec_event.get("content"))
+
                             if exec_event.get("type") == "error":
-                                return logger.error(f"🔴 {exec_event.get('tips')}")
-                            logger.info(f"🔶 {exec_event.get('tips')}")
+                                await off_live_state()
+                                return logger.error(f"🔴 {content}")
+                            logger.debug(f"🔶 {content}")
+
+                        await off_live_state()
 
     async def mind_chat(self, model: str, apikey: str, message: str) -> None:
         """Mind Chat"""
@@ -217,13 +232,13 @@ class Mind(object):
             # workflow: ==== Chat Streaming ====
             async for chat in request.stream_chat(model, apikey, message):
                 if chat.get("type") == "error":
-                    return logger.error(f"🔴 {chat.get('tips')}")
+                    return logger.error(f"🔴 {chat.get('content')}")
 
                 if (chat.get("type")) != "chat":
                     continue
 
                 out, delay = await Design.typewriter(
-                    live, chat.get("message", ""), out, delay, max(0.0015, delay * 0.65), cursor=cursor
+                    live, chat.get("content", ""), out, delay, max(0.0015, delay * 0.65), cursor=cursor
                 )
 
             await Design.cursor_blink(live, out, cursor=cursor)
@@ -271,8 +286,8 @@ class Mind(object):
         [bold #AFD7FF]/model <name>[/]             引擎切换（选择推理内核）
         [bold #AFD7FF]/apikey <key>[/]             凭证更新（替换访问密钥）
         [bold #AFD7FF]/again N <goal>[/]           复现回放（目标 × N 次）
-        [bold #FFD75F]/mind[/]                     编排模式（工具执行）
         [bold #FFD75F]/chat[/]                     问答模式（自由对话）
+        [bold #FFD75F]/mind[/]                     编排模式（工具执行）
         [bold #FFD75F]/fast[/]                     性能模式（压测采集）
         [/]"""
 
@@ -281,7 +296,7 @@ class Mind(object):
         re_apikey = re.compile(r"^\s*/apikey(?:\s+(.*))?\s*$", re.IGNORECASE)
 
         # 主题
-        tag: typing.Literal["MIND", "CHAT", "FAST"] = "CHAT"
+        tag: typing.Literal["CHAT", "MIND", "FAST"] = "CHAT"
 
         theme = {
             "MIND": {
@@ -317,7 +332,7 @@ class Mind(object):
             th = theme[tag]
             ask = (
                 f"\n[bold {th['tag']}]{th['banner']}[/]"
-                f"\n[bold {th['prompt_c']}]{th['prompt']}[/] [bold {th['model']}]⟪{model}⟫[/]"
+                f"\n[bold {th['prompt_c']}]{th['prompt']}[/] [bold {th['model']}]<{model}>[/]"
                 f"\n[bold {th['ready']}]ready 输入目标或 /help[/]"
             )
 
@@ -331,14 +346,14 @@ class Mind(object):
                 Design.console.print(doc)
                 continue
 
-            if raw.lower() == "/mind":
-                tag = "MIND"
-                Design.console.print(f"[bold {theme['MIND']['hint']}]Exchange → Mind[/]")
-                continue
-
             if raw.lower() == "/chat":
                 tag = "CHAT"
                 Design.console.print(f"[bold {theme['CHAT']['hint']}]Exchange → Chat[/]")
+                continue
+
+            if raw.lower() == "/mind":
+                tag = "MIND"
+                Design.console.print(f"[bold {theme['MIND']['hint']}]Exchange → Mind[/]")
                 continue
 
             if raw.lower() == "/fast":
@@ -381,9 +396,6 @@ class Mind(object):
 
         try:
             return await current(model, apikey, message)
-
-        except* asyncio.CancelledError:
-            logger.error(f"❌ request cancelled (network/proxy/close)")
 
         except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as eg:
             for e in eg.exceptions:
@@ -605,7 +617,7 @@ if __name__ == '__main__':
         sys.exit(1)
     except KeyboardInterrupt:
         sys.exit(Design.show_exit())
-    except asyncio.CancelledError:
-        sys.exit(Design.show_done())
-    else:
-        sys.exit(Design.show_done())
+    # except asyncio.CancelledError:
+    #     sys.exit(Design.show_done())
+    # else:
+    #     sys.exit(Design.show_done())

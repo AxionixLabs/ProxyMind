@@ -31,9 +31,9 @@ async def __streaming(
             except httpx.HTTPStatusError:
                 body = await resp.aread()
                 yield {
-                    "type" : "error",
-                    "code" : resp.status_code,
-                    "tips" : body.decode(const.CHARSET, errors="replace")
+                    "type"    : "error",
+                    "code"    : resp.status_code,
+                    "content" : body.decode(const.CHARSET, errors="replace")
                 }
                 return
 
@@ -67,7 +67,7 @@ async def stream_planner(
     def on_event(event_dict: dict) -> None:
         match event_dict.get("type"):
             case "thinking":
-                logger.info(f"🟣 {event_dict['message']}")
+                logger.info(f"🟣 {event_dict['content']}")
             case "plan":
                 if steps := event_dict.get("steps"):
                     for step in steps: logger.info(f"🔵 {step['action']}")
@@ -76,7 +76,7 @@ async def stream_planner(
             case "done":
                 logger.info(f"🟢 Plan done ...")
             case "error":
-                logger.error(f"🔴 Error {event_dict.get('message')}")
+                logger.error(f"🔴 Error {event_dict['content']}")
 
     url = f"https://api.appserverx.com/planner"
     headers = Channel.make_headers()
@@ -91,7 +91,7 @@ async def stream_planner(
         yield event
 
 
-async def stream_self_heal(
+async def stream_heal(
     model: str,
     apikey: str,
     page_id: str,
@@ -109,13 +109,13 @@ async def stream_self_heal(
     def on_event(event_dict: dict) -> None:
         match event_dict.get("type"):
             case "thinking":
-                logger.info(f"🟣 {event_dict['message']}")
+                logger.info(f"🟣 {event_dict['content']}")
             case "heal":
-                logger.info(f"🔵 {event_dict.get('message')}")
+                logger.info(f"🔵 {event_dict['content']}")
             case "done":
                 logger.info(f"🟢 Heal done ...")
             case "error":
-                logger.error(f"🔴 Error {event_dict.get('message')}")
+                logger.error(f"🔴 Error {event_dict['content']}")
 
     url = "https://api.appserverx.com/self-heal"
     headers = Channel.make_headers()
@@ -147,13 +147,18 @@ async def stream_chat(
 ) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
     """Stream Chat"""
 
+    def on_event(event_dict: dict) -> None:
+        match event_dict.get("type"):
+            case "thinking":
+                logger.info(f"🟣 {event_dict['content']}")
+
     url = f"https://api.appserverx.com/chat"
     headers = Channel.make_headers()
     payload = {
         "model": model, "apikey": apikey, "message": message
     }
 
-    async for event in __streaming(url, headers, payload, timeout):
+    async for event in __streaming(url, headers, payload, timeout, on_event):
         yield event
 
 

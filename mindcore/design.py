@@ -6,6 +6,7 @@
 #                    |___/
 #
 
+import math
 import random
 import typing
 import asyncio
@@ -15,6 +16,7 @@ from rich.live import Live
 from rich.text import Text
 from rich.tree import Tree
 from rich.console import Console
+from rich.cells import cell_len
 from mindnova import const
 
 
@@ -570,6 +572,158 @@ class Design(object):
                 await asyncio.sleep(1 / fps)
 
             live.update(render(ticks, final=True))
+
+    async def deep_thinking(self, task_info: list, task_event: asyncio.Event) -> None:
+        if self.design_level != const.SHOW_LEVEL:
+            return None
+
+        indent  = "  "
+        line_w  = min(68, max(44, self.console.width - 10))
+        inner_w = line_w - cell_len(indent)
+
+        spin = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        logo = const.APP_DESC
+
+        dur = 1.0
+        fps = 60
+        rng = random.Random(7)
+
+        steps = max(12, int(dur * fps))
+
+        def padding(out: Text) -> Text:
+            out.truncate(line_w, overflow="crop")
+            if (remain := line_w - cell_len(out.plain)) > 0:
+                out.append(" " * remain)
+            return out
+
+        def shimmer_logo(t: int) -> Text:
+            pos = t % max(1, len(logo) + 6)
+
+            out = Text()
+            out.append(indent)
+            out.append("⌁ ", style="bold #444444")
+            for i, ch in enumerate(logo):
+                if (d := abs((i + 2) - pos)) == 0:
+                    out.append(ch, style="bold #87FFFF")
+                elif d == 1:
+                    out.append(ch, style="bold #AFFFFF")
+                elif d == 2:
+                    out.append(ch, style="bold #5FFFFF")
+                else:
+                    out.append(ch, style="bold #BBBBBB")
+
+            out.append("  ", style="bold")
+            return padding(out)
+
+        def scan_line(t: int, p: float) -> Text:
+            out  = Text(indent)
+            bar  = min(28, max(18, line_w - 24))
+            scan = int((bar - 1) * (0.5 + 0.5 * math.sin(p * math.tau)))
+
+            out.append(f"{spin[t % len(spin)]} ", style="bold #AFFFFF")
+            out.append("starting ", style="bold")
+            out.append("[", style="bold #666666")
+
+            for i in range(bar):
+                if i == scan:
+                    out.append("█", style="bold #87FFFF")
+                elif abs(i - scan) == 1:
+                    out.append("█", style="bold #5FFFFF")
+                else:
+                    out.append("·", style="#2A2A2A")
+
+            out.append("]", style="bold #666666")
+            out.append(" ", style="bold")
+
+            right = "warming…".ljust(10)
+            out.append(right, style="bold dim")
+
+            if (pulse := (t % 6)) in (0, 1):
+                out.append(" ▋", style="bold #87FFFF")
+            elif pulse in (2, 3):
+                out.append(" ▋", style="bold #5FFFFF")
+            else:
+                out.append(" ▋", style="bold #2A2A2A")
+
+            return padding(out)
+
+        def micro_glitch(t: int) -> Text:
+            phases = ["warming", "priming", "binding", "syncing"]
+            phase  = phases[(t // 10) % len(phases)]
+            base   = f"boot: {phase} • cache warm • tools online"
+
+            s = base.ljust(inner_w)
+            if t % 13 in (0, 1):
+                s_list = list(s)
+                for _ in range(3):
+                    idx = rng.randrange(0, len(s_list))
+                    s_list[idx] = rng.choice("≈≋∿-_/\\")
+                s = "".join(s_list)
+                out = Text(indent + s, style="dim #8A8A8A")
+            else:
+                out = Text(indent + s, style="dim #777777")
+
+            return padding(out)
+
+        def spark_bits(t: int, p: float) -> Text:
+            w = line_w - len(indent)
+
+            rng2 = random.Random(1000 + t)
+            hot1 = int((w - 1) * (0.5 + 0.5 * math.cos(p * math.tau)))
+            hot2 = int((w - 1) * (0.5 + 0.5 * math.sin((p * 0.85 + 0.17) * math.tau)))
+
+            out = Text(indent)
+            for i in range(w):
+                if i == hot1:
+                    out.append("*", style="bold #87FFFF")
+                elif abs(i - hot1) == 1:
+                    out.append("+", style="bold #5FFFFF")
+                elif i == hot2:
+                    out.append("•", style="dim #6BDDDD")
+                elif abs(i - hot2) == 1:
+                    out.append("·", style="dim #3A3A3A")
+                else:
+                    out.append(rng2.choice("01  "), style="bold #2A2A2A")
+
+            return padding(out)
+
+        def build_task_info() -> Text:
+            t = Text()
+            for info in task_info:
+                row = Text(f"{indent}{info}", style="bold #FFAF87")
+                row.truncate(line_w, overflow="ellipsis")
+                t.append_text(row)
+                t.append("\n")
+            return t
+
+        def frame(t: int, p: float) -> Text:
+            txt = Text()
+            txt.append("\n")
+            txt.append_text(shimmer_logo(t))
+            txt.append("\n")
+            txt.append_text(scan_line(t, p))
+            txt.append("\n")
+            txt.append_text(micro_glitch(t))
+            txt.append("\n")
+            txt.append_text(spark_bits(t, p))
+            txt.append("\n")
+            txt.append_text(build_task_info())
+
+            return txt
+
+        with Live(frame(0, 0.0), console=self.console, refresh_per_second=fps, transient=True) as live:
+            tick = 0
+            while not task_event.is_set():
+                for step in range(steps):
+                    live.update(frame(tick, (step + 1) / steps))
+                    tick += 1
+                    await asyncio.sleep(1 / fps)
+
+        final = Text()
+        final.append(indent + f"✓ {const.APP_DESC} Ready\n", style="bold #87FF00")
+        final.append_text(build_task_info())
+        final.append("\n")
+        self.console.print(final)
 
 
 if __name__ == '__main__':

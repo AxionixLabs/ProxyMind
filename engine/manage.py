@@ -41,8 +41,8 @@ class ServerManage(object):
 
         for _ in range(5):
             if self.transports is not None:
-                return logger.info(
-                    f"Ⓜ️ SYNC ▸ {const.APP_DESC} MCP neural core online."
+                return logger.debug(
+                    f"SYNC ▸ {const.APP_DESC} MCP neural core online."
                 )
             await asyncio.sleep(1)
 
@@ -52,7 +52,7 @@ class ServerManage(object):
         if not self.transports or self.transports.returncode is not None:
             return None
 
-        logger.info(f"☣️ SYNC ▸ {const.APP_DESC} MCP neural core shutting down...")
+        logger.debug(f"SYNC ▸ {const.APP_DESC} MCP neural core shutting down...")
 
         self.transports.terminate()
         try:
@@ -60,7 +60,7 @@ class ServerManage(object):
         except asyncio.TimeoutError:
             self.transports.kill()
 
-        logger.info(f"♻️ SYNC ▸ {const.APP_DESC} MCP neural core offline.")
+        logger.debug(f"SYNC ▸ {const.APP_DESC} MCP neural core offline.")
 
 
 if __name__ == '__main__':
