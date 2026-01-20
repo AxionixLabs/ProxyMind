@@ -512,10 +512,12 @@ class Device(object):
 
         return None
 
-    async def healing(self) -> dict:
+    async def healing(self, locator: str) -> dict:
         """执行自愈流程定位并处理目标控件。"""
         payload = {
             "page_id"   : await self.current_activity() or "",
+            "platform"  : "android",
+            "locator"   : locator,
             "page_dump" : await self.current_xml() or "",
         }
 

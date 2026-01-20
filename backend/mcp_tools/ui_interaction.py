@@ -150,13 +150,13 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
     @mcp.tool()
     @task_middleware("healing")
-    async def healing() -> typing.Any:
-        """Class: ui; Action: 元素查找/修复/自愈 采集上下文(当前Activity + UI XML + 截图Base64/DataURL); Args: none; Use: 元素定位/定位修复/自愈修正/远程诊断/问题复现; Return: list[device_result]; Notes: 每台设备生成一份payload(含page_id/page_dump/screenshot_base64/screenshot_data_url)，截图先拉取到临时文件再编码，结束后清理远端截图文件。"""
+    async def healing(locator: str) -> typing.Any:
+        """Class: ui; Action: 元素定位/自愈上下文采集; Args: locator(str, 描述目标元素，如“设置在哪里”“右上角的相机按钮”); Use: 主动定位或定位失败时采集当前页面信息，用于元素查找/修复/自愈/诊断; Return: list[device_result]; Notes: 每台设备输出一份 payload（page_id + + platform + locator + page_dump + screenshot_base64/dataURL）；截图拉取后编码，结束清理远端截图文件。"""
         device_list = manage.snapshot
 
         logger.info("Healing")
         return await asyncio.gather(
-            *(device.healing() for device in device_list), return_exceptions=True
+            *(device.healing(locator) for device in device_list), return_exceptions=True
         )
 
 

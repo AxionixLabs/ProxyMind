@@ -8,7 +8,6 @@
 
 import json
 import httpx
-import base64
 import typing
 from loguru import logger
 from engine.channel import Channel
@@ -57,7 +56,7 @@ async def stream_plan(
 ) -> typing.AsyncGenerator[dict, None]:
     """Stream Planner"""
 
-    url = f"https://api.appserverx.com/planner"
+    url = f"https://api.appserverx.com/mind-plan"
     headers = Channel.make_headers()
     payload = {
         "model"   : model,
@@ -85,8 +84,7 @@ async def stream_heal(
     apikey: str,
     page_id: str,
     platform: str,
-    by: typing.Literal["text", "id", "desc", "xpath"],
-    value: str,
+    locator: str,
     page_dump: str,
     screenshot: str,
     timeout: float = 60.0,
@@ -95,29 +93,26 @@ async def stream_heal(
 ) -> typing.AsyncGenerator[dict, None]:
     """Stream Heal"""
 
-    url = "https://api.appserverx.com/self-heal"
+    url = "https://api.appserverx.com/mind-heal"
     headers = Channel.make_headers()
 
-    with open(screenshot, "rb") as f:
-        image_b64 = base64.b64encode(f.read()).decode()
-
     payload = {
-        "model"       : model,
-        "apikey"      : apikey,
-        "app_id"      : const.APP_DESC,
-        "page_id"     : page_id,
-        "platform"    : platform,
-        "old_locator" : {"by": by, "value": value},
-        "page_dump"   : page_dump,
-        "screenshot"  : f"data:image/png;base64,{image_b64}",
-        "context"     : kwargs
+        "model"      : model,
+        "apikey"     : apikey,
+        "app_id"     : const.APP_DESC,
+        "page_id"    : page_id,
+        "platform"   : platform,
+        "locator"    : locator,
+        "page_dump"  : page_dump,
+        "screenshot" : f"data:image/png;base64,{screenshot}",
+        "context"    : kwargs
     }
 
     async for event in __streaming(url, headers, payload, timeout):
         match event.get("type"):
-            case "thinking" : logger.info(event["content"])
-            case "done"     : logger.info("Heal done ...")
-            case "heal"     : logger.info(event["content"])
+            case "thinking" : logger.debug(event["content"])
+            case "done"     : logger.debug("Heal done ...")
+            case "heal"     : logger.debug(event["content"])
 
         yield event
 
@@ -130,7 +125,7 @@ async def stream_chat(
 ) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
     """Stream Chat"""
 
-    url = f"https://api.appserverx.com/chat"
+    url = f"https://api.appserverx.com/mind-chat"
     headers = Channel.make_headers()
     payload = {
         "model": model, "apikey": apikey, "message": message

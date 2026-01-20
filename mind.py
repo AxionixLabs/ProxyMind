@@ -118,7 +118,7 @@ class Mind(object):
         self.last_refresh_ts = now
         return logger.debug(f"⚜️ {resp.structuredContent}")
 
-    async def exec_looper(self, loop_count: int, steps: list, session: ClientSession) -> None:
+    async def exec_looper(self, model, apikey, loop_count: int, steps: list, session: ClientSession) -> None:
         """Exec Looper"""
         for index, _ in enumerate(range(loop_count), start=1):
             for step in steps:
@@ -129,21 +129,48 @@ class Mind(object):
                     await self.off_live_state()
                     return logger.error(error)
 
-                name, args = action["action"], action["args"]
+                name, argument = action["action"], action["args"]
 
-                logger.debug(tips := f"{name} -> args={args}")
+                logger.debug(tips := f"{name} -> args={argument}")
                 self.task_info.append(tips)
 
-                result = await session.call_tool(name, args)
+                result = await session.call_tool(name, argument)
 
                 if result.isError:
                     await self.off_live_state()
                     return logger.error(result.content[0].text)
 
+                if name in {"healing"}:
+                    element = json.loads(result.content[0].text)
+                    await self.mind_heal(model, apikey, **element)
+
                 logger.debug(tips := f"{name} -> resp={result.structuredContent}")
                 self.task_info.append(tips)
 
             if index != loop_count: self.task_info.clear()
+
+    async def mind_heal(
+        self,
+        model: str,
+        apikey: str,
+        page_id: str,
+        platform: str,
+        locator: str,
+        page_dump: str,
+        screenshot: str,
+        *_,
+        **kwargs
+    ) -> None:
+        """Mind Heal"""
+
+        async for heal in request.stream_heal(
+            model, apikey, page_id, platform, locator, page_dump, screenshot, *_, **kwargs
+        ):
+            if heal.get("type") == "error":
+                await self.off_live_state()
+                return logger.error(heal["content"])
+
+            self.task_info.append(heal["content"])
 
     async def mind_trip(self, model: str, apikey: str, message: str) -> None:
         """Mind Trip"""
@@ -207,7 +234,7 @@ class Mind(object):
                         self.animation_task = asyncio.create_task(
                             self.design.deep_thinking(self.task_info, self.animation_event)
                         )
-                        await self.exec_looper(loop_count, steps, session)
+                        await self.exec_looper(model, apikey, loop_count, steps, session)
                         await self.off_live_state()
 
     async def mind_chat(self, model: str, apikey: str, message: str) -> None:
