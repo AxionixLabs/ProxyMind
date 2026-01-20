@@ -248,7 +248,9 @@ class Design(object):
 
         root_color, folder_color, file_color = random.choice(list(color_schemes.values()))
 
-        choice_icon: callable = lambda x: file_icons["folder"] if (y := Path(x)).is_dir() else (
+        choice_icon: typing.Callable[
+            [str], str
+        ] = lambda x: file_icons["folder"] if (y := Path(x)).is_dir() else (
             file_icons[n] if (n := y.name.lower()) in file_icons else file_icons["default"]
         )
 
@@ -696,6 +698,14 @@ class Design(object):
                 t.append("\n")
             return t
 
+        def finished() -> None:
+            final = Text()
+            final.append("\n")
+            final.append(indent + f"✓ {const.APP_DESC} Ready\n", style="bold #87FF00")
+            final.append_text(build_task_info())
+            final.append("\n")
+            self.console.print(final)
+
         def frame(t: int, p: float) -> Text:
             txt = Text()
             txt.append("\n")
@@ -719,11 +729,7 @@ class Design(object):
                     tick += 1
                     await asyncio.sleep(1 / fps)
 
-        final = Text()
-        final.append(indent + f"✓ {const.APP_DESC} Ready\n", style="bold #87FF00")
-        final.append_text(build_task_info())
-        final.append("\n")
-        self.console.print(final)
+        finished()
 
 
 if __name__ == '__main__':
