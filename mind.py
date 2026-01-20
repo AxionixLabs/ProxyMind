@@ -399,17 +399,17 @@ class Mind(object):
 
         except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as eg:
             for e in eg.exceptions:
-                logger.error(f"❌ {type(e).__name__}: {e!r}")
+                logger.error(f"❌ [NET] {type(e).__name__}: {e!r}")
 
         except* httpx.HTTPStatusError as eg:
             for e in eg.exceptions:
                 body = e.response.extensions.get("error_body", b"")
                 text = body.decode(const.CHARSET, errors="replace")
-                logger.error(f"❌ {e.response.status_code} {text}")
+                logger.error(f"❌ [HTTP] {e.response.status_code} {text}")
 
         except* Exception as eg:
             for e in eg.exceptions:
-                logger.error(f"❌ {type(e).__name__}: {e}")
+                logger.error(f"❌ [BUG] {type(e).__name__}: {e}")
 
 
 # """Main"""
