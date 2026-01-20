@@ -617,7 +617,7 @@ if __name__ == '__main__':
         sys.exit(1)
     except KeyboardInterrupt:
         sys.exit(Design.show_exit())
-    # except asyncio.CancelledError:
-    #     sys.exit(Design.show_done())
-    # else:
-    #     sys.exit(Design.show_done())
+    except asyncio.CancelledError:
+        sys.exit(Design.show_done())
+    else:
+        sys.exit(Design.show_done())
