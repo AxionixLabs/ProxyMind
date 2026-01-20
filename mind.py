@@ -65,6 +65,9 @@ class Mind(object):
         self.task_event: asyncio.Event = asyncio.Event()
         self.task_info: list = []
 
+        self.animation_event: typing.Optional[asyncio.Event] = None
+        self.animation_task: typing.Optional[asyncio.Task] = None
+
         self.last_refresh_ts = 0.0
         self.ttl_sec         = 1.0
 
@@ -93,6 +96,12 @@ class Mind(object):
         Design.show_exit()
         logger.debug(f"SYNC ▸ {const.APP_DESC} MCP neural core detaching.")
         sys.exit(130)
+
+    async def off_live_state(self) -> None:
+        self.animation_event.set()
+        if self.animation_task:
+            await self.animation_task
+        self.task_info.clear()
 
     async def exec_status(self, session: ClientSession) -> typing.Optional[dict]:
         """Exec Status"""
@@ -136,11 +145,6 @@ class Mind(object):
 
     async def mind_trip(self, model: str, apikey: str, message: str) -> None:
         """Mind Trip"""
-
-        async def off_live_state() -> None:
-            animation_event.set()
-            await animation
-            self.task_info.clear()
 
         async def capture(response: httpx.Response) -> None:
             """Capture"""
@@ -195,9 +199,9 @@ class Mind(object):
                             continue
 
                         # workflow: ==== Exec Streaming ====
-                        animation_event: asyncio.Event = asyncio.Event()
-                        animation = asyncio.create_task(
-                            self.design.deep_thinking(self.task_info, animation_event)
+                        self.animation_event = asyncio.Event()
+                        self.animation_task = asyncio.create_task(
+                            self.design.deep_thinking(self.task_info, self.animation_event)
                         )
 
                         async for line in self.exec_looper(plan, steps, session):
@@ -209,11 +213,11 @@ class Mind(object):
                             self.task_info.append(content := exec_event.get("content"))
 
                             if exec_event.get("type") == "error":
-                                await off_live_state()
+                                await self.off_live_state()
                                 return logger.error(f"🔴 {content}")
                             logger.debug(f"🔶 {content}")
 
-                        await off_live_state()
+                        await self.off_live_state()
 
     async def mind_chat(self, model: str, apikey: str, message: str) -> None:
         """Mind Chat"""
@@ -398,16 +402,19 @@ class Mind(object):
             return await current(model, apikey, message)
 
         except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as eg:
+            await self.off_live_state()
             for e in eg.exceptions:
                 logger.error(f"❌ [NET] {type(e).__name__}: {e!r}")
 
         except* httpx.HTTPStatusError as eg:
+            await self.off_live_state()
             for e in eg.exceptions:
                 body = e.response.extensions.get("error_body", b"")
                 text = body.decode(const.CHARSET, errors="replace")
                 logger.error(f"❌ [HTTP] {e.response.status_code} {text}")
 
         except* Exception as eg:
+            await self.off_live_state()
             for e in eg.exceptions:
                 logger.error(f"❌ [BUG] {type(e).__name__}: {e}")
 
