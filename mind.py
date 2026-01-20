@@ -103,7 +103,7 @@ class Mind(object):
             await self.animation_task
         self.task_info.clear()
 
-    async def exec_status(self, session: ClientSession) -> typing.Optional[dict]:
+    async def exec_status(self, session: ClientSession) -> typing.Optional[str]:
         """Exec Status"""
         if ((now := time.time()) - self.last_refresh_ts) < self.ttl_sec:
             return logger.debug(f"⚜️ ttl-hit: skip refresh ttl={self.ttl_sec:.3f}s")
@@ -113,35 +113,37 @@ class Mind(object):
         }
 
         if (resp := await session.call_tool(**tools)).isError:
-            return {"type": "error", "content": resp.content[0].text}
+            return resp.content[0].text
 
         self.last_refresh_ts = now
         return logger.debug(f"⚜️ {resp.structuredContent}")
 
-    async def exec_looper(self, plan: dict, steps: list, session: ClientSession) -> typing.AsyncGenerator[str, None]:
+    async def exec_looper(self, loop_count: int, steps: list, session: ClientSession) -> None:
         """Exec Looper"""
-        loop_count = plan.get("loop_count", 1)
-
-        yield self.sse({"type": "exec", "content": f"Loop Count -> {loop_count}"})
-
-        for i in range(loop_count):
+        for index, _ in enumerate(range(loop_count), start=1):
             for step in steps:
                 action = step["action"]
 
                 # ✅ 每次执行工具前，先确保 server 侧设备缓存是新的（TTL 控频）
-                if (status := await self.exec_status(session)) and status.get("type") == "error":
-                    yield self.sse(status)
-                    return
+                if error := await self.exec_status(session):
+                    await self.off_live_state()
+                    return logger.error(error)
 
-                result = await session.call_tool(name := action["action"], action["args"])
+                name, args = action["action"], action["args"]
+
+                logger.debug(tips := f"{name} -> args={args}")
+                self.task_info.append(tips)
+
+                result = await session.call_tool(name, args)
 
                 if result.isError:
-                    yield self.sse({"type": "error", "content": result.content[0].text})
-                    return
+                    await self.off_live_state()
+                    return logger.error(result.content[0].text)
 
-                yield self.sse({"type": "exec", "content": f"{name} -> {result.structuredContent}"})
+                logger.debug(tips := f"{name} -> resp={result.structuredContent}")
+                self.task_info.append(tips)
 
-        yield self.sse({"type": "done", "content": "finished"})
+            if index != loop_count: self.task_info.clear()
 
     async def mind_trip(self, model: str, apikey: str, message: str) -> None:
         """Mind Trip"""
@@ -190,35 +192,22 @@ class Mind(object):
                     ]
 
                     for tool in openai_tools:
-                        logger.debug(f"⚙️ Tool {tool['function']['name']}")
+                        logger.debug(f"Tool {tool['function']['name']}")
 
                     # workflow: ==== Plan Streaming ====
-                    async for plan in request.stream_planner(model, apikey, message, openai_tools):
+                    async for plan in request.stream_plan(model, apikey, message, openai_tools):
                         if plan.get("type") == "error":
-                            return logger.error(f"🔴 Error {plan}")
+                            return logger.error(plan)
 
-                        if not (steps := plan.get("steps")):
+                        if not (steps := plan.get("steps")) or not (loop_count := plan.get("loop_count")):
                             continue
 
-                        # workflow: ==== Exec Streaming ====
+                        # workflow: ==== Exec ====
                         self.animation_event = asyncio.Event()
                         self.animation_task = asyncio.create_task(
                             self.design.deep_thinking(self.task_info, self.animation_event)
                         )
-
-                        async for line in self.exec_looper(plan, steps, session):
-                            try:
-                                exec_event = json.loads(line[len("data:"):].strip())
-                            except json.JSONDecodeError:
-                                continue
-
-                            self.task_info.append(content := exec_event.get("content"))
-
-                            if exec_event.get("type") == "error":
-                                await self.off_live_state()
-                                return logger.error(f"🔴 {content}")
-                            logger.debug(f"🔶 {content}")
-
+                        await self.exec_looper(loop_count, steps, session)
                         await self.off_live_state()
 
     async def mind_chat(self, model: str, apikey: str, message: str) -> None:
@@ -238,7 +227,7 @@ class Mind(object):
             # workflow: ==== Chat Streaming ====
             async for chat in request.stream_chat(model, apikey, message):
                 if chat.get("type") == "error":
-                    return logger.error(f"🔴 {chat.get('content')}")
+                    return logger.error(chat.get('content'))
 
                 if (chat.get("type")) != "chat":
                     continue
@@ -258,6 +247,8 @@ class Mind(object):
             if pref_name := m.group(1).strip() if m.group(1) else None:
                 return pref_name
 
+            styles: list[str] = []
+
             match types:
                 case "model":
                     styles = [
@@ -267,10 +258,9 @@ class Mind(object):
                     styles = [
                         "sk-...   (API Key)", "gsk_...  (API Key)", "ds-...   (API Key)", "<token>  (Pure token)"
                     ]
-                case _: styles = []
 
             for s in styles: Design.console.print(f"[bold {rc}]  • {s}[/]")
-            return Design.console.print(f"[bold #FF5F5F]\n🚫 {types} invalid: /{types} {const.ERR}{pref_name}")
+            return Design.console.print(f"[bold #FF5F5F]\n {types} invalid: /{types} {const.ERR}{pref_name}")
 
         cp = [
             "#5FFF87", "#87FFAF", "#5FD7FF", "#D7AFFF", "#FFD75F",
@@ -380,11 +370,12 @@ class Mind(object):
             else:
                 message = raw
 
+            current = self.mind_chat
+
             match tag:
                 case "MIND": current = self.mind_trip
                 case "CHAT": current = self.mind_chat
                 case "FAST": current = self.mind_chat
-                case _: current = self.mind_chat
 
             await self.calling(model, apikey, message=message, current=current)
 
