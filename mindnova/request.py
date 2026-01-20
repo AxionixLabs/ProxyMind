@@ -19,8 +19,7 @@ async def __streaming(
     url: str,
     headers: dict,
     payload: dict,
-    timeout: float = 60.0,
-    on_event: typing.Optional[typing.Callable] = None
+    timeout: float = 60.0
 ) -> typing.AsyncGenerator[dict, None]:
     """Streaming"""
 
@@ -48,14 +47,8 @@ async def __streaming(
 
                 yield event
 
-                if on_event:
-                    try:
-                        on_event(event)
-                    except Exception as e:
-                        logger.debug(f"on_event failed: {type(e).__name__}: {e}")
 
-
-async def stream_planner(
+async def stream_plan(
     model: str,
     apikey: str,
     message: str,
@@ -63,20 +56,6 @@ async def stream_planner(
     timeout: float = 60.0
 ) -> typing.AsyncGenerator[dict, None]:
     """Stream Planner"""
-
-    def on_event(event_dict: dict) -> None:
-        match event_dict.get("type"):
-            case "thinking":
-                logger.info(f"🟣 {event_dict['content']}")
-            case "plan":
-                if steps := event_dict.get("steps"):
-                    for step in steps: logger.info(f"🔵 {step['action']}")
-                else:
-                    logger.warning(f"🟠 {event_dict}")
-            case "done":
-                logger.info(f"🟢 Plan done ...")
-            case "error":
-                logger.error(f"🔴 Error {event_dict['content']}")
 
     url = f"https://api.appserverx.com/planner"
     headers = Channel.make_headers()
@@ -87,7 +66,17 @@ async def stream_planner(
         "tools"   : openai_tools
     }
 
-    async for event in __streaming(url, headers, payload, timeout, on_event):
+    async for event in __streaming(url, headers, payload, timeout):
+        match event.get("type"):
+            case "thinking" : logger.info(event["content"])
+            case "done"     : logger.info("Plan done ...")
+            case "plan"     :
+                if (steps := event.get("steps")) and (loop_count := event.get("loop_count")):
+                    logger.info(f"Loop Count -> {loop_count}")
+                    for step in steps: logger.info(step["action"])
+                else:
+                    logger.warning(event)
+
         yield event
 
 
@@ -104,18 +93,7 @@ async def stream_heal(
     *_,
     **kwargs
 ) -> typing.AsyncGenerator[dict, None]:
-    """Stream Self Heal"""
-
-    def on_event(event_dict: dict) -> None:
-        match event_dict.get("type"):
-            case "thinking":
-                logger.info(f"🟣 {event_dict['content']}")
-            case "heal":
-                logger.info(f"🔵 {event_dict['content']}")
-            case "done":
-                logger.info(f"🟢 Heal done ...")
-            case "error":
-                logger.error(f"🔴 Error {event_dict['content']}")
+    """Stream Heal"""
 
     url = "https://api.appserverx.com/self-heal"
     headers = Channel.make_headers()
@@ -135,7 +113,12 @@ async def stream_heal(
         "context"     : kwargs
     }
 
-    async for event in __streaming(url, headers, payload, timeout, on_event):
+    async for event in __streaming(url, headers, payload, timeout):
+        match event.get("type"):
+            case "thinking" : logger.info(event["content"])
+            case "done"     : logger.info("Heal done ...")
+            case "heal"     : logger.info(event["content"])
+
         yield event
 
 
@@ -147,18 +130,16 @@ async def stream_chat(
 ) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
     """Stream Chat"""
 
-    def on_event(event_dict: dict) -> None:
-        match event_dict.get("type"):
-            case "thinking":
-                logger.info(f"🟣 {event_dict['content']}")
-
     url = f"https://api.appserverx.com/chat"
     headers = Channel.make_headers()
     payload = {
         "model": model, "apikey": apikey, "message": message
     }
 
-    async for event in __streaming(url, headers, payload, timeout, on_event):
+    async for event in __streaming(url, headers, payload, timeout):
+        match event.get("type"):
+            case "thinking" : logger.info(event["content"])
+
         yield event
 
 
