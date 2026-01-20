@@ -249,7 +249,7 @@ class Design(object):
         root_color, folder_color, file_color = random.choice(list(color_schemes.values()))
 
         choice_icon: typing.Callable[
-            [str], str
+            [typing.Union[Path, str]], str
         ] = lambda x: file_icons["folder"] if (y := Path(x)).is_dir() else (
             file_icons[n] if (n := y.name.lower()) in file_icons else file_icons["default"]
         )
