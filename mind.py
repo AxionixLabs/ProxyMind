@@ -165,8 +165,10 @@ class Mind(object):
         headers = {
             "Authorization": f"Bearer {authentic.manufacture_token()}"
         }
+        timeout = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
+        event_hooks = {"response": [capture]}
 
-        async with httpx.AsyncClient(headers=headers, event_hooks={"response": [capture]}) as client:
+        async with httpx.AsyncClient(headers=headers, timeout=timeout, event_hooks=event_hooks) as client:
 
             # workflow: ==== Tool Streaming ====
             async with streamable_http_client(url, http_client=client) as (r, w, _):
