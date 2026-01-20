@@ -7,16 +7,15 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import re
-import json
 import time
 import uuid
+import base64
 import typing
 import asyncio
 import secrets
 import tempfile
 from pathlib import Path
 import xml.etree.ElementTree as Et
-from mcp.server.fastmcp import FastMCP
 from engine.terminal import Terminal
 from backend.utilities import const
 
@@ -237,7 +236,7 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== File Control MCP Tool ====
-    async def pull(self, remote: str, local: str) -> typing.Any:
+    async def pull(self, remote: str, local: str) -> str:
         """从设备拉取文件到本地。"""
         unique = secrets.token_hex(6)
 
@@ -249,7 +248,9 @@ class Device(object):
         cmd = self.prefix + [
             "pull", remote, destination
         ]
-        return await Terminal.cmd_line(cmd)
+        await Terminal.cmd_line(cmd)
+
+        return str(destination)
 
     # workflow: ==== File Control MCP Tool ====
     async def push(self, local: str, remote: str) -> typing.Any:
@@ -511,48 +512,25 @@ class Device(object):
 
         return None
 
-    async def healing(self, mcp: FastMCP) -> None:
+    async def healing(self) -> dict:
         """执行自愈流程定位并处理目标控件。"""
-
-        async def watcher() -> None:
-            """启动本地监听器，接收令牌指令后触发关闭事件。"""
-            async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-                if (await reader.read(100)).decode().strip() == token:
-                    watcher_event.set()
-                writer.close()
-                await writer.wait_closed()
-
-            server = await asyncio.start_server(handler, host="127.0.0.1", port=3311)
-            async with server:
-                await watcher_event.wait()
-                server.close()
-                await server.wait_closed()
-
-        watcher_event: asyncio.Event = asyncio.Event()
-
-        token = f"Token: {const.APP_DESC}.{secrets.token_hex(8)}"
-
         payload = {
-            "token"     : token,
             "page_id"   : await self.current_activity() or "",
-            "page_dump" : await self.current_xml() or ""
+            "page_dump" : await self.current_xml() or "",
         }
 
+        image = await self.screenshot()
+
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-            await self.pull(image := await self.screenshot(), tmp.name)
+            new_local = await self.pull(image, tmp.name)
+            with open(new_local, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+            payload["screenshot_base64"] = b64
+            payload["screenshot_data_url"] = f"data:image/png;base64,{b64}"
 
-            ctx = mcp.get_context().request_context
+        await self.remove(image)
 
-            if progress_token := ctx.meta.progressToken:
-                await ctx.session.send_progress_notification(
-                    progress_token=progress_token,
-                    progress=1.0,
-                    total=1.0,
-                    message=json.dumps(payload, ensure_ascii=False)
-                )
-                await watcher()
-
-            await self.remove(image)
+        return payload
 
 
 if __name__ == '__main__':
