@@ -410,10 +410,21 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def click(self, by: typing.Literal["text", "id", "desc"], value: str | list) -> typing.Any:
+    async def click(
+        self,
+        by: typing.Literal[
+            "id", "desc", "text", "bbox", "xpath"
+        ],
+        value: str | list
+    ) -> typing.Any:
         """根据选择器点击对应节点中心点。"""
         if not (xml := await self.current_xml()):
             return None
+
+        if by == "bbox":
+            x1, y1, x2, y2 = value
+            center = (x1 + x2) // 2, (y1 + y2) // 2
+            return await self.tap(center[0], center[1])
 
         match by:
             case "id": by = "resource-id"

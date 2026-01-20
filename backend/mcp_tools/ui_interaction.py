@@ -84,8 +84,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
     @mcp.tool()
     @task_middleware("click")
-    async def click(by: typing.Literal["text", "id", "desc"], value: str) -> typing.Any:
-        """Class: ui; Action: 精确属性定位点击; Args: by(text|id|desc), value(str exact); Use: 优先用于可定位控件; Return: list[device_result]; Notes: no fuzzy, not found => no-op per-device."""
+    async def click(by: typing.Literal["id", "desc", "text", "bbox", "xpath"], value: str) -> typing.Any:
+        """Class: ui; Action: 精确属性定位点击; Args: by(id|desc|text|bbox|xpath), value(str exact); Use: 优先用于可定位控件; Return: list[device_result]; Notes: no fuzzy, not found => no-op per-device."""
         device_list = manage.snapshot
 
         logger.info(f"Click by {by} value={value}")
