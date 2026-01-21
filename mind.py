@@ -157,14 +157,14 @@ class Mind(object):
         platform: str,
         locator: str,
         page_dump: str,
-        screenshot: str,
+        screenshot_base64: str,
         *_,
         **kwargs
     ) -> None:
         """Mind Heal"""
 
         async for heal in request.stream_heal(
-            model, apikey, page_id, platform, locator, page_dump, screenshot, *_, **kwargs
+            model, apikey, page_id, platform, locator, page_dump, screenshot_base64, *_, **kwargs
         ):
             if heal.get("type") == "error":
                 await self.off_live_state()
