@@ -67,14 +67,18 @@ async def stream_plan(
 
     async for event in __streaming(url, headers, payload, timeout):
         match event.get("type"):
-            case "thinking" : logger.info(event["content"])
-            case "done"     : logger.info("Plan done ...")
-            case "plan"     :
-                if (steps := event.get("steps")) and (loop_count := event.get("loop_count")):
-                    logger.info(f"Loop Count -> {loop_count}")
-                    for step in steps: logger.info(step["action"])
-                else:
+            case "thinking":
+                logger.info(event["content"])
+                continue
+            case "done":
+                logger.info("Plan done ...")
+                continue
+            case "plan":
+                if not (steps := event.get("steps")) or not (loop_count := event.get("loop_count")):
                     logger.warning(event)
+                    continue
+                logger.info(f"Loop Count -> {loop_count}")
+                for step in steps: logger.info(step["action"])
 
         yield event
 
@@ -87,6 +91,7 @@ async def stream_heal(
     locator: str,
     page_dump: str,
     screenshot: str,
+    wm_size: dict,
     timeout: float = 60.0,
     *_,
     **kwargs
@@ -105,14 +110,20 @@ async def stream_heal(
         "locator"    : locator,
         "page_dump"  : page_dump,
         "screenshot" : f"data:image/png;base64,{screenshot}",
+        "wm_size"    : wm_size,
         "context"    : kwargs
     }
 
     async for event in __streaming(url, headers, payload, timeout):
         match event.get("type"):
-            case "thinking" : logger.debug(event["content"])
-            case "done"     : logger.debug("Heal done ...")
-            case "heal"     : logger.debug(event["content"])
+            case "thinking":
+                logger.debug(event["content"])
+                continue
+            case "done":
+                logger.debug("Heal done ...")
+                continue
+            case "heal":
+                logger.debug(event["content"])
 
         yield event
 
@@ -133,7 +144,12 @@ async def stream_chat(
 
     async for event in __streaming(url, headers, payload, timeout):
         match event.get("type"):
-            case "thinking" : logger.info(event["content"])
+            case "thinking":
+                logger.debug(event["content"])
+                continue
+            case "done":
+                logger.debug("Chat done ...")
+                continue
 
         yield event
 

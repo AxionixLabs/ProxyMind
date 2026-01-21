@@ -88,7 +88,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         """Class: ui; Action: 精确属性定位点击; Args: by(id|desc|text|bbox|xpath), value(str exact); Use: 优先用于可定位控件; Return: list[device_result]; Notes: no fuzzy, not found => no-op per-device."""
         device_list = manage.snapshot
 
-        logger.info(f"Click by {by} value={value}")
+        logger.info(f"Click by={by} value={value}")
         return await asyncio.gather(
             *(device.click(by, value) for device in device_list), return_exceptions=True
         )
@@ -149,14 +149,15 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
-    @task_middleware("healing")
-    async def healing(locator: str) -> typing.Any:
-        """Class: ui; Action: 元素定位/自愈上下文采集; Args: locator(str, 描述目标元素，如“设置在哪里”“右上角的相机按钮”); Use: 主动定位或定位失败时采集当前页面信息，用于元素查找/修复/自愈/诊断; Return: list[device_result]; Notes: 每台设备输出一份 payload（page_id + + platform + locator + page_dump + screenshot_base64/dataURL）；截图拉取后编码，结束清理远端截图文件。"""
+    @task_middleware("find_element")
+    async def find_element(locator: str, should_click: bool = False) -> typing.Any:
+        """Class: ui; Action: 元素查找/修复/自愈; Args: locator(str); Use: 采集当前页面信息用于元素查找/修复/自愈/诊断; should_click=True 表示“本次流程的期望动作包含点击该目标元素”; Return: list[device_result]; Notes: 每台设备输出一份 payload; 截图拉取后编码，结束清理远端截图文件。"""
         device_list = manage.snapshot
 
-        logger.info("Healing")
+        logger.info(f"Find element {locator}")
+        _ = should_click
         return await asyncio.gather(
-            *(device.healing(locator) for device in device_list), return_exceptions=True
+            *(device.find_element(locator) for device in device_list), return_exceptions=True
         )
 
 

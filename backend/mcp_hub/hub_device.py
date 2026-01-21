@@ -523,13 +523,17 @@ class Device(object):
 
         return None
 
-    async def healing(self, locator: str) -> dict:
+    async def find_element(self, locator: str) -> dict:
         """执行自愈流程定位并处理目标控件。"""
+        page_id, page_dump, wm_size = await asyncio.gather(
+            self.current_activity(), self.current_xml(), self.st_wm_size()
+        )
         payload = {
-            "page_id"   : await self.current_activity() or "",
+            "page_id"   : page_id or "",
             "platform"  : "android",
             "locator"   : locator,
-            "page_dump" : await self.current_xml() or "",
+            "page_dump" : page_dump or "",
+            "wm_size"   : wm_size
         }
 
         image = await self.screenshot()

@@ -118,7 +118,7 @@ class Mind(object):
         self.last_refresh_ts = now
         return logger.debug(f"⚜️ {resp.structuredContent}")
 
-    async def exec_looper(self, model, apikey, loop_count: int, steps: list, session: ClientSession) -> None:
+    async def exec_looper(self, model, apikey, steps: list, loop_count: int, session: ClientSession) -> None:
         """Exec Looper"""
         for index, _ in enumerate(range(loop_count), start=1):
             for step in steps:
@@ -140,9 +140,13 @@ class Mind(object):
                     await self.off_live_state()
                     return logger.error(result.content[0].text)
 
-                if name in {"healing"}:
+                if name in {"find_element"}:
                     element = json.loads(result.content[0].text)
-                    await self.mind_heal(model, apikey, **element)
+                    selector = await self.mind_heal(model, apikey, **element)
+                    if selector and argument.get("should_click", False):
+                        if (clicked := await session.call_tool("click", selector)).isError:
+                            await self.off_live_state()
+                            return logger.error(clicked.content[0].text)
 
                 logger.debug(tips := f"{name} -> resp={result.structuredContent}")
                 self.task_info.append(tips)
@@ -158,19 +162,30 @@ class Mind(object):
         locator: str,
         page_dump: str,
         screenshot_base64: str,
+        wm_size: dict,
         *_,
         **kwargs
-    ) -> None:
+    ) -> typing.Optional[dict]:
         """Mind Heal"""
 
+        by: typing.Optional[str] = None
+        value: typing.Optional[str] = None
+
         async for heal in request.stream_heal(
-            model, apikey, page_id, platform, locator, page_dump, screenshot_base64, *_, **kwargs
+            model, apikey, page_id, platform, locator, page_dump, screenshot_base64, wm_size, *_, **kwargs
         ):
             if heal.get("type") == "error":
                 await self.off_live_state()
                 return logger.error(heal["content"])
 
+            if smart := heal.get("selector"):
+                logger.debug(smart)
+                by = smart["new_selector"]["primary"]["by"]
+                value = smart["new_selector"]["primary"]["value"]
+
             self.task_info.append(heal["content"])
+
+        return {"by": by, "value": value} if by and value else None
 
     async def mind_trip(self, model: str, apikey: str, message: str) -> None:
         """Mind Trip"""
@@ -226,15 +241,14 @@ class Mind(object):
                         if plan.get("type") == "error":
                             return logger.error(plan)
 
-                        if not (steps := plan.get("steps")) or not (loop_count := plan.get("loop_count")):
-                            continue
+                        steps, loop_count = plan["steps"], plan["loop_count"]
 
                         # workflow: ==== Exec ====
                         self.animation_event = asyncio.Event()
                         self.animation_task = asyncio.create_task(
                             self.design.deep_thinking(self.task_info, self.animation_event)
                         )
-                        await self.exec_looper(model, apikey, loop_count, steps, session)
+                        await self.exec_looper(model, apikey, steps, loop_count, session)
                         await self.off_live_state()
 
     async def mind_chat(self, model: str, apikey: str, message: str) -> None:
@@ -254,10 +268,7 @@ class Mind(object):
             # workflow: ==== Chat Streaming ====
             async for chat in request.stream_chat(model, apikey, message):
                 if chat.get("type") == "error":
-                    return logger.error(chat.get('content'))
-
-                if (chat.get("type")) != "chat":
-                    continue
+                    return logger.error(chat.get("content"))
 
                 out, delay = await Design.typewriter(
                     live, chat.get("content", ""), out, delay, max(0.0015, delay * 0.65), cursor=cursor
