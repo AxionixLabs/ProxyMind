@@ -7,14 +7,20 @@
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
+import time
 import random
 import typing
+import asyncio
 from loguru import logger
 from rich.text import Text
 from rich.console import Console
 from rich.logging import (
     LogRecord, RichHandler
 )
+from mcp.types import (
+    CallToolResult, TextContent
+)
+from backend.mcp_hub.hub_device import Device
 from backend.utilities import const
 
 
@@ -81,6 +87,75 @@ class Active(object):
         logger.add(
             Active._RichSink(Active.console), level=log_level, format=const.PRINT_FORMAT
         )
+
+
+async def broadcast(
+    *,
+    tool: str,
+    args: dict,
+    device_list: list[Device],
+    call: typing.Callable[[typing.Any], typing.Awaitable[typing.Any]]
+) -> CallToolResult:
+    """
+    Examples:
+    ----------------
+    return await broadcast(
+        tool="click",
+        args={"by": "text", "value": "example"},
+        device_list=device_list,
+        call=lambda x: x.click(by, value)
+    )
+    """
+
+    t0 = time.time()
+
+    raw_list = await asyncio.gather(
+        *(call(device) for device in device_list), return_exceptions=True
+    )
+
+    done, fail, results = 0, 0, []
+
+    for device, raw in zip(device_list, raw_list):
+        call_item: dict[str, typing.Any] = {
+            "device_id" : device.serial,
+            "ok"        : True,
+            "data"      : None,
+            "error"     : None,
+            "logs"      : []
+        }
+
+        if isinstance(raw, Exception):
+            call_item["ok"] = False
+            call_item["error"] = f"{type(raw).__name__}: {raw}"
+            fail += 1
+        else:
+            call_item["data"] = raw
+            done += 1
+
+        results.append(call_item)
+
+    cost_ms = int((time.time() - t0) * 1000)
+
+    structured: typing.Optional[dict[str, typing.Any]] = {
+        "tool"    : tool,
+        "args"    : args,
+        "done"    : done,
+        "fail"    : fail,
+        "cost_ms" : cost_ms,
+        "summary" : {"total": len(device_list), "done": done, "fail": fail},
+        "results" : results
+    }
+
+    meta = {
+        "logs": [result.pop("logs", []) for result in results]
+    }
+    text = f"{tool} done={done}/{len(device_list)} fail={fail} cost_ms={cost_ms}"
+
+    return CallToolResult(
+        content=[TextContent(type="text", text=text)],
+        structuredContent=structured,
+        _meta=meta
+    )
 
 
 if __name__ == '__main__':

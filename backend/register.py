@@ -12,15 +12,13 @@ from backend.mcp_hub.hub_manage import DeviceManage
 
 
 def register_all_tools(mcp: FastMCP, manage: DeviceManage) -> None:
-    from mcp_tools import (
-        app_control,
-        device_info,
-        file_control,
-        media_control,
-        system_control,
-        ui_interaction,
-        zest
-    )
+    from backend.mcp_tools.automator import app_control
+    from backend.mcp_tools.automator import device_info
+    from backend.mcp_tools.automator import file_control
+    from backend.mcp_tools.automator import media_control
+    from backend.mcp_tools.automator import system_control
+    from backend.mcp_tools.automator import ui_interaction
+    from backend.mcp_tools.automator import zest
 
     app_control.bind(mcp, manage)
     device_info.bind(mcp, manage)

@@ -98,9 +98,12 @@ class Mind(object):
         sys.exit(130)
 
     async def off_live_state(self) -> None:
-        self.animation_event.set()
+        if self.animation_event:
+            self.animation_event.set()
+
         if self.animation_task:
             await self.animation_task
+
         self.task_info.clear()
 
     async def exec_status(self, session: ClientSession) -> typing.Optional[str]:
@@ -142,11 +145,11 @@ class Mind(object):
 
                 if name in {"find_element"}:
                     element = json.loads(result.content[0].text)
-                    selector = await self.mind_heal(model, apikey, **element)
-                    if selector and argument.get("should_click", False):
-                        if (clicked := await session.call_tool("click", selector)).isError:
-                            await self.off_live_state()
-                            return logger.error(clicked.content[0].text)
+                    locator_list = await self.mind_heal(model, apikey, **element)
+                    if locator_list and argument.get("should_click", False):
+                        await asyncio.gather(
+                            *(session.call_tool("click", s) for s in locator_list)
+                        )
 
                 logger.debug(tips := f"{name} -> resp={result.structuredContent}")
                 self.task_info.append(tips)
@@ -165,11 +168,10 @@ class Mind(object):
         wm_size: dict,
         *_,
         **kwargs
-    ) -> typing.Optional[dict]:
+    ) -> typing.Optional[list]:
         """Mind Heal"""
 
-        by: typing.Optional[str] = None
-        value: typing.Optional[str] = None
+        locator_list: list[dict[str, str]] = []
 
         async for heal in request.stream_heal(
             model, apikey, page_id, platform, locator, page_dump, screenshot_base64, wm_size, *_, **kwargs
@@ -180,15 +182,17 @@ class Mind(object):
 
             if smart := heal.get("selector"):
                 logger.debug(smart)
-                by = smart["new_selector"]["primary"]["by"]
-                value = smart["new_selector"]["primary"]["value"]
+                locator_list.append({
+                    "by"    : smart["new_selector"]["primary"]["by"],
+                    "value" : smart["new_selector"]["primary"]["value"]
+                })
 
             self.task_info.append(heal["content"])
 
-        return {"by": by, "value": value} if by and value else None
+        return locator_list
 
-    async def mind_trip(self, model: str, apikey: str, message: str) -> None:
-        """Mind Trip"""
+    async def mind_plan(self, model: str, apikey: str, message: str) -> None:
+        """Mind Plan"""
 
         async def capture(response: httpx.Response) -> None:
             """Capture"""
@@ -321,7 +325,7 @@ class Mind(object):
         [bold #AFD7FF]/apikey <key>[/]             凭证更新（替换访问密钥）
         [bold #AFD7FF]/again N <goal>[/]           复现回放（目标 × N 次）
         [bold #FFD75F]/chat[/]                     问答模式（自由对话）
-        [bold #FFD75F]/mind[/]                     编排模式（工具执行）
+        [bold #FFD75F]/plan[/]                     编排模式（工具执行）
         [bold #FFD75F]/fast[/]                     性能模式（压测采集）
         [/]"""
 
@@ -330,29 +334,29 @@ class Mind(object):
         re_apikey = re.compile(r"^\s*/apikey(?:\s+(.*))?\s*$", re.IGNORECASE)
 
         # 主题
-        tag: typing.Literal["CHAT", "MIND", "FAST"] = "CHAT"
+        tag: typing.Literal["CHAT", "PLAN", "FAST"] = "CHAT"
 
         theme = {
-            "MIND": {
-                "banner"   : "╔═⟦ 𝕄𝕚𝕟𝕕 ⟧═╗",
-                "prompt"   : "│ 〉Mind",
+            "CHAT": {
+                "banner": "╔═⟦ 𝕮𝖍𝖆𝖙 ⟧═╗",
+                "prompt": "│ 〉Chat",
+                "tag": "#FF87D7",
+                "prompt_c": "#FFD75F",
+                "model": "#FFAF5F",
+                "ready": "#D7AFFF",
+                "hint": "#FF87D7",
+            },
+            "PLAN": {
+                "banner"   : "╔═⟦ 𝔓𝔩𝔞𝔫 ⟧═╗",
+                "prompt"   : "│ 〉Plan",
                 "tag"      : "#5FD7FF",
                 "prompt_c" : "#87FFAF",
                 "model"    : "#5FFF87",
                 "ready"    : "#AFD7FF",
                 "hint"     : "#5FD7FF",
             },
-            "CHAT": {
-                "banner"   : "╔═⟦ 𝕮𝖍𝖆𝖙 ⟧═╗",
-                "prompt"   : "│ 〉Chat",
-                "tag"      : "#FF87D7",
-                "prompt_c" : "#FFD75F",
-                "model"    : "#FFAF5F",
-                "ready"    : "#D7AFFF",
-                "hint"     : "#FF87D7",
-            },
             "FAST": {
-                "banner"   : "╔═⟦ 𝙁𝘼𝙎𝙏 ⟧═╗",
+                "banner"   : "╔═⟦ 𝓕𝓪𝓼𝓽 ⟧═╗",
                 "prompt"   : "│ 〉Fast",
                 "tag"      : "#FFAF00",
                 "prompt_c" : "#FFD75F",
@@ -385,9 +389,9 @@ class Mind(object):
                 Design.console.print(f"[bold {theme['CHAT']['hint']}]Exchange → Chat[/]")
                 continue
 
-            if raw.lower() == "/mind":
-                tag = "MIND"
-                Design.console.print(f"[bold {theme['MIND']['hint']}]Exchange → Mind[/]")
+            if raw.lower() == "/plan":
+                tag = "PLAN"
+                Design.console.print(f"[bold {theme['PLAN']['hint']}]Exchange → Plan[/]")
                 continue
 
             if raw.lower() == "/fast":
@@ -403,7 +407,7 @@ class Mind(object):
                 apikey = await exchange("apikey") or apikey
                 continue
 
-            if (hit := re_again.match(raw)) and tag == "MIND":
+            if (hit := re_again.match(raw)) and tag == "PLAN":
                 message = f"{hit.group(2).strip()}，循环 {int(hit.group(1))} 次"
             else:
                 message = raw
@@ -411,8 +415,8 @@ class Mind(object):
             current = self.mind_chat
 
             match tag:
-                case "MIND": current = self.mind_trip
                 case "CHAT": current = self.mind_chat
+                case "PLAN": current = self.mind_plan
                 case "FAST": current = self.mind_chat
 
             await self.calling(model, apikey, message=message, current=current)
@@ -531,7 +535,7 @@ async def main() -> None:
         os.makedirs(src_opera_place, exist_ok=True)
 
     # 激活日志
-    Active.active(level := "DEBUG" if cmd_lines.horizon else "INFO")
+    Active.active(level := "DEBUG" if cmd_lines.debug else "INFO")
 
     pref_file = os.path.join(initial_source, const.SRC_OPERA_PLACE, const.PREF)
     pref = Preferences(pref_file)
@@ -608,7 +612,7 @@ async def main() -> None:
         await server.mcp_begin([helix, "--level", level])
 
     positions = (
-        cmd_lines.exec, cmd_lines.horizon
+        cmd_lines.chat, cmd_lines.plan, cmd_lines.fast, cmd_lines.debug
     )
     keywords = {
         "pref": pref
@@ -620,12 +624,15 @@ async def main() -> None:
     signal.signal(signal.SIGINT, mind.signal_processor)
 
     try:
-        if exec_dialogue := cmd_lines.exec:
-            await mind.calling(
-                message=exec_dialogue, current=mind.mind_trip
-            )
+        if chat := cmd_lines.chat:
+            await mind.calling(message=chat, current=mind.mind_chat)
+        elif plan := cmd_lines.plan:
+            await mind.calling(message=plan, current=mind.mind_plan)
+        elif fast := cmd_lines.fast:
+            await mind.calling(message=fast, current=mind.mind_chat)
         else:
             await mind.mind_loop()
+
     finally:
         await server.mcp_final()
 

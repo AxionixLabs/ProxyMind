@@ -19,10 +19,9 @@ class Parser(object):
     def __init__(self):
         custom_made_usage = f"""\
         --------------------------------------------
-        \033[1;35m{const.APP_NAME}\033[0m --exec "Unlock the device"
-        \033[1;35m{const.APP_NAME}\033[0m --exec "Wait 2 seconds and tap Music"
-        \033[1;35m{const.APP_NAME}\033[0m --exec "Unlock, wait 1 second, then tap 500,1000"
-        \033[1;35m{const.APP_NAME}\033[0m --horizon
+        \033[1;35m{const.APP_NAME}\033[0m --plan "Unlock the device"
+        \033[1;35m{const.APP_NAME}\033[0m --plan "Wait 2 seconds and tap Music"
+        \033[1;35m{const.APP_NAME}\033[0m --plan "Unlock, wait 1 second, then tap 500,1000"
         """
         self.__parse_engine = argparse.ArgumentParser(
             const.APP_NAME,
@@ -65,6 +64,36 @@ class Parser(object):
             ''')
         )
 
+        major_group.add_argument(
+            "--chat", type=str, default=None,
+            help=textwrap.dedent(f'''\
+                \033[1;34m^*潮汐协议*^\033[0m
+                -------------------------
+                - 启用流式下发通道，持续输出对话内容。
+
+            ''')
+        )
+
+        major_group.add_argument(
+            "--plan", type=str, default=None,
+            help=textwrap.dedent(f'''\
+                \033[1;34m^*推演协议*^\033[0m
+                -------------------------
+                - 启用行动规划通道，生成可执行步骤轨迹。
+
+            ''')
+        )
+
+        major_group.add_argument(
+            "--fast", type=str, default=None,
+            help=textwrap.dedent(f'''\
+                \033[1;34m^*边界协议*^\033[0m
+                -------------------------
+                - 启用性能压测与指标采集通道，用于探测系统性能边界。
+
+            ''')
+        )
+
         # Workflow: ======================== 参数兼容 ========================
 
         minor_group = self.__parse_engine.add_argument_group(
@@ -73,28 +102,11 @@ class Parser(object):
                 \033[1;32m兼容: P1 :: Context Injection\033[0m
             '''),
         )
+
         minor_group.add_argument(
-            "--exec", type=str, default=None,
+            "--debug", action="store_true",
             help=textwrap.dedent(f'''\
-                \033[1;36m^*提示注入*^\033[0m
-                -------------------------
-                - 注入提示词/上下文以稳定执行轨迹与输出风格。
-
-            ''')
-        )
-
-        # Workflow: ======================== 参数兼容 ========================
-
-        extra_group = self.__parse_engine.add_argument_group(
-            title="\033[1m^* Φ / PHI :: 反射协议 *^\033[0m",
-            description=textwrap.dedent(f'''\
-                \033[1;32m观测: P2 :: Trace & Telemetry\033[0m
-            '''),
-        )
-        extra_group.add_argument(
-            "--horizon", action="store_true",
-            help=textwrap.dedent(f'''\
-                \033[1;36m^*轨迹观测*^\033[0m
+                \033[1;36m^*反射协议*^\033[0m
                 -------------------------
                 - 开启详细调试视角输出运行轨迹与关键决策信息。
 

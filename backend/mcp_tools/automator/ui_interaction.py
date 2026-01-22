@@ -163,8 +163,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @mcp.tool()
     @task_middleware("wait_exists")
     async def wait_exists(
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"], 
-        value: str | list, 
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: str | list,
         timeout: float = 10.0
     ) -> typing.Any:
         """Class: ui; Action: 等待元素出现(wait exists); Args: by(str), value(str|list), timeout(float); Use: 页面跳转/动画后等待目标控件出现; Return: list[device_result]; Notes: 复用 device.wait_element(mode='exists') 轮询 find_node，命中返回True，超时返回False。"""
@@ -179,8 +179,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @mcp.tool()
     @task_middleware("wait_gone")
     async def wait_gone(
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"], 
-        value: str | list, 
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: str | list,
         timeout: float = 10.0
     ) -> typing.Any:
         """Class: ui; Action: 等待元素消失(wait gone); Args: by(str), value(str|list), timeout(float); Use: 等待加载框/弹窗/Toast消失以继续流程; Return: list[device_result]; Notes: 复用 device.wait_element(mode='gone') 轮询 find_node，消失返回True，超时返回False。"""
