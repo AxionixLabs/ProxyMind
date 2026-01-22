@@ -525,7 +525,7 @@ class Device(object):
 
     async def find_element(self, locator: str) -> dict:
         """执行自愈流程定位并处理目标控件。"""
-        page_id, page_dump, wm_size = await asyncio.gather(
+        page_id, page_dump, (w, h) = await asyncio.gather(
             self.current_activity(), self.current_xml(), self.st_wm_size()
         )
         payload = {
@@ -533,7 +533,7 @@ class Device(object):
             "platform"  : "android",
             "locator"   : locator,
             "page_dump" : page_dump or "",
-            "wm_size"   : wm_size
+            "wm_size"   : {"w" : w, "h" : h}
         }
 
         image = await self.screenshot()
