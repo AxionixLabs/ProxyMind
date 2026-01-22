@@ -418,31 +418,11 @@ class Device(object):
         value: str | list
     ) -> typing.Any:
         """根据选择器点击对应节点中心点。"""
-        if not (xml := await self.current_xml()):
+        
+        if not (node := await self.find_node(by, value)):
             return None
 
-        if by == "bbox":
-            x1, y1, x2, y2 = value
-            center = (x1 + x2) // 2, (y1 + y2) // 2
-            return await self.tap(center[0], center[1])
-
-        match by:
-            case "id": by = "resource-id"
-            case "desc": by = "content-desc"
-
-        node = None
-        for n in Et.fromstring(xml).iter("node"):
-            if n.attrib.get(by) == value:
-                node = n.attrib; break
-
-        if not node or not (bounds := node.get("bounds")):
-            return None
-
-        match = re.match(r"\[(\d+),(\d+)]\[(\d+),(\d+)]", bounds)
-        x1, y1, x2, y2 = map(int, match.groups())
-        center = (x1 + x2) // 2, (y1 + y2) // 2
-
-        return await self.tap(center[0], center[1])
+        return await self.tap(*node["center"])
 
     # workflow: ==== UI Interaction MCP Tool ====
     async def double_click(self, x: int, y: int) -> typing.Any:
@@ -509,20 +489,19 @@ class Device(object):
         cmd = self.prefix + ["shell", "uiautomator", "dump", "--compressed", xml_file]
         await Terminal.cmd_line(cmd)
 
-        await asyncio.sleep(1)
-
         cmd = self.prefix + ["shell", "cat", xml_file]
-        for _ in range(5):
+        for _ in range(6):
             xml = await Terminal.cmd_line(cmd)
 
             if isinstance(xml, bytes):
                 xml = xml.decode(const.CHARSET, const.IGNORE)
             if xml and "<hierarchy" in xml:
                 return xml
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.12)
 
         return None
 
+    # workflow: ==== UI Interaction MCP Tool ====
     async def find_element(self, locator: str) -> dict:
         """执行自愈流程定位并处理目标控件。"""
         page_id, page_dump, (w, h) = await asyncio.gather(
@@ -548,6 +527,65 @@ class Device(object):
         await self.remove(image)
 
         return payload
+
+    # workflow: ==== UI ====
+    async def find_node(
+        self,
+        by: typing.Literal[
+            "id", "desc", "text", "bbox", "xpath"
+        ],
+        value: str | list
+    ) -> typing.Optional[dict]:
+        """统一查找节点：返回 node/bounds/center（用于 click / wait / heal）"""
+        
+        if by == "bbox":
+            # bbox 直接计算中心点，无需解析 XML
+            x1, y1, x2, y2 = value
+            cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+            return {"node": None, "bounds": [x1, y1, x2, y2], "center": [cx, cy]}
+
+        if by == "xpath": return None  # Android dump 非标准 XPath，暂不支持
+
+        if not (xml := await self.current_xml()):
+            return None
+
+        mapped_by = self.map_by(by)  # 将 id/desc 映射到 Android 属性名
+
+        for n in Et.fromstring(xml).iter("node"):
+            if n.attrib.get(mapped_by) == value:
+                bounds_str = n.attrib.get("bounds", "")
+                if not (bounds := self.parse_bounds(bounds_str)):
+                    return {"node": n.attrib, "bounds": None, "center" : None}
+
+                x1, y1, x2, y2 = bounds  # 解析 bounds 为四点坐标
+                cx, cy = (x1 + x2) // 2, (y1 + y2) // 2  # 计算中心点
+
+                return {"node": n.attrib, "bounds": [x1, y1, x2, y2], "center": [cx, cy]}
+
+        return None
+
+    # workflow: ==== UI ====
+    @staticmethod
+    def map_by(by: str) -> str:
+        """统一选择器字段到 Android XML 属性名。"""
+        match by:
+            case "id": return "resource-id"
+            case "desc": return "content-desc"
+
+        return by
+
+    # workflow: ==== UI ====
+    @staticmethod
+    def parse_bounds(bounds: str) -> typing.Optional[tuple[int, int, int, int]]:
+        """解析 Android bounds 字符串："[x1,y1][x2,y2]" -> (x1,y1,x2,y2)。"""
+        pattern = re.compile(r"\[(\d+),(\d+)]\[(\d+),(\d+)]")
+
+        if not (m := pattern.match(bounds)):
+            return None
+
+        x1, y1, x2, y2 = map(int, m.groups())
+
+        return x1, y1, x2, y2
 
 
 if __name__ == '__main__':
