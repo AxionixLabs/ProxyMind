@@ -106,7 +106,7 @@ class Device(object):
         self.timezone = pick("persist.sys.timezone")
 
         self.debuggable = pick("ro.debuggable") == "1"
-        self.secure     = pick("ro.secure")     == "1"
+        self.secure     = pick("ro.secure") == "1"
 
     # workflow: ==== Device ====
     async def st_battery(self) -> int | None:
@@ -272,7 +272,7 @@ class Device(object):
     async def screenshot(self) -> str:
         """在设备上截屏并返回远端路径。"""
         filename = f"screenshot_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
-        remote   = f"/data/local/tmp/{filename}"
+        remote = f"/data/local/tmp/{filename}"
 
         cmd = self.prefix + [
             "shell", "screencap", "-p", remote
@@ -412,13 +412,11 @@ class Device(object):
     # workflow: ==== UI Interaction MCP Tool ====
     async def click(
         self,
-        by: typing.Literal[
-            "id", "desc", "text", "bbox", "xpath"
-        ],
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
         value: str | list
     ) -> typing.Any:
         """根据选择器点击对应节点中心点。"""
-        
+
         if not (node := await self.find_node(by, value)):
             return None
 
@@ -508,11 +506,11 @@ class Device(object):
             self.current_activity(), self.current_xml(), self.st_wm_size()
         )
         payload = {
-            "page_id"   : page_id or "",
-            "platform"  : "android",
-            "locator"   : locator,
-            "page_dump" : page_dump or "",
-            "wm_size"   : {"w" : w, "h" : h}
+            "page_id": page_id or "",
+            "platform": "android",
+            "locator": locator,
+            "page_dump": page_dump or "",
+            "wm_size": {"w": w, "h": h}
         }
 
         image = await self.screenshot()
@@ -529,15 +527,37 @@ class Device(object):
         return payload
 
     # workflow: ==== UI ====
+    async def wait_element(
+        self,
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: str | list,
+        mode: typing.Literal["exists", "gone"] = "exists",
+        timeout: float = 10.0,
+        interval: float = 0.25
+    ) -> bool:
+        """等待节点出现/消失；mode='exists' 等出现，mode='gone' 等消失。"""
+        
+        want_exists = (mode == "exists")
+        
+        deadline = time.monotonic() + timeout
+
+        while True:
+            if bool(await self.find_node(by, value)) == want_exists:
+                return True
+
+            if time.monotonic() >= deadline:
+                return False
+
+            await asyncio.sleep(interval)
+
+    # workflow: ==== UI ====
     async def find_node(
         self,
-        by: typing.Literal[
-            "id", "desc", "text", "bbox", "xpath"
-        ],
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
         value: str | list
     ) -> typing.Optional[dict]:
         """统一查找节点：返回 node/bounds/center（用于 click / wait / heal）"""
-        
+
         if by == "bbox":
             # bbox 直接计算中心点，无需解析 XML
             x1, y1, x2, y2 = value
@@ -555,7 +575,7 @@ class Device(object):
             if n.attrib.get(mapped_by) == value:
                 bounds_str = n.attrib.get("bounds", "")
                 if not (bounds := self.parse_bounds(bounds_str)):
-                    return {"node": n.attrib, "bounds": None, "center" : None}
+                    return {"node": n.attrib, "bounds": None, "center": None}
 
                 x1, y1, x2, y2 = bounds  # 解析 bounds 为四点坐标
                 cx, cy = (x1 + x2) // 2, (y1 + y2) // 2  # 计算中心点
@@ -569,8 +589,8 @@ class Device(object):
     def map_by(by: str) -> str:
         """统一选择器字段到 Android XML 属性名。"""
         match by:
-            case "id": return "resource-id"
-            case "desc": return "content-desc"
+            case "id"   : return "resource-id"
+            case "desc" : return "content-desc"
 
         return by
 
