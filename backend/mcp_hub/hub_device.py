@@ -532,13 +532,12 @@ class Device(object):
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
         value: str | list,
         mode: typing.Literal["exists", "gone"] = "exists",
-        timeout: float = 10.0,
-        interval: float = 0.25
+        timeout: float = 10.0
     ) -> bool:
         """等待节点出现/消失；mode='exists' 等出现，mode='gone' 等消失。"""
-        
+
         want_exists = (mode == "exists")
-        
+
         deadline = time.monotonic() + timeout
 
         while True:
@@ -548,7 +547,7 @@ class Device(object):
             if time.monotonic() >= deadline:
                 return False
 
-            await asyncio.sleep(interval)
+            await asyncio.sleep(0.25)
 
     # workflow: ==== UI ====
     async def find_node(
