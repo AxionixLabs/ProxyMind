@@ -20,7 +20,6 @@ from rich.logging import (
 from mcp.types import (
     CallToolResult, TextContent
 )
-from backend.mcp_hub.hub_device import Device
 from backend.utilities import const
 
 
@@ -93,7 +92,7 @@ async def broadcast(
     *,
     tool: str,
     args: dict,
-    device_list: list[Device],
+    agent_list: list,
     call: typing.Callable[[typing.Any], typing.Awaitable[typing.Any]]
 ) -> CallToolResult:
     """
@@ -102,7 +101,7 @@ async def broadcast(
     return await broadcast(
         tool="click",
         args={"by": "text", "value": "example"},
-        device_list=device_list,
+        agent_list=device_list,
         call=lambda x: x.click(by, value)
     )
     """
@@ -110,18 +109,18 @@ async def broadcast(
     t0 = time.time()
 
     raw_list = await asyncio.gather(
-        *(call(device) for device in device_list), return_exceptions=True
+        *(call(agent) for agent in agent_list), return_exceptions=True
     )
 
     done, fail, results = 0, 0, []
 
-    for device, raw in zip(device_list, raw_list):
+    for agent, raw in zip(agent_list, raw_list):
         call_item: dict[str, typing.Any] = {
-            "device_id" : device.serial,
-            "ok"        : True,
-            "data"      : None,
-            "error"     : None,
-            "logs"      : []
+            "agent_id" : getattr(agent, "serial", None) or getattr(agent, "agent_id", None),
+            "ok"       : True,
+            "data"     : None,
+            "error"    : None,
+            "logs"     : []
         }
 
         if isinstance(raw, Exception):
@@ -142,14 +141,18 @@ async def broadcast(
         "done"    : done,
         "fail"    : fail,
         "cost_ms" : cost_ms,
-        "summary" : {"total": len(device_list), "done": done, "fail": fail},
+        "summary" : {
+            "total" : (total := len(agent_list)),
+            "done"  : done,
+            "fail"  : fail
+        },
         "results" : results
     }
 
     meta = {
         "logs": [result.pop("logs", []) for result in results]
     }
-    text = f"{tool} done={done}/{len(device_list)} fail={fail} cost_ms={cost_ms}"
+    text = f"{tool} done={done}/{total} fail={fail} cost_ms={cost_ms}"
 
     return CallToolResult(
         content=[TextContent(type="text", text=text)],
