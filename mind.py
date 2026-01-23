@@ -152,14 +152,8 @@ class Mind(object):
 
             if index != loop_count: self.task_info.clear()
 
-    async def mind_heal(
-        self,
-        model: str,
-        apikey: str,
-        elements: list[dict[str, typing.Any]]
-    ) -> typing.Optional[list[dict[str, typing.Any]]]:
+    async def mind_heal(self, model: str, apikey: str, elements: list[dict]) -> typing.Optional[list[dict]]:
         """Mind Heal"""
-
         locator_list: list[dict[str, str]] = []
 
         for element in elements:
@@ -400,29 +394,21 @@ class Mind(object):
             else:
                 message = raw
 
-            current = self.mind_chat
+            func = self.mind_chat
 
             match tag:
-                case "CHAT": current = self.mind_chat
-                case "PLAN": current = self.mind_plan
-                case "FAST": current = self.mind_chat
+                case "CHAT": func = self.mind_chat
+                case "PLAN": func = self.mind_plan
+                case "FAST": func = self.mind_chat
 
-            await self.calling(model, apikey, message=message, current=current)
+            await self.calling(model, apikey, message=message, func=func)
 
-    async def calling(
-        self,
-        model: str = None,
-        apikey: str = None,
-        *,
-        message: str,
-        current: typing.Callable
-    ) -> None:
-
+    async def calling(self, model: str = None, apikey: str = None, *, message: str, func: typing.Callable) -> None:
         model  = model  or self.pref.model
         apikey = apikey or self.pref.apikey
 
         try:
-            return await current(model, apikey, message)
+            return await func(model, apikey, message)
 
         except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as eg:
             await self.off_live_state()
@@ -613,11 +599,11 @@ async def main() -> None:
 
     try:
         if chat := cmd_lines.chat:
-            await mind.calling(message=chat, current=mind.mind_chat)
+            await mind.calling(message=chat, func=mind.mind_chat)
         elif plan := cmd_lines.plan:
-            await mind.calling(message=plan, current=mind.mind_plan)
+            await mind.calling(message=plan, func=mind.mind_plan)
         elif fast := cmd_lines.fast:
-            await mind.calling(message=fast, current=mind.mind_chat)
+            await mind.calling(message=fast, func=mind.mind_chat)
         else:
             await mind.mind_loop()
 

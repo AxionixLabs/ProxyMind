@@ -9,8 +9,10 @@
 import json
 import httpx
 import typing
+import asyncio
 from loguru import logger
 from engine.channel import Channel
+from mindcore.design import Design
 from mindnova import const
 
 
@@ -22,11 +24,18 @@ async def __streaming(
 ) -> typing.AsyncGenerator[dict, None]:
     """Streaming"""
 
+    stop_event: asyncio.Event = asyncio.Event()
+    prefix_animation: asyncio.Task = asyncio.create_task(
+        Design.prefix_line(stop_event)
+    )
+
     async with httpx.AsyncClient(timeout=timeout) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
             try:
                 resp.raise_for_status()
             except httpx.HTTPStatusError:
+                stop_event.set(); await prefix_animation
+
                 body = await resp.aread()
                 yield {
                     "type"    : "error",
@@ -43,6 +52,9 @@ async def __streaming(
                     event = json.loads(line[len("data:"):].strip())
                 except json.JSONDecodeError:
                     continue
+
+                if not stop_event.is_set():
+                    stop_event.set(); await prefix_animation
 
                 yield event
 
@@ -68,17 +80,17 @@ async def stream_plan(
     async for event in __streaming(url, headers, payload, timeout):
         match event.get("type"):
             case "thinking":
-                logger.info(event["content"])
+                logger.debug(event["content"])
                 continue
             case "done":
-                logger.info("Plan done ...")
+                logger.debug("Plan done ...")
                 continue
             case "plan":
                 if not (steps := event.get("steps")) or not (loop_count := event.get("loop_count")):
                     logger.warning(event)
                     continue
-                logger.info(f"Loop Count -> {loop_count}")
-                for step in steps: logger.info(step["action"])
+                logger.debug(f"Loop Count -> {loop_count}")
+                for step in steps: logger.debug(step["action"])
 
         yield event
 

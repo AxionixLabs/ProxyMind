@@ -575,6 +575,126 @@ class Design(object):
 
             live.update(render(ticks, final=True))
 
+    @staticmethod
+    async def prefix_line(stop_event: asyncio.Event) -> None:
+        """一行纯动画：无文字；宽度固定 30；增强闪断/撕裂/回弹；stop.set() 停止并触发收束。"""
+        width: int = 30
+        fps: int   = 60
+        dust: str  = "·∙•"
+        flash: str = "▓▒░"
+
+        t = 0
+
+        async def draw(chars: list[str], dt: float = 0.0) -> None:
+            live.update(Text("".join(chars[:width]).ljust(width), style="bold"))
+            if dt > 0: await asyncio.sleep(dt)
+
+        def base_frame(tick: int) -> list[str]:
+            line = [random.choice(dust) if random.random() < 0.10 else " " for _ in range(width)]
+
+            x = tick % (2 * (width - 1))
+            x = (2 * (width - 1) - x) if x >= (width - 1) else x
+
+            line[x] = "█"
+
+            if 0 <= x - 1 < width and random.random() < 0.85: line[x - 1] = "▉"
+            if 0 <= x + 1 < width and random.random() < 0.85: line[x + 1] = "▊"
+
+            return line
+
+        def tear(line: list[str]) -> tuple[list[str], list[str]]:
+            a = random.randrange(0, width - 8)
+            b = random.randrange(a + 4, min(width, a + random.randint(10, 18)))
+
+            shift = random.choice([-4, -3, -2, 2, 3, 4])
+
+            out = line[:]
+            seg = out[a:b]
+            for i in range(a, b):
+                j = i + shift
+                if 0 <= j < width:
+                    out[j] = seg[i - a]
+
+            for i in range(a, b):
+                if random.random() < 0.28:
+                    out[i] = random.choice(flash)
+
+            rebound = line[:]
+            for i in range(a, b):
+                if random.random() < 0.18:
+                    rebound[i] = random.choice(flash)
+            return out, rebound
+
+        def blackout() -> list[str]:
+            return [
+                random.choice(flash) if random.random() < 0.55 else " "
+                for _ in range(width)
+            ]
+
+        def afterglow(line: list[str]) -> list[str]:
+            out = line[:]
+
+            for _ in range(random.randint(2, 6)):
+                k = random.randrange(0, width)
+                out[k] = random.choice(flash)
+
+            return out
+
+        async def render(line: list[str], *, glitch_p: float = 0.22) -> None:
+            if (r := random.random()) < glitch_p * 0.55:
+                await draw(blackout(), 0.012)
+                await draw(blackout(), 0.010)
+                await draw(afterglow(line), 0.014)
+                return None
+
+            if r < glitch_p:
+                torn, rebound = tear(line)
+                await draw(torn, 0.014)
+                await draw(blackout(), 0.010)
+                await draw(rebound, 0.014)
+                await draw(afterglow(line), 0.010)
+                return None
+
+            await draw(line)
+
+        async def settle(final_tick: int, *, steps: int = 10) -> None:
+            """收束：glitch 逐步熄灭 -> 噪点收拢到中心 -> 一次轻闪 -> 清空一行。"""
+            mid = width // 2
+            for s in range(steps):
+                line = base_frame(final_tick + s)
+
+                # glitch 概率逐步下降
+                gp = 0.18 * (1.0 - (s / max(steps - 1, 1)))
+
+                # 把噪点“吸向中心”（越往后吸得越狠）
+                pull, out = (s + 1) / steps, [" "] * width
+
+                for i, ch in enumerate(line):
+                    if ch.strip():
+                        j = int(i + (mid - i) * pull)
+                        j = max(0, min(width - 1, j))
+                        out[j] = ch
+
+                # 光标也收拢到中心，最后变成一个点
+                out[mid] = "█" if s < steps - 1 else "▉"
+
+                await render(out, glitch_p=gp)
+                await asyncio.sleep(0.010 + 0.010 * (s / steps))
+
+            # 轻闪一下（收尾“咔哒”）
+            await draw(blackout(), 0.014)
+            await draw([" "] * width, 0.010)
+
+        with Live(Text(" " * width), console=Design.console, refresh_per_second=fps) as live:
+            while not stop_event.is_set():
+                t += 1
+                frame = base_frame(t)
+                await render(frame)
+                await asyncio.sleep(1 / fps)
+
+            await settle(t)
+            await draw([" "] * width)
+
     async def deep_thinking(self, task_info: list, task_event: asyncio.Event) -> None:
         if self.design_level != const.SHOW_LEVEL:
             return None
