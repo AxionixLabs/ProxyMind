@@ -168,7 +168,7 @@ class Mind(object):
         wm_size: dict,
         *_,
         **kwargs
-    ) -> typing.Optional[list]:
+    ) -> typing.Optional[list[dict[str, typing.Any]]]:
         """Mind Heal"""
 
         locator_list: list[dict[str, str]] = []
