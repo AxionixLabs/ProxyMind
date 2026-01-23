@@ -109,7 +109,7 @@ class Mind(object):
     async def exec_status(self, session: ClientSession) -> typing.Optional[str]:
         """Exec Status"""
         if ((now := time.time()) - self.last_refresh_ts) < self.ttl_sec:
-            return logger.debug(f"⚜️ ttl-hit: skip refresh ttl={self.ttl_sec:.3f}s")
+            return logger.debug(f"ttl-hit: skip refresh ttl={self.ttl_sec:.3f}s")
 
         tools = {
             "name": "refresh", "arguments": {"ttl_sec": self.ttl_sec}
@@ -119,7 +119,7 @@ class Mind(object):
             return resp.content[0].text
 
         self.last_refresh_ts = now
-        return logger.debug(f"⚜️ {resp.structuredContent}")
+        return logger.debug(resp.structuredContent)
 
     async def exec_looper(self, model, apikey, steps: list, loop_count: int, session: ClientSession) -> None:
         """Exec Looper"""
