@@ -16,7 +16,17 @@ from mindcore.design import Design
 from mindnova import const
 
 
-async def __streaming(
+async def capture(response: httpx.Response) -> None:
+    """Capture"""
+    if response.status_code >= 400:
+        try:
+            response.extensions["error_body"] = await response.aread()
+        except Exception as e:
+            _ = e
+            response.extensions["error_body"] = b""
+
+
+async def streaming(
     url: str,
     headers: dict,
     payload: dict,
@@ -29,7 +39,7 @@ async def __streaming(
         Design.prefix_line(stop_event)
     )
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, event_hooks={"response": [capture]}) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
             try:
                 resp.raise_for_status()
@@ -77,7 +87,7 @@ async def stream_plan(
         "tools"   : openai_tools
     }
 
-    async for event in __streaming(url, headers, payload, timeout):
+    async for event in streaming(url, headers, payload, timeout):
         match event.get("type"):
             case "thinking":
                 logger.debug(event["content"])
@@ -126,7 +136,7 @@ async def stream_heal(
         "context"    : kwargs
     }
 
-    async for event in __streaming(url, headers, payload, timeout):
+    async for event in streaming(url, headers, payload, timeout):
         match event.get("type"):
             case "thinking":
                 logger.debug(event["content"])
@@ -154,7 +164,7 @@ async def stream_chat(
         "model": model, "apikey": apikey, "message": message
     }
 
-    async for event in __streaming(url, headers, payload, timeout):
+    async for event in streaming(url, headers, payload, timeout):
         match event.get("type"):
             case "thinking":
                 logger.debug(event["content"])

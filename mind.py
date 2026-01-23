@@ -175,16 +175,6 @@ class Mind(object):
 
     async def mind_plan(self, model: str, apikey: str, message: str) -> None:
         """Mind Plan"""
-
-        async def capture(response: httpx.Response) -> None:
-            """Capture"""
-            if response.status_code >= 400:
-                try:
-                    response.extensions["error_body"] = await response.aread()
-                except Exception as e:
-                    _ = e
-                    response.extensions["error_body"] = b""
-
         if not model or not apikey:
             missing = ", ".join(
                 x for x, ok in [("model", bool(model)), ("api_key", bool(apikey))] if not ok
@@ -196,7 +186,7 @@ class Mind(object):
             "Authorization": f"Bearer {authentic.manufacture_token()}"
         }
         timeout = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
-        event_hooks = {"response": [capture]}
+        event_hooks = {"response": [request.capture]}
 
         async with httpx.AsyncClient(headers=headers, timeout=timeout, event_hooks=event_hooks) as client:
 
