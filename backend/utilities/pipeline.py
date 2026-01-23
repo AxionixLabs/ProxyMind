@@ -119,11 +119,9 @@ async def broadcast(
         results.append(call_item)
 
     structured: typing.Optional[dict[str, typing.Any]] = {
-        "tool"    : tool,
-        "args"    : args,
-        "done"    : done,
-        "fail"    : fail,
-        "cost_ms" : (cost_ms := int((time.time() - t0) * 1000)),
+        "tool" : tool,
+        "args" : args,
+        "cost" : (cost_ms := int((time.time() - t0) * 1000)),
         "summary" : {
             "total" : (total := len(target_list)),
             "done"  : done,
@@ -132,9 +130,9 @@ async def broadcast(
         "results" : results
     }
 
-    lines: list[str] = [f"{tool} done={done}/{total} fail={fail} cost_ms={cost_ms}"]
-    for result in results:
-        lines.append(f"{result['agent_id']} | {result['data']}")
+    lines: list[str] = [f"{tool} done={done}/{total} fail={fail} cost_ms={cost_ms}"] + [
+        f"{result['agent_id']} | {result['data']}" for result in results
+    ]
 
     is_error = (total > 0 and done < total)
 

@@ -71,13 +71,16 @@ class Device(object):
         }
 
     @staticmethod
-    def device_semantics(snap: dict) -> dict:
+    def device_semantics(snapshot: dict) -> dict:
+        """将“设备快照 snap(dict)”转换为两种更适合大模型/检索的语义描述。"""
 
         def brief(v: typing.Optional[bool]) -> typing.Optional[str]:
+            """结构化 KV 串（稳定、可做 embedding / recall 的输入）"""
             if v is None: return None
             return "true" if v else "false"
 
         def kv(items: list[tuple[str, typing.Any]]) -> str:
+            """人类可读摘要（日志/终端展示友好）"""
             parts: list[str] = []
             for k, v in items:
                 if v is None: continue
@@ -85,47 +88,47 @@ class Device(object):
                 parts.append(f"{k}={v}")
             return "; ".join(parts)
 
-        wm     = snap.get("wm_size") or {}
+        wm     = snapshot.get("wm_size") or {}
         screen = f"{wm.get('w')}x{wm.get('h')}" if (wm.get("w") and wm.get("h")) else None
-    
-        battery   = snap.get("battery")
+
+        battery   = snapshot.get("battery")
         battery_s = f"{battery}%" if battery is not None else None
-    
-        online = snap.get("online") is True
-        locked = snap.get("screen_lock") is True
-    
+
+        online = snapshot.get("online") is True
+        locked = snapshot.get("screen_lock") is True
+
         semantic_kv = kv([
             ("kind",       "device"),
-            ("serial",     snap.get("serial")),
-            ("brand",      snap.get("brand")),
-            ("model",      snap.get("model")),
-            ("android",    snap.get("version")),
-            ("sdk",        snap.get("sdk")),
-            ("abi",        snap.get("abi")),
-            ("hw",         snap.get("hardware")),
-            ("locale",     snap.get("locale")),
-            ("tz",         snap.get("timezone")),
+            ("serial",     snapshot.get("serial")),
+            ("brand",      snapshot.get("brand")),
+            ("model",      snapshot.get("model")),
+            ("android",    snapshot.get("version")),
+            ("sdk",        snapshot.get("sdk")),
+            ("abi",        snapshot.get("abi")),
+            ("hw",         snapshot.get("hardware")),
+            ("locale",     snapshot.get("locale")),
+            ("tz",         snapshot.get("timezone")),
             ("screen",     screen),
             ("battery",    battery_s),
             ("online",     brief(online)),
             ("locked",     brief(locked)),
-            ("secure",     brief(snap.get("secure") is True)),
-            ("debuggable", brief(snap.get("debuggable") is True)),
-            ("emulator",   brief(snap.get("emulator") is True)),
+            ("secure",     brief(snapshot.get("secure") is True)),
+            ("debuggable", brief(snapshot.get("debuggable") is True)),
+            ("emulator",   brief(snapshot.get("emulator") is True)),
         ])
-    
+
         semantic_brief = (
-            f"{snap.get('serial') or 'unknown'}: "
+            f"{snapshot.get('serial') or 'unknown'}: "
             f"{'在线' if online else '离线'} / "
             f"{'锁屏' if locked else '未锁屏'} / "
             f"电量{battery_s or 'unknown'} / "
             f"屏幕{screen.replace('x', '×') if screen else 'unknown'} / "
-            f"Android{snap.get('version') or '?'}(SDK{snap.get('sdk') or '?'}) / "
-            f"{(snap.get('brand') or '').strip()} {(snap.get('model') or '').strip()}".strip()
+            f"Android{snapshot.get('version') or '?'}(SDK{snapshot.get('sdk') or '?'}) / "
+            f"{(snapshot.get('brand') or '').strip()} {(snapshot.get('model') or '').strip()}".strip()
         )
-    
+
         return {
-            "snapshot"       : snap,
+            "snapshot"       : snapshot,
             "semantic_kv"    : semantic_kv,
             "semantic_brief" : semantic_brief
         }
@@ -564,17 +567,17 @@ class Device(object):
         return None
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def find_element(self, locator: str) -> dict:
+    async def find_element(self, locator: str, *_, **__) -> dict:
         """执行自愈流程定位并处理目标控件。"""
         page_id, page_dump, (w, h) = await asyncio.gather(
             self.current_activity(), self.current_xml(), self.st_wm_size()
         )
         payload = {
-            "page_id": page_id or "",
-            "platform": "android",
-            "locator": locator,
-            "page_dump": page_dump or "",
-            "wm_size": {"w": w, "h": h}
+            "page_id"   : page_id or "",
+            "platform"  : "android",
+            "locator"   : locator,
+            "page_dump" : page_dump or "",
+            "wm_size"   : {"w": w, "h": h}
         }
 
         image = await self.screenshot()

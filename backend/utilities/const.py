@@ -32,7 +32,7 @@ Version [bold #FFD75F]{APP_VERSION}[/] :: Licensed software. Authorization requi
 """
 
 # ========【日志与显示设置】========
-PRINT_HEAD   = f"🧬"
+PRINT_HEAD   = f"[bold #EEEEEE]{APP_DESC} ::[/]"
 PRINT_FORMAT = f"<level>{{message}}</level>"
 
 # ========【服务授权】========

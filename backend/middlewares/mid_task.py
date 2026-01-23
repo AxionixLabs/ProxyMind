@@ -6,10 +6,7 @@
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import time
-import uuid
 import typing
-import asyncio
 import functools
 from loguru import logger
 from datetime import (
@@ -26,48 +23,10 @@ def task_middleware(tool_name: str):
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs) -> typing.Any:
-            t0, trace_id = time.perf_counter(), uuid.uuid4().hex
-
             try:
-                snapshot: dict[str, typing.Any] = {**kwargs}
-                if args:
-                    snapshot["_pos"] = [repr(a) for a in args[:3]]
+                return await func(*args, **kwargs)
             except Exception as e:
-                snapshot = {"_snapshot": f"failed {e}"}
-
-            try:
-                data = await func(*args, **kwargs)
-
-                logger.info({
-                    "ok"     : 1,
-                    "tool"   : tool_name,
-                    "trace"  : trace_id,
-                    "dur_ms" : int((time.perf_counter() - t0) * 1000),
-                    "args"   : snapshot,
-                })
-                return data
-
-            except asyncio.CancelledError:
-                logger.warning({
-                    "ok"     : 0,
-                    "tool"   : tool_name,
-                    "trace"  : trace_id,
-                    "code"   : f"CANCELLED",
-                    "dur_ms" : int((time.perf_counter() - t0) * 1000),
-                    "args"   : snapshot,
-                })
-                raise
-
-            except Exception as e:
-                logger.error({
-                    "ok"     : 0,
-                    "tool"   : tool_name,
-                    "trace"  : trace_id,
-                    "code"   : f"CRASH",
-                    "err"    : f"{type(e).__name__}: {e}",
-                    "dur_ms" : int((time.perf_counter() - t0) * 1000),
-                    "args"   : snapshot
-                })
+                logger.error(f"[ERROR] {tool_name}: {type(e).__name__}: {e}")
                 raise
 
         return wrapper

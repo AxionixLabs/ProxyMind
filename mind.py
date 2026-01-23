@@ -98,13 +98,9 @@ class Mind(object):
         sys.exit(130)
 
     async def off_live_state(self) -> None:
-        if self.animation_event:
-            self.animation_event.set()
-
-        if self.animation_task:
-            await self.animation_task
-
-        self.task_info.clear()
+        if self.animation_event: self.animation_event.set()
+        if self.animation_task: await self.animation_task
+        return self.task_info.clear()
 
     async def exec_status(self, session: ClientSession) -> typing.Optional[str]:
         """Exec Status"""
@@ -115,11 +111,11 @@ class Mind(object):
             "name": "refresh", "arguments": {"ttl_sec": self.ttl_sec}
         }
 
-        if (resp := await session.call_tool(**tools)).isError:
-            return resp.content[0].text
+        if (result := await session.call_tool(**tools)).isError:
+            return result.content[0].text
 
         self.last_refresh_ts = now
-        return logger.debug(resp.structuredContent)
+        return logger.debug(result.structuredContent)
 
     async def exec_looper(self, model, apikey, steps: list, loop_count: int, session: ClientSession) -> None:
         """Exec Looper"""
@@ -138,20 +134,20 @@ class Mind(object):
                 self.task_info.append(tips)
 
                 result = await session.call_tool(name, argument)
+                fields = sc if (sc := result.structuredContent) else result.content[0].text
 
                 if result.isError:
                     await self.off_live_state()
-                    return logger.error(result.content[0].text)
+                    return logger.error(fields)
 
                 if name in {"find_element"}:
-                    element = json.loads(result.content[0].text)
-                    locator_list = await self.mind_heal(model, apikey, **element)
+                    locator_list = await self.mind_heal(model, apikey, fields["results"])
                     if locator_list and argument.get("should_click", False):
                         await asyncio.gather(
                             *(session.call_tool("click", s) for s in locator_list)
                         )
 
-                logger.debug(tips := f"{name} -> resp={result.structuredContent}")
+                logger.debug(tips := f"{name} -> resp={fields}")
                 self.task_info.append(tips)
 
             if index != loop_count: self.task_info.clear()
@@ -160,34 +156,26 @@ class Mind(object):
         self,
         model: str,
         apikey: str,
-        page_id: str,
-        platform: str,
-        locator: str,
-        page_dump: str,
-        screenshot_base64: str,
-        wm_size: dict,
-        *_,
-        **kwargs
+        elements: list[dict[str, typing.Any]]
     ) -> typing.Optional[list[dict[str, typing.Any]]]:
         """Mind Heal"""
 
         locator_list: list[dict[str, str]] = []
 
-        async for heal in request.stream_heal(
-            model, apikey, page_id, platform, locator, page_dump, screenshot_base64, wm_size, *_, **kwargs
-        ):
-            if heal.get("type") == "error":
-                await self.off_live_state()
-                return logger.error(heal["content"])
+        for element in elements:
+            async for heal in request.stream_heal(model, apikey, **element["data"]):
+                if heal.get("type") == "error":
+                    await self.off_live_state()
+                    return logger.error(heal["content"])
 
-            if smart := heal.get("smart"):
-                logger.debug(smart)
-                locator_list.append({
-                    "by"    : smart["new_selector"]["primary"]["by"],
-                    "value" : smart["new_selector"]["primary"]["value"]
-                })
+                if smart := heal.get("smart"):
+                    logger.debug(smart)
+                    locator_list.append({
+                        "by": smart["new_selector"]["primary"]["by"],
+                        "value": smart["new_selector"]["primary"]["value"]
+                    })
 
-            self.task_info.append(heal["content"])
+                self.task_info.append(heal["content"])
 
         return locator_list
 
