@@ -26,6 +26,8 @@ class Device(object):
     def __init__(self, serial: str):
         self.serial = serial
 
+        self.agent_id: str = self.serial
+
         self.brand    : str | None = None
         self.model    : str | None = None
         self.version  : str | None = None
