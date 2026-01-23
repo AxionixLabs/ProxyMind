@@ -92,72 +92,61 @@ async def broadcast(
     *,
     tool: str,
     args: dict,
-    agent_list: list,
+    target_list: list,
     call: typing.Callable[[typing.Any], typing.Awaitable[typing.Any]]
 ) -> CallToolResult:
-    """
-    Examples:
-    ----------------
-    return await broadcast(
-        tool="click",
-        args={"by": "text", "value": "example"},
-        agent_list=device_list,
-        call=lambda x: x.click(by, value)
-    )
-    """
 
     t0 = time.time()
 
     raw_list = await asyncio.gather(
-        *(call(agent) for agent in agent_list), return_exceptions=True
+        *(call(agent) for agent in target_list), return_exceptions=True
     )
 
     done, fail, results = 0, 0, []
 
-    for agent, raw in zip(agent_list, raw_list):
+    for target, raw in zip(target_list, raw_list):
         call_item: dict[str, typing.Any] = {
-            "agent_id" : getattr(agent, "serial", None) or getattr(agent, "agent_id", None),
-            "ok"       : True,
+            "agent_id" : getattr(target, "agent_id", None) or str(target),
             "data"     : None,
-            "error"    : None,
             "logs"     : []
         }
-
         if isinstance(raw, Exception):
-            call_item["ok"] = False
-            call_item["error"] = f"{type(raw).__name__}: {raw}"
+            call_item["data"] = f"{type(raw).__name__}: {raw}"
             fail += 1
         else:
             call_item["data"] = raw
             done += 1
-
         results.append(call_item)
-
-    cost_ms = int((time.time() - t0) * 1000)
 
     structured: typing.Optional[dict[str, typing.Any]] = {
         "tool"    : tool,
         "args"    : args,
         "done"    : done,
         "fail"    : fail,
-        "cost_ms" : cost_ms,
+        "cost_ms" : (cost_ms := int((time.time() - t0) * 1000)),
         "summary" : {
-            "total" : (total := len(agent_list)),
+            "total" : (total := len(target_list)),
             "done"  : done,
             "fail"  : fail
         },
         "results" : results
     }
 
-    meta = {
-        "logs": [result.pop("logs", []) for result in results]
+    lines: list[str] = [f"{tool} done={done}/{total} fail={fail} cost_ms={cost_ms}"]
+    for result in results:
+        lines.append(f"{result['agent_id']} | {result['data']}")
+
+    is_error = (total > 0 and done < total)
+
+    _meta = {
+        "logs": [r.pop("logs", []) for r in results]
     }
-    text = f"{tool} done={done}/{total} fail={fail} cost_ms={cost_ms}"
 
     return CallToolResult(
-        content=[TextContent(type="text", text=text)],
+        content=[TextContent(type="text", text="\n".join(lines))],
         structuredContent=structured,
-        _meta=meta
+        isError=is_error,
+        _meta=_meta
     )
 
 
