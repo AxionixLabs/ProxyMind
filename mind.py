@@ -180,7 +180,7 @@ class Mind(object):
                 await self.off_live_state()
                 return logger.error(heal["content"])
 
-            if smart := heal.get("selector"):
+            if smart := heal.get("smart"):
                 logger.debug(smart)
                 locator_list.append({
                     "by"    : smart["new_selector"]["primary"]["by"],
