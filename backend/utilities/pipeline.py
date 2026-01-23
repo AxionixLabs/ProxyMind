@@ -99,7 +99,7 @@ async def broadcast(
     t0 = time.time()
 
     raw_list = await asyncio.gather(
-        *(call(agent) for agent in target_list), return_exceptions=True
+        *(call(target) for target in target_list), return_exceptions=True
     )
 
     done, fail, results = 0, 0, []
