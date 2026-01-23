@@ -70,6 +70,66 @@ class Device(object):
             "secure"     : self.secure
         }
 
+    @staticmethod
+    def device_semantics(snap: dict) -> dict:
+
+        def brief(v: typing.Optional[bool]) -> typing.Optional[str]:
+            if v is None: return None
+            return "true" if v else "false"
+
+        def kv(items: list[tuple[str, typing.Any]]) -> str:
+            parts: list[str] = []
+            for k, v in items:
+                if v is None: continue
+                if isinstance(v, str) and not v.strip(): continue
+                parts.append(f"{k}={v}")
+            return "; ".join(parts)
+
+        wm     = snap.get("wm_size") or {}
+        screen = f"{wm.get('w')}x{wm.get('h')}" if (wm.get("w") and wm.get("h")) else None
+    
+        battery   = snap.get("battery")
+        battery_s = f"{battery}%" if battery is not None else None
+    
+        online = snap.get("online") is True
+        locked = snap.get("screen_lock") is True
+    
+        semantic_kv = kv([
+            ("kind",       "device"),
+            ("serial",     snap.get("serial")),
+            ("brand",      snap.get("brand")),
+            ("model",      snap.get("model")),
+            ("android",    snap.get("version")),
+            ("sdk",        snap.get("sdk")),
+            ("abi",        snap.get("abi")),
+            ("hw",         snap.get("hardware")),
+            ("locale",     snap.get("locale")),
+            ("tz",         snap.get("timezone")),
+            ("screen",     screen),
+            ("battery",    battery_s),
+            ("online",     brief(online)),
+            ("locked",     brief(locked)),
+            ("secure",     brief(snap.get("secure") is True)),
+            ("debuggable", brief(snap.get("debuggable") is True)),
+            ("emulator",   brief(snap.get("emulator") is True)),
+        ])
+    
+        semantic_brief = (
+            f"{snap.get('serial') or 'unknown'}: "
+            f"{'在线' if online else '离线'} / "
+            f"{'锁屏' if locked else '未锁屏'} / "
+            f"电量{battery_s or 'unknown'} / "
+            f"屏幕{screen.replace('x', '×') if screen else 'unknown'} / "
+            f"Android{snap.get('version') or '?'}(SDK{snap.get('sdk') or '?'}) / "
+            f"{(snap.get('brand') or '').strip()} {(snap.get('model') or '').strip()}".strip()
+        )
+    
+        return {
+            "snapshot"       : snap,
+            "semantic_kv"    : semantic_kv,
+            "semantic_brief" : semantic_brief
+        }
+
     # workflow: ==== Device Info MCP Tool ====
     async def snapshot(self) -> dict:
         """采集并返回该设备当前所有状态快照。"""
@@ -79,13 +139,15 @@ class Device(object):
         emulator    = await self.is_emulator()
         screen_lock = await self.is_screen_lock()
 
-        return self.device_info | {
+        information = self.device_info | {
             "battery"     : battery,
             "wm_size"     : {"w": wm_size[0], "h": wm_size[1]} if wm_size else None,
             "online"      : online,
             "emulator"    : emulator,
             "screen_lock" : screen_lock
         }
+
+        return self.device_semantics(information)
 
     # workflow: ==== Device ====
     async def st_load_info(self) -> None:
