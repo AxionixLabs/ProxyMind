@@ -814,8 +814,7 @@ class Design(object):
             t = Text()
             for info in task_info:
                 row = Text(f"{indent}{info}", style="bold #FFAF87")
-                # 截断文本
-                # row.truncate(line_w, overflow="ellipsis")
+                row.truncate(line_w, overflow="ellipsis")
                 t.append_text(row)
                 t.append("\n")
             return t
