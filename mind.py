@@ -123,7 +123,7 @@ class Mind(object):
             for step in steps:
                 action = step["action"]
 
-                # ✅ 每次执行工具前，先确保 server 侧设备缓存是新的（TTL 控频）
+                # workflow: ==== 设备缓存 ====
                 if error := await self.exec_status(session):
                     await self.off_live_state()
                     return logger.error(error)
@@ -134,7 +134,7 @@ class Mind(object):
                 self.task_info.append(tips)
 
                 result = await session.call_tool(name, arguments)
-                
+
                 fields: typing.Union[
                     dict[str, typing.Any], str
                 ] = sc if (sc := result.structuredContent) else result.content[0].text
@@ -143,38 +143,41 @@ class Mind(object):
                     await self.off_live_state()
                     return logger.error(fields)
 
-                if name in {"find_element"}:
-                    locator_list = await self.mind_heal(model, apikey, fields["results"])
-                    if locator_list and argument.get("should_click", False):
-                        await asyncio.gather(
-                            *(session.call_tool("click", s) for s in locator_list)
-                        )
+                # workflow: ==== 查找指令 ====
+                if name in {"find_element"} and (elements := fields.get("results")):
+                    locator_list: list[dict[str, str]] = []
+                    for element in elements:
+                        async for heal in request.stream_heal(model, apikey, **element["data"]):
+                            if heal.get("type") == "error":
+                                await self.off_live_state()
+                                return logger.error(heal["content"])
 
-                logger.debug(tips := f"{name} -> resp={fields}")
-                self.task_info.append(tips)
+                            if smart := heal.get("smart"):
+                                locator_list.append({
+                                    "by": smart["new_selector"]["primary"]["by"],
+                                    "value": smart["new_selector"]["primary"]["value"]
+                                })
+                                logger.debug(smart)
+
+                            self.task_info.append(heal["content"])
+
+                    if locator_list and arguments.get("should_click"):
+                        tasks = [session.call_tool("click", s) for s in locator_list]
+                        for result in await asyncio.gather(*tasks, return_exceptions=True):
+                            tips = f"{name} -> resp={result.structuredContent['results']}"
+                            if result.isError:
+                                await self.off_live_state()
+                                return logger.error(tips)
+                            else:
+                                logger.debug(tips)
+                                self.task_info.append(tips)
+
+                # workflow: ==== 常规指令 ====
+                else:
+                    logger.debug(tips := f"{name} -> resp={fields}")
+                    self.task_info.append(tips)
 
             if index != loop_count: self.task_info.clear()
-
-    async def mind_heal(self, model: str, apikey: str, elements: list[dict]) -> typing.Optional[list[dict]]:
-        """Mind Heal"""
-        locator_list: list[dict[str, str]] = []
-
-        for element in elements:
-            async for heal in request.stream_heal(model, apikey, **element["data"]):
-                if heal.get("type") == "error":
-                    await self.off_live_state()
-                    return logger.error(heal["content"])
-
-                if smart := heal.get("smart"):
-                    logger.debug(smart)
-                    locator_list.append({
-                        "by": smart["new_selector"]["primary"]["by"],
-                        "value": smart["new_selector"]["primary"]["value"]
-                    })
-
-                self.task_info.append(heal["content"])
-
-        return locator_list
 
     async def mind_plan(self, model: str, apikey: str, message: str) -> None:
         """Mind Plan"""
