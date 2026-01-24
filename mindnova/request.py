@@ -93,6 +93,32 @@ async def stream_plan(
         yield event
 
 
+async def stream_chat(
+    model: str,
+    apikey: str,
+    message: str,
+    timeout: float = 60.0
+) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
+    """Stream Chat"""
+
+    url = f"https://api.appserverx.com/mind-chat"
+    headers = Channel.make_headers()
+    payload = {
+        "model": model, "apikey": apikey, "message": message
+    }
+
+    async for event in streaming(url, headers, payload, timeout):
+        match event.get("type"):
+            case "thinking":
+                logger.debug(event["content"])
+                continue
+            case "done":
+                logger.debug("Chat done ...")
+                continue
+
+        yield event
+
+
 async def stream_heal(
     model: str,
     apikey: str,
@@ -134,32 +160,6 @@ async def stream_heal(
                 continue
             case "heal":
                 logger.debug(event["content"])
-
-        yield event
-
-
-async def stream_chat(
-    model: str,
-    apikey: str,
-    message: str,
-    timeout: float = 60.0
-) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
-    """Stream Chat"""
-
-    url = f"https://api.appserverx.com/mind-chat"
-    headers = Channel.make_headers()
-    payload = {
-        "model": model, "apikey": apikey, "message": message
-    }
-
-    async for event in streaming(url, headers, payload, timeout):
-        match event.get("type"):
-            case "thinking":
-                logger.debug(event["content"])
-                continue
-            case "done":
-                logger.debug("Chat done ...")
-                continue
 
         yield event
 
