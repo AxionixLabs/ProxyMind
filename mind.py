@@ -128,12 +128,13 @@ class Mind(object):
                     await self.off_live_state()
                     return logger.error(error)
 
-                name, argument = action["action"], action["args"]
+                name, arguments = action["action"], action["args"]
 
-                logger.debug(tips := f"{name} -> args={argument}")
+                logger.debug(tips := f"{name} -> args={arguments}")
                 self.task_info.append(tips)
 
-                result = await session.call_tool(name, argument)
+                result = await session.call_tool(name, arguments)
+                
                 fields: typing.Union[
                     dict[str, typing.Any], str
                 ] = sc if (sc := result.structuredContent) else result.content[0].text
