@@ -112,7 +112,7 @@ async def stream_heal(
     platform: str,
     locator: str,
     page_dump: str,
-    screenshot: str,
+    screenshot_base64: str,
     wm_size: dict,
     timeout: float = 60.0,
     *_,
@@ -131,7 +131,7 @@ async def stream_heal(
         "platform"   : platform,
         "locator"    : locator,
         "page_dump"  : page_dump,
-        "screenshot" : f"data:image/png;base64,{screenshot}",
+        "screenshot" : f"data:image/png;base64,{screenshot_base64}",
         "wm_size"    : wm_size,
         "context"    : kwargs
     }
