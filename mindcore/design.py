@@ -575,9 +575,10 @@ class Design(object):
 
             live.update(render(ticks, final=True))
 
-    @staticmethod
-    async def prefix_line(stop_event: asyncio.Event) -> None:
-        """一行纯动画：无文字；宽度固定 30；增强闪断/撕裂/回弹；stop.set() 停止并触发收束。"""
+    async def prefix_line(self, stop_event: asyncio.Event) -> None:
+        if self.design_level != const.SHOW_LEVEL:
+            return None
+
         width: int = 30
         fps: int   = 60
         dust: str  = "·∙•"
@@ -685,7 +686,7 @@ class Design(object):
             await draw(blackout(), 0.014)
             await draw([" "] * width, 0.010)
 
-        with Live(Text(" " * width), console=Design.console, refresh_per_second=fps) as live:
+        with Live(Text(" " * width), console=self.console, refresh_per_second=fps) as live:
             while not stop_event.is_set():
                 t += 1
                 frame = base_frame(t)
