@@ -65,6 +65,9 @@ class Mind(object):
         self.task_event: asyncio.Event = asyncio.Event()
         self.task_info: list = []
 
+        self.stream_event: typing.Optional[asyncio.Event] = None
+        self.stream_task: typing.Optional[asyncio.Task] = None
+
         self.animation_event: typing.Optional[asyncio.Event] = None
         self.animation_task: typing.Optional[asyncio.Task] = None
 
