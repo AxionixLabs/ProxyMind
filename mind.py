@@ -134,7 +134,9 @@ class Mind(object):
                 self.task_info.append(tips)
 
                 result = await session.call_tool(name, argument)
-                fields = sc if (sc := result.structuredContent) else result.content[0].text
+                fields: typing.Union[
+                    dict[str, typing.Any], str
+                ] = sc if (sc := result.structuredContent) else result.content[0].text
 
                 if result.isError:
                     await self.off_live_state()
