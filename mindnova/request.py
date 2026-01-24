@@ -34,17 +34,8 @@ async def streaming(
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
-            try:
-                resp.raise_for_status()
-            except httpx.HTTPStatusError:
-                body = await resp.aread()
-                yield {
-                    "type"    : "error",
-                    "code"    : resp.status_code,
-                    "content" : body.decode(const.CHARSET, errors="replace")
-                }
-                return
-
+            resp.raise_for_status()
+            
             async for line in resp.aiter_lines():
                 if not line or not line.startswith("data:"):
                     continue
