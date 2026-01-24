@@ -32,7 +32,7 @@ async def streaming(
 ) -> typing.AsyncGenerator[dict, None]:
     """Streaming"""
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, event_hooks={"response": [capture]}) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
             resp.raise_for_status()
             
