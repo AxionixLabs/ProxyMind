@@ -9,10 +9,8 @@
 import json
 import httpx
 import typing
-import asyncio
 from loguru import logger
 from engine.channel import Channel
-from mindcore.design import Design
 from mindnova import const
 
 
@@ -34,18 +32,11 @@ async def streaming(
 ) -> typing.AsyncGenerator[dict, None]:
     """Streaming"""
 
-    stop_event: asyncio.Event = asyncio.Event()
-    prefix_animation: asyncio.Task = asyncio.create_task(
-        Design.prefix_line(stop_event)
-    )
-
     async with httpx.AsyncClient(timeout=timeout, event_hooks={"response": [capture]}) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
             try:
                 resp.raise_for_status()
             except httpx.HTTPStatusError:
-                stop_event.set(); await prefix_animation
-
                 body = await resp.aread()
                 yield {
                     "type"    : "error",
@@ -62,9 +53,6 @@ async def streaming(
                     event = json.loads(line[len("data:"):].strip())
                 except json.JSONDecodeError:
                     continue
-
-                if not stop_event.is_set():
-                    stop_event.set(); await prefix_animation
 
                 yield event
 
