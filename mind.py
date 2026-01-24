@@ -18,6 +18,7 @@ import shutil
 import signal
 import typing
 import asyncio
+import traceback
 
 # ====[ from: 内置模块 ]====
 from pathlib import Path
@@ -97,10 +98,22 @@ class Mind(object):
         logger.debug(f"SYNC ▸ {const.APP_DESC} MCP neural core detaching.")
         sys.exit(130)
 
-    async def off_live_state(self) -> None:
-        if self.animation_event: self.animation_event.set()
-        if self.animation_task: await self.animation_task
-        return self.task_info.clear()
+    async def stop_stream(self) -> None:
+        if self.stream_event: 
+            self.stream_event.set()
+        if self.stream_task: 
+            await self.stream_task
+
+    async def stop_animation(self) -> None:
+        if self.animation_event: 
+            self.animation_event.set()
+        if self.animation_task: 
+            await self.animation_task
+        self.task_info.clear()
+
+    async def stop_all(self) -> None:
+        await self.stop_stream()
+        await self.stop_animation()
 
     async def exec_status(self, session: ClientSession) -> typing.Optional[str]:
         """Exec Status"""
@@ -125,7 +138,7 @@ class Mind(object):
 
                 # workflow: ==== 设备缓存 ====
                 if error := await self.exec_status(session):
-                    await self.off_live_state()
+                    await self.stop_animation()
                     return logger.error(error)
 
                 name, arguments = action["action"], action["args"]
@@ -140,7 +153,7 @@ class Mind(object):
                 ] = sc if (sc := result.structuredContent) else result.content[0].text
 
                 if result.isError:
-                    await self.off_live_state()
+                    await self.stop_animation()
                     return logger.error(fields)
 
                 # workflow: ==== 查找指令 ====
@@ -149,7 +162,7 @@ class Mind(object):
                     for element in elements:
                         async for heal in request.stream_heal(model, apikey, **element["data"]):
                             if heal.get("type") == "error":
-                                await self.off_live_state()
+                                await self.stop_animation()
                                 return logger.error(heal["content"])
 
                             if smart := heal.get("smart"):
@@ -166,7 +179,7 @@ class Mind(object):
                         for result in await asyncio.gather(*tasks, return_exceptions=True):
                             tips = f"{name} -> resp={result.structuredContent['results']}"
                             if result.isError:
-                                await self.off_live_state()
+                                await self.stop_animation()
                                 return logger.error(tips)
                             else:
                                 logger.debug(tips)
@@ -220,6 +233,7 @@ class Mind(object):
 
                     # workflow: ==== Plan Streaming ====
                     async for plan in request.stream_plan(model, apikey, message, openai_tools):
+                        await self.stop_stream()
                         if plan.get("type") == "error":
                             return logger.error(plan)
 
@@ -231,7 +245,7 @@ class Mind(object):
                             self.design.deep_thinking(self.task_info, self.animation_event)
                         )
                         await self.exec_looper(model, apikey, steps, loop_count, session)
-                        await self.off_live_state()
+                        await self.stop_animation()
 
     async def mind_chat(self, model: str, apikey: str, message: str) -> None:
         """Mind Chat"""
@@ -249,6 +263,7 @@ class Mind(object):
 
             # workflow: ==== Chat Streaming ====
             async for chat in request.stream_chat(model, apikey, message):
+                await self.stop_stream()
                 if chat.get("type") == "error":
                     return logger.error(chat.get("content"))
 
@@ -400,28 +415,53 @@ class Mind(object):
             await self.calling(model, apikey, message=message, func=func)
 
     async def calling(self, model: str = None, apikey: str = None, *, message: str, func: typing.Callable) -> None:
+        """Calling"""
+
+        def flatten_exceptions(exc: BaseException) -> typing.Generator[BaseException, None, None]:
+            if isinstance(exc, BaseExceptionGroup):
+                for sub in exc.exceptions: yield from flatten_exceptions(sub)
+            else:
+                yield exc
+
+        def fmt_exc(exc: BaseException) -> str:
+            return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        
         model  = model  or self.pref.model
         apikey = apikey or self.pref.apikey
+
+        self.stream_event = asyncio.Event()
+        self.stream_task = asyncio.create_task(
+            self.design.prefix_line(self.stream_event)
+        )
 
         try:
             return await func(model, apikey, message)
 
         except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as eg:
-            await self.off_live_state()
-            for e in eg.exceptions:
-                logger.error(f"❌ [NET] {type(e).__name__}: {e!r}")
+            await self.stop_all()
+
+            for ex in flatten_exceptions(eg):
+                logger.error(f"❌ [NET] {type(ex).__module__}.{type(ex).__name__}: {ex!r}")
+                logger.error(fmt_exc(ex))
 
         except* httpx.HTTPStatusError as eg:
-            await self.off_live_state()
-            for e in eg.exceptions:
-                body = e.response.extensions.get("error_body", b"")
-                text = body.decode(const.CHARSET, errors="replace")
-                logger.error(f"❌ [HTTP] {e.response.status_code} {text}")
+            await self.stop_all()
+
+            for ex in flatten_exceptions(eg):
+                if isinstance(ex, httpx.HTTPStatusError):
+                    body = ex.response.extensions.get("error_body", b"")
+                    text = body.decode(const.CHARSET, errors="replace")
+                    logger.error(f"❌ [HTTP] {ex.response.status_code} {text}")
+                else:
+                    logger.error(f"❌ [HTTP] unexpected: {type(ex).__module__}.{type(ex).__name__}: {ex!r}")
+                    logger.error(fmt_exc(ex))
 
         except* Exception as eg:
-            await self.off_live_state()
-            for e in eg.exceptions:
-                logger.error(f"❌ [BUG] {type(e).__name__}: {e}")
+            await self.stop_all()
+
+            for ex in flatten_exceptions(eg):
+                logger.error(f"❌ [BUG] {type(ex).__module__}.{type(ex).__name__}: {ex!r}")
+                logger.error(fmt_exc(ex))
 
 
 # """Main"""
