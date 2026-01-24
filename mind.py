@@ -18,7 +18,6 @@ import shutil
 import signal
 import typing
 import asyncio
-import traceback
 
 # ====[ from: 内置模块 ]====
 from pathlib import Path
@@ -423,9 +422,6 @@ class Mind(object):
             else:
                 yield exc
 
-        def fmt_exc(exc: BaseException) -> str:
-            return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-        
         model  = model  or self.pref.model
         apikey = apikey or self.pref.apikey
 
@@ -439,29 +435,23 @@ class Mind(object):
 
         except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as eg:
             await self.stop_all()
-
             for ex in flatten_exceptions(eg):
-                logger.error(f"❌ [NET] {type(ex).__module__}.{type(ex).__name__}: {ex!r}")
-                logger.error(fmt_exc(ex))
+                logger.error(f"❌ [NET] {ex!r}")
 
         except* httpx.HTTPStatusError as eg:
             await self.stop_all()
-
             for ex in flatten_exceptions(eg):
                 if isinstance(ex, httpx.HTTPStatusError):
                     body = ex.response.extensions.get("error_body", b"")
                     text = body.decode(const.CHARSET, errors="replace")
                     logger.error(f"❌ [HTTP] {ex.response.status_code} {text}")
                 else:
-                    logger.error(f"❌ [HTTP] unexpected: {type(ex).__module__}.{type(ex).__name__}: {ex!r}")
-                    logger.error(fmt_exc(ex))
+                    logger.error(f"❌ [HTTP] unexpected: {ex!r}")
 
         except* Exception as eg:
             await self.stop_all()
-
             for ex in flatten_exceptions(eg):
-                logger.error(f"❌ [BUG] {type(ex).__module__}.{type(ex).__name__}: {ex!r}")
-                logger.error(fmt_exc(ex))
+                logger.error(f"❌ [BUG] {ex!r}")
 
 
 # """Main"""
