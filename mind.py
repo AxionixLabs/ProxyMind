@@ -68,8 +68,8 @@ class Mind(object):
         self.stream_event: typing.Optional[asyncio.Event] = None
         self.stream_task: typing.Optional[asyncio.Task] = None
 
-        self.animation_event: typing.Optional[asyncio.Event] = None
-        self.animation_task: typing.Optional[asyncio.Task] = None
+        self.plan_event: typing.Optional[asyncio.Event] = None
+        self.plan_task: typing.Optional[asyncio.Task] = None
 
         self.last_refresh_ts = 0.0
         self.ttl_sec         = 1.0
@@ -101,21 +101,19 @@ class Mind(object):
         sys.exit(130)
 
     async def stop_stream(self) -> None:
-        if self.stream_event: 
-            self.stream_event.set()
-        if self.stream_task: 
-            await self.stream_task
+        """Stop Stream"""
+        self.stream_event and self.stream_event.set()
+        self.stream_task and await self.stream_task
 
-    async def stop_animation(self) -> None:
-        if self.animation_event: 
-            self.animation_event.set()
-        if self.animation_task: 
-            await self.animation_task
-        self.task_info.clear()
+    async def stop_plan(self) -> None:
+        """Stop Plan"""
+        self.plan_event and self.plan_event.set()
+        self.plan_task and await self.plan_task
 
     async def stop_all(self) -> None:
+        """Stop All"""
         await self.stop_stream()
-        await self.stop_animation()
+        await self.stop_plan()
 
     async def exec_status(self, session: ClientSession) -> typing.Optional[str]:
         """Exec Status"""
@@ -132,7 +130,7 @@ class Mind(object):
         self.last_refresh_ts = now
         return logger.debug(result.structuredContent)
 
-    async def exec_looper(self, model, apikey, steps: list, loop_count: int, session: ClientSession) -> None:
+    async def exec_looper(self, model: str, apikey: str, steps: list, loop_count: int, session: ClientSession) -> None:
         """Exec Looper"""
         for index, _ in enumerate(range(loop_count), start=1):
             for step in steps:
@@ -140,7 +138,7 @@ class Mind(object):
 
                 # workflow: ==== 设备缓存 ====
                 if error := await self.exec_status(session):
-                    await self.stop_animation()
+                    await self.stop_plan()
                     return logger.error(error)
 
                 name, arguments = action["action"], action["args"]
@@ -155,7 +153,7 @@ class Mind(object):
                 ] = sc if (sc := result.structuredContent) else result.content[0].text
 
                 if result.isError:
-                    await self.stop_animation()
+                    await self.stop_plan()
                     return logger.error(fields)
 
                 # workflow: ==== 查找指令 ====
@@ -164,7 +162,7 @@ class Mind(object):
                     for element in elements:
                         async for heal in request.stream_heal(model, apikey, **element["data"]):
                             if heal.get("type") == "error":
-                                await self.stop_animation()
+                                await self.stop_plan()
                                 return logger.error(heal["content"])
 
                             if smart := heal.get("smart"):
@@ -181,7 +179,7 @@ class Mind(object):
                         for result in await asyncio.gather(*tasks, return_exceptions=True):
                             tips = f"{name} -> resp={result.structuredContent['results']}"
                             if result.isError:
-                                await self.stop_animation()
+                                await self.stop_plan()
                                 return logger.error(tips)
                             else:
                                 logger.debug(tips)
@@ -242,12 +240,12 @@ class Mind(object):
                         steps, loop_count = plan["steps"], plan["loop_count"]
 
                         # workflow: ==== Exec ====
-                        self.animation_event = asyncio.Event()
-                        self.animation_task = asyncio.create_task(
-                            self.design.deep_thinking(self.task_info, self.animation_event)
+                        self.plan_event = asyncio.Event()
+                        self.plan_task = asyncio.create_task(
+                            self.design.deep_thinking(self.task_info, self.plan_event)
                         )
                         await self.exec_looper(model, apikey, steps, loop_count, session)
-                        await self.stop_animation()
+                        await self.stop_plan()
 
     async def mind_chat(self, model: str, apikey: str, message: str) -> None:
         """Mind Chat"""
@@ -482,7 +480,7 @@ async def main() -> None:
         ):
             logger.debug(f"Authorize: {resp}")
 
-    async def privileged() -> typing.Any:
+    async def functional() -> typing.Any:
         if platform == "win32":
             pwsh = shutil.which("pwsh") or shutil.which("powershell")
             if not pwsh: return None
@@ -600,8 +598,7 @@ async def main() -> None:
         logger.debug(f"TLS: {tls}")
     logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}\n")
 
-    await pref.load_pref()
-    await privileged()
+    await asyncio.gather(pref.load_pref(), functional())
 
     server: ServerManage = ServerManage()
 
