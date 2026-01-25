@@ -36,6 +36,7 @@ SCHEMATIC        = r"schematic"
 SUPPORTS         = r"supports"
 STRUCTURE        = r"Structure"
 SRC_OPERA_PLACE  = f"{APP_DESC}_Mix"
+SRC_TOTAL_PLACE  = f"{APP_DESC}_Report"
 PREF             = f"{APP_NAME}_pref.json"
 
 # ========【日志与显示设置】========

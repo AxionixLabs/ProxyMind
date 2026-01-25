@@ -6,9 +6,10 @@
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
+import os
 import re
+import json
 import time
-import socket
 import typing
 import asyncio
 from loguru import logger
@@ -29,42 +30,56 @@ class Framix(object):
 
     def __init__(self):
         if not self.__initialized:
-            self.transports: typing.Optional[asyncio.subprocess.Process] = None
-            self.token: typing.Optional[str] = None
+            self.__transports: typing.Optional[asyncio.subprocess.Process] = None
+            self.__token: typing.Optional[str] = None
 
-            self.prefix = "framix"
-            self.host   = "127.0.0.1"
-            self.port   = 8766
-            self.scene  = time.strftime("%Y%m%d%H%M%S")
+            self.__prefix = "framix"
+            self.__host   = "127.0.0.1"
+            self.__port   = 8766
+            self.__label  = time.strftime("%Y%m%d%H%M%S")
+            self.__total  = ""
 
         self.__initialized = True
 
-    async def input_stream(self) -> None:
-        async for line in self.transports.stdout:
+    async def __input_stream(self) -> None:
+        async for line in self.__transports.stdout:
             stream = line.decode(const.CHARSET, const.IGNORE)
             if matched := re.search(r"(?<=Token:\s).*", stream, re.S):
-                self.token = matched.group()
+                self.__token = matched.group()
             logger.info(stream)
 
-    async def error_stream(self) -> None:
-        async for line in self.transports.stderr:
+    async def __error_stream(self) -> None:
+        async for line in self.__transports.stderr:
             stream = line.decode(const.CHARSET, const.IGNORE)
             logger.info(stream)
 
-    async def engine(self) -> None:
-        pass
+    async def __engine(self, *args, **__) -> None:
+        cmd = [self.__prefix] + list(args)
+        self.__transports = await Terminal.cmd_link(cmd)
 
-    async def start_record(self) -> None:
-        pass
+        asyncio.create_task(self.__input_stream())
+        asyncio.create_task(self.__error_stream())
 
-    async def close_record(self) -> None:
-        pass
+        await self.__transports.wait()
 
-    async def task_analysis(self) -> None:
-        pass
+    # async def start_record(self) -> None:
+    #     pass
 
-    async def pfm_reporter(self) -> None:
-        pass
+    # async def close_record(self) -> None:
+    #     pass
+
+    async def analyzer(self, title: str, video: list[str]) -> typing.Any:
+        payload = {
+            "label": self.__label, "title": title, "video": video
+        }
+        return await self.__engine(
+            "--keras", "--boost", "--scale", "0.3", "--frame", json.dumps(payload), "--total", self.__total
+        )
+
+    async def reporter(self) -> None:
+        return await self.__engine(
+            "--merge", os.path.join(self.__total, "FX" + "_" + self.__label)
+        )
 
 
 if __name__ == '__main__':

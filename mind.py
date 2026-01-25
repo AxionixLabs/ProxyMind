@@ -60,7 +60,9 @@ class Mind(object):
         self.remote: dict = remote or {}  # workflow: 远程全局配置
 
         _ = args
-        self.pref: Preferences = kwargs["pref"]
+        self.src_opera_place: str = kwargs["src_opera_place"]
+        self.src_total_place: str = kwargs["src_total_place"]
+        self.pref: Preferences    = kwargs["pref"]
 
         self.task_event: asyncio.Event = asyncio.Event()
         self.task_info: list = []
@@ -176,9 +178,9 @@ class Mind(object):
 
                     if locator_list and arguments.get("should_click"):
                         tasks = [session.call_tool("click", s) for s in locator_list]
-                        for result in await asyncio.gather(*tasks, return_exceptions=True):
-                            tips = f"{name} -> resp={result.structuredContent['results']}"
-                            if result.isError:
+                        for r in await asyncio.gather(*tasks, return_exceptions=True):
+                            tips = f"{name} -> resp={r.structuredContent['results']}"
+                            if r.isError:
                                 await self.stop_plan()
                                 return logger.error(tips)
                             else:
@@ -535,6 +537,11 @@ async def main() -> None:
     ):
         os.makedirs(src_opera_place, exist_ok=True)
 
+    if not os.path.exists(
+        src_total_place := os.path.join(initial_source, const.SRC_TOTAL_PLACE).format()
+    ):
+        os.makedirs(src_total_place, exist_ok=True)
+
     # 激活日志
     Active.active(level := "DEBUG" if cmd_lines.debug else "INFO")
 
@@ -615,7 +622,9 @@ async def main() -> None:
         cmd_lines.chat, cmd_lines.plan, cmd_lines.fast, cmd_lines.debug
     )
     keywords = {
-        "pref": pref
+        "src_opera_place" : src_opera_place,
+        "src_total_place" : src_total_place,
+        "pref"            : pref
     }
     remote = await global_config_task
 

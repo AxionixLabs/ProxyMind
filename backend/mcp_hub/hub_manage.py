@@ -9,6 +9,7 @@
 
 import time
 import shutil
+import typing
 import asyncio
 from backend.mcp_hub.hub_device import Device
 from engine.terminal import Terminal
@@ -59,6 +60,38 @@ class DeviceManage(object):
 
         async with self.lock:
             return await self.connect()
+
+
+class Requires(object):
+    """Requires class."""
+
+    @staticmethod
+    async def connect_scrcpy() -> typing.Optional[str]:
+        if not shutil.which(application := "scrcpy"):
+            raise RuntimeError(f"Requires {application}. install it first.")
+
+        return (await Terminal.cmd_line([application, "--version"]) or "").strip()
+
+    @staticmethod
+    async def connect_ffmpeg() -> typing.Optional[str]:
+        if not shutil.which(application := "ffmpeg"):
+            raise RuntimeError(f"Requires {application}. install it first.")
+
+        return (await Terminal.cmd_line([application, "-version"]) or "").strip()
+
+    @staticmethod
+    async def connect_framix() -> typing.Optional[str]:
+        if not shutil.which(application := "framix"):
+            raise RuntimeError(f"Requires {application}. install it first.")
+
+        return (await Terminal.cmd_line([application, "-h"]) or "").strip()
+
+    @staticmethod
+    async def connect_memrix() -> typing.Optional[str]:
+        if not shutil.which(application := "memrix"):
+            raise RuntimeError(f"Requires {application}. install it first.")
+
+        return (await Terminal.cmd_line([application, "-h"]) or "").strip()
 
 
 if __name__ == '__main__':

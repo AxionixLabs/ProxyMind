@@ -29,60 +29,60 @@ class Memrix(object):
 
     def __init__(self):
         if not self.__initialized:
-            self.transports: typing.Optional[asyncio.subprocess.Process] = None
-            self.token: typing.Optional[str] = None
+            self.__transports: typing.Optional[asyncio.subprocess.Process] = None
+            self.__token: typing.Optional[str] = None
 
-            self.prefix = "memrix"
-            self.host   = "127.0.0.1"
-            self.port   = 8765
-            self.scene  = time.strftime("%Y%m%d%H%M%S")
+            self.__prefix = "memrix"
+            self.__host   = "127.0.0.1"
+            self.__port   = 8765
+            self.__scene  = time.strftime("%Y%m%d%H%M%S")
 
         self.__initialized = True
 
-    async def input_stream(self) -> None:
-        async for line in self.transports.stdout:
+    async def __input_stream(self) -> None:
+        async for line in self.__transports.stdout:
             stream = line.decode(const.CHARSET, const.IGNORE)
             if matched := re.search(r"(?<=Token:\s).*", stream, re.S):
-                self.token = matched.group()
+                self.__token = matched.group()
             logger.info(stream)
 
-    async def error_stream(self) -> None:
-        async for line in self.transports.stderr:
+    async def __error_stream(self) -> None:
+        async for line in self.__transports.stderr:
             stream = line.decode(const.CHARSET, const.IGNORE)
             logger.info(stream)
 
-    async def engine(self, cmd: list[str]) -> None:
-        cmd = [self.prefix] + cmd
-        self.transports = await Terminal.cmd_link(cmd)
+    async def __engine(self, *args, **__) -> None:
+        cmd = [self.__prefix] + list(args)
+        self.__transports = await Terminal.cmd_link(cmd)
 
-        asyncio.create_task(self.input_stream())
-        asyncio.create_task(self.error_stream())
+        asyncio.create_task(self.__input_stream())
+        asyncio.create_task(self.__error_stream())
 
         await asyncio.sleep(5)
 
-    async def task_begin(self, mode: typing.Literal["--storm", "--sleek"], focus: str, imply: str) -> None:
-        cmd = [mode, "--seed", focus, "--scene", self.scene, "--imply", imply, "--canopy"]
-        await self.engine(cmd)
+    async def task_begin(self, style: typing.Literal["--storm", "--sleek"], focus: str, imply: str) -> typing.Any:
+        return await self.__engine(
+            style, "--scene", self.__scene, "--focus", focus, "--imply", imply
+        )
 
     async def task_final(self) -> None:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((self.host, self.port))
-            s.sendall(self.token.encode(const.CHARSET))
+            s.connect((self.__host, self.__port))
+            s.sendall(self.__token.encode(const.CHARSET))
 
-        await self.transports.wait()
+        await self.__transports.wait()
 
-    async def mem_reporter(self, layer: typing.Optional[typing.Literal["--layer"]] = None) -> None:
-        cmd = ["--forge", self.scene + "_" + "Storm"]
-        if layer: cmd += [layer]
-        await self.engine(cmd)
+    async def mem_reporter(self, layer: bool = False) -> None:
+        cmd = ["--forge", self.__scene + "_" + "Storm"]
+        if layer: cmd += ["--layer"]
+        await self.__engine(*cmd)
 
-        await self.transports.wait()
+        await self.__transports.wait()
 
     async def gfx_reporter(self) -> None:
-        cmd = ["--forge", self.scene + "_" + "Sleek"]
-        await self.engine(cmd)
+        await self.__engine("--forge", self.__scene + "_" + "Sleek")
 
-        await self.transports.wait()
+        await self.__transports.wait()
 
 
 if __name__ == '__main__':

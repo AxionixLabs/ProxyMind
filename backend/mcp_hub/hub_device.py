@@ -7,6 +7,7 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import re
+import sys
 import time
 import uuid
 import base64
@@ -17,6 +18,7 @@ import tempfile
 from pathlib import Path
 import xml.etree.ElementTree as Et
 from engine.terminal import Terminal
+from backend.mcp_hub.hub_record import Record
 from backend.utilities import const
 
 
@@ -28,18 +30,20 @@ class Device(object):
 
         self.agent_id: str = self.serial
 
-        self.brand    : str | None = None
-        self.model    : str | None = None
-        self.version  : str | None = None
-        self.hardware : str | None = None
-        self.sdk      : str | None = None
-        self.abi      : str | None = None
+        self.brand    : typing.Optional[str] = None
+        self.model    : typing.Optional[str] = None
+        self.version  : typing.Optional[str] = None
+        self.hardware : typing.Optional[str] = None
+        self.sdk      : typing.Optional[str] = None
+        self.abi      : typing.Optional[str] = None
 
-        self.locale   : str | None = None
-        self.timezone : str | None = None
+        self.locale   : typing.Optional[str] = None
+        self.timezone : typing.Optional[str] = None
 
-        self.debuggable : bool | None = None
-        self.secure     : bool | None = None
+        self.debuggable : typing.Optional[bool] = None
+        self.secure     : typing.Optional[bool] = None
+
+        self.record : typing.Optional[Record] = None
 
     def __str__(self):
         return (
@@ -347,6 +351,18 @@ class Device(object):
         await Terminal.cmd_line(cmd)
 
         return remote
+
+    # workflow: ==== Media Control MCP Tool ====
+    async def start_record(self, version: str, local: str, silence: bool) -> typing.Any:
+        """开始录屏/投屏。"""
+        self.record = Record(version, sys.platform)
+        return await self.record.ask_start_record(self.serial, local, silence)
+
+    # workflow: ==== Media Control MCP Tool ====
+    async def close_record(self) -> typing.Any:
+        """结束录屏/投屏。"""
+        if not self.record: return None
+        return await self.record.ask_close_record(self.serial)
 
     # workflow: ==== System Control MCP Tool ====
     async def open_notification(self) -> typing.Any:
