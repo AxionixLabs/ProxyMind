@@ -27,13 +27,16 @@ class Record(object):
 
         self.start_event: asyncio.Event = asyncio.Event()
         self.close_event: asyncio.Event = asyncio.Event()
+        self.error_event: asyncio.Event = asyncio.Event()
+
+        self.err_message: str = ""
 
         self.transports: typing.Optional[asyncio.subprocess.Process] = None
 
     async def input_stream(self) -> None:
         async for line in self.transports.stdout:
             logger.debug(stream := line.decode(const.CHARSET, const.IGNORE).strip())
-            if "Recording started" in stream:
+            if "Recording started" in stream or "Texture" in stream:
                 self.start_event.set()
             elif "Recording complete" in stream:
                 self.close_event.set()
@@ -41,13 +44,14 @@ class Record(object):
     async def error_stream(self) -> None:
         async for line in self.transports.stderr:
             logger.debug(stream := line.decode(const.CHARSET, const.IGNORE).strip())
-            if "Could not find" in stream or "connection failed" in stream or "Recorder error" in stream:
-                raise RuntimeError(stream)
+            if "ERROR" in stream or "error" in stream or "failed" in stream:
+                self.err_message = stream
+                self.error_event.set()
 
     async def ask_start_record(self, serial: str, local: str, silence: bool = False) -> str:
         video_flag = f"{time.strftime('%Y%m%d%H%M%S')}_{random.randint(100, 999)}.mkv"
 
-        cmd = ["scrcpy", "-s", serial, "--no-audio", "-b=8M"]
+        cmd = ["scrcpy", "-s", serial, "--no-audio", "-b", "8M"]
 
         if silence:
             try:
@@ -63,9 +67,14 @@ class Record(object):
         asyncio.create_task(self.input_stream())
         asyncio.create_task(self.error_stream())
 
-        await asyncio.sleep(1)
+        for _ in range(5):
+            await asyncio.sleep(1)
+            if self.start_event.is_set():
+                return video_temp
+            if self.error_event.is_set():
+                raise RuntimeError(self.err_message or "启动失败")
 
-        return video_temp
+        raise RuntimeError("启动失败")
 
     async def ask_close_record(self, serial: str) -> typing.Optional[Exception]:
 
