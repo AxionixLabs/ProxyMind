@@ -92,32 +92,32 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
-    @task_middleware("analyzer")
-    async def analyzer(title: str, total: str) -> CallToolResult:
-        """Class: monitor; Action: 分析视频帧; Args: title(str)=任务标题, total(str)=报告输出目录; Use: 使用Framix(画帧秀)引擎对录屏文件列表逐帧分析/抽帧诊断/复现取证并落盘报告; Return: CallToolResult(text + structuredContent); Notes: 依赖 Framix 引擎; total 会写入 framix.total 作为报告目录; 当前为单任务聚合执行(非多设备并发)。"""
+    @task_middleware("frame_analyzer")
+    async def frame_analyzer(title: str, total: str, scale: float = 0.3) -> CallToolResult:
+        """Class: monitor; Action: 分析视频帧; Args: title(str)=任务标题, total(str)=报告输出目录, scale(float)=视频帧缩放比例(等比缩放，最大1.0，最小0.1); Use: 使用 Framix(画帧秀)引擎 对录屏文件列表逐帧分析/抽帧诊断/复现取证并落盘报告; Return: CallToolResult(text + structuredContent); Notes: 依赖 Framix 引擎; total 会写入 framix.total 作为报告目录; 当前为单任务聚合执行(非多设备并发)。"""
         await Requires.connect_framix()
 
         framix.total = total
 
         async def call(*_) -> None:
-            return await framix.analyzer(title, video_list)
-
-        return await broadcast(
-            tool="analyzer", args={"title": title, "total": total}, target_list=[None], call=call
-        )
-
-    @mcp.tool()
-    @task_middleware("reporter")
-    async def reporter() -> CallToolResult:
-        """Class: monitor; Action: 生成视频帧阶段分类报告; Args: none; Use: 调用Framix(画帧秀)引擎汇总analyzer产物并落盘输出最终报告; Return: CallToolResult(text + structuredContent); Notes: 依赖Framix引擎且需先执行analyzer完成抽帧/分段数据；单任务聚合执行。"""
-        await Requires.connect_framix()
-
-        async def call(*_) -> None:
-            await framix.reporter()
+            await framix.frame_analyzer(title, video_list, scale)
             video_list.clear()
 
         return await broadcast(
-            tool="reporter", args={}, target_list=[None], call=call
+            tool="frame_analyzer", args={"title": title, "total": total}, target_list=[None], call=call
+        )
+
+    @mcp.tool()
+    @task_middleware("frame_reporter")
+    async def frame_reporter() -> CallToolResult:
+        """Class: monitor; Action: 生成视频帧阶段分类报告; Args: none; Use: 调用 Framix(画帧秀)引擎 汇总analyzer产物并落盘输出最终报告; Return: CallToolResult(text + structuredContent); Notes: 依赖 Framix 引擎且需先执行analyzer完成抽帧/分段数据；单任务聚合执行。"""
+        await Requires.connect_framix()
+
+        async def call(*_) -> None:
+            return await framix.frame_reporter()
+
+        return await broadcast(
+            tool="frame_reporter", args={}, target_list=[None], call=call
         )
 
     @mcp.tool()

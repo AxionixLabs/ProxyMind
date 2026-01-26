@@ -35,8 +35,8 @@ class Framix(object):
 
             self.agent_id: str = self.__prefix
 
-            self.label: str  = time.strftime("%Y%m%d%H%M%S")
-            self.total: str  = ""
+            self.label: str = time.strftime("%Y%m%d%H%M%S")
+            self.total: str = ""
 
         self.__initialized = True
 
@@ -59,15 +59,16 @@ class Framix(object):
 
         await self.__transports.wait()
 
-    async def analyzer(self, title: str, video: list[str]) -> typing.Any:
+    async def frame_analyzer(self, title: str, video: list[str], scale: float = 0.3) -> typing.Any:
         payload = {
             "label": self.label, "title": title, "video": video
         }
         return await self.__engine(
-            "--keras", "--boost", "--scale", "0.3", "--frame", json.dumps(payload), "--total", self.total
+            "--keras", "--boost", "--scale", str(min(1.0, max(0.1, scale))),
+            "--frame", json.dumps(payload), "--total", self.total
         )
 
-    async def reporter(self) -> None:
+    async def frame_reporter(self) -> None:
         return await self.__engine(
             "--merge", os.path.join(self.total, "FX" + "_" + self.label)
         )
