@@ -14,6 +14,7 @@ import typing
 import shutil
 import asyncio
 from loguru import logger
+from backend.mcp_hub.hub_device import Device
 from engine.terminal import Terminal
 from backend.utilities import const
 
@@ -29,7 +30,7 @@ class Record(object):
         self.close_event: asyncio.Event = asyncio.Event()
         self.error_event: asyncio.Event = asyncio.Event()
 
-        self.err_message: str = ""
+        self.err_message: typing.Optional[str] = None
 
         self.transports: typing.Optional[asyncio.subprocess.Process] = None
 
@@ -48,10 +49,18 @@ class Record(object):
                 self.err_message = stream
                 self.error_event.set()
 
-    async def ask_start_record(self, serial: str, local: str, silence: bool = False) -> str:
-        video_flag = f"{time.strftime('%Y%m%d%H%M%S')}_{random.randint(100, 999)}.mkv"
+    async def ask_start_mirror(self, device: Device) -> None:
+        cmd = ["scrcpy", "-s", device.serial, "--no-audio", "-b", "8M"]
 
-        cmd = ["scrcpy", "-s", serial, "--no-audio", "-b", "8M"]
+        self.transports = await Terminal.cmd_link(cmd)
+
+        asyncio.create_task(self.input_stream())
+        asyncio.create_task(self.error_stream())
+
+        return await self.check_timer()
+
+    async def ask_start_record(self, device: Device, directory: str, fps: int = 60, silence: bool = False) -> str:
+        cmd = ["scrcpy", "-s", device.serial, "--no-audio", "-b", "8M", f"--max-fps={fps}"]
 
         if silence:
             try:
@@ -60,23 +69,17 @@ class Record(object):
                 vs = 2.5
             cmd += ["--no-display"] if vs <= 2.4 else ["--no-window"]
 
-        cmd += ["--record", video_temp := f"{os.path.join(local, 'screen')}_{video_flag}"]
+        video_flag = f"{time.strftime('%Y%m%d%H%M%S')}_{random.randint(100, 999)}.mkv"
+        cmd += ["-r", video_temp := f"{os.path.join(directory, 'screen')}_{video_flag}"]
 
         self.transports = await Terminal.cmd_link(cmd)
 
         asyncio.create_task(self.input_stream())
         asyncio.create_task(self.error_stream())
 
-        for _ in range(5):
-            await asyncio.sleep(1)
-            if self.start_event.is_set():
-                return video_temp
-            if self.error_event.is_set():
-                raise RuntimeError(self.err_message or "启动失败")
+        return await self.check_timer(video_temp)
 
-        raise RuntimeError("启动失败")
-
-    async def ask_close_record(self, serial: str) -> typing.Optional[Exception]:
+    async def ask_close_record(self, device: Device) -> typing.Optional[str]:
 
         async def win_stop_child(pid: str | int) -> None:
             off = await Terminal.cmd_line([pwsh, "-Command", "Stop-Process", "-Id", pid, "-Force"])
@@ -89,7 +92,7 @@ class Record(object):
         if self.close_event.is_set():
             return None
 
-        desc = f"{serial} PPID={(ppid := self.transports.pid)}"
+        desc = f"{device.brand} {device.serial} PPID={(ppid := self.transports.pid)}"
 
         if self.station == "win32":
             pwsh = shutil.which("pwsh") or shutil.which("powershell")
@@ -107,9 +110,24 @@ class Record(object):
         elif self.station == "darwin":
             await mac_stop_child(ppid)
 
-    async def clean_events(self) -> None:
+        await self.clean_event()
+        return desc
+
+    async def check_timer(self, video_temp: typing.Optional[str] = None) -> typing.Optional[str]:
+        for _ in range(10):
+            if self.start_event.is_set():
+                return video_temp
+            elif self.error_event.is_set():
+                raise RuntimeError(self.err_message or "启动失败")
+
+            await asyncio.sleep(0.5)
+
+        raise RuntimeError("启动失败")
+
+    async def clean_event(self) -> None:
         self.start_event.clear()
         self.close_event.clear()
+        self.error_event.clear()
 
 
 if __name__ == '__main__':

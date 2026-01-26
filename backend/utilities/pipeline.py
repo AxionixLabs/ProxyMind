@@ -7,8 +7,10 @@
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
+import sys
 import time
 import random
+import shutil
 import typing
 import asyncio
 from loguru import logger
@@ -20,6 +22,7 @@ from rich.logging import (
 from mcp.types import (
     CallToolResult, TextContent
 )
+from engine.terminal import Terminal
 from backend.utilities import const
 
 
@@ -86,6 +89,20 @@ class Active(object):
         logger.add(
             Active._RichSink(Active.console), level=log_level, format=const.PRINT_FORMAT
         )
+
+
+async def kill_port(port: int) -> typing.Any:
+    if sys.platform == "win32":
+        pwsh = shutil.which("pwsh") or shutil.which("powershell")
+        if not pwsh: return None
+        cmd = [
+            pwsh, "-Command", "Get-NetTCPConnection", "-LocalPort", f"{port}",
+            "-ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }"
+        ]
+    else:
+        cmd = ["lsof", "-ti", f":{port}", "|", "xargs", "kill", "-9"]
+
+    return await Terminal.cmd_line(cmd)
 
 
 async def broadcast(

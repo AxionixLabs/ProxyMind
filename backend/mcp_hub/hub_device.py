@@ -7,7 +7,6 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import re
-import sys
 import time
 import uuid
 import base64
@@ -18,7 +17,6 @@ import tempfile
 from pathlib import Path
 import xml.etree.ElementTree as Et
 from engine.terminal import Terminal
-from backend.mcp_hub.hub_record import Record
 from backend.utilities import const
 
 
@@ -42,8 +40,6 @@ class Device(object):
 
         self.debuggable : typing.Optional[bool] = None
         self.secure     : typing.Optional[bool] = None
-
-        self.record : typing.Optional[Record] = None
 
     def __str__(self):
         return (
@@ -351,18 +347,6 @@ class Device(object):
         await Terminal.cmd_line(cmd)
 
         return remote
-
-    # workflow: ==== Media Control MCP Tool ====
-    async def start_record(self, version: str, local: str, silence: bool) -> typing.Any:
-        """开始录屏/投屏。"""
-        self.record = Record(version, sys.platform)
-        return await self.record.ask_start_record(self.serial, local, silence)
-
-    # workflow: ==== Media Control MCP Tool ====
-    async def close_record(self) -> typing.Any:
-        """结束录屏/投屏。"""
-        if not self.record: return None
-        return await self.record.ask_close_record(self.serial)
 
     # workflow: ==== System Control MCP Tool ====
     async def open_notification(self) -> typing.Any:

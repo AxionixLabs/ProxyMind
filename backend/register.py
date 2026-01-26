@@ -28,6 +28,10 @@ def register_all_tools(mcp: FastMCP, manage: DeviceManage) -> None:
     ui_interaction.bind(mcp, manage)
     zest.bind(mcp, manage)
 
+    from backend.mcp_tools.performance import monitor
+
+    monitor.bind(mcp, manage)
+
 
 if __name__ == '__main__':
     pass

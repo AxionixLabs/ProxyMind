@@ -7,7 +7,6 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import os
-import re
 import json
 import time
 import typing
@@ -31,21 +30,17 @@ class Framix(object):
     def __init__(self):
         if not self.__initialized:
             self.__transports: typing.Optional[asyncio.subprocess.Process] = None
-            self.__token: typing.Optional[str] = None
 
-            self.__prefix = "framix"
-            self.__host   = "127.0.0.1"
-            self.__port   = 8766
-            self.__label  = time.strftime("%Y%m%d%H%M%S")
-            self.__total  = ""
+            self.__prefix: str = "framix"
+
+            self.label: str  = time.strftime("%Y%m%d%H%M%S")
+            self.total: str  = ""
 
         self.__initialized = True
 
     async def __input_stream(self) -> None:
         async for line in self.__transports.stdout:
             stream = line.decode(const.CHARSET, const.IGNORE)
-            if matched := re.search(r"(?<=Token:\s).*", stream, re.S):
-                self.__token = matched.group()
             logger.info(stream)
 
     async def __error_stream(self) -> None:
@@ -62,23 +57,17 @@ class Framix(object):
 
         await self.__transports.wait()
 
-    # async def start_record(self) -> None:
-    #     pass
-
-    # async def close_record(self) -> None:
-    #     pass
-
     async def analyzer(self, title: str, video: list[str]) -> typing.Any:
         payload = {
-            "label": self.__label, "title": title, "video": video
+            "label": self.label, "title": title, "video": video
         }
         return await self.__engine(
-            "--keras", "--boost", "--scale", "0.3", "--frame", json.dumps(payload), "--total", self.__total
+            "--keras", "--boost", "--scale", "0.3", "--frame", json.dumps(payload), "--total", self.total
         )
 
     async def reporter(self) -> None:
         return await self.__engine(
-            "--merge", os.path.join(self.__total, "FX" + "_" + self.__label)
+            "--merge", os.path.join(self.total, "FX" + "_" + self.label)
         )
 
 

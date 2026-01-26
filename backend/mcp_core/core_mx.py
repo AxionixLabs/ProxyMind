@@ -33,9 +33,10 @@ class Memrix(object):
             self.__token: typing.Optional[str] = None
 
             self.__prefix = "memrix"
-            self.__host   = "127.0.0.1"
-            self.__port   = 8765
-            self.__scene  = time.strftime("%Y%m%d%H%M%S")
+
+            self.host   = "127.0.0.1"
+            self.port   = 8765
+            self.scene  = time.strftime("%Y%m%d%H%M%S")
 
         self.__initialized = True
 
@@ -62,25 +63,25 @@ class Memrix(object):
 
     async def task_begin(self, style: typing.Literal["--storm", "--sleek"], focus: str, imply: str) -> typing.Any:
         return await self.__engine(
-            style, "--scene", self.__scene, "--focus", focus, "--imply", imply
+            style, "--scene", self.scene, "--focus", focus, "--imply", imply
         )
 
     async def task_final(self) -> None:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((self.__host, self.__port))
+            s.connect((self.host, self.port))
             s.sendall(self.__token.encode(const.CHARSET))
 
         await self.__transports.wait()
 
     async def mem_reporter(self, layer: bool = False) -> None:
-        cmd = ["--forge", self.__scene + "_" + "Storm"]
+        cmd = ["--forge", self.scene + "_" + "Storm"]
         if layer: cmd += ["--layer"]
         await self.__engine(*cmd)
 
         await self.__transports.wait()
 
     async def gfx_reporter(self) -> None:
-        await self.__engine("--forge", self.__scene + "_" + "Sleek")
+        await self.__engine("--forge", self.scene + "_" + "Sleek")
 
         await self.__transports.wait()
 
