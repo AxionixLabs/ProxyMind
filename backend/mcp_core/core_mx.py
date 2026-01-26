@@ -32,11 +32,14 @@ class Memrix(object):
             self.__transports: typing.Optional[asyncio.subprocess.Process] = None
             self.__token: typing.Optional[str] = None
 
-            self.__prefix = "memrix"
+            self.__prefix: str = "memrix"
 
-            self.host   = "127.0.0.1"
-            self.port   = 8765
-            self.scene  = time.strftime("%Y%m%d%H%M%S")
+            self.agent_id: str = self.__prefix
+
+            self.host: str = "127.0.0.1"
+            self.port: int = 8765
+
+            self.scene: str = time.strftime("%Y%m%d%H%M%S")
 
         self.__initialized = True
 

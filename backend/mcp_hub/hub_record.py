@@ -23,6 +23,8 @@ class Record(object):
     """Record class."""
 
     def __init__(self, version: str, station: str):
+        self.agent_id: str = "scrcpy"
+
         self.version = version
         self.station = station
 

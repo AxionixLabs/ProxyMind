@@ -26,6 +26,7 @@ from backend.utilities.pipeline import (
 def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
     station: str = sys.platform
+
     sessions: dict[str, Record] = {}
     sessions_lock: asyncio.Lock = asyncio.Lock()
 
@@ -148,8 +149,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
-    @task_middleware("stop_sample")
-    async def stop_sample() -> CallToolResult:
+    @task_middleware("sample_stop")
+    async def sample_stop() -> CallToolResult:
         """Class: monitor; Action: 停止采集并收束任务; Args: none; Use: 通过 socket 调用 task_final() 结束采集会话/关闭流并落盘(若有); Return: CallToolResult(text + structuredContent); Notes: 单任务聚合执行(非多设备并发)。"""
         await Requires.connect_memrix()
 
@@ -157,12 +158,12 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
             return await memrix.task_final()
 
         return await broadcast(
-            tool="stop_sample", args={}, target_list=[None], call=call
+            tool="sample_stop", args={}, target_list=[None], call=call
         )
 
     @mcp.tool()
     @task_middleware("mem_reporter")
-    async def reporter(layer: bool = False) -> CallToolResult:
+    async def mem_reporter(layer: bool = False) -> CallToolResult:
         """Class: monitor; Action: 生成内存采样报告; Args: layer(bool)=是否分层展示(前台/后台)的内存曲线与统计; Use: 调用 Memrix(记忆星核)引擎 生成内存报告用于诊断泄漏/抖动/峰值; Return: CallToolResult(text + structuredContent); Notes: 依赖 Memrix(记忆星核)引擎; 单任务聚合执行(非多设备并发)。"""
         await Requires.connect_memrix()
 

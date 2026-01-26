@@ -33,6 +33,8 @@ class Framix(object):
 
             self.__prefix: str = "framix"
 
+            self.agent_id: str = self.__prefix
+
             self.label: str  = time.strftime("%Y%m%d%H%M%S")
             self.total: str  = ""
 
