@@ -150,13 +150,13 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
     @mcp.tool()
     @task_middleware("find_element")
-    async def find_element(locator: str, should_click: bool = False) -> CallToolResult:
-        """Class: ui; Action: 元素查找/修复/自愈; Args: locator(str); Use: 采集当前页面信息用于元素查找/修复/自愈/诊断; should_click=True 表示“本次流程的期望动作包含点击该目标元素”; Return: CallToolResult(text + structuredContent); Notes: 每台设备输出一份 payload; 截图拉取后编码，结束清理远端截图文件。"""
+    async def find_element(locator: str, should_click: bool = False, wait: float = 0.0) -> CallToolResult:
+        """Class: ui; Action: 元素查找/修复/自愈; Args: locator(str), should_click(bool)=找到后是否期望点击, wait(float)=点击前等待秒数(用于页面/动画稳定); Use: 采集当前页面信息用于元素查找/修复/自愈/诊断; Return: CallToolResult(text + structuredContent); Notes: 每台设备输出一份 payload; wait>0 时每台设备在点击前 sleep(wait); 截图拉取后编码，结束清理远端截图文件。"""
         return await broadcast(
             tool="find_element",
-            args={"locator": locator, "should_click": should_click},
+            args={"locator": locator, "should_click": should_click, "wait": wait},
             target_list=manage.snapshot,
-            call=lambda agent: agent.find_element(locator, should_click)
+            call=lambda agent: agent.find_element(locator, should_click, wait)
         )
 
     @mcp.tool()

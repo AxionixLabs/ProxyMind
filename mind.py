@@ -178,6 +178,8 @@ class Mind(object):
 
                     if locator_list and arguments.get("should_click"):
                         tasks = [session.call_tool("click", s) for s in locator_list]
+                        if waiting := arguments.get("wait", 0):
+                            await asyncio.sleep(waiting)
                         for r in await asyncio.gather(*tasks, return_exceptions=True):
                             tips = f"{name} -> resp={r.structuredContent['results']}"
                             if r.isError:
