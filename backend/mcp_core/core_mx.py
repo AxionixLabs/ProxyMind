@@ -66,7 +66,7 @@ class Memrix(object):
 
     async def task_begin(self, style: typing.Literal["--storm", "--sleek"], focus: str, imply: str) -> typing.Any:
         return await self.__engine(
-            style, "--scene", self.scene, "--focus", focus, "--imply", imply
+            style, "--scene", self.scene, "--focus", focus, "--imply", imply, "--watch"
         )
 
     async def task_final(self) -> None:
