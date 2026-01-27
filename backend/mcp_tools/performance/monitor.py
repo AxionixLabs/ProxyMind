@@ -76,6 +76,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @task_middleware("close_record")
     async def close_record() -> CallToolResult:
         """Class: monitor; Action: 停止录屏/投屏并释放资源; Args: none; Use: 结束 start_record/start_mirror 的长任务并确保文件可播放/窗口关闭; Return: CallToolResult(text + structuredContent); Notes: 按 device.serial 从 sessions 取 Record 会话并调用 ask_close_record；无会话则跳过；无论成功/失败都会从 sessions 移除避免泄漏。"""
+
         async def call(device: Device) -> None:
             async with sessions_lock:
                 if not (sess := sessions.get(device.serial)):
