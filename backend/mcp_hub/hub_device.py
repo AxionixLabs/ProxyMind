@@ -501,8 +501,13 @@ class Device(object):
     # workflow: ==== UI Interaction MCP Tool ====
     async def send_keys(self, text: str) -> typing.Any:
         """向当前焦点输入文本。"""
+        char = text.replace("\r\n", "\n").replace("\r", "\n")
+        char = char.replace("\n", " ").replace("\t", " ")
+        char = char.replace("%", "%25")
+        char = char.replace(" ", "%s")
+
         cmd = self.prefix + [
-            "shell", "input", "text", text
+            "shell", "input", "text", char
         ]
         return await Terminal.cmd_line(cmd)
 
