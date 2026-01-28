@@ -4,6 +4,7 @@
 # | |_) | (_| \__ \ | (__  |  _ < (_) | |_| | ||  __/ |
 # |____/ \__,_|___/_|\___| |_| \_\___/ \__,_|\__\___|_|
 #
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 from pathlib import Path
 from fastapi import APIRouter
