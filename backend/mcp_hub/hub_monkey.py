@@ -100,23 +100,18 @@ class Monkey(object):
         await asyncio.gather(*tasks, return_exceptions=True)
 
     @staticmethod
-    async def shutdown(process: typing.Optional[asyncio.subprocess.Process], name: str) -> None:
-        if not process:
-            return None
-        try:
-            if process.returncode is None:
-                process.terminate()
+    async def shutdown(process: typing.Optional[asyncio.subprocess.Process]) -> None:
+        if process and process.returncode is None:
             try:
                 await asyncio.wait_for(process.wait(), timeout=2.0)
             except asyncio.TimeoutError:
                 process.kill()
                 await process.wait()
-        except Exception as e:
-            logger.warning(f"terminate {name} failed: {e}")
 
     @staticmethod
     async def logcat_clean(device: Device) -> typing.Any:
-        return await Terminal.cmd_line(["adb", "-s", device.serial, "logcat", "-c"])
+        cmd = ["adb", "-s", device.serial, "logcat", "-c"]
+        return await Terminal.cmd_line(cmd)
 
     async def logcat_start(self, device: Device) -> None:
         cmd = ["adb", "-s", device.serial, "logcat", "-v", "threadtime"]
