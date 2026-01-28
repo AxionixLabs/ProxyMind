@@ -5,6 +5,8 @@
 #   |_|\___|_|  |_| |_| |_|_|_| |_|\__,_|_|
 #
 
+import os
+import pty
 import typing
 import asyncio
 from mindnova import const
@@ -33,6 +35,32 @@ class Terminal(object):
             *cmd,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
+
+        return transports
+
+    @staticmethod
+    async def cmd_link_pty(cmd: list[str]) -> asyncio.subprocess.Process:
+        master_fd, slave_fd = pty.openpty()
+
+        transports = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            close_fds=True
+        )
+        os.close(slave_fd)
+
+        looper   = asyncio.get_running_loop()
+        reader   = asyncio.StreamReader()
+        protocol = asyncio.StreamReaderProtocol(reader)
+        
+        await looper.connect_read_pipe(
+            lambda: protocol, os.fdopen(master_fd, "rb", buffering=0)
+        )
+
+        transports.stdout = reader
+        transports.stderr = None
 
         return transports
 
