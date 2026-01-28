@@ -99,14 +99,15 @@ class Monkey(object):
         ]
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    @staticmethod
-    async def shutdown(process: typing.Optional[asyncio.subprocess.Process]) -> None:
-        if process and process.returncode is None:
-            try:
-                await asyncio.wait_for(process.wait(), timeout=2.0)
-            except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
+    async def logcat_cancel(self) -> None:
+        if not self.proc_logcat or self.proc_logcat.returncode is not None:
+            return None
+
+        try:
+            await asyncio.wait_for(self.proc_logcat.wait(), timeout=2.0)
+        except asyncio.TimeoutError:
+            self.proc_logcat.kill()
+            await self.proc_logcat.wait()
 
     @staticmethod
     async def logcat_clean(device: Device) -> typing.Any:
@@ -157,7 +158,7 @@ class Monkey(object):
             rc = await self.proc_monkey.wait()
         finally:
             await asyncio.sleep(0.3)
-            await self.shutdown(self.proc_logcat, "logcat")
+            await self.logcat_cancel()
 
         end_ms = int(time.time() * 1000)
 
