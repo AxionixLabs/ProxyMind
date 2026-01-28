@@ -14,7 +14,6 @@ import stat
 import time
 import httpx
 import random
-import shutil
 import signal
 import typing
 import asyncio
@@ -59,7 +58,10 @@ class Mind(object):
 
         self.remote: dict = remote or {}  # workflow: 远程全局配置
 
+        self.base_url: str = "http://127.0.0.1:3333"
+
         _ = args
+
         self.src_opera_place: str = kwargs["src_opera_place"]
         self.src_total_place: str = kwargs["src_total_place"]
         self.pref: Preferences    = kwargs["pref"]
@@ -99,7 +101,6 @@ class Mind(object):
         self.task_event.set()
         Design.console.print()
         Design.show_exit()
-        logger.debug(f"SYNC ▸ {const.APP_DESC} MCP neural core detaching.")
         sys.exit(130)
 
     async def stop_stream(self) -> None:
@@ -204,7 +205,7 @@ class Mind(object):
             )
             raise MindError(f"Missing required field(s): {missing}")
 
-        url = "http://127.0.0.1:3333/mcp"
+        url = self.base_url + "/helix/mcp"
         headers = {
             "Authorization": f"Bearer {authentic.manufacture_token()}"
         }
@@ -484,19 +485,6 @@ async def main() -> None:
         ):
             logger.debug(f"Authorize: {resp}")
 
-    async def functional() -> typing.Any:
-        if platform == "win32":
-            pwsh = shutil.which("pwsh") or shutil.which("powershell")
-            if not pwsh: return None
-            cmd = [
-                pwsh, "-Command", "Get-NetTCPConnection", "-LocalPort", "3333",
-                "-ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }"
-            ]
-        else:
-            cmd = ["lsof", "-ti", ":3333", "|", "xargs", "kill", "-9"]
-
-        return await Terminal.cmd_line(cmd)
-
     # Notes: ========== Start from here ==========
     await Design.particle_aggregate()
 
@@ -607,18 +595,18 @@ async def main() -> None:
         logger.debug(f"TLS: {tls}")
     logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}\n")
 
-    await asyncio.gather(pref.load_pref(), functional())
-
-    server: ServerManage = ServerManage()
+    await pref.load_pref()
 
     # ========== 本地调试 ==========
-    root = Path(__file__).parent
-    helix = str(root / "backend" / "helix.py")
+    helix = str(Path(__file__).parent / "backend" / "helix.py")
 
     if helix.endswith("py"):
-        await server.mcp_begin([sys.executable, helix, "--level", level])
+        cmd = [sys.executable, helix, "--level", level]
     else:
-        await server.mcp_begin([helix, "--level", level])
+        cmd = [helix, "--level", level]
+
+    server: ServerManage = ServerManage(cmd=cmd, base_url="http://127.0.0.1:3333")
+    await server.ensure_running()
 
     positions = (
         cmd_lines.chat, cmd_lines.plan, cmd_lines.fast, cmd_lines.debug
@@ -645,7 +633,7 @@ async def main() -> None:
             await mind.mind_loop()
 
     finally:
-        await server.mcp_final()
+        await server.aclose()
 
 
 # """Test"""

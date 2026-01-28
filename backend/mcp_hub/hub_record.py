@@ -22,8 +22,23 @@ from backend.utilities import const
 class Record(object):
     """Record class."""
 
-    def __init__(self, version: str, station: str):
+    def __init__(
+        self,
+        version: str,
+        station: str,
+        sessions: dict[str, "Record"],
+        sessions_lock: asyncio.Lock,
+        *,
+        on_begin: typing.Callable[[], typing.Awaitable[typing.Any]] | None = None,
+        on_final: typing.Callable[[], typing.Awaitable[typing.Any]] | None = None,
+    ) -> None:
+
         self.agent_id: str = "scrcpy"
+
+        self.sessions = sessions
+        self.sessions_lock = sessions_lock
+        self.on_begin = on_begin
+        self.on_final = on_final
 
         self.version = version
         self.station = station
@@ -36,50 +51,112 @@ class Record(object):
 
         self.transports: typing.Optional[asyncio.subprocess.Process] = None
 
+    async def acquire(self, device: Device) -> None:
+        async with self.sessions_lock:
+            if device.serial in self.sessions:
+                raise RuntimeError(
+                    f"device busy: {device.serial} already has an active scrcpy session"
+                )
+            self.sessions[device.serial] = self
+
+        if self.on_begin: await self.on_begin()
+
+    async def release(self, device: Device) -> None:
+        try:
+            if self.on_final: await self.on_final()
+        finally:
+            async with self.sessions_lock:
+                if self.sessions.get(device.serial) is self:
+                    self.sessions.pop(device.serial, None)
+
     async def input_stream(self) -> None:
         async for line in self.transports.stdout:
             logger.debug(stream := line.decode(const.CHARSET, const.IGNORE).strip())
             if "Recording started" in stream or "Texture" in stream:
                 self.start_event.set()
             elif "Recording complete" in stream:
-                self.close_event.set()
+                return self.close_event.set()
 
     async def error_stream(self) -> None:
         async for line in self.transports.stderr:
             logger.debug(stream := line.decode(const.CHARSET, const.IGNORE).strip())
-            if "ERROR" in stream or "error" in stream or "failed" in stream:
+            if (
+                "Could not find" in stream
+                or "connection failed" in stream
+                or "Recorder error" in stream
+                or "ERROR:" in stream
+                or "FATAL:" in stream
+            ):
                 self.err_message = stream
-                self.error_event.set()
+                return self.error_event.set()
+
+    async def merge_stream(self) -> None:
+        async for line in self.transports.stdout:
+            if isinstance(line, (bytes, bytearray)):
+                stream = line.decode(const.CHARSET, const.IGNORE).strip()
+            else:
+                stream = str(line).strip()
+
+            if not stream: continue
+
+            logger.debug(stream)
+
+            if "Recording started" in stream or "Texture" in stream:
+                self.start_event.set()
+                continue
+
+            if "Recording complete" in stream:
+                return self.close_event.set()
+
+            if (
+                "Could not find" in stream
+                or "connection failed" in stream
+                or "Recorder error" in stream
+                or "ERROR:" in stream
+                or "FATAL:" in stream
+            ):
+                self.err_message = stream
+                return self.error_event.set()
+
+    async def launcher(self, cmd: list[str]) -> None:
+        if self.station == "win32":
+            self.transports = await Terminal.cmd_link(cmd)
+            asyncio.create_task(self.input_stream())
+            asyncio.create_task(self.error_stream())
+        else:
+            self.transports = await Terminal.cmd_link_pty(cmd)
+            asyncio.create_task(self.merge_stream())
 
     async def ask_start_mirror(self, device: Device) -> None:
-        cmd = ["scrcpy", "-s", device.serial, "--no-audio", "-b", "8M"]
-
-        self.transports = await Terminal.cmd_link(cmd)
-
-        asyncio.create_task(self.input_stream())
-        asyncio.create_task(self.error_stream())
-
-        return await self.check_timer()
+        await self.acquire(device)
+        try:
+            cmd = ["scrcpy", "-s", device.serial, "--no-audio", "-b", "8M"]
+            await self.launcher(cmd)
+            return await self.check_timer()
+        except Exception as e:
+            await self.release(device)
+            raise e
 
     async def ask_start_record(self, device: Device, directory: str, fps: int = 60, silence: bool = False) -> str:
-        cmd = ["scrcpy", "-s", device.serial, "--no-audio", "-b", "8M", f"--max-fps={fps}"]
+        await self.acquire(device)
+        try:
+            cmd = ["scrcpy", "-s", device.serial, "--no-audio", "-b", "8M", f"--max-fps={fps}"]
 
-        if silence:
-            try:
-                vs = float(re.search(r"(?<=scrcpy\s)\d.*(?=\.\d\s)", self.version).group())
-            except (AttributeError, TypeError):
-                vs = 2.5
-            cmd += ["--no-display"] if vs <= 2.4 else ["--no-window"]
+            if silence:
+                try:
+                    vs = float(re.search(r"(?<=scrcpy\s)\d.*(?=\.\d\s)", self.version).group())
+                except (AttributeError, TypeError):
+                    vs = 2.5
+                cmd += ["--no-display"] if vs <= 2.4 else ["--no-window"]
 
-        video_flag = f"{time.strftime('%Y%m%d%H%M%S')}_{random.randint(100, 999)}.mkv"
-        cmd += ["-r", video_temp := f"{os.path.join(directory, 'screen')}_{video_flag}"]
+            video_flag = f"{time.strftime('%Y%m%d%H%M%S')}_{random.randint(100, 999)}.mkv"
 
-        self.transports = await Terminal.cmd_link(cmd)
-
-        asyncio.create_task(self.input_stream())
-        asyncio.create_task(self.error_stream())
-
-        return await self.check_timer(video_temp)
+            cmd += ["-r", video_temp := f"{os.path.join(directory, 'screen')}_{video_flag}"]
+            await self.launcher(cmd)
+            return await self.check_timer(video_temp)
+        except Exception as e:
+            await self.release(device)
+            raise e
 
     async def ask_close_record(self, device: Device) -> typing.Optional[str]:
 
@@ -92,28 +169,32 @@ class Record(object):
             logger.debug(f"{desc} PID={pid} OFF={off}")
 
         if self.close_event.is_set():
-            return None
+            return await self.release(device)
 
         desc = f"{device.brand} {device.serial} PPID={(ppid := self.transports.pid)}"
 
-        if self.station == "win32":
-            pwsh = shutil.which("pwsh") or shutil.which("powershell")
-            line = [
-                pwsh, "-Command", "Get-CimInstance", "Win32_Process", "|", "Where-Object",
-                f"{{ $_.ParentProcessId -eq {ppid} }}", "|", "Select-Object", "-ExpandProperty", "ProcessId"
-            ]
+        try:
+            if self.station == "win32":
+                pwsh = shutil.which("pwsh") or shutil.which("powershell")
+                line = [
+                    pwsh, "-Command", "Get-CimInstance", "Win32_Process", "|", "Where-Object",
+                    f"{{ $_.ParentProcessId -eq {ppid} }}", "|", "Select-Object", "-ExpandProperty", "ProcessId"
+                ]
 
-            if not (child_pids := await Terminal.cmd_line(line)):
-                return None
+                if not (child_pids := await Terminal.cmd_line(line)):
+                    return None
 
-            pids_list = [line.strip() for line in child_pids.splitlines()]
-            await asyncio.gather(*(win_stop_child(pid) for pid in pids_list))
+                pids_list = [line.strip() for line in child_pids.splitlines()]
+                await asyncio.gather(*(win_stop_child(pid) for pid in pids_list))
 
-        elif self.station == "darwin":
-            await mac_stop_child(ppid)
+            elif self.station == "darwin":
+                await mac_stop_child(ppid)
 
-        await self.clean_event()
-        return desc
+            await self.clean_event()
+            return desc
+
+        finally:
+            await self.release(device)
 
     async def check_timer(self, video_temp: typing.Optional[str] = None) -> typing.Optional[str]:
         for _ in range(10):

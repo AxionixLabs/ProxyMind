@@ -9,9 +9,10 @@
 
 from mcp.server.fastmcp         import FastMCP
 from backend.mcp_hub.hub_manage import DeviceManage
+from backend.utilities.pipeline import Idle
 
 
-def register_all_tools(mcp: FastMCP, manage: DeviceManage) -> None:
+def register_all_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
     from backend.mcp_tools.automator import app_control
     from backend.mcp_tools.automator import device_info
     from backend.mcp_tools.automator import file_control
@@ -26,11 +27,11 @@ def register_all_tools(mcp: FastMCP, manage: DeviceManage) -> None:
     media_control.bind(mcp, manage)
     system_control.bind(mcp, manage)
     ui_interaction.bind(mcp, manage)
-    zest.bind(mcp, manage)
+    zest.bind(mcp, manage, idle)
 
     from backend.mcp_tools.performance import monitor
 
-    monitor.bind(mcp, manage)
+    monitor.bind(mcp, manage, idle)
 
 
 if __name__ == '__main__':

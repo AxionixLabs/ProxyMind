@@ -6,10 +6,12 @@
 #                           |___/
 #
 
+import sys
+import time
+import httpx
 import typing
 import asyncio
 from loguru import logger
-from engine.terminal import Terminal
 from engine.tinker import MindError
 from mindnova import const
 
@@ -17,50 +19,67 @@ from mindnova import const
 class ServerManage(object):
     """ServerManage class."""
 
-    def __init__(self):
-        self.transports: typing.Optional[asyncio.subprocess.Process] = None
+    def __init__(self, *, cmd: list[str], base_url: str, timeout: float = 0.6):
+        self.cmd = cmd
+        self.base_url = base_url.rstrip("/")
+        self.__client = httpx.AsyncClient(base_url=self.base_url, timeout=timeout)
 
-    async def input_stream(self) -> None:
-        async for line in self.transports.stdout:
-            stream = line.decode(const.CHARSET, const.IGNORE).strip()
-            logger.debug(" ".join(stream.split()))
+    async def probe_healthz(self) -> bool:
+        headers = {
+            "accept": "application/json"
+        }
+        try:
+            response = await self.__client.request("GET", "/healthz", headers=headers)
+            logger.debug(f"Healthz: {response.json()}")
+            if response.status_code >= 400:
+                return False
 
-    async def error_stream(self) -> None:
-        async for line in self.transports.stderr:
-            stream = line.decode(const.CHARSET, const.IGNORE).strip()
-            logger.debug(" ".join(stream.split()))
+            ct = (response.headers.get("content-type") or "").lower()
 
-    async def mcp_begin(self, cmd: list[str]) -> None:
-        if self.transports and self.transports.returncode is None:
+            data = response.json() if "application/json" in ct else {}
+
+            return bool(data.get("ok")) and (data.get("service") == "helix mcp")
+        except Exception as e:
+            _ = e
+            return False
+
+    async def spawn(self) -> None:
+        kwargs: dict[str, typing.Any] = {
+            "stdin"  : asyncio.subprocess.DEVNULL,
+            "stdout" : asyncio.subprocess.DEVNULL,
+            "stderr" : asyncio.subprocess.DEVNULL,
+        }
+
+        if sys.platform.startswith("win"):
+            # Windows: 让子进程脱离控制台/进程组，DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+            kwargs["creationflags"] = (0x00000008 | 0x00000200)
+        else:
+            # POSIX: new session => SIGHUP/父进程结束不会带走它
+            kwargs["start_new_session"] = True
+
+        try:
+            await asyncio.create_subprocess_exec(*self.cmd, **kwargs)
+        except Exception as e:
+            raise MindError(f"Spawn failed: {type(e).__name__}: {e}") from e
+
+    async def ensure_running(self, *, wait_sec: float = 6.0, interval: float = 0.3) -> None:
+        if await self.probe_healthz():
             return None
 
-        self.transports = await Terminal.cmd_link(cmd)
+        await self.spawn()
 
-        asyncio.create_task(self.input_stream())
-        asyncio.create_task(self.error_stream())
-
-        for _ in range(5):
-            if self.transports is not None:
+        deadline = time.monotonic() + max(0.5, wait_sec)
+        while time.monotonic() < deadline:
+            await asyncio.sleep(interval)
+            if await self.probe_healthz():
                 return logger.debug(
                     f"SYNC ▸ {const.APP_DESC} MCP neural core online."
                 )
-            await asyncio.sleep(1)
 
-        raise MindError(f"Application startup failure")
+        raise MindError(f"MCP not ready (healthz timeout)")
 
-    async def mcp_final(self) -> None:
-        if not self.transports or self.transports.returncode is not None:
-            return None
-
-        logger.debug(f"SYNC ▸ {const.APP_DESC} MCP neural core shutting down...")
-
-        self.transports.terminate()
-        try:
-            await asyncio.wait_for(self.transports.wait(), timeout=5)
-        except asyncio.TimeoutError:
-            self.transports.kill()
-
-        logger.debug(f"SYNC ▸ {const.APP_DESC} MCP neural core offline.")
+    async def aclose(self) -> None:
+        await self.__client.aclose()
 
 
 if __name__ == '__main__':

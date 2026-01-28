@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Helix</title>
+  <meta name="color-scheme" content="dark" />
+  <link rel="icon" href="/static/favicon.ico?v=1">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=1">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <style>
+    :root{
+      --bg:#05060a;
+      --fg:#d7f7ff;
+      --muted:#89a3ad;
+      --line:rgba(255,255,255,.08);
+      --glow:rgba(92,255,214,.35);
+      --accent:#5cffd6;
+      --accent2:#7aa7ff;
+      --warn:#ffd27a;
+      --danger:#ff5c9a;
+      --ok:#5cff7a;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      background: radial-gradient(1200px 700px at 20% 10%, rgba(122,167,255,.12), transparent 55%),
+                  radial-gradient(900px 600px at 80% 30%, rgba(92,255,214,.12), transparent 60%),
+                  radial-gradient(700px 500px at 55% 80%, rgba(255,92,154,.10), transparent 60%),
+                  var(--bg);
+      color:var(--fg);
+      font: 14px/1.35 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+      overflow:hidden;
+    }
+
+    /* subtle grid */
+    .grid{
+      position:fixed; inset:0;
+      background-image:
+        linear-gradient(to right, rgba(255,255,255,.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,.04) 1px, transparent 1px);
+      background-size: 44px 44px;
+      mask-image: radial-gradient(600px 500px at 50% 20%, black 40%, transparent 80%);
+      opacity:.55;
+      pointer-events:none;
+    }
+
+    /* scanlines */
+    .scan{
+      position:fixed; inset:-60px 0;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(255,255,255,.035),
+        rgba(255,255,255,.035) 1px,
+        transparent 2px,
+        transparent 6px
+      );
+      opacity:.25;
+      mix-blend-mode: overlay;
+      animation: scan 8s linear infinite;
+      pointer-events:none;
+    }
+    @keyframes scan{
+      0%{transform:translateY(-40px)}
+      100%{transform:translateY(40px)}
+    }
+
+    /* floating particles */
+    .p{
+      position:fixed; inset:0;
+      pointer-events:none;
+      opacity:.7;
+      filter: drop-shadow(0 0 10px rgba(92,255,214,.25));
+    }
+    .dot{
+      position:absolute;
+      width:2px;height:2px;
+      background:rgba(215,247,255,.85);
+      border-radius:999px;
+      animation: float var(--t) linear infinite;
+      transform: translateY(120vh);
+    }
+    @keyframes float{
+      0%{transform:translateY(120vh) translateX(0)}
+      100%{transform:translateY(-20vh) translateX(var(--dx))}
+    }
+
+    /* layout */
+    .wrap{
+      position:relative;
+      height:100%;
+      display:grid;
+      place-items:center;
+      padding:28px;
+    }
+    .shell{
+      width:min(980px, 100%);
+      display:grid;
+      grid-template-columns: 1.05fr .95fr;
+      gap:18px;
+    }
+    @media (max-width: 900px){
+      .shell{grid-template-columns: 1fr}
+    }
+
+    .card{
+      border:1px solid var(--line);
+      border-radius:18px;
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      box-shadow:
+        0 30px 90px rgba(0,0,0,.65),
+        0 0 0 1px rgba(92,255,214,.06) inset;
+      backdrop-filter: blur(10px);
+      overflow:hidden;
+      position:relative;
+    }
+    .card::before{
+      content:"";
+      position:absolute; inset:0;
+      background: radial-gradient(700px 300px at 20% 0%, rgba(92,255,214,.12), transparent 55%),
+                  radial-gradient(600px 260px at 100% 10%, rgba(122,167,255,.10), transparent 60%);
+      pointer-events:none;
+    }
+    .pad{padding:18px 18px 16px}
+    .bar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:14px 18px;
+      border-bottom:1px solid rgba(255,255,255,.06);
+      background:rgba(0,0,0,.18);
+    }
+    .dots{display:flex; gap:8px}
+    .dots i{width:10px;height:10px;border-radius:999px;display:inline-block}
+    .dots i:nth-child(1){background:rgba(255,92,154,.9)}
+    .dots i:nth-child(2){background:rgba(255,210,122,.9)}
+    .dots i:nth-child(3){background:rgba(92,255,122,.9)}
+    .chip{
+      font-size:12px;
+      color:var(--muted);
+      border:1px solid rgba(255,255,255,.09);
+      border-radius:999px;
+      padding:6px 10px;
+      background: rgba(0,0,0,.16);
+    }
+
+    /* Glitch title */
+    .title{
+      position:relative;
+      margin:0;
+      font-size:34px;
+      letter-spacing:.12em;
+      text-transform:uppercase;
+      text-shadow: 0 0 18px rgba(92,255,214,.22);
+    }
+    .glitch{
+      position:relative;
+      display:inline-block;
+    }
+    .glitch::before,
+    .glitch::after{
+      content:attr(data-text);
+      position:absolute; left:0; top:0;
+      opacity:.85;
+      clip-path: inset(0 0 0 0);
+      mix-blend-mode: screen;
+    }
+    .glitch::before{
+      transform:translateX(-1px);
+      color:rgba(122,167,255,.95);
+      animation: glitch1 2.4s infinite steps(10, end);
+    }
+    .glitch::after{
+      transform:translateX(1px);
+      color:rgba(92,255,214,.95);
+      animation: glitch2 2.0s infinite steps(11, end);
+    }
+    @keyframes glitch1{
+      0%{clip-path: inset(0 0 85% 0)}
+      10%{clip-path: inset(0 0 10% 0)}
+      20%{clip-path: inset(30% 0 55% 0)}
+      30%{clip-path: inset(65% 0 15% 0)}
+      40%{clip-path: inset(5% 0 75% 0)}
+      50%{clip-path: inset(55% 0 35% 0)}
+      60%{clip-path: inset(10% 0 60% 0)}
+      70%{clip-path: inset(75% 0 5% 0)}
+      80%{clip-path: inset(25% 0 50% 0)}
+      90%{clip-path: inset(45% 0 35% 0)}
+      100%{clip-path: inset(0 0 85% 0)}
+    }
+    @keyframes glitch2{
+      0%{clip-path: inset(80% 0 0 0)}
+      12%{clip-path: inset(20% 0 55% 0)}
+      24%{clip-path: inset(45% 0 35% 0)}
+      36%{clip-path: inset(10% 0 70% 0)}
+      48%{clip-path: inset(60% 0 15% 0)}
+      60%{clip-path: inset(30% 0 50% 0)}
+      72%{clip-path: inset(75% 0 5% 0)}
+      84%{clip-path: inset(5% 0 78% 0)}
+      100%{clip-path: inset(80% 0 0 0)}
+    }
+
+    .sub{
+      margin:10px 0 0;
+      color:var(--muted);
+      max-width: 52ch;
+    }
+
+    .kpis{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+      margin-top:14px;
+    }
+    .kpi{
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:14px;
+      padding:12px 12px;
+      background: rgba(0,0,0,.14);
+      box-shadow: 0 0 0 1px rgba(92,255,214,.05) inset;
+    }
+    .kpi .h{font-size:12px;color:var(--muted)}
+    .kpi .v{margin-top:6px;font-size:14px}
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      font-size:12px;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(0,0,0,.16);
+      color:var(--fg);
+    }
+    .led{
+      width:8px;height:8px;border-radius:999px;
+      background: var(--ok);
+      box-shadow: 0 0 0 3px rgba(92,255,122,.12), 0 0 14px rgba(92,255,122,.55);
+      animation: pulse 1.8s ease-in-out infinite;
+    }
+    @keyframes pulse{
+      0%,100%{transform:scale(1); opacity:1}
+      50%{transform:scale(.85); opacity:.75}
+    }
+
+    .actions{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:14px;
+    }
+    .btn{
+      appearance:none;
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.14);
+      color: var(--fg);
+      padding:10px 12px;
+      border-radius:12px;
+      text-decoration:none;
+      font-size:13px;
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      cursor:pointer;
+      box-shadow: 0 0 0 1px rgba(92,255,214,.05) inset;
+      transition: transform .12s ease, border-color .12s ease;
+    }
+    .btn:hover{transform: translateY(-1px); border-color: rgba(92,255,214,.35)}
+    .btn:active{transform: translateY(0px)}
+    .tag{
+      font-size:11px;
+      color:rgba(0,0,0,.85);
+      padding:2px 8px;
+      border-radius:999px;
+      background: rgba(92,255,214,.9);
+      box-shadow: 0 0 14px rgba(92,255,214,.25);
+    }
+
+    /* right panel - "console" */
+    .console{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      background: rgba(0,0,0,.28);
+      border-top:1px solid rgba(255,255,255,.06);
+      padding:14px 18px 16px;
+    }
+    .line{display:flex; gap:10px; margin:6px 0; color:rgba(215,247,255,.92)}
+    .prompt{color:rgba(92,255,214,.95)}
+    .dim{color:rgba(137,163,173,.95)}
+    .mono{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+
+    .hint{
+      margin-top:12px;
+      border-top:1px dashed rgba(255,255,255,.10);
+      padding-top:12px;
+      color:var(--muted);
+      font-size:12px;
+    }
+
+    /* footer */
+    .foot{
+      position:fixed;
+      left:0; right:0; bottom:14px;
+      display:flex;
+      justify-content:center;
+      pointer-events:none;
+    }
+    .foot span{
+      pointer-events:auto;
+      color:rgba(137,163,173,.85);
+      font-size:12px;
+      border:1px solid rgba(255,255,255,.07);
+      background: rgba(0,0,0,.14);
+      padding:6px 10px;
+      border-radius:999px;
+    }
+
+    /* small "beam" */
+    .beam{
+      position:absolute;
+      left:-20%;
+      top:-40%;
+      width:140%;
+      height:140%;
+      background: conic-gradient(from 90deg, transparent, rgba(92,255,214,.12), transparent, rgba(122,167,255,.10), transparent);
+      filter: blur(24px);
+      opacity:.35;
+      animation: spin 14s linear infinite;
+      pointer-events:none;
+    }
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+  <div class="grid"></div>
+  <div class="scan"></div>
+
+  <div class="p" aria-hidden="true" id="particles"></div>
+
+  <main class="wrap">
+    <section class="shell">
+      <!-- Left: Hero -->
+      <div class="card">
+        <div class="beam"></div>
+        <div class="bar">
+          <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+          <div class="chip">transport: streamable-http</div>
+        </div>
+
+        <div class="pad">
+          <h1 class="title">
+            <span class="glitch" data-text="HELIX">HELIX</span>
+          </h1>
+          <p class="sub">
+            Local MCP Neural Core — automation · media capture · performance sampling · visual timing analysis
+          </p>
+
+          <div class="kpis">
+            <div class="kpi">
+              <div class="h">Status</div>
+              <div class="v">
+                <span class="pill"><span class="led"></span> online</span>
+              </div>
+            </div>
+            <div class="kpi">
+              <div class="h">Endpoints</div>
+              <div class="v">
+                <span class="pill">/healthz</span>
+                <span class="pill">/ready</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <a class="btn" href="/healthz">
+              <span class="tag">GET</span>
+              <span>healthz</span>
+              <span class="dim">liveness</span>
+            </a>
+            <a class="btn" href="/ready">
+              <span class="tag">GET</span>
+              <span>ready</span>
+              <span class="dim">readiness</span>
+            </a>
+            <a class="btn" href="/docs">
+              <span class="tag">UI</span>
+              <span>OpenAPI</span>
+              <span class="dim">optional</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="console" role="region" aria-label="Helix console">
+          <div class="line"><span class="prompt">helix</span><span class="dim">::</span><span class="mono">boot</span></div>
+          <div class="line"><span class="dim">▸</span><span class="mono">mcp streamable-http mounted</span></div>
+          <div class="line"><span class="dim">▸</span><span class="mono">auth: enabled (tool endpoints)</span></div>
+          <div class="line"><span class="dim">▸</span><span class="mono">healthz: public</span></div>
+          <div class="hint">
+            Tip: If you see <span style="color:var(--danger)">401 invalid_token</span> on <code>/mcp</code>, attach a valid bearer token.
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: “Mission panel” -->
+      <div class="card">
+        <div class="bar">
+          <div class="chip">Mission Panel</div>
+          <div class="chip">Helix</div>
+        </div>
+        <div class="pad">
+          <p style="margin:0;color:var(--muted)">
+            This page is intentionally static. It exists for humans, not clients.
+          </p>
+
+          <div style="margin-top:14px; border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:12px; background:rgba(0,0,0,.12)">
+            <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap">
+              <div class="pill"><span class="led" style="background:var(--accent); box-shadow:0 0 0 3px rgba(92,255,214,.12), 0 0 14px rgba(92,255,214,.55)"></span> core</div>
+              <div class="pill"><span class="led" style="background:var(--accent2); box-shadow:0 0 0 3px rgba(122,167,255,.12), 0 0 14px rgba(122,167,255,.55)"></span> session</div>
+              <div class="pill"><span class="led" style="background:var(--warn); box-shadow:0 0 0 3px rgba(255,210,122,.10), 0 0 14px rgba(255,210,122,.40)"></span> tools</div>
+            </div>
+
+            <div style="margin-top:12px; color:rgba(215,247,255,.92); font-family:ui-monospace,monospace">
+              <div style="margin:6px 0"><span style="color:var(--accent)">/mcp</span>  — MCP transport (auth)</div>
+              <div style="margin:6px 0"><span style="color:var(--accent)">/healthz</span> — liveness (public)</div>
+              <div style="margin:6px 0"><span style="color:var(--accent)">/ready</span>  — readiness (public)</div>
+            </div>
+          </div>
+
+          <div style="margin-top:14px; color:var(--muted); font-size:12px">
+            Keyboard: <code>R</code> refresh · <code>H</code> healthz · <code>Y</code> ready
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="foot"><span>HELIX · local service</span></div>
+
+  <script>
+    // particles (purely cosmetic)
+    const host = document.getElementById("particles");
+    const W = () => window.innerWidth;
+    const H = () => window.innerHeight;
+
+    function spawn(n){
+      host.innerHTML = "";
+      for(let i=0;i<n;i++){
+        const d=document.createElement("div");
+        d.className="dot";
+        const x=Math.random()*W();
+        const t= 6 + Math.random()*10;      // duration
+        const dx = (Math.random()*2-1)*60;  // drift
+        const delay = -Math.random()*t;
+        d.style.left = x+"px";
+        d.style.top = (Math.random()*H())+"px";
+        d.style.setProperty("--t", t+"s");
+        d.style.setProperty("--dx", dx+"px");
+        d.style.animationDelay = delay+"s";
+        host.appendChild(d);
+      }
+    }
+    spawn(Math.min(110, Math.floor(window.innerWidth/10)));
+
+    window.addEventListener("resize", () => spawn(Math.min(110, Math.floor(window.innerWidth/10))));
+
+    // keyboard shortcuts
+    window.addEventListener("keydown", (e) => {
+      const k = (e.key || "").toLowerCase();
+      if(k === "r") location.reload();
+      if(k === "h") location.href = "/healthz";
+      if(k === "y") location.href = "/ready";
+    });
+  </script>
+</body>
+</html>

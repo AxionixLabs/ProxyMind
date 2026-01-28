@@ -7,6 +7,7 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import sys
+import typing
 import asyncio
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
@@ -19,11 +20,11 @@ from backend.mcp_hub.hub_manage import (
 from backend.mcp_hub.hub_record import Record
 from backend.middlewares.mid_task import task_middleware
 from backend.utilities.pipeline import (
-    kill_port, broadcast
+    kill_port, broadcast, Idle
 )
 
 
-def bind(mcp: FastMCP, manage: DeviceManage) -> None:
+def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
     station: str = sys.platform
 
@@ -31,6 +32,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     sessions_lock: asyncio.Lock = asyncio.Lock()
 
     video_list: list[str] = []
+    video_lock: asyncio.Lock = asyncio.Lock()
 
     framix: Framix = Framix()
     memrix: Memrix = Memrix()
@@ -42,10 +44,10 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         version = await Requires.connect_scrcpy()
 
         async def call(device: Device) -> None:
-            record: Record = Record(version, station)
+            record: Record = Record(
+                version, station, sessions, sessions_lock, on_begin=idle.job_begin, on_final=idle.job_final
+            )
             await record.ask_start_mirror(device)
-            async with sessions_lock:
-                sessions[device.serial] = record
 
         return await broadcast(
             tool="start_mirror", args={}, target_list=manage.snapshot, call=call
@@ -57,13 +59,14 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         """Class: monitor; Action: 开始录屏; Args: directory(str)=输出路径(目录), fps(int)=视频帧率, silence(bool)=静默录制(隐藏窗口/不显示); Use: 复现流程/长过程取证/视频留档; Return: CallToolResult(text + structuredContent); Notes: 基于 scrcpy 启动录制长任务；每台设备生成独立文件名并返回视频路径，同时保存 Record 会话到 sessions[device.serial] 以便 close_record 关闭与清理。"""
         version = await Requires.connect_scrcpy()
 
-        async def call(device: Device) -> str:
-            record: Record = Record(version, station)
+        async def call(device: Device) -> typing.Optional[str]:
+            record: Record = Record(
+                version, station, sessions, sessions_lock, on_begin=idle.job_begin, on_final=idle.job_final
+            )
             video_temp = await record.ask_start_record(device, directory, fps, silence)
-            async with sessions_lock:
-                sessions[device.serial] = record
+            async with video_lock:
                 video_list.append(video_temp)
-                return video_temp
+            return video_temp
 
         return await broadcast(
             tool="start_record",
@@ -81,12 +84,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
             async with sessions_lock:
                 if not (sess := sessions.get(device.serial)):
                     return None
-
-            try:
-                await sess.ask_close_record(device)
-            finally:
-                async with sessions_lock:
-                    sessions.pop(device.serial, None)
+            return await sess.ask_close_record(device)
 
         return await broadcast(
             tool="close_record", args={}, target_list=manage.snapshot, call=call
@@ -101,8 +99,12 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         framix.total = total
 
         async def call(*_) -> None:
-            await framix.frame_analyzer(title, video_list, scale)
-            video_list.clear()
+            await idle.job_begin()
+            try:
+                return await framix.frame_analyzer(title, video_list, scale)
+            finally:
+                video_list.clear()
+                await idle.job_final()
 
         return await broadcast(
             tool="frame_analyzer", args={"title": title, "total": total}, target_list=[None], call=call
@@ -115,7 +117,11 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         await Requires.connect_framix()
 
         async def call(*_) -> None:
-            return await framix.frame_reporter()
+            await idle.job_begin()
+            try:
+                return await framix.frame_reporter()
+            finally:
+                await idle.job_final()
 
         return await broadcast(
             tool="frame_reporter", args={}, target_list=[None], call=call
@@ -129,6 +135,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         await kill_port(memrix.port)
 
         async def call(*_) -> None:
+            await idle.job_begin()
             return await memrix.task_begin("--storm", focus, imply)
 
         return await broadcast(
@@ -143,6 +150,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         await kill_port(memrix.port)
 
         async def call(*_) -> None:
+            await idle.job_begin()
             return await memrix.task_begin("--sleek", focus, imply)
 
         return await broadcast(
@@ -156,7 +164,10 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         await Requires.connect_memrix()
 
         async def call(*_) -> None:
-            return await memrix.task_final()
+            try:
+                return await memrix.task_final()
+            finally:
+                await idle.job_final()
 
         return await broadcast(
             tool="sample_stop", args={}, target_list=[None], call=call
@@ -169,7 +180,11 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         await Requires.connect_memrix()
 
         async def call(*_) -> None:
-            return await memrix.mem_reporter(layer)
+            await idle.job_begin()
+            try:
+                return await memrix.mem_reporter(layer)
+            finally:
+                await idle.job_final()
 
         return await broadcast(
             tool="mem_reporter", args={"layer": layer}, target_list=[None], call=call
@@ -182,7 +197,11 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         await Requires.connect_memrix()
 
         async def call(*_) -> None:
-            return await memrix.gfx_reporter()
+            await idle.job_begin()
+            try:
+                return await memrix.gfx_reporter()
+            finally:
+                await idle.job_final()
 
         return await broadcast(
             tool="gfx_reporter", args={}, target_list=[None], call=call

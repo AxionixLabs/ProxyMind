@@ -11,10 +11,12 @@ from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.middlewares.mid_task import task_middleware
-from backend.utilities.pipeline import broadcast
+from backend.utilities.pipeline import (
+    broadcast, Idle
+)
 
 
-def bind(mcp: FastMCP, manage: DeviceManage) -> None:
+def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
     @mcp.tool()
     @task_middleware("sleep")
@@ -22,7 +24,11 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         """Class: tool; Action: 固定等待; Args: delay(seconds float); Use: 稳定节奏/等待动画; Return: CallToolResult(text + structuredContent); Notes: 仅时间延迟≠页面就绪。"""
 
         async def call(*_) -> None:
-            return await asyncio.sleep(delay)
+            await idle.job_begin()
+            try:
+                return await asyncio.sleep(delay)
+            finally:
+                await idle.job_final()
 
         return await broadcast(
             tool="sleep", args={"delay": delay}, target_list=[None], call=call

@@ -7,12 +7,15 @@
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
+import os
 import sys
 import time
 import random
+import signal
 import shutil
 import typing
 import asyncio
+import contextlib
 from loguru import logger
 from rich.text import Text
 from rich.console import Console
@@ -89,6 +92,81 @@ class Active(object):
         logger.add(
             Active._RichSink(Active.console), level=log_level, format=const.PRINT_FORMAT
         )
+
+
+class Idle(object):
+    """Idle class."""
+
+    def __init__(self, *, ttl_sec: float = 300.0):
+        self.ttl_sec = float(ttl_sec)
+
+        self.last_touch: float = time.monotonic()
+        self.active_jobs: int  = 0
+        self.closing: bool     = False
+
+        self.lock: asyncio.Lock = asyncio.Lock()
+        self.task: typing.Optional[asyncio.Task] = None
+
+    async def start_idle(self) -> None:
+        if self.task and not self.task.done():
+            return None
+        self.closing = False
+        self.task = asyncio.create_task(self.looper())
+
+    async def close_idle(self) -> None:
+        self.closing = True
+
+        if not self.task:
+            return None
+
+        if not self.task.done():
+            self.task.cancel()
+
+        with contextlib.suppress(asyncio.CancelledError):
+            await self.task
+        self.task = None
+
+    async def touch(self) -> None:
+        async with self.lock:
+            self.last_touch = time.monotonic()
+
+    async def job_begin(self) -> None:
+        async with self.lock:
+            self.active_jobs += 1
+            self.last_touch = time.monotonic()
+
+    async def job_final(self) -> None:
+        async with self.lock:
+            if self.active_jobs > 0:
+                self.active_jobs -= 1
+            self.last_touch = time.monotonic()
+
+    async def snapshot(self) -> dict:
+        async with self.lock:
+            return {
+                "ttl_sec"     : self.ttl_sec,
+                "active_jobs" : self.active_jobs,
+                "idle_sec"    : max(0.0, time.monotonic() - self.last_touch),
+            }
+
+    async def looper(self) -> None:
+        if self.ttl_sec <= 0:
+            return None
+
+        try:
+            while True:
+                await asyncio.sleep(1.0)
+                async with self.lock:
+                    idle = time.monotonic() - self.last_touch
+                    active = self.active_jobs
+
+                if active == 0 and idle >= self.ttl_sec:
+                    logger.warning(
+                        f"[IDLE-KILL] ttl={self.ttl_sec}s idle={idle:.1f}s active_jobs=0 -> exit"
+                    )
+                    return os.kill(os.getpid(), signal.SIGINT)
+        except asyncio.CancelledError:
+            raise
 
 
 async def kill_port(port: int) -> typing.Any:
