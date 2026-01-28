@@ -6,7 +6,7 @@
 #
 
 import os
-import pty
+import sys
 import typing
 import asyncio
 from mindnova import const
@@ -39,7 +39,12 @@ class Terminal(object):
         return transports
 
     @staticmethod
-    async def cmd_link_pty(cmd: list[str]) -> asyncio.subprocess.Process:
+    async def cmd_link_pty(cmd: list[str]) -> typing.Optional[asyncio.subprocess.Process]:
+        if (os.name == "nt") or sys.platform.startswith("win"):
+            return None
+
+        import pty
+
         master_fd, slave_fd = pty.openpty()
 
         transports = await asyncio.create_subprocess_exec(
@@ -54,7 +59,7 @@ class Terminal(object):
         looper   = asyncio.get_running_loop()
         reader   = asyncio.StreamReader()
         protocol = asyncio.StreamReaderProtocol(reader)
-        
+
         await looper.connect_read_pipe(
             lambda: protocol, os.fdopen(master_fd, "rb", buffering=0)
         )
