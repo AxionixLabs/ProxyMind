@@ -11,11 +11,10 @@ from fastapi import Request
 from backend.utilities.pipeline import Idle
 
 
-def touch_middleware(idle: Idle) -> typing.Callable:
-    async def func(request: Request, call_next: typing.Callable) -> typing.Any:
+async def touch_middleware(request: Request, call_next: typing.Callable) -> typing.Any:
+        idle: Idle = request.app.state.idle
         await idle.touch()
         return await call_next(request)
-    return func
 
 
 if __name__ == '__main__':

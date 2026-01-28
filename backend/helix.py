@@ -70,7 +70,8 @@ def main() -> None:
     register_all_tools(mcp, DeviceManage(), idle)
 
     app: FastAPI = FastAPI(lifespan=lifespan)
-    app.middleware("http")(touch_middleware(idle))
+    app.state.idle = idle
+    app.middleware("http")(touch_middleware)
     app.include_router(basic_router)
 
     uvicorn.run(app, host="127.0.0.1", port=3333, log_level=log_level.lower())

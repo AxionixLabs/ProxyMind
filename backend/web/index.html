@@ -97,7 +97,7 @@
     .shell{
       width:min(980px, 100%);
       display:grid;
-      grid-template-columns: 1.05fr .95fr;
+      grid-template-columns: 1fr 1fr;
       gap:18px;
     }
     @media (max-width: 900px){
@@ -367,6 +367,7 @@
               <div class="v">
                 <span class="pill">/healthz</span>
                 <span class="pill">/ready</span>
+                <span class="pill">/idle</span>
               </div>
             </div>
           </div>
@@ -386,6 +387,11 @@
               <span class="tag">UI</span>
               <span>OpenAPI</span>
               <span class="dim">optional</span>
+            </a>
+            <a class="btn" href="/idle">
+              <span class="tag">GET</span>
+              <span>idle</span>
+              <span class="dim">status</span>
             </a>
           </div>
         </div>
@@ -423,18 +429,19 @@
               <div style="margin:6px 0"><span style="color:var(--accent)">/mcp</span>  — MCP transport (auth)</div>
               <div style="margin:6px 0"><span style="color:var(--accent)">/healthz</span> — liveness (public)</div>
               <div style="margin:6px 0"><span style="color:var(--accent)">/ready</span>  — readiness (public)</div>
+              <div style="margin:6px 0"><span style="color:var(--accent)">/idle</span>   — idle snapshot</div>
             </div>
           </div>
 
           <div style="margin-top:14px; color:var(--muted); font-size:12px">
-            Keyboard: <code>R</code> refresh · <code>H</code> healthz · <code>Y</code> ready
+            Keyboard: <code>R</code> refresh · <code>H</code> healthz · <code>Y</code> ready · <code>I</code> idle
           </div>
         </div>
       </div>
     </section>
   </main>
 
-  <div class="foot"><span>HELIX · local service</span></div>
+  <div class="foot"><span>HELIX · mcp service</span></div>
 
   <script>
     // particles (purely cosmetic)
@@ -469,6 +476,7 @@
       if(k === "r") location.reload();
       if(k === "h") location.href = "/healthz";
       if(k === "y") location.href = "/ready";
+      if(k === "i") location.href = "/idle";
     });
   </script>
 </body>
