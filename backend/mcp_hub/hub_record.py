@@ -111,7 +111,7 @@ class Record(object):
                     self.error_event.set()
                     asyncio.create_task(self.release())
                     return None
-        
+
         finally:
             if not self.close_event.is_set() and not self.error_event.is_set():
                 self.close_event.set()
@@ -150,7 +150,7 @@ class Record(object):
                     self.error_event.set()
                     asyncio.create_task(self.release())
                     return None
-        
+
         finally:
             if not self.close_event.is_set() and not self.error_event.is_set():
                 self.close_event.set()
