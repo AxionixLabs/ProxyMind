@@ -61,6 +61,28 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
+    @task_middleware("swipe_to_top")
+    async def swipe_to_top() -> CallToolResult:
+        """Class: ui; Action: 滑动到顶部; Args: 无; Use: 快速回到列表/页面顶部; Return: CallToolResult(text + structuredContent); Notes: 内部基于 swipe_to_edge('top')，会循环滑动直到到达边界或判定无变化。"""
+        return await broadcast(
+            tool="swipe_to_top",
+            args={},
+            target_list=manage.snapshot,
+            call=lambda agent: agent.swipe_to_top()
+        )
+
+    @mcp.tool()
+    @task_middleware("swipe_to_bottom")
+    async def swipe_to_bottom() -> CallToolResult:
+        """Class: ui; Action: 滑动到底部; Args: 无; Use: 快速滑到列表/页面底部; Return: CallToolResult(text + structuredContent); Notes: 内部基于 swipe_to_edge('bottom')，会循环滑动直到到达边界或判定无变化。"""
+        return await broadcast(
+            tool="swipe_to_bottom",
+            args={},
+            target_list=manage.snapshot,
+            call=lambda agent: agent.swipe_to_bottom()
+        )
+
+    @mcp.tool()
     @task_middleware("swipe")
     async def swipe(x1: int, y1: int, x2: int, y2: int, duration: int = 300) -> CallToolResult:
         """Class: ui; Action: 坐标滑动; Args: x1,y1,x2,y2(int), duration(ms)=300; Use: 滚动/翻页/拖拽; Return: CallToolResult(text + structuredContent); Notes: absolute coords."""
