@@ -11,6 +11,7 @@ import time
 import httpx
 import typing
 import asyncio
+import subprocess
 from loguru import logger
 from engine.tinker import MindError
 from mindnova import const
@@ -51,10 +52,8 @@ class ServerManage(object):
         }
 
         if sys.platform.startswith("win"):
-            # Windows: 让子进程脱离控制台/进程组，DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-            kwargs["creationflags"] = (0x00000008 | 0x00000200)
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         else:
-            # POSIX: new session => SIGHUP/父进程结束不会带走它
             kwargs["start_new_session"] = True
 
         try:
