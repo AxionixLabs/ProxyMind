@@ -24,11 +24,11 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         """Class: tool; Action: 固定等待; Args: delay(seconds float); Use: 稳定节奏/等待动画; Return: CallToolResult(text + structuredContent); Notes: 仅时间延迟≠页面就绪。"""
 
         async def call(*_) -> None:
-            await idle.job_begin()
+            job_id = await idle.job_begin("tool.sleep", args={"delay": delay})
             try:
                 return await asyncio.sleep(delay)
             finally:
-                await idle.job_final()
+                await idle.job_final(job_id)
 
         return await broadcast(
             tool="sleep", args={"delay": delay}, target_list=[None], call=call
