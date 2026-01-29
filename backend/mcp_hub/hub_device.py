@@ -686,8 +686,8 @@ class Device(object):
         min_swipes_before_stop: int = 2      # 至少滑 2 次后才允许停
 
         x_ratio: float     = 0.5
-        upper_ratio: float = 0.15  # 更靠近边缘一点 => 滑动更明显
-        lower_ratio: float = 0.85
+        upper_ratio: float = 0.20  # 更靠近边缘一点 => 滑动更明显
+        lower_ratio: float = 0.80
 
         w, h = await self.st_wm_size()
         x = int(w * x_ratio)
