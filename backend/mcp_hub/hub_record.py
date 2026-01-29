@@ -24,24 +24,27 @@ class Record(object):
 
     def __init__(
         self,
+        device: Device,
         version: str,
         station: str,
         sessions: dict[str, "Record"],
         sessions_lock: asyncio.Lock,
         *,
         on_begin: typing.Callable[[], typing.Awaitable[typing.Any]] | None = None,
-        on_final: typing.Callable[[], typing.Awaitable[typing.Any]] | None = None,
+        on_final: typing.Callable[[], typing.Awaitable[typing.Any]] | None = None
     ) -> None:
 
         self.agent_id: str = "scrcpy"
 
-        self.sessions = sessions
-        self.sessions_lock = sessions_lock
-        self.on_begin = on_begin
-        self.on_final = on_final
+        self.device = device
 
         self.version = version
         self.station = station
+
+        self.sessions      = sessions
+        self.sessions_lock = sessions_lock
+        self.on_begin      = on_begin
+        self.on_final      = on_final
 
         self.start_event: asyncio.Event = asyncio.Event()
         self.close_event: asyncio.Event = asyncio.Event()
@@ -51,72 +54,108 @@ class Record(object):
 
         self.transports: typing.Optional[asyncio.subprocess.Process] = None
 
-    async def acquire(self, device: Device) -> None:
+        self.released: bool = False
+        self.release_lock: asyncio.Lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
         async with self.sessions_lock:
-            if device.serial in self.sessions:
+            if self.device.serial in self.sessions:
                 raise RuntimeError(
-                    f"device busy: {device.serial} already has an active scrcpy session"
+                    f"device busy: {self.device.serial} already has an active scrcpy session"
                 )
-            self.sessions[device.serial] = self
+            self.sessions[self.device.serial] = self
 
         if self.on_begin: await self.on_begin()
 
-    async def release(self, device: Device) -> None:
+    async def release(self) -> None:
+        async with self.release_lock:
+            if self.released:
+                return None
+            self.released = True
+
         try:
             if self.on_final: await self.on_final()
         finally:
             async with self.sessions_lock:
-                if self.sessions.get(device.serial) is self:
-                    self.sessions.pop(device.serial, None)
+                if self.sessions.get(self.device.serial) is self:
+                    self.sessions.pop(self.device.serial, None)
 
     async def input_stream(self) -> None:
-        async for line in self.transports.stdout:
-            logger.debug(stream := line.decode(const.CHARSET, const.IGNORE).strip())
-            if "Recording started" in stream or "Texture" in stream:
-                self.start_event.set()
-            elif "Recording complete" in stream:
-                return self.close_event.set()
+        try:
+            async for line in self.transports.stdout:
+                logger.debug(stream := line.decode(const.CHARSET, const.IGNORE).strip())
+                if "Recording started" in stream or "Texture" in stream:
+                    self.start_event.set()
+                elif "Recording complete" in stream:
+                    self.close_event.set()
+                    asyncio.create_task(self.release())
+                    return None
+        finally:
+            if not self.close_event.is_set() and not self.error_event.is_set():
+                self.close_event.set()
+                asyncio.create_task(self.release())
+                return None
 
     async def error_stream(self) -> None:
-        async for line in self.transports.stderr:
-            logger.debug(stream := line.decode(const.CHARSET, const.IGNORE).strip())
-            if (
-                "Could not find" in stream
-                or "connection failed" in stream
-                or "Recorder error" in stream
-                or "ERROR:" in stream
-                or "FATAL:" in stream
-            ):
-                self.err_message = stream
-                return self.error_event.set()
+        try:
+            async for line in self.transports.stderr:
+                logger.debug(stream := line.decode(const.CHARSET, const.IGNORE).strip())
+                if (
+                    "Could not find" in stream
+                    or "connection failed" in stream
+                    or "Recorder error" in stream
+                    or "ERROR:" in stream
+                    or "FATAL:" in stream
+                ):
+                    self.err_message = stream
+                    self.error_event.set()
+                    asyncio.create_task(self.release())
+                    return None
+        
+        finally:
+            if not self.close_event.is_set() and not self.error_event.is_set():
+                self.close_event.set()
+                asyncio.create_task(self.release())
+                return None
 
     async def merge_stream(self) -> None:
-        async for line in self.transports.stdout:
-            if isinstance(line, (bytes, bytearray)):
-                stream = line.decode(const.CHARSET, const.IGNORE).strip()
-            else:
-                stream = str(line).strip()
+        try:
+            async for line in self.transports.stdout:
+                if isinstance(line, (bytes, bytearray)):
+                    stream = line.decode(const.CHARSET, const.IGNORE).strip()
+                else:
+                    stream = str(line).strip()
 
-            if not stream: continue
+                if not stream: continue
 
-            logger.debug(stream)
+                logger.debug(stream)
 
-            if "Recording started" in stream or "Texture" in stream:
-                self.start_event.set()
-                continue
+                if "Recording started" in stream or "Texture" in stream:
+                    self.start_event.set()
+                    continue
 
-            if "Recording complete" in stream:
-                return self.close_event.set()
+                if "Recording complete" in stream:
+                    self.close_event.set()
+                    asyncio.create_task(self.release())
+                    return None
 
-            if (
-                "Could not find" in stream
-                or "connection failed" in stream
-                or "Recorder error" in stream
-                or "ERROR:" in stream
-                or "FATAL:" in stream
-            ):
-                self.err_message = stream
-                return self.error_event.set()
+                if (
+                    "Could not find" in stream
+                    or "connection failed" in stream
+                    or "Recorder error" in stream
+                    or "ERROR:" in stream
+                    or "FATAL:" in stream
+                ):
+                    self.err_message = stream
+                    self.error_event.set()
+                    asyncio.create_task(self.release())
+                    return None
+        
+        finally:
+            if not self.close_event.is_set() and not self.error_event.is_set():
+                self.close_event.set()
+                asyncio.create_task(self.release())
+                return None
 
     async def launcher(self, cmd: list[str]) -> None:
         if self.station == "win32":
@@ -127,20 +166,20 @@ class Record(object):
             self.transports = await Terminal.cmd_link_pty(cmd)
             asyncio.create_task(self.merge_stream())
 
-    async def ask_start_mirror(self, device: Device) -> None:
-        await self.acquire(device)
+    async def ask_start_mirror(self) -> None:
+        await self.acquire()
         try:
-            cmd = ["scrcpy", "-s", device.serial, "--no-audio", "-b", "8M"]
+            cmd = ["scrcpy", "-s", self.device.serial, "--no-audio", "-b", "8M"]
             await self.launcher(cmd)
             return await self.check_timer()
         except Exception as e:
-            await self.release(device)
+            await self.release()
             raise e
 
-    async def ask_start_record(self, device: Device, directory: str, fps: int = 60, silence: bool = False) -> str:
-        await self.acquire(device)
+    async def ask_start_record(self, directory: str, fps: int = 60, silence: bool = False) -> str:
+        await self.acquire()
         try:
-            cmd = ["scrcpy", "-s", device.serial, "--no-audio", "-b", "8M", f"--max-fps={fps}"]
+            cmd = ["scrcpy", "-s", self.device.serial, "--no-audio", "-b", "8M", f"--max-fps={fps}"]
 
             if silence:
                 try:
@@ -155,10 +194,10 @@ class Record(object):
             await self.launcher(cmd)
             return await self.check_timer(video_temp)
         except Exception as e:
-            await self.release(device)
+            await self.release()
             raise e
 
-    async def ask_close_record(self, device: Device) -> typing.Optional[str]:
+    async def ask_close_record(self) -> typing.Optional[str]:
 
         async def win_stop_child(pid: str | int) -> None:
             off = await Terminal.cmd_line([pwsh, "-Command", "Stop-Process", "-Id", pid, "-Force"])
@@ -169,9 +208,10 @@ class Record(object):
             logger.debug(f"{desc} PID={pid} OFF={off}")
 
         if self.close_event.is_set():
-            return await self.release(device)
+            await self.release()
+            return None
 
-        desc = f"{device.brand} {device.serial} PPID={(ppid := self.transports.pid)}"
+        desc = f"{self.device.brand} {self.device.serial} PPID={(ppid := self.transports.pid)}"
 
         try:
             if self.station == "win32":
@@ -194,7 +234,7 @@ class Record(object):
             return desc
 
         finally:
-            await self.release(device)
+            await self.release()
 
     async def check_timer(self, video_temp: typing.Optional[str] = None) -> typing.Optional[str]:
         for _ in range(10):
