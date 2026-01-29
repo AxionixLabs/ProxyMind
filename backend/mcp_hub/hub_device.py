@@ -14,6 +14,8 @@ import typing
 import asyncio
 import secrets
 import tempfile
+import numpy as np
+from PIL import Image
 from pathlib import Path
 import xml.etree.ElementTree as Et
 from engine.terminal import Terminal
@@ -469,6 +471,14 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== UI Interaction MCP Tool ====
+    async def swipe_to_top(self) -> dict[str, typing.Any]:
+        return await self.swipe_to_edge("top")
+
+    # workflow: ==== UI Interaction MCP Tool ====
+    async def swipe_to_bottom(self) -> dict[str, typing.Any]:
+        return await self.swipe_to_edge("bottom")
+
+    # workflow: ==== UI Interaction MCP Tool ====
     async def tap(self, x: int, y: int) -> typing.Any:
         """点击指定坐标。"""
         cmd = self.prefix + [
@@ -656,6 +666,89 @@ class Device(object):
         return None
 
     # workflow: ==== UI ====
+    async def cap_to_local(self, local_path: str) -> str:
+        """设备截图 -> pull 到指定本地路径（复用文件名，不堆积）返回本地路径。"""
+        remote = await self.screenshot()
+        return await self.pull(remote, local_path)
+
+    # workflow: ==== UI ====
+    async def swipe_to_edge(self, edge: typing.Literal["top", "bottom"] = "top") -> dict[str, typing.Any]:
+        """滑动到边界：top=回到顶部(手指上->下)，bottom=滑到底部(手指下->上)"""
+        max_swipes: int = 30
+
+        duration_ms: int = 450
+        settle_ms: int   = 450
+
+        similarity_threshold: float = 0.992  # 相似度阈值
+        stable_required: int        = 3      # 连续 3 次相似才停
+        min_swipes_before_stop: int = 2      # 至少滑 2 次后才允许停
+
+        x_ratio: float     = 0.5
+        upper_ratio: float = 0.15  # 更靠近边缘一点 => 滑动更明显
+        lower_ratio: float = 0.85
+
+        w, h = await self.st_wm_size()
+        x = int(w * x_ratio)
+
+        y_upper = int(h * upper_ratio)
+        y_lower = int(h * lower_ratio)
+
+        if edge == "top":
+            y_from, y_to = y_upper, y_lower  # 👇 swipe down (回到更上面)
+            gesture = "down"
+        else:
+            y_from, y_to = y_lower, y_upper  # 👆 swipe up (去到更下面)
+            gesture = "up"
+
+        last_sim    = 0.0
+        stable_hits = 0
+
+        with tempfile.TemporaryDirectory(prefix="scroll_caps_") as tmp:
+            tmp_dir = Path(tmp)
+            prev_path = str(tmp_dir / "prev.png")
+            cur_path = str(tmp_dir / "cur.png")
+
+            prev = await self.cap_to_local(prev_path)
+
+            for n in range(1, max_swipes + 1):
+                await self.swipe(x, y_from, x, y_to, duration_ms)
+                await asyncio.sleep(settle_ms / 1000)
+
+                cur = await self.cap_to_local(cur_path)
+                last_sim = float(self.image_similarity(prev, cur))
+
+                # 防抖：累计连续“几乎不变”的次数
+                if last_sim >= similarity_threshold:
+                    stable_hits += 1
+                else:
+                    stable_hits = 0
+
+                # 至少滑动几次后，且连续 stable_required 次相似才停
+                if n >= min_swipes_before_stop and stable_hits >= stable_required:
+                    return {
+                        "ok"          : True,
+                        "edge"        : edge,
+                        "gesture"     : gesture,
+                        "swipes"      : n,
+                        "similarity"  : round(last_sim, 4),
+                        "stable_hits" : stable_hits,
+                        "reason"      : "screen_not_changed"
+                    }
+
+                prev, cur = cur, prev
+                prev_path, cur_path = cur_path, prev_path
+
+            return {
+                "ok"          : True,
+                "edge"        : edge,
+                "gesture"     : gesture,
+                "swipes"      : max_swipes,
+                "similarity"  : round(last_sim, 4),
+                "stable_hits" : stable_hits,
+                "reason"      : "max_swipes_reached"
+            }
+
+    # workflow: ==== UI ====
     @staticmethod
     def map_by(by: str) -> str:
         """统一选择器字段到 Android XML 属性名。"""
@@ -677,6 +770,31 @@ class Device(object):
         x1, y1, x2, y2 = map(int, m.groups())
 
         return x1, y1, x2, y2
+
+    # workflow: ==== UI ====
+    @staticmethod
+    def image_similarity(img_path1: str, img_path2: str) -> float:
+        """0~1：越大越相似（基于灰度 + downscale + MSE）。"""
+        with Image.open(img_path1) as im1, Image.open(img_path2) as im2:
+            im1 = im1.convert("L").resize((96, 96))
+            im2 = im2.convert("L").resize((96, 96))
+
+            a1 = np.asarray(im1, dtype=np.uint8)
+            a2 = np.asarray(im2, dtype=np.uint8)
+
+            p1 = a1.ravel().tolist()
+            p2 = a2.ravel().tolist()
+
+        # MSE
+        mse = 0.0
+        for a, b in zip(p1, p2):
+            d = float(a) - float(b)
+            mse += d * d
+        mse /= float(len(p1))
+
+        # 归一化：像素范围 0~255，最大 MSE=255^2
+        sim = 1.0 - min(1.0, mse / (255.0 * 255.0))
+        return sim
 
 
 if __name__ == '__main__':
