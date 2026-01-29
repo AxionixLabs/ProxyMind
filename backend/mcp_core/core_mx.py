@@ -64,10 +64,18 @@ class Memrix(object):
 
         await asyncio.sleep(5)
 
-    async def task_begin(self, style: typing.Literal["--storm", "--sleek"], focus: str, imply: str) -> typing.Any:
-        return await self.__engine(
-            style, "--scene", self.scene, "--focus", focus, "--imply", imply, "--watch"
-        )
+    async def task_begin(
+        self,
+        style: typing.Literal["--storm", "--sleek"],
+        focus: str,
+        imply: str,
+        title: typing.Optional[str]
+    ) -> typing.Any:
+
+        cmd = [style, "--scene", self.scene, "--focus", focus, "--imply", imply]
+        if title: cmd += ["--title", title]
+        cmd += ["--watch"]
+        return await self.__engine(*cmd)
 
     async def task_final(self) -> None:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
