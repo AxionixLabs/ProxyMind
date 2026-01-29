@@ -15,13 +15,13 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from mcp.server.fastmcp import FastMCP
 from mcp.server.auth.settings import AuthSettings
-from backend.mcp_core.core_cli import Cli
-from backend.mcp_hub.hub_manage import DeviceManage
-from backend.middlewares.mid_auth import HelixTokenVerifier
-from backend.middlewares.mid_touch import touch_middleware
+from mcp_core.core_cli import Cli
+from mcp_hub.hub_manage import DeviceManage
+from middlewares.mid_auth import HelixTokenVerifier
+from middlewares.mid_touch import touch_middleware
 from routers.rt_basic import basic_router
-from backend.utilities import const
-from backend.utilities.pipeline import (
+from utilities import const
+from utilities.pipeline import (
     Active, Idle
 )
 from register import register_all_tools
@@ -58,10 +58,15 @@ async def lifespan(web_app: FastAPI) -> typing.AsyncGenerator[None, None]:
     web_app.mount(
         path=f"/static", app=StaticFiles(directory=directory)
     )
+
+    web_app.state.idle = idle
+
     async with mcp.session_manager.run():
         await idle.start_idle()
-        yield
-        await idle.close_idle()
+        try:
+            yield
+        finally:
+            await idle.close_idle()
 
 
 def main() -> None:
@@ -70,7 +75,6 @@ def main() -> None:
     register_all_tools(mcp, DeviceManage(), idle)
 
     app: FastAPI = FastAPI(lifespan=lifespan)
-    app.state.idle = idle
     app.middleware("http")(touch_middleware)
     app.include_router(basic_router)
 

@@ -853,5 +853,37 @@ class Design(object):
         finished()
 
 
+class TypewriterStreamSession(object):
+
+    def __init__(self) -> None:
+        self.out: str     = ""
+        self.delay: float = 0.01
+        self.cursor: str  = random.choice(["█", "▉", "▋"])
+
+        self.live: typing.Optional[Live] = None
+
+    async def __aenter__(self) -> "TypewriterStreamSession":
+        self.live = Live(Text(), console=Design.console, refresh_per_second=60)
+        self.live.__enter__()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        if self.live is not None:
+            try:
+                await Design.cursor_blink(self.live, self.out, cursor=self.cursor)
+            finally:
+                self.live.__exit__(exc_type, exc, tb)
+                self.live = None
+
+        Design.console.print()
+
+    async def feed(self, content: str) -> None:
+        if not content: return None
+
+        self.out, self.delay = await Design.typewriter(
+            self.live, content, self.out, self.delay, max(0.0015, self.delay * 0.65), cursor=self.cursor
+        )
+
+
 if __name__ == '__main__':
     pass

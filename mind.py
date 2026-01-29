@@ -23,8 +23,6 @@ from pathlib import Path
 
 # ====[ from: 第三方库 ]====
 from loguru import logger
-from rich.live import Live
-from rich.text import Text
 from rich.prompt import Prompt
 from mcp import (
     ClientSession, ListToolsResult
@@ -33,7 +31,7 @@ from mcp.client.streamable_http import streamable_http_client
 
 # ====[ from: 本地模块 ]====
 from mindcore.api import Api
-from mindcore.design import Design
+from mindcore.design import Design, TypewriterStreamSession
 from engine.manage import ServerManage
 from engine.tinker import (
     MindError, Active
@@ -82,10 +80,6 @@ class Mind(object):
             [dict], str
         ] = lambda x: f"data: {json.dumps(x, ensure_ascii=False)}\n\n"
 
-        self.stream_out     = ""
-        self.stream_delay   = 0.010
-        self.stream_cursors = ["█", "▉", "▋"]
-
         self.design: Design = Design(self.level)
 
     @property
@@ -133,21 +127,24 @@ class Mind(object):
         self.last_refresh_ts = now
         return logger.debug(result.structuredContent)
 
-    async def exec_looper(self, model: str, apikey: str, steps: list, loop_count: int, session: ClientSession) -> None:
+    async def exec_looper(self, model: str, apikey: str, plan: dict, session: ClientSession) -> None:
         """Exec Looper"""
+        steps, loop_count, reasoning = plan["steps"], plan["loop_count"], plan["reasoning"]
+
+        async with TypewriterStreamSession() as tw:
+            await tw.feed(reasoning)
+
         for index, _ in enumerate(range(loop_count), start=1):
             for step in steps:
                 action = step["action"]
 
                 # workflow: ==== 设备缓存 ====
                 if error := await self.exec_status(session):
-                    await self.stop_plan()
                     return logger.error(error)
 
                 name, arguments = action["action"], action["args"]
 
-                logger.debug(tips := f"{name} -> args={arguments}")
-                self.task_info.append(tips)
+                logger.debug(f"{name} -> args={arguments}")
 
                 result = await session.call_tool(name, arguments)
 
@@ -156,7 +153,6 @@ class Mind(object):
                 ] = sc if (sc := result.structuredContent) else result.content[0].text
 
                 if result.isError:
-                    await self.stop_plan()
                     return logger.error(fields)
 
                 # workflow: ==== 查找指令 ====
@@ -165,7 +161,6 @@ class Mind(object):
                     for element in elements:
                         async for heal in request.stream_heal(model, apikey, **element["data"]):
                             if heal.get("type") == "error":
-                                await self.stop_plan()
                                 return logger.error(heal["content"])
 
                             if smart := heal.get("smart"):
@@ -175,8 +170,6 @@ class Mind(object):
                                 })
                                 logger.debug(smart)
 
-                            self.task_info.append(heal["content"])
-
                     if locator_list and arguments.get("should_click"):
                         tasks = [session.call_tool("click", s) for s in locator_list]
                         if waiting := arguments.get("wait", 0):
@@ -184,16 +177,13 @@ class Mind(object):
                         for r in await asyncio.gather(*tasks, return_exceptions=True):
                             tips = f"{name} -> resp={r.structuredContent['results']}"
                             if r.isError:
-                                await self.stop_plan()
                                 return logger.error(tips)
                             else:
                                 logger.debug(tips)
-                                self.task_info.append(tips)
 
                 # workflow: ==== 常规指令 ====
                 else:
-                    logger.debug(tips := f"{name} -> resp={fields}")
-                    self.task_info.append(tips)
+                    logger.debug(f"{name} -> resp={fields}")
 
             if index != loop_count: self.task_info.clear()
 
@@ -213,7 +203,6 @@ class Mind(object):
         event_hooks = {"response": [request.capture]}
 
         async with httpx.AsyncClient(headers=headers, timeout=timeout, event_hooks=event_hooks) as client:
-
             # workflow: ==== Tool Streaming ====
             async with streamable_http_client(url, http_client=client) as (r, w, _):
                 async with ClientSession(r, w) as session:
@@ -242,15 +231,8 @@ class Mind(object):
                         if plan.get("type") == "error":
                             return logger.error(plan)
 
-                        steps, loop_count = plan["steps"], plan["loop_count"]
-
                         # workflow: ==== Exec ====
-                        self.plan_event = asyncio.Event()
-                        self.plan_task = asyncio.create_task(
-                            self.design.deep_thinking(self.task_info, self.plan_event)
-                        )
-                        await self.exec_looper(model, apikey, steps, loop_count, session)
-                        await self.stop_plan()
+                        await self.exec_looper(model, apikey, plan, session)
 
     async def mind_chat(self, model: str, apikey: str, message: str) -> None:
         """Mind Chat"""
@@ -260,25 +242,11 @@ class Mind(object):
             )
             raise MindError(f"Missing required field(s): {missing}")
 
-        out    = self.stream_out
-        delay  = self.stream_delay
-        cursor = random.choice(self.stream_cursors)
-
-        with Live(Text(), console=Design.console, refresh_per_second=60) as live:
-
+        async with TypewriterStreamSession() as tw:
             # workflow: ==== Chat Streaming ====
             async for chat in request.stream_chat(model, apikey, message):
                 await self.stop_stream()
-                if chat.get("type") == "error":
-                    return logger.error(chat.get("content"))
-
-                out, delay = await Design.typewriter(
-                    live, chat.get("content", ""), out, delay, max(0.0015, delay * 0.65), cursor=cursor
-                )
-
-            await Design.cursor_blink(live, out, cursor=cursor)
-
-        Design.console.print()
+                await tw.feed(chat["content"])
 
     async def mind_loop(self) -> None:
         """Mind Loop"""
