@@ -26,7 +26,7 @@ def register_all_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
     file_control.bind(mcp, manage)
     media_control.bind(mcp, manage)
     system_control.bind(mcp, manage)
-    ui_interaction.bind(mcp, manage)
+    ui_interaction.bind(mcp, manage, idle)
     zest.bind(mcp, manage, idle)
 
     from backend.mcp_tools.performance import monitor

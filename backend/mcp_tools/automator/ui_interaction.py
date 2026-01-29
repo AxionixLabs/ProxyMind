@@ -9,12 +9,15 @@
 import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
+from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.middlewares.mid_task import task_middleware
-from backend.utilities.pipeline import broadcast
+from backend.utilities.pipeline import (
+    broadcast, Idle
+)
 
 
-def bind(mcp: FastMCP, manage: DeviceManage) -> None:
+def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
     @mcp.tool()
     @task_middleware("swipe_up")
@@ -64,22 +67,32 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @task_middleware("swipe_to_top")
     async def swipe_to_top() -> CallToolResult:
         """Class: ui; Action: 滑动到顶部; Args: 无; Use: 快速回到列表/页面顶部; Return: CallToolResult(text + structuredContent); Notes: 内部基于 swipe_to_edge('top')，会循环滑动直到到达边界或判定无变化。"""
+
+        async def call(device: Device) -> dict:
+            job_id = await idle.job_begin("ui.swipe_to_top", args={})
+            try:
+                return await device.swipe_to_top()
+            finally:
+                await idle.job_final(job_id)
+
         return await broadcast(
-            tool="swipe_to_top",
-            args={},
-            target_list=manage.snapshot,
-            call=lambda agent: agent.swipe_to_top()
+            tool="swipe_to_top", args={}, target_list=manage.snapshot, call=call
         )
 
     @mcp.tool()
     @task_middleware("swipe_to_bottom")
     async def swipe_to_bottom() -> CallToolResult:
         """Class: ui; Action: 滑动到底部; Args: 无; Use: 快速滑到列表/页面底部; Return: CallToolResult(text + structuredContent); Notes: 内部基于 swipe_to_edge('bottom')，会循环滑动直到到达边界或判定无变化。"""
+
+        async def call(device: Device) -> dict:
+            job_id = await idle.job_begin("ui.swipe_to_bottom", args={})
+            try:
+                return await device.swipe_to_bottom()
+            finally:
+                await idle.job_final(job_id)
+
         return await broadcast(
-            tool="swipe_to_bottom",
-            args={},
-            target_list=manage.snapshot,
-            call=lambda agent: agent.swipe_to_bottom()
+            tool="swipe_to_bottom", args={}, target_list=manage.snapshot, call=call
         )
 
     @mcp.tool()

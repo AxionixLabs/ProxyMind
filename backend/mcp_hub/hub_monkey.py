@@ -10,6 +10,7 @@
 import time
 import typing
 import asyncio
+import contextlib
 from collections import deque
 from loguru import logger
 from engine.terminal import Terminal
@@ -20,57 +21,41 @@ from backend.utilities import const
 class Monkey(object):
     """Monkey class."""
 
-    __instance: typing.Optional["Monkey"] = None
-    __initialized: bool = False
-
-    def __new__(cls, *args, **kwargs):
-        if not cls.__instance:
-            cls.__instance = super(Monkey, cls).__new__(cls)
-        return cls.__instance
-
     def __init__(self):
-        if not self.__initialized:
+        self.__prefix: str = "monkey"
 
-            self.__prefix: str = "monkey"
+        self.agent_id: str = self.__prefix
 
-            self.agent_id: str = self.__prefix
+        self.proc_logcat: typing.Optional[asyncio.subprocess.Process] = None
+        self.proc_monkey: typing.Optional[asyncio.subprocess.Process] = None
 
-            self.proc_logcat: typing.Optional[asyncio.subprocess.Process] = None
-            self.proc_monkey: typing.Optional[asyncio.subprocess.Process] = None
+        self.task_logcat: typing.Optional[asyncio.Task] = None
+        self.task_monkey: typing.Optional[asyncio.Task] = None
 
-            self.task_logcat: typing.Optional[asyncio.Task] = None
-            self.task_monkey: typing.Optional[asyncio.Task] = None
+        # 保存最近 N 行，便于返回/诊断，不会爆内存
+        self.tail: deque[str] = deque(maxlen=500)
 
-            # 保存最近 N 行，便于返回/诊断，不会爆内存
-            self.tail: deque[str] = deque(maxlen=500)
+        # 原样大小写，匹配原始 log 文本
+        self.patterns: dict[str, list[str]] = {
+            "crash": [
+                "FATAL EXCEPTION", "AndroidRuntime", "Fatal signal", "SIGSEGV", "SIGABRT",
+                "has died", "Killed process", "backtrace:"
+            ],
+            "anr": [
+                "ANR in", "Application Not Responding", "Input dispatching timed out",
+                "Activity pause timeout", "Broadcast of intent", "Executing service"
+            ],
+            "oom": [
+                "OutOfMemoryError", "Failed to allocate", "OOM", "Low memory"
+            ],
+            "monkey_abort": [
+                "Monkey aborted", "** ANR", "** CRASH", "Monkey finished", "Events injected:"
+            ]
+        }
 
-            # 原样大小写，匹配原始 log 文本
-            self.patterns: dict[str, list[str]] = {
-                "crash": [
-                    "FATAL EXCEPTION", "AndroidRuntime", "Fatal signal", "SIGSEGV", "SIGABRT",
-                    "has died", "Killed process", "backtrace:"
-                ],
-                "anr": [
-                    "ANR in", "Application Not Responding", "Input dispatching timed out",
-                    "Activity pause timeout", "Broadcast of intent", "Executing service"
-                ],
-                "oom": [
-                    "OutOfMemoryError", "Failed to allocate", "OOM", "Low memory"
-                ],
-                "monkey_abort": [
-                    "Monkey aborted", "** ANR", "** CRASH", "Monkey finished", "Events injected:"
-                ]
-            }
-
-            # 关键词命中统计 + 证据行（每类保留最近 10 行）
-            self.stats: dict[str, int] = {
-                k: 0 for k in self.patterns
-            }
-            self.evidence: dict[str, deque[str]] = {
-                k: deque(maxlen=10) for k in self.patterns
-            }
-
-        self.__initialized = True
+        # 关键词命中统计 + 证据行（每类保留最近 10 行）
+        self.stats: dict[str, int] = {k: 0 for k in self.patterns}
+        self.evidence: dict[str, deque[str]] = {k: deque(maxlen=10) for k in self.patterns}
 
     def matcher(self, text: str) -> typing.Optional[str]:
         for key, kws in self.patterns.items():
@@ -80,7 +65,9 @@ class Monkey(object):
                     self.evidence[key].append(text)
                     return key
 
-    async def read_streams(self, proc: asyncio.subprocess.Process, name: str) -> None:
+        return None
+
+    async def reader(self, proc: asyncio.subprocess.Process, name: str) -> None:
 
         async def pump(stream: typing.AsyncIterable, stream_name: str) -> None:
             async for line in stream:
@@ -99,28 +86,29 @@ class Monkey(object):
         ]
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def logcat_cancel(self) -> None:
+    async def shutdown(self) -> typing.Optional[int]:
         if not self.proc_logcat or self.proc_logcat.returncode is not None:
             return None
 
         try:
-            await asyncio.wait_for(self.proc_logcat.wait(), timeout=2.0)
+            self.proc_logcat.terminate()
+        except ProcessLookupError:
+            return None
+
+        try:
+            return await asyncio.wait_for(self.proc_logcat.wait(), timeout=1.0)
         except asyncio.TimeoutError:
+            pass
+
+        try:
             self.proc_logcat.kill()
-            await self.proc_logcat.wait()
+        except ProcessLookupError:
+            return None
 
-    @staticmethod
-    async def logcat_clean(device: Device) -> typing.Any:
-        cmd = ["adb", "-s", device.serial, "logcat", "-c"]
-        return await Terminal.cmd_line(cmd)
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(self.proc_logcat.wait(), timeout=2.0)
 
-    async def logcat_start(self, device: Device) -> None:
-        cmd = ["adb", "-s", device.serial, "logcat", "-v", "threadtime"]
-        self.proc_logcat = await Terminal.cmd_link(cmd)
-        self.task_logcat = asyncio.create_task(self.read_streams(self.proc_logcat, "logcat"))
-        await asyncio.sleep(0.2)
-
-    async def monkey_plugin(
+    async def monkey_injection(
         self,
         device: Device,
         package: str,
@@ -129,7 +117,7 @@ class Monkey(object):
         touch: int = 65,
         motion: int = 20,
         nav: int = 10,
-        events: int = 20000,
+        events: int = 10000
     ) -> dict[str, typing.Any]:
 
         self.tail.clear()
@@ -140,8 +128,13 @@ class Monkey(object):
 
         start_ms = int(time.time() * 1000)
 
-        await self.logcat_clean(device)
-        await self.logcat_start(device)
+        await device.logcat_clean()
+
+        self.proc_logcat = await device.logcat_start()
+        self.task_logcat = asyncio.create_task(
+            self.reader(self.proc_logcat, "logcat")
+        )
+        await asyncio.sleep(0.2)
 
         cmd_monkey = [
             "adb", "-s", device.serial, "shell", "monkey", "-p", package,
@@ -154,11 +147,12 @@ class Monkey(object):
 
         try:
             self.proc_monkey = await Terminal.cmd_link(cmd_monkey)
-            self.task_monkey = asyncio.create_task(self.read_streams(self.proc_monkey, "monkey"))
+            self.task_monkey = asyncio.create_task(
+                self.reader(self.proc_monkey, "monkey")
+            )
             rc = await self.proc_monkey.wait()
         finally:
-            await asyncio.sleep(0.3)
-            await self.logcat_cancel()
+            await self.shutdown()
 
         end_ms = int(time.time() * 1000)
 
@@ -170,7 +164,7 @@ class Monkey(object):
             "start_ms"           : start_ms,
             "end_ms"             : end_ms,
             "duration_ms"        : end_ms - start_ms,
-            "tail"               : list(self.tail),  # 最近 500 行，够定位问题
+            "tail"               : list(self.tail)
         }
 
 

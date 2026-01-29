@@ -337,6 +337,22 @@ class Device(object):
         ]
         return await Terminal.cmd_line(cmd)
 
+    # workflow: ==== File ====
+    async def logcat_clean(self) -> typing.Any:
+        """清空日志。"""
+        cmd = self.prefix + [
+            "logcat", "-c"
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== File ====
+    async def logcat_start(self) -> asyncio.subprocess.Process:
+        """读取日志。"""
+        cmd = self.prefix + [
+            "logcat", "-v", "threadtime"
+        ]
+        return await Terminal.cmd_link(cmd)
+
     # workflow: ==== Media Control MCP Tool ====
     async def screenshot(self) -> str:
         """在设备上截屏并返回远端路径。"""
