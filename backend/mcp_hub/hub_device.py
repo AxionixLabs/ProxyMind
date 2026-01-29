@@ -472,10 +472,12 @@ class Device(object):
 
     # workflow: ==== UI Interaction MCP Tool ====
     async def swipe_to_top(self) -> dict[str, typing.Any]:
+        """滑动到顶部。"""
         return await self.swipe_to_edge("top")
 
     # workflow: ==== UI Interaction MCP Tool ====
     async def swipe_to_bottom(self) -> dict[str, typing.Any]:
+        """滑动到底部。"""
         return await self.swipe_to_edge("bottom")
 
     # workflow: ==== UI Interaction MCP Tool ====
