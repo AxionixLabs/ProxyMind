@@ -776,27 +776,59 @@ class Device(object):
     # workflow: ==== UI ====
     @staticmethod
     def image_similarity(img_path1: str, img_path2: str) -> float:
-        """0~1：越大越相似（基于灰度 + downscale + MSE）。"""
-        with Image.open(img_path1) as im1, Image.open(img_path2) as im2:
-            im1 = im1.convert("L").resize((96, 96))
-            im2 = im2.convert("L").resize((96, 96))
+        """0~1：越大越相似（基于灰度 + downscale + 加权MSE，含轻微裁剪增强）。"""
+        size: tuple[int, int] = (96, 96)
 
-            a1 = np.asarray(im1, dtype=np.uint8)
-            a2 = np.asarray(im2, dtype=np.uint8)
+        # 裁剪比例：去掉顶部/底部固定栏（默认较温和，可按实际 UI 调）
+        crop_top: float    = 0.15
+        crop_bottom: float = 0.12
+        crop_left: float   = 0.00
+        crop_right: float  = 0.00
 
-            p1 = a1.ravel().tolist()
-            p2 = a2.ravel().tolist()
+        # 中心权重：越大越强调中心（1.0=无权重）
+        center_weight: float = 1.8
 
-        # MSE
-        mse = 0.0
-        for a, b in zip(p1, p2):
-            d = float(a) - float(b)
-            mse += d * d
-        mse /= float(len(p1))
+        def prepare(path: str) -> np.ndarray:
+            with Image.open(path) as im:
+                im = im.convert("L")
+                width, height = im.size
+
+                # 裁剪边缘，减少状态栏/导航栏/吸顶影响
+                left   = int(width * crop_left)
+                right  = int(width * (1.0 - crop_right))
+                top    = int(height * crop_top)
+                bottom = int(height * (1.0 - crop_bottom))
+
+                # 兜底：裁剪不能把图裁没
+                if (right - left) >= 4 and (bottom - top) >= 4:
+                    im = im.crop((left, top, right, bottom))
+
+                # 再缩放到固定大小
+                im = im.resize(size)
+
+                return np.asarray(im, dtype=np.float32)
+
+        a1 = prepare(img_path1)
+        a2 = prepare(img_path2)
+
+        # 中心加权（边缘权重低一点，中心权重高一点）
+        h, w = a1.shape
+        yy, xx = np.mgrid[0:h, 0:w]
+        cy, cx = max(1e-6, (h - 1) / 2.0), max(1e-6, (w - 1) / 2.0)
+
+        # 归一化半径：中心0，边缘~1
+        r = np.sqrt(((yy - cy) / cy) ** 2 + ((xx - cx) / cx) ** 2)
+        r = np.clip(r, 0.0, 1.0)
+
+        # 权重：中心 = center_weight，边缘 = 1.0（平滑过渡）
+        weights = 1.0 + (center_weight - 1.0) * (1.0 - r) ** 2
+
+        diff = a1 - a2
+        mse = float(np.sum((diff * diff) * weights)) / float(np.sum(weights))
 
         # 归一化：像素范围 0~255，最大 MSE=255^2
         sim = 1.0 - min(1.0, mse / (255.0 * 255.0))
-        return sim
+        return float(sim)
 
 
 if __name__ == '__main__':
