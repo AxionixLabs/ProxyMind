@@ -45,9 +45,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
         async def call(device: Device) -> None:
             record: Record = Record(
-                version, station, sessions, sessions_lock, on_begin=idle.job_begin, on_final=idle.job_final
+                device, version, station, sessions, sessions_lock, on_begin=idle.job_begin, on_final=idle.job_final
             )
-            await record.ask_start_mirror(device)
+            await record.ask_start_mirror()
 
         return await broadcast(
             tool="start_mirror", args={}, target_list=manage.snapshot, call=call
@@ -61,9 +61,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
         async def call(device: Device) -> typing.Optional[str]:
             record: Record = Record(
-                version, station, sessions, sessions_lock, on_begin=idle.job_begin, on_final=idle.job_final
+                device, version, station, sessions, sessions_lock, on_begin=idle.job_begin, on_final=idle.job_final
             )
-            video_temp = await record.ask_start_record(device, directory, fps, silence)
+            video_temp = await record.ask_start_record(directory, fps, silence)
             async with video_lock:
                 video_list.append(video_temp)
             return video_temp
@@ -84,7 +84,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
             async with sessions_lock:
                 if not (sess := sessions.get(device.serial)):
                     return None
-            return await sess.ask_close_record(device)
+            return await sess.ask_close_record()
 
         return await broadcast(
             tool="close_record", args={}, target_list=manage.snapshot, call=call
