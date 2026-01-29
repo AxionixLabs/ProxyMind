@@ -119,7 +119,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="frame_analyzer", args={"title": title, "total": total}, target_list=[None], call=call
+            tool="frame_analyzer", args={"title": title, "total": total, "scale": scale}, target_list=[None], call=call
         )
 
     @mcp.tool()
@@ -141,8 +141,8 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
     @mcp.tool()
     @task_middleware("sample_mem")
-    async def sample_mem(focus: str, imply: str) -> CallToolResult:
-        """Class: monitor; Action: 采集内存; Args: focus(str)=包名, imply(str)=设备序列号; Use: 启动 Memrix(记忆星核)引擎 内存采样任务(指定包名+设备); Return: CallToolResult(text + structuredContent); Notes: 单任务执行，focus/imply 直接透传给 memrix.task_begin."""
+    async def sample_mem(focus: str, imply: str, title: typing.Optional[str] = None) -> CallToolResult:
+        """Class: monitor; Action: 采集内存; Args: focus(str)=包名, imply(str)=设备序列号, title (Optional[str])=任务标题（可选）; Use: 启动 Memrix(记忆星核)引擎 内存采样任务(指定包名+设备); Return: CallToolResult(text + structuredContent); Notes: 单任务执行，focus/imply 直接透传给 memrix.task_begin."""
         await Requires.connect_memrix()
         await kill_port(memrix.port)
 
@@ -150,18 +150,21 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
             await idle.session_begin(
                 key=memrix.agent_id,
                 name=f"{memrix.agent_id}.sample_mem",
-                args={"style": "storm", "focus": focus, "imply": imply},
+                args={"style": "storm", "focus": focus, "imply": imply, "title": title},
             )
-            return await memrix.task_begin("--storm", focus, imply)
+            return await memrix.task_begin("--storm", focus, imply, title)
 
         return await broadcast(
-            tool="sample_mem", args={"focus": focus, "imply": imply}, target_list=[None], call=call
+            tool="sample_mem", 
+            args={"style": "storm", "focus": focus, "imply": imply, "title": title}, 
+            target_list=[None], 
+            call=call
         )
 
     @mcp.tool()
     @task_middleware("sample_gfx")
-    async def sample_gfx(focus: str, imply: str) -> CallToolResult:
-        """Class: monitor; Action: 采集流畅度; Args: focus(str)=包名, imply(str)=设备序列号; Use: 启动 Memrix(记忆星核)引擎 流畅度采样任务(指定包名+设备); Return: CallToolResult(text + structuredContent); Notes: 单任务执行，focus/imply 直接透传给 memrix.task_begin."""
+    async def sample_gfx(focus: str, imply: str, title: typing.Optional[str] = None) -> CallToolResult:
+        """Class: monitor; Action: 采集流畅度; Args: focus(str)=包名, imply(str)=设备序列号, title (Optional[str])=任务标题（可选）; Use: 启动 Memrix(记忆星核)引擎 流畅度采样任务(指定包名+设备); Return: CallToolResult(text + structuredContent); Notes: 单任务执行，focus/imply 直接透传给 memrix.task_begin."""
         await Requires.connect_memrix()
         await kill_port(memrix.port)
 
@@ -169,12 +172,15 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
             await idle.session_begin(
                 key=memrix.agent_id,
                 name=f"{memrix.agent_id}.sample_gfx",
-                args={"style": "sleek", "focus": focus, "imply": imply},
+                args={"style": "sleek", "focus": focus, "imply": imply, "title": title},
             )
-            return await memrix.task_begin("--sleek", focus, imply)
+            return await memrix.task_begin("--sleek", focus, imply, title)
 
         return await broadcast(
-            tool="sample_gfx", args={"focus": focus, "imply": imply}, target_list=[None], call=call
+            tool="sample_gfx", 
+            args={"style": "sleek", "focus": focus, "imply": imply, "title": title}, 
+            target_list=[None], 
+            call=call
         )
 
     @mcp.tool()
