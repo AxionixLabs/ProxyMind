@@ -50,6 +50,5 @@ async def api_idle(request: Request) -> Response:
     )
 
 
-
 if __name__ == '__main__':
     pass
