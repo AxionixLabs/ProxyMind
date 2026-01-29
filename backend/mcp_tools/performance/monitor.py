@@ -44,8 +44,13 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         version = await Requires.connect_scrcpy()
 
         async def call(device: Device) -> None:
+            _, on_begin, on_final = idle.hooks(
+                "scrcpy.mirror",
+                args={"tool": "start_mirror"},
+                args_fn=lambda: {"serial": device.serial, "brand": device.brand}
+            )
             record: Record = Record(
-                device, version, station, sessions, sessions_lock, on_begin=idle.job_begin, on_final=idle.job_final
+                device, version, station, sessions, sessions_lock, on_begin=on_begin, on_final=on_final
             )
             await record.ask_start_mirror()
 
@@ -60,8 +65,13 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         version = await Requires.connect_scrcpy()
 
         async def call(device: Device) -> typing.Optional[str]:
+            _, on_begin, on_final = idle.hooks(
+                "scrcpy.record",
+                args={"tool": "start_record"},
+                args_fn=lambda: {"serial": device.serial, "brand": device.brand}
+            )
             record: Record = Record(
-                device, version, station, sessions, sessions_lock, on_begin=idle.job_begin, on_final=idle.job_final
+                device, version, station, sessions, sessions_lock, on_begin=on_begin, on_final=on_final
             )
             video_temp = await record.ask_start_record(directory, fps, silence)
             async with video_lock:
@@ -99,12 +109,14 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         framix.total = total
 
         async def call(*_) -> None:
-            await idle.job_begin()
+            job_id = await idle.job_begin(
+                f"{framix.agent_id}.frame_analyzer", args={"title": title, "total": total, "scale": scale}
+            )
             try:
                 return await framix.frame_analyzer(title, video_list, scale)
             finally:
                 video_list.clear()
-                await idle.job_final()
+                await idle.job_final(job_id)
 
         return await broadcast(
             tool="frame_analyzer", args={"title": title, "total": total}, target_list=[None], call=call
@@ -117,11 +129,11 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         await Requires.connect_framix()
 
         async def call(*_) -> None:
-            await idle.job_begin()
+            job_id = await idle.job_begin(f"{framix.agent_id}.frame_reporter", args={})
             try:
                 return await framix.frame_reporter()
             finally:
-                await idle.job_final()
+                await idle.job_final(job_id)
 
         return await broadcast(
             tool="frame_reporter", args={}, target_list=[None], call=call
@@ -135,7 +147,11 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         await kill_port(memrix.port)
 
         async def call(*_) -> None:
-            await idle.job_begin()
+            await idle.session_begin(
+                key=memrix.agent_id,
+                name=f"{memrix.agent_id}.sample_mem",
+                args={"style": "storm", "focus": focus, "imply": imply},
+            )
             return await memrix.task_begin("--storm", focus, imply)
 
         return await broadcast(
@@ -150,7 +166,11 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         await kill_port(memrix.port)
 
         async def call(*_) -> None:
-            await idle.job_begin()
+            await idle.session_begin(
+                key=memrix.agent_id,
+                name=f"{memrix.agent_id}.sample_gfx",
+                args={"style": "sleek", "focus": focus, "imply": imply},
+            )
             return await memrix.task_begin("--sleek", focus, imply)
 
         return await broadcast(
@@ -167,7 +187,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
             try:
                 return await memrix.task_final()
             finally:
-                await idle.job_final()
+                await idle.session_final(memrix.agent_id)
 
         return await broadcast(
             tool="sample_stop", args={}, target_list=[None], call=call
@@ -180,11 +200,11 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         await Requires.connect_memrix()
 
         async def call(*_) -> None:
-            await idle.job_begin()
+            job_id = await idle.job_begin(f"{memrix.agent_id}.mem_reporter", args={"layer": layer})
             try:
                 return await memrix.mem_reporter(layer)
             finally:
-                await idle.job_final()
+                await idle.job_final(job_id)
 
         return await broadcast(
             tool="mem_reporter", args={"layer": layer}, target_list=[None], call=call
@@ -197,11 +217,11 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         await Requires.connect_memrix()
 
         async def call(*_) -> None:
-            await idle.job_begin()
+            job_id = await idle.job_begin(f"{memrix.agent_id}.mem_reporter", args={})
             try:
                 return await memrix.gfx_reporter()
             finally:
-                await idle.job_final()
+                await idle.job_final(job_id)
 
         return await broadcast(
             tool="gfx_reporter", args={}, target_list=[None], call=call
