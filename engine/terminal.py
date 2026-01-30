@@ -79,9 +79,9 @@ class Terminal(object):
         stdout, stderr = await transports.communicate()
 
         if stdout:
-            return stdout.decode(encoding=const.CHARSET, errors="ignore").strip()
+            return stdout.decode(const.CHARSET, const.IGNORE).strip()
         if stderr:
-            return stderr.decode(encoding=const.CHARSET, errors="ignore").strip()
+            return stderr.decode(const.CHARSET, const.IGNORE).strip()
 
     @staticmethod
     async def cmd_link_shell(cmd: str) -> "asyncio.subprocess.Process":
