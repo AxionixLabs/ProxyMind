@@ -46,7 +46,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
     @mcp.tool()
     @task_middleware("scrcpy_record")
-    async def start_record(directory: str, fps: int = 60, silence: bool = False) -> CallToolResult:
+    async def scrcpy_record(directory: str, fps: int = 60, silence: bool = False) -> CallToolResult:
         """Class: scrcpy; Action: 开始录屏; Args: directory(str)=输出路径(目录), fps(int)=视频帧率, silence(bool)=静默录制(隐藏窗口/不显示); Use: 复现流程/长过程取证/视频留档; Return: CallToolResult(text + structuredContent); Notes: 基于 scrcpy 启动录制长任务；每台设备生成独立文件名并返回视频路径，同时保存 Record 会话到 sessions[device.serial] 以便 scrcpy_close 关闭与清理。"""
         version = await Requires.connect_scrcpy()
 
