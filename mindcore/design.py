@@ -143,8 +143,7 @@ class Design(object):
         out: str,
         begin_delay: float,
         final_delay: float,
-        *,
-        cursor: str = "█"
+        cursor: str
     ) -> tuple[str, float]:
 
         pause: float         = 0.06
@@ -193,13 +192,7 @@ class Design(object):
         return out, final_delay
 
     @staticmethod
-    async def cursor_blink(
-        live: Live,
-        out: str,
-        *,
-        cursor: str = "█"
-    ) -> None:
-
+    async def cursor_blink(live: Live, out: str, cursor: str) -> None:
         shades = ["#CFCFCF", "#E6E6E6", "#D8D8D8"]
 
         for _ in range(2):
@@ -859,6 +852,7 @@ class TypewriterStreamSession(object):
         self.out: str     = ""
         self.delay: float = 0.01
         self.cursor: str  = random.choice(["█", "▉", "▋"])
+        self.style: str   = "bold #C6C6C6"
 
         self.live: typing.Optional[Live] = None
 
@@ -870,7 +864,7 @@ class TypewriterStreamSession(object):
     async def __aexit__(self, exc_type, exc, tb) -> None:
         if self.live is not None:
             try:
-                await Design.cursor_blink(self.live, self.out, cursor=self.cursor)
+                await Design.cursor_blink(self.live, self.out, self.cursor)
             finally:
                 self.live.__exit__(exc_type, exc, tb)
                 self.live = None
@@ -881,7 +875,7 @@ class TypewriterStreamSession(object):
         if not content: return None
 
         self.out, self.delay = await Design.typewriter(
-            self.live, content, self.out, self.delay, max(0.0015, self.delay * 0.65), cursor=self.cursor
+            self.live, content, self.out, self.delay, max(0.0015, self.delay * 0.65), self.cursor
         )
 
 

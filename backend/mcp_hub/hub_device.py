@@ -73,7 +73,7 @@ class Device(object):
         }
 
     @staticmethod
-    def device_semantics(snapshot: dict) -> dict:
+    def device_semantics(device_snap: dict) -> dict:
         """将“设备快照 snap(dict)”转换为两种更适合大模型/检索的语义描述。"""
 
         def brief(v: typing.Optional[bool]) -> typing.Optional[str]:
@@ -90,53 +90,53 @@ class Device(object):
                 parts.append(f"{k}={v}")
             return "; ".join(parts)
 
-        wm     = snapshot.get("wm_size") or {}
+        wm     = device_snap.get("wm_size") or {}
         screen = f"{wm.get('w')}x{wm.get('h')}" if (wm.get("w") and wm.get("h")) else None
 
-        battery   = snapshot.get("battery")
+        battery   = device_snap.get("battery")
         battery_s = f"{battery}%" if battery is not None else None
 
-        online = snapshot.get("online") is True
-        locked = snapshot.get("screen_lock") is True
+        online = device_snap.get("online") is True
+        locked = device_snap.get("screen_lock") is True
 
         semantic_kv = kv([
             ("kind",       "device"),
-            ("serial",     snapshot.get("serial")),
-            ("brand",      snapshot.get("brand")),
-            ("model",      snapshot.get("model")),
-            ("android",    snapshot.get("version")),
-            ("sdk",        snapshot.get("sdk")),
-            ("abi",        snapshot.get("abi")),
-            ("hw",         snapshot.get("hardware")),
-            ("locale",     snapshot.get("locale")),
-            ("tz",         snapshot.get("timezone")),
+            ("serial",     device_snap.get("serial")),
+            ("brand",      device_snap.get("brand")),
+            ("model",      device_snap.get("model")),
+            ("android",    device_snap.get("version")),
+            ("sdk",        device_snap.get("sdk")),
+            ("abi",        device_snap.get("abi")),
+            ("hw",         device_snap.get("hardware")),
+            ("locale",     device_snap.get("locale")),
+            ("tz",         device_snap.get("timezone")),
             ("screen",     screen),
             ("battery",    battery_s),
             ("online",     brief(online)),
             ("locked",     brief(locked)),
-            ("secure",     brief(snapshot.get("secure") is True)),
-            ("debuggable", brief(snapshot.get("debuggable") is True)),
-            ("emulator",   brief(snapshot.get("emulator") is True)),
+            ("secure",     brief(device_snap.get("secure") is True)),
+            ("debuggable", brief(device_snap.get("debuggable") is True)),
+            ("emulator",   brief(device_snap.get("emulator") is True)),
         ])
 
         semantic_brief = (
-            f"{snapshot.get('serial') or 'unknown'}: "
+            f"{device_snap.get('serial') or 'unknown'}: "
             f"{'在线' if online else '离线'} / "
             f"{'锁屏' if locked else '未锁屏'} / "
             f"电量{battery_s or 'unknown'} / "
             f"屏幕{screen.replace('x', '×') if screen else 'unknown'} / "
-            f"Android{snapshot.get('version') or '?'}(SDK{snapshot.get('sdk') or '?'}) / "
-            f"{(snapshot.get('brand') or '').strip()} {(snapshot.get('model') or '').strip()}".strip()
+            f"Android{device_snap.get('version') or '?'}(SDK{device_snap.get('sdk') or '?'}) / "
+            f"{(device_snap.get('brand') or '').strip()} {(device_snap.get('model') or '').strip()}".strip()
         )
 
         return {
-            "snapshot"       : snapshot,
+            "snapshot"       : device_snap,
             "semantic_kv"    : semantic_kv,
             "semantic_brief" : semantic_brief
         }
 
     # workflow: ==== Device Info MCP Tool ====
-    async def snapshot(self) -> dict:
+    async def device_snapshot(self) -> dict:
         """采集并返回该设备当前所有状态快照。"""
         battery     = await self.st_battery()
         wm_size     = await self.st_wm_size()
@@ -152,7 +152,7 @@ class Device(object):
             "screen_lock" : screen_lock
         }
 
-        return self.device_semantics(information)
+        return self.device_semantics(information)["semantic_brief"]
 
     # workflow: ==== Device ====
     async def st_load_info(self) -> None:

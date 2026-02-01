@@ -7,6 +7,7 @@
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
+import sys
 import time
 import shutil
 import typing
@@ -68,28 +69,40 @@ class Requires(object):
     @staticmethod
     async def connect_scrcpy() -> typing.Optional[str]:
         if not shutil.which(application := "scrcpy"):
-            raise RuntimeError(f"Requires {application}. install it first.")
+            navigator = "https://github.com/Genymobile/scrcpy"
+            raise RuntimeError(f"Requires {application}. install it first, {navigator}.")
 
         return (await Terminal.cmd_line([application, "--version"]) or "").strip()
 
     @staticmethod
     async def connect_ffmpeg() -> typing.Optional[str]:
         if not shutil.which(application := "ffmpeg"):
-            raise RuntimeError(f"Requires {application}. install it first.")
+            navigator = "https://www.ffmpeg.org/"
+            raise RuntimeError(f"Requires {application}. install it first, {navigator}.")
 
         return (await Terminal.cmd_line([application, "-version"]) or "").strip()
 
     @staticmethod
     async def connect_framix() -> typing.Optional[str]:
         if not shutil.which(application := "framix"):
-            raise RuntimeError(f"Requires {application}. install it first.")
+            domain = "https://github.com/PlaxtonFlarion/SoftwareCenter/releases/tag"
+            if sys.platform.startswith("win"):
+                navigator = f"{domain}/Framix-windows-v1.0.0"
+            else:
+                navigator = f"{domain}/Framix-macos-v1.0.0"
+            raise RuntimeError(f"Requires {application}. install it first, {navigator}.")
 
         return (await Terminal.cmd_line([application, "-h"]) or "").strip()
 
     @staticmethod
     async def connect_memrix() -> typing.Optional[str]:
         if not shutil.which(application := "memrix"):
-            raise RuntimeError(f"Requires {application}. install it first.")
+            domain = "https://github.com/PlaxtonFlarion/SoftwareCenter/releases/tag"
+            if sys.platform.startswith("win"):
+                navigator = f"{domain}/Memrix-windows-v1.0.0"
+            else:
+                navigator = f"{domain}/Memrix-macos-v1.0.0"
+            raise RuntimeError(f"Requires {application}. install it first, {navigator}.")
 
         return (await Terminal.cmd_line([application, "-h"]) or "").strip()
 

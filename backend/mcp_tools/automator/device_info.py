@@ -10,20 +10,20 @@ from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.middlewares.mid_task import task_middleware
-from backend.utilities.pipeline import broadcast
+from backend.utilities.toolbox import broadcast
 
 
 def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
     @mcp.tool()
-    @task_middleware("snapshot")
-    async def snapshot() -> CallToolResult:
+    @task_middleware("device_snapshot")
+    async def device_snapshot() -> CallToolResult:
         """Class: device; Action: 设备状态快照; Args: none; Use: 查看所有设备型号/状态/联网/屏幕/电量；Return: CallToolResult(text + structuredContent); Notes: 每台设备并发采集，失败设备返回异常结果。"""
         return await broadcast(
-            tool="snapshot",
+            tool="device_snapshot",
             args={},
             target_list=manage.snapshot,
-            call=lambda agent: agent.snapshot()
+            call=lambda agent: agent.device_snapshot()
         )
 
 

@@ -14,6 +14,40 @@ from engine.channel import Channel
 from mindnova import const
 
 
+async def post_tool_result(
+    cid: str,
+    sid: str,
+    call_id: str,
+    name: str,
+    ok: bool,
+    result: typing.Union[
+        None,
+        bool,
+        int,
+        float,
+        str,
+        list[typing.Any],
+        dict[str, typing.Any]
+    ]
+) -> None:
+    """Post tool result"""
+
+    url = f"https://api.appserverx.com/tool-result"
+    headers = Channel.make_headers()
+    payload = {
+        "cid"     : cid,
+        "sid"     : sid,
+        "call_id" : call_id,
+        "name"    : name,
+        "ok"      : ok,
+        "result"  : result
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.post(url, headers=headers, json=payload)
+        r.raise_for_status()
+
+
 async def capture(response: httpx.Response) -> None:
     """Capture"""
     if response.status_code >= 400:
@@ -35,7 +69,7 @@ async def streaming(
     async with httpx.AsyncClient(timeout=timeout, event_hooks={"response": [capture]}) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
             resp.raise_for_status()
-            
+
             async for line in resp.aiter_lines():
                 if not line or not line.startswith("data:"):
                     continue
@@ -88,6 +122,8 @@ async def stream_chat(
     model: str,
     apikey: str,
     message: str,
+    openai_tools: list[dict],
+    attachments: typing.Optional[list[dict[str, typing.Any]]] = None,
     timeout: float = 60.0
 ) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
     """Stream Chat"""
@@ -95,8 +131,22 @@ async def stream_chat(
     url = f"https://api.appserverx.com/mind-chat"
     headers = Channel.make_headers()
     payload = {
-        "model": model, "apikey": apikey, "message": message
+        "model"   : model,
+        "apikey"  : apikey,
+        "message" : message,
+        "tools"   : openai_tools
     }
+
+    """
+        async for event in request.stream_chat(
+            model, apikey, "帮我看下这张截图", openai_tools,
+            attachments=[{"kind": "image", "url": "https://xxx.com/a.png"}]
+        ):
+        ...
+        attachments=[{"kind": "image", "data_url": f"data:image/png;base64,{b64}"}]
+    """
+    if attachments:
+        payload["attachments"] = attachments
 
     async for event in streaming(url, headers, payload, timeout):
         match event.get("type"):

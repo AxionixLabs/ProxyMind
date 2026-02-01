@@ -112,7 +112,8 @@ class Mind(object):
         await self.stop_stream()
         await self.stop_plan()
 
-    async def exec_status(self, session: ClientSession) -> typing.Optional[str]:
+    # Notes: ==== Plan 编排模式 ====
+    async def plan_exec_status(self, session: ClientSession) -> typing.Optional[str]:
         """Exec Status"""
         if ((now := time.time()) - self.last_refresh_ts) < self.ttl_sec:
             return logger.debug(f"ttl-hit: skip refresh ttl={self.ttl_sec:.3f}s")
@@ -127,66 +128,83 @@ class Mind(object):
         self.last_refresh_ts = now
         return logger.debug(result.structuredContent)
 
-    async def exec_looper(self, model: str, apikey: str, plan: dict, session: ClientSession) -> None:
-        """Exec Looper"""
-        steps, loop_count, reasoning = plan["steps"], plan["loop_count"], plan["reasoning"]
+    # Notes: ==== Plan 编排模式 ====
+    async def plan_exec_looper(
+        self,
+        session: ClientSession,
+        model: str,
+        apikey: str,
+        message: str,
+        openai_tools: list[dict]
+    ) -> None:
+        """Plan Exec Looper"""
 
-        async with TypewriterStreamSession() as tw:
-            await tw.feed(reasoning)
+        async for plan in request.stream_plan(model, apikey, message, openai_tools):
+            # await self.stop_stream()
+            if plan.get("type") == "error":
+                return logger.error(plan)
 
-        for index, _ in enumerate(range(loop_count), start=1):
-            for step in steps:
-                action = step["action"]
+            steps, loop_count, reasoning = plan["steps"], plan["loop_count"], plan["reasoning"]
 
-                # workflow: ==== 设备缓存 ====
-                if error := await self.exec_status(session):
-                    return logger.error(error)
+            async with TypewriterStreamSession() as tw:
+                await tw.feed(f"{reasoning}\n")
+                for index, _ in enumerate(range(loop_count), start=1):
+                    for step in steps:
+                        action = step["action"]
 
-                name, arguments = action["action"], action["args"]
+                        # workflow: ==== 设备缓存 ====
+                        if error := await self.plan_exec_status(session):
+                            return await tw.feed(error)
 
-                logger.debug(f"{name} -> args={arguments}")
+                        name, arguments = action["action"], action["args"]
+                        logger.debug(f"{name} -> args={arguments}")
 
-                result = await session.call_tool(name, arguments)
+                        # workflow: ==== 工具调用 ====
+                        result = await session.call_tool(name, arguments)
 
-                fields: typing.Union[
-                    dict[str, typing.Any], str
-                ] = sc if (sc := result.structuredContent) else result.content[0].text
+                        fields: typing.Union[
+                            dict[str, typing.Any], str
+                        ] = sc if (sc := result.structuredContent) else result.content[0].text
 
-                if result.isError:
-                    return logger.error(fields)
+                        if result.isError:
+                            return await tw.feed(fields)
 
-                # workflow: ==== 查找指令 ====
-                if name in {"find_element"} and (elements := fields.get("results")):
-                    locator_list: list[dict[str, str]] = []
-                    for element in elements:
-                        async for heal in request.stream_heal(model, apikey, **element["data"]):
-                            if heal.get("type") == "error":
-                                return logger.error(heal["content"])
+                        # workflow: ==== 查找指令 ====
+                        if name in {"find_element"} and (elements := fields.get("results")):
+                            locator_list: list[dict[str, str]] = []
+                            for element in elements:
+                                async for heal in request.stream_heal(model, apikey, **element["data"]):
+                                    if heal.get("type") == "error":
+                                        return await tw.feed(heal["content"])
 
-                            if smart := heal.get("smart"):
-                                locator_list.append({
-                                    "by": smart["new_selector"]["primary"]["by"],
-                                    "value": smart["new_selector"]["primary"]["value"]
-                                })
-                                logger.debug(smart)
+                                    await tw.feed(f"{heal['content']}\n")
 
-                    if locator_list and arguments.get("should_click"):
-                        tasks = [session.call_tool("click", s) for s in locator_list]
-                        if waiting := arguments.get("wait", 0):
-                            await asyncio.sleep(waiting)
-                        for r in await asyncio.gather(*tasks, return_exceptions=True):
-                            tips = f"{name} -> resp={r.structuredContent['results']}"
-                            if r.isError:
-                                return logger.error(tips)
-                            else:
-                                logger.debug(tips)
+                                    if smart := heal.get("smart"):
+                                        locator_list.append({
+                                            "by": smart["new_selector"]["primary"]["by"],
+                                            "value": smart["new_selector"]["primary"]["value"]
+                                        })
+                                        await tw.feed(f"{smart}\n")
 
-                # workflow: ==== 常规指令 ====
-                else:
-                    logger.debug(f"{name} -> resp={fields}")
+                            if locator_list and arguments.get("should_click"):
+                                if waiting := arguments.get("wait", 0):
+                                    await asyncio.sleep(waiting)
 
-            if index != loop_count: self.task_info.clear()
+                                tasks = [session.call_tool("click", s) for s in locator_list]
+                                for r in await asyncio.gather(*tasks, return_exceptions=True):
+                                    fields: typing.Union[
+                                        dict[str, typing.Any], str
+                                    ] = sc if (sc := r.structuredContent) else r.content[0].text
+                                    if r.isError: return await tw.feed(fields)
+                                    else: await tw.feed(f"{fields}\n")
 
+                        # workflow: ==== 常规指令 ====
+                        else:
+                            logger.debug(f"{name} -> resp={fields}")
+
+                    if index != loop_count: self.task_info.clear()
+
+    # Notes: ==== Plan 编排模式 ====
     async def mind_plan(self, model: str, apikey: str, message: str) -> None:
         """Mind Plan"""
         if not model or not apikey:
@@ -222,18 +240,57 @@ class Mind(object):
                         for tool in list_tools.tools
                     ]
 
+                    logger.debug(f"Tool [{len(openai_tools)}]")
                     for tool in openai_tools:
                         logger.debug(f"Tool {tool['function']['name']}")
 
-                    # workflow: ==== Plan Streaming ====
-                    async for plan in request.stream_plan(model, apikey, message, openai_tools):
-                        await self.stop_stream()
-                        if plan.get("type") == "error":
-                            return logger.error(plan)
+                    # workflow: ==== Exec Plan ====
+                    await self.plan_exec_looper(session, model, apikey, message, openai_tools)
 
-                        # workflow: ==== Exec ====
-                        await self.exec_looper(model, apikey, plan, session)
+    # Notes: ==== Chat 对话模式 ====
+    async def chat_exec_looper(
+        self,
+        session: ClientSession,
+        model: str,
+        apikey: str,
+        message: str,
+        openai_tools: list[dict]
+    ) -> None:
+        """Chat Exec Looper"""
 
+        async with TypewriterStreamSession() as tw:
+            # workflow: ==== Chat Streaming ====
+            async for chat in request.stream_chat(model, apikey, message, openai_tools):
+                # await self.stop_stream()
+                match chat.get("type"):
+                    case "error":
+                        return await tw.feed(chat.get("content"))
+                    case "chat":
+                        await tw.feed(chat.get("content"))
+                        continue
+                    case "tool_call":
+                        name, arguments = chat["name"], chat.get("arguments", {})
+                        await tw.feed(f"\n{name} {arguments}\n")
+
+                        result = await session.call_tool(name, arguments)
+                        ok = False if result.isError else True
+                        content = result.content[0].text
+
+                        if self.level != const.SHOW_LEVEL:
+                            await tw.feed(f"\n{content}\n")
+
+                        await request.post_tool_result(
+                            chat["cid"], chat["sid"], chat["call_id"], name, ok, content
+                        )
+                        continue
+                    case "tool_result":
+                        if self.level != const.SHOW_LEVEL:
+                            await tw.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
+                        continue
+                    case _:
+                        continue
+
+    # Notes: ==== Chat 对话模式 ====
     async def mind_chat(self, model: str, apikey: str, message: str) -> None:
         """Mind Chat"""
         if not model or not apikey:
@@ -242,15 +299,42 @@ class Mind(object):
             )
             raise MindError(f"Missing required field(s): {missing}")
 
-        async with TypewriterStreamSession() as tw:
-            # workflow: ==== Chat Streaming ====
-            async for chat in request.stream_chat(model, apikey, message):
-                await self.stop_stream()
-                await tw.feed(chat["content"])
+        url = self.base_url + "/helix/mcp"
+        headers = {
+            "Authorization": f"Bearer {authentic.manufacture_token()}"
+        }
+        timeout = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
+        event_hooks = {"response": [request.capture]}
+
+        async with httpx.AsyncClient(headers=headers, timeout=timeout, event_hooks=event_hooks) as client:
+            # workflow: ==== Tool Streaming ====
+            async with streamable_http_client(url, http_client=client) as (r, w, _):
+                async with ClientSession(r, w) as session:
+                    await session.initialize()
+
+                    list_tools: ListToolsResult = await session.list_tools()
+
+                    openai_tools: list[dict[str, typing.Any]] = [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": tool.name,
+                                "description" : tool.description,
+                                "parameters"  : tool.inputSchema
+                            }
+                        }
+                        for tool in list_tools.tools
+                    ]
+
+                    logger.debug(f"Tool [{len(openai_tools)}]")
+                    for tool in openai_tools:
+                        logger.debug(f"Tool {tool['function']['name']}")
+
+                    # workflow: ==== Exec Chat ====
+                    await self.chat_exec_looper(session, model, apikey, message, openai_tools)
 
     async def mind_loop(self) -> None:
         """Mind Loop"""
-
         async def exchange(types: typing.Literal["model", "apikey"]) -> typing.Optional[str]:
             if pref_name := m.group(1).strip() if m.group(1) else None:
                 return pref_name
@@ -290,7 +374,7 @@ class Mind(object):
         [bold #AFD7FF]/model <name>[/]             引擎切换（选择推理内核）
         [bold #AFD7FF]/apikey <key>[/]             凭证更新（替换访问密钥）
         [bold #AFD7FF]/again N <goal>[/]           复现回放（目标 × N 次）
-        [bold #FFD75F]/chat[/]                     问答模式（自由对话）
+        [bold #FFD75F]/chat[/]                     对话模式（自由对话）
         [bold #FFD75F]/plan[/]                     编排模式（工具执行）
         [bold #FFD75F]/fast[/]                     性能模式（压测采集）
         [/]"""
@@ -342,6 +426,7 @@ class Mind(object):
 
             try:
                 if (raw := Prompt.ask(ask, console=Design.console).strip()) in quit_set:
+                    self.task_event.set()
                     break
             except (EOFError, UnicodeDecodeError):
                 continue
@@ -389,7 +474,6 @@ class Mind(object):
 
     async def calling(self, model: str = None, apikey: str = None, *, message: str, func: typing.Callable) -> None:
         """Calling"""
-
         def flatten_exceptions(exc: BaseException) -> typing.Generator[BaseException, None, None]:
             if isinstance(exc, BaseExceptionGroup):
                 for sub in exc.exceptions: yield from flatten_exceptions(sub)
@@ -399,10 +483,10 @@ class Mind(object):
         model  = model  or self.pref.model
         apikey = apikey or self.pref.apikey
 
-        self.stream_event = asyncio.Event()
-        self.stream_task = asyncio.create_task(
-            self.design.prefix_line(self.stream_event)
-        )
+        # self.stream_event = asyncio.Event()
+        # self.stream_task = asyncio.create_task(
+        #     self.design.prefix_line(self.stream_event)
+        # )
 
         try:
             return await func(model, apikey, message)
@@ -599,7 +683,6 @@ async def main() -> None:
             await mind.calling(message=fast, func=mind.mind_chat)
         else:
             await mind.mind_loop()
-
     finally:
         await server.aclose()
 

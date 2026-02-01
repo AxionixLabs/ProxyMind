@@ -7,6 +7,7 @@
 #
 
 import sys
+import json
 import time
 import httpx
 import typing
@@ -26,23 +27,42 @@ class ServerManage(object):
         self.__client = httpx.AsyncClient(base_url=self.base_url, timeout=timeout)
 
     async def probe_healthz(self) -> bool:
-        headers = {
-            "accept": "application/json"
-        }
+        headers = {"accept": "application/json"}
+
         try:
-            response = await self.__client.request("GET", "/healthz", headers=headers)
-            logger.debug(f"Healthz: {response.json()}")
-            if response.status_code >= 400:
-                return False
+            resp = await self.__client.request("GET", "/healthz", headers=headers)
 
-            ct = (response.headers.get("content-type") or "").lower()
-
-            data = response.json() if "application/json" in ct else {}
-
-            return bool(data.get("ok")) and (data.get("service") == "helix mcp")
-        except Exception as e:
-            _ = e
+        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout) as e:
+            logger.debug(f"[Healthz] net timeout: {type(e).__name__}: {e}")
             return False
+        except httpx.ConnectError as e:
+            logger.debug(f"[Healthz] net connect: {type(e).__name__}: {e}")
+            return False
+        except httpx.RemoteProtocolError as e:
+            logger.debug(f"[Healthz] remote protocol error: {e}")
+            return False
+        except httpx.HTTPError as e:
+            logger.debug(f"[Healthz] httpx error: {type(e).__name__}: {e}")
+            return False
+
+        if resp.status_code >= 400:
+            logger.debug(f"[Healthz] bad status: {resp.status_code}")
+            return False
+
+        ct = (resp.headers.get("content-type") or "").lower()
+        if "application/json" not in ct:
+            logger.debug(f"[Healthz] unexpected content-type: {ct!r}")
+            return False
+
+        try:
+            data = resp.json()
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.debug(f"[Healthz] json decode failed: {type(e).__name__}: {e}")
+            return False
+
+        logger.debug(f"[Healthz] {data}")
+
+        return bool(data.get("ok")) and (data.get("service") == "helix mcp")
 
     async def spawn(self) -> None:
         kwargs: dict[str, typing.Any] = {
@@ -61,7 +81,7 @@ class ServerManage(object):
         except Exception as e:
             raise MindError(f"Spawn failed: {type(e).__name__}: {e}") from e
 
-    async def ensure_running(self, *, wait_sec: float = 6.0, interval: float = 0.3) -> None:
+    async def ensure_running(self, *, wait_sec: float = 10.0, interval: float = 0.3) -> None:
         if await self.probe_healthz():
             return None
 

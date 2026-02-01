@@ -46,7 +46,7 @@ mcp: FastMCP = FastMCP(
     )
 )
 
-idle: Idle = Idle(ttl_sec=300.0)
+idle: Idle = Idle(ttl_sec=1800.0)
 
 
 @contextlib.asynccontextmanager
@@ -78,7 +78,12 @@ def main() -> None:
     app.middleware("http")(touch_middleware)
     app.include_router(basic_router)
 
-    uvicorn.run(app, host="127.0.0.1", port=3333, log_level=log_level.lower())
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=3333,
+        log_level=log_level.lower()
+    )
 
 
 if __name__ == "__main__":

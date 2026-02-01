@@ -35,6 +35,20 @@ Version [bold #FFD75F]{APP_VERSION}[/] :: Licensed software. Authorization requi
 PRINT_HEAD   = f"[bold #EEEEEE]{APP_DESC} ::[/]"
 PRINT_FORMAT = f"<level>{{message}}</level>"
 
+# ========【错误提示】========
+HINT_STOP    = "【不可重试】确定性失败：立即终止工作流（不要重试、不要继续调用后续工具、不要尝试替代方案）。"
+HINT_STOP_I  = (
+    "【不可继续/不可重试】这是服务内部状态未就绪或未回填。"
+    "请停止当前流程，不要继续调用后续工具。"
+    "请由使用者检查上游任务是否完成（例如录屏/采集是否结束并落盘）、输出目录是否生成、以及任务日志。"
+)
+CODE_EXC     = "EXC"
+CODE_PATH    = "PATH_INVALID"
+CODE_PORT    = "PORT_BUSY"
+CODE_EMPTY   = "EMPTY_INPUT"
+CODE_EMPTY_I = "EMPTY_STATE"
+CODE_SUBPROC = "SUBPROC_ERROR"
+
 # ========【服务授权】========
 # openssl rand -base64 64 | tr '+/' '-_' | tr -d '=\n'
 MASTER   = r"7zUyfFya8Av0_ixhxKgLeGfVkKF0xy5qQw9pGnEobEZx6kgjKmrUVHiUvdlibNKwybf_H1vRt7_-2PfMLmtACA%"

@@ -34,7 +34,9 @@ class Record(object):
         on_final: typing.Callable[[], typing.Awaitable[typing.Any]] | None = None
     ) -> None:
 
-        self.agent_id: str = "scrcpy"
+        self.__prefix: str = "scrcpy"
+
+        self.agent_id: str = self.__prefix
 
         self.device = device
 
@@ -56,6 +58,10 @@ class Record(object):
 
         self.released: bool = False
         self.release_lock: asyncio.Lock = asyncio.Lock()
+
+    @property
+    def prefix(self) -> str:
+        return self.__prefix
 
     async def acquire(self) -> None:
         async with self.sessions_lock:
@@ -166,20 +172,22 @@ class Record(object):
             self.transports = await Terminal.cmd_link_pty(cmd)
             asyncio.create_task(self.merge_stream())
 
-    async def ask_start_mirror(self) -> None:
+    # workflow: ==== MCP Tool ====
+    async def scrcpy_mirror(self) -> None:
         await self.acquire()
         try:
-            cmd = ["scrcpy", "-s", self.device.serial, "--no-audio", "-b", "8M"]
+            cmd = [self.prefix, "-s", self.device.serial, "--no-audio", "-b", "8M"]
             await self.launcher(cmd)
             return await self.check_timer()
         except Exception as e:
             await self.release()
             raise e
 
-    async def ask_start_record(self, directory: str, fps: int = 60, silence: bool = False) -> str:
+    # workflow: ==== MCP Tool ====
+    async def scrcpy_record(self, directory: str, fps: int = 60, silence: bool = False) -> str:
         await self.acquire()
         try:
-            cmd = ["scrcpy", "-s", self.device.serial, "--no-audio", "-b", "8M", f"--max-fps={fps}"]
+            cmd = [self.prefix, "-s", self.device.serial, "--no-audio", "-b", "8M", f"--max-fps={fps}"]
 
             if silence:
                 try:
@@ -197,7 +205,8 @@ class Record(object):
             await self.release()
             raise e
 
-    async def ask_close_record(self) -> typing.Optional[str]:
+    # workflow: ==== MCP Tool ====
+    async def scrcpy_close(self) -> typing.Optional[str]:
 
         async def win_stop_child(pid: str | int) -> None:
             off = await Terminal.cmd_line([pwsh, "-Command", "Stop-Process", "-Id", pid, "-Force"])
@@ -230,10 +239,10 @@ class Record(object):
             elif self.station == "darwin":
                 await mac_stop_child(ppid)
 
-            await self.clean_event()
             return desc
 
         finally:
+            await self.clean_event()
             await self.release()
 
     async def check_timer(self, video_temp: typing.Optional[str] = None) -> typing.Optional[str]:

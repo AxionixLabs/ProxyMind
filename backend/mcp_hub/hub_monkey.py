@@ -57,6 +57,10 @@ class Monkey(object):
         self.stats: dict[str, int] = {k: 0 for k in self.patterns}
         self.evidence: dict[str, deque[str]] = {k: deque(maxlen=10) for k in self.patterns}
 
+    @property
+    def prefix(self) -> str:
+        return self.__prefix
+
     def matcher(self, text: str) -> typing.Optional[str]:
         for key, kws in self.patterns.items():
             for kw in kws:
@@ -108,6 +112,7 @@ class Monkey(object):
         with contextlib.suppress(asyncio.TimeoutError):
             await asyncio.wait_for(self.proc_logcat.wait(), timeout=2.0)
 
+    # workflow: ==== MCP Tool ====
     async def monkey_injection(
         self,
         device: Device,
@@ -142,7 +147,7 @@ class Monkey(object):
             "--pct-touch", str(touch), "--pct-motion", str(motion), "--pct-nav", str(nav),
             "--pct-appswitch", "0", "--pct-syskeys", "0",
             "--ignore-crashes", "--ignore-timeouts", "--ignore-security-exceptions",
-            "-v", "-v", str(events),
+            "-v", "-v", str(events)
         ]
 
         try:

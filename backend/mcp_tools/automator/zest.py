@@ -14,9 +14,8 @@ from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.mcp_hub.hub_monkey import Monkey
 from backend.middlewares.mid_task import task_middleware
-from backend.utilities.pipeline import (
-    broadcast, Idle
-)
+from backend.utilities.pipeline import Idle
+from backend.utilities.toolbox import broadcast
 
 
 def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
@@ -62,7 +61,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         touch: int = 65,
         motion: int = 20,
         nav: int = 10,
-        events: int = 10000,
+        events: int = 10000
     ) -> CallToolResult:
         """Class: tool; Action: Monkey随机事件注入; Args: package(str), seed(int=42), throttle_ms(int=150), touch(int=65), motion(int=20), nav(int=10), events(int=10000); Use: 对指定包执行 adb shell monkey 并全量抓取 logcat，通过关键词命中方式收集 tail 证据; Return: CallToolResult(text + structuredContent); Notes: 内部会先 logcat -c，再启动 logcat 抓取（长连接），同时启动 monkey 注入，命中关键词才会打印并收集到 tail（降低噪音）。"""
 
