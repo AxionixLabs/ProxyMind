@@ -220,17 +220,17 @@ class Device(object):
     async def is_screen_lock(self) -> bool:
         """检查是否正在显示锁屏。"""
         cmd = self.prefix + [
-            "shell", "dumpsys", "window", "|", "grep", "mDreamingLockscreen"
+            "shell", "dumpsys", "window", "policy", "|", "grep", "mInputRestricted"
         ]
-        return "Awake" in await Terminal.cmd_line(cmd)
+        return "true" in await Terminal.cmd_line(cmd)
 
     # workflow: ==== Device ====
     async def is_screen_on(self) -> bool:
         """检查屏幕是否处于点亮状态。"""
         cmd = self.prefix + [
-            "shell", "dumpsys", "power", "|", "grep", "mWakefulness"
+            "shell", "dumpsys", "deviceidle", "|", "grep", "mScreenOn"
         ]
-        return "Awake" in await Terminal.cmd_line(cmd)
+        return "true" in await Terminal.cmd_line(cmd)
 
     # workflow: ==== App Control MCP Tool ====
     async def deep_link(self, url: str) -> typing.Any:
