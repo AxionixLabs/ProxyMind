@@ -85,6 +85,7 @@ class Memrix(object):
             if self.__token: return None
 
             if self.out_fail.is_set():
+                self.__transports.terminate()
                 logger.error("\n".join(self.out_ring))
                 raise marked.subproc_fail(source=f"{self.prefix}.stream", out_ring=self.out_ring)
 

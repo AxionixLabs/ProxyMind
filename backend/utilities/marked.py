@@ -30,8 +30,8 @@ def fail_tip(msg: str, *, code: str, hint: str, **meta) -> RuntimeError:
 
 
 def ensure_f(path: os.PathLike[str] | str, field: str) -> str:
-    """确认 path 存在且为文件；失败抛出统一 fail_tip（不可重试/不可继续后续工具）。"""
-    p = Path(path)
+    """确认 path 存在且为文件，且必须带扩展名；失败抛出统一 fail_tip。"""
+    p = Path(path).expanduser()
 
     if not p.exists():
         raise fail_tip(
@@ -53,6 +53,18 @@ def ensure_f(path: os.PathLike[str] | str, field: str) -> str:
             expect="f",
             got=str(p),
             reason="not_file"
+        )
+
+    # 必须有扩展名（容器/类型明确）
+    if not p.suffix:
+        raise fail_tip(
+            f"{field} 缺少扩展名（无法确定文件类型/容器）。",
+            code=const.CODE_PATH,
+            hint=const.HINT_STOP,
+            field=field,
+            expect="suffix",
+            got=str(p),
+            reason="no_suffix"
         )
 
     return str(p.resolve())
@@ -87,31 +99,78 @@ def ensure_d(path: os.PathLike[str] | str, field: str) -> str:
     return str(p.resolve())
 
 
-def ensure_o(path: os.PathLike[str] | str, field: str, *, overwrite: bool = True) -> str:
+def ensure_o(
+    input_file: os.PathLike[str] | str,
+    output_file: os.PathLike[str] | str | None,
+    field: str,
+    *,
+    suffix: typing.Optional[str] = None,
+    overwrite: bool = True
+) -> str:
     """
-    确认输出路径可用（文件路径）：
-      - 必须有扩展名
-      - 父目录存在且为目录（不存在则创建）
-      - 不能指向目录
+    确认输出路径可用（文件路径），支持 output_file 自动推导：
+      - output_file 为空：输出到 input_file 同目录，文件名 <stem>_out<suffix>
+      - output_file 为“已存在目录”：输出到该目录下，文件名 <stem>_out<suffix>
+      - output_file 为文件路径：必须有扩展名；父目录不存在则创建
       - overwrite=False 时已存在则失败
     """
-    p = Path(path).expanduser()
+    in_p = Path(input_file).expanduser()
 
-    # 必须有扩展名（容器明确）
-    if not p.suffix:
+    is_blank: typing.Callable[
+        [typing.Optional[str]], bool
+    ] = lambda x: x is None or (isinstance(x, str) and x.strip() == "")
+
+    # 1) 计算默认后缀：优先 suffix，其次沿用 input_file 后缀
+    if is_blank(suffix):
+        suf = in_p.suffix
+    else:
+        suf = str(suffix).strip()
+        if not suf.startswith("."):
+            suf = "." + suf
+
+    if not suf:
         raise fail_tip(
-            f"{field} 缺少扩展名（无法确定输出容器）。",
+            f"{field} 缺少扩展名（未提供 suffix 且 input_file 无扩展名）。",
             code=const.CODE_PATH,
             hint=const.HINT_STOP,
             field=field,
             expect="out",
-            got=str(p),
-            reason="no_suffix",
+            got=str(in_p),
+            reason="no_suffix"
         )
 
-    parent = p.parent
+    # 默认输出文件名：避免覆盖输入
+    default_name = f"{in_p.stem}_out{suf}"
 
-    # 父路径如果存在但不是目录：失败
+    # 2) 推导 out_p
+    if is_blank(output_file):
+        # 没传：同目录输出
+        out_p = in_p.with_name(default_name)
+
+    else:
+        cand = Path(output_file).expanduser()
+
+        # 传的是有效目录：输出到该目录下
+        if cand.exists() and cand.is_dir():
+            out_p = cand / default_name
+
+        else:
+            # 当作文件路径：必须有后缀
+            out_p = cand
+            if not out_p.suffix:
+                raise fail_tip(
+                    f"{field} 缺少扩展名（无法确定输出容器）。",
+                    code=const.CODE_PATH,
+                    hint=const.HINT_STOP,
+                    field=field,
+                    expect="out",
+                    got=str(out_p),
+                    reason="no_suffix"
+                )
+
+    parent = out_p.parent
+
+    # 3) 父路径如果存在但不是目录：失败
     if parent.exists() and not parent.is_dir():
         raise fail_tip(
             f"{field} 父路径类型错误（需要目录）。",
@@ -120,37 +179,38 @@ def ensure_o(path: os.PathLike[str] | str, field: str, *, overwrite: bool = True
             field=field,
             expect="d",
             got=str(parent),
-            reason="parent_not_dir",
+            reason="parent_not_dir"
         )
 
-    # 父目录不存在：创建
-    parent.mkdir(parents=True, exist_ok=True)
+    # 4) 仅当父目录不存在时创建（默认同目录/有效目录分支不会走到这里创建）
+    if not parent.exists():
+        parent.mkdir(parents=True, exist_ok=True)
 
-    # 输出路径若已存在且是目录：失败
-    if p.exists() and p.is_dir():
+    # 5) 输出路径若已存在且是目录：失败
+    if out_p.exists() and out_p.is_dir():
         raise fail_tip(
             f"{field} 类型错误（需要文件路径）。",
             code=const.CODE_PATH,
             hint=const.HINT_STOP,
             field=field,
             expect="f",
-            got=str(p),
-            reason="is_dir",
+            got=str(out_p),
+            reason="is_dir"
         )
 
-    # 不允许覆盖：已存在即失败
-    if p.exists() and (not overwrite):
+    # 6) 不允许覆盖：已存在即失败
+    if out_p.exists() and (not overwrite):
         raise fail_tip(
             f"{field} 已存在且 overwrite=False（拒绝覆盖）。",
             code=const.CODE_PATH,
             hint=const.HINT_STOP,
             field=field,
             expect="new",
-            got=str(p),
-            reason="exists_no_overwrite",
+            got=str(out_p),
+            reason="exists_no_overwrite"
         )
 
-    return str(p.resolve())
+    return str(out_p.resolve())
 
 
 def ensure_i(state: typing.Optional[typing.Union[list, dict, set]], field: str, **meta: str) -> typing.Any:

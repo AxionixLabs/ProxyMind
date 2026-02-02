@@ -91,17 +91,11 @@ async def broadcast(
         f"agent_id={r['agent_id']} ok={r['ok']} data={r['data']}" for r in results
     ]
 
-    is_error = (total > 0 and done < total)
-
-    _meta = {
-        "logs": [r.pop("logs", []) for r in results]
-    }
-
     return CallToolResult(
         content=[TextContent(type="text", text="\n".join(lines))],
         structuredContent=structured,
-        isError=is_error,
-        _meta=_meta
+        isError=(total > 0 and done < total),
+        _meta={"logs": [r.get("logs", []) for r in results]}
     )
 
 

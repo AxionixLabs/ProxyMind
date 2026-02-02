@@ -92,11 +92,11 @@ class FFmpeg(object):
     async def ffmpeg_extract_frames(
         self,
         input_video: str,
-        output_dir: str,
+        output_dir: typing.Optional[str] = None,
         *,
-        pattern: str = "frame_%06d.jpg",
+        pattern: str = "frame_%06d.png",
         fps: typing.Optional[float] = None,
-        image_format: typing.Literal["jpg", "png", "webp"] = "jpg",
+        image_format: typing.Literal["jpg", "png", "webp"] = "png",
         start_sec: typing.Optional[float] = None,
         duration_sec: typing.Optional[float] = None,
         scale_w: typing.Optional[int] = None,
@@ -109,7 +109,7 @@ class FFmpeg(object):
         Args:
             input_video  : 输入视频路径（.mp4/.mkv/...）
             output_dir   : 输出目录
-            pattern      : 输出文件名模板（需包含 %d，例如 frame_%06d.jpg）
+            pattern      : 输出文件名模板（需包含 %d，例如 frame_%06d.png）
             fps          : 抽帧帧率（None=按原视频逐帧导出；设置例如 5 表示每秒 5 帧）
             image_format : 输出图片格式（jpg/png/webp）
             start_sec    : 从视频第几秒开始（可选）
@@ -119,7 +119,16 @@ class FFmpeg(object):
             overwrite    : 是否覆盖输出
         """
         marked.ensure_f(input_video, "input_video")
-        marked.ensure_d(output_dir, "output_dir")
+
+        video_path = Path(input_video).expanduser().resolve()
+
+        if not output_dir or not str(output_dir).strip():
+            out_path = video_path.parent / f"{video_path.stem}_frames"
+        else:
+            out_path = Path(output_dir).expanduser().resolve()
+
+        out_path.mkdir(parents=True, exist_ok=True)
+        marked.ensure_d(str(out_path), "output_dir")
 
         # 统一输出扩展名（防止 pattern 没写对）
         pat = pattern
@@ -147,7 +156,7 @@ class FFmpeg(object):
             cmd += ["-vf", ",".join(vf)]
 
         # 导出图片：用 -vsync 0 避免复制/补帧
-        out_path = str(Path(output_dir) / pat)
+        out_path = str(out_path / pat)
         cmd += ["-vsync", "0", out_path]
         return await self.switch(cmd)
 
@@ -155,7 +164,7 @@ class FFmpeg(object):
     async def ffmpeg_convert_audio(
         self,
         input_file: str,
-        output_file: str,
+        output_file: typing.Optional[str] = None,
         *,
         audio_codec: typing.Optional[str] = None,
         sample_rate: typing.Optional[int] = None,
@@ -181,7 +190,7 @@ class FFmpeg(object):
             overwrite   : 是否覆盖输出
         """
         marked.ensure_f(input_file, "input_file")
-        out_p = marked.ensure_o(output_file, "output_file", overwrite=overwrite)
+        out_p = marked.ensure_o(input_file, output_file, "output_file", suffix=".mp3", overwrite=overwrite)
 
         cmd: list[str] = ["-y"] if overwrite else []
 
@@ -203,9 +212,9 @@ class FFmpeg(object):
     async def ffmpeg_convert_video(
         self,
         input_video: str,
-        output_video: str,
+        output_video: typing.Optional[str] = None,
         *,
-        fps: float,
+        fps: float = 60,
         video_codec: str = "libx264",
         crf: int = 23,
         preset: str = "veryfast",
@@ -226,7 +235,7 @@ class FFmpeg(object):
             overwrite    : 是否覆盖输出
         """
         marked.ensure_f(input_video, "input_video")
-        out_p = marked.ensure_o(output_video, "output_video", overwrite=overwrite)
+        out_p = marked.ensure_o(input_video, output_video, "output_video", overwrite=overwrite)
 
         cmd: list[str] = ["-y"] if overwrite else []
         cmd += ["-i", input_video]
@@ -245,7 +254,7 @@ class FFmpeg(object):
     async def ffmpeg_trim_video(
         self,
         input_video: str,
-        output_video: str,
+        output_video: typing.Optional[str] = None,
         *,
         start_sec: float = 0.0,
         end_sec: typing.Optional[float] = None,
@@ -276,7 +285,7 @@ class FFmpeg(object):
             overwrite    : 是否覆盖输出
         """
         marked.ensure_f(input_video, "input_video")
-        out_p = marked.ensure_o(output_video, "output_video", overwrite=overwrite)
+        out_p = marked.ensure_o(input_video, output_video, "output_video", overwrite=overwrite)
 
         cmd: list[str] = ["-y"] if overwrite else []
 
@@ -301,7 +310,7 @@ class FFmpeg(object):
     async def ffmpeg_remux_video(
         self,
         input_video: str,
-        output_video: str,
+        output_video: typing.Optional[str] = None,
         *,
         overwrite: bool = True
     ) -> typing.Any:
@@ -318,7 +327,17 @@ class FFmpeg(object):
             overwrite    : 是否覆盖同名输出文件；True 会传 -y。
         """
         marked.ensure_f(input_video, "input_video")
-        out_p = marked.ensure_o(output_video, "output_video", overwrite=overwrite)
+        in_suf = Path(input_video).suffix.lower()
+
+        # 默认换容器：保证 out_suffix != in_suf
+        if in_suf in {".mp4", ".m4v", ".mov"}:
+            out_suffix = ".mkv"
+        elif in_suf == ".mkv":
+            out_suffix = ".mp4"
+        else:
+            out_suffix = ".mp4"  # 兜底：也可以改成 ".mkv"
+
+        out_p = marked.ensure_o(input_video, output_video, "output_video", suffix=out_suffix, overwrite=overwrite)
 
         cmd: list[str] = ["-y"] if overwrite else []
 
@@ -330,7 +349,7 @@ class FFmpeg(object):
     async def ffmpeg_extract_audio(
         self,
         input_video: str,
-        output_audio: str,
+        output_audio: typing.Optional[str] = None,
         *,
         audio_codec: typing.Optional[str] = None,
         overwrite: bool = True
@@ -349,7 +368,7 @@ class FFmpeg(object):
             overwrite    : 是否覆盖输出；True 会传 -y。
         """
         marked.ensure_f(input_video, "input_video")
-        out_p = marked.ensure_o(output_audio, "output_audio", overwrite=overwrite)
+        out_p = marked.ensure_o(input_video, output_audio, "output_audio", suffix=".mp3", overwrite=overwrite)
 
         cmd: list[str] = ["-y"] if overwrite else []
 
@@ -365,7 +384,7 @@ class FFmpeg(object):
         self,
         input_video: str,
         input_audio: str,
-        output_video: str,
+        output_video: typing.Optional[str] = None,
         *,
         keep_video: bool = True,
         audio_codec: str = "aac",
@@ -388,7 +407,7 @@ class FFmpeg(object):
         """
         marked.ensure_f(input_video, "input_video")
         marked.ensure_f(input_audio, "input_audio")
-        out_p = marked.ensure_o(output_video, "output_video", overwrite=overwrite)
+        out_p = marked.ensure_o(input_video, output_video, "output_video", overwrite=overwrite)
 
         cmd: list[str] = ["-y"] if overwrite else []
 
@@ -406,7 +425,7 @@ class FFmpeg(object):
     async def ffmpeg_video_snapshot(
         self,
         input_video: str,
-        output_image: str,
+        output_image: typing.Optional[str] = None,
         *,
         at_sec: float = 0.0,
         overwrite: bool = True
@@ -425,7 +444,7 @@ class FFmpeg(object):
             overwrite    : 是否覆盖输出；True 会传 -y。
         """
         marked.ensure_f(input_video, "input_video")
-        out_p = marked.ensure_o(output_image, "output_image", overwrite=overwrite)
+        out_p = marked.ensure_o(input_video, output_image, "output_image", suffix=".png", overwrite=overwrite)
 
         cmd: list[str] = ["-y"] if overwrite else []
 
@@ -438,7 +457,7 @@ class FFmpeg(object):
     async def ffmpeg_concat_video(
         self,
         list_file: str,
-        output_video: str,
+        output_video: typing.Optional[str] = None,
         *,
         overwrite: bool = True,
         reencode: bool = False,
@@ -467,7 +486,7 @@ class FFmpeg(object):
             audio_codec  : reencode=True 时用于音频重编码（默认 aac）。
         """
         marked.ensure_f(list_file, "list_file")
-        out_p = marked.ensure_o(output_video, "output_video", overwrite=overwrite)
+        out_p = marked.ensure_o(list_file, output_video, "output_video", suffix=".mp4", overwrite=overwrite)
 
         cmd: list[str] = ["-y"] if overwrite else []
         cmd += ["-f", "concat", "-safe", "0", "-i", list_file]
@@ -485,7 +504,7 @@ class FFmpeg(object):
     async def ffmpeg_scale_video(
         self,
         input_video: str,
-        output_video: str,
+        output_video: typing.Optional[str] = None,
         *,
         scale_w: int | None = None,
         scale_h: int | None = None,
@@ -510,7 +529,7 @@ class FFmpeg(object):
             overwrite    : 是否覆盖输出（True 会传 -y）。
         """
         marked.ensure_f(input_video, "input_video")
-        out_p = marked.ensure_o(output_video, "output_video", overwrite=overwrite)
+        out_p = marked.ensure_o(input_video, output_video, "output_video", overwrite=overwrite)
 
         vf: list[str] = []
         if scale_w is not None or scale_h is not None:
@@ -549,7 +568,7 @@ class FFmpeg(object):
             overwrite    : 是否覆盖输出（True 会传 -y）。
         """
         marked.ensure_f(input_video, "input_video")
-        out_p = marked.ensure_o(output_video, "output_video", overwrite=overwrite)
+        out_p = marked.ensure_o(input_video, output_video, "output_video", overwrite=overwrite)
 
         cmd: list[str] = ["-y"] if overwrite else []
 

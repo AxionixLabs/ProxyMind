@@ -13,6 +13,7 @@ import base64
 import typing
 import asyncio
 import secrets
+import datetime
 import tempfile
 import numpy as np
 from PIL import Image
@@ -337,7 +338,71 @@ class Device(object):
         ]
         return await Terminal.cmd_line(cmd)
 
-    # workflow: ==== File ====
+    # workflow: ==== File Control MCP Tool ====
+    async def logcat_dump(
+        self,
+        since_sec: int = 5,
+        tag: typing.Optional[str] = None,
+        priority: typing.Optional[str] = None
+    ) -> dict:
+        """
+        一次性拉取 logcat 文本快照（dump），默认只取最近 5 秒、最多 200 行（保留尾部）。
+
+        Args:
+            since_sec : 最近多少秒（默认 5）。用于生成 logcat -T 时间点。
+            tag       : 仅输出指定 tag（可选）。
+            priority  : 日志级别（V/D/I/W/E/F/S；可选）。与 tag 搭配更常用。
+
+        Returns:
+            dict: {"text": str, "lines": int, "truncated": bool}
+        """
+        # 基础命令：threadtime + dump
+        cmd: list[str] = self.prefix + ["logcat", "-v", "threadtime", "-d"]
+
+        # since_sec -> -T 时间点（设备/adb 版本差异可能导致忽略，但不会致命）
+        try:
+            ss = int(since_sec)
+        except (TypeError, ValueError):
+            ss = 5
+        if ss <= 0:
+            ss = 5
+
+        dt = datetime.datetime.now() - datetime.timedelta(seconds=ss)
+        ts = dt.strftime("%m-%d %H:%M:%S.000")
+        cmd += ["-T", ts]
+
+        # tag / priority 原生过滤
+        if tag and str(tag).strip():
+            pr = (priority or "V").upper().strip()
+            if pr not in {"V", "D", "I", "W", "E", "F", "S"}:
+                pr = "V"
+            cmd += ["-s", f"{str(tag).strip()}:{pr}", "*:S"]
+        elif priority and str(priority).strip():
+            pr = str(priority).upper().strip()
+            if pr in {"V", "D", "I", "W", "E", "F", "S"}:
+                cmd += [f"*:{pr}"]
+            # priority 非法则忽略（不报错，避免意外空输出）
+
+        raw = await Terminal.cmd_line(cmd)
+        text = raw or ""
+
+        # max_lines 截断（保留尾部）
+        max_lines = 200
+        all_lines = text.splitlines()
+        truncated = False
+
+        if len(all_lines) > max_lines:
+            truncated = True
+            all_lines = all_lines[-max_lines:]
+            text = "\n".join(all_lines)
+
+        return {
+            "text"      : text,
+            "lines"     : len(all_lines),
+            "truncated" : truncated
+        }
+
+    # workflow: ==== File Control MCP Tool ====
     async def logcat_clean(self) -> typing.Any:
         """清空日志。"""
         cmd = self.prefix + [

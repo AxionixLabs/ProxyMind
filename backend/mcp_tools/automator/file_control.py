@@ -6,6 +6,7 @@
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
+import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.mcp_hub.hub_manage import DeviceManage
@@ -46,6 +47,32 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
             args={"path": path},
             target_list=manage.snapshot,
             call=lambda agent: agent.remove(path)
+        )
+
+    @mcp.tool()
+    @task_middleware("logcat_dump")
+    async def logcat_dump(
+        since_sec: int = 5,
+        tag: typing.Optional[str] = None,
+        priority: typing.Optional[str] = None
+    ) -> CallToolResult:
+        """Class: file; Action: 拉取 logcat 文本快照(一次性 dump); Args: since_sec(int=5), tag(str?), priority(str?); Use: 调试/失败取证/断言前采样; Return: CallToolResult(text + structuredContent); Notes: 不启动后台进程；默认保留尾部200行。"""
+        return await broadcast(
+            tool="logcat_dump",
+            args={"since_sec": since_sec, "tag": tag, "priority": priority},
+            target_list=manage.snapshot,
+            call=lambda agent: agent.logcat_dump(since_sec, tag, priority)
+        )
+
+    @mcp.tool()
+    @task_middleware("logcat_clean")
+    async def logcat_clean() -> CallToolResult:
+        """Class: file; Action: 清理设备 logcat 缓存/日志缓冲区; Args: none; Use: 执行采集前清空 logcat，避免历史日志干扰; Return: CallToolResult(text + structuredContent); Notes: 由设备端执行清理；不接收路径参数，不用于删除文件/目录。"""
+        return await broadcast(
+            tool="logcat_clean",
+            args={},
+            target_list=manage.snapshot,
+            call=lambda agent: agent.logcat_clean()
         )
 
 
