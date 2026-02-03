@@ -45,9 +45,11 @@ def register_capture_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> No
 
 
 def register_common_tools(mcp: FastMCP, idle: Idle) -> None:
-    from backend.mcp_tools.common import information
+    from backend.mcp_tools.common import inspect
+    from backend.mcp_tools.common import runtime
 
-    information.bind(mcp, idle)
+    inspect.bind(mcp, idle)
+    runtime.bind(mcp, idle)
 
 
 def register_media_tools(mcp: FastMCP, idle: Idle) -> None:

@@ -50,6 +50,17 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool()
+    @task_middleware("ime_reset")
+    async def ime_reset() -> CallToolResult:
+        """Class: system; Action: 还原到系统默认输入法（IME reset）; Args: none; Use: 结束 AdbIME/临时输入法注入后恢复默认输入法; Return: CallToolResult(text + structuredContent); Notes: 等同于执行 `adb shell ime reset`，可能受系统策略/权限影响。"""
+        return await broadcast(
+            tool="ime_reset",
+            args={},
+            target_list=manage.snapshot,
+            call=lambda agent: agent.ime_reset()
+        )
+
+    @mcp.tool()
     @task_middleware("swipe_unlock")
     async def swipe_unlock() -> CallToolResult:
         """Class: system; Action: 点亮并上滑解锁; Args: none; Use: UI 操作前确保可交互; Return: None; Notes: 不处理密码/指纹等二次验证。"""

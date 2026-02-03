@@ -7,7 +7,6 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-import asyncio
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.mcp_hub.hub_device import Device
@@ -19,22 +18,6 @@ from backend.utilities.toolbox import broadcast
 
 
 def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
-
-    @mcp.tool()
-    @task_middleware("sleep")
-    async def sleep(delay: float) -> CallToolResult:
-        """Class: tool; Action: 固定等待; Args: delay(float); Use: 稳定节奏/等待动画; Return: CallToolResult(text + structuredContent); Notes: 仅时间延迟≠页面就绪。"""
-
-        async def call(*_) -> None:
-            job_id = await idle.job_begin("tool.sleep", args={"delay": delay})
-            try:
-                return await asyncio.sleep(delay)
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="sleep", args={"delay": delay}, target_list=[None], call=call
-        )
 
     @mcp.tool()
     @task_middleware("refresh")

@@ -1,8 +1,9 @@
-#  ___        __                            _   _
-# |_ _|_ __  / _| ___  _ __ _ __ ___   __ _| |_(_) ___  _ __
-#  | || '_ \| |_ / _ \| '__| '_ ` _ \ / _` | __| |/ _ \| '_ \
-#  | || | | |  _| (_) | |  | | | | | | (_| | |_| | (_) | | | |
-# |___|_| |_|_|  \___/|_|  |_| |_| |_|\__,_|\__|_|\___/|_| |_|
+#  ___                           _
+# |_ _|_ __  ___ _ __   ___  ___| |_
+#  | || '_ \/ __| '_ \ / _ \/ __| __|
+#  | || | | \__ \ |_) |  __/ (__| |_
+# |___|_| |_|___/ .__/ \___|\___|\__|
+#               |_|
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
@@ -18,7 +19,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
     @mcp.tool()
     @task_middleware("query_idle")
     async def query_idle() -> CallToolResult:
-        """Class: information; Action: 查询服务运行状态/后台任务数量/任务概览; Args: none; Use: 获取当前运行中任务、后台队列/并发占用、空闲程度与可接新任务能力; Return: CallToolResult(text + structuredContent); Notes: 服务状态快照。"""
+        """Class: inspect; Action: 查询服务运行状态/后台任务数量/任务概览; Args: none; Use: 获取当前运行中任务、后台队列/并发占用、空闲程度与可接新任务能力; Return: CallToolResult(text + structuredContent); Notes: 服务状态快照。"""
 
         async def call(*_) -> dict:
             return await idle.snapshot()

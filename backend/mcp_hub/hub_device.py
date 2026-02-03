@@ -461,6 +461,12 @@ class Device(object):
         return await Terminal.cmd_line_shell(shell_cmd)
 
     # workflow: ==== System Control MCP Tool ====
+    async def ime_reset(self) -> typing.Any:
+        """还原到系统默认输入法（等同于 `adb shell ime reset`）。"""
+        cmd = self.prefix + ["shell", "ime", "reset"]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== System Control MCP Tool ====
     async def swipe_unlock(self) -> None:
         """点亮屏幕并上滑解锁。"""
         await self.screen_set(True)
@@ -592,15 +598,37 @@ class Device(object):
         return await Terminal.cmd_line_shell(cmd)
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def send_keys(self, text: str) -> typing.Any:
+    async def send_keys(
+        self,
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: str | list,
+        text: str
+    ) -> typing.Any:
         """向当前焦点输入文本。"""
-        char = text.replace("\r\n", "\n").replace("\r", "\n")
-        char = char.replace("\n", " ").replace("\t", " ")
-        char = char.replace("%", "%25")
-        char = char.replace(" ", "%s")
+        if err := await self.ensure_ime():
+            return err
+
+        await self.click(by, value)
 
         cmd = self.prefix + [
-            "shell", "input", "text", char
+            "shell", "am", "broadcast", "-a", "ADB_INPUT_TEXT", "-es", "msg", text
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== UI Interaction MCP Tool ====
+    async def clear_text(
+        self,
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: str | list,
+    ) -> typing.Any:
+        """通过 AdbIME 清空当前焦点输入框文本（等同于 `adb shell am broadcast -a ADB_CLEAR_TEXT`）。"""
+        if err := await self.ensure_ime():
+            return err
+
+        await self.click(by, value)
+
+        cmd = self.prefix + [
+            "shell", "am", "broadcast", "-a", "ADB_CLEAR_TEXT"
         ]
         return await Terminal.cmd_line(cmd)
 
@@ -747,6 +775,30 @@ class Device(object):
                 return {"node": n.attrib, "bounds": [x1, y1, x2, y2], "center": [cx, cy]}
 
         return None
+
+    # workflow: ==== UI ====
+    async def ensure_ime(self) -> typing.Optional[dict]:
+        """检测并切换到 AdbIME（com.android.adbkeyboard/.AdbIME）。"""
+        ime = "com.android.adbkeyboard/.AdbIME"
+        cmd = self.prefix + ["shell", "ime", "list", "-s"]
+
+        out = await Terminal.cmd_line(cmd)
+        if ime in (out or ""):
+            await Terminal.cmd_line(self.prefix + ["shell", "ime", "enable", ime])
+            return await Terminal.cmd_line(self.prefix + ["shell", "ime", "set", ime])
+
+        return {
+            "text": "无法切换到 AdbIME：设备未安装或未注册该输入法",
+            "attachments": [],
+            "data": {
+                "ok"         : False,
+                "stage"      : "check",
+                "ime_target" : ime,
+                "reason"     : "ime_not_found",
+                "ime_list"   : [s for s in out.splitlines() if s.strip()],
+                "suggest"    : ["先安装 ADBKeyBoard（https://github.com/senzhk/ADBKeyBoard）"]
+            }
+        }
 
     # workflow: ==== UI ====
     async def cap_to_local(self, local_path: str) -> str:

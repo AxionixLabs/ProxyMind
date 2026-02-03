@@ -50,49 +50,102 @@ async def broadcast(
     call: typing.Callable[[typing.Any], typing.Awaitable[typing.Any]]
 ) -> CallToolResult:
 
+    def normalize() -> dict[str, typing.Any]:
+        """
+        归一化单个 agent 返回为：
+        {
+          "text"        : str|None,
+          "attachments" : list,
+          "data"        : any,
+          "logs"        : list
+        }
+        """
+        if raw is None:
+            return {"text": None, "attachments": [], "data": None, "logs": []}
+
+        if isinstance(raw, str):
+            return {"text": raw, "attachments": [], "data": None, "logs": []}
+
+        if isinstance(raw, dict):
+            return {
+                "text"        : raw.get("text"),
+                "attachments" : raw.get("attachments") or [],
+                "data"        : raw.get("data") if "data" in raw else raw,  # 兼容：没 data 就把整包当 data
+                "logs"        : raw.get("logs") or []
+            }
+
+        # 其他类型：按 data 返回
+        return {"text": None, "attachments": [], "data": raw, "logs": []}
+
     t0 = time.time()
 
     raw_list = await asyncio.gather(
         *(call(target) for target in target_list), return_exceptions=True
     )
 
-    done, fail, results = 0, 0, []
+    done, fail, results, attachments = 0, 0, [], []
 
     for target, raw in zip(target_list, raw_list):
+        agent_id = getattr(target, "agent_id", None) or str(target)
+
         call_item: dict[str, typing.Any] = {
-            "agent_id" : getattr(target, "agent_id", None) or str(target),
-            "ok"       : True,
-            "data"     : None,
-            "logs"     : []
+            "agent_id"    : agent_id,
+            "ok"          : True,
+            "text"        : None,
+            "attachments" : [],
+            "data"        : None,
+            "logs"        : []
         }
         if isinstance(raw, Exception):
-            call_item["data"] = f"{type(raw).__name__}: {raw}"
             call_item["ok"]   = False
+            call_item["text"] = f"{type(raw).__name__}: {raw}"
+            call_item["data"] = None
             fail += 1
         else:
-            call_item["data"] = raw
-            call_item["ok"]   = True
+            pack = normalize()
+            call_item["ok"]          = True
+            call_item["text"]        = pack.get("text")
+            call_item["attachments"] = pack.get("attachments") or []
+            call_item["data"]        = pack.get("data")
+            call_item["logs"]        = pack.get("logs") or []
             done += 1
+
+        # 汇总附件：带上 agent_id 方便定位来源
+        for attach in call_item["attachments"]:
+            if isinstance(attach, dict):
+                attachments.append({"agent_id": agent_id, **attach})
+            else:
+                attachments.append({"agent_id": agent_id, "kind": "unknown", "value": attach})
+
         results.append(call_item)
+
+    total   = len(target_list)
+    cost_ms = int((time.time() - t0) * 1000)
+
+    lines: list[str] = [f"tool={tool} total={total} ok={done} fail={fail} elapsed_ms={cost_ms}"]
+    for r in results:
+        if r["ok"]:
+            show = r.get("text", "") if r.get("text") is not None else str(r.get("data") or "")
+            lines.append(f"agent_id={r['agent_id']} ok=True {show}")
+        else:
+            lines.append(f"agent_id={r['agent_id']} ok=False error={r['text']}")
 
     structured: typing.Optional[dict[str, typing.Any]] = {
         "tool" : tool,
         "args" : args,
-        "cost" : (cost_ms := int((time.time() - t0) * 1000)),
+        "cost" : cost_ms,
         "summary" : {
-            "total" : (total := len(target_list)),
+            "total" : total,
             "done"  : done,
             "fail"  : fail
         },
-        "results" : results
+        "text"        : "\n".join(lines),
+        "attachments" : attachments,
+        "results"     : results
     }
 
-    lines: list[str] = [f"tool={tool} total={total} ok={done} fail={fail} elapsed_ms={cost_ms}"] + [
-        f"agent_id={r['agent_id']} ok={r['ok']} data={r['data']}" for r in results
-    ]
-
     return CallToolResult(
-        content=[TextContent(type="text", text="\n".join(lines))],
+        content=[TextContent(type="text", text=structured["text"])],
         structuredContent=structured,
         isError=(total > 0 and done < total),
         _meta={"logs": [r.get("logs", []) for r in results]}
