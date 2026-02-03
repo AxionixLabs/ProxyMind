@@ -356,8 +356,8 @@ class Device(object):
         Returns:
             dict: {"text": str, "lines": int, "truncated": bool}
         """
-        # 基础命令：threadtime + dump
-        cmd: list[str] = self.prefix + ["logcat", "-v", "threadtime", "-d"]
+
+        cmd = self.prefix + ["logcat", "-v", "threadtime", "-d"]
 
         # since_sec -> -T 时间点（设备/adb 版本差异可能导致忽略，但不会致命）
         try:
