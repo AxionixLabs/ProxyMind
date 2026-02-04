@@ -34,7 +34,7 @@ async def upload_file_stream(
     p = Path(path).expanduser()
 
     if not p.exists() or not p.is_file():
-        raise RuntimeError(f"[PATH_INVALID] upload_file_stream: file not exists: {p}")
+        raise RuntimeError(f"upload_file_stream: file not exists: {p}")
     
     url = f"https://api.appserverx.com/upload"
     headers = Channel.make_headers()
