@@ -9,6 +9,7 @@
 import json
 import httpx
 import typing
+import mimetypes
 from pathlib import Path
 from loguru import logger
 from engine.channel import Channel
@@ -17,32 +18,41 @@ from mindnova import const
 
 async def upload_file_stream(
     path: str,
+    agent_id: str,
+    purpose: str = "uploads",
     prefix: str = "uploads",
     timeout: float = 60.0
 ) -> dict[str, typing.Any]:
     """
     流式上传本地文件到服务端 /upload（服务端再流式转发到 R2）。
-
-    Args:
-        path(str)       : 本地文件绝对/相对路径（必须存在且为文件）。
-        prefix(str)     : R2 key 前缀（如 screenshots / logs / videos）。
-        timeout(float)  : HTTP 超时（秒）。
-
-    Returns:
-        dict: {"key": str, "url": str, "filename": str, "mime_type": str}
+    payload = {
+        "text": "screenshot captured and uploaded",
+        "attachments": [
+            {"kind": "image", "url": "https://signed-r2-url/xxx.png"}
+        ],
+        "data": {
+            "agent_id"  : "device_01",
+            "r2_key"    : "screenshots/device_01/...",
+            "filename"  : "xxx.png",
+            "mime_type" : "image/png"
+        }
+    }
+    Returns: {"agent_id","key","url","filename","mime_type"}
     """
     p = Path(path).expanduser()
-
     if not p.exists() or not p.is_file():
         raise RuntimeError(f"upload_file_stream: file not exists: {p}")
-    
-    url = f"https://api.appserverx.com/upload"
+
+    url = "https://api.appserverx.com/upload"
     headers = Channel.make_headers()
+    ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
 
     with p.open("rb") as f:
-        files = {"file": (p.name, f, "application/octet-stream")}
+        files = {"file": (p.name, f, ctype)}
         data = {
-            "prefix": prefix
+            "agent_id" : agent_id,
+            "purpose"  : purpose,
+            "prefix"   : prefix
         }
 
         async with httpx.AsyncClient(timeout=timeout) as client:
