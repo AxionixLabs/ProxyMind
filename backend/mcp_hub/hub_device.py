@@ -533,24 +533,44 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def swipe_direction(
+    async def scroll_direction(
         self,
         direction: typing.Literal["up", "down", "left", "right"],
         x: int,
         y: int,
-        duration: int = 300,
+        duration: int = 300
     ) -> typing.Any:
-        """以锚点为参考，按方向进行语义滑动，根据屏幕尺寸自动计算终点坐标。"""
+        """
+        以锚点为参考，按“内容滚动方向（scroll）”进行语义滑动。
+        注意：底层 adb `input swipe` 是“手指轨迹”，因此这里会做方向反转：
+          - scroll up   -> finger down
+          - scroll down -> finger up
+          - scroll left -> finger right
+          - scroll right-> finger left
+        """
 
         w, h = await self.st_wm_size()
 
-        x1, y1, x2, y2 = x, y, 0, 0
+        x1, y1 = x, y
+        x2, y2 = x1, y1
 
+        # 这里的 0.25 / 0.75 只是目标落点比例：你也可以改成基于锚点的偏移量
         match direction:
-            case "up"    : x2, y2 = x1, max(0, int(h * 0.25))
-            case "down"  : x2, y2 = x1, min(h - 1, int(h * 0.75))
-            case "left"  : x2, y2 = max(0, int(w * 0.25)), y1
-            case "right" : x2, y2 = min(w - 1, int(w * 0.75)), y1
+            # 内容向上滚：手指向下
+            case "up":
+                x2, y2 = x1, min(h - 1, int(h * 0.75))
+
+            # 内容向下滚：手指向上
+            case "down":
+                x2, y2 = x1, max(0, int(h * 0.25))
+
+            # 内容向左滚：手指向右
+            case "left":
+                x2, y2 = min(w - 1, int(w * 0.75)), y1
+
+            # 内容向右滚：手指向左
+            case "right":
+                x2, y2 = max(0, int(w * 0.25)), y1
 
         cmd = self.prefix + [
             "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration)
