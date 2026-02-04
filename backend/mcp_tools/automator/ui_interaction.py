@@ -140,31 +140,25 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
     @mcp.tool()
     @task_middleware("send_keys")
-    async def send_keys(
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
-        value: str,
-        text: str
-    ) -> CallToolResult:
-        """Class: ui; Action: 点击目标后向当前焦点输入文本; Args: by(id|desc|text|bbox|xpath), value(str exact, 用于定位并点击目标), text(str 待输入内容); Use: 先根据(by,value)执行点击以聚焦输入框，再注入文本; Return: CallToolResult(text + structuredContent, 可包含点击/输入结果与错误信息); Notes: 目标不可点击/焦点未获得/输入法不可用/权限受限时可能失败；复杂页面可在点击后增加短暂等待或重试。"""
+    async def send_keys(text: str) -> CallToolResult:
+        """Class: ui; Action: 向当前焦点输入文本; Args: text(str=待输入内容); Use: 将 text 注入当前已获得焦点的输入框/编辑控件；适用于你已通过其它步骤确保焦点在目标输入框上; Return: CallToolResult(text + structuredContent, 可包含输入结果与错误信息); Notes: 若当前无可输入焦点/输入法不可用/权限受限/AdbIME 未启用可能失败。"""
         return await broadcast(
             tool="send_keys",
-            args={"by": by, "value": value, "text": text},
+            args={"text": text},
             target_list=manage.snapshot,
-            call=lambda agent: agent.send_keys(by, value, text)
+            call=lambda agent: agent.send_keys(text)
         )
-
+    
+    
     @mcp.tool()
     @task_middleware("clear_text")
-    async def clear_text(
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
-        value: str
-    ) -> CallToolResult:
-        """Class: ui; Action: 点击目标以聚焦输入框后清空文本（AdbIME ADB_CLEAR_TEXT）; Args: by(id|desc|text|bbox|xpath), value(str exact, 用于定位并点击目标); Use: 输入前/重试前清空输入框；工具会先点击(by,value)获取焦点，再通过 AdbIME 广播清空; Return: CallToolResult(text + structuredContent); Notes: 等同于执行 `adb shell am broadcast -a ADB_CLEAR_TEXT`（清空动作）；若目标不可点击/焦点未获得/未安装或未启用 AdbIME 可能无效果。"""
+    async def clear_text() -> CallToolResult:
+        """Class: ui; Action: 清空当前焦点文本（AdbIME ADB_CLEAR_TEXT）; Args: none; Use: 清空当前已获得焦点的输入框内容；常用于输入前重置或失败重试前清理; Return: CallToolResult(text + structuredContent); Notes: 等价于执行 `adb shell am broadcast -a ADB_CLEAR_TEXT`；若当前无可编辑焦点/未安装或未启用 AdbIME/权限受限可能无效果。"""
         return await broadcast(
             tool="clear_text",
-            args={"by": by, "value": value},
+            args={},
             target_list=manage.snapshot,
-            call=lambda agent: agent.clear_text(by, value)
+            call=lambda agent: agent.clear_text()
         )
 
     @mcp.tool()
