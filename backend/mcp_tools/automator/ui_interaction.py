@@ -19,47 +19,47 @@ from backend.utilities.toolbox import broadcast
 def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
     @mcp.tool()
-    @task_middleware("swipe_up")
-    async def swipe_up(x: int, y: int, duration: int = 300) -> CallToolResult:
-        """Class: ui; Action: 上方向滑动; Args: x,y(int), duration(ms)=300; Use: 页面向上滚动/翻页; Return: CallToolResult(text + structuredContent); Notes: semantic swipe."""
+    @task_middleware("scroll_up")
+    async def scroll_up(x: int, y: int, duration: int = 300) -> CallToolResult:
+        """Class: ui; Action: 内容向上滚动（scroll up, 手指向下滑）; Args: x(int)=锚点横坐标(px), y(int)=锚点纵坐标(px), duration(int=300)=手势时长(ms); Use: 列表/页面内容上移（露出更靠后的内容）；内部将 scroll 语义反转为 adb 手指轨迹; Return: CallToolResult(text + structuredContent); Notes: 这是内容滚动语义，不是手指方向；具体效果依赖控件是否可滚动。"""
         return await broadcast(
-            tool="swipe_up",
+            tool="scroll_up",
             args={"x": x, "y": y, "duration": duration},
             target_list=manage.snapshot,
-            call=lambda agent: agent.swipe_direction("up", x, y, duration)
+            call=lambda agent: agent.scroll_direction("up", x, y, duration)
         )
-
+    
     @mcp.tool()
-    @task_middleware("swipe_down")
-    async def swipe_down(x: int, y: int, duration: int = 300) -> CallToolResult:
-        """Class: ui; Action: 下方向滑动; Args: x,y(int), duration(ms)=300; Use: 页面向下滚动/返回; Return: CallToolResult(text + structuredContent); Notes: semantic swipe."""
+    @task_middleware("scroll_down")
+    async def scroll_down(x: int, y: int, duration: int = 300) -> CallToolResult:
+        """Class: ui; Action: 内容向下滚动（scroll down, 手指向上滑）; Args: x(int)=锚点横坐标(px), y(int)=锚点纵坐标(px), duration(int=300)=手势时长(ms); Use: 列表/页面内容下移（回到更靠前的内容）；内部将 scroll 语义反转为 adb 手指轨迹; Return: CallToolResult(text + structuredContent); Notes: 这是内容滚动语义，不是手指方向；具体效果依赖控件是否可滚动。"""
         return await broadcast(
-            tool="swipe_down",
+            tool="scroll_down",
             args={"x": x, "y": y, "duration": duration},
             target_list=manage.snapshot,
-            call=lambda agent: agent.swipe_direction("down", x, y, duration)
+            call=lambda agent: agent.scroll_direction("down", x, y, duration)
         )
-
+    
     @mcp.tool()
-    @task_middleware("swipe_left")
-    async def swipe_left(x: int, y: int, duration: int = 300) -> CallToolResult:
-        """Class: ui; Action: 左方向滑动; Args: x,y(int), duration(ms)=300; Use: 左翻页/轮播切换; Return: CallToolResult(text + structuredContent); Notes: semantic swipe."""
+    @task_middleware("scroll_left")
+    async def scroll_left(x: int, y: int, duration: int = 300) -> CallToolResult:
+        """Class: ui; Action: 内容向左滚动（scroll left, 手指向右滑）; Args: x(int)=锚点横坐标(px), y(int)=锚点纵坐标(px), duration(int=300)=手势时长(ms); Use: 横向列表/轮播内容左移（看到右侧内容）；内部将 scroll 语义反转为 adb 手指轨迹; Return: CallToolResult(text + structuredContent); Notes: 这是内容滚动语义，不是手指方向；具体效果依赖控件是否可横向滚动。"""
         return await broadcast(
-            tool="swipe_left",
+            tool="scroll_left",
             args={"x": x, "y": y, "duration": duration},
             target_list=manage.snapshot,
-            call=lambda agent: agent.swipe_direction("left", x, y, duration)
+            call=lambda agent: agent.scroll_direction("left", x, y, duration)
         )
-
+    
     @mcp.tool()
-    @task_middleware("swipe_right")
-    async def swipe_right(x: int, y: int, duration: int = 300) -> CallToolResult:
-        """Class: ui; Action: 右方向滑动; Args: x,y(int), duration(ms)=300; Use: 右翻页/进入下一屏; Return: CallToolResult(text + structuredContent); Notes: semantic swipe."""
+    @task_middleware("scroll_right")
+    async def scroll_right(x: int, y: int, duration: int = 300) -> CallToolResult:
+        """Class: ui; Action: 内容向右滚动（scroll right, 手指向左滑）; Args: x(int)=锚点横坐标(px), y(int)=锚点纵坐标(px), duration(int=300)=手势时长(ms); Use: 横向列表/轮播内容右移（看到左侧内容）；内部将 scroll 语义反转为 adb 手指轨迹; Return: CallToolResult(text + structuredContent); Notes: 这是内容滚动语义，不是手指方向；具体效果依赖控件是否可横向滚动。"""
         return await broadcast(
-            tool="swipe_right",
+            tool="scroll_right",
             args={"x": x, "y": y, "duration": duration},
             target_list=manage.snapshot,
-            call=lambda agent: agent.swipe_direction("right", x, y, duration)
+            call=lambda agent: agent.scroll_direction("right", x, y, duration)
         )
 
     @mcp.tool()
