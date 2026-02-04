@@ -19,7 +19,6 @@ from mindnova import const
 async def upload_file_stream(
     path: str,
     agent_id: str,
-    purpose: str = "uploads",
     prefix: str = "uploads",
     timeout: float = 60.0
 ) -> dict[str, typing.Any]:
@@ -51,9 +50,7 @@ async def upload_file_stream(
     with p.open("rb") as f:
         files = {"file": (p.name, f, ctype)}
         data = {
-            "agent_id" : agent_id,
-            "purpose"  : purpose,
-            "prefix"   : prefix
+            "agent_id": agent_id, "prefix": prefix
         }
 
         async with httpx.AsyncClient(timeout=timeout) as client:
