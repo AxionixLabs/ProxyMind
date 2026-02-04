@@ -45,6 +45,7 @@ async def upload_file_stream(
 
     url = "https://api.appserverx.com/upload"
     headers = Channel.make_headers()
+    headers.pop("Content-Type", None)
     ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
 
     with p.open("rb") as f:
