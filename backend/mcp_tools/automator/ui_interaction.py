@@ -63,35 +63,36 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         )
 
     @mcp.tool()
-    @task_middleware("swipe_to_top")
-    async def swipe_to_top() -> CallToolResult:
-        """Class: ui; Action: 滑动到顶部; Args: 无; Use: 快速回到列表/页面顶部; Return: CallToolResult(text + structuredContent); Notes: 内部基于 swipe_to_edge('top')，会循环滑动直到到达边界或判定无变化。"""
-
+    @task_middleware("scroll_to_top")
+    async def scroll_to_top() -> CallToolResult:
+        """Class: ui; Action: 内容滚动到顶部; Args: 无; Use: 快速回到列表/页面顶部（top edge）；Return: CallToolResult(text + structuredContent); Notes: 内部基于 device.scroll_to_edge('top')（循环滚动，直到到达边界或判定无变化）。"""
+    
         async def call(device: Device) -> dict:
-            job_id = await idle.job_begin("ui.swipe_to_top", args={})
+            job_id = await idle.job_begin("ui.scroll_to_top", args={})
             try:
-                return await device.swipe_to_top()
+                return await device.scroll_to_top()
             finally:
                 await idle.job_final(job_id)
-
+    
         return await broadcast(
-            tool="swipe_to_top", args={}, target_list=manage.snapshot, call=call
+            tool="scroll_to_top", args={}, target_list=manage.snapshot, call=call
         )
-
+    
+    
     @mcp.tool()
-    @task_middleware("swipe_to_bottom")
-    async def swipe_to_bottom() -> CallToolResult:
-        """Class: ui; Action: 滑动到底部; Args: 无; Use: 快速滑到列表/页面底部; Return: CallToolResult(text + structuredContent); Notes: 内部基于 swipe_to_edge('bottom')，会循环滑动直到到达边界或判定无变化。"""
-
+    @task_middleware("scroll_to_bottom")
+    async def scroll_to_bottom() -> CallToolResult:
+        """Class: ui; Action: 内容滚动到底部; Args: 无; Use: 快速滚到列表/页面底部（bottom edge）；Return: CallToolResult(text + structuredContent); Notes: 内部基于 device.scroll_to_edge('bottom')（循环滚动，直到到达边界或判定无变化）。"""
+    
         async def call(device: Device) -> dict:
-            job_id = await idle.job_begin("ui.swipe_to_bottom", args={})
+            job_id = await idle.job_begin("ui.scroll_to_bottom", args={})
             try:
-                return await device.swipe_to_bottom()
+                return await device.scroll_to_bottom()
             finally:
                 await idle.job_final(job_id)
-
+    
         return await broadcast(
-            tool="swipe_to_bottom", args={}, target_list=manage.snapshot, call=call
+            tool="scroll_to_bottom", args={}, target_list=manage.snapshot, call=call
         )
 
     @mcp.tool()
