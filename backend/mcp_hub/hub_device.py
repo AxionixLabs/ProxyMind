@@ -598,34 +598,21 @@ class Device(object):
         return await Terminal.cmd_line_shell(cmd)
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def send_keys(
-        self,
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
-        value: str | list,
-        text: str
-    ) -> typing.Any:
+    async def send_keys(self, text: str) -> typing.Any:
         """向当前焦点输入文本。"""
         if err := await self.ensure_ime():
             return err
 
-        await self.click(by, value)
-
         cmd = self.prefix + [
-            "shell", "am", "broadcast", "-a", "ADB_INPUT_TEXT", "-es", "msg", text
+            "shell", "am", "broadcast", "-a", "ADB_INPUT_TEXT", "--es", "msg", f"\'{text}\'"
         ]
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def clear_text(
-        self,
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
-        value: str | list,
-    ) -> typing.Any:
+    async def clear_text(self) -> typing.Any:
         """通过 AdbIME 清空当前焦点输入框文本（等同于 `adb shell am broadcast -a ADB_CLEAR_TEXT`）。"""
         if err := await self.ensure_ime():
             return err
-
-        await self.click(by, value)
 
         cmd = self.prefix + [
             "shell", "am", "broadcast", "-a", "ADB_CLEAR_TEXT"
@@ -785,7 +772,8 @@ class Device(object):
         out = await Terminal.cmd_line(cmd)
         if ime in (out or ""):
             await Terminal.cmd_line(self.prefix + ["shell", "ime", "enable", ime])
-            return await Terminal.cmd_line(self.prefix + ["shell", "ime", "set", ime])
+            await Terminal.cmd_line(self.prefix + ["shell", "ime", "set", ime])
+            return None
 
         return {
             "text": "无法切换到 AdbIME：设备未安装或未注册该输入法",
