@@ -9,9 +9,46 @@
 import json
 import httpx
 import typing
+from pathlib import Path
 from loguru import logger
 from engine.channel import Channel
 from mindnova import const
+
+
+async def upload_file_stream(
+    path: str,
+    prefix: str = "uploads",
+    timeout: float = 60.0
+) -> dict[str, typing.Any]:
+    """
+    流式上传本地文件到服务端 /upload（服务端再流式转发到 R2）。
+
+    Args:
+        path(str)       : 本地文件绝对/相对路径（必须存在且为文件）。
+        prefix(str)     : R2 key 前缀（如 screenshots / logs / videos）。
+        timeout(float)  : HTTP 超时（秒）。
+
+    Returns:
+        dict: {"key": str, "url": str, "filename": str, "mime_type": str}
+    """
+    p = Path(path).expanduser()
+
+    if not p.exists() or not p.is_file():
+        raise RuntimeError(f"[PATH_INVALID] upload_file_stream: file not exists: {p}")
+    
+    url = f"https://api.appserverx.com/upload"
+    headers = Channel.make_headers()
+
+    with p.open("rb") as f:
+        files = {"file": (p.name, f, "application/octet-stream")}
+        data = {
+            "prefix": prefix
+        }
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(url, headers=headers, data=data, files=files)
+            r.raise_for_status()
+            return r.json()
 
 
 async def post_tool_result(
@@ -20,15 +57,7 @@ async def post_tool_result(
     call_id: str,
     name: str,
     ok: bool,
-    result: typing.Union[
-        None,
-        bool,
-        int,
-        float,
-        str,
-        list[typing.Any],
-        dict[str, typing.Any]
-    ]
+    result: typing.Union[ None, bool, int, float, str, list[typing.Any], dict[str, typing.Any]]
 ) -> None:
     """Post tool result"""
 
