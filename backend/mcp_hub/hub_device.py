@@ -578,14 +578,14 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def swipe_to_top(self) -> dict[str, typing.Any]:
-        """滑动到顶部。"""
-        return await self.swipe_to_edge("top")
+    async def scroll_to_top(self) -> dict[str, typing.Any]:
+        """内容向上滚动到顶部。"""
+        return await self.scroll_to_edge("top")
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def swipe_to_bottom(self) -> dict[str, typing.Any]:
-        """滑动到底部。"""
-        return await self.swipe_to_edge("bottom")
+    async def scroll_to_bottom(self) -> dict[str, typing.Any]:
+        """内容向下滚动到底部。"""
+        return await self.scroll_to_edge("bottom")
 
     # workflow: ==== UI Interaction MCP Tool ====
     async def tap(self, x: int, y: int) -> typing.Any:
@@ -815,7 +815,7 @@ class Device(object):
         return await self.pull(remote, local_path)
 
     # workflow: ==== UI ====
-    async def swipe_to_edge(self, edge: typing.Literal["top", "bottom"] = "top") -> dict[str, typing.Any]:
+    async def scroll_to_edge(self, edge: typing.Literal["top", "bottom"] = "top") -> dict[str, typing.Any]:
         """滑动到边界：top=回到顶部(手指上->下)，bottom=滑到底部(手指下->上)"""
         max_swipes: int = 30
 
