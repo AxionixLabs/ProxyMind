@@ -6,6 +6,7 @@
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
+import os
 import re
 import time
 import uuid
@@ -342,64 +343,89 @@ class Device(object):
     async def logcat_dump(
         self,
         since_sec: int = 5,
-        tag: typing.Optional[str] = None,
-        priority: typing.Optional[str] = None
+        keywords: typing.Optional[list[str]] = None,
+        max_lines: int = 200,
+        saved: typing.Optional[str] = None
     ) -> dict:
-        """
-        一次性拉取 logcat 文本快照（dump），默认只取最近 5 秒、最多 200 行（保留尾部）。
-
-        Args:
-            since_sec : 最近多少秒（默认 5）。用于生成 logcat -T 时间点。
-            tag       : 仅输出指定 tag（可选）。
-            priority  : 日志级别（V/D/I/W/E/F/S；可选）。与 tag 搭配更常用。
-
-        Returns:
-            dict: {"text": str, "lines": int, "truncated": bool}
-        """
+        """一次性拉取 logcat 快照；按 keywords(不分大小写 OR) 过滤；saved=None 返回尾部 max_lines；saved=目录/文件则保存全量(不受200行限制)。"""
+        await self.logcat_clean()
 
         cmd = self.prefix + ["logcat", "-v", "threadtime", "-d"]
 
-        # since_sec -> -T 时间点（设备/adb 版本差异可能导致忽略，但不会致命）
+        # since_sec -> -T
         try:
             ss = int(since_sec)
         except (TypeError, ValueError):
             ss = 5
-        if ss <= 0:
-            ss = 5
+        ss = 5 if ss <= 0 else ss
 
         dt = datetime.datetime.now() - datetime.timedelta(seconds=ss)
         ts = dt.strftime("%m-%d %H:%M:%S.000")
         cmd += ["-T", ts]
 
-        # tag / priority 原生过滤
-        if tag and str(tag).strip():
-            pr = (priority or "V").upper().strip()
-            if pr not in {"V", "D", "I", "W", "E", "F", "S"}:
-                pr = "V"
-            cmd += ["-s", f"{str(tag).strip()}:{pr}", "*:S"]
-        elif priority and str(priority).strip():
-            pr = str(priority).upper().strip()
-            if pr in {"V", "D", "I", "W", "E", "F", "S"}:
-                cmd += [f"*:{pr}"]
-            # priority 非法则忽略（不报错，避免意外空输出）
-
         raw = await Terminal.cmd_line(cmd)
         text = raw or ""
+        lines = text.splitlines()
 
-        # max_lines 截断（保留尾部）
-        max_lines = 200
-        all_lines = text.splitlines()
+        # keywords 过滤：OR + 不分大小写
+        ks: list[str] = []
+        if keywords:
+            ks = [str(k).strip() for k in keywords if k and str(k).strip()]
+        if ks:
+            pattern = re.compile("|".join(re.escape(k) for k in ks), re.IGNORECASE)
+            lines = [ln for ln in lines if pattern.search(ln)]
+
+        # saved：目录/文件都支持；目录默认生成文件名；无后缀自动补 .log
+        if saved and str(saved).strip():
+            p = Path(str(saved)).expanduser()
+
+            if p.suffix:  # 明确文件
+                out = p
+            else:
+                # 认为是目录（无后缀）：确保目录存在，并生成默认文件名
+                out_dir = p
+                out_dir.mkdir(parents=True, exist_ok=True)
+                name = f"logcat_{time.strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(4)}.log"
+                out = out_dir / name
+
+            if not out.suffix:
+                out = out.with_suffix(".log")
+
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text("\n".join(lines), const.CHARSET, const.IGNORE)
+            saved_path = str(out.resolve())
+
+            return {
+                "text": f"logcat saved: {Path(saved_path).name}",
+                "attachments": [
+                    {"kind": "file", "path": saved_path, "filename": Path(saved_path).name, "mime_type": "text/plain"}
+                ],
+                "data": {
+                    "lines"     : len(lines),
+                    "truncated" : False,
+                    "since_sec" : ss,
+                    "keywords"  : ks,
+                    "saved"     : saved_path
+                },
+                "logs": []
+            }
+
+        # 未保存：尾部截断
         truncated = False
-
-        if len(all_lines) > max_lines:
-            truncated = True
-            all_lines = all_lines[-max_lines:]
-            text = "\n".join(all_lines)
+        if 0 < (ml := int(max_lines) if max_lines else 0) < len(lines):
+            truncated, lines = True, lines[-ml:]
 
         return {
-            "text"      : text,
-            "lines"     : len(all_lines),
-            "truncated" : truncated
+            "text": "\n".join(lines),
+            "attachments": [],
+            "data": {
+                "lines"     : len(lines),
+                "truncated" : truncated,
+                "since_sec" : ss,
+                "keywords"  : ks,
+                "saved"     : None
+            },
+            "logs": []
         }
 
     # workflow: ==== File Control MCP Tool ====
@@ -419,17 +445,19 @@ class Device(object):
         return await Terminal.cmd_link(cmd)
 
     # workflow: ==== Media Control MCP Tool ====
-    async def screenshot(self) -> str:
-        """在设备上截屏并返回远端路径。"""
-        filename = f"screenshot_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
-        remote = f"/data/local/tmp/{filename}"
+    async def screenshot(self, local: str) -> str:
+        """在设备上截屏 -> pull 到指定本地路径，返回本地路径。"""
+        filename = f"screenshot_{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
 
         cmd = self.prefix + [
-            "shell", "screencap", "-p", remote
+            "shell", "screencap", "-p", remote := f"/data/local/tmp/{filename}"
         ]
         await Terminal.cmd_line(cmd)
 
-        return remote
+        new_local = await self.pull(remote, local)
+        await self.remove(remote)
+
+        return new_local
 
     # workflow: ==== System Control MCP Tool ====
     async def open_notification(self) -> typing.Any:
@@ -706,6 +734,7 @@ class Device(object):
             self.current_activity(), self.current_xml(), self.st_wm_size()
         )
         payload = {
+            "serial"    : self.serial,
             "page_id"   : page_id or "",
             "platform"  : "android",
             "locator"   : locator,
@@ -713,16 +742,14 @@ class Device(object):
             "wm_size"   : {"w": w, "h": h}
         }
 
-        image = await self.screenshot()
-
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-            new_local = await self.pull(image, tmp.name)
+            new_local = await self.screenshot(tmp.name)
             with open(new_local, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode()
             payload["screenshot_base64"] = b64
             payload["screenshot_data_url"] = f"data:image/png;base64,{b64}"
 
-        await self.remove(image)
+        os.remove(new_local)
 
         return payload
 
@@ -809,12 +836,6 @@ class Device(object):
         }
 
     # workflow: ==== UI ====
-    async def cap_to_local(self, local_path: str) -> str:
-        """设备截图 -> pull 到指定本地路径（复用文件名，不堆积）返回本地路径。"""
-        remote = await self.screenshot()
-        return await self.pull(remote, local_path)
-
-    # workflow: ==== UI ====
     async def scroll_to_edge(self, edge: typing.Literal["top", "bottom"] = "top") -> dict[str, typing.Any]:
         """滑动到边界：top=回到顶部(手指上->下)，bottom=滑到底部(手指下->上)"""
         max_swipes: int = 30
@@ -847,17 +868,17 @@ class Device(object):
         stable_hits = 0
 
         with tempfile.TemporaryDirectory(prefix="scroll_caps_") as tmp:
-            tmp_dir = Path(tmp)
+            tmp_dir   = Path(tmp)
             prev_path = str(tmp_dir / "prev.png")
-            cur_path = str(tmp_dir / "cur.png")
+            cur_path  = str(tmp_dir / "cur.png")
 
-            prev = await self.cap_to_local(prev_path)
+            prev = await self.screenshot(prev_path)
 
             for n in range(1, max_swipes + 1):
                 await self.swipe(x, y_from, x, y_to, duration_ms)
                 await asyncio.sleep(settle_ms / 1000)
 
-                cur = await self.cap_to_local(cur_path)
+                cur = await self.screenshot(cur_path)
                 last_sim = float(self.image_similarity(prev, cur))
 
                 # 防抖：累计连续“几乎不变”的次数

@@ -22,37 +22,21 @@ async def upload_file_stream(
     prefix: str = "uploads",
     timeout: float = 60.0
 ) -> dict[str, typing.Any]:
-    """
-    流式上传本地文件到服务端 /upload（服务端再流式转发到 R2）。
-    payload = {
-        "text": "screenshot captured and uploaded",
-        "attachments": [
-            {"kind": "image", "url": "https://signed-r2-url/xxx.png"}
-        ],
-        "data": {
-            "agent_id"  : "device_01",
-            "r2_key"    : "screenshots/device_01/...",
-            "filename"  : "xxx.png",
-            "mime_type" : "image/png"
-        }
-    }
-    Returns: {"agent_id","key","url","filename","mime_type"}
-    """
-    p = Path(path).expanduser()
-    if not p.exists() or not p.is_file():
+    """流式上传本地文件到服务端 /upload（服务端再流式转发到 R2）。"""
+    if not (p := Path(path).expanduser()).exists() or not p.is_file():
         raise RuntimeError(f"upload_file_stream: file not exists: {p}")
 
     url = "https://api.appserverx.com/upload"
     headers = Channel.make_headers()
     headers.pop("Content-Type", None)
+
     ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
 
     with p.open("rb") as f:
-        files = {"file": (p.name, f, ctype)}
         data = {
             "agent_id": agent_id, "prefix": prefix
         }
-
+        files = {"file": (p.name, f, ctype)}
         async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.post(url, headers=headers, data=data, files=files)
             r.raise_for_status()

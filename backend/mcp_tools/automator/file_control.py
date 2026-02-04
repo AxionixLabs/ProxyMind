@@ -53,15 +53,16 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @task_middleware("logcat_dump")
     async def logcat_dump(
         since_sec: int = 5,
-        tag: typing.Optional[str] = None,
-        priority: typing.Optional[str] = None
+        keywords: typing.Optional[list[str]] = None,
+        max_lines: int = 200,
+        saved: typing.Optional[str] = None
     ) -> CallToolResult:
-        """Class: file; Action: 拉取 logcat 文本快照(一次性 dump); Args: since_sec(int=5), tag(str?), priority(str?); Use: 调试/失败取证/断言前采样; Return: CallToolResult(text + structuredContent); Notes: 不启动后台进程；默认保留尾部200行。"""
+        """Class: file; Action: 一次性拉取 logcat dump（按 keywords 不分大小写 OR 过滤；saved=目录/文件则保存全量且不截断，否则仅回尾部 max_lines 行）; Args: since_sec(int=5), keywords(list[str]?), max_lines(int=200), saved(str?=None); Return: CallToolResult(text + structuredContent，saved 时 attachments 含文件)."""
         return await broadcast(
             tool="logcat_dump",
-            args={"since_sec": since_sec, "tag": tag, "priority": priority},
+            args={"since_sec": since_sec, "keywords": keywords, "max_lines": max_lines, "saved": saved},
             target_list=manage.snapshot,
-            call=lambda agent: agent.logcat_dump(since_sec, tag, priority)
+            call=lambda agent: agent.logcat_dump(since_sec, keywords, max_lines, saved)
         )
 
     @mcp.tool()

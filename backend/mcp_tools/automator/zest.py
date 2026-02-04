@@ -84,6 +84,23 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
             call=call
         )
 
+    @mcp.tool(meta={"hide": True})
+    @task_middleware("click_matrix")
+    async def click_matrix(matrix: dict[str, dict[str, typing.Any]]) -> CallToolResult:
+
+        async def call(device: Device) -> dict[str, typing.Any]:
+            cfg = (matrix or {}).get(device.serial)
+            if not cfg:
+                return {
+                    "text" : "skipped(no args for serial)",
+                    "data" : {"skipped": True}
+                }
+            return await device.click(cfg["by"], cfg["value"])
+
+        return await broadcast(
+            tool="click_matrix", args={"matrix": matrix}, target_list=manage.snapshot, call=call
+        )
+
 
 if __name__ == '__main__':
     pass

@@ -871,8 +871,11 @@ class TypewriterStreamSession(object):
 
         Design.console.print()
 
-    async def feed(self, content: str) -> None:
+    async def feed(self, content: str, retain: bool = False) -> None:
         if not content: return None
+
+        if len(content) > (limit := 80) and not retain:
+            content = content[:limit] + " " + "..."
 
         self.out, self.delay = await Design.typewriter(
             self.live, content, self.out, self.delay, max(0.0015, self.delay * 0.65), self.cursor

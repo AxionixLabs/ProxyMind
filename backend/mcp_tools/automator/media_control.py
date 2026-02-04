@@ -17,13 +17,13 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
     @mcp.tool()
     @task_middleware("screenshot")
-    async def screenshot() -> CallToolResult:
-        """Class: media; Action: 截取当前屏幕截图; Args: none; Use: 取证/调试/执行后验证; Return: CallToolResult(text + structuredContent); Notes: 截图结果（可能包含路径/bytes/metadata，依 device 实现而定）。"""
+    async def screenshot(local: str) -> CallToolResult:
+        """Class: media; Action: 截取当前屏幕截图并保存到本地路径; Args: local(str); Use: 取证/调试/执行后验证; Return: CallToolResult(text + structuredContent); Notes: 本地保存路径/目录，若为目录将自动生成文件名。"""
         return await broadcast(
             tool="screenshot",
-            args={},
+            args={"local": local},
             target_list=manage.snapshot,
-            call=lambda agent: agent.screenshot()
+            call=lambda agent: agent.screenshot(local)
         )
 
 

@@ -27,6 +27,7 @@ from rich.prompt import Prompt
 from mcp import (
     ClientSession, ListToolsResult
 )
+from mcp.types import CallToolResult
 from mcp.client.streamable_http import streamable_http_client
 
 # ====[ from: 本地模块 ]====
@@ -112,6 +113,109 @@ class Mind(object):
         await self.stop_stream()
         await self.stop_plan()
 
+    @staticmethod
+    def fields(result: CallToolResult) -> typing.Union[dict[str, typing.Any], str]:
+        return sc if (sc := result.structuredContent) else result.content[0].text
+
+    @staticmethod
+    def ensure_model_key(model: str, apikey: str) -> None:
+        if model and apikey:
+            return None
+
+        missing = ", ".join(
+            x for x, ok in [("model", bool(model)), ("api_key", bool(apikey))] if not ok
+        )
+        raise MindError(f"Missing required field(s): {missing}")
+
+    @staticmethod
+    def build_openai_tools(list_tools: ListToolsResult) -> list[dict[str, typing.Any]]:
+        openai_tools: list[dict[str, typing.Any]] = [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description" : tool.description,
+                    "parameters"  : tool.inputSchema
+                }
+            }
+            for tool in list_tools.tools
+            if not (getattr(tool, "meta", None) or {}).get("hide", False)
+        ]
+
+        logger.debug(f"Tool [{len(openai_tools)}]")
+        for tool in openai_tools:
+            logger.debug(f"Tool {tool['function']['name']}")
+
+        return openai_tools
+
+    async def with_mcp_session(
+        self,
+        model: str,
+        apikey: str,
+        function: typing.Callable[[ClientSession, list[dict[str, typing.Any]]], typing.Awaitable[None]]
+    ) -> None:
+        """With MCP Session"""
+
+        self.ensure_model_key(model, apikey)
+
+        url = self.base_url + "/helix/mcp"
+        headers = {"Authorization": f"Bearer {authentic.manufacture_token()}"}
+        timeout = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
+        event_hooks = {"response": [request.capture]}
+
+        async with httpx.AsyncClient(headers=headers, timeout=timeout, event_hooks=event_hooks) as client:
+            async with streamable_http_client(url, http_client=client) as (r, w, _):
+                async with ClientSession(r, w) as session:
+                    await session.initialize()
+                    list_tools = await session.list_tools()
+                    openai_tools = self.build_openai_tools(list_tools)
+                    await function(session, openai_tools)
+
+    # Notes: ==== Chat 对话模式 ====
+    async def chat_exec_looper(
+        self,
+        session: ClientSession,
+        model: str,
+        apikey: str,
+        message: str,
+        openai_tools: list[dict]
+    ) -> None:
+        """Chat Exec Looper"""
+
+        async with TypewriterStreamSession() as tw:
+            # workflow: ==== Chat Streaming ====
+            async for chat in request.stream_chat(model, apikey, message, openai_tools):
+                # await self.stop_stream()
+                match chat.get("type"):
+                    case "error":
+                        return await tw.feed(chat.get("content"))
+                    case "chat":
+                        await tw.feed(chat.get("content"))
+                        continue
+                    case "tool_call":
+                        name, arguments = chat["name"], chat.get("arguments", {})
+                        await tw.feed(f"\n{name} {arguments}\n")
+
+                        result = await session.call_tool(name, arguments)
+                        ok = (not result.isError)
+
+                        enhancer: Enhancer = Enhancer(name, arguments, result, ok, session)
+                        fields = await enhancer.enhance()
+
+                        if self.level != const.SHOW_LEVEL:
+                            await tw.feed(f"\n{fields}\n")
+
+                        await request.post_tool_result(
+                            chat["cid"], chat["sid"], chat["call_id"], name, ok, fields
+                        )
+                        continue
+                    case "tool_result":
+                        if self.level != const.SHOW_LEVEL:
+                            await tw.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
+                        continue
+                    case _:
+                        continue
+
     # Notes: ==== Plan 编排模式 ====
     async def plan_exec_status(self, session: ClientSession) -> typing.Optional[str]:
         """Exec Status"""
@@ -161,18 +265,16 @@ class Mind(object):
 
                         # workflow: ==== 工具调用 ====
                         result = await session.call_tool(name, arguments)
-
-                        fields: typing.Union[
-                            dict[str, typing.Any], str
-                        ] = sc if (sc := result.structuredContent) else result.content[0].text
-
+                        fields = self.fields(result)
                         if result.isError:
                             return await tw.feed(fields)
 
                         # workflow: ==== 查找指令 ====
                         if name in {"find_element"} and (elements := fields.get("results")):
-                            locator_list: list[dict[str, str]] = []
+                            # locator_list: list[dict[str, str]] = []
+                            locator_map: dict[str, dict[str, str]] = {}  # serial -> {by,value}
                             for element in elements:
+                                serial = element["data"].pop("serial", None)
                                 async for heal in request.stream_heal(model, apikey, **element["data"]):
                                     if heal.get("type") == "error":
                                         return await tw.feed(heal["content"])
@@ -180,23 +282,24 @@ class Mind(object):
                                     await tw.feed(f"{heal['content']}\n")
 
                                     if smart := heal.get("smart"):
-                                        locator_list.append({
+                                        loc = {
                                             "by": smart["new_selector"]["primary"]["by"],
-                                            "value": smart["new_selector"]["primary"]["value"]
-                                        })
-                                        await tw.feed(f"{smart}\n")
+                                            "value": smart["new_selector"]["primary"]["value"],
+                                        }
+                                        if serial in locator_map:
+                                            logger.debug(f"[SKIP] dup locator for {serial}: {loc}")  # ✅ 第二次只打印不接收
+                                        else:
+                                            locator_map[serial] = loc  # ✅ 只收第一次
+                                        await tw.feed(f"{smart}\n", True)
 
-                            if locator_list and arguments.get("should_click"):
+                            if locator_map and arguments.get("should_click"):
                                 if waiting := arguments.get("wait", 0):
                                     await asyncio.sleep(waiting)
 
-                                tasks = [session.call_tool("click", s) for s in locator_list]
-                                for r in await asyncio.gather(*tasks, return_exceptions=True):
-                                    fields: typing.Union[
-                                        dict[str, typing.Any], str
-                                    ] = sc if (sc := r.structuredContent) else r.content[0].text
-                                    if r.isError: return await tw.feed(fields)
-                                    else: await tw.feed(f"{fields}\n")
+                                r = await session.call_tool("click_matrix", {"matrix": locator_map})
+                                fields = self.fields(r)
+                                if r.isError: return await tw.feed(fields)
+                                await tw.feed(f"{fields}\n")
 
                         # workflow: ==== 常规指令 ====
                         else:
@@ -204,135 +307,23 @@ class Mind(object):
 
                     if index != loop_count: self.task_info.clear()
 
-    # Notes: ==== Plan 编排模式 ====
-    async def mind_plan(self, model: str, apikey: str, message: str) -> None:
-        """Mind Plan"""
-        if not model or not apikey:
-            missing = ", ".join(
-                x for x, ok in [("model", bool(model)), ("api_key", bool(apikey))] if not ok
-            )
-            raise MindError(f"Missing required field(s): {missing}")
-
-        url = self.base_url + "/helix/mcp"
-        headers = {
-            "Authorization": f"Bearer {authentic.manufacture_token()}"
-        }
-        timeout = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
-        event_hooks = {"response": [request.capture]}
-
-        async with httpx.AsyncClient(headers=headers, timeout=timeout, event_hooks=event_hooks) as client:
-            # workflow: ==== Tool Streaming ====
-            async with streamable_http_client(url, http_client=client) as (r, w, _):
-                async with ClientSession(r, w) as session:
-                    await session.initialize()
-
-                    list_tools: ListToolsResult = await session.list_tools()
-
-                    openai_tools: list[dict[str, typing.Any]] = [
-                        {
-                            "type": "function",
-                            "function": {
-                                "name": tool.name,
-                                "description" : tool.description,
-                                "parameters"  : tool.inputSchema
-                            }
-                        }
-                        for tool in list_tools.tools
-                    ]
-
-                    logger.debug(f"Tool [{len(openai_tools)}]")
-                    for tool in openai_tools:
-                        logger.debug(f"Tool {tool['function']['name']}")
-
-                    # workflow: ==== Exec Plan ====
-                    await self.plan_exec_looper(session, model, apikey, message, openai_tools)
-
-    # Notes: ==== Chat 对话模式 ====
-    async def chat_exec_looper(
-        self,
-        session: ClientSession,
-        model: str,
-        apikey: str,
-        message: str,
-        openai_tools: list[dict]
-    ) -> None:
-        """Chat Exec Looper"""
-
-        async with TypewriterStreamSession() as tw:
-            # workflow: ==== Chat Streaming ====
-            async for chat in request.stream_chat(model, apikey, message, openai_tools):
-                # await self.stop_stream()
-                match chat.get("type"):
-                    case "error":
-                        return await tw.feed(chat.get("content"))
-                    case "chat":
-                        await tw.feed(chat.get("content"))
-                        continue
-                    case "tool_call":
-                        name, arguments = chat["name"], chat.get("arguments", {})
-                        await tw.feed(f"\n{name} {arguments}\n")
-
-                        result = await session.call_tool(name, arguments)
-                        ok = False if result.isError else True
-                        content = result.content[0].text
-
-                        if self.level != const.SHOW_LEVEL:
-                            await tw.feed(f"\n{content}\n")
-
-                        await request.post_tool_result(
-                            chat["cid"], chat["sid"], chat["call_id"], name, ok, content
-                        )
-                        continue
-                    case "tool_result":
-                        if self.level != const.SHOW_LEVEL:
-                            await tw.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
-                        continue
-                    case _:
-                        continue
-
-    # Notes: ==== Chat 对话模式 ====
+    # workflow: ==== Chat 对话模式 ====
     async def mind_chat(self, model: str, apikey: str, message: str) -> None:
         """Mind Chat"""
-        if not model or not apikey:
-            missing = ", ".join(
-                x for x, ok in [("model", bool(model)), ("api_key", bool(apikey))] if not ok
-            )
-            raise MindError(f"Missing required field(s): {missing}")
+        async def function(session: ClientSession, openai_tools: list[dict]) -> None:
+            await self.chat_exec_looper(session, model, apikey, message, openai_tools)
 
-        url = self.base_url + "/helix/mcp"
-        headers = {
-            "Authorization": f"Bearer {authentic.manufacture_token()}"
-        }
-        timeout = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
-        event_hooks = {"response": [request.capture]}
+        return await self.with_mcp_session(model, apikey, function)
 
-        async with httpx.AsyncClient(headers=headers, timeout=timeout, event_hooks=event_hooks) as client:
-            # workflow: ==== Tool Streaming ====
-            async with streamable_http_client(url, http_client=client) as (r, w, _):
-                async with ClientSession(r, w) as session:
-                    await session.initialize()
+    # workflow: ==== Plan 编排模式 ====
+    async def mind_plan(self, model: str, apikey: str, message: str) -> None:
+        """Mind Plan"""
+        async def function(session: ClientSession, openai_tools: list[dict]) -> None:
+            await self.plan_exec_looper(session, model, apikey, message, openai_tools)
 
-                    list_tools: ListToolsResult = await session.list_tools()
+        return await self.with_mcp_session(model, apikey, function)
 
-                    openai_tools: list[dict[str, typing.Any]] = [
-                        {
-                            "type": "function",
-                            "function": {
-                                "name": tool.name,
-                                "description" : tool.description,
-                                "parameters"  : tool.inputSchema
-                            }
-                        }
-                        for tool in list_tools.tools
-                    ]
-
-                    logger.debug(f"Tool [{len(openai_tools)}]")
-                    for tool in openai_tools:
-                        logger.debug(f"Tool {tool['function']['name']}")
-
-                    # workflow: ==== Exec Chat ====
-                    await self.chat_exec_looper(session, model, apikey, message, openai_tools)
-
+    # workflow: ==== Loop 循环模式 ====
     async def mind_loop(self) -> None:
         """Mind Loop"""
         async def exchange(types: typing.Literal["model", "apikey"]) -> typing.Optional[str]:
@@ -496,20 +487,93 @@ class Mind(object):
             for ex in flatten_exceptions(eg):
                 logger.error(f"❌ [NET] {ex!r}")
 
-        except* httpx.HTTPStatusError as eg:
-            await self.stop_all()
-            for ex in flatten_exceptions(eg):
-                if isinstance(ex, httpx.HTTPStatusError):
-                    body = ex.response.extensions.get("error_body", b"")
-                    text = body.decode(const.CHARSET, errors="replace")
-                    logger.error(f"❌ [HTTP] {ex.response.status_code} {text}")
-                else:
-                    logger.error(f"❌ [HTTP] unexpected: {ex!r}")
+        # except* httpx.HTTPStatusError as eg:
+        #     await self.stop_all()
+        #     for ex in flatten_exceptions(eg):
+        #         if isinstance(ex, httpx.HTTPStatusError):
+        #             body = ex.response.extensions.get("error_body", b"")
+        #             text = body.decode(const.CHARSET, errors="replace")
+        #             logger.error(f"❌ [HTTP] {ex.response.status_code} {text}")
+        #         else:
+        #             logger.error(f"❌ [HTTP] unexpected: {ex!r}")
+        #
+        # except* Exception as eg:
+        #     await self.stop_all()
+        #     for ex in flatten_exceptions(eg):
+        #         logger.error(f"❌ [BUG] {ex!r}")
 
-        except* Exception as eg:
-            await self.stop_all()
-            for ex in flatten_exceptions(eg):
-                logger.error(f"❌ [BUG] {ex!r}")
+
+class Enhancer(object):
+    """通用工具结果增强"""
+
+    def __init__(
+        self,
+        name: str,
+        arguments: dict[str, typing.Any],
+        result: CallToolResult,
+        ok: bool,
+        session: ClientSession
+    ):
+        self.name      = name
+        self.arguments = arguments
+        self.result    = result
+        self.ok        = ok
+        self.session   = session
+
+    @staticmethod
+    def fields(result: CallToolResult) -> typing.Union[dict[str, typing.Any], str]:
+        return sc if (sc := result.structuredContent) else result.content[0].text
+
+    async def enhance(self) -> typing.Union[str, dict[str, typing.Any]]:
+        content = self.result.content[0].text
+        if not self.ok: return content
+
+        match self.name:
+            case "screenshot":
+                return await self.__enhance_screenshot()
+            case _:
+                return content
+
+    async def __enhance_screenshot(self) -> dict:
+        fields = self.result.structuredContent
+
+        attachments: list[dict[str, typing.Any]] = []
+        per_device: dict[str, typing.Any] = {}
+
+        for item in fields.get("results") or []:
+            agent_id = item.get("agent_id") or "unknown"
+
+            if not item.get("ok"):
+                per_device[agent_id] = {"ok": False, "error": item.get("text")}
+                continue
+
+            if not (local := item.get("text")) or not isinstance(local, str):
+                per_device[agent_id] = {"ok": False, "error": "missing local screenshot path"}
+                continue
+
+            try:
+                up = await request.upload_file_stream(local, agent_id, "screenshots")
+                if not (url := up.get("url")):
+                    per_device[agent_id] = {"ok": False, "error": f"upload returned no url: {up!r}"}
+                    continue
+
+                attachments.append({"kind": "image", "url": url, "agent_id": agent_id})
+                per_device[agent_id] = {
+                    "ok"        : True,
+                    "local"     : local,
+                    "url"       : url,
+                    "r2_key"    : up["key"],
+                    "filename"  : up["filename"],
+                    "mime_type" : up["mime_type"]
+                }
+            finally:
+                if os.path.exists(local): os.remove(local)
+
+        return {
+            "text"        : "screenshot uploaded",
+            "attachments" : attachments,
+            "data"        : {"per_device": per_device}
+        }
 
 
 # """Main"""
