@@ -163,25 +163,14 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         )
 
     @mcp.tool()
-    @task_middleware("current_package")
-    async def current_package() -> CallToolResult:
-        """Class: ui; Action: 获取当前前台应用包名(dumpsys window | grep mCurrentFocus); Args: none; Use: 判断前台应用/断言跳转结果/做条件分支; Return: CallToolResult(text + structuredContent); Notes: 优先从 package/activity 提取 package，失败则退化从 u0 com.xxx 提取。"""
+    @task_middleware("current_focus")
+    async def current_focus() -> CallToolResult:
+        """Class: ui; Action: 获取当前前台焦点信息(dumpsys window | grep mCurrentFocus); Args: none; Use: 判断前台应用/断言跳转结果/做条件分支; Return: CallToolResult(text + structuredContent); Notes: 优先从 package/activity 提取；失败则退化从 u0 com.xxx 提取 package（activity 可能为空）。"""
         return await broadcast(
-            tool="current_package",
+            tool="current_focus",
             args={},
             target_list=manage.snapshot,
-            call=lambda agent: agent.current_package()
-        )
-
-    @mcp.tool()
-    @task_middleware("current_activity")
-    async def current_activity() -> CallToolResult:
-        """Class: ui; Action: 获取当前前台应用界面名Activity(mCurrentFocus); Args: none; Use: 判断当前所在应用/页面(包名或package/activity); Return: CallToolResult(text + structuredContent); Notes: 优先从 package/activity 提取 activity，失败则退化从 u0 com.xxx 提取。"""
-        return await broadcast(
-            tool="current_activity",
-            args={},
-            target_list=manage.snapshot,
-            call=lambda agent: agent.current_activity()
+            call=lambda agent: agent.current_focus()
         )
 
     @mcp.tool()
