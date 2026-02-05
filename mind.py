@@ -250,62 +250,61 @@ class Mind(object):
 
             steps, loop_count, reasoning = plan["steps"], plan["loop_count"], plan["reasoning"]
 
-            async with TypewriterStreamSession() as tw:
-                await tw.feed(f"{reasoning}\n")
-                for index, _ in enumerate(range(loop_count), start=1):
-                    for step in steps:
-                        action = step["action"]
+            logger.debug(reasoning)
+            for index, _ in enumerate(range(loop_count), start=1):
+                for step in steps:
+                    action = step["action"]
 
-                        # workflow: ==== 设备缓存 ====
-                        if error := await self.plan_exec_status(session):
-                            return await tw.feed(error)
+                    # workflow: ==== 设备缓存 ====
+                    if error := await self.plan_exec_status(session):
+                        return logger.error(error)
 
-                        name, arguments = action["action"], action["args"]
-                        logger.debug(f"{name} -> args={arguments}")
+                    name, arguments = action["action"], action["args"]
+                    logger.debug(f"{name} -> args={arguments}")
 
-                        # workflow: ==== 工具调用 ====
-                        result = await session.call_tool(name, arguments)
-                        fields = self.fields(result)
-                        if result.isError:
-                            return await tw.feed(fields)
+                    # workflow: ==== 工具调用 ====
+                    result = await session.call_tool(name, arguments)
+                    fields = self.fields(result)
+                    if result.isError:
+                        return logger.error(fields)
 
-                        # workflow: ==== 查找指令 ====
-                        if name in {"find_element"} and (elements := fields.get("results")):
-                            # locator_list: list[dict[str, str]] = []
-                            locator_map: dict[str, dict[str, str]] = {}  # serial -> {by,value}
-                            for element in elements:
-                                serial = element["data"].pop("serial", None)
-                                async for heal in request.stream_heal(model, apikey, **element["data"]):
-                                    if heal.get("type") == "error":
-                                        return await tw.feed(heal["content"])
+                    # workflow: ==== 查找指令 ====
+                    if name in {"find_element"} and (elements := fields.get("results")):
+                        # serial -> {by,value}
+                        locator_map: dict[str, dict[str, str]] = {}  
+                        for element in elements:
+                            serial = element["data"].pop("serial", None)
+                            async for heal in request.stream_heal(model, apikey, **element["data"]):
+                                if heal.get("type") == "error":
+                                    return logger.error(heal["content"])
 
-                                    await tw.feed(f"{heal['content']}\n")
+                                logger.debug(heal["content"])
 
-                                    if smart := heal.get("smart"):
-                                        loc = {
-                                            "by": smart["new_selector"]["primary"]["by"],
-                                            "value": smart["new_selector"]["primary"]["value"],
-                                        }
-                                        if serial in locator_map:
-                                            logger.debug(f"[SKIP] dup locator for {serial}: {loc}")  # ✅ 第二次只打印不接收
-                                        else:
-                                            locator_map[serial] = loc  # ✅ 只收第一次
-                                        await tw.feed(f"{smart}\n", True)
+                                if smart := heal.get("smart"):
+                                    loc = {
+                                        "by": smart["new_selector"]["primary"]["by"],
+                                        "value": smart["new_selector"]["primary"]["value"],
+                                    }
+                                    if serial in locator_map:
+                                        logger.debug(f"[SKIP] dup locator for {serial}: {loc}")
+                                    else:
+                                        locator_map[serial] = loc
+                                    logger.debug(smart)
 
-                            if locator_map and arguments.get("should_click"):
-                                if waiting := arguments.get("wait", 0):
-                                    await asyncio.sleep(waiting)
+                        if locator_map and arguments.get("should_click"):
+                            if waiting := arguments.get("wait", 0):
+                                await asyncio.sleep(waiting)
 
-                                r = await session.call_tool("click_matrix", {"matrix": locator_map})
-                                fields = self.fields(r)
-                                if r.isError: return await tw.feed(fields)
-                                await tw.feed(f"{fields}\n")
+                            r = await session.call_tool("click_matrix", {"matrix": locator_map})
+                            fields = self.fields(r)
+                            if r.isError: return logger.error(fields)
+                            logger.debug(fields)
 
-                        # workflow: ==== 常规指令 ====
-                        else:
-                            logger.debug(f"{name} -> resp={fields}")
+                    # workflow: ==== 常规指令 ====
+                    else:
+                        logger.debug(f"{name} -> resp={fields}")
 
-                    if index != loop_count: self.task_info.clear()
+                if index != loop_count: self.task_info.clear()
 
     # workflow: ==== Chat 对话模式 ====
     async def mind_chat(self, model: str, apikey: str, message: str) -> None:
@@ -487,20 +486,20 @@ class Mind(object):
             for ex in flatten_exceptions(eg):
                 logger.error(f"❌ [NET] {ex!r}")
 
-        # except* httpx.HTTPStatusError as eg:
-        #     await self.stop_all()
-        #     for ex in flatten_exceptions(eg):
-        #         if isinstance(ex, httpx.HTTPStatusError):
-        #             body = ex.response.extensions.get("error_body", b"")
-        #             text = body.decode(const.CHARSET, errors="replace")
-        #             logger.error(f"❌ [HTTP] {ex.response.status_code} {text}")
-        #         else:
-        #             logger.error(f"❌ [HTTP] unexpected: {ex!r}")
-        #
-        # except* Exception as eg:
-        #     await self.stop_all()
-        #     for ex in flatten_exceptions(eg):
-        #         logger.error(f"❌ [BUG] {ex!r}")
+        except* httpx.HTTPStatusError as eg:
+            await self.stop_all()
+            for ex in flatten_exceptions(eg):
+                if isinstance(ex, httpx.HTTPStatusError):
+                    body = ex.response.extensions.get("error_body", b"")
+                    text = body.decode(const.CHARSET, errors="replace")
+                    logger.error(f"❌ [HTTP] {ex.response.status_code} {text}")
+                else:
+                    logger.error(f"❌ [HTTP] unexpected: {ex!r}")
+
+        except* Exception as eg:
+            await self.stop_all()
+            for ex in flatten_exceptions(eg):
+                logger.error(f"❌ [BUG] {ex!r}")
 
 
 class Enhancer(object):
