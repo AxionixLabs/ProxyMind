@@ -812,28 +812,39 @@ class Device(object):
 
     # workflow: ==== UI ====
     async def ensure_ime(self) -> typing.Optional[dict]:
-        """检测并切换到 AdbIME（com.android.adbkeyboard/.AdbIME）。"""
+        """切换到 AdbIME；若 enable/set 任一提示 Unknown input method，则直接返回错误结果。"""
         ime = "com.android.adbkeyboard/.AdbIME"
-        cmd = self.prefix + ["shell", "ime", "list", "-s"]
 
-        out = await Terminal.cmd_line(cmd)
-        if ime in (out or ""):
-            await Terminal.cmd_line(self.prefix + ["shell", "ime", "enable", ime])
-            await Terminal.cmd_line(self.prefix + ["shell", "ime", "set", ime])
-            return None
+        e_out = await Terminal.cmd_line(self.prefix + ["shell", "ime", "enable", ime])
+        s_out = await Terminal.cmd_line(self.prefix + ["shell", "ime", "set", ime])
 
-        return {
-            "text": "无法切换到 AdbIME：设备未安装或未注册该输入法",
-            "attachments": [],
-            "data": {
-                "ok"         : False,
-                "stage"      : "check",
-                "ime_target" : ime,
-                "reason"     : "ime_not_found",
-                "ime_list"   : [s for s in out.splitlines() if s.strip()],
-                "suggest"    : ["先安装 ADBKeyBoard（https://github.com/senzhk/ADBKeyBoard）"]
+        e_text = "" if e_out is None else str(e_out)
+        s_text = "" if s_out is None else str(s_out)
+
+        merged = f"{e_text}\n{s_text}".lower()
+
+        if "unknown" in merged or "cannot" in merged:
+            stage = []
+            if "unknown" in e_text or "cannot" in e_text:
+                stage.append("enable")
+            if "unknown" in s_text or "cannot" in s_text:
+                stage.append("set")
+
+            return {
+                "text"        : "无法切换到 AdbIME：设备未安装或未注册该输入法",
+                "attachments" : [],
+                "data": {
+                    "ok"         : False,
+                    "stage"      : stage,  # ["enable"] / ["set"] / ["enable","set"]
+                    "ime_target" : ime,
+                    "reason"     : "ime_not_found",
+                    "enable_raw" : e_text,
+                    "set_raw"    : s_text,
+                    "suggest"    : ["先安装 ADBKeyBoard（https://github.com/senzhk/ADBKeyBoard）"]
+                }
             }
-        }
+
+        return None
 
     # workflow: ==== UI ====
     async def scroll_to_edge(self, edge: typing.Literal["top", "bottom"] = "top") -> dict[str, typing.Any]:
