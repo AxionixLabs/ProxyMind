@@ -648,11 +648,23 @@ class Device(object):
     # workflow: ==== UI Interaction MCP Tool ====
     async def send_keys(self, text: str) -> typing.Any:
         """向当前焦点输入文本。"""
+        def sh_quote_single(s: str) -> str:
+            """
+            Quote a string for POSIX shell using single quotes.
+            Safe for adb shell ... (mksh/toybox sh).
+            - Wrap with '...'
+            - Escape inner single quotes:  '  ->  '\''  (close + escaped quote + reopen)
+            """
+           return "'" + s.replace("'", r"'\''") + "'"
+        
         if err := await self.ensure_ime():
             return err
 
+        text = "" if text is None else str(text)
+        text = sh_quote_single(text)
+        
         cmd = self.prefix + [
-            "shell", "am", "broadcast", "-a", "ADB_INPUT_TEXT", "--es", "msg", f"\'{text}\'"
+            "shell", "am", "broadcast", "-a", "ADB_INPUT_TEXT", "--es", "msg", text
         ]
         return await Terminal.cmd_line(cmd)
 
