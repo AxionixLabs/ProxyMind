@@ -668,44 +668,58 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def current_package(self) -> str | None:
-        """获取当前前台应用包名。"""
+    async def current_focus(self) -> dict[str, typing.Any]:
+        """获取当前前台焦点信息（package / activity / raw）。"""
         cmd = self.prefix + [
             "shell", "dumpsys", "window", "|", "grep", "mCurrentFocus"
         ]
 
         if not (resp := await Terminal.cmd_line(cmd)):
-            return None
+            return {
+                "text": "获取当前 Focus 失败：dumpsys/grep 无输出",
+                "attachments": [],
+                "data": {
+                    "ok"       : False,
+                    "stage"    : "dumpsys_window",
+                    "reason"   : "empty_output",
+                    "package"  : None,
+                    "activity" : None,
+                    "raw"      : None,
+                    "cmd"      : cmd
+                },
+                "log": []
+            }
 
-        # 1) 优先从 package/activity 提取 package
-        if m := re.search(r"([a-zA-Z0-9._]+)/[a-zA-Z0-9._$]+", resp):
-            return m.group(1)
+        raw = str(resp).strip()
 
-        # 2) 退化：从 "u0 com.xxx.app" 这类结构提取 package
-        if m := re.search(r"\bu\d+\s+([a-zA-Z0-9._]+)\b", resp):
-            return m.group(1)
+        package: str | None = None
+        activity: str | None = None
 
-        return None
+        # 1) 优先：package/activity（component）
+        if m := re.search(r"([a-zA-Z0-9._]+/[a-zA-Z0-9._$]+)", raw):
+            activity = m.group(1)
+            package = activity.split("/", 1)[0]
+        else:
+            # 2) 退化：u0 com.xxx.app ...
+            if m := re.search(r"\bu\d+\s+([a-zA-Z0-9._]+)\b", raw):
+                package = m.group(1)
 
-    # workflow: ==== UI Interaction MCP Tool ====
-    async def current_activity(self) -> str | None:
-        """获取当前前台 Activity 标识。"""
-        cmd = self.prefix + [
-            "shell", "dumpsys", "window", "|", "grep", "mCurrentFocus"
-        ]
+        ok = bool(package or activity)
 
-        if not (resp := await Terminal.cmd_line(cmd)):
-            return None
-
-        # 1) 优先从 package/activity 提取 activity
-        if match := re.search(r"([a-zA-Z0-9._]+/[a-zA-Z0-9._$]+)", resp):
-            return match.group(1)
-
-        # 2) 退化：从 "u0 com.xxx.app" 这类结构提取 package
-        if match := re.search(r"\bu\d+\s+([a-zA-Z0-9._]+)\b", resp):
-            return match.group(1)
-
-        return None
+        return {
+            "text": f"当前Focus：package={package or ''} activity={activity or ''}".strip(),
+            "attachments": [],
+            "data": {
+                "ok"       : ok,
+                "stage"    : "parse",
+                "reason"   : None if ok else "parse_failed",
+                "package"  : package,
+                "activity" : activity,
+                "raw"      : raw,
+                "cmd"      : cmd
+            },
+            "log": []
+        }
 
     # workflow: ==== UI Interaction MCP Tool ====
     async def current_xml(self) -> str | None:
@@ -731,11 +745,11 @@ class Device(object):
     async def find_element(self, locator: str, *_, **__) -> dict:
         """执行自愈流程定位并处理目标控件。"""
         page_id, page_dump, (w, h) = await asyncio.gather(
-            self.current_activity(), self.current_xml(), self.st_wm_size()
+            self.current_focus(), self.current_xml(), self.st_wm_size()
         )
         payload = {
             "serial"    : self.serial,
-            "page_id"   : page_id or "",
+            "page_id"   : page_id.get("data", {}).get("package") or "",
             "platform"  : "android",
             "locator"   : locator,
             "page_dump" : page_dump or "",
