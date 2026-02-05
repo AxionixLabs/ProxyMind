@@ -278,8 +278,6 @@ class Mind(object):
                                 if heal.get("type") == "error":
                                     return logger.error(heal["content"])
 
-                                logger.debug(heal["content"])
-
                                 if smart := heal.get("smart"):
                                     loc = {
                                         "by": smart["new_selector"]["primary"]["by"],
