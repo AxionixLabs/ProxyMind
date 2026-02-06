@@ -269,7 +269,7 @@ class Mind(object):
                             return logger.error(result.structuredContent)
 
                         # workflow: ==== 工具增强 ====
-                        enhancer: Enhancer = Enhancer(session, model, apikey, )
+                        enhancer: Enhancer = Enhancer(session, model, apikey)
                         fields = await enhancer.enhance(name, arguments, result, ok, tw)
 
                         logger.debug(fields)
@@ -598,7 +598,7 @@ class Enhancer(object):
                     else:
                         locator_map[serial] = loc
 
-                    await tw.feed(smart)
+                    await tw.feed(smart.get("details", {}).get("reason"))
 
         if not locator_map or not arguments.get("should_click"):
             ok = all(v.get("ok") for v in per_device.values()) if per_device else False
