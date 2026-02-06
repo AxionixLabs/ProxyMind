@@ -17,7 +17,7 @@ from backend.utilities.toolbox import broadcast
 
 def bind(mcp: FastMCP, idle: Idle) -> None:
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "framix"})
     @task_middleware("fx_frame_analyzer")
     async def fx_frame_analyzer(title: str, total: str, scale: float = 0.3) -> CallToolResult:
         """Class: framix; Action: 分析视频帧; Args: title(str)=任务标题, total(str)=报告输出目录, scale(float)=视频帧缩放比例(等比缩放，最大1.0，最小0.1); Use: 使用 Framix-画帧秀引擎 对录屏文件列表逐帧分析/抽帧诊断/复现取证并落盘报告; Return: CallToolResult(text + structuredContent); Notes: 依赖 Framix-画帧秀引擎; total 会写入 framix.total 作为报告目录；单任务聚合执行。"""
@@ -43,7 +43,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "framix"})
     @task_middleware("fx_frame_reporter")
     async def fx_frame_reporter() -> CallToolResult:
         """Class: framix; Action: 生成视频帧阶段分类报告; Args: none; Use: 调用 Framix-画帧秀引擎 汇总视频分析产物并落盘输出最终报告; Return: CallToolResult(text + structuredContent); Notes: 依赖 Framix-画帧秀引擎，且需先执行视频帧分析，完成抽帧/分段数据；单任务聚合执行。"""

@@ -16,7 +16,7 @@ from backend.utilities.toolbox import broadcast
 
 def bind(mcp: FastMCP, idle: Idle) -> None:
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "audio"})
     @task_middleware("audio_play")
     async def audio_play(audio_file: str, volume: float = 1.0) -> CallToolResult:
         """Class: audio; Action: 播放音频文件; Args: audio_file(str)=音频文件路径, volume(float=1.0)=音量大小; Use: 用于在本机播放指定的音频文件; Return: CallToolResult(text + structuredContent); Notes: 文件不存在/格式不支持会失败。"""

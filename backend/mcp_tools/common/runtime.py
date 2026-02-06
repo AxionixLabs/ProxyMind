@@ -16,7 +16,7 @@ from backend.utilities.toolbox import broadcast
 
 def bind(mcp: FastMCP, idle: Idle) -> None:
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "common", "class": "runtime"})
     @task_middleware("sleep")
     async def sleep(delay: float) -> CallToolResult:
         """Class: runtime; Action: 固定等待; Args: delay(float); Use: 稳定节奏/等待动画; Return: CallToolResult(text + structuredContent); Notes: 仅时间延迟≠页面就绪。"""

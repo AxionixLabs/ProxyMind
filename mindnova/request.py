@@ -13,6 +13,7 @@ import mimetypes
 from pathlib import Path
 from loguru import logger
 from engine.channel import Channel
+from mindcore.design import TypewriterStreamSession
 from mindnova import const
 
 
@@ -157,15 +158,6 @@ async def stream_chat(
         "message" : message,
         "tools"   : openai_tools
     }
-
-    """
-        async for event in request.stream_chat(
-            model, apikey, "帮我看下这张截图", openai_tools,
-            attachments=[{"kind": "image", "url": "https://xxx.com/a.png"}]
-        ):
-        ...
-        attachments=[{"kind": "image", "data_url": f"data:image/png;base64,{b64}"}]
-    """
     if attachments:
         payload["attachments"] = attachments
 
@@ -191,6 +183,7 @@ async def stream_heal(
     screenshot_base64: str,
     wm_size: dict,
     timeout: float = 60.0,
+    tw: typing.Optional[TypewriterStreamSession] = None,
     *_,
     **kwargs
 ) -> typing.AsyncGenerator[dict, None]:
@@ -215,13 +208,16 @@ async def stream_heal(
     async for event in streaming(url, headers, payload, timeout):
         match event.get("type"):
             case "thinking":
-                logger.debug(event["content"])
+                if tw: await tw.feed(event["content"])
+                else: logger.debug(event["content"])
                 continue
             case "done":
-                logger.debug("Heal done ...")
+                if tw: await tw.feed("Heal done ...")
+                else: logger.debug("Heal done ...")
                 continue
             case "heal":
-                logger.debug(event["content"])
+                if tw: await tw.feed(event["content"])
+                else: logger.debug(event["content"])
 
         yield event
 

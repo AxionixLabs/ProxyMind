@@ -18,7 +18,7 @@ from backend.utilities.toolbox import broadcast
 
 def bind(mcp: FastMCP, idle: Idle) -> None:
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "memrix"})
     @task_middleware("mx_sample_mem")
     async def mx_sample_mem(
         focus: str,
@@ -47,7 +47,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "memrix"})
     @task_middleware("mx_sample_gfx")
     async def mx_sample_gfx(
         focus: str,
@@ -76,7 +76,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "memrix"})
     @task_middleware("mx_task_final")
     async def mx_task_final() -> CallToolResult:
         """Class: memrix; Action: 停止采集并收束任务; Args: none; Use: 通过 socket 调用 8765 端口发送 token 结束采集会话/关闭流并落盘(若有); Return: CallToolResult(text + structuredContent); Notes: 单任务聚合执行(非多设备并发)。"""
@@ -92,7 +92,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             tool="mx_task_final", args={}, target_list=[Ins.memrix], call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "memrix"})
     @task_middleware("mx_mem_reporter")
     async def mx_mem_reporter(layer: bool = False) -> CallToolResult:
         """Class: memrix; Action: 生成内存采样报告; Args: layer(bool)=是否分层展示(前台/后台)的内存曲线与统计; Use: 调用 Memrix-记忆星核引擎 生成内存报告用于诊断泄漏/抖动/峰值; Return: CallToolResult(text + structuredContent); Notes: 依赖 Memrix-记忆星核引擎; 单任务聚合执行(非多设备并发)。"""
@@ -109,7 +109,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             tool="mx_mem_reporter", args={"layer": layer}, target_list=[Ins.memrix], call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "memrix"})
     @task_middleware("mx_gfx_reporter")
     async def mx_gfx_reporter() -> CallToolResult:
         """Class: memrix; Action: 生成流畅度采样报告; Args: none; Use: 调用 Memrix-记忆星核引擎 汇总并落盘帧率/掉帧/jank 等指标用于性能诊断与回归对比; Return: CallToolResult(text + structuredContent); Notes: 依赖 Memrix-记忆星核引擎; 单任务聚合执行(非多设备并发)。"""

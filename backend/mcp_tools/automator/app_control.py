@@ -17,7 +17,7 @@ from backend.utilities.toolbox import broadcast
 
 def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "app"})
     @task_middleware("deep_link")
     async def deep_link(url: str) -> CallToolResult:
         """Class: app; Action: 深度链接跳转(am start VIEW); Args: url(str); Use: 直达应用内部页面/服务; Return: CallToolResult(text + structuredContent); Notes: 需系统存在 handler."""
@@ -28,7 +28,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
             call=lambda agent: agent.deep_link(url)
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "app"})
     @task_middleware("app_start")
     async def app_start(package: str, activity: typing.Optional[str] = None) -> CallToolResult:
         """Class: app; Action: 启动应用(am/monkey); Args: package(str), activity(str|None); Use: 打开/启动某应用，可指定 Activity 精确启动; Return: CallToolResult(text + structuredContent); Notes: activity 为空则走 monkey 启动主入口，非空则 am start -n package/activity."""
@@ -39,7 +39,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
             call=lambda agent: agent.app_start(package, activity)
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "app"})
     @task_middleware("app_stop")
     async def app_stop(package: str) -> typing.Any:
         """Class: app; Action: 强制停止应用(force-stop); Args: package(str); Use: 重启应用/清理状态; Return: CallToolResult(text + structuredContent); Notes: 终止进程与后台任务."""
@@ -50,7 +50,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
             call=lambda agent: agent.app_stop(package)
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "app"})
     @task_middleware("app_install")
     async def app_install(apk: str, replace: bool = True, downgrade: bool = False, test: bool = False) -> CallToolResult:
         """Class: app; Action: 安装APK; Args: apk(str), replace(bool), downgrade(bool), test(bool); Use: 安装/部署某应用；Return: CallToolResult(text + structuredContent); Notes: replace=-r, downgrade=-d, test=-t."""
@@ -61,7 +61,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
             call=lambda agent: agent.app_install(apk, replace, downgrade, test)
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "app"})
     @task_middleware("app_uninstall")
     async def app_uninstall(package: str, keep_data: bool = False) -> CallToolResult:
         """Class: app; Action: 卸载应用; Args: package(str), keep_data(bool); Use: 卸载/移除某应用；Return: CallToolResult(text + structuredContent); Notes: keep_data=True 时使用 pm uninstall -k 保留数据目录。"""
@@ -72,7 +72,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
             call=lambda agent: agent.app_uninstall(package, keep_data=keep_data)
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "app"})
     @task_middleware("app_clear")
     async def app_clear(package: str) -> CallToolResult:
         """Class: app; Action: 清除应用数据; Args: package(str); Use: 清除应用数据/重置应用；Return: CallToolResult(text + structuredContent); Notes: 等价于 pm clear， 不卸载应用。"""

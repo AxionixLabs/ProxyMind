@@ -14,19 +14,17 @@ from backend.utilities.pipeline import Idle
 
 def register_automator_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
     from backend.mcp_tools.automator import app_control
-    from backend.mcp_tools.automator import device_info
     from backend.mcp_tools.automator import file_control
     from backend.mcp_tools.automator import media_control
     from backend.mcp_tools.automator import system_control
-    from backend.mcp_tools.automator import ui_interaction
+    from backend.mcp_tools.automator import ui_control
     from backend.mcp_tools.automator import zest
 
     app_control.bind(mcp, manage)
-    device_info.bind(mcp, manage)
     file_control.bind(mcp, manage)
     media_control.bind(mcp, manage)
     system_control.bind(mcp, manage)
-    ui_interaction.bind(mcp, manage, idle)
+    ui_control.bind(mcp, manage, idle)
     zest.bind(mcp, manage, idle)
 
 

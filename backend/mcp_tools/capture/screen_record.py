@@ -22,7 +22,7 @@ from backend.utilities.toolbox import broadcast
 
 def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "capture", "class": "scrcpy"})
     @task_middleware("scrcpy_mirror")
     async def scrcpy_mirror() -> CallToolResult:
         """Class: scrcpy; Action: 开始投屏(镜像); Args: none; Use: 远程观察/问题复现/配合交互调试; Return: CallToolResult(text + structuredContent); Notes: 基于 scrcpy 启动镜像长任务；每台设备创建独立 Record 会话并写入 sessions[device.serial]，用于后续 scrcpy_close 统一收束。"""
@@ -44,7 +44,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
             tool="scrcpy_mirror", args={}, target_list=manage.snapshot, call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "capture", "class": "scrcpy"})
     @task_middleware("scrcpy_record")
     async def scrcpy_record(directory: str, fps: int = 60, silence: bool = False) -> CallToolResult:
         """Class: scrcpy; Action: 开始录屏; Args: directory(str)=输出路径(目录), fps(int)=视频帧率, silence(bool)=静默录制(隐藏窗口/不显示); Use: 复现流程/长过程取证/视频留档; Return: CallToolResult(text + structuredContent); Notes: 基于 scrcpy 启动录制长任务；每台设备生成独立文件名并返回视频路径，同时保存 Record 会话到 sessions[device.serial] 以便 scrcpy_close 关闭与清理。"""
@@ -72,7 +72,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
             call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "capture", "class": "scrcpy"})
     @task_middleware("scrcpy_close")
     async def scrcpy_close() -> CallToolResult:
         """Class: scrcpy; Action: 停止录屏/投屏并释放资源; Args: none; Use: 结束 scrcpy_mirror/scrcpy_record 的长任务并确保文件可播放/窗口关闭; Return: CallToolResult(text + structuredContent); Notes: 按 device.serial 从 sessions 取 Record 会话并调用 scrcpy_close；无会话则跳过；无论成功/失败都会从 sessions 移除避免泄漏。"""

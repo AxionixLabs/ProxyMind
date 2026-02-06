@@ -194,7 +194,7 @@ class Device(object):
 
         level = int(m_level.group(1))
         scale = int(m_scale.group(1)) or 100
-        
+
         return int(round(level * 100 / scale))
 
     # workflow: ==== Device ====
@@ -719,8 +719,8 @@ class Device(object):
             """Quote a string for POSIX shell using single quotes."""
             return "'" + s.replace("'", r"'\''") + "'"
 
-        if err := await self.ensure_ime():
-            return err
+        if not (ime := await self.ensure_ime()).get("data", {}).get("ok"):
+            return ime
 
         text = "" if text is None else str(text)
         text = sh_quote_single(text)
@@ -733,8 +733,8 @@ class Device(object):
     # workflow: ==== UI Interaction MCP Tool ====
     async def clear_text(self) -> typing.Any:
         """通过 AdbIME 清空当前焦点输入框文本（等同于 `adb shell am broadcast -a ADB_CLEAR_TEXT`）。"""
-        if err := await self.ensure_ime():
-            return err
+        if not (ime := await self.ensure_ime()).get("data", {}).get("ok"):
+            return ime
 
         cmd = self.prefix + [
             "shell", "am", "broadcast", "-a", "ADB_CLEAR_TEXT"
@@ -807,11 +807,11 @@ class Device(object):
         try:
             for _ in range(6):
                 xml = await Terminal.cmd_line(cat)
-                
+
                 xml = xml.decode(const.CHARSET, const.IGNORE) if isinstance(
                     xml, (bytes, bytearray)
                 ) else (xml or "")
-                
+
                 if "<hierarchy" in xml:
                     return xml
                 await asyncio.sleep(0.12)
@@ -904,12 +904,16 @@ class Device(object):
         return None
 
     # workflow: ==== UI ====
-    async def ensure_ime(self) -> typing.Optional[dict]:
+    async def ensure_ime(self) -> dict[str, typing.Any]:
         """切换到 AdbIME；若 enable/set 任一提示 Unknown input method，则直接返回错误结果。"""
         ime = "com.android.adbkeyboard/.AdbIME"
-
-        lst = await Terminal.cmd_line(self.prefix + ["shell", "ime", "list", "-s"])
-        if ime in (lst or ""): return None
+        cmd = self.prefix + ["shell", "settings", "get", "secure", "default_input_method"]
+        if (await Terminal.cmd_line(cmd) or "").strip() == ime:
+            return {
+                "text"        : "当前已是 AdbIME 输入法",
+                "attachments" : [],
+                "data"        : {"ok": True}
+            }
 
         e_out = await Terminal.cmd_line(self.prefix + ["shell", "ime", "enable", ime])
         s_out = await Terminal.cmd_line(self.prefix + ["shell", "ime", "set", ime])
@@ -917,13 +921,15 @@ class Device(object):
         e_text = "" if e_out is None else str(e_out)
         s_text = "" if s_out is None else str(s_out)
 
+        e_low, s_low = e_text.lower(), s_text.lower()
+
         merged = f"{e_text}\n{s_text}".lower()
 
         if "unknown" in merged or "cannot" in merged:
             stage = []
-            if "unknown" in e_text or "cannot" in e_text:
+            if "unknown" in e_low or "cannot" in e_low:
                 stage.append("enable")
-            if "unknown" in s_text or "cannot" in s_text:
+            if "unknown" in s_low or "cannot" in s_low:
                 stage.append("set")
 
             return {
@@ -940,7 +946,26 @@ class Device(object):
                 }
             }
 
-        return None
+        current = (await Terminal.cmd_line(cmd)) or ""
+
+        if current.strip() == ime:
+            return {
+                "text"        : "已切换到 AdbIME",
+                "attachments" : [],
+                "data"        : {"ok": True}
+            }
+
+        return {
+            "text"        : "已执行切换命令，但未检测到输入法切换成功",
+            "attachments" : [],
+            "data": {
+                "ok"         : False,
+                "current"    : current,
+                "reason"     : "ime_not_effective",
+                "enable_raw" : e_text,
+                "set_raw"    : s_text
+            }
+        }
 
     # workflow: ==== UI ====
     async def scroll_to_edge(self, edge: typing.Literal["top", "bottom"] = "top") -> dict[str, typing.Any]:

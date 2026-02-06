@@ -19,7 +19,7 @@ from backend.utilities.toolbox import broadcast
 
 def bind(mcp: FastMCP, idle: Idle) -> None:
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
     @task_middleware("ffmpeg_extract_frames")
     async def ffmpeg_extract_frames(
         input_video: str,
@@ -60,7 +60,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             tool="ffmpeg_extract_frames", args=args, target_list=[Ins.ffmpeg], call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
     @task_middleware("ffmpeg_convert_audio")
     async def ffmpeg_convert_audio(
         input_file: str,
@@ -95,7 +95,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             tool="ffmpeg_convert_audio", args=args, target_list=[Ins.ffmpeg], call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
     @task_middleware("ffmpeg_convert_video")
     async def ffmpeg_convert_video(
         input_video: str,
@@ -132,7 +132,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             tool="ffmpeg_convert_video", args=args, target_list=[Ins.ffmpeg], call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
     @task_middleware("ffmpeg_trim_video")
     async def ffmpeg_trim_video(
         input_video: str,
@@ -173,7 +173,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             tool="ffmpeg_trim_video", args=args, target_list=[Ins.ffmpeg], call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
     @task_middleware("ffmpeg_remux_video")
     async def ffmpeg_remux_video(
         input_video: str,
@@ -201,7 +201,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             tool="ffmpeg_remux_video", args=args, target_list=[Ins.ffmpeg], call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
     @task_middleware("ffmpeg_extract_audio")
     async def ffmpeg_extract_audio(
         input_video: str,
@@ -231,7 +231,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             tool="ffmpeg_extract_audio", args=args, target_list=[Ins.ffmpeg], call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
     @task_middleware("ffmpeg_replace_audio")
     async def ffmpeg_replace_audio(
         input_video: str,
@@ -265,7 +265,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             tool="ffmpeg_replace_audio", args=args, target_list=[Ins.ffmpeg], call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
     @task_middleware("ffmpeg_video_snapshot")
     async def ffmpeg_video_snapshot(
         input_video: str,
@@ -295,7 +295,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             tool="ffmpeg_video_snapshot", args=args, target_list=[Ins.ffmpeg], call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
     @task_middleware("ffmpeg_concat_video")
     async def ffmpeg_concat_video(
         list_file: str,
@@ -333,7 +333,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             tool="ffmpeg_concat_video", args=args, target_list=[Ins.ffmpeg], call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
     @task_middleware("ffmpeg_scale_video")
     async def ffmpeg_scale_video(
         input_video: str,
@@ -373,7 +373,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             tool="ffmpeg_scale_video", args=args, target_list=[Ins.ffmpeg], call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
     @task_middleware("ffmpeg_mute_video")
     async def ffmpeg_mute_video(
         input_video: str,
@@ -401,7 +401,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             tool="ffmpeg_mute_video", args=args, target_list=[Ins.ffmpeg], call=call
         )
 
-    @mcp.tool()
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
     @task_middleware("ffmpeg_probe_video")
     async def ffmpeg_probe_video(input_file: str) -> CallToolResult:
         """Class: ffmpeg; Action: 探测信息; Args: input_file(str)=媒体文件路径; Use: ffmpeg -i 快速打印媒体信息（编码/时长/分辨率/音轨等）; Return: CallToolResult(text + structuredContent); Notes: 仅探测不生成输出文件。"""

@@ -17,6 +17,7 @@ import random
 import signal
 import typing
 import asyncio
+import contextlib
 
 # ====[ from: 内置模块 ]====
 from pathlib import Path
@@ -98,20 +99,20 @@ class Mind(object):
         Design.show_exit()
         sys.exit(130)
 
-    async def stop_stream(self) -> None:
+    async def stop_stream_anim(self) -> None:
         """Stop Stream"""
         self.stream_event and self.stream_event.set()
         self.stream_task and await self.stream_task
 
-    async def stop_plan(self) -> None:
+    async def stop_plan_anim(self) -> None:
         """Stop Plan"""
         self.plan_event and self.plan_event.set()
         self.plan_task and await self.plan_task
 
-    async def stop_all(self) -> None:
+    async def stop_all_anim(self) -> None:
         """Stop All"""
-        await self.stop_stream()
-        await self.stop_plan()
+        await self.stop_stream_anim()
+        await self.stop_plan_anim()
 
     @staticmethod
     def ensure_model_key(model: str, apikey: str) -> None:
@@ -124,31 +125,44 @@ class Mind(object):
         raise MindError(f"Missing required field(s): {missing}")
 
     @staticmethod
-    def build_openai_tools(list_tools: ListToolsResult) -> list[dict[str, typing.Any]]:
-        openai_tools: list[dict[str, typing.Any]] = [
-            {
+    def require_connect(domains: dict[str, dict[str, typing.Any]], name: str) -> bool:
+        return domains.get(name, {}).get("domain", "") in {"device", "capture"}
+
+    @staticmethod
+    def build_openai_tools(
+        list_tools: ListToolsResult
+    ) -> tuple[list[dict[str, typing.Any]], dict[str, dict[str, typing.Any]]]:
+        """Build OpenAI Tools"""
+        openai_tools: list[dict[str, typing.Any]] = []
+        domains: dict[str, dict[str, typing.Any]] = {}
+
+        for tool in list_tools.tools:
+            if bool((meta := tool.meta).get("hidden", False)):
+                continue
+            domains[tool.name] = meta
+
+            openai_tools.append({
                 "type": "function",
                 "function": {
                     "name": tool.name,
                     "description" : tool.description,
                     "parameters"  : tool.inputSchema
                 }
-            }
-            for tool in list_tools.tools
-            if not (getattr(tool, "meta", None) or {}).get("hide", False)
-        ]
+            })
 
         logger.debug(f"Tool [{len(openai_tools)}]")
         for tool in openai_tools:
             logger.debug(f"Tool {tool['function']['name']}")
 
-        return openai_tools
+        return openai_tools, domains
 
     async def with_mcp_session(
         self,
         model: str,
         apikey: str,
-        function: typing.Callable[[ClientSession, list[dict[str, typing.Any]]], typing.Awaitable[None]]
+        function: typing.Callable[
+            [ClientSession, list[dict[str, typing.Any]], dict[str, dict[str, typing.Any]]], typing.Awaitable[None]
+        ]
     ) -> None:
         """With MCP Session"""
 
@@ -164,23 +178,33 @@ class Mind(object):
                 async with ClientSession(r, w) as session:
                     await session.initialize()
                     list_tools = await session.list_tools()
-                    openai_tools = self.build_openai_tools(list_tools)
-                    await function(session, openai_tools)
+                    openai_tools, domains = self.build_openai_tools(list_tools)
+                    await function(session, openai_tools, domains)
 
-    async def light_awakening(self, session: ClientSession) -> typing.Optional[str]:
-        """Light Awakening"""
+    async def wakeup(
+        self,
+        session: ClientSession,
+        tw: typing.Optional[TypewriterStreamSession] = None
+    ) -> typing.Optional[str]:
+        """Wakeup"""
+
         if ((now := time.time()) - self.last_refresh_ts) < self.ttl_sec:
-            return logger.debug(f"ttl-hit: skip refresh ttl={self.ttl_sec:.3f}s")
+            tip = f"ttl-hit: skip refresh ttl={self.ttl_sec:.3f}s"
+            if tw: return await tw.feed(tip)
+            else: return logger.debug(tip)
 
         tools = {
             "name": "refresh", "arguments": {"ttl_sec": self.ttl_sec}
         }
-
-        if (result := await session.call_tool(**tools)).isError:
+        result = await session.call_tool(**tools)
+        if result.isError:
             return result.content[0].text
+        structured = result.structuredContent
 
         self.last_refresh_ts = now
-        return logger.debug(result.structuredContent)
+
+        if tw: return await tw.feed(structured)
+        else: return logger.debug(structured)
 
     # Notes: ==== Chat 对话模式 ====
     async def chat_exec_looper(
@@ -189,25 +213,33 @@ class Mind(object):
         model: str,
         apikey: str,
         message: str,
-        openai_tools: list[dict]
+        openai_tools: list[dict[str, typing.Any]],
+        domains: dict[str, dict[str, typing.Any]]
     ) -> None:
         """Chat Exec Looper"""
 
-        async with TypewriterStreamSession() as tw:
-            # workflow: ==== Chat Streaming ====
-            async for chat in request.stream_chat(model, apikey, message, openai_tools):
-                # await self.stop_stream()
+        tw: TypewriterStreamSession = TypewriterStreamSession()
+
+        # workflow: ==== Chat Streaming ====
+        async for chat in request.stream_chat(model, apikey, message, openai_tools):
+            await self.stop_stream_anim(); await tw.start()
+
+            try:
                 match chat.get("type"):
                     case "error":
-                        return await tw.feed(chat.get("content"))
+                        await tw.feed(chat.get("content")); return await tw.stop()
+
                     case "chat":
                         await tw.feed(chat.get("content"))
                         continue
-                    case "tool_call":
-                        if error := await self.light_awakening(session):
-                            return await tw.feed(error)
 
+                    case "tool_call":
                         name, arguments = chat["name"], chat.get("arguments", {})
+
+                        if self.require_connect(domains, name):
+                            if error := await self.wakeup(session, tw):
+                                await tw.feed(error); return await tw.stop()
+
                         await tw.feed(f"\n{name} {arguments}\n")
 
                         # workflow: ==== 工具调用 ====
@@ -225,12 +257,19 @@ class Mind(object):
                             chat["cid"], chat["sid"], chat["call_id"], name, ok, fields
                         )
                         continue
+
                     case "tool_result":
                         if self.level != const.SHOW_LEVEL:
                             await tw.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
                         continue
+
                     case _:
                         continue
+
+            except Exception as e:
+                await tw.feed(str(e)); return await tw.stop()
+
+        await tw.stop()
 
     # Notes: ==== Plan 编排模式 ====
     async def plan_exec_looper(
@@ -239,12 +278,13 @@ class Mind(object):
         model: str,
         apikey: str,
         message: str,
-        openai_tools: list[dict]
+        openai_tools: list[dict[str, typing.Any]],
+        domains: dict[str, dict[str, typing.Any]]
     ) -> None:
         """Plan Exec Looper"""
 
         async for plan in request.stream_plan(model, apikey, message, openai_tools):
-            # await self.stop_stream()
+            await self.stop_stream_anim()
             if plan.get("type") == "error":
                 return logger.error(plan)
 
@@ -252,43 +292,56 @@ class Mind(object):
 
             logger.debug(reasoning)
 
-            async with TypewriterStreamSession() as tw:
-                for index, _ in enumerate(range(loop_count), start=1):
-                    for step in steps:
-                        action = step["action"]
+            for index, _ in enumerate(range(loop_count), start=1):
+                for step in steps:
+                    action = step["action"]
+                    name, arguments = action["action"], action["args"]
 
-                        if error := await self.light_awakening(session):
+                    if self.require_connect(domains, name):
+                        if error := await self.wakeup(session):
                             return logger.error(error)
 
-                        name, arguments = action["action"], action["args"]
-                        logger.debug(f"{name} -> args={arguments}")
+                    logger.debug(f"{name} -> args={arguments}")
 
-                        # workflow: ==== 工具调用 ====
-                        result = await session.call_tool(name, arguments)
-                        if not (ok := (not result.isError)):
-                            return logger.error(result.structuredContent)
+                    # workflow: ==== 工具调用 ====
+                    result = await session.call_tool(name, arguments)
+                    ok = (not result.isError)
 
-                        # workflow: ==== 工具增强 ====
-                        enhancer: Enhancer = Enhancer(session, model, apikey)
-                        fields = await enhancer.enhance(name, arguments, result, ok, tw)
+                    # workflow: ==== 工具增强 ====
+                    enhancer: Enhancer = Enhancer(session, model, apikey)
+                    fields = await enhancer.enhance(name, arguments, result, ok)
 
-                        logger.debug(fields)
+                    if not ok or fields.get("data", {}).get("ok", False):
+                        return logger.error(fields)
+                    logger.debug(fields)
 
-                    if index != loop_count: self.task_info.clear()
+                if index != loop_count: self.task_info.clear()
 
     # workflow: ==== Chat 对话模式 ====
     async def mind_chat(self, model: str, apikey: str, message: str) -> None:
         """Mind Chat"""
-        async def function(session: ClientSession, openai_tools: list[dict]) -> None:
-            await self.chat_exec_looper(session, model, apikey, message, openai_tools)
+        async def function(
+            session: ClientSession,
+            openai_tools: list[dict[str, typing.Any]],
+            domains: dict[str, dict[str, typing.Any]]
+        ) -> None:
+            await self.chat_exec_looper(
+                session, model, apikey, message, openai_tools, domains
+            )
 
         return await self.with_mcp_session(model, apikey, function)
 
     # workflow: ==== Plan 编排模式 ====
     async def mind_plan(self, model: str, apikey: str, message: str) -> None:
         """Mind Plan"""
-        async def function(session: ClientSession, openai_tools: list[dict]) -> None:
-            await self.plan_exec_looper(session, model, apikey, message, openai_tools)
+        async def function(
+            session: ClientSession,
+            openai_tools: list[dict[str, typing.Any]],
+            domains: dict[str, dict[str, typing.Any]]
+        ) -> None:
+            await self.plan_exec_looper(
+                session, model, apikey, message, openai_tools, domains
+            )
 
         return await self.with_mcp_session(model, apikey, function)
 
@@ -343,7 +396,6 @@ class Mind(object):
         re_model  = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
         re_apikey = re.compile(r"^\s*/apikey(?:\s+(.*))?\s*$", re.IGNORECASE)
 
-        # 主题
         tag: typing.Literal["CHAT", "PLAN", "FAST"] = "CHAT"
 
         theme = {
@@ -443,21 +495,21 @@ class Mind(object):
         model  = model  or self.pref.model
         apikey = apikey or self.pref.apikey
 
-        # self.stream_event = asyncio.Event()
-        # self.stream_task = asyncio.create_task(
-        #     self.design.prefix_line(self.stream_event)
-        # )
+        self.stream_event = asyncio.Event()
+        self.stream_task = asyncio.create_task(
+            self.design.prefix_line(self.stream_event)
+        )
 
         try:
             return await func(model, apikey, message)
 
         except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as eg:
-            await self.stop_all()
+            await self.stop_all_anim()
             for ex in flatten_exceptions(eg):
                 logger.error(f"❌ [NET] {ex!r}")
 
         except* httpx.HTTPStatusError as eg:
-            await self.stop_all()
+            await self.stop_all_anim()
             for ex in flatten_exceptions(eg):
                 if isinstance(ex, httpx.HTTPStatusError):
                     body = ex.response.extensions.get("error_body", b"")
@@ -467,7 +519,7 @@ class Mind(object):
                     logger.error(f"❌ [HTTP] unexpected: {ex!r}")
 
         except* Exception as eg:
-            await self.stop_all()
+            await self.stop_all_anim()
             for ex in flatten_exceptions(eg):
                 logger.error(f"❌ [BUG] {ex!r}")
 
@@ -491,7 +543,7 @@ class Enhancer(object):
         arguments: dict[str, typing.Any],
         result: CallToolResult,
         ok: bool,
-        tw: TypewriterStreamSession
+        tw: typing.Optional[TypewriterStreamSession] = None
     ) -> typing.Union[str, dict[str, typing.Any]]:
         """Enhance"""
 
@@ -509,20 +561,25 @@ class Enhancer(object):
 
     async def __screenshot(self, result: CallToolResult) -> dict:
         fields = self.fields(result)
-
         attachments: list[dict[str, typing.Any]] = []
-        logs: list[str] = []
+
+        if not (results := fields.get("results")):
+            return {
+                "text"        : "未获取到截图结果",
+                "attachments" : attachments,
+                "data"        : {"ok": False, "fields": fields}
+            }
 
         per_device: dict[str, typing.Any] = {}
 
-        for item in fields.get("results") or []:
-            agent_id = item.get("agent_id") or "unknown"
+        for element in results:
+            agent_id = element.get("agent_id", "unknown")
 
-            if not item.get("ok"):
-                per_device[agent_id] = {"ok": False, "error": item.get("text")}
+            if not element.get("ok"):
+                per_device[agent_id] = {"ok": False, "error": element.get("text")}
                 continue
 
-            if not (local := item.get("text")) or not isinstance(local, str):
+            if not (local := element.get("text")) or not isinstance(local, str):
                 per_device[agent_id] = {"ok": False, "error": "missing local screenshot path"}
                 continue
 
@@ -537,108 +594,107 @@ class Enhancer(object):
                     "ok"        : True,
                     "local"     : local,
                     "url"       : url,
-                    "r2_key"    : up["key"],
-                    "filename"  : up["filename"],
-                    "mime_type" : up["mime_type"]
+                    "r2_key"    : (up or {}).get("key"),
+                    "filename"  : (up or {}).get("filename"),
+                    "mime_type" : (up or {}).get("mime_type")
+                }
+            except Exception as e:
+                per_device[agent_id] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+                return {
+                    "text"        : f"屏幕截图上传异常：{type(e).__name__}: {e}",
+                    "attachments" : attachments,
+                    "data"        : {"ok": False, "per_device": per_device}
                 }
             finally:
-                if os.path.exists(local): os.remove(local)
+                with contextlib.suppress(Exception):
+                    if local and os.path.isfile(local):
+                        os.remove(local)
 
+        ok = all(v.get("ok") for v in per_device.values()) if per_device else False
         return {
-            "text"        : "屏幕截图上传成功",
+            "text"        : "屏幕截图上传成功" if ok else "屏幕截图上传完成（存在失败）",
             "attachments" : attachments,
-            "data"        : {"per_device": per_device},
-            "logs"        : logs
+            "data"        : {"ok": ok, "per_device": per_device}
         }
 
     async def __find_element(
         self,
         arguments: dict[str, typing.Any],
         result: CallToolResult,
-        tw: TypewriterStreamSession
-    ) -> dict:
+        tw: typing.Optional[TypewriterStreamSession] = None
+    ) -> typing.Optional[dict[str, typing.Any]]:
 
         fields = self.fields(result)
-
         attachments: list[dict[str, str]] = []
-        logs: list[str] = []
-
-        per_device: dict[str, dict[str, typing.Any]] = {}
-        locator_map: dict[str, dict[str, str]] = {}
 
         if not (results := fields.get("results")):
             return {
                 "text"        : "未获取到设备结果",
                 "attachments" : attachments,
-                "data"        : {"ok": False, "fields" : fields},
-                "log"         : logs
+                "data"        : {"ok": False, "fields": fields}
             }
 
+        per_device: dict[str, dict[str, typing.Any]] = {}
+
         for element in results:
-            serial = (data := element["data"]).pop("serial", None) or "unknown"
+            data   = element["data"]
+            serial = data.pop("serial", "unknown")
 
-            per_device.setdefault(serial, {"ok": True, "errors": [], "smart": None})
-
-            async for heal in request.stream_heal(self.model, self.apikey, **data):
+            async for heal in request.stream_heal(self.model, self.apikey, **data, tw=tw):
                 if heal.get("type") == "error":
-                    await tw.feed(msg := heal["content"])
-                    per_device[serial]["ok"] = False
-                    per_device[serial]["errors"].append(msg)
+                    per_device[serial] = {"ok": False, "error": heal["content"]}
                     continue
 
-                if smart := heal.get("smart"):
-                    per_device[serial]["smart"] = smart
-                    loc = {
+                if not (smart := heal.get("smart")):
+                    continue
+
+                reason = smart.get("details", {}).get("reason", "unknown")
+
+                if serial not in per_device:
+                    locator = {
                         "by": smart["new_selector"]["primary"]["by"],
                         "value": smart["new_selector"]["primary"]["value"]
                     }
+                    per_device[serial] = {"ok": True, "locator": locator, "smart": reason}
 
-                    if serial in locator_map:
-                        await tw.feed(f"skip dup locator for {serial}: {loc}")
-                    else:
-                        locator_map[serial] = loc
+                if tw: await tw.feed(reason)
+                else: logger.debug(reason)
 
-                    await tw.feed(smart.get("details", {}).get("reason"))
+        matrix = {k: v["locator"] for k, v in per_device.items() if v.get("locator")}
 
-        if not locator_map or not arguments.get("should_click"):
+        if not matrix:
+            return {
+                "text"        : "元素定位失败",
+                "attachments" : attachments,
+                "data"        : {"ok": False, "per_device": per_device}
+            }
+
+        if not arguments.get("should_click"):
             ok = all(v.get("ok") for v in per_device.values()) if per_device else False
             return {
-                "text"        : "元素定位完成",
+                "text"        : "元素定位成功" if ok else "元素定位完成（存在失败）",
                 "attachments" : attachments,
-                "data"        : {"ok": ok, "locator_map": locator_map, "per_device": per_device},
-                "log"         : logs
+                "data"        : {"ok": ok, "per_device": per_device}
             }
 
         wait_s = float(arguments.get("wait") or 0)
         if wait_s > 0: await asyncio.sleep(wait_s)
 
-        r = await self.session.call_tool("click_matrix", {"matrix": locator_map})
+        r = await self.session.call_tool("click_matrix", {"matrix": matrix})
         f = self.fields(r)
 
         if r.isError:
             return {
                 "text"        : "点击失败",
                 "attachments" : attachments,
-                "data": {
-                    "ok"          : False,
-                    "locator_map" : locator_map,
-                    "per_device"  : per_device,
-                    "fields"      : f
-                },
-                "log": logs
+                "data"        : {"ok": False, "per_device": per_device, "fields": f}
             }
 
         ok = all(v.get("ok") for v in per_device.values()) if per_device else False
         return {
-            "text"        : "元素定位完成，并已点击",
+            "text"        : "元素定位成功，并已点击" if ok else "元素定位完成并已点击（存在失败）",
             "attachments" : attachments,
-            "data": {
-                "ok"          : ok,
-                "locator_map" : locator_map,
-                "per_device"  : per_device,
-                "fields"      : f
-            },
-            "log": logs
+            "data"        : {"ok": ok, "per_device": per_device, "fields": f}
         }
 
 

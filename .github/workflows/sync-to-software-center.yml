@@ -1,0 +1,45 @@
+name: Sync
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync_readme_license:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+
+      - name: Set variables
+        run: |
+          echo "TARGET_DIR=SoftwareCenter/Assets/Mind" >> $GITHUB_ENV
+          echo "REPO_NAME=Mind" >> $GITHUB_ENV
+
+      - name: Clone public SoftwareCenter repo
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_TOKEN }}
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "action@github.com"
+          git clone https://x-access-token:${GH_TOKEN}@github.com/PlaxtonFlarion/SoftwareCenter.git SoftwareCenter
+
+      - name: Copy non-binary files to public repo
+        run: |
+          mkdir -p $TARGET_DIR
+          cp README.md $TARGET_DIR/ || true
+          cp LICENSE.md $TARGET_DIR/ || true
+
+      - name: Push to SoftwareCenter (only if changed)
+        run: |
+          cd SoftwareCenter
+          git add .
+          if git diff --cached --quiet; then
+            echo "No changes to commit. Skipping push."
+          else
+            git commit -m "Sync README/LICENSE for $REPO_NAME"
+            git push
+          fi
