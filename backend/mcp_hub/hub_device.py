@@ -208,7 +208,7 @@ class Device(object):
     async def is_online(self) -> bool:
         """是否能真正访问互联网。"""
         resp = await Terminal.cmd_line(
-            self.prefix + ["shell", "ping", "-c", "1", "8.8.8.8"]
+            self.prefix + ["shell", "ping", "-c", "1", "1.1.1.1"]
         )
         return bool(resp and "1 packets transmitted" in resp)
 
