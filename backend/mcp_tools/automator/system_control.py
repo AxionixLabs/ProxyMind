@@ -7,6 +7,7 @@
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
+import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.mcp_hub.hub_manage import DeviceManage
@@ -58,6 +59,21 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
             args={},
             target_list=manage.snapshot,
             call=lambda agent: agent.ime_reset()
+        )
+
+    @mcp.tool()
+    @task_middleware("device_reboot")
+    async def device_reboot(
+        mode: typing.Literal["", "recovery", "bootloader", "edl"] = "",
+        wait: bool = False,
+        wait_timeout: float = 120.0
+    ) -> CallToolResult:
+        """Class: system; Action: 重启设备（adb reboot）; Args: mode(""|recovery|bootloader|edl, default=""), wait(bool=False, only when mode==""), wait_timeout(float=120.0); Use: 设备重启/切换到 recovery/bootloader/edl；普通重启可选等待重新上线; Return: CallToolResult(text + structuredContent); Notes: bootloader/edl/recovery 通常不会回到 adb online，不建议 wait=True。"""
+        return await broadcast(
+            tool="device_reboot",
+            args={"mode": mode, "wait": wait, "wait_timeout": wait_timeout},
+            target_list=manage.snapshot,
+            call=lambda agent: agent.device_reboot(mode, wait, wait_timeout)
         )
 
     @mcp.tool()
