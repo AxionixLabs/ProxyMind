@@ -182,13 +182,20 @@ class Device(object):
 
     # workflow: ==== Device ====
     async def st_battery(self) -> int | None:
-        """读取电池 scale 数值。"""
-        cmd = self.prefix + [
-            "shell", "dumpsys", "battery"
-        ]
-        resp = await Terminal.cmd_line(cmd)
+        """读取电池电量百分比（level/scale）。"""
+        cmd = self.prefix + ["shell", "dumpsys", "battery"]
+        if not (resp := await Terminal.cmd_line(cmd)):
+            return None
 
-        return m.group() if (m := re.search(r"(?<=scale:\s)\d+", resp, re.S)) else None
+        m_level = re.search(r"(?m)^\s*level:\s*(\d+)\s*$", resp)
+        m_scale = re.search(r"(?m)^\s*scale:\s*(\d+)\s*$", resp)
+        if not (m_level and m_scale):
+            return None
+
+        level = int(m_level.group(1))
+        scale = int(m_scale.group(1)) or 100
+        
+        return int(round(level * 100 / scale))
 
     # workflow: ==== Device ====
     async def st_wm_size(self) -> tuple[int, int] | None:
