@@ -16,6 +16,7 @@ import asyncio
 import secrets
 import datetime
 import tempfile
+import contextlib
 import numpy as np
 from PIL import Image
 from pathlib import Path
@@ -736,17 +737,22 @@ class Device(object):
         cmd = self.prefix + ["shell", "uiautomator", "dump", "--compressed", xml_file]
         await Terminal.cmd_line(cmd)
 
-        cmd = self.prefix + ["shell", "cat", xml_file]
-        for _ in range(6):
-            xml = await Terminal.cmd_line(cmd)
-
-            if isinstance(xml, bytes):
-                xml = xml.decode(const.CHARSET, const.IGNORE)
-            if xml and "<hierarchy" in xml:
-                return xml
-            await asyncio.sleep(0.12)
-
-        return None
+        cat = self.prefix + ["shell", "cat", xml_file]
+        try:
+            for _ in range(6):
+                xml = await Terminal.cmd_line(cat)
+                
+                xml = xml.decode(const.CHARSET, const.IGNORE) if isinstance(
+                    xml, (bytes, bytearray)
+                ) else (xml or "")
+                
+                if "<hierarchy" in xml:
+                    return xml
+                await asyncio.sleep(0.12)
+            return None
+        finally:
+            with contextlib.suppress(Exception):
+                await self.remove(xml_file)
 
     # workflow: ==== UI Interaction MCP Tool ====
     async def find_element(self, locator: str, *_, **__) -> dict:
