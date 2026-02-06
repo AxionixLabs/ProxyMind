@@ -503,6 +503,65 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== System Control MCP Tool ====
+    async def device_reboot(
+        self,
+        mode: typing.Literal["", "recovery", "bootloader", "edl"] = "",
+        wait: bool = False,
+        wait_timeout: float = 120.0
+    ) -> dict[str, typing.Any]:
+        """
+        重启设备（adb reboot）。
+
+        Args:
+            mode:
+                ""           -> 普通重启（adb reboot）
+                "recovery"   -> 重启到 recovery（adb reboot recovery）
+                "bootloader" -> 重启到 bootloader/fastboot（adb reboot bootloader）
+                "edl"        -> 重启到 EDL（部分设备支持）（adb reboot edl）
+            wait:
+                是否等待设备重新上线（adb wait-for-device）。
+                注意：bootloader/edl 场景一般不会回到 adb online，此时不要 wait=True。
+            wait_timeout:
+                等待设备上线的超时时间（秒）。
+        """
+        cmd = self.prefix + ["reboot"] + ([mode] if mode else [])
+
+        raw = await Terminal.cmd_line(cmd)
+        out = ("" if raw is None else str(raw)).strip()
+
+        data: dict[str, typing.Any] = {"ok": True, "mode": mode, "cmd": cmd, "out": out}
+
+        # 仅普通重启才支持 wait-for-device
+        if wait and mode == "":
+            try:
+                await asyncio.wait_for(
+                    Terminal.cmd_line(self.prefix + ["wait-for-device"]),
+                    timeout=wait_timeout
+                )
+                return {
+                    "text"        : "设备已触发重启，并已重新上线。",
+                    "attachments" : [],
+                    "data"        : data
+                }
+            except Exception as e:
+                err = f"{type(e).__name__}: {e}"
+                data["ok"] = False
+                data["error"] = err
+                data["wait_timeout"] = wait_timeout
+                return {
+                    "text"        : f"设备已触发重启，但等待重新上线失败：{err}",
+                    "attachments" : [],
+                    "data"        : data
+                }
+
+        # 不等待：只表示命令已下发
+        return {
+            "text"        : "已下发 adb reboot 指令。",
+            "attachments" : [],
+            "data"        : data
+        }
+
+    # workflow: ==== System Control MCP Tool ====
     async def swipe_unlock(self) -> None:
         """点亮屏幕并上滑解锁。"""
         await self.screen_set(True)
