@@ -836,6 +836,9 @@ class Device(object):
         """切换到 AdbIME；若 enable/set 任一提示 Unknown input method，则直接返回错误结果。"""
         ime = "com.android.adbkeyboard/.AdbIME"
 
+        lst = await Terminal.cmd_line(self.prefix + ["shell", "ime", "list", "-s"])
+        if ime in (lst or ""): return None
+
         e_out = await Terminal.cmd_line(self.prefix + ["shell", "ime", "enable", ime])
         s_out = await Terminal.cmd_line(self.prefix + ["shell", "ime", "set", ime])
 
