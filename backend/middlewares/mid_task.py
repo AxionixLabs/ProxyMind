@@ -12,6 +12,7 @@ from loguru import logger
 
 
 def task_middleware(tool_name: str):
+    """Task middleware"""
     
     def decorator(func):
         @functools.wraps(func)
