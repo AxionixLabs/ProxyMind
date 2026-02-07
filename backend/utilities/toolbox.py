@@ -14,7 +14,6 @@ import asyncio
 from mcp.types import (
     CallToolResult, TextContent
 )
-from backend.mcp_hub.hub_manage import DeviceManage
 from engine.terminal import Terminal
 
 
@@ -43,88 +42,60 @@ async def kill_port(port: int) -> typing.Any:
     return await Terminal.cmd_line(cmd)
 
 
-def pick_plan(manage: DeviceManage, plan: dict) -> tuple[list, dict[str, dict]]:
-    """
-    从 CTX plan 中解析 targets/overrides，并基于 manage.snapshot 得到：
-      - target_list: 实际要执行的设备列表
-      - ov: 仅保留 targets 子集内的 overrides（value 必须是 dict）
-    约定：
-      - targets is None -> 单控：返回全量 snapshot，ov={}
-      - targets 是 list[str] -> 子集群控
-    """
-    targets      = plan.get("targets")          # None | list[str]
-    overrides    = plan.get("overrides") or {}  # dict[str, dict]
-    base_targets = manage.snapshot
-
-    if targets is None:
-        return base_targets, {}
-
-    want = set(targets)
-    target_list = [a for a in base_targets if getattr(a, "agent_id", None) in want]
-
-    if not isinstance(overrides, dict):
-        return target_list, {}
-
-    ov = {str(k): v for k, v in overrides.items() if str(k) in want and isinstance(v, dict)}
-    return target_list, ov
-
-
 async def broadcast(
     *,
     tool: str,
     args: dict,
     target_list: list,
-    call: typing.Callable[[typing.Any, dict], typing.Awaitable[typing.Any]],
-    overrides: typing.Optional[dict[str, dict]] = None
+    call: typing.Callable[[typing.Any], typing.Awaitable[typing.Any]]
 ) -> CallToolResult:
 
     def normalize() -> dict[str, typing.Any]:
+        """
+        归一化单个 agent 返回为：
+        {
+          "text"        : str|None,
+          "attachments" : list,
+          "data"        : any,
+          "logs"        : list
+        }
+        """
         if raw is None:
             return {"text": None, "attachments": [], "data": None, "logs": []}
+
         if isinstance(raw, str):
             return {"text": raw, "attachments": [], "data": None, "logs": []}
+
         if isinstance(raw, dict):
             return {
                 "text"        : raw.get("text"),
                 "attachments" : raw.get("attachments") or [],
-                "data"        : raw.get("data") if "data" in raw else raw,
+                "data"        : raw.get("data") if "data" in raw else raw,  # 兼容：没 data 就把整包当 data
                 "logs"        : raw.get("logs") or []
             }
+
+        # 其他类型：按 data 返回
         return {"text": None, "attachments": [], "data": raw, "logs": []}
 
     t0 = time.time()
-    
-    overrides = overrides or {}
-    
-    agents, arg_list = [], []
-
-    for target in target_list:
-        agent_id = getattr(target, "agent_id", None) or str(target)
-        agents.append(agent_id)
-
-        ov = overrides.get(agent_id) or {}
-        if not isinstance(ov, dict):
-            ov = {}
-
-        arg_list.append({**(args or {}), **ov})
 
     raw_list = await asyncio.gather(
-        *(call(target, a) for target, a in zip(target_list, arg_list)), return_exceptions=True
+        *(call(target) for target in target_list), return_exceptions=True
     )
 
     done, fail, results, attachments = 0, 0, [], []
 
-    for target, agent_id, arg, raw in zip(target_list, agents, arg_list, raw_list):
+    for target, raw in zip(target_list, raw_list):
+        agent_id = getattr(target, "agent_id", None) or str(target)
+
         call_item: dict[str, typing.Any] = {
             "agent_id"    : agent_id,
             "ok"          : True,
-            "args"        : arg,
             "text"        : None,
             "attachments" : [],
             "data"        : None,
             "logs"        : []
         }
-
         if isinstance(raw, Exception):
             call_item["ok"]   = False
             call_item["text"] = f"{type(raw).__name__}: {raw}"
@@ -139,6 +110,7 @@ async def broadcast(
             call_item["logs"]        = pack.get("logs") or []
             done += 1
 
+        # 汇总附件：带上 agent_id 方便定位来源
         for attach in call_item["attachments"]:
             if isinstance(attach, dict):
                 attachments.append({"agent_id": agent_id, **attach})
@@ -162,9 +134,9 @@ async def broadcast(
         "tool" : tool,
         "args" : args,
         "cost" : cost_ms,
-        "summary": {
-            "total" : total, 
-            "done"  : done, 
+        "summary" : {
+            "total" : total,
+            "done"  : done,
             "fail"  : fail
         },
         "text"        : "\n".join(lines),
@@ -182,5 +154,3 @@ async def broadcast(
 
 if __name__ == '__main__':
     pass
-
-
