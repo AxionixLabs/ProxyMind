@@ -8,6 +8,7 @@
 
 import sys
 import asyncio
+from contextvars import ContextVar
 from backend.mcp_core.core_framix import Framix
 from backend.mcp_core.core_memrix import Memrix
 from backend.mcp_hub.hub_medias import (
@@ -17,6 +18,8 @@ from backend.mcp_hub.hub_record import Record
 
 
 class Ins(object):
+
+    CTX: ContextVar[dict] = ContextVar("CTX", default={})
 
     station: str = sys.platform
 
