@@ -95,7 +95,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         async def call(device: Device, a: dict) -> typing.Optional[str]:
             _, on_begin, on_final = idle.hooks(
                 "scrcpy.scrcpy_record",
-                args={},
+                args=a,
                 args_fn=lambda: {"serial": device.serial, "brand": device.brand}
             )
             record: Record = Record(
