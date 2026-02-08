@@ -105,6 +105,7 @@ async def streaming(
 
 
 async def stream_plan(
+    mode: str,
     model: str,
     apikey: str,
     message: str,
@@ -116,6 +117,7 @@ async def stream_plan(
     url = f"https://api.appserverx.com/mind-plan"
     headers = Channel.make_headers()
     payload = {
+        "mode"    : mode,
         "model"   : model,
         "apikey"  : apikey,
         "message" : message,
@@ -141,6 +143,7 @@ async def stream_plan(
 
 
 async def stream_chat(
+    mode: str,
     model: str,
     apikey: str,
     message: str,
@@ -153,6 +156,7 @@ async def stream_chat(
     url = f"https://api.appserverx.com/mind-chat"
     headers = Channel.make_headers()
     payload = {
+        "mode"    : mode,
         "model"   : model,
         "apikey"  : apikey,
         "message" : message,
@@ -208,15 +212,15 @@ async def stream_heal(
     async for event in streaming(url, headers, payload, timeout):
         match event.get("type"):
             case "thinking":
-                if tw: await tw.feed(event["content"])
+                if tw: await tw.feed(f"\n{event['content']}\n")
                 else: logger.debug(event["content"])
                 continue
             case "done":
-                if tw: await tw.feed("Heal done ...")
+                if tw: await tw.feed(f"\nHeal done ...\n")
                 else: logger.debug("Heal done ...")
                 continue
             case "heal":
-                if tw: await tw.feed(event["content"])
+                if tw: await tw.feed(f"\n{event['content']}\n")
                 else: logger.debug(event["content"])
 
         yield event

@@ -86,10 +86,12 @@ class Mind(object):
 
     @property
     def remote(self) -> dict:
+        """Remote"""
         return self.__remote
 
     @remote.setter
     def remote(self, value: dict) -> None:
+        """Remote"""
         self.__remote = value if isinstance(value, dict) else {}
 
     def signal_processor(self, *_, **__) -> None:
@@ -98,6 +100,110 @@ class Mind(object):
         Design.console.print()
         Design.show_exit()
         sys.exit(130)
+
+    class Tooling(object):
+
+        @staticmethod
+        def filter_tools(
+            openai_tools: list[dict[str, typing.Any]],
+            tool_meta: dict[str, dict[str, typing.Any]],
+            domains: typing.Optional[typing.Iterable[str]] = None,
+            classes: typing.Optional[typing.Iterable[str]] = None,
+            *,
+            include_hidden: bool = False,
+            exclude: typing.Optional[list[dict[str, typing.Any]]] = None
+        ) -> list[dict[str, typing.Any]]:
+            """
+            - domains/classes: allowlist（AND 叠加：传哪个就按哪个过滤）
+            - exclude: 排除规则列表；每条规则是 AND 匹配（命中就剔除）
+              支持键：domain / class / name
+              例：exclude=[{"domain":"media","class":"scrcpy"}]
+            """
+            want_domain = {
+                str(d).strip() for d in domains if str(d).strip()
+            } if domains else None
+
+            want_class = {
+                str(c).strip() for c in classes if str(c).strip()
+            } if classes else None
+
+            exclude = exclude or []
+
+            out: list[dict[str, typing.Any]] = []
+
+            for item in openai_tools:
+                func = (item or {}).get("function") or {}
+                name = func.get("name")
+                if not name: continue
+
+                meta = tool_meta.get(name) or {}
+
+                if not include_hidden and bool(meta.get("hidden", False)):
+                    continue
+
+                if want_domain is not None and meta.get("domain") not in want_domain:
+                    continue
+
+                if want_class is not None and meta.get("class") not in want_class:
+                    continue
+
+                # 排除规则：每条规则内部是 AND
+                hit_exclude = False
+                for rule in exclude:
+                    if not isinstance(rule, dict):
+                        continue
+                    ok = True
+                    if "name" in rule:
+                        ok = ok and (name == rule["name"])
+                    if "domain" in rule:
+                        ok = ok and (meta.get("domain") == rule["domain"])
+                    if "class" in rule:
+                        ok = ok and (meta.get("class") == rule["class"])
+                    if ok:
+                        hit_exclude = True
+                        break
+
+                if hit_exclude:
+                    continue
+                out.append(item)
+
+            return out
+
+        @staticmethod
+        def require(
+            meta_map: dict[str, dict[str, typing.Any]],
+            name: str,
+            *,
+            domain_in: typing.Optional[typing.Container[str]] = None,
+            class_in: typing.Optional[typing.Container[str]] = None,
+            name_in: typing.Optional[typing.Container[str]] = None,
+            name_not_in: typing.Optional[typing.Container[str]] = None,
+            class_not_in: typing.Optional[typing.Container[str]] = None
+        ) -> bool:
+            """
+            判断某工具是否需要“连接/设备准备”等前置动作。
+
+            规则：
+            1) 先排除：name ∈ name_not_in 或 meta.class ∈ class_not_in => False
+            2) 再命中：name_in / domain_in / class_in 任一命中 => True（OR）
+            3) 都不传：默认（domain=device 或 class=scrcpy）
+            """
+
+            meta = meta_map.get(name) or {}
+            dom  = meta.get("domain", "")
+            cls  = meta.get("class", "")
+
+            if (name_not_in and name in name_not_in) or (class_not_in and cls in class_not_in):
+                return False
+
+            if domain_in is None and class_in is None and name_in is None:
+                domain_in, class_in = {"device"}, {"scrcpy"}
+
+            return bool(
+                (name_in and name in name_in)
+                or (domain_in and dom in domain_in)
+                or (class_in and cls in class_in)
+            )
 
     async def stop_stream_anim(self) -> None:
         """Stop Stream"""
@@ -123,10 +229,6 @@ class Mind(object):
             x for x, ok in [("model", bool(model)), ("api_key", bool(apikey))] if not ok
         )
         raise MindError(f"Missing required field(s): {missing}")
-
-    @staticmethod
-    def require_connect(domains: dict[str, dict[str, typing.Any]], name: str) -> bool:
-        return domains.get(name, {}).get("domain", "") in {"device", "capture"}
 
     @staticmethod
     def build_openai_tools(
@@ -190,23 +292,22 @@ class Mind(object):
 
         if ((now := time.time()) - self.last_refresh_ts) < self.ttl_sec:
             tip = f"ttl-hit: skip refresh ttl={self.ttl_sec:.3f}s"
-            if tw: return await tw.feed(tip)
+            if tw: return await tw.feed(f"\n{tip}\n")
             else: return logger.debug(tip)
 
-        tools = {
-            "name": "refresh", "arguments": {"ttl_sec": self.ttl_sec}
-        }
-        result = await session.call_tool(**tools)
-        if result.isError:
-            return result.content[0].text
-        structured = result.structuredContent
+        result = await session.call_tool("refresh", {"ttl_sec": self.ttl_sec})
+        ok = (not result.isError)
+        content = result.content[0].text
+
+        if not ok:
+            return content
 
         self.last_refresh_ts = now
 
-        if tw: return await tw.feed(structured)
-        else: return logger.debug(structured)
+        if tw: return await tw.feed(f"\n{content}\n")
+        else: return logger.debug(content)
 
-    # Notes: ==== Chat 对话模式 ====
+    # workflow: ==== Chat 对话模式 ====
     async def chat_exec_looper(
         self,
         session: ClientSession,
@@ -218,10 +319,12 @@ class Mind(object):
     ) -> None:
         """Chat Exec Looper"""
 
+        mode: str = "chat"
+
         tw: TypewriterStreamSession = TypewriterStreamSession()
 
         # workflow: ==== Chat Streaming ====
-        async for chat in request.stream_chat(model, apikey, message, openai_tools):
+        async for chat in request.stream_chat(mode, model, apikey, message, openai_tools):
             await self.stop_stream_anim(); await tw.start()
 
             try:
@@ -236,7 +339,7 @@ class Mind(object):
                     case "tool_call":
                         name, arguments = chat["name"], chat.get("arguments", {})
 
-                        if self.require_connect(domains, name):
+                        if self.Tooling.require(domains, name, name_not_in={"refresh"}):
                             if error := await self.wakeup(session, tw):
                                 await tw.feed(error); return await tw.stop()
 
@@ -271,7 +374,77 @@ class Mind(object):
 
         await tw.stop()
 
-    # Notes: ==== Plan 编排模式 ====
+    # workflow: ==== Fast 性能模式 ====
+    async def fast_exec_looper(
+        self,
+        session: ClientSession,
+        model: str,
+        apikey: str,
+        message: str,
+        openai_tools: list[dict[str, typing.Any]],
+        domains: dict[str, dict[str, typing.Any]]
+    ) -> None:
+        """Fast Exec Looper"""
+
+        mode: str = "fast"
+
+        filter_tools = self.Tooling.filter_tools(
+            openai_tools=openai_tools,
+            tool_meta=domains,
+            domains={"bench", "common", "media"},
+            exclude=[{"domain": "media", "class": "scrcpy"}]
+        )
+
+        tw: TypewriterStreamSession = TypewriterStreamSession()
+
+        # workflow: ==== Fast Streaming ====
+        async for chat in request.stream_chat(mode, model, apikey, message, filter_tools):
+            await self.stop_stream_anim(); await tw.start()
+
+            try:
+                match chat.get("type"):
+                    case "error":
+                        await tw.feed(chat.get("content")); return await tw.stop()
+
+                    case "chat":
+                        await tw.feed(chat.get("content"))
+                        continue
+
+                    case "tool_call":
+                        name, arguments = chat["name"], chat.get("arguments", {})
+
+                        await tw.feed(f"\n{name} {arguments}\n")
+
+                        # workflow: ==== 工具调用 ====
+                        result = await session.call_tool(name, arguments)
+                        ok = (not result.isError)
+
+                        # workflow: ==== 工具增强 ====
+                        enhancer: Enhancer = Enhancer(session, model, apikey)
+                        fields = await enhancer.enhance(name, arguments, result, ok, tw)
+
+                        if self.level != const.SHOW_LEVEL:
+                            await tw.feed(f"\n{fields}\n")
+
+                        await request.post_tool_result(
+                            chat["cid"], chat["sid"], chat["call_id"], name, ok, fields
+                        )
+                        continue
+
+                    case "tool_result":
+                        if self.level != const.SHOW_LEVEL:
+                            await tw.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
+                        continue
+
+                    case _:
+                        continue
+
+            except Exception as e:
+                await tw.feed(str(e)); return await tw.stop()
+
+        await tw.stop()
+
+    # workflow: ==== Plan 编排模式 ====
     async def plan_exec_looper(
         self,
         session: ClientSession,
@@ -283,7 +456,9 @@ class Mind(object):
     ) -> None:
         """Plan Exec Looper"""
 
-        async for plan in request.stream_plan(model, apikey, message, openai_tools):
+        mode: str = "plan"
+
+        async for plan in request.stream_plan(mode, model, apikey, message, openai_tools):
             await self.stop_stream_anim()
             if plan.get("type") == "error":
                 return logger.error(plan)
@@ -297,7 +472,7 @@ class Mind(object):
                     action = step["action"]
                     name, arguments = action["action"], action["args"]
 
-                    if self.require_connect(domains, name):
+                    if self.Tooling.require(domains, name, name_not_in={"refresh"}):
                         if error := await self.wakeup(session):
                             return logger.error(error)
 
@@ -317,7 +492,7 @@ class Mind(object):
 
                 if index != loop_count: self.task_info.clear()
 
-    # workflow: ==== Chat 对话模式 ====
+    # Notes: ==== Chat 对话模式 ====
     async def mind_chat(self, model: str, apikey: str, message: str) -> None:
         """Mind Chat"""
         async def function(
@@ -331,7 +506,21 @@ class Mind(object):
 
         return await self.with_mcp_session(model, apikey, function)
 
-    # workflow: ==== Plan 编排模式 ====
+    # Notes: ==== Fast 性能模式 ====
+    async def mind_fast(self, model: str, apikey: str, message: str) -> None:
+        """Mind Fast"""
+        async def function(
+            session: ClientSession,
+            openai_tools: list[dict[str, typing.Any]],
+            domains: dict[str, dict[str, typing.Any]]
+        ) -> None:
+            await self.fast_exec_looper(
+                session, model, apikey, message, openai_tools, domains
+            )
+
+        return await self.with_mcp_session(model, apikey, function)
+
+    # Notes: ==== Plan 编排模式 ====
     async def mind_plan(self, model: str, apikey: str, message: str) -> None:
         """Mind Plan"""
         async def function(
@@ -345,7 +534,7 @@ class Mind(object):
 
         return await self.with_mcp_session(model, apikey, function)
 
-    # workflow: ==== Loop 循环模式 ====
+    # Notes: ==== Loop 循环模式 ====
     async def mind_loop(self) -> None:
         """Mind Loop"""
         async def exchange(types: typing.Literal["model", "apikey"]) -> typing.Optional[str]:
@@ -388,15 +577,15 @@ class Mind(object):
         [bold #AFD7FF]/apikey <key>[/]             凭证更新（替换访问密钥）
         [bold #AFD7FF]/again N <goal>[/]           复现回放（目标 × N 次）
         [bold #FFD75F]/chat[/]                     对话模式（自由对话）
-        [bold #FFD75F]/plan[/]                     编排模式（工具执行）
         [bold #FFD75F]/fast[/]                     性能模式（压测采集）
+        [bold #FFD75F]/plan[/]                     编排模式（工具执行）
         [/]"""
 
         re_again  = re.compile(r"^\s*/again\s+(\d+)\s+(.+?)\s*$", re.IGNORECASE)
         re_model  = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
         re_apikey = re.compile(r"^\s*/apikey(?:\s+(.*))?\s*$", re.IGNORECASE)
 
-        tag: typing.Literal["CHAT", "PLAN", "FAST"] = "CHAT"
+        tag: typing.Literal["CHAT", "FAST", "PLAN"] = "CHAT"
 
         theme = {
             "CHAT": {
@@ -408,6 +597,15 @@ class Mind(object):
                 "ready": "#D7AFFF",
                 "hint": "#FF87D7",
             },
+            "FAST": {
+                "banner": "╔═⟦ 𝓕𝓪𝓼𝓽 ⟧═╗",
+                "prompt": "│ 〉Fast",
+                "tag": "#FFAF00",
+                "prompt_c": "#FFD75F",
+                "model": "#FFAF00",
+                "ready": "#AFD7FF",
+                "hint": "#FFAF00",
+            },
             "PLAN": {
                 "banner"   : "╔═⟦ 𝔓𝔩𝔞𝔫 ⟧═╗",
                 "prompt"   : "│ 〉Plan",
@@ -416,15 +614,6 @@ class Mind(object):
                 "model"    : "#5FFF87",
                 "ready"    : "#AFD7FF",
                 "hint"     : "#5FD7FF",
-            },
-            "FAST": {
-                "banner"   : "╔═⟦ 𝓕𝓪𝓼𝓽 ⟧═╗",
-                "prompt"   : "│ 〉Fast",
-                "tag"      : "#FFAF00",
-                "prompt_c" : "#FFD75F",
-                "model"    : "#FFAF00",
-                "ready"    : "#AFD7FF",
-                "hint"     : "#FFAF00",
             }
         }
 
@@ -452,14 +641,14 @@ class Mind(object):
                 Design.console.print(f"[bold {theme['CHAT']['hint']}]Exchange → Chat[/]")
                 continue
 
-            if raw.lower() == "/plan":
-                tag = "PLAN"
-                Design.console.print(f"[bold {theme['PLAN']['hint']}]Exchange → Plan[/]")
-                continue
-
             if raw.lower() == "/fast":
                 tag = "FAST"
                 Design.console.print(f"[bold {theme['FAST']['hint']}]Exchange → Fast[/]")
+                continue
+
+            if raw.lower() == "/plan":
+                tag = "PLAN"
+                Design.console.print(f"[bold {theme['PLAN']['hint']}]Exchange → Plan[/]")
                 continue
 
             if m := re_model.match(raw):
@@ -479,12 +668,19 @@ class Mind(object):
 
             match tag:
                 case "CHAT": func = self.mind_chat
+                case "FAST": func = self.mind_fast
                 case "PLAN": func = self.mind_plan
-                case "FAST": func = self.mind_chat
 
             await self.calling(model, apikey, message=message, func=func)
 
-    async def calling(self, model: str = None, apikey: str = None, *, message: str, func: typing.Callable) -> None:
+    async def calling(
+        self,
+        model: str = None,
+        apikey: str = None,
+        *,
+        message: str,
+        func: typing.Callable
+    ) -> None:
         """Calling"""
         def flatten_exceptions(exc: BaseException) -> typing.Generator[BaseException, None, None]:
             if isinstance(exc, BaseExceptionGroup):
@@ -680,7 +876,7 @@ class Enhancer(object):
         wait_s = float(arguments.get("wait") or 0)
         if wait_s > 0: await asyncio.sleep(wait_s)
 
-        r = await self.session.call_tool("click_matrix", {"matrix": matrix})
+        r = await self.session.call_tool("click", {"matrix": matrix})
         f = self.fields(r)
 
         if r.isError:

@@ -19,23 +19,37 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
     @mcp.tool(meta={"hidden": False, "domain": "media", "class": "audio"})
     @task_middleware("audio_play")
     async def audio_play(audio_file: str, volume: float = 1.0) -> CallToolResult:
-        """Class: audio; Action: 播放音频文件; Args: audio_file(str)=音频文件路径, volume(float=1.0)=音量大小; Use: 用于在本机播放指定的音频文件; Return: CallToolResult(text + structuredContent); Notes: 文件不存在/格式不支持会失败。"""
+        """
+        D: media
+        C: audio
+        A: audio_play
+        P:
+          audio_file: str
+          volume: float=1.0
+        R: CTR
+        N:
+          - 本机播放指定音频文件（volume 为播放音量系数）
+          - 文件不存在/格式不支持/解码失败会报错
+        """
+
+        args = {
+            "audio_file" : audio_file,
+            "volume"     : volume
+        }
 
         async def call(*_) -> None:
-            job_id = await idle.job_begin(
-                f"{Ins.player.agent_id}.audio_play",
-                args={"audio_file": audio_file, "volume": volume}
-            )
+            job_id = await idle.job_begin(f"{Ins.player.agent_id}.audio_play", args=args)
             try:
-                return await Ins.player.audio_play(audio_file, volume)
+                return await Ins.player.audio_play(**args)
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
             tool="audio_play",
-            args={"audio_file": audio_file, "volume": volume},
+            args=args,
             target_list=[Ins.player],
-            call=call
+            call=call,
+            overrides=None
         )
 
 

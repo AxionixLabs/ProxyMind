@@ -22,10 +22,6 @@ class Monkey(object):
     """Monkey class."""
 
     def __init__(self):
-        self.__prefix: str = "monkey"
-
-        self.agent_id: str = self.__prefix
-
         self.proc_logcat: typing.Optional[asyncio.subprocess.Process] = None
         self.proc_monkey: typing.Optional[asyncio.subprocess.Process] = None
 
@@ -56,10 +52,6 @@ class Monkey(object):
         # 关键词命中统计 + 证据行（每类保留最近 10 行）
         self.stats: dict[str, int] = {k: 0 for k in self.patterns}
         self.evidence: dict[str, deque[str]] = {k: deque(maxlen=10) for k in self.patterns}
-
-    @property
-    def prefix(self) -> str:
-        return self.__prefix
 
     def matcher(self, text: str) -> typing.Optional[str]:
         for key, kws in self.patterns.items():
@@ -113,7 +105,7 @@ class Monkey(object):
             await asyncio.wait_for(self.proc_logcat.wait(), timeout=2.0)
 
     # workflow: ==== MCP Tool ====
-    async def monkey_injection(
+    async def injection(
         self,
         device: Device,
         package: str,
@@ -133,7 +125,7 @@ class Monkey(object):
 
         start_ms = int(time.time() * 1000)
 
-        await device.logcat_clean()
+        await device.file_logcat_clean()
 
         self.proc_logcat = await device.logcat_start()
         self.task_logcat = asyncio.create_task(

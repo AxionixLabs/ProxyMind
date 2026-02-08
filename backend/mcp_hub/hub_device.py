@@ -17,6 +17,7 @@ import secrets
 import datetime
 import tempfile
 import contextlib
+import urllib.parse
 import numpy as np
 from PIL import Image
 from pathlib import Path
@@ -243,7 +244,7 @@ class Device(object):
         return "true" in await Terminal.cmd_line(cmd)
 
     # workflow: ==== App Control MCP Tool ====
-    async def deep_link(self, url: str) -> typing.Any:
+    async def app_deep_link(self, url: str) -> typing.Any:
         """通过深度链接启动指定的应用服务。"""
         cmd = self.prefix + [
             "shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url
@@ -294,7 +295,7 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== App Control MCP Tool ====
-    async def app_uninstall(self, package: str, *, keep_data: bool = False) -> typing.Any:
+    async def app_uninstall(self, package: str, keep_data: bool = False) -> typing.Any:
         """卸载指定包名的应用。"""
         cmd = self.prefix + [
             "shell", "pm", "uninstall"
@@ -315,7 +316,7 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== File Control MCP Tool ====
-    async def pull(self, remote: str, local: str) -> str:
+    async def file_pull(self, remote: str, local: str) -> str:
         """从设备拉取文件到本地。"""
         unique = secrets.token_hex(6)
 
@@ -332,7 +333,7 @@ class Device(object):
         return str(destination)
 
     # workflow: ==== File Control MCP Tool ====
-    async def push(self, local: str, remote: str) -> typing.Any:
+    async def file_push(self, local: str, remote: str) -> typing.Any:
         """将本地文件推送到设备。"""
         cmd = self.prefix + [
             "push", local, remote
@@ -340,7 +341,7 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== File Control MCP Tool ====
-    async def remove(self, path: str) -> typing.Any:
+    async def file_remove(self, path: str) -> typing.Any:
         """删除设备上的文件。"""
         cmd = self.prefix + [
             "shell", "rm", "-f", path
@@ -348,7 +349,7 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== File Control MCP Tool ====
-    async def logcat_dump(
+    async def file_logcat_dump(
         self,
         since_sec: int = 5,
         keywords: typing.Optional[list[str]] = None,
@@ -356,7 +357,7 @@ class Device(object):
         saved: typing.Optional[str] = None
     ) -> dict:
         """一次性拉取 logcat 快照；按 keywords(不分大小写 OR) 过滤；saved=None 返回尾部 max_lines；saved=目录/文件则保存全量(不受200行限制)。"""
-        await self.logcat_clean()
+        await self.file_logcat_clean()
 
         cmd = self.prefix + ["logcat", "-v", "threadtime", "-d"]
 
@@ -437,7 +438,7 @@ class Device(object):
         }
 
     # workflow: ==== File Control MCP Tool ====
-    async def logcat_clean(self) -> typing.Any:
+    async def file_logcat_clean(self, *_, **__) -> typing.Any:
         """清空日志。"""
         cmd = self.prefix + [
             "logcat", "-c"
@@ -452,7 +453,7 @@ class Device(object):
         ]
         return await Terminal.cmd_link(cmd)
 
-    # workflow: ==== Media Control MCP Tool ====
+    # workflow: ==== System Control MCP Tool ====
     async def screenshot(self, local: str) -> str:
         """在设备上截屏 -> pull 到指定本地路径，返回本地路径。"""
         filename = f"screenshot_{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
@@ -462,8 +463,8 @@ class Device(object):
         ]
         await Terminal.cmd_line(cmd)
 
-        new_local = await self.pull(remote, local)
-        await self.remove(remote)
+        new_local = await self.file_pull(remote, local)
+        await self.file_remove(remote)
 
         return new_local
 
@@ -476,7 +477,7 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== System Control MCP Tool ====
-    async def open_quick_settings(self) -> typing.Any:
+    async def open_settings(self) -> typing.Any:
         """打开快速设置面板（Quick Settings Panel）。"""
         cmd = self.prefix + [
             "shell", "cmd", "statusbar", "expand-settings"
@@ -484,7 +485,7 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== System Control MCP Tool ====
-    async def combo_key(self, first: int, *others: int) -> typing.Any:
+    async def combo_key(self, first: int, others: list[int]) -> typing.Any:
         """组合按键执行。"""
         if not others: return None
 
@@ -503,7 +504,7 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== System Control MCP Tool ====
-    async def device_reboot(
+    async def reboot(
         self,
         mode: typing.Literal["", "recovery", "bootloader", "edl"] = "",
         wait: bool = False,
@@ -731,6 +732,52 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== UI Interaction MCP Tool ====
+    async def send_keys_fallback(self, text: str) -> dict[str, typing.Any]:
+        """降级输入：直接使用 adb shell input text。返回多模态结构。"""
+        def escape(s: str) -> str:
+            """
+            adb shell input text 转义：
+            - 空格 => %s
+            - 其它字符尽量做 URL 编码（多数 ROM 可用）
+            """
+            s = s.replace(" ", "%s")
+            return urllib.parse.quote(s, safe="%._-~:/@")
+
+        attachments: list[dict[str, typing.Any]] = []
+
+        if not (raw := "" if text is None else str(text)):
+            return {
+                "text"        : "输入内容为空，已跳过。",
+                "attachments" : attachments,
+                "data": {
+                    "ok"      : True,
+                    "method"  : "send_keys_fallback",
+                    "skipped" : True
+                }
+            }
+
+        cmd = self.prefix + [
+            "shell", "input", "text", escaped := escape(raw)
+        ]
+
+        out = await Terminal.cmd_line(cmd)
+        out_text = str(out).strip() if out else ""
+
+        low = out_text.lower()
+        ok = not any(k in low for k in ("error", "exception", "not found", "invalid"))
+
+        return {
+            "text"        : "已使用降级输入（adb input text）。" if ok else "降级输入失败（adb input text）。",
+            "attachments" : attachments,
+            "data": {
+                "ok"        : ok,
+                "method"    : "send_keys_fallback",
+                "input_len" : len(raw),
+                "escaped"   : escaped
+            }
+        }
+
+    # workflow: ==== UI Interaction MCP Tool ====
     async def clear_text(self) -> typing.Any:
         """通过 AdbIME 清空当前焦点输入框文本（等同于 `adb shell am broadcast -a ADB_CLEAR_TEXT`）。"""
         if not (ime := await self.ensure_ime()).get("data", {}).get("ok"):
@@ -818,7 +865,7 @@ class Device(object):
             return None
         finally:
             with contextlib.suppress(Exception):
-                await self.remove(xml_file)
+                await self.file_remove(xml_file)
 
     # workflow: ==== UI Interaction MCP Tool ====
     async def find_element(self, locator: str, *_, **__) -> dict:
@@ -851,8 +898,8 @@ class Device(object):
         self,
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
         value: str | list,
-        mode: typing.Literal["exists", "gone"] = "exists",
-        timeout: float = 10.0
+        timeout: float = 10.0,
+        mode: typing.Literal["exists", "gone"] = "exists"
     ) -> bool:
         """等待节点出现/消失；mode='exists' 等出现，mode='gone' 等消失。"""
 

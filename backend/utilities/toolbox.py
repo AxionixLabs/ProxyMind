@@ -47,8 +47,24 @@ async def broadcast(
     tool: str,
     args: dict,
     target_list: list,
-    call: typing.Callable[[typing.Any], typing.Awaitable[typing.Any]]
+    call: typing.Callable[[typing.Any, dict], typing.Awaitable[typing.Any]],
+    overrides: typing.Optional[dict[str, dict]] = None
 ) -> CallToolResult:
+    """
+    - call(agent, a)：每台设备实际执行参数为 a（= 顶层 args + overrides[agent_key] 合并）
+    - overrides：
+        * None 或 {}：全量同参执行（所有 target 都跑，a= args）
+        * 非空 dict：子集模式，只执行 overrides 中出现的 key 的设备；每台 a= args + overrides[key]
+    - results[i]["args"]：保留该设备最终 resolved_args，便于审计/复现
+    """
+
+    def key_of(target: typing.Any) -> str:
+        """每个 target 的唯一键：优先 agent_id，其次 serial，最后退化为 str(target)。"""
+        return (
+            getattr(target, "agent_id", None)
+            or getattr(target, "serial", None)
+            or str(target)
+        )
 
     def normalize() -> dict[str, typing.Any]:
         """
@@ -78,24 +94,45 @@ async def broadcast(
         return {"text": None, "attachments": [], "data": raw, "logs": []}
 
     t0 = time.time()
+    bases = args or {}
+    overrides = overrides or {}
 
+    # 规则：overrides 非空 => 子集模式（只跑 overrides keys）；否则全量同参
+    want = set(overrides) if overrides else None
+
+    # 过滤出本次真正要执行的 targets（want=None => 全量）
+    targets = [
+        target for target in target_list if (want is None or key_of(target) in want)
+    ]
+    keys = [key_of(target) for target in targets]
+
+    # 计算每台设备最终参数：a = args + overrides[key]
+    resolved_args = [
+        {**bases, **(overrides.get(k) or {})} for k in keys
+    ]
+
+    # 并发执行：每台把 resolved_args 交给 call(agent, a)
     raw_list = await asyncio.gather(
-        *(call(target) for target in target_list), return_exceptions=True
+        *(call(target, arg)
+          for target, arg in zip(targets, resolved_args)), return_exceptions=True
     )
 
     done, fail, results, attachments = 0, 0, [], []
 
-    for target, raw in zip(target_list, raw_list):
-        agent_id = getattr(target, "agent_id", None) or str(target)
+    # 逐台汇总：把 resolved args 固化到 results[i]["args"]
+    for target, k, a, raw in zip(targets, keys, resolved_args, raw_list):
+        agent_id = k
 
         call_item: dict[str, typing.Any] = {
             "agent_id"    : agent_id,
             "ok"          : True,
+            "args"        : a,
             "text"        : None,
             "attachments" : [],
             "data"        : None,
             "logs"        : []
         }
+
         if isinstance(raw, Exception):
             call_item["ok"]   = False
             call_item["text"] = f"{type(raw).__name__}: {raw}"
@@ -132,7 +169,7 @@ async def broadcast(
 
     structured: typing.Optional[dict[str, typing.Any]] = {
         "tool" : tool,
-        "args" : args,
+        "args" : args,  # 顶层基参（用于复现/审计）；每台真实参数看 results[i]["args"]
         "cost" : cost_ms,
         "summary" : {
             "total" : total,

@@ -25,14 +25,33 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         imply: typing.Optional[str] = None,
         title: typing.Optional[str] = None
     ) -> CallToolResult:
-        """Class: memrix; Action: 采集内存; Args: focus(str)=包名, imply(Optional[str])=设备序列号（可选，默认当前连接的唯一设备）, title (Optional[str])=任务标题（可选）; Use: 启动 Memrix(记忆星核)引擎 内存采样任务(指定包名+设备); Return: CallToolResult(text + structuredContent); Notes: 单任务执行，focus/imply 直接透传给 memrix.task_begin."""
+        """
+        D: bench
+        C: memrix
+        A: mx_sample_mem
+        P:
+          focus: str
+          imply: str?=None
+          title: str?=None
+        R: CTR
+        N:
+          - 启动 Memrix(记忆星核) 内存采样任务（focus/imply/title 透传给引擎）
+          - 单任务执行：一次会话只采集一个目标包/设备
+        """
+
         await Requires.connect_memrix()
+
+        args = {
+            "focus" : focus,
+            "imply" : imply,
+            "title" : title
+        }
 
         async def call(*_) -> None:
             await idle.session_begin(
                 key=Ins.memrix.agent_id,
                 name=f"{Ins.memrix.agent_id}.mx_sample_mem",
-                args={"style": "storm", "focus": focus, "imply": imply, "title": title},
+                args=args,
             )
             try:
                 return await Ins.memrix.mx_task_begin("--storm", focus, imply, title)
@@ -42,9 +61,10 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
         return await broadcast(
             tool="mx_sample_mem",
-            args={"style": "storm", "focus": focus, "imply": imply, "title": title},
+            args=args,
             target_list=[Ins.memrix],
-            call=call
+            call=call,
+            overrides=None
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "memrix"})
@@ -54,14 +74,33 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         imply: typing.Optional[str] = None,
         title: typing.Optional[str] = None
     ) -> CallToolResult:
-        """Class: memrix; Action: 采集流畅度/帧率; Args: focus(str)=包名, imply(Optional[str])=设备序列号（可选，默认当前连接的唯一设备）, title (Optional[str])=任务标题（可选）; Use: 启动 Memrix(记忆星核)引擎 流畅度采样任务(指定包名+设备); Return: CallToolResult(text + structuredContent); Notes: 单任务执行，focus/imply 直接透传给 memrix.task_begin."""
+        """
+        D: bench
+        C: memrix
+        A: mx_sample_gfx
+        P:
+          focus: str
+          imply: str?=None
+          title: str?=None
+        R: CTR
+        N:
+          - 启动 Memrix(记忆星核) 流畅度/帧率采样任务（focus/imply/title 透传给引擎）
+          - 单任务执行：一次会话只采集一个目标包/设备
+        """
+
         await Requires.connect_memrix()
+
+        args = {
+            "focus" : focus,
+            "imply" : imply,
+            "title" : title
+        }
 
         async def call(*_) -> None:
             await idle.session_begin(
                 key=Ins.memrix.agent_id,
                 name=f"{Ins.memrix.agent_id}.sample_gfx",
-                args={"style": "sleek", "focus": focus, "imply": imply, "title": title}
+                args=args
             )
             try:
                 return await Ins.memrix.mx_task_begin("--sleek", focus, imply, title)
@@ -71,15 +110,27 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
         return await broadcast(
             tool="sample_gfx",
-            args={"style": "sleek", "focus": focus, "imply": imply, "title": title},
+            args=args,
             target_list=[Ins.memrix],
-            call=call
+            call=call,
+            overrides=None
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "memrix"})
     @task_middleware("mx_task_final")
     async def mx_task_final() -> CallToolResult:
-        """Class: memrix; Action: 停止采集并收束任务; Args: none; Use: 通过 socket 调用 8765 端口发送 token 结束采集会话/关闭流并落盘(若有); Return: CallToolResult(text + structuredContent); Notes: 单任务聚合执行(非多设备并发)。"""
+        """
+        D: bench
+        C: memrix
+        A: mx_task_final
+        P:
+          none
+        R: CTR
+        N:
+          - 停止采集并收束会话：通过 socket(8765) 发送 token 结束采集/关闭流/落盘（若有）
+          - 单任务聚合执行（非多设备并发）
+        """
+
         await Requires.connect_memrix()
 
         async def call(*_) -> None:
@@ -89,30 +140,65 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
                 await idle.session_final(Ins.memrix.agent_id)
 
         return await broadcast(
-            tool="mx_task_final", args={}, target_list=[Ins.memrix], call=call
+            tool="mx_task_final",
+            args={},
+            target_list=[Ins.memrix],
+            call=call,
+            overrides=None
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "memrix"})
     @task_middleware("mx_mem_reporter")
     async def mx_mem_reporter(layer: bool = False) -> CallToolResult:
-        """Class: memrix; Action: 生成内存采样报告; Args: layer(bool)=是否分层展示(前台/后台)的内存曲线与统计; Use: 调用 Memrix-记忆星核引擎 生成内存报告用于诊断泄漏/抖动/峰值; Return: CallToolResult(text + structuredContent); Notes: 依赖 Memrix-记忆星核引擎; 单任务聚合执行(非多设备并发)。"""
+        """
+        D: bench
+        C: memrix
+        A: mx_mem_reporter
+        P:
+          layer: bool=False
+        R: CTR
+        N:
+          - 生成内存采样报告：用于诊断泄漏/抖动/峰值
+          - layer=True 时分层展示前台/后台曲线与统计
+          - 单任务聚合执行（非多设备并发）
+        """
+
         await Requires.connect_memrix()
 
+        args = {
+            "layer" : layer,
+        }
+
         async def call(*_) -> None:
-            job_id = await idle.job_begin(f"{Ins.memrix.agent_id}.mx_mem_reporter", args={"layer": layer})
+            job_id = await idle.job_begin(f"{Ins.memrix.agent_id}.mx_mem_reporter", args=args)
             try:
                 return await Ins.memrix.mx_mem_reporter(layer)
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="mx_mem_reporter", args={"layer": layer}, target_list=[Ins.memrix], call=call
+            tool="mx_mem_reporter",
+            args=args,
+            target_list=[Ins.memrix],
+            call=call,
+            overrides=None
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "memrix"})
     @task_middleware("mx_gfx_reporter")
     async def mx_gfx_reporter() -> CallToolResult:
-        """Class: memrix; Action: 生成流畅度采样报告; Args: none; Use: 调用 Memrix-记忆星核引擎 汇总并落盘帧率/掉帧/jank 等指标用于性能诊断与回归对比; Return: CallToolResult(text + structuredContent); Notes: 依赖 Memrix-记忆星核引擎; 单任务聚合执行(非多设备并发)。"""
+        """
+        D: bench
+        C: memrix
+        A: mx_gfx_reporter
+        P:
+          none
+        R: CTR
+        N:
+          - 生成流畅度采样报告：汇总 FPS/掉帧/jank 等指标用于性能诊断与回归对比
+          - 单任务聚合执行（非多设备并发）
+        """
+
         await Requires.connect_memrix()
 
         async def call(*_) -> None:
@@ -123,7 +209,11 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="mx_gfx_reporter", args={}, target_list=[Ins.memrix], call=call
+            tool="mx_gfx_reporter",
+            args={},
+            target_list=[Ins.memrix],
+            call=call,
+            overrides=None
         )
 
 

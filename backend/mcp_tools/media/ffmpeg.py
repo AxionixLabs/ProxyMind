@@ -33,7 +33,27 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         scale_h: typing.Optional[int] = None,
         overwrite: bool = True
     ) -> CallToolResult:
-        """Class: ffmpeg; Action: 拆帧; Args: input_video(str)=输入视频, output_dir(str|None)=输出目录, pattern(str)=文件名模板, fps(float|None)=抽帧帧率, image_format(jpg|png|webp)=图片格式, start_sec(float|None)=起始秒, duration_sec(float|None)=时长秒, scale_w/int|None=缩放宽, scale_h/int|None=缩放高, overwrite(bool)=覆盖输出; Use: 将视频导出为图片序列，支持抽帧/截取/缩放; Return: CallToolResult(text + structuredContent); Notes: 输入路径不可用会失败。"""
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_extract_frames
+        P:
+          input_video: str
+          output_dir: str?=None
+          pattern: str="frame_%06d.png"
+          fps: float?=None
+          image_format: oneof(jpg|png|webp)="png"
+          start_sec: float?=None
+          duration_sec: float?=None
+          scale_w: int?=None
+          scale_h: int?=None
+          overwrite: bool=True
+        R: CTR
+        N:
+          - 视频导出为图片序列：支持抽帧(fps)/截取(start+duration)/缩放(scale_w/scale_h)
+          - 输入路径不可用/输出不可写/编码不支持会失败
+        """
+
         await Requires.connect_ffmpeg()
 
         args = {
@@ -57,7 +77,11 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="ffmpeg_extract_frames", args=args, target_list=[Ins.ffmpeg], call=call
+            tool="ffmpeg_extract_frames",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
@@ -71,7 +95,24 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         bitrate: typing.Optional[str] = None,
         overwrite: bool = True
     ) -> CallToolResult:
-        """Class: ffmpeg; Action: 转换音频; Args: input_file(str)=输入音频/视频路径, output_file(str|None)=输出音频路径(扩展名决定容器如.mp3/.aac/.wav), audio_codec(str|None)=音频编码器(None自动选择), sample_rate(int|None)=采样率(如44100/48000), channels(int|None)=声道数(1/2), bitrate(str|None)=码率(如128k/192k), overwrite(bool=True)=覆盖输出; Use: 任意音频/视频→指定音频文件并可调整编码/采样率/声道/码率; Return: CallToolResult(text + structuredContent); Notes: 输出路径不可写或格式/编码不支持会失败。"""
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_convert_audio
+        P:
+          input_file: str
+          output_file: str?=None
+          audio_codec: str?=None
+          sample_rate: int?=None
+          channels: int?=None
+          bitrate: str?=None
+          overwrite: bool=True
+        R: CTR
+        N:
+          - 任意音频/视频 → 音频文件（容器由 output_file 扩展名决定）
+          - 可选调整编码器/采样率/声道/码率；输出不可写/格式或编码不支持会失败
+        """
+
         await Requires.connect_ffmpeg()
 
         args = {
@@ -92,7 +133,11 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="ffmpeg_convert_audio", args=args, target_list=[Ins.ffmpeg], call=call
+            tool="ffmpeg_convert_audio",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
@@ -107,7 +152,25 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         keep_audio: bool = True,
         overwrite: bool = True
     ) -> CallToolResult:
-        """Class: ffmpeg; Action: 转换帧率; Args: input_video(str)=输入视频路径, output_video(str|None)=输出视频路径, fps(float)=目标帧率(如30/60), video_codec(str='libx264')=视频编码器, crf(int=23)=画质(越小越清晰体积越大), preset(str='veryfast')=编码速度档(越快越省时但可能更大/更糙), keep_audio(bool=True)=是否保留音频(True拷贝音频/False去音频), overwrite(bool=True)=覆盖输出; Use: 通过重编码调整视频帧率; Return: CallToolResult(text + structuredContent); Notes: 会重编码视频，输出质量/体积主要受crf/preset影响。"""
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_convert_video
+        P:
+          input_video: str
+          output_video: str?=None
+          fps: float=60
+          video_codec: str="libx264"
+          crf: int=23
+          preset: str="veryfast"
+          keep_audio: bool=True
+          overwrite: bool=True
+        R: CTR
+        N:
+          - 重编码转换视频帧率；画质/体积主要受 crf 与 preset 影响
+          - keep_audio=True 保留音频；False 去音频；输出不可写/编码不支持会失败
+        """
+
         await Requires.connect_ffmpeg()
 
         args = {
@@ -129,7 +192,11 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="ffmpeg_convert_video", args=args, target_list=[Ins.ffmpeg], call=call
+            tool="ffmpeg_convert_video",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
@@ -146,7 +213,27 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         preset: str = "veryfast",
         overwrite: bool = True
     ) -> CallToolResult:
-        """Class: ffmpeg; Action: 视频截取; Args: input_video(str)=输入视频路径, output_video(str|None)=输出视频路径, start_sec(float=0)=起始秒, end_sec(float|None)=结束秒(与duration_sec二选一), duration_sec(float|None)=截取时长秒(与end_sec二选一), mode('copy'|'reencode'='copy')=copy快但可能不帧级精确/reencode慢但精确, video_codec(str='libx264')=编码器(仅reencode), crf(int=23)=画质(仅reencode,越小越清晰), preset(str='veryfast')=速度档(仅reencode), overwrite(bool=True)=覆盖输出; Use: 按时间范围裁剪视频; Return: CallToolResult(text + structuredContent); Notes: end_sec与duration_sec二选一(都不填=从start_sec到结尾)。"""
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_trim_video
+        P:
+          input_video: str
+          output_video: str?=None
+          start_sec: float=0.0
+          end_sec: float?=None
+          duration_sec: float?=None
+          mode: oneof(copy|reencode)="copy"
+          video_codec: str="libx264"
+          crf: int=23
+          preset: str="veryfast"
+          overwrite: bool=True
+        R: CTR
+        N:
+          - 按时间范围裁剪视频；end_sec 与 duration_sec 二选一（都不填=从 start_sec 到结尾）
+          - mode=copy 速度最快但可能不帧级精确；mode=reencode 更精确但较慢（crf/preset 生效）
+        """
+
         await Requires.connect_ffmpeg()
 
         args = {
@@ -170,7 +257,11 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="ffmpeg_trim_video", args=args, target_list=[Ins.ffmpeg], call=call
+            tool="ffmpeg_trim_video",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
@@ -181,7 +272,20 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         *,
         overwrite: bool = True
     ) -> CallToolResult:
-        """Class: ffmpeg; Action: 视频换封装(remux); Args: input_video(str)=输入视频路径, output_video(str|None)=输出视频路径(生成新文件), overwrite(bool=True)=覆盖输出; Use: 仅换容器/封装不重编码（最快，mkv<->mp4 等）; Return: CallToolResult(text + structuredContent); Notes: 流/容器不兼容或输出不可写会失败。"""
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_remux_video
+        P:
+          input_video: str
+          output_video: str?=None
+          overwrite: bool=True
+        R: CTR
+        N:
+          - 仅换容器/封装（不重编码，最快），如 mkv <-> mp4
+          - 流/容器不兼容或输出不可写会失败
+        """
+
         await Requires.connect_ffmpeg()
 
         args = {
@@ -198,7 +302,11 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="ffmpeg_remux_video", args=args, target_list=[Ins.ffmpeg], call=call
+            tool="ffmpeg_remux_video",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
@@ -210,7 +318,21 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         audio_codec: typing.Optional[str] = None,
         overwrite: bool = True
     ) -> CallToolResult:
-        """Class: ffmpeg; Action: 抽取音轨; Args: input_video(str)=输入媒体路径(常为视频), output_audio(str|None)=输出音频路径(生成新文件), audio_codec(str|None)=音频编码器(None=自选), overwrite(bool=True)=覆盖输出; Use: 从媒体文件输出音频文件（-vn，不输出视频）; Return: CallToolResult(text + structuredContent); Notes: 格式由 output_audio 扩展名决定。"""
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_extract_audio
+        P:
+          input_video: str
+          output_audio: str?=None
+          audio_codec: str?=None
+          overwrite: bool=True
+        R: CTR
+        N:
+          - 从媒体文件抽取/导出音频（-vn，不输出视频）
+          - 输出格式由 output_audio 扩展名决定；输出不可写/编码不支持会失败
+        """
+
         await Requires.connect_ffmpeg()
 
         args = {
@@ -242,7 +364,23 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         audio_codec: str = "aac",
         overwrite: bool = True
     ) -> CallToolResult:
-        """Class: ffmpeg; Action: 替换视频音轨; Args: input_video(str)=输入视频路径, input_audio(str)=输入音频路径, output_video(str|None)=输出视频路径(生成新文件), keep_video(bool=True)=视频copy不重编码, audio_codec(str='aac')=输出音频编码器, overwrite(bool=True)=覆盖输出; Use: 保留画面替换为新音频（可做配音/换BGM）; Return: CallToolResult(text + structuredContent); Notes: 默认 -shortest 以较短轨道为准。"""
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_replace_audio
+        P:
+          input_video: str
+          input_audio: str
+          output_video: str?=None
+          keep_video: bool=True
+          audio_codec: str="aac"
+          overwrite: bool=True
+        R: CTR
+        N:
+          - 保留画面替换为新音频（配音/换 BGM）；默认以较短轨道为准（-shortest）
+          - keep_video=True 视频流 copy 不重编码；False 时可能重编码视频（依实现）
+        """
+
         await Requires.connect_ffmpeg()
 
         args = {
@@ -262,7 +400,11 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="ffmpeg_replace_audio", args=args, target_list=[Ins.ffmpeg], call=call
+            tool="ffmpeg_replace_audio",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
@@ -274,7 +416,21 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         at_sec: float = 0.0,
         overwrite: bool = True
     ) -> CallToolResult:
-        """Class: ffmpeg; Action: 视频取帧截图; Args: input_video(str)=输入视频路径, output_image(str|None)=输出图片路径(生成新文件), at_sec(float=0)=截图时间点(秒), overwrite(bool=True)=覆盖输出; Use: 从视频指定时间点导出单帧图片（封面/缩略图）; Return: CallToolResult(text + structuredContent); Notes: Action 为“视频取帧截图”以避免与 adb screenshot 混淆。"""
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_video_snapshot
+        P:
+          input_video: str
+          output_image: str?=None
+          at_sec: float=0.0
+          overwrite: bool=True
+        R: CTR
+        N:
+          - 从视频指定时间点导出单帧图片（封面/缩略图）
+          - 这里的 ffmpeg_video_snapshot 指“视频取帧”，避免与 adb screenshot 混淆
+        """
+
         await Requires.connect_ffmpeg()
 
         args = {
@@ -292,7 +448,11 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="ffmpeg_video_snapshot", args=args, target_list=[Ins.ffmpeg], call=call
+            tool="ffmpeg_video_snapshot",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
@@ -308,7 +468,25 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         preset: str = "veryfast",
         audio_codec: str = "aac"
     ) -> CallToolResult:
-        """Class: ffmpeg; Action: 视频拼接(concat); Args: list_file(str)=concat列表文件路径, output_video(str|None)=输出视频路径(生成新文件), overwrite(bool=True)=覆盖输出, reencode(bool=False)=是否重编码拼接, video_codec(str='libx264')=重编码视频编码器, crf(int=23)=重编码质量, preset(str='veryfast')=重编码速度, audio_codec(str='aac')=重编码音频编码器; Use: 按 list_file 顺序合并片段；reencode=False 最快但要求片段参数一致; Return: CallToolResult(text + structuredContent); Notes: list_file 每行格式：file '/abs/path/x.mp4'。"""
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_concat_video
+        P:
+          list_file: str
+          output_video: str?=None
+          overwrite: bool=True
+          reencode: bool=False
+          video_codec: str="libx264"
+          crf: int=23
+          preset: str="veryfast"
+          audio_codec: str="aac"
+        R: CTR
+        N:
+          - 按 list_file 顺序拼接片段；reencode=False 最快但要求片段参数一致
+          - list_file 每行格式：file '/abs/path/x.mp4'
+        """
+
         await Requires.connect_ffmpeg()
 
         args = {
@@ -330,7 +508,11 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="ffmpeg_concat_video", args=args, target_list=[Ins.ffmpeg], call=call
+            tool="ffmpeg_concat_video",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
@@ -347,7 +529,26 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         keep_audio: bool = True,
         overwrite: bool = True,
     ) -> CallToolResult:
-        """Class: ffmpeg; Action: 视频缩放转码(scale+encode); Args: input_video(str)=输入视频路径, output_video(str|None)=输出视频路径, scale_w(int|None)=目标宽(None=不指定/等比用-1), scale_h(int|None)=目标高(None=不指定/等比用-1), video_codec(str='libx264')=视频编码器, crf(int=23)=画质, preset(str='veryfast')=速度档位, keep_audio(bool=True)=保留音频(copy), overwrite(bool=True)=覆盖输出; Use: 输出新视频并缩放分辨率（常用于压体积/统一规格）; Return: CallToolResult(text + structuredContent); Notes: 会重编码视频；crf/preset 影响质量与速度。"""
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_scale_video
+        P:
+          input_video: str
+          output_video: str?=None
+          scale_w: int?=None
+          scale_h: int?=None
+          video_codec: str="libx264"
+          crf: int=23
+          preset: str="veryfast"
+          keep_audio: bool=True
+          overwrite: bool=True
+        R: CTR
+        N:
+          - 输出新视频并缩放分辨率（常用于压体积/统一规格）；会重编码视频（crf/preset 影响质量/速度）
+          - keep_audio=True 保留音频（copy）；False 时去音频或重编码音频（依实现）
+        """
+
         await Requires.connect_ffmpeg()
 
         args = {
@@ -370,7 +571,11 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="ffmpeg_scale_video", args=args, target_list=[Ins.ffmpeg], call=call
+            tool="ffmpeg_scale_video",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
@@ -381,7 +586,20 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         *,
         overwrite: bool = True
     ) -> CallToolResult:
-        """Class: ffmpeg; Action: 视频去音轨(mute/remove-audio); Args: input_video(str)=输入视频路径, output_video(str|None)=输出视频路径, overwrite(bool=True)=覆盖输出; Use: 输出静音视频（视频流 copy 不重编码，速度最快）; Return: CallToolResult(text + structuredContent); Notes: 仅移除音轨；不会改变画面质量/编码。"""
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_mute_video
+        P:
+          input_video: str
+          output_video: str?=None
+          overwrite: bool=True
+        R: CTR
+        N:
+          - 输出静音视频：仅移除音轨（视频流 copy 不重编码，最快）
+          - 不改变画面质量/编码参数
+        """
+
         await Requires.connect_ffmpeg()
 
         args = {
@@ -398,13 +616,27 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="ffmpeg_mute_video", args=args, target_list=[Ins.ffmpeg], call=call
+            tool="ffmpeg_mute_video",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
     @task_middleware("ffmpeg_probe_video")
     async def ffmpeg_probe_video(input_file: str) -> CallToolResult:
-        """Class: ffmpeg; Action: 探测信息; Args: input_file(str)=媒体文件路径; Use: ffmpeg -i 快速打印媒体信息（编码/时长/分辨率/音轨等）; Return: CallToolResult(text + structuredContent); Notes: 仅探测不生成输出文件。"""
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_probe_video
+        P:
+          input_file: str
+        R: CTR
+        N:
+          - 探测媒体信息（编码/时长/分辨率/音轨等），仅探测不生成输出文件
+        """
+
         await Requires.connect_ffmpeg()
 
         args = {
@@ -419,7 +651,11 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="ffmpeg_probe_video", args=args, target_list=[Ins.ffmpeg], call=call
+            tool="ffmpeg_probe_video",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
         )
 
 
