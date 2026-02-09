@@ -127,7 +127,7 @@ class Monkey(object):
 
         await device.file_logcat_clean()
 
-        self.proc_logcat = await device.logcat_start()
+        self.proc_logcat = await device.file_logcat_start()
         self.task_logcat = asyncio.create_task(
             self.reader(self.proc_logcat, "logcat")
         )
