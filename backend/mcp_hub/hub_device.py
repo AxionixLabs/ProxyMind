@@ -446,12 +446,77 @@ class Device(object):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== File ====
-    async def logcat_start(self) -> asyncio.subprocess.Process:
+    async def file_logcat_start(self) -> asyncio.subprocess.Process:
         """读取日志。"""
         cmd = self.prefix + [
             "logcat", "-v", "threadtime"
         ]
         return await Terminal.cmd_link(cmd)
+
+    # workflow: ==== System Control MCP Tool ====
+    async def grep_packages_mm(self, keyword: typing.Optional[str] = None) -> dict:
+        """
+        - 传 keyword：过滤包名（pm list packages | grep -i keyword）
+        - 不传/空：列出所有用户安装包（pm list packages -3）
+        """
+        def parse_pm_list_packages(text: str) -> list[str]:
+            """
+            pm list packages 输出：package:com.xxx
+            解析成 ["com.xxx", ...]
+            """
+            pkg_list: list[str] = []
+            for line in (text or "").splitlines():
+                if not (line := line.strip()):
+                    continue
+                if line.startswith("package:"):
+                    pkg_list.append(line.split("package:", 1)[1].strip())
+                else:
+                    pkg_list.append(line)
+
+            # 去重保持顺序
+            seen: set[str] = set()
+            out: list[str] = []
+            for pkg in pkg_list:
+                if pkg and pkg not in seen:
+                    seen.add(pkg)
+                    out.append(pkg)
+            return out
+
+        kw = (keyword or "").strip()
+
+        # 不传 keyword：列出第三方包
+        if not kw:
+            cmd = self.prefix + [
+                "shell", "pm", "list", "packages", "-3"
+            ]
+            resp = await Terminal.cmd_line(cmd)
+            pkgs = parse_pm_list_packages(resp)
+            return {
+                "text"        : "\n".join(pkgs),
+                "attachments" : [],
+                "data": {
+                    "cmd"      : cmd,
+                    "keyword"  : None,
+                    "count"    : len(pkgs),
+                    "packages" : pkgs
+                }
+            }
+
+        cmd = self.prefix + [
+            "shell", "pm", "list", "packages", "|", "grep", "-i", keyword
+        ]
+        resp = await Terminal.cmd_line(cmd)
+        pkgs = parse_pm_list_packages(resp)
+        return {
+            "text"         : "\n".join(pkgs),
+            "attachments"  : [],
+            "data": {
+                "cmd"      : cmd,
+                "keyword"  : kw,
+                "count"    : len(pkgs),
+                "packages" : pkgs
+            }
+        }
 
     # workflow: ==== System Control MCP Tool ====
     async def screenshot(self, local: str) -> str:
