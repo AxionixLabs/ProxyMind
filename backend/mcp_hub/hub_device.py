@@ -453,7 +453,22 @@ class Device(object):
         ]
         return await Terminal.cmd_link(cmd)
 
-    # workflow: ==== System Control MCP Tool ====
+    # workflow: ==== Info Control MCP Tool ====
+    async def screenshot(self, local: str) -> str:
+        """在设备上截屏 -> pull 到指定本地路径，返回本地路径。"""
+        filename = f"screenshot_{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
+
+        cmd = self.prefix + [
+            "shell", "screencap", "-p", remote := f"/data/local/tmp/{filename}"
+        ]
+        await Terminal.cmd_line(cmd)
+
+        new_local = await self.file_pull(remote, local)
+        await self.file_remove(remote)
+
+        return new_local
+    
+    # workflow: ==== Info Control MCP Tool ====
     async def grep_packages_mm(self, keyword: typing.Optional[str] = None) -> dict:
         """
         - 传 keyword：过滤包名（pm list packages | grep -i keyword）
@@ -517,21 +532,6 @@ class Device(object):
                 "packages" : pkgs
             }
         }
-
-    # workflow: ==== System Control MCP Tool ====
-    async def screenshot(self, local: str) -> str:
-        """在设备上截屏 -> pull 到指定本地路径，返回本地路径。"""
-        filename = f"screenshot_{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
-
-        cmd = self.prefix + [
-            "shell", "screencap", "-p", remote := f"/data/local/tmp/{filename}"
-        ]
-        await Terminal.cmd_line(cmd)
-
-        new_local = await self.file_pull(remote, local)
-        await self.file_remove(remote)
-
-        return new_local
 
     # workflow: ==== System Control MCP Tool ====
     async def open_notification(self) -> typing.Any:
