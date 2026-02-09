@@ -518,7 +518,7 @@ class Device(object):
             }
 
         cmd = self.prefix + [
-            "shell", "pm", "list", "packages", "|", "grep", "-i", keyword
+            "shell", "pm", "list", "packages", "-3", "|", "grep", "-i", keyword
         ]
         resp = await Terminal.cmd_line(cmd)
         pkgs = parse_pm_list_packages(resp)
