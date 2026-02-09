@@ -469,11 +469,19 @@ class Device(object):
         return new_local
     
     # workflow: ==== Info Control MCP Tool ====
-    async def grep_packages_mm(self, keyword: typing.Optional[str] = None) -> dict:
+    async def grep_packages_mm(
+        self,
+        keyword: typing.Optional[str] = None,
+        scope: typing.Literal["user", "system", "all"] = "user"
+    ) -> dict:
         """
-        - 传 keyword：过滤包名（pm list packages | grep -i keyword）
-        - 不传/空：列出所有用户安装包（pm list packages -3）
+        - scope="user"  : 仅第三方（用户安装）包（pm list packages -3）
+        - scope="system": 仅系统包（pm list packages -s）
+        - scope="all"   : 全部包（pm list packages）
+        - keyword 为空  : 直接列出对应 scope 的包
+        - keyword 非空  : 在对应 scope 的结果里 grep -i 过滤
         """
+
         def parse_pm_list_packages(text: str) -> list[str]:
             """
             pm list packages 输出：package:com.xxx
@@ -499,12 +507,19 @@ class Device(object):
 
         kw = (keyword or "").strip()
 
-        # 不传 keyword：列出第三方包
+        base = ["shell", "pm", "list", "packages"]
+        if scope == "user":
+            base += ["-3"]
+        elif scope == "system":
+            base += ["-s"]
+        elif scope == "all":
+            pass
+        else:
+            base += ["-3"]
+
+        # 不传 keyword：直接列出
         if not kw:
-            cmd = self.prefix + [
-                "shell", "pm", "list", "packages", "-3"
-            ]
-            resp = await Terminal.cmd_line(cmd)
+            resp = await Terminal.cmd_line(cmd := self.prefix + base)
             pkgs = parse_pm_list_packages(resp)
             return {
                 "text"        : "\n".join(pkgs),
@@ -512,22 +527,23 @@ class Device(object):
                 "data": {
                     "cmd"      : cmd,
                     "keyword"  : None,
+                    "scope"    : scope,
                     "count"    : len(pkgs),
                     "packages" : pkgs
                 }
             }
 
-        cmd = self.prefix + [
-            "shell", "pm", "list", "packages", "-3", "|", "grep", "-i", keyword
-        ]
+        # 传 keyword：过滤（保持当前 “| grep -i” 的写法）
+        cmd = self.prefix + base + ["|", "grep", "-i", kw]
         resp = await Terminal.cmd_line(cmd)
         pkgs = parse_pm_list_packages(resp)
         return {
-            "text"         : "\n".join(pkgs),
-            "attachments"  : [],
+            "text"        : "\n".join(pkgs),
+            "attachments" : [],
             "data": {
                 "cmd"      : cmd,
                 "keyword"  : kw,
+                "scope"    : scope,
                 "count"    : len(pkgs),
                 "packages" : pkgs
             }
