@@ -82,6 +82,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @task_middleware("grep_packages_mm")
     async def grep_packages_mm(
         keyword: typing.Optional[str] = None,
+        scope: typing.Literal["user", "system", "all"] = "user",
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
     ) -> CallToolResult:
         """
@@ -90,15 +91,23 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         A: grep_packages_mm
         P:
           keyword: str?=None
+          scope: 'user'|'system'|'all'='user'
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 过滤/列出设备已安装包名：keyword 为空则列出全部；非空则按关键字匹配
-          - 基于 `pm list packages | grep -i <keyword>`（设备侧 grep）
+          - 过滤/列出设备已安装包名：
+            - keyword 为空：按 scope 列出全部
+            - keyword 非空：按关键字（大小写不敏感）过滤
+          - scope:
+            - user   -> 第三方（用户安装）包（pm list packages -3）
+            - system -> 系统包（pm list packages -s）
+            - all    -> 全部包（pm list packages）
+          - 过滤基于 `pm list packages ... | grep -i <keyword>`（设备侧 grep）
         """
 
         args = {
-            "keyword" : keyword
+            "keyword" : keyword,
+            "scope"   : scope
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
