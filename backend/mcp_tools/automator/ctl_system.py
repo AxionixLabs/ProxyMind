@@ -19,6 +19,40 @@ from backend.utilities.toolbox import broadcast
 def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "system"})
+    @task_middleware("grep_packages_mm")
+    async def grep_packages_mm(
+        keyword: typing.Optional[str] = None,
+        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
+    ) -> CallToolResult:
+        """
+        D: device
+        C: system
+        A: grep_packages_mm
+        P:
+          keyword: str?=None
+          matrix: overrides? (serial->args)
+        R: CTR
+        N:
+          - 过滤/列出设备已安装包名：keyword 为空则列出全部；非空则按关键字匹配
+          - 基于 `pm list packages | grep -i <keyword>`（设备侧 grep）
+        """
+
+        args = {
+            "keyword" : keyword
+        }
+
+        async def call(device: Device, a: dict) -> typing.Any:
+            return await device.grep_packages_mm(**a)
+
+        return await broadcast(
+            tool="grep_packages_mm",
+            args=args,
+            target_list=manage.snapshot,
+            call=call,
+            overrides=matrix
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "system"})
     @task_middleware("open_notification")
     async def open_notification(
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
