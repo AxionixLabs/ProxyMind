@@ -161,12 +161,17 @@ class Device(object):
     # workflow: ==== Info ====
     async def st_load_info(self) -> None:
         """从 adb getprop 加载并填充设备属性。"""
-        if not (resp := await Terminal.cmd_line(self.prefix + ["shell", "getprop"])):
+        cmd = self.prefix + [
+            "shell", "getprop"
+        ]
+        if not (resp := await Terminal.cmd_line(cmd)):
             return None
 
         pick: typing.Callable[
             [str], str
-        ] = lambda x: m.group(1) if (m := re.search(rf"\[{re.escape(x)}]: \[(.*?)]", resp)) else "Unknown"
+        ] = lambda x: m.group(1) if (
+            m := re.search(rf"\[{re.escape(x)}]: \[(.*?)]", resp)
+        ) else "unknown"
 
         self.brand    = pick("ro.product.brand")
         self.model    = pick("ro.product.model")
@@ -254,7 +259,8 @@ class Device(object):
     # workflow: ==== App Control MCP Tool ====
     async def app_start(self, package: str, activity: typing.Optional[str] = None) -> typing.Any:
         """启动指定 Android 应用，可选择精确启动 Activity 或默认 Launcher 入口。"""
-        action, category = "android.intent.action.MAIN", "android.intent.category.LAUNCHER"
+        action   = "android.intent.action.MAIN"
+        category = "android.intent.category.LAUNCHER"
 
         if activity:
             cmd = self.prefix + [
@@ -359,9 +365,10 @@ class Device(object):
         """一次性拉取 logcat 快照；按 keywords(不分大小写 OR) 过滤；saved=None 返回尾部 max_lines；saved=目录/文件则保存全量(不受200行限制)。"""
         await self.file_logcat_clean()
 
-        cmd = self.prefix + ["logcat", "-v", "threadtime", "-d"]
+        cmd = self.prefix + [
+            "logcat", "-v", "threadtime", "-d"
+        ]
 
-        # since_sec -> -T
         try:
             ss = int(since_sec)
         except (TypeError, ValueError):
@@ -372,8 +379,8 @@ class Device(object):
         ts = dt.strftime("%m-%d %H:%M:%S.000")
         cmd += ["-T", ts]
 
-        raw = await Terminal.cmd_line(cmd)
-        text = raw or ""
+        raw   = await Terminal.cmd_line(cmd)
+        text  = raw or ""
         lines = text.splitlines()
 
         # keywords 过滤：OR + 不分大小写
@@ -394,8 +401,9 @@ class Device(object):
                 # 认为是目录（无后缀）：确保目录存在，并生成默认文件名
                 out_dir = p
                 out_dir.mkdir(parents=True, exist_ok=True)
+
                 name = f"logcat_{time.strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(4)}.log"
-                out = out_dir / name
+                out  = out_dir / name
 
             if not out.suffix:
                 out = out.with_suffix(".log")
@@ -405,9 +413,14 @@ class Device(object):
             saved_path = str(out.resolve())
 
             return {
-                "text": f"logcat saved: {Path(saved_path).name}",
-                "attachments": [
-                    {"kind": "file", "path": saved_path, "filename": Path(saved_path).name, "mime_type": "text/plain"}
+                "text"        : f"logcat saved: {Path(saved_path).name}",
+                "attachments" : [
+                    {
+                        "kind"      : "file",
+                        "path"      : saved_path,
+                        "filename"  : Path(saved_path).name,
+                        "mime_type" : "text/plain"
+                    }
                 ],
                 "data": {
                     "lines"     : len(lines),
@@ -425,8 +438,8 @@ class Device(object):
             truncated, lines = True, lines[-ml:]
 
         return {
-            "text": "\n".join(lines),
-            "attachments": [],
+            "text"        : "\n".join(lines),
+            "attachments" : [],
             "data": {
                 "lines"     : len(lines),
                 "truncated" : truncated,
@@ -467,9 +480,9 @@ class Device(object):
         await self.file_remove(remote)
 
         return new_local
-    
+
     # workflow: ==== Info Control MCP Tool ====
-    async def grep_packages_mm(
+    async def grep_packages(
         self,
         keyword: typing.Optional[str] = None,
         scope: typing.Literal["user", "system", "all"] = "user"
@@ -478,10 +491,8 @@ class Device(object):
         - scope="user"  : 仅第三方（用户安装）包（pm list packages -3）
         - scope="system": 仅系统包（pm list packages -s）
         - scope="all"   : 全部包（pm list packages）
-        - keyword 为空  : 直接列出对应 scope 的包
-        - keyword 非空  : 在对应 scope 的结果里 grep -i 过滤
+        - keyword       : 是否在对应 scope 的结果里 grep -i 过滤
         """
-
         def parse_pm_list_packages(text: str) -> list[str]:
             """
             pm list packages 输出：package:com.xxx
@@ -508,14 +519,11 @@ class Device(object):
         kw = (keyword or "").strip()
 
         base = ["shell", "pm", "list", "packages"]
-        if scope == "user":
-            base += ["-3"]
-        elif scope == "system":
-            base += ["-s"]
-        elif scope == "all":
-            pass
-        else:
-            base += ["-3"]
+        match scope:
+            case "user"   : base += ["-3"]
+            case "system" : base += ["-s"]
+            case "all"    : pass
+            case _        : base += ["-3"]
 
         # 不传 keyword：直接列出
         if not kw:
@@ -530,11 +538,14 @@ class Device(object):
                     "scope"    : scope,
                     "count"    : len(pkgs),
                     "packages" : pkgs
-                }
+                },
+                "logs": []
             }
 
         # 传 keyword：过滤（保持当前 “| grep -i” 的写法）
-        cmd = self.prefix + base + ["|", "grep", "-i", kw]
+        cmd = self.prefix + base + [
+            "|", "grep", "-i", kw
+        ]
         resp = await Terminal.cmd_line(cmd)
         pkgs = parse_pm_list_packages(resp)
         return {
@@ -546,7 +557,8 @@ class Device(object):
                 "scope"    : scope,
                 "count"    : len(pkgs),
                 "packages" : pkgs
-            }
+            },
+            "logs": []
         }
 
     # workflow: ==== Keyevent ====
@@ -634,7 +646,8 @@ class Device(object):
                 return {
                     "text"        : "设备已触发重启，并已重新上线。",
                     "attachments" : [],
-                    "data"        : data
+                    "data"        : data,
+                    "logs"        : []
                 }
             except Exception as e:
                 err = f"{type(e).__name__}: {e}"
@@ -644,14 +657,16 @@ class Device(object):
                 return {
                     "text"        : f"设备已触发重启，但等待重新上线失败：{err}",
                     "attachments" : [],
-                    "data"        : data
+                    "data"        : data,
+                    "logs"        : []
                 }
 
         # 不等待：只表示命令已下发
         return {
             "text"        : "已下发 adb reboot 指令。",
             "attachments" : [],
-            "data"        : data
+            "data"        : data,
+            "logs"        : []
         }
 
     # workflow: ==== System Control MCP Tool ====
@@ -720,10 +735,10 @@ class Device(object):
         """
         以锚点为参考，按“内容滚动方向（scroll）”进行语义滑动。
         注意：底层 adb `input swipe` 是“手指轨迹”，因此这里会做方向反转：
-          - scroll up   -> finger down
-          - scroll down -> finger up
-          - scroll left -> finger right
-          - scroll right-> finger left
+          - scroll up    -> finger down
+          - scroll down  -> finger up
+          - scroll left  -> finger right
+          - scroll right -> finger left
         """
 
         w, h = await self.st_wm_size()
@@ -779,7 +794,6 @@ class Device(object):
         value: str | list
     ) -> typing.Any:
         """根据选择器点击对应节点中心点。"""
-
         if not (node := await self.find_node(by, value)):
             return None
 
@@ -834,7 +848,8 @@ class Device(object):
                     "ok"      : True,
                     "method"  : "send_keys_fallback",
                     "skipped" : True
-                }
+                },
+                "logs": []
             }
 
         cmd = self.prefix + [
@@ -855,7 +870,8 @@ class Device(object):
                 "method"    : "send_keys_fallback",
                 "input_len" : len(raw),
                 "escaped"   : escaped
-            }
+            },
+            "logs": []
         }
 
     # workflow: ==== UI Interaction MCP Tool ====
@@ -878,8 +894,8 @@ class Device(object):
 
         if not (resp := await Terminal.cmd_line(cmd)):
             return {
-                "text": "获取当前 Focus 失败：dumpsys/grep 无输出",
-                "attachments": [],
+                "text"        : "获取当前 Focus 失败：dumpsys/grep 无输出",
+                "attachments" : [],
                 "data": {
                     "ok"       : False,
                     "stage"    : "dumpsys_window",
@@ -889,13 +905,13 @@ class Device(object):
                     "raw"      : None,
                     "cmd"      : cmd
                 },
-                "log": []
+                "logs": []
             }
 
-        raw = str(resp).strip()
+        raw: str = str(resp).strip()
 
-        package: str | None = None
-        activity: str | None = None
+        package: typing.Optional[str]  = None
+        activity: typing.Optional[str] = None
 
         # 1) 优先：package/activity（component）
         if m := re.search(r"([a-zA-Z0-9._]+/[a-zA-Z0-9._$]+)", raw):
@@ -909,8 +925,8 @@ class Device(object):
         ok = bool(package or activity)
 
         return {
-            "text": f"当前Focus：package={package or ''} activity={activity or ''}".strip(),
-            "attachments": [],
+            "text"        : f"当前Focus：package={package or ''} activity={activity or ''}".strip(),
+            "attachments" : [],
             "data": {
                 "ok"       : ok,
                 "stage"    : "parse",
@@ -920,7 +936,7 @@ class Device(object):
                 "raw"      : raw,
                 "cmd"      : cmd
             },
-            "log": []
+            "logs": []
         }
 
     # workflow: ==== UI Interaction MCP Tool ====
@@ -928,7 +944,9 @@ class Device(object):
         """导出当前 UI 层级 XML。"""
         xml_file = "/data/local/tmp/window_dump.xml"
 
-        cmd = self.prefix + ["shell", "uiautomator", "dump", "--compressed", xml_file]
+        cmd = self.prefix + [
+            "shell", "uiautomator", "dump", "--compressed", xml_file
+        ]
         await Terminal.cmd_line(cmd)
 
         cat = self.prefix + ["shell", "cat", xml_file]
@@ -949,7 +967,7 @@ class Device(object):
                 await self.file_remove(xml_file)
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def find_element(self, locator: str, *_, **__) -> dict:
+    async def find_element(self, locator: str, *_, **__) -> dict[str, typing.Any]:
         """执行自愈流程定位并处理目标控件。"""
         page_id, page_dump, (w, h) = await asyncio.gather(
             self.current_focus(), self.current_xml(), self.st_wm_size()
@@ -967,7 +985,7 @@ class Device(object):
             new_local = await self.screenshot(tmp.name)
             with open(new_local, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode()
-            payload["screenshot_base64"] = b64
+            payload["screenshot_base64"]   = b64
             payload["screenshot_data_url"] = f"data:image/png;base64,{b64}"
 
         os.remove(new_local)
@@ -981,19 +999,42 @@ class Device(object):
         value: str | list,
         timeout: float = 10.0,
         mode: typing.Literal["exists", "gone"] = "exists"
-    ) -> bool:
+    ) -> dict[str, typing.Any]:
         """等待节点出现/消失；mode='exists' 等出现，mode='gone' 等消失。"""
-
         want_exists = (mode == "exists")
-
-        deadline = time.monotonic() + timeout
+        deadline    = time.monotonic() + float(timeout)
 
         while True:
-            if bool(await self.find_node(by, value)) == want_exists:
-                return True
+            if (found := bool(await self.find_node(by, value))) == want_exists:
+                return {
+                    "text"        : "等待节点成功（已出现）。" if want_exists else "等待节点成功（已消失）。",
+                    "attachments" : [],
+                    "data": {
+                        "ok"      : True,
+                        "by"      : by,
+                        "value"   : value,
+                        "mode"    : mode,
+                        "timeout" : timeout,
+                        "found"   : found
+                    },
+                    "logs": []
+                }
 
             if time.monotonic() >= deadline:
-                return False
+                return {
+                    "text": "等待节点超时（未出现）。" if want_exists else "等待节点超时（未消失）。",
+                    "attachments": [],
+                    "data": {
+                        "ok"      : False,
+                        "by"      : by,
+                        "value"   : value,
+                        "mode"    : mode,
+                        "timeout" : timeout,
+                        "found"   : found,
+                        "reason"  : "timeout"
+                    },
+                    "logs": []
+                }
 
             await asyncio.sleep(0.25)
 
@@ -1004,12 +1045,15 @@ class Device(object):
         value: str | list
     ) -> typing.Optional[dict]:
         """统一查找节点：返回 node/bounds/center（用于 click / wait / heal）"""
-
         if by == "bbox":
             # bbox 直接计算中心点，无需解析 XML
             x1, y1, x2, y2 = value
             cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-            return {"node": None, "bounds": [x1, y1, x2, y2], "center": [cx, cy]}
+            return {
+                "node"   : None,
+                "bounds" : [x1, y1, x2, y2],
+                "center" : [cx, cy]
+            }
 
         if by == "xpath": return None  # Android dump 非标准 XPath，暂不支持
 
@@ -1022,12 +1066,20 @@ class Device(object):
             if n.attrib.get(mapped_by) == value:
                 bounds_str = n.attrib.get("bounds", "")
                 if not (bounds := self.parse_bounds(bounds_str)):
-                    return {"node": n.attrib, "bounds": None, "center": None}
+                    return {
+                        "node"   : n.attrib,
+                        "bounds" : None,
+                        "center" : None
+                    }
 
                 x1, y1, x2, y2 = bounds  # 解析 bounds 为四点坐标
                 cx, cy = (x1 + x2) // 2, (y1 + y2) // 2  # 计算中心点
 
-                return {"node": n.attrib, "bounds": [x1, y1, x2, y2], "center": [cx, cy]}
+                return {
+                    "node"   : n.attrib,
+                    "bounds" : [x1, y1, x2, y2],
+                    "center" : [cx, cy]
+                }
 
         return None
 
@@ -1040,7 +1092,8 @@ class Device(object):
             return {
                 "text"        : "当前已是 AdbIME 输入法",
                 "attachments" : [],
-                "data"        : {"ok": True}
+                "data"        : {"ok": True},
+                "logs"        : []
             }
 
         e_out = await Terminal.cmd_line(self.prefix + ["shell", "ime", "enable", ime])
@@ -1071,7 +1124,8 @@ class Device(object):
                     "enable_raw" : e_text,
                     "set_raw"    : s_text,
                     "suggest"    : ["先安装 ADBKeyBoard（https://github.com/senzhk/ADBKeyBoard）"]
-                }
+                },
+                "logs": []
             }
 
         current = (await Terminal.cmd_line(cmd)) or ""
@@ -1080,7 +1134,8 @@ class Device(object):
             return {
                 "text"        : "已切换到 AdbIME",
                 "attachments" : [],
-                "data"        : {"ok": True}
+                "data"        : {"ok": True},
+                "logs"        : []
             }
 
         return {
@@ -1092,7 +1147,8 @@ class Device(object):
                 "reason"     : "ime_not_effective",
                 "enable_raw" : e_text,
                 "set_raw"    : s_text
-            }
+            },
+            "logs": []
         }
 
     # workflow: ==== UI ====
@@ -1150,26 +1206,36 @@ class Device(object):
                 # 至少滑动几次后，且连续 stable_required 次相似才停
                 if n >= min_swipes_before_stop and stable_hits >= stable_required:
                     return {
-                        "ok"          : True,
-                        "edge"        : edge,
-                        "gesture"     : gesture,
-                        "swipes"      : n,
-                        "similarity"  : round(last_sim, 4),
-                        "stable_hits" : stable_hits,
-                        "reason"      : "screen_not_changed"
+                        "text"        : "屏幕已稳定（内容未变化），停止滑动。",
+                        "attachments" : [],
+                        "data": {
+                            "ok"          : True,
+                            "edge"        : edge,
+                            "gesture"     : gesture,
+                            "swipes"      : n,
+                            "similarity"  : round(last_sim, 4),
+                            "stable_hits" : stable_hits,
+                            "reason"      : "screen_not_changed"
+                        },
+                        "logs": []
                     }
 
                 prev, cur = cur, prev
                 prev_path, cur_path = cur_path, prev_path
 
             return {
-                "ok"          : True,
-                "edge"        : edge,
-                "gesture"     : gesture,
-                "swipes"      : max_swipes,
-                "similarity"  : round(last_sim, 4),
-                "stable_hits" : stable_hits,
-                "reason"      : "max_swipes_reached"
+                "text"        : "已达到最大滑动次数，停止滑动。",
+                "attachments" : [],
+                "data": {
+                    "ok"          : True,
+                    "edge"        : edge,
+                    "gesture"     : gesture,
+                    "swipes"      : max_swipes,
+                    "similarity"  : round(last_sim, 4),
+                    "stable_hits" : stable_hits,
+                    "reason"      : "max_swipes_reached"
+                },
+                "logs": []
             }
 
     # workflow: ==== UI ====

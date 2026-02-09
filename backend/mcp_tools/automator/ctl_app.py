@@ -121,10 +121,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
             overrides=matrix
         )
 
-    @mcp.tool(
-        description="安装 APK：支持替换安装(-r)/降级安装(-d)/测试包(-t) 等选项。",
-        meta={"hidden": False, "domain": "device", "class": "app"}
-    )
+    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "app"})
     @task_middleware("app_install")
     async def app_install(
         apk: str,

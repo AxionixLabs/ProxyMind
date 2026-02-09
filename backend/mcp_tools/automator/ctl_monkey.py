@@ -62,7 +62,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            job_id = await idle.job_begin(f"tool.injection", args=a)
+            job_id = await idle.job_begin("monkey.injection", args=a)
             monkey: Monkey = Monkey()
             try:
                 return await monkey.injection(device, **a)

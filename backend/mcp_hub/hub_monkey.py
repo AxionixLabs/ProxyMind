@@ -142,26 +142,55 @@ class Monkey(object):
             "-v", "-v", str(events)
         ]
 
+        rc: typing.Optional[int]  = None
+        err: typing.Optional[str] = None
+
         try:
             self.proc_monkey = await Terminal.cmd_link(cmd_monkey)
             self.task_monkey = asyncio.create_task(
                 self.reader(self.proc_monkey, "monkey")
             )
             rc = await self.proc_monkey.wait()
+        except Exception as e:
+            err = f"{type(e).__name__}: {e}"
         finally:
             await self.shutdown()
 
         end_ms = int(time.time() * 1000)
+        duration_ms = end_ms - start_ms
+
+        ok = (err is None) and (rc == 0 or rc is not None)
+
+        text = (
+            f"Monkey 注入完成：rc={rc}，duration={duration_ms}ms"
+            if err is None else
+            f"Monkey 注入异常：{err}"
+        )
 
         return {
-            "serial"             : device.serial,
-            "package"            : package,
-            "monkey_cmd"         : cmd_monkey,
-            "monkey_return_code" : rc,
-            "start_ms"           : start_ms,
-            "end_ms"             : end_ms,
-            "duration_ms"        : end_ms - start_ms,
-            "tail"               : list(self.tail)
+            "text"        : text,
+            "attachments" : [],
+            "data": {
+                "ok"          : ok,
+                "serial"      : device.serial,
+                "package"     : package,
+                "seed"        : seed,
+                "throttle_ms" : throttle_ms,
+                "pct": {
+                    "touch"  : touch,
+                    "motion" : motion,
+                    "nav"    : nav
+                },
+                "events"             : events,
+                "monkey_cmd"         : cmd_monkey,
+                "monkey_return_code" : rc,
+                "start_ms"           : start_ms,
+                "end_ms"             : end_ms,
+                "duration_ms"        : duration_ms,
+                "tail"               : list(self.tail),
+                **({"error": err} if err else {})
+            },
+            "logs": []
         }
 
 

@@ -36,13 +36,6 @@ PRINT_HEAD   = f"[bold #EEEEEE]{APP_DESC} ::[/]"
 PRINT_FORMAT = f"<level>{{message}}</level>"
 
 # ========【错误提示】========
-SKIP = {
-    "text"        : "跳过：不在 matrix 目标列表",
-    "attachments" : [],
-    "data"        : {"skipped": True}
-}
-
-# ========【错误提示】========
 HINT_STOP    = "【不可重试】确定性失败：立即终止工作流（不要重试、不要继续调用后续工具、不要尝试替代方案）。"
 HINT_STOP_I  = (
     "【不可继续/不可重试】这是服务内部状态未就绪或未回填。"

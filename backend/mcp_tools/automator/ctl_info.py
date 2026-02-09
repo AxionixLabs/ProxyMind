@@ -79,8 +79,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "info"})
-    @task_middleware("grep_packages_mm")
-    async def grep_packages_mm(
+    @task_middleware("grep_packages")
+    async def grep_packages(
         keyword: typing.Optional[str] = None,
         scope: typing.Literal["user", "system", "all"] = "user",
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
@@ -88,7 +88,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         """
         D: device
         C: info
-        A: grep_packages_mm
+        A: grep_packages
         P:
           keyword: str?=None
           scope: 'user'|'system'|'all'='user'
@@ -111,10 +111,10 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            return await device.grep_packages_mm(**a)
+            return await device.grep_packages(**a)
 
         return await broadcast(
-            tool="grep_packages_mm",
+            tool="grep_packages",
             args=args,
             target_list=manage.snapshot,
             call=call,

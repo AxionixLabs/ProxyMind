@@ -41,7 +41,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
         version = await Requires.connect_scrcpy()
 
-        async def call(device: Device, *_) -> None:
+        async def call(device: Device, *_) -> typing.Any:
             _, on_begin, on_final = idle.hooks(
                 "scrcpy.scrcpy_mirror",
                 args={},
@@ -51,7 +51,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
                 device, version, Ins.station, Ins.sessions, Ins.sessions_lock,
                 on_begin=on_begin, on_final=on_final
             )
-            await record.scrcpy_mirror()
+            return await record.scrcpy_mirror()
 
         return await broadcast(
             tool="scrcpy_mirror",
@@ -92,7 +92,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
             "silence"   : silence
         }
 
-        async def call(device: Device, a: dict) -> typing.Optional[str]:
+        async def call(device: Device, a: dict) -> typing.Any:
             _, on_begin, on_final = idle.hooks(
                 "scrcpy.scrcpy_record",
                 args=a,
@@ -102,10 +102,11 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
                 device, version, Ins.station, Ins.sessions, Ins.sessions_lock,
                 on_begin=on_begin, on_final=on_final
             )
-            video_temp = await record.scrcpy_record(**a)
-            async with Ins.video_lock:
-                Ins.video_list.append(video_temp)
-            return video_temp
+            mm_resp = await record.scrcpy_record(**a)
+            if video_temp := mm_resp.get("data", {}).get("path"):
+                async with Ins.video_lock:
+                    Ins.video_list.append(video_temp)
+            return mm_resp
 
         return await broadcast(
             tool="scrcpy_record",
@@ -132,10 +133,19 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           - 从 sessions[serial] 取 Record 会话执行 close；无会话则跳过；结束后移除会话避免泄漏
         """
 
-        async def call(device: Device, *_) -> None:
+        async def call(device: Device, *_) -> typing.Any:
             async with Ins.sessions_lock:
                 if not (sess := Ins.sessions.get(device.serial)):
-                    return None
+                    return {
+                        "text"        : "未找到活跃的 scrcpy 会话，无需关闭。",
+                        "attachments" : [],
+                        "data": {
+                            "ok"     : True,
+                            "serial" : device.serial,
+                            "reason" : "no_active_session",
+                        },
+                        "logs": []
+                    }
             return await sess.scrcpy_close()
 
         return await broadcast(

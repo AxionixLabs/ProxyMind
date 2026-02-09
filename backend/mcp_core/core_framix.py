@@ -64,9 +64,9 @@ class Framix(object):
 
             logger.info(text.rstrip())
 
-    async def __engine(self, *args, **__) -> None:
+    async def __engine(self, *args, **__) -> dict[str, typing.Any]:
         self.out_fail = asyncio.Event()
-        self.out_ring = deque(maxlen=10)
+        self.out_ring = deque(maxlen=50)
 
         cmd = [self.prefix] + list(args)
         self.__transports = await Terminal.cmd_link(cmd)
@@ -79,6 +79,16 @@ class Framix(object):
         if self.out_fail.is_set():
             logger.error("\n".join(self.out_ring))
             raise marked.subproc_fail(source=f"{self.prefix}.stream", out_ring=self.out_ring)
+
+        return {
+            "text"        : "Framix已输出结果。",
+            "attachments" : [],
+            "data": {
+                "ok"     : True,
+                "result" : "\n".join(map(str, list(self.out_ring)))
+            },
+            "logs": []
+        }
 
     # workflow: ==== MCP Tool ====
     async def fx_frame_analyzer(self, title: str, video: list[str], scale: float = 0.3) -> typing.Any:
@@ -94,7 +104,7 @@ class Framix(object):
         )
 
     # workflow: ==== MCP Tool ====
-    async def fx_frame_reporter(self) -> None:
+    async def fx_frame_reporter(self) -> dict[str, typing.Any]:
         final_dir = os.path.join(self.total, "FX" + "_" + self.label)
         marked.ensure_d(final_dir, "final_dir FX_")
 

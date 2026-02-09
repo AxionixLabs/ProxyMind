@@ -13,6 +13,7 @@ import random
 import typing
 import shutil
 import asyncio
+from collections import deque
 from loguru import logger
 from backend.mcp_hub.hub_device import Device
 from engine.terminal import Terminal
@@ -59,6 +60,8 @@ class Record(object):
         self.released: bool = False
         self.release_lock: asyncio.Lock = asyncio.Lock()
 
+        self.tail: deque[str] = deque(maxlen=5)
+
     @property
     def prefix(self) -> str:
         return self.__prefix
@@ -90,6 +93,7 @@ class Record(object):
         try:
             async for line in self.transports.stdout:
                 logger.debug(stream := line.decode(const.CHARSET, const.IGNORE).strip())
+                self.tail.append(stream)
                 if "Recording started" in stream or "Texture" in stream:
                     self.start_event.set()
                 elif "Recording complete" in stream:
@@ -106,6 +110,7 @@ class Record(object):
         try:
             async for line in self.transports.stderr:
                 logger.debug(stream := line.decode(const.CHARSET, const.IGNORE).strip())
+                self.tail.append(stream)
                 if (
                     "Could not find" in stream
                     or "connection failed" in stream
@@ -134,6 +139,7 @@ class Record(object):
 
                 if not stream: continue
 
+                self.tail.append(stream)
                 logger.debug(stream)
 
                 if "Recording started" in stream or "Texture" in stream:
@@ -173,21 +179,46 @@ class Record(object):
             asyncio.create_task(self.merge_stream())
 
     # workflow: ==== MCP Tool ====
-    async def scrcpy_mirror(self) -> None:
+    async def scrcpy_mirror(self) -> dict[str, typing.Any]:
         await self.acquire()
         try:
-            cmd = [self.prefix, "-s", self.device.serial, "--no-audio", "-b", "8M"]
+            cmd = [
+                self.prefix, "-s", self.device.serial, "--no-audio", "-b", "8M"
+            ]
             await self.launcher(cmd)
-            return await self.check_timer()
+            await self.check_timer()
+            return {
+                "text"        : "scrcpy 镜像已启动。",
+                "attachments" : [],
+                "data": {
+                    "ok"     : True,
+                    "serial" : self.device.serial,
+                    "status" : list(self.tail),
+                    "cmd"    : cmd
+                },
+                "logs": []
+            }
         except Exception as e:
             await self.release()
-            raise e
+            return {
+                "text"        : f"scrcpy 镜像启动失败：{type(e).__name__}: {e}",
+                "attachments" : [],
+                "data": {
+                    "ok"     : False,
+                    "serial" : self.device.serial,
+                    "status" : list(self.tail),
+                    "error"  : f"{type(e).__name__}: {e}"
+                },
+                "logs": []
+            }
 
     # workflow: ==== MCP Tool ====
-    async def scrcpy_record(self, directory: str, fps: int = 60, silence: bool = False) -> str:
+    async def scrcpy_record(self, directory: str, fps: int = 60, silence: bool = False) -> dict[str, typing.Any]:
         await self.acquire()
         try:
-            cmd = [self.prefix, "-s", self.device.serial, "--no-audio", "-b", "8M", f"--max-fps={fps}"]
+            cmd = [
+                self.prefix, "-s", self.device.serial, "--no-audio", "-b", "8M", f"--max-fps={fps}"
+            ]
 
             if silence:
                 try:
@@ -200,25 +231,59 @@ class Record(object):
 
             cmd += ["-r", video_temp := f"{os.path.join(directory, 'screen')}_{video_flag}"]
             await self.launcher(cmd)
-            return await self.check_timer(video_temp)
+            await self.check_timer(video_temp)
+            return {
+                "text"        : "scrcpy 录制已启动。",
+                "attachments" : [],
+                "data": {
+                    "ok"     : True,
+                    "serial" : self.device.serial,
+                    "status" : list(self.tail),
+                    "path"   : video_temp,
+                    "cmd"    : cmd
+                },
+                "logs": []
+            }
         except Exception as e:
             await self.release()
-            raise e
+            return {
+                "text"        : f"scrcpy 录制启动失败：{type(e).__name__}: {e}",
+                "attachments" : [],
+                "data": {
+                    "ok"     : False,
+                    "serial" : self.device.serial,
+                    "status" : list(self.tail),
+                    "error"  : f"{type(e).__name__}: {e}"
+                },
+                "logs": []
+            }
 
     # workflow: ==== MCP Tool ====
-    async def scrcpy_close(self) -> typing.Optional[str]:
+    async def scrcpy_close(self) -> dict[str, typing.Any]:
 
-        async def win_stop_child(pid: str | int) -> None:
+        async def win_stop_child(pid: typing.Union[str, int]) -> str:
             off = await Terminal.cmd_line([pwsh, "-Command", "Stop-Process", "-Id", pid, "-Force"])
-            logger.debug(f"{desc} PID={pid} OFF={off}")
+            logger.debug(msg := f"{desc} PID={pid} OFF={off}")
+            return msg
 
-        async def mac_stop_child(pid: str | int) -> None:
+        async def mac_stop_child(pid: typing.Union[str, int]) -> str:
             off = await Terminal.cmd_line_shell(f"pgrep -P {pid} | xargs kill -15")
-            logger.debug(f"{desc} PID={pid} OFF={off}")
+            logger.debug(msg := f"{desc} PID={pid} OFF={off}")
+            return msg
 
         if self.close_event.is_set():
             await self.release()
-            return None
+            return {
+                "text"        : "scrcpy 已关闭（或已结束）。",
+                "attachments" : [],
+                "data": {
+                    "ok"     : True,
+                    "serial" : self.device.serial,
+                    "status" : list(self.tail),
+                    "closed" : True
+                },
+                "logs": []
+            }
 
         desc = f"{self.device.brand} {self.device.serial} PPID={(ppid := self.transports.pid)}"
 
@@ -231,15 +296,49 @@ class Record(object):
                 ]
 
                 if not (child_pids := await Terminal.cmd_line(line)):
-                    return None
+                    return {
+                        "text"        : "未发现可关闭的子进程（可能已退出）。",
+                        "attachments" : [],
+                        "data": {
+                            "ok"     : True,
+                            "serial" : self.device.serial,
+                            "status" : list(self.tail),
+                            "reason" : "no_child_process",
+                            "ppid"   : ppid
+                        },
+                        "logs": []
+                    }
 
                 pids_list = [line.strip() for line in child_pids.splitlines()]
-                await asyncio.gather(*(win_stop_child(pid) for pid in pids_list))
+                off_state = await asyncio.gather(*(win_stop_child(pid) for pid in pids_list))
 
-            elif self.station == "darwin":
-                await mac_stop_child(ppid)
+            else:
+                off_state = await mac_stop_child(ppid)
 
-            return desc
+            return {
+                "text"        : "已尝试关闭 scrcpy。",
+                "attachments" : [],
+                "data": {
+                    "ok"        : True,
+                    "serial"    : self.device.serial,
+                    "status"    : list(self.tail),
+                    "off_state" : off_state
+                },
+                "logs": []
+            }
+
+        except Exception as e:
+            return {
+                "text"        : f"关闭 scrcpy 失败：{type(e).__name__}: {e}",
+                "attachments" : [],
+                "data": {
+                    "ok"     : False,
+                    "serial" : self.device.serial,
+                    "status" : list(self.tail),
+                    "error"  : f"{type(e).__name__}: {e}"
+                },
+                "logs": []
+            }
 
         finally:
             await self.clean_event()

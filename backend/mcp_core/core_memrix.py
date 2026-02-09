@@ -44,6 +44,7 @@ class Memrix(object):
 
             self.scene: str = time.strftime("%Y%m%d%H%M%S")
 
+            self.is_start: typing.Optional[asyncio.Event] = None
             self.out_fail: typing.Optional[asyncio.Event] = None
             self.out_ring: typing.Optional[deque[str]] = None
 
@@ -62,6 +63,8 @@ class Memrix(object):
         async for line in stream:
             text = line.decode(const.CHARSET, const.IGNORE)
             self.__push(source, text)
+            if "Engine Start" in text or "Report Start" in text:
+                self.is_start.set()
             if matched := re.search(r"(?<=Token:\s).*", text, re.S):
                 self.__token = matched.group()
             if "Error" in text or "检测连接设备" in text:
@@ -69,9 +72,11 @@ class Memrix(object):
 
             logger.info(text.rstrip())
 
-    async def __engine(self, *args, **__) -> None:
+    async def __engine(self, *args, **__) -> dict[str, typing.Any]:
+        self.is_start = asyncio.Event()
+
         self.out_fail = asyncio.Event()
-        self.out_ring = deque(maxlen=10)
+        self.out_ring = deque(maxlen=50)
 
         cmd = [self.prefix] + list(args)
         self.__transports = await Terminal.cmd_link(cmd)
@@ -82,12 +87,31 @@ class Memrix(object):
         for _ in range(30):
             await asyncio.sleep(1.0)
 
-            if self.__token: return None
+            if self.is_start.is_set():
+                return {
+                    "text"        : "Memrix启动成功。",
+                    "attachments" : [],
+                    "data": {
+                        "ok"     : True,
+                        "result" : "\n".join(map(str, list(self.out_ring)))
+                    },
+                    "logs": []
+                }
 
             if self.out_fail.is_set():
                 self.__transports.terminate()
                 logger.error("\n".join(self.out_ring))
                 raise marked.subproc_fail(source=f"{self.prefix}.stream", out_ring=self.out_ring)
+
+        return {
+            "text"        : "Memrix启动超时。",
+            "attachments" : [],
+            "data": {
+                "ok"     : False,
+                "result" : "\n".join(map(str, list(self.out_ring)))
+            },
+            "logs": []
+        }
 
     # workflow: ==== MCP Tool ====
     async def mx_task_begin(
@@ -123,7 +147,7 @@ class Memrix(object):
         final_dir = self.scene + "_" + "Storm"
         marked.ensure_d(final_dir, "final_dir _Storm")
 
-        cmd = ["--forge", final_dir]
+        cmd = ["--forge", final_dir, "--watch"]
         if layer: cmd += ["--layer"]
         await self.__engine(*cmd)
 
@@ -136,7 +160,7 @@ class Memrix(object):
         final_dir = self.scene + "_" + "Sleek"
         marked.ensure_d(final_dir, "final_dir _Sleek")
 
-        await self.__engine("--forge", final_dir)
+        await self.__engine("--forge", final_dir, "--watch")
 
         await self.__transports.wait()
 
