@@ -139,7 +139,7 @@ class Device(object):
             "semantic_brief" : semantic_brief
         }
 
-    # workflow: ==== Device Info MCP Tool ====
+    # workflow: ==== Info Control MCP Tool ====
     async def device_snapshot(self) -> dict:
         """采集并返回该设备当前所有状态快照。"""
         battery     = await self.st_battery()
@@ -158,7 +158,7 @@ class Device(object):
 
         return self.device_semantics(information)["semantic_brief"]
 
-    # workflow: ==== Device ====
+    # workflow: ==== Info ====
     async def st_load_info(self) -> None:
         """从 adb getprop 加载并填充设备属性。"""
         if not (resp := await Terminal.cmd_line(self.prefix + ["shell", "getprop"])):
@@ -181,7 +181,7 @@ class Device(object):
         self.debuggable = pick("ro.debuggable") == "1"
         self.secure     = pick("ro.secure") == "1"
 
-    # workflow: ==== Device ====
+    # workflow: ==== Info ====
     async def st_battery(self) -> int | None:
         """读取电池电量百分比（level/scale）。"""
         cmd = self.prefix + ["shell", "dumpsys", "battery"]
@@ -198,7 +198,7 @@ class Device(object):
 
         return int(round(level * 100 / scale))
 
-    # workflow: ==== Device ====
+    # workflow: ==== Info ====
     async def st_wm_size(self) -> tuple[int, int] | None:
         """获取物理屏幕分辨率。"""
         cmd = self.prefix + [
@@ -212,7 +212,7 @@ class Device(object):
 
         return int(m.group(1)), int(m.group(2))
 
-    # workflow: ==== Device ====
+    # workflow: ==== Info ====
     async def is_online(self) -> bool:
         """是否能真正访问互联网。"""
         resp = await Terminal.cmd_line(
@@ -220,14 +220,14 @@ class Device(object):
         )
         return bool(resp and "1 packets transmitted" in resp)
 
-    # workflow: ==== Device ====
+    # workflow: ==== Info ====
     async def is_emulator(self) -> bool:
         """根据硬件/机型特征判断是否为模拟器。"""
         return (
             "goldfish" in self.hardware or "ranchu" in self.hardware or "sdk" in self.model
         )
 
-    # workflow: ==== Device ====
+    # workflow: ==== Info ====
     async def is_screen_lock(self) -> bool:
         """检查是否正在显示锁屏。"""
         cmd = self.prefix + [
@@ -235,7 +235,7 @@ class Device(object):
         ]
         return "true" in await Terminal.cmd_line(cmd)
 
-    # workflow: ==== Device ====
+    # workflow: ==== Info ====
     async def is_screen_on(self) -> bool:
         """检查屏幕是否处于点亮状态。"""
         cmd = self.prefix + [
@@ -533,6 +533,17 @@ class Device(object):
             }
         }
 
+    # workflow: ==== Keyevent ====
+    async def key_event(self, keycode: int, longpress: bool = False) -> typing.Any:
+        """向设备发送 Android 系统按键事件（支持普通按键与长按）。"""
+        cmd = self.prefix + [
+            "shell", "input", "keyevent"
+        ]
+        if longpress: cmd += ["--longpress"]
+        cmd += [str(keycode)]
+
+        return await Terminal.cmd_line(cmd)
+
     # workflow: ==== System Control MCP Tool ====
     async def open_notification(self) -> typing.Any:
         """打开通知栏（Notification Panel）。"""
@@ -672,17 +683,6 @@ class Device(object):
         cmd = self.prefix + [
             "shell", "svc", "data", status
         ]
-        return await Terminal.cmd_line(cmd)
-
-    # workflow: ==== System ====
-    async def key_event(self, keycode: int, longpress: bool = False) -> typing.Any:
-        """向设备发送 Android 系统按键事件（支持普通按键与长按）。"""
-        cmd = self.prefix + [
-            "shell", "input", "keyevent"
-        ]
-        if longpress: cmd += ["--longpress"]
-        cmd += [str(keycode)]
-
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== UI Interaction MCP Tool ====
