@@ -241,6 +241,60 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
+    @task_middleware("scroll_into_view")
+    async def scroll_into_view(
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: typing.Union[str, list],
+        direction: typing.Literal["down", "up", "left", "right"] = "down",
+        timeout: float = 12.0,
+        max_swipes: int = 12,
+        should_click: bool = False,
+        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
+    ) -> CallToolResult:
+        """
+        D: device
+        C: ui
+        A: scroll_into_view
+        P:
+          by: str
+          value: str|list
+          direction: str
+          timeout: float
+          max_swipes: int
+          should_click: bool
+          matrix: overrides? (serial->args)
+        R: CTR
+        N:
+          - 把目标元素“滚到可见”（必要时连续滑动），并返回命中元素节点信息
+          - by           : 选择定位方式
+          - value        : 定位值
+          - direction    : 滚动方向
+          - timeout      : 单次查找/滚动的总超时时间（秒）
+          - max_swipes   : 最大滑动次数上限，防止无限滚动
+          - should_click : 命中后是否点击元素中心点
+        """
+
+        args = {
+            "by"           : by,
+            "value"        : value,
+            "direction"    : direction,
+            "timeout"      : timeout,
+            "max_swipes"   : max_swipes,
+            "should_click" : should_click
+        }
+
+        async def call(device: Device, a: dict) -> typing.Any:
+            return await device.scroll_into_view(**a)
+
+        return await broadcast(
+            tool="scroll_into_view",
+            args=args,
+            target_list=manage.snapshot,
+            call=call,
+            overrides=matrix
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
     @task_middleware("swipe")
     async def swipe(
         x1: int,
