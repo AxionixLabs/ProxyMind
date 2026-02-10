@@ -1405,7 +1405,7 @@ class Device(object):
                 except Exception as e:
                     actions.append({"kind": "scroll_fail", "n": i, "error": f"{type(e).__name__}: {e}"})
                     return {
-                        "text"        : "=滑动失败，已停止。",
+                        "text"        : "滑动失败，已停止。",
                         "attachments" : [],
                         "data": {
                             "ok"        : False,
