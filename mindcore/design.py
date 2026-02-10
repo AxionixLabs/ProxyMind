@@ -160,7 +160,7 @@ class Design(object):
 
         render: typing.Callable[
             [str], None
-        ] = lambda x: live.update(Text(x + cursor, style="bold #EEEEEE"))
+        ] = lambda x: live.update(Text(x, style="bold") + Text(cursor, style="reverse"))
 
         for i, ch in enumerate(delta):
             # 线性加速 + 抖动
@@ -193,19 +193,13 @@ class Design(object):
 
     @staticmethod
     async def cursor_blink(live: Live, out: str, cursor: str) -> None:
-        shades = ["#CFCFCF", "#E6E6E6", "#D8D8D8"]
-
         for _ in range(2):
-            live.update(Text(out + cursor, style=f"bold {shades[1]}"))
+            live.update(Text(out, style="bold") + Text(cursor, style="reverse"))
             await asyncio.sleep(0.08)
-
-            live.update(Text(out + " ", style=f"bold {shades[0]}"))
+            live.update(Text(out, style="bold"))
             await asyncio.sleep(0.06)
 
-        live.update(Text(out, style=f"bold {shades[2]}"))
-        await asyncio.sleep(0.05)
-
-        live.update(Text(out, style="bold #C6C6C6"))
+        live.update(Text(out, style="bold"))
 
     @staticmethod
     def build_file_tree(file_path: str) -> None:
@@ -852,7 +846,6 @@ class TypewriterStreamSession(object):
         self.out: str     = ""
         self.delay: float = 0.01
         self.cursor: str  = random.choice(["█", "▉", "▋"])
-        self.style: str   = "bold #C6C6C6"
 
         self.live: typing.Optional[Live] = None
 
@@ -886,14 +879,16 @@ class TypewriterStreamSession(object):
 
         Design.console.print()
 
-    async def feed(self, content: str) -> None:
-        if not content: return None
+    async def feed(self, delta: str) -> None:
+        if not delta: return None
 
-        if len(content) > (limit := 100):
-            content = content[:limit] + " " + "..."
+        if len(delta) > (limit := 120):
+            delta = delta[:limit] + " " + "..."
+
+        final_delay = max(0.0015, self.delay * 0.65)
 
         self.out, self.delay = await Design.typewriter(
-            self.live, content, self.out, self.delay, max(0.0015, self.delay * 0.65), self.cursor
+            self.live, delta, self.out, self.delay, final_delay, self.cursor
         )
 
 
