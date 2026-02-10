@@ -779,6 +779,41 @@ class Device(object):
         return await self.scroll_to_edge("bottom")
 
     # workflow: ==== UI Interaction MCP Tool ====
+    async def scroll_into_view(
+        self,
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: str | list,
+        *,
+        direction: typing.Literal["down", "up", "left", "right"] = "down",
+        timeout: float = 12.0,
+        max_swipes: int = 12,
+        should_click: bool = False
+    ) -> dict[str, typing.Any]:
+        """
+        语义封装：把元素“滚到可见”。可选滚到后点击。
+        """
+        resp = await self.scroll_until(
+            by, value,
+            direction=direction,
+            timeout=timeout,
+            max_swipes=max_swipes,
+        )
+        if not resp.get("data", {}).get("ok"):
+            return resp
+
+        if should_click:
+            node = resp.get("data", {}).get("node") or {}
+            center = node.get("center")
+            if center and isinstance(center, (list, tuple)) and len(center) == 2:
+                await self.tap(int(center[0]), int(center[1]))
+                resp["data"]["clicked"] = True
+            else:
+                resp["data"]["clicked"]      = False
+                resp["data"]["click_reason"] = "no_center"
+
+        return resp
+
+    # workflow: ==== UI Interaction MCP Tool ====
     async def tap(self, x: int, y: int) -> typing.Any:
         """点击指定坐标。"""
         cmd = self.prefix + [
@@ -1233,6 +1268,238 @@ class Device(object):
                     "similarity"  : round(last_sim, 4),
                     "stable_hits" : stable_hits,
                     "reason"      : "max_swipes_reached"
+                },
+                "logs": []
+            }
+
+    # workflow: ==== UI ====
+    async def scroll_until(
+        self,
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: str | list,
+        *,
+        direction: typing.Literal["down", "up", "left", "right"] = "down",
+        anchor: typing.Optional[tuple[int, int]] = None,
+        duration: int = 320,
+        settle: float = 0.25,
+        timeout: float = 12.0,
+        max_swipes: int = 12,
+        stop_on_stable: bool = True,
+        similarity_threshold: float = 0.992,
+        stable_required: int = 2,
+        min_swipes_before_stop: int = 2
+    ) -> dict[str, typing.Any]:
+        """
+        简单稳定版：滑动查找目标元素（每次滑动 -> 等待 -> find_node -> 可选 stable_stop）。
+        """
+        if by == "xpath":
+            return {
+                "text"        : " by=xpath 暂不支持（Android uiautomator dump 非标准 XPath）。",
+                "attachments" : [],
+                "data": {
+                    "ok"        : False,
+                    "found"     : False,
+                    "by"        : by,
+                    "value"     : value,
+                    "direction" : direction,
+                    "swipes"    : 0,
+                    "reason"    : "xpath_not_supported",
+                    "actions"   : []
+                },
+                "logs": []
+            }
+
+        deadline = time.monotonic() + float(timeout)
+        actions: list[dict[str, typing.Any]] = []
+
+        # 先尝试不滑动直接找
+        if node := await self.find_node(by, value):
+            return {
+                "text"        : "已在当前屏幕找到目标元素（无需滑动）。",
+                "attachments" : [],
+                "data": {
+                    "ok"        : True,
+                    "found"     : True,
+                    "by"        : by,
+                    "value"     : value,
+                    "direction" : direction,
+                    "swipes"    : 0,
+                    "node"      : node,
+                    "reason"    : "found_initial",
+                    "actions"   : actions
+                },
+                "logs": []
+            }
+
+        # 计算 anchor（仅用于 scroll_direction）
+        if not (wm := await self.st_wm_size()):
+            return {
+                "text"        : "获取屏幕尺寸失败。",
+                "attachments" : [],
+                "data": {
+                    "ok"      : False,
+                    "found"   : False,
+                    "reason"  : "wm_size_unavailable",
+                    "actions" : actions
+                },
+                "logs": []
+            }
+
+        w, h = wm
+        if anchor is None:
+            ax = int(w * 0.5)
+            ay = int(h * 0.55)
+        else:
+            ax, ay = anchor
+
+        # 稳定检测：用截图相似度判断“内容没变”
+        stable_hits = 0
+        last_sim: typing.Optional[float] = None
+
+        with tempfile.TemporaryDirectory(prefix="scroll_until_caps_") as tmp:
+            tmp_dir   = Path(tmp)
+            prev_path = str(tmp_dir / "prev.png")
+            cur_path  = str(tmp_dir / "cur.png")
+
+            prev_ok = False
+            if stop_on_stable:
+                try:
+                    prev_path = await self.screenshot(prev_path)  # 用真实落盘路径覆盖
+                    prev_ok = True
+                except Exception as e:
+                    actions.append({
+                        "kind"  : "screenshot_prev_fail",
+                        "error" : f"{type(e).__name__}: {e}"
+                    })
+                    prev_ok = False
+
+            for i in range(1, int(max_swipes) + 1):
+                if time.monotonic() >= deadline:
+                    return {
+                        "text"        : "超时未找到目标元素。",
+                        "attachments" : [],
+                        "data": {
+                            "ok"              : False,
+                            "found"           : False,
+                            "by"              : by,
+                            "value"           : value,
+                            "direction"       : direction,
+                            "swipes"          : i - 1,
+                            "reason"          : "timeout",
+                            "actions"         : actions,
+                            "last_similarity" : (round(last_sim, 4) if last_sim is not None else None)
+                        },
+                        "logs": []
+                    }
+
+                # 滑动
+                try:
+                    await self.scroll_direction(direction, ax, ay, duration=duration)
+                    actions.append({
+                        "kind"      : "scroll",
+                        "n"         : i,
+                        "direction" : direction,
+                        "anchor"    : [ax, ay],
+                        "duration"  : duration
+                    })
+                except Exception as e:
+                    actions.append({"kind": "scroll_fail", "n": i, "error": f"{type(e).__name__}: {e}"})
+                    return {
+                        "text"        : "=滑动失败，已停止。",
+                        "attachments" : [],
+                        "data": {
+                            "ok"        : False,
+                            "found"     : False,
+                            "by"        : by,
+                            "value"     : value,
+                            "direction" : direction,
+                            "swipes"    : i - 1,
+                            "reason"    : "scroll_fail",
+                            "actions"   : actions
+                        },
+                        "logs": []
+                    }
+
+                await asyncio.sleep(float(settle))
+
+                # 每次滑动后立即查找（不盲滑）
+                if node := await self.find_node(by, value):
+                    return {
+                        "text"        : "已找到目标元素。",
+                        "attachments" : [],
+                        "data": {
+                            "ok"        : True,
+                            "found"     : True,
+                            "by"        : by,
+                            "value"     : value,
+                            "direction" : direction,
+                            "swipes"    : i,
+                            "node"      : node,
+                            "reason"    : "found_after_scroll",
+                            "actions"   : actions
+                        },
+                        "logs": []
+                    }
+
+                # 稳定检测
+                if stop_on_stable and prev_ok:
+                    try:
+                        cur_path = await self.screenshot(cur_path)
+                        sim      = float(self.image_similarity(prev_path, cur_path))
+                        last_sim = sim
+
+                        stable_hits = stable_hits + 1 if sim >= float(similarity_threshold) else 0
+                        actions.append({
+                            "kind"        : "similarity",
+                            "n"           : i,
+                            "sim"         : round(sim, 4),
+                            "stable_hits" : stable_hits
+                        })
+
+                        if i >= int(min_swipes_before_stop) and stable_hits >= int(stable_required):
+                            return {
+                                "text"        : "屏幕内容稳定（几乎不变），停止滑动，仍未找到目标元素。",
+                                "attachments" : [],
+                                "data": {
+                                    "ok"          : False,
+                                    "found"       : False,
+                                    "by"          : by,
+                                    "value"       : value,
+                                    "direction"   : direction,
+                                    "swipes"      : i,
+                                    "reason"      : "stable_stop",
+                                    "similarity"  : round(sim, 4),
+                                    "stable_hits" : stable_hits,
+                                    "actions"     : actions
+                                },
+                                "logs": []
+                            }
+
+                        # 下一轮对比基准，交换“真实路径”
+                        prev_path, cur_path = cur_path, prev_path
+
+                    except Exception as e:
+                        actions.append({
+                            "kind"  : "similarity_fail",
+                            "n"     : i,
+                            "error" : f"{type(e).__name__}: {e}"}
+                        )
+                        # 相似度失败不致命
+
+            # 达到最大次数
+            return {
+                "text"        : "已达到最大滑动次数，仍未找到目标元素。",
+                "attachments" : [],
+                "data": {
+                    "ok"              : False,
+                    "found"           : False,
+                    "by"              : by,
+                    "value"           : value,
+                    "direction"       : direction,
+                    "swipes"          : int(max_swipes),
+                    "reason"          : "max_swipes_reached",
+                    "last_similarity" : (round(last_sim, 4) if last_sim is not None else None),
+                    "actions"         : actions
                 },
                 "logs": []
             }
