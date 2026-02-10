@@ -141,7 +141,7 @@ class Device(object):
 
     # workflow: ==== Info Control MCP Tool ====
     async def device_snapshot(self) -> dict:
-        """采集并返回该设备当前所有状态快照。"""
+        """采集并返回该设备当前字符串摘要。"""
         battery     = await self.st_battery()
         wm_size     = await self.st_wm_size()
         online      = await self.is_online()
@@ -264,7 +264,7 @@ class Device(object):
 
         if activity:
             cmd = self.prefix + [
-                "am", "start", "-a", action, "-c", category, "-n", f"{package}/{activity}"
+                "shell", "am", "start", "-a", action, "-c", category, "-n", f"{package}/{activity}"
             ]
             return await Terminal.cmd_line(cmd)
 
