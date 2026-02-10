@@ -472,7 +472,7 @@ class Device(object):
         filename = f"screenshot_{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
 
         cmd = self.prefix + [
-            "shell", "screencap", "-p", remote := f"/data/local/tmp/{filename}"
+            "shell", "screencap", "-p", remote := "/data/local/tmp/" + filename
         ]
         await Terminal.cmd_line(cmd)
 
