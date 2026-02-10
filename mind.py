@@ -13,6 +13,7 @@ import json
 import stat
 import time
 import httpx
+import shutil
 import random
 import signal
 import typing
@@ -39,6 +40,7 @@ from engine.tinker import (
     MindError, Active
 )
 from engine.terminal import Terminal
+from mindcore import authorize
 from mindcore.parser import Parser
 from mindcore.profile import Preferences
 from mindnova import (
@@ -976,12 +978,12 @@ async def main() -> None:
         return await pref.view_perf()
 
     # Notes: ========== 授权流程 ==========
-    # lic_file = Path(src_opera_place) / const.LIC_FILE
-    #
-    # if apply_code := cmd_lines.apply:
-    #     return await authorize.receive_license(apply_code, lic_file)
-    #
-    # await authorize.verify_license(lic_file)
+    lic_file = Path(src_opera_place) / const.LIC_FILE
+
+    if apply_code := cmd_lines.apply:
+        return await authorize.receive_license(apply_code, lic_file)
+
+    await authorize.verify_license(lic_file)
 
     # Notes: ========== 工具路径设置 ==========
     if platform == "win32":
@@ -1000,9 +1002,9 @@ async def main() -> None:
     await authorized()
 
     # 检查每个工具是否存在，如果缺失则显示错误信息并退出程序
-    # for tls in tools:
-    #     if not shutil.which((tls_name := os.path.basename(tls))):
-    #         raise MindError(f"{const.APP_DESC} missing files {tls_name}")
+    for tls in tools:
+        if not shutil.which((tls_name := os.path.basename(tls))):
+            raise MindError(f"{const.APP_DESC} missing files {tls_name}")
 
     # Notes: ========== 配置与启动 ==========
 
@@ -1032,12 +1034,9 @@ async def main() -> None:
     await pref.load_pref()
 
     # ========== 本地调试 ==========
-    helix = str(Path(__file__).parent / "backend" / "helix.py")
-
-    if helix.endswith("py"):
-        launch_app = [sys.executable, helix, "--level", level]
-    else:
-        launch_app = [helix, "--level", level]
+    # helix = str(Path(__file__).parent / "backend" / "helix.py")
+    # launch_app = [sys.executable, helix, "--level", level]
+    launch_app = [helix, "--level", level]
 
     server: ServerManage = ServerManage(cmd=launch_app, base_url="http://127.0.0.1:3333")
     await server.ensure_running()
