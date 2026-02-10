@@ -523,7 +523,6 @@ class Device(object):
             case "user"   : base += ["-3"]
             case "system" : base += ["-s"]
             case "all"    : pass
-            case _        : base += ["-3"]
 
         # 不传 keyword：直接列出
         if not kw:
