@@ -59,7 +59,7 @@ class Framix(object):
         async for line in stream:
             text = line.decode(const.CHARSET, const.IGNORE)
             self.__push(source, text)
-            if "Error" in text or "检测连接设备" in text:
+            if "FramixError" in text or "检测连接设备" in text:
                 return self.out_fail.set()
 
             logger.info(text.rstrip())

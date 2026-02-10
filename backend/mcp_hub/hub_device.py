@@ -783,20 +783,18 @@ class Device(object):
         self,
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
         value: str | list,
-        *,
+        mode: typing.Literal["eq", "contains", "regex"] = "eq",
+        ignore_case: bool = False,
         direction: typing.Literal["down", "up", "left", "right"] = "down",
         timeout: float = 12.0,
         max_swipes: int = 12,
         should_click: bool = False
     ) -> dict[str, typing.Any]:
         """
-        语义封装：把元素“滚到可见”。可选滚到后点击。
+        把元素“滚到可见”。可选滚到后点击。
         """
         resp = await self.scroll_until(
-            by, value,
-            direction=direction,
-            timeout=timeout,
-            max_swipes=max_swipes,
+            by, value, mode, ignore_case, direction, timeout=timeout, max_swipes=max_swipes
         )
         if not resp.get("data", {}).get("ok"):
             return resp
@@ -831,7 +829,27 @@ class Device(object):
         if not (node := await self.find_node(by, value)):
             return None
 
-        return await self.tap(*node["center"])
+        if not (center := node.get("center")):
+            return None
+
+        return await self.tap(*center)
+
+    # workflow: ==== UI Interaction MCP Tool ====
+    async def click_match(
+        self,
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: str | list,
+        mode: typing.Literal["eq", "contains", "regex"] = "contains",
+        ignore_case: bool = False
+    ) -> typing.Any:
+        """根据选择器（支持非精确匹配）点击对应节点中心点。"""
+        if not (node := await self.find_node_match(by, value, mode, ignore_case)):
+            return None
+
+        if not (center := node.get("center")):
+            return None
+
+        return await self.tap(*center)
 
     # workflow: ==== UI Interaction MCP Tool ====
     async def double_click(self, x: int, y: int) -> typing.Any:
@@ -1118,6 +1136,87 @@ class Device(object):
         return None
 
     # workflow: ==== UI ====
+    async def find_node_match(
+        self,
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: str | list,
+        mode: typing.Literal["eq", "contains", "regex"] = "eq",
+        ignore_case: bool = False
+    ) -> typing.Optional[dict]:
+        """
+        非精确匹配版 find_node
+        - mode="eq"        : 精确匹配（等价原 find_node 的核心语义）
+        - mode="contains"  : 子串匹配
+        - mode="regex"     : 正则匹配（value 作为 pattern）
+        - ignore_case      : contains/regex 时可选忽略大小写
+
+        Returns:
+            {"node": attrib|None, "bounds":[x1,y1,x2,y2]|None, "center":[cx,cy]|None}
+        """
+
+        if by == "bbox":
+            x1, y1, x2, y2 = value
+            cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+            return {
+                "node"   : None,
+                "bounds" : [x1, y1, x2, y2],
+                "center" : [cx, cy]
+            }
+
+        if by == "xpath":
+            return None
+
+        if not isinstance(value, str):
+            return None
+
+        if not (xml := await self.current_xml()):
+            return None
+
+        mapped_by = self.map_by(by)
+        pattern: typing.Optional[re.Pattern[str]] = None
+
+        if mode == "regex":
+            flags = re.IGNORECASE if ignore_case else 0
+            try:
+                pattern = re.compile(value, flags)
+            except re.error:
+                return None
+
+        needle = value.lower() if ignore_case else value
+
+        for node in Et.fromstring(xml).iter("node"):
+            got = node.attrib.get(mapped_by, "")
+            hay = got.lower() if ignore_case else got
+
+            if mode == "eq":
+                ok = (hay == needle) if ignore_case else (got == value)
+            elif mode == "contains":
+                ok = (needle in hay)
+            else:
+                ok = bool(pattern.search(got)) if pattern else False
+
+            if not ok: continue
+
+            bounds_str = node.attrib.get("bounds", "")
+            bounds = self.parse_bounds(bounds_str) if bounds_str else None
+            if not bounds:
+                return {
+                    "node"   : dict(node.attrib),
+                    "bounds" : None,
+                    "center" : None
+                }
+
+            x1, y1, x2, y2 = bounds
+            cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+            return {
+                "node"   : dict(node.attrib),
+                "bounds" : [x1, y1, x2, y2],
+                "center" : [cx, cy]
+            }
+
+        return None
+
+    # workflow: ==== UI ====
     async def ensure_ime(self) -> dict[str, typing.Any]:
         """切换到 AdbIME；若 enable/set 任一提示 Unknown input method，则直接返回错误结果。"""
         ime = "com.android.adbkeyboard/.AdbIME"
@@ -1277,7 +1376,8 @@ class Device(object):
         self,
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
         value: str | list,
-        *,
+        mode: typing.Literal["eq", "contains", "regex"] = "eq",
+        ignore_case: bool = False,
         direction: typing.Literal["down", "up", "left", "right"] = "down",
         anchor: typing.Optional[tuple[int, int]] = None,
         duration: int = 320,
@@ -1313,7 +1413,7 @@ class Device(object):
         actions: list[dict[str, typing.Any]] = []
 
         # 先尝试不滑动直接找
-        if node := await self.find_node(by, value):
+        if node := await self.find_node_match(by, value, mode, ignore_case):
             return {
                 "text"        : "已在当前屏幕找到目标元素（无需滑动）。",
                 "attachments" : [],
@@ -1423,7 +1523,7 @@ class Device(object):
                 await asyncio.sleep(float(settle))
 
                 # 每次滑动后立即查找（不盲滑）
-                if node := await self.find_node(by, value):
+                if node := await self.find_node_match(by, value, mode, ignore_case):
                     return {
                         "text"        : "已找到目标元素。",
                         "attachments" : [],

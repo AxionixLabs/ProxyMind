@@ -354,7 +354,7 @@ class Mind(object):
                         fields = await enhancer.enhance(name, arguments, result, ok, tw)
 
                         if self.level != const.SHOW_LEVEL:
-                            await tw.feed(f"\n{fields}\n")
+                            await tw.feed(f"\n{fields.get('text')}\n")
 
                         await request.post_tool_result(
                             chat["cid"], chat["sid"], chat["call_id"], name, ok, fields
@@ -465,7 +465,7 @@ class Mind(object):
 
             steps, loop_count, reasoning = plan["steps"], plan["loop_count"], plan["reasoning"]
 
-            logger.debug(reasoning)
+            logger.info(reasoning)
 
             for index, _ in enumerate(range(loop_count), start=1):
                 for step in steps:
@@ -476,7 +476,7 @@ class Mind(object):
                         if error := await self.wakeup(session):
                             return logger.error(error)
 
-                    logger.debug(f"{name} -> args={arguments}")
+                    logger.info(f"{name} -> args={arguments}")
 
                     # workflow: ==== 工具调用 ====
                     result = await session.call_tool(name, arguments)
@@ -488,7 +488,7 @@ class Mind(object):
 
                     if not ok or fields.get("data", {}).get("ok", False):
                         return logger.error(fields)
-                    logger.debug(fields)
+                    logger.info(fields)
 
                 if index != loop_count: self.task_info.clear()
 
@@ -1035,11 +1035,11 @@ async def main() -> None:
     helix = str(Path(__file__).parent / "backend" / "helix.py")
 
     if helix.endswith("py"):
-        cmd = [sys.executable, helix, "--level", level]
+        launch_app = [sys.executable, helix, "--level", level]
     else:
-        cmd = [helix, "--level", level]
+        launch_app = [helix, "--level", level]
 
-    server: ServerManage = ServerManage(cmd=cmd, base_url="http://127.0.0.1:3333")
+    server: ServerManage = ServerManage(cmd=launch_app, base_url="http://127.0.0.1:3333")
     await server.ensure_running()
 
     positions = (

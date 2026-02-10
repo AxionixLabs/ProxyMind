@@ -51,6 +51,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         R: CTR
         N:
           - 视频导出为图片序列：支持抽帧(fps)/截取(start+duration)/缩放(scale_w/scale_h)
+          - output_dir 为空时：默认在 input_video 所在目录创建 `<stem>_frames_<short_uuid>/` 作为输出目录
           - 输入路径不可用/输出不可写/编码不支持会失败
         """
 

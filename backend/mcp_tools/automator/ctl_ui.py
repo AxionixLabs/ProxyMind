@@ -245,6 +245,8 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
     async def scroll_into_view(
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
         value: typing.Union[str, list],
+        mode: typing.Literal["eq", "contains", "regex"] = "eq",
+        ignore_case: bool = False,
         direction: typing.Literal["down", "up", "left", "right"] = "down",
         timeout: float = 12.0,
         max_swipes: int = 12,
@@ -256,27 +258,26 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         C: ui
         A: scroll_into_view
         P:
-          by: str
+          by: oneof(id|desc|text|bbox|xpath)
           value: str|list
-          direction: str
-          timeout: float
-          max_swipes: int
-          should_click: bool
+          mode: oneof(eq|contains|regex)="eq"
+          ignore_case: bool=False
+          direction: oneof(down|up|left|right)="down"
+          timeout: float=12.0
+          max_swipes: int=12
+          should_click: bool=False
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 把目标元素“滚到可见”（必要时连续滑动），并返回命中元素节点信息
-          - by           : 选择定位方式
-          - value        : 定位值
-          - direction    : 滚动方向
-          - timeout      : 单次查找/滚动的总超时时间（秒）
-          - max_swipes   : 最大滑动次数上限，防止无限滚动
-          - should_click : 命中后是否点击元素中心点
+          - 连续滚动直到目标元素可见并返回命中节点信息；超过 max_swipes 或 timeout 则停止
+          - should_click=True 时命中后点击元素中心点
         """
 
         args = {
             "by"           : by,
             "value"        : value,
+            "mode"         : mode,
+            "ignore_case"  : ignore_case,
             "direction"    : direction,
             "timeout"      : timeout,
             "max_swipes"   : max_swipes,
@@ -406,6 +407,50 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
         return await broadcast(
             tool="click",
+            args=args,
+            target_list=manage.snapshot,
+            call=call,
+            overrides=matrix
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
+    @task_middleware("click_match")
+    async def click_match(
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: typing.Union[str, list],
+        mode: typing.Literal["eq", "contains", "regex"] = "contains",
+        ignore_case: bool = False,
+        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
+    ) -> CallToolResult:
+        """
+        D: device
+        C: ui
+        A: click_match
+        P:
+          by: oneof(id|desc|text|bbox|xpath)
+          value: str|list  # bbox=[x1,y1,x2,y2]
+          mode: oneof(eq|contains|regex)="contains"
+          ignore_case: bool=False
+          matrix: overrides? (serial->args)
+        R: CTR
+        N:
+          - 按选择器查找节点（支持非精确匹配）并点击其中心点
+          - mode/ignore_case 仅对字符串类定位（id/desc/text/xpath）生效；bbox 直接点击框中心
+          - 未命中或无可点击 center 时返回空结果
+        """
+
+        args = {
+            "by"          : by,
+            "value"       : value,
+            "mode"        : mode,
+            "ignore_case" : ignore_case
+        }
+
+        async def call(device: Device, a: dict) -> typing.Any:
+            return await device.click_match(**a)
+
+        return await broadcast(
+            tool="click_match",
             args=args,
             target_list=manage.snapshot,
             call=call,

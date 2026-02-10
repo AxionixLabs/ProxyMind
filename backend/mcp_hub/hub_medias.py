@@ -8,6 +8,7 @@
 
 import os
 import re
+import uuid
 import typing
 import asyncio
 import contextlib
@@ -121,11 +122,14 @@ class FFmpeg(object):
         marked.ensure_f(input_video, "input_video")
 
         video_path = Path(input_video).expanduser().resolve()
+        uid_folder = f"{video_path.stem}_frames_{uuid.uuid4().hex[:6]}"
 
         if not output_dir or not str(output_dir).strip():
-            out_path = video_path.parent / f"{video_path.stem}_frames"
+            out_path = video_path.parent / uid_folder
         else:
-            out_path = Path(output_dir).expanduser().resolve()
+            base_dir = Path(output_dir).expanduser().resolve()
+            marked.ensure_d(str(base_dir), "output_dir")
+            out_path = base_dir / uid_folder
 
         out_path.mkdir(parents=True, exist_ok=True)
         marked.ensure_d(str(out_path), "output_dir")
