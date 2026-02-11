@@ -1048,7 +1048,7 @@ class Device(object):
                 await self.file_remove(xml_file)
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def find_element(self, locator: str, *_, **__) -> dict[str, typing.Any]:
+    async def heal_element(self, locator: str, *_, **__) -> dict[str, typing.Any]:
         """执行自愈流程定位并处理目标控件。"""
         page_id, page_dump, (w, h) = await asyncio.gather(
             self.current_focus(), self.current_xml(), self.st_wm_size()
