@@ -579,33 +579,6 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
-    @task_middleware("current_xml")
-    async def current_xml(
-        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
-    ) -> CallToolResult:
-        """
-        D: device
-        C: ui
-        A: current_xml
-        P:
-          matrix: overrides? (serial->args)
-        R: CTR
-        N:
-          - uiautomator dump 到 /tmp 后轮询读取（最多 5 次），检测到 `<hierarchy` 才返回
-        """
-
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.current_xml()
-
-        return await broadcast(
-            tool="current_xml",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
     @task_middleware("wait_exists")
     async def wait_exists(
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
