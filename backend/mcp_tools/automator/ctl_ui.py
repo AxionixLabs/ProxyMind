@@ -579,6 +579,84 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
+    @task_middleware("current_widgets")
+    async def current_widgets(
+        view: typing.Literal["interactive", "credible", "all"] = "interactive",
+        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
+    ) -> CallToolResult:
+        """
+        D: device
+        C: ui
+        A: current_widgets
+        P:
+          view: oneof(interactive|credible|all)="interactive"
+          matrix: overrides? (serial->args)
+        R: CTR
+        N:
+          - Dump 当前页面 XML，并解析为 Widget 语义清单（每行一个控件）
+          - view:
+              - interactive：仅保留可交互控件（clickable/focusable/scrollable 任一为 True）
+              - credible：仅保留可识别控件（id/desc/text 任一非空）
+              - all：全量控件
+        """
+
+        args = {
+            "view" : view
+        }
+
+        async def call(device: "Device", a: dict) -> typing.Any:
+            return await device.current_widgets(**a)
+
+        return await broadcast(
+            tool="current_widgets",
+            args=args,
+            target_list=manage.snapshot,
+            call=call,
+            overrides=matrix
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
+    @task_middleware("heal_element")
+    async def heal_element(
+        locator: str,
+        should_click: bool = False,
+        wait: float = 0.0,
+        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
+    ) -> CallToolResult:
+        """
+        D: device
+        C: ui
+        A: heal_element
+        P:
+          locator: str
+          should_click: bool=False
+          wait: float=0.0
+          matrix: overrides? (serial->args)
+        R: CTR
+        N:
+          - 每台设备输出一份诊断 payload（可含截图/层级/定位结果）
+          - wait>0：命中后点击前 sleep(wait)（用于动画/页面稳定）
+          - 采集后会清理远端截图临时文件
+        """
+
+        args = {
+            "locator"      : locator,
+            "should_click" : should_click,
+            "wait"         : wait
+        }
+
+        async def call(device: Device, a: dict) -> typing.Any:
+            return await device.heal_element(**a)
+
+        return await broadcast(
+            tool="heal_element",
+            args=args,
+            target_list=manage.snapshot,
+            call=call,
+            overrides=matrix
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
     @task_middleware("wait_exists")
     async def wait_exists(
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
@@ -662,47 +740,6 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
         return await broadcast(
             tool="wait_gone",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
-    @task_middleware("heal_element")
-    async def heal_element(
-        locator: str,
-        should_click: bool = False,
-        wait: float = 0.0,
-        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
-    ) -> CallToolResult:
-        """
-        D: device
-        C: ui
-        A: heal_element
-        P:
-          locator: str
-          should_click: bool=False
-          wait: float=0.0
-          matrix: overrides? (serial->args)
-        R: CTR
-        N:
-          - 每台设备输出一份诊断 payload（可含截图/层级/定位结果）
-          - wait>0：命中后点击前 sleep(wait)（用于动画/页面稳定）
-          - 采集后会清理远端截图临时文件
-        """
-
-        args = {
-            "locator"      : locator,
-            "should_click" : should_click,
-            "wait"         : wait
-        }
-
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.heal_element(**a)
-
-        return await broadcast(
-            tool="heal_element",
             args=args,
             target_list=manage.snapshot,
             call=call,
