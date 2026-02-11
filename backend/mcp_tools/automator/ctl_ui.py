@@ -696,8 +696,8 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
-    @task_middleware("find_element")
-    async def find_element(
+    @task_middleware("heal_element")
+    async def heal_element(
         locator: str,
         should_click: bool = False,
         wait: float = 0.0,
@@ -706,7 +706,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         """
         D: device
         C: ui
-        A: find_element
+        A: heal_element
         P:
           locator: str
           should_click: bool=False
@@ -726,10 +726,10 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            return await device.find_element(**a)
+            return await device.heal_element(**a)
 
         return await broadcast(
-            tool="find_element",
+            tool="heal_element",
             args=args,
             target_list=manage.snapshot,
             call=call,
