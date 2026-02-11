@@ -616,6 +616,54 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
+    @task_middleware("find_element")
+    async def find_element(
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: str | list,
+        match: typing.Literal["eq", "contains", "regex"] = "eq",
+        ignore_case: bool = False,
+        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
+    ) -> CallToolResult:
+        """
+        D: device
+        C: ui
+        A: find_element
+        P:
+          by: oneof(id|desc|text|bbox|xpath)
+          value: str|list
+          match: oneof(eq|contains|regex)="eq"
+          ignore_case: bool=False
+          matrix: overrides? (serial->args)
+        R: CTR
+        N:
+          - 在当前页面控件列表中查找第一个匹配控件，并返回语义摘要
+          - by=xpath：不支持（Android uiautomator dump 非标准 XPath）
+          - match:
+              - eq：精确匹配
+              - contains：子串匹配
+              - regex：正则匹配（value 作为 pattern）
+          - ignore_case：contains/regex 时可选忽略大小写
+        """
+
+        args = {
+            "by"          : by,
+            "value"       : value,
+            "match"       : match,
+            "ignore_case" : ignore_case
+        }
+
+        async def call(device: "Device", a: dict) -> typing.Any:
+            return await device.find_element(**a)
+
+        return await broadcast(
+            tool="find_element",
+            args=args,
+            target_list=manage.snapshot,
+            call=call,
+            overrides=matrix
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
     @task_middleware("heal_element")
     async def heal_element(
         locator: str,

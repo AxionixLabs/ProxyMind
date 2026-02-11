@@ -1029,10 +1029,14 @@ class Device(object):
         """Dump 当前页面 XML -> 解析为 Widget 列表 -> 按 view 过滤 -> 输出语义化控件清单文本。"""
         def keep_node(w: Widget) -> bool:
             """根据 view 选择保留哪些控件：interactive=可交互；credible=有有效标识；all=全量。"""
-            match view:
-                case "interactive" : return any((w.clickable, w.focusable, w.scrollable))
-                case "credible"    : return any((w.id, w.desc, w.text))
-                case "all"         : return True
+            if view == "interactive":
+                return any((w.clickable, w.focusable, w.scrollable))
+            elif view == "credible":
+                return any((w.id, w.desc, w.text))
+            elif view == "all":
+                return True
+
+            return False
 
         attachments: list[dict[str, typing.Any]] = []
         logs: list[str] = []
@@ -1074,6 +1078,56 @@ class Device(object):
                 "count_all" : len(widget_list)
             },
             "logs": logs
+        }
+
+    # workflow: ==== UI Interaction MCP Tool ====
+    async def find_element(
+        self,
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: str | list,
+        match: typing.Literal["eq", "contains", "regex"] = "eq",
+        ignore_case: bool = False
+    ) -> dict[str, typing.Any]:
+        """在当前页面控件列表中查找目标控件；成功返回 widget 语义摘要与基础信息，失败返回原因与入参回显。"""
+        if by == "xpath":
+            return {
+                "text"        : " by=xpath 暂不支持（Android uiautomator dump 非标准 XPath）。",
+                "attachments" : [],
+                "data": {
+                    "ok"    : False,
+                    "by"    : by,
+                    "value" : value,
+                    "match" : match
+                },
+                "logs": []
+            }
+
+        # 命中：回传语义摘要 + 关键定位/动作信息（用于 click/wait/诊断）
+        if widget := await self.find_widget(by, value, match, ignore_case):
+            return {
+                "text"        : "已找到目标控件。",
+                "attachments" : [],
+                "data": {
+                    "ok"     : True,
+                    "by"     : by,
+                    "value"  : value,
+                    "match"  : match,
+                    "widget" : widget.semantic
+                },
+                "logs": []
+            }
+
+        # 未命中：保持统一结构，回显查找参数
+        return {
+            "text"        : "未找到目标控件。",
+            "attachments" : [],
+            "data": {
+                "ok"    : False,
+                "by"    : by,
+                "value" : value,
+                "match" : match
+            },
+            "logs": []
         }
 
     # workflow: ==== UI Interaction MCP Tool ====
@@ -1575,7 +1629,7 @@ class Device(object):
         match: typing.Literal["eq", "contains", "regex"] = "eq",
         ignore_case: bool = False
     ) -> typing.Optional[Widget]:
-
+        """Dump 当前页面 XML -> 构建 Widget 列表 -> 按 by/value + match/ignore_case 返回第一个命中控件。"""
         if by == "xpath":
             return None
 
