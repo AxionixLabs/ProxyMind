@@ -27,8 +27,8 @@ def ensure_f(path: os.PathLike[str] | str, field: str) -> str:
     if not p.exists():
         raise fail_tip(
             f"{field} 不存在（需要文件路径）。",
-            code=const.CODE_PATH,
-            hint=const.HINT_STOP,
+            code=const.CODE_EXC,
+            hint=const.HINT_HLT,
             field=field,
             expect="f",
             got=str(p),
@@ -38,8 +38,8 @@ def ensure_f(path: os.PathLike[str] | str, field: str) -> str:
     if not p.is_file():
         raise fail_tip(
             f"{field} 类型错误（需要文件）。",
-            code=const.CODE_PATH,
-            hint=const.HINT_STOP,
+            code=const.CODE_EXC,
+            hint=const.HINT_HLT,
             field=field,
             expect="f",
             got=str(p),
@@ -50,8 +50,8 @@ def ensure_f(path: os.PathLike[str] | str, field: str) -> str:
     if not p.suffix:
         raise fail_tip(
             f"{field} 缺少扩展名（无法确定文件类型/容器）。",
-            code=const.CODE_PATH,
-            hint=const.HINT_STOP,
+            code=const.CODE_EXC,
+            hint=const.HINT_HLT,
             field=field,
             expect="suffix",
             got=str(p),
@@ -68,8 +68,8 @@ def ensure_d(path: os.PathLike[str] | str, field: str) -> str:
     if not p.exists():
         raise fail_tip(
             f"{field} 不存在（需要目录路径）。",
-            code=const.CODE_PATH,
-            hint=const.HINT_STOP,
+            code=const.CODE_EXC,
+            hint=const.HINT_HLT,
             field=field,
             expect="d",
             got=str(p),
@@ -79,8 +79,8 @@ def ensure_d(path: os.PathLike[str] | str, field: str) -> str:
     if not p.is_dir():
         raise fail_tip(
             f"{field} 类型错误（需要目录）。",
-            code=const.CODE_PATH,
-            hint=const.HINT_STOP,
+            code=const.CODE_EXC,
+            hint=const.HINT_HLT,
             field=field,
             expect="d",
             got=str(p),
@@ -122,8 +122,8 @@ def ensure_o(
     if not suf:
         raise fail_tip(
             f"{field} 缺少扩展名（未提供 suffix 且 input_file 无扩展名）。",
-            code=const.CODE_PATH,
-            hint=const.HINT_STOP,
+            code=const.CODE_EXC,
+            hint=const.HINT_HLT,
             field=field,
             expect="out",
             got=str(in_p),
@@ -151,8 +151,8 @@ def ensure_o(
             if not out_p.suffix:
                 raise fail_tip(
                     f"{field} 缺少扩展名（无法确定输出容器）。",
-                    code=const.CODE_PATH,
-                    hint=const.HINT_STOP,
+                    code=const.CODE_EXC,
+                    hint=const.HINT_HLT,
                     field=field,
                     expect="out",
                     got=str(out_p),
@@ -165,8 +165,8 @@ def ensure_o(
     if parent.exists() and not parent.is_dir():
         raise fail_tip(
             f"{field} 父路径类型错误（需要目录）。",
-            code=const.CODE_PATH,
-            hint=const.HINT_STOP,
+            code=const.CODE_EXC,
+            hint=const.HINT_HLT,
             field=field,
             expect="d",
             got=str(parent),
@@ -181,8 +181,8 @@ def ensure_o(
     if out_p.exists() and out_p.is_dir():
         raise fail_tip(
             f"{field} 类型错误（需要文件路径）。",
-            code=const.CODE_PATH,
-            hint=const.HINT_STOP,
+            code=const.CODE_EXC,
+            hint=const.HINT_HLT,
             field=field,
             expect="f",
             got=str(out_p),
@@ -193,8 +193,8 @@ def ensure_o(
     if out_p.exists() and (not overwrite):
         raise fail_tip(
             f"{field} 已存在且 overwrite=False（拒绝覆盖）。",
-            code=const.CODE_PATH,
-            hint=const.HINT_STOP,
+            code=const.CODE_EXC,
+            hint=const.HINT_HLT,
             field=field,
             expect="new",
             got=str(out_p),
@@ -217,8 +217,8 @@ def ensure_i(state: typing.Optional[typing.Union[list, dict, set]], field: str, 
     if empty:
         raise fail_tip(
             f"{field} 为空（内部状态未就绪/未回填）。",
-            code=const.CODE_EMPTY_I,
-            hint=const.HINT_STOP_I,
+            code=const.CODE_EXC,
+            hint=const.HINT_HLT,
             field=field,
             got=repr(state),
             **meta
@@ -238,8 +238,8 @@ def subproc_fail(*, source: str, out_ring: typing.Iterable[str], **meta: str) ->
 
     return fail_tip(
         "子进程检测到错误输出。",
-        code=const.CODE_SUBPROC,
-        hint=const.HINT_STOP,
+        code=const.CODE_EXC,
+        hint=const.HINT_HLT,
         source=source,
         tail=tail,
         **meta
@@ -253,7 +253,7 @@ def except_tip(reason: str, exc: BaseException, **meta: typing.Any) -> RuntimeEr
     return fail_tip(
         reason,
         code=const.CODE_EXC,
-        hint=const.HINT_STOP,
+        hint=const.HINT_HLT,
         exc_type=type(exc).__name__,
         exc=str(exc),
         **meta
@@ -267,8 +267,8 @@ def port_busy(port: int, field: str, *, host: str = "127.0.0.1", **meta: str) ->
     """
     return fail_tip(
         f"{field} 端口已被占用（无法绑定）。",
-        code=const.CODE_PORT,
-        hint=const.HINT_STOP,
+        code=const.CODE_EXC,
+        hint=const.HINT_HLT,
         field=field,
         host=str(host),
         port=int(port),

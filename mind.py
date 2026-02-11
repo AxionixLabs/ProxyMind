@@ -355,8 +355,7 @@ class Mind(object):
                         enhancer: Enhancer = Enhancer(session, model, apikey)
                         fields = await enhancer.enhance(name, arguments, result, ok, tw)
 
-                        if self.level != const.SHOW_LEVEL:
-                            await tw.feed(f"\n{fields.get('text')}\n")
+                        await tw.feed(f"\n{fields.get('text')}\n")
 
                         await request.post_tool_result(
                             chat["cid"], chat["sid"], chat["call_id"], name, ok, fields
@@ -364,8 +363,7 @@ class Mind(object):
                         continue
 
                     case "tool_result":
-                        if self.level != const.SHOW_LEVEL:
-                            await tw.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
+                        await tw.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
                         continue
 
                     case _:
@@ -425,8 +423,7 @@ class Mind(object):
                         enhancer: Enhancer = Enhancer(session, model, apikey)
                         fields = await enhancer.enhance(name, arguments, result, ok, tw)
 
-                        if self.level != const.SHOW_LEVEL:
-                            await tw.feed(f"\n{fields}\n")
+                        await tw.feed(f"\n{fields.get('text')}\n")
 
                         await request.post_tool_result(
                             chat["cid"], chat["sid"], chat["call_id"], name, ok, fields
@@ -434,8 +431,7 @@ class Mind(object):
                         continue
 
                     case "tool_result":
-                        if self.level != const.SHOW_LEVEL:
-                            await tw.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
+                        await tw.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
                         continue
 
                     case _:
