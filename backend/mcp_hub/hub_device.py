@@ -1021,33 +1021,6 @@ class Device(object):
         }
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def current_xml(self) -> str | None:
-        """导出当前 UI 层级 XML。"""
-        xml_file = "/data/local/tmp/window_dump.xml"
-
-        cmd = self.prefix + [
-            "shell", "uiautomator", "dump", "--compressed", xml_file
-        ]
-        await Terminal.cmd_line(cmd)
-
-        cat = self.prefix + ["shell", "cat", xml_file]
-        try:
-            for _ in range(6):
-                xml = await Terminal.cmd_line(cat)
-
-                xml = xml.decode(const.CHARSET, const.IGNORE) if isinstance(
-                    xml, (bytes, bytearray)
-                ) else (xml or "")
-
-                if "<hierarchy" in xml:
-                    return xml
-                await asyncio.sleep(0.12)
-            return None
-        finally:
-            with contextlib.suppress(Exception):
-                await self.file_remove(xml_file)
-
-    # workflow: ==== UI Interaction MCP Tool ====
     async def heal_element(self, locator: str, *_, **__) -> dict[str, typing.Any]:
         """执行自愈流程定位并处理目标控件。"""
         page_id, page_dump, (w, h) = await asyncio.gather(
@@ -1122,6 +1095,33 @@ class Device(object):
                 }
 
             await asyncio.sleep(0.25)
+
+    # workflow: ==== UI ====
+    async def current_xml(self) -> str | None:
+        """导出当前 UI 层级 XML。"""
+        xml_file = "/data/local/tmp/window_dump.xml"
+
+        cmd = self.prefix + [
+            "shell", "uiautomator", "dump", "--compressed", xml_file
+        ]
+        await Terminal.cmd_line(cmd)
+
+        cat = self.prefix + ["shell", "cat", xml_file]
+        try:
+            for _ in range(6):
+                xml = await Terminal.cmd_line(cat)
+
+                xml = xml.decode(const.CHARSET, const.IGNORE) if isinstance(
+                    xml, (bytes, bytearray)
+                ) else (xml or "")
+
+                if "<hierarchy" in xml:
+                    return xml
+                await asyncio.sleep(0.12)
+            return None
+        finally:
+            with contextlib.suppress(Exception):
+                await self.file_remove(xml_file)
 
     # workflow: ==== UI ====
     async def find_node(
