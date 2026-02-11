@@ -1020,32 +1020,6 @@ class Device(object):
             "logs": []
         }
 
-    # workflow: ==== UI Interaction MCP Tool ====
-    async def heal_element(self, locator: str, *_, **__) -> dict[str, typing.Any]:
-        """执行自愈流程定位并处理目标控件。"""
-        page_id, page_dump, (w, h) = await asyncio.gather(
-            self.current_focus(), self.current_xml(), self.st_wm_size()
-        )
-        payload = {
-            "serial"    : self.serial,
-            "page_id"   : page_id.get("data", {}).get("package") or "",
-            "platform"  : "android",
-            "locator"   : locator,
-            "page_dump" : page_dump or "",
-            "wm_size"   : {"w": w, "h": h}
-        }
-
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-            new_local = await self.screenshot(tmp.name)
-            with open(new_local, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode()
-            payload["screenshot_base64"]   = b64
-            payload["screenshot_data_url"] = f"data:image/png;base64,{b64}"
-
-        os.remove(new_local)
-
-        return payload
-
     # workflow: ==== UI ====
     async def wait_element(
         self,
@@ -1095,6 +1069,32 @@ class Device(object):
                 }
 
             await asyncio.sleep(0.25)
+
+    # workflow: ==== UI Interaction MCP Tool ====
+    async def heal_element(self, locator: str, *_, **__) -> dict[str, typing.Any]:
+        """执行自愈流程定位并处理目标控件。"""
+        page_id, page_dump, (w, h) = await asyncio.gather(
+            self.current_focus(), self.current_xml(), self.st_wm_size()
+        )
+        payload = {
+            "serial"    : self.serial,
+            "page_id"   : page_id.get("data", {}).get("package") or "",
+            "platform"  : "android",
+            "locator"   : locator,
+            "page_dump" : page_dump or "",
+            "wm_size"   : {"w": w, "h": h}
+        }
+
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            new_local = await self.screenshot(tmp.name)
+            with open(new_local, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+            payload["screenshot_base64"]   = b64
+            payload["screenshot_data_url"] = f"data:image/png;base64,{b64}"
+
+        os.remove(new_local)
+
+        return payload
 
     # workflow: ==== UI ====
     async def current_xml(self) -> str | None:
