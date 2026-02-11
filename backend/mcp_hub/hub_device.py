@@ -23,6 +23,7 @@ from PIL import Image
 from pathlib import Path
 import xml.etree.ElementTree as Et
 from engine.terminal import Terminal
+from backend.mcp_hub.hub_widget import Widget
 from backend.utilities import const
 
 
@@ -831,7 +832,7 @@ class Device(object):
         attachments: list[dict[str, typing.Any]] = []
         logs: list[str] = []
 
-        if not (node := await self.find_node(by, value, match, ignore_case)):
+        if not (widget := await self.find_widget(by, value, match, ignore_case)):
             return {
                 "text"        : "未找到可点击的节点。",
                 "attachments" : attachments,
@@ -846,7 +847,7 @@ class Device(object):
                 "logs": logs
             }
 
-        if not (center := node.get("center")):
+        if not widget.center:
             return {
                 "text"        : "找到节点但缺少可点击坐标（center）。",
                 "attachments" : attachments,
@@ -857,12 +858,12 @@ class Device(object):
                     "value"       : value,
                     "match"       : match,
                     "ignore_case" : ignore_case,
-                    "bounds"      : node.get("bounds")
+                    "bbox"        : widget.bbox
                 },
                 "logs": logs
             }
 
-        out = await self.tap(*center)
+        out = await self.tap(*widget.center)
 
         return {
             "text"        : "点击完成。",
@@ -873,8 +874,8 @@ class Device(object):
                 "value"       : value,
                 "match"       : match,
                 "ignore_case" : ignore_case,
-                "center"      : list(center),
-                "bounds"      : node.get("bounds"),
+                "center"      : widget.center,
+                "bbox"        : widget.bbox,
                 "tap_out"     : out
             },
             "logs": logs
@@ -1020,6 +1021,87 @@ class Device(object):
             "logs": []
         }
 
+    # workflow: ==== UI Interaction MCP Tool ====
+    async def current_widgets(
+        self,
+        view: typing.Literal["interactive", "credible", "all"] = "interactive"
+    ) -> dict[str, typing.Any]:
+        """Dump 当前页面 XML -> 解析为 Widget 列表 -> 按 view 过滤 -> 输出语义化控件清单文本。"""
+        def keep_node(w: Widget) -> bool:
+            """根据 view 选择保留哪些控件：interactive=可交互；credible=有有效标识；all=全量。"""
+            match view:
+                case "interactive" : return any((w.clickable, w.focusable, w.scrollable))
+                case "credible"    : return any((w.id, w.desc, w.text))
+                case "all"         : return True
+
+        attachments: list[dict[str, typing.Any]] = []
+        logs: list[str] = []
+
+        if not (xml := await self.current_xml()):
+            return {
+                "text"        : "未获取到 UI XML。",
+                "attachments" : attachments,
+                "data"        : {"ok": False},
+                "logs"        : logs
+            }
+
+        xml = re.sub(r"^\s*<\?xml[^>]*\?>\s*", "", xml)
+
+        try:
+            root = Et.fromstring(xml)
+        except Exception as e:
+            return {
+                "text"        : f"解析 UI XML 失败：{type(e).__name__}: {e}",
+                "attachments" : attachments,
+                "data"        : {"ok": False},
+                "logs"        : logs
+            }
+
+        widget_list = [
+            Widget(node.attrib) for node in root.iter("node")
+        ]
+        lines: list[str] = [
+            widget.semantic for widget in widget_list if keep_node(widget)
+        ]
+        out = "\n".join(lines).strip()
+
+        return {
+            "text"        : out if out else "未发现可用控件。",
+            "attachments" : attachments,
+            "data": {
+                "ok"        : True,
+                "count"     : len(lines),
+                "count_all" : len(widget_list)
+            },
+            "logs": logs
+        }
+
+    # workflow: ==== UI Interaction MCP Tool ====
+    async def heal_element(self, locator: str, *_, **__) -> dict[str, typing.Any]:
+        """执行自愈流程定位并处理目标控件。"""
+        page_id, page_dump, (w, h) = await asyncio.gather(
+            self.current_focus(), self.current_xml(), self.st_wm_size()
+        )
+        payload = {
+            "serial"    : self.serial,
+            "page_id"   : page_id.get("data", {}).get("package") or "",
+            "platform"  : "android",
+            "locator"   : locator,
+            "page_dump" : page_dump or "",
+            "wm_size"   : {"w": w, "h": h}
+        }
+
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            new_local = await self.screenshot(tmp.name)
+            with open(new_local, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+            payload["screenshot_base64"]   = b64
+            payload["screenshot_data_url"] = f"data:image/png;base64,{b64}"
+
+        os.remove(new_local)
+
+        return payload
+
     # workflow: ==== UI ====
     async def wait_element(
         self,
@@ -1035,7 +1117,7 @@ class Device(object):
         deadline    = time.monotonic() + float(timeout)
 
         while True:
-            if (found := bool(await self.find_node(by, value, match, ignore_case))) == want_exists:
+            if (found := bool(await self.find_widget(by, value, match, ignore_case))) == want_exists:
                 return {
                     "text"        : "等待节点成功（已出现）。" if want_exists else "等待节点成功（已消失）。",
                     "attachments" : [],
@@ -1070,32 +1152,6 @@ class Device(object):
 
             await asyncio.sleep(0.25)
 
-    # workflow: ==== UI Interaction MCP Tool ====
-    async def heal_element(self, locator: str, *_, **__) -> dict[str, typing.Any]:
-        """执行自愈流程定位并处理目标控件。"""
-        page_id, page_dump, (w, h) = await asyncio.gather(
-            self.current_focus(), self.current_xml(), self.st_wm_size()
-        )
-        payload = {
-            "serial"    : self.serial,
-            "page_id"   : page_id.get("data", {}).get("package") or "",
-            "platform"  : "android",
-            "locator"   : locator,
-            "page_dump" : page_dump or "",
-            "wm_size"   : {"w": w, "h": h}
-        }
-
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-            new_local = await self.screenshot(tmp.name)
-            with open(new_local, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode()
-            payload["screenshot_base64"]   = b64
-            payload["screenshot_data_url"] = f"data:image/png;base64,{b64}"
-
-        os.remove(new_local)
-
-        return payload
-
     # workflow: ==== UI ====
     async def current_xml(self) -> str | None:
         """导出当前 UI 层级 XML。"""
@@ -1122,78 +1178,6 @@ class Device(object):
         finally:
             with contextlib.suppress(Exception):
                 await self.file_remove(xml_file)
-
-    # workflow: ==== UI ====
-    async def find_node(
-        self,
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
-        value: str | list,
-        match: typing.Literal["eq", "contains", "regex"] = "eq",
-        ignore_case: bool = False
-    ) -> typing.Optional[dict]:
-        """在当前界面 UI 层级（uiautomator dump XML）中查找第一个匹配的节点，并返回其几何信息。"""
-
-        if by == "bbox":
-            x1, y1, x2, y2 = value
-            cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-            return {
-                "node"   : None,
-                "bounds" : [x1, y1, x2, y2],
-                "center" : [cx, cy]
-            }
-
-        if by == "xpath":
-            return None
-
-        if not isinstance(value, str):
-            return None
-
-        if not (xml := await self.current_xml()):
-            return None
-
-        mapped_by = self.map_by(by)
-        pattern: typing.Optional[re.Pattern[str]] = None
-
-        if match == "regex":
-            flags = re.IGNORECASE if ignore_case else 0
-            try:
-                pattern = re.compile(value, flags)
-            except re.error:
-                return None
-
-        needle = value.lower() if ignore_case else value
-
-        for node in Et.fromstring(xml).iter("node"):
-            got = node.attrib.get(mapped_by, "")
-            hay = got.lower() if ignore_case else got
-
-            if match == "eq":
-                ok = (hay == needle) if ignore_case else (got == value)
-            elif match == "contains":
-                ok = (needle in hay)
-            else:
-                ok = bool(pattern.search(got)) if pattern else False
-
-            if not ok: continue
-
-            bounds_str = node.attrib.get("bounds", "")
-            bounds = self.parse_bounds(bounds_str) if bounds_str else None
-            if not bounds:
-                return {
-                    "node"   : dict(node.attrib),
-                    "bounds" : None,
-                    "center" : None
-                }
-
-            x1, y1, x2, y2 = bounds
-            cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-            return {
-                "node"   : dict(node.attrib),
-                "bounds" : [x1, y1, x2, y2],
-                "center" : [cx, cy]
-            }
-
-        return None
 
     # workflow: ==== UI ====
     async def ensure_ime(self) -> dict[str, typing.Any]:
@@ -1369,7 +1353,7 @@ class Device(object):
         min_swipes_before_stop: int = 2
     ) -> dict[str, typing.Any]:
         """
-        简单稳定版：滑动查找目标元素（每次滑动 -> 等待 -> find_node -> 可选 stable_stop）。
+        滑动查找目标元素（每次滑动 -> 等待 -> find_widget -> 可选 stop_on_stable）。
         """
         if by == "xpath":
             return {
@@ -1392,7 +1376,7 @@ class Device(object):
         actions: list[dict[str, typing.Any]] = []
 
         # 先尝试不滑动直接找
-        if node := await self.find_node(by, value, match, ignore_case):
+        if widget := await self.find_widget(by, value, match, ignore_case):
             return {
                 "text"        : "已在当前屏幕找到目标元素（无需滑动）。",
                 "attachments" : [],
@@ -1403,7 +1387,7 @@ class Device(object):
                     "value"     : value,
                     "direction" : direction,
                     "swipes"    : 0,
-                    "node"      : node,
+                    "widget"    : widget.semantic,
                     "reason"    : "found_initial",
                     "actions"   : actions
                 },
@@ -1502,7 +1486,7 @@ class Device(object):
                 await asyncio.sleep(float(settle))
 
                 # 每次滑动后立即查找（不盲滑）
-                if node := await self.find_node(by, value, match, ignore_case):
+                if widget := await self.find_widget(by, value, match, ignore_case):
                     return {
                         "text"        : "已找到目标元素。",
                         "attachments" : [],
@@ -1513,7 +1497,7 @@ class Device(object):
                             "value"     : value,
                             "direction" : direction,
                             "swipes"    : i,
-                            "node"      : node,
+                            "widget"    : widget.semantic,
                             "reason"    : "found_after_scroll",
                             "actions"   : actions
                         },
@@ -1584,27 +1568,56 @@ class Device(object):
             }
 
     # workflow: ==== UI ====
-    @staticmethod
-    def map_by(by: str) -> str:
-        """统一选择器字段到 Android XML 属性名。"""
-        match by:
-            case "id"   : return "resource-id"
-            case "desc" : return "content-desc"
+    async def find_widget(
+        self,
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: str | list,
+        match: typing.Literal["eq", "contains", "regex"] = "eq",
+        ignore_case: bool = False
+    ) -> typing.Optional[Widget]:
 
-        return by
-
-    # workflow: ==== UI ====
-    @staticmethod
-    def parse_bounds(bounds: str) -> typing.Optional[tuple[int, int, int, int]]:
-        """解析 Android bounds 字符串："[x1,y1][x2,y2]" -> (x1,y1,x2,y2)。"""
-        pattern = re.compile(r"\[(\d+),(\d+)]\[(\d+),(\d+)]")
-
-        if not (m := pattern.match(bounds)):
+        if by == "xpath":
             return None
 
-        x1, y1, x2, y2 = map(int, m.groups())
+        if not (xml := await self.current_xml()):
+            return None
 
-        return x1, y1, x2, y2
+        xml = re.sub(r"^\s*<\?xml[^>]*\?>\s*", "", xml)
+
+        try:
+            root = Et.fromstring(xml)
+        except (Et.ParseError, TypeError):
+            return None
+
+        widget_list = [
+            Widget(node.attrib) for node in root.iter("node")
+        ]
+
+        needle: str | list = value.lower() if ignore_case else value
+
+        pattern: typing.Optional[re.Pattern[str]] = None
+
+        if match == "regex":
+            flags = re.IGNORECASE if ignore_case else 0
+            try:
+                pattern = re.compile(value, flags)
+            except re.error:
+                return None
+
+        for widget in widget_list:
+            got = getattr(widget, by, "")
+            hay = got.lower() if ignore_case else got
+
+            if match == "eq":
+                ok = (hay == needle) if ignore_case else (got == value)
+            elif match == "contains":
+                ok = needle in hay
+            else:
+                ok = bool(pattern.search(got)) if pattern else False
+
+            if ok: return widget
+
+        return None
 
     # workflow: ==== UI ====
     @staticmethod
