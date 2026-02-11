@@ -13,24 +13,24 @@ import typing
 
 class Widget(object):
 
-    def __init__(self, attr: dict) -> None:
+    def __init__(self, attr: dict):
         self.id    = attr.get("resource-id", "")
-        self.desc  = attr.get("content-desc", "")
-        self.text  = attr.get("text", "")
+        self.desc  = attr.get("content-desc", "").strip()
+        self.text  = attr.get("text", "").strip()
         self.clazz = attr.get("class", "")
         self.bbox  = self.parse_bounds(attr.get("bounds"))
 
-        self.package = attr.get("package", "")
-
+        self.checkable  = self.truthy(attr.get("checkable"))
+        self.checked    = self.truthy(attr.get("checked"))
         self.clickable  = self.truthy(attr.get("clickable"))
+        self.enabled    = self.truthy(attr.get("enabled"))
         self.focusable  = self.truthy(attr.get("focusable"))
         self.scrollable = self.truthy(attr.get("scrollable"))
-        self.enabled    = self.truthy(attr.get("enabled"))
-        self.checked    = self.truthy(attr.get("checked"))
         self.selected   = self.truthy(attr.get("selected"))
 
     @property
     def center(self) -> typing.Optional[list[int]]:
+        """根据 bbox 计算控件中心点坐标 [cx,cy]；bbox 无效则返回 None。"""
         if not self.bbox or len(self.bbox) != 4:
             return None
 
@@ -39,22 +39,21 @@ class Widget(object):
 
         return [cx, cy]
 
+    @property
+    def semantic(self) -> str:
+        """生成语义化摘要字符串：flags + 关键属性（便于日志/LLM/检索）。"""
+        flags = [
+            (self.clickable, "click"), (self.focusable, "focus"), (self.scrollable, "scroll")
+        ]
+        label = ",".join([v for k, v in flags if k])
+        return (
+            f"[{label}] id={self.id};desc={self.desc};text={self.text};class={self.clazz};bbox={self.bbox}"
+        )
+
     @staticmethod
     def truthy(char: typing.Optional[str]) -> bool:
+        """将 XML 属性值（'true'/'false'/None）安全转换为 bool。"""
         return (str(char).lower() if char else "") == "true"
-
-    @property
-    def credible(self) -> bool:
-        return bool(self.id.strip() or self.desc.strip() or self.text.strip())
-
-    @property
-    def semantic(self) -> typing.Optional[str]:
-        flag_s = ",".join(
-            [name for ok, name in [(self.clickable, "click"),(self.focusable, "focus")] if ok]
-        )
-        return (
-            f"[{flag_s}] id={self.id};desc={self.desc};text={self.text};class={self.clazz};bbox={self.bbox}"
-        )
 
     @staticmethod
     def parse_bounds(bounds: typing.Optional[str]) -> typing.Optional[list[int]]:
