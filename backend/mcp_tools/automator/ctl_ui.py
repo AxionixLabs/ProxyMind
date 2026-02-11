@@ -245,7 +245,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
     async def scroll_into_view(
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
         value: typing.Union[str, list],
-        mode: typing.Literal["eq", "contains", "regex"] = "eq",
+        match: typing.Literal["eq", "contains", "regex"] = "eq",
         ignore_case: bool = False,
         direction: typing.Literal["down", "up", "left", "right"] = "down",
         timeout: float = 12.0,
@@ -260,7 +260,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         P:
           by: oneof(id|desc|text|bbox|xpath)
           value: str|list
-          mode: oneof(eq|contains|regex)="eq"
+          match: oneof(eq|contains|regex)="eq"
           ignore_case: bool=False
           direction: oneof(down|up|left|right)="down"
           timeout: float=12.0
@@ -276,7 +276,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         args = {
             "by"           : by,
             "value"        : value,
-            "mode"         : mode,
+            "match"        : match,
             "ignore_case"  : ignore_case,
             "direction"    : direction,
             "timeout"      : timeout,
@@ -380,7 +380,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
     @task_middleware("click")
     async def click(
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
-        value: str,
+        value: typing.Union[str, list],
+        match: typing.Literal["eq", "contains", "regex"] = "eq",
+        ignore_case: bool = False,
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
     ) -> CallToolResult:
         """
@@ -389,17 +391,21 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         A: click
         P:
           by: oneof(id|desc|text|bbox|xpath)
-          value: str
+          value: str|list  # bbox=[x1,y1,x2,y2]
+          match: oneof(eq|contains|regex)="eq"
+          ignore_case: bool=False
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 精确匹配（no fuzzy）
-          - 未找到控件：按设备返回未命中/无动作
+          - 按选择器查找节点（支持非精确匹配）并点击其中心点
+          - match/ignore_case 仅对字符串类定位（id/desc/text/xpath）生效；bbox 直接点击框中心
         """
 
         args = {
-            "by"    : by,
-            "value" : value
+            "by"          : by,
+            "value"       : value,
+            "match"       : match,
+            "ignore_case" : ignore_case
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
@@ -407,50 +413,6 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
         return await broadcast(
             tool="click",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
-    @task_middleware("click_match")
-    async def click_match(
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
-        value: typing.Union[str, list],
-        mode: typing.Literal["eq", "contains", "regex"] = "contains",
-        ignore_case: bool = False,
-        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
-    ) -> CallToolResult:
-        """
-        D: device
-        C: ui
-        A: click_match
-        P:
-          by: oneof(id|desc|text|bbox|xpath)
-          value: str|list  # bbox=[x1,y1,x2,y2]
-          mode: oneof(eq|contains|regex)="contains"
-          ignore_case: bool=False
-          matrix: overrides? (serial->args)
-        R: CTR
-        N:
-          - 按选择器查找节点（支持非精确匹配）并点击其中心点
-          - mode/ignore_case 仅对字符串类定位（id/desc/text/xpath）生效；bbox 直接点击框中心
-          - 未命中或无可点击 center 时返回空结果
-        """
-
-        args = {
-            "by"          : by,
-            "value"       : value,
-            "mode"        : mode,
-            "ignore_case" : ignore_case
-        }
-
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.click_match(**a)
-
-        return await broadcast(
-            tool="click_match",
             args=args,
             target_list=manage.snapshot,
             call=call,
@@ -648,6 +610,8 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
     async def wait_exists(
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
         value: str | list,
+        match: typing.Literal["eq", "contains", "regex"] = "eq",
+        ignore_case: bool = False,
         timeout: float = 10.0,
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
     ) -> CallToolResult:
@@ -658,21 +622,25 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         P:
           by: oneof(id|desc|text|bbox|xpath)
           value: str|list
+          match: oneof(eq|contains|regex)="eq"
+          ignore_case: bool=False
           timeout: float=10.0
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 复用 wait_element(mode='exists')：轮询 find_node，命中=>True，超时=>False
+          - 轮询查找元素，命中=>True，超时=>False
         """
 
         args = {
-            "by"      : by,
-            "value"   : value,
-            "timeout" : timeout
+            "by"          : by,
+            "value"       : value,
+            "match"       : match,
+            "ignore_case" : ignore_case,
+            "timeout"     : timeout
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            return await device.wait_element(**a, mode="exists")
+            return await device.wait_element(**a, state="exists")
 
         return await broadcast(
             tool="wait_exists",
@@ -687,6 +655,8 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
     async def wait_gone(
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
         value: str | list,
+        match: typing.Literal["eq", "contains", "regex"] = "eq",
+        ignore_case: bool = False,
         timeout: float = 10.0,
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
     ) -> CallToolResult:
@@ -697,21 +667,25 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         P:
           by: oneof(id|desc|text|bbox|xpath)
           value: str|list
+          match: oneof(eq|contains|regex)="eq"
+          ignore_case: bool=False
           timeout: float=10.0
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 复用 wait_element(mode='gone')：轮询 find_node，消失=>True，超时=>False
+          - 轮询查找元素，消失=>True，超时=>False
         """
 
         args = {
-            "by"      : by,
-            "value"   : value,
-            "timeout" : timeout
+            "by"          : by,
+            "value"       : value,
+            "match"       : match,
+            "ignore_case" : ignore_case,
+            "timeout"     : timeout
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            return await device.wait_element(**a, mode="gone")
+            return await device.wait_element(**a, state="gone")
 
         return await broadcast(
             tool="wait_gone",
