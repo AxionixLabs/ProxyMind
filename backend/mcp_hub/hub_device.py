@@ -1024,7 +1024,7 @@ class Device(object):
     # workflow: ==== UI Interaction MCP Tool ====
     async def current_widgets(
         self,
-        view: typing.Literal["interactive", "credible", "all"] = "interactive"
+        view: typing.Literal["interactive", "credible", "all"] = "all"
     ) -> dict[str, typing.Any]:
         """Dump 当前页面 XML -> 解析为 Widget 列表 -> 按 view 过滤 -> 输出语义化控件清单文本。"""
         def keep_node(w: Widget) -> bool:
