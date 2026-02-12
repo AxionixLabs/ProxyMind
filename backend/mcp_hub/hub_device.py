@@ -120,7 +120,7 @@ class Device(object):
             ("battery",    battery_s),
             ("online",     brief(online)),
             ("locked",     brief(locked)),
-            ("screen_on",  brief(screen_on)), 
+            ("screen_on",  brief(screen_on)),
             ("secure",     brief(device_snap.get("secure") is True)),
             ("debuggable", brief(device_snap.get("debuggable") is True)),
             ("emulator",   brief(device_snap.get("emulator") is True)),
@@ -144,7 +144,7 @@ class Device(object):
         }
 
     # workflow: ==== Info Control MCP Tool ====
-    async def device_snapshot(self) -> dict:
+    async def device_snapshot(self) -> typing.Union[dict, str]:
         """采集并返回该设备当前字符串摘要。"""
         battery     = await self.st_battery()
         wm_size     = await self.st_wm_size()

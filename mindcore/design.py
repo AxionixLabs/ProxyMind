@@ -160,7 +160,7 @@ class Design(object):
 
         render: typing.Callable[
             [str], None
-        ] = lambda x: live.update(Text(x, style="bold") + Text(cursor, style="reverse"))
+        ] = lambda x: live.update(Text(x, style="bold") + Text(cursor, style="bold"))
 
         for i, ch in enumerate(delta):
             # 线性加速 + 抖动

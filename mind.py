@@ -294,8 +294,10 @@ class Mind(object):
 
         if ((now := time.time()) - self.last_refresh_ts) < self.ttl_sec:
             tip = f"ttl-hit: skip refresh ttl={self.ttl_sec:.3f}s"
-            if tw: return await tw.feed(f"\n{tip}\n")
-            else: return logger.debug(tip)
+            if tw and self.level != const.SHOW_LEVEL:
+                return await tw.feed(f"\n{tip}\n")
+            else:
+                return logger.debug(tip)
 
         result = await session.call_tool("refresh", {"ttl_sec": self.ttl_sec})
         ok = (not result.isError)
@@ -306,8 +308,10 @@ class Mind(object):
 
         self.last_refresh_ts = now
 
-        if tw: return await tw.feed(f"\n{content}\n")
-        else: return logger.debug(content)
+        if tw and self.level != const.SHOW_LEVEL:
+            return await tw.feed(f"\n{content}\n")
+        else:
+            return logger.debug(content)
 
     # workflow: ==== Chat 对话模式 ====
     async def chat_exec_looper(
@@ -715,7 +719,7 @@ class Mind(object):
         except* Exception as eg:
             await self.stop_all_anim()
             for ex in flatten_exceptions(eg):
-                logger.error(f"❌ [BUG] {ex!r}")
+                logger.error(f"❌ [ERROR] {ex!r}")
 
 
 class Enhancer(object):
@@ -998,9 +1002,9 @@ async def main() -> None:
     await authorized()
 
     # 检查每个工具是否存在，如果缺失则显示错误信息并退出程序
-    for tls in tools:
-        if not shutil.which((tls_name := os.path.basename(tls))):
-            raise MindError(f"{const.APP_DESC} missing files {tls_name}")
+    # for tls in tools:
+    #     if not shutil.which((tls_name := os.path.basename(tls))):
+    #         raise MindError(f"{const.APP_DESC} missing files {tls_name}")
 
     # Notes: ========== 配置与启动 ==========
 
@@ -1030,9 +1034,9 @@ async def main() -> None:
     await pref.load_pref()
 
     # ========== 本地调试 ==========
-    # helix = str(Path(__file__).parent / "backend" / "helix.py")
-    # launch_app = [sys.executable, helix, "--level", level]
-    launch_app = [helix, "--level", level]
+    helix = str(Path(__file__).parent / "backend" / "helix.py")
+    launch_app = [sys.executable, helix, "--level", level]
+    # launch_app = [helix, "--level", level]
 
     server: ServerManage = ServerManage(cmd=launch_app, base_url="http://127.0.0.1:3333")
     await server.ensure_running()
