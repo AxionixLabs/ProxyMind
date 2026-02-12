@@ -110,6 +110,7 @@ async def stream_plan(
     apikey: str,
     message: str,
     openai_tools: list[dict],
+    extras: typing.Optional[dict[str, typing.Any]] = None,
     timeout: float = 60.0
 ) -> typing.AsyncGenerator[dict, None]:
     """Stream Planner"""
@@ -121,7 +122,8 @@ async def stream_plan(
         "model"   : model,
         "apikey"  : apikey,
         "message" : message,
-        "tools"   : openai_tools
+        "tools"   : openai_tools,
+        "extras"  : extras
     }
 
     async for event in streaming(url, headers, payload, timeout):

@@ -460,7 +460,10 @@ class Mind(object):
 
         mode: str = "plan"
 
-        async for plan in request.stream_plan(mode, model, apikey, message, openai_tools):
+        r = await session.call_tool("refresh", {"ttl_sec": self.ttl_sec})
+        extras = None if r.isError else {"devices": r.content[0].text}
+
+        async for plan in request.stream_plan(mode, model, apikey, message, openai_tools, extras):
             await self.stop_stream_anim()
             if plan.get("type") == "error":
                 return logger.error(plan)
