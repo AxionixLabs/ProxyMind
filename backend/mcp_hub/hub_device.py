@@ -101,8 +101,9 @@ class Device(object):
         battery   = device_snap.get("battery")
         battery_s = f"{battery}%" if battery is not None else None
 
-        online = device_snap.get("online") is True
-        locked = device_snap.get("screen_lock") is True
+        online    = device_snap.get("online") is True
+        locked    = device_snap.get("screen_lock") is True
+        screen_on = device_snap.get("screen_on") is True
 
         semantic_kv = kv([
             ("kind",       "device"),
@@ -119,6 +120,7 @@ class Device(object):
             ("battery",    battery_s),
             ("online",     brief(online)),
             ("locked",     brief(locked)),
+            ("screen_on",  brief(screen_on)), 
             ("secure",     brief(device_snap.get("secure") is True)),
             ("debuggable", brief(device_snap.get("debuggable") is True)),
             ("emulator",   brief(device_snap.get("emulator") is True)),
@@ -128,6 +130,7 @@ class Device(object):
             f"{device_snap.get('serial') or 'unknown'}: "
             f"{'在线' if online else '离线'} / "
             f"{'锁屏' if locked else '未锁屏'} / "
+            f"{'亮屏' if screen_on else '灭屏'} / "
             f"电量{battery_s or 'unknown'} / "
             f"屏幕{screen.replace('x', '×') if screen else 'unknown'} / "
             f"Android{device_snap.get('version') or '?'}(SDK{device_snap.get('sdk') or '?'}) / "
@@ -148,13 +151,15 @@ class Device(object):
         online      = await self.is_online()
         emulator    = await self.is_emulator()
         screen_lock = await self.is_screen_lock()
+        screen_on   = await self.is_screen_on()
 
         information = self.device_info | {
             "battery"     : battery,
             "wm_size"     : {"w": wm_size[0], "h": wm_size[1]} if wm_size else None,
             "online"      : online,
             "emulator"    : emulator,
-            "screen_lock" : screen_lock
+            "screen_lock" : screen_lock,
+            "screen_on"   : screen_on
         }
 
         return self.device_semantics(information)["semantic_brief"]
