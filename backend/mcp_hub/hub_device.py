@@ -362,7 +362,7 @@ class Device(object):
         keywords: typing.Optional[list[str]] = None,
         max_lines: int = 200,
         saved: typing.Optional[str] = None
-    ) -> dict:
+    ) -> dict[str, typing.Any]:
         """一次性拉取 logcat 快照；按 keywords(不分大小写 OR) 过滤；saved=None 返回尾部 max_lines；saved=目录/文件则保存全量(不受200行限制)。"""
         await self.file_logcat_clean()
 
