@@ -748,8 +748,8 @@ class Enhancer(object):
         match name:
             case "screenshot":
                 return await self.__screenshot(result)
-            case "find_element":
-                return await self.__find_element(arguments, result, tw)
+            case "heal_element":
+                return await self.__heal_element(arguments, result, tw)
             case _:
                 return fields
 
@@ -811,7 +811,7 @@ class Enhancer(object):
             "data"        : {"ok": ok, "per_device": per_device}
         }
 
-    async def __find_element(
+    async def __heal_element(
         self,
         arguments: dict[str, typing.Any],
         result: CallToolResult,
