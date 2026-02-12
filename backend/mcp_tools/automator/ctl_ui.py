@@ -271,6 +271,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         N:
           - 连续滚动直到目标元素可见并返回命中节点信息；超过 max_swipes 或 timeout 则停止
           - should_click=True 时命中后点击元素中心点
+          - match/ignore_case 仅对字符串类定位（id/desc/text/xpath）生效
         """
 
         args = {
@@ -398,7 +399,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         R: CTR
         N:
           - 按选择器查找节点（支持非精确匹配）并点击其中心点
-          - match/ignore_case 仅对字符串类定位（id/desc/text/xpath）生效；bbox 直接点击框中心
+          - match/ignore_case 仅对字符串类定位（id/desc/text/xpath）生效
         """
 
         args = {
@@ -643,6 +644,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
               - contains：子串匹配
               - regex：正则匹配（value 作为 pattern）
           - ignore_case：contains/regex 时可选忽略大小写
+          - match/ignore_case 仅对字符串类定位（id/desc/text/xpath）生效
         """
 
         args = {
@@ -728,6 +730,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         R: CTR
         N:
           - 轮询查找元素，命中=>True，超时=>False
+          - match/ignore_case 仅对字符串类定位（id/desc/text/xpath）生效
         """
 
         args = {
@@ -773,6 +776,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         R: CTR
         N:
           - 轮询查找元素，消失=>True，超时=>False
+          - match/ignore_case 仅对字符串类定位（id/desc/text/xpath）生效
         """
 
         args = {
