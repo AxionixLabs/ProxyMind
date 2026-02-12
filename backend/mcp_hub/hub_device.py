@@ -1647,8 +1647,20 @@ class Device(object):
             Widget(node.attrib) for node in root.iter("node")
         ]
 
-        needle: str | list = value.lower() if ignore_case else value
+        # bbox：不走正则/大小写/contains，直接按 bbox 精确命中
+        if by == "bbox":
+            if not isinstance(value, (list, tuple)):
+                return None
+            for widget in widget_list:
+                if widget.bbox == list(value):
+                    return widget
+            return None
 
+        # 非 bbox：value 必须是 str，否则不匹配
+        if not isinstance(value, str):
+            return None
+
+        needle = value.lower() if ignore_case else value
         pattern: typing.Optional[re.Pattern[str]] = None
 
         if match == "regex":
