@@ -36,12 +36,16 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           - keycode=3（HOME）
         """
 
+        args = {
+            "longpress" : longpress
+        }
+
         async def call(device: Device, a: dict) -> typing.Any:
             return await device.key_event(keycode=3, **a)
 
         return await broadcast(
             tool="go_home",
-            args={"longpress": longpress, "matrix": matrix},
+            args=args,
             target_list=manage.snapshot,
             call=call,
             overrides=matrix
