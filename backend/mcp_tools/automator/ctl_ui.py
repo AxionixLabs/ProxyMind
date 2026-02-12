@@ -581,7 +581,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
     @task_middleware("current_widgets")
     async def current_widgets(
-        view: typing.Literal["interactive", "credible", "all"] = "interactive",
+        view: typing.Literal["interactive", "credible", "all"] = "all",
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
     ) -> CallToolResult:
         """
