@@ -51,47 +51,62 @@ async def broadcast(
     overrides: typing.Optional[dict[str, dict]] = None
 ) -> CallToolResult:
     """
-    - call(agent, a)：每台设备实际执行参数为 a（= 顶层 args + overrides[agent_key] 合并）
+    - call(agent, a)：每个 Agent 实际执行参数为 a（= 顶层 args + overrides[agent_key] 合并）
     - overrides：
         * None 或 {}：全量同参执行（所有 target 都跑，a= args）
         * 非空 dict：子集模式，只执行 overrides 中出现的 key 的设备；每台 a= args + overrides[key]
-    - results[i]["args"]：保留该设备最终 resolved_args，便于审计/复现
+    - results[i]["args"]：保留该 Agent 最终 resolved_args，便于审计/复现
     """
 
     def key_of(target: typing.Any) -> str:
-        """每个 target 的唯一键：优先 agent_id，其次 serial，最后退化为 str(target)。"""
+        """每个 target 的唯一键：优先 agent_id，其次 serial，最后稳定兜底。"""
         return (
             getattr(target, "agent_id", None)
             or getattr(target, "serial", None)
             or str(target)
         )
 
-    def normalize() -> dict[str, typing.Any]:
-        """
-        归一化单个 agent 返回为：
-        {
-          "text"        : str|None,
-          "attachments" : list,
-          "data"        : any,
-          "logs"        : list
-        }
-        """
-        if raw is None:
-            return {"text": None, "attachments": [], "data": None, "logs": []}
-
-        if isinstance(raw, str):
-            return {"text": raw, "attachments": [], "data": None, "logs": []}
-
-        if isinstance(raw, dict):
+    def normalize(raw_data: typing.Any) -> dict[str, typing.Any]:
+        """归一化单个 agent 返回为 {text,attachments,data,logs}。"""
+        if raw_data is None:
             return {
-                "text"        : raw.get("text"),
-                "attachments" : raw.get("attachments") or [],
-                "data"        : raw.get("data") if "data" in raw else raw,  # 兼容：没 data 就把整包当 data
-                "logs"        : raw.get("logs") or []
+                "text"        : None, 
+                "attachments" : [],
+                "data"        : None, 
+                "logs"        : []
+            }
+
+        if isinstance(raw_data, Exception):
+            return {
+                "text"        : f"{type(raw_data).__name__}: {raw_data}", 
+                "attachments" : [], 
+                "data"        : None, 
+                "logs"        : []
+            }
+
+        if isinstance(raw_data, str):
+            return {
+                "text"        : raw_data, 
+                "attachments" : [], 
+                "data"        : None, 
+                "logs"        : []
+            }
+
+        if isinstance(raw_data, dict):
+            return {
+                "text"        : raw_data.get("text"),
+                "attachments" : raw_data.get("attachments") or [],
+                "data"        : raw_data.get("data") if "data" in raw_data else raw_data,  # 兼容：没 data 就把整包当 data
+                "logs"        : raw_data.get("logs") or []
             }
 
         # 其他类型：按 data 返回
-        return {"text": None, "attachments": [], "data": raw, "logs": []}
+        return {
+            "text"        : None, 
+            "attachments" : [], 
+            "data"        : raw_data, 
+            "logs"        : []
+        }
 
     t0 = time.time()
     bases = args or {}
@@ -106,12 +121,12 @@ async def broadcast(
     ]
     keys = [key_of(target) for target in targets]
 
-    # 计算每台设备最终参数：a = args + overrides[key]
+    # 计算每个 Agent 最终参数：a = args + overrides[key]
     resolved_args = [
         {**bases, **(overrides.get(k) or {})} for k in keys
     ]
 
-    # 并发执行：每台把 resolved_args 交给 call(agent, a)
+    # 并发执行：每个 Agent 把 resolved_args 交给 call(agent, a)
     raw_list = await asyncio.gather(
         *(call(target, arg)
           for target, arg in zip(targets, resolved_args)), return_exceptions=True
@@ -119,7 +134,7 @@ async def broadcast(
 
     done, fail, results, attachments = 0, 0, [], []
 
-    # 逐台汇总：把 resolved args 固化到 results[i]["args"]
+    # 逐个 Agent 汇总：把 resolved args 固化到 results[i]["args"]
     for target, k, a, raw in zip(targets, keys, resolved_args, raw_list):
         agent_id = k
 
@@ -139,7 +154,7 @@ async def broadcast(
             call_item["data"] = None
             fail += 1
         else:
-            pack = normalize()
+            pack = normalize(raw)
             call_item["ok"]          = True
             call_item["text"]        = pack.get("text")
             call_item["attachments"] = pack.get("attachments") or []
@@ -169,7 +184,7 @@ async def broadcast(
 
     structured: typing.Optional[dict[str, typing.Any]] = {
         "tool" : tool,
-        "args" : args,  # 顶层基参（用于复现/审计）；每台真实参数看 results[i]["args"]
+        "args" : args,
         "cost" : cost_ms,
         "summary" : {
             "total" : total,
