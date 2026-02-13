@@ -883,7 +883,7 @@ class TypewriterStreamSession(object):
         if not delta: return None
 
         if len(delta) > (limit := 120):
-            delta = delta[:limit] + " " + "..."
+            delta = delta[:limit] + " " + "...\n"
 
         final_delay = max(0.0015, self.delay * 0.65)
 
