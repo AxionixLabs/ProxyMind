@@ -35,7 +35,7 @@ from mindcore.design import Design, TypewriterStreamSession
 from engine.enhancer import Enhancer
 from engine.manage import ServerManage
 from engine.tinker import (
-    MindError, Active
+    MindError, Active, Tooling
 )
 from engine.terminal import Terminal
 from mindcore import authorize
@@ -100,110 +100,6 @@ class Mind(object):
         Design.console.print()
         Design.show_exit()
         sys.exit(130)
-
-    class Tooling(object):
-
-        @staticmethod
-        def filter_tools(
-            openai_tools: list[dict[str, typing.Any]],
-            tool_meta: dict[str, dict[str, typing.Any]],
-            domains: typing.Optional[typing.Iterable[str]] = None,
-            classes: typing.Optional[typing.Iterable[str]] = None,
-            *,
-            include_hidden: bool = False,
-            exclude: typing.Optional[list[dict[str, typing.Any]]] = None
-        ) -> list[dict[str, typing.Any]]:
-            """
-            - domains/classes: allowlist（AND 叠加：传哪个就按哪个过滤）
-            - exclude: 排除规则列表；每条规则是 AND 匹配（命中就剔除）
-              支持键：domain / class / name
-              例：exclude=[{"domain":"media","class":"scrcpy"}]
-            """
-            want_domain = {
-                str(d).strip() for d in domains if str(d).strip()
-            } if domains else None
-
-            want_class = {
-                str(c).strip() for c in classes if str(c).strip()
-            } if classes else None
-
-            exclude = exclude or []
-
-            out: list[dict[str, typing.Any]] = []
-
-            for item in openai_tools:
-                func = (item or {}).get("function") or {}
-                name = func.get("name")
-                if not name: continue
-
-                meta = tool_meta.get(name) or {}
-
-                if not include_hidden and bool(meta.get("hidden", False)):
-                    continue
-
-                if want_domain is not None and meta.get("domain") not in want_domain:
-                    continue
-
-                if want_class is not None and meta.get("class") not in want_class:
-                    continue
-
-                # 排除规则：每条规则内部是 AND
-                hit_exclude = False
-                for rule in exclude:
-                    if not isinstance(rule, dict):
-                        continue
-                    ok = True
-                    if "name" in rule:
-                        ok = ok and (name == rule["name"])
-                    if "domain" in rule:
-                        ok = ok and (meta.get("domain") == rule["domain"])
-                    if "class" in rule:
-                        ok = ok and (meta.get("class") == rule["class"])
-                    if ok:
-                        hit_exclude = True
-                        break
-
-                if hit_exclude:
-                    continue
-                out.append(item)
-
-            return out
-
-        @staticmethod
-        def require(
-            meta_map: dict[str, dict[str, typing.Any]],
-            name: str,
-            *,
-            domain_in: typing.Optional[typing.Container[str]] = None,
-            class_in: typing.Optional[typing.Container[str]] = None,
-            name_in: typing.Optional[typing.Container[str]] = None,
-            name_not_in: typing.Optional[typing.Container[str]] = None,
-            class_not_in: typing.Optional[typing.Container[str]] = None
-        ) -> bool:
-            """
-            判断某工具是否需要“连接/设备准备”等前置动作。
-
-            规则：
-            1) 先排除：name ∈ name_not_in 或 meta.class ∈ class_not_in => False
-            2) 再命中：name_in / domain_in / class_in 任一命中 => True（OR）
-            3) 都不传：默认（domain=device 或 class=scrcpy）
-            """
-
-            meta = meta_map.get(name) or {}
-            dom  = meta.get("domain", "")
-            cls  = meta.get("class", "")
-
-            if (name_not_in and name in name_not_in) or (class_not_in and cls in class_not_in):
-                return False
-
-            if domain_in is None and class_in is None and name_in is None:
-                domain_in, class_in = {"device"}, {"scrcpy"}
-
-            return bool(
-                (name_in and name in name_in)
-                or (domain_in and dom in domain_in)
-                or (class_in and cls in class_in)
-            )
 
     async def stop_stream_anim(self) -> None:
         """Stop Stream"""
@@ -343,7 +239,7 @@ class Mind(object):
                     case "tool_call":
                         name, arguments = chat["name"], chat.get("arguments", {})
 
-                        if self.Tooling.require(domains, name, name_not_in={"refresh"}):
+                        if Tooling.require(domains, name, name_not_in={"refresh"}):
                             if error := await self.wakeup(session, tw):
                                 await tw.feed(error); return await tw.stop()
 
@@ -390,7 +286,7 @@ class Mind(object):
 
         mode: str = "fast"
 
-        filter_tools = self.Tooling.filter_tools(
+        filter_tools = Tooling.filter_tools(
             openai_tools=openai_tools,
             tool_meta=domains,
             domains={"bench", "common", "media"},
@@ -475,7 +371,7 @@ class Mind(object):
                     action = step["action"]
                     name, arguments = action["action"], action["args"]
 
-                    if self.Tooling.require(domains, name, name_not_in={"refresh"}):
+                    if Tooling.require(domains, name, name_not_in={"refresh"}):
                         if error := await self.wakeup(session):
                             return logger.error(error)
 
