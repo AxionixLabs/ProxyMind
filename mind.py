@@ -13,12 +13,10 @@ import json
 import stat
 import time
 import httpx
-import shutil
 import random
 import signal
 import typing
 import asyncio
-import contextlib
 
 # ====[ from: 内置模块 ]====
 from pathlib import Path
@@ -29,12 +27,12 @@ from rich.prompt import Prompt
 from mcp import (
     ClientSession, ListToolsResult
 )
-from mcp.types import CallToolResult
 from mcp.client.streamable_http import streamable_http_client
 
 # ====[ from: 本地模块 ]====
 from mindcore.api import Api
 from mindcore.design import Design, TypewriterStreamSession
+from engine.enhancer import Enhancer
 from engine.manage import ServerManage
 from engine.tinker import (
     MindError, Active
@@ -723,180 +721,6 @@ class Mind(object):
             await self.stop_all_anim()
             for ex in flatten_exceptions(eg):
                 logger.error(f"❌ [ERROR] {ex!r}")
-
-
-class Enhancer(object):
-    """通用工具结果增强"""
-
-    def __init__(self, session: ClientSession, model: str, apikey: str):
-        self.session = session
-        self.model   = model
-        self.apikey  = apikey
-
-    @staticmethod
-    def fields(result: CallToolResult) -> typing.Union[dict[str, typing.Any], str]:
-        """Fields"""
-        return sc if (sc := result.structuredContent) else result.content[0].text
-
-    async def enhance(
-        self,
-        name: str,
-        arguments: dict[str, typing.Any],
-        result: CallToolResult,
-        ok: bool,
-        tw: typing.Optional[TypewriterStreamSession] = None
-    ) -> typing.Union[str, dict[str, typing.Any]]:
-        """Enhance"""
-
-        fields = self.fields(result)
-
-        if not ok: return fields
-
-        match name:
-            case "screenshot":
-                return await self.__screenshot(result)
-            case "heal_element":
-                return await self.__heal_element(arguments, result, tw)
-            case _:
-                return fields
-
-    async def __screenshot(self, result: CallToolResult) -> dict:
-        fields = self.fields(result)
-        attachments: list[dict[str, typing.Any]] = []
-
-        if not (results := fields.get("results")):
-            return {
-                "text"        : "未获取到截图结果",
-                "attachments" : attachments,
-                "data"        : {"ok": False, "fields": fields}
-            }
-
-        per_device: dict[str, typing.Any] = {}
-
-        for element in results:
-            agent_id = element.get("agent_id", "unknown")
-
-            if not element.get("ok"):
-                per_device[agent_id] = {"ok": False, "error": element.get("text")}
-                continue
-
-            if not (local := element.get("text")) or not isinstance(local, str):
-                per_device[agent_id] = {"ok": False, "error": "missing local screenshot path"}
-                continue
-
-            try:
-                up = await request.upload_file_stream(local, agent_id, "screenshots")
-                if not (url := up.get("url")):
-                    per_device[agent_id] = {"ok": False, "error": f"upload returned no url: {up!r}"}
-                    continue
-
-                attachments.append({"kind": "image", "url": url, "agent_id": agent_id})
-                per_device[agent_id] = {
-                    "ok"        : True,
-                    "local"     : local,
-                    "url"       : url,
-                    "r2_key"    : (up or {}).get("key"),
-                    "filename"  : (up or {}).get("filename"),
-                    "mime_type" : (up or {}).get("mime_type")
-                }
-            except Exception as e:
-                per_device[agent_id] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
-                return {
-                    "text"        : f"屏幕截图上传异常：{type(e).__name__}: {e}",
-                    "attachments" : attachments,
-                    "data"        : {"ok": False, "per_device": per_device}
-                }
-            finally:
-                with contextlib.suppress(Exception):
-                    if local and os.path.isfile(local):
-                        os.remove(local)
-
-        ok = all(v.get("ok") for v in per_device.values()) if per_device else False
-        return {
-            "text"        : "屏幕截图上传成功" if ok else "屏幕截图上传完成（存在失败）",
-            "attachments" : attachments,
-            "data"        : {"ok": ok, "per_device": per_device}
-        }
-
-    async def __heal_element(
-        self,
-        arguments: dict[str, typing.Any],
-        result: CallToolResult,
-        tw: typing.Optional[TypewriterStreamSession] = None
-    ) -> typing.Optional[dict[str, typing.Any]]:
-
-        fields = self.fields(result)
-        attachments: list[dict[str, str]] = []
-
-        if not (results := fields.get("results")):
-            return {
-                "text"        : "未获取到设备结果",
-                "attachments" : attachments,
-                "data"        : {"ok": False, "fields": fields}
-            }
-
-        per_device: dict[str, dict[str, typing.Any]] = {}
-
-        for element in results:
-            data   = element["data"]
-            serial = data.pop("serial", "unknown")
-
-            async for heal in request.stream_heal(self.model, self.apikey, **data, tw=tw):
-                if heal.get("type") == "error":
-                    per_device[serial] = {"ok": False, "error": heal["content"]}
-                    continue
-
-                if not (smart := heal.get("smart")):
-                    continue
-
-                reason = smart.get("details", {}).get("reason", "unknown")
-
-                if serial not in per_device:
-                    locator = {
-                        "by": smart["new_selector"]["primary"]["by"],
-                        "value": smart["new_selector"]["primary"]["value"]
-                    }
-                    per_device[serial] = {"ok": True, "locator": locator, "smart": reason}
-
-                if tw: await tw.feed(reason)
-                else: logger.debug(reason)
-
-        matrix = {k: v["locator"] for k, v in per_device.items() if v.get("locator")}
-
-        if not matrix:
-            return {
-                "text"        : "元素定位失败",
-                "attachments" : attachments,
-                "data"        : {"ok": False, "per_device": per_device}
-            }
-
-        if not arguments.get("should_click"):
-            ok = all(v.get("ok") for v in per_device.values()) if per_device else False
-            return {
-                "text"        : "元素定位成功" if ok else "元素定位完成（存在失败）",
-                "attachments" : attachments,
-                "data"        : {"ok": ok, "per_device": per_device}
-            }
-
-        wait_s = float(arguments.get("wait") or 0)
-        if wait_s > 0: await asyncio.sleep(wait_s)
-
-        r = await self.session.call_tool("click", {"matrix": matrix})
-        f = self.fields(r)
-
-        if r.isError:
-            return {
-                "text"        : "点击失败",
-                "attachments" : attachments,
-                "data"        : {"ok": False, "per_device": per_device, "fields": f}
-            }
-
-        ok = all(v.get("ok") for v in per_device.values()) if per_device else False
-        return {
-            "text"        : "元素定位成功，并已点击" if ok else "元素定位完成并已点击（存在失败）",
-            "attachments" : attachments,
-            "data"        : {"ok": ok, "per_device": per_device, "fields": f}
-        }
 
 
 # """Main"""
