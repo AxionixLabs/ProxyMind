@@ -354,10 +354,16 @@ class Mind(object):
 
         mode: str = "plan"
 
+        filter_tools = Tooling.filter_tools(
+            openai_tools=openai_tools,
+            tool_meta=domains,
+            exclude=[{"domain": "common", "class": "runtime", "name": "loop_steps"}]
+        )
+
         r = await session.call_tool("refresh", {"ttl_sec": self.ttl_sec})
         extras = None if r.isError else {"devices": r.content[0].text}
 
-        async for plan in request.stream_plan(mode, model, apikey, message, openai_tools, extras):
+        async for plan in request.stream_plan(mode, model, apikey, message, filter_tools, extras):
             await self.stop_stream_anim()
             if plan.get("type") == "error":
                 return logger.error(plan)
