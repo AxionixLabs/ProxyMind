@@ -91,7 +91,7 @@ class Framix(object):
         }
 
     # workflow: ==== MCP Tool ====
-    async def fx_frame_analyzer(self, title: str, video: list[str], scale: float = 0.3) -> typing.Any:
+    async def fx_frame_analyzer(self, title: str, video: list[str], scale: float = 0.3) -> dict[str, typing.Any]:
         marked.ensure_i(video, "video")
         marked.ensure_d(self.total, "total")
 
