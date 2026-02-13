@@ -21,6 +21,7 @@ from rich.console import Console
 from rich.logging import (
     LogRecord, RichHandler
 )
+from backend.utilities.instance import Ins
 from backend.utilities import const
 
 
@@ -112,14 +113,14 @@ class Idle(object):
 
         __slots__ = ("idle", "id", "name", "args", "job_id_len")
 
-        def __init__(self, idle: "Idle", name: str, args: dict | None = None, job_id_len: int = 8):
+        def __init__(self, idle: "Idle", name: str, args: typing.Optional[dict] = None, job_id_len: int = 8):
             self.idle = idle
-            self.id: str | None = None
+            self.id: typing.Optional[str] = None
             self.name: str = name
             self.args: dict = args or {}
             self.job_id_len: int = job_id_len
 
-        async def begin(self, extra: dict | None = None) -> str:
+        async def begin(self, extra: typing.Optional[dict] = None) -> str:
             payload = dict(self.args)
             if extra:
                 payload.update(extra)
@@ -166,7 +167,7 @@ class Idle(object):
         self,
         name: str,
         *,
-        args: dict | None = None,
+        args: typing.Optional[dict] = None,
         args_fn: typing.Callable[[], typing.Mapping[str, typing.Any]] | None = None,
         job_id_len: int = 8,
     ) -> tuple[
@@ -214,8 +215,8 @@ class Idle(object):
         name: str,
         *,
         args: typing.Mapping[str, typing.Any] | None = None,
-        job_id: str | None = None,
-        job_id_len: int = 8,
+        job_id: typing.Optional[str] = None,
+        job_id_len: int = 8
     ) -> str:
 
         jid = job_id or self.short_uuid(job_id_len)
@@ -248,10 +249,10 @@ class Idle(object):
 
             jobs = [
                 {
-                    "id": jid,
-                    "name": meta.get("name"),
-                    "args": meta.get("args"),
-                    "age_sec": max(0.0, now - float(meta.get("ts", now))),
+                    "id"      : jid,
+                    "name"    : meta.get("name"),
+                    "args"    : meta.get("args"),
+                    "age_sec" : max(0.0, now - float(meta.get("ts", now)))
                 }
                 for jid, meta in self.jobs.items()
             ]
@@ -271,7 +272,8 @@ class Idle(object):
                 "active_jobs" : self.active_jobs,
                 "idle_sec"    : max(0.0, now - self.last_touch),
                 "jobs"        : jobs,
-                "sessions"    : sessions
+                "sessions"    : sessions,
+                **Ins.video_list_snapshot()
             }
 
     async def looper(self) -> None:

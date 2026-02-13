@@ -70,25 +70,25 @@ async def broadcast(
         """归一化单个 agent 返回为 {text,attachments,data,logs}。"""
         if raw_data is None:
             return {
-                "text"        : None, 
+                "text"        : None,
                 "attachments" : [],
-                "data"        : None, 
+                "data"        : None,
                 "logs"        : []
             }
 
         if isinstance(raw_data, Exception):
             return {
-                "text"        : f"{type(raw_data).__name__}: {raw_data}", 
-                "attachments" : [], 
-                "data"        : None, 
+                "text"        : f"{type(raw_data).__name__}: {raw_data}",
+                "attachments" : [],
+                "data"        : None,
                 "logs"        : []
             }
 
         if isinstance(raw_data, str):
             return {
-                "text"        : raw_data, 
-                "attachments" : [], 
-                "data"        : None, 
+                "text"        : raw_data,
+                "attachments" : [],
+                "data"        : None,
                 "logs"        : []
             }
 
@@ -102,9 +102,9 @@ async def broadcast(
 
         # 其他类型：按 data 返回
         return {
-            "text"        : None, 
-            "attachments" : [], 
-            "data"        : raw_data, 
+            "text"        : None,
+            "attachments" : [],
+            "data"        : raw_data,
             "logs"        : []
         }
 

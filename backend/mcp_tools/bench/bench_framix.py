@@ -31,8 +31,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           scale: float=0.3   # 等比缩放，范围[0.1, 1.0]
         R: CTR
         N:
-          - 使用 Framix-画帧秀引擎对录屏列表逐帧分析/抽帧诊断/取证并落盘报告
-          - total 作为报告输出目录（会写入 framix.total）；单任务聚合执行
+          - 使用 Framix-画帧秀引擎批量分析视频帧，query_idle 可查询视频状态
+          - 输入视频来自内部状态 Ins.video_list（由录制/回填流程写入），不需要视频路径/文件
+          - total 作为报告输出目录
         """
 
         await Requires.connect_framix()
@@ -72,8 +73,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           none
         R: CTR
         N:
-          - 汇总视频帧分析产物并生成最终阶段分类报告（落盘输出）
-          - 依赖已完成的帧分析/抽帧/分段数据；单任务聚合执行
+          - 生成视频帧最终阶段分类报告（落盘输出）
         """
 
         await Requires.connect_framix()

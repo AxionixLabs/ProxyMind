@@ -7,6 +7,7 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import os
+import re
 import json
 import time
 import typing
@@ -14,9 +15,14 @@ import asyncio
 from collections import deque
 from loguru import logger
 from engine.terminal import Terminal
+from backend.mcp_core.core_buffer import (
+    LineBuffer, GateMachine, FX_SPEC
+)
 from backend.utilities import (
     const, marked
 )
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
 class Framix(object):
@@ -38,11 +44,18 @@ class Framix(object):
 
             self.agent_id: str = self.__prefix
 
+            self.lock: asyncio.Lock = asyncio.Lock()
+
             self.label: str = time.strftime("%Y%m%d%H%M%S")
             self.total: str = ""
 
             self.out_fail: typing.Optional[asyncio.Event] = None
             self.out_ring: typing.Optional[deque[str]] = None
+
+            self.lb_stdout: LineBuffer = LineBuffer()
+            self.lb_stderr: LineBuffer = LineBuffer()
+
+            self.tool_events: dict[str, typing.Any] = {}
 
         self.__initialized = True
 
@@ -50,29 +63,79 @@ class Framix(object):
     def prefix(self) -> str:
         return self.__prefix
 
-    def __push(self, source: str, text: str) -> None:
+    def push(self, source: str, text: str) -> None:
         string = (text or "").strip()
         if not string: return None
         self.out_ring.append(f"{source}: {string}")
 
-    async def __streaming(self, source: str, stream: typing.AsyncIterator[bytes]) -> None:
-        async for line in stream:
-            text = line.decode(const.CHARSET, const.IGNORE)
-            self.__push(source, text)
-            if "FramixError" in text or "检测连接设备" in text:
+    async def __streaming(
+        self,
+        source: str,
+        stream: typing.AsyncIterator[bytes],
+        gates: list[GateMachine]
+    ) -> None:
+        """
+        Framix streaming：
+        - chunk -> LineBuffer -> line
+        - 每行：
+          - push 到 out_ring（少量兜底）
+          - fail fast
+          - 喂 gate，产出 start/end 事件则保存 + 打印
+        """
+        lb = self.lb_stdout if source.endswith(".stdout") else self.lb_stderr
+
+        async for chunk in stream:
+            text = chunk.decode(const.CHARSET, const.IGNORE)
+            text = ANSI_RE.sub("", text)
+
+            self.push(source, text)
+
+            for ln in lb.feed(text):
+                if not ln:
+                    continue
+
+                # fail fast（按行）
+                if "FramixError" in ln or "检测连接设备" in ln:
+                    return self.out_fail.set()
+
+                # gate：逐行喂
+                for gate in gates:
+                    async with self.lock:
+                        out = gate.feed_line(ln)
+                    if out:
+                        self.tool_events.setdefault(out["tool"], {})[out["phase"]] = out
+                        logger.info(f"[{self.agent_id.capitalize()}] {out}")
+
+        # stream 结束：flush 半行（如果最后没有换行符）
+        for ln in lb.flush():
+            if not ln:
+                continue
+
+            if "FramixError" in ln or "检测连接设备" in ln:
                 return self.out_fail.set()
 
-            logger.info(text.rstrip())
+            for gate in gates:
+                async with self.lock:
+                    out = gate.feed_line(ln)
+                if out:
+                    self.tool_events.setdefault(self.agent_id, {})[out["phase"]] = out
+                    logger.info(f"[{self.agent_id.capitalize()}] {out}")
 
     async def __engine(self, *args, **__) -> dict[str, typing.Any]:
+        # ✅ 每次任务清空
+        self.tool_events = {}
+
         self.out_fail = asyncio.Event()
-        self.out_ring = deque(maxlen=50)
+        self.out_ring = deque(maxlen=20)
 
         cmd = [self.prefix] + list(args)
         self.__transports = await Terminal.cmd_link(cmd)
 
-        asyncio.create_task(self.__streaming(f"{self.prefix}.stdout", self.__transports.stdout))
-        asyncio.create_task(self.__streaming(f"{self.prefix}.stderr", self.__transports.stderr))
+        # ✅ 共享同一个 GateMachine（重要：stdout/stderr 合并状态）
+        gates = [GateMachine(FX_SPEC)]
+
+        asyncio.create_task(self.__streaming(f"{self.prefix}.stdout", self.__transports.stdout, gates))
+        asyncio.create_task(self.__streaming(f"{self.prefix}.stderr", self.__transports.stderr, gates))
 
         await self.__transports.wait()
 
@@ -81,17 +144,24 @@ class Framix(object):
             raise marked.subproc_fail(source=f"{self.prefix}.stream", out_ring=self.out_ring)
 
         return {
-            "text"        : "Framix已输出结果。",
+            "text"        : "已输出结果。",
             "attachments" : [],
             "data": {
                 "ok"     : True,
-                "result" : "\n".join(map(str, list(self.out_ring)))
+                "result" : "\n".join(map(str, list(self.out_ring))),
+                "events" : self.tool_events.get(self.agent_id, {})
             },
             "logs": []
         }
 
     # workflow: ==== MCP Tool ====
-    async def fx_frame_analyzer(self, title: str, video: list[str], scale: float = 0.3) -> dict[str, typing.Any]:
+    async def fx_frame_analyzer(
+        self,
+        title: str,
+        video: list[str],
+        scale: float = 0.3
+    ) -> dict[str, typing.Any]:
+
         marked.ensure_i(video, "video")
         marked.ensure_d(self.total, "total")
 

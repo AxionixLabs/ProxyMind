@@ -47,7 +47,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             "title" : title
         }
 
-        async def call(*_) -> None:
+        async def call(*_) -> typing.Any:
             await idle.session_begin(
                 key=Ins.memrix.agent_id,
                 name=f"{Ins.memrix.agent_id}.mx_sample_mem",
@@ -96,7 +96,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             "title" : title
         }
 
-        async def call(*_) -> None:
+        async def call(*_) -> typing.Any:
             await idle.session_begin(
                 key=Ins.memrix.agent_id,
                 name=f"{Ins.memrix.agent_id}.sample_gfx",
@@ -133,7 +133,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
         await Requires.connect_memrix()
 
-        async def call(*_) -> None:
+        async def call(*_) -> typing.Any:
             try:
                 return await Ins.memrix.mx_task_final()
             finally:
@@ -169,7 +169,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             "layer" : layer,
         }
 
-        async def call(*_) -> None:
+        async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{Ins.memrix.agent_id}.mx_mem_reporter", args=args)
             try:
                 return await Ins.memrix.mx_mem_reporter(layer)
@@ -201,7 +201,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
         await Requires.connect_memrix()
 
-        async def call(*_) -> None:
+        async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{Ins.memrix.agent_id}.mx_gfx_reporter", args={})
             try:
                 return await Ins.memrix.mx_gfx_reporter()
