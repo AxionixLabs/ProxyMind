@@ -6,6 +6,7 @@
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
+import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.mcp_hub.hub_manage import Requires
@@ -44,7 +45,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             "scale": scale
         }
 
-        async def call(*_) -> None:
+        async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{Ins.framix.agent_id}.fx_frame_analyzer", args=args)
             try:
                 return await Ins.framix.fx_frame_analyzer(title, Ins.video_list, scale)
@@ -77,7 +78,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
         await Requires.connect_framix()
 
-        async def call(*_) -> None:
+        async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{Ins.framix.agent_id}.fx_frame_reporter", args={})
             try:
                 return await Ins.framix.fx_frame_reporter()
