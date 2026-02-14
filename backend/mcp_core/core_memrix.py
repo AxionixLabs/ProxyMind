@@ -259,10 +259,7 @@ class Memrix(object):
 
     # workflow: ==== MCP Tool ====
     async def mx_mem_reporter(self, layer: bool = False) -> dict[str, typing.Any]:
-        final_dir = self.scene + "_" + "Storm"
-        marked.ensure_d(final_dir, "final_dir _Storm")
-
-        cmd = ["--forge", final_dir, "--watch"]
+        cmd = ["--forge", self.scene + "_" + "Storm", "--watch"]
         if layer: cmd += ["--layer"]
         begin = await self.__engine(*cmd)
 
@@ -283,10 +280,8 @@ class Memrix(object):
 
     # workflow: ==== MCP Tool ====
     async def mx_gfx_reporter(self) -> dict[str, typing.Any]:
-        final_dir = self.scene + "_" + "Sleek"
-        marked.ensure_d(final_dir, "final_dir _Sleek")
-
-        begin = await self.__engine("--forge", final_dir, "--watch")
+        cmd = ["--forge", self.scene + "_" + "Sleek", "--watch"]
+        begin = await self.__engine(*cmd)
 
         await self.__transports.wait()
 
