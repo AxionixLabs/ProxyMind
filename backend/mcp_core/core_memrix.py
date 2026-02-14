@@ -111,7 +111,9 @@ class Memrix(object):
 
                 # 3) Fail fast：命中错误直接标记失败
                 if "MemrixError" in ln or "检测连接设备" in ln:               
-                    return self.out_fail.set()
+                    self.out_fail.set()
+                    logger.warning(f"[{self.agent_id.capitalize()}] failfast hit: {ln}")
+                    return
 
                 # 4) Gate：逐行喂所有 gate
                 for gate in gates:
