@@ -114,8 +114,7 @@ class Memrix(object):
 
         # stream 结束：flush 半行（如果最后没有换行符）
         for ln in lb.flush():
-            if not ln:
-                continue
+            if not ln: continue
 
             if "Engine Start" in ln or "Report Start" in ln:
                 self.is_start.set()
