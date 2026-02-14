@@ -68,20 +68,17 @@ class Framix(object):
         if not string: return None
         self.out_ring.append(f"{source}: {string}")
 
-    async def __streaming(
+    async def streaming(
         self,
         source: str,
         stream: typing.AsyncIterator[bytes],
         gates: list[GateMachine]
     ) -> None:
-        """
-        Framix streaming：
-        - chunk -> LineBuffer -> line
-        - 每行：
-          - push 到 out_ring（少量兜底）
-          - fail fast
-          - 喂 gate，产出 start/end 事件则保存 + 打印
-        """
+        """通用 streaming 消费器。"""
+
+        self.lb_stdout.reset()
+        self.lb_stderr.reset()
+
         lb = self.lb_stdout if source.endswith(".stdout") else self.lb_stderr
 
         async for chunk in stream:
@@ -90,39 +87,38 @@ class Framix(object):
 
             self.push(source, text)
 
-            for ln in lb.feed(text):
-                if not ln:
-                    continue
+            if "FramixError" in text or "检测连接设备" in text:
+                return self.out_fail.set()
 
-                # fail fast（按行）
+            for ln in lb.feed(text):
+                ln = ln.strip()
+                if not ln: continue
+
                 if "FramixError" in ln or "检测连接设备" in ln:
                     return self.out_fail.set()
 
-                # gate：逐行喂
                 for gate in gates:
                     async with self.lock:
-                        out = gate.feed_line(ln)
+                        out = gate.feed_chunk(ln)
                     if out:
                         self.tool_events.setdefault(out["tool"], {})[out["phase"]] = out
-                        logger.info(f"[{self.agent_id.capitalize()}] {out}")
+                        logger.info(out)
 
-        # stream 结束：flush 半行（如果最后没有换行符）
         for ln in lb.flush():
-            if not ln:
-                continue
+            ln = ln.strip()
+            if not ln: continue
 
             if "FramixError" in ln or "检测连接设备" in ln:
                 return self.out_fail.set()
 
             for gate in gates:
                 async with self.lock:
-                    out = gate.feed_line(ln)
+                    out = gate.feed_chunk(ln)
                 if out:
-                    self.tool_events.setdefault(self.agent_id, {})[out["phase"]] = out
-                    logger.info(f"[{self.agent_id.capitalize()}] {out}")
+                    self.tool_events.setdefault(out["tool"], {})[out["phase"]] = out
+                    logger.info(out)
 
     async def __engine(self, *args, **__) -> dict[str, typing.Any]:
-        # ✅ 每次任务清空
         self.tool_events = {}
 
         self.out_fail = asyncio.Event()
@@ -131,11 +127,10 @@ class Framix(object):
         cmd = [self.prefix] + list(args)
         self.__transports = await Terminal.cmd_link(cmd)
 
-        # ✅ 共享同一个 GateMachine（重要：stdout/stderr 合并状态）
         gates = [GateMachine(FX_SPEC)]
 
-        asyncio.create_task(self.__streaming(f"{self.prefix}.stdout", self.__transports.stdout, gates))
-        asyncio.create_task(self.__streaming(f"{self.prefix}.stderr", self.__transports.stderr, gates))
+        asyncio.create_task(self.streaming(f"{self.prefix}.stdout", self.__transports.stdout, gates))
+        asyncio.create_task(self.streaming(f"{self.prefix}.stderr", self.__transports.stderr, gates))
 
         await self.__transports.wait()
 
@@ -144,34 +139,30 @@ class Framix(object):
             raise marked.subproc_fail(source=f"{self.prefix}.stream", out_ring=self.out_ring)
 
         return {
-            "text"        : "已输出结果。",
+            "text"        : f"{self.agent_id.capitalize()}已输出结果。",
             "attachments" : [],
             "data": {
                 "ok"     : True,
-                "result" : "\n".join(map(str, list(self.out_ring))),
                 "events" : self.tool_events.get(self.agent_id, {})
             },
             "logs": []
         }
 
     # workflow: ==== MCP Tool ====
-    async def fx_frame_analyzer(
-        self,
-        title: str,
-        video: list[str],
-        scale: float = 0.3
-    ) -> dict[str, typing.Any]:
-
+    async def fx_frame_analyzer(self, title: str, video: list[str], scale: float = 0.3) -> dict[str, typing.Any]:
         marked.ensure_i(video, "video")
         marked.ensure_d(self.total, "total")
 
         payload = {
             "label": self.label, "title": title, "video": video
         }
-        return await self.__engine(
+
+        resp = await self.__engine(
             "--keras", "--boost", "--scale", str(min(1.0, max(0.1, scale))),
             "--frame", json.dumps(payload), "--total", self.total, "--debug"
         )
+
+        return resp
 
     # workflow: ==== MCP Tool ====
     async def fx_frame_reporter(self) -> dict[str, typing.Any]:
