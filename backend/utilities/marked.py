@@ -21,7 +21,7 @@ def fail_tip(msg: str, *, code: str, hint: str, **meta) -> RuntimeError:
 
 
 def ensure_f(path: os.PathLike[str] | str, field: str) -> str:
-    """确认 path 存在且为文件，且必须带扩展名；失败抛出统一 fail_tip。"""
+    """确认 path 存在且为文件，且必须带扩展名；失败抛出统一提示。"""
     p = Path(path).expanduser()
 
     if not p.exists():
@@ -62,7 +62,7 @@ def ensure_f(path: os.PathLike[str] | str, field: str) -> str:
 
 
 def ensure_d(path: os.PathLike[str] | str, field: str) -> str:
-    """确认 path 存在且为目录；失败抛出统一 fail_tip（不可重试/不可继续后续工具）。"""
+    """确认 path 存在且为目录；失败抛出统一提示。"""
     p = Path(path)
 
     if not p.exists():
@@ -206,7 +206,7 @@ def ensure_o(
 
 def ensure_i(state: typing.Optional[typing.Union[list, dict, set]], field: str, **meta: str) -> typing.Any:
     """
-    确认内部状态非空（list/dict/set）；为空视为“内部未就绪/未回填”（不可继续/不可重试）。
+    确认内部状态非空（list/dict/set）；为空视为“内部未就绪/未回填”。
     """
     if not (empty := (state is None)):
         try:
@@ -262,7 +262,7 @@ def except_tip(reason: str, exc: BaseException, **meta: typing.Any) -> RuntimeEr
 
 def port_busy(port: int, field: str, *, host: str = "127.0.0.1", **meta: str) -> RuntimeError:
     """
-    端口占用统一提示（不可重试/不可继续）。
+    端口占用统一提示。
     用法：raise port_busy(3300, "liveness_port", host="127.0.0.1")
     """
     return fail_tip(
