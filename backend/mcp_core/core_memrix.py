@@ -110,9 +110,8 @@ class Memrix(object):
                     self.__token = ln.split("Token:", 1)[1].strip()
 
                 # 3) Fail fast：命中错误直接标记失败
-                if "MemrixError" in ln or "检测连接设备" in ln:
-                    self.out_fail.set()
-                    return
+                if "MemrixError" in ln or "检测连接设备" in ln:               
+                    return self.out_fail.set()
 
                 # 4) Gate：逐行喂所有 gate
                 for gate in gates:
