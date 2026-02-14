@@ -158,7 +158,7 @@ class Memrix(object):
 
             if self.is_start.is_set():
                 return {
-                    "text"        : "启动成功。",
+                    "text"        : f"{self.agent_id.capitalize()}启动成功。",
                     "attachments" : [],
                     "data": {
                         "ok"     : True,
@@ -175,9 +175,9 @@ class Memrix(object):
 
         # 超时退出清理
         await self.shutdown()
-        
+
         return {
-            "text"        : "启动超时。",
+            "text"        : f"{self.agent_id.capitalize()}启动超时。",
             "attachments" : [],
             "data": {
                 "ok"     : False,
@@ -231,7 +231,7 @@ class Memrix(object):
         if not self.__token:
             # token 为空，说明 begin 没成功或 token 没抓到
             return {
-                "text"        : "结束失败：token为空。",
+                "text"        : f"{self.agent_id.capitalize()}结束失败：token为空。",
                 "attachments" : [],
                 "data": {
                     "ok"     : False,
@@ -268,7 +268,7 @@ class Memrix(object):
         self.scene = time.strftime("%Y%m%d%H%M%S")
 
         return {
-            "text"        : "报告任务完成。",
+            "text"        : f"{self.agent_id.capitalize()}报告任务完成。",
             "attachments" : [],
             "data": {
                 "ok"     : True,
@@ -288,7 +288,7 @@ class Memrix(object):
         self.scene = time.strftime("%Y%m%d%H%M%S")
 
         return {
-            "text"        : "报告任务完成。",
+            "text"        : f"{self.agent_id.capitalize()}报告任务完成。",
             "attachments" : [],
             "data": {
                 "ok"     : True,
