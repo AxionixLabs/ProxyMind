@@ -35,10 +35,13 @@ class Memrix(object):
             cls.__instance = super(Memrix, cls).__new__(cls)
         return cls.__instance
 
-    def __init__(self):
+    def __init__(self, *, mx_report_session: dict[str, typing.Any]):
         if not self.__initialized:
             self.__transports: typing.Optional[asyncio.subprocess.Process] = None
-            self.__token: typing.Optional[str] = None
+            self.mx_report_session = mx_report_session
+
+            self.token: typing.Optional[str] = None
+            self.style: typing.Optional[str] = None
 
             self.__prefix: str = "memrix"
 
@@ -98,7 +101,7 @@ class Memrix(object):
                     self.is_start.set()
 
                 if "Token:" in ln:
-                    self.__token = ln.split("Token:", 1)[1].strip()
+                    self.token = ln.split("Token:", 1)[1].strip()
 
                 if "MemrixError" in ln or "检测连接设备" in ln:
                     self.out_fail.set()
@@ -119,7 +122,7 @@ class Memrix(object):
                 self.is_start.set()
 
             if "Token:" in ln:
-                self.__token = ln.split("Token:", 1)[1].strip()
+                self.token = ln.split("Token:", 1)[1].strip()
 
             if "MemrixError" in ln or "检测连接设备" in ln:
                 self.out_fail.set()
@@ -159,7 +162,7 @@ class Memrix(object):
                     "data": {
                         "ok"     : True,
                         "events" : self.tool_events.get(self.agent_id, {}),
-                        "token"  : self.__token
+                        "token"  : self.token
                     },
                     "logs": []
                 }
@@ -184,6 +187,9 @@ class Memrix(object):
 
     async def shutdown(self) -> None:
         """统一退出/清理。"""
+        self.token = None
+        self.style = None
+
         if self.__transports and self.__transports.returncode is not None:
             return None
 
@@ -214,6 +220,8 @@ class Memrix(object):
             logger.error(f"Port {self.port} is liveness.")
             raise marked.port_busy(self.port, "liveness", host=self.host)
 
+        self.style = style.removeprefix("--")
+
         cmd = [style, "--scene", self.scene, "--focus", focus]
         if imply: cmd += ["--imply", imply]
         if title: cmd += ["--title", title]
@@ -222,8 +230,9 @@ class Memrix(object):
         return await self.__engine(*cmd)
 
     # workflow: ==== MCP Tool ====
-    async def mx_task_final(self) -> dict[str, typing.Any]:
-        if not self.__token:
+    async def mx_task_final(self, token: typing.Optional[str] = None) -> dict[str, typing.Any]:
+        cur_token = token or self.token
+        if not cur_token:
             return {
                 "text"        : f"{self.agent_id.capitalize()}结束失败：token为空。",
                 "attachments" : [],
@@ -236,10 +245,15 @@ class Memrix(object):
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((self.host, self.port))
-            s.sendall(self.__token.encode(const.CHARSET))
+            s.sendall(cur_token.encode(const.CHARSET))
 
-        self.__token = None
+        self.token = None
+
         await self.__transports.wait()
+
+        self.mx_report_session.update({
+            f"mx_{self.scene}" : self.scene + "_" + self.style.capitalize()
+        })
 
         return {
             "text"        : f"{self.agent_id.capitalize()}已结束。",
@@ -252,13 +266,21 @@ class Memrix(object):
         }
 
     # workflow: ==== MCP Tool ====
-    async def mx_mem_reporter(self, layer: bool = False) -> dict[str, typing.Any]:
-        cmd = ["--forge", self.scene + "_" + "Storm", "--watch"]
+    async def mx_mem_reporter(
+        self,
+        scene: typing.Optional[str] = None,
+        layer: bool = False
+    ) -> dict[str, typing.Any]:
+
+        final_scene = scene if scene else self.scene + "_" + "Storm"
+
+        cmd = ["--forge", final_scene, "--watch"]
         if layer: cmd += ["--layer"]
         begin = await self.__engine(*cmd)
 
         await self.__transports.wait()
 
+        self.mx_report_session.pop(f"mx_{final_scene}", None)
         self.scene = time.strftime("%Y%m%d%H%M%S")
 
         return {
@@ -273,12 +295,19 @@ class Memrix(object):
         }
 
     # workflow: ==== MCP Tool ====
-    async def mx_gfx_reporter(self) -> dict[str, typing.Any]:
-        cmd = ["--forge", self.scene + "_" + "Sleek", "--watch"]
+    async def mx_gfx_reporter(
+        self,
+        scene: typing.Optional[str] = None
+    ) -> dict[str, typing.Any]:
+
+        final_scene = scene if scene else self.scene + "_" + "Sleek"
+
+        cmd = ["--forge", final_scene, "--watch"]
         begin = await self.__engine(*cmd)
 
         await self.__transports.wait()
 
+        self.mx_report_session.pop(f"mx_{final_scene}", None)
         self.scene = time.strftime("%Y%m%d%H%M%S")
 
         return {

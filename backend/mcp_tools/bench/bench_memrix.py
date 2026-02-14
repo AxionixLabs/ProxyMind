@@ -51,10 +51,14 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             await idle.session_begin(
                 key=Ins.memrix.agent_id,
                 name=f"{Ins.memrix.agent_id}.mx_sample_mem",
-                args=args,
+                args=args
             )
             try:
-                return await Ins.memrix.mx_task_begin("--storm", focus, imply, title)
+                resp = await Ins.memrix.mx_task_begin("--storm", focus, imply, title)
+                token = (resp or {}).get("data", {}).get("token")
+                if token:
+                    await idle.session_patch_args(Ins.memrix.agent_id, {"token": token})
+                return resp
             except Exception as e:
                 await idle.session_final(Ins.memrix.agent_id)
                 raise e
@@ -118,16 +122,19 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
     @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "memrix"})
     @task_middleware("mx_task_final")
-    async def mx_task_final() -> CallToolResult:
+    async def mx_task_final(
+        token: typing.Optional[str] = None
+    ) -> CallToolResult:
         """
         D: bench
         C: memrix
         A: mx_task_final
         P:
-          none
+          token: str?  # 会话 token（None 时由引擎/内部默认会话决定）
         R: CTR
         N:
           - 停止采集并收束会话：通过 socket(8765) 发送 token 结束采集/关闭流/落盘（若有）
+          - 可用 query_idle 查询当前会话 token 状态
           - 单任务聚合执行（非多设备并发）
         """
 
@@ -135,7 +142,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
         async def call(*_) -> typing.Any:
             try:
-                return await Ins.memrix.mx_task_final()
+                return await Ins.memrix.mx_task_final(token)
             finally:
                 await idle.session_final(Ins.memrix.agent_id)
 
@@ -149,30 +156,37 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
     @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "memrix"})
     @task_middleware("mx_mem_reporter")
-    async def mx_mem_reporter(layer: bool = False) -> CallToolResult:
+    async def mx_mem_reporter(
+        scene: typing.Optional[str] = None,
+        layer: bool = False
+    ) -> CallToolResult:
         """
         D: bench
         C: memrix
         A: mx_mem_reporter
         P:
+          scene: str?=None  # 报告目录分类名（如 202512301120_Storm）
           layer: bool=False
         R: CTR
         N:
-          - 生成内存采样报告：用于诊断泄漏/抖动/峰值
-          - layer=True 时分层展示前台/后台曲线与统计
+          - 生成内存采样报告：用于诊断泄漏/抖动/峰值（Storm）
+          - scene 提供时：以 scene 指定的结果目录生成报告
+          - scene 不提供时：使用内部回填的最近采样结果（可用 query_idle 查看回填/队列状态）
+          - layer=True 时分层展示前台/后台曲线与统计，未明确需要分层时应当为：layer=False
           - 单任务聚合执行（非多设备并发）
         """
 
         await Requires.connect_memrix()
 
         args = {
-            "layer" : layer,
+            "scene" : scene,
+            "layer" : layer
         }
 
         async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{Ins.memrix.agent_id}.mx_mem_reporter", args=args)
             try:
-                return await Ins.memrix.mx_mem_reporter(layer)
+                return await Ins.memrix.mx_mem_reporter(scene, layer)
             finally:
                 await idle.job_final(job_id)
 
@@ -186,31 +200,39 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
     @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "memrix"})
     @task_middleware("mx_gfx_reporter")
-    async def mx_gfx_reporter() -> CallToolResult:
+    async def mx_gfx_reporter(
+        scene: typing.Optional[str] = None
+    ) -> CallToolResult:
         """
         D: bench
         C: memrix
         A: mx_gfx_reporter
         P:
-          none
+          scene: str?=None  # 报告目录分类名（如 202512301120_Sleek）
         R: CTR
         N:
-          - 生成流畅度采样报告：汇总 FPS/掉帧/jank 等指标用于性能诊断与回归对比
+          - 生成流畅度采样报告：汇总 FPS/掉帧/jank 等指标用于性能诊断与回归对比（Sleek）
+          - scene 提供时：以 scene 指定的结果目录生成报告
+          - scene 不提供时：使用内部回填的最近采样结果（可用 query_idle 查看回填/队列状态）
           - 单任务聚合执行（非多设备并发）
         """
 
         await Requires.connect_memrix()
 
+        args = {
+            "scene" : scene
+        }
+
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.memrix.agent_id}.mx_gfx_reporter", args={})
+            job_id = await idle.job_begin(f"{Ins.memrix.agent_id}.mx_gfx_reporter", args=args)
             try:
-                return await Ins.memrix.mx_gfx_reporter()
+                return await Ins.memrix.mx_gfx_reporter(scene)
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
             tool="mx_gfx_reporter",
-            args={},
+            args=args,
             target_list=[Ins.memrix],
             call=call,
             overrides=None

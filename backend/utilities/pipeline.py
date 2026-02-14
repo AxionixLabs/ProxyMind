@@ -135,6 +135,30 @@ class Idle(object):
     def short_uuid(n: int = 8) -> str:
         return uuid.uuid4().hex[: max(4, int(n))]
 
+    def hooks(
+        self,
+        name: str,
+        *,
+        args: typing.Optional[dict] = None,
+        args_fn: typing.Callable[[], typing.Mapping[str, typing.Any]] | None = None,
+        job_id_len: int = 8
+    ) -> tuple[
+        JobToken,
+        typing.Callable[[], typing.Awaitable[None]],
+        typing.Callable[[], typing.Awaitable[None]]
+    ]:
+
+        token = self.JobToken(self, name=name, args=args, job_id_len=job_id_len)
+
+        async def on_begin() -> None:
+            extra = dict(args_fn() or {}) if args_fn else None
+            await token.begin(extra)
+
+        async def on_final() -> None:
+            await token.final()
+
+        return token, on_begin, on_final
+
     async def session_begin(
         self,
         key: str,
@@ -142,7 +166,7 @@ class Idle(object):
         *,
         args: typing.Mapping[str, typing.Any] | None = None,
         replace: bool = True,
-        job_id_len: int = 8,
+        job_id_len: int = 8
     ) -> str:
 
         async with self.lock:
@@ -163,29 +187,24 @@ class Idle(object):
         if job_id:
             await self.job_final(job_id)
 
-    def hooks(
-        self,
-        name: str,
-        *,
-        args: typing.Optional[dict] = None,
-        args_fn: typing.Callable[[], typing.Mapping[str, typing.Any]] | None = None,
-        job_id_len: int = 8,
-    ) -> tuple[
-        JobToken,
-        typing.Callable[[], typing.Awaitable[None]],
-        typing.Callable[[], typing.Awaitable[None]]
-    ]:
+    async def session_patch_args(self, key: str, patch: typing.Mapping[str, typing.Any]) -> None:
+        """
+        更新某个 session 对应 job 的 args（增量合并）。
+        用于把 token / 状态 / 统计信息写回 idle session。
+        """
+        async with self.lock:
+            if not (job_id:=self.sessions_map.get(key)):
+                return None
 
-        token = self.JobToken(self, name=name, args=args, job_id_len=job_id_len)
+            if not (meta := self.jobs.get(job_id)):
+                return None
 
-        async def on_begin() -> None:
-            extra = dict(args_fn() or {}) if args_fn else None
-            await token.begin(extra)
+            if not isinstance(args := meta.get("args"), dict):
+                args = {}
+                meta["args"] = args
 
-        async def on_final() -> None:
-            await token.final()
-
-        return token, on_begin, on_final
+            args.update(dict(patch))
+            self.last_touch = time.monotonic()
 
     async def start_idle(self) -> None:
         if self.task and not self.task.done():
@@ -273,7 +292,7 @@ class Idle(object):
                 "idle_sec"    : max(0.0, now - self.last_touch),
                 "jobs"        : jobs,
                 "sessions"    : sessions,
-                **Ins.video_list_snapshot()
+                **Ins.instance_snapshots()
             }
 
     async def looper(self) -> None:

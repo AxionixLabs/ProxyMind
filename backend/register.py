@@ -7,7 +7,7 @@
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-from mcp.server.fastmcp         import FastMCP
+from mcp.server.fastmcp import FastMCP
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.utilities.pipeline import Idle
 
