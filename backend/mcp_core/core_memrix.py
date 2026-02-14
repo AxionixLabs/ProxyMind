@@ -71,13 +71,16 @@ class Memrix(object):
         if not string: return None
         self.out_ring.append(f"{source}: {string}")
 
-    async def __streaming(
+    async def streaming(
         self,
         source: str,
         stream: typing.AsyncIterator[bytes],
         gates: list[GateMachine]
     ) -> None:
         """通用 streaming 消费器。"""
+
+        self.lb_stdout.reset()
+        self.lb_stderr.reset()
 
         lb = self.lb_stdout if source.endswith(".stdout") else self.lb_stderr
 
@@ -88,32 +91,28 @@ class Memrix(object):
             self.push(source, text)
 
             for ln in lb.feed(text):
+                ln = ln.strip()
                 if not ln: continue
 
-                # 1) Start 门：只要看到开始信号就置位
-                if ("Engine Start" in ln) or ("Report Start" in ln):
+                if "Engine Start" in ln or "Report Start" in ln:
                     self.is_start.set()
 
-                # 2) Token：按行提取，避免 re.S 吞多行
                 if "Token:" in ln:
                     self.__token = ln.split("Token:", 1)[1].strip()
 
-                # 3) Fail fast：命中错误直接标记失败
                 if "MemrixError" in ln or "检测连接设备" in ln:
                     self.out_fail.set()
-                    logger.warning(f"failfast hit: {ln}")
-                    return
+                    return logger.error(f"failfast hit: {ln}")
 
-                # 4) Gate：逐行喂所有 gate
                 for gate in gates:
                     async with self.lock:
-                        out = gate.feed_line(ln)
+                        out = gate.feed_chunk(ln)
                     if out:
                         self.tool_events.setdefault(out["tool"], {})[out["phase"]] = out
-                        logger.info(out)
+                        logger.warning(out)
 
-        # stream 结束：flush 半行（如果最后没有换行符）
         for ln in lb.flush():
+            ln = ln.strip()
             if not ln: continue
 
             if "Engine Start" in ln or "Report Start" in ln:
@@ -124,18 +123,17 @@ class Memrix(object):
 
             if "MemrixError" in ln or "检测连接设备" in ln:
                 self.out_fail.set()
-                logger.warning(f"failfast hit: {ln}")
+                logger.error(f"failfast hit: {ln}")
                 return
 
             for gate in gates:
                 async with self.lock:
-                    out = gate.feed_line(ln)
+                    out = gate.feed_chunk(ln)
                 if out:
                     self.tool_events.setdefault(out["tool"], {})[out["phase"]] = out
-                    logger.info(out)
+                    logger.warning(out)
 
     async def __engine(self, *args, **__) -> dict[str, typing.Any]:
-        # 每次任务清空事件池
         self.tool_events = {}
 
         self.is_start = asyncio.Event()
@@ -146,12 +144,10 @@ class Memrix(object):
         cmd = [self.prefix] + list(args)
         self.__transports = await Terminal.cmd_link(cmd)
 
-        # 共享同一个 GateMachine（重要：stdout/stderr 合并状态）
         gates = [GateMachine(MX_SPEC)]
 
-        asyncio.create_task(self.__streaming(f"{self.prefix}.stdout", self.__transports.stdout, gates))
-        asyncio.create_task(self.__streaming(f"{self.prefix}.stderr", self.__transports.stderr, gates))
-
+        asyncio.create_task(self.streaming(f"{self.prefix}.stdout", self.__transports.stdout, gates))
+        asyncio.create_task(self.streaming(f"{self.prefix}.stderr", self.__transports.stderr, gates))
 
         for _ in range(30):
             await asyncio.sleep(1.0)
@@ -173,7 +169,6 @@ class Memrix(object):
                 logger.error("\n".join(self.out_ring))
                 raise marked.subproc_fail(source=f"{self.prefix}.stream", out_ring=self.out_ring)
 
-        # 超时退出清理
         await self.shutdown()
 
         return {
@@ -229,7 +224,6 @@ class Memrix(object):
     # workflow: ==== MCP Tool ====
     async def mx_task_final(self) -> dict[str, typing.Any]:
         if not self.__token:
-            # token 为空，说明 begin 没成功或 token 没抓到
             return {
                 "text"        : f"{self.agent_id.capitalize()}结束失败：token为空。",
                 "attachments" : [],
@@ -248,7 +242,7 @@ class Memrix(object):
         await self.__transports.wait()
 
         return {
-            "text"        : "已结束。",
+            "text"        : f"{self.agent_id.capitalize()}已结束。",
             "attachments" : [],
             "data": {
                 "ok"     : True,
