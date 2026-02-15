@@ -329,13 +329,18 @@ class Device(object):
 
     # workflow: ==== File Control MCP Tool ====
     async def file_pull(self, remote: str, local: str) -> str:
-        """从设备拉取文件到本地。"""
+        """从设备拉取文件到本地（返回绝对路径）。"""
         unique = secrets.token_hex(6)
 
         if (p := Path(local)).suffix:
             destination = p.with_name(f"{p.stem}_{self.serial}_{unique}{p.suffix}")
         else:
             destination = p / f"pull_{self.serial}_{unique}.bin"
+
+        # 转成绝对路径（并规范化）
+        destination = destination.expanduser().resolve()
+        # 确保父目录存在
+        destination.parent.mkdir(parents=True, exist_ok=True)
 
         cmd = self.prefix + [
             "pull", remote, destination

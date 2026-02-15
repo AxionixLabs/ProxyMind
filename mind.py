@@ -42,7 +42,7 @@ from mindcore import authorize
 from mindcore.parser import Parser
 from mindcore.profile import Preferences
 from mindnova import (
-    authentic, const, request
+    authentic, const, craft, request
 )
 
 
@@ -215,7 +215,9 @@ class Mind(object):
         apikey: str,
         message: str,
         openai_tools: list[dict[str, typing.Any]],
-        domains: dict[str, dict[str, typing.Any]]
+        domains: dict[str, dict[str, typing.Any]],
+        *_,
+        **kwargs
     ) -> None:
         """Chat Exec Looper"""
 
@@ -224,7 +226,7 @@ class Mind(object):
         tw: TypewriterStreamSession = TypewriterStreamSession()
 
         # workflow: ==== Chat Streaming ====
-        async for chat in request.stream_chat(mode, model, apikey, message, openai_tools):
+        async for chat in request.stream_chat(mode, model, apikey, message, openai_tools, **kwargs):
             await self.stop_stream_anim(); await tw.start()
 
             try:
@@ -280,7 +282,9 @@ class Mind(object):
         apikey: str,
         message: str,
         openai_tools: list[dict[str, typing.Any]],
-        domains: dict[str, dict[str, typing.Any]]
+        domains: dict[str, dict[str, typing.Any]],
+        *_,
+        **kwargs
     ) -> None:
         """Fast Exec Looper"""
 
@@ -296,7 +300,7 @@ class Mind(object):
         tw: TypewriterStreamSession = TypewriterStreamSession()
 
         # workflow: ==== Fast Streaming ====
-        async for chat in request.stream_chat(mode, model, apikey, message, filter_tools):
+        async for chat in request.stream_chat(mode, model, apikey, message, filter_tools, **kwargs):
             await self.stop_stream_anim(); await tw.start()
 
             try:
@@ -348,7 +352,9 @@ class Mind(object):
         apikey: str,
         message: str,
         openai_tools: list[dict[str, typing.Any]],
-        domains: dict[str, dict[str, typing.Any]]
+        domains: dict[str, dict[str, typing.Any]],
+        *_,
+        **kwargs
     ) -> None:
         """Plan Exec Looper"""
 
@@ -363,7 +369,7 @@ class Mind(object):
         r = await session.call_tool("refresh", {"ttl_sec": self.ttl_sec})
         extras = None if r.isError else {"devices": r.content[0].text}
 
-        async for plan in request.stream_plan(mode, model, apikey, message, filter_tools, extras):
+        async for plan in request.stream_plan(mode, model, apikey, message, filter_tools, extras, **kwargs):
             await self.stop_stream_anim()
             if plan.get("type") == "error":
                 return logger.error(plan)
@@ -398,7 +404,7 @@ class Mind(object):
                 if index != loop_count: self.task_info.clear()
 
     # Notes: ==== Chat 对话模式 ====
-    async def mind_chat(self, model: str, apikey: str, message: str) -> None:
+    async def mind_chat(self, model: str, apikey: str, message: str, *_, **kwargs) -> None:
         """Mind Chat"""
         async def function(
             session: ClientSession,
@@ -406,13 +412,13 @@ class Mind(object):
             domains: dict[str, dict[str, typing.Any]]
         ) -> None:
             await self.chat_exec_looper(
-                session, model, apikey, message, openai_tools, domains
+                session, model, apikey, message, openai_tools, domains, **kwargs
             )
 
         return await self.with_mcp_session(model, apikey, function)
 
     # Notes: ==== Fast 性能模式 ====
-    async def mind_fast(self, model: str, apikey: str, message: str) -> None:
+    async def mind_fast(self, model: str, apikey: str, message: str, *_, **kwargs) -> None:
         """Mind Fast"""
         async def function(
             session: ClientSession,
@@ -420,13 +426,13 @@ class Mind(object):
             domains: dict[str, dict[str, typing.Any]]
         ) -> None:
             await self.fast_exec_looper(
-                session, model, apikey, message, openai_tools, domains
+                session, model, apikey, message, openai_tools, domains, **kwargs
             )
 
         return await self.with_mcp_session(model, apikey, function)
 
     # Notes: ==== Plan 编排模式 ====
-    async def mind_plan(self, model: str, apikey: str, message: str) -> None:
+    async def mind_plan(self, model: str, apikey: str, message: str, *_, **kwargs) -> None:
         """Mind Plan"""
         async def function(
             session: ClientSession,
@@ -434,7 +440,7 @@ class Mind(object):
             domains: dict[str, dict[str, typing.Any]]
         ) -> None:
             await self.plan_exec_looper(
-                session, model, apikey, message, openai_tools, domains
+                session, model, apikey, message, openai_tools, domains, **kwargs
             )
 
         return await self.with_mcp_session(model, apikey, function)
@@ -470,6 +476,10 @@ class Mind(object):
 
         model  = self.pref.model
         apikey = self.pref.apikey
+
+        cid = craft.new_cid()
+        sid = craft.new_sid(cid)
+        metadata = {"cid": cid, "sid": sid}
 
         quit_set: set[str] = {"/quit", "/q", "quit", "exit"}
         help_set: set[str] = {"/help", "/h"}
@@ -576,7 +586,9 @@ class Mind(object):
                 case "FAST": func = self.mind_fast
                 case "PLAN": func = self.mind_plan
 
-            await self.calling(model, apikey, message=message, func=func)
+            await self.calling(
+                model, apikey, message=message, func=func, metadata=metadata
+            )
 
     async def calling(
         self,
@@ -584,7 +596,8 @@ class Mind(object):
         apikey: str = None,
         *,
         message: str,
-        func: typing.Callable
+        func: typing.Callable,
+        **kwargs
     ) -> None:
         """Calling"""
         def flatten_exceptions(exc: BaseException) -> typing.Generator[BaseException, None, None]:
@@ -602,7 +615,7 @@ class Mind(object):
         )
 
         try:
-            return await func(model, apikey, message)
+            return await func(model, apikey, message, **kwargs)
 
         except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as eg:
             await self.stop_all_anim()

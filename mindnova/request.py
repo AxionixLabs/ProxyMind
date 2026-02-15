@@ -111,7 +111,9 @@ async def stream_plan(
     message: str,
     openai_tools: list[dict],
     extras: typing.Optional[dict[str, typing.Any]] = None,
-    timeout: float = 60.0
+    timeout: float = 60.0,
+    *_,
+    **kwargs
 ) -> typing.AsyncGenerator[dict, None]:
     """Stream Planner"""
 
@@ -123,7 +125,8 @@ async def stream_plan(
         "apikey"  : apikey,
         "message" : message,
         "tools"   : openai_tools,
-        "extras"  : extras
+        "extras"  : extras,
+        **kwargs
     }
 
     async for event in streaming(url, headers, payload, timeout):
@@ -151,7 +154,9 @@ async def stream_chat(
     message: str,
     openai_tools: list[dict],
     attachments: typing.Optional[list[dict[str, typing.Any]]] = None,
-    timeout: float = 60.0
+    timeout: float = 60.0,
+    *_,
+    **kwargs
 ) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
     """Stream Chat"""
 
@@ -162,7 +167,8 @@ async def stream_chat(
         "model"   : model,
         "apikey"  : apikey,
         "message" : message,
-        "tools"   : openai_tools
+        "tools"   : openai_tools,
+        **kwargs
     }
     if attachments:
         payload["attachments"] = attachments
