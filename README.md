@@ -1,6 +1,6 @@
-# Mind 项目说明文档
+# 🏆 项目简介 · Mind :: 代理思维
 
-> 项目代号：ProxyMind  
+> 项目代号：Mind  
 > 中文名称：代理思维  
 > 目标定位：本地运行的智能代理执行框架，集成 MCP 工具调用与自动化能力。
 
@@ -17,7 +17,7 @@
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-## 1. 项目概览 ✨
+## 1. 项目概览
 
 代理思维（Mind）是一套面向工程交付的本地智能代理系统，以命令行作为唯一控制入口，强调“可执行、可观测、可回放”。  
 系统采用控制面与执行面分层，保持运行路径清晰、响应链路稳定。
@@ -41,7 +41,7 @@
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-## 2. 技术栈与依赖 🧠
+## 2. 技术栈与依赖
 
 **品牌宣言**：代理思维不是聊天机器人，而是一套具备执行力的智能系统。  
 我们以“本地执行 + 云端增强”为核心架构，追求可控、可靠、可扩展的工程级交付标准。
@@ -57,7 +57,7 @@
 | 多媒体  | pygame, pillow, imageio |
 | 构建   | Nuitka                  |
 
-服务端（本地执行层 + AppServerX）：
+服务端（Helix + AppServerX）：
 
 | 分类   | 组件                        |
 |------|---------------------------|
@@ -72,9 +72,9 @@
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-## 3. 运行架构 🧩
+## 3. 运行架构
 
-```text
+```
 ┌────────────┐
 │  Mind      │
 │  (CLI)     │
@@ -117,7 +117,7 @@ tool_result 回填
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-## 4. 自动化与能力体系 ⚙️
+## 4. 自动化与能力体系
 
 能力按工具域注册与组合：
 
@@ -138,11 +138,9 @@ tool_result 回填
 - 设备操作
 - 媒体处理流水线
 
-各工具具备独立文档与使用说明，可按能力域单独查阅。
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-## 5. 三种运行模式 💻
+## 5. 三种运行模式
 
 Mind 提供三种互斥运行模式：
 
@@ -173,7 +171,7 @@ mind --chat "你好，介绍一下系统能力"
 ### 5.2 编排模式（plan）
 
 ```bash
-mind --plan "执行设备自动巡检流程"
+mind --plan "打开App，等待3秒，返回桌面"
 ```
 
 定位：确定性自动化编排模式。
@@ -210,7 +208,7 @@ mind --plan "执行设备自动巡检流程"
 ### 5.3 性能模式（fast）
 
 ```bash
-mind --fast "执行性能压测"
+mind --fast "开始录屏，打开App，等待3秒，返回桌面，结束录屏，执行5次"
 ```
 
 定位：纯性能执行模式。
@@ -253,13 +251,86 @@ Framix（自研视觉端到端测试工具）接口层：
 - 端侧链路采集与时序对齐
 - 关键路径耗时评估与结果输出
 
+---
+
+### 5.5 异步调用示例（Python / Java）
+
+通过自然语言描述自动化步骤，异步调用 `mind --plan`：
+
+```
+import asyncio
+
+
+async def run_plan(text: str) -> str:
+    proc = await asyncio.subprocess_exec(
+        "mind", "--plan", text,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    out, err = await proc.communicate()
+    if proc.returncode != 0:
+        raise RuntimeError(err.decode("utf-8", errors="ignore"))
+    return out.decode("utf-8", errors="ignore")
+
+
+async def main() -> None:
+    plan = "打开设置，等待 2 秒，然后截图"
+    result = await run_plan(plan)
+    print(result)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+```
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CompletableFuture;
+
+public class MindAsyncPlan {
+    public static CompletableFuture<String> runPlan(String text) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Process process = new ProcessBuilder("mind", "--plan", text).start();
+                String out = readAll(process.getInputStream());
+                String err = readAll(process.getErrorStream());
+                int code = process.waitFor();
+                if (code != 0) {
+                    throw new RuntimeException(err);
+                }
+                return out;
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    private static String readAll(InputStream in) throws Exception {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] data = new byte[4096];
+        int n;
+        while ((n = in.read(data)) != -1) {
+            buffer.write(data, 0, n);
+        }
+        return buffer.toString(StandardCharsets.UTF_8);
+    }
+
+    public static void main(String[] args) {
+        runPlan("打开设置，等待 2 秒，然后截图")
+            .thenAccept(System.out::println);
+    }
+}
+```
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-## 6. 服务结构说明 🌐
+## 6. 服务结构说明
 
 服务端采用分层架构，围绕可扩展性、可观测性与稳定性设计，支持按需接入多类基础设施能力。
 
-本地执行层：
+执行层（Helix）：
 
 - MCP 工具服务与执行闭环
 - 健康检查与运行态监测
@@ -287,7 +358,7 @@ Helix 为独立子进程，由 Mind 拉起；无 idle 达 30 分钟自动触发�
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-## 7. GPU 容器推理架构 🧪
+## 7. GPU 容器推理架构
 
 AppServerX 支持 GPU 容器化推理集群，提供统一的推理入口与弹性伸缩能力：
 
@@ -298,7 +369,7 @@ AppServerX 支持 GPU 容器化推理集群，提供统一的推理入口与弹�
 
 参考架构：
 
-```text
+```
 请求入口
    ↓
 网关/鉴权
@@ -312,7 +383,7 @@ GPU 推理容器集群
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-## 8. 测试中台架构 🧪
+## 8. 测试中台架构
 
 测试中台用于统一管理自动化流程验证、性能基准回归与稳定性测试：
 
@@ -323,7 +394,7 @@ GPU 推理容器集群
 
 参考架构：
 
-```text
+```
 测试编排
    ↓
 任务调度
@@ -335,7 +406,7 @@ GPU 推理容器集群
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-## 9. 授权与配置 🔐
+## 9. 授权与配置
 
 许可证文件：
 
@@ -356,23 +427,23 @@ GPU 推理容器集群
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-## 10. 构建与发布 📦
+## 10. 构建与发布
 
 交付形态：`mind` 可执行文件，`Helix` 随包交付。
 
-支持 macOS 与 Windows 平台安装包发布。
+支持 macOS 与 Windows 平台安装包发布。  
+发布地址：`https://github.com/PlaxtonFlarion/SoftwareCenter/releases`
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-## 11. 日志与调试 🛠️
+## 11. 日志与调试
 
-- Mind 端日志通过 `--debug` 控制。
-- 使用 loguru + rich 输出结构化日志。
+- Mind 端日志通过 `--debug` 控制，输出结构化日志。
 - 支持工具调用闭环定位与增强链异常追踪。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-## 12. 核心优势与特性 🏁
+## 12. 核心优势与特性
 
 核心优势：
 
@@ -384,11 +455,10 @@ GPU 推理容器集群
 
 产品特性：
 
-- 自动化巡检与设备操作能力
-- 媒体处理与帧级流水线（Framix）
-- 对话记忆星核（Memrix）
-- 自研性能工具体系
-- 授权与配置闭环
+- 自动化巡检与设备操作能力，自研性能工具体系
+- 画帧秀，媒体处理与帧级流水线[Framix](https://github.com/PlaxtonFlarion/SoftwareCenter/tree/main/Assets/Framix)
+- 记忆星核，多维性能采集与结构化[Memrix](https://github.com/PlaxtonFlarion/SoftwareCenter/tree/main/Assets/Memrix)
+- [授权与配置闭环](https://github.com/PlaxtonFlarion/SoftwareCenter)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
