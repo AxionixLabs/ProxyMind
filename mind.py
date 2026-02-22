@@ -548,13 +548,15 @@ class Mind(object):
             )
 
             try:
-                if (raw := Prompt.ask(ask, console=Design.console).strip()) in quit_set:
-                    self.task_event.set()
-                    break
+                raw = Prompt.ask(ask, console=Design.console).strip()
             except (EOFError, UnicodeDecodeError):
                 continue
 
-            if raw in help_set:
+            if raw.lower() in quit_set:
+                self.task_event.set()
+                break
+
+            if raw.lower() in help_set:
                 Design.console.print(doc)
                 continue
 
