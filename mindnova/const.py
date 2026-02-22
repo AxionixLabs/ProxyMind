@@ -31,16 +31,20 @@ Version [bold #FFD75F]{APP_VERSION}[/] :: Licensed software. Authorization requi
 
 # ========【路径与资源配置】========
 LIC_FILE         = f"{APP_NAME}_signature.lic"
-
 SCHEMATIC        = r"schematic"
 SUPPORTS         = r"supports"
 STRUCTURE        = r"Structure"
 SRC_OPERA_PLACE  = f"{APP_DESC}_Mix"
 SRC_TOTAL_PLACE  = f"{APP_DESC}_Report"
 PREF             = f"{APP_NAME}_pref.json"
+R_TOTAL_TAG      = r"PM"
+R_COLLECTION     = f"{APP_DESC}_Collection"
+R_RECOVERY       = f"{APP_DESC}_Recovery"
+R_LOG_FILE       = f"{APP_NAME}.log"
 
 # ========【日志与显示设置】========
 PRINT_HEAD = f"[bold #EEEEEE]{APP_DESC} ::[/]"
+OTHER_HEAD = f"{APP_DESC} ::"
 SHOW_LEVEL = r"INFO"
 NOTE_LEVEL = r"DEBUG"
 
@@ -49,6 +53,7 @@ WRN = f"[bold #000000 on #FFFF00]"
 ERR = f"[bold #FFFFFF on #FF6347]"
 
 PRINT_FORMAT = f"<level>{{level: <8}}</level> | <level>{{message}}</level>"
+WRITE_FORMAT = f"{OTHER_HEAD} <green>{{time:YYYY-MM-DD HH:mm:ss.SSS}}</green> | <level>{{level: <8}}</level> | <level>{{message}}</level>"
 
 # ========【服务授权】========
 # openssl rand -base64 64 | tr '+/' '-_' | tr -d '=\n'

@@ -14,6 +14,7 @@ import stat
 import time
 import httpx
 import random
+import shutil
 import signal
 import typing
 import asyncio
@@ -42,7 +43,7 @@ from mindcore import authorize
 from mindcore.parser import Parser
 from mindcore.profile import Preferences
 from mindnova import (
-    authentic, const, craft, request
+    authentic, const, craft, report, request
 )
 
 
@@ -60,7 +61,7 @@ class Mind(object):
 
         self.base_url: str = "http://127.0.0.1:3333"
 
-        _ = args
+        _, _, _, self.gravity, *_ = args
 
         self.src_opera_place: str = kwargs["src_opera_place"]
         self.src_total_place: str = kwargs["src_total_place"]
@@ -366,6 +367,8 @@ class Mind(object):
             exclude=[{"domain": "common", "class": "runtime", "name": "loop_steps"}]
         )
 
+        report.Report(self.src_total_place, self.gravity)
+
         r = await session.call_tool("refresh", {"ttl_sec": self.ttl_sec})
         extras = None if r.isError else {"devices": r.content[0].text}
 
@@ -483,10 +486,14 @@ class Mind(object):
 
         quit_set: set[str] = {"/quit", "/q", "quit", "exit"}
         help_set: set[str] = {"/help", "/h"}
+        seal_set: set[str] = {"/license", "/lic"}
+        subs_set: set[str] = {"/subscription", "/sub"}
 
         doc = """\
         [bold]
         [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
+        [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
+        [bold #5FD7AF]/subscription, /sub[/]       订阅信息（授权状态/到期）
         [bold #FF5F5F]/quit, /q, quit, exit[/]     断开会话（安全退出）
         [bold #AFD7FF]/model <name>[/]             引擎切换（选择推理内核）
         [bold #AFD7FF]/apikey <key>[/]             凭证更新（替换访问密钥）
@@ -549,6 +556,15 @@ class Mind(object):
 
             if raw in help_set:
                 Design.console.print(doc)
+                continue
+
+            if raw.lower() in seal_set:
+                Design.startup_logo()
+                continue
+
+            if raw.lower() in subs_set:
+                lic_file = Path(self.src_opera_place) / const.LIC_FILE
+                await authorize.verify_license(lic_file)
                 continue
 
             if raw.lower() == "/chat":
@@ -711,7 +727,7 @@ async def main() -> None:
         os.makedirs(src_total_place, exist_ok=True)
 
     # 激活日志
-    Active.active(level := "DEBUG" if cmd_lines.debug else "INFO")
+    Active.active(level := "DEBUG" if cmd_lines.reflection else "INFO")
 
     pref_file = os.path.join(initial_source, const.SRC_OPERA_PLACE, const.PREF)
     pref = Preferences(pref_file)
@@ -744,9 +760,9 @@ async def main() -> None:
     await authorized()
 
     # 检查每个工具是否存在，如果缺失则显示错误信息并退出程序
-    # for tls in tools:
-    #     if not shutil.which((tls_name := os.path.basename(tls))):
-    #         raise MindError(f"{const.APP_DESC} missing files {tls_name}")
+    for tls in tools:
+        if not shutil.which((tls_name := os.path.basename(tls))):
+            raise MindError(f"{const.APP_DESC} missing files {tls_name}")
 
     # Notes: ========== 配置与启动 ==========
 
@@ -775,16 +791,12 @@ async def main() -> None:
 
     await pref.load_pref()
 
-    # ========== 本地调试 ==========
-    helix = str(Path(__file__).parent / "backend" / "helix.py")
-    launch_app = [sys.executable, helix, "--level", level]
-    # launch_app = [helix, "--level", level]
-
-    server: ServerManage = ServerManage(cmd=launch_app, base_url="http://127.0.0.1:3333")
+    launch_cmd = [helix, "--level", level]
+    server: ServerManage = ServerManage(cmd=launch_cmd, base_url="http://127.0.0.1:3333")
     await server.ensure_running()
 
     positions = (
-        cmd_lines.chat, cmd_lines.plan, cmd_lines.fast, cmd_lines.debug
+        cmd_lines.chat, cmd_lines.plan, cmd_lines.fast, cmd_lines.gravity, cmd_lines.reflection
     )
     keywords = {
         "src_opera_place" : src_opera_place,
