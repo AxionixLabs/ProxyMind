@@ -449,6 +449,7 @@ class Mind(object):
     # Notes: ==== Loop 循环模式 ====
     async def mind_loop(self) -> None:
         """Mind Loop"""
+
         async def exchange(types: typing.Literal["model", "apikey"]) -> typing.Optional[str]:
             if pref_name := m.group(1).strip() if m.group(1) else None:
                 return pref_name
@@ -616,6 +617,7 @@ class Mind(object):
         **kwargs
     ) -> None:
         """Calling"""
+
         def flatten_exceptions(exc: BaseException) -> typing.Generator[BaseException, None, None]:
             if isinstance(exc, BaseExceptionGroup):
                 for sub in exc.exceptions: yield from flatten_exceptions(sub)
