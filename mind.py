@@ -59,8 +59,6 @@ class Mind(object):
 
         self.remote: dict = remote or {}  # workflow: 远程全局配置
 
-        self.base_url: str = "http://127.0.0.1:3333"
-
         _, _, _, self.gravity, *_ = args
 
         self.src_opera_place: str = kwargs["src_opera_place"]
@@ -167,7 +165,7 @@ class Mind(object):
 
         self.ensure_model_key(model, apikey)
 
-        url = self.base_url + "/helix/mcp"
+        url = const.BASE_URL + const.MCP_ED
         headers = {"Authorization": f"Bearer {authentic.manufacture_token()}"}
         timeout = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
         event_hooks = {"response": [request.capture]}
@@ -794,8 +792,9 @@ async def main() -> None:
     await pref.load_pref()
 
     launch_cmd = [helix, "--level", level]
-    server: ServerManage = ServerManage(cmd=launch_cmd, base_url="http://127.0.0.1:3333")
+    server: ServerManage = ServerManage(launch_cmd)
     await server.ensure_running()
+    await server.close()
 
     positions = (
         cmd_lines.chat, cmd_lines.plan, cmd_lines.fast, cmd_lines.gravity, cmd_lines.reflection
@@ -811,17 +810,14 @@ async def main() -> None:
 
     signal.signal(signal.SIGINT, mind.signal_processor)
 
-    try:
-        if chat := cmd_lines.chat:
-            await mind.calling(message=chat, func=mind.mind_chat)
-        elif plan := cmd_lines.plan:
-            await mind.calling(message=plan, func=mind.mind_plan)
-        elif fast := cmd_lines.fast:
-            await mind.calling(message=fast, func=mind.mind_chat)
-        else:
-            await mind.mind_loop()
-    finally:
-        await server.aclose()
+    if chat := cmd_lines.chat:
+        await mind.calling(message=chat, func=mind.mind_chat)
+    elif plan := cmd_lines.plan:
+        await mind.calling(message=plan, func=mind.mind_plan)
+    elif fast := cmd_lines.fast:
+        await mind.calling(message=fast, func=mind.mind_chat)
+    else:
+        await mind.mind_loop()
 
 
 # """Test"""

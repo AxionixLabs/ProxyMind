@@ -60,6 +60,8 @@ WRITE_FORMAT = f"{OTHER_HEAD} <green>{{time:YYYY-MM-DD HH:mm:ss.SSS}}</green> | 
 MASTER   = r"7zUyfFya8Av0_ixhxKgLeGfVkKF0xy5qQw9pGnEobEZx6kgjKmrUVHiUvdlibNKwybf_H1vRt7_-2PfMLmtACA%"
 ISSUER   = r"https://auth.helix.local/issuer"
 AUDIENCE = r"helix-mcp-api"
+BASE_URL = r"http://127.0.0.1:3333"
+MCP_ED   = r"/helix/mcp"
 
 # ========【应用授权】========
 BOOTSTRAP_URL      = f"https://api.appserverx.com/bootstrap"
