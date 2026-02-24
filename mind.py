@@ -398,7 +398,8 @@ class Mind(object):
                     enhancer: Enhancer = Enhancer(session, model, apikey)
                     fields = await enhancer.enhance(name, arguments, result, ok)
 
-                    if not ok or fields.get("data", {}).get("ok", False):
+                    data_ok = bool((fields or {}).get("data", {}).get("ok"))
+                    if not ok or not data_ok:
                         return logger.error(fields)
                     logger.info(fields)
 
