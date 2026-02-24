@@ -1,4 +1,4 @@
-﻿欢迎使用 Mind :: 代理思维 安装向导
+﻿欢迎使用 ProxyMind :: 代理思维 安装向导
 Welcome to the installation of Mind (Mind Engine)
 
 在继续之前，请阅读以下重要事项：
