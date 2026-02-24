@@ -43,7 +43,7 @@ R_RECOVERY       = f"{APP_DESC}_Recovery"
 R_LOG_FILE       = f"{APP_NAME}.log"
 
 # ========【日志与显示设置】========
-PRINT_HEAD = f"[bold #EEEEEE]{APP_DESC} ::[/]"
+PRINT_HEAD = f"[bold #8B8B8B]{APP_DESC} ::[/]"
 OTHER_HEAD = f"{APP_DESC} ::"
 SHOW_LEVEL = r"INFO"
 NOTE_LEVEL = r"DEBUG"
