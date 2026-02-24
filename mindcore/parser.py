@@ -65,7 +65,7 @@ class Parser(object):
         )
 
         major_group.add_argument(
-            "--chat", type=str, default=None,
+            "--chat", nargs="?", const="", default=None,
             help=textwrap.dedent(f'''\
                 \033[1;34m^* 潮汐协议 *^\033[0m
                 -------------------------
@@ -75,7 +75,7 @@ class Parser(object):
         )
 
         major_group.add_argument(
-            "--fast", type=str, default=None,
+            "--fast", nargs="?", const="", default=None,
             help=textwrap.dedent(f'''\
                 \033[1;34m^* 边界协议 *^\033[0m
                 -------------------------
@@ -85,7 +85,7 @@ class Parser(object):
         )
 
         major_group.add_argument(
-            "--plan", type=str, default=None,
+            "--plan", nargs="?", const="", default=None,
             help=textwrap.dedent(f'''\
                 \033[1;34m^* 推演协议 *^\033[0m
                 -------------------------
@@ -119,6 +119,37 @@ class Parser(object):
                 \033[1;36m^* 反射协议 *^\033[0m
                 -------------------------
                 - 开启详细调试视角输出运行轨迹与关键决策信息。
+
+            ''')
+        )
+
+        minor_group.add_argument(
+            "--file", type=str, default=None,
+            help=textwrap.dedent(f'''\
+                \033[1;36m^* 卷宗协议 *^\033[0m
+                -------------------------
+                - 读取文件批量执行（.md/.txt）
+                - 可与 --chat/--fast/--plan 叠加：选择批跑协议（缺省为 plan）。
+
+            ''')
+        )
+
+        minor_group.add_argument(
+            "--repeat", type=int, default=1,
+            help=textwrap.dedent(f'''\
+                \033[1;36m^* 回声协议 *^\033[0m
+                -------------------------
+                - 整包回放次数（默认 1）。
+
+            ''')
+        )
+
+        minor_group.add_argument(
+            "--pattern", type=str, default=None,
+            help=textwrap.dedent(f'''\
+                \033[1;36m^* 棱镜协议 *^\033[0m
+                -------------------------
+                - 正则筛选：仅执行 name 命中的条目。
 
             ''')
         )

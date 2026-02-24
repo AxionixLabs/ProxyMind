@@ -35,6 +35,9 @@ from mindcore.api import Api
 from mindcore.design import Design, TypewriterStreamSession
 from engine.enhancer import Enhancer
 from engine.manage import ServerManage
+from engine.scaling import (
+    PackItem, pack_parse
+)
 from engine.tinker import (
     MindError, Active, Tooling
 )
@@ -59,7 +62,7 @@ class Mind(object):
 
         self.remote: dict = remote or {}  # workflow: 远程全局配置
 
-        _, _, _, self.gravity, *_ = args
+        *_, self.gravity, self.reflection, self.repeat, self.pattern = args
 
         self.src_opera_place: str = kwargs["src_opera_place"]
         self.src_total_place: str = kwargs["src_total_place"]
@@ -365,8 +368,6 @@ class Mind(object):
             exclude=[{"domain": "common", "class": "runtime", "name": "loop_steps"}]
         )
 
-        report.Report(self.src_total_place, self.gravity)
-
         r = await session.call_tool("refresh", {"ttl_sec": self.ttl_sec})
         extras = None if r.isError else {"devices": r.content[0].text}
 
@@ -444,6 +445,8 @@ class Mind(object):
             await self.plan_exec_looper(
                 session, model, apikey, message, openai_tools, domains, **kwargs
             )
+
+        report.Report(self.src_total_place, self.gravity)
 
         return await self.with_mcp_session(model, apikey, function)
 
@@ -607,6 +610,57 @@ class Mind(object):
             await self.calling(
                 model, apikey, message=message, func=func, metadata=metadata
             )
+
+    async def mind_pack(self, file: str, func: typing.Callable, **kwargs) -> None:
+        """批跑入口：单 session；失败记录日志后继续"""
+        p = Path(file).expanduser()
+        if not p.exists():
+            raise MindError(f"File not found: {p}")
+
+        text = p.read_text(encoding=const.CHARSET, errors="replace")
+
+        items: list[PackItem] = pack_parse(text)
+        if not items:
+            raise MindError(f"File has no items: {p}")
+
+        repeat: int = self.repeat or 1
+        pattern: typing.Optional[str] = self.pattern
+
+        model  = self.pref.model
+        apikey = self.pref.apikey
+
+        repeat = max(1, int(repeat or 1))
+        rx = re.compile(pattern) if pattern else None
+
+        report.Report(self.src_total_place, self.gravity)
+
+        async def function(
+            session: ClientSession,
+            openai_tools: list[dict[str, typing.Any]],
+            domains: dict[str, dict[str, typing.Any]]
+        ) -> None:
+
+            for r in range(1, repeat + 1):
+                logger.info(f"🧪 run {r}/{repeat} items={len(items)} file={p}")
+
+                for idx, it in enumerate(items, start=1):
+                    self.stream_event = asyncio.Event()
+                    self.stream_task = asyncio.create_task(
+                        self.design.prefix_line(self.stream_event)
+                    )
+                    if rx and not rx.search(it.name):
+                        logger.debug(f"⏭️  skip [{idx}/{len(items)}] {it.name} (filter)")
+                        continue
+
+                    logger.info(f"▶️  [{idx}/{len(items)}] {it.name}")
+
+                    try:
+                        await func(session, model, apikey, it.message, openai_tools, domains, **kwargs)
+                    except Exception as e:
+                        await self.stop_all_anim()
+                        logger.error(f"❌ item failed: {it.name} err={e!r}")
+
+        return await self.with_mcp_session(model, apikey, function)
 
     async def calling(
         self,
@@ -800,7 +854,8 @@ async def main() -> None:
     await server.close()
 
     positions = (
-        cmd_lines.chat, cmd_lines.plan, cmd_lines.fast, cmd_lines.gravity, cmd_lines.reflection
+        cmd_lines.chat, cmd_lines.plan, cmd_lines.fast, cmd_lines.file,
+        cmd_lines.gravity, cmd_lines.reflection, cmd_lines.repeat, cmd_lines.pattern
     )
     keywords = {
         "src_opera_place" : src_opera_place,
@@ -818,7 +873,16 @@ async def main() -> None:
     elif plan := cmd_lines.plan:
         await mind.calling(message=plan, func=mind.mind_plan)
     elif fast := cmd_lines.fast:
-        await mind.calling(message=fast, func=mind.mind_chat)
+        await mind.calling(message=fast, func=mind.mind_fast)
+    elif file := cmd_lines.file:
+        func = (
+            mind.chat_exec_looper if cmd_lines.chat is not None else
+            mind.fast_exec_looper if cmd_lines.fast is not None else
+            mind.plan_exec_looper
+        )
+
+        await mind.mind_pack(file, func)
+
     else:
         await mind.mind_loop()
 
