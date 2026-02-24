@@ -511,31 +511,31 @@ class Mind(object):
 
         theme = {
             "CHAT": {
-                "banner": "╔═⟦ 𝕮𝖍𝖆𝖙 ⟧═╗",
-                "prompt": "│ 〉Chat",
-                "tag": "#FF87D7",
-                "prompt_c": "#FFD75F",
-                "model": "#FFAF5F",
-                "ready": "#D7AFFF",
-                "hint": "#FF87D7",
+                "banner"   : "╔═⟦ 𝑪𝒉𝒂𝒕 ⟧═╗",
+                "prompt"   : "│ 〉Chat",
+                "tag"      : "#FF87D7",
+                "prompt_c" : "#FFD75F",
+                "model"    : "#FFAF5F",
+                "ready"    : "#D7AFFF",
+                "hint"     : "#FF87D7"
             },
             "FAST": {
-                "banner": "╔═⟦ 𝓕𝓪𝓼𝓽 ⟧═╗",
-                "prompt": "│ 〉Fast",
-                "tag": "#FFAF00",
-                "prompt_c": "#FFD75F",
-                "model": "#FFAF00",
-                "ready": "#AFD7FF",
-                "hint": "#FFAF00",
+                "banner"   : "╔═⟦ 𝑭𝒂𝒔𝒕 ⟧═╗",
+                "prompt"   : "│ 〉Fast",
+                "tag"      : "#FFAF00",
+                "prompt_c" : "#FFD75F",
+                "model"    : "#FFAF00",
+                "ready"    : "#AFD7FF",
+                "hint"     : "#FFAF00"
             },
             "PLAN": {
-                "banner"   : "╔═⟦ 𝔓𝔩𝔞𝔫 ⟧═╗",
+                "banner"   : "╔═⟦ 𝑷𝒍𝒂𝒏 ⟧═╗",
                 "prompt"   : "│ 〉Plan",
                 "tag"      : "#5FD7FF",
                 "prompt_c" : "#87FFAF",
                 "model"    : "#5FFF87",
                 "ready"    : "#AFD7FF",
-                "hint"     : "#5FD7FF",
+                "hint"     : "#5FD7FF"
             }
         }
 
