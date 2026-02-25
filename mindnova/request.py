@@ -13,7 +13,7 @@ import mimetypes
 from pathlib import Path
 from loguru import logger
 from engine.channel import Channel
-from mindcore.design import TypewriterStreamSession
+from engine.tinker import StreamTyperLogger
 from mindnova import const
 
 
@@ -195,7 +195,7 @@ async def stream_heal(
     screenshot_base64: str,
     wm_size: dict,
     timeout: float = 60.0,
-    tw: typing.Optional[TypewriterStreamSession] = None,
+    slog: typing.Optional[StreamTyperLogger] = None,
     *_,
     **kwargs
 ) -> typing.AsyncGenerator[dict, None]:
@@ -220,15 +220,15 @@ async def stream_heal(
     async for event in streaming(url, headers, payload, timeout):
         match event.get("type"):
             case "thinking":
-                if tw: await tw.feed(f"\n{event['content']}\n")
+                if slog: await slog.feed(f"\n{event['content']}\n")
                 else: logger.debug(event["content"])
                 continue
             case "done":
-                if tw: await tw.feed(f"\nHeal done ...\n")
+                if slog: await slog.feed(f"\nHeal done ...\n")
                 else: logger.debug("Heal done ...")
                 continue
             case "heal":
-                if tw: await tw.feed(f"\n{event['content']}\n")
+                if slog: await slog.feed(f"\n{event['content']}\n")
                 else: logger.debug(event["content"])
 
         yield event
