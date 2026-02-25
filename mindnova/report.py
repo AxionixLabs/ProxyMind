@@ -30,8 +30,8 @@ class Report(object):
         if not (reset_path := Path(self.reset_path)).exists():
             reset_path.mkdir(parents=True, exist_ok=True)
 
-        log_papers: str = os.path.join(self.reset_path, const.R_LOG_FILE)
-        logger.add(log_papers, level=const.NOTE_LEVEL, format=const.WRITE_FORMAT)
+        self.log_papers: str = os.path.join(self.reset_path, const.R_LOG_FILE)
+        logger.add(self.log_papers, level=const.NOTE_LEVEL, format=const.WRITE_FORMAT)
 
 
 if __name__ == '__main__':
