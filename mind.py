@@ -88,6 +88,8 @@ class Mind(object):
 
         self.design: Design = Design(self.level)
 
+        self.report = report.Report(self.src_total_place, self.gravity)
+
     @property
     def remote(self) -> dict:
         """Remote"""
@@ -186,7 +188,7 @@ class Mind(object):
     async def wakeup(
         self,
         session: ClientSession,
-        tw: typing.Optional[TypewriterStreamSession] = None
+        tw: typing.Optional[StreamTyperLogger] = None
     ) -> typing.Optional[str]:
         """Wakeup"""
 
@@ -227,27 +229,27 @@ class Mind(object):
 
         mode: str = "chat"
 
-        tw: TypewriterStreamSession = TypewriterStreamSession()
+        slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
 
         # workflow: ==== Chat Streaming ====
         async for chat in request.stream_chat(mode, model, apikey, message, openai_tools, **kwargs):
-            await self.stop_stream_anim(); await tw.start()
+            await self.stop_stream_anim(); await slog.start()
 
             try:
                 match chat.get("type"):
                     case "error":
-                        await tw.feed(chat.get("content")); return await tw.stop()
+                        await slog.feed(chat.get("content")); return await slog.stop()
 
                     case "chat":
-                        await tw.feed(chat.get("content"))
+                        await slog.feed(chat.get("content"))
                         continue
 
                     case "tool_call":
                         name, arguments = chat["name"], chat.get("arguments", {})
 
                         if Tooling.require(domains, name, name_not_in={"refresh"}):
-                            if error := await self.wakeup(session, tw):
-                                await tw.feed(error); return await tw.stop()
+                            if error := await self.wakeup(session, slog):
+                                await slog.feed(error); return await slog.stop()
 
                         await tw.feed(f"\n{name} {arguments}\n")
 
@@ -257,9 +259,9 @@ class Mind(object):
 
                         # workflow: ==== 工具增强 ====
                         enhancer: Enhancer = Enhancer(session, model, apikey)
-                        fields = await enhancer.enhance(name, arguments, result, ok, tw)
+                        fields = await enhancer.enhance(name, arguments, result, ok, slog)
 
-                        await tw.feed(f"\n{fields.get('text')}\n")
+                        await slog.feed(f"\n{fields.get('text')}\n")
 
                         await request.post_tool_result(
                             chat["cid"], chat["sid"], chat["call_id"], name, ok, fields
@@ -267,16 +269,16 @@ class Mind(object):
                         continue
 
                     case "tool_result":
-                        await tw.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
+                        await slog.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
                         continue
 
                     case _:
                         continue
 
             except Exception as e:
-                await tw.feed(str(e)); return await tw.stop()
+                await slog.feed(str(e)); return await slog.stop()
 
-        await tw.stop()
+        await slog.stop()
 
     # workflow: ==== Fast 性能模式 ====
     async def fast_exec_looper(
@@ -301,25 +303,25 @@ class Mind(object):
             exclude=[{"domain": "media", "class": "scrcpy"}]
         )
 
-        tw: TypewriterStreamSession = TypewriterStreamSession()
+        slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
 
         # workflow: ==== Fast Streaming ====
         async for chat in request.stream_chat(mode, model, apikey, message, filter_tools, **kwargs):
-            await self.stop_stream_anim(); await tw.start()
+            await self.stop_stream_anim(); await slog.start()
 
             try:
                 match chat.get("type"):
                     case "error":
-                        await tw.feed(chat.get("content")); return await tw.stop()
+                        await slog.feed(chat.get("content")); return await slog.stop()
 
                     case "chat":
-                        await tw.feed(chat.get("content"))
+                        await slog.feed(chat.get("content"))
                         continue
 
                     case "tool_call":
                         name, arguments = chat["name"], chat.get("arguments", {})
 
-                        await tw.feed(f"\n{name} {arguments}\n")
+                        await slog.feed(f"\n{name} {arguments}\n")
 
                         # workflow: ==== 工具调用 ====
                         result = await session.call_tool(name, arguments)
@@ -327,7 +329,7 @@ class Mind(object):
 
                         # workflow: ==== 工具增强 ====
                         enhancer: Enhancer = Enhancer(session, model, apikey)
-                        fields = await enhancer.enhance(name, arguments, result, ok, tw)
+                        fields = await enhancer.enhance(name, arguments, result, ok, slog)
 
                         await tw.feed(f"\n{fields.get('text')}\n")
 
@@ -337,16 +339,16 @@ class Mind(object):
                         continue
 
                     case "tool_result":
-                        await tw.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
+                        await slog.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
                         continue
 
                     case _:
                         continue
 
             except Exception as e:
-                await tw.feed(str(e)); return await tw.stop()
+                await slog.feed(str(e)); return await slog.stop()
 
-        await tw.stop()
+        await slog.stop()
 
     # workflow: ==== Plan 编排模式 ====
     async def plan_exec_looper(
@@ -447,8 +449,6 @@ class Mind(object):
             await self.plan_exec_looper(
                 session, model, apikey, message, openai_tools, domains, **kwargs
             )
-
-        report.Report(self.src_total_place, self.gravity)
 
         return await self.with_mcp_session(model, apikey, function)
 
@@ -633,8 +633,6 @@ class Mind(object):
 
         repeat = max(1, int(repeat or 1))
         rx = re.compile(pattern) if pattern else None
-
-        report.Report(self.src_total_place, self.gravity)
 
         async def function(
             session: ClientSession,
