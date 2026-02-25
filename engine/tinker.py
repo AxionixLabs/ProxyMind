@@ -5,6 +5,7 @@
 #   |_| |_|_| |_|_|\_\___|_|
 #
 
+import os
 import sys
 import json
 import random
@@ -17,7 +18,9 @@ from rich.logging import (
     LogRecord, RichHandler
 )
 from engine.terminal import Terminal
-from mindcore.design import Design
+from mindcore.design import (
+    Design, TypewriterStreamSession
+)
 from mindnova import const
 
 
@@ -209,6 +212,69 @@ class Tooling(object):
             or (domain_in and dom in domain_in)
             or (class_in and cls in class_in)
         )
+
+
+class StreamTyperLogger(object):
+    """
+    打字机 + 流式转录日志（只写“行内容”，不走 logger，不影响控制台）
+    - feed(text): 显示到打字机，同时按行写入文件（原样）
+    - flush(): 把残留半行写入
+    """
+
+    def __init__(
+        self,
+        log_file: str,
+        tw: typing.Optional[TypewriterStreamSession] = None
+    ) -> None:
+
+        self.tw = tw or TypewriterStreamSession()
+        self.log_file = log_file
+        self.buffer: str = ""
+        self.fp: typing.Optional[typing.TextIO] = None
+
+    async def start(self) -> None:
+        await self.tw.start()
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        self.fp = open(
+            self.log_file, "a", encoding=const.CHARSET, buffering=1, newline=""
+        )
+
+    async def stop(self) -> None:
+        self.flush()
+        await self.tw.stop()
+        if self.fp:
+            try:
+                self.fp.flush()
+            finally:
+                self.fp.close()
+            self.fp = None
+
+    async def feed(self, chunk: typing.Optional[str]) -> None:
+        if not chunk: return None
+
+        text = str(chunk)
+
+        await self.tw.feed(text)
+
+        self.buffer += text
+        self.drain()
+
+    def flush(self) -> None:
+        if self.buffer:
+            self.write(self.buffer)
+            self.buffer = ""
+
+    def drain(self) -> None:
+        while True:
+            if (pos := self.buffer.find("\n")) < 0:
+                break
+            line = self.buffer[:pos + 1]
+            self.buffer = self.buffer[pos + 1:]
+            self.write(line)
+
+    def write(self, s: str) -> None:
+        if not self.fp: return None
+        self.fp.write(s)
 
 
 if __name__ == '__main__':
