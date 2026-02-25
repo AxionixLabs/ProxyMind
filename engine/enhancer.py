@@ -12,7 +12,7 @@ import contextlib
 from loguru import logger
 from mcp import ClientSession
 from mcp.types import CallToolResult
-from mindcore.design import TypewriterStreamSession
+from engine.tinker import StreamTyperLogger
 from mindnova import request
 
 
@@ -35,7 +35,7 @@ class Enhancer(object):
         arguments: dict[str, typing.Any],
         result: CallToolResult,
         ok: bool,
-        tw: typing.Optional[TypewriterStreamSession] = None
+        slog: typing.Optional[StreamTyperLogger] = None
     ) -> typing.Union[str, dict[str, typing.Any]]:
         """Enhance"""
 
@@ -47,9 +47,9 @@ class Enhancer(object):
             case "screenshot":
                 return await self.__screenshot(result)
             case "heal_element":
-                return await self.__heal_element(arguments, result, tw)
+                return await self.__heal_element(arguments, result, slog)
             case "loop_steps":
-                return await self.__loop_steps(result, tw)
+                return await self.__loop_steps(result, slog)
             case _:
                 return fields
 
@@ -115,7 +115,7 @@ class Enhancer(object):
         self,
         arguments: dict[str, typing.Any],
         result: CallToolResult,
-        tw: typing.Optional[TypewriterStreamSession] = None
+        slog: typing.Optional[StreamTyperLogger] = None
     ) -> typing.Optional[dict[str, typing.Any]]:
 
         fields = self.fields(result)
@@ -134,7 +134,7 @@ class Enhancer(object):
             data   = element["data"]
             serial = data.pop("serial", "unknown")
 
-            async for heal in request.stream_heal(self.model, self.apikey, **data, tw=tw):
+            async for heal in request.stream_heal(self.model, self.apikey, **data, slog=slog):
                 if heal.get("type") == "error":
                     per_device[serial] = {"ok": False, "error": heal["content"]}
                     continue
@@ -151,7 +151,7 @@ class Enhancer(object):
                     }
                     per_device[serial] = {"ok": True, "locator": locator, "smart": reason}
 
-                if tw: await tw.feed(reason)
+                if slog: await slog.feed(reason)
                 else: logger.debug(reason)
 
         matrix = {k: v["locator"] for k, v in per_device.items() if v.get("locator")}
@@ -194,12 +194,12 @@ class Enhancer(object):
     async def __loop_steps(
         self,
         result: CallToolResult,
-        tw: typing.Optional["TypewriterStreamSession"] = None
+        slog: typing.Optional[StreamTyperLogger] = None
     ) -> dict[str, typing.Any]:
 
         async def say(line: str) -> None:
-            if tw:
-                return await tw.feed(f"{line}\n")
+            if slog:
+                return await slog.feed(f"{line}\n")
 
         fields = self.fields(result)
 
