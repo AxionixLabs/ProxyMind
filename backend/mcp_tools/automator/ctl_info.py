@@ -48,7 +48,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "info"})
     @task_middleware("screenshot")
     async def screenshot(
-        local: str,
+        local: typing.Optional[str] = None,
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
     ) -> CallToolResult:
         """
@@ -56,15 +56,15 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         C: info
         A: screenshot
         P:
-          local: str
-          matrix: overrides? (serial->args)
+          local: str?  # 由增强层自动传递，无需显示传递
+          matrix: dict[str, dict[str, typing.Any]]?
         R: CTR
         N:
-          - 多设备同写一个 local 不会覆盖/冲突（按 serial 分文件名）
+          - 多设备时，local 按 serial 分文件名，不会冲突
         """
 
         args = {
-            "local": local
+            "local" : local
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
