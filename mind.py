@@ -252,6 +252,10 @@ class Mind(object):
                                 await slog.feed(error); return await slog.stop()
 
                         await slog.feed(f"\n{name} {arguments}\n")
+                        
+                        # workflow: ==== 参数增强 ====
+                        dst = {"local": str(Path(self.report.cap_path) / "screenshot.png")}
+                        arguments = Enhancer.exchange(name, arguments, dst)
 
                         # workflow: ==== 工具调用 ====
                         result = await session.call_tool(name, arguments)
@@ -324,6 +328,10 @@ class Mind(object):
 
                         await slog.feed(f"\n{name} {arguments}\n")
 
+                        # workflow: ==== 参数增强 ====
+                        dst = {"local": str(Path(self.report.cap_path) / "screenshot.png")}
+                        arguments = Enhancer.exchange(name, arguments, dst)
+
                         # workflow: ==== 工具调用 ====
                         result = await session.call_tool(name, arguments)
                         ok = (not result.isError)
@@ -395,6 +403,10 @@ class Mind(object):
                             return logger.error(error)
 
                     logger.info(f"{name} -> args={arguments}")
+
+                    # workflow: ==== 参数增强 ====
+                    dst = {"local": str(Path(self.report.cap_path) / "screenshot.png")}
+                    arguments = Enhancer.exchange(name, arguments, dst)
 
                     # workflow: ==== 工具调用 ====
                     result = await session.call_tool(name, arguments)
