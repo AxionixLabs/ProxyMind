@@ -5,10 +5,8 @@
 # |_____|_| |_|_| |_|\__,_|_| |_|\___\___|_|
 #
 
-import os
 import typing
 import asyncio
-import contextlib
 from loguru import logger
 from mcp import ClientSession
 from mcp.types import CallToolResult
@@ -23,6 +21,19 @@ class Enhancer(object):
         self.session = session
         self.model   = model
         self.apikey  = apikey
+
+    @staticmethod
+    def exchange(
+        name: str,
+        src_arguments: dict[str, typing.Any],
+        dst_arguments: dict[str, typing.Any]
+    ) -> typing.Union[dict[str, typing.Any], str]:
+        """根据操作名称决定是否增强 arguments，返回增强后的参数或原始参数。"""
+        match name:
+            case "screenshot":
+                return src_arguments | dst_arguments
+            case _:
+                return src_arguments
 
     @staticmethod
     def fields(result: CallToolResult) -> typing.Union[dict[str, typing.Any], str]:
@@ -99,10 +110,6 @@ class Enhancer(object):
                     "attachments" : attachments,
                     "data"        : {"ok": False, "per_device": per_device}
                 }
-            finally:
-                with contextlib.suppress(Exception):
-                    if local and os.path.isfile(local):
-                        os.remove(local)
 
         ok = all(v.get("ok") for v in per_device.values()) if per_device else False
         return {
