@@ -239,6 +239,20 @@ class Mind(object):
     ) -> None:
         """Chat Exec Looper"""
 
+        ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
+
+        async def finish(phase: str, **extra) -> None:
+            """统一收尾：先 emit，再 flush（确保返回前事件到达服务端）"""
+            if not ev_report: return None
+            ev_report.emit({
+                "type"  : "lifecycle",
+                "scope" : "chat",
+                "phase" : phase,
+                "ts"    : time.time(),
+                **extra
+            })
+            await ev_report.flush()
+
         mode: str = "chat"
 
         slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
@@ -251,7 +265,9 @@ class Mind(object):
             try:
                 match chat.get("type"):
                     case "error":
-                        await slog.feed(chat.get("content")); return await slog.stop()
+                        await slog.feed(chat.get("content"))
+                        await finish("fail", error=chat.get("content"))
+                        return await slog.stop()
 
                     case "chat":
                         await slog.feed(chat.get("content"))
@@ -262,7 +278,9 @@ class Mind(object):
 
                         if Tooling.require(domains, name, name_not_in={"refresh"}):
                             if error := await self.wakeup(session, slog):
-                                await slog.feed(error); return await slog.stop()
+                                await slog.feed(error)
+                                await finish("fail", error=str(error))
+                                return await slog.stop()
 
                         await slog.feed(f"\n{name} {arguments}\n")
 
@@ -283,6 +301,7 @@ class Mind(object):
                         await request.post_tool_result(
                             chat["cid"], chat["sid"], chat["call_id"], name, ok, fields
                         )
+
                         continue
 
                     case "tool_result":
@@ -293,8 +312,11 @@ class Mind(object):
                         continue
 
             except Exception as e:
-                await slog.feed(str(e)); return await slog.stop()
+                await slog.feed(str(e))
+                await finish("fail", error=f"{type(e).__name__}: {e}")
+                return await slog.stop()
 
+        await finish("done")
         await slog.stop()
 
     # workflow: ==== Fast 性能模式 ====
@@ -310,6 +332,20 @@ class Mind(object):
         **kwargs
     ) -> None:
         """Fast Exec Looper"""
+
+        ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
+
+        async def finish(phase: str, **extra) -> None:
+            """统一收尾：先 emit，再 flush（确保返回前事件到达服务端）"""
+            if not ev_report: return None
+            ev_report.emit({
+                "type"  : "lifecycle",
+                "scope" : "chat",
+                "phase" : phase,
+                "ts"    : time.time(),
+                **extra
+            })
+            await ev_report.flush()
 
         mode: str = "fast"
 
@@ -330,7 +366,9 @@ class Mind(object):
             try:
                 match chat.get("type"):
                     case "error":
-                        await slog.feed(chat.get("content")); return await slog.stop()
+                        await slog.feed(chat.get("content"))
+                        await finish("fail", error=chat.get("content"))
+                        return await slog.stop()
 
                     case "chat":
                         await slog.feed(chat.get("content"))
@@ -368,8 +406,11 @@ class Mind(object):
                         continue
 
             except Exception as e:
-                await slog.feed(str(e)); return await slog.stop()
+                await slog.feed(str(e))
+                await finish("fail", error=f"{type(e).__name__}: {e}")
+                return await slog.stop()
 
+        await finish("done")
         await slog.stop()
 
     # workflow: ==== Plan 编排模式 ====
@@ -386,6 +427,11 @@ class Mind(object):
     ) -> None:
         """Plan Exec Looper"""
 
+        ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
+
+        def emit(ev: dict[str, typing.Any]) -> None:
+            if ev_report: ev_report.emit(ev)
+
         mode: str = "plan"
 
         filter_tools = Tooling.filter_tools(
@@ -397,22 +443,77 @@ class Mind(object):
         r = await session.call_tool("refresh", {"ttl_sec": self.ttl_sec})
         extras = None if r.isError else {"devices": r.content[0].text}
 
+        emit({
+            "type"  : "lifecycle",
+            "scope" : "plan",
+            "phase" : "start",
+            "mode"  : mode,
+            "ts"    : time.time()
+        })
+
         async for plan in request.stream_plan(mode, model, apikey, message, filter_tools, extras, **kwargs):
             await self.stop_stream_anim()
             if plan.get("type") == "error":
+                emit({
+                    "type"  : "lifecycle",
+                    "scope" : "plan",
+                    "phase" : "fail",
+                    "error" : json.dumps(plan, ensure_ascii=False),
+                    "ts"    : time.time()
+                })
                 return logger.error(plan)
 
             steps, loop_count, reasoning = plan["steps"], plan["loop_count"], plan["reasoning"]
 
             logger.info(reasoning)
 
+            emit({
+                "type"       : "lifecycle",
+                "scope"      : "plan",
+                "phase"      : "ready",
+                "loop_count" : loop_count,
+                "steps"      : len(steps),
+                "ts"         : time.time()
+            })
+
             for index, _ in enumerate(range(loop_count), start=1):
-                for step in steps:
+                emit({
+                    "type"  : "lifecycle",
+                    "scope" : "loop",
+                    "phase" : "start",
+                    "run"   : index,
+                    "total" : loop_count,
+                    "ts"    : time.time()
+                })
+                for step_idx, step in enumerate(steps, start=1):
                     action = step["action"]
                     name, arguments = action["action"], action["args"]
 
+                    emit({
+                        "type"  : "lifecycle",
+                        "scope" : "step",
+                        "phase" : "start",
+                        "run"   : index,
+                        "index" : step_idx,
+                        "total" : len(steps),
+                        "name"  : name,
+                        "args"  : arguments,
+                        "ts"    : time.time()
+                    })
+
                     if Tooling.require(domains, name, name_not_in={"refresh"}):
                         if error := await self.wakeup(session):
+                            emit({
+                                "type"  : "lifecycle",
+                                "scope" : "step",
+                                "phase" : "fail",
+                                "run"   : index,
+                                "index" : step_idx,
+                                "total" : len(steps),
+                                "name"  : name,
+                                "error" : str(error),
+                                "ts"    : time.time()
+                            })
                             return logger.error(error)
 
                     logger.info(f"{name} -> args={arguments}")
@@ -420,6 +521,8 @@ class Mind(object):
                     # workflow: ==== 参数增强 ====
                     dst = {"local": str(Path(self.report.cap_path) / "screenshot.png")}
                     arguments = Enhancer.exchange(name, arguments, dst)
+
+                    t0 = time.time()
 
                     # workflow: ==== 工具调用 ====
                     result = await session.call_tool(name, arguments)
@@ -431,10 +534,50 @@ class Mind(object):
 
                     data_ok = bool((fields or {}).get("data", {}).get("ok"))
                     if not ok or not data_ok:
+                        emit({
+                            "type"    : "lifecycle",
+                            "scope"   : "step",
+                            "phase"   : "fail",
+                            "run"     : index,
+                            "index"   : step_idx,
+                            "total"   : len(steps),
+                            "name"    : name,
+                            "cost_ms" : int((time.time() - t0) * 1000),
+                            "error"   : (fields.get("text") if isinstance(fields, dict) else "step failed"),
+                            "ts"      : time.time()
+                        })
                         return logger.error(fields)
+
                     logger.info(fields.get("text"))
+                    emit({
+                        "type"    : "lifecycle",
+                        "scope"   : "step",
+                        "phase"   : "done",
+                        "run"     : index,
+                        "index"   : step_idx,
+                        "total"   : len(steps),
+                        "name"    : name,
+                        "cost_ms" : int((time.time() - t0) * 1000),
+                        "ts"      : time.time()
+                    })
+
+                emit({
+                    "type"  : "lifecycle",
+                    "scope" : "loop",
+                    "phase" : "done",
+                    "run"   : index,
+                    "total" : loop_count,
+                    "ts"    : time.time()
+                })
 
                 if index != loop_count: self.task_info.clear()
+
+            return emit({
+                "type"  : "lifecycle",
+                "scope" : "plan",
+                "phase" : "done",
+                "ts"    : time.time()
+            })
 
     # Notes: ==== Chat 对话模式 ====
     async def mind_chat(self, model: str, apikey: str, message: str, *_, **kwargs) -> None:
@@ -661,6 +804,7 @@ class Mind(object):
         kwargs["metadata"] = meta = self.begin_session(cid=cid, sid=sid)
 
         ev_report: EventReport = EventReport(meta["cid"], meta["sid"])
+        kwargs["ev_report"] = ev_report
         await ev_report.open()
 
         async def function(
