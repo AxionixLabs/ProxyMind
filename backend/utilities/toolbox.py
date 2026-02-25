@@ -155,12 +155,23 @@ async def broadcast(
             fail += 1
         else:
             pack = normalize(raw)
-            call_item["ok"]          = True
+
+            # 优先使用 data.ok 作为成功口径；没有 data.ok 才退回“非异常=成功”
+            data_ok: typing.Optional[bool] = None
+
+            if isinstance(data := pack.get("data"), dict) and "ok" in data:
+                data_ok = bool(data.get("ok"))
+
+            ok_this = (data_ok if data_ok is not None else True)
+
+            call_item["ok"]          = ok_this
             call_item["text"]        = pack.get("text")
             call_item["attachments"] = pack.get("attachments") or []
-            call_item["data"]        = pack.get("data")
+            call_item["data"]        = data
             call_item["logs"]        = pack.get("logs") or []
-            done += 1
+
+            if ok_this: done += 1
+            else: fail += 1
 
         # 汇总附件：带上 agent_id 方便定位来源
         for attach in call_item["attachments"]:
@@ -171,7 +182,7 @@ async def broadcast(
 
         results.append(call_item)
 
-    total   = len(target_list)
+    total   = len(targets)
     cost_ms = int((time.time() - t0) * 1000)
 
     lines: list[str] = [f"tool={tool} total={total} ok={done} fail={fail} elapsed_ms={cost_ms}"]
@@ -183,23 +194,22 @@ async def broadcast(
             lines.append(f"agent_id={r['agent_id']} ok=False error={r['text']}")
 
     structured: typing.Optional[dict[str, typing.Any]] = {
-        "tool" : tool,
-        "args" : args,
-        "cost" : cost_ms,
-        "summary" : {
-            "total" : total,
-            "done"  : done,
-            "fail"  : fail
-        },
         "text"        : "\n".join(lines),
         "attachments" : attachments,
-        "results"     : results
+        "data": {
+            "ok"      : (fail == 0),
+            "tool"    : tool,
+            "args"    : args,
+            "cost"    : cost_ms,
+            "summary" : {"total": total, "done": done, "fail": fail},
+            "results" : results
+        }
     }
 
     return CallToolResult(
         content=[TextContent(type="text", text=structured["text"])],
         structuredContent=structured,
-        isError=(total > 0 and done < total),
+        isError=not structured["data"]["ok"],
         _meta={"logs": [r.get("logs", []) for r in results]}
     )
 
