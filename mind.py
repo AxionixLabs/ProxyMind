@@ -32,16 +32,14 @@ from mcp.client.streamable_http import streamable_http_client
 
 # ====[ from: 本地模块 ]====
 from mindcore.api import Api
-from mindcore.design import (
-    Design, TypewriterStreamSession
-)
+from mindcore.design import Design
 from engine.enhancer import Enhancer
 from engine.manage import ServerManage
 from engine.scaling import (
     PackItem, pack_parse
 )
 from engine.tinker import (
-    MindError, Active, Tooling
+    MindError, Active, Tooling, StreamTyperLogger
 )
 from engine.terminal import Terminal
 from mindcore import authorize
@@ -251,7 +249,7 @@ class Mind(object):
                             if error := await self.wakeup(session, slog):
                                 await slog.feed(error); return await slog.stop()
 
-                        await tw.feed(f"\n{name} {arguments}\n")
+                        await slog.feed(f"\n{name} {arguments}\n")
 
                         # workflow: ==== 工具调用 ====
                         result = await session.call_tool(name, arguments)
@@ -296,14 +294,14 @@ class Mind(object):
 
         mode: str = "fast"
 
+        slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
+
         filter_tools = Tooling.filter_tools(
             openai_tools=openai_tools,
             tool_meta=domains,
             domains={"bench", "common", "media"},
             exclude=[{"domain": "media", "class": "scrcpy"}]
         )
-
-        slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
 
         # workflow: ==== Fast Streaming ====
         async for chat in request.stream_chat(mode, model, apikey, message, filter_tools, **kwargs):
@@ -331,7 +329,7 @@ class Mind(object):
                         enhancer: Enhancer = Enhancer(session, model, apikey)
                         fields = await enhancer.enhance(name, arguments, result, ok, slog)
 
-                        await tw.feed(f"\n{fields.get('text')}\n")
+                        await slog.feed(f"\n{fields.get('text')}\n")
 
                         await request.post_tool_result(
                             chat["cid"], chat["sid"], chat["call_id"], name, ok, fields
@@ -817,9 +815,9 @@ async def main() -> None:
     await authorized()
 
     # 检查每个工具是否存在，如果缺失则显示错误信息并退出程序
-    for tls in tools:
-        if not shutil.which((tls_name := os.path.basename(tls))):
-            raise MindError(f"{const.APP_DESC} missing files {tls_name}")
+    # for tls in tools:
+    #     if not shutil.which((tls_name := os.path.basename(tls))):
+    #         raise MindError(f"{const.APP_DESC} missing files {tls_name}")
 
     # Notes: ========== 配置与启动 ==========
 
@@ -849,6 +847,7 @@ async def main() -> None:
     await pref.load_pref()
 
     launch_cmd = [helix, "--level", level]
+    launch_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), "backend", "helix.py"), "--level", level]
     server: ServerManage = ServerManage(launch_cmd)
     await server.ensure_running()
     await server.close()
