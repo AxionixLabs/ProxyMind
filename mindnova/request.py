@@ -17,6 +17,29 @@ from engine.tinker import StreamTyperLogger
 from mindnova import const
 
 
+async def post_stream_event(
+    cid: str,
+    sid: str,
+    event: dict[str, typing.Any],
+    *,
+    timeout: float = 30.0
+) -> None:
+    """事件上报：把一条事件写入服务端缓存并广播给 SSE 订阅者。"""
+
+    url = f"https://api.appserverx.com/events-ingest"
+    headers = Channel.make_headers()
+
+    payload = {
+        "cid"   : cid,
+        "sid"   : sid,
+        "event" : event
+    }
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(url, headers=headers, json=payload)
+        r.raise_for_status()
+
+
 async def upload_file_stream(
     path: str,
     agent_id: str,
@@ -24,6 +47,7 @@ async def upload_file_stream(
     timeout: float = 60.0
 ) -> dict[str, typing.Any]:
     """流式上传本地文件到服务端 /upload（服务端再流式转发到 R2）。"""
+
     if not (p := Path(path).expanduser()).exists() or not p.is_file():
         raise RuntimeError(f"upload_file_stream: file not exists: {p}")
 

@@ -36,7 +36,7 @@ from mindcore.design import Design
 from engine.enhancer import Enhancer
 from engine.manage import ServerManage
 from engine.scaling import (
-    PackItem, pack_parse
+    PackItem, EventReport, pack_parse
 )
 from engine.tinker import (
     MindError, Active, Tooling, StreamTyperLogger
@@ -86,6 +86,9 @@ class Mind(object):
         ] = lambda x: f"data: {json.dumps(x, ensure_ascii=False)}\n\n"
 
         self.design: Design = Design(self.level)
+
+        self.cid: typing.Optional[str] = None
+        self.sid: typing.Optional[str] = None
 
         self.report: Report = Report(self.src_total_place, self.gravity)
 
@@ -158,6 +161,16 @@ class Mind(object):
             logger.debug(f"Tool {tool['function']['name']}")
 
         return openai_tools, domains
+
+    def begin_session(
+        self,
+        cid: typing.Optional[str] = None,
+        sid: typing.Optional[str] = None
+    ) -> dict[str, str]:
+        """Begin Session"""
+        self.cid = cid or self.cid or craft.new_cid()
+        self.sid = sid or self.sid or craft.new_sid(self.cid)
+        return {"cid": self.cid, "sid": self.sid}
 
     async def with_mcp_session(
         self,
@@ -252,7 +265,7 @@ class Mind(object):
                                 await slog.feed(error); return await slog.stop()
 
                         await slog.feed(f"\n{name} {arguments}\n")
-                        
+
                         # workflow: ==== 参数增强 ====
                         dst = {"local": str(Path(self.report.cap_path) / "screenshot.png")}
                         arguments = Enhancer.exchange(name, arguments, dst)
@@ -498,9 +511,7 @@ class Mind(object):
         model  = self.pref.model
         apikey = self.pref.apikey
 
-        cid = craft.new_cid()
-        sid = craft.new_sid(cid)
-        metadata = {"cid": cid, "sid": sid}
+        metadata = self.begin_session()
 
         quit_set: set[str] = {"/quit", "/q", "quit", "exit"}
         help_set: set[str] = {"/help", "/h"}
@@ -638,40 +649,120 @@ class Mind(object):
         if not items:
             raise MindError(f"File has no items: {p}")
 
-        repeat: int = self.repeat or 1
-        pattern: typing.Optional[str] = self.pattern
+        repeat = max(1, int(self.repeat or 1))
+        rx     = re.compile(self.pattern) if self.pattern else None
 
         model  = self.pref.model
         apikey = self.pref.apikey
 
-        repeat = max(1, int(repeat or 1))
-        rx = re.compile(pattern) if pattern else None
+        meta_in = kwargs.get("metadata") or {}
+        cid = meta_in.get("cid") if isinstance(meta_in, dict) else None
+        sid = meta_in.get("sid") if isinstance(meta_in, dict) else None
+        kwargs["metadata"] = meta = self.begin_session(cid=cid, sid=sid)
+
+        ev_report: EventReport = EventReport(meta["cid"], meta["sid"])
+        await ev_report.open()
 
         async def function(
             session: ClientSession,
             openai_tools: list[dict[str, typing.Any]],
             domains: dict[str, dict[str, typing.Any]]
         ) -> None:
+            ev_report.emit({
+                "type"   : "lifecycle",
+                "scope"  : "batch",
+                "phase"  : "start",
+                "file"   : str(p),
+                "items"  : len(items),
+                "repeat" : repeat,
+                "ts"     : time.time()
+            })
 
-            for r in range(1, repeat + 1):
-                logger.info(f"🧪 run {r}/{repeat} items={len(items)} file={p}")
+            try:
+                for r in range(1, repeat + 1):
+                    logger.info(f"🧪 run {r}/{repeat} items={len(items)} file={p}")
 
-                for idx, it in enumerate(items, start=1):
-                    self.stream_event = asyncio.Event()
-                    self.stream_task = asyncio.create_task(
-                        self.design.prefix_line(self.stream_event)
-                    )
-                    if rx and not rx.search(it.name):
-                        logger.debug(f"⏭️  skip [{idx}/{len(items)}] {it.name} (filter)")
-                        continue
+                    for idx, it in enumerate(items, start=1):
+                        self.stream_event = asyncio.Event()
+                        self.stream_task = asyncio.create_task(
+                            self.design.prefix_line(self.stream_event)
+                        )
 
-                    logger.info(f"▶️  [{idx}/{len(items)}] {it.name}")
+                        if rx and not rx.search(it.name):
+                            ev_report.emit({
+                                "type"   : "lifecycle",
+                                "scope"  : "task",
+                                "phase"  : "skip",
+                                "run"    : r,
+                                "index"  : idx,
+                                "total"  : len(items),
+                                "name"   : it.name,
+                                "reason" : "filter",
+                                "ts"     : time.time()
+                            })
+                            logger.debug(f"⏭️  skip [{idx}/{len(items)}] {it.name} (filter)")
+                            continue
 
-                    try:
-                        await func(session, model, apikey, it.message, openai_tools, domains, **kwargs)
-                    except Exception as e:
-                        await self.stop_all_anim()
-                        logger.error(f"❌ item failed: {it.name} err={e!r}")
+                        ev_report.emit({
+                            "type"  : "lifecycle",
+                            "scope" : "task",
+                            "phase" : "start",
+                            "run"   : r,
+                            "index" : idx,
+                            "total" : len(items),
+                            "name"  : it.name,
+                            "ts"    : time.time()
+                        })
+
+                        logger.info(f"▶️  [{idx}/{len(items)}] {it.name}")
+                        t0 = time.time()
+
+                        try:
+                            await func(session, model, apikey, it.message, openai_tools, domains, **kwargs)
+
+                            ev_report.emit({
+                                "type"    : "lifecycle",
+                                "scope"   : "task",
+                                "phase"   : "done",
+                                "run"     : r,
+                                "index"   : idx,
+                                "total"   : len(items),
+                                "name"    : it.name,
+                                "cost_ms" : int((time.time() - t0) * 1000),
+                                "ts"      : time.time()
+                            })
+
+                        except Exception as e:
+                            await self.stop_all_anim()
+
+                            ev_report.emit({
+                                "type"  : "lifecycle",
+                                "scope" : "task",
+                                "phase" : "fail",
+                                "run"   : r,
+                                "index" : idx,
+                                "total" : len(items),
+                                "name"  : it.name,
+                                "error" : f"{type(e).__name__}: {e}",
+                                "ts"    : time.time()
+                            })
+
+                            logger.error(f"❌ item failed: {it.name} err={e!r}")
+                            continue
+
+            finally:
+                ev_report.emit({
+                    "type"   : "lifecycle",
+                    "scope"  : "batch",
+                    "phase"  : "done",
+                    "file"   : str(p),
+                    "items"  : len(items),
+                    "repeat" : repeat,
+                    "ts"     : time.time()
+                })
+
+                await ev_report.flush()
+                await ev_report.close()
 
         return await self.with_mcp_session(model, apikey, function)
 
@@ -694,6 +785,11 @@ class Mind(object):
 
         model  = model  or self.pref.model
         apikey = apikey or self.pref.apikey
+
+        meta_in = kwargs.get("metadata") or {}
+        cid = meta_in.get("cid") if isinstance(meta_in, dict) else None
+        sid = meta_in.get("sid") if isinstance(meta_in, dict) else None
+        kwargs["metadata"] = self.begin_session(cid=cid, sid=sid)
 
         self.stream_event = asyncio.Event()
         self.stream_task = asyncio.create_task(

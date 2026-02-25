@@ -6,8 +6,12 @@
 #                            |___/
 #
 
+import time
 import typing
+import asyncio
 from dataclasses import dataclass
+from loguru import logger
+from mindnova import request
 
 
 @dataclass
@@ -33,6 +37,92 @@ class PackReport:
     failed: int
     skipped: int
     results: list[PackItemResult]
+
+
+class EventReport(object):
+    """
+    稳定事件上报器（Strong Ordering）
+
+    目标：
+    1) 事件发送顺序稳定：emit() 进队列，后台单 worker 串行发送
+    2) 事件可重排：自动添加 seq（单会话内递增）
+    3) 不阻塞主流程：emit() 只做 put_nowait；队列满则丢并打 debug
+    4) 支持 flush()/close()：确保 pack_done 等“最后事件”一定在末尾到达
+    """
+
+    def __init__(
+        self,
+        cid: str,
+        sid: str,
+        *,
+        queue_size: int = 2000,
+        timeout: float = 30.0
+    ):
+        self.cid = cid
+        self.sid = sid
+        self.timeout = timeout
+
+        self.seq = 0
+        self.q: asyncio.Queue[dict[str, typing.Any]] = asyncio.Queue(maxsize=queue_size)
+
+        self.stop = asyncio.Event()
+        self.worker: typing.Optional[asyncio.Task] = None
+
+    async def open(self) -> None:
+        """启动后台发送 worker（建议在 pack_start 前调用）"""
+        if self.worker and not self.worker.done():
+            return None
+        self.worker = asyncio.create_task(self.run())
+
+    def emit(self, event: dict[str, typing.Any]) -> None:
+        """
+        非阻塞投递事件。
+        - 自动注入 cid/sid/ts/seq
+        - 队列满则丢弃（避免拖死主链路）
+        """
+        try:
+            self.seq += 1
+            ev = dict(event or {})
+            ev.setdefault("ts", time.time())
+            ev["cid"] = self.cid
+            ev["sid"] = self.sid
+            ev["seq"] = self.seq
+
+            self.q.put_nowait(ev)
+        except asyncio.QueueFull:
+            logger.debug(f"[events] drop(queue_full) type={event.get('type')}")
+        except RuntimeError:
+            logger.debug(f"[events] drop(no_loop) type={event.get('type')}")
+
+    async def run(self) -> None:
+        """单 worker：严格按队列顺序发送"""
+        while True:
+            if self.stop.is_set() and self.q.empty():
+                return None
+
+            try:
+                ev = await asyncio.wait_for(self.q.get(), timeout=0.5)
+            except asyncio.TimeoutError:
+                continue
+
+            try:
+                await request.post_stream_event(self.cid, self.sid, ev, timeout=self.timeout)
+            except Exception as e:
+                # 上报失败：不影响主流程
+                logger.debug(f"[events] post fail: {e!r} type={ev.get('type')} seq={ev.get('seq')}")
+            finally:
+                self.q.task_done()
+
+    async def flush(self) -> None:
+        """等待队列清空（所有已 emit 的事件都发完）"""
+        await self.q.join()
+
+    async def close(self) -> None:
+        """优雅停止：先 flush，再退出 worker"""
+        await self.flush()
+        self.stop.set()
+        if self.worker:
+            await self.worker
 
 
 def pack_parse(text: str) -> list[PackItem]:
