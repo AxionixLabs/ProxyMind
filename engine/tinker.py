@@ -215,33 +215,22 @@ class Tooling(object):
 
 
 class StreamTyperLogger(object):
-    """
-    打字机 + 流式转录日志（只写“行内容”，不走 logger，不影响控制台）
-    - feed(text): 显示到打字机，同时按行写入文件（原样）
-    - flush(): 把残留半行写入
-    """
+    """打字机 + 流式转录日志。"""
 
-    def __init__(
-        self,
-        log_file: str,
-        tw: typing.Optional[TypewriterStreamSession] = None
-    ) -> None:
-
-        self.tw = tw or TypewriterStreamSession()
+    def __init__(self, log_file: str) -> None:
         self.log_file = log_file
         self.buffer: str = ""
         self.fp: typing.Optional[typing.TextIO] = None
+        self.typewriter: TypewriterStreamSession = TypewriterStreamSession()
 
     async def start(self) -> None:
-        await self.tw.start()
-        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
-        self.fp = open(
-            self.log_file, "a", encoding=const.CHARSET, buffering=1, newline=""
-        )
+        await self.typewriter.start()
 
     async def stop(self) -> None:
         self.flush()
-        await self.tw.stop()
+
+        await self.typewriter.stop()
+
         if self.fp:
             try:
                 self.fp.flush()
@@ -249,32 +238,45 @@ class StreamTyperLogger(object):
                 self.fp.close()
             self.fp = None
 
+    async def open(self) -> None:
+        if self.fp: return None
+
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        self.fp = open(
+            self.log_file, "a", encoding=const.CHARSET, buffering=1, newline=""
+        )
+
     async def feed(self, chunk: typing.Optional[str]) -> None:
         if not chunk: return None
 
         text = str(chunk)
 
-        await self.tw.feed(text)
+        await self.typewriter.feed(text)
 
         self.buffer += text
-        self.drain()
 
-    def flush(self) -> None:
-        if self.buffer:
-            self.write(self.buffer)
-            self.buffer = ""
-
-    def drain(self) -> None:
         while True:
             if (pos := self.buffer.find("\n")) < 0:
                 break
             line = self.buffer[:pos + 1]
             self.buffer = self.buffer[pos + 1:]
-            self.write(line)
+            
+            if self.fp: 
+                self.fp.write(line)
 
-    def write(self, s: str) -> None:
-        if not self.fp: return None
-        self.fp.write(s)
+    def flush(self) -> None:
+        if not self.buffer:
+            return None
+
+        line = self.buffer
+        self.buffer = ""
+
+        if not line.endswith("\n"):
+            line += "\n"
+
+        if self.fp:
+            self.fp.write(line)
+            self.fp.flush()
 
 
 if __name__ == '__main__':
