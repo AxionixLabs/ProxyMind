@@ -57,7 +57,7 @@ class Enhancer(object):
         fields = self.fields(result)
         attachments: list[dict[str, typing.Any]] = []
 
-        if not (results := fields.get("results")):
+        if not (results := fields.get("data", {}).get("results")):
             return {
                 "text"        : "未获取到截图结果",
                 "attachments" : attachments,
@@ -121,7 +121,7 @@ class Enhancer(object):
         fields = self.fields(result)
         attachments: list[dict[str, str]] = []
 
-        if not (results := fields.get("results")):
+        if not (results := fields.get("data", {}).get("results")):
             return {
                 "text"        : "未获取到设备结果",
                 "attachments" : attachments,
@@ -205,7 +205,7 @@ class Enhancer(object):
 
         results: list[
             dict[str, typing.Any]
-        ] = fields.get("results", []) if isinstance(fields, dict) else []
+        ] = fields.get("data", {}).get("results", []) if isinstance(fields, dict) else []
 
         payload: typing.Optional[dict[str, typing.Any]] = None
 
