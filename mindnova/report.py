@@ -33,6 +33,37 @@ class Report(object):
         self.log_papers: str = os.path.join(self.reset_path, const.R_LOG_FILE)
         logger.add(self.log_papers, level=const.NOTE_LEVEL, format=const.WRITE_FORMAT)
 
+        # 创建分类文件夹：截图、视频、日志等
+        self.__cap_path = os.path.join(self.total_path, "caps")
+        cap_dir = Path(self.cap_path)
+        if not cap_dir.exists():
+            cap_dir.mkdir(parents=True, exist_ok=True)
+
+        self.__rec_path = os.path.join(self.total_path, "recs")
+        rec_dir = Path(self.rec_path)
+        if not rec_dir.exists():
+            rec_dir.mkdir(parents=True, exist_ok=True)
+
+        self.__log_path = os.path.join(self.total_path, "logs")
+        log_dir = Path(self.log_path)
+        if not log_dir.exists():
+            log_dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def cap_path(self) -> str:
+        """获取截图文件夹路径"""
+        return self.__cap_path
+
+    @property
+    def rec_path(self) -> str:
+        """获取视频文件夹路径"""
+        return self.__rec_path
+
+    @property
+    def log_path(self) -> str:
+        """获取日志文件夹路径"""
+        return self.__log_path
+
 
 if __name__ == '__main__':
     pass
