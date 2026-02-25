@@ -187,14 +187,14 @@ class Mind(object):
     async def wakeup(
         self,
         session: ClientSession,
-        tw: typing.Optional[StreamTyperLogger] = None
+        slog: typing.Optional[StreamTyperLogger] = None
     ) -> typing.Optional[str]:
         """Wakeup"""
 
         if ((now := time.time()) - self.last_refresh_ts) < self.ttl_sec:
             tip = f"ttl-hit: skip refresh ttl={self.ttl_sec:.3f}s"
-            if tw and self.level != const.SHOW_LEVEL:
-                return await tw.feed(f"\n{tip}\n")
+            if slog and self.level != const.SHOW_LEVEL:
+                return await slog.feed(f"\n{tip}\n")
             else:
                 return logger.debug(tip)
 
@@ -207,8 +207,8 @@ class Mind(object):
 
         self.last_refresh_ts = now
 
-        if tw and self.level != const.SHOW_LEVEL:
-            return await tw.feed(f"\n{content}\n")
+        if slog and self.level != const.SHOW_LEVEL:
+            return await slog.feed(f"\n{content}\n")
         else:
             return logger.debug(content)
 
