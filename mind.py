@@ -32,7 +32,9 @@ from mcp.client.streamable_http import streamable_http_client
 
 # ====[ from: 本地模块 ]====
 from mindcore.api import Api
-from mindcore.design import Design, TypewriterStreamSession
+from mindcore.design import (
+    Design, TypewriterStreamSession
+)
 from engine.enhancer import Enhancer
 from engine.manage import ServerManage
 from engine.scaling import (
@@ -402,7 +404,7 @@ class Mind(object):
                     data_ok = bool((fields or {}).get("data", {}).get("ok"))
                     if not ok or not data_ok:
                         return logger.error(fields)
-                    logger.info(fields)
+                    logger.info(fields.get("text"))
 
                 if index != loop_count: self.task_info.clear()
 
