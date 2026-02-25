@@ -45,8 +45,9 @@ from engine.terminal import Terminal
 from mindcore import authorize
 from mindcore.parser import Parser
 from mindcore.profile import Preferences
+from mindnova.report import Report
 from mindnova import (
-    authentic, const, craft, report, request
+    authentic, const, craft, request
 )
 
 
@@ -86,7 +87,7 @@ class Mind(object):
 
         self.design: Design = Design(self.level)
 
-        self.report = report.Report(self.src_total_place, self.gravity)
+        self.report: Report = Report(self.src_total_place, self.gravity)
 
     @property
     def remote(self) -> dict:
@@ -228,6 +229,7 @@ class Mind(object):
         mode: str = "chat"
 
         slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
+        await slog.open()
 
         # workflow: ==== Chat Streaming ====
         async for chat in request.stream_chat(mode, model, apikey, message, openai_tools, **kwargs):
@@ -295,6 +297,7 @@ class Mind(object):
         mode: str = "fast"
 
         slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
+        await slog.open()
 
         filter_tools = Tooling.filter_tools(
             openai_tools=openai_tools,
@@ -611,10 +614,10 @@ class Mind(object):
                 model, apikey, message=message, func=func, metadata=metadata
             )
 
-    async def mind_pack(self, file: str, func: typing.Callable, **kwargs) -> None:
-        """批跑入口：单 session；失败记录日志后继续"""
-        p = Path(file).expanduser()
-        if not p.exists():
+    # Notes: ==== Pack 批量模式 ====
+    async def mind_pack(self, file: str, func: typing.Callable, *_, **kwargs) -> None:
+        """Mind Pack"""
+        if not (p := Path(file).expanduser()).exists():
             raise MindError(f"File not found: {p}")
 
         text = p.read_text(encoding=const.CHARSET, errors="replace")
@@ -815,9 +818,9 @@ async def main() -> None:
     await authorized()
 
     # 检查每个工具是否存在，如果缺失则显示错误信息并退出程序
-    # for tls in tools:
-    #     if not shutil.which((tls_name := os.path.basename(tls))):
-    #         raise MindError(f"{const.APP_DESC} missing files {tls_name}")
+    for tls in tools:
+        if not shutil.which((tls_name := os.path.basename(tls))):
+            raise MindError(f"{const.APP_DESC} missing files {tls_name}")
 
     # Notes: ========== 配置与启动 ==========
 
@@ -847,7 +850,6 @@ async def main() -> None:
     await pref.load_pref()
 
     launch_cmd = [helix, "--level", level]
-    launch_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), "backend", "helix.py"), "--level", level]
     server: ServerManage = ServerManage(launch_cmd)
     await server.ensure_running()
     await server.close()
