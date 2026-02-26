@@ -182,14 +182,25 @@ class Mind(object):
     ) -> None:
         """With MCP Session"""
 
+        def inject_auth(req: httpx.Request) -> None:
+            now = int(time.time())
+            if not token_cache["val"] or now - token_cache["ts"] >= 60:
+                token_cache["val"] = authentic.manufacture_token()
+                token_cache["ts"] = now
+            req.headers["Authorization"] = f"Bearer {token_cache['val']}"
+
         self.ensure_model_key(model, apikey)
 
         url = const.BASE_URL + const.MCP_ED
-        headers = {"Authorization": f"Bearer {authentic.manufacture_token()}"}
+        token_cache = {"ts": 0, "val": ""}
         timeout = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
-        event_hooks = {"response": [request.capture]}
 
-        async with httpx.AsyncClient(headers=headers, timeout=timeout, event_hooks=event_hooks) as client:
+        event_hooks = {
+            "request"  : [inject_auth, request.cap_request],
+            "response" : [request.cap_response]
+        }
+
+        async with httpx.AsyncClient(timeout=timeout, event_hooks=event_hooks) as client:
             async with streamable_http_client(url, http_client=client) as (r, w, _):
                 async with ClientSession(r, w) as session:
                     await session.initialize()
