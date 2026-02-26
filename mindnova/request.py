@@ -17,6 +17,48 @@ from engine.tinker import StreamTyperLogger
 from mindnova import const
 
 
+async def cap_request(req: httpx.Request) -> None:
+    """Cap Request"""
+    a = req.headers.get("Authorization", "")
+    logger.debug(
+        f"[MCP-REQ] {req.method} {req.url} auth={'OK' if a.startswith('Bearer ') else 'MISSING'}"
+    )
+    
+
+async def cap_response(response: httpx.Response) -> None:
+    """Cap Response"""
+    if response.status_code >= 400:
+        try:
+            response.extensions["error_body"] = await response.aread()
+        except Exception as e:
+            _ = e
+            response.extensions["error_body"] = b""
+
+
+async def streaming(
+    url: str,
+    headers: dict,
+    payload: dict,
+    timeout: float = 60.0
+) -> typing.AsyncGenerator[dict, None]:
+    """Streaming"""
+
+    async with httpx.AsyncClient(timeout=timeout, event_hooks={"response": [cap_response]}) as client:
+        async with client.stream("POST", url, headers=headers, json=payload) as resp:
+            resp.raise_for_status()
+
+            async for line in resp.aiter_lines():
+                if not line or not line.startswith("data:"):
+                    continue
+
+                try:
+                    event = json.loads(line[len("data:"):].strip())
+                except json.JSONDecodeError:
+                    continue
+
+                yield event
+
+
 async def post_stream_event(
     cid: str,
     sid: str,
@@ -92,40 +134,6 @@ async def post_tool_result(
     async with httpx.AsyncClient(timeout=30.0) as client:
         r = await client.post(url, headers=headers, json=payload)
         r.raise_for_status()
-
-
-async def capture(response: httpx.Response) -> None:
-    """Capture"""
-    if response.status_code >= 400:
-        try:
-            response.extensions["error_body"] = await response.aread()
-        except Exception as e:
-            _ = e
-            response.extensions["error_body"] = b""
-
-
-async def streaming(
-    url: str,
-    headers: dict,
-    payload: dict,
-    timeout: float = 60.0
-) -> typing.AsyncGenerator[dict, None]:
-    """Streaming"""
-
-    async with httpx.AsyncClient(timeout=timeout, event_hooks={"response": [capture]}) as client:
-        async with client.stream("POST", url, headers=headers, json=payload) as resp:
-            resp.raise_for_status()
-
-            async for line in resp.aiter_lines():
-                if not line or not line.startswith("data:"):
-                    continue
-
-                try:
-                    event = json.loads(line[len("data:"):].strip())
-                except json.JSONDecodeError:
-                    continue
-
-                yield event
 
 
 async def stream_plan(
