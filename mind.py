@@ -182,7 +182,7 @@ class Mind(object):
     ) -> None:
         """With MCP Session"""
 
-        def inject_auth(req: httpx.Request) -> None:
+        async def inject_auth(req: httpx.Request) -> None:
             now = int(time.time())
             if not token_cache["val"] or now - token_cache["ts"] >= 60:
                 token_cache["val"] = authentic.manufacture_token()
