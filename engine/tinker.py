@@ -248,21 +248,22 @@ class StreamTyperLogger(object):
 
     async def feed(self, chunk: typing.Optional[str]) -> None:
         if not chunk: return None
-
         text = str(chunk)
 
-        await self.typewriter.feed(text)
-
+        # 1) 全量落盘/缓存（不截断）
         self.buffer += text
-
         while True:
             if (pos := self.buffer.find("\n")) < 0:
                 break
             line = self.buffer[:pos + 1]
             self.buffer = self.buffer[pos + 1:]
-            
-            if self.fp: 
+            if self.fp:
                 self.fp.write(line)
+
+        # 2) 终端展示可截断（只影响 UI）
+        if len(show := text) > 120:
+            show = show[:120] + " ...\n"
+        await self.typewriter.feed(show)
 
     def flush(self) -> None:
         if not self.buffer:

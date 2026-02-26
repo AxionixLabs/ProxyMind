@@ -12,6 +12,7 @@ import typing
 import asyncio
 import textwrap
 from pathlib import Path
+from collections import deque
 from rich.live import Live
 from rich.text import Text
 from rich.tree import Tree
@@ -143,28 +144,89 @@ class Design(object):
         out: str,
         begin_delay: float,
         final_delay: float,
-        cursor: str
+        cursor: str,
+        *,
+        max_lines: int | None = None,
+        renderer: typing.Optional[typing.Callable[[str, str], Text]] = None
     ) -> tuple[str, float]:
+        """
+        - 默认：（整段 out 渲染）
+        - 若 max_lines 指定：只显示末尾 max_lines 行（固定高度窗口）
+        - renderer(text, cursor) 可自定义渲染（不传则使用默认 Text(text)+cursor）
+        """
 
-        pause: float         = 0.06
-        jitter: float        = 0.0025
-        breathe_every: int   = 80
-        breathe_pause: float = 0.18
-        glitch: float        = 0.01
-        flush_chars: int     = 3
-        flush_ms: float      = 0.02
+        pause: float         = 0.025   # 0.06 -> 0.025
+        jitter: float        = 0.0012  # 0.0025 -> 0.0012
+        breathe_every: int   = 160     # 80 -> 160（更少触发呼吸）
+        breathe_pause: float = 0.06    # 0.18 -> 0.06
+        glitch: float        = 0.003   # 0.01 -> 0.003（更少闪）
+        flush_chars: int     = 2       # 3 -> 2（更跟手）
+        flush_ms: float      = 0.012   # 0.02 -> 0.012
 
         loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+        n = max(len(delta), 1)
+        pending, last_flush = 0, loop.time()
 
-        n, pending, last_flush = max(len(delta), 1), 0, loop.time()
+        def default_renderer(text: str, cur_cursor: str) -> Text:
+            t = Text(text, style="bold", no_wrap=bool(max_lines), overflow="crop")
+            t.append(cur_cursor, style="bold")
+            return t
 
-        render: typing.Callable[
-            [str], None
-        ] = lambda x: live.update(Text(x, style="bold") + Text(cursor, style="bold"))
+        render_fn = renderer or default_renderer
+
+        class Window(object):
+
+            __slots__ = ("lines", "cur")
+
+            def __init__(self, max_len: int):
+                self.lines: deque[str] = deque(maxlen=max_len)
+                self.cur: str = ""
+
+            def append_char(self, char: str) -> None:
+                if char == "\n":
+                    self.lines.append(self.cur)
+                    self.cur = ""
+                else:
+                    self.cur += char
+
+            def set_from_out_tail(self, full_out: str) -> None:
+                parts = full_out.split("\n")  # 保留末尾是否换行的信息
+
+                if full_out.endswith("\n"):
+                    cur = ""
+                    lines = parts[:-1]  # 最后一个是空串
+                else:
+                    cur = parts[-1] if parts else ""
+                    lines = parts[:-1]
+
+                self.lines.clear()
+                for ln in lines[-self.lines.maxlen:]:
+                    self.lines.append(ln)
+
+                self.cur = cur
+
+            def text(self, *, pad_to: typing.Optional[int] = None) -> str:
+                rows = list(self.lines) + [self.cur]  # 始终带 cur 行（可为空串）
+                if pad_to and pad_to > 0 and len(rows) < pad_to:
+                    rows = [""] * (pad_to - len(rows)) + rows
+                return "\n".join(rows)
+
+        win: typing.Optional[Window] = Window(max_lines) if max_lines else None
+        use_window = win is not None
+
+        def render() -> None:
+            text = win.text() if use_window else out
+            live.update(render_fn(text, cursor))
+
+        # 初始化窗口：如果 out 已有内容（跨多次 delta），只取末尾 max_lines 行
+        if use_window and out:
+            win.set_from_out_tail(out)
+            render()
 
         for i, ch in enumerate(delta):
             # 线性加速 + 抖动
-            d = begin_delay + (final_delay - begin_delay) * (i / (n - 1 if n > 1 else 1))
+            denominator = (n - 1) if n > 1 else 1
+            d = begin_delay + (final_delay - begin_delay) * (i / denominator)
             d = max(0.0, d + random.uniform(-jitter, jitter))
 
             # 标点分级停顿
@@ -174,32 +236,77 @@ class Design(object):
 
             # 偶发 glitch
             if glitch and ch not in "\n\r\t" and ch.strip() and random.random() < glitch:
-                live.update(Text(out + random.choice("▓▒░") + cursor))
-                await asyncio.sleep(0.010); render(out)
+                if use_window:
+                    live.update(
+                        Text(win.text(), style="bold")
+                        + Text(random.choice("▓▒░"), style="bold")
+                        + Text(cursor, style="bold")
+                    )
+                    await asyncio.sleep(0.010)
+                    render()
+                else:
+                    live.update(Text(out + random.choice("▓▒░") + cursor))
+                    await asyncio.sleep(0.010)
+                    render()
 
-            out += ch; pending += 1
+            # 追加字符（out 用于返回/持久化；窗口用于展示）
+            out += ch
+            if use_window:
+                win.append_char(ch)
 
+            pending += 1
             now = loop.time()
             if pending >= flush_chars or (now - last_flush) >= flush_ms:
-                render(out); last_flush = now; pending = 0
+                render()
+                last_flush, pending = now, 0
 
+            # breathe
             if breathe_every and (len(out) % breathe_every == 0):
                 d += breathe_pause
+
             await asyncio.sleep(d)
 
-        if pending: render(out)
+        if pending:
+            render()
 
         return out, final_delay
 
     @staticmethod
-    async def cursor_blink(live: Live, out: str, cursor: str) -> None:
+    async def cursor_blink(
+        live: Live,
+        out: str,
+        cursor: str,
+        *,
+        max_lines: typing.Optional[int] = None,
+        renderer: typing.Optional[typing.Callable[[str, bool], Text]] = None
+    ) -> None:
+        """
+        - 默认：用全量 out
+        - max_lines：只展示末尾 max_lines 行（与 typewriter 窗口一致）
+        - renderer(text, cursor_on)：自定义渲染
+        """
+
+        def tail(text: str) -> str:
+            if not max_lines: return text
+            parts = text.splitlines()
+            return "\n".join(parts[-max_lines:])
+
+        def default_render(text: str, cursor_on: bool) -> Text:
+            base = Text(text, style="bold", no_wrap=bool(max_lines), overflow="crop")
+            if cursor_on:
+                base += Text(cursor, style="reverse")
+            return base
+
+        r = renderer or default_render
+        view = tail(out)
+
         for _ in range(2):
-            live.update(Text(out, style="bold") + Text(cursor, style="reverse"))
+            live.update(r(view, True))
             await asyncio.sleep(0.08)
-            live.update(Text(out, style="bold"))
+            live.update(r(view, False))
             await asyncio.sleep(0.06)
 
-        live.update(Text(out, style="bold"))
+        live.update(r(view, False))
 
     @staticmethod
     def build_file_tree(file_path: str) -> None:
@@ -842,37 +949,28 @@ class Design(object):
 
 class TypewriterStreamSession(object):
 
-    def __init__(self) -> None:
+    def __init__(self, max_lines: int = 24) -> None:
+        self.lines: deque = deque(maxlen=max_lines)
         self.out: str     = ""
+        self.col: int     = 0
         self.delay: float = 0.01
         self.cursor: str  = random.choice(["█", "▉", "▋"])
 
         self.live: typing.Optional[Live] = None
 
-    async def __aenter__(self) -> "TypewriterStreamSession":
-        self.live = Live(Text(), console=Design.console, refresh_per_second=60)
-        self.live.__enter__()
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb) -> None:
-        if self.live is not None:
-            try:
-                await Design.cursor_blink(self.live, self.out, self.cursor)
-            finally:
-                self.live.__exit__(exc_type, exc, tb)
-                self.live = None
-
-        Design.console.print()
-
     async def start(self) -> None:
         if self.live: return None
-        self.live = Live(Text(), console=Design.console, refresh_per_second=60)
+        self.live = Live(
+            Text(self.out, style="bold"), console=Design.console, refresh_per_second=20
+        )
         self.live.__enter__()
 
     async def stop(self) -> None:
         if self.live is not None:
             try:
-                await Design.cursor_blink(self.live, self.out, self.cursor)
+                await Design.cursor_blink(
+                    self.live, self.out, self.cursor, max_lines=self.lines.maxlen
+                )
             finally:
                 self.live.__exit__(None, None, None)
                 self.live = None
@@ -880,15 +978,19 @@ class TypewriterStreamSession(object):
         Design.console.print()
 
     async def feed(self, delta: str) -> None:
-        if not delta: return None
+        if not delta or not self.live:
+            return None
 
-        if len(delta) > (limit := 120):
-            delta = delta[:limit] + " " + "...\n"
+        limit: int = 120
+
+        if len(delta) > limit:
+            delta = delta[:limit] + "...\n"
 
         final_delay = max(0.0015, self.delay * 0.65)
 
         self.out, self.delay = await Design.typewriter(
-            self.live, delta, self.out, self.delay, final_delay, self.cursor
+            self.live, delta, self.out, self.delay, final_delay, self.cursor,
+            max_lines=self.lines.maxlen
         )
 
 

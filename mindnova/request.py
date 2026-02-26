@@ -7,8 +7,10 @@
 #
 
 import json
+import time
 import httpx
 import typing
+import asyncio
 import mimetypes
 from pathlib import Path
 from loguru import logger
@@ -21,9 +23,9 @@ async def cap_request(req: httpx.Request) -> None:
     """Cap Request"""
     a = req.headers.get("Authorization", "")
     logger.debug(
-        f"[MCP-REQ] {req.method} {req.url} auth={'OK' if a.startswith('Bearer ') else 'MISSING'}"
+        f"[MCP] {req.method} {req.url} auth={'OK' if a.startswith('Bearer ') else 'MISSING'}"
     )
-    
+
 
 async def cap_response(response: httpx.Response) -> None:
     """Cap Response"""
@@ -264,6 +266,80 @@ async def stream_heal(
                 else: logger.debug(event["content"])
 
         yield event
+
+
+class EventReport(object):
+    """事件上报器（Strong Ordering）"""
+
+    def __init__(self, cid: str, sid: str):
+        self.cid = cid
+        self.sid = sid
+
+        self.timeout: float = 30.0
+
+        self.seq = 0
+        self.q: asyncio.Queue[dict[str, typing.Any]] = asyncio.Queue(maxsize=2000)
+
+        self.stop = asyncio.Event()
+        self.worker: typing.Optional[asyncio.Task] = None
+
+    def emit(self, event: dict[str, typing.Any]) -> None:
+        """
+        非阻塞投递事件。
+        - 自动注入 cid/sid/ts/seq
+        - 队列满则丢弃（避免拖死主链路）
+        """
+        try:
+            self.seq += 1
+            ev = dict(event or {})
+            ev.setdefault("ts", time.time())
+            ev["cid"] = self.cid
+            ev["sid"] = self.sid
+            ev["seq"] = self.seq
+
+            self.q.put_nowait(ev)
+        except asyncio.QueueFull:
+            logger.debug(f"[events] drop(queue_full) type={event.get('type')}")
+        except RuntimeError:
+            logger.debug(f"[events] drop(no_loop) type={event.get('type')}")
+
+    async def open(self) -> None:
+        """启动后台发送 worker（建议在 pack_start 前调用）"""
+        if self.worker and not self.worker.done():
+            return None
+        self.worker = asyncio.create_task(self.work())
+
+    async def work(self) -> None:
+        """单 worker：严格按队列顺序发送"""
+        while True:
+            if self.stop.is_set() and self.q.empty():
+                return None
+
+            try:
+                ev = await asyncio.wait_for(self.q.get(), timeout=0.5)
+            except asyncio.TimeoutError:
+                continue
+
+            try:
+                await post_stream_event(self.cid, self.sid, ev, timeout=self.timeout)
+            except Exception as e:
+                # 上报失败：不影响主流程
+                logger.debug(
+                    f"[events] post fail: {e!r} type={ev.get('type')} seq={ev.get('seq')}"
+                )
+            finally:
+                self.q.task_done()
+
+    async def flush(self) -> None:
+        """等待队列清空（所有已 emit 的事件都发完）"""
+        await self.q.join()
+
+    async def close(self) -> None:
+        """优雅停止：先 flush，再退出 worker"""
+        await self.flush()
+        self.stop.set()
+        if self.worker:
+            await self.worker
 
 
 if __name__ == '__main__':
