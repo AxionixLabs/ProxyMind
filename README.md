@@ -719,6 +719,7 @@ global_suffix: |
 
 # name: case_002
 这里是用例正文（未写 prefix/suffix，将使用 global_prefix/global_suffix）。
+---
 ````
 
 超长文本示例：
