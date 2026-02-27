@@ -913,11 +913,6 @@ class Mind(object):
                     logger.info(f"🧪 run {r}/{repeat} items={len(items)} file={p}")
 
                     for idx, it in enumerate(items, start=1):
-                        self.stream_event = asyncio.Event()
-                        self.stream_task = asyncio.create_task(
-                            self.design.prefix_line(self.stream_event)
-                        )
-
                         if rx and not rx.search(it.name):
                             ev_report.emit({
                                 "type"   : "lifecycle",
@@ -982,6 +977,11 @@ class Mind(object):
 
                             if rule_suffix:
                                 final_msg = f"{final_msg}\n\n{rule_suffix}"
+
+                            self.stream_event = asyncio.Event()
+                            self.stream_task = asyncio.create_task(
+                                self.design.prefix_line(self.stream_event)
+                            )
 
                             try:
                                 await func(session, model, apikey, final_msg, openai_tools, domains, **kwargs)
