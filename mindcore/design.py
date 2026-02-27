@@ -981,11 +981,6 @@ class TypewriterStreamSession(object):
         if not delta or not self.live:
             return None
 
-        limit: int = 120
-
-        if len(delta) > limit:
-            delta = delta[:limit] + "...\n"
-
         final_delay = max(0.0015, self.delay * 0.65)
 
         self.out, self.delay = await Design.typewriter(
