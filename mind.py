@@ -974,6 +974,15 @@ class Mind(object):
                             if suffix:
                                 final_msg = f"{final_msg}\n{suffix}"
 
+                            rule_suffix = (it.meta.get(
+                                "rule_suffix"
+                            ) or it.meta.get(
+                                "global_rule_suffix"
+                            ) or "").strip()
+
+                            if rule_suffix:
+                                final_msg = f"{final_msg}\n\n{rule_suffix}"
+
                             try:
                                 await func(session, model, apikey, final_msg, openai_tools, domains, **kwargs)
 
