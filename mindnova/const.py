@@ -64,6 +64,7 @@ BASE_URL = r"http://127.0.0.1:3333"
 MCP_ED   = r"/helix/mcp"
 
 # ========【应用授权】========
+ATLAS_URL          = f"https://api.appserverx.com/mind-atlas"
 BOOTSTRAP_URL      = f"https://api.appserverx.com/bootstrap"
 TEMPLATE_META_URL  = f""
 BUSINESS_CASE_URL  = f""

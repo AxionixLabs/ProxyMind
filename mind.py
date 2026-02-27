@@ -873,6 +873,12 @@ class Mind(object):
                     "run"   : run,
                     "ts"    : time.time()
                 })
+
+                self.stream_event = asyncio.Event()
+                self.stream_task = asyncio.create_task(
+                    self.design.prefix_line(self.stream_event)
+                )
+
                 await func(session, model, apikey, msg, openai_tools, domains, **kwargs)
                 ev_report.emit({
                     "type"  : "lifecycle",
@@ -1098,6 +1104,9 @@ class Mind(object):
         cid = meta_in.get("cid") if isinstance(meta_in, dict) else None
         sid = meta_in.get("sid") if isinstance(meta_in, dict) else None
         kwargs["metadata"] = meta = self.begin_session(cid=cid, sid=sid)
+
+        atlas = f"{const.ATLAS_URL}?cid={meta['cid']}&sid={meta['sid']}"
+        logger.info(f"🌐 Atlas: {atlas}")
 
         ev_report: EventReport = EventReport(meta["cid"], meta["sid"])
         kwargs["ev_report"] = ev_report
