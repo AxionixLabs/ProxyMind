@@ -29,25 +29,22 @@ class Pack(object):
         """
         返回: (items, cfg)
 
-        cfg 里包含：
-          loop_prefix/loop_suffix
-          round_prefix/round_suffix
-          global_prefix/global_suffix
-
-        顶部全局配置区：第一个 '---' 之前的连续 '#...' 行
-        用例区：从第一个 '---' 之后开始，每个块一个用例
+        顶部全局配置区：一个 ```cfg ... ``` 代码块（出现一次即可；建议放文件最前）
+          - 支持 key: value
+          - 支持 key: |  多行（后续缩进块）
+          - 支持 key: <<<  多行（以 >>> 结束）
+        用例区：cfg 块之外的内容按 `---` 分隔；每块可有 # key: value 的 meta
         """
 
-        def strip_hash(char: str) -> str:
-            return char.lstrip()[1:].strip()
+        def strip_hash(line: str) -> str:
+            return line.lstrip()[1:].strip()
 
         def looks_like_key(raw: str) -> bool:
-            if ":" not in raw:
-                return False
+            if ":" not in raw: return False
             head = raw.split(":", 1)[0].strip()
             return bool(head) and all(ch.isalnum() or ch in "_-" for ch in head.lower())
 
-        def parse_meta_lines(meta_chars: list[str]) -> dict[str, str]:
+        def parse_meta_lines(meta_lines: list[str]) -> dict[str, str]:
             """
             支持：
               # key: value
@@ -55,11 +52,11 @@ class Pack(object):
               # line1
               # line2
             """
-            meta_dict: dict[str, str] = {}
-            index = 0
-            while index < len(meta_chars):
-                raw = strip_hash(meta_chars[index])
-                index += 1
+            meta: dict[str, str] = {}
+            i = 0
+            while i < len(meta_lines):
+                raw = strip_hash(meta_lines[i])
+                i += 1
                 if not raw or ":" not in raw:
                     continue
 
@@ -69,52 +66,168 @@ class Pack(object):
 
                 if val == "":
                     buf: list[str] = []
-                    while index < len(meta_chars):
-                        nxt = strip_hash(meta_chars[index])
+                    while i < len(meta_lines):
+                        nxt = strip_hash(meta_lines[i])
                         if looks_like_key(nxt):
                             break
                         buf.append(nxt)
-                        index += 1
-                    meta_dict[key] = "\n".join(buf).strip()
+                        i += 1
+                    meta[key] = "\n".join(buf).strip()
                 else:
-                    meta_dict[key] = val
-            return meta_dict
+                    meta[key] = val
+            return meta
 
-        lines = text.splitlines()
+        def dedent_block(block: list[str]) -> str:
+            """
+            删除多行块的公共缩进（类似 YAML 的 |）
+            """
+            non_blank = [ln for ln in block if ln.strip()]
+            if not non_blank:
+                return "\n".join(block).rstrip()
 
-        # ---------- 1) 解析顶部全局配置区 ----------
-        global_meta_lines: list[str] = []
-        rest_from = 0
+            def indent_len(s: str) -> int:
+                n = 0
+                for ch in s:
+                    if ch == " ":
+                        n += 1
+                    elif ch == "\t":
+                        n += 4
+                    else:
+                        break
+                return n
 
-        for idx, line in enumerate(lines):
-            if line.strip() == "---":
-                rest_from = idx + 1
-                break
+            min_indent = min(indent_len(ln) for ln in non_blank)
+            out: list[str] = []
+            for ln in block:
+                if not ln.strip():
+                    out.append("")
+                    continue
+                # 去掉 min_indent（空格/Tab 混排简单处理：按空格优先）
+                cut = min_indent
+                j = 0
+                while cut > 0 and j < len(ln):
+                    if ln[j] == " ":
+                        cut -= 1
+                        j += 1
+                    elif ln[j] == "\t":
+                        cut -= 4
+                        j += 1
+                    else:
+                        break
+                out.append(ln[j:])
+            return "\n".join(out).rstrip()
 
-            if line.lstrip().startswith("#"):
-                global_meta_lines.append(line)
-                continue
+        def parse_cfg_block(cfg_lines: list[str]) -> dict[str, str]:
+            """
+            解析 ```cfg 内部：
+              key: value
+              key: | + 缩进块
+              key: <<< ... >>>
+            """
+            config: dict[str, str] = {}
+            i = 0
+            while i < len(cfg_lines):
+                line = cfg_lines[i]
+                i += 1
 
-            if line.strip():
-                # 顶部出现正文：认为没有全局配置区
-                global_meta_lines = []
-                rest_from = 0
-                break
+                if not line.strip() or line.lstrip().startswith("#"):
+                    continue
+                if ":" not in line:
+                    continue
 
-        g = parse_meta_lines(global_meta_lines) if global_meta_lines else {}
-        cfg: dict[str, str] = {k: (g.get(k) or "").strip() for k in Pack.CFG_KEYS}
+                k, v = line.split(":", 1)
+                key = k.strip().lower()
+                val = v.strip()
 
-        # ---------- 2) 切分用例 blocks（从 rest_from 开始） ----------
+                # key: |  多行缩进块
+                if val == "|":
+                    buf: list[str] = []
+                    while i < len(cfg_lines):
+                        ln = cfg_lines[i]
+                        # 允许空行继续
+                        if ln.strip() == "":
+                            buf.append("")
+                            i += 1
+                            continue
+                        # 必须缩进（至少 1 个空格/Tab）
+                        if ln.startswith((" ", "\t")):
+                            buf.append(ln.rstrip("\n"))
+                            i += 1
+                            continue
+                        break
+                    config[key] = dedent_block(buf)
+                    continue
+
+                # key: <<< ... >>>
+                if val == "<<<":
+                    buf: list[str] = []
+                    while i < len(cfg_lines):
+                        ln = cfg_lines[i]
+                        i += 1
+                        if ln.strip() == ">>>":
+                            break
+                        buf.append(ln.rstrip("\n"))
+                    config[key] = "\n".join(buf).rstrip()
+                    continue
+
+                # key: value
+                config[key] = val.strip()
+
+            return config
+
+        def extract_cfg(lines: list[str]) -> tuple[dict[str, str], list[str]]:
+            """
+            抽取第一个 ```cfg ... ``` 块，并从正文中移除。
+            """
+            start = None
+            for idx, ln in enumerate(lines):
+                s = ln.strip()
+                if s.startswith("```") and s[3:].strip().lower() == "cfg":
+                    start = idx
+                    break
+
+            if start is None:
+                return {}, lines
+
+            end = None
+            for j in range(start + 1, len(lines)):
+                if lines[j].strip() == "```":
+                    end = j
+                    break
+
+            if end is None:
+                # cfg 块没闭合：当作没有 cfg（也可以改成 raise）
+                return {}, lines
+
+            cfg_lines = lines[start + 1 : end]
+            rest = lines[:start] + lines[end + 1 :]
+
+            config = parse_cfg_block(cfg_lines)
+            return config, rest
+
+        # ---------- 1) 拆行 + 抽 cfg ----------
+        src_lines = text.splitlines()
+        cfg_raw, body_lines = extract_cfg(src_lines)
+
+        # cfg 里至少保证 CFG_KEYS 都有（没有则空串）
+        cfg: dict[str, str] = {
+            key: (cfg_raw.get(key) or "").strip() for key in Pack.CFG_KEYS
+        }
+        # 允许额外字段（增强字段）也保留在 cfg 里
+        for key, value in cfg_raw.items():
+            if key not in cfg:
+                cfg[key] = (value or "").strip() if isinstance(value, str) else str(value)
+
+        # ---------- 2) 切分用例 blocks（用 ---） ----------
         blocks: list[list[str]] = []
         cur: list[str] = []
-
-        for line in lines[rest_from:]:
-            if line.strip() == "---":
+        for body_line in body_lines:
+            if body_line.strip() == "---":
                 if cur:
                     blocks.append(cur)
                     cur = []
                 continue
-            cur.append(line)
+            cur.append(body_line)
         if cur:
             blocks.append(cur)
 
@@ -123,6 +236,7 @@ class Pack(object):
         auto_idx = 0
 
         for b in blocks:
+            # 去掉块首尾空行
             while b and not b[0].strip():
                 b.pop(0)
             while b and not b[-1].strip():
@@ -130,24 +244,24 @@ class Pack(object):
             if not b: continue
 
             # 块头连续 # 行
-            meta_lines: list[str] = []
-            i = 0
-            while i < len(b) and b[i].lstrip().startswith("#"):
-                meta_lines.append(b[i])
-                i += 1
+            src_meta_lines: list[str] = []
+            index = 0
+            while index < len(b) and b[index].lstrip().startswith("#"):
+                src_meta_lines.append(b[index])
+                index += 1
 
-            meta = parse_meta_lines(meta_lines)
+            src_meta = parse_meta_lines(src_meta_lines)
 
-            msg = "\n".join(b[i:]).strip()
-            if not msg: continue
+            message = "\n".join(b[index:]).strip()
+            if not message: continue
 
             auto_idx += 1
-            name = (meta.get("name") or f"item_{auto_idx:03d}").strip()
+            name = (src_meta.get("name") or f"item_{auto_idx:03d}").strip()
 
             # 注入全局 cfg 到每条 meta（方便执行层 fallback）
-            meta.update(cfg)
+            src_meta.update(cfg)
 
-            items.append(PackItem(name=name, message=msg, meta=meta))
+            items.append(PackItem(name=name, message=message, meta=src_meta))
 
         return items, cfg
 
