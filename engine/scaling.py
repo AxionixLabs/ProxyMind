@@ -205,7 +205,7 @@ class Pack(object):
             config = parse_cfg_block(cfg_lines)
             return config, rest
 
-        # ---------- 1) 拆行 + 抽 cfg ----------
+        # 1) 拆行 + 抽 cfg
         src_lines = text.splitlines()
         cfg_raw, body_lines = extract_cfg(src_lines)
 
@@ -218,7 +218,7 @@ class Pack(object):
             if key not in cfg:
                 cfg[key] = (value or "").strip() if isinstance(value, str) else str(value)
 
-        # ---------- 2) 切分用例 blocks（用 ---） ----------
+        # 2) 切分用例 blocks（用 ---）
         blocks: list[list[str]] = []
         cur: list[str] = []
         for body_line in body_lines:
@@ -231,7 +231,7 @@ class Pack(object):
         if cur:
             blocks.append(cur)
 
-        # ---------- 3) 逐块解析用例 ----------
+        # 3) 逐块解析用例
         items: list[PackItem] = []
         auto_idx = 0
 
