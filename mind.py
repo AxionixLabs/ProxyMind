@@ -605,7 +605,8 @@ class Mind(object):
                         "call_id" : call_id,
                         "name"    : name,
                         "ok"      : ok,
-                        "result"  : fields,
+                        "text"    : (fields.get("text") if isinstance(fields, dict) else ""),
+                        "data"    : (fields.get("data") if isinstance(fields, dict) else None),
                         "cost_ms" : int((time.time() - t0) * 1000),
                         "ts"      : time.time()
                     })
