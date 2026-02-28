@@ -1092,10 +1092,10 @@ class Mind(object):
         sid = meta_in.get("sid") if isinstance(meta_in, dict) else None
         kwargs["metadata"] = meta = self.begin_session(cid=cid, sid=sid)
 
-        atlas = f"{const.ATLAS_URL}?cid={meta['cid']}&sid={meta['sid']}&mode={mode}"
+        atlas = f"{const.ATLAS_URL}?mode={mode}&cid={meta['cid']}&sid={meta['sid']}"
         logger.info(f"🌐 Atlas: {atlas}")
 
-        ev_report: EventReport = EventReport(meta["cid"], meta["sid"], mode)
+        ev_report: EventReport = EventReport(mode, meta["cid"], meta["sid"])
         kwargs["ev_report"] = ev_report
         await ev_report.open()
 
