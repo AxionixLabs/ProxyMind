@@ -1285,13 +1285,13 @@ async def main() -> None:
     elif file := cmd_lines.file:
         if cmd_lines.chat:
             func = mind.chat_exec_looper
-            mode = "chat"
+            mode: typing.Literal["chat"] = "chat"
         elif cmd_lines.fast:
             func = mind.fast_exec_looper
-            mode = "fast"
+            mode: typing.Literal["fast"] = "fast"
         else:
             func = mind.plan_exec_looper
-            mode = "plan"
+            mode: typing.Literal["plan"] = "plan"
 
         await mind.mind_pack(file, func, mode)
 
