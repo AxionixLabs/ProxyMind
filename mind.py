@@ -1264,10 +1264,10 @@ async def main() -> None:
     elif fast := cmd_lines.fast:
         await mind.calling(message=fast, func=mind.mind_fast)
     elif file := cmd_lines.file:
-        if cmd_lines.chat:
+        if cmd_lines.chat is not None:
             func = mind.chat_exec_looper
             mode: typing.Literal["chat"] = "chat"
-        elif cmd_lines.fast:
+        elif cmd_lines.fast is not None:
             func = mind.fast_exec_looper
             mode: typing.Literal["fast"] = "fast"
         else:
