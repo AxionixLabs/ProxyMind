@@ -302,7 +302,10 @@ class Mind(object):
     ) -> None:
         """Chat Exec Looper"""
 
+        mode: typing.Literal["chat"] = "chat"
+
         ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
+        if ev_report: ev_report.set_mode(mode)
 
         async def finish(phase: str, **extra) -> None:
             """统一收尾：先 emit，再 flush（确保返回前事件到达服务端）"""
@@ -315,8 +318,6 @@ class Mind(object):
                 **extra
             })
             await ev_report.flush()
-
-        mode: str = "chat"
 
         slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
         await slog.open()
@@ -396,21 +397,22 @@ class Mind(object):
     ) -> None:
         """Fast Exec Looper"""
 
+        mode: typing.Literal["fast"] = "fast"
+
         ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
+        if ev_report: ev_report.set_mode(mode)
 
         async def finish(phase: str, **extra) -> None:
             """统一收尾：先 emit，再 flush（确保返回前事件到达服务端）"""
             if not ev_report: return None
             ev_report.emit({
                 "type"  : "lifecycle",
-                "scope" : "chat",
+                "scope" : "fast",
                 "phase" : phase,
                 "ts"    : time.time(),
                 **extra
             })
             await ev_report.flush()
-
-        mode: str = "fast"
 
         slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
         await slog.open()
@@ -490,12 +492,13 @@ class Mind(object):
     ) -> None:
         """Plan Exec Looper"""
 
+        mode: typing.Literal["plan"] = "plan"
+
         ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
+        if ev_report: ev_report.set_mode(mode)
 
         def emit(ev: dict[str, typing.Any]) -> None:
             if ev_report: ev_report.emit(ev)
-
-        mode: str = "plan"
 
         filter_tools = Tooling.filter_tools(
             openai_tools=openai_tools,
