@@ -275,7 +275,7 @@ class EventReport(object):
         self,
         cid: str,
         sid: str,
-        mode: typing.Optional[typing.Literal["chat", "fast", "plan"]] = None
+        mode: typing.Literal["chat", "fast", "plan"]
     ):
         self.cid = cid
         self.sid = sid
@@ -289,9 +289,6 @@ class EventReport(object):
 
         self.stop = asyncio.Event()
         self.worker: typing.Optional[asyncio.Task] = None
-
-    def set_mode(self, mode: typing.Literal["chat", "fast", "plan"]) -> None:
-        self.mode = mode
 
     def emit(self, event: dict[str, typing.Any]) -> None:
         """
@@ -307,9 +304,7 @@ class EventReport(object):
             ev["sid"] = self.sid
             ev["seq"] = self.seq
 
-            # 自动注入 mode：事件里没写就用当前 mode
-            if "mode" not in ev and self.mode:
-                ev["mode"] = self.mode
+            ev["mode"] = self.mode
 
             self.q.put_nowait(ev)
         except asyncio.QueueFull:
