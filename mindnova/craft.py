@@ -7,6 +7,7 @@
 
 import time
 import uuid
+import base64
 
 
 def b36(n: int) -> str:
@@ -31,6 +32,16 @@ def new_sid(cid: str, prefix: str = "sid") -> str:
     ts_ms = b36(int(time.time() * 1000))
     rand = uuid.uuid4().hex[:6]
     return f"{prefix}_{cid.split('_', 2)[1]}_{ts_ms}_{rand}"
+
+
+def short_uid(length: int = 8) -> str:
+    raw = uuid.uuid4().bytes
+    return (
+        base64.b32encode(raw)
+        .decode("utf-8")
+        .rstrip("=")
+        .lower()[:length]
+    )
 
 
 if __name__ == '__main__':
