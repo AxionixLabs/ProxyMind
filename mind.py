@@ -494,7 +494,19 @@ class Mind(object):
         ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
         def emit(ev: dict[str, typing.Any]) -> None:
-            if ev_report: ev_report.emit(ev)
+            if ev_report:
+                ev_report.emit(ev)
+
+        async def finish(phase: str, **extra) -> None:
+            if not ev_report: return None
+            ev_report.emit({
+                "type"  : "lifecycle",
+                "scope" : "plan",
+                "phase" : phase,
+                "ts"    : time.time(),
+                **extra
+            })
+            await ev_report.flush()
 
         filter_tools = Tooling.filter_tools(
             openai_tools=openai_tools,
@@ -516,13 +528,7 @@ class Mind(object):
         async for plan in request.stream_plan(mode, model, apikey, message, filter_tools, extras, **kwargs):
             await self.stop_stream_anim()
             if plan.get("type") == "error":
-                emit({
-                    "type"  : "lifecycle",
-                    "scope" : "plan",
-                    "phase" : "fail",
-                    "error" : json.dumps(plan, ensure_ascii=False),
-                    "ts"    : time.time()
-                })
+                await finish("fail", error=json.dumps(plan, ensure_ascii=False))
                 return logger.error(plan)
 
             steps, loop_count, reasoning = plan["steps"], plan["loop_count"], plan["reasoning"]
@@ -565,17 +571,7 @@ class Mind(object):
 
                     if Tooling.require(domains, name, name_not_in={"refresh"}):
                         if error := await self.wakeup(session):
-                            emit({
-                                "type"  : "lifecycle",
-                                "scope" : "step",
-                                "phase" : "fail",
-                                "run"   : index,
-                                "index" : step_idx,
-                                "total" : len(steps),
-                                "name"  : name,
-                                "error" : str(error),
-                                "ts"    : time.time()
-                            })
+                            await finish("fail", error=str(error), run=index, index=step_idx, name=name)
                             return logger.error(error)
 
                     logger.info(f"{name} -> args={arguments}")
@@ -596,18 +592,8 @@ class Mind(object):
 
                     data_ok = bool((fields or {}).get("data", {}).get("ok"))
                     if not ok or not data_ok:
-                        emit({
-                            "type"    : "lifecycle",
-                            "scope"   : "step",
-                            "phase"   : "fail",
-                            "run"     : index,
-                            "index"   : step_idx,
-                            "total"   : len(steps),
-                            "name"    : name,
-                            "cost_ms" : int((time.time() - t0) * 1000),
-                            "error"   : (fields.get("text") if isinstance(fields, dict) else "step failed"),
-                            "ts"      : time.time()
-                        })
+                        brief_err = (fields.get("text") if isinstance(fields, dict) else "step failed")
+                        await finish("fail", run=index, index=step_idx, name=name, error=brief_err)
                         return logger.error(fields)
 
                     logger.info(fields.get("text"))
@@ -634,12 +620,7 @@ class Mind(object):
 
                 if index != loop_count: self.task_info.clear()
 
-            return emit({
-                "type"  : "lifecycle",
-                "scope" : "plan",
-                "phase" : "done",
-                "ts"    : time.time()
-            })
+            await finish("done")
 
     # Notes: ==== Chat 对话模式 ====
     async def mind_chat(self, model: str, apikey: str, message: str, *_, **kwargs) -> None:
