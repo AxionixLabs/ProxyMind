@@ -271,9 +271,16 @@ async def stream_heal(
 class EventReport(object):
     """事件上报器（Strong Ordering）"""
 
-    def __init__(self, cid: str, sid: str):
+    def __init__(
+        self,
+        cid: str,
+        sid: str,
+        mode: typing.Optional[typing.Literal["chat", "fast", "plan"]] = None
+    ):
         self.cid = cid
         self.sid = sid
+
+        self.mode = mode
 
         self.timeout: float = 30.0
 
@@ -296,6 +303,10 @@ class EventReport(object):
             ev["cid"] = self.cid
             ev["sid"] = self.sid
             ev["seq"] = self.seq
+
+            # 自动注入 mode：事件里没写就用当前 mode
+            if "mode" not in ev and self.mode:
+                ev["mode"] = self.mode
 
             self.q.put_nowait(ev)
         except asyncio.QueueFull:
