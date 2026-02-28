@@ -273,14 +273,14 @@ class EventReport(object):
 
     def __init__(
         self,
+        mode: typing.Literal["chat", "fast", "plan"],
         cid: str,
-        sid: str,
-        mode: typing.Literal["chat", "fast", "plan"]
+        sid: str
     ):
+        self.mode = mode
+        
         self.cid = cid
         self.sid = sid
-
-        self.mode = mode
 
         self.timeout: float = 30.0
 
@@ -300,11 +300,11 @@ class EventReport(object):
             self.seq += 1
             ev = dict(event or {})
             ev.setdefault("ts", time.time())
+            ev["mode"] = self.mode
+            
             ev["cid"] = self.cid
             ev["sid"] = self.sid
             ev["seq"] = self.seq
-
-            ev["mode"] = self.mode
 
             self.q.put_nowait(ev)
         except asyncio.QueueFull:
