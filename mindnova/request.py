@@ -290,6 +290,9 @@ class EventReport(object):
         self.stop = asyncio.Event()
         self.worker: typing.Optional[asyncio.Task] = None
 
+    def set_mode(self, mode: typing.Literal["chat", "fast", "plan"]) -> None:
+        self.mode = mode
+
     def emit(self, event: dict[str, typing.Any]) -> None:
         """
         非阻塞投递事件。
