@@ -850,7 +850,14 @@ class Mind(object):
             )
 
     # Notes: ==== Pack 批量模式 ====
-    async def mind_pack(self, file: str, func: typing.Callable, mode: str, *_, **kwargs) -> None:
+    async def mind_pack(
+        self, 
+        file: str, 
+        func: typing.Callable, 
+        mode: typing.Literal["chat", "fast", "plan"], 
+        *_, 
+        **kwargs
+    ) -> None:
         """Mind Pack"""
 
         async def function(
