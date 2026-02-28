@@ -580,6 +580,16 @@ class Mind(object):
                     dst = {"local": str(Path(self.report.cap_path) / "screenshot.png")}
                     arguments = Enhancer.exchange(name, arguments, dst)
 
+                    call_id = craft.short_uid()
+
+                    emit({
+                        "type"      : "tool_call",
+                        "call_id"   : call_id,
+                        "name"      : name,
+                        "arguments" : arguments,
+                        "ts"        : time.time()
+                    })
+
                     t0 = time.time()
 
                     # workflow: ==== 工具调用 ====
@@ -589,6 +599,16 @@ class Mind(object):
                     # workflow: ==== 工具增强 ====
                     enhancer: Enhancer = Enhancer(session, model, apikey)
                     fields = await enhancer.enhance(name, arguments, result, ok)
+
+                    emit({
+                        "type"    : "tool_result",
+                        "call_id" : call_id,
+                        "name"    : name,
+                        "ok"      : ok,
+                        "result"  : fields,
+                        "cost_ms" : int((time.time() - t0) * 1000),
+                        "ts"      : time.time()
+                    })
 
                     data_ok = bool((fields or {}).get("data", {}).get("ok"))
                     if not ok or not data_ok:
