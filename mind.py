@@ -302,10 +302,9 @@ class Mind(object):
     ) -> None:
         """Chat Exec Looper"""
 
-        mode: typing.Literal["chat"] = "chat"
+        mode: str = "chat"
 
         ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
-        if ev_report: ev_report.set_mode(mode)
 
         async def finish(phase: str, **extra) -> None:
             """统一收尾：先 emit，再 flush（确保返回前事件到达服务端）"""
@@ -397,10 +396,9 @@ class Mind(object):
     ) -> None:
         """Fast Exec Looper"""
 
-        mode: typing.Literal["fast"] = "fast"
+        mode: str = "fast"
 
         ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
-        if ev_report: ev_report.set_mode(mode)
 
         async def finish(phase: str, **extra) -> None:
             """统一收尾：先 emit，再 flush（确保返回前事件到达服务端）"""
@@ -492,10 +490,8 @@ class Mind(object):
     ) -> None:
         """Plan Exec Looper"""
 
-        mode: typing.Literal["plan"] = "plan"
-
+        mode: str = "plan"
         ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
-        if ev_report: ev_report.set_mode(mode)
 
         def emit(ev: dict[str, typing.Any]) -> None:
             if ev_report: ev_report.emit(ev)
@@ -854,7 +850,7 @@ class Mind(object):
             )
 
     # Notes: ==== Pack 批量模式 ====
-    async def mind_pack(self, file: str, func: typing.Callable, *_, **kwargs) -> None:
+    async def mind_pack(self, file: str, func: typing.Callable, mode: str, *_, **kwargs) -> None:
         """Mind Pack"""
 
         async def function(
@@ -1108,10 +1104,10 @@ class Mind(object):
         sid = meta_in.get("sid") if isinstance(meta_in, dict) else None
         kwargs["metadata"] = meta = self.begin_session(cid=cid, sid=sid)
 
-        atlas = f"{const.ATLAS_URL}?cid={meta['cid']}&sid={meta['sid']}"
+        atlas = f"{const.ATLAS_URL}?cid={meta['cid']}&sid={meta['sid']}&mode={mode}"
         logger.info(f"🌐 Atlas: {atlas}")
 
-        ev_report: EventReport = EventReport(meta["cid"], meta["sid"])
+        ev_report: EventReport = EventReport(meta["cid"], meta["sid"], mode)
         kwargs["ev_report"] = ev_report
         await ev_report.open()
 
@@ -1280,13 +1276,17 @@ async def main() -> None:
     elif fast := cmd_lines.fast:
         await mind.calling(message=fast, func=mind.mind_fast)
     elif file := cmd_lines.file:
-        func = (
-            mind.chat_exec_looper if cmd_lines.chat is not None else
-            mind.fast_exec_looper if cmd_lines.fast is not None else
-            mind.plan_exec_looper
-        )
+        if cmd_lines.chat:
+            func = mind.chat_exec_looper
+            mode = "chat"
+        elif cmd_lines.fast:
+            func = mind.fast_exec_looper
+            mode = "fast"
+        else:
+            func = mind.plan_exec_looper
+            mode = "plan"
 
-        await mind.mind_pack(file, func)
+        await mind.mind_pack(file, func, mode)
 
     else:
         await mind.mind_loop()
