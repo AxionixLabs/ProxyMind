@@ -27,8 +27,8 @@ from backend.mcp_hub.hub_widget import Widget
 from backend.utilities import const
 
 
-class Device(object):
-    """Device class."""
+class _Phone(object):
+    """_Phone class."""
 
     def __init__(self, serial: str):
         self.serial = serial
@@ -47,15 +47,6 @@ class Device(object):
 
         self.debuggable : typing.Optional[bool] = None
         self.secure     : typing.Optional[bool] = None
-
-    def __str__(self):
-        return (
-            f"<Device {self.brand} {self.model} "
-            f"serial={self.serial} version={self.version} hardware={self.hardware} sdk={self.sdk} abi={self.abi} "
-            f"locale={self.locale} timezone={self.timezone} debuggable={self.debuggable} secure={self.secure}>"
-        )
-
-    __repr__ = __str__
 
     @property
     def prefix(self) -> list[str]:
@@ -142,27 +133,6 @@ class Device(object):
             "semantic_kv"    : semantic_kv,
             "semantic_brief" : semantic_brief
         }
-
-    # workflow: ==== Info Control MCP Tool ====
-    async def device_snapshot(self) -> typing.Union[dict, str]:
-        """采集并返回该设备当前字符串摘要。"""
-        battery     = await self.st_battery()
-        wm_size     = await self.st_wm_size()
-        online      = await self.is_online()
-        emulator    = await self.is_emulator()
-        screen_lock = await self.is_screen_lock()
-        screen_on   = await self.is_screen_on()
-
-        information = self.device_info | {
-            "battery"     : battery,
-            "wm_size"     : {"w": wm_size[0], "h": wm_size[1]} if wm_size else None,
-            "online"      : online,
-            "emulator"    : emulator,
-            "screen_lock" : screen_lock,
-            "screen_on"   : screen_on
-        }
-
-        return self.device_semantics(information)["semantic_brief"]
 
     # workflow: ==== Info ====
     async def st_load_info(self) -> None:
@@ -254,6 +224,198 @@ class Device(object):
         ]
         return "true" in await Terminal.cmd_line(cmd)
 
+    # workflow: ==== Keyevent ====
+    async def key_event(self, keycode: int, longpress: bool = False) -> typing.Any:
+        """向设备发送 Android 系统按键事件（支持普通按键与长按）。"""
+        cmd = self.prefix + [
+            "shell", "input", "keyevent"
+        ]
+        if longpress: cmd += ["--longpress"]
+        cmd += [str(keycode)]
+
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== System ====
+    async def screen_set(self, on: bool, settle: float = 0.2) -> None:
+        """统一控制屏幕电源态。"""
+        if on == await self.is_screen_on():
+            return None
+
+        await self.key_event(26)
+        await asyncio.sleep(settle)
+
+    # workflow: ==== System ====
+    async def bluetooth_set(self, status: typing.Literal["enable", "disable"]) -> typing.Any:
+        """控制蓝牙状态。"""
+        cmd = self.prefix + [
+            "shell", "svc", "bluetooth", status
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== System ====
+    async def wifi_set(self, status: typing.Literal["enable", "disable"]) -> typing.Any:
+        """控制 WiFi 状态。"""
+        cmd = self.prefix + [
+            "shell", "svc", "wifi", status
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== System ====
+    async def data_set(self, status: typing.Literal["enable", "disable"]) -> typing.Any:
+        """控制移动数据状态。"""
+        cmd = self.prefix + [
+            "shell", "svc", "data", status
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== APP ====
+    async def wait_foreground(
+        self,
+        package: str,
+        wait_s: float,
+        poll: float,
+        stable_hits: int
+    ) -> tuple[bool, dict[str, typing.Any], int]:
+        """等待指定 package 进入前台（稳定命中 stable_hits 次）。"""
+        hit = 0
+        last_focus: dict[str, typing.Any] = {"package": None, "activity": None, "raw": ""}
+
+        deadline = time.time() + float(wait_s)
+        while time.time() < deadline:
+            current_package, current_activity, raw = await self.focus()
+            last_focus = {"package": current_package, "activity": current_activity, "raw": raw}
+
+            if current_package == package:
+                hit += 1
+                if hit >= int(stable_hits):
+                    return True, last_focus, hit
+            else:
+                hit = 0
+
+            await asyncio.sleep(float(poll))
+
+        return False, last_focus, hit
+
+    # workflow: ==== UI ====
+    async def focus(self) -> tuple[typing.Optional[str], typing.Optional[str], str]:
+        """获取当前前台焦点信息（package / activity / raw）。"""
+        cmd = self.prefix + [
+            "shell", "dumpsys", "window", "|", "grep", "mCurrentFocus"
+        ]
+
+        if not (resp := await Terminal.cmd_line(cmd)):
+            return None, None, ""
+
+        raw: str = str(resp).strip()
+
+        package: typing.Optional[str]  = None
+        activity: typing.Optional[str] = None
+
+        # 1) 优先：package/activity（component）
+        if m := re.search(r"([a-zA-Z0-9._]+/[a-zA-Z0-9._$]+)", raw):
+            activity = m.group(1)
+            package = activity.split("/", 1)[0]
+        else:
+            # 2) 退化：u0 com.xxx.app ...
+            if m := re.search(r"\bu\d+\s+([a-zA-Z0-9._]+)\b", raw):
+                package = m.group(1)
+
+        return package, activity, raw
+
+    # workflow: ==== UI ====
+    @staticmethod
+    def similarity(img_path1: str, img_path2: str) -> float:
+        """0~1：越大越相似（基于灰度 + downscale + 加权MSE，含轻微裁剪增强）。"""
+        def prepare(path: str) -> np.ndarray:
+            with Image.open(path) as im:
+                im = im.convert("L")
+                width, height = im.size
+
+                # 裁剪边缘，减少状态栏/导航栏/吸顶影响
+                left   = int(width * crop_left)
+                right  = int(width * (1.0 - crop_right))
+                top    = int(height * crop_top)
+                bottom = int(height * (1.0 - crop_bottom))
+
+                # 兜底：裁剪不能把图裁没
+                if (right - left) >= 4 and (bottom - top) >= 4:
+                    im = im.crop((left, top, right, bottom))
+
+                # 再缩放到固定大小
+                im = im.resize(size)
+
+                return np.asarray(im, dtype=np.float32)
+
+        size: tuple[int, int] = (96, 96)
+
+        # 裁剪比例：去掉顶部/底部固定栏（默认较温和，可按实际 UI 调）
+        crop_top: float    = 0.15
+        crop_bottom: float = 0.12
+        crop_left: float   = 0.00
+        crop_right: float  = 0.00
+
+        # 中心权重：越大越强调中心（1.0=无权重）
+        center_weight: float = 1.8
+
+        a1 = prepare(img_path1)
+        a2 = prepare(img_path2)
+
+        # 中心加权（边缘权重低一点，中心权重高一点）
+        h, w = a1.shape
+        yy, xx = np.mgrid[0:h, 0:w]
+        cy, cx = max(1e-6, (h - 1) / 2.0), max(1e-6, (w - 1) / 2.0)
+
+        # 归一化半径：中心0，边缘~1
+        r = np.sqrt(((yy - cy) / cy) ** 2 + ((xx - cx) / cx) ** 2)
+        r = np.clip(r, 0.0, 1.0)
+
+        # 权重：中心 = center_weight，边缘 = 1.0（平滑过渡）
+        weights = 1.0 + (center_weight - 1.0) * (1.0 - r) ** 2
+
+        diff = a1 - a2
+        mse = float(np.sum((diff * diff) * weights)) / float(np.sum(weights))
+
+        # 归一化：像素范围 0~255，最大 MSE=255^2
+        sim = 1.0 - min(1.0, mse / (255.0 * 255.0))
+        return float(sim)
+
+
+class Device(_Phone):
+    """Device class."""
+
+    def __init__(self, serial: str):
+        super().__init__(serial)
+
+    def __str__(self):
+        return (
+            f"<Device {self.brand} {self.model} "
+            f"serial={self.serial} version={self.version} hardware={self.hardware} sdk={self.sdk} abi={self.abi} "
+            f"locale={self.locale} timezone={self.timezone} debuggable={self.debuggable} secure={self.secure}>"
+        )
+
+    __repr__ = __str__
+
+    # workflow: ==== Info Control MCP Tool ====
+    async def device_snapshot(self) -> typing.Union[dict, str]:
+        """采集并返回该设备当前字符串摘要。"""
+        battery     = await self.st_battery()
+        wm_size     = await self.st_wm_size()
+        online      = await self.is_online()
+        emulator    = await self.is_emulator()
+        screen_lock = await self.is_screen_lock()
+        screen_on   = await self.is_screen_on()
+
+        information = self.device_info | {
+            "battery"     : battery,
+            "wm_size"     : {"w": wm_size[0], "h": wm_size[1]} if wm_size else None,
+            "online"      : online,
+            "emulator"    : emulator,
+            "screen_lock" : screen_lock,
+            "screen_on"   : screen_on
+        }
+
+        return self.device_semantics(information)["semantic_brief"]
+
     # workflow: ==== App Control MCP Tool ====
     async def app_deep_link(self, url: str) -> typing.Any:
         """通过深度链接启动指定的应用服务。"""
@@ -326,6 +488,122 @@ class Device(object):
             "shell", "pm", "clear", package
         ]
         return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== App Control MCP Tool ====
+    async def app_foreground(
+        self,
+        package: str,
+        activity: typing.Optional[str] = None
+    ) -> dict[str, typing.Any]:
+        """确保应用在前台。"""
+
+        attachments: list[dict[str, typing.Any]] = []
+        logs: list[str] = []
+
+        t0 = time.time()
+
+        poll: float = 0.25
+
+        quick_wait: float = 0.8
+        quick_hits: int   = 1
+
+        first_wait: float = 8.0
+        first_hits: int   = 2
+
+        retry_wait: float = 5.0
+        retry_hits: int   = 2
+
+        # 快速检查
+        ok0, focus0, hit0 = await self.wait_foreground(package, quick_wait, poll, quick_hits)
+        if ok0:
+            return {
+                "text"        : "应用已在前台，无需拉起。",
+                "attachments" : attachments,
+                "data": {
+                    "ok"          : True,
+                    "stage"       : "already",
+                    "package"     : package,
+                    "activity"    : activity,
+                    "focus"       : focus0,
+                    "stable_hits" : hit0,
+                    "cost_ms"     : int((time.time() - t0) * 1000)
+                },
+                "logs": logs
+            }
+
+        # 首次拉起
+        start_out_1 = await self.app_start(package, activity)
+
+        ok1, focus1, hit1 = await self.wait_foreground(package, first_wait, poll, first_hits)
+        if ok1:
+            return {
+                "text"        : "应用已成功进入前台。",
+                "attachments" : attachments,
+                "data": {
+                    "ok"                   : True,
+                    "stage"                : "start",
+                    "package"              : package,
+                    "activity"             : activity,
+                    "start_out"            : start_out_1,
+                    "focus"                : focus1,
+                    "stable_hits"          : hit1,
+                    "timeout"              : first_wait,
+                    "poll"                 : poll,
+                    "stable_hits_required" : first_hits,
+                    "cost_ms"              : int((time.time() - t0) * 1000)
+                },
+                "logs": logs
+            }
+
+        # 默认重试一次
+        stop_out = await self.app_stop(package)
+        start_out_2 = await self.app_start(package, activity)
+
+        ok2, focus2, hit2 = await self.wait_foreground(package, retry_wait, poll, retry_hits)
+        if ok2:
+            return {
+                "text"        : "首次拉起未命中前台，重试后已进入前台。",
+                "attachments" : attachments,
+                "data": {
+                    "ok"                   : True,
+                    "stage"                : "retry",
+                    "package"              : package,
+                    "activity"             : activity,
+                    "start_out"            : start_out_1,
+                    "stop_out"             : stop_out,
+                    "start_out_retry"      : start_out_2,
+                    "focus"                : focus2,
+                    "stable_hits"          : hit2,
+                    "timeout"              : first_wait,
+                    "retry_timeout"        : retry_wait,
+                    "poll"                 : poll,
+                    "stable_hits_required" : first_hits,
+                    "cost_ms"              : int((time.time() - t0) * 1000)
+                },
+                "logs": logs
+            }
+
+        return {
+            "text"        : "拉起应用超时（已重试一次仍失败）。",
+            "attachments" : attachments,
+            "data": {
+                "ok"                   : False,
+                "stage"                : "retry_timeout",
+                "package"              : package,
+                "activity"             : activity,
+                "start_out"            : start_out_1,
+                "stop_out"             : stop_out,
+                "start_out_retry"      : start_out_2,
+                "last_focus"           : focus2,
+                "stable_hits_last"     : hit2,
+                "timeout"              : first_wait,
+                "retry_timeout"        : retry_wait,
+                "poll"                 : poll,
+                "stable_hits_required" : retry_hits,
+                "cost_ms"              : int((time.time() - t0) * 1000)
+            },
+            "logs": logs
+        }
 
     # workflow: ==== File Control MCP Tool ====
     async def file_pull(self, remote: str, local: str) -> str:
@@ -571,17 +849,6 @@ class Device(object):
             "logs": []
         }
 
-    # workflow: ==== Keyevent ====
-    async def key_event(self, keycode: int, longpress: bool = False) -> typing.Any:
-        """向设备发送 Android 系统按键事件（支持普通按键与长按）。"""
-        cmd = self.prefix + [
-            "shell", "input", "keyevent"
-        ]
-        if longpress: cmd += ["--longpress"]
-        cmd += [str(keycode)]
-
-        return await Terminal.cmd_line(cmd)
-
     # workflow: ==== System Control MCP Tool ====
     async def open_notification(self) -> typing.Any:
         """打开通知栏（Notification Panel）。"""
@@ -693,39 +960,6 @@ class Device(object):
         await self.swipe(x, y1, x, y2, 1000)
         await asyncio.sleep(0.2)
 
-    # workflow: ==== System ====
-    async def screen_set(self, on: bool, settle: float = 0.2) -> None:
-        """统一控制屏幕电源态。"""
-        if on == await self.is_screen_on():
-            return None
-
-        await self.key_event(26)
-        await asyncio.sleep(settle)
-
-    # workflow: ==== System ====
-    async def bluetooth_set(self, status: typing.Literal["enable", "disable"]) -> typing.Any:
-        """控制蓝牙状态。"""
-        cmd = self.prefix + [
-            "shell", "svc", "bluetooth", status
-        ]
-        return await Terminal.cmd_line(cmd)
-
-    # workflow: ==== System ====
-    async def wifi_set(self, status: typing.Literal["enable", "disable"]) -> typing.Any:
-        """控制 WiFi 状态。"""
-        cmd = self.prefix + [
-            "shell", "svc", "wifi", status
-        ]
-        return await Terminal.cmd_line(cmd)
-
-    # workflow: ==== System ====
-    async def data_set(self, status: typing.Literal["enable", "disable"]) -> typing.Any:
-        """控制移动数据状态。"""
-        cmd = self.prefix + [
-            "shell", "svc", "data", status
-        ]
-        return await Terminal.cmd_line(cmd)
-
     # workflow: ==== UI Interaction MCP Tool ====
     async def swipe(self, x1: int, y1: int, x2: int, y2: int, duration: int = 300) -> typing.Any:
         """从起点滑动到终点。"""
@@ -801,9 +1035,7 @@ class Device(object):
         max_swipes: int = 12,
         should_click: bool = False
     ) -> dict[str, typing.Any]:
-        """
-        把元素“滚到可见”。可选滚到后点击。
-        """
+        """把元素“滚到可见”。可选滚到后点击。"""
         resp = await self.scroll_until(
             by, value, match, ignore_case, direction, timeout=timeout, max_swipes=max_swipes
         )
@@ -980,39 +1212,7 @@ class Device(object):
     # workflow: ==== UI Interaction MCP Tool ====
     async def current_focus(self) -> dict[str, typing.Any]:
         """获取当前前台焦点信息（package / activity / raw）。"""
-        cmd = self.prefix + [
-            "shell", "dumpsys", "window", "|", "grep", "mCurrentFocus"
-        ]
-
-        if not (resp := await Terminal.cmd_line(cmd)):
-            return {
-                "text"        : "获取当前 Focus 失败：dumpsys/grep 无输出",
-                "attachments" : [],
-                "data": {
-                    "ok"       : False,
-                    "stage"    : "dumpsys_window",
-                    "reason"   : "empty_output",
-                    "package"  : None,
-                    "activity" : None,
-                    "raw"      : None,
-                    "cmd"      : cmd
-                },
-                "logs": []
-            }
-
-        raw: str = str(resp).strip()
-
-        package: typing.Optional[str]  = None
-        activity: typing.Optional[str] = None
-
-        # 1) 优先：package/activity（component）
-        if m := re.search(r"([a-zA-Z0-9._]+/[a-zA-Z0-9._$]+)", raw):
-            activity = m.group(1)
-            package = activity.split("/", 1)[0]
-        else:
-            # 2) 退化：u0 com.xxx.app ...
-            if m := re.search(r"\bu\d+\s+([a-zA-Z0-9._]+)\b", raw):
-                package = m.group(1)
+        package, activity, raw = await self.focus()
 
         ok = bool(package or activity)
 
@@ -1025,8 +1225,7 @@ class Device(object):
                 "reason"   : None if ok else "parse_failed",
                 "package"  : package,
                 "activity" : activity,
-                "raw"      : raw,
-                "cmd"      : cmd
+                "raw"      : raw
             },
             "logs": []
         }
@@ -1217,7 +1416,7 @@ class Device(object):
             await asyncio.sleep(0.25)
 
     # workflow: ==== UI ====
-    async def current_xml(self) -> str | None:
+    async def current_xml(self) -> typing.Optional[str]:
         """导出当前 UI 层级 XML。"""
         xml_file = "/data/local/tmp/window_dump.xml"
 
@@ -1355,7 +1554,7 @@ class Device(object):
                 await asyncio.sleep(settle_ms / 1000)
 
                 cur = await self.screenshot(cur_path)
-                last_sim = float(self.image_similarity(prev, cur))
+                last_sim = float(self.similarity(prev, cur))
 
                 # 防抖：累计连续“几乎不变”的次数
                 if last_sim >= similarity_threshold:
@@ -1572,7 +1771,7 @@ class Device(object):
                 if stop_on_stable and prev_ok:
                     try:
                         cur_path = await self.screenshot(cur_path)
-                        sim      = float(self.image_similarity(prev_path, cur_path))
+                        sim      = float(self.similarity(prev_path, cur_path))
                         last_sim = sim
 
                         stable_hits = stable_hits + 1 if sim >= float(similarity_threshold) else 0
@@ -1694,63 +1893,6 @@ class Device(object):
             if ok: return widget
 
         return None
-
-    # workflow: ==== UI ====
-    @staticmethod
-    def image_similarity(img_path1: str, img_path2: str) -> float:
-        """0~1：越大越相似（基于灰度 + downscale + 加权MSE，含轻微裁剪增强）。"""
-        size: tuple[int, int] = (96, 96)
-
-        # 裁剪比例：去掉顶部/底部固定栏（默认较温和，可按实际 UI 调）
-        crop_top: float    = 0.15
-        crop_bottom: float = 0.12
-        crop_left: float   = 0.00
-        crop_right: float  = 0.00
-
-        # 中心权重：越大越强调中心（1.0=无权重）
-        center_weight: float = 1.8
-
-        def prepare(path: str) -> np.ndarray:
-            with Image.open(path) as im:
-                im = im.convert("L")
-                width, height = im.size
-
-                # 裁剪边缘，减少状态栏/导航栏/吸顶影响
-                left   = int(width * crop_left)
-                right  = int(width * (1.0 - crop_right))
-                top    = int(height * crop_top)
-                bottom = int(height * (1.0 - crop_bottom))
-
-                # 兜底：裁剪不能把图裁没
-                if (right - left) >= 4 and (bottom - top) >= 4:
-                    im = im.crop((left, top, right, bottom))
-
-                # 再缩放到固定大小
-                im = im.resize(size)
-
-                return np.asarray(im, dtype=np.float32)
-
-        a1 = prepare(img_path1)
-        a2 = prepare(img_path2)
-
-        # 中心加权（边缘权重低一点，中心权重高一点）
-        h, w = a1.shape
-        yy, xx = np.mgrid[0:h, 0:w]
-        cy, cx = max(1e-6, (h - 1) / 2.0), max(1e-6, (w - 1) / 2.0)
-
-        # 归一化半径：中心0，边缘~1
-        r = np.sqrt(((yy - cy) / cy) ** 2 + ((xx - cx) / cx) ** 2)
-        r = np.clip(r, 0.0, 1.0)
-
-        # 权重：中心 = center_weight，边缘 = 1.0（平滑过渡）
-        weights = 1.0 + (center_weight - 1.0) * (1.0 - r) ** 2
-
-        diff = a1 - a2
-        mse = float(np.sum((diff * diff) * weights)) / float(np.sum(weights))
-
-        # 归一化：像素范围 0~255，最大 MSE=255^2
-        sim = 1.0 - min(1.0, mse / (255.0 * 255.0))
-        return float(sim)
 
 
 if __name__ == '__main__':

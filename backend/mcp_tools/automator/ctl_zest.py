@@ -31,7 +31,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         """
 
         args = {
-            "ttl_sec": ttl_sec
+            "ttl_sec" : ttl_sec
         }
 
         async def call(*_) -> dict:

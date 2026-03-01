@@ -77,8 +77,8 @@ class Mind(object):
         self.plan_event: typing.Optional[asyncio.Event] = None
         self.plan_task: typing.Optional[asyncio.Task] = None
 
-        self.last_refresh_ts = 0.0
-        self.ttl_sec         = 1.0
+        self.last_refresh_ts: float = 0.0
+        self.ttl_sec: float         = 1.0
 
         self.sse: typing.Callable[
             [dict], str
@@ -125,6 +125,7 @@ class Mind(object):
 
     @staticmethod
     def ensure_model_key(model: str, apikey: str) -> None:
+        """Ensure Model Key"""
         if model and apikey:
             return None
 
@@ -149,9 +150,7 @@ class Mind(object):
             openai_tools.append({
                 "type": "function",
                 "function": {
-                    "name": tool.name,
-                    "description" : tool.description,
-                    "parameters"  : tool.inputSchema
+                    "name": tool.name, "description": tool.description, "parameters": tool.inputSchema
                 }
             })
 
@@ -853,14 +852,66 @@ class Mind(object):
 
     # Notes: ==== Pack 批量模式 ====
     async def mind_pack(
-        self, 
-        file: str, 
-        func: typing.Callable, 
-        mode: typing.Literal["chat", "fast", "plan"], 
-        *_, 
+        self,
+        file: str,
+        func: typing.Callable,
+        mode: typing.Literal["chat", "fast", "plan"],
+        *_,
         **kwargs
     ) -> None:
         """Mind Pack"""
+
+        async def virtual(
+            session: ClientSession,
+            openai_tools: list[dict[str, typing.Any]],
+            domains: dict[str, dict[str, typing.Any]],
+            name: str,
+            msg: str,
+            run: typing.Optional[int] = None
+        ) -> None:
+            """Virtual"""
+            if not msg.strip(): return None
+            logger.info(f"🧩 {name} file={p}")
+
+            ev_report.emit({
+                "type"  : "lifecycle",
+                "scope" : "virtual",
+                "phase" : "start",
+                "name"  : name,
+                "run"   : run,
+                "ts"    : time.time()
+            })
+
+            self.stream_event = asyncio.Event()
+            self.stream_task = asyncio.create_task(
+                self.design.prefix_line(self.stream_event)
+            )
+
+            try:
+                await func(session, model, apikey, msg, openai_tools, domains, **kwargs)
+            except BaseException as exc:
+                error = Pack.brief_err(exc)
+                await self.stop_all_anim()
+                ev_report.emit({
+                    "type"  : "lifecycle",
+                    "scope" : "virtual",
+                    "phase" : "fail",
+                    "total" : len(items),
+                    "error" : error,
+                    "name"  : name,
+                    "run"   : run,
+                    "ts"    : time.time()
+                })
+                logger.error(f"❌ virtual failed: {name} err={error}\n")
+
+            ev_report.emit({
+                "type"  : "lifecycle",
+                "scope" : "virtual",
+                "phase" : "done",
+                "name"  : name,
+                "run"   : run,
+                "ts"    : time.time()
+            })
 
         async def function(
             session: ClientSession,
@@ -868,35 +919,6 @@ class Mind(object):
             domains: dict[str, dict[str, typing.Any]]
         ) -> None:
             """Function"""
-
-            async def virtual(name: str, msg: str, run: typing.Optional[int] = None) -> None:
-                """Virtual"""
-                if not msg.strip(): return None
-                logger.info(f"🧩 {name} file={p}")
-                ev_report.emit({
-                    "type"  : "lifecycle",
-                    "scope" : "virtual",
-                    "phase" : "start",
-                    "name"  : name,
-                    "run"   : run,
-                    "ts"    : time.time()
-                })
-
-                self.stream_event = asyncio.Event()
-                self.stream_task = asyncio.create_task(
-                    self.design.prefix_line(self.stream_event)
-                )
-
-                await func(session, model, apikey, msg, openai_tools, domains, **kwargs)
-                ev_report.emit({
-                    "type"  : "lifecycle",
-                    "scope" : "virtual",
-                    "phase" : "done",
-                    "name"  : name,
-                    "run"   : run,
-                    "ts"    : time.time()
-                })
-
             loop_prefix = (cfg.get("loop_prefix") or "").strip()
             loop_suffix = (cfg.get("loop_suffix") or "").strip()
 
@@ -907,7 +929,7 @@ class Mind(object):
             global_suffix = (cfg.get("global_suffix") or "").strip()
 
             # --- loop 前置 ---
-            await virtual("__loop_prefix__", loop_prefix)
+            await virtual(session, openai_tools, domains, name="__loop_prefix__", msg=loop_prefix)
 
             ev_report.emit({
                 "type"   : "lifecycle",
@@ -922,7 +944,7 @@ class Mind(object):
             try:
                 for r in range(1, repeat + 1):
                     # --- round 前置 ---
-                    await virtual("__round_prefix__", round_prefix, run=r)
+                    await virtual(session, openai_tools, domains, name="__round_prefix__", msg=round_prefix, run=r)
 
                     logger.info(f"🧪 run {r}/{repeat} items={len(items)} file={p}")
 
@@ -1016,8 +1038,9 @@ class Mind(object):
                                 last_exc = None
                                 break
 
-                            except BaseException as e:
-                                last_exc = e
+                            except BaseException as exc:
+                                last_exc = exc
+                                error = Pack.brief_err(exc)
                                 await self.stop_all_anim()
 
                                 ev_report.emit({
@@ -1030,13 +1053,12 @@ class Mind(object):
                                     "name"         : it.name,
                                     "attempt"      : attempt,
                                     "max_attempts" : max_attempts,
-                                    "error"        : Pack.brief_err(e),
+                                    "error"        : error,
                                     "ts"           : time.time()
                                 })
 
                                 logger.error(
-                                    f"❌ item failed: {it.name} "
-                                    f"attempt={attempt}/{max_attempts} err={Pack.brief_err(e)}\n"
+                                    f"❌ item failed: {it.name} attempt={attempt}/{max_attempts} err={error}\n"
                                 )
 
                                 if attempt < max_attempts:
@@ -1074,10 +1096,10 @@ class Mind(object):
                             continue
 
                     # --- round 后置 ---
-                    await virtual("__round_suffix__", round_suffix, run=r)
+                    await virtual(session, openai_tools, domains, name="__round_suffix__", msg=round_suffix, run=r)
 
                 # --- loop 后置 ---
-                await virtual("__loop_suffix__", loop_suffix)
+                await virtual(session, openai_tools, domains, name="__loop_suffix__", msg=loop_suffix)
 
             finally:
                 ev_report.emit({
@@ -1096,7 +1118,10 @@ class Mind(object):
         if not (p := Path(file).expanduser()).exists():
             raise MindError(f"File not found: {p}")
 
-        text = p.read_text(encoding=const.CHARSET, errors="replace")
+        try:
+            text = p.read_text(encoding=const.CHARSET, errors="replace")
+        except Exception as e:
+            raise MindError(e)
 
         items, cfg = Pack.pack_parse(text)
         if not items:

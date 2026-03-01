@@ -233,6 +233,41 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
             overrides=matrix
         )
 
+    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "app"})
+    @task_middleware("app_foreground")
+    async def app_foreground(
+        package: str,
+        activity: typing.Optional[str] = None,
+        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
+    ) -> CallToolResult:
+        """
+        D: device
+        C: app
+        A: app_foreground
+        P:
+          package: str
+          activity: str?
+          matrix: overrides? (serial->args)
+        R: CTR
+        N:
+          - 确保应用在前台：快速检查 -> start -> 等待前台；失败则 force-stop 后重试一次
+        """
+        args = {
+            "package"  : package,
+            "activity" : activity
+        }
+
+        async def call(device: Device, a: dict) -> typing.Any:
+            return await device.app_foreground(**a)
+
+        return await broadcast(
+            tool="app_foreground",
+            args=args,
+            target_list=manage.snapshot,
+            call=call,
+            overrides=matrix
+        )
+
 
 if __name__ == '__main__':
     pass

@@ -62,6 +62,7 @@ async def streaming(
 
 
 async def post_stream_event(
+    mode: typing.Literal["chat", "fast", "plan"],
     cid: str,
     sid: str,
     event: dict[str, typing.Any],
@@ -74,6 +75,7 @@ async def post_stream_event(
     headers = Channel.make_headers()
 
     payload = {
+        "mode"  : mode,
         "cid"   : cid,
         "sid"   : sid,
         "event" : event
@@ -278,7 +280,7 @@ class EventReport(object):
         sid: str
     ):
         self.mode = mode
-        
+
         self.cid = cid
         self.sid = sid
 
@@ -300,8 +302,6 @@ class EventReport(object):
             self.seq += 1
             ev = dict(event or {})
             ev.setdefault("ts", time.time())
-            ev["mode"] = self.mode
-            
             ev["cid"] = self.cid
             ev["sid"] = self.sid
             ev["seq"] = self.seq
@@ -330,7 +330,7 @@ class EventReport(object):
                 continue
 
             try:
-                await post_stream_event(self.cid, self.sid, ev, timeout=self.timeout)
+                await post_stream_event(self.mode, self.cid, self.sid, ev, timeout=self.timeout)
             except Exception as e:
                 # 上报失败：不影响主流程
                 logger.debug(
