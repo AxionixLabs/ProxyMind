@@ -861,58 +861,6 @@ class Mind(object):
     ) -> None:
         """Mind Pack"""
 
-        async def virtual(
-            session: ClientSession,
-            openai_tools: list[dict[str, typing.Any]],
-            domains: dict[str, dict[str, typing.Any]],
-            name: str,
-            msg: str,
-            run: typing.Optional[int] = None
-        ) -> None:
-            """Virtual"""
-            if not msg.strip(): return None
-            logger.info(f"🧩 {name} file={p}")
-
-            ev_report.emit({
-                "type"  : "lifecycle",
-                "scope" : "virtual",
-                "phase" : "start",
-                "name"  : name,
-                "run"   : run,
-                "ts"    : time.time()
-            })
-
-            self.stream_event = asyncio.Event()
-            self.stream_task = asyncio.create_task(
-                self.design.prefix_line(self.stream_event)
-            )
-
-            try:
-                await func(session, model, apikey, msg, openai_tools, domains, **kwargs)
-            except BaseException as exc:
-                error = Pack.brief_err(exc)
-                await self.stop_all_anim()
-                ev_report.emit({
-                    "type"  : "lifecycle",
-                    "scope" : "virtual",
-                    "phase" : "fail",
-                    "total" : len(items),
-                    "error" : error,
-                    "name"  : name,
-                    "run"   : run,
-                    "ts"    : time.time()
-                })
-                logger.error(f"❌ virtual failed: {name} err={error}\n")
-
-            ev_report.emit({
-                "type"  : "lifecycle",
-                "scope" : "virtual",
-                "phase" : "done",
-                "name"  : name,
-                "run"   : run,
-                "ts"    : time.time()
-            })
-
         async def function(
             session: ClientSession,
             openai_tools: list[dict[str, typing.Any]],
@@ -1114,6 +1062,58 @@ class Mind(object):
 
                 await ev_report.flush()
                 await ev_report.close()
+
+        async def virtual(
+            session: ClientSession,
+            openai_tools: list[dict[str, typing.Any]],
+            domains: dict[str, dict[str, typing.Any]],
+            name: str,
+            msg: str,
+            run: typing.Optional[int] = None
+        ) -> None:
+            """Virtual"""
+            if not msg.strip(): return None
+            logger.info(f"🧩 {name} file={p}")
+
+            ev_report.emit({
+                "type"  : "lifecycle",
+                "scope" : "virtual",
+                "phase" : "start",
+                "name"  : name,
+                "run"   : run,
+                "ts"    : time.time()
+            })
+
+            self.stream_event = asyncio.Event()
+            self.stream_task = asyncio.create_task(
+                self.design.prefix_line(self.stream_event)
+            )
+
+            try:
+                await func(session, model, apikey, msg, openai_tools, domains, **kwargs)
+            except BaseException as exc:
+                error = Pack.brief_err(exc)
+                await self.stop_all_anim()
+                ev_report.emit({
+                    "type"  : "lifecycle",
+                    "scope" : "virtual",
+                    "phase" : "fail",
+                    "total" : len(items),
+                    "error" : error,
+                    "name"  : name,
+                    "run"   : run,
+                    "ts"    : time.time()
+                })
+                logger.error(f"❌ virtual failed: {name} err={error}\n")
+
+            ev_report.emit({
+                "type"  : "lifecycle",
+                "scope" : "virtual",
+                "phase" : "done",
+                "name"  : name,
+                "run"   : run,
+                "ts"    : time.time()
+            })
 
         if not (p := Path(file).expanduser()).exists():
             raise MindError(f"File not found: {p}")
