@@ -305,8 +305,11 @@ class Enhancer(object):
                 if not ok:
                     round_ok = False
                     await say(f"loop_steps:  step failed tool={tool}")
-                    if stop_on_fail:
-                        break
+                    if stop_on_fail: break
+
+                await say(
+                    f"loop_steps:  step {i + 1}/{len(steps)} tool={tool} {step_fields.get('text')}"
+                )
 
             runs.append({"round": r + 1, "ok": round_ok, "steps": round_steps})
             if stop_on_fail and not round_ok:
@@ -315,13 +318,16 @@ class Enhancer(object):
 
         final_ok = bool(runs) and all(x.get("ok") for x in runs)
 
-        brief = [f"tool=loop_steps ok={final_ok} rounds={len(runs)}/{loops} stop_on_fail={stop_on_fail}"]
+        brief = [
+            f"tool=loop_steps ok={final_ok} rounds={len(runs)}/{loops} stop_on_fail={stop_on_fail}"
+        ]
         for run in runs:
-            if run.get("ok"):
-                continue
+            if run.get("ok"): continue
             for step in run.get("steps", []):
                 if not step.get("ok"):
-                    brief.append(f"fail round={run['round']} tool={step.get('tool')}")
+                    brief.append(
+                        f"fail round={run['round']} tool={step.get('tool')}"
+                    )
 
         return {
             "text"        : "\n".join(brief),
