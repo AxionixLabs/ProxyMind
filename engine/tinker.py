@@ -259,12 +259,12 @@ class StreamTyperLogger(object):
             self.buffer = self.buffer[pos + 1:]
             if self.fp:
                 self.fp.write(line)
-                
+
         # 2) ==== 终端展示 ====
         delta_limit: int = 120
         if len(show := delta) > delta_limit:
             show = show[:delta_limit] + " ...\n"
-        
+
         await self.typewriter.feed(show)
 
     def flush(self) -> None:
