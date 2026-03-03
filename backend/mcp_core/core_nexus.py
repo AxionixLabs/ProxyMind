@@ -523,44 +523,44 @@ class Nexus(object):
         concurrency: int = 1
     ) -> dict[str, typing.Any]:
 
-        mode = str(payload.get("mode") or payload.get("type") or "flow").lower()
+        mode = str(payload.get("mode") or "flow").lower()
+        env  = payload.get("env") if isinstance(payload.get("env"), dict) else {}
 
-        env = payload.get("env") if isinstance(payload.get("env"), dict) else {}
         base_url = env.get("base_url")
-        base_headers = env.get("headers") if isinstance(env.get("headers"), dict) else {}
-        base_timeout = float(env.get("timeout", 30.0))
+        headers  = env.get("headers") if isinstance(env.get("headers"), dict) else {}
+        timeout  = float(env.get("timeout", 30.0))
 
         if mode == "http":
             return await self.request(
                 method=str(payload.get("method", "GET")),
                 url=str(payload.get("url", "")),
                 base_url=str(payload.get("base_url") or base_url) or None,
-                headers={**base_headers, **(payload.get("headers") or {})},
+                headers={**headers, **(payload.get("headers") or {})},
                 params=payload.get("params"),
                 json_body=payload.get("json") or payload.get("json_body"),
                 body_text=payload.get("body") or payload.get("body_text"),
-                timeout=float(payload.get("timeout", base_timeout)),
+                timeout=float(payload.get("timeout", timeout)),
                 retries=int(payload.get("retries", 0)),
-                follow_redirects=bool(payload.get("follow_redirects", True)),
+                follow_redirects=bool(payload.get("follow_redirects", True))
             )
 
         if mode == "sse":
             return await self.sse(
                 url=str(payload.get("url", "")),
                 base_url=str(payload.get("base_url") or base_url) or None,
-                headers={**base_headers, **(payload.get("headers") or {})},
+                headers={**headers, **(payload.get("headers") or {})},
                 params=payload.get("params"),
-                timeout=float(payload.get("timeout", base_timeout)),
-                max_events=int(payload.get("max_events", 10)),
+                timeout=float(payload.get("timeout", timeout)),
+                max_events=int(payload.get("max_events", 10))
             )
 
         if mode == "ws":
             return await self.ws(
                 url=str(payload.get("url", "")),
-                headers={**base_headers, **(payload.get("headers") or {})},
+                headers={**headers, **(payload.get("headers") or {})},
                 sends=list(payload.get("sends") or []),
-                timeout=float(payload.get("timeout", base_timeout)),
-                max_messages=int(payload.get("max_messages", 10)),
+                timeout=float(payload.get("timeout", timeout)),
+                max_messages=int(payload.get("max_messages", 10))
             )
 
         return await self.mission(payload, concurrency)
