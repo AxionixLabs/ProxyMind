@@ -377,10 +377,11 @@ class Nexus(object):
         async def run_one(i: int, st: dict[str, typing.Any]) -> tuple[int, StepResult]:
             async with sem:
                 name = str(st.get("name") or f"step_{i + 1:03d}")
-                typ = str(st.get("type") or "http").lower()
-                req = st.get("request") or {}
+                typ  = str(st.get("type") or "http").lower()
+                req  = st.get("request") or {}
 
                 req_r = tmpl(req, ctx)
+
                 t0 = time.perf_counter()
 
                 if typ == "http":
@@ -403,7 +404,7 @@ class Nexus(object):
                         type="http",
                         ok=bool(data.get("ok")),
                         elapsed_ms=elapsed_ms,
-                        detail={"request": data.get("request"), "response": data.get("response")},
+                        detail={"request": data.get("request"), "response": data.get("response")}
                     )
 
                 if typ == "sse":
@@ -426,8 +427,8 @@ class Nexus(object):
                             "url": data.get("url"),
                             "status": data.get("status"),
                             "events": data.get("events") or [],
-                            "elapsed_ms": data.get("elapsed_ms"),
-                        },
+                            "elapsed_ms": data.get("elapsed_ms")
+                        }
                     )
 
                 if typ == "ws":
@@ -495,12 +496,10 @@ class Nexus(object):
             steps=step_results
         )
 
-        text = [
-            f"agent_id={self.agent_id} ok={ok_run} steps={len(step_results)} run_id={run_id}"
-        ]
+        text = f"steps={len(step_results)} run_id={run_id}"
 
         return {
-            "text"        : "\n".join(text),
+            "text"        : text,
             "attachments" : [],
             "data": {
                 "ok"      : ok_run,
