@@ -338,7 +338,7 @@ class Mind(object):
                     case "tool_call":
                         name, arguments = chat["name"], chat.get("arguments", {})
 
-                        if Tooling.require(domains, name, name_not_in={"refresh"}):
+                        if Tooling.require(domains, name, name_not_in={"refresh", "nexus_go"}):
                             if error := await self.wakeup(session, slog):
                                 await slog.feed(error)
                                 await finish("fail", error=str(error))
@@ -568,7 +568,7 @@ class Mind(object):
                         "ts"    : time.time()
                     })
 
-                    if Tooling.require(domains, name, name_not_in={"refresh"}):
+                    if Tooling.require(domains, name, name_not_in={"refresh", "nexus_go"}):
                         if error := await self.wakeup(session):
                             await finish("fail", error=str(error), run=index, index=step_idx, name=name)
                             return logger.error(error)
