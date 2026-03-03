@@ -394,7 +394,7 @@ class Nexus(object):
                         body_text=req_r.get("body"),
                         timeout=float(req_r.get("timeout", base_timeout)),
                         retries=int(req_r.get("retries", 0)),
-                        follow_redirects=bool(req_r.get("follow_redirects", True)),
+                        follow_redirects=bool(req_r.get("follow_redirects", True))
                     )
                     elapsed_ms = ms_since(t0)
                     data = pack.get("data") or {}
@@ -413,7 +413,7 @@ class Nexus(object):
                         headers={**base_headers, **(req_r.get("headers") or {})},
                         params=req_r.get("params"),
                         timeout=float(req_r.get("timeout", base_timeout)),
-                        max_events=int(req_r.get("max_events", 10)),
+                        max_events=int(req_r.get("max_events", 10))
                     )
                     elapsed_ms = ms_since(t0)
                     data = pack.get("data") or {}
@@ -436,7 +436,7 @@ class Nexus(object):
                         headers={**base_headers, **(req_r.get("headers") or {})},
                         sends=list(req_r.get("sends") or []),
                         timeout=float(req_r.get("timeout", base_timeout)),
-                        max_messages=int(req_r.get("max_messages", 10)),
+                        max_messages=int(req_r.get("max_messages", 10))
                     )
                     elapsed_ms = ms_since(t0)
                     data = pack.get("data") or {}
@@ -449,7 +449,7 @@ class Nexus(object):
                             "url"        : data.get("url"),
                             "messages"   : data.get("messages") or [],
                             "elapsed_ms" : data.get("elapsed_ms")
-                        },
+                        }
                     )
 
                 elapsed_ms = ms_since(t0)
@@ -458,7 +458,7 @@ class Nexus(object):
                     type=typ,
                     ok=False,
                     elapsed_ms=elapsed_ms,
-                    detail={"error": "unknown_step_type"},
+                    detail={"error": "unknown_step_type"}
                 )
 
         tasks = [asyncio.create_task(run_one(i, st)) for i, st in enumerate(steps_in)]
@@ -492,18 +492,20 @@ class Nexus(object):
             finished_ms=finished_ms,
             payload=payload,
             final_ctx=ctx,
-            steps=step_results,
+            steps=step_results
         )
 
-        text = f"nexus_mission ok={ok_run} steps={len(step_results)} run_id={run_id}"
+        text = [
+            f"agent_id={self.agent_id} ok={ok_run} steps={len(step_results)} run_id={run_id}"
+        ]
 
         return {
-            "text"        : text,
+            "text"        : "\n".join(text),
             "attachments" : [],
             "data": {
-                "ok": ok_run,
-                "run_id": run_id,
-                "summary": {
+                "ok"      : ok_run,
+                "run_id"  : run_id,
+                "summary" : {
                     "total"   : len(step_results),
                     "pass"    : sum(1 for s in step_results if s.ok),
                     "fail"    : sum(1 for s in step_results if not s.ok),
@@ -512,7 +514,7 @@ class Nexus(object):
                 "steps"     : [self.step_dict(s) for s in step_results],
                 "final_ctx" : ctx,
                 "payload"   : payload,
-                "evidence"  : {"steps": [self.step_dict(s) for s in step_results]},
+                "evidence"  : {"steps": [self.step_dict(s) for s in step_results]}
             },
             "logs": []
         }
