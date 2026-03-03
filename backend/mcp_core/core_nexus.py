@@ -214,25 +214,24 @@ class Nexus(object):
         max_events: int = 10
     ) -> dict[str, typing.Any]:
 
-        url = url_join(base_url, url)
+        url     = url_join(base_url, url)
         headers = headers or {}
 
         t0 = time.perf_counter()
 
         events: list[dict[str, typing.Any]] = []
-        last_err: typing.Optional[str] = None
+        status: typing.Optional[int] = None
 
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 async with client.stream("GET", url, headers=headers, params=params) as resp:
-                    if resp.status_code != 200:
+                    status = resp.status_code
+                    if status != 200:
                         return {
-                            "text"        : f"SSE {url} -> {resp.status_code}",
+                            "text"        : f"SSE {url} -> {status}",
                             "attachments" : [],
                             "data": {
-                                "ok"     : False,
-                                "status" : resp.status_code,
-                                "url"    : url
+                                "ok": False, "status": status, "url": url
                             },
                             "logs": []
                         }
@@ -254,24 +253,39 @@ class Nexus(object):
                                     "data": {
                                         "ok"         : True,
                                         "url"        : url,
-                                        "status"     : resp.status_code,
+                                        "status"     : status,
                                         "elapsed_ms" : elapsed_ms,
                                         "events"     : events
                                     },
                                     "logs": []
                                 }
 
+            elapsed_ms = ms_since(t0)
+            ok = (status == 200 and len(events) > 0)
+            return {
+                "text"        : f"SSE {url} {'ok' if ok else 'ERROR'} events={len(events)} ({elapsed_ms}ms)",
+                "attachments" : [],
+                "data": {
+                    "ok"         : ok,
+                    "url"        : url,
+                    "status"     : status,
+                    "elapsed_ms" : elapsed_ms,
+                    "events"     : events
+                },
+                "logs": []
+            }
+
         except (httpx.TimeoutException, httpx.RequestError) as e:
             last_err = f"{type(e).__name__}: {e}"
 
         elapsed_ms = ms_since(t0)
-
         return {
             "text"        : f"SSE {url} -> ERROR ({elapsed_ms}ms) {last_err}",
             "attachments" : [],
             "data": {
                 "ok"         : False,
                 "url"        : url,
+                "status"     : status,
                 "elapsed_ms" : elapsed_ms,
                 "error"      : last_err,
                 "events"     : events
@@ -292,28 +306,32 @@ class Nexus(object):
         t0 = time.perf_counter()
 
         headers = headers or {}
-        sends   = sends or []
-
+        sends = sends or []
         recv: list[str] = []
-
         last_err: typing.Optional[str] = None
 
         try:
             async with websockets.connect(url, extra_headers=headers, open_timeout=timeout) as ws:
                 for s in sends:
                     await ws.send(s)
+
                 for _ in range(int(max_messages)):
-                    msg = await asyncio.wait_for(ws.recv(), timeout=timeout)
+                    try:
+                        msg = await asyncio.wait_for(ws.recv(), timeout=timeout)
+                    except websockets.exceptions.ConnectionClosedOK:
+                        break
                     recv.append(msg if isinstance(msg, str) else msg.decode(const.CHARSET, const.IGNORE))
 
         except Exception as e:
             last_err = f"{type(e).__name__}: {e}"
 
         elapsed_ms = ms_since(t0)
-        ok = last_err is None
+
+        ok = (last_err is None) or bool(recv)
+
         text = (
             f"WS {url} {'ok' if ok else 'ERROR'} "
-            f"msgs={len(recv)} ({elapsed_ms}ms){'' if ok else ' ' + last_err}"
+            f"msgs={len(recv)} ({elapsed_ms}ms){'' if ok else ' ' + (last_err or '')}"
         )
 
         return {
@@ -324,7 +342,7 @@ class Nexus(object):
                 "url"        : url,
                 "elapsed_ms" : elapsed_ms,
                 "messages"   : recv,
-                "error"      : last_err
+                "error"      : (None if ok else last_err)
             },
             "logs": []
         }
