@@ -18,12 +18,15 @@ from backend.utilities.toolbox import broadcast
 def bind(mcp: FastMCP, idle: Idle) -> None:
 
     @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
-    @task_middleware("nexus_flow")
-    async def nexus_flow(payload: dict[str, typing.Any],concurrency: int = 1) -> CallToolResult:
+    @task_middleware("nexus_go")
+    async def nexus_go(
+        payload: dict[str, typing.Any],
+        concurrency: int = 1
+    ) -> CallToolResult:
         """
         D: bench
         C: nexus
-        A: nexus_flow
+        A: nexus_go
         P:
           payload: dict  # 统一入口参数
             - mode: oneof(http|sse|ws|flow)="flow"
@@ -39,21 +42,21 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           - 统一入口：按 payload.mode 分流执行（http/sse/ws/flow）
           - flow 模式：steps 支持并发；失败策略由 options.fail_fast 控制
         """
-        
+
         args = {
             "payload"     : payload,
             "concurrency" : concurrency
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.nexus_flow", args=args)
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.nexus_go", args=args)
             try:
-                return await Ins.nexus.flow(**args)
+                return await Ins.nexus.nexus_go(**args)
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="nexus_flow",
+            tool="nexus_go",
             args=args,
             target_list=[Ins.nexus],
             call=call,
