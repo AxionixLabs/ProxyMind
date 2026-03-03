@@ -34,7 +34,7 @@ class StepResult:
 
 @dataclass
 class RunRecord:
-    run_id: str
+    mission_id: str
     ok: bool
     started_ms: int
     finished_ms: int
@@ -57,22 +57,23 @@ def url_join(base_url: typing.Optional[str], url: str) -> str:
     return base_url.rstrip("/") + "/" + url.lstrip("/")
 
 
-def tmpl(x: typing.Any, ctx: dict[str, typing.Any]) -> typing.Any:
+def template(x: typing.Any, ctx: dict[str, typing.Any]) -> typing.Any:
     if isinstance(x, str):
         s = x
         for k, v in ctx.items():
             s = s.replace("{{" + k + "}}", str(v))
         return s
     if isinstance(x, list):
-        return [tmpl(i, ctx) for i in x]
+        return [template(i, ctx) for i in x]
     if isinstance(x, dict):
-        return {k: tmpl(v, ctx) for k, v in x.items()}
+        return {k: template(v, ctx) for k, v in x.items()}
     return x
 
 
 def sse_block(block: str) -> typing.Optional[SseEvent]:
     raw = block.strip("\r\n")
-    if not raw.strip(): return None
+    if not raw.strip():
+        return None
 
     ev = SseEvent(event=None, data="", id=None)
     data_lines: list[str] = []
@@ -103,20 +104,20 @@ class Nexus(object):
         self.runs: dict[str, RunRecord] = {}
 
     @staticmethod
-    def step_dict(s: StepResult) -> dict[str, typing.Any]:
+    def step_dict(step: StepResult) -> dict[str, typing.Any]:
         return {
-            "name"       : s.name,
-            "type"       : s.type,
-            "ok"         : s.ok,
-            "elapsed_ms" : s.elapsed_ms,
-            "detail"     : s.detail
+            "name"       : step.name,
+            "type"       : step.type,
+            "ok"         : step.ok,
+            "elapsed_ms" : step.elapsed_ms,
+            "detail"     : step.detail
         }
 
     @staticmethod
     async def request(
+        *,
         method: str,
         url: str,
-        *,
         base_url: typing.Optional[str] = None,
         headers: typing.Optional[dict[str, str]] = None,
         params: typing.Optional[dict[str, typing.Any]] = None,
@@ -132,7 +133,6 @@ class Nexus(object):
         headers = headers or {}
 
         t0 = time.perf_counter()
-
         last_err: typing.Optional[str] = None
 
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=follow_redirects) as client:
@@ -195,7 +195,7 @@ class Nexus(object):
                     "headers" : headers,
                     "params"  : params,
                     "timeout" : timeout,
-                    "retries" : retries,
+                    "retries" : retries
                 },
                 "error"      : last_err,
                 "elapsed_ms" : elapsed_ms
@@ -205,13 +205,13 @@ class Nexus(object):
 
     @staticmethod
     async def sse(
-        url: str,
         *,
+        url: str,
         base_url: typing.Optional[str] = None,
         headers: typing.Optional[dict[str, str]] = None,
         params: typing.Optional[dict[str, typing.Any]] = None,
         timeout: float = 30.0,
-        max_events: int = 10
+        max_events: int = 10,
     ) -> dict[str, typing.Any]:
 
         url     = url_join(base_url, url)
@@ -231,7 +231,9 @@ class Nexus(object):
                             "text"        : f"SSE {url} -> {status}",
                             "attachments" : [],
                             "data": {
-                                "ok": False, "status": status, "url": url
+                                "ok"     : False,
+                                "status" : status,
+                                "url"    : url
                             },
                             "logs": []
                         }
@@ -244,11 +246,10 @@ class Nexus(object):
                             ev = sse_block(raw)
                             if not ev: continue
                             events.append({"event": ev.event, "id": ev.id, "data": ev.data})
-
                             if len(events) >= int(max_events):
                                 elapsed_ms = ms_since(t0)
                                 return {
-                                    "text"        : f"SSE {url} ok events={len(events)} ({elapsed_ms}ms)",
+                                    "text"        : f"SSE {url} events={len(events)} ({elapsed_ms}ms)",
                                     "attachments" : [],
                                     "data": {
                                         "ok"         : True,
@@ -263,7 +264,7 @@ class Nexus(object):
             elapsed_ms = ms_since(t0)
             ok = (status == 200 and len(events) > 0)
             return {
-                "text"        : f"SSE {url} {'ok' if ok else 'ERROR'} events={len(events)} ({elapsed_ms}ms)",
+                "text"        : f"SSE {url} events={len(events)} ({elapsed_ms}ms)",
                 "attachments" : [],
                 "data": {
                     "ok"         : ok,
@@ -280,8 +281,8 @@ class Nexus(object):
 
         elapsed_ms = ms_since(t0)
         return {
-            "text"        : f"SSE {url} -> ERROR ({elapsed_ms}ms) {last_err}",
-            "attachments" : [],
+            "text": f"SSE {url} -> ERROR ({elapsed_ms}ms) {last_err}",
+            "attachments": [],
             "data": {
                 "ok"         : False,
                 "url"        : url,
@@ -295,12 +296,12 @@ class Nexus(object):
 
     @staticmethod
     async def ws(
-        url: str,
         *,
+        url: str,
         headers: typing.Optional[dict[str, str]] = None,
         sends: typing.Optional[list[str]] = None,
         timeout: float = 30.0,
-        max_messages: int = 10
+        max_messages: int = 10,
     ) -> dict[str, typing.Any]:
 
         t0 = time.perf_counter()
@@ -322,23 +323,19 @@ class Nexus(object):
                         break
                     recv.append(msg if isinstance(msg, str) else msg.decode(const.CHARSET, const.IGNORE))
 
-        except (websockets.exceptions.ConnectionClosedError,
-                websockets.exceptions.WebSocketException,
-                OSError,
-                asyncio.TimeoutError) as e:
+        except (
+            websockets.exceptions.ConnectionClosedError,
+            websockets.exceptions.WebSocketException,
+            OSError,
+            asyncio.TimeoutError
+        ) as e:
             last_err = f"{type(e).__name__}: {e}"
 
         elapsed_ms = ms_since(t0)
-
         ok = (last_err is None) or bool(recv)
 
-        text = (
-            f"WS {url} {'ok' if ok else 'ERROR'} "
-            f"msgs={len(recv)} ({elapsed_ms}ms){'' if ok else ' ' + (last_err or '')}"
-        )
-
         return {
-            "text"        : text,
+            "text"        : f"WS {url} msgs={len(recv)} ({elapsed_ms}ms)",
             "attachments" : [],
             "data": {
                 "ok"         : ok,
@@ -350,14 +347,64 @@ class Nexus(object):
             "logs": []
         }
 
-    async def mission(
+    # workflow: ==== MCP Tool ====
+    async def nexus_http(
         self,
         payload: dict[str, typing.Any],
         concurrency: int = 1
     ) -> dict[str, typing.Any]:
+        """
+        payload:
+          env?: {base_url?: str, headers?: dict, timeout?: float}
+          vars?: dict
+          options?: {fail_fast?: bool}
+          items?: [ {name?, request:{method,url,headers?,params?,json?,body?,timeout?,retries?,follow_redirects?}} ]
+          # 单请求也允许直接放在顶层：method/url/params/json/body/...
+        """
+        return await self.run_group(payload, concurrency, kind="http")
+
+    # workflow: ==== MCP Tool ====
+    async def nexus_sse(
+        self,
+        payload: dict[str, typing.Any],
+        concurrency: int = 1
+    ) -> dict[str, typing.Any]:
+        """
+        payload:
+          env?: {base_url?: str, headers?: dict, timeout?: float}
+          vars?: dict
+          options?: {fail_fast?: bool}
+          items?: [ {name?, request:{url,headers?,params?,timeout?,max_events?}} ]
+          # 单请求也允许直接放在顶层：url/params/max_events/...
+        """
+        return await self.run_group(payload, concurrency, kind="sse")
+
+    # workflow: ==== MCP Tool ====
+    async def nexus_ws(
+        self,
+        payload: dict[str, typing.Any],
+        concurrency: int = 1
+    ) -> dict[str, typing.Any]:
+        """
+        payload:
+          env?: {headers?: dict, timeout?: float}
+          vars?: dict
+          options?: {fail_fast?: bool}
+          items?: [ {name?, request:{url,headers?,sends?,timeout?,max_messages?}} ]
+          # 单请求也允许直接放在顶层：url/sends/max_messages/...
+        """
+        return await self.run_group(payload, concurrency, kind="ws")
+
+    async def run_group(
+        self,
+        payload: dict[str, typing.Any],
+        concurrency: int,
+        *,
+        kind: typing.Literal["http", "sse", "ws"]
+    ) -> dict[str, typing.Any]:
 
         started_ms = ms_now()
-        run_id = f"nexus_{started_ms}"
+        mission_id = f"nexus_{started_ms}"
 
         env = payload.get("env") if isinstance(payload.get("env"), dict) else {}
         base_url = str(env.get("base_url") or "")
@@ -371,53 +418,57 @@ class Nexus(object):
         if isinstance(payload.get("vars"), dict):
             ctx.update(payload["vars"])
 
-        steps_in = list(payload.get("steps") or [])
+        items = payload.get("items")
+        if isinstance(items, list) and items:
+            raw_items = [x for x in items if isinstance(x, dict)]
+        else:
+            raw_items = [{"name": payload.get("name"), "request": dict(payload)}]
+
         sem = asyncio.Semaphore(max(1, int(concurrency)))
 
-        async def run_one(i: int, st: dict[str, typing.Any]) -> tuple[int, StepResult]:
+        async def mission_once(i: int, item: dict[str, typing.Any]) -> tuple[int, StepResult]:
             async with sem:
-                name = str(st.get("name") or f"step_{i + 1:03d}")
-                typ  = str(st.get("type") or "http").lower()
-                req  = st.get("request") or {}
-
-                req_r = tmpl(req, ctx)
+                name  = str(item.get("name") or f"{kind}_{i+1:03d}")
+                req   = item.get("request")
+                req   = req if isinstance(req, dict) else {}
+                req_r = template(req, ctx)
 
                 t0 = time.perf_counter()
 
-                if typ == "http":
+                if kind == "http":
                     pack = await self.request(
                         method=str(req_r.get("method", "GET")),
                         url=str(req_r.get("url", "")),
                         base_url=str(req_r.get("base_url") or base_url) or None,
-                        headers={**base_headers, **(req_r.get("headers") or {})},
+                        headers={**base_headers, **dict(req_r.get("headers") or {})},
                         params=req_r.get("params"),
-                        json_body=req_r.get("json"),
-                        body_text=req_r.get("body"),
+                        json_body=req_r.get("json") or req_r.get("json_body"),
+                        body_text=req_r.get("body") or req_r.get("body_text"),
                         timeout=float(req_r.get("timeout", base_timeout)),
                         retries=int(req_r.get("retries", 0)),
-                        follow_redirects=bool(req_r.get("follow_redirects", True))
+                        follow_redirects=bool(req_r.get("follow_redirects", True)),
                     )
-                    elapsed_ms = ms_since(t0)
                     data = pack.get("data") or {}
+                    elapsed_ms = ms_since(t0)
                     return i, StepResult(
                         name=name,
                         type="http",
                         ok=bool(data.get("ok")),
                         elapsed_ms=elapsed_ms,
-                        detail={"request": data.get("request"), "response": data.get("response")}
+                        detail={"request": data.get("request"), "response": data.get("response")},
                     )
 
-                if typ == "sse":
+                if kind == "sse":
                     pack = await self.sse(
                         url=str(req_r.get("url", "")),
                         base_url=str(req_r.get("base_url") or base_url) or None,
-                        headers={**base_headers, **(req_r.get("headers") or {})},
+                        headers={**base_headers, **dict(req_r.get("headers") or {})},
                         params=req_r.get("params"),
                         timeout=float(req_r.get("timeout", base_timeout)),
-                        max_events=int(req_r.get("max_events", 10))
+                        max_events=int(req_r.get("max_events", 10)),
                     )
-                    elapsed_ms = ms_since(t0)
                     data = pack.get("data") or {}
+                    elapsed_ms = ms_since(t0)
                     return i, StepResult(
                         name=name,
                         type="sse",
@@ -427,42 +478,35 @@ class Nexus(object):
                             "url": data.get("url"),
                             "status": data.get("status"),
                             "events": data.get("events") or [],
-                            "elapsed_ms": data.get("elapsed_ms")
-                        }
+                            "elapsed_ms": data.get("elapsed_ms"),
+                        },
                     )
 
-                if typ == "ws":
-                    pack = await self.ws(
-                        url=str(req_r.get("url", "")),
-                        headers={**base_headers, **(req_r.get("headers") or {})},
-                        sends=list(req_r.get("sends") or []),
-                        timeout=float(req_r.get("timeout", base_timeout)),
-                        max_messages=int(req_r.get("max_messages", 10))
-                    )
-                    elapsed_ms = ms_since(t0)
-                    data = pack.get("data") or {}
-                    return i, StepResult(
-                        name=name,
-                        type="ws",
-                        ok=bool(data.get("ok")),
-                        elapsed_ms=elapsed_ms,
-                        detail={
-                            "url"        : data.get("url"),
-                            "messages"   : data.get("messages") or [],
-                            "elapsed_ms" : data.get("elapsed_ms")
-                        }
-                    )
-
+                # ws
+                pack = await self.ws(
+                    url=str(req_r.get("url", "")),
+                    headers={**base_headers, **dict(req_r.get("headers") or {})},
+                    sends=list(req_r.get("sends") or []),
+                    timeout=float(req_r.get("timeout", base_timeout)),
+                    max_messages=int(req_r.get("max_messages", 10)),
+                )
+                data = pack.get("data") or {}
                 elapsed_ms = ms_since(t0)
                 return i, StepResult(
                     name=name,
-                    type=typ,
-                    ok=False,
+                    type="ws",
+                    ok=bool(data.get("ok")),
                     elapsed_ms=elapsed_ms,
-                    detail={"error": "unknown_step_type"}
+                    detail={
+                        "url": data.get("url"),
+                        "messages": data.get("messages") or [],
+                        "elapsed_ms": data.get("elapsed_ms"),
+                    },
                 )
 
-        tasks = [asyncio.create_task(run_one(i, st)) for i, st in enumerate(steps_in)]
+        tasks = [
+            asyncio.create_task(mission_once(i, it)) for i, it in enumerate(raw_items)
+        ]
 
         if fail_fast:
             pending = set(tasks)
@@ -481,13 +525,14 @@ class Nexus(object):
             step_results = [sr for _, sr in done_ordered]
         else:
             out = await asyncio.gather(*tasks, return_exceptions=False)
+            out.sort(key=lambda x: x[0])
             step_results = [sr for _, sr in out]
 
         ok_run = all(s.ok for s in step_results) if step_results else False
         finished_ms = ms_now()
 
-        self.runs[run_id] = RunRecord(
-            run_id=run_id,
+        rec = RunRecord(
+            mission_id=mission_id,
             ok=ok_run,
             started_ms=started_ms,
             finished_ms=finished_ms,
@@ -495,16 +540,18 @@ class Nexus(object):
             final_ctx=ctx,
             steps=step_results
         )
+        self.runs[mission_id] = rec
 
-        text = f"steps={len(step_results)} run_id={run_id}"
+        text = f"kind={kind} total={len(step_results)} mission_id={mission_id}"
 
         return {
             "text"        : text,
             "attachments" : [],
             "data": {
-                "ok"      : ok_run,
-                "run_id"  : run_id,
-                "summary" : {
+                "ok"         : ok_run,
+                "mission_id" : mission_id,
+                "kind"       : kind,
+                "summary": {
                     "total"   : len(step_results),
                     "pass"    : sum(1 for s in step_results if s.ok),
                     "fail"    : sum(1 for s in step_results if not s.ok),
@@ -517,54 +564,6 @@ class Nexus(object):
             },
             "logs": []
         }
-
-    async def nexus_go(
-        self,
-        payload: dict[str, typing.Any],
-        concurrency: int = 1
-    ) -> dict[str, typing.Any]:
-
-        mode = str(payload.get("mode") or "flow").lower()
-        env  = payload.get("env") if isinstance(payload.get("env"), dict) else {}
-
-        base_url = env.get("base_url")
-        headers  = env.get("headers") if isinstance(env.get("headers"), dict) else {}
-        timeout  = float(env.get("timeout", 30.0))
-
-        if mode == "http":
-            return await self.request(
-                method=str(payload.get("method", "GET")),
-                url=str(payload.get("url", "")),
-                base_url=str(payload.get("base_url") or base_url) or None,
-                headers={**headers, **(payload.get("headers") or {})},
-                params=payload.get("params"),
-                json_body=payload.get("json") or payload.get("json_body"),
-                body_text=payload.get("body") or payload.get("body_text"),
-                timeout=float(payload.get("timeout", timeout)),
-                retries=int(payload.get("retries", 0)),
-                follow_redirects=bool(payload.get("follow_redirects", True))
-            )
-
-        if mode == "sse":
-            return await self.sse(
-                url=str(payload.get("url", "")),
-                base_url=str(payload.get("base_url") or base_url) or None,
-                headers={**headers, **(payload.get("headers") or {})},
-                params=payload.get("params"),
-                timeout=float(payload.get("timeout", timeout)),
-                max_events=int(payload.get("max_events", 10))
-            )
-
-        if mode == "ws":
-            return await self.ws(
-                url=str(payload.get("url", "")),
-                headers={**headers, **(payload.get("headers") or {})},
-                sends=list(payload.get("sends") or []),
-                timeout=float(payload.get("timeout", timeout)),
-                max_messages=int(payload.get("max_messages", 10))
-            )
-
-        return await self.mission(payload, concurrency)
 
 
 if __name__ == '__main__':

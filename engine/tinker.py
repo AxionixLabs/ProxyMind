@@ -185,8 +185,8 @@ class Tooling(object):
         domain_in: typing.Optional[typing.Container[str]] = None,
         class_in: typing.Optional[typing.Container[str]] = None,
         name_in: typing.Optional[typing.Container[str]] = None,
-        name_not_in: typing.Optional[typing.Container[str]] = None,
-        class_not_in: typing.Optional[typing.Container[str]] = None
+        class_not_in: typing.Optional[typing.Container[str]] = None,
+        name_not_in: typing.Optional[typing.Container[str]] = None
     ) -> bool:
         """
         判断某工具是否需要“连接/设备准备”等前置动作。
