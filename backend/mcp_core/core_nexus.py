@@ -322,7 +322,10 @@ class Nexus(object):
                         break
                     recv.append(msg if isinstance(msg, str) else msg.decode(const.CHARSET, const.IGNORE))
 
-        except Exception as e:
+        except (websockets.exceptions.ConnectionClosedError,
+                websockets.exceptions.WebSocketException,
+                OSError,
+                asyncio.TimeoutError) as e:
             last_err = f"{type(e).__name__}: {e}"
 
         elapsed_ms = ms_since(t0)
@@ -514,7 +517,7 @@ class Nexus(object):
             "logs": []
         }
 
-    async def flow(
+    async def nexus_go(
         self,
         payload: dict[str, typing.Any],
         concurrency: int = 1
