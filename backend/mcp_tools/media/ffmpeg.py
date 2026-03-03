@@ -20,6 +20,54 @@ from backend.utilities.toolbox import broadcast
 def bind(mcp: FastMCP, idle: Idle) -> None:
 
     @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @task_middleware("ffmpeg_extract_snapshot")
+    async def ffmpeg_extract_snapshot(
+        input_video: str,
+        output_image: typing.Optional[str] = None,
+        *,
+        at_sec: float = 0.0,
+        overwrite: bool = True
+    ) -> CallToolResult:
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_extract_snapshot
+        P:
+          input_video: str
+          output_image: str?=None
+          at_sec: float=0.0
+          overwrite: bool=True
+        R: CTR
+        N:
+          - 从视频指定时间点导出单帧图片（封面/缩略图）
+          - 这里的 ffmpeg_extract_snapshot 指“视频取帧”，避免与 adb screenshot 混淆
+        """
+
+        await Requires.connect_ffmpeg()
+
+        args = {
+            "input_video"  : input_video,
+            "output_image" : output_image,
+            "at_sec"       : at_sec,
+            "overwrite"    : overwrite
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.ffmpeg.agent_id}.ffmpeg_extract_snapshot", args=args)
+            try:
+                return await Ins.ffmpeg.ffmpeg_extract_snapshot(**args)
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="ffmpeg_extract_snapshot",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
     @task_middleware("ffmpeg_extract_frames")
     async def ffmpeg_extract_frames(
         input_video: str,
@@ -86,114 +134,53 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
-    @task_middleware("ffmpeg_convert_audio")
-    async def ffmpeg_convert_audio(
-        input_file: str,
-        output_file: typing.Optional[str] = None,
-        audio_codec: typing.Optional[str] = None,
-        sample_rate: typing.Optional[int] = None,
-        channels: typing.Optional[int] = None,
-        bitrate: typing.Optional[str] = None,
-        overwrite: bool = True
-    ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_convert_audio
-        P:
-          input_file: str
-          output_file: str?=None
-          audio_codec: str?=None
-          sample_rate: int?=None
-          channels: int?=None
-          bitrate: str?=None
-          overwrite: bool=True
-        R: CTR
-        N:
-          - 任意音频/视频 → 音频文件（容器由 output_file 扩展名决定）
-          - 可选调整编码器/采样率/声道/码率；输出不可写/格式或编码不支持会失败
-        """
-
-        await Requires.connect_ffmpeg()
-
-        args = {
-            "input_file"  : input_file,
-            "output_file" : output_file,
-            "audio_codec" : audio_codec,
-            "sample_rate" : sample_rate,
-            "channels"    : channels,
-            "bitrate"     : bitrate,
-            "overwrite"   : overwrite
-        }
-
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.ffmpeg.agent_id}.ffmpeg_convert_audio", args=args)
-            try:
-                return await Ins.ffmpeg.ffmpeg_convert_audio(**args)
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="ffmpeg_convert_audio",
-            args=args,
-            target_list=[Ins.ffmpeg],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
-    @task_middleware("ffmpeg_convert_video")
-    async def ffmpeg_convert_video(
+    @task_middleware("ffmpeg_extract_keyframes")
+    async def ffmpeg_extract_keyframes(
         input_video: str,
-        output_video: typing.Optional[str] = None,
-        fps: float = 60,
-        video_codec: str = "libx264",
-        crf: int = 23,
-        preset: str = "veryfast",
-        keep_audio: bool = True,
+        output_dir: typing.Optional[str] = None,
+        max_frames: int = 12,
+        uniform_n: int = 6,
+        image_format: typing.Literal["jpg", "png", "webp"] = "png",
         overwrite: bool = True
     ) -> CallToolResult:
         """
         D: media
         C: ffmpeg
-        A: ffmpeg_convert_video
+        A: ffmpeg_extract_keyframes
         P:
           input_video: str
-          output_video: str?=None
-          fps: float=60
-          video_codec: str="libx264"
-          crf: int=23
-          preset: str="veryfast"
-          keep_audio: bool=True
+          output_dir: str?=None
+          max_frames: int=12
+          uniform_n: int=6
+          image_format: oneof(jpg|png|webp)="png"
           overwrite: bool=True
         R: CTR
         N:
-          - 重编码转换视频帧率；画质/体积主要受 crf 与 preset 影响
-          - keep_audio=True 保留音频；False 去音频；输出不可写/编码不支持会失败
+          - 抽关键帧（均匀采样）：按视频时长均分取点截图，最多返回 max_frames 张
+          - output_dir 为空：默认在 input_video 同目录创建 `<stem>_keyframes_<short_uuid>/` 作为输出目录
+          - snapshot 内部会生成图片文件并作为 image attachments 返回
         """
 
         await Requires.connect_ffmpeg()
 
         args = {
             "input_video"  : input_video,
-            "output_video" : output_video,
-            "fps"          : fps,
-            "video_codec"  : video_codec,
-            "crf"          : crf,
-            "preset"       : preset,
-            "keep_audio"   : keep_audio,
+            "output_dir"   : output_dir,
+            "max_frames"   : max_frames,
+            "uniform_n"    : uniform_n,
+            "image_format" : image_format,
             "overwrite"    : overwrite
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.ffmpeg.agent_id}.ffmpeg_convert_video", args=args)
+            job_id = await idle.job_begin(f"{Ins.ffmpeg.agent_id}.ffmpeg_extract_keyframes", args=args)
             try:
-                return await Ins.ffmpeg.ffmpeg_convert_video(**args)
+                return await Ins.ffmpeg.ffmpeg_extract_keyframes(**args)
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="ffmpeg_convert_video",
+            tool="ffmpeg_extract_keyframes",
             args=args,
             target_list=[Ins.ffmpeg],
             call=call,
@@ -266,6 +253,188 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @task_middleware("ffmpeg_scale_video")
+    async def ffmpeg_scale_video(
+        input_video: str,
+        output_video: typing.Optional[str] = None,
+        *,
+        scale_w: int | None = None,
+        scale_h: int | None = None,
+        video_codec: str = "libx264",
+        crf: int = 23,
+        preset: str = "veryfast",
+        keep_audio: bool = True,
+        overwrite: bool = True,
+    ) -> CallToolResult:
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_scale_video
+        P:
+          input_video: str
+          output_video: str?=None
+          scale_w: int?=None
+          scale_h: int?=None
+          video_codec: str="libx264"
+          crf: int=23
+          preset: str="veryfast"
+          keep_audio: bool=True
+          overwrite: bool=True
+        R: CTR
+        N:
+          - 输出新视频并缩放分辨率（常用于压体积/统一规格）；会重编码视频（crf/preset 影响质量/速度）
+          - keep_audio=True 保留音频（copy）；False 时去音频或重编码音频（依实现）
+        """
+
+        await Requires.connect_ffmpeg()
+
+        args = {
+            "input_video"  : input_video,
+            "output_video" : output_video,
+            "scale_w"      : scale_w,
+            "scale_h"      : scale_h,
+            "video_codec"  : video_codec,
+            "crf"          : crf,
+            "preset"       : preset,
+            "keep_audio"   : keep_audio,
+            "overwrite"    : overwrite
+        }
+
+        async def call(*_) -> None:
+            job_id = await idle.job_begin(f"{Ins.ffmpeg.agent_id}.ffmpeg_scale_video", args=args)
+            try:
+                return await Ins.ffmpeg.ffmpeg_scale_video(**args)
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="ffmpeg_scale_video",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @task_middleware("ffmpeg_convert_video")
+    async def ffmpeg_convert_video(
+        input_video: str,
+        output_video: typing.Optional[str] = None,
+        fps: float = 60,
+        video_codec: str = "libx264",
+        crf: int = 23,
+        preset: str = "veryfast",
+        keep_audio: bool = True,
+        overwrite: bool = True
+    ) -> CallToolResult:
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_convert_video
+        P:
+          input_video: str
+          output_video: str?=None
+          fps: float=60
+          video_codec: str="libx264"
+          crf: int=23
+          preset: str="veryfast"
+          keep_audio: bool=True
+          overwrite: bool=True
+        R: CTR
+        N:
+          - 重编码转换视频帧率；画质/体积主要受 crf 与 preset 影响
+          - keep_audio=True 保留音频；False 去音频；输出不可写/编码不支持会失败
+        """
+
+        await Requires.connect_ffmpeg()
+
+        args = {
+            "input_video"  : input_video,
+            "output_video" : output_video,
+            "fps"          : fps,
+            "video_codec"  : video_codec,
+            "crf"          : crf,
+            "preset"       : preset,
+            "keep_audio"   : keep_audio,
+            "overwrite"    : overwrite
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.ffmpeg.agent_id}.ffmpeg_convert_video", args=args)
+            try:
+                return await Ins.ffmpeg.ffmpeg_convert_video(**args)
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="ffmpeg_convert_video",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @task_middleware("ffmpeg_concat_video")
+    async def ffmpeg_concat_video(
+        list_file: str,
+        output_video: typing.Optional[str] = None,
+        *,
+        overwrite: bool = True,
+        reencode: bool = False,
+        video_codec: str = "libx264",
+        crf: int = 23,
+        preset: str = "veryfast",
+        audio_codec: str = "aac"
+    ) -> CallToolResult:
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_concat_video
+        P:
+          list_file: str
+          output_video: str?=None
+          overwrite: bool=True
+          reencode: bool=False
+          video_codec: str="libx264"
+          crf: int=23
+          preset: str="veryfast"
+          audio_codec: str="aac"
+        R: CTR
+        N:
+          - 按 list_file 顺序拼接片段；reencode=False 最快但要求片段参数一致
+          - list_file 每行格式：file '/abs/path/x.mp4'
+        """
+
+        await Requires.connect_ffmpeg()
+
+        args = {
+            "list_file"    : list_file,
+            "output_video" : output_video,
+            "overwrite"    : overwrite,
+            "reencode"     : reencode,
+            "video_codec"  : video_codec,
+            "crf"          : crf,
+            "preset"       : preset,
+            "audio_codec"  : audio_codec
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.ffmpeg.agent_id}.ffmpeg_concat_video", args=args)
+            try:
+                return await Ins.ffmpeg.ffmpeg_concat_video(**args)
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="ffmpeg_concat_video",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
     @task_middleware("ffmpeg_remux_video")
     async def ffmpeg_remux_video(
         input_video: str,
@@ -304,6 +473,86 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
         return await broadcast(
             tool="ffmpeg_remux_video",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @task_middleware("ffmpeg_mute_video")
+    async def ffmpeg_mute_video(
+        input_video: str,
+        output_video: typing.Optional[str] = None,
+        *,
+        overwrite: bool = True
+    ) -> CallToolResult:
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_mute_video
+        P:
+          input_video: str
+          output_video: str?=None
+          overwrite: bool=True
+        R: CTR
+        N:
+          - 输出静音视频：仅移除音轨（视频流 copy 不重编码，最快）
+          - 不改变画面质量/编码参数
+        """
+
+        await Requires.connect_ffmpeg()
+
+        args = {
+            "input_video"  : input_video,
+            "output_video" : output_video,
+            "overwrite"    : overwrite
+        }
+
+        async def call(*_) -> None:
+            job_id = await idle.job_begin(f"{Ins.ffmpeg.agent_id}.ffmpeg_mute_video", args=args)
+            try:
+                return await Ins.ffmpeg.ffmpeg_mute_video(**args)
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="ffmpeg_mute_video",
+            args=args,
+            target_list=[Ins.ffmpeg],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @task_middleware("ffmpeg_probe_video")
+    async def ffmpeg_probe_video(input_file: str) -> CallToolResult:
+        """
+        D: media
+        C: ffmpeg
+        A: ffmpeg_probe_video
+        P:
+          input_file: str
+        R: CTR
+        N:
+          - 探测媒体信息（编码/时长/分辨率/音轨等），仅探测不生成输出文件
+        """
+
+        await Requires.connect_ffmpeg()
+
+        args = {
+            "input_file" : input_file
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.ffmpeg.agent_id}.ffmpeg_probe_video", args=args)
+            try:
+                return await Ins.ffmpeg.ffmpeg_probe_video(**args)
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="ffmpeg_probe_video",
             args=args,
             target_list=[Ins.ffmpeg],
             call=call,
@@ -409,250 +658,55 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
-    @task_middleware("ffmpeg_video_snapshot")
-    async def ffmpeg_video_snapshot(
-        input_video: str,
-        output_image: typing.Optional[str] = None,
-        *,
-        at_sec: float = 0.0,
+    @task_middleware("ffmpeg_convert_audio")
+    async def ffmpeg_convert_audio(
+        input_file: str,
+        output_file: typing.Optional[str] = None,
+        audio_codec: typing.Optional[str] = None,
+        sample_rate: typing.Optional[int] = None,
+        channels: typing.Optional[int] = None,
+        bitrate: typing.Optional[str] = None,
         overwrite: bool = True
     ) -> CallToolResult:
         """
         D: media
         C: ffmpeg
-        A: ffmpeg_video_snapshot
-        P:
-          input_video: str
-          output_image: str?=None
-          at_sec: float=0.0
-          overwrite: bool=True
-        R: CTR
-        N:
-          - 从视频指定时间点导出单帧图片（封面/缩略图）
-          - 这里的 ffmpeg_video_snapshot 指“视频取帧”，避免与 adb screenshot 混淆
-        """
-
-        await Requires.connect_ffmpeg()
-
-        args = {
-            "input_video"  : input_video,
-            "output_image" : output_image,
-            "at_sec"       : at_sec,
-            "overwrite"    : overwrite
-        }
-
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.ffmpeg.agent_id}.ffmpeg_video_snapshot", args=args)
-            try:
-                return await Ins.ffmpeg.ffmpeg_video_snapshot(**args)
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="ffmpeg_video_snapshot",
-            args=args,
-            target_list=[Ins.ffmpeg],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
-    @task_middleware("ffmpeg_concat_video")
-    async def ffmpeg_concat_video(
-        list_file: str,
-        output_video: typing.Optional[str] = None,
-        *,
-        overwrite: bool = True,
-        reencode: bool = False,
-        video_codec: str = "libx264",
-        crf: int = 23,
-        preset: str = "veryfast",
-        audio_codec: str = "aac"
-    ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_concat_video
-        P:
-          list_file: str
-          output_video: str?=None
-          overwrite: bool=True
-          reencode: bool=False
-          video_codec: str="libx264"
-          crf: int=23
-          preset: str="veryfast"
-          audio_codec: str="aac"
-        R: CTR
-        N:
-          - 按 list_file 顺序拼接片段；reencode=False 最快但要求片段参数一致
-          - list_file 每行格式：file '/abs/path/x.mp4'
-        """
-
-        await Requires.connect_ffmpeg()
-
-        args = {
-            "list_file"    : list_file,
-            "output_video" : output_video,
-            "overwrite"    : overwrite,
-            "reencode"     : reencode,
-            "video_codec"  : video_codec,
-            "crf"          : crf,
-            "preset"       : preset,
-            "audio_codec"  : audio_codec
-        }
-
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.ffmpeg.agent_id}.ffmpeg_concat_video", args=args)
-            try:
-                return await Ins.ffmpeg.ffmpeg_concat_video(**args)
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="ffmpeg_concat_video",
-            args=args,
-            target_list=[Ins.ffmpeg],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
-    @task_middleware("ffmpeg_scale_video")
-    async def ffmpeg_scale_video(
-        input_video: str,
-        output_video: typing.Optional[str] = None,
-        *,
-        scale_w: int | None = None,
-        scale_h: int | None = None,
-        video_codec: str = "libx264",
-        crf: int = 23,
-        preset: str = "veryfast",
-        keep_audio: bool = True,
-        overwrite: bool = True,
-    ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_scale_video
-        P:
-          input_video: str
-          output_video: str?=None
-          scale_w: int?=None
-          scale_h: int?=None
-          video_codec: str="libx264"
-          crf: int=23
-          preset: str="veryfast"
-          keep_audio: bool=True
-          overwrite: bool=True
-        R: CTR
-        N:
-          - 输出新视频并缩放分辨率（常用于压体积/统一规格）；会重编码视频（crf/preset 影响质量/速度）
-          - keep_audio=True 保留音频（copy）；False 时去音频或重编码音频（依实现）
-        """
-
-        await Requires.connect_ffmpeg()
-
-        args = {
-            "input_video"  : input_video,
-            "output_video" : output_video,
-            "scale_w"      : scale_w,
-            "scale_h"      : scale_h,
-            "video_codec"  : video_codec,
-            "crf"          : crf,
-            "preset"       : preset,
-            "keep_audio"   : keep_audio,
-            "overwrite"    : overwrite
-        }
-
-        async def call(*_) -> None:
-            job_id = await idle.job_begin(f"{Ins.ffmpeg.agent_id}.ffmpeg_scale_video", args=args)
-            try:
-                return await Ins.ffmpeg.ffmpeg_scale_video(**args)
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="ffmpeg_scale_video",
-            args=args,
-            target_list=[Ins.ffmpeg],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
-    @task_middleware("ffmpeg_mute_video")
-    async def ffmpeg_mute_video(
-        input_video: str,
-        output_video: typing.Optional[str] = None,
-        *,
-        overwrite: bool = True
-    ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_mute_video
-        P:
-          input_video: str
-          output_video: str?=None
-          overwrite: bool=True
-        R: CTR
-        N:
-          - 输出静音视频：仅移除音轨（视频流 copy 不重编码，最快）
-          - 不改变画面质量/编码参数
-        """
-
-        await Requires.connect_ffmpeg()
-
-        args = {
-            "input_video"  : input_video,
-            "output_video" : output_video,
-            "overwrite"    : overwrite
-        }
-
-        async def call(*_) -> None:
-            job_id = await idle.job_begin(f"{Ins.ffmpeg.agent_id}.ffmpeg_mute_video", args=args)
-            try:
-                return await Ins.ffmpeg.ffmpeg_mute_video(**args)
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="ffmpeg_mute_video",
-            args=args,
-            target_list=[Ins.ffmpeg],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
-    @task_middleware("ffmpeg_probe_video")
-    async def ffmpeg_probe_video(input_file: str) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_probe_video
+        A: ffmpeg_convert_audio
         P:
           input_file: str
+          output_file: str?=None
+          audio_codec: str?=None
+          sample_rate: int?=None
+          channels: int?=None
+          bitrate: str?=None
+          overwrite: bool=True
         R: CTR
         N:
-          - 探测媒体信息（编码/时长/分辨率/音轨等），仅探测不生成输出文件
+          - 任意音频/视频 → 音频文件（容器由 output_file 扩展名决定）
+          - 可选调整编码器/采样率/声道/码率；输出不可写/格式或编码不支持会失败
         """
 
         await Requires.connect_ffmpeg()
 
         args = {
-            "input_file" : input_file
+            "input_file"  : input_file,
+            "output_file" : output_file,
+            "audio_codec" : audio_codec,
+            "sample_rate" : sample_rate,
+            "channels"    : channels,
+            "bitrate"     : bitrate,
+            "overwrite"   : overwrite
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.ffmpeg.agent_id}.ffmpeg_probe_video", args=args)
+            job_id = await idle.job_begin(f"{Ins.ffmpeg.agent_id}.ffmpeg_convert_audio", args=args)
             try:
-                return await Ins.ffmpeg.ffmpeg_probe_video(**args)
+                return await Ins.ffmpeg.ffmpeg_convert_audio(**args)
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="ffmpeg_probe_video",
+            tool="ffmpeg_convert_audio",
             args=args,
             target_list=[Ins.ffmpeg],
             call=call,

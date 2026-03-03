@@ -48,6 +48,11 @@ class Report(object):
         if not (log_dir := Path(self.__log_path)).exists():
             log_dir.mkdir(parents=True, exist_ok=True)
 
+        # 创建分类文件夹：toolkit
+        self.__toolkit_path: str = os.path.join(self.total_path, "toolkit")
+        if not (toolkit_dir := Path(self.__toolkit_path)).exists():
+            toolkit_dir.mkdir(parents=True, exist_ok=True)
+
     @property
     def log_papers(self) -> str:
         return self.__log_papers
@@ -66,6 +71,11 @@ class Report(object):
     def log_path(self) -> str:
         """获取日志文件夹路径"""
         return self.__log_path
+
+    @property
+    def toolkit_path(self) -> str:
+        """toolkit 文件夹路径"""
+        return self.__toolkit_path
 
 
 if __name__ == '__main__':

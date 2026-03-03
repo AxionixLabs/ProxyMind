@@ -7,10 +7,12 @@
 
 import typing
 import asyncio
+from pathlib import Path
 from loguru import logger
 from mcp import ClientSession
 from mcp.types import CallToolResult
 from engine.tinker import StreamTyperLogger
+from mindnova.report import Report
 from mindnova import request
 
 
@@ -26,12 +28,12 @@ class Enhancer(object):
     def exchange(
         name: str,
         src_arguments: dict[str, typing.Any],
-        dst_arguments: dict[str, typing.Any]
+        report: Report
     ) -> typing.Union[dict[str, typing.Any], str]:
         """根据操作名称决定是否增强 arguments，返回增强后的参数或原始参数。"""
         match name:
             case "screenshot":
-                return src_arguments | dst_arguments
+                return src_arguments | {"local": str(Path(report.cap_path) / "screenshot.png")}
             case _:
                 return src_arguments
 
@@ -55,6 +57,8 @@ class Enhancer(object):
         if not ok: return fields
 
         match name:
+            case "ffmpeg_extract_keyframes":
+                return await self.__ffmpeg_extract_keyframes(result)
             case "screenshot":
                 return await self.__screenshot(result)
             case "heal_element":
@@ -63,6 +67,76 @@ class Enhancer(object):
                 return await self.__loop_steps(result, slog)
             case _:
                 return fields
+
+    async def __ffmpeg_extract_keyframes(
+        self,
+        result: CallToolResult,
+        force_kind: typing.Optional[str] = None
+    ) -> dict:
+
+        fields = self.fields(result)
+        results = fields.get("data", {}).get("results")
+        attachments = results[0].get("attachments") or []
+
+        if not isinstance(attachments, list) or not attachments:
+            return fields
+
+        per_device: dict[str, typing.Any] = {}
+        remote_attachments: list[dict[str, typing.Any]] = []
+
+        agent_id = fields.get("agent_id")  # TODO
+
+        for a in attachments:
+            if not isinstance(a, dict):
+                continue
+
+            local = a.get("local")
+            if not local:
+                # 已经是 url / 或者无 local，跳过
+                if a.get("url"):
+                    remote_attachments.append(a)
+                continue
+
+            try:
+                up = await request.upload_file_stream(local, agent_id)
+            except Exception as e:
+                per_device[local] = {"ok": False, "local": local, "error": f"{type(e).__name__}: {e}"}
+                continue
+
+            url = (up or {}).get("url")
+            if not url:
+                per_device[local] = {"ok": False, "local": local, "error": f"upload returned no url: {up!r}"}
+                continue
+
+            kind = force_kind or (a.get("kind") or "file")
+            remote_attachments.append({
+                "kind"      : "image" if kind == "image" else "file",
+                "url"       : url,
+                "agent_id"  : agent_id,
+                "filename"  : (up or {}).get("filename") or a.get("filename"),
+                "mime_type" : (up or {}).get("mime_type") or a.get("mime_type")
+            })
+
+            per_device[local] = {
+                "ok"        : True,
+                "local"     : local,
+                "url"       : url,
+                "r2_key"    : (up or {}).get("key"),
+                "filename"  : (up or {}).get("filename") or a.get("filename"),
+                "mime_type" : (up or {}).get("mime_type") or a.get("mime_type")
+            }
+
+        ok = bool(per_device) and all(v.get("ok") for v in per_device.values())
+
+        # 替换 attachments（只保留 url 版本）
+        fields["attachments"] = remote_attachments
+
+        # 写上传证据
+        fields["upload_ok"] = ok
+        fields["per_device"] = {agent_id: per_device}
+
+        fields["text"] = f"upload {'ok' if ok else 'done'} attachments={len(remote_attachments)}"
+        return fields
 
     async def __screenshot(self, result: CallToolResult) -> dict:
         fields = self.fields(result)

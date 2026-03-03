@@ -338,7 +338,7 @@ class Mind(object):
                     case "tool_call":
                         name, arguments = chat["name"], chat.get("arguments", {})
 
-                        if Tooling.require(domains, name, name_not_in={"refresh", "nexus_go"}):
+                        if Tooling.require(domains, name, class_not_in={"nexus"}, name_not_in={"refresh"}):
                             if error := await self.wakeup(session, slog):
                                 await slog.feed(error)
                                 await finish("fail", error=str(error))
@@ -347,8 +347,7 @@ class Mind(object):
                         await slog.feed(f"\n{name} {arguments}\n")
 
                         # workflow: ==== 参数增强 ====
-                        dst = {"local": str(Path(self.report.cap_path) / "screenshot.png")}
-                        arguments = Enhancer.exchange(name, arguments, dst)
+                        arguments = Enhancer.exchange(name, arguments, self.report)
 
                         # workflow: ==== 工具调用 ====
                         result = await session.call_tool(name, arguments)
@@ -442,8 +441,7 @@ class Mind(object):
                         await slog.feed(f"\n{name} {arguments}\n")
 
                         # workflow: ==== 参数增强 ====
-                        dst = {"local": str(Path(self.report.cap_path) / "screenshot.png")}
-                        arguments = Enhancer.exchange(name, arguments, dst)
+                        arguments = Enhancer.exchange(name, arguments, self.report)
 
                         # workflow: ==== 工具调用 ====
                         result = await session.call_tool(name, arguments)
@@ -568,7 +566,7 @@ class Mind(object):
                         "ts"    : time.time()
                     })
 
-                    if Tooling.require(domains, name, name_not_in={"refresh", "nexus_go"}):
+                    if Tooling.require(domains, name, class_not_in={"nexus"}, name_not_in={"refresh"}):
                         if error := await self.wakeup(session):
                             await finish("fail", error=str(error), run=index, index=step_idx, name=name)
                             return logger.error(error)
@@ -576,8 +574,7 @@ class Mind(object):
                     logger.info(f"{name} -> args={arguments}")
 
                     # workflow: ==== 参数增强 ====
-                    dst = {"local": str(Path(self.report.cap_path) / "screenshot.png")}
-                    arguments = Enhancer.exchange(name, arguments, dst)
+                    arguments = Enhancer.exchange(name, arguments, self.report)
 
                     call_id = craft.short_uid()
 
