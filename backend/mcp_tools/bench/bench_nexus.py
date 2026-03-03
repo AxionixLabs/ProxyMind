@@ -20,7 +20,26 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
     @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
     @task_middleware("nexus_flow")
     async def nexus_flow(payload: dict[str, typing.Any],concurrency: int = 1) -> CallToolResult:
-
+        """
+        D: bench
+        C: nexus
+        A: nexus_flow
+        P:
+          payload: dict  # 统一入口参数
+            - mode: oneof(http|sse|ws|flow)="flow"
+            - env?: {base_url?: str, headers?: dict[str,str], timeout_s?: float}
+            - http:  method/url/headers/params/json/json_body/body/body_text/timeout_s/retries/follow_redirects
+            - sse:   url/base_url/headers/params/timeout_s/max_events
+            - ws:    url/headers/sends/timeout_s/max_messages
+            - flow:  vars/options/steps + 任意自定义字段
+              - options?: {fail_fast?: bool}
+          concurrency: int=1  # flow 模式下 steps 并发度（Semaphore）
+        R: CTR
+        N:
+          - 统一入口：按 payload.mode 分流执行（http/sse/ws/flow）
+          - flow 模式：steps 支持并发；失败策略由 options.fail_fast 控制
+        """
+        
         args = {
             "payload"     : payload,
             "concurrency" : concurrency
