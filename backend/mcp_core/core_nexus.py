@@ -311,7 +311,7 @@ class Nexus(object):
         last_err: typing.Optional[str] = None
 
         try:
-            async with websockets.connect(url, extra_headers=headers, open_timeout=timeout) as ws:
+            async with websockets.connect(url, additional_headers=headers, open_timeout=timeout) as ws:
                 for s in sends:
                     await ws.send(s)
 
