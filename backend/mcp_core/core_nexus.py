@@ -608,22 +608,22 @@ class Nexus(object):
         )
 
         return {
-            "text": f"nexus_mission ok={ok_run} steps={len(step_results)} run_id={run_id}",
-            "attachments": [],
+            "text"        : f"nexus_mission ok={ok_run} steps={len(step_results)} run_id={run_id}",
+            "attachments" : [],
             "data": {
                 "ok": ok_run,
                 "run_id": run_id,
                 "summary": {
-                    "total": len(step_results),
-                    "pass": sum(1 for s in step_results if s.ok),
-                    "fail": sum(1 for s in step_results if not s.ok),
-                    "cost_ms": finished_ms - started_ms,
+                    "total"   : len(step_results),
+                    "pass"    : sum(1 for s in step_results if s.ok),
+                    "fail"    : sum(1 for s in step_results if not s.ok),
+                    "cost_ms" : finished_ms - started_ms,
                 },
-                "steps": [self.step_dict(s) for s in step_results],
-                "final_ctx": ctx,
-                "flow": payload,  # ✅ 回显（完整透传）
+                "steps"     : [self.step_dict(s) for s in step_results],
+                "final_ctx" : ctx,
+                "payload"   : payload
             },
-            "logs": [],
+            "logs": []
         }
 
     async def flow(self, payload: dict[str, typing.Any], concurrency: int = 1) -> dict[str, typing.Any]:
