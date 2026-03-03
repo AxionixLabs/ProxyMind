@@ -15,6 +15,7 @@ import hashlib
 from pathlib import Path
 from backend.mcp_core.core_framix import Framix
 from backend.mcp_core.core_memrix import Memrix
+from backend.mcp_core.core_nexus import Nexus
 from backend.mcp_hub.hub_medias import (
     FFmpeg, Player
 )
@@ -41,6 +42,9 @@ class Ins(object):
     memrix: Memrix = Memrix(
         mx_report_session=mx_report_session
     )
+
+    nexus: Nexus = Nexus()
+
     ffmpeg: FFmpeg = FFmpeg()
     player: Player = Player()
 
