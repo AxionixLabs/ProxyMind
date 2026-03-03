@@ -35,9 +35,11 @@ def register_automator_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> 
 def register_bench_tools(mcp: FastMCP, idle: Idle) -> None:
     from backend.mcp_tools.bench import bench_framix
     from backend.mcp_tools.bench import bench_memrix
+    from backend.mcp_tools.bench import bench_nexus
 
     bench_framix.bind(mcp, idle)
     bench_memrix.bind(mcp, idle)
+    bench_nexus.bind(mcp, idle)
 
 
 def register_common_tools(mcp: FastMCP, idle: Idle) -> None:
