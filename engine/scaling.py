@@ -258,8 +258,9 @@ class Pack(object):
             auto_idx += 1
             name = (src_meta.get("name") or f"item_{auto_idx:03d}").strip()
 
-            # 注入全局 cfg 到每条 meta（方便执行层 fallback）
-            src_meta.update(cfg)
+            merged = dict(cfg)
+            merged.update(src_meta)  # 用例 meta 覆盖 cfg
+            src_meta = merged
 
             items.append(PackItem(name=name, message=message, meta=src_meta))
 
