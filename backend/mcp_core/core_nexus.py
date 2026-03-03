@@ -362,7 +362,7 @@ class Nexus(object):
         env = payload.get("env") if isinstance(payload.get("env"), dict) else {}
         base_url = str(env.get("base_url") or "")
         base_headers = dict(env.get("headers") or {})
-        base_timeout = float(env.get("timeout_s", env.get("timeout", 30.0)))
+        base_timeout = float(env.get("timeout", 30.0))
 
         options = payload.get("options") if isinstance(payload.get("options"), dict) else {}
         fail_fast = bool(options.get("fail_fast", True))
@@ -392,7 +392,7 @@ class Nexus(object):
                         params=req_r.get("params"),
                         json_body=req_r.get("json"),
                         body_text=req_r.get("body"),
-                        timeout=float(req_r.get("timeout_s", base_timeout)),
+                        timeout=float(req_r.get("timeout", base_timeout)),
                         retries=int(req_r.get("retries", 0)),
                         follow_redirects=bool(req_r.get("follow_redirects", True)),
                     )
@@ -412,7 +412,7 @@ class Nexus(object):
                         base_url=str(req_r.get("base_url") or base_url) or None,
                         headers={**base_headers, **(req_r.get("headers") or {})},
                         params=req_r.get("params"),
-                        timeout=float(req_r.get("timeout_s", base_timeout)),
+                        timeout=float(req_r.get("timeout", base_timeout)),
                         max_events=int(req_r.get("max_events", 10)),
                     )
                     elapsed_ms = ms_since(t0)
@@ -435,7 +435,7 @@ class Nexus(object):
                         url=str(req_r.get("url", "")),
                         headers={**base_headers, **(req_r.get("headers") or {})},
                         sends=list(req_r.get("sends") or []),
-                        timeout=float(req_r.get("timeout_s", base_timeout)),
+                        timeout=float(req_r.get("timeout", base_timeout)),
                         max_messages=int(req_r.get("max_messages", 10)),
                     )
                     elapsed_ms = ms_since(t0)
@@ -528,7 +528,7 @@ class Nexus(object):
         env = payload.get("env") if isinstance(payload.get("env"), dict) else {}
         base_url = env.get("base_url")
         base_headers = env.get("headers") if isinstance(env.get("headers"), dict) else {}
-        base_timeout = float(env.get("timeout_s", env.get("timeout", 30.0)))
+        base_timeout = float(env.get("timeout", 30.0))
 
         if mode == "http":
             return await self.request(
@@ -539,7 +539,7 @@ class Nexus(object):
                 params=payload.get("params"),
                 json_body=payload.get("json") or payload.get("json_body"),
                 body_text=payload.get("body") or payload.get("body_text"),
-                timeout=float(payload.get("timeout_s", payload.get("timeout", base_timeout))),
+                timeout=float(payload.get("timeout", base_timeout)),
                 retries=int(payload.get("retries", 0)),
                 follow_redirects=bool(payload.get("follow_redirects", True)),
             )
@@ -550,7 +550,7 @@ class Nexus(object):
                 base_url=str(payload.get("base_url") or base_url) or None,
                 headers={**base_headers, **(payload.get("headers") or {})},
                 params=payload.get("params"),
-                timeout=float(payload.get("timeout_s", payload.get("timeout", base_timeout))),
+                timeout=float(payload.get("timeout", base_timeout)),
                 max_events=int(payload.get("max_events", 10)),
             )
 
@@ -559,7 +559,7 @@ class Nexus(object):
                 url=str(payload.get("url", "")),
                 headers={**base_headers, **(payload.get("headers") or {})},
                 sends=list(payload.get("sends") or []),
-                timeout=float(payload.get("timeout_s", payload.get("timeout", base_timeout))),
+                timeout=float(payload.get("timeout", base_timeout)),
                 max_messages=int(payload.get("max_messages", 10)),
             )
 
