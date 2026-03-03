@@ -227,6 +227,19 @@ def parse_sse_block(block: str) -> typing.Optional[SseEvent]:
     return ev
 
 
+def evidence(step_results: list[StepResult]) -> dict[str, typing.Any]:
+    ev_steps = []
+    for step in step_results:
+        ev_steps.append({
+            "name"       : step.name,
+            "type"       : step.type,
+            "ok"         : step.ok,
+            "elapsed_ms" : step.elapsed_ms,
+            "detail"     : step.detail
+        })
+    return {"steps": ev_steps}
+
+
 class Nexus(object):
     """Nexus class."""
 
@@ -458,6 +471,13 @@ class Nexus(object):
         }
 
     async def mission(self, payload: dict[str, typing.Any], concurrency: int = 1) -> dict[str, typing.Any]:
+        """
+        Mission = Flow runner（证据采集器口径）：
+        - StepResult.ok 仅表示“执行是否跑通”（HTTP 请求成功返回 / SSE 拉流成功拿到 events / WS 成功收发）
+        - 断言/评分交给大模型：suffix / rule_suffix 自由发挥
+        - 兼容旧写法：只有当 step 显式提供 assert/extract 才会执行本地 assert/extract（但不影响 ok）
+        - 返回 data.evidence 汇总证据，方便上层拼接到 final_msg
+        """
         started_ms = ms_now()
         run_id = f"nexus_{started_ms}"
 
@@ -482,11 +502,10 @@ class Nexus(object):
                 typ = str(st.get("type") or "http").lower()
                 req = st.get("request") or {}
 
-                # 断言/提取也支持模板
+                req_r = tmpl(req, ctx)
                 assertions = tmpl(st.get("assert") or [], ctx)
                 extract_rules = tmpl(st.get("extract") or {}, ctx)
 
-                req_r = tmpl(req, ctx)
                 t0 = time.perf_counter()
 
                 if typ == "http":
@@ -504,17 +523,29 @@ class Nexus(object):
                     )
                     elapsed_ms = ms_since(t0)
                     data = resp_pack.get("data") or {}
-                    failures = self.assert_http(data, assertions)
-                    extracted = self.extract_http(data, extract_rules, ctx)
-                    ok_step = bool(data.get("ok")) and (len(failures) == 0)
+
+                    failures: list[dict[str, typing.Any]] = []
+                    extracted: dict[str, typing.Any] = {}
+
+                    # 仅当显式提供 assert/extract 时执行（但不影响 ok）
+                    if st.get("assert"):
+                        failures = self.assert_http(data, assertions)
+                    if st.get("extract"):
+                        extracted = self.extract_http(data, extract_rules, ctx)
+
+                    step_ok = bool(data.get("ok"))
+
                     return i, StepResult(
                         name=name,
                         type="http",
-                        ok=ok_step,
+                        ok=step_ok,
                         elapsed_ms=elapsed_ms,
                         failures=failures,
                         extracted=extracted,
-                        detail={"status": (data.get("response") or {}).get("status")},
+                        detail={
+                            "request"  : data.get("request"),
+                            "response" : data.get("response")
+                        }
                     )
 
                 if typ == "sse":
@@ -528,17 +559,30 @@ class Nexus(object):
                     )
                     elapsed_ms = ms_since(t0)
                     data = resp_pack.get("data") or {}
-                    failures = self.assert_sse(data, assertions)
-                    extracted = self.extract_sse(data, extract_rules, ctx)
-                    ok_step = bool(data.get("ok")) and (len(failures) == 0)
+
+                    failures = []
+                    extracted = {}
+
+                    if st.get("assert"):
+                        failures = self.assert_sse(data, assertions)
+                    if st.get("extract"):
+                        extracted = self.extract_sse(data, extract_rules, ctx)
+
+                    step_ok = bool(data.get("ok"))
+
                     return i, StepResult(
                         name=name,
                         type="sse",
-                        ok=ok_step,
+                        ok=step_ok,
                         elapsed_ms=elapsed_ms,
                         failures=failures,
                         extracted=extracted,
-                        detail={"url": data.get("url")},
+                        detail={
+                            "url": data.get("url"),
+                            "status": data.get("status"),
+                            "events": data.get("events") or [],  # 关键证据
+                            "elapsed_ms": data.get("elapsed_ms"),
+                        },
                     )
 
                 if typ == "ws":
@@ -551,17 +595,29 @@ class Nexus(object):
                     )
                     elapsed_ms = ms_since(t0)
                     data = resp_pack.get("data") or {}
-                    failures = self.assert_ws(data, assertions)
-                    extracted = self.extract_ws(data, extract_rules, ctx)
-                    ok_step = bool(data.get("ok")) and (len(failures) == 0)
+
+                    failures = []
+                    extracted = {}
+
+                    if st.get("assert"):
+                        failures = self.assert_ws(data, assertions)
+                    if st.get("extract"):
+                        extracted = self.extract_ws(data, extract_rules, ctx)
+
+                    step_ok = bool(data.get("ok"))
+
                     return i, StepResult(
                         name=name,
                         type="ws",
-                        ok=ok_step,
+                        ok=step_ok,
                         elapsed_ms=elapsed_ms,
                         failures=failures,
                         extracted=extracted,
-                        detail={"url": data.get("url")},
+                        detail={
+                            "url": data.get("url"),
+                            "messages": data.get("messages") or [],  # 关键证据
+                            "elapsed_ms": data.get("elapsed_ms"),
+                        },
                     )
 
                 elapsed_ms = ms_since(t0)
@@ -571,6 +627,8 @@ class Nexus(object):
                     ok=False,
                     elapsed_ms=elapsed_ms,
                     failures=[{"type": "unknown_step_type", "value": typ}],
+                    extracted={},
+                    detail={},
                 )
 
         tasks = [asyncio.create_task(run_one(i, st)) for i, st in enumerate(steps_in)]
@@ -583,6 +641,7 @@ class Nexus(object):
                 for t in done:
                     idx, sr = await t
                     done_ordered.append((idx, sr))
+                    # fail_fast：只看“执行失败”就停（断言交给 LLM）
                     if not sr.ok:
                         for p in pending:
                             p.cancel()
@@ -604,8 +663,18 @@ class Nexus(object):
             finished_ms=finished_ms,
             payload=payload,
             final_ctx=ctx,
-            steps=step_results
+            steps=step_results,
         )
+
+        evidence_steps: list[dict[str, typing.Any]] = []
+        for s in step_results:
+            evidence_steps.append({
+                "name"       : s.name,
+                "type"       : s.type,
+                "ok"         : s.ok,
+                "elapsed_ms" : s.elapsed_ms,
+                "detail"     : s.detail
+            })
 
         return {
             "text"        : f"nexus_mission ok={ok_run} steps={len(step_results)} run_id={run_id}",
@@ -621,7 +690,8 @@ class Nexus(object):
                 },
                 "steps"     : [self.step_dict(s) for s in step_results],
                 "final_ctx" : ctx,
-                "payload"   : payload
+                "payload"   : payload,
+                "evidence"  : {"steps": evidence_steps}
             },
             "logs": []
         }
