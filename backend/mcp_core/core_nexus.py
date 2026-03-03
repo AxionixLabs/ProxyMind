@@ -604,7 +604,7 @@ class Nexus(object):
             finished_ms=finished_ms,
             payload=payload,
             final_ctx=ctx,
-            steps=step_results,
+            steps=step_results
         )
 
         return {
