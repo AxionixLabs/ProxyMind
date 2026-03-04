@@ -68,74 +68,82 @@ class Enhancer(object):
             case _:
                 return fields
 
-    async def __ffmpeg_extract_keyframes(
-        self,
-        result: CallToolResult,
-        force_kind: typing.Optional[str] = None
-    ) -> dict:
-
+    async def __ffmpeg_extract_keyframes(self, result: CallToolResult) -> dict:
+        # 提取返回的字段
         fields = self.fields(result)
-        results = fields.get("data", {}).get("results")
-        attachments = results[0].get("attachments") or []
+        results = fields.get("data", {}).get("results", [])
 
-        if not isinstance(attachments, list) or not attachments:
-            return fields
-
+        # 存储附件的列表
+        attachments: list[dict[str, typing.Any]] = []
         per_device: dict[str, typing.Any] = {}
-        remote_attachments: list[dict[str, typing.Any]] = []
 
-        agent_id = fields.get("agent_id")  # TODO
+        # 遍历每个结果，处理附件上传
+        for element in results:
+            agent_id = element.get("agent_id", "unknown")
 
-        for a in attachments:
-            if not isinstance(a, dict):
+            if not element.get("ok"):
+                per_device[agent_id] = {"ok": False, "error": element.get("text")}
                 continue
 
-            local = a.get("local")
-            if not local:
-                # 已经是 url / 或者无 local，跳过
-                if a.get("url"):
-                    remote_attachments.append(a)
-                continue
+            # 获取附件
+            local_attachments = element.get("attachments", [])
 
-            try:
-                up = await request.upload_file_stream(local, agent_id)
-            except Exception as e:
-                per_device[local] = {"ok": False, "local": local, "error": f"{type(e).__name__}: {e}"}
-                continue
+            for a in local_attachments:
+                # 如果附件类型不对，跳过
+                if not isinstance(a, dict):
+                    continue
 
-            url = (up or {}).get("url")
-            if not url:
-                per_device[local] = {"ok": False, "local": local, "error": f"upload returned no url: {up!r}"}
-                continue
+                local = a.get("local")
+                if not local:
+                    # 跳过没有 local 的附件，或已经是 URL
+                    if a.get("url"):
+                        attachments.append(a)
+                    continue
 
-            kind = force_kind or (a.get("kind") or "file")
-            remote_attachments.append({
-                "kind"      : "image" if kind == "image" else "file",
-                "url"       : url,
-                "agent_id"  : agent_id,
-                "filename"  : (up or {}).get("filename") or a.get("filename"),
-                "mime_type" : (up or {}).get("mime_type") or a.get("mime_type")
-            })
+                # 上传附件并获取 URL
+                try:
+                    up = await request.upload_file_stream(local, agent_id)
+                    url = up.get("url")
 
-            per_device[local] = {
-                "ok"        : True,
-                "local"     : local,
-                "url"       : url,
-                "r2_key"    : (up or {}).get("key"),
-                "filename"  : (up or {}).get("filename") or a.get("filename"),
-                "mime_type" : (up or {}).get("mime_type") or a.get("mime_type")
-            }
+                    if not url:
+                        per_device[agent_id] = {"ok": False, "error": f"upload returned no url: {up!r}"}
+                        continue
 
-        ok = bool(per_device) and all(v.get("ok") for v in per_device.values())
+                    # 更新附件
+                    attachments.append({
+                        "kind"      : "image" if a.get("kind") == "image" else "file",
+                        "url"       : url,
+                        "agent_id"  : agent_id,
+                        "filename"  : up.get("filename", a.get("filename")),
+                        "mime_type" : up.get("mime_type", a.get("mime_type"))
+                    })
 
-        # 替换 attachments（只保留 url 版本）
-        fields["attachments"] = remote_attachments
+                    per_device[agent_id] = {
+                        "ok"       : True,
+                        "local"    : local,
+                        "url"      : url,
+                        "r2_key"   : up.get("key"),
+                        "filename" : up.get("filename", a.get("filename")),
+                        "mime_type": up.get("mime_type", a.get("mime_type"))
+                    }
 
-        # 写上传证据
-        fields["upload_ok"] = ok
-        fields["per_device"] = {agent_id: per_device}
+                except Exception as e:
+                    # 如果上传失败，记录错误
+                    per_device[agent_id] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+                    continue
 
-        fields["text"] = f"upload {'ok' if ok else 'done'} attachments={len(remote_attachments)}"
+        # 判断是否所有上传都成功
+        ok = all(v.get("ok") for v in per_device.values()) if per_device else False
+
+        # 组织返回结构
+        fields["attachments"] = attachments
+        fields["data"] = {
+            "ok"         : ok,
+            "upload_ok"  : ok,
+            "per_device" : per_device
+        }
+        fields["text"] = f"upload {'ok' if ok else 'done'} attachments={len(attachments)}"
+
         return fields
 
     async def __screenshot(self, result: CallToolResult) -> dict:
