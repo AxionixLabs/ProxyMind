@@ -31,6 +31,11 @@ class Enhancer(object):
         report: Report
     ) -> typing.Union[dict[str, typing.Any], str]:
         """根据操作名称决定是否增强 arguments，返回增强后的参数或原始参数。"""
+        if name.startswith("ffmpeg_") and name != "ffmpeg_probe_video":
+            if src_arguments.get("output_dir"):
+                return src_arguments
+            return src_arguments | {"output_dir": report.toolkit_path}
+
         match name:
             case "screenshot":
                 return src_arguments | {"local": str(Path(report.cap_path) / "screenshot.png")}
@@ -57,8 +62,12 @@ class Enhancer(object):
         if not ok: return fields
 
         match name:
+            case "ffmpeg_extract_snapshot":
+                return await self.__ffmpeg_frame(result)
             case "ffmpeg_extract_keyframes":
-                return await self.__ffmpeg_extract_keyframes(result)
+                return await self.__ffmpeg_frame(result)
+            case "ffmpeg_extract_scene":
+                return await self.__ffmpeg_frame(result)
             case "screenshot":
                 return await self.__screenshot(result)
             case "heal_element":
@@ -68,16 +77,19 @@ class Enhancer(object):
             case _:
                 return fields
 
-    async def __ffmpeg_extract_keyframes(self, result: CallToolResult) -> dict:
-        # 提取返回的字段
+    async def __ffmpeg_frame(self, result: CallToolResult) -> dict:
         fields = self.fields(result)
-        results = fields.get("data", {}).get("results", [])
-
-        # 存储附件的列表
         attachments: list[dict[str, typing.Any]] = []
+
+        if not (results := fields.get("data", {}).get("results")):
+            return {
+                "text"        : "未获取到视频帧结果",
+                "attachments" : attachments,
+                "data"        : {"ok": False}
+            }
+
         per_device: dict[str, typing.Any] = {}
 
-        # 遍历每个结果，处理附件上传
         for element in results:
             agent_id = element.get("agent_id", "unknown")
 

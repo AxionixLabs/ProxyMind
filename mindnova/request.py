@@ -120,7 +120,15 @@ async def post_tool_result(
     call_id: str,
     name: str,
     ok: bool,
-    result: typing.Union[ None, bool, int, float, str, list[typing.Any], dict[str, typing.Any]]
+    result: typing.Union[
+        None,
+        str,
+        int,
+        bool,
+        float,
+        list[typing.Any],
+        dict[str, typing.Any]
+    ]
 ) -> None:
     """Post tool result"""
 
@@ -191,6 +199,7 @@ async def stream_chat(
     openai_tools: list[dict],
     attachments: typing.Optional[list[dict[str, typing.Any]]] = None,
     timeout: float = 60.0,
+    slog: typing.Optional[StreamTyperLogger] = None,
     *_,
     **kwargs
 ) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
@@ -215,6 +224,7 @@ async def stream_chat(
                 logger.debug(event["content"])
                 continue
             case "done":
+                if slog: await slog.stop()
                 logger.debug("Chat done ...")
                 continue
 

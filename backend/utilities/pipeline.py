@@ -49,14 +49,14 @@ class Active(object):
 
     class _RichSink(RichHandler):
         debug_color = [
-            "#00CED1",  # 深青色 - 冷静理性
-            "#98FB98",  # 浅绿色 - 绿色无压调试层
-            "#B0C4DE",  # 灰蓝色 - 安静辅助信息
+            "#00E5FF",  # 电青
+            "#39FF14",  # 霓虹绿
+            "#FF2D95",  # 霓虹粉
         ]
         info_color = [
-            "#D8BFD8",  # 藕荷紫 - 精致低饱和
-            "#EEE8AA",  # 浅卡其 - 稳妥类日志色
-            "#F0FFF0",  # 蜜瓜白 - 极淡提示背景色
+            "#FFD300",  # 电黄
+            "#7CFF6B",  # 亮绿
+            "#64748B",  # 蓝灰
         ]
         level_style = {
             "DEBUG"    : f"bold {random.choice(debug_color)}",

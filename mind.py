@@ -321,10 +321,11 @@ class Mind(object):
         await slog.open()
 
         # workflow: ==== Chat Streaming ====
-        async for chat in request.stream_chat(mode, model, apikey, message, openai_tools, **kwargs):
-            await self.stop_stream_anim(); await slog.start()
+        try:
+            async for chat in request.stream_chat(mode, model, apikey, message, openai_tools, slog=slog, **kwargs):
+                await self.stop_stream_anim()
+                await slog.start()
 
-            try:
                 match chat.get("type"):
                     case "error":
                         await slog.feed(chat.get("content"))
@@ -372,10 +373,10 @@ class Mind(object):
                     case _:
                         continue
 
-            except Exception as e:
-                await slog.feed(str(e))
-                await finish("fail", error=f"{type(e).__name__}: {e}")
-                return await slog.stop()
+        except Exception as e:
+            await slog.feed(str(e))
+            await finish("fail", error=f"{type(e).__name__}: {e}")
+            return await slog.stop()
 
         await finish("done")
         await slog.stop()
@@ -421,10 +422,11 @@ class Mind(object):
         )
 
         # workflow: ==== Fast Streaming ====
-        async for chat in request.stream_chat(mode, model, apikey, message, filter_tools, **kwargs):
-            await self.stop_stream_anim(); await slog.start()
+        try:
+            async for chat in request.stream_chat(mode, model, apikey, message, filter_tools, slog=slog, **kwargs):
+                await self.stop_stream_anim()
+                await slog.start()
 
-            try:
                 match chat.get("type"):
                     case "error":
                         await slog.feed(chat.get("content"))
@@ -465,10 +467,10 @@ class Mind(object):
                     case _:
                         continue
 
-            except Exception as e:
-                await slog.feed(str(e))
-                await finish("fail", error=f"{type(e).__name__}: {e}")
-                return await slog.stop()
+        except Exception as e:
+            await slog.feed(str(e))
+            await finish("fail", error=f"{type(e).__name__}: {e}")
+            return await slog.stop()
 
         await finish("done")
         await slog.stop()
