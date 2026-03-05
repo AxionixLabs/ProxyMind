@@ -6,6 +6,7 @@
 #                            |___/
 #
 
+import re
 from dataclasses import dataclass
 
 
@@ -23,6 +24,7 @@ class Pack(object):
         "round_prefix", "round_suffix",
         "global_prefix", "global_suffix",
     )
+    KEY_RE = re.compile(r"^[A-Za-z0-9_-]+\s*:\s*")
 
     @staticmethod
     def pack_parse(text: str) -> tuple[list[PackItem], dict[str, str]]:
@@ -37,44 +39,97 @@ class Pack(object):
         """
 
         def strip_hash(line: str) -> str:
-            return line.lstrip()[1:].strip()
+            """
+            把 '# ' 去掉，但保留左侧缩进（用于 dedent_block 正确工作）
+            """
+            s = line.lstrip()
+            if not s.startswith("#"):
+                return s.rstrip("\n")
+            # 去掉第一个 '#'
+            s = s[1:]
+            # 去掉紧随其后的一个空格（可选）
+            if s.startswith(" "):
+                s = s[1:]
+            return s.rstrip("\n")
 
         def looks_like_key(raw: str) -> bool:
-            if ":" not in raw: return False
-            head = raw.split(":", 1)[0].strip()
-            return bool(head) and all(ch.isalnum() or ch in "_-" for ch in head.lower())
+            """
+            只把“行首就是 key:”当成 key，避免正文里出现 ':' 被误判
+            """
+            return bool(Pack.KEY_RE.match(raw.strip()))
 
         def parse_meta_lines(meta_lines: list[str]) -> dict[str, str]:
             """
             支持：
               # key: value
               # key:
+              #   line1
+              #   line2
+
+            并新增支持（与 cfg 一致）：
+              # key: |
+              #   line1
+              #   line2
+
+              # key: <<<
               # line1
               # line2
+              # >>>
             """
             meta: dict[str, str] = {}
             i = 0
+
             while i < len(meta_lines):
-                raw = strip_hash(meta_lines[i])
+                raw0 = strip_hash(meta_lines[i]).rstrip()
                 i += 1
-                if not raw or ":" not in raw:
+
+                if not raw0 or ":" not in raw0:
                     continue
 
-                k, v = raw.split(":", 1)
+                k, v = raw0.split(":", 1)
                 key = k.strip().lower()
                 val = v.strip()
 
+                # --- key: |  缩进块（直到遇到下一条 key: 或 meta 结束）
+                if val == "|":
+                    buf: list[str] = []
+                    while i < len(meta_lines):
+                        nxt = strip_hash(meta_lines[i])
+                        if looks_like_key(nxt):
+                            break
+                        buf.append(nxt.rstrip("\n"))
+                        i += 1
+                    meta[key] = dedent_block(buf)  # 复用你已有的 dedent_block
+                    continue
+
+                # --- key: <<< ... >>>  终止块
+                if val == "<<<":
+                    buf: list[str] = []
+                    while i < len(meta_lines):
+                        nxt = strip_hash(meta_lines[i])
+                        i += 1
+                        if nxt.strip() == ">>>":
+                            break
+                        buf.append(nxt.rstrip("\n"))
+                    meta[key] = "\n".join(buf).rstrip()
+                    continue
+
+                # --- key:  后续多行（直到下一条 key: 或 meta 结束）
                 if val == "":
                     buf: list[str] = []
                     while i < len(meta_lines):
                         nxt = strip_hash(meta_lines[i])
                         if looks_like_key(nxt):
                             break
-                        buf.append(nxt)
+                        buf.append(nxt.rstrip("\n"))
                         i += 1
-                    meta[key] = "\n".join(buf).strip()
-                else:
-                    meta[key] = val
+                    # 这里你也可以选择 dedent（更一致），我建议 dedent
+                    meta[key] = dedent_block(buf)
+                    continue
+
+                # --- key: value
+                meta[key] = val
+
             return meta
 
         def dedent_block(block: list[str]) -> str:
