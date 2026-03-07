@@ -237,7 +237,7 @@ class Mind(object):
 
     async def calling(
         self,
-        mc: typing.Optional[dict[str, typing.Any]] = None,
+        model_api: typing.Optional[dict[str, typing.Any]] = None,
         *,
         message: str,
         func: typing.Callable,
@@ -251,7 +251,7 @@ class Mind(object):
             else:
                 yield exc
 
-        mc = mc or self.pref.to_config()
+        model_api = model_api or self.pref.to_config()
 
         meta_in = kwargs.get("metadata") or {}
         cid = meta_in.get("cid") if isinstance(meta_in, dict) else None
@@ -264,7 +264,7 @@ class Mind(object):
         )
 
         try:
-            return await func(mc, message, **kwargs)
+            return await func(model_api, message, **kwargs)
 
         except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as eg:
             await self.stop_all_anim()
