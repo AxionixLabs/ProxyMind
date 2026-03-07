@@ -9,6 +9,7 @@
 import os
 import re
 import time
+import uuid
 import random
 import typing
 import shutil
@@ -65,6 +66,19 @@ class Record(object):
     @property
     def prefix(self) -> str:
         return self.__prefix
+
+    @staticmethod
+    def as_token(s: str, *, max_len: int = 32) -> str:
+        s = (s or "unknown").strip()
+        s = re.sub(r"[^a-zA-Z0-9_.-]+", "_", s)
+        return s[:max_len] if max_len > 0 else s
+
+    def as_video(self, video_suffix: str = "mkv") -> str:
+        token = self.as_token(self.device.serial, max_len=24)
+        uid   = uuid.uuid4().hex[:6]
+        ts    = time.strftime("%Y%m%d%H%M%S")
+        rnd   = random.randint(100, 999)
+        return f"{ts}_{token}_{uid}_{rnd}.{video_suffix}"
 
     async def acquire(self) -> None:
         async with self.sessions_lock:
@@ -227,11 +241,12 @@ class Record(object):
                     vs = 2.5
                 cmd += ["--no-display"] if vs <= 2.4 else ["--no-window"]
 
-            video_flag = f"{time.strftime('%Y%m%d%H%M%S')}_{random.randint(100, 999)}.mkv"
-
-            cmd += ["-r", video_temp := f"{os.path.join(directory, 'screen')}_{video_flag}"]
+            cmd += [
+                "-r", video_temp := f"{os.path.join(directory, 'screen')}_{self.as_video()}"
+            ]
             await self.launcher(cmd)
             await self.check_timer(video_temp)
+
             return {
                 "text"        : "scrcpy 录制已启动。",
                 "attachments" : [],
@@ -244,6 +259,7 @@ class Record(object):
                 },
                 "logs": []
             }
+
         except Exception as e:
             await self.release()
             return {

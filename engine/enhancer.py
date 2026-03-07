@@ -35,11 +35,37 @@ class Enhancer(object):
                 return src_arguments
             return src_arguments | {"output_dir": report.toolkit_path}
 
-        match name:
-            case "screenshot":
-                return src_arguments | {"local": str(Path(report.cap_path) / "screenshot.png")}
-            case _:
+        elif name.startswith("scrcpy_record"):
+            if src_arguments.get("directory"):
                 return src_arguments
+            return src_arguments | {"directory": report.rec_path}
+
+        elif name.startswith("screenshot"):
+            if local := src_arguments.get("local"):
+                p = Path(str(local)).expanduser()
+                # 1) 如果传的是目录：默认落到该目录下 screenshot.png
+                if p.exists() and p.is_dir():
+                    return src_arguments | {"local": str(p / "screenshot.png")}
+
+                suf = p.suffix.lower()
+
+                # 2) 有后缀且合法：原样返回
+                if suf in {".png", ".jpg", ".jpeg", ".webp"}:
+                    return src_arguments
+
+                # 3) 有后缀但不合法：强制改成 .png（避免 weird 容器）
+                if suf:
+                    fixed = p.with_suffix(".png")
+                    return src_arguments | {"local": str(fixed)}
+
+                # 4) 没后缀：补 .png
+                fixed = p.with_suffix(".png")
+                return src_arguments | {"local": str(fixed)}
+
+            return src_arguments | {"local": str(Path(report.cap_path) / "screenshot.png")}
+
+        else:
+            return src_arguments
 
     @staticmethod
     def fields(result: CallToolResult) -> typing.Union[dict[str, typing.Any], str]:

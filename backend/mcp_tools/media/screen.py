@@ -64,7 +64,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
     @mcp.tool(meta={"hidden": False, "domain": "media", "class": "scrcpy"})
     @task_middleware("scrcpy_record")
     async def scrcpy_record(
-        directory: str,
+        directory: typing.Optional[str] = None,
         fps: int = 60,
         silence: bool = False,
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
@@ -74,7 +74,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         C: scrcpy
         A: scrcpy_record
         P:
-          directory: str
+          directory: str?=None  # 由增强层自动传递，无需显示传递
           fps: int=60
           silence: bool=False
           matrix: overrides? (serial->args)
