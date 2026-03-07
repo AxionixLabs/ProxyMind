@@ -150,8 +150,7 @@ async def post_tool_result(
 
 async def stream_plan(
     mode: str,
-    model: str,
-    apikey: str,
+    model_api: dict[str, typing.Any],
     message: str,
     openai_tools: list[dict],
     extras: typing.Optional[dict[str, typing.Any]] = None,
@@ -164,12 +163,11 @@ async def stream_plan(
     url = f"https://api.appserverx.com/mind-plan"
     headers = Channel.make_headers()
     payload = {
-        "mode"    : mode,
-        "model"   : model,
-        "apikey"  : apikey,
-        "message" : message,
-        "tools"   : openai_tools,
-        "extras"  : extras,
+        "mode"      : mode,
+        "model_api" : model_api,
+        "message"   : message,
+        "tools"     : openai_tools,
+        "extras"    : extras,
         **kwargs
     }
 
@@ -193,8 +191,7 @@ async def stream_plan(
 
 async def stream_chat(
     mode: str,
-    model: str,
-    apikey: str,
+    model_api: dict[str, typing.Any],
     message: str,
     openai_tools: list[dict],
     attachments: typing.Optional[list[dict[str, typing.Any]]] = None,
@@ -208,11 +205,10 @@ async def stream_chat(
     url = f"https://api.appserverx.com/mind-chat"
     headers = Channel.make_headers()
     payload = {
-        "mode"    : mode,
-        "model"   : model,
-        "apikey"  : apikey,
-        "message" : message,
-        "tools"   : openai_tools,
+        "mode"      : mode,
+        "model_api" : model_api,
+        "message"   : message,
+        "tools"     : openai_tools,
         **kwargs
     }
     if attachments:
@@ -232,8 +228,7 @@ async def stream_chat(
 
 
 async def stream_heal(
-    model: str,
-    apikey: str,
+    model_api: dict[str, typing.Any],
     page_id: str,
     platform: str,
     locator: str,
@@ -251,8 +246,7 @@ async def stream_heal(
     headers = Channel.make_headers()
 
     payload = {
-        "model"      : model,
-        "apikey"     : apikey,
+        "model_api"  : model_api,
         "app_id"     : const.APP_DESC,
         "page_id"    : page_id,
         "platform"   : platform,

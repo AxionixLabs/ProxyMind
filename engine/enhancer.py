@@ -19,10 +19,9 @@ from mindnova import request
 class Enhancer(object):
     """通用工具结果增强"""
 
-    def __init__(self, session: ClientSession, model: str, apikey: str):
-        self.session = session
-        self.model   = model
-        self.apikey  = apikey
+    def __init__(self, session: ClientSession, model_api: dict[str, typing.Any]):
+        self.session   = session
+        self.model_api = model_api
 
     @staticmethod
     def exchange(
@@ -235,7 +234,7 @@ class Enhancer(object):
             data   = element["data"]
             serial = data.pop("serial", "unknown")
 
-            async for heal in request.stream_heal(self.model, self.apikey, **data, slog=slog):
+            async for heal in request.stream_heal(self.model_api, **data, slog=slog):
                 if heal.get("type") == "error":
                     per_device[serial] = {"ok": False, "error": heal["content"]}
                     continue

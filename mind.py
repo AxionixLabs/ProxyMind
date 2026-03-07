@@ -124,14 +124,16 @@ class Mind(object):
         await self.stop_plan_anim()
 
     @staticmethod
-    def ensure_model_key(model: str, apikey: str) -> None:
+    def ensure_model_api(model_api: dict[str, typing.Any]) -> None:
         """Ensure Model Key"""
-        if model and apikey:
+        api, model, apikey = model_api["api"], model_api["model"], model_api["apikey"]
+
+        if api and model and apikey:
             return None
 
-        missing = ", ".join(
-            x for x, ok in [("model", bool(model)), ("api_key", bool(apikey))] if not ok
-        )
+        configs = [("api", bool(api)), ("model", bool(model)), ("apikey", bool(apikey))]
+        missing = ", ".join(x for x, ok in configs if not ok)
+
         raise MindError(f"Missing required field(s): {missing}")
 
     @staticmethod
@@ -172,8 +174,7 @@ class Mind(object):
 
     async def with_mcp_session(
         self,
-        model: str,
-        apikey: str,
+        model_api: dict[str, typing.Any],
         function: typing.Callable[
             [ClientSession, list[dict[str, typing.Any]], dict[str, dict[str, typing.Any]]], typing.Awaitable[None]
         ]
@@ -188,7 +189,7 @@ class Mind(object):
                 token_cache["ts"] = now
             req.headers["Authorization"] = f"Bearer {token_cache['val']}"
 
-        self.ensure_model_key(model, apikey)
+        self.ensure_model_api(model_api)
 
         url = const.BASE_URL + const.MCP_ED
         token_cache = {"ts": 0, "val": ""}
@@ -236,8 +237,7 @@ class Mind(object):
 
     async def calling(
         self,
-        model: str = None,
-        apikey: str = None,
+        mc: typing.Optional[dict[str, typing.Any]] = None,
         *,
         message: str,
         func: typing.Callable,
@@ -251,8 +251,7 @@ class Mind(object):
             else:
                 yield exc
 
-        model  = model  or self.pref.model
-        apikey = apikey or self.pref.apikey
+        mc = mc or self.pref.to_config()
 
         meta_in = kwargs.get("metadata") or {}
         cid = meta_in.get("cid") if isinstance(meta_in, dict) else None
@@ -265,7 +264,7 @@ class Mind(object):
         )
 
         try:
-            return await func(model, apikey, message, **kwargs)
+            return await func(mc, message, **kwargs)
 
         except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as eg:
             await self.stop_all_anim()
@@ -291,8 +290,7 @@ class Mind(object):
     async def chat_exec_looper(
         self,
         session: ClientSession,
-        model: str,
-        apikey: str,
+        model_api: dict[str, typing.Any],
         message: str,
         openai_tools: list[dict[str, typing.Any]],
         domains: dict[str, dict[str, typing.Any]],
@@ -322,7 +320,7 @@ class Mind(object):
 
         # workflow: ==== Chat Streaming ====
         try:
-            async for chat in request.stream_chat(mode, model, apikey, message, openai_tools, slog=slog, **kwargs):
+            async for chat in request.stream_chat(mode, model_api, message, openai_tools, slog=slog, **kwargs):
                 await self.stop_stream_anim()
                 await slog.start()
 
@@ -355,7 +353,7 @@ class Mind(object):
                         ok = (not result.isError)
 
                         # workflow: ==== 工具增强 ====
-                        enhancer: Enhancer = Enhancer(session, model, apikey)
+                        enhancer: Enhancer = Enhancer(session, model_api)
                         fields = await enhancer.enhance(name, arguments, result, ok, slog)
 
                         await slog.feed(f"\n{fields.get('text')}\n")
@@ -385,8 +383,7 @@ class Mind(object):
     async def fast_exec_looper(
         self,
         session: ClientSession,
-        model: str,
-        apikey: str,
+        model_api: dict[str, typing.Any],
         message: str,
         openai_tools: list[dict[str, typing.Any]],
         domains: dict[str, dict[str, typing.Any]],
@@ -423,7 +420,7 @@ class Mind(object):
 
         # workflow: ==== Fast Streaming ====
         try:
-            async for chat in request.stream_chat(mode, model, apikey, message, filter_tools, slog=slog, **kwargs):
+            async for chat in request.stream_chat(mode, model_api, message, filter_tools, slog=slog, **kwargs):
                 await self.stop_stream_anim()
                 await slog.start()
 
@@ -450,7 +447,7 @@ class Mind(object):
                         ok = (not result.isError)
 
                         # workflow: ==== 工具增强 ====
-                        enhancer: Enhancer = Enhancer(session, model, apikey)
+                        enhancer: Enhancer = Enhancer(session, model_api)
                         fields = await enhancer.enhance(name, arguments, result, ok, slog)
 
                         await slog.feed(f"\n{fields.get('text')}\n")
@@ -479,8 +476,7 @@ class Mind(object):
     async def plan_exec_looper(
         self,
         session: ClientSession,
-        model: str,
-        apikey: str,
+        model_api: dict[str, typing.Any],
         message: str,
         openai_tools: list[dict[str, typing.Any]],
         domains: dict[str, dict[str, typing.Any]],
@@ -524,7 +520,7 @@ class Mind(object):
             "ts"    : time.time()
         })
 
-        async for plan in request.stream_plan(mode, model, apikey, message, filter_tools, extras, **kwargs):
+        async for plan in request.stream_plan(mode, model_api, message, filter_tools, extras, **kwargs):
             await self.stop_stream_anim()
             if plan.get("type") == "error":
                 await finish("fail", error=json.dumps(plan, ensure_ascii=False))
@@ -595,7 +591,7 @@ class Mind(object):
                     ok = (not result.isError)
 
                     # workflow: ==== 工具增强 ====
-                    enhancer: Enhancer = Enhancer(session, model, apikey)
+                    enhancer: Enhancer = Enhancer(session, model_api)
                     fields = await enhancer.enhance(name, arguments, result, ok)
 
                     emit({
@@ -642,7 +638,7 @@ class Mind(object):
             await finish("done")
 
     # Notes: ==== Chat 对话模式 ====
-    async def mind_chat(self, model: str, apikey: str, message: str, *_, **kwargs) -> None:
+    async def mind_chat(self, model_api: dict[str, typing.Any], message: str, *_, **kwargs) -> None:
         """Mind Chat"""
 
         async def function(
@@ -652,13 +648,13 @@ class Mind(object):
         ) -> None:
             """Function"""
             await self.chat_exec_looper(
-                session, model, apikey, message, openai_tools, domains, **kwargs
+                session, model_api, message, openai_tools, domains, **kwargs
             )
 
-        return await self.with_mcp_session(model, apikey, function)
+        return await self.with_mcp_session(model_api, function)
 
     # Notes: ==== Fast 性能模式 ====
-    async def mind_fast(self, model: str, apikey: str, message: str, *_, **kwargs) -> None:
+    async def mind_fast(self, model_api: dict[str, typing.Any], message: str, *_, **kwargs) -> None:
         """Mind Fast"""
 
         async def function(
@@ -668,13 +664,13 @@ class Mind(object):
         ) -> None:
             """Function"""
             await self.fast_exec_looper(
-                session, model, apikey, message, openai_tools, domains, **kwargs
+                session, model_api, message, openai_tools, domains, **kwargs
             )
 
-        return await self.with_mcp_session(model, apikey, function)
+        return await self.with_mcp_session(model_api, function)
 
     # Notes: ==== Plan 编排模式 ====
-    async def mind_plan(self, model: str, apikey: str, message: str, *_, **kwargs) -> None:
+    async def mind_plan(self, model_api: dict[str, typing.Any], message: str, *_, **kwargs) -> None:
         """Mind Plan"""
 
         async def function(
@@ -684,10 +680,10 @@ class Mind(object):
         ) -> None:
             """Function"""
             await self.plan_exec_looper(
-                session, model, apikey, message, openai_tools, domains, **kwargs
+                session, model_api, message, openai_tools, domains, **kwargs
             )
 
-        return await self.with_mcp_session(model, apikey, function)
+        return await self.with_mcp_session(model_api, function)
 
     # Notes: ==== Loop 循环模式 ====
     async def mind_loop(self) -> None:
@@ -845,9 +841,9 @@ class Mind(object):
                 case "FAST": func = self.mind_fast
                 case "PLAN": func = self.mind_plan
 
-            await self.calling(
-                model, apikey, message=message, func=func, metadata=metadata
-            )
+            mc = self.pref.to_config(model=model, apikey=apikey)
+
+            await self.calling(mc, message=message, func=func, metadata=metadata)
 
     # Notes: ==== Pack 批量模式 ====
     async def mind_pack(
@@ -967,7 +963,7 @@ class Mind(object):
                             )
 
                             try:
-                                await func(session, model, apikey, final_msg, openai_tools, domains, **kwargs)
+                                await func(session, model_api, final_msg, openai_tools, domains, **kwargs)
 
                                 ev_report.emit({
                                     "type"    : "lifecycle",
@@ -1089,7 +1085,7 @@ class Mind(object):
             )
 
             try:
-                await func(session, model, apikey, msg, openai_tools, domains, **kwargs)
+                await func(session, model_api, msg, openai_tools, domains, **kwargs)
             except BaseException as exc:
                 error = Pack.brief_err(exc)
                 await self.stop_all_anim()
@@ -1129,8 +1125,7 @@ class Mind(object):
         repeat = max(1, int(self.repeat or 1))
         rx     = re.compile(self.pattern) if self.pattern else None
 
-        model  = self.pref.model
-        apikey = self.pref.apikey
+        model_api = self.pref.to_config()
 
         meta_in = kwargs.get("metadata") or {}
         cid = meta_in.get("cid") if isinstance(meta_in, dict) else None
@@ -1144,7 +1139,7 @@ class Mind(object):
         kwargs["ev_report"] = ev_report
         await ev_report.open()
 
-        return await self.with_mcp_session(model, apikey, function)
+        return await self.with_mcp_session(model_api, function)
 
 
 # """Main"""

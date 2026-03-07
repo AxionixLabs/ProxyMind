@@ -18,8 +18,10 @@ class Preferences(object):
     """Preferences class."""
 
     prefs = {
-        "model"  : "",
-        "apikey" : ""
+        "api"      : "OpenAI",
+        "model"    : "",
+        "apikey"   : "",
+        "base_url" : "",
     }
 
     def __init__(self, pref_file: typing.Any):
@@ -32,12 +34,24 @@ class Preferences(object):
         self.prefs = state
 
     @property
+    def api(self):
+        return self.prefs["api"]
+
+    @property
     def model(self):
         return self.prefs["model"]
 
     @property
     def apikey(self):
         return self.prefs["apikey"]
+
+    @property
+    def base_url(self) -> str:
+        return self.prefs.get("base_url", "")
+
+    @api.setter
+    def api(self, value: typing.Any):
+        self.prefs["api"] = value
 
     @model.setter
     def model(self, value: typing.Any):
@@ -47,14 +61,36 @@ class Preferences(object):
     def apikey(self, value: typing.Any):
         self.prefs["apikey"] = value
 
+    @base_url.setter
+    def base_url(self, value: typing.Any) -> None:
+        self.prefs["base_url"] = value
+
+    def to_config(
+        self,
+        *,
+        api: str = "",
+        model: str = "",
+        apikey: str = "",
+        base_url: str = ""
+    ) -> dict[str, typing.Any]:
+
+        return {
+            "api"      : api or self.api,
+            "model"    : model or self.model,
+            "apikey"   : apikey or self.apikey,
+            "base_url" : base_url or self.base_url
+        }
+
     async def load_pref(self) -> None:
         try:
             user_align = await asyncio.to_thread(
                 FileAssist.read_json, self.pref_file
             )
 
-            self.model  = user_align.get("model", "")
-            self.apikey = user_align.get("apikey", "")
+            self.api      = user_align.get("api", "")
+            self.model    = user_align.get("model", "")
+            self.apikey   = user_align.get("apikey", "")
+            self.base_url = user_align.get("base_url", "")
 
         except (FileNotFoundError, json.decoder.JSONDecodeError):
             await self.dump_pref()
