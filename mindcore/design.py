@@ -678,6 +678,89 @@ class Design(object):
 
             live.update(render(ticks, final=True))
 
+    @staticmethod
+    async def download_animation(state: dict[str, typing.Any], stop_event: asyncio.Event) -> None:
+        """下载动画"""
+
+        def fmt_size(num: float) -> str:
+            unit = ["B", "KB", "MB", "GB", "TB"]
+            idx  = 0
+            n    = float(max(0.0, num))
+
+            while n >= 1024.0 and idx < len(unit) - 1:
+                n /= 1024.0
+                idx += 1
+
+            if n >= 100:
+                return f"{n:>3.0f}{unit[idx]:<2}"
+            if n >= 10:
+                return f"{n:>4.1f}{unit[idx]:<2}"
+            return f"{n:>4.2f}{unit[idx]:<2}"
+
+        async def frames() -> typing.AsyncGenerator[Text, None]:
+            tick = 0
+            while not stop_event.is_set():
+                tick += 1
+
+                stage    = str(state.get("stage") or "warming")
+                filename = str(state.get("filename") or "package")
+                phase    = float(state.get("phase") or 0.0)
+                done     = int(state.get("done") or 0)
+
+                if phase <= 0.0:
+                    phase = min(0.08, phase + 0.01)
+                    state["phase"] = phase
+
+                bar_w  = 24
+                cursor = int((bar_w - 1) * (0.5 + 0.5 * math.sin(tick * 0.22)))
+                fill   = int(bar_w * max(0.0, min(1.0, phase)))
+
+                chars: list[str] = []
+                for i in range(bar_w):
+                    if i < fill: chars.append("█")
+                    elif i == cursor: chars.append("▓")
+                    elif abs(i - cursor) == 1: chars.append("▒")
+                    else: chars.append("·")
+
+                done_s = fmt_size(done)
+
+                line1 = f"{spin[tick % len(spin)]} {stage}"
+                line2 = filename
+                line3 = f"[{' '.join(chars)}] {done_s}"
+
+                out = Text()
+                out.append(line1[:width].ljust(width), style="bold #AFFFFF")
+                out.append("\n")
+                out.append(line2[:width].ljust(width), style="bold dim #8A8A8A")
+                out.append("\n")
+                out.append(line3[:width].ljust(width), style="bold dim #8A8A8A")
+
+                yield out
+                await asyncio.sleep(1 / 18)
+
+            for step in range(3):
+                filename = str(state.get("filename") or "package")
+                done_s   = fmt_size(float(state.get("done") or 0))
+
+                out = Text()
+                out.append("✓ complete".ljust(width), style="bold #87FFAF")
+                out.append("\n")
+                out.append(filename[:width].ljust(width), style="bold dim #8A8A8A")
+                out.append("\n")
+                out.append(f"size {done_s}".ljust(width), style="bold dim #8A8A8A")
+
+                yield out
+                await asyncio.sleep(0.06)
+
+        width = 56
+        spin  = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        agen  = frames()
+        first = await agen.__anext__()
+
+        with Live(first, console=Design.console, refresh_per_second=18) as live:
+            async for frame in agen:
+                live.update(frame)
+
     async def prefix_line(self, stop_event: asyncio.Event) -> None:
         if self.design_level != const.SHOW_LEVEL:
             return None

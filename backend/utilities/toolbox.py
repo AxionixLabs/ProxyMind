@@ -36,10 +36,11 @@ async def kill_port(port: int) -> typing.Any:
             pwsh, "-Command", "Get-NetTCPConnection", "-LocalPort", f"{port}",
             "-ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }"
         ]
-    else:
-        cmd = ["lsof", "-ti", f":{port}", "|", "xargs", "kill", "-9"]
+        return await Terminal.cmd_line(cmd)
 
-    return await Terminal.cmd_line(cmd)
+    else:
+        cmd = f"lsof -tiTCP:{port} -sTCP:LISTEN | xargs -r kill -9"
+        return await Terminal.cmd_line_shell(cmd)
 
 
 async def broadcast(

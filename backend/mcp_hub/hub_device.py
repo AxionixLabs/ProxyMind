@@ -1348,7 +1348,7 @@ class Device(_Phone):
         payload = {
             "serial"    : self.serial,
             "page_id"   : page_id.get("data", {}).get("package") or "",
-            "platform"  : "android",
+            "station"   : "android",
             "locator"   : locator,
             "page_dump" : page_dump or "",
             "wm_size"   : {"w": w, "h": h}

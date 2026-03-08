@@ -12,7 +12,6 @@ import time
 import httpx
 import typing
 import asyncio
-import platform
 import subprocess
 from loguru import logger
 from mindcore.design import Design
@@ -58,9 +57,7 @@ class ServerManage(object):
         if not (local := await self.probe_version()):
             return None
 
-        station, arch = sys.platform, platform.machine()
-
-        if not (remote := await request.fetch_manifest(station, arch)):
+        if not (remote := await request.fetch_manifest()):
             return None
 
         if self.has_new(local, remote):

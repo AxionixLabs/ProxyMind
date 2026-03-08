@@ -40,6 +40,7 @@ from engine.tinker import (
     MindError, Active, Tooling, StreamTyperLogger
 )
 from engine.terminal import Terminal
+from engine.upgrade import Upgrade
 from mindcore import authorize
 from mindcore.parser import Parser
 from mindcore.profile import Preferences
@@ -1243,6 +1244,10 @@ async def main() -> None:
 
     for tls in (tools := [helix]):
         os.environ["PATH"] = os.path.dirname(tls) + env_symbol + os.environ.get("PATH", "")
+
+    if cmd_lines.upgrade:
+        up: Upgrade = Upgrade()
+        return await up.upgrade_app(supports)
 
     # 三方应用以及文件授权
     await authorized()

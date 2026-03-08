@@ -6,11 +6,13 @@
 #               |_|
 #
 
+import sys
 import json
 import time
 import httpx
 import typing
 import asyncio
+import platform
 import mimetypes
 from pathlib import Path
 from loguru import logger
@@ -37,9 +39,12 @@ async def cap_response(response: httpx.Response) -> None:
             response.extensions["error_body"] = b""
 
 
-async def fetch_manifest(station: str, arch: str) -> typing.Optional[dict[str, typing.Any]]:
+async def fetch_manifest() -> typing.Optional[dict[str, typing.Any]]:
     headers = Channel.make_headers()
-    params  = Channel.make_params() | {"station": station, "arch": arch}
+    params  = Channel.make_params() | {
+        "station" : sys.platform,
+        "arch"    : platform.machine()
+    }
 
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
@@ -48,8 +53,7 @@ async def fetch_manifest(station: str, arch: str) -> typing.Optional[dict[str, t
             data = resp.json()
 
     except Exception as e:
-        logger.debug(f"[Manifest] fetch failed: {type(e).__name__}: {e}")
-        return None
+        return logger.debug(f"[Manifest] fetch failed: {type(e).__name__}: {e}")
 
     if not isinstance(data, dict) or not data.get("ok"):
         return None
@@ -250,7 +254,7 @@ async def stream_chat(
 async def stream_heal(
     model_api: dict[str, typing.Any],
     page_id: str,
-    platform: str,
+    station: str,
     locator: str,
     page_dump: str,
     screenshot_base64: str,
@@ -269,7 +273,7 @@ async def stream_heal(
         "model_api"  : model_api,
         "app_id"     : const.APP_DESC,
         "page_id"    : page_id,
-        "platform"   : platform,
+        "platform"   : station,
         "locator"    : locator,
         "page_dump"  : page_dump,
         "screenshot" : f"data:image/png;base64,{screenshot_base64}",

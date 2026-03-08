@@ -65,6 +65,16 @@ class Parser(object):
         )
 
         major_group.add_argument(
+            "--upgrade", action="store_true",
+            help=textwrap.dedent(f'''\
+                \033[1;34m^* 奇点协议 *^\033[0m
+                -------------------------
+                - 更新/同步 MCP 服务（服务端组件），一键拉取并覆盖安装。
+
+            ''')
+        )
+
+        major_group.add_argument(
             "--chat", nargs="?", const="", default=None,
             help=textwrap.dedent(f'''\
                 \033[1;34m^* 潮汐协议 *^\033[0m
