@@ -39,15 +39,14 @@ async def cap_response(response: httpx.Response) -> None:
 
 async def fetch_manifest(station: str, arch: str) -> typing.Optional[dict[str, typing.Any]]:
     headers = Channel.make_headers()
+    params  = Channel.make_params() | {"station": station, "arch": arch}
 
-    params = Channel.make_params() | {
-        "channel": "stable", "station": station, "arch": arch
-    }
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
             resp = await client.request("GET", const.MANIFEST_URL, headers=headers, params=params)
             resp.raise_for_status()
             data = resp.json()
+
     except Exception as e:
         logger.debug(f"[Manifest] fetch failed: {type(e).__name__}: {e}")
         return None
