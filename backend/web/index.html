@@ -355,7 +355,7 @@
             <span class="glitch" data-text="HELIX">HELIX</span>
           </h1>
           <p class="sub">
-            Local MCP Neural Core — automation · media capture · performance sampling · visual timing analysis
+            MCP Neural Core — automation
           </p>
 
           <div class="kpis">
@@ -368,33 +368,24 @@
             <div class="kpi">
               <div class="h">Endpoints</div>
               <div class="v">
-                <span class="pill">/healthz</span>
-                <span class="pill">/ready</span>
                 <span class="pill">/idle</span>
+                <span class="pill">/ready</span>
               </div>
             </div>
           </div>
 
           <div class="actions">
-            <a class="btn" href="/healthz">
+            <a class="btn" href="/idle">
               <span class="tag">GET</span>
-              <span>healthz</span>
-              <span class="dim">liveness</span>
+              <span>idle</span>
             </a>
             <a class="btn" href="/ready">
               <span class="tag">GET</span>
               <span>ready</span>
-              <span class="dim">readiness</span>
             </a>
             <a class="btn" href="/docs">
               <span class="tag">UI</span>
               <span>OpenAPI</span>
-              <span class="dim">optional</span>
-            </a>
-            <a class="btn" href="/idle">
-              <span class="tag">GET</span>
-              <span>idle</span>
-              <span class="dim">status</span>
             </a>
           </div>
         </div>
@@ -403,7 +394,7 @@
           <div class="line"><span class="prompt">helix</span><span class="dim">::</span><span class="mono">boot</span></div>
           <div class="line"><span class="dim">▸</span><span class="mono">mcp streamable-http mounted</span></div>
           <div class="line"><span class="dim">▸</span><span class="mono">auth: enabled (tool endpoints)</span></div>
-          <div class="line"><span class="dim">▸</span><span class="mono">healthz: public</span></div>
+          <div class="line"><span class="dim">▸</span><span class="mono">ready: public</span></div>
           <div class="hint">
             Tip: If you see <span style="color:var(--danger)">401 invalid_token</span> on <code>/mcp</code>, attach a valid bearer token.
           </div>
@@ -430,21 +421,20 @@
 
             <div style="margin-top:12px; color:rgba(215,247,255,.92); font-family:ui-monospace,monospace">
               <div style="margin:6px 0"><span style="color:var(--accent)">/mcp</span>  — MCP transport (auth)</div>
-              <div style="margin:6px 0"><span style="color:var(--accent)">/healthz</span> — liveness (public)</div>
-              <div style="margin:6px 0"><span style="color:var(--accent)">/ready</span>  — readiness (public)</div>
               <div style="margin:6px 0"><span style="color:var(--accent)">/idle</span>   — idle snapshot</div>
+              <div style="margin:6px 0"><span style="color:var(--accent)">/ready</span>  — readiness (public)</div>
             </div>
           </div>
 
           <div style="margin-top:14px; color:var(--muted); font-size:12px">
-            Keyboard: <code>R</code> refresh · <code>H</code> healthz · <code>Y</code> ready · <code>I</code> idle
+            Keyboard: <code>R</code> refresh · <code>I</code> idle · <code>Y</code> ready
           </div>
         </div>
       </div>
     </section>
   </main>
 
-  <div class="foot"><span>HELIX · mcp service</span></div>
+  <div class="foot"><span>HELIX · mcp service · v__APP_VERSION__</span></div>
 
   <script>
     // particles (purely cosmetic)
@@ -477,7 +467,6 @@
     window.addEventListener("keydown", (e) => {
       const k = (e.key || "").toLowerCase();
       if(k === "r") location.reload();
-      if(k === "h") location.href = "/healthz";
       if(k === "y") location.href = "/ready";
       if(k === "i") location.href = "/idle";
     });

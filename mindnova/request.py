@@ -37,6 +37,27 @@ async def cap_response(response: httpx.Response) -> None:
             response.extensions["error_body"] = b""
 
 
+async def fetch_manifest(station: str, arch: str) -> typing.Optional[dict[str, typing.Any]]:
+    headers = Channel.make_headers()
+
+    params = Channel.make_params() | {
+        "channel": "stable", "station": station, "arch": arch
+    }
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.request("GET", const.MANIFEST_URL, headers=headers, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as e:
+        logger.debug(f"[Manifest] fetch failed: {type(e).__name__}: {e}")
+        return None
+
+    if not isinstance(data, dict) or not data.get("ok"):
+        return None
+
+    return data.get("data")
+
+
 async def streaming(
     url: str,
     headers: dict,

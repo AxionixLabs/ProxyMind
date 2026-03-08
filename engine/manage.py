@@ -12,10 +12,14 @@ import time
 import httpx
 import typing
 import asyncio
+import platform
 import subprocess
 from loguru import logger
+from mindcore.design import Design
 from engine.tinker import MindError
-from mindnova import const
+from mindnova import (
+    const, request
+)
 
 
 class ServerManage(object):
@@ -25,6 +29,63 @@ class ServerManage(object):
         self.cmd = cmd
         self.base_url = const.BASE_URL.rstrip("/")
         self.__client = httpx.AsyncClient(base_url=self.base_url, timeout=timeout)
+
+    @staticmethod
+    def has_new(local: dict[str, typing.Any], remote: dict[str, typing.Any]) -> bool:
+
+        def parse_version(text: str, width: int = 3) -> tuple[int, ...]:
+            text = (text or "").strip().lower()
+            if text.startswith("v"):
+                text = text[1:]
+
+            parts: list[int] = []
+            for item in text.split("."):
+                try:
+                    parts.append(int(item))
+                except ValueError:
+                    parts.append(0)
+
+            if len(parts) < width:
+                parts.extend([0] * (width - len(parts)))
+
+            return tuple(parts[:width])
+
+        lv = parse_version(str(local.get("version") or "0"))
+        rv = parse_version(str(remote.get("version") or "0"))
+        return rv > lv
+
+    async def check_update(self) -> None:
+        if not (local := await self.probe_version()):
+            return None
+
+        station, arch = sys.platform, platform.machine()
+
+        if not (remote := await request.fetch_manifest(station, arch)):
+            return None
+
+        if self.has_new(local, remote):
+            Design.notify_update(local, remote)
+        else:
+            logger.debug(
+                f"[Version] up to date: "
+                f"local=v{local.get('version') or '-'} remote=v{remote.get('version') or '-'}"
+            )
+
+    async def probe_version(self) -> typing.Optional[dict[str, typing.Any]]:
+        headers = {"accept": "application/json"}
+
+        try:
+            resp = await self.__client.request("GET", "/version", headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+
+        except Exception as e:
+            return logger.debug(f"[Version] probe failed: {type(e).__name__}: {e}")
+
+        if not isinstance(data, dict) or not data.get("ok"):
+            return None
+
+        return data
 
     async def probe_healthz(self) -> bool:
         headers = {"accept": "application/json"}
@@ -74,9 +135,10 @@ class ServerManage(object):
         while time.monotonic() < deadline:
             await asyncio.sleep(interval)
             if await self.probe_healthz():
-                return logger.debug(
+                logger.debug(
                     f"SYNC ▸ {const.APP_DESC} MCP neural core online."
                 )
+                return await self.check_update()
 
         raise MindError(f"MCP not ready (healthz timeout)")
 

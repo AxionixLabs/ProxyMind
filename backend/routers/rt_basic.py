@@ -11,18 +11,34 @@ from pathlib import Path
 from fastapi import (
     APIRouter, Request
 )
-from fastapi.responses import (
-    FileResponse, Response
-)
+from fastapi.responses import Response
 from backend.utilities import const
 
 basic_router = APIRouter(tags=["Basic"])
 
 
 @basic_router.get(path="/", include_in_schema=False)
-async def api_root() -> FileResponse:
+async def api_root() -> Response:
     html = Path(__file__).resolve().parent.parent / "web" / "index.html"
-    return FileResponse(html, media_type="text/html; charset=utf-8")
+    html = html.read_text(encoding=const.CHARSET, errors="replace")
+    html = html.replace("__APP_VERSION__", const.APP_VERSION)
+    return Response(html, media_type="text/html; charset=utf-8")
+
+
+@basic_router.get(path="/idle", include_in_schema=False)
+async def api_idle(request: Request) -> Response:
+    data = await request.app.state.idle.snapshot()
+    return Response(
+        content=json.dumps(data, ensure_ascii=False, indent=2),
+        media_type="application/json; charset=utf-8"
+    )
+
+
+@basic_router.get(path="/ready", include_in_schema=False)
+async def api_ready() -> dict:
+    return {
+        "ready" : True
+    }
 
 
 @basic_router.get(path="/healthz", include_in_schema=False)
@@ -34,20 +50,13 @@ async def api_healthz() -> dict:
     }
 
 
-@basic_router.get(path="/ready", include_in_schema=False)
-async def api_ready() -> dict:
+@basic_router.get(path="/version", include_in_schema=False)
+async def api_version() -> dict:
     return {
-        "ready" : True
+        "ok"      : True,
+        "service" : f"{const.APP_NAME} mcp",
+        "version" : const.APP_VERSION
     }
-
-
-@basic_router.get(path="/idle", include_in_schema=False)
-async def api_idle(request: Request) -> Response:
-    data = await request.app.state.idle.snapshot()
-    return Response(
-        content=json.dumps(data, ensure_ascii=False, indent=2),
-        media_type="application/json; charset=utf-8"
-    )
 
 
 if __name__ == '__main__':

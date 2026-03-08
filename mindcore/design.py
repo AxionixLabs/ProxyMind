@@ -138,6 +138,15 @@ class Design(object):
         Design.console.print(task_fail)
 
     @staticmethod
+    def notify_update(local: dict[str, typing.Any], remote: dict[str, typing.Any]) -> None:
+        Design.console.print(
+            f"\n[bold]╭────── update available ──────╮\n"
+            f"current:  [bold #AFFFFF]{local.get('version') or '-'}[/]\n"
+            f"latest :  [bold #AFFFFF]{remote.get('version') or '-'}[/]\n"
+            f"notes  :  [bold #8A8A8A]{remote.get('notes') or '-'}[/]\n"
+        )
+
+    @staticmethod
     async def typewriter(
         live: Live,
         delta: str,
