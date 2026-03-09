@@ -650,12 +650,12 @@ class Device(_Phone):
         max_lines: int = 200,
         saved: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
-        """一次性拉取 logcat 快照；按 keywords(不分大小写 OR) 过滤；saved=None 返回尾部 max_lines；saved=目录/文件则保存全量。"""
+        """一次性拉取 logcat 快照；按 keywords(不分大小写 OR) 过滤；无论是否 saved，均保留 max_lines 摘要；saved=目录/文件时额外保存过滤后的全量。"""
 
         cmd = self.prefix + ["logcat", "-v", "threadtime", "-d"]
 
-        raw   = await Terminal.cmd_line(cmd)
-        text  = raw or ""
+        raw = await Terminal.cmd_line(cmd)
+        text = raw or ""
         lines = text.splitlines()
 
         ks: list[str] = []
@@ -665,10 +665,19 @@ class Device(_Phone):
             pattern = re.compile("|".join(re.escape(k) for k in ks), re.IGNORECASE)
             lines = [ln for ln in lines if pattern.search(ln)]
 
+        # 保留两份：全量用于 saved，摘要用于模型/文本返回
+        all_lines = lines
+        summary_lines = lines
+
         truncated = False
-        if not saved and 0 < (ml := int(max_lines) if max_lines else 0) < len(lines):
+        if 0 < (ml := int(max_lines) if max_lines else 0) < len(summary_lines):
             truncated = True
-            lines = lines[-ml:]
+            summary_lines = summary_lines[-ml:]
+
+        text = "\n".join(summary_lines)
+
+        attachments: list[dict[str, typing.Any]] = []
+        saved_path: typing.Optional[str] = None
 
         if saved and str(saved).strip():
             p = Path(str(saved)).expanduser()
@@ -682,36 +691,25 @@ class Device(_Phone):
                 out = out.with_suffix(".log")
 
             out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_text("\n".join(lines), const.CHARSET, const.IGNORE)
+            out.write_text("\n".join(all_lines), const.CHARSET, const.IGNORE)
             saved_path = str(out.resolve())
 
-            return {
-                "text"        : f"logcat saved: {Path(saved_path).name}",
-                "attachments" : [
-                    {
-                        "kind"      : "file",
-                        "local"     : saved_path,
-                        "filename"  : Path(saved_path).name,
-                        "mime_type" : "text/plain"
-                    }
-                ],
-                "data": {
-                    "lines"     : len(lines),
-                    "truncated" : False,
-                    "keywords"  : ks,
-                    "saved"     : saved_path
-                },
-                "logs": []
-            }
+            attachments.append({
+                "kind"      : "file",
+                "local"     : saved_path,
+                "filename"  : Path(saved_path).name,
+                "mime_type" : "text/plain"
+            })
 
         return {
-            "text"        : "\n".join(lines),
-            "attachments" : [],
+            "text"        : text,
+            "attachments" : attachments,
             "data": {
-                "lines"     : len(lines),
-                "truncated" : truncated,
-                "keywords"  : ks,
-                "saved"     : None
+                "line_count"    : len(all_lines),
+                "summary_lines" : len(summary_lines),
+                "truncated"     : truncated,
+                "keywords"      : ks,
+                "saved"         : saved_path
             },
             "logs": []
         }
