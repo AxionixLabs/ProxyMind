@@ -55,10 +55,18 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             )
             try:
                 resp = await Ins.memrix.mx_task_begin("--storm", focus, imply, title)
-                token = (resp or {}).get("data", {}).get("token")
+                resp = resp or {}
+
+                token = resp.get("data", {}).get("token")
                 if token:
                     await idle.session_patch_args(Ins.memrix.agent_id, {"token": token})
+
+                ok = resp.get("data", {}).get("ok")
+                if not ok:
+                    await idle.session_final(Ins.memrix.agent_id)
+
                 return resp
+
             except Exception as e:
                 await idle.session_final(Ins.memrix.agent_id)
                 raise e
@@ -107,7 +115,19 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
                 args=args
             )
             try:
-                return await Ins.memrix.mx_task_begin("--sleek", focus, imply, title)
+                resp = await Ins.memrix.mx_task_begin("--sleek", focus, imply, title)
+                resp = resp or {}
+
+                token = resp.get("data", {}).get("token")
+                if token:
+                    await idle.session_patch_args(Ins.memrix.agent_id, {"token": token})
+
+                ok = resp.get("data", {}).get("ok")
+                if not ok:
+                    await idle.session_final(Ins.memrix.agent_id)
+
+                return resp
+
             except Exception as e:
                 await idle.session_final(Ins.memrix.agent_id)
                 raise e
@@ -241,4 +261,3 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
 if __name__ == '__main__':
     pass
-
