@@ -47,6 +47,14 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
               - json_body?: dict[str,any]     # alias
               - body?: str
               - body_text?: str               # alias
+              - form?: dict[str,any]          # application/x-www-form-urlencoded / multipart fields
+              - files?: list[dict]            # multipart 文件列表
+                - field: str
+                - path?: str
+                - filename?: str
+                - content_type?: str
+                - text?: str
+                - bytes?: bytes|str
               - timeout?: float               # 覆盖 env.timeout
               - retries?: int
               - follow_redirects?: bool=True
@@ -184,6 +192,71 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
         return await broadcast(
             tool="nexus_ws",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_graphql")
+    async def nexus_graphql(
+        payload: dict[str, typing.Any],
+        concurrency: int = 1
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_graphql
+        P:
+          payload: dict  # GraphQL 入口（支持单请求或 items 并发）
+            - env?: dict
+              - base_url?: str
+              - headers?: dict[str,str]
+              - timeout?: float
+
+            - vars?: dict[str,any]
+            - options?: {fail_fast?: bool=True}
+
+            - 单请求（直接顶层字段）:
+              - url: str
+              - base_url?: str
+              - headers?: dict[str,str]
+              - params?: dict[str,any]
+              - query: str
+              - variables?: dict[str,any]
+              - operation_name?: str
+              - operationName?: str   # alias
+              - timeout?: float
+              - retries?: int
+              - follow_redirects?: bool=True
+
+            - 批请求（并发）:
+              - items?: list[dict]
+                - item.name?: str
+                - item.request: dict  # 同“单请求字段”
+          concurrency: int=1
+        R: CTR
+        N:
+          - 底层复用 HTTP POST JSON 请求
+          - 若响应 body_json.errors 非空，则判定 ok=False
+          - 仅负责请求与证据采集；断言交给 suffix / 大模型
+        """
+
+        args = {
+            "payload"     : payload,
+            "concurrency" : concurrency
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.nexus_graphql", args=args)
+            try:
+                return await Ins.nexus.nexus_graphql(**args)
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_graphql",
             args=args,
             target_list=[Ins.nexus],
             call=call,
