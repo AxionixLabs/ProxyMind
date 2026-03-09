@@ -764,7 +764,7 @@ class Device(_Phone):
         }
 
     # workflow: ==== File ====
-    async def file_logcat_start(self) -> asyncio.subprocess.Process:
+    async def file_logcat_link(self) -> asyncio.subprocess.Process:
         """读取日志。"""
         cmd = self.prefix + [
             "logcat", "-v", "threadtime"
