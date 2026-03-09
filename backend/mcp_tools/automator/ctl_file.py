@@ -153,11 +153,11 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         """
     
         args = {
-            "keywords": keywords,
-            "tags": tags,
-            "level": level,
-            "max_lines": max_lines,
-            "saved": saved,
+            "keywords"  : keywords,
+            "tags"      : tags,
+            "level"     : level,
+            "max_lines" : max_lines,
+            "saved"     : saved
         }
     
         async def call(device: Device, a: dict) -> typing.Any:
