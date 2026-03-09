@@ -152,7 +152,7 @@ class Memrix(object):
         asyncio.create_task(self.streaming(f"{self.prefix}.stdout", self.__transports.stdout, gates))
         asyncio.create_task(self.streaming(f"{self.prefix}.stderr", self.__transports.stderr, gates))
 
-        for _ in range(30):
+        for _ in range(60):
             await asyncio.sleep(1.0)
 
             if self.is_start.is_set():
