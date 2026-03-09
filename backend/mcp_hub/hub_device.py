@@ -706,7 +706,7 @@ class Device(_Phone):
                 "attachments" : [
                     {
                         "kind"      : "file",
-                        "path"      : saved_path,
+                        "local"     : saved_path,
                         "filename"  : Path(saved_path).name,
                         "mime_type" : "text/plain"
                     }
