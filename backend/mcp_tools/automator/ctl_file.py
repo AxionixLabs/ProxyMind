@@ -127,6 +127,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @task_middleware("file_logcat_dump")
     async def file_logcat_dump(
         keywords: typing.Optional[list[str]] = None,
+        tags: typing.Optional[list[str]] = None,
+        level: str = "W",
         max_lines: int = 200,
         saved: typing.Optional[str] = None,
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
@@ -137,26 +139,30 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         A: file_logcat_dump
         P:
           keywords: list[str]?=None
+          tags: list[str]?=None
+          level: str="W"  # V/D/I/W/E/F/S
           max_lines: int=200
           saved: str?=None
           matrix: overrides? (serial->args)
         R: CTR
         N:
           - text 永远返回尾部 max_lines 摘要（无论是否 saved）
-          - keywords: case-insensitive OR 过滤（命中任一关键词即保留）
+          - 过滤顺序：先按 tags+level 预过滤，再按 keywords(case-insensitive OR) 二次过滤
           - saved=None：不落盘，attachments=[]
           - saved 指定：落盘为 log 文件（文件保存“过滤后的全量内容”），attachments 返回该文件
         """
-
+    
         args = {
-            "keywords"  : keywords,
-            "max_lines" : max_lines,
-            "saved"     : saved
+            "keywords": keywords,
+            "tags": tags,
+            "level": level,
+            "max_lines": max_lines,
+            "saved": saved,
         }
-
+    
         async def call(device: Device, a: dict) -> typing.Any:
             return await device.file_logcat_dump(**a)
-
+    
         return await broadcast(
             tool="file_logcat_dump",
             args=args,
