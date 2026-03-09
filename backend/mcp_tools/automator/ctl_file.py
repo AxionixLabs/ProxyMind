@@ -126,7 +126,6 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "file"})
     @task_middleware("file_logcat_dump")
     async def file_logcat_dump(
-        since_sec: int = 5,
         keywords: typing.Optional[list[str]] = None,
         max_lines: int = 200,
         saved: typing.Optional[str] = None,
@@ -137,7 +136,6 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         C: file
         A: file_logcat_dump
         P:
-          since_sec: int=5
           keywords: list[str]?=None
           max_lines: int=200
           saved: str?=None
@@ -150,7 +148,6 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         """
 
         args = {
-            "since_sec" : since_sec,
             "keywords"  : keywords,
             "max_lines" : max_lines,
             "saved"     : saved
