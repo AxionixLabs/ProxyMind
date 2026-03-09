@@ -35,6 +35,11 @@ class Enhancer(object):
                 return src_arguments
             return src_arguments | {"output_dir": report.toolkit_path}
 
+        elif name == "file_logcat_dump":
+            if src_arguments.get("saved"):
+                return src_arguments
+            return src_arguments | {"saved": report.log_path}
+
         elif name.startswith("scrcpy_record"):
             if src_arguments.get("directory"):
                 return src_arguments
@@ -93,6 +98,8 @@ class Enhancer(object):
                 return await self.__ffmpeg_frame(result)
             case "ffmpeg_extract_scene":
                 return await self.__ffmpeg_frame(result)
+            # case "file_logcat_dump":
+            #     return await self.__file_logcat_dump(result)
             case "screenshot":
                 return await self.__screenshot(result)
             case "heal_element":
@@ -182,6 +189,96 @@ class Enhancer(object):
         fields["text"] = f"upload {'ok' if ok else 'done'} attachments={len(attachments)}"
 
         return fields
+
+    async def __file_logcat_dump(self, result: CallToolResult) -> dict:
+        fields = self.fields(result)
+        attachments: list[dict[str, typing.Any]] = []
+
+        if not (results := fields.get("data", {}).get("results")):
+            return {
+                "text"        : "未获取到 logcat 结果",
+                "attachments" : attachments,
+                "data"        : {"ok": False}
+            }
+
+        per_device: dict[str, typing.Any] = {}
+
+        for element in results:
+            agent_id = element.get("agent_id", "unknown")
+
+            if not element.get("ok"):
+                per_device[agent_id] = {"ok": False, "error": element.get("text")}
+                continue
+
+            local_attachments = element.get("attachments", []) or []
+            device_ok = True
+            uploads: list[dict[str, typing.Any]] = []
+
+            for a in local_attachments:
+                if not isinstance(a, dict):
+                    continue
+
+                local = a.get("local")
+                if not local:
+                    if a.get("url"):
+                        attachments.append(a)
+                    continue
+
+                try:
+                    up = await request.upload_file_stream(local, agent_id, "logcat")
+                    logger.warning(up)
+                    url = up.get("url")
+
+                    if not url:
+                        device_ok = False
+                        uploads.append({
+                            "ok"    : False,
+                            "local" : local,
+                            "error" : f"upload returned no url: {up!r}"
+                        })
+                        continue
+
+                    attachments.append({
+                        "kind"      : "file",
+                        "url"       : url,
+                        "agent_id"  : agent_id,
+                        "filename"  : up.get("filename", a.get("filename")),
+                        "mime_type" : up.get("mime_type", a.get("mime_type"))
+                    })
+
+                    uploads.append({
+                        "ok"        : True,
+                        "local"     : local,
+                        "url"       : url,
+                        "r2_key"    : up.get("key"),
+                        "filename"  : up.get("filename", a.get("filename")),
+                        "mime_type" : up.get("mime_type", a.get("mime_type"))
+                    })
+
+                except Exception as e:
+                    device_ok = False
+                    uploads.append({
+                        "ok"    : False,
+                        "local" : local,
+                        "error" : f"{type(e).__name__}: {e}"
+                    })
+
+            per_device[agent_id] = {
+                "ok"      : device_ok,
+                "uploads" : uploads
+            }
+
+        ok = all(v.get("ok") for v in per_device.values()) if per_device else False
+
+        return {
+            "text"        : "logcat 上传成功" if ok else "logcat 上传完成（存在失败）",
+            "attachments" : attachments,
+            "data": {
+                "ok"         : ok,
+                "upload_ok"  : ok,
+                "per_device" : per_device
+            }
+        }
 
     async def __screenshot(self, result: CallToolResult) -> dict:
         fields = self.fields(result)
