@@ -647,15 +647,37 @@ class Device(_Phone):
     async def file_logcat_dump(
         self,
         keywords: typing.Optional[list[str]] = None,
+        tags: typing.Optional[list[str]] = None,
+        level: str = "W",
         max_lines: int = 200,
         saved: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
-        """一次性拉取 logcat 快照；按 keywords(不分大小写 OR) 过滤；无论是否 saved，均保留 max_lines 摘要；saved=目录/文件时额外保存过滤后的全量。"""
+        """
+        一次性拉取 logcat 快照；支持按 tags/level 预过滤，再按 keywords(不分大小写 OR) 二次过滤；
+        无论是否 saved，均保留 max_lines 摘要；saved=目录/文件时额外保存过滤后的全量。
+        """
+        lv = str(level or "W").upper().strip()
+        if lv not in {"V", "D", "I", "W", "E", "F", "S"}:
+            lv = "W"
 
-        cmd = self.prefix + ["logcat", "-v", "threadtime", "-d"]
+        cmd = self.prefix + ["logcat", "-v", "threadtime"]
 
-        raw = await Terminal.cmd_line(cmd)
-        text = raw or ""
+        ts: list[str] = []
+        if tags:
+            ts = [str(t).strip() for t in tags if t and str(t).strip()]
+            if ts:
+                for tag in ts:
+                    cmd.append(f"{tag}:{lv}")
+                cmd.append("*:S")
+            else:
+                cmd.append(f"*:{lv}")
+        else:
+            cmd.append(f"*:{lv}")
+
+        cmd.append("-d")
+
+        raw   = await Terminal.cmd_line(cmd)
+        text  = raw or ""
         lines = text.splitlines()
 
         ks: list[str] = []
@@ -665,22 +687,30 @@ class Device(_Phone):
             pattern = re.compile("|".join(re.escape(k) for k in ks), re.IGNORECASE)
             lines = [ln for ln in lines if pattern.search(ln)]
 
-        # 保留两份：全量用于 saved，摘要用于模型/文本返回
-        all_lines = lines
-        summary_lines = lines
+        all_lines = list(lines)
+        summary_lines = list(lines)
+
+        try:
+            ml = int(max_lines) if max_lines is not None else 200
+        except (TypeError, ValueError):
+            ml = 200
+        if ml < 0:
+            ml = 0
 
         truncated = False
-        if 0 < (ml := int(max_lines) if max_lines else 0) < len(summary_lines):
+        if 0 < ml < len(summary_lines):
             truncated = True
             summary_lines = summary_lines[-ml:]
 
-        text = "\n".join(summary_lines)
+        if not (text:="\n".join(summary_lines).strip()):
+            text = "logcat empty"
 
         attachments: list[dict[str, typing.Any]] = []
         saved_path: typing.Optional[str] = None
 
         if saved and str(saved).strip():
             p = Path(str(saved)).expanduser()
+
             if p.suffix:
                 out = p
             else:
@@ -709,7 +739,10 @@ class Device(_Phone):
                 "summary_lines" : len(summary_lines),
                 "truncated"     : truncated,
                 "keywords"      : ks,
-                "saved"         : saved_path
+                "tags"          : ts,
+                "level"         : lv,
+                "saved"         : saved_path,
+                "content"       : text
             },
             "logs": []
         }
