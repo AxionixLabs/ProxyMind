@@ -13,6 +13,7 @@ import typing
 import asyncio
 import websockets
 from pathlib import Path
+from loguru import logger
 from dataclasses import (
     dataclass, field
 )
@@ -120,6 +121,7 @@ class Nexus(object):
         items: typing.Optional[list[dict[str, typing.Any]]]
     ) -> typing.Optional[list[tuple[str, typing.Any]]]:
         if not items: return None
+
         payload: list[tuple[str, typing.Any]] = []
 
         for it in items:
@@ -131,17 +133,16 @@ class Nexus(object):
             content_type = str(it.get("content_type") or "application/octet-stream")
 
             if it.get("path"):
-                # 处理文件路径
+                # 处理文件路径，去除with open，改为文件对象传递
                 p = Path(str(it["path"])).expanduser()
                 try:
-                    # 使用 with open() 以确保文件在读取后正确关闭
-                    with p.open("rb") as file:
-                        payload.append(
-                            (f, (filename or p.name, file, content_type))
-                        )
+                    # 将文件对象添加到payload，避免手动打开文件
+                    payload.append(
+                        (f, (filename, p, content_type))  # 直接传递文件路径，而不打开文件
+                    )
                 except Exception as e:
                     # 异常处理：文件读取失败时，记录日志或者抛出异常
-                    print(f"Error reading file {p}: {e}")
+                    logger.error(f"Error handling file {p}: {e}")
                 continue
 
             if it.get("text") is not None:
