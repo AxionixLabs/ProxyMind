@@ -121,7 +121,6 @@ class Nexus(object):
         items: typing.Optional[list[dict[str, typing.Any]]]
     ) -> typing.Optional[list[tuple[str, typing.Any]]]:
         if not items: return None
-
         payload: list[tuple[str, typing.Any]] = []
 
         for it in items:
@@ -133,32 +132,29 @@ class Nexus(object):
             content_type = str(it.get("content_type") or "application/octet-stream")
 
             if it.get("path"):
-                # 处理文件路径，去除with open，改为文件对象传递
+                # 处理文件路径
                 p = Path(str(it["path"])).expanduser()
                 try:
-                    # 将文件对象添加到payload，避免手动打开文件
-                    payload.append(
-                        (f, (filename, p, content_type))  # 直接传递文件路径，而不打开文件
-                    )
+                    # 确保文件路径存在，并尝试读取
+                    with p.open("rb") as file:
+                        file_content = file.read()  # 读取文件内容
+                        payload.append((f, (filename or p.name, file_content, content_type)))
                 except Exception as e:
-                    # 异常处理：文件读取失败时，记录日志或者抛出异常
-                    logger.error(f"Error handling file {p}: {e}")
-                continue
+                    logger.error(f"Error reading file {p}: {e}")
+                    continue
 
-            if it.get("text") is not None:
+            elif it.get("text") is not None:
                 # 处理文本数据
-                data = str(it.get("text") or "").encode(const.CHARSET, const.IGNORE)
+                data = str(it.get("text") or "").encode(const.CHARSET)
                 payload.append((f, (filename, data, content_type)))
-                continue
 
-            if it.get("bytes") is not None:
+            elif it.get("bytes") is not None:
                 # 处理字节数据
                 raw = it.get("bytes")
                 if isinstance(raw, bytes):
                     payload.append((f, (filename, raw, content_type)))
                 elif isinstance(raw, str):
-                    payload.append((f, (filename, raw.encode(const.CHARSET, const.IGNORE), content_type)))
-                continue
+                    payload.append((f, (filename, raw.encode(const.CHARSET), content_type)))
 
         return payload or None
 
