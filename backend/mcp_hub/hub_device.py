@@ -646,33 +646,18 @@ class Device(_Phone):
     # workflow: ==== File Control MCP Tool ====
     async def file_logcat_dump(
         self,
-        since_sec: int = 5,
         keywords: typing.Optional[list[str]] = None,
         max_lines: int = 200,
         saved: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
-        """一次性拉取 logcat 快照；按 keywords(不分大小写 OR) 过滤；saved=None 返回尾部 max_lines；saved=目录/文件则保存全量(不受200行限制)。"""
-        await self.file_logcat_clean()
+        """一次性拉取 logcat 快照；按 keywords(不分大小写 OR) 过滤；saved=None 返回尾部 max_lines；saved=目录/文件则保存全量。"""
 
-        cmd = self.prefix + [
-            "logcat", "-v", "threadtime", "-d"
-        ]
-
-        try:
-            ss = int(since_sec)
-        except (TypeError, ValueError):
-            ss = 5
-        ss = 5 if ss <= 0 else ss
-
-        dt = datetime.datetime.now() - datetime.timedelta(seconds=ss)
-        ts = dt.strftime("%m-%d %H:%M:%S.000")
-        cmd += ["-T", ts]
+        cmd = self.prefix + ["logcat", "-v", "threadtime", "-d"]
 
         raw   = await Terminal.cmd_line(cmd)
         text  = raw or ""
         lines = text.splitlines()
 
-        # keywords 过滤：OR + 不分大小写
         ks: list[str] = []
         if keywords:
             ks = [str(k).strip() for k in keywords if k and str(k).strip()]
@@ -680,19 +665,18 @@ class Device(_Phone):
             pattern = re.compile("|".join(re.escape(k) for k in ks), re.IGNORECASE)
             lines = [ln for ln in lines if pattern.search(ln)]
 
-        # saved：目录/文件都支持；目录默认生成文件名；无后缀自动补 .log
+        truncated = False
+        if not saved and 0 < (ml := int(max_lines) if max_lines else 0) < len(lines):
+            truncated = True
+            lines = lines[-ml:]
+
         if saved and str(saved).strip():
             p = Path(str(saved)).expanduser()
-
-            if p.suffix:  # 明确文件
+            if p.suffix:
                 out = p
             else:
-                # 认为是目录（无后缀）：确保目录存在，并生成默认文件名
-                out_dir = p
-                out_dir.mkdir(parents=True, exist_ok=True)
-
-                name = f"logcat_{time.strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(4)}.log"
-                out  = out_dir / name
+                p.mkdir(parents=True, exist_ok=True)
+                out = p / f"logcat_{time.strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(4)}.log"
 
             if not out.suffix:
                 out = out.with_suffix(".log")
@@ -714,17 +698,11 @@ class Device(_Phone):
                 "data": {
                     "lines"     : len(lines),
                     "truncated" : False,
-                    "since_sec" : ss,
                     "keywords"  : ks,
                     "saved"     : saved_path
                 },
                 "logs": []
             }
-
-        # 未保存：尾部截断
-        truncated = False
-        if 0 < (ml := int(max_lines) if max_lines else 0) < len(lines):
-            truncated, lines = True, lines[-ml:]
 
         return {
             "text"        : "\n".join(lines),
@@ -732,7 +710,6 @@ class Device(_Phone):
             "data": {
                 "lines"     : len(lines),
                 "truncated" : truncated,
-                "since_sec" : ss,
                 "keywords"  : ks,
                 "saved"     : None
             },
