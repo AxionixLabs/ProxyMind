@@ -748,12 +748,20 @@ class Device(_Phone):
         }
 
     # workflow: ==== File Control MCP Tool ====
-    async def file_logcat_clean(self, *_, **__) -> typing.Any:
+    async def file_logcat_clean(self, *_, **__) -> dict[str, typing.Any]:
         """清空日志。"""
-        cmd = self.prefix + [
-            "logcat", "-c"
-        ]
-        return await Terminal.cmd_line(cmd)
+        cmd = self.prefix + ["logcat", "-c"]
+        raw = await Terminal.cmd_line(cmd)
+
+        return {
+            "text"        : "logcat cleaned",
+            "attachments" : [],
+            "data": {
+                "ok"  : True,
+                "raw" : raw or ""
+            },
+            "logs": []
+        }
 
     # workflow: ==== File ====
     async def file_logcat_start(self) -> asyncio.subprocess.Process:
