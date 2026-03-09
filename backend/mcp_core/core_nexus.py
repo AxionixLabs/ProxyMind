@@ -12,6 +12,7 @@ import httpx
 import typing
 import asyncio
 import websockets
+from pathlib import Path
 from dataclasses import (
     dataclass, field
 )
@@ -73,8 +74,7 @@ def template(x: typing.Any, ctx: dict[str, typing.Any]) -> typing.Any:
 
 
 def sse_block(block: str) -> typing.Optional[SseEvent]:
-    raw = block.strip("\r\n")
-    if not raw.strip():
+    if not (raw := block.strip("\r\n")).strip():
         return None
 
     ev = SseEvent(event=None, data="", id=None)
@@ -116,6 +116,52 @@ class Nexus(object):
         }
 
     @staticmethod
+    def files_payload(
+        items: typing.Optional[list[dict[str, typing.Any]]]
+    ) -> typing.Optional[list[tuple[str, typing.Any]]]:
+        if not items: return None
+        payload: list[tuple[str, typing.Any]] = []
+
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+
+            f = str(it.get("field") or "file")
+            filename = str(it.get("filename") or "upload.bin")
+            content_type = str(it.get("content_type") or "application/octet-stream")
+
+            if it.get("path"):
+                # 处理文件路径
+                p = Path(str(it["path"])).expanduser()
+                try:
+                    # 使用 with open() 以确保文件在读取后正确关闭
+                    with p.open("rb") as file:
+                        payload.append(
+                            (f, (filename or p.name, file, content_type))
+                        )
+                except Exception as e:
+                    # 异常处理：文件读取失败时，记录日志或者抛出异常
+                    print(f"Error reading file {p}: {e}")
+                continue
+
+            if it.get("text") is not None:
+                # 处理文本数据
+                data = str(it.get("text") or "").encode(const.CHARSET, const.IGNORE)
+                payload.append((f, (filename, data, content_type)))
+                continue
+
+            if it.get("bytes") is not None:
+                # 处理字节数据
+                raw = it.get("bytes")
+                if isinstance(raw, bytes):
+                    payload.append((f, (filename, raw, content_type)))
+                elif isinstance(raw, str):
+                    payload.append((f, (filename, raw.encode(const.CHARSET, const.IGNORE), content_type)))
+                continue
+
+        return payload or None
+
+    @staticmethod
     async def request(
         *,
         method: str,
@@ -125,6 +171,8 @@ class Nexus(object):
         params: typing.Optional[dict[str, typing.Any]] = None,
         json_body: typing.Optional[dict[str, typing.Any]] = None,
         body_text: typing.Optional[str] = None,
+        form: typing.Optional[dict[str, typing.Any]] = None,
+        files: typing.Optional[list[dict[str, typing.Any]]] = None,
         timeout: float = 30.0,
         retries: int = 0,
         follow_redirects: bool = True
@@ -132,21 +180,31 @@ class Nexus(object):
 
         method  = (method or "GET").upper()
         url     = url_join(base_url, url)
-        headers = headers or {}
+        headers = dict(headers or {})
 
         t0 = time.perf_counter()
         last_err: typing.Optional[str] = None
 
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=follow_redirects) as client:
             for _ in range(max(0, int(retries)) + 1):
+                opened_files: list[typing.IO[bytes]] = []
                 try:
+                    files_payload = Nexus.files_payload(files)
+
+                    if files_payload:
+                        for _, val in files_payload:
+                            if isinstance(val, tuple) and len(val) >= 2 and hasattr(val[1], "read"):
+                                opened_files.append(val[1])
+
                     resp = await client.request(
                         method,
                         url,
                         headers=headers,
                         params=params,
                         json=json_body,
-                        content=body_text
+                        content=body_text,
+                        data=form,
+                        files=files_payload
                     )
                     elapsed_ms = ms_since(t0)
 
@@ -168,7 +226,17 @@ class Nexus(object):
                                 "headers" : headers,
                                 "params"  : params,
                                 "timeout" : timeout,
-                                "retries" : retries
+                                "retries" : retries,
+                                "form"    : form,
+                                "files": [
+                                    {
+                                        "field"        : x.get("field"),
+                                        "filename"     : x.get("filename"),
+                                        "content_type" : x.get("content_type"),
+                                        "path"         : x.get("path")
+                                    }
+                                    for x in (files or []) if isinstance(x, dict)
+                                ]
                             },
                             "response": {
                                 "status"     : resp.status_code,
@@ -181,8 +249,15 @@ class Nexus(object):
                         "logs": []
                     }
 
-                except (httpx.TimeoutException, httpx.RequestError) as e:
+                except (httpx.TimeoutException, httpx.RequestError, OSError) as e:
                     last_err = f"{type(e).__name__}: {e}"
+
+                finally:
+                    for fp in opened_files:
+                        try:
+                            fp.close()
+                        except OSError:
+                            pass
 
         elapsed_ms = ms_since(t0)
 
@@ -197,7 +272,17 @@ class Nexus(object):
                     "headers" : headers,
                     "params"  : params,
                     "timeout" : timeout,
-                    "retries" : retries
+                    "retries" : retries,
+                    "form"    : form,
+                    "files": [
+                        {
+                            "field"        : x.get("field"),
+                            "filename"     : x.get("filename"),
+                            "content_type" : x.get("content_type"),
+                            "path"         : x.get("path")
+                        }
+                        for x in (files or []) if isinstance(x, dict)
+                    ]
                 },
                 "error"      : last_err,
                 "elapsed_ms" : elapsed_ms
@@ -213,7 +298,7 @@ class Nexus(object):
         headers: typing.Optional[dict[str, str]] = None,
         params: typing.Optional[dict[str, typing.Any]] = None,
         timeout: float = 30.0,
-        max_events: int = 10,
+        max_events: int = 10
     ) -> dict[str, typing.Any]:
 
         url     = url_join(base_url, url)
@@ -243,11 +328,19 @@ class Nexus(object):
                     buf = ""
                     async for chunk in resp.aiter_text():
                         buf += chunk
+                        buf = buf.replace("\r\n", "\n")
+
                         while "\n\n" in buf:
                             raw, buf = buf.split("\n\n", 1)
                             ev = sse_block(raw)
                             if not ev: continue
-                            events.append({"event": ev.event, "id": ev.id, "data": ev.data})
+
+                            events.append({
+                                "event" : ev.event,
+                                "id"    : ev.id,
+                                "data"  : ev.data
+                            })
+
                             if len(events) >= int(max_events):
                                 elapsed_ms = ms_since(t0)
                                 return {
@@ -283,8 +376,8 @@ class Nexus(object):
 
         elapsed_ms = ms_since(t0)
         return {
-            "text": f"SSE {url} -> ERROR ({elapsed_ms}ms) {last_err}",
-            "attachments": [],
+            "text"        : f"SSE {url} -> ERROR ({elapsed_ms}ms) {last_err}",
+            "attachments" : [],
             "data": {
                 "ok"         : False,
                 "url"        : url,
@@ -303,7 +396,7 @@ class Nexus(object):
         headers: typing.Optional[dict[str, str]] = None,
         sends: typing.Optional[list[str]] = None,
         timeout: float = 30.0,
-        max_messages: int = 10,
+        max_messages: int = 10
     ) -> dict[str, typing.Any]:
 
         t0 = time.perf_counter()
@@ -349,6 +442,77 @@ class Nexus(object):
             "logs": []
         }
 
+    @staticmethod
+    async def graphql(
+        *,
+        url: str,
+        query: str,
+        variables: typing.Optional[dict[str, typing.Any]] = None,
+        operation_name: typing.Optional[str] = None,
+        base_url: typing.Optional[str] = None,
+        headers: typing.Optional[dict[str, str]] = None,
+        params: typing.Optional[dict[str, typing.Any]] = None,
+        timeout: float = 30.0,
+        retries: int = 0,
+        follow_redirects: bool = True
+    ) -> dict[str, typing.Any]:
+
+        hd = dict(headers or {})
+        hd.setdefault("Content-Type", "application/json")
+
+        payload = {
+            "query"     : query,
+            "variables" : variables or {}
+        }
+        if operation_name:
+            payload["operationName"] = operation_name
+
+        pack = await Nexus.request(
+            method="POST",
+            url=url,
+            base_url=base_url,
+            headers=hd,
+            params=params,
+            json_body=payload,
+            timeout=timeout,
+            retries=retries,
+            follow_redirects=follow_redirects
+        )
+
+        data      = pack.get("data") or {}
+        resp      = data.get("response") or {}
+        body_json = resp.get("body_json") if isinstance(resp, dict) else None
+
+        gql_ok     = bool(data.get("ok"))
+        gql_errors = None
+
+        if isinstance(body_json, dict):
+            gql_errors = body_json.get("errors")
+            if gql_errors:
+                gql_ok = False
+
+        data["ok"] = gql_ok
+        data["graphql"] = {
+            "query"          : query,
+            "variables"      : variables or {},
+            "operation_name" : operation_name,
+            "errors"         : gql_errors
+        }
+        pack["data"] = data
+
+        if gql_ok:
+            pack["text"] = (
+                f"GQL POST {url_join(base_url, url)} "
+                f"-> {resp.get('status')} ({resp.get('elapsed_ms')}ms)"
+            )
+        else:
+            pack["text"] = (
+                f"GQL POST {url_join(base_url, url)} "
+                f"-> FAIL ({resp.get('elapsed_ms')}ms)"
+            )
+
+        return pack
+
     # workflow: ==== MCP Tool ====
     async def nexus_http(
         self,
@@ -360,10 +524,11 @@ class Nexus(object):
           env?: {base_url?: str, headers?: dict, timeout?: float}
           vars?: dict
           options?: {fail_fast?: bool}
-          items?: [ {name?, request:{method,url,headers?,params?,json?,body?,timeout?,retries?,follow_redirects?}} ]
-          # 单请求也允许直接放在顶层：method/url/params/json/body/...
+          items?: [ {name?, request:{method?,url,base_url?,headers?,params?,json?,json_body?,body?,body_text?,form?,files?,timeout?,retries?,follow_redirects?}} ]
+          # files item: {field,path?|filename?|content_type?|text?|bytes?}
+          # 单请求也允许直接放在顶层：method/url/base_url?/headers?/params?/json?/json_body?/body?/body_text?/form?/files?/timeout?/retries?/follow_redirects?...
         """
-        return await self.run_group(payload, concurrency, kind="http")
+        return await self.task_sequence(payload, concurrency, kind="http")
 
     # workflow: ==== MCP Tool ====
     async def nexus_sse(
@@ -379,7 +544,7 @@ class Nexus(object):
           items?: [ {name?, request:{url,headers?,params?,timeout?,max_events?}} ]
           # 单请求也允许直接放在顶层：url/params/max_events/...
         """
-        return await self.run_group(payload, concurrency, kind="sse")
+        return await self.task_sequence(payload, concurrency, kind="sse")
 
     # workflow: ==== MCP Tool ====
     async def nexus_ws(
@@ -395,25 +560,40 @@ class Nexus(object):
           items?: [ {name?, request:{url,headers?,sends?,timeout?,max_messages?}} ]
           # 单请求也允许直接放在顶层：url/sends/max_messages/...
         """
-        return await self.run_group(payload, concurrency, kind="ws")
+        return await self.task_sequence(payload, concurrency, kind="ws")
 
-    async def run_group(
+    async def nexus_graphql(
+        self,
+        payload: dict[str, typing.Any],
+        concurrency: int = 1
+    ) -> dict[str, typing.Any]:
+        """
+        payload:
+          env?: {base_url?: str, headers?: dict, timeout?: float}
+          vars?: dict
+          options?: {fail_fast?: bool}
+          items?: [ {name?, request:{url,query,variables?,operation_name?,headers?,params?,timeout?,retries?,follow_redirects?}} ]
+          # 单请求也允许直接放在顶层：url/query/variables/...
+        """
+        return await self.task_sequence(payload, concurrency, kind="graphql")
+
+    async def task_sequence(
         self,
         payload: dict[str, typing.Any],
         concurrency: int,
         *,
-        kind: typing.Literal["http", "sse", "ws"]
+        kind: typing.Literal["http", "sse", "ws", "graphql"]
     ) -> dict[str, typing.Any]:
 
         started_ms = ms_now()
         mission_id = f"nexus_{started_ms}"
 
-        env = payload.get("env") if isinstance(payload.get("env"), dict) else {}
-        base_url = str(env.get("base_url") or "")
+        env          = payload.get("env") if isinstance(payload.get("env"), dict) else {}
+        base_url     = str(env.get("base_url") or "")
         base_headers = dict(env.get("headers") or {})
         base_timeout = float(env.get("timeout", 30.0))
 
-        options = payload.get("options") if isinstance(payload.get("options"), dict) else {}
+        options   = payload.get("options") if isinstance(payload.get("options"), dict) else {}
         fail_fast = bool(options.get("fail_fast", True))
 
         ctx: dict[str, typing.Any] = {}
@@ -446,9 +626,11 @@ class Nexus(object):
                         params=req_r.get("params"),
                         json_body=req_r.get("json") or req_r.get("json_body"),
                         body_text=req_r.get("body") or req_r.get("body_text"),
+                        form=req_r.get("form") if isinstance(req_r.get("form"), dict) else None,
+                        files=req_r.get("files") if isinstance(req_r.get("files"), list) else None,
                         timeout=float(req_r.get("timeout", base_timeout)),
                         retries=int(req_r.get("retries", 0)),
-                        follow_redirects=bool(req_r.get("follow_redirects", True)),
+                        follow_redirects=bool(req_r.get("follow_redirects", True))
                     )
                     data = pack.get("data") or {}
                     elapsed_ms = ms_since(t0)
@@ -457,7 +639,10 @@ class Nexus(object):
                         type="http",
                         ok=bool(data.get("ok")),
                         elapsed_ms=elapsed_ms,
-                        detail={"request": data.get("request"), "response": data.get("response")},
+                        detail={
+                            "request"  : data.get("request"),
+                            "response" : data.get("response")
+                        }
                     )
 
                 if kind == "sse":
@@ -467,7 +652,7 @@ class Nexus(object):
                         headers={**base_headers, **dict(req_r.get("headers") or {})},
                         params=req_r.get("params"),
                         timeout=float(req_r.get("timeout", base_timeout)),
-                        max_events=int(req_r.get("max_events", 10)),
+                        max_events=int(req_r.get("max_events", 10))
                     )
                     data = pack.get("data") or {}
                     elapsed_ms = ms_since(t0)
@@ -477,10 +662,37 @@ class Nexus(object):
                         ok=bool(data.get("ok")),
                         elapsed_ms=elapsed_ms,
                         detail={
-                            "url": data.get("url"),
-                            "status": data.get("status"),
-                            "events": data.get("events") or [],
-                            "elapsed_ms": data.get("elapsed_ms"),
+                            "url"        : data.get("url"),
+                            "status"     : data.get("status"),
+                            "events"     : data.get("events") or [],
+                            "elapsed_ms" : data.get("elapsed_ms")
+                        }
+                    )
+
+                if kind == "graphql":
+                    pack = await self.graphql(
+                        url=str(req_r.get("url", "")),
+                        query=str(req_r.get("query", "")),
+                        variables=req_r.get("variables") if isinstance(req_r.get("variables"), dict) else {},
+                        operation_name=req_r.get("operation_name") or req_r.get("operationName"),
+                        base_url=str(req_r.get("base_url") or base_url) or None,
+                        headers={**base_headers, **dict(req_r.get("headers") or {})},
+                        params=req_r.get("params"),
+                        timeout=float(req_r.get("timeout", base_timeout)),
+                        retries=int(req_r.get("retries", 0)),
+                        follow_redirects=bool(req_r.get("follow_redirects", True))
+                    )
+                    data = pack.get("data") or {}
+                    elapsed_ms = ms_since(t0)
+                    return i, StepResult(
+                        name=name,
+                        type="graphql",
+                        ok=bool(data.get("ok")),
+                        elapsed_ms=elapsed_ms,
+                        detail={
+                            "request"  : data.get("request"),
+                            "response" : data.get("response"),
+                            "graphql"  : data.get("graphql")
                         },
                     )
 
@@ -500,10 +712,10 @@ class Nexus(object):
                     ok=bool(data.get("ok")),
                     elapsed_ms=elapsed_ms,
                     detail={
-                        "url": data.get("url"),
-                        "messages": data.get("messages") or [],
-                        "elapsed_ms": data.get("elapsed_ms"),
-                    },
+                        "url"        : data.get("url"),
+                        "messages"   : data.get("messages") or [],
+                        "elapsed_ms" : data.get("elapsed_ms")
+                    }
                 )
 
         tasks = [
