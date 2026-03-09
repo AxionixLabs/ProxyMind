@@ -142,9 +142,10 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
+          - text 永远返回尾部 max_lines 摘要（无论是否 saved）
           - keywords: case-insensitive OR 过滤（命中任一关键词即保留）
-          - saved 指定时：保存全量（不截断），附件返回文件
-          - saved 不指定时：仅返回尾部 max_lines 行
+          - saved=None：不落盘，attachments=[]
+          - saved 指定：落盘为 log 文件（文件保存“过滤后的全量内容”），attachments 返回该文件
         """
 
         args = {
