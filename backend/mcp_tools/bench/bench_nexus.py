@@ -34,52 +34,58 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
               - headers?: dict[str,str]
               - timeout?: float
 
-            - vars?: dict[str,any]        # {{k}} 模板变量
-            - options?: {fail_fast?: bool=True}
+            - vars?: dict[str,any]              # {{k}} 模板变量
+            - options?: dict
+              - fail_fast?: bool=True
+
+            - extract?: dict[str,str]           # 顶层单请求提取规则
+              - alias: path
+            - asserts?: list[dict]             # 顶层单请求断言规则
+              - path: str
+              - op: str
+              - value?: any
 
             - 单请求（直接顶层字段）:
-              - method: str="GET"
+              - method?: str="GET"
               - url: str
-              - base_url?: str                # 覆盖 env.base_url
-              - headers?: dict[str,str]       # 叠加 env.headers
+              - base_url?: str                  # 覆盖 env.base_url
+              - headers?: dict[str,str]         # 叠加 env.headers
               - params?: dict[str,any]
               - json?: dict[str,any]
-              - json_body?: dict[str,any]     # alias
+              - json_body?: dict[str,any]       # alias
               - body?: str
-              - body_text?: str               # alias
-              - form?: dict[str,any]          # application/x-www-form-urlencoded / multipart fields
-              - files?: list[dict]            # multipart 文件列表
-                - field: str
+              - body_text?: str                 # alias
+              - form?: dict[str,any]
+              - files?: list[dict]
+                - field?: str="file"
                 - path?: str
                 - filename?: str
                 - content_type?: str
                 - text?: str
                 - bytes?: bytes|str
-              - timeout?: float               # 覆盖 env.timeout
-              - retries?: int
+              - timeout?: float                 # 覆盖 env.timeout
+              - retries?: int=0
               - follow_redirects?: bool=True
-              - extract?: dict[str,str]       # 例如 {"code":"response.body_json.code"}
-              - asserts?: list[dict]
-                - path: str
-                - op: str                     # eq/ne/gt/ge/lt/le/contains/in/exists/empty/not_empty/regex
-                - value?: any
 
             - 批请求（并发）:
               - items?: list[dict]
                 - item.name?: str
-                - item.request: dict          # 同“单请求字段”（不含 extract/asserts）
+                - item.request: dict            # 同“单请求字段”
                 - item.extract?: dict[str,str]
+                  - alias: path
                 - item.asserts?: list[dict]
                   - path: str
                   - op: str
                   - value?: any
 
-          concurrency: int=1  # items 并发度（Semaphore）
+          concurrency: int=1                    # items 并发度（Semaphore）
         R: CTR
         N:
-          - 支持响应字段提取与断言校验，结果写入 data.extract / data.asserts / data.assert_summary
-          - 单请求：payload 顶层字段生效
-          - 批请求：payload.items 生效；fail_fast 由 options.fail_fast 控制
+          - 单请求：payload 顶层 request 字段 + 顶层 extract/asserts 生效
+          - 批请求：payload.items 生效；每个 item 可独立定义 extract/asserts
+          - env.base_url / env.headers / env.timeout 作为默认值，可被 request 同名字段覆盖
+          - headers 为叠加：request.headers 覆盖 env.headers 同名键
+          - 仅负责请求、提取与断言证据采集；是否通过可继续交给 suffix / 大模型总结
         """
 
         args = {"payload": payload, "concurrency": concurrency}
@@ -117,26 +123,45 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
               - timeout?: float
 
             - vars?: dict[str,any]
-            - options?: {fail_fast?: bool=True}
+            - options?: dict
+              - fail_fast?: bool=True
+
+            - extract?: dict[str,str]           # 顶层单请求提取规则
+              - alias: path
+            - asserts?: list[dict]             # 顶层单请求断言规则
+              - path: str
+              - op: str
+              - value?: any
 
             - 单请求（直接顶层字段）:
+              - method?: str="GET"
               - url: str
-              - base_url?: str
-              - headers?: dict[str,str]
+              - base_url?: str                  # 覆盖 env.base_url
+              - headers?: dict[str,str]         # 叠加 env.headers
               - params?: dict[str,any]
-              - timeout?: float
-              - max_events?: int=10
-              - extract?: dict[str,str]       # 例如 {"first":"events.0.data"}
-              - asserts?: list[dict]
-                - path: str
-                - op: str                     # eq/ne/gt/ge/lt/le/contains/in/exists/empty/not_empty/regex
-                - value?: any
+              - json?: dict[str,any]
+              - json_body?: dict[str,any]       # alias
+              - body?: str
+              - body_text?: str                 # alias
+              - form?: dict[str,any]
+              - files?: list[dict]
+                - field?: str="file"
+                - path?: str
+                - filename?: str
+                - content_type?: str
+                - text?: str
+                - bytes?: bytes|str
+              - timeout?: float                 # 覆盖 env.timeout
+              - retries?: int=0
+              - follow_redirects?: bool=True
+              - max_events: int?=None
 
             - 批请求（并发）:
               - items?: list[dict]
                 - item.name?: str
-                - item.request: dict          # 同“单请求字段”（不含 extract/asserts）
+                - item.request: dict            # 同“单请求字段”
                 - item.extract?: dict[str,str]
+                  - alias: path
                 - item.asserts?: list[dict]
                   - path: str
                   - op: str
@@ -145,9 +170,12 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           concurrency: int=1
         R: CTR
         N:
-          - 支持对 events / status / url / elapsed_ms 做字段提取与断言校验
-          - 结果写入 data.extract / data.asserts / data.assert_summary
-          - 若 max_events 达到即提前返回
+          - 单请求：payload 顶层 request 字段 + 顶层 extract/asserts 生效
+          - 批请求：payload.items 生效；每个 item 可独立定义 extract/asserts
+          - env.base_url / env.headers / env.timeout 作为默认值，可被 request 同名字段覆盖
+          - headers 为叠加：request.headers 覆盖 env.headers 同名键
+          - 达到 max_events 后会提前返回；否则在流结束后返回已采集 events
+          - 仅负责 SSE 请求、事件采集、提取与断言证据整理
         """
 
         args = {"payload": payload, "concurrency": concurrency}
@@ -184,25 +212,29 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
               - timeout?: float
 
             - vars?: dict[str,any]
-            - options?: {fail_fast?: bool=True}
+            - options?: dict
+              - fail_fast?: bool=True
+
+            - extract?: dict[str,str]           # 顶层单请求提取规则
+              - alias: path
+            - asserts?: list[dict]             # 顶层单请求断言规则
+              - path: str
+              - op: str
+              - value?: any
 
             - 单请求（直接顶层字段）:
-              - url: str                  # ws:// 或 wss://
-              - headers?: dict[str,str]   # 叠加 env.headers
+              - url: str                        # ws:// 或 wss://
+              - headers?: dict[str,str]         # 叠加 env.headers
               - sends?: list[str]
-              - timeout?: float
+              - timeout?: float                 # 覆盖 env.timeout
               - max_messages?: int=10
-              - extract?: dict[str,str]   # 例如 {"first":"messages.0"}
-              - asserts?: list[dict]
-                - path: str
-                - op: str                 # eq/ne/gt/ge/lt/le/contains/in/exists/empty/not_empty/regex
-                - value?: any
 
             - 批请求（并发）:
               - items?: list[dict]
                 - item.name?: str
-                - item.request: dict      # 同“单请求字段”（不含 extract/asserts）
+                - item.request: dict            # 同“单请求字段”
                 - item.extract?: dict[str,str]
+                  - alias: path
                 - item.asserts?: list[dict]
                   - path: str
                   - op: str
@@ -211,9 +243,13 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           concurrency: int=1
         R: CTR
         N:
-          - 支持对 messages / url / elapsed_ms / error 做字段提取与断言校验
-          - 结果写入 data.extract / data.asserts / data.assert_summary
-          - 连接正常关闭会提前停止收消息
+          - 单请求：payload 顶层 request 字段 + 顶层 extract/asserts 生效
+          - 批请求：payload.items 生效；每个 item 可独立定义 extract/asserts
+          - env.headers / env.timeout 作为默认值，可被 request 同名字段覆盖
+          - headers 为叠加：request.headers 覆盖 env.headers 同名键
+          - 收到 ConnectionClosedOK 时会提前停止收消息
+          - 最多采集 max_messages 条消息
+          - 仅负责 WS 消息采集、提取与断言证据整理
         """
 
         args = {"payload": payload, "concurrency": concurrency}
@@ -251,31 +287,35 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
               - timeout?: float
 
             - vars?: dict[str,any]
-            - options?: {fail_fast?: bool=True}
+            - options?: dict
+              - fail_fast?: bool=True
+
+            - extract?: dict[str,str]           # 顶层单请求提取规则
+              - alias: path
+            - asserts?: list[dict]             # 顶层单请求断言规则
+              - path: str
+              - op: str
+              - value?: any
 
             - 单请求（直接顶层字段）:
               - url: str
-              - base_url?: str
-              - headers?: dict[str,str]
-              - params?: dict[str,any]
               - query: str
               - variables?: dict[str,any]
               - operation_name?: str
-              - operationName?: str         # alias
-              - timeout?: float
-              - retries?: int
+              - operationName?: str             # alias
+              - base_url?: str                  # 覆盖 env.base_url
+              - headers?: dict[str,str]         # 叠加 env.headers
+              - params?: dict[str,any]
+              - timeout?: float                 # 覆盖 env.timeout
+              - retries?: int=0
               - follow_redirects?: bool=True
-              - extract?: dict[str,str]     # 例如 {"uid":"response.body_json.data.user.id"}
-              - asserts?: list[dict]
-                - path: str
-                - op: str                   # eq/ne/gt/ge/lt/le/contains/in/exists/empty/not_empty/regex
-                - value?: any
 
             - 批请求（并发）:
               - items?: list[dict]
                 - item.name?: str
-                - item.request: dict        # 同“单请求字段”（不含 extract/asserts）
+                - item.request: dict            # 同“单请求字段”
                 - item.extract?: dict[str,str]
+                  - alias: path
                 - item.asserts?: list[dict]
                   - path: str
                   - op: str
@@ -284,10 +324,13 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           concurrency: int=1
         R: CTR
         N:
+          - 单请求：payload 顶层 request 字段 + 顶层 extract/asserts 生效
+          - 批请求：payload.items 生效；每个 item 可独立定义 extract/asserts
+          - env.base_url / env.headers / env.timeout 作为默认值，可被 request 同名字段覆盖
+          - headers 为叠加：request.headers 覆盖 env.headers 同名键
           - 底层复用 HTTP POST JSON 请求
-          - 若响应 body_json.errors 非空，则判定 ok=False
-          - 支持对 response / graphql 做字段提取与断言校验
-          - 结果写入 data.extract / data.asserts / data.assert_summary
+          - 若 response.body_json.errors 非空，则额外判定 ok=False
+          - 仅负责请求、提取与断言证据采集
         """
 
         args = {
