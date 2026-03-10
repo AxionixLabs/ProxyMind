@@ -654,8 +654,11 @@ class Device(_Phone):
     ) -> dict[str, typing.Any]:
         """
         一次性拉取 logcat 快照；支持按 tags/level 预过滤，再按 keywords(不分大小写 OR) 二次过滤；
-        无论是否 saved，均保留 max_lines 摘要；saved=目录/文件时额外保存过滤后的全量。
+        无论是否 saved，均保留 max_lines 摘要；saved=目录/文件时额外保存过滤后的全量（受内部处理上限保护）。
         """
+        max_summary_lines = 2000
+        max_process_lines = 20000
+
         lv = str(level or "W").upper().strip()
         if lv not in {"V", "D", "I", "W", "E", "F", "S"}:
             lv = "W"
@@ -677,33 +680,47 @@ class Device(_Phone):
         cmd.append("-d")
 
         raw   = await Terminal.cmd_line(cmd)
-        text  = raw or ""
-        lines = text.splitlines()
+        lines = (raw or "").splitlines()
+
+        raw_line_count = len(lines)
+        process_truncated = False
+        if len(lines) > max_process_lines:
+            lines = lines[-max_process_lines:]
+            process_truncated = True
 
         ks: list[str] = []
         if keywords:
             ks = [str(k).strip() for k in keywords if k and str(k).strip()]
+
         if ks:
             pattern = re.compile("|".join(re.escape(k) for k in ks), re.IGNORECASE)
             lines = [ln for ln in lines if pattern.search(ln)]
 
         all_lines = list(lines)
-        summary_lines = list(lines)
 
         try:
-            ml = int(max_lines) if max_lines is not None else 200
+            requested_max_lines = int(max_lines) if max_lines is not None else 200
         except (TypeError, ValueError):
-            ml = 200
-        if ml < 0:
-            ml = 0
+            requested_max_lines = 200
 
-        truncated = False
-        if 0 < ml < len(summary_lines):
-            truncated = True
-            summary_lines = summary_lines[-ml:]
+        if requested_max_lines < 0:
+            requested_max_lines = 0
 
-        if not (text:="\n".join(summary_lines).strip()):
-            text = "logcat empty"
+        effective_max_lines = min(requested_max_lines, max_summary_lines)
+
+        summary_lines     = all_lines
+        summary_truncated = False
+        max_lines_capped  = (requested_max_lines != effective_max_lines)
+
+        if 0 < effective_max_lines < len(summary_lines):
+            summary_truncated = True
+            summary_lines = summary_lines[-effective_max_lines:]
+        elif effective_max_lines == 0:
+            summary_lines = []
+
+        content = "\n".join(summary_lines).strip()
+        if not content:
+            content = "logcat empty"
 
         attachments: list[dict[str, typing.Any]] = []
         saved_path: typing.Optional[str] = None
@@ -731,18 +748,36 @@ class Device(_Phone):
                 "mime_type" : "text/plain"
             })
 
+        if saved_path:
+            text = (
+                f"logcat captured: {len(all_lines)} lines; "
+                f"summary={len(summary_lines)} lines; saved={saved_path}"
+            )
+        else:
+            text = (
+                f"logcat captured: {len(all_lines)} lines; "
+                f"summary={len(summary_lines)} lines"
+            )
+
         return {
             "text"        : text,
             "attachments" : attachments,
             "data": {
-                "line_count"    : len(all_lines),
-                "summary_lines" : len(summary_lines),
-                "truncated"     : truncated,
-                "keywords"      : ks,
-                "tags"          : ts,
-                "level"         : lv,
-                "saved"         : saved_path,
-                "content"       : text
+                "raw_line_count"      : raw_line_count,
+                "line_count"          : len(all_lines),
+                "summary_lines"       : len(summary_lines),
+                "requested_max_lines" : requested_max_lines,
+                "effective_max_lines" : effective_max_lines,
+                "max_summary_limit"   : max_summary_lines,
+                "max_process_limit"   : max_process_lines,
+                "max_lines_capped"    : max_lines_capped,
+                "summary_truncated"   : summary_truncated,
+                "process_truncated"   : process_truncated,
+                "keywords"            : ks,
+                "tags"                : ts,
+                "level"               : lv,
+                "saved"               : saved_path,
+                "content"             : content
             },
             "logs": []
         }
