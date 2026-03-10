@@ -146,7 +146,7 @@ class Enhancer(object):
 
                 # 上传附件并获取 URL
                 try:
-                    up = await request.upload_file_stream(local, agent_id)
+                    up = await request.upload_file_stream(local, agent_id, "frames")
                     url = up.get("url")
 
                     if not url:
