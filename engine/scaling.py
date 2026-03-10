@@ -14,15 +14,25 @@ from dataclasses import dataclass
 class PackItem:
     name: str
     message: str
+    loop: int
     meta: dict[str, str]
 
 
 class Pack(object):
+    """Pack class."""
 
     CFG_KEYS = (
-        "loop_prefix", "loop_suffix",
-        "round_prefix", "round_suffix",
-        "global_prefix", "global_suffix",
+        "repeat",
+        "pattern",
+        "attempts",
+        "stop_on_fail",
+        "loop_prefix",
+        "loop_suffix",
+        "round_prefix",
+        "round_suffix",
+        "global_prefix",
+        "global_suffix",
+        "global_rule",
     )
     KEY_RE = re.compile(r"^[A-Za-z0-9_-]+\s*:\s*")
 
@@ -313,11 +323,28 @@ class Pack(object):
             auto_idx += 1
             name = (src_meta.get("name") or f"item_{auto_idx:03d}").strip()
 
+            try:
+                item_loop = int(src_meta.get("loop") or 1)
+            except (TypeError, ValueError):
+                item_loop = 1
+
+            if item_loop < 1:
+                item_loop = 1
+
             merged = dict(cfg)
-            merged.update(src_meta)  # 用例 meta 覆盖 cfg
+            
+            # 覆盖 cfg
+            merged.update(src_meta)  
             src_meta = merged
 
-            items.append(PackItem(name=name, message=message, meta=src_meta))
+            items.append(
+                PackItem(
+                    name=name,
+                    message=message,
+                    loop=item_loop,
+                    meta=src_meta
+                )
+            )
 
         return items, cfg
 
