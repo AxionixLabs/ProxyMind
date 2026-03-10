@@ -144,26 +144,6 @@ class Parser(object):
             ''')
         )
 
-        minor_group.add_argument(
-            "--repeat", type=int, default=1,
-            help=textwrap.dedent(f'''\
-                \033[1;36m^* 回声协议 *^\033[0m
-                -------------------------
-                - 整包回放次数（默认 1）。
-
-            ''')
-        )
-
-        minor_group.add_argument(
-            "--pattern", type=str, default=None,
-            help=textwrap.dedent(f'''\
-                \033[1;36m^* 棱镜协议 *^\033[0m
-                -------------------------
-                - 正则筛选：仅执行 name 命中的条目。
-
-            ''')
-        )
-
     @property
     def parse_cmd(self) -> "argparse.Namespace":
         return self.__parse_engine.parse_args()
