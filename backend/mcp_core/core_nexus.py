@@ -387,13 +387,16 @@ class Nexus(object):
                         "data": {
                             "ok": ok,
                             "request": {
-                                "method"  : method,
-                                "url"     : url,
-                                "headers" : headers,
-                                "params"  : params,
-                                "timeout" : timeout,
-                                "retries" : retries,
-                                "form"    : form,
+                                "method"           : method,
+                                "url"              : url,
+                                "headers"          : headers,
+                                "params"           : params,
+                                "json"             : json_body,
+                                "body_text"        : body_text,
+                                "timeout"          : timeout,
+                                "retries"          : retries,
+                                "follow_redirects" : follow_redirects,
+                                "form"             : form,
                                 "files": [
                                     {
                                         "field"        : x.get("field"),
@@ -452,13 +455,16 @@ class Nexus(object):
             "data": {
                 "ok": False,
                 "request": {
-                    "method"  : method,
-                    "url"     : url,
-                    "headers" : headers,
-                    "params"  : params,
-                    "timeout" : timeout,
-                    "retries" : retries,
-                    "form"    : form,
+                    "method"           : method,
+                    "url"              : url,
+                    "headers"          : headers,
+                    "params"           : params,
+                    "json"             : json_body,
+                    "body_text"        : body_text,
+                    "timeout"          : timeout,
+                    "retries"          : retries,
+                    "follow_redirects" : follow_redirects,
+                    "form"             : form,
                     "files": [
                         {
                             "field"        : x.get("field"),
@@ -469,8 +475,14 @@ class Nexus(object):
                         for x in (files or []) if isinstance(x, dict)
                     ]
                 },
-                "error"      : last_err,
-                "elapsed_ms" : elapsed_ms
+                "response": {
+                    "status"     : None,
+                    "headers"    : {},
+                    "elapsed_ms" : elapsed_ms,
+                    "body_text"  : None,
+                    "body_json"  : None
+                },
+                "error": last_err
             },
             "logs": []
         }
@@ -483,6 +495,7 @@ class Nexus(object):
         pack["data"]["asserts"] = checked["asserts"]
         pack["data"]["assert_summary"] = checked["summary"]
         pack["data"]["assert_ok"] = bool(checked["ok"])
+        pack["data"]["ok"] = bool(pack["data"]["ok"]) and bool(checked["ok"])
         pack["logs"].extend(checked["logs"])
 
         if extract or asserts:
@@ -496,157 +509,279 @@ class Nexus(object):
     @staticmethod
     async def sse(
         *,
+        method: str,
         url: str,
         base_url: typing.Optional[str] = None,
         headers: typing.Optional[dict[str, str]] = None,
         params: typing.Optional[dict[str, typing.Any]] = None,
+        json_body: typing.Optional[dict[str, typing.Any]] = None,
+        body_text: typing.Optional[str] = None,
+        form: typing.Optional[dict[str, typing.Any]] = None,
+        files: typing.Optional[list[dict[str, typing.Any]]] = None,
         timeout: float = 30.0,
-        max_events: int = 10,
+        retries: int = 0,
+        follow_redirects: bool = True,
+        max_events: typing.Optional[int] = None,
         extract: typing.Optional[dict[str, str]] = None,
         asserts: typing.Optional[list[dict[str, typing.Any]]] = None
     ) -> dict[str, typing.Any]:
 
+        method  = (method or "GET").upper()
         url     = Nexus.url_join(base_url, url)
-        headers = headers or {}
+        headers = dict(headers or {})
 
         t0 = time.perf_counter()
+        last_err: typing.Optional[str] = None
 
-        events: list[dict[str, typing.Any]] = []
-        status: typing.Optional[int] = None
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=follow_redirects) as client:
+            for _ in range(max(0, int(retries)) + 1):
+                try:
+                    files_payload = Nexus.files_payload(files)
 
-        try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                async with client.stream("GET", url, headers=headers, params=params) as resp:
-                    status = resp.status_code
-                    if status != 200:
-                        pack = {
-                            "text"        : f"SSE {url} -> {status}",
-                            "attachments" : [],
-                            "data": {
-                                "ok"     : False,
-                                "status" : status,
-                                "url"    : url
-                            },
-                            "logs": []
-                        }
+                    events: list[dict[str, typing.Any]] = []
+                    status: typing.Optional[int] = None
 
-                        checked = Nexus.apply_extract_assert(
-                            pack["data"], extract=extract, asserts=asserts
-                        )
+                    async with client.stream(
+                        method,
+                        url,
+                        headers=headers,
+                        params=params,
+                        json=json_body,
+                        content=body_text,
+                        data=form,
+                        files=files_payload
+                    ) as resp:
 
-                        pack["data"]["extract"] = checked["extract"]
-                        pack["data"]["asserts"] = checked["asserts"]
-                        pack["data"]["assert_summary"] = checked["summary"]
-                        pack["data"]["assert_ok"] = bool(checked["ok"])
-                        pack["data"]["ok"] = bool(pack["data"]["ok"]) and bool(checked["ok"])
-                        pack["logs"].extend(checked["logs"])
+                        status     = resp.status_code
+                        elapsed_ms = Nexus.ms_since(t0)
 
-                        if extract or asserts:
-                            pack["text"] += (
-                                f" extract={len(checked['extract'])}"
-                                f" fail={checked['summary']['fail']}"
-                            )
-
-                        return pack
-
-                    buf = ""
-                    async for chunk in resp.aiter_text():
-                        buf += chunk
-                        buf = buf.replace("\r\n", "\n")
-
-                        while "\n\n" in buf:
-                            raw, buf = buf.split("\n\n", 1)
-                            ev = Nexus.sse_block(raw)
-                            if not ev: continue
-
-                            events.append({
-                                "event" : ev.event,
-                                "id"    : ev.id,
-                                "data"  : ev.data
-                            })
-
-                            if len(events) >= int(max_events):
-                                elapsed_ms = Nexus.ms_since(t0)
-                                pack = {
-                                    "text"        : f"SSE {url} events={len(events)} ({elapsed_ms}ms)",
-                                    "attachments" : [],
-                                    "data": {
-                                        "ok"         : True,
-                                        "url"        : url,
+                        if status != 200:
+                            pack = {
+                                "text"        : f"SSE {method} {url} -> {status} ({elapsed_ms}ms)",
+                                "attachments" : [],
+                                "data": {
+                                    "ok": False,
+                                    "request": {
+                                        "method"           : method,
+                                        "url"              : url,
+                                        "headers"          : headers,
+                                        "params"           : params,
+                                        "json"             : json_body,
+                                        "body_text"        : body_text,
+                                        "timeout"          : timeout,
+                                        "retries"          : retries,
+                                        "follow_redirects" : follow_redirects,
+                                        "form"             : form,
+                                        "files": [
+                                            {
+                                                "field"        : x.get("field"),
+                                                "filename"     : x.get("filename"),
+                                                "content_type" : x.get("content_type"),
+                                                "path"         : x.get("path")
+                                            }
+                                            for x in (files or []) if isinstance(x, dict)
+                                        ]
+                                    },
+                                    "response": {
                                         "status"     : status,
+                                        "headers"    : dict(resp.headers),
                                         "elapsed_ms" : elapsed_ms,
                                         "events"     : events
-                                    },
-                                    "logs": []
-                                }
+                                    }
+                                },
+                                "logs": []
+                            }
 
-                                checked = Nexus.apply_extract_assert(
-                                    pack["data"], extract=extract, asserts=asserts
+                            checked = Nexus.apply_extract_assert(
+                                pack["data"], extract=extract, asserts=asserts
+                            )
+
+                            pack["data"]["extract"] = checked["extract"]
+                            pack["data"]["asserts"] = checked["asserts"]
+                            pack["data"]["assert_summary"] = checked["summary"]
+                            pack["data"]["assert_ok"] = bool(checked["ok"])
+                            pack["data"]["ok"] = bool(pack["data"]["ok"]) and bool(checked["ok"])
+                            pack["logs"].extend(checked["logs"])
+
+                            if extract or asserts:
+                                pack["text"] += (
+                                    f" extract={len(checked['extract'])}"
+                                    f" fail={checked['summary']['fail']}"
                                 )
 
-                                pack["data"]["extract"] = checked["extract"]
-                                pack["data"]["asserts"] = checked["asserts"]
-                                pack["data"]["assert_summary"] = checked["summary"]
-                                pack["data"]["assert_ok"] = bool(checked["ok"])
-                                pack["data"]["ok"] = bool(pack["data"]["ok"]) and bool(checked["ok"])
-                                pack["logs"].extend(checked["logs"])
+                            return pack
 
-                                if extract or asserts:
-                                    pack["text"] += (
-                                        f" extract={len(checked['extract'])}"
-                                        f" fail={checked['summary']['fail']}"
+                        buf = ""
+                        async for chunk in resp.aiter_text():
+                            buf += chunk
+                            buf = buf.replace("\r\n", "\n")
+
+                            while "\n\n" in buf:
+                                raw, buf = buf.split("\n\n", 1)
+                                ev = Nexus.sse_block(raw)
+                                if not ev: continue
+
+                                events.append({
+                                    "event" : ev.event,
+                                    "id"    : ev.id,
+                                    "data"  : ev.data
+                                })
+
+                                if max_events and 0 < int(max_events) <= len(events):
+                                    elapsed_ms = Nexus.ms_since(t0)
+                                    pack = {
+                                        "text"        : f"SSE {method} {url} events={len(events)} ({elapsed_ms}ms)",
+                                        "attachments" : [],
+                                        "data": {
+                                            "ok": True,
+                                            "request": {
+                                                "method"           : method,
+                                                "url"              : url,
+                                                "headers"          : headers,
+                                                "params"           : params,
+                                                "json"             : json_body,
+                                                "body_text"        : body_text,
+                                                "timeout"          : timeout,
+                                                "retries"          : retries,
+                                                "follow_redirects" : follow_redirects,
+                                                "form"             : form,
+                                                "files": [
+                                                    {
+                                                        "field"        : x.get("field"),
+                                                        "filename"     : x.get("filename"),
+                                                        "content_type" : x.get("content_type"),
+                                                        "path"         : x.get("path")
+                                                    }
+                                                    for x in (files or []) if isinstance(x, dict)
+                                                ]
+                                            },
+                                            "response": {
+                                                "status"     : status,
+                                                "headers"    : dict(resp.headers),
+                                                "elapsed_ms" : elapsed_ms,
+                                                "events"     : events
+                                            }
+                                        },
+                                        "logs": []
+                                    }
+
+                                    checked = Nexus.apply_extract_assert(
+                                        pack["data"], extract=extract, asserts=asserts
                                     )
 
-                                return pack
+                                    pack["data"]["extract"] = checked["extract"]
+                                    pack["data"]["asserts"] = checked["asserts"]
+                                    pack["data"]["assert_summary"] = checked["summary"]
+                                    pack["data"]["assert_ok"] = bool(checked["ok"])
+                                    pack["data"]["ok"] = bool(pack["data"]["ok"]) and bool(checked["ok"])
+                                    pack["logs"].extend(checked["logs"])
 
-            elapsed_ms = Nexus.ms_since(t0)
-            ok = (status == 200 and len(events) > 0)
-            pack = {
-                "text"        : f"SSE {url} events={len(events)} ({elapsed_ms}ms)",
-                "attachments" : [],
-                "data": {
-                    "ok"         : ok,
-                    "url"        : url,
-                    "status"     : status,
-                    "elapsed_ms" : elapsed_ms,
-                    "events"     : events
-                },
-                "logs": []
-            }
+                                    if extract or asserts:
+                                        pack["text"] += (
+                                            f" extract={len(checked['extract'])}"
+                                            f" fail={checked['summary']['fail']}"
+                                        )
 
-            checked = Nexus.apply_extract_assert(
-                pack["data"], extract=extract, asserts=asserts
-            )
+                                    return pack
 
-            pack["data"]["extract"] = checked["extract"]
-            pack["data"]["asserts"] = checked["asserts"]
-            pack["data"]["assert_summary"] = checked["summary"]
-            pack["data"]["assert_ok"] = bool(checked["ok"])
-            pack["data"]["ok"] = bool(pack["data"]["ok"]) and bool(checked["ok"])
-            pack["logs"].extend(checked["logs"])
+                        if tail := Nexus.sse_block(buf):
+                            events.append({"event": tail.event, "id": tail.id, "data": tail.data})
 
-            if extract or asserts:
-                pack["text"] += (
-                    f" extract={len(checked['extract'])}"
-                    f" fail={checked['summary']['fail']}"
-                )
+                    elapsed_ms = Nexus.ms_since(t0)
+                    ok = (status == 200 and len(events) > 0)
 
-            return pack
+                    pack = {
+                        "text"        : f"SSE {method} {url} events={len(events)} ({elapsed_ms}ms)",
+                        "attachments" : [],
+                        "data": {
+                            "ok": ok,
+                            "request": {
+                                "method"           : method,
+                                "url"              : url,
+                                "headers"          : headers,
+                                "params"           : params,
+                                "json"             : json_body,
+                                "body_text"        : body_text,
+                                "timeout"          : timeout,
+                                "retries"          : retries,
+                                "follow_redirects" : follow_redirects,
+                                "form"             : form,
+                                "files": [
+                                    {
+                                        "field"        : x.get("field"),
+                                        "filename"     : x.get("filename"),
+                                        "content_type" : x.get("content_type"),
+                                        "path"         : x.get("path")
+                                    }
+                                    for x in (files or []) if isinstance(x, dict)
+                                ]
+                            },
+                            "response": {
+                                "status"     : status,
+                                "headers"    : dict(resp.headers),
+                                "elapsed_ms" : elapsed_ms,
+                                "events"     : events
+                            }
+                        },
+                        "logs": []
+                    }
 
-        except (httpx.TimeoutException, httpx.RequestError) as e:
-            last_err = f"{type(e).__name__}: {e}"
+                    checked = Nexus.apply_extract_assert(
+                        pack["data"], extract=extract, asserts=asserts
+                    )
+
+                    pack["data"]["extract"] = checked["extract"]
+                    pack["data"]["asserts"] = checked["asserts"]
+                    pack["data"]["assert_summary"] = checked["summary"]
+                    pack["data"]["assert_ok"] = bool(checked["ok"])
+                    pack["data"]["ok"] = bool(pack["data"]["ok"]) and bool(checked["ok"])
+                    pack["logs"].extend(checked["logs"])
+
+                    if extract or asserts:
+                        pack["text"] += (
+                            f" extract={len(checked['extract'])}"
+                            f" fail={checked['summary']['fail']}"
+                        )
+
+                    return pack
+
+                except (httpx.TimeoutException, httpx.RequestError, OSError) as e:
+                    last_err = f"{type(e).__name__}: {e}"
 
         elapsed_ms = Nexus.ms_since(t0)
         pack = {
-            "text"        : f"SSE {url} -> ERROR ({elapsed_ms}ms) {last_err}",
+            "text"        : f"SSE {method} {url} -> ERROR ({elapsed_ms}ms) {last_err}",
             "attachments" : [],
             "data": {
-                "ok"         : False,
-                "url"        : url,
-                "status"     : status,
-                "elapsed_ms" : elapsed_ms,
-                "error"      : last_err,
-                "events"     : events
+                "ok": False,
+                "request": {
+                    "method"           : method,
+                    "url"              : url,
+                    "headers"          : headers,
+                    "params"           : params,
+                    "json"             : json_body,
+                    "body_text"        : body_text,
+                    "timeout"          : timeout,
+                    "retries"          : retries,
+                    "follow_redirects" : follow_redirects,
+                    "form"             : form,
+                    "files": [
+                        {
+                            "field"        : x.get("field"),
+                            "filename"     : x.get("filename"),
+                            "content_type" : x.get("content_type"),
+                            "path"         : x.get("path")
+                        }
+                        for x in (files or []) if isinstance(x, dict)
+                    ]
+                },
+                "response": {
+                    "status"     : None,
+                    "headers"    : {},
+                    "elapsed_ms" : elapsed_ms,
+                    "events"     : []
+                },
+                "error": last_err
             },
             "logs": []
         }
@@ -716,11 +851,19 @@ class Nexus(object):
             "text"        : f"WS {url} msgs={len(recv)} ({elapsed_ms}ms)",
             "attachments" : [],
             "data": {
-                "ok"         : ok,
-                "url"        : url,
-                "elapsed_ms" : elapsed_ms,
-                "messages"   : recv,
-                "error"      : (None if ok else last_err)
+                "ok": ok,
+                "request": {
+                    "url"          : url,
+                    "headers"      : headers,
+                    "sends"        : sends,
+                    "timeout"      : timeout,
+                    "max_messages" : max_messages
+                },
+                "response": {
+                    "elapsed_ms" : elapsed_ms,
+                    "messages"   : recv,
+                    "error"     : (None if ok else last_err)
+                }
             },
             "logs": []
         }
@@ -864,12 +1007,20 @@ class Nexus(object):
           items?: [
             {
               name?,
-              request:{url,headers?,params?,timeout?,max_events?},
+              request:{
+                method?, url, base_url?, headers?, params?,
+                json?, json_body?, body?, body_text?,
+                form?, files?,
+                timeout?, retries?, follow_redirects?,
+                max_events?
+              },
               extract?: {alias: path},
               asserts?: [{path: str, op: str, value?: any}]
             }
           ]
-          # 单请求也允许直接放在顶层：url/params/max_events?/extract?/asserts?...
+          # files item: {field,path?|filename?|content_type?|text?|bytes?}
+          # 单请求也允许直接放在顶层：
+          # method/url/base_url?/headers?/params?/json?/json_body?/body?/body_text?/form?/files?/timeout?/retries?/follow_redirects?/max_events?/extract?/asserts?...
         """
         return await self.task_sequence(payload, concurrency, kind="sse")
 
@@ -892,7 +1043,7 @@ class Nexus(object):
               asserts?: [{path: str, op: str, value?: any}]
             }
           ]
-          # 单请求也允许直接放在顶层：url/sends/max_messages?/extract?/asserts?...
+          # 单请求也允许直接放在顶层：url/headers?/sends?/timeout?/max_messages?/extract?/asserts?...
         """
         return await self.task_sequence(payload, concurrency, kind="ws")
 
@@ -910,12 +1061,12 @@ class Nexus(object):
           items?: [
             {
               name?,
-              request:{url,query,variables?,operation_name?,headers?,params?,timeout?,retries?,follow_redirects?},
+              request:{url,query,variables?,operation_name?,operationName?,base_url?,headers?,params?,timeout?,retries?,follow_redirects?},
               extract?: {alias: path},
               asserts?: [{path: str, op: str, value?: any}]
             }
           ]
-          # 单请求也允许直接放在顶层：url/query/variables?/extract?/asserts?...
+          # 单请求也允许直接放在顶层：url/query/variables?/operation_name?/operationName?/base_url?/headers?/params?/timeout?/retries?/follow_redirects?/extract?/asserts?...
         """
         return await self.task_sequence(payload, concurrency, kind="graphql")
 
@@ -1003,12 +1154,19 @@ class Nexus(object):
 
                 if kind == "sse":
                     pack = await self.sse(
+                        method=str(req_r.get("method", "GET")),
                         url=str(req_r.get("url", "")),
                         base_url=str(req_r.get("base_url") or base_url) or None,
                         headers={**base_headers, **dict(req_r.get("headers") or {})},
                         params=req_r.get("params"),
+                        json_body=req_r.get("json") or req_r.get("json_body"),
+                        body_text=req_r.get("body") or req_r.get("body_text"),
+                        form=req_r.get("form") if isinstance(req_r.get("form"), dict) else None,
+                        files=req_r.get("files") if isinstance(req_r.get("files"), list) else None,
                         timeout=float(req_r.get("timeout", base_timeout)),
-                        max_events=int(req_r.get("max_events", 10)),
+                        retries=int(req_r.get("retries", 0)),
+                        follow_redirects=bool(req_r.get("follow_redirects", True)),
+                        max_events=(None if req_r.get("max_events", None) is None else int(req_r.get("max_events"))),
                         extract=item.get("extract") if isinstance(item.get("extract"), dict) else None,
                         asserts=item.get("asserts") if isinstance(item.get("asserts"), list) else None
                     )
@@ -1020,14 +1178,12 @@ class Nexus(object):
                         ok=bool(data.get("ok")),
                         elapsed_ms=elapsed_ms,
                         detail={
-                            "url"            : data.get("url"),
-                            "status"         : data.get("status"),
-                            "events"         : data.get("events") or [],
-                            "elapsed_ms"     : data.get("elapsed_ms"),
-                            "extract"        : data.get("extract"),
-                            "asserts"        : data.get("asserts"),
-                            "assert_summary" : data.get("assert_summary"),
-                            "assert_ok"      : data.get("assert_ok")
+                            "request": data.get("request") or {},
+                            "response": data.get("response") or {},
+                            "extract": data.get("extract"),
+                            "asserts": data.get("asserts"),
+                            "assert_summary": data.get("assert_summary"),
+                            "assert_ok": data.get("assert_ok")
                         }
                     )
 
@@ -1056,7 +1212,6 @@ class Nexus(object):
                         detail={
                             "request"        : data.get("request"),
                             "response"       : data.get("response"),
-                            "graphql"        : data.get("graphql"),
                             "extract"        : data.get("extract"),
                             "asserts"        : data.get("asserts"),
                             "assert_summary" : data.get("assert_summary"),
@@ -1065,10 +1220,18 @@ class Nexus(object):
                     )
 
                 # ws
+                raw_sends = req_r.get("sends")
+                if isinstance(raw_sends, list):
+                    sends_v = [str(x) for x in raw_sends]
+                elif raw_sends is None:
+                    sends_v = []
+                else:
+                    sends_v = [str(raw_sends)]
+
                 pack = await self.ws(
                     url=str(req_r.get("url", "")),
                     headers={**base_headers, **dict(req_r.get("headers") or {})},
-                    sends=list(req_r.get("sends") or []),
+                    sends=sends_v,
                     timeout=float(req_r.get("timeout", base_timeout)),
                     max_messages=int(req_r.get("max_messages", 10)),
                     extract=item.get("extract") if isinstance(item.get("extract"), dict) else None,
@@ -1082,9 +1245,8 @@ class Nexus(object):
                     ok=bool(data.get("ok")),
                     elapsed_ms=elapsed_ms,
                     detail={
-                        "url"            : data.get("url"),
-                        "messages"       : data.get("messages") or [],
-                        "elapsed_ms"     : data.get("elapsed_ms"),
+                        "request"        : data.get("request") or {},
+                        "response"       : data.get("response") or {},
                         "extract"        : data.get("extract"),
                         "asserts"        : data.get("asserts"),
                         "assert_summary" : data.get("assert_summary"),
