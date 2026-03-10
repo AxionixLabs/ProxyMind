@@ -955,7 +955,6 @@ class Nexus(object):
                 "extract": payload.get("extract"),
                 "asserts": payload.get("asserts")
             }]
-            # raw_items = [{"name": payload.get("name"), "request": dict(payload)}]
 
         sem = asyncio.Semaphore(max(1, int(concurrency)))
 
