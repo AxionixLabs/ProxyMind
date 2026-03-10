@@ -7,6 +7,7 @@
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
+import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.middlewares.mid_task import task_middleware
@@ -38,6 +39,45 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             tool="query_idle",
             args={},
             target_list=[idle],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "common", "class": "inspect"})
+    @task_middleware("free_rule")
+    async def free_rule(
+        message: str,
+        context: typing.Optional[dict[str, typing.Any]] = None
+    ) -> CallToolResult:
+        """
+        D: common
+        C: inspect
+        A: free_rule
+        P:
+          message: str
+          context: dict?=None  # 执行期聚合上下文（如 plan/step/tool 结果）
+        R: CTR
+        N:
+          - 用途：调用远程大模型执行通用能力（断言/闲聊/评价/打分/规则判断等）
+          - 本工具仅透传 message/context（原样回传）；实际调用与结果解析由增强层接管
+        """
+
+        args = {
+            "message" : message,
+            "context" : context
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin("free_rule", args=args)
+            try:
+                return args
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="free_rule",
+            args=args,
+            target_list=[None],
             call=call,
             overrides=None
         )

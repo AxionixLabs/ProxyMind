@@ -153,8 +153,8 @@ class Mind(object):
             openai_tools.append({
                 "type": "function",
                 "function": {
-                    "name": tool.name, 
-                    "description": tool.description, 
+                    "name": tool.name,
+                    "description": tool.description,
                     "parameters": tool.inputSchema
                 }
             })
@@ -304,6 +304,15 @@ class Mind(object):
 
         mode: str = "chat"
 
+        ft = Tooling.filter_tools(
+            openai_tools=openai_tools,
+            tool_meta=domains,
+            domains={"bench", "common", "media"},
+            exclude=[
+                {"domain": "common", "class": "inspect", "name": "free_rule"}
+            ]
+        )
+
         ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
         async def finish(phase: str, **extra) -> None:
@@ -323,7 +332,7 @@ class Mind(object):
 
         # workflow: ==== Chat Streaming ====
         try:
-            async for chat in request.stream_chat(mode, model_api, message, openai_tools, slog=slog, **kwargs):
+            async for chat in request.stream_chat(mode, model_api, message, ft, slog=slog, **kwargs):
                 await self.stop_stream_anim()
                 await slog.start()
 
@@ -356,7 +365,7 @@ class Mind(object):
                         ok = (not result.isError)
 
                         # workflow: ==== 工具增强 ====
-                        enhancer: Enhancer = Enhancer(session, model_api)
+                        enhancer: Enhancer = Enhancer(session, mode, model_api, kwargs.get("metadata"))
                         fields = await enhancer.enhance(name, arguments, result, ok, slog)
 
                         await slog.feed(f"\n{fields.get('text')}\n")
@@ -397,6 +406,16 @@ class Mind(object):
 
         mode: str = "fast"
 
+        ft = Tooling.filter_tools(
+            openai_tools=openai_tools,
+            tool_meta=domains,
+            domains={"bench", "common", "media"},
+            exclude=[
+                {"domain": "common", "class": "inspect", "name": "free_rule"},
+                {"domain": "media", "class": "scrcpy"}
+            ]
+        )
+
         ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
         async def finish(phase: str, **extra) -> None:
@@ -414,16 +433,9 @@ class Mind(object):
         slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
         await slog.open()
 
-        filter_tools = Tooling.filter_tools(
-            openai_tools=openai_tools,
-            tool_meta=domains,
-            domains={"bench", "common", "media"},
-            exclude=[{"domain": "media", "class": "scrcpy"}]
-        )
-
         # workflow: ==== Fast Streaming ====
         try:
-            async for chat in request.stream_chat(mode, model_api, message, filter_tools, slog=slog, **kwargs):
+            async for chat in request.stream_chat(mode, model_api, message, ft, slog=slog, **kwargs):
                 await self.stop_stream_anim()
                 await slog.start()
 
@@ -450,7 +462,7 @@ class Mind(object):
                         ok = (not result.isError)
 
                         # workflow: ==== 工具增强 ====
-                        enhancer: Enhancer = Enhancer(session, model_api)
+                        enhancer: Enhancer = Enhancer(session, mode, model_api, kwargs.get("metadata"))
                         fields = await enhancer.enhance(name, arguments, result, ok, slog)
 
                         await slog.feed(f"\n{fields.get('text')}\n")
@@ -489,6 +501,13 @@ class Mind(object):
         """Plan Exec Looper"""
 
         mode: str = "plan"
+
+        ft = Tooling.filter_tools(
+            openai_tools=openai_tools,
+            tool_meta=domains,
+            exclude=[{"domain": "common", "class": "runtime", "name": "loop_steps"}]
+        )
+
         ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
         def emit(ev: dict[str, typing.Any]) -> None:
@@ -506,11 +525,7 @@ class Mind(object):
             })
             await ev_report.flush()
 
-        filter_tools = Tooling.filter_tools(
-            openai_tools=openai_tools,
-            tool_meta=domains,
-            exclude=[{"domain": "common", "class": "runtime", "name": "loop_steps"}]
-        )
+        slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
 
         r = await session.call_tool("refresh", {"ttl_sec": self.ttl_sec})
         extras = None if r.isError else {"devices": r.content[0].text}
@@ -523,13 +538,25 @@ class Mind(object):
             "ts"    : time.time()
         })
 
-        async for plan in request.stream_plan(mode, model_api, message, filter_tools, extras, **kwargs):
+        runtime_context: dict[str, typing.Any] = {
+            "goal"       : message,
+            "mode"       : mode,
+            "reasoning"  : "",
+            "loop_count" : 1,
+            "metadata"   : kwargs.get("metadata") or {},
+            "steps"      : [],
+            "current"    : None
+        }
+
+        async for plan in request.stream_plan(mode, model_api, message, ft, extras, **kwargs):
             await self.stop_stream_anim()
             if plan.get("type") == "error":
                 await finish("fail", error=json.dumps(plan, ensure_ascii=False))
                 return logger.error(plan)
 
             steps, loop_count, reasoning = plan["steps"], plan["loop_count"], plan["reasoning"]
+            runtime_context["reasoning"] = reasoning
+            runtime_context["loop_count"] = loop_count
 
             logger.info(reasoning)
 
@@ -555,6 +582,19 @@ class Mind(object):
                     action = step["action"]
                     name, arguments = action["action"], action["args"]
 
+                    step_context: dict[str, typing.Any] = {
+                        "run"     : index,
+                        "index"   : step_idx,
+                        "total"   : len(steps),
+                        "name"    : name,
+                        "args"    : arguments,
+                        "ok"      : None,
+                        "text"    : "",
+                        "data"    : None,
+                        "cost_ms" : 0
+                    }
+                    runtime_context["current"] = step_context
+
                     emit({
                         "type"  : "lifecycle",
                         "scope" : "step",
@@ -576,6 +616,22 @@ class Mind(object):
 
                     # workflow: ==== 参数增强 ====
                     arguments = Enhancer.exchange(name, arguments, self.report)
+                    if name == "free_rule":
+                        arguments = {
+                            **arguments,
+                            "context": {
+                                **(arguments.get("context") or {}),
+                                "plan": {
+                                    "goal"       : runtime_context["goal"],
+                                    "mode"       : runtime_context["mode"],
+                                    "reasoning"  : runtime_context["reasoning"],
+                                    "loop_count" : runtime_context["loop_count"],
+                                    "metadata"   : runtime_context["metadata"],
+                                    "steps"      : runtime_context["steps"],
+                                    "current"    : runtime_context["current"]
+                                }
+                            }
+                        }
 
                     call_id = craft.short_uid()
 
@@ -594,8 +650,16 @@ class Mind(object):
                     ok = (not result.isError)
 
                     # workflow: ==== 工具增强 ====
-                    enhancer: Enhancer = Enhancer(session, model_api)
-                    fields = await enhancer.enhance(name, arguments, result, ok)
+                    enhancer: Enhancer = Enhancer(session, mode, model_api, kwargs.get("metadata"))
+                    fields = await enhancer.enhance(name, arguments, result, ok, slog)
+
+                    step_context["ok"]      = ok
+                    step_context["text"]    = (fields.get("text") if isinstance(fields, dict) else "")
+                    step_context["data"]    = (fields.get("data") if isinstance(fields, dict) else None)
+                    step_context["cost_ms"] = int((time.time() - t0) * 1000)
+
+                    runtime_context["steps"].append(step_context)
+                    runtime_context["current"] = step_context
 
                     emit({
                         "type"    : "tool_result",
@@ -610,6 +674,7 @@ class Mind(object):
 
                     data_ok = bool((fields or {}).get("data", {}).get("ok"))
                     if not ok or not data_ok:
+                        step_context["data_ok"] = data_ok
                         brief_err = (fields.get("text") if isinstance(fields, dict) else "step failed")
                         await finish("fail", run=index, index=step_idx, name=name, error=brief_err)
                         return logger.error(fields)
@@ -639,6 +704,7 @@ class Mind(object):
                 if index != loop_count: self.task_info.clear()
 
             await finish("done")
+            await slog.stop()
 
     # Notes: ==== Chat 对话模式 ====
     async def mind_chat(self, model_api: dict[str, typing.Any], message: str, *_, **kwargs) -> None:

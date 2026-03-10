@@ -298,6 +298,36 @@ async def stream_heal(
         yield event
 
 
+async def stream_rule(
+    mode: str,
+    model_api: dict[str, typing.Any],
+    message: str,
+    context: dict[str, typing.Any],
+    metadata: dict[str, typing.Any],
+    timeout: float = 60.0
+) -> typing.AsyncGenerator[dict, None]:
+    """调用自由规则服务。"""
+
+    url = f"https://api.appserverx.com/mind-rule"
+    headers = Channel.make_headers()
+    payload = {
+        "mode"      : mode,
+        "model_api" : model_api,
+        "message"   : message,
+        "metadata"  : metadata,
+        "extras"    : context
+    }
+
+    async for event in streaming(url, headers, payload, timeout):
+        match event.get("type"):
+            case "thinking":
+                continue
+            case "done":
+                continue
+
+        yield event
+
+
 class EventReport(object):
     """事件上报器（Strong Ordering）"""
 

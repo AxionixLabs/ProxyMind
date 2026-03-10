@@ -220,6 +220,8 @@ class StreamTyperLogger(object):
     def __init__(self, log_file: str) -> None:
         self.log_file = log_file
         self.buffer: str = ""
+        self.line_len: int = 0
+        self.line_cut: bool = False
         self.fp: typing.Optional[typing.TextIO] = None
         self.typewriter: TypewriterStreamSession = TypewriterStreamSession()
 
@@ -248,7 +250,7 @@ class StreamTyperLogger(object):
 
     async def feed(self, chunk: typing.Optional[str]) -> None:
         if not chunk: return None
-        delta: str = str(chunk)
+        delta = str(chunk)
 
         # 1) ==== 全量落盘 ====
         self.buffer += delta
@@ -260,12 +262,32 @@ class StreamTyperLogger(object):
             if self.fp:
                 self.fp.write(line)
 
-        # 2) ==== 终端展示 ====
-        delta_limit: int = 120
-        if len(show := delta) > delta_limit:
-            show = show[:delta_limit] + " ...\n"
+        # 2) ==== 终端按行截断实时展示 ====
+        line_limit = 120
+        parts: list[str] = []
 
-        await self.typewriter.feed(show)
+        for ch in delta:
+            if ch == "\n":
+                parts.append("\n")
+                self.line_len = 0
+                self.line_cut = False
+                continue
+
+            if self.line_cut:
+                # 当前行已经截断，直到换行前都丢弃
+                continue
+
+            if self.line_len < line_limit:
+                parts.append(ch)
+                self.line_len += 1
+                continue
+
+            # 到这里说明刚刚超过上限，补一个截断标记，然后整行静默
+            parts.append(" ...")
+            self.line_cut = True
+
+        if parts:
+            await self.typewriter.feed("".join(parts))
 
     def flush(self) -> None:
         if not self.buffer:

@@ -19,9 +19,18 @@ from mindnova import request
 class Enhancer(object):
     """通用工具结果增强"""
 
-    def __init__(self, session: ClientSession, model_api: dict[str, typing.Any]):
+    def __init__(
+        self,
+        session: ClientSession,
+        mode: str,
+        model_api: dict[str, typing.Any],
+        metadata: dict[str, typing.Any],
+    ):
+
         self.session   = session
+        self.mode      = mode
         self.model_api = model_api
+        self.metadata  = metadata
 
     @staticmethod
     def exchange(
@@ -92,6 +101,8 @@ class Enhancer(object):
         if not ok: return fields
 
         match name:
+            case "free_rule":
+                return await self.__free_rule(result, slog)
             case "ffmpeg_extract_snapshot":
                 return await self.__ffmpeg_frame(result)
             case "ffmpeg_extract_keyframes":
@@ -108,6 +119,64 @@ class Enhancer(object):
                 return await self.__loop_steps(result, slog)
             case _:
                 return fields
+
+    async def __free_rule(
+        self,
+        result: CallToolResult,
+        slog: typing.Optional[StreamTyperLogger] = None
+    ) -> dict[str, typing.Any]:
+        """Free Rule"""
+
+        fields = self.fields(result)
+        attachments: list[dict[str, typing.Any]] = []
+
+        if not (results := fields.get("data", {}).get("results")):
+            return {
+                "text"        : "未获取到提示词（自由规则）的结果",
+                "attachments" : attachments,
+                "data"        : {"ok": False}
+            }
+
+        per_device: dict[str, typing.Any] = {}
+
+        if slog:
+            await slog.open()
+            await slog.start()
+
+        try:
+            for element in results:
+                agent_id = element.get("agent_id", "unknown")
+
+                message = element.get("data", {}).get("message")
+                context = element.get("data", {}).get("context") or {}
+
+                chunks: list[str] = []
+                async for event in request.stream_rule(self.mode, self.model_api, message, context, self.metadata):
+                    if event.get("type") == "error":
+                        per_device[agent_id] = {"ok": False, "message": message, "error": event}
+                        continue
+                    chunks.append(chunk := str(event.get("content") or "").strip())
+                    if slog:
+                        await slog.feed(chunk)
+
+                per_device[agent_id] = {"ok": True, "message": message, "chunks": chunks}
+
+            ok = all(v.get("ok") for v in per_device.values()) if per_device else False
+
+            return {
+                "text"        : "free rule done",
+                "attachments" : attachments,
+                "data": {
+                    "ok"         : ok,
+                    "mode"       : self.mode,
+                    "api"        : self.model_api.get("api"),
+                    "model"      : self.model_api.get("model"),
+                    "per_device" : per_device
+                }
+            }
+        finally:
+            if slog:
+                await slog.stop()
 
     async def __ffmpeg_frame(self, result: CallToolResult) -> dict:
         fields = self.fields(result)
