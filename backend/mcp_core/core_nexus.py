@@ -518,7 +518,7 @@ class Nexus(object):
         body_text: typing.Optional[str] = None,
         form: typing.Optional[dict[str, typing.Any]] = None,
         files: typing.Optional[list[dict[str, typing.Any]]] = None,
-        timeout: float = 30.0,
+        timeout: float = 60.0,
         retries: int = 0,
         follow_redirects: bool = True,
         max_events: typing.Optional[int] = None,
@@ -811,7 +811,7 @@ class Nexus(object):
         url: str,
         headers: typing.Optional[dict[str, str]] = None,
         sends: typing.Optional[list[str]] = None,
-        timeout: float = 30.0,
+        timeout: float = 60.0,
         max_messages: int = 10,
         extract: typing.Optional[dict[str, str]] = None,
         asserts: typing.Optional[list[dict[str, typing.Any]]] = None
@@ -1178,12 +1178,12 @@ class Nexus(object):
                         ok=bool(data.get("ok")),
                         elapsed_ms=elapsed_ms,
                         detail={
-                            "request": data.get("request") or {},
-                            "response": data.get("response") or {},
-                            "extract": data.get("extract"),
-                            "asserts": data.get("asserts"),
-                            "assert_summary": data.get("assert_summary"),
-                            "assert_ok": data.get("assert_ok")
+                            "request"        : data.get("request") or {},
+                            "response"       : data.get("response") or {},
+                            "extract"        : data.get("extract"),
+                            "asserts"        : data.get("asserts"),
+                            "assert_summary" : data.get("assert_summary"),
+                            "assert_ok"      : data.get("assert_ok")
                         }
                     )
 
