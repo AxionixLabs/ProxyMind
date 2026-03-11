@@ -862,7 +862,7 @@ class Nexus(object):
                 "response": {
                     "elapsed_ms" : elapsed_ms,
                     "messages"   : recv,
-                    "error"     : (None if ok else last_err)
+                    "error"      : (None if ok else last_err)
                 }
             },
             "logs": []
