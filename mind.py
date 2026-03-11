@@ -35,7 +35,9 @@ from mindcore.api import Api
 from mindcore.design import Design
 from engine.enhancer import Enhancer
 from engine.manage import ServerManage
-from engine.scaling import Pack
+from engine.scaling import (
+    PackItem, Pack
+)
 from engine.tinker import (
     MindError, Active, Tooling, StreamTyperLogger
 )
@@ -179,7 +181,12 @@ class Mind(object):
         self,
         model_api: dict[str, typing.Any],
         function: typing.Callable[
-            [ClientSession, list[dict[str, typing.Any]], dict[str, dict[str, typing.Any]]], typing.Awaitable[None]
+            [
+                ClientSession,
+                list[dict[str, typing.Any]],
+                dict[str, dict[str, typing.Any]]
+            ],
+            typing.Awaitable[None]
         ]
     ) -> None:
         """With MCP Session"""
@@ -290,9 +297,10 @@ class Mind(object):
                 logger.error(f"❌ [ERROR] {ex!r}")
 
     # workflow: ==== Chat 对话模式 ====
-    async def chat_exec_looper(
+    async def stream_looper(
         self,
         session: ClientSession,
+        mode: typing.Literal["chat", "fast"],
         model_api: dict[str, typing.Any],
         message: str,
         openai_tools: list[dict[str, typing.Any]],
@@ -302,16 +310,20 @@ class Mind(object):
     ) -> None:
         """Chat Exec Looper"""
 
-        mode: str = "chat"
+        exclude = [
+            {"domain": "common", "class": "inspect", "name": "free_rule"}
+        ]
+        regular = {
+            "class_not_in": {"tool", "framix", "nexus", "inspect", "runtime", "audio", "ffmpeg"}
+        }
 
-        ft = Tooling.filter_tools(
-            openai_tools=openai_tools,
-            tool_meta=domains,
-            domains={"bench", "common", "media"},
-            exclude=[
-                {"domain": "common", "class": "inspect", "name": "free_rule"}
+        if mode == "fast":
+            exclude = [
+                {"domain": "device"}, {"domain": "bench", "class": "framix"}, {"domain": "bench", "class": "memrix"},
+                {"domain": "common", "class": "inspect"}, {"domain": "media", "class": "screen"}
             ]
-        )
+
+        ft = Tooling.filter_tools(openai_tools=openai_tools, tool_meta=domains, exclude=exclude)
 
         ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
@@ -349,7 +361,7 @@ class Mind(object):
                     case "tool_call":
                         name, arguments = chat["name"], chat.get("arguments", {})
 
-                        if Tooling.require(domains, name, class_not_in={"nexus"}, name_not_in={"refresh"}):
+                        if Tooling.require(domains, name, **regular):
                             if error := await self.wakeup(session, slog):
                                 await slog.feed(error)
                                 await finish("fail", error=str(error))
@@ -392,9 +404,10 @@ class Mind(object):
         await slog.stop()
 
     # workflow: ==== Plan 编排模式 ====
-    async def plan_exec_looper(
+    async def static_looper(
         self,
         session: ClientSession,
+        mode: typing.Literal["plan"],
         model_api: dict[str, typing.Any],
         message: str,
         openai_tools: list[dict[str, typing.Any]],
@@ -404,13 +417,14 @@ class Mind(object):
     ) -> None:
         """Plan Exec Looper"""
 
-        mode: str = "plan"
+        exclude = [
+            {"domain": "common", "class": "runtime", "name": "loop_steps"}
+        ]
+        regular = {
+            "class_not_in": {"tool", "framix", "nexus", "inspect", "runtime", "audio", "ffmpeg"}
+        }
 
-        ft = Tooling.filter_tools(
-            openai_tools=openai_tools,
-            tool_meta=domains,
-            exclude=[{"domain": "common", "class": "runtime", "name": "loop_steps"}]
-        )
+        ft = Tooling.filter_tools(openai_tools, domains, exclude=exclude)
 
         ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
@@ -431,8 +445,8 @@ class Mind(object):
 
         slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
 
-        r = await session.call_tool("refresh", {"ttl_sec": self.ttl_sec})
-        extras = None if r.isError else {"devices": r.content[0].text}
+        probes = await session.call_tool("refresh", {"ttl_sec": self.ttl_sec})
+        extras = None if probes.isError else {"devices": probes.content[0].text}
 
         emit({
             "type"  : "lifecycle",
@@ -511,7 +525,7 @@ class Mind(object):
                         "ts"    : time.time()
                     })
 
-                    if Tooling.require(domains, name, class_not_in={"nexus"}, name_not_in={"refresh"}):
+                    if Tooling.require(domains, name, **regular):
                         if error := await self.wakeup(session):
                             await finish("fail", error=str(error), run=index, index=step_idx, name=name)
                             return logger.error(error)
@@ -614,15 +628,31 @@ class Mind(object):
     # Notes: ==== Chat 对话模式 ====
     async def mind_chat(self, model_api: dict[str, typing.Any], message: str, *_, **kwargs) -> None:
         """Mind Chat"""
-
         async def function(
             session: ClientSession,
             openai_tools: list[dict[str, typing.Any]],
             domains: dict[str, dict[str, typing.Any]]
         ) -> None:
             """Function"""
-            await self.chat_exec_looper(
-                session, model_api, message, openai_tools, domains, **kwargs
+            mode: typing.Literal["chat"] = "chat"
+            await self.stream_looper(
+                session, mode, model_api, message, openai_tools, domains, **kwargs
+            )
+
+        return await self.with_mcp_session(model_api, function)
+
+    # Notes: ==== Fast 性能模式 ====
+    async def mind_fast(self, model_api: dict[str, typing.Any], message: str, *_, **kwargs) -> None:
+        """Mind Fast"""
+        async def function(
+            session: ClientSession,
+            openai_tools: list[dict[str, typing.Any]],
+            domains: dict[str, dict[str, typing.Any]]
+        ) -> None:
+            """Function"""
+            mode: typing.Literal["fast"] = "fast"
+            await self.stream_looper(
+                session, mode, model_api, message, openai_tools, domains, **kwargs
             )
 
         return await self.with_mcp_session(model_api, function)
@@ -630,15 +660,15 @@ class Mind(object):
     # Notes: ==== Plan 编排模式 ====
     async def mind_plan(self, model_api: dict[str, typing.Any], message: str, *_, **kwargs) -> None:
         """Mind Plan"""
-
         async def function(
             session: ClientSession,
             openai_tools: list[dict[str, typing.Any]],
             domains: dict[str, dict[str, typing.Any]]
         ) -> None:
             """Function"""
-            await self.plan_exec_looper(
-                session, model_api, message, openai_tools, domains, **kwargs
+            mode: typing.Literal["plan"] = "plan"
+            await self.static_looper(
+                session, mode, model_api, message, openai_tools, domains, **kwargs
             )
 
         return await self.with_mcp_session(model_api, function)
@@ -646,8 +676,7 @@ class Mind(object):
     # Notes: ==== Loop 循环模式 ====
     async def mind_loop(self) -> None:
         """Mind Loop"""
-
-        async def exchange(types: typing.Literal["model", "apikey"]) -> typing.Optional[str]:
+        async def function(types: typing.Literal["model", "apikey"]) -> typing.Optional[str]:
             """Exchange"""
             if pref_name := m.group(1).strip() if m.group(1) else None:
                 return pref_name
@@ -694,6 +723,7 @@ class Mind(object):
         [bold #AFD7FF]/apikey <key>[/]             凭证更新（替换访问密钥）
         [bold #AFD7FF]/again N <goal>[/]           复现回放（目标 × N 次）
         [bold #FFD75F]/chat[/]                     对话模式（自由对话）
+        [bold #FFD75F]/fast[/]                     高速模式（压测采集）
         [bold #FFD75F]/plan[/]                     编排模式（工具执行）
         [/]"""
 
@@ -701,7 +731,7 @@ class Mind(object):
         re_model  = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
         re_apikey = re.compile(r"^\s*/apikey(?:\s+(.*))?\s*$", re.IGNORECASE)
 
-        tag: typing.Literal["CHAT", "PLAN"] = "CHAT"
+        tag: typing.Literal["CHAT", "FAST", "PLAN"] = "CHAT"
 
         theme = {
             "CHAT": {
@@ -712,6 +742,15 @@ class Mind(object):
                 "model"    : "#FFAF00",
                 "ready"    : "#AFD7FF",
                 "hint"     : "#FFAF00"
+            },
+            "FAST": {
+                "banner"   : "╔═⟦ 𝑭𝒂𝒔𝒕 ⟧═╗",
+                "prompt"   : "│ 〉Fast",
+                "tag"      : "#FF87D7",
+                "prompt_c" : "#FFD75F",
+                "model"    : "#FFAF5F",
+                "ready"    : "#D7AFFF",
+                "hint"     : "#FF87D7"
             },
             "PLAN": {
                 "banner"   : "╔═⟦ 𝑷𝒍𝒂𝒏 ⟧═╗",
@@ -759,20 +798,25 @@ class Mind(object):
                 Design.console.print(f"[bold {theme['CHAT']['hint']}]Exchange → Chat[/]")
                 continue
 
+            if raw.lower() == "/fast":
+                tag = "FAST"
+                Design.console.print(f"[bold {theme['FAST']['hint']}]Exchange → Fast[/]")
+                continue
+
             if raw.lower() == "/plan":
                 tag = "PLAN"
                 Design.console.print(f"[bold {theme['PLAN']['hint']}]Exchange → Plan[/]")
                 continue
 
             if m := re_model.match(raw):
-                model = await exchange("model") or model
+                model = await function("model") or model
                 continue
 
             if m := re_apikey.match(raw):
-                apikey = await exchange("apikey") or apikey
+                apikey = await function("apikey") or apikey
                 continue
 
-            if (hit := re_again.match(raw)) and tag == "PLAN":
+            if hit := re_again.match(raw):
                 message = f"{hit.group(2).strip()}，循环 {int(hit.group(1))} 次"
             else:
                 message = raw
@@ -781,29 +825,119 @@ class Mind(object):
 
             match tag:
                 case "CHAT": func = self.mind_chat
+                case "FAST": func = self.mind_fast
                 case "PLAN": func = self.mind_plan
 
-            mc = self.pref.to_config(model=model, apikey=apikey)
+            model_api = self.pref.to_config(model=model, apikey=apikey)
 
-            await self.calling(mc, message=message, func=func, metadata=metadata)
+            await self.calling(model_api, message=message, func=func, metadata=metadata)
 
     # Notes: ==== Pack 批量模式 ====
     async def mind_pack(
         self,
-        file: str,
-        func: typing.Callable,
-        mode: typing.Literal["chat", "plan"],
+        code: list[str],
+        mode: typing.Literal["chat", "fast", "plan"],
+        func: typing.Callable[..., typing.Awaitable[None]],
         *_,
         **kwargs
     ) -> None:
         """Mind Pack"""
+        code_path = [Path(x).expanduser() for x in (code or [])]
+        if not code_path:
+            raise MindError("Code list is empty")
 
-        async def function(
+        for code_p in code_path:
+            if not code_p.exists():
+                raise MindError(f"File not found: {code_p}")
+
+        model_api = self.pref.to_config()
+
+        meta_in = kwargs.get("metadata") or {}
+        cid = meta_in.get("cid") if isinstance(meta_in, dict) else None
+        sid = meta_in.get("sid") if isinstance(meta_in, dict) else None
+        kwargs["metadata"] = meta = self.begin_session(cid=cid, sid=sid)
+
+        atlas = f"{const.ATLAS_URL}?mode={mode}&cid={meta['cid']}&sid={meta['sid']}"
+        logger.info(f"🌐 Atlas: {atlas}")
+
+        ev_report: EventReport = EventReport(mode, meta["cid"], meta["sid"])
+        kwargs["ev_report"] = ev_report
+        await ev_report.open()
+
+        async def virtual(
+            p: Path,
+            items: list[PackItem],
+            session: ClientSession,
+            openai_tools: list[dict[str, typing.Any]],
+            domains: dict[str, dict[str, typing.Any]],
+            name: str,
+            msg: str,
+            run: typing.Optional[int] = None
+        ) -> None:
+            """Pack Msg"""
+            if not msg.strip(): return None
+            logger.info(f"🧩 {name} file={p}")
+
+            ev_report.emit({
+                "type"  : "lifecycle",
+                "scope" : "virtual",
+                "phase" : "start",
+                "file"  : str(p),
+                "name"  : name,
+                "run"   : run,
+                "ts"    : time.time()
+            })
+
+            self.stream_event = asyncio.Event()
+            self.stream_task = asyncio.create_task(
+                self.design.prefix_line(self.stream_event)
+            )
+
+            try:
+                await func(session, mode, model_api, msg, openai_tools, domains, **kwargs)
+            except BaseException as exc:
+                error = Pack.brief_err(exc)
+                await self.stop_all_anim()
+
+                ev_report.emit({
+                    "type"  : "lifecycle",
+                    "scope" : "virtual",
+                    "phase" : "fail",
+                    "file"  : str(p),
+                    "total" : len(items),
+                    "error" : error,
+                    "name"  : name,
+                    "run"   : run,
+                    "ts"    : time.time()
+                })
+                logger.error(f"❌ virtual failed: {name} file={p} err={error}\n")
+
+            ev_report.emit({
+                "type"  : "lifecycle",
+                "scope" : "virtual",
+                "phase" : "done",
+                "file"  : str(p),
+                "name"  : name,
+                "run"   : run,
+                "ts"    : time.time()
+            })
+
+        async def packer(
+            p: Path,
             session: ClientSession,
             openai_tools: list[dict[str, typing.Any]],
             domains: dict[str, dict[str, typing.Any]]
         ) -> None:
-            """Function"""
+            """Pack File"""
+            try:
+                text = p.read_text(encoding=const.CHARSET, errors="replace")
+            except Exception as e:
+                raise MindError(e)
+
+            items, cfg = Pack.pack_parse(text)
+            if not items:
+                logger.warning(f"Pack has no cases; will run only loop/round hooks. file={p}")
+
             try:
                 repeat = int(cfg.get("repeat") or 1)
             except (TypeError, ValueError):
@@ -835,9 +969,6 @@ class Mind(object):
             global_suffix = (cfg.get("global_suffix") or "").strip()
             global_rule   = (cfg.get("global_rule") or "").strip()
 
-            # --- loop 前置 ---
-            await virtual(session, openai_tools, domains, name="__loop_prefix__", msg=loop_prefix)
-
             ev_report.emit({
                 "type"   : "lifecycle",
                 "scope"  : "batch",
@@ -848,11 +979,15 @@ class Mind(object):
                 "ts"     : time.time()
             })
 
+            await virtual(
+                p, items, session, openai_tools, domains, "__loop_prefix__", loop_prefix
+            )
+
             try:
-                # 大循环：整包
                 for r in range(1, repeat + 1):
-                    # --- round 前置 ---
-                    await virtual(session, openai_tools, domains, name="__round_prefix__", msg=round_prefix, run=r)
+                    await virtual(
+                        p, items, session, openai_tools, domains, "__round_prefix__", round_prefix, r
+                    )
 
                     logger.info(f"🧪 run {r}/{repeat} items={len(items)} file={p}")
 
@@ -862,6 +997,7 @@ class Mind(object):
                                 "type"       : "lifecycle",
                                 "scope"      : "task",
                                 "phase"      : "skip",
+                                "file"       : str(p),
                                 "run"        : r,
                                 "index"      : idx,
                                 "total"      : len(items),
@@ -873,12 +1009,12 @@ class Mind(object):
                             logger.debug(f"⏭️  skip [{idx}/{len(items)}] {it.name} (filter)")
                             continue
 
-                        # 小循环：单 item
                         for item_run in range(1, it.loop + 1):
                             ev_report.emit({
                                 "type"       : "lifecycle",
                                 "scope"      : "task",
                                 "phase"      : "start",
+                                "file"       : str(p),
                                 "run"        : r,
                                 "index"      : idx,
                                 "total"      : len(items),
@@ -887,9 +1023,9 @@ class Mind(object):
                                 "item_total" : it.loop,
                                 "ts"         : time.time()
                             })
+
                             logger.info(
-                                f"▶️  [{idx}/{len(items)}] {it.name} "
-                                f"item_run={item_run}/{it.loop}"
+                                f"▶️  [{idx}/{len(items)}] {it.name} item_run={item_run}/{it.loop} file={p}"
                             )
 
                             last_exc: typing.Optional[BaseException] = None
@@ -901,6 +1037,7 @@ class Mind(object):
                                     "type"         : "lifecycle",
                                     "scope"        : "task",
                                     "phase"        : "attempt",
+                                    "file"         : str(p),
                                     "run"          : r,
                                     "index"        : idx,
                                     "total"        : len(items),
@@ -930,12 +1067,13 @@ class Mind(object):
                                 )
 
                                 try:
-                                    await func(session, model_api, final_msg, openai_tools, domains, **kwargs)
+                                    await func(session, mode, model_api, final_msg, openai_tools, domains, **kwargs)
 
                                     ev_report.emit({
                                         "type"       : "lifecycle",
                                         "scope"      : "task",
                                         "phase"      : "done",
+                                        "file"       : str(p),
                                         "run"        : r,
                                         "index"      : idx,
                                         "total"      : len(items),
@@ -959,6 +1097,7 @@ class Mind(object):
                                         "type"         : "lifecycle",
                                         "scope"        : "task",
                                         "phase"        : "fail",
+                                        "file"         : str(p),
                                         "run"          : r,
                                         "index"        : idx,
                                         "total"        : len(items),
@@ -983,6 +1122,7 @@ class Mind(object):
                                             "type"       : "lifecycle",
                                             "scope"      : "task",
                                             "phase"      : "retry_wait",
+                                            "file"       : str(p),
                                             "run"        : r,
                                             "index"      : idx,
                                             "total"      : len(items),
@@ -996,10 +1136,12 @@ class Mind(object):
                                         await asyncio.sleep(backoff)
 
                             if last_exc is not None:
+                                last_error = Pack.brief_err(last_exc)
                                 ev_report.emit({
                                     "type"         : "lifecycle",
                                     "scope"        : "task",
                                     "phase"        : "give_up",
+                                    "file"         : str(p),
                                     "run"          : r,
                                     "index"        : idx,
                                     "total"        : len(items),
@@ -1007,22 +1149,25 @@ class Mind(object):
                                     "item_run"     : item_run,
                                     "item_total"   : it.loop,
                                     "max_attempts" : attempts,
-                                    "error"        : Pack.brief_err(last_exc),
+                                    "error"        : last_error,
                                     "ts"           : time.time()
                                 })
+
                                 logger.error(
                                     f"🧯 give up: {it.name} "
                                     f"item_run={item_run}/{it.loop} "
-                                    f"attempts={attempts} last={Pack.brief_err(last_exc)}"
+                                    f"attempts={attempts} last={last_error}"
                                 )
                                 if stop_on_fail: return None
                                 continue
 
-                    # --- round 后置 ---
-                    await virtual(session, openai_tools, domains, name="__round_suffix__", msg=round_suffix, run=r)
+                    await virtual(
+                        p, items, session, openai_tools, domains, "__round_suffix__", round_suffix, r
+                    )
 
-                # --- loop 后置 ---
-                await virtual(session, openai_tools, domains, name="__loop_suffix__", msg=loop_suffix)
+                await virtual(
+                    p, items, session, openai_tools, domains, "__loop_suffix__", loop_suffix
+                )
 
             finally:
                 ev_report.emit({
@@ -1035,86 +1180,18 @@ class Mind(object):
                     "ts"     : time.time()
                 })
 
-                await ev_report.flush()
-                await ev_report.close()
-
-        async def virtual(
+        async def function(
             session: ClientSession,
             openai_tools: list[dict[str, typing.Any]],
-            domains: dict[str, dict[str, typing.Any]],
-            name: str,
-            msg: str,
-            run: typing.Optional[int] = None
+            domains: dict[str, dict[str, typing.Any]]
         ) -> None:
-            """Virtual"""
-            if not msg.strip(): return None
-            logger.info(f"🧩 {name} file={p}")
-
-            ev_report.emit({
-                "type"  : "lifecycle",
-                "scope" : "virtual",
-                "phase" : "start",
-                "name"  : name,
-                "run"   : run,
-                "ts"    : time.time()
-            })
-
-            self.stream_event = asyncio.Event()
-            self.stream_task = asyncio.create_task(
-                self.design.prefix_line(self.stream_event)
-            )
-
+            """Function"""
             try:
-                await func(session, model_api, msg, openai_tools, domains, **kwargs)
-            except BaseException as exc:
-                error = Pack.brief_err(exc)
-                await self.stop_all_anim()
-                ev_report.emit({
-                    "type"  : "lifecycle",
-                    "scope" : "virtual",
-                    "phase" : "fail",
-                    "total" : len(items),
-                    "error" : error,
-                    "name"  : name,
-                    "run"   : run,
-                    "ts"    : time.time()
-                })
-                logger.error(f"❌ virtual failed: {name} err={error}\n")
-
-            ev_report.emit({
-                "type"  : "lifecycle",
-                "scope" : "virtual",
-                "phase" : "done",
-                "name"  : name,
-                "run"   : run,
-                "ts"    : time.time()
-            })
-
-        if not (p := Path(file).expanduser()).exists():
-            raise MindError(f"File not found: {p}")
-
-        try:
-            text = p.read_text(encoding=const.CHARSET, errors="replace")
-        except Exception as e:
-            raise MindError(e)
-
-        items, cfg = Pack.pack_parse(text)
-        if not items:
-            logger.warning("Pack has no cases; will run only loop/round hooks.")
-
-        model_api = self.pref.to_config()
-
-        meta_in = kwargs.get("metadata") or {}
-        cid = meta_in.get("cid") if isinstance(meta_in, dict) else None
-        sid = meta_in.get("sid") if isinstance(meta_in, dict) else None
-        kwargs["metadata"] = meta = self.begin_session(cid=cid, sid=sid)
-
-        atlas = f"{const.ATLAS_URL}?mode={mode}&cid={meta['cid']}&sid={meta['sid']}"
-        logger.info(f"🌐 Atlas: {atlas}")
-
-        ev_report: EventReport = EventReport(mode, meta["cid"], meta["sid"])
-        kwargs["ev_report"] = ev_report
-        await ev_report.open()
+                for path in code_path:
+                    await packer(path, session, openai_tools, domains)
+            finally:
+                await ev_report.flush()
+                await ev_report.close()
 
         return await self.with_mcp_session(model_api, function)
 
@@ -1122,7 +1199,6 @@ class Mind(object):
 # """Main"""
 async def main() -> None:
     """Main"""
-
     async def authorized() -> None:
         if platform != "darwin":
             return None
@@ -1229,9 +1305,9 @@ async def main() -> None:
     await authorized()
 
     # 检查每个工具是否存在，如果缺失则显示错误信息并退出程序
-    for tls in tools:
-        if not shutil.which((tls_name := os.path.basename(tls))):
-            raise MindError(f"{const.APP_DESC} missing files {tls_name}")
+    # for tls in tools:
+    #     if not shutil.which((tls_name := os.path.basename(tls))):
+    #         raise MindError(f"{const.APP_DESC} missing files {tls_name}")
 
     # 远程全局配置
     global_config_task = asyncio.create_task(Api.remote_config())
@@ -1259,13 +1335,14 @@ async def main() -> None:
     await pref.load_pref()
 
     launch_cmd = [helix, "--level", level]
+    launch_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), "backend", "helix.py"), "--level", level]
     server: ServerManage = ServerManage(launch_cmd)
     await server.ensure_running()
     await server.close()
 
     positions = (
-        cmd_lines.chat, cmd_lines.plan,
-        cmd_lines.gravity, cmd_lines.reflection, cmd_lines.file
+        cmd_lines.chat, cmd_lines.fast, cmd_lines.plan,
+        cmd_lines.gravity, cmd_lines.reflection, cmd_lines.code
     )
     keywords = {
         "src_opera_place" : src_opera_place,
@@ -1280,17 +1357,22 @@ async def main() -> None:
 
     if chat := cmd_lines.chat:
         await mind.calling(message=chat, func=mind.mind_chat)
+    elif fast := cmd_lines.fast:
+        await mind.calling(message=fast, func=mind.mind_fast)
     elif plan := cmd_lines.plan:
         await mind.calling(message=plan, func=mind.mind_plan)
-    elif file := cmd_lines.file:
+    elif code := cmd_lines.code:
         if cmd_lines.chat is not None:
-            func = mind.chat_exec_looper
+            func = mind.stream_looper
             mode: typing.Literal["chat"] = "chat"
+        elif cmd_lines.fast is not None:
+            func = mind.stream_looper
+            mode: typing.Literal["fast"] = "fast"
         else:
-            func = mind.plan_exec_looper
+            func = mind.static_looper
             mode: typing.Literal["plan"] = "plan"
 
-        await mind.mind_pack(file, func, mode)
+        await mind.mind_pack(code, mode, func)
 
     else:
         await mind.mind_loop()

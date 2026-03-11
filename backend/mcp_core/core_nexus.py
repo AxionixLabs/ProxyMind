@@ -7,11 +7,14 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import re
+import ast
 import json
 import time
+import uuid
 import httpx
 import typing
 import asyncio
+import operator
 import websockets
 from pathlib import Path
 from loguru import logger
@@ -48,6 +51,150 @@ class RunRecord:
     steps: list[StepResult]
 
 
+class Evaluation(object):
+    """Evaluation class."""
+
+    EXPR_RE = re.compile(r"\{\{\s*(.*?)\s*}}")
+
+    _BIN_OPS = {
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+        ast.FloorDiv: operator.floordiv,
+        ast.Mod: operator.mod,
+    }
+
+    _CMP_OPS = {
+        ast.Eq: operator.eq,
+        ast.NotEq: operator.ne,
+        ast.Gt: operator.gt,
+        ast.GtE: operator.ge,
+        ast.Lt: operator.lt,
+        ast.LtE: operator.le,
+        ast.In: lambda a, b: a in b,
+        ast.NotIn: lambda a, b: a not in b,
+    }
+
+    _BOOL_OPS = {
+        ast.And: all,
+        ast.Or: any,
+    }
+
+    _UNARY_OPS = {
+        ast.UAdd: operator.pos,
+        ast.USub: operator.neg,
+        ast.Not: operator.not_,
+    }
+
+    @staticmethod
+    def _attr_or_key(obj: typing.Any, name: str) -> typing.Any:
+        if name.startswith("__"):
+            raise ValueError(f"unsafe attribute: {name}")
+
+        if isinstance(obj, dict):
+            if name in obj:
+                return obj[name]
+            raise KeyError(name)
+
+        if hasattr(obj, name):
+            return getattr(obj, name)
+
+        raise KeyError(name)
+
+    @staticmethod
+    def safe_eval_expr(expr: str, ctx: dict[str, typing.Any]) -> typing.Any:
+        """
+        受限表达式求值：
+        - 支持 name / constant / binop / boolop / compare / unaryop
+        - 支持 dict/list/tuple 下标
+        - 支持 dict 的点路径访问（user.id）
+        - 禁止 call / import / lambda / 推导式等
+        """
+        try:
+            node = ast.parse(expr, mode="eval")
+        except SyntaxError as e:
+            raise ValueError(f"invalid template expr: {expr!r}: {e}") from e
+
+        def walk(n: ast.AST) -> typing.Any:
+            if isinstance(n, ast.Expression):
+                return walk(n.body)
+
+            if isinstance(n, ast.Constant):
+                return n.value
+
+            if isinstance(n, ast.Name):
+                if n.id in ctx:
+                    return ctx[n.id]
+                raise KeyError(n.id)
+
+            if isinstance(n, ast.Attribute):
+                base = walk(n.value)
+                return Evaluation._attr_or_key(base, n.attr)
+
+            if isinstance(n, ast.Subscript):
+                base = walk(n.value)
+                # py3.9+: slice 直接是 expr
+                key = walk(n.slice)
+                return base[key]
+
+            if isinstance(n, ast.List):
+                return [walk(x) for x in n.elts]
+
+            if isinstance(n, ast.Tuple):
+                return tuple(walk(x) for x in n.elts)
+
+            if isinstance(n, ast.Dict):
+                return {walk(k): walk(v) for k, v in zip(n.keys, n.values)}
+
+            if isinstance(n, ast.BinOp):
+                op_type = type(n.op)
+                if op_type not in Evaluation._BIN_OPS:
+                    raise ValueError(f"unsupported binop: {op_type.__name__}")
+                return Evaluation._BIN_OPS[op_type](walk(n.left), walk(n.right))
+
+            if isinstance(n, ast.UnaryOp):
+                op_type = type(n.op)
+                if op_type not in Evaluation._UNARY_OPS:
+                    raise ValueError(f"unsupported unaryop: {op_type.__name__}")
+                return Evaluation._UNARY_OPS[op_type](walk(n.operand))
+
+            if isinstance(n, ast.BoolOp):
+                op_type = type(n.op)
+                if op_type not in Evaluation._BOOL_OPS:
+                    raise ValueError(f"unsupported boolop: {op_type.__name__}")
+                vals = [walk(v) for v in n.values]
+                if op_type is ast.And:
+                    return all(vals)
+                return any(vals)
+
+            if isinstance(n, ast.Compare):
+                left = walk(n.left)
+                for op, comp in zip(n.ops, n.comparators):
+                    op_type = type(op)
+                    if op_type not in Evaluation._CMP_OPS:
+                        raise ValueError(f"unsupported cmpop: {op_type.__name__}")
+                    right = walk(comp)
+                    if not Evaluation._CMP_OPS[op_type](left, right):
+                        return False
+                    left = right
+                return True
+
+            # 明确禁止
+            if isinstance(n, ast.Call):
+                raise ValueError("function call not allowed in template")
+            if isinstance(n, ast.Lambda):
+                raise ValueError("lambda not allowed in template")
+            if isinstance(n, (ast.ListComp, ast.DictComp, ast.SetComp, ast.GeneratorExp)):
+                raise ValueError("comprehension not allowed in template")
+            if "__" in expr:
+                raise ValueError("dunder not allowed in template")
+
+            raise ValueError(f"unsupported expr node: {type(n).__name__}")
+
+        return walk(node)
+
+
 class Nexus(object):
     """Nexus class."""
 
@@ -73,14 +220,28 @@ class Nexus(object):
     @staticmethod
     def template(x: typing.Any, ctx: dict[str, typing.Any]) -> typing.Any:
         if isinstance(x, str):
-            s = x
-            for k, v in ctx.items():
-                s = s.replace("{{" + k + "}}", str(v))
-            return s
+            s = x.strip()
+
+            # 情况1：整个字符串就是一个表达式 -> 保留原始类型
+            m = Evaluation.EXPR_RE.fullmatch(s)
+            if m:
+                _expr = m.group(1)
+                return Evaluation.safe_eval_expr(_expr, ctx)
+
+            # 情况2：字符串内部有若干表达式 -> 替换成字符串
+            def repl(match: re.Match[str]) -> str:
+                expr = match.group(1)
+                val = Evaluation.safe_eval_expr(expr, ctx)
+                return "" if val is None else str(val)
+
+            return Evaluation.EXPR_RE.sub(repl, x)
+
         if isinstance(x, list):
             return [Nexus.template(i, ctx) for i in x]
+
         if isinstance(x, dict):
             return {k: Nexus.template(v, ctx) for k, v in x.items()}
+
         return x
 
     @staticmethod
@@ -326,6 +487,48 @@ class Nexus(object):
         return payload or None
 
     @staticmethod
+    def detect_media_kind(content_type: str) -> typing.Optional[str]:
+        ct = str(content_type or "").split(";")[0].strip().lower()
+
+        if ct.startswith("image/"):
+            return "image"
+        if ct.startswith("video/"):
+            return "video"
+        return None
+
+    @staticmethod
+    def media_suffix(content_type: str) -> str:
+        ct = str(content_type or "").split(";")[0].strip().lower()
+
+        mapping = {
+            "image/png": ".png",
+            "image/jpeg": ".jpg",
+            "image/jpg": ".jpg",
+            "image/webp": ".webp",
+            "image/gif": ".gif",
+            "video/mp4": ".mp4",
+            "video/webm": ".webm",
+            "video/quicktime": ".mov",
+            "video/x-matroska": ".mkv",
+        }
+        return mapping.get(ct, ".bin")
+
+    @staticmethod
+    def mk_out_dir(output_dir: str, tool: str) -> Path:
+        """
+        每次调用创建一个独立 out 目录：避免并发覆盖。
+        output_dir: 用户传入的根目录（已确保是目录）
+        tool:       工具名（用于分类）
+        """
+        base_dir = Path(output_dir or ".").expanduser().resolve()
+        base_dir.mkdir(parents=True, exist_ok=True)
+
+        tag = f"{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        out_dir = base_dir / "nexus" / tool / tag
+        out_dir.mkdir(parents=True, exist_ok=True)
+        return out_dir
+
+    @staticmethod
     async def request(
         *,
         method: str,
@@ -341,7 +544,9 @@ class Nexus(object):
         retries: int = 0,
         follow_redirects: bool = True,
         extract: typing.Optional[dict[str, str]] = None,
-        asserts: typing.Optional[list[dict[str, typing.Any]]] = None
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        save_response: bool = False,
+        save_dir: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
 
         method  = (method or "GET").upper()
@@ -353,14 +558,8 @@ class Nexus(object):
 
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=follow_redirects) as client:
             for _ in range(max(0, int(retries)) + 1):
-                opened_files: list[typing.IO[bytes]] = []
                 try:
                     files_payload = Nexus.files_payload(files)
-
-                    if files_payload:
-                        for _, val in files_payload:
-                            if isinstance(val, tuple) and len(val) >= 2 and hasattr(val[1], "read"):
-                                opened_files.append(val[1])
 
                     resp = await client.request(
                         method,
@@ -374,16 +573,66 @@ class Nexus(object):
                     )
                     elapsed_ms = Nexus.ms_since(t0)
 
-                    try:
-                        body_json = resp.json()
-                    except (TypeError, ValueError, json.JSONDecodeError):
+                    resp_ct    = str(resp.headers.get("content-type") or "")
+                    media_kind = Nexus.detect_media_kind(resp_ct)
+                    body_bytes = resp.content
+                    media_info = None
+                    attachments: list[dict[str, typing.Any]] = []
+
+                    if media_kind:
                         body_json = None
+                        body_text_view = None
+                    else:
+                        try:
+                            body_json = resp.json()
+                        except (TypeError, ValueError, json.JSONDecodeError):
+                            body_json = None
+
+                        try:
+                            body_text_view = resp.text
+                        except (TypeError, ValueError, AttributeError):
+                            body_text_view = None
+
+                    if media_kind and save_response:
+                        out_dir = Nexus.mk_out_dir(save_dir, "http_media")
+
+                        ext = Nexus.media_suffix(resp_ct)
+                        filename = f"{media_kind}{ext}"
+                        out_file = out_dir / filename
+                        out_file.write_bytes(body_bytes)
+
+                        media_info = {
+                            "kind"      : media_kind,
+                            "path"      : str(out_file),
+                            "filename"  : filename,
+                            "mime_type" : resp_ct.split(";")[0].strip(),
+                            "size"      : len(body_bytes),
+                            "source"    : "response_body"
+                        }
+
+                        attachments.append({
+                            "kind"      : media_kind,
+                            "path"      : str(out_file),
+                            "filename"  : filename,
+                            "mime_type" : resp_ct.split(";")[0].strip(),
+                            "size"      : len(body_bytes),
+                            "source"    : "response_body"
+                        })
+                    elif media_kind:
+                        media_info = {
+                            "kind"      : media_kind,
+                            "path"      : None,
+                            "filename"  : None,
+                            "mime_type" : resp_ct.split(";")[0].strip(),
+                            "size"      : len(body_bytes),
+                            "source"    : "response_body"
+                        }
 
                     ok = 200 <= int(resp.status_code) < 400
 
                     pack =  {
                         "text"        : f"{method} {url} -> {resp.status_code} ({elapsed_ms}ms)",
-                        "attachments" : [],
+                        "attachments" : attachments,
                         "data": {
                             "ok": ok,
                             "request": {
@@ -408,12 +657,15 @@ class Nexus(object):
                                 ]
                             },
                             "response": {
-                                "status"     : resp.status_code,
-                                "headers"    : dict(resp.headers),
-                                "elapsed_ms" : elapsed_ms,
-                                "body_text"  : resp.text,
-                                "body_json"  : body_json
-                            },
+                                "status"         : resp.status_code,
+                                "headers"        : dict(resp.headers),
+                                "elapsed_ms"     : elapsed_ms,
+                                "body_text"      : body_text_view,
+                                "body_json"      : body_json,
+                                "content_type"   : resp_ct,
+                                "content_length" : len(body_bytes),
+                                "media"          : media_info
+                            }
                         },
                         "logs": []
                     }
@@ -439,13 +691,6 @@ class Nexus(object):
 
                 except (httpx.TimeoutException, httpx.RequestError, OSError) as e:
                     last_err = f"{type(e).__name__}: {e}"
-
-                finally:
-                    for fp in opened_files:
-                        try:
-                            fp.close()
-                        except OSError:
-                            pass
 
         elapsed_ms = Nexus.ms_since(t0)
 
@@ -476,11 +721,14 @@ class Nexus(object):
                     ]
                 },
                 "response": {
-                    "status"     : None,
-                    "headers"    : {},
-                    "elapsed_ms" : elapsed_ms,
-                    "body_text"  : None,
-                    "body_json"  : None
+                    "status"         : None,
+                    "headers"        : {},
+                    "elapsed_ms"     : elapsed_ms,
+                    "body_text"      : None,
+                    "body_json"      : None,
+                    "content_type"   : None,
+                    "content_length" : 0,
+                    "media"          : None
                 },
                 "error": last_err
             },
@@ -1077,21 +1325,40 @@ class Nexus(object):
         *,
         kind: typing.Literal["http", "sse", "ws", "graphql"]
     ) -> dict[str, typing.Any]:
+        """
+        批量任务执行入口。
+        """
+        if not isinstance(payload, dict):
+            return {
+                "text"        : f"kind={kind} invalid payload",
+                "attachments" : [],
+                "data": {
+                    "ok"      : False,
+                    "kind"    : kind,
+                    "payload" : payload
+                },
+                "logs": []
+            }
 
         started_ms = Nexus.ms_now()
         mission_id = f"nexus_{started_ms}"
 
-        env          = payload.get("env") if isinstance(payload.get("env"), dict) else {}
-        base_url     = str(env.get("base_url") or "")
-        base_headers = dict(env.get("headers") or {})
-        base_timeout = float(env.get("timeout", 30.0))
-
-        options   = payload.get("options") if isinstance(payload.get("options"), dict) else {}
-        fail_fast = bool(options.get("fail_fast", True))
-
+        # 1) vars -> ctx
         ctx: dict[str, typing.Any] = {}
         if isinstance(payload.get("vars"), dict):
             ctx.update(payload["vars"])
+
+        # 2) env / options 也走模板
+        env   = payload.get("env") if isinstance(payload.get("env"), dict) else {}
+        env_r = Nexus.template(env, ctx) if env else {}
+
+        base_url     = str(env_r.get("base_url") or "")
+        base_headers = dict(env_r.get("headers") or {})
+        base_timeout = float(env_r.get("timeout", 30.0))
+
+        options   = payload.get("options") if isinstance(payload.get("options"), dict) else {}
+        options_r = Nexus.template(options, ctx) if options else {}
+        fail_fast = bool(options_r.get("fail_fast", True))
 
         items = payload.get("items")
         if isinstance(items, list) and items:
@@ -1111,10 +1378,17 @@ class Nexus(object):
 
         async def mission_once(i: int, item: dict[str, typing.Any]) -> tuple[int, StepResult]:
             async with sem:
-                name  = str(item.get("name") or f"{kind}_{i+1:03d}")
+                name = str(item.get("name") or f"{kind}_{i + 1:03d}")
+
                 req   = item.get("request")
                 req   = req if isinstance(req, dict) else {}
                 req_r = Nexus.template(req, ctx)
+
+                item_extract = item.get("extract") if isinstance(item.get("extract"), dict) else None
+                item_asserts = item.get("asserts") if isinstance(item.get("asserts"), list) else None
+
+                extract_r = Nexus.template(item_extract, ctx) if item_extract else None
+                asserts_r = Nexus.template(item_asserts, ctx) if item_asserts else None
 
                 t0 = time.perf_counter()
 
@@ -1132,8 +1406,10 @@ class Nexus(object):
                         timeout=float(req_r.get("timeout", base_timeout)),
                         retries=int(req_r.get("retries", 0)),
                         follow_redirects=bool(req_r.get("follow_redirects", True)),
-                        extract=item.get("extract") if isinstance(item.get("extract"), dict) else None,
-                        asserts=item.get("asserts") if isinstance(item.get("asserts"), list) else None
+                        extract=extract_r,
+                        asserts=asserts_r,
+                        save_response=bool(req_r.get("save_response", False)),
+                        save_dir=(str(req_r.get("save_dir")) if req_r.get("save_dir") else None)
                     )
                     data = pack.get("data") or {}
                     elapsed_ms = Nexus.ms_since(t0)
@@ -1167,8 +1443,8 @@ class Nexus(object):
                         retries=int(req_r.get("retries", 0)),
                         follow_redirects=bool(req_r.get("follow_redirects", True)),
                         max_events=(None if req_r.get("max_events", None) is None else int(req_r.get("max_events"))),
-                        extract=item.get("extract") if isinstance(item.get("extract"), dict) else None,
-                        asserts=item.get("asserts") if isinstance(item.get("asserts"), list) else None
+                        extract=extract_r,
+                        asserts=asserts_r
                     )
                     data = pack.get("data") or {}
                     elapsed_ms = Nexus.ms_since(t0)
@@ -1199,8 +1475,8 @@ class Nexus(object):
                         timeout=float(req_r.get("timeout", base_timeout)),
                         retries=int(req_r.get("retries", 0)),
                         follow_redirects=bool(req_r.get("follow_redirects", True)),
-                        extract=item.get("extract") if isinstance(item.get("extract"), dict) else None,
-                        asserts=item.get("asserts") if isinstance(item.get("asserts"), list) else None
+                        extract=extract_r,
+                        asserts=asserts_r
                     )
                     data = pack.get("data") or {}
                     elapsed_ms = Nexus.ms_since(t0)
@@ -1219,7 +1495,6 @@ class Nexus(object):
                         }
                     )
 
-                # ws
                 raw_sends = req_r.get("sends")
                 if isinstance(raw_sends, list):
                     sends_v = [str(x) for x in raw_sends]
@@ -1234,8 +1509,8 @@ class Nexus(object):
                     sends=sends_v,
                     timeout=float(req_r.get("timeout", base_timeout)),
                     max_messages=int(req_r.get("max_messages", 10)),
-                    extract=item.get("extract") if isinstance(item.get("extract"), dict) else None,
-                    asserts=item.get("asserts") if isinstance(item.get("asserts"), list) else None
+                    extract=extract_r,
+                    asserts=asserts_r
                 )
                 data = pack.get("data") or {}
                 elapsed_ms = Nexus.ms_since(t0)

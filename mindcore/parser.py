@@ -67,7 +67,7 @@ class Parser(object):
         major_group.add_argument(
             "--upgrade", action="store_true",
             help=textwrap.dedent(f'''\
-                \033[1;34m^* 边界协议 *^\033[0m
+                \033[1;34m^* 奇点协议 *^\033[0m
                 -------------------------
                 - 更新/同步 MCP 服务（服务端组件），一键拉取并覆盖安装。
 
@@ -80,6 +80,16 @@ class Parser(object):
                 \033[1;34m^* 潮汐协议 *^\033[0m
                 -------------------------
                 - 启用流式下发通道，持续输出对话内容。
+
+            ''')
+        )
+
+        major_group.add_argument(
+            "--fast", nargs="?", const="", default=None,
+            help=textwrap.dedent(f'''\
+                \033[1;34m^* 边界协议 *^\033[0m
+                -------------------------
+                - 启用性能压测与指标采集通道，用于探测系统性能边界。
 
             ''')
         )
@@ -124,12 +134,13 @@ class Parser(object):
         )
 
         minor_group.add_argument(
-            "--file", type=str, default=None,
+            "--code", nargs="+", type=str, default=None,
             help=textwrap.dedent(f'''\
-                \033[1;36m^* 卷宗协议 *^\033[0m
+                \033[1;36m^* 星图协议 *^\033[0m
                 -------------------------
-                - 读取文件批量执行（.md/.txt）
-                - 可与 --chat/--fast/--plan 叠加：选择批跑协议（缺省为 plan）。
+                - 装载批量执行蓝本（.md/.txt）
+                - 支持 cfg、case、前后置、循环、规则后置等编排结构
+                - 可与 --chat/--fast/--plan 叠加：选择批跑协议
 
             ''')
         )

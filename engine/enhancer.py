@@ -33,6 +33,52 @@ class Enhancer(object):
         self.metadata  = metadata
 
     @staticmethod
+    def nexus_media_dir(
+        src_arguments: dict[str, typing.Any],
+        default_dir: str
+    ) -> dict[str, typing.Any]:
+
+        def _has_dir(x: typing.Any) -> bool:
+            return isinstance(x, str) and bool(x.strip())
+
+        payload = src_arguments.get("payload")
+        if not isinstance(payload, dict):
+            return src_arguments
+
+        root = dict(payload)
+
+        # 单请求
+        if "items" not in root:
+            if bool(root.get("save_response")) and not _has_dir(root.get("save_dir")):
+                root["save_dir"] = default_dir
+            return src_arguments | {"payload": root}
+
+        # 批请求
+        items = root.get("items")
+        if not isinstance(items, list):
+            return src_arguments
+
+        patched: list[dict[str, typing.Any]] = []
+
+        for item in items:
+            if not isinstance(item, dict):
+                patched.append(item)
+                continue
+
+            cloned = dict(item)
+            req = cloned.get("request")
+            req = dict(req) if isinstance(req, dict) else {}
+
+            if bool(req.get("save_response")) and not _has_dir(req.get("save_dir")):
+                req["save_dir"] = default_dir
+
+            cloned["request"] = req
+            patched.append(cloned)
+
+        root["items"] = patched
+        return src_arguments | {"payload": root}
+
+    @staticmethod
     def exchange(
         name: str,
         src_arguments: dict[str, typing.Any],
@@ -44,7 +90,10 @@ class Enhancer(object):
                 return src_arguments
             return src_arguments | {"output_dir": report.toolkit_path}
 
-        elif name == "file_logcat_dump":
+        elif name.startswith("nexus_http"):
+            return Enhancer.nexus_media_dir(src_arguments, report.toolkit_path)
+
+        elif name.startswith("file_logcat_dump"):
             if src_arguments.get("saved"):
                 return src_arguments
             return src_arguments | {"saved": report.log_path}

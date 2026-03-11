@@ -29,23 +29,23 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         A: nexus_http
         P:
           payload: dict  # HTTP 请求入口（支持单请求或 items 并发）
-            - env?: dict
+            - env?: dict                        # 默认请求环境；支持模板展开
               - base_url?: str
               - headers?: dict[str,str]
               - timeout?: float
 
-            - vars?: dict[str,any]              # {{k}} 模板变量
-            - options?: dict
+            - vars?: dict[str,any]              # 模板上下文；env/request/extract/asserts 均可用 {{expr}}
+            - options?: dict                    # 支持模板展开
               - fail_fast?: bool=True
 
-            - extract?: dict[str,str]           # 顶层单请求提取规则
+            - extract?: dict[str,str]           # 顶层单请求提取规则；支持模板展开
               - alias: path
-            - asserts?: list[dict]             # 顶层单请求断言规则
+            - asserts?: list[dict]              # 顶层单请求断言规则；支持模板展开
               - path: str
               - op: str
               - value?: any
 
-            - 单请求（直接顶层字段）:
+            - 单请求（直接顶层字段）:          # 支持模板展开
               - method?: str="GET"
               - url: str
               - base_url?: str                  # 覆盖 env.base_url
@@ -66,14 +66,16 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
               - timeout?: float                 # 覆盖 env.timeout
               - retries?: int=0
               - follow_redirects?: bool=True
+              - save_response?: bool=False      # 若响应为 image/* 或 video/*，是否保存响应体到本地
+              - save_dir?: str                  # 响应媒体保存根目录；未填时可由增强层注入默认目录
 
             - 批请求（并发）:
               - items?: list[dict]
                 - item.name?: str
-                - item.request: dict            # 同“单请求字段”
-                - item.extract?: dict[str,str]
+                - item.request: dict            # 同“单请求字段”；支持模板展开
+                - item.extract?: dict[str,str]  # 支持模板展开
                   - alias: path
-                - item.asserts?: list[dict]
+                - item.asserts?: list[dict]     # 支持模板展开
                   - path: str
                   - op: str
                   - value?: any
@@ -85,10 +87,19 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           - 批请求：payload.items 生效；每个 item 可独立定义 extract/asserts
           - env.base_url / env.headers / env.timeout 作为默认值，可被 request 同名字段覆盖
           - headers 为叠加：request.headers 覆盖 env.headers 同名键
+          - 模板作用范围：env / options / request / extract / asserts
+          - 模板语法：支持 {{expr}}；可引用 vars 中的上下文变量
+          - 模板边界：仅支持受限表达式；不支持函数调用、导入、推导式等危险语法
+          - 若响应 Content-Type 为 image/* 或 video/*，会识别为媒体响应
+          - save_response=true 时，媒体响应会落盘，并写入 response.media.path
+          - 可通过 response.media.kind / path / filename / mime_type / size 做提取与断言
           - 仅负责请求、提取与断言证据采集；是否通过可继续交给 suffix / 大模型总结
         """
 
-        args = {"payload": payload, "concurrency": concurrency}
+        args = {
+            "payload"     : payload,
+            "concurrency" : concurrency
+        }
 
         async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.nexus_http", args=args)
@@ -117,32 +128,32 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         A: nexus_sse
         P:
           payload: dict  # SSE 拉流入口（支持单请求或 items 并发）
-            - env?: dict
+            - env?: dict                        # 默认请求环境；支持模板展开
               - base_url?: str
               - headers?: dict[str,str]
               - timeout?: float
 
-            - vars?: dict[str,any]
-            - options?: dict
+            - vars?: dict[str,any]              # 模板上下文；env/request/extract/asserts 均可用 {{expr}}
+            - options?: dict                    # 支持模板展开
               - fail_fast?: bool=True
 
-            - extract?: dict[str,str]           # 顶层单请求提取规则
+            - extract?: dict[str,str]           # 顶层单请求提取规则；支持模板展开
               - alias: path
-            - asserts?: list[dict]             # 顶层单请求断言规则
+            - asserts?: list[dict]              # 顶层单请求断言规则；支持模板展开
               - path: str
               - op: str
               - value?: any
 
-            - 单请求（直接顶层字段）:
+            - 单请求（直接顶层字段）:          # 支持模板展开
               - method?: str="GET"
               - url: str
-              - base_url?: str                  # 覆盖 env.base_url
-              - headers?: dict[str,str]         # 叠加 env.headers
+              - base_url?: str
+              - headers?: dict[str,str]
               - params?: dict[str,any]
               - json?: dict[str,any]
-              - json_body?: dict[str,any]       # alias
+              - json_body?: dict[str,any]
               - body?: str
-              - body_text?: str                 # alias
+              - body_text?: str
               - form?: dict[str,any]
               - files?: list[dict]
                 - field?: str="file"
@@ -151,7 +162,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
                 - content_type?: str
                 - text?: str
                 - bytes?: bytes|str
-              - timeout?: float                 # 覆盖 env.timeout
+              - timeout?: float
               - retries?: int=0
               - follow_redirects?: bool=True
               - max_events: int?=None
@@ -159,10 +170,10 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             - 批请求（并发）:
               - items?: list[dict]
                 - item.name?: str
-                - item.request: dict            # 同“单请求字段”
-                - item.extract?: dict[str,str]
+                - item.request: dict            # 同“单请求字段”；支持模板展开
+                - item.extract?: dict[str,str]  # 支持模板展开
                   - alias: path
-                - item.asserts?: list[dict]
+                - item.asserts?: list[dict]     # 支持模板展开
                   - path: str
                   - op: str
                   - value?: any
@@ -174,11 +185,17 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           - 批请求：payload.items 生效；每个 item 可独立定义 extract/asserts
           - env.base_url / env.headers / env.timeout 作为默认值，可被 request 同名字段覆盖
           - headers 为叠加：request.headers 覆盖 env.headers 同名键
+          - 模板作用范围：env / options / request / extract / asserts
+          - 模板语法：支持 {{expr}}；可引用 vars 中的上下文变量
+          - 模板边界：仅支持受限表达式；不支持函数调用、导入、推导式等危险语法
           - 达到 max_events 后会提前返回；否则在流结束后返回已采集 events
           - 仅负责 SSE 请求、事件采集、提取与断言证据整理
         """
 
-        args = {"payload": payload, "concurrency": concurrency}
+        args = {
+            "payload"     : payload,
+            "concurrency" : concurrency
+        }
 
         async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.nexus_sse", args=args)
@@ -207,35 +224,35 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         A: nexus_ws
         P:
           payload: dict  # WebSocket 入口（支持单请求或 items 并发）
-            - env?: dict
+            - env?: dict                        # 默认请求环境；支持模板展开
               - headers?: dict[str,str]
               - timeout?: float
 
-            - vars?: dict[str,any]
-            - options?: dict
+            - vars?: dict[str,any]              # 模板上下文；env/request/extract/asserts 均可用 {{expr}}
+            - options?: dict                    # 支持模板展开
               - fail_fast?: bool=True
 
-            - extract?: dict[str,str]           # 顶层单请求提取规则
+            - extract?: dict[str,str]           # 顶层单请求提取规则；支持模板展开
               - alias: path
-            - asserts?: list[dict]             # 顶层单请求断言规则
+            - asserts?: list[dict]              # 顶层单请求断言规则；支持模板展开
               - path: str
               - op: str
               - value?: any
 
-            - 单请求（直接顶层字段）:
+            - 单请求（直接顶层字段）:          # 支持模板展开
               - url: str                        # ws:// 或 wss://
               - headers?: dict[str,str]         # 叠加 env.headers
               - sends?: list[str]
-              - timeout?: float                 # 覆盖 env.timeout
+              - timeout?: float
               - max_messages?: int=10
 
             - 批请求（并发）:
               - items?: list[dict]
                 - item.name?: str
-                - item.request: dict            # 同“单请求字段”
-                - item.extract?: dict[str,str]
+                - item.request: dict            # 同“单请求字段”；支持模板展开
+                - item.extract?: dict[str,str]  # 支持模板展开
                   - alias: path
-                - item.asserts?: list[dict]
+                - item.asserts?: list[dict]     # 支持模板展开
                   - path: str
                   - op: str
                   - value?: any
@@ -247,12 +264,18 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           - 批请求：payload.items 生效；每个 item 可独立定义 extract/asserts
           - env.headers / env.timeout 作为默认值，可被 request 同名字段覆盖
           - headers 为叠加：request.headers 覆盖 env.headers 同名键
+          - 模板作用范围：env / options / request / extract / asserts
+          - 模板语法：支持 {{expr}}；可引用 vars 中的上下文变量
+          - 模板边界：仅支持受限表达式；不支持函数调用、导入、推导式等危险语法
           - 收到 ConnectionClosedOK 时会提前停止收消息
           - 最多采集 max_messages 条消息
           - 仅负责 WS 消息采集、提取与断言证据整理
         """
 
-        args = {"payload": payload, "concurrency": concurrency}
+        args = {
+            "payload"     : payload,
+            "concurrency" : concurrency
+        }
 
         async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.nexus_ws", args=args)
@@ -281,23 +304,23 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         A: nexus_graphql
         P:
           payload: dict  # GraphQL 入口（支持单请求或 items 并发）
-            - env?: dict
+            - env?: dict                        # 默认请求环境；支持模板展开
               - base_url?: str
               - headers?: dict[str,str]
               - timeout?: float
 
-            - vars?: dict[str,any]
-            - options?: dict
+            - vars?: dict[str,any]              # 模板上下文；env/request/extract/asserts 均可用 {{expr}}
+            - options?: dict                    # 支持模板展开
               - fail_fast?: bool=True
 
-            - extract?: dict[str,str]           # 顶层单请求提取规则
+            - extract?: dict[str,str]           # 顶层单请求提取规则；支持模板展开
               - alias: path
-            - asserts?: list[dict]             # 顶层单请求断言规则
+            - asserts?: list[dict]              # 顶层单请求断言规则；支持模板展开
               - path: str
               - op: str
               - value?: any
 
-            - 单请求（直接顶层字段）:
+            - 单请求（直接顶层字段）:          # 支持模板展开
               - url: str
               - query: str
               - variables?: dict[str,any]
@@ -313,10 +336,10 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             - 批请求（并发）:
               - items?: list[dict]
                 - item.name?: str
-                - item.request: dict            # 同“单请求字段”
-                - item.extract?: dict[str,str]
+                - item.request: dict            # 同“单请求字段”；支持模板展开
+                - item.extract?: dict[str,str]  # 支持模板展开
                   - alias: path
-                - item.asserts?: list[dict]
+                - item.asserts?: list[dict]     # 支持模板展开
                   - path: str
                   - op: str
                   - value?: any
@@ -328,6 +351,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           - 批请求：payload.items 生效；每个 item 可独立定义 extract/asserts
           - env.base_url / env.headers / env.timeout 作为默认值，可被 request 同名字段覆盖
           - headers 为叠加：request.headers 覆盖 env.headers 同名键
+          - 模板作用范围：env / options / request / extract / asserts
+          - 模板语法：支持 {{expr}}；可引用 vars 中的上下文变量
+          - 模板边界：仅支持受限表达式；不支持函数调用、导入、推导式等危险语法
           - 底层复用 HTTP POST JSON 请求
           - 若 response.body_json.errors 非空，则额外判定 ok=False
           - 仅负责请求、提取与断言证据采集

@@ -10,23 +10,30 @@
 
 ---
 
-- **[Top 10 核心能力](#-top-10-核心能力-top-10)**
 - **[快速开始](#-快速开始-quick-start)**
+- **[Top10 核心能力](#-top10-核心能力-top-10)**
 - **[命令行参数](#-命令行参数-cli-arguments)**
 - **[自研性能工具接口层](#-自研性能工具接口层-in-house-performance-tooling)**
   - **[Framix - 画帧秀](#framix--画帧秀--framix-interface-)**
   - **[Memrix - 记忆星核](#memrix--记忆星核--memrix-interface-)**
 - **[性能实战教学](#-性能实战教学-performance-playbook)**
-  - **[E2E 耗时、ASR 首字上屏、VAD 尾字上屏、流式 tokens/s](#e2e-耗时asr-首字上屏vad-尾字上屏流式-tokenss)**
+  - **[E2E、ASR、VAD、Tokens/s](#e2e-耗时asr-首字上屏vad-尾字上屏流式-tokenss)**
   - **[Android 内存基线](#android-内存基线)**
   - **[Android 内存泄漏](#android-内存泄漏)**
   - **[Android 流畅度](#android-流畅度)**
   - **[Android Monkey](#android-monkey)**
 - **[接口实战教学](#-接口实战教学-api-playbook)**
-  - **[Http](#http-接口实战)**
+  - **[HTTP](#http-接口实战)**
   - **[SSE](#sse-接口实战)**
-  - **[WS](#websocket-接口实战)**
+  - **[Websocket](#websocket-接口实战)**
   - **[GraphQL](#graphql-接口实战)**
+  - **[高阶：并发健康检查（HTTP fan-out）](#高阶并发健康检查http-fan-out)**
+  - **[高阶：分页轻爬虫（HTTP list crawler）](#高阶分页轻爬虫http-list-crawler)**
+  - **[高阶：上下文注入（vars + 模板变量）](#高阶上下文注入vars--模板变量)**
+  - **[高阶：SSE 多路订阅采样（并发事件流）](#高阶sse-多路订阅采样并发事件流)**
+  - **[高阶：GraphQL 多 query 批采样](#高阶graphql-多-query-批采样)**
+  - **[高阶：图片 / 视频响应提取与媒体落盘（爬虫）](#高阶图片--视频响应提取与媒体落盘爬虫)**
+- **[多媒体链路实战教学](#-多媒体链路实战教学-media-playbook)**
 - **[构建发布](#-构建发布-build--release)**
 
 ---
@@ -191,8 +198,9 @@ Mind 的核心路线是：**端侧确定性执行 + 云端智能增强**。
 
 默认接口（示例）：
 - MCP：`/helix/mcp`
-- Health：`/healthz`
+- Healthz：`/healthz`
 - Ready：`/ready`
+- Version：`/version`
 - Idle：`/idle`
 
 生命周期（示例约定）：
@@ -348,7 +356,74 @@ GPU 定位于“稳定在线推理”的甜点区间：
 
 ---
 
-## ⭐️ Top 10 核心能力 (Top 10)
+## ⭐️ 快速开始 (Quick Start)
+
+Mind 有两种运行方式：
+
+- **命令行模式**：每条命令执行一次任务，适合脚本/CI
+- **交互式模式**：进入循环交互，可在 chat/fast/plan 间随时切换，适合探索与调试
+
+### 1) 命令行运行 (One-shot)
+```
+# 对话模式：快速获取系统能力概览
+mind --chat "请用工程视角概述当前系统的核心能力、边界与典型使用场景"
+
+# FAST 模式：对输入视频执行轻量媒体处理
+mind --fast "对 path/to/video.mp4 进行关键帧抽取，并返回可用证据"
+
+# PLAN 模式：生成并执行一条最短可落地的动作链路
+mind --plan "打开系统设置，稳定等待 2 秒后返回桌面"
+
+# HTTP：执行一组 REST 接口用例（可含 extract / asserts）
+mind --chat --code http.md
+
+# SSE：采样事件流并保留结构化证据
+mind --chat --code sse.md
+
+# WebSocket：建立连接、发送消息并回收消息证据
+mind --chat --code ws.md
+
+# GraphQL：执行 query / mutation 并校验响应结构
+mind --chat --code graphql.md
+
+# 接口并发：按批量清单并发执行请求任务
+mind --chat --code concurrent.md
+
+# 多卷并行编排入口：一次装载多份执行蓝本
+mind --chat --code http.md sse.md graphql.md
+```
+
+### 2) 交互式运行 (REPL)
+启动 REPL：
+```
+mind
+```
+
+进入 REPL 后，可随时切换执行模式：
+```
+/chat
+概述当前系统的核心能力、约束边界与推荐用法
+
+/fast
+对 path/to/video.mp4 做关键帧抽取，并输出可回链证据
+
+/plan
+进入设置页，短暂停留后返回桌面
+```
+
+常用指令：
+
+- /help：查看指令索引
+- /chat：切换到对话模式
+- /fast：切换到性能模式
+- /plan：切换到编排模式
+- /quit：退出
+
+REPL 是“持续读取输入”的交互壳；真正的执行语义由 chat/fast/plan 三种模式决定。
+
+---
+
+## ⭐️ Top10 核心能力 (Top 10)
 
 ### 1. 智能元素自愈
 结合页面结构、OCR、视觉检测、向量召回、重排与 LLM 决策，自动修复失效定位器，让自动化在 UI 变化后仍可继续推进。
@@ -380,137 +455,66 @@ GPU 定位于“稳定在线推理”的甜点区间：
 ### 10. 宏编排声明层
 以声明式循环与步骤定义承载执行语义，将“怎么跑”与“跑什么”解耦，为计划执行与批量运行提供统一协议层。
 
---- ()
-
-## ⭐️ 快速开始 (Quick Start)
-
-Mind 有两种运行方式：
-
-- **命令行模式**：每条命令执行一次任务，适合脚本/CI
-- **交互式模式**：进入循环交互，可在 chat/fast/plan 间随时切换，适合探索与调试
-
-### 1) 命令行运行 (One-shot)
-```
-# 对话
-mind --chat "你好，介绍一下系统能力"
-
-# 性能
-mind --fast "开始录屏，打开App，等待3秒，返回桌面，结束录屏，执行2次，分析阶段帧并生成报告"
-
-# 编排
-mind --plan "打开设置，等待 2 秒，然后截图看看有什么"
-
-# HTTP 接口
-mind --chat --file http.md
-
-# SSE 事件流采样
-mind --chat --file sse.md
-
-# WebSocket 连接与收发
-mind --chat --file ws.md
-```
-
-### 2) 交互式运行 (REPL)
-启动 REPL：
-```
-mind
-```
-
-在 REPL 里切换模式并执行目标：
-```
-/chat
-你好，介绍一下系统能力
-
-/fast
-开始录屏，打开App，等待3秒，返回桌面，结束录屏，执行2次，分析阶段帧并生成报告
-
-/plan
-打开设置，等待 2 秒，然后截图
-```
-
-常用指令：
-
-- /help：查看指令索引
-- /chat：切换到对话模式
-- /fast：切换到性能模式
-- /plan：切换到编排模式
-- /quit：退出
-
-REPL 是“持续读取输入”的交互壳；真正的执行语义由 chat/fast/plan 三种模式决定。
-
 ---
 
 ## ⭐️ 命令行运行 (CLI Modes)
+**Mind** 提供三种互斥运行模式：
 
-Mind 提供三种互斥运行模式：
-
-| 模式       | 说明   |
-|----------|------|
-| `--chat` | 对话模式 |
-| `--fast` | 性能模式 |
-| `--plan` | 编排模式 |
+| 模式       | 说明     |
+|----------|--------|
+| `--chat` | 对话驱动模式 |
+| `--fast` | 高速执行模式 |
+| `--plan` | 编排执行模式 |
 
 ### 对话模式（chat）
-
 ```
-mind --chat "你好，介绍一下系统能力"
+mind --chat "请从工程视角概述系统能力"
 ```
 
-定位：流式对话驱动模式。
+**定位：流式对话驱动模式。**
 
-特征：
-
+**特征：**
 - token-by-token 流式输出
 - 多轮上下文保持
 - 动态工具触发
+- 适合自然语言探索、接口验证、轻量任务闭环
 
-### 性能模式（fast）
 
+### 高速模式（fast）
 ```
-mind --fast "开始录屏，打开App，等待3秒，返回桌面，结束录屏，执行5次"
+mind --fast "对 path/to/video.mp4 提取关键帧并返回证据"
 ```
 
-定位：纯性能执行模式。
+**定位：高速执行模式。**
 
-特征：
-
-- 不调用 automator 域能力
-- 仅使用自研性能工具体系
+**特征：**
+- 不进入设备 / UI 交互链路
 - 偏向高吞吐与低延迟执行路径
+- 聚焦接口请求、事件流采样、媒体处理、Framix / FFmpeg 链路
+- 强调最短路径、最少步骤、最快闭环
 
-性能模式包含：
-
-- 自研性能工具接口层
-- 指标采样
-- 资源监控
-- 压测链路
-- 稳定性探测
-
-适用于：
-
-- 性能压测
-- 长时间运行测试
-- 资源消耗对比
-- 指标基准评估
+**适用于：**
+- 接口请求与响应验证
+- SSE / WebSocket / GraphQL 等流式链路
+- 音视频裁剪、抽帧、转码、拼接、音轨处理
+- Framix 视觉证据链分析
+- 轻量循环执行与批量采样
 
 ### 编排模式（plan）
-
 ```
-mind --plan "打开App，等待3秒，返回桌面"
+mind --plan "打开系统设置，等待 2 秒后返回桌面"
 ```
 
-定位：确定性自动化编排模式。
+**定位：确定性自动化编排模式。**
 
-特征：
-
+**特征：**
 - 输出结构化行动序列
 - 强工具链路组织
 - 可复现执行路径
 - 强调步骤拆解与顺序控制
 - 单向执行链路
 
-执行抽象：
-
+**执行抽象：**
 ```
 意图识别
    ↓
@@ -521,133 +525,11 @@ mind --plan "打开App，等待3秒，返回桌面"
 顺序执行
 ```
 
-适用于：
-
+**适用于：**
 - 自动化巡检
 - 批量流程执行
 - 设备操作链路
 - 可复现工作流
-
----
-
-## ⭐️ 交互式运行 (Interactive Mode)
-
-除了 `mind --chat | --fast | --plan` 的一次性命令模式外，Mind 还支持 **循环交互模式**（REPL）。  
-该模式下会持续读取用户输入，并在 **CHAT / FAST / PLAN** 三种互斥状态之间切换执行。
-
-### 启动与提示
-
-`mind` 进入循环后，终端会显示当前模式与正在使用的 `<model>`：
-
-- 顶部 banner 会随模式变化：Chat / Fast / Plan
-- 每轮输入提示：`ready 输入目标或 /help`
-
-> `mind_loop()` 会为一次会话生成 `cid/sid` 并贯穿本轮交互，用于链路追踪与调用元数据。
-
-### 指令索引
-
-在任意模式下输入 `/help` 可查看指令索引：
-
-- `/help, /h`：指令索引（用法/示例/约定）
-- `/license, /lic`：授权许可（License/特性）
-- `/subscription, /sub`：订阅信息（授权状态/到期）
-- `/quit, /q, quit, exit`：安全退出（断开会话）
-- `/model <name>`：引擎切换（选择推理内核）
-- `/apikey <key>`：凭证更新（替换访问密钥 / Token）
-- `/again N <goal>`：复现回放（目标 × N 次）**仅在 PLAN 模式生效**
-- `/chat`：切换到对话模式（CHAT）
-- `/fast`：切换到性能模式（FAST）
-- `/plan`：切换到编排模式（PLAN）
-
-### 三种互斥运行状态（交互态）
-
-循环模式内部有一个状态机：`CHAT` / `FAST` / `PLAN`，同一时刻只会处于其中一个状态。
-
-| 状态   | 说明           | 选择指令    |
-|------|--------------|---------|
-| CHAT | 对话驱动（流式，多轮）  | `/chat` |
-| FAST | 性能执行（性能路径）   | `/fast` |
-| PLAN | 编排执行（确定性步骤链） | `/plan` |
-
-切换时会输出类似：
-
-- `Exchange → Chat`
-- `Exchange → Fast`
-- `Exchange → Plan`
-
-### `/again` 循环复现（仅 PLAN）
-
-`/again` 只在 **PLAN** 状态下生效，用于把一个目标重复执行 N 次（用于复现、回放、稳定性验证）：
-
-```
-/plan
-/again 5 打开App，等待3秒，返回桌面
-```
-
-行为语义：
-
-- 仅当 **tag == PLAN** 且命中 `/again N <goal>` 时生效
-- 实际发送给执行器的 message 会被改写为：`<goal>，循环 N 次`
-- 如果不在 PLAN 状态输入 `/again ...`，会被当作普通文本目标处理（不会进入循环语义）
-
-### `/model` 引擎切换（带候选提示）
-/model gpt-4o-mini
-
-当输入无效或缺失时，会打印候选列表（示例）：
-
-- `llama-3.3-70b-versatile`
-- `openai/gpt-oss-120b`
-- `gpt-4o-mini`
-- `deepseek-chat`
-
-并输出形如：`model invalid: /model <...>` 的错误提示。
-
-> 切换成功后，本轮循环后续调用均使用新的 `model`。
-
-### `/apikey` 凭证更新（带格式提示）
-当输入无效或缺失时，会打印可接受的格式提示（示例）：
-
-- `sk-...   (API Key)`
-- `gsk_...  (API Key)`
-- `ds-...   (API Key)`
-- `<token>  (Pure token)`
-
-并输出形如：`apikey invalid: /apikey <...>` 的错误提示。
-
-> 切换成功后，本轮循环后续调用均使用新的 `apikey`。
-
-### `/license` 与 `/subscription`
-
-- `/license`（或 `/lic`）：展示授权许可信息页（License/特性）
-- `/subscription`（或 `/sub`）：读取本地 License 文件并执行校验流程（授权状态 / 到期信息）
-
-> `/subscription` 会调用本地授权验证（例如 `authorize.verify_license(<lic_file>)`），适合快速确认当前机器的授权是否有效。
-
-### 退出
-
-任意时刻输入以下任一指令即可安全退出循环：
-```
-/quit
-/q
-quit
-exit
-```
-
----
-
-## ⭐️ 输入约束 (Input Constraint: Single Line Only)
-
-Mind 当前在以下所有入口都以 **单行提交** 作为基本输入单位：
-
-- `--chat`（对话模式）
-- `--fast`（性能模式）
-- `--plan`（编排模式）
-- 循环交互模式（REPL / mind）
-
-### 约束说明
-
-- **多行输入（含粘贴多行）目前不支持**：终端会将多行拆分为多次提交，导致输入的 **边界 / 顺序 / 归属** 无法保证。
-- 因此，Mind 不保证多行文本在 `chat / fast / plan / mind` 中作为一个“原子输入”被处理。
 
 ---
 
@@ -657,7 +539,7 @@ Mind 的参数分两类：**互斥参数** 与 **兼容参数**。
 - **互斥参数（Mutually Exclusive）**：一条命令里只能选 **一个**；用于确定“主运行协议/主入口”。  
   典型：`--chat | --fast | --plan`，以及 `--pref | --upgrade` 这类“单一动作入口”。  
 - **兼容参数（Composable / Compatible）**：一条命令里可以叠加 **多个**；用于增强“归档、观测、批跑策略”等运行属性。  
-  典型：`--gravity`、`--reflection`、`--file` 等。
+  典型：`--gravity`、`--reflection`、`--code` 等。
 
 > 心智模型：**互斥参数选“你要跑什么主模式”**；**兼容参数加“你要怎么跑、怎么记、怎么查”**。
 
@@ -696,8 +578,8 @@ mind --upgrade
 # 将本次执行的日志/报告归档到同一 gravity 命名空间
 mind --plan "打开设置，等待2秒，然后截图" --gravity TEST_202602
 
-# 性能批次归档（同标签可聚合多轮压测产物）
-mind --fast "开始录屏...结束录屏，执行5次" --gravity Perfermance_Baseline_v1
+# 高速链路归档（同标签可聚合多轮接口 / 媒体 / 分析产物）
+mind --fast "对 path/to/video.mp4 抽帧并返回证据" --gravity Perf_Baseline_v1
 ```
 
 ### `--reflection`：反射协议（参数兼容）
@@ -710,21 +592,20 @@ mind --fast "开始录屏...结束录屏，执行5次" --gravity Perfermance_Bas
 # 开启详细运行轨迹输出（建议与 plan 联用）
 mind --plan "打开App，等待3秒，返回桌面" --reflection
 
-# 性能模式下查看采样/链路细节（用于异常定位）
-mind --fast "开始录屏...结束录屏，执行5次" --gravity Perf_v3 --reflection
+# 高速模式下查看链路细节（用于异常定位）
+mind --fast "对 /graphql 端点执行查询并校验响应结构" --gravity Perf_v3 --reflection
 ```
 
 建议：--reflection 会增加输出量，默认关闭；仅在需要追踪决策与链路细节时开启。
 
-### `--file <path>`：卷宗协议（参数兼容）
-从文件中读取多条自然语言用例，并按选定协议批量执行：
-- 支持 `.md/.txt`
-- 可与 `--chat/--fast/--plan` 组合：指定批跑使用的主序协议
-- 若仅传 `--file` 未指定协议，默认按 `--plan` 批跑
+### `--code <path...>`：星图协议（参数兼容）
+用于装载一个或多个批量执行蓝本，并按选定协议执行。
+- 支持 `.md / .txt`
+- 可与 `--chat / --fast / --plan` 组合：指定批跑使用的主序协议
+- 一次可装载多份蓝本：`--code a.md b.md c.md`
 
 文件格式：
-`--file` 采用“自然语言块”作为用例单元：每个用例是一段文本，按 `---` 分隔。
-
+`--code` 采用“自然语言块”作为用例单元：每个用例是一段文本，按 `---` 分隔。
 - **分隔符**：单独一行 `---`（去掉空白后等于 `---`）用于分隔用例块
 - **元信息（可选）**：每个用例块顶部可写多行 `# key: value`
   - 常用：`# name: xxx`（用于 `--pattern` 正则筛选）
@@ -734,14 +615,17 @@ mind --fast "开始录屏...结束录屏，执行5次" --gravity Perf_v3 --refle
 
 #### 示例：
 ```
-指定用 chat 协议批跑
-mind --chat --file pack.md
+# 指定用 chat 协议装载一份星图
+mind --chat --code http.md
 
-指定用 fast 协议批跑（可叠加 gravity / reflection）
-mind --fast --file pack.md --gravity Perf_v1 --reflection
+# 指定用 fast 协议执行接口 / 媒体类星图
+mind --fast --code media.md concurrent.md
 
-指定用 plan 协议批跑
-mind --plan --file pack.md
+# 指定用 plan 协议执行编排型星图
+mind --plan --code workflow.md
+
+# 一次装载多份星图
+mind --chat --code http.md sse.md ws.md graphql.md
 ```
 
 #### 文件样例：
@@ -770,8 +654,7 @@ mind --plan --file pack.md
 ---
 ```
 
-#### 进阶：三层前后置 + 全局规则
-
+### `--code <path...>`：进阶：三层前后置 + 全局规则
 支持在批跑文件顶部通过 `cfg` 配置块声明批次级、轮次级的前后置逻辑，以及全局规则说明，用于统一组织每轮执行、每条任务执行前后的附加说明与判定要求。
 
 #### 配置键
@@ -808,10 +691,7 @@ mind --plan --file pack.md
   - `# rule:`
 
 #### 前后置层级说明
-
-##### 1. `loop_prefix` / `loop_suffix`
 整个批跑的前置与后置。
-
 - `loop_prefix`：在整批任务开始前执行一次
 - `loop_suffix`：在整批任务结束后执行一次
 
@@ -821,15 +701,11 @@ mind --plan --file pack.md
 - 批跑开始说明
 - 批跑结束总结
 
-##### 2. `round_prefix` / `round_suffix`
 每一轮执行的前置与后置。
-
 - `round_prefix`：每轮开始前执行一次
 - `round_suffix`：每轮结束后执行一次
 
-##### 3. `global_prefix` / `global_suffix`
 每条任务默认的前置与后置。
-
 - `global_prefix`：每条任务执行前默认追加
 - `global_suffix`：每条任务执行后默认追加
 
@@ -838,9 +714,7 @@ mind --plan --file pack.md
 - 每条通用收尾动作
 - 所有任务共享的默认补充说明
 
-##### 4. `prefix` / `suffix`
 单条任务级前置与后置，写在任务 meta 中。
-
 - `prefix`：当前任务专属前置
 - `suffix`：当前任务专属后置
 
@@ -1022,6 +896,106 @@ payload = {
 
 ---
 
+## ⭐️ 交互式运行 (Interactive Mode)
+除了 `mind --chat | --fast | --plan` 的一次性命令模式外，Mind 还支持 **循环交互模式**（REPL）。  
+该模式下会持续读取用户输入，并在 **CHAT / FAST / PLAN** 三种互斥状态之间切换执行。
+
+### 启动与提示
+`mind` 进入循环后，终端会显示当前模式与正在使用的 `<model>`：
+
+- 顶部 banner 会随模式变化：Chat / Fast / Plan
+- 每轮输入提示：`ready 输入目标或 /help`
+
+> `mind_loop()` 会为一次会话生成 `cid/sid` 并贯穿本轮交互，用于链路追踪与调用元数据。
+
+### 指令索引
+在任意模式下输入 `/help` 可查看指令索引：
+- `/help, /h`：指令索引（用法/示例/约定）
+- `/license, /lic`：授权许可（License/特性）
+- `/subscription, /sub`：订阅信息（授权状态/到期）
+- `/quit, /q, quit, exit`：安全退出（断开会话）
+- `/model <name>`：引擎切换（选择推理内核）
+- `/apikey <key>`：凭证更新（替换访问密钥 / Token）
+- `/again N <goal>`：复现回放（目标 × N 次）**仅在 PLAN 模式生效**
+- `/chat`：切换到对话模式（CHAT）
+- `/fast`：切换到高速模式（FAST）
+- `/plan`：切换到编排模式（PLAN）
+
+### 三种互斥运行状态（交互态）
+循环模式内部有一个状态机：`CHAT` / `FAST` / `PLAN`，同一时刻只会处于其中一个状态。
+
+| 状态   | 说明                 | 选择指令    |
+|------|--------------------|---------|
+| CHAT | 对话驱动（流式，多轮）        | `/chat` |
+| FAST | 高速执行（接口 / 媒体 / 分析） | `/fast` |
+| PLAN | 编排执行（确定性步骤链）       | `/plan` |
+
+切换时会输出类似：
+- `Exchange → Chat`
+- `Exchange → Fast`
+- `Exchange → Plan`
+
+### `/again` 循环复现
+`/again` 用于把一个目标重复执行 N 次（用于复现、回放、稳定性验证）：
+
+```
+/plan
+/again 5 打开App，等待3秒，返回桌面
+```
+
+行为语义：
+- 仅当 **tag == PLAN** 且命中 `/again N <goal>` 时生效
+- 实际发送给执行器的 message 会被改写为：`<goal>，循环 N 次`
+- 如果不在 PLAN 状态输入 `/again ...`，会被当作普通文本目标处理（不会进入循环语义）
+
+### `/model` 引擎切换（带候选提示）
+/model gpt-4o-mini
+
+当输入无效或缺失时，会打印候选列表（示例）：
+- `llama-3.3-70b-versatile`
+- `openai/gpt-oss-120b`
+- `gpt-4o-mini`
+- `deepseek-chat`
+
+并输出形如：`model invalid: /model <...>` 的错误提示。
+> 切换成功后，本轮循环后续调用均使用新的 `model`。
+
+### `/apikey` 凭证更新（带格式提示）
+当输入无效或缺失时，会打印可接受的格式提示（示例）：
+- `sk-...   (API Key)`
+- `gsk_...  (API Key)`
+- `ds-...   (API Key)`
+- `<token>  (Pure token)`
+
+并输出形如：`apikey invalid: /apikey <...>` 的错误提示。
+
+> 切换成功后，本轮循环后续调用均使用新的 `apikey`。
+
+### `/license` 与 `/subscription`
+- `/license`（或 `/lic`）：展示授权许可信息页（License/特性）
+- `/subscription`（或 `/sub`）：读取本地 License 文件并执行校验流程（授权状态 / 到期信息）
+
+> `/subscription` 会调用本地授权验证（例如 `authorize.verify_license(<lic_file>)`），适合快速确认当前机器的授权是否有效。
+
+### 退出
+
+任意时刻输入以下任一指令即可安全退出循环：
+```
+/quit
+/q
+quit
+exit
+```
+
+---
+
+### 输入约束
+Mind 在循环交互模式下所有入口都以 **单行提交** 作为基本输入单位：
+- **多行输入（含粘贴多行）目前不支持**：终端会将多行拆分为多次提交，导致输入的 **边界 / 顺序 / 归属** 无法保证。
+- 因此，Mind 不保证多行文本在循环交互模式中作为一个“原子输入”被处理。
+
+---
+
 ## ⭐️ 自研性能工具接口层 (In-house Performance Tooling)
 **Mind** 的性能体系不是“跑一堆指标然后祈祷”，而是把 **采集 → 对齐 → 归因 → 回归** 做成工程闭环。  
 这一层的定位是：**把端侧真实世界的性能信号，变成可对比、可复盘、可运营的标准产物**。
@@ -1089,7 +1063,7 @@ global_suffix: |
 
 运行命令
 ```
-mind --plan --file example.md
+mind --plan --code example.md
 ```
 
 ### Android 内存基线
@@ -1114,7 +1088,7 @@ round_suffix: |
 
 运行命令
 ```
-mind --plan --file example.md
+mind --plan --code example.md
 ```
 
 ### Android 内存泄漏
@@ -1137,7 +1111,7 @@ round_suffix: |
 
 运行命令
 ```
-mind --plan --file example.md
+mind --plan --code example.md
 ```
 
 ### Android 流畅度
@@ -1160,7 +1134,7 @@ round_suffix: |
 
 运行命令
 ```
-mind --plan --file example.md
+mind --plan --code example.md
 ```
 
 ### Android Monkey
@@ -1186,7 +1160,7 @@ mind --chat "com.example.app に対して Monkey ランダムイベント注入�
 ### Http 接口实战
 运行命令
 ```
-mind --chat --file http.md
+mind --chat --code http.md
 ```
 
 Http 文件上传 + 提取 + 断言
@@ -1310,7 +1284,7 @@ Mind :: 2026-03-10 21:48:22.446 | DEBUG    | Chat done ...
 ### SSE 接口实战
 运行命令
 ```
-mind --chat --file sse.md
+mind --chat --code sse.md
 ```
 
 SSE 正常流提取与断言
@@ -1570,7 +1544,7 @@ Mind :: 2026-03-10 22:00:07.130 | DEBUG    | Chat done ...
 ### Websocket 接口实战
 运行命令
 ```
-mind --chat --file ws.md
+mind --chat --code ws.md
 ```
 
 Websocket 正常消息提取与断言
@@ -1784,7 +1758,7 @@ Mind :: 2026-03-10 22:08:31.024 | DEBUG    | Chat done ...
 ### GraphQL 接口实战
 运行命令
 ```
-mind --chat --file graphql.md
+mind --chat --code graphql.md
 ```
 
 GraphQL 成功请求
@@ -1934,7 +1908,1079 @@ GraphQL errors 判定验证成功，所有规则条件均满足。这验证了 n
 Mind :: 2026-03-10 22:15:35.250 | DEBUG    | Chat done ...
 ``````
 
-### API Mocks
+### 高阶：并发健康检查（HTTP fan-out）
+适用于：
+- 网关 / 服务集群健康检查
+- 多节点快速探活
+- 同构接口并发采样
+
+高阶蓝本：并发健康检查
+``````
+```cfg
+repeat: 1
+stop_on_fail: false
+
+loop_suffix: |
+  [AdvancedAPI] 全部蓝本执行完成：
+  - 检查 summary.total / pass / fail
+  - 若存在失败项，优先查看首个失败 step 的 response / extract / asserts
+
+global_rule: <<<
+【统一验收规则】
+- 每条任务都应返回结构化证据
+- 若存在 extract，则提取字段必须可核验
+- 若存在 asserts，则断言结果必须与预期一致
+- 并发任务优先关注 summary.fail 与各 step.ok
+- 若为流式接口，至少要确认 response.events / response.messages 非空
+- 若为 GraphQL，除 HTTP 200 外，还要关注 graphql.errors 是否为空
+>>>
+```
+
+# name: http_fanout_health
+对多个健康检查接口做并发采样，快速确认整体服务状态。
+
+payload = {
+    "env": {
+        "timeout": 5.0
+    },
+    "options": {
+        "fail_fast": false
+    },
+    "items": [
+        {
+            "name": "svc_auth",
+            "request": {
+                "method": "GET",
+                "url": "http://127.0.0.1:8000/health/auth"
+            },
+            "extract": {
+                "svc": "response.body_json.service",
+                "ok": "response.body_json.ok"
+            },
+            "asserts": [
+                {"path": "response.status", "op": "eq", "value": 200},
+                {"path": "response.body_json.ok", "op": "eq", "value": true}
+            ]
+        },
+        {
+            "name": "svc_user",
+            "request": {
+                "method": "GET",
+                "url": "http://127.0.0.1:8000/health/user"
+            },
+            "extract": {
+                "svc": "response.body_json.service",
+                "ok": "response.body_json.ok"
+            },
+            "asserts": [
+                {"path": "response.status", "op": "eq", "value": 200},
+                {"path": "response.body_json.ok", "op": "eq", "value": true}
+            ]
+        },
+        {
+            "name": "svc_order",
+            "request": {
+                "method": "GET",
+                "url": "http://127.0.0.1:8000/health/order"
+            },
+            "extract": {
+                "svc": "response.body_json.service",
+                "ok": "response.body_json.ok"
+            },
+            "asserts": [
+                {"path": "response.status", "op": "eq", "value": 200},
+                {"path": "response.body_json.ok", "op": "eq", "value": true}
+            ]
+        }
+    ]
+}
+
+concurrency = 3
+
+# rule: <<<
+# PASS 条件：
+# - kind == "http"
+# - summary.total == 3
+# - summary.fail == 0
+# - 所有 step.ok == true
+# - 每个 step.detail.response.status == 200
+# - 每个 step.detail.extract.ok == true 或 detail.extract.svc/detail.extract.ok 可取到
+# >>>
+---
+``````
+
+高阶蓝本结果：并发健康检查
+``````
+Mind :: 2026-03-12 02:35:08.784 | DEBUG    | Chat Streaming
+我将对三个健康检查接口进行并发采样，快速确认整体服务状态。
+nexus_http {'payload': {'env': {'timeout': 5.0}, 'options': {'fail_fast': False}, 'items': [{'name': 'svc_auth', 'request': {'method': 'GET', 'url': 'http://127.0.0.1:8000/health/auth'}, 'extract': {'svc': 'response.body_json.service', 'ok': 'response.body_json.ok'}, 'asserts': [{'path': 'response.status', 'op': 'eq', 'value': 200}, {'path': 'response.body_json.ok', 'op': 'eq', 'value': True}]}, {'name': 'svc_user', 'request': {'method': 'GET', 'url': 'http://127.0.0.1:8000/health/user'}, 'extract': {'svc': 'response.body_json.service', 'ok': 'response.body_json.ok'}, 'asserts': [{'path': 'response.status', 'op': 'eq', 'value': 200}, {'path': 'response.body_json.ok', 'op': 'eq', 'value': True}]}, {'name': 'svc_order', 'request': {'method': 'GET', 'url': 'http://127.0.0.1:8000/health/order'}, 'extract': {'svc': 'response.body_json.service', 'ok': 'response.body_json.ok'}, 'asserts': [{'path': 'response.status', 'op': 'eq', 'value': 200}, {'path': 'response.body_json.ok', 'op': 'eq', 'value': True}]}]}, 'concurrency': 3}
+
+tool=nexus_http total=1 ok=1 fail=0 elapsed_ms=300
+agent_id=nexus ok=True kind=http total=3 mission_id=nexus_1773254121241
+
+nexus_http ok=True
+## 健康检查并发采样结果
+
+**整体状态：✅ 全部通过**
+
+### 执行摘要
+- **总任务数**: 3
+- **成功数**: 3
+- **失败数**: 0
+- **总耗时**: 297ms
+- **并发度**: 3
+
+### 各服务详情
+
+1. **svc_auth** (认证服务)
+   - 状态: ✅ 200 OK
+   - 耗时: 287ms
+   - 响应: `{"ok":true,"service":"auth","type":"http"}`
+   - 提取字段: `svc="auth"`, `ok=true`
+   - 断言: 2/2 通过
+
+2. **svc_user** (用户服务)
+   - 状态: ✅ 200 OK
+   - 耗时: 198ms
+   - 响应: `{"ok":true,"service":"user","type":"http"}`
+   - 提取字段: `svc="user"`, `ok=true`
+   - 断言: 2/2 通过
+
+3. **svc_order** (订单服务)
+   - 状态: ✅ 200 OK
+   - 耗时: 119ms
+   - 响应: `{"ok":true,"service":"order","type":"http"}`
+   - 提取字段: `svc="order"`, `ok=true`
+   - 断言: 2/2 通过
+
+### 验收规则验证
+- ✅ `kind == "http"` (HTTP接口)
+- ✅ `summary.total == 3` (总任务数=3)
+- ✅ `summary.fail == 0` (无失败)
+- ✅ 所有 `step.ok == true` (每个步骤都成功)
+- ✅ 每个 `step.detail.response.status == 200` (HTTP状态码正确)
+- ✅ 每个 `step.detail.extract.ok == true` (提取的ok字段为true)
+
+**结论**: 所有三个健康检查接口均正常响应，服务整体状态健康。
+Mind :: 2026-03-12 02:35:36.856 | DEBUG    | Chat done ...
+``````
+
+### 高阶：分页轻爬虫（HTTP list crawler）
+适用于：
+- 分页列表巡检
+- 批量抓取首页 / 第 2 页 / 第 3 页
+- 列表返回结构稳定性校验
+
+高阶蓝本：分页轻爬虫
+``````
+```cfg
+repeat: 1
+stop_on_fail: false
+
+loop_suffix: |
+  [AdvancedAPI] 全部蓝本执行完成：
+  - 检查 summary.total / pass / fail
+  - 若存在失败项，优先查看首个失败 step 的 response / extract / asserts
+
+global_rule: <<<
+【统一验收规则】
+- 每条任务都应返回结构化证据
+- 若存在 extract，则提取字段必须可核验
+- 若存在 asserts，则断言结果必须与预期一致
+- 并发任务优先关注 summary.fail 与各 step.ok
+- 若为流式接口，至少要确认 response.events / response.messages 非空
+- 若为 GraphQL，除 HTTP 200 外，还要关注 graphql.errors 是否为空
+>>>
+```
+
+# name: http_crawl_pages
+并发抓取 3 个分页接口，验证分页参数、返回结构与列表非空。
+
+payload = {
+    "env": {
+        "base_url": "http://127.0.0.1:8000",
+        "headers": {
+            "User-Agent": "MindCrawler/1.0"
+        },
+        "timeout": 8.0
+    },
+    "options": {
+        "fail_fast": false
+    },
+    "items": [
+        {
+            "name": "page_1",
+            "request": {
+                "method": "GET",
+                "url": "/posts",
+                "params": {
+                    "page": 1,
+                    "size": 10
+                }
+            },
+            "extract": {
+                "page": "response.body_json.page",
+                "count": "response.body_json.items_count"
+            },
+            "asserts": [
+                {"path": "response.status", "op": "eq", "value": 200},
+                {"path": "response.body_json.page", "op": "eq", "value": 1},
+                {"path": "response.body_json.items", "op": "not_empty"}
+            ]
+        },
+        {
+            "name": "page_2",
+            "request": {
+                "method": "GET",
+                "url": "/posts",
+                "params": {
+                    "page": 2,
+                    "size": 10
+                }
+            },
+            "extract": {
+                "page": "response.body_json.page",
+                "count": "response.body_json.items_count"
+            },
+            "asserts": [
+                {"path": "response.status", "op": "eq", "value": 200},
+                {"path": "response.body_json.page", "op": "eq", "value": 2},
+                {"path": "response.body_json.items", "op": "not_empty"}
+            ]
+        },
+        {
+            "name": "page_3",
+            "request": {
+                "method": "GET",
+                "url": "/posts",
+                "params": {
+                    "page": 3,
+                    "size": 10
+                }
+            },
+            "extract": {
+                "page": "response.body_json.page",
+                "count": "response.body_json.items_count"
+            },
+            "asserts": [
+                {"path": "response.status", "op": "eq", "value": 200},
+                {"path": "response.body_json.page", "op": "eq", "value": 3},
+                {"path": "response.body_json.items", "op": "not_empty"}
+            ]
+        }
+    ]
+}
+
+concurrency = 3
+
+# rule: <<<
+# PASS 条件：
+# - kind == "http"
+# - summary.total == 3
+# - summary.fail == 0
+# - 所有 step.detail.response.status == 200
+# - 所有 step.detail.response.body_json.items 非空
+# - 每页 page 字段与请求页码一致
+# - detail.extract.count > 0
+# >>>
+---
+``````
+
+高阶蓝本结果：分页轻爬虫
+``````
+Mind :: 2026-03-12 02:35:40.027 | DEBUG    | Chat Streaming
+我将对三个分页接口进行并发抓取，验证分页参数、返回结构与列表非空。
+nexus_http {'payload': {'env': {'base_url': 'http://127.0.0.1:8000', 'headers': {'User-Agent': 'MindCrawler/1.0'}, 'timeout': 8.0}, 'options': {'fail_fast': False}, 'items': [{'name': 'page_1', 'request': {'method': 'GET', 'url': '/posts', 'params': {'page': 1, 'size': 10}}, 'extract': {'page': 'response.body_json.page', 'count': 'response.body_json.items_count'}, 'asserts': [{'path': 'response.status', 'op': 'eq', 'value': 200}, {'path': 'response.body_json.page', 'op': 'eq', 'value': 1}, {'path': 'response.body_json.items', 'op': 'not_empty'}]}, {'name': 'page_2', 'request': {'method': 'GET', 'url': '/posts', 'params': {'page': 2, 'size': 10}}, 'extract': {'page': 'response.body_json.page', 'count': 'response.body_json.items_count'}, 'asserts': [{'path': 'response.status', 'op': 'eq', 'value': 200}, {'path': 'response.body_json.page', 'op': 'eq', 'value': 2}, {'path': 'response.body_json.items', 'op': 'not_empty'}]}, {'name': 'page_3', 'request': {'method': 'GET', 'url': '/posts', 'params': {'page': 3, 'size': 10}}, 'extract': {'page': 'response.body_json.page', 'count': 'response.body_json.items_count'}, 'asserts': [{'path': 'response.status', 'op': 'eq', 'value': 200}, {'path': 'response.body_json.page', 'op': 'eq', 'value': 3}, {'path': 'response.body_json.items', 'op': 'not_empty'}]}]}, 'concurrency': 3}
+
+tool=nexus_http total=1 ok=1 fail=0 elapsed_ms=151
+agent_id=nexus ok=True kind=http total=3 mission_id=nexus_1773254152117
+
+nexus_http ok=True
+## 分页接口并发抓取结果
+
+**整体状态：✅ 全部通过**
+
+### 执行摘要
+- **总任务数**: 3
+- **成功数**: 3
+- **失败数**: 0
+- **总耗时**: 152ms
+- **并发度**: 3
+
+### 各分页详情
+
+1. **page_1** (第1页)
+   - 状态: ✅ 200 OK
+   - 耗时: 151ms
+   - 页码验证: `page=1` ✅
+   - 提取字段: `page=1`, `count=10`
+   - 列表项数: 10条
+   - 断言: 3/3 通过
+   - 数据范围: ID 1-10
+
+2. **page_2** (第2页)
+   - 状态: ✅ 200 OK
+   - 耗时: 102ms
+   - 页码验证: `page=2` ✅
+   - 提取字段: `page=2`, `count=10`
+   - 列表项数: 10条
+   - 断言: 3/3 通过
+   - 数据范围: ID 11-20
+
+3. **page_3** (第3页)
+   - 状态: ✅ 200 OK
+   - 耗时: 58ms
+   - 页码验证: `page=3` ✅
+   - 提取字段: `page=3`, `count=10`
+   - 列表项数: 10条
+   - 断言: 3/3 通过
+   - 数据范围: ID 21-30
+
+### 数据特征分析
+- **分页连续性**: 完美连续，无数据重复或缺失
+- **每页大小**: 固定10条记录
+- **数据结构**: 每条记录包含 `id`, `title`, `author` 字段
+- **作者分布**: user-1, user-2, user-3 循环出现
+
+### 验收规则验证
+- ✅ `kind == "http"` (HTTP接口)
+- ✅ `summary.total == 3` (总任务数=3)
+- ✅ `summary.fail == 0` (无失败)
+- ✅ 所有 `step.detail.response.status == 200` (HTTP状态码正确)
+- ✅ 所有 `step.detail.response.body_json.items` 非空 (每页都有数据)
+- ✅ 每页 `page` 字段与请求页码一致 (1,2,3)
+- ✅ `detail.extract.count > 0` (每页都有10条记录)
+
+**结论**: 分页接口功能正常，参数传递正确，数据结构完整，数据连续性良好，所有验收规则均通过。
+Mind :: 2026-03-12 02:36:10.504 | DEBUG    | Chat done ...
+``````
+
+### 高阶：上下文注入（vars + 模板变量）
+适用于：
+- 公共 token / 用户 ID / base 参数复用
+- 一份蓝本跑多租户 / 多用户
+- 降低重复构参
+
+高阶蓝本：上下文注入
+``````
+```cfg
+repeat: 1
+stop_on_fail: false
+
+loop_suffix: |
+  [AdvancedAPI] 全部蓝本执行完成：
+  - 检查 summary.total / pass / fail
+  - 若存在失败项，优先查看首个失败 step 的 response / extract / asserts
+
+global_rule: <<<
+【统一验收规则】
+- 每条任务都应返回结构化证据
+- 若存在 extract，则提取字段必须可核验
+- 若存在 asserts，则断言结果必须与预期一致
+- 并发任务优先关注 summary.fail 与各 step.ok
+- 若为流式接口，至少要确认 response.events / response.messages 非空
+- 若为 GraphQL，除 HTTP 200 外，还要关注 graphql.errors 是否为空
+>>>
+```
+
+# name: http_context_injection
+使用 vars 模板变量注入公共参数，验证接口构参与模板替换能力。
+
+payload = {
+    "vars": {
+        "token": "Bearer demo-token-001",
+        "uid": "u_10086",
+        "region": "sg"
+    },
+    "env": {
+        "base_url": "http://127.0.0.1:8000",
+        "headers": {
+            "Authorization": "{{token}}",
+            "X-Region": "{{region}}"
+        },
+        "timeout": 6.0
+    },
+    "method": "GET",
+    "url": "/profile/{{uid}}",
+    "params": {
+        "verbose": "true"
+    },
+    "extract": {
+        "uid": "response.body_json.user.id",
+        "region": "response.body_json.context.region",
+        "auth": "response.body_json.context.authorization"
+    },
+    "asserts": [
+        {"path": "response.status", "op": "eq", "value": 200},
+        {"path": "response.body_json.user.id", "op": "eq", "value": "u_10086"},
+        {"path": "response.body_json.context.region", "op": "eq", "value": "sg"},
+        {"path": "response.body_json.context.authorization", "op": "contains", "value": "demo-token-001"}
+    ]
+}
+
+# rule: <<<
+# PASS 条件：
+# - kind == "http"
+# - ok == true
+# - detail.request.headers.Authorization 已完成模板替换
+# - detail.request.url 包含 /profile/u_10086
+# - detail.response.status == 200
+# - detail.extract.uid == "u_10086"
+# - detail.extract.region == "sg"
+# - detail.extract.auth 包含 "demo-token-001"
+# >>>
+---
+``````
+
+高阶蓝本结果：上下文注入
+``````
+Mind :: 2026-03-12 02:36:13.945 | DEBUG    | Chat Streaming
+我将使用 vars 模板变量注入公共参数，验证接口构参与模板替换能力。
+nexus_http {'payload': {'vars': {'token': 'Bearer demo-token-001', 'uid': 'u_10086', 'region': 'sg'}, 'env': {'base_url': 'http://127.0.0.1:8000', 'headers': {'Authorization': '{{token}}', 'X-Region': '{{region}}'}, 'timeout': 6.0}, 'method': 'GET', 'url': '/profile/{{uid}}', 'params': {'verbose': 'true'}, 'extract': {'uid': 'response.body_json.user.id', 'region': 'response.body_json.context.region', 'auth': 'response.body_json.context.authorization'}, 'asserts': [{'path': 'response.status', 'op': 'eq', 'value': 200}, {'path': 'response.body_json.user.id', 'op': 'eq', 'value': 'u_10086'}, {'path': 'response.body_json.context.region', 'op': 'eq', 'value': 'sg'}, {'path': 'response.body_json.context.authorization', 'op': 'contains', 'value': 'demo-token-001'}]}, 'concurrency': 1}
+
+tool=nexus_http total=1 ok=1 fail=0 elapsed_ms=56
+agent_id=nexus ok=True kind=http total=1 mission_id=nexus_1773254182739
+
+nexus_http ok=True
+## 模板变量注入验证结果
+
+**整体状态：✅ 通过**
+
+### 执行摘要
+- **总任务数**: 1
+- **成功数**: 1
+- **失败数**: 0
+- **耗时**: 57ms
+
+### 模板替换验证
+
+#### 1. **请求构造验证**
+- **URL模板**: `/profile/{{uid}}` → `/profile/u_10086` ✅
+- **Header模板**: 
+  - `Authorization: {{token}}` → `Authorization: Bearer demo-token-001` ✅
+  - `X-Region: {{region}}` → `X-Region: sg` ✅
+- **参数传递**: `verbose=true` ✅
+
+#### 2. **响应验证**
+- **HTTP状态**: 200 OK ✅
+- **响应结构**: 
+  ```json
+  {
+    "ok": true,
+    "type": "http",
+    "user": {
+      "id": "u_10086",
+      "name": "Ace",
+      "verbose": true
+    },
+    "context": {
+      "region": "sg",
+      "authorization": "Bearer demo-token-001"
+    }
+  }
+  ```
+
+#### 3. **提取字段验证**
+- `uid`: `u_10086` ✅ (匹配模板变量)
+- `region`: `sg` ✅ (匹配模板变量)
+- `auth`: `Bearer demo-token-001` ✅ (包含模板变量值)
+
+#### 4. **断言验证**
+- ✅ `response.status == 200`
+- ✅ `response.body_json.user.id == "u_10086"`
+- ✅ `response.body_json.context.region == "sg"`
+- ✅ `response.body_json.context.authorization` 包含 `"demo-token-001"`
+
+### 验收规则验证
+- ✅ `kind == "http"` (HTTP接口)
+- ✅ `ok == true` (任务成功)
+- ✅ `detail.request.headers.Authorization` 已完成模板替换 (Bearer demo-token-001)
+- ✅ `detail.request.url` 包含 `/profile/u_10086`
+- ✅ `detail.response.status == 200`
+- ✅ `detail.extract.uid == "u_10086"`
+- ✅ `detail.extract.region == "sg"`
+- ✅ `detail.extract.auth` 包含 `"demo-token-001"`
+
+### 模板替换能力分析
+1. **URL路径替换**: `{{uid}}` 成功替换为 `u_10086`
+2. **Header替换**: 多个header字段同时替换成功
+3. **变量复用**: 同一变量在多个位置使用 (如 `uid` 在URL中，`token` 在header中)
+4. **响应验证**: 服务器正确接收并返回了模板变量值
+
+**结论**: 模板变量注入功能正常，所有模板替换均正确执行，接口构参与验证能力完整。
+Mind :: 2026-03-12 02:36:42.435 | DEBUG    | Chat done ...
+``````
+
+### 高阶：SSE 多路订阅采样（并发事件流）
+适用于：
+- 多 topic 事件流探测
+- 多租户 / 多频道并发订阅
+- 快速比较不同流是否都在正常产出事件
+
+高阶蓝本：SSE 多路订阅采样
+``````
+```cfg
+repeat: 1
+stop_on_fail: false
+
+loop_suffix: |
+  [AdvancedAPI] 全部蓝本执行完成：
+  - 检查 summary.total / pass / fail
+  - 若存在失败项，优先查看首个失败 step 的 response / extract / asserts
+
+global_rule: <<<
+【统一验收规则】
+- 每条任务都应返回结构化证据
+- 若存在 extract，则提取字段必须可核验
+- 若存在 asserts，则断言结果必须与预期一致
+- 并发任务优先关注 summary.fail 与各 step.ok
+- 若为流式接口，至少要确认 response.events / response.messages 非空
+- 若为 GraphQL，除 HTTP 200 外，还要关注 graphql.errors 是否为空
+>>>
+```
+
+# name: sse_multi_topic
+并发订阅多个 SSE topic，验证各自事件流可用性。
+
+payload = {
+    "env": {
+        "base_url": "http://127.0.0.1:8000",
+        "timeout": 10.0
+    },
+    "options": {
+        "fail_fast": false
+    },
+    "items": [
+        {
+            "name": "topic_news",
+            "request": {
+                "url": "/sse/news",
+                "params": {
+                    "topic": "news"
+                },
+                "max_events": 3
+            },
+            "extract": {
+                "ev0": "response.events.0.event",
+                "msg0": "response.events.0.data"
+            },
+            "asserts": [
+                {"path": "response.status", "op": "eq", "value": 200},
+                {"path": "response.events", "op": "not_empty"},
+                {"path": "response.events.0.event", "op": "eq", "value": "ready"}
+            ]
+        },
+        {
+            "name": "topic_alert",
+            "request": {
+                "url": "/sse/alert",
+                "params": {
+                    "topic": "alert"
+                },
+                "max_events": 3
+            },
+            "extract": {
+                "ev0": "response.events.0.event",
+                "msg0": "response.events.0.data"
+            },
+            "asserts": [
+                {"path": "response.status", "op": "eq", "value": 200},
+                {"path": "response.events", "op": "not_empty"},
+                {"path": "response.events.0.event", "op": "eq", "value": "ready"}
+            ]
+        }
+    ]
+}
+
+concurrency = 2
+
+# rule: <<<
+# PASS 条件：
+# - kind == "sse"
+# - summary.total == 2
+# - summary.fail == 0
+# - 每个 step.detail.response.status == 200
+# - 每个 step.detail.response.events 非空
+# - 每个 step.detail.extract.ev0 == "ready"
+# >>>
+---
+``````
+
+高阶蓝本结果：SSE 多路订阅采样
+``````
+Mind :: 2026-03-12 02:36:46.951 | DEBUG    | Chat Streaming
+我将并发订阅两个 SSE topic，验证各自事件流可用性。
+nexus_sse {'payload': {'env': {'base_url': 'http://127.0.0.1:8000', 'timeout': 10.0}, 'options': {'fail_fast': False}, 'items': [{'name': 'topic_news', 'request': {'url': '/sse/news', 'params': {'topic': 'news'}, 'max_events': 3}, 'extract': {'ev0': 'response.events.0.event', 'msg0': 'response.events.0.data'}, 'asserts': [{'path': 'response.status', 'op': 'eq', 'value': 200}, {'path': 'response.events', 'op': 'not_empty'}, {'path': 'response.events.0.event', 'op': 'eq', 'value': 'ready'}]}, {'name': 'topic_alert', 'request': {'url': '/sse/alert', 'params': {'topic': 'alert'}, 'max_events': 3}, 'extract': {'ev0': 'response.events.0.event', 'msg0': 'response.events.0.data'}, 'asserts': [{'path': 'response.status', 'op': 'eq', 'value': 200}, {'path': 'response.events', 'op': 'not_empty'}, {'path': 'response.events.0.event', 'op': 'eq', 'value': 'ready'}]}]}, 'concurrency': 2}
+
+tool=nexus_sse total=1 ok=1 fail=0 elapsed_ms=145
+agent_id=nexus ok=True kind=sse total=2 mission_id=nexus_1773254217210
+
+nexus_sse ok=True
+## SSE Topic 并发订阅验证结果
+
+**整体状态：✅ 全部通过**
+
+### 执行摘要
+- **总任务数**: 2
+- **成功数**: 2
+- **失败数**: 0
+- **总耗时**: 144ms
+- **并发度**: 2
+
+### 各Topic事件流详情
+
+#### 1. **topic_news** (新闻主题)
+- **状态**: ✅ 200 OK
+- **耗时**: 143ms
+- **事件数量**: 3个 (达到max_events限制)
+- **事件序列**:
+  1. `event: ready`, `data: news:ready`, `id: 1`
+  2. `event: message`, `data: news:item-1`, `id: 2`
+  3. `event: done`, `data: news:done`, `id: 3`
+- **提取字段**: `ev0="ready"`, `msg0="news:ready"`
+- **断言**: 3/3 通过
+
+#### 2. **topic_alert** (告警主题)
+- **状态**: ✅ 200 OK
+- **耗时**: 92ms
+- **事件数量**: 3个 (达到max_events限制)
+- **事件序列**:
+  1. `event: ready`, `data: alert:ready`, `id: 1`
+  2. `event: warning`, `data: alert:warning-1`, `id: 2`
+  3. `event: done`, `data: alert:done`, `id: 3`
+- **提取字段**: `ev0="ready"`, `msg0="alert:ready"`
+- **断言**: 3/3 通过
+
+### 事件流特征分析
+
+#### **共同特征**
+- ✅ 两个topic都返回了正确的SSE响应头: `content-type: text/event-stream; charset=utf-8`
+- ✅ 两个topic的第一个事件都是 `ready` 类型
+- ✅ 两个topic都包含3个事件 (符合max_events=3配置)
+- ✅ 两个topic都有完整的生命周期: `ready` → `message/warning` → `done`
+
+#### **差异特征**
+- **topic_news**: 第二个事件类型为 `message`
+- **topic_alert**: 第二个事件类型为 `warning`
+- **数据内容**: 分别包含 `news:` 和 `alert:` 前缀，表明topic区分
+
+### 验收规则验证
+- ✅ `kind == "sse"` (SSE流式接口)
+- ✅ `summary.total == 2` (总任务数=2)
+- ✅ `summary.fail == 0` (无失败)
+- ✅ 每个 `step.detail.response.status == 200` (HTTP状态码正确)
+- ✅ 每个 `step.detail.response.events` 非空 (都有3个事件)
+- ✅ 每个 `step.detail.extract.ev0 == "ready"` (第一个事件类型正确)
+
+### 并发能力验证
+- ✅ 两个SSE连接同时建立成功
+- ✅ 两个流独立运行，互不干扰
+- ✅ 事件采集完整，无数据丢失
+- ✅ 超时控制有效 (10秒内完成)
+
+**结论**: 两个SSE topic的事件流均可用，并发订阅功能正常，事件序列完整，所有验收规则均通过。
+Mind :: 2026-03-12 02:37:19.816 | DEBUG    | Chat done ...
+``````
+
+### 高阶：GraphQL 多 query 批采样
+适用于：
+- 同一 GraphQL 服务下多个 query 并发校验
+- schema 改动后的快速回归
+- 核心字段稳定性检查
+
+高阶蓝本：GraphQL 多 query 批采样
+``````
+```cfg
+repeat: 1
+stop_on_fail: false
+
+loop_suffix: |
+  [AdvancedAPI] 全部蓝本执行完成：
+  - 检查 summary.total / pass / fail
+  - 若存在失败项，优先查看首个失败 step 的 response / extract / asserts
+
+global_rule: <<<
+【统一验收规则】
+- 每条任务都应返回结构化证据
+- 若存在 extract，则提取字段必须可核验
+- 若存在 asserts，则断言结果必须与预期一致
+- 并发任务优先关注 summary.fail 与各 step.ok
+- 若为流式接口，至少要确认 response.events / response.messages 非空
+- 若为 GraphQL，除 HTTP 200 外，还要关注 graphql.errors 是否为空
+>>>
+```
+
+# name: graphql_parallel_queries
+对多个 GraphQL query 做并发采样，验证 data 结构稳定性。
+
+payload = {
+    "env": {
+        "base_url": "http://127.0.0.1:8000",
+        "timeout": 8.0
+    },
+    "options": {
+        "fail_fast": false
+    },
+    "items": [
+        {
+            "name": "query_user",
+            "request": {
+                "url": "/graphql",
+                "query": "query GetUser { mockUser { id name active } }",
+                "operation_name": "GetUser"
+            },
+            "extract": {
+                "uid": "response.body_json.data.mockUser.id"
+            },
+            "asserts": [
+                {"path": "response.status", "op": "eq", "value": 200},
+                {"path": "response.body_json.data.mockUser.id", "op": "eq", "value": 123}
+            ]
+        },
+        {
+            "name": "query_profile",
+            "request": {
+                "url": "/graphql",
+                "query": "query GetProfile { mockProfile { level score } }",
+                "operation_name": "GetProfile"
+            },
+            "extract": {
+                "score": "response.body_json.data.mockProfile.score",
+                "level": "response.body_json.data.mockProfile.level"
+            },
+            "asserts": [
+                {"path": "response.status", "op": "eq", "value": 200},
+                {"path": "response.body_json.data.mockProfile.score", "op": "ge", "value": 0},
+                {"path": "response.body_json.data.mockProfile.level", "op": "ge", "value": 1}
+            ]
+        }
+    ]
+}
+
+concurrency = 2
+
+# rule: <<<
+# PASS 条件：
+# - kind == "graphql"
+# - summary.total == 2
+# - summary.fail == 0
+# - 每个 step.detail.response.status == 200
+# - 每个 step.detail.graphql.errors 为空
+# - 每个 step.ok == true
+# - detail.extract.uid == 123
+# - detail.extract.score >= 0
+# >>>
+---
+``````
+
+高阶蓝本结果：GraphQL 多 query 批采样
+``````
+Mind :: 2026-03-12 02:37:22.619 | DEBUG    | Chat Streaming
+我将对多个 GraphQL query 做并发采样，验证 data 结构稳定性。
+nexus_graphql {'payload': {'env': {'base_url': 'http://127.0.0.1:8000', 'timeout': 8.0}, 'options': {'fail_fast': False}, 'items': [{'name': 'query_user', 'request': {'url': '/graphql', 'query': 'query GetUser { mockUser { id name active } }', 'operation_name': 'GetUser'}, 'extract': {'uid': 'response.body_json.data.mockUser.id'}, 'asserts': [{'path': 'response.status', 'op': 'eq', 'value': 200}, {'path': 'response.body_json.data.mockUser.id', 'op': 'eq', 'value': 123}]}, {'name': 'query_profile', 'request': {'url': '/graphql', 'query': 'query GetProfile { mockProfile { level score } }', 'operation_name': 'GetProfile'}, 'extract': {'score': 'response.body_json.data.mockProfile.score', 'level': 'response.body_json.data.mockProfile.level'}, 'asserts': [{'path': 'response.status', 'op': 'eq', 'value': 200}, {'path': 'response.body_json.data.mockProfile.score', 'op': 'ge', 'value': 0}, {'path': 'response.body_json.data.mockProfile.level', 'op': 'ge', 'value': 1}]}]}, 'concurrency': 2}
+
+tool=nexus_graphql total=1 ok=1 fail=0 elapsed_ms=110
+agent_id=nexus ok=True kind=graphql total=2 mission_id=nexus_1773254252037
+
+nexus_graphql ok=True
+## GraphQL Query 并发采样验证结果
+
+**整体状态：✅ 全部通过**
+
+### 执行摘要
+- **总任务数**: 2
+- **成功数**: 2
+- **失败数**: 0
+- **总耗时**: 110ms
+- **并发度**: 2
+
+### 各Query详情
+
+#### 1. **query_user** (用户查询)
+- **状态**: ✅ 200 OK
+- **耗时**: 110ms
+- **GraphQL操作**: `GetUser`
+- **响应结构**:
+  ```json
+  {
+    "data": {
+      "mockUser": {
+        "id": 123,
+        "name": "Ace",
+        "active": true
+      }
+    },
+    "extensions": {
+      "trace_id": "trace_user_001"
+    },
+    "meta": {
+      "ok": true,
+      "type": "graphql",
+      "operation_name": "GetUser",
+      "variables": {}
+    }
+  }
+  ```
+- **提取字段**: `uid=123`
+- **断言**: 2/2 通过
+- **GraphQL错误**: 无 (`errors` 字段不存在)
+
+#### 2. **query_profile** (资料查询)
+- **状态**: ✅ 200 OK
+- **耗时**: 53ms
+- **GraphQL操作**: `GetProfile`
+- **响应结构**:
+  ```json
+  {
+    "data": {
+      "mockProfile": {
+        "level": 7,
+        "score": 98
+      }
+    },
+    "extensions": {
+      "trace_id": "trace_profile_001"
+    },
+    "meta": {
+      "ok": true,
+      "type": "graphql",
+      "operation_name": "GetProfile",
+      "variables": {}
+    }
+  }
+  ```
+- **提取字段**: `score=98`, `level=7`
+- **断言**: 3/3 通过
+- **GraphQL错误**: 无 (`errors` 字段不存在)
+
+### 数据结构稳定性分析
+
+#### **请求构造验证**
+- ✅ 自动添加 `Content-Type: application/json` 头
+- ✅ 正确序列化 GraphQL 请求体
+- ✅ `operation_name` 正确传递
+- ✅ 并发请求独立执行
+
+#### **响应结构验证**
+- ✅ 标准 GraphQL 响应格式: `{data, extensions?, errors?}`
+- ✅ `data` 字段存在且非空
+- ✅ `errors` 字段不存在 (表示无错误)
+- ✅ 扩展字段包含 trace_id 用于追踪
+- ✅ 元数据包含操作信息
+
+#### **数据一致性验证**
+- **query_user**: 固定返回 `id=123`, `name="Ace"`, `active=true`
+- **query_profile**: 返回合理的数值范围 (`level=7`, `score=98`)
+- 两个查询的数据结构稳定，符合预期
+
+### 验收规则验证
+- ✅ `kind == "graphql"` (GraphQL接口)
+- ✅ `summary.total == 2` (总任务数=2)
+- ✅ `summary.fail == 0` (无失败)
+- ✅ 每个 `step.detail.response.status == 200` (HTTP状态码正确)
+- ✅ 每个 `step.detail.graphql.errors` 为空 (无GraphQL错误)
+- ✅ 每个 `step.ok == true` (每个步骤都成功)
+- ✅ `detail.extract.uid == 123` (用户ID正确)
+- ✅ `detail.extract.score >= 0` (分数非负，实际为98)
+
+### 并发能力验证
+- ✅ 两个GraphQL查询同时执行成功
+- ✅ 响应时间差异正常 (110ms vs 53ms)
+- ✅ 数据隔离良好，无交叉污染
+- ✅ 超时控制有效 (8秒内完成)
+
+**结论**: 两个GraphQL查询的数据结构稳定，并发执行正常，所有验收规则均通过。GraphQL服务响应格式标准，无错误返回，数据一致性良好。
+Mind :: 2026-03-12 02:37:57.845 | DEBUG    | Chat done ...
+``````
+
+### 高阶：图片 / 视频响应提取与媒体落盘（爬虫）
+适用于：
+- 图片、视频下载链路的可用性验证
+- CDN / 静态资源 / 媒体分发接口快速回归
+- 图片 / 视频 MIME、大小、落盘路径与归档稳定性检查
+
+高阶蓝本：图片 / 视频响应提取与媒体落盘（爬虫）
+``````
+# name: http_image_extract
+请求 /mock-image 来验证 HTTP 图片响应提取、落盘、提取与断言。
+
+payload = {
+    "method": "GET",
+    "url": "http://127.0.0.1:8000/mock-image",
+    "save_response": True,
+    "save_dir": "./downloads",
+    "extract": {
+        "kind": "response.media.kind",
+        "path": "response.media.path",
+        "mime": "response.media.mime_type",
+        "size": "response.media.size"
+    },
+    "asserts": [
+        {"path": "response.status", "op": "eq", "value": 200},
+        {"path": "response.content_type", "op": "contains", "value": "image/png"},
+        {"path": "response.media.kind", "op": "eq", "value": "image"},
+        {"path": "response.media.path", "op": "not_empty"},
+        {"path": "response.media.mime_type", "op": "eq", "value": "image/png"},
+        {"path": "response.media.size", "op": "gt", "value": 0}
+    ]
+}
+
+# rule: <<<
+# PASS 条件：
+# - ok == true
+# - type == "http"
+# - detail.response.status == 200
+# - detail.response.content_type 包含 "image/png"
+# - detail.response.media.kind == "image"
+# - detail.response.media.path 非空
+# - detail.response.media.mime_type == "image/png"
+# - detail.response.media.size > 0
+# - detail.extract.kind == "image"
+# - detail.extract.path 非空
+# - detail.extract.mime == "image/png"
+# - detail.extract.size > 0
+# >>>
+---
+
+# name: http_video_extract
+请求 /mock-video 来验证 HTTP 视频响应提取、落盘、提取与断言。
+
+payload = {
+    "method": "GET",
+    "url": "http://127.0.0.1:8000/mock-video",
+    "save_response": True,
+    "save_dir": "./downloads",
+    "extract": {
+        "kind": "response.media.kind",
+        "path": "response.media.path",
+        "filename": "response.media.filename",
+        "mime": "response.media.mime_type",
+        "size": "response.media.size"
+    },
+    "asserts": [
+        {"path": "response.status", "op": "eq", "value": 200},
+        {"path": "response.content_type", "op": "contains", "value": "video/mp4"},
+        {"path": "response.body_json", "op": "empty"},
+        {"path": "response.body_text", "op": "empty"},
+        {"path": "response.media.kind", "op": "eq", "value": "video"},
+        {"path": "response.media.path", "op": "not_empty"},
+        {"path": "response.media.filename", "op": "contains", "value": ".mp4"},
+        {"path": "response.media.mime_type", "op": "eq", "value": "video/mp4"},
+        {"path": "response.media.size", "op": "gt", "value": 0}
+    ]
+}
+
+# rule: <<<
+# PASS 条件：
+# - ok == true
+# - type == "http"
+# - detail.response.status == 200
+# - detail.response.content_type 包含 "video/mp4"
+# - detail.response.body_json 为空
+# - detail.response.body_text 为空
+# - detail.response.media.kind == "video"
+# - detail.response.media.path 非空
+# - detail.response.media.filename 包含 ".mp4"
+# - detail.response.media.mime_type == "video/mp4"
+# - detail.response.media.size > 0
+# - detail.extract.kind == "video"
+# - detail.extract.path 非空
+# - detail.extract.filename 包含 ".mp4"
+# - detail.extract.mime == "video/mp4"
+# - detail.extract.size > 0
+# >>>
+---
+``````
+
+高阶蓝本结果：图片 / 视频响应提取与媒体落盘（爬虫）
+``````
+Mind :: 2026-03-12 03:57:19.669 | DEBUG    | Chat Streaming
+我来执行这个HTTP图片响应验证请求。
+nexus_http {'payload': {'method': 'GET', 'url': 'http://127.0.0.1:8000/mock-image', 'save_response': True, 'save_dir': './downloads', 'extract': {'kind': 'response.media.kind', 'path': 'response.media.path', 'mime': 'response.media.mime_type', 'size': 'response.media.size'}, 'asserts': [{'path': 'response.status', 'op': 'eq', 'value': 200}, {'path': 'response.content_type', 'op': 'contains', 'value': 'image/png'}, {'path': 'response.media.kind', 'op': 'eq', 'value': 'image'}, {'path': 'response.media.path', 'op': 'not_empty'}, {'path': 'response.media.mime_type', 'op': 'eq', 'value': 'image/png'}, {'path': 'response.media.size', 'op': 'gt', 'value': 0}]}}
+
+tool=nexus_http total=1 ok=1 fail=0 elapsed_ms=78
+agent_id=nexus ok=True kind=http total=1 mission_id=nexus_1773259047811
+
+nexus_http ok=True
+## 验证结果：PASS ✅
+
+所有断言均通过，HTTP图片响应提取、落盘、提取与断言功能验证成功。
+
+### 验证要点：
+1. **请求状态**：HTTP 200 OK
+2. **内容类型**：image/png（包含"image/png"）
+3. **媒体识别**：成功识别为image类型
+4. **文件落盘**：已保存到 `downloads/image_1773259047888.png`
+5. **元数据提取**：
+   - 文件路径：`downloads/image_1773259047888.png`
+   - MIME类型：`image/png`
+   - 文件大小：69字节
+6. **断言结果**：6个断言全部通过
+
+### 提取数据：
+- `kind`: "image"
+- `path`: "downloads/image_1773259047888.png"
+- `mime`: "image/png"
+- `size`: 69
+
+### 响应头信息：
+- Content-Type: image/png
+- Content-Length: 69
+- Content-Disposition: attachment; filename="demo.png"
+- ETag: "32f0d49a7b7f655267fb3fd741e0abe0"
+
+**结论**：HTTP图片响应处理链路完整可用，媒体识别、文件保存、元数据提取和断言验证功能均正常工作。
+Mind :: 2026-03-12 03:57:38.376 | DEBUG    | Chat done ...
+
+Mind :: 2026-03-12 03:57:41.877 | DEBUG    | Chat Streaming
+我来执行这个HTTP视频响应验证请求。
+nexus_http {'payload': {'method': 'GET', 'url': 'http://127.0.0.1:8000/mock-video', 'save_response': True, 'save_dir': './downloads', 'extract': {'kind': 'response.media.kind', 'path': 'response.media.path', 'filename': 'response.media.filename', 'mime': 'response.media.mime_type', 'size': 'response.media.size'}, 'asserts': [{'path': 'response.status', 'op': 'eq', 'value': 200}, {'path': 'response.content_type', 'op': 'contains', 'value': 'video/mp4'}, {'path': 'response.body_json', 'op': 'empty', 'value': None}, {'path': 'response.body_text', 'op': 'empty', 'value': None}, {'path': 'response.media.kind', 'op': 'eq', 'value': 'video'}, {'path': 'response.media.path', 'op': 'not_empty', 'value': None}, {'path': 'response.media.filename', 'op': 'contains', 'value': '.mp4'}, {'path': 'response.media.mime_type', 'op': 'eq', 'value': 'video/mp4'}, {'path': 'response.media.size', 'op': 'gt', 'value': 0}]}}
+
+tool=nexus_http total=1 ok=1 fail=0 elapsed_ms=71
+agent_id=nexus ok=True kind=http total=1 mission_id=nexus_1773259071605
+
+nexus_http ok=True
+## 验证结果：PASS ✅
+
+所有断言均通过，HTTP视频响应提取、落盘、提取与断言功能验证成功。
+
+### 验证要点：
+1. **请求状态**：HTTP 200 OK
+2. **内容类型**：video/mp4（包含"video/mp4"）
+3. **响应体验证**：body_json和body_text均为空（媒体响应不解析为文本/JSON）
+4. **媒体识别**：成功识别为video类型
+5. **文件落盘**：已保存到 `downloads/video_1773259071671.mp4`
+6. **元数据提取**：
+   - 文件路径：`downloads/video_1773259071671.mp4`
+   - 文件名：`video_1773259071671.mp4`（包含".mp4"）
+   - MIME类型：`video/mp4`
+   - 文件大小：1,004,812字节（约980KB）
+7. **断言结果**：9个断言全部通过
+
+### 提取数据：
+- `kind`: "video"
+- `path`: "downloads/video_1773259071671.mp4"
+- `filename`: "video_1773259071671.mp4"
+- `mime`: "video/mp4"
+- `size`: 1004812
+
+### 响应头信息：
+- Content-Type: video/mp4
+- Content-Length: 1004812
+- Content-Disposition: attachment; filename="demo.mp4"
+- ETag: "542cc791088b543cbc018538f075b87a"
+
+### 关键特性验证：
+1. **媒体类型自动识别**：系统正确识别Content-Type为video/mp4
+2. **文件自动保存**：save_response=true时自动保存媒体文件
+3. **元数据提取**：完整提取媒体文件的路径、文件名、MIME类型和大小
+4. **响应体处理**：媒体响应不解析为文本或JSON（body_text和body_json均为null）
+
+**结论**：HTTP视频响应处理链路完整可用，媒体识别、文件保存、元数据提取和断言验证功能均正常工作。视频文件大小约980KB，符合预期。
+Mind :: 2026-03-12 03:58:06.895 | DEBUG    | Chat done ...
+``````
+
+### Basic API Mocks
 ```python
 import asyncio
 from fastapi import (
@@ -2096,10 +3142,704 @@ if __name__ == "__main__":
     pass
 ```
 
+### Advance API Mocks
+```python
+import typing
+import asyncio
+from pathlib import Path
+from fastapi import (
+    FastAPI, Request
+)
+from fastapi.responses import (
+    JSONResponse, StreamingResponse, FileResponse
+)
+
+BASE_DIR = Path(__file__).resolve().parent
+ASSET_DIR = BASE_DIR / "mock_assets"
+ASSET_DIR.mkdir(parents=True, exist_ok=True)
+
+PNG_BYTES = (
+    b"\x89PNG\r\n\x1a\n"
+    b"\x00\x00\x00\rIHDR"
+    b"\x00\x00\x00\x01"  # width = 1
+    b"\x00\x00\x00\x01"  # height = 1
+    b"\x08\x02\x00\x00\x00"
+    b"\x90wS\xde"
+    b"\x00\x00\x00\x0cIDAT"
+    b"\x08\xd7c\xf8\xcf\xc0\x00\x00\x03\x01\x01\x00"
+    b"\xc9\xfe\x92\xef"
+    b"\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+IMG_FILE = ASSET_DIR / "demo.png"
+if not IMG_FILE.exists():
+    IMG_FILE.write_bytes(PNG_BYTES)
+
+app = FastAPI(title="Mock")
+
+
+def sse_pack(*, event: str | None = None, data: str = "", id_: str | None = None) -> str:
+    lines: list[str] = []
+    if event is not None:
+        lines.append(f"event: {event}")
+    if id_ is not None:
+        lines.append(f"id: {id_}")
+    for line in str(data).splitlines() or [""]:
+        lines.append(f"data: {line}")
+    return "\n".join(lines) + "\n\n"
+
+
+@app.get("/health/auth")
+async def health_auth() -> JSONResponse:
+    return JSONResponse(
+        {"ok": True, "service": "auth", "type": "http"},
+        status_code=200
+    )
+
+
+@app.get("/health/user")
+async def health_user() -> JSONResponse:
+    return JSONResponse(
+        {"ok": True, "service": "user", "type": "http"},
+        status_code=200
+    )
+
+
+@app.get("/health/order")
+async def health_order() -> JSONResponse:
+    return JSONResponse(
+        {"ok": True, "service": "order", "type": "http"},
+        status_code=200
+    )
+
+
+@app.get("/posts")
+async def posts(page: int = 1, size: int = 10) -> JSONResponse:
+    base = (page - 1) * size
+    items = [
+        {
+            "id": base + i + 1,
+            "title": f"post-{base + i + 1}",
+            "author": f"user-{(base + i) % 3 + 1}"
+        }
+        for i in range(size)
+    ]
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "type": "http",
+            "page": page,
+            "size": size,
+            "items_count": len(items),
+            "items": items
+        },
+        status_code=200
+    )
+
+
+@app.get("/profile/{uid}")
+async def profile(uid: str, request: Request, verbose: str | None = None) -> JSONResponse:
+    return JSONResponse(
+        {
+            "ok": True,
+            "type": "http",
+            "user": {
+                "id": uid,
+                "name": "Ace",
+                "verbose": verbose == "true"
+            },
+            "context": {
+                "region": request.headers.get("X-Region"),
+                "authorization": request.headers.get("Authorization")
+            }
+        },
+        status_code=200
+    )
+
+
+@app.get("/sse/news")
+async def sse_news(request: Request) -> StreamingResponse:
+    topic = str(request.query_params.get("topic") or "news")
+
+    async def gen():
+        yield sse_pack(event="ready", data=f"{topic}:ready", id_="1")
+        await asyncio.sleep(0.02)
+        yield sse_pack(event="message", data=f"{topic}:item-1", id_="2")
+        await asyncio.sleep(0.02)
+        yield sse_pack(event="done", data=f"{topic}:done", id_="3")
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.get("/sse/alert")
+async def sse_alert(request: Request) -> StreamingResponse:
+    topic = str(request.query_params.get("topic") or "alert")
+
+    async def gen():
+        yield sse_pack(event="ready", data=f"{topic}:ready", id_="1")
+        await asyncio.sleep(0.02)
+        yield sse_pack(event="warning", data=f"{topic}:warning-1", id_="2")
+        await asyncio.sleep(0.02)
+        yield sse_pack(event="done", data=f"{topic}:done", id_="3")
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.post("/graphql")
+async def graphql(request: Request) -> JSONResponse:
+    body: dict[str, typing.Any] = await request.json()
+
+    query = str(body.get("query") or "")
+    variables = body.get("variables") or {}
+    operation_name = body.get("operationName") or body.get("operation_name")
+
+    if "GetUser" in query or operation_name == "GetUser":
+        return JSONResponse(
+            {
+                "data": {
+                    "mockUser": {
+                        "id": 123,
+                        "name": "Ace",
+                        "active": True
+                    }
+                },
+                "extensions": {
+                    "trace_id": "trace_user_001"
+                },
+                "meta": {
+                    "ok": True,
+                    "type": "graphql",
+                    "operation_name": operation_name,
+                    "variables": variables
+                }
+            },
+            status_code=200
+        )
+
+    if "GetProfile" in query or operation_name == "GetProfile":
+        return JSONResponse(
+            {
+                "data": {
+                    "mockProfile": {
+                        "level": 7,
+                        "score": 98
+                    }
+                },
+                "extensions": {
+                    "trace_id": "trace_profile_001"
+                },
+                "meta": {
+                    "ok": True,
+                    "type": "graphql",
+                    "operation_name": operation_name,
+                    "variables": variables
+                }
+            },
+            status_code=200
+        )
+
+    return JSONResponse(
+        {
+            "errors": [
+                {
+                    "message": "unknown query",
+                    "extensions": {"code": "UNKNOWN_QUERY"}
+                }
+            ]
+        },
+        status_code=200
+    )
+
+
+@app.get("/mock-image")
+async def mock_image():
+    return FileResponse(
+        path=IMG_FILE,
+        media_type="image/png",
+        filename="demo.png"
+    )
+
+
+@app.get("/mock-video")
+async def mock_video():
+    video_file = ASSET_DIR / "demo.mp4"
+    return FileResponse(
+        path=video_file,
+        media_type="video/mp4",
+        filename="demo.mp4"
+    )
+
+
+if __name__ == "__main__":
+    pass
+```
+
 启动
 ```
 uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
+
+---
+
+## ⭐️ 多媒体链路实战教学 (Media Playbook)
+**Mind** 的多媒体链路，不是“单个命令包装器”，而是把 **抽帧 / 关键帧 / 场景帧 / 裁剪 / 转码 / 音轨处理 / 本机播放** 串成可回放、可验证、可复用的工程流水线。  
+
+**适合做：**
+- 视频证据抽取
+- 回归素材预处理
+- 录屏二次加工
+- 音视频分离与重组
+- 关键片段导出
+- 多模态输入前处理
+
+### 多媒体链路能力总览
+当前媒体工具链主要覆盖两类能力：
+
+#### 1) 视频 / 音频处理
+- `ffmpeg_extract_snapshot`：按时间点抽单帧
+- `ffmpeg_extract_frames`：按 fps 导出图片序列
+- `ffmpeg_extract_keyframes`：抽关键帧
+- `ffmpeg_extract_scene`：按场景变化抽帧
+- `ffmpeg_trim_video`：按时间范围裁剪视频
+- `ffmpeg_scale_video`：缩放视频
+- `ffmpeg_convert_video`：重编码并调整帧率
+- `ffmpeg_concat_video`：拼接多个视频片段
+- `ffmpeg_remux_video`：仅换容器，不重编码
+- `ffmpeg_mute_video`：去音轨
+- `ffmpeg_probe_video`：探测视频信息
+- `ffmpeg_extract_audio`：抽取音轨
+- `ffmpeg_replace_audio`：替换视频音轨
+- `ffmpeg_convert_audio`：音频转格式 / 重采样 / 改声道
+
+#### 2) 音频播放
+- `audio_play`：本机播放指定音频文件，用于快速试听抽取或转换后的结果
+
+> 推荐心智模型：  
+> **先探测 → 再裁剪 / 抽帧 / 抽音轨 → 再转码 / 拼接 / 替换 → 最后播放验证。**
+
+### 单帧截图：按时间点抽取封面 / 证据图
+**适用于：**
+- 从录屏中抽取首页、关键状态页、错误页
+- 给报告生成封面图
+- 为多模态识别准备单帧输入
+
+运行命令
+```
+mind --fast "从 /path/to/demo.mp4 的第 3.5 秒抽取一张截图，并返回证据"
+```
+
+典型目标
+- 从指定时间点抽一张图
+- 输出为 png/jpg/webp
+- 自动落盘并回传结果附件
+
+### 图片序列：按固定帧率导出全量帧
+适用于：
+- 页面切换过程分析
+- 动画过程逐帧观察
+- 后续做视觉对比 / OCR / 帧级诊断
+
+运行命令
+```
+mind --fast "把 /path/to/demo.mp4 从第 0 秒开始按 2fps 导出图片序列，并返回输出目录"
+```
+
+典型目标
+- 指定 fps 抽帧
+- 支持起始时间 / 持续时长
+- 支持缩放输出尺寸
+
+### 关键帧提取：快速得到代表性画面
+适用于：
+- 长视频快速浏览
+- 自动化执行过程摘要
+- 生成报告缩略图集
+
+运行命令
+```
+mind --fast "从 /path/to/demo.mp4 提取关键帧，最多返回 8 张，并输出结果证据"
+```
+
+典型目标
+- 对整段视频做均匀采样 + 去重
+- 保留有限张高价值代表帧
+- 适合作为报告或回归对比素材
+
+### 场景变化抽帧：抓住真正变化瞬间
+适用于：
+- 页面跳转检测
+- 弹窗出现 / 消失分析
+- 业务流程阶段切换证据提取
+
+运行命令
+```
+mind --fast "从 /path/to/demo.mp4 按场景变化抽帧，阈值 0.35，最多保留 10 张"
+```
+
+典型目标
+- 仅抓取画面变化明显的帧
+- 比固定 fps 更聚焦关键变化
+- 适合流程节点识别与阶段报告
+
+### 视频裁剪：导出关键时间片段
+适用于：
+- 从整段录屏中裁出问题片段
+- 对长视频做前后截断
+- 给后续 Framix / 多模态 / 人工复盘提供精简输入
+
+运行命令
+```
+mind --fast "把 /path/to/demo.mp4 从第 12 秒裁到第 25 秒，并输出 mp4 片段"
+```
+
+典型目标
+- 指定 start_sec + end_sec 或 start_sec + duration_sec
+- 可选择 copy / reencode 两种模式
+
+建议：
+- 追求速度：copy
+- 追求边界精确：reencode
+
+### 视频缩放：统一分辨率 / 降低处理成本
+适用于：
+- 大视频下采样
+- 统一训练 / 推理输入尺寸
+- 降低多模态链路的处理开销
+
+运行命令
+```
+mind --fast "把 /path/to/demo.mp4 缩放到宽 720，高度等比，并输出新视频"
+```
+
+典型目标
+- 指定 scale_w / scale_h
+- 另一边自动等比
+- 可保留或移除音轨
+
+### 视频转码：统一编码与帧率
+适用于：
+- 不同来源录屏格式统一
+- 降低播放器兼容问题
+- 为后续分析链路准备标准输入
+
+运行命令
+```
+mind --fast "把 /path/to/demo.mov 转成 30fps 的 mp4，编码为 libx264，并返回结果"
+```
+
+典型目标
+- 调整 fps
+- 指定编码器 / crf / preset
+- 输出为标准 mp4 / mkv / mov / webm
+
+### 视频拼接：把多段录屏合并成一条证据链
+适用于：
+- 把多次录制的片段拼成完整复现视频
+- 把阶段性录屏合并为一条时间线
+- 输出统一交付件
+
+运行命令
+```
+mind --fast "根据 /path/to/list.txt 拼接多个视频片段，输出 mp4 文件"
+```
+
+list.txt 示例：
+```
+file '/abs/path/a.mp4'
+file '/abs/path/b.mp4'
+file '/abs/path/c.mp4'
+```
+
+典型目标
+- concat demuxer 拼接
+- 参数一致时可直接 copy
+- 参数不一致时可启用重编码
+
+### 仅换容器：快速封装转换
+适用于：
+- mkv ↔ mp4
+- mov → mp4
+- 不改编码，只改容器
+
+运行命令
+```
+mind --fast "把 /path/to/demo.mkv 仅换容器封装成 mp4，不重编码"
+```
+
+典型目标
+- 保持视频 / 音频流不变
+- 只做 remux
+- 速度快，适合兼容性修复
+
+### 去音轨：导出静音视频
+适用于：
+- 只关心画面，不关心声音
+- 去除隐私音频
+- 给视觉分析链路输入更干净的视频
+
+运行命令
+```
+mind --fast "把 /path/to/demo.mp4 去掉音轨并输出静音视频"
+```
+
+### 视频信息探测：先看清素材再决定怎么处理
+适用于：
+- 先确认时长 / 编码 / 分辨率 / 音轨信息
+- 为后续裁剪 / 转码 / 抽帧提供依据
+
+运行命令
+```
+mind --fast "探测 /path/to/demo.mp4 的视频信息，并返回时长与原始探测结果"
+```
+
+### 音轨抽取：从视频中单独导出音频
+适用于：
+- 语音识别前处理
+- 背景音乐提取
+- 音频质量检查
+
+运行命令
+```
+mind --fast "从 /path/to/demo.mp4 提取音轨为 mp3，并返回输出文件"
+```
+
+典型目标
+- 支持 mp3 / aac / wav / m4a / ogg / flac
+- 可直接作为音频链路输入
+
+### 替换音轨：保留画面，换一条新声音
+适用于：
+- 配音覆盖
+- 替换 BGM
+- 修复原音轨异常
+
+运行命令
+```
+mind --fast "用 /path/to/new_audio.m4a 替换 /path/to/demo.mp4 的音轨，并输出 mp4"
+```
+
+典型目标
+- 输入视频 + 输入音频
+- 保留画面
+- 生成新容器视频
+
+### 音频格式转换：统一采样率 / 声道 / 码率
+适用于：
+- 转 ASR 输入格式
+- 降低音频体积
+- 统一音频基线
+
+运行命令
+```
+mind --fast "把 /path/to/demo.wav 转成 16000Hz 单声道 mp3，并返回结果"
+```
+
+典型目标
+- 指定 sample_rate / channels / bitrate
+- 输出常见音频格式
+- 适合音频预处理与压缩
+
+### 音频试听：快速验证抽取 / 转换结果
+适用于：
+- 本机试听抽出的音轨
+- 验证替换后音轨是否正确
+- 检查音频是否损坏 / 静音 / 截断
+
+运行命令
+```
+mind --fast "播放 /path/to/demo.mp3，音量 0.8"
+```
+
+### 组合链路 01：录屏问题片段精简回放
+目标：
+- 先探测视频
+- 再裁出关键片段
+- 再抽关键帧
+- 最终给回归报告使用
+
+自然语言示例
+```
+mind --fast "先探测 /path/to/demo.mp4，再把第 15 秒到第 28 秒裁出来，然后从裁剪结果中提取关键帧，最多保留 6 张"
+```
+
+适用场景：
+- 自动化失败片段归档
+- 问题复现录像精简
+- 报告配图生成
+
+### 组合链路 02：视觉证据链预处理
+目标：
+- 缩放视频
+- 按场景变化抽帧
+- 只保留关键变化点
+
+自然语言示例
+```
+mind --fast "把 /path/to/demo.mp4 先缩放到宽 720，再按场景变化抽帧，最多返回 10 张结果图"
+```
+
+适用场景：
+- 多模态推理前处理
+- 页面切换诊断
+- 弹窗 / 阶段变化识别
+
+### 组合链路 03：音频分离与验证
+目标：
+- 从视频中抽音轨
+- 转成目标格式
+- 本机试听验证
+
+自然语言示例
+```
+mind --fast "从 /path/to/demo.mp4 提取音轨为 wav，再转成 16000Hz 单声道 mp3，最后播放结果文件"
+```
+
+适用场景：
+- 语音识别前处理
+- 音频链路验收
+- 输入素材标准化
+
+### 多媒体链路最佳实践
+#### 先 Probe，再加工
+推荐顺序：
+- `ffmpeg_probe_video`
+- `ffmpeg_trim_video`
+- `ffmpeg_extract_keyframes` / `ffmpeg_extract_scene`
+- `ffmpeg_convert_video` / `ffmpeg_scale_video`
+
+这样能避免盲裁、盲转、盲抽。
+
+#### 报告配图优先用关键帧 / 场景帧
+- 关键帧：适合摘要型展示
+- 场景帧：适合流程变化诊断
+- 固定 fps：适合详细时序分析
+
+#### 裁剪优先于抽帧
+长视频先 trim，再 extract，能显著降低：
+- 处理时延
+- 输出体积
+- 后续分析噪声
+
+#### 仅改容器时优先 remux
+如果只是播放器兼容问题，优先： `ffmpeg_remux_video`
+
+> 不要一上来就重编码。
+
+#### 试听链路适合做最终验收
+涉及音轨抽取、替换、转换时，最后接一次： `audio_play`
+
+> 能快速验证结果是否可用。
+
+### 星图蓝本多媒体任务
+``````
+```cfg
+repeat: 1
+stop_on_fail: true
+
+loop_prefix: |
+  [MediaLoop] 开始多媒体证据链处理：
+  - 先做素材探测
+  - 再做片段精简
+  - 然后抽取视觉证据
+  - 最后处理音轨并做本机验收
+
+loop_suffix: |
+  [MediaLoop] 整体链路完成：
+  - 检查输出目录、关键帧、场景帧、音频文件是否齐全
+  - 若产物完整，则本轮媒体处理通过
+
+global_rule: <<<
+【媒体链路统一验收规则】
+- 所有步骤必须返回 ok=true
+- 若是视频处理步骤，必须有 output_file 或 output_dir 证据
+- 若是抽帧步骤，必须返回 files / attachments / 输出目录之一
+- 若是音频链路，必须能落出目标音频文件
+- 若存在播放步骤，则以工具执行成功为准
+- 失败时优先看 probe / trim / extract / convert 的首个报错点
+>>>
+```
+
+# name: media_probe
+对 /Users/acekeppel/Movies/demo.mp4 做一次视频探测，确认时长、编码、分辨率与音轨信息。
+
+# rule: <<<
+# PASS 条件：
+# - 返回 ok == true
+# - 能拿到 duration_sec
+# - raw 探测结果不为空
+# >>>
+---
+
+# name: media_trim
+把 /Users/acekeppel/Movies/demo.mp4 从第 12 秒裁到第 28 秒，输出一个 mp4 片段，用于后续视觉分析。
+
+# rule: <<<
+# PASS 条件：
+# - 返回 ok == true
+# - 存在 output_file
+# - 输出格式为 mp4
+# - 裁剪结果可作为后续步骤输入
+# >>>
+---
+
+# name: media_scene_frames
+对上一步裁出的片段执行场景变化抽帧，阈值 0.30，最多保留 10 张，宽度缩放到 720。
+
+# rule: <<<
+# PASS 条件：
+# - 返回 ok == true
+# - 存在 output_dir 或 files
+# - 场景帧数量 > 0
+# - 输出图片格式有效
+# >>>
+---
+
+# name: media_keyframes
+对上一步裁出的片段执行关键帧提取，最多返回 6 张图片，作为报告摘要图集。
+
+# rule: <<<
+# PASS 条件：
+# - 返回 ok == true
+# - 关键帧数量 > 0
+# - 至少存在 1 张可用图片证据
+# >>>
+---
+
+# name: media_extract_audio
+从裁剪后的视频片段中抽取音轨，输出为 wav。
+
+# rule: <<<
+# PASS 条件：
+# - 返回 ok == true
+# - 存在 output_file
+# - 输出后缀为 wav
+# >>>
+---
+
+# name: media_convert_audio
+将上一步抽出的 wav 转为 16000Hz、单声道、mp3，用于后续 ASR / 试听。
+
+# rule: <<<
+# PASS 条件：
+# - 返回 ok == true
+# - 存在 output_file
+# - 输出后缀为 mp3
+# - 若返回采样率/声道信息，应符合 16000Hz / mono
+# >>>
+---
+
+# name: media_audio_play
+播放上一步转换后的 mp3，音量 0.8，做一次本机试听验收。
+
+# rule: <<<
+# PASS 条件：
+# - 返回 ok == true
+# - 工具执行成功
+# - 无显式错误信息
+# >>>
+---
+``````
 
 ---
 
@@ -2130,7 +3870,7 @@ uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 我们欢迎对 Mind 生态的任何形式贡献：新增工具域能力、修复缺陷、补充文档、优化可观测性与工程稳定性。
 
 ### 贡献范围
-- **新工具 / 新能力**：按域注册（`automator / bench/ common / media `），补齐文档与示例
+- **新工具 / 新能力**：按域注册，补齐文档与示例
 - **稳定性与可靠性**：超时/回收/错误边界/重试策略/证据链完备性
 - **可观测性**：日志结构化、链路标识（cid/sid）、指标与报告落盘规范
 - **文档与示例**：README、最佳实践、业务接入模板、常见问题（FAQ）
@@ -2139,11 +3879,11 @@ uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 - **执行优先**：任何能力必须可落地、可复现，避免“只看起来能用”
 - **证据链优先**：新增能力必须产出可追踪证据（日志/媒体/指标/计划）
 - **域隔离优先**：工具必须归属明确的 domain/class，不把能力写成“万能函数”
-- **不破坏稳定性**：任何改动必须保持 CLI 行为兼容（尤其是 `plan` 的确定性链路）
+- **保持稳定性**：任何改动必须保持 CLI 行为兼容
 
 ### 提交流程
 1. Fork & 新建分支：`feat/<name>` 或 `fix/<name>`
-2. 本地自测：覆盖 `chat/fast/plan` 与 REPL（mind_loop）关键路径
+2. 本地自测：覆盖 `chat/fast/plan` 与 REPL 关键路径
 3. 更新文档：新增/变更能力需同步 README
 4. 提交 PR：描述动机、设计、影响范围与回滚策略
 
