@@ -155,7 +155,7 @@ class Enhancer(object):
                     if event.get("type") == "error":
                         per_device[agent_id] = {"ok": False, "message": message, "error": event}
                         continue
-                    chunks.append(chunk := str(event.get("content") or "").strip())
+                    chunks.append(chunk := event["content"])
                     if slog:
                         await slog.feed(chunk)
 
