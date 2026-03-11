@@ -86,7 +86,7 @@ async def streaming(
 
 
 async def post_stream_event(
-    mode: typing.Literal["chat", "fast", "plan"],
+    mode: typing.Literal["chat", "plan"],
     cid: str,
     sid: str,
     event: dict[str, typing.Any],
@@ -333,7 +333,7 @@ class EventReport(object):
 
     def __init__(
         self,
-        mode: typing.Literal["chat", "fast", "plan"],
+        mode: typing.Literal["chat", "plan"],
         cid: str,
         sid: str
     ):
