@@ -391,102 +391,6 @@ class Mind(object):
         await finish("done")
         await slog.stop()
 
-    # workflow: ==== Fast 性能模式 ====
-    async def fast_exec_looper(
-        self,
-        session: ClientSession,
-        model_api: dict[str, typing.Any],
-        message: str,
-        openai_tools: list[dict[str, typing.Any]],
-        domains: dict[str, dict[str, typing.Any]],
-        *_,
-        **kwargs
-    ) -> None:
-        """Fast Exec Looper"""
-
-        mode: str = "fast"
-
-        ft = Tooling.filter_tools(
-            openai_tools=openai_tools,
-            tool_meta=domains,
-            domains={"bench", "common", "media"},
-            exclude=[
-                {"domain": "common", "class": "inspect", "name": "free_rule"},
-                {"domain": "media", "class": "scrcpy"}
-            ]
-        )
-
-        ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
-
-        async def finish(phase: str, **extra) -> None:
-            """统一收尾：先 emit，再 flush（确保返回前事件到达服务端）"""
-            if not ev_report: return None
-            ev_report.emit({
-                "type"  : "lifecycle",
-                "scope" : "fast",
-                "phase" : phase,
-                "ts"    : time.time(),
-                **extra
-            })
-            await ev_report.flush()
-
-        slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
-        await slog.open()
-
-        # workflow: ==== Fast Streaming ====
-        try:
-            async for chat in request.stream_chat(mode, model_api, message, ft, slog=slog, **kwargs):
-                await self.stop_stream_anim()
-                await slog.start()
-
-                match chat.get("type"):
-                    case "error":
-                        await slog.feed(chat.get("content"))
-                        await finish("fail", error=chat.get("content"))
-                        return await slog.stop()
-
-                    case "chat":
-                        await slog.feed(chat.get("content"))
-                        continue
-
-                    case "tool_call":
-                        name, arguments = chat["name"], chat.get("arguments", {})
-
-                        await slog.feed(f"\n{name} {arguments}\n")
-
-                        # workflow: ==== 参数增强 ====
-                        arguments = Enhancer.exchange(name, arguments, self.report)
-
-                        # workflow: ==== 工具调用 ====
-                        result = await session.call_tool(name, arguments)
-                        ok = (not result.isError)
-
-                        # workflow: ==== 工具增强 ====
-                        enhancer: Enhancer = Enhancer(session, mode, model_api, kwargs.get("metadata"))
-                        fields = await enhancer.enhance(name, arguments, result, ok, slog)
-
-                        await slog.feed(f"\n{fields.get('text')}\n")
-
-                        await request.post_tool_result(
-                            chat["cid"], chat["sid"], chat["call_id"], name, ok, fields
-                        )
-                        continue
-
-                    case "tool_result":
-                        await slog.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
-                        continue
-
-                    case _:
-                        continue
-
-        except Exception as e:
-            await slog.feed(str(e))
-            await finish("fail", error=f"{type(e).__name__}: {e}")
-            return await slog.stop()
-
-        await finish("done")
-        await slog.stop()
-
     # workflow: ==== Plan 编排模式 ====
     async def plan_exec_looper(
         self,
@@ -722,22 +626,6 @@ class Mind(object):
 
         return await self.with_mcp_session(model_api, function)
 
-    # Notes: ==== Fast 性能模式 ====
-    async def mind_fast(self, model_api: dict[str, typing.Any], message: str, *_, **kwargs) -> None:
-        """Mind Fast"""
-
-        async def function(
-            session: ClientSession,
-            openai_tools: list[dict[str, typing.Any]],
-            domains: dict[str, dict[str, typing.Any]]
-        ) -> None:
-            """Function"""
-            await self.fast_exec_looper(
-                session, model_api, message, openai_tools, domains, **kwargs
-            )
-
-        return await self.with_mcp_session(model_api, function)
-
     # Notes: ==== Plan 编排模式 ====
     async def mind_plan(self, model_api: dict[str, typing.Any], message: str, *_, **kwargs) -> None:
         """Mind Plan"""
@@ -805,7 +693,6 @@ class Mind(object):
         [bold #AFD7FF]/apikey <key>[/]             凭证更新（替换访问密钥）
         [bold #AFD7FF]/again N <goal>[/]           复现回放（目标 × N 次）
         [bold #FFD75F]/chat[/]                     对话模式（自由对话）
-        [bold #FFD75F]/fast[/]                     性能模式（压测采集）
         [bold #FFD75F]/plan[/]                     编排模式（工具执行）
         [/]"""
 
@@ -813,21 +700,12 @@ class Mind(object):
         re_model  = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
         re_apikey = re.compile(r"^\s*/apikey(?:\s+(.*))?\s*$", re.IGNORECASE)
 
-        tag: typing.Literal["CHAT", "FAST", "PLAN"] = "CHAT"
+        tag: typing.Literal["CHAT", "PLAN"] = "CHAT"
 
         theme = {
             "CHAT": {
                 "banner"   : "╔═⟦ 𝑪𝒉𝒂𝒕 ⟧═╗",
                 "prompt"   : "│ 〉Chat",
-                "tag"      : "#FF87D7",
-                "prompt_c" : "#FFD75F",
-                "model"    : "#FFAF5F",
-                "ready"    : "#D7AFFF",
-                "hint"     : "#FF87D7"
-            },
-            "FAST": {
-                "banner"   : "╔═⟦ 𝑭𝒂𝒔𝒕 ⟧═╗",
-                "prompt"   : "│ 〉Fast",
                 "tag"      : "#FFAF00",
                 "prompt_c" : "#FFD75F",
                 "model"    : "#FFAF00",
@@ -880,11 +758,6 @@ class Mind(object):
                 Design.console.print(f"[bold {theme['CHAT']['hint']}]Exchange → Chat[/]")
                 continue
 
-            if raw.lower() == "/fast":
-                tag = "FAST"
-                Design.console.print(f"[bold {theme['FAST']['hint']}]Exchange → Fast[/]")
-                continue
-
             if raw.lower() == "/plan":
                 tag = "PLAN"
                 Design.console.print(f"[bold {theme['PLAN']['hint']}]Exchange → Plan[/]")
@@ -907,7 +780,6 @@ class Mind(object):
 
             match tag:
                 case "CHAT": func = self.mind_chat
-                case "FAST": func = self.mind_fast
                 case "PLAN": func = self.mind_plan
 
             mc = self.pref.to_config(model=model, apikey=apikey)
@@ -919,7 +791,7 @@ class Mind(object):
         self,
         file: str,
         func: typing.Callable,
-        mode: typing.Literal["chat", "fast", "plan"],
+        mode: typing.Literal["chat", "plan"],
         *_,
         **kwargs
     ) -> None:
@@ -1391,7 +1263,7 @@ async def main() -> None:
     await server.close()
 
     positions = (
-        cmd_lines.chat, cmd_lines.plan, cmd_lines.fast,
+        cmd_lines.chat, cmd_lines.plan,
         cmd_lines.gravity, cmd_lines.reflection, cmd_lines.file
     )
     keywords = {
@@ -1409,15 +1281,10 @@ async def main() -> None:
         await mind.calling(message=chat, func=mind.mind_chat)
     elif plan := cmd_lines.plan:
         await mind.calling(message=plan, func=mind.mind_plan)
-    elif fast := cmd_lines.fast:
-        await mind.calling(message=fast, func=mind.mind_fast)
     elif file := cmd_lines.file:
         if cmd_lines.chat is not None:
             func = mind.chat_exec_looper
             mode: typing.Literal["chat"] = "chat"
-        elif cmd_lines.fast is not None:
-            func = mind.fast_exec_looper
-            mode: typing.Literal["fast"] = "fast"
         else:
             func = mind.plan_exec_looper
             mode: typing.Literal["plan"] = "plan"
