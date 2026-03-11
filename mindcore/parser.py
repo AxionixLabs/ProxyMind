@@ -67,7 +67,7 @@ class Parser(object):
         major_group.add_argument(
             "--upgrade", action="store_true",
             help=textwrap.dedent(f'''\
-                \033[1;34m^* 奇点协议 *^\033[0m
+                \033[1;34m^* 边界协议 *^\033[0m
                 -------------------------
                 - 更新/同步 MCP 服务（服务端组件），一键拉取并覆盖安装。
 
@@ -80,16 +80,6 @@ class Parser(object):
                 \033[1;34m^* 潮汐协议 *^\033[0m
                 -------------------------
                 - 启用流式下发通道，持续输出对话内容。
-
-            ''')
-        )
-
-        major_group.add_argument(
-            "--fast", nargs="?", const="", default=None,
-            help=textwrap.dedent(f'''\
-                \033[1;34m^* 边界协议 *^\033[0m
-                -------------------------
-                - 启用性能压测与指标采集通道，用于探测系统性能边界。
 
             ''')
         )
