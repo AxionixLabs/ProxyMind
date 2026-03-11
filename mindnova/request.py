@@ -315,7 +315,7 @@ async def stream_rule(
         "model_api" : model_api,
         "message"   : message,
         "metadata"  : metadata,
-        "extras"    : context
+        "extras"    : {"context" : context}
     }
 
     async for event in streaming(url, headers, payload, timeout):
