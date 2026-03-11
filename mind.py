@@ -521,6 +521,7 @@ class Mind(object):
                     # workflow: ==== 参数增强 ====
                     arguments = Enhancer.exchange(name, arguments, self.report)
                     if name == "free_rule":
+                        Design.console.print()
                         arguments = {
                             **arguments,
                             "context": {
