@@ -1179,10 +1179,15 @@ class Nexus(object):
                                                 ]
                                             },
                                             "response": {
-                                                "status"     : status,
-                                                "headers"    : dict(resp.headers),
-                                                "elapsed_ms" : elapsed_ms,
-                                                "events"     : events
+                                                "status"         : status,
+                                                "headers"        : dict(resp.headers),
+                                                "elapsed_ms"     : elapsed_ms,
+                                                "events"         : events,
+                                                "content_type"   : str(resp.headers.get("content-type") or ""),
+                                                "content_length" : None,
+                                                "body_text"      : None,
+                                                "body_json"      : None,
+                                                "media"          : media_list
                                             }
                                         },
                                         "logs": []
@@ -1319,7 +1324,7 @@ class Nexus(object):
                     "headers"        : {},
                     "elapsed_ms"     : elapsed_ms,
                     "events"         : [],
-                    "content_type"   : str(resp.headers.get("content-type") or ""),
+                    "content_type"   : None,
                     "content_length" : None,
                     "body_text"      : None,
                     "body_json"      : None,
@@ -1550,6 +1555,8 @@ class Nexus(object):
         }
         data["ok"] = gql_ok
 
+        pack["data"] = data
+
         if gql_ok:
             pack["text"] = (
                 f"GQL POST {Tools.url_join(base_url, url)} "
@@ -1705,7 +1712,7 @@ class Nexus(object):
                             "asserts"        : data.get("asserts"),
                             "assert_summary" : data.get("assert_summary"),
                             "assert_ok"      : data.get("assert_ok"),
-                            "attachments"    : data.get("attachments")
+                            "attachments"    : pack.get("attachments")
                         }
                     )
 
@@ -1745,7 +1752,7 @@ class Nexus(object):
                             "asserts"        : data.get("asserts"),
                             "assert_summary" : data.get("assert_summary"),
                             "assert_ok"      : data.get("assert_ok"),
-                            "attachments"    : data.get("attachments")
+                            "attachments"    : pack.get("attachments")
                         }
                     )
 
@@ -1781,7 +1788,7 @@ class Nexus(object):
                             "asserts"        : data.get("asserts"),
                             "assert_summary" : data.get("assert_summary"),
                             "assert_ok"      : data.get("assert_ok"),
-                            "attachments"    : data.get("attachments")
+                            "attachments"    : pack.get("attachments")
                         }
                     )
 
@@ -1820,7 +1827,7 @@ class Nexus(object):
                         "asserts"        : data.get("asserts"),
                         "assert_summary" : data.get("assert_summary"),
                         "assert_ok"      : data.get("assert_ok"),
-                        "attachments"    : data.get("attachments")
+                        "attachments"    : pack.get("attachments")
                     }
                 )
 
@@ -1863,10 +1870,13 @@ class Nexus(object):
         self.runs[mission_id] = rec
 
         text = f"kind={kind} total={len(step_results)} mission_id={mission_id}"
+        all_attachments: list[dict[str, typing.Any]] = []
+        for s in step_results:
+            all_attachments.extend((s.detail or {}).get("attachments") or [])
 
         return {
             "text"        : text,
-            "attachments" : [(s.detail or {}).get("attachments") or [] for s in step_results],
+            "attachments" : all_attachments,
             "data": {
                 "ok"         : ok_run,
                 "mission_id" : mission_id,
