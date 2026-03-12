@@ -755,7 +755,7 @@ class Nexus(object):
                 "name": payload.get("name"),
                 "request": {
                     k: v for k, v in dict(payload).items()
-                    if k not in {"name", "extract", "asserts", "items", "env", "vars", "options"}
+                    if k not in {"name", "prepare", "extract", "asserts", "items", "env", "vars", "options"}
                 },
                 "extract": payload.get("extract"),
                 "asserts": payload.get("asserts")
