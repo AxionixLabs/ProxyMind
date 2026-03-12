@@ -12,6 +12,7 @@ import json
 import time
 import uuid
 import httpx
+import base64
 import typing
 import asyncio
 import operator
@@ -195,13 +196,7 @@ class Evaluation(object):
         return walk(node)
 
 
-class Nexus(object):
-    """Nexus class."""
-
-    agent_id: str = "nexus"
-
-    def __init__(self):
-        self.runs: dict[str, RunRecord] = {}
+class Tools(object):
 
     @staticmethod
     def ms_now() -> int:
@@ -237,10 +232,10 @@ class Nexus(object):
             return Evaluation.EXPR_RE.sub(repl, x)
 
         if isinstance(x, list):
-            return [Nexus.template(i, ctx) for i in x]
+            return [Tools.template(i, ctx) for i in x]
 
         if isinstance(x, dict):
-            return {k: Nexus.template(v, ctx) for k, v in x.items()}
+            return {k: Tools.template(v, ctx) for k, v in x.items()}
 
         return x
 
@@ -304,7 +299,7 @@ class Nexus(object):
     @staticmethod
     def safe_pick(data: typing.Any, path: str) -> tuple[bool, typing.Any]:
         try:
-            return True, Nexus.pick(data, path)
+            return True, Tools.pick(data, path)
         except Exception as e:
             return False, f"{type(e).__name__}: {e}"
 
@@ -363,7 +358,7 @@ class Nexus(object):
         extracted: dict[str, typing.Any] = {}
 
         for alias, path in extract.items():
-            ok_pick, value = Nexus.safe_pick(source, str(path))
+            ok_pick, value = Tools.safe_pick(source, str(path))
             if ok_pick:
                 extracted[alias] = value
             else:
@@ -381,7 +376,7 @@ class Nexus(object):
             op = str(rule.get("op") or "eq").strip().lower()
             expected = rule.get("value")
 
-            ok_pick, actual = Nexus.safe_pick(source, path)
+            ok_pick, actual = Tools.safe_pick(source, path)
 
             if op == "exists":
                 passed = bool(ok_pick)
@@ -406,7 +401,7 @@ class Nexus(object):
                     }
                 else:
                     try:
-                        passed = Nexus.compare(actual, op, expected)
+                        passed = Tools.compare(actual, op, expected)
                         result = {
                             "path"     : path,
                             "op"       : op,
@@ -489,7 +484,6 @@ class Nexus(object):
     @staticmethod
     def detect_media_kind(content_type: str) -> typing.Optional[str]:
         ct = str(content_type or "").split(";")[0].strip().lower()
-
         if ct.startswith("image/"):
             return "image"
         if ct.startswith("video/"):
@@ -497,7 +491,7 @@ class Nexus(object):
         return None
 
     @staticmethod
-    def media_suffix(content_type: str) -> str:
+    def media_suffix(content_type: str, fallback_kind: str | None = None) -> str:
         ct = str(content_type or "").split(";")[0].strip().lower()
 
         mapping = {
@@ -506,20 +500,24 @@ class Nexus(object):
             "image/jpg": ".jpg",
             "image/webp": ".webp",
             "image/gif": ".gif",
+            "image/bmp": ".bmp",
             "video/mp4": ".mp4",
             "video/webm": ".webm",
             "video/quicktime": ".mov",
             "video/x-matroska": ".mkv",
+            "video/ogg": ".ogv",
         }
-        return mapping.get(ct, ".bin")
+        if ct in mapping:
+            return mapping[ct]
+
+        if fallback_kind == "image":
+            return ".png"
+        if fallback_kind == "video":
+            return ".mp4"
+        return ".bin"
 
     @staticmethod
     def mk_out_dir(output_dir: str, tool: str) -> Path:
-        """
-        每次调用创建一个独立 out 目录：避免并发覆盖。
-        output_dir: 用户传入的根目录（已确保是目录）
-        tool:       工具名（用于分类）
-        """
         base_dir = Path(output_dir or ".").expanduser().resolve()
         base_dir.mkdir(parents=True, exist_ok=True)
 
@@ -527,6 +525,300 @@ class Nexus(object):
         out_dir = base_dir / "nexus" / tool / tag
         out_dir.mkdir(parents=True, exist_ok=True)
         return out_dir
+
+    @staticmethod
+    def parse_data_url(value: str) -> tuple[str, bytes] | None:
+        if not isinstance(value, str):
+            return None
+        if not value.startswith("data:"):
+            return None
+
+        m = re.match(r"^data:([^;,]+)?(;base64)?,(.*)$", value, re.I | re.S)
+        if not m:
+            return None
+
+        mime_type = (m.group(1) or "application/octet-stream").strip().lower()
+        is_b64 = bool(m.group(2))
+        raw = m.group(3)
+
+        try:
+            if is_b64:
+                data = base64.b64decode(raw, validate=False)
+            else:
+                data = raw.encode(const.CHARSET)
+            return mime_type, data
+        except Exception:
+            return None
+
+    @staticmethod
+    def parse_base64_blob(value: str) -> tuple[str | None, bytes] | None:
+        if not isinstance(value, str):
+            return None
+
+        s = value.strip()
+        if not s:
+            return None
+
+        # 避免把普通短文本误判成 base64
+        if len(s) < 32:
+            return None
+
+        # 排除 URL / data_url
+        if s.startswith(("http://", "https://", "data:")):
+            return None
+
+        try:
+            data = base64.b64decode(s, validate=False)
+        except Exception:
+            return None
+
+        if not data:
+            return None
+
+        return None, data
+
+    @staticmethod
+    def guess_mime_from_bytes(data: bytes, fallback_kind: str | None = None) -> str | None:
+        if not data:
+            return None
+
+        if data.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png"
+        if data.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg"
+        if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
+            return "image/gif"
+        if data.startswith(b"RIFF") and b"WEBP" in data[:16]:
+            return "image/webp"
+        if len(data) >= 12 and data[4:8] == b"ftyp":
+            return "video/mp4"
+
+        return "image/png" if fallback_kind == "image" else None
+
+    @staticmethod
+    def detect_media_ref(value: typing.Any) -> dict[str, typing.Any] | None:
+        if value is None:
+            return None
+
+        # 1) 直接字符串
+        if isinstance(value, str):
+            s = value.strip()
+
+            if s.startswith(("http://", "https://")):
+                return {
+                    "source": "url",
+                    "url": s,
+                    "mime_type": None,
+                    "data": None,
+                    "kind": None,
+                }
+
+            if parsed := Tools.parse_data_url(s):
+                mime_type, data = parsed
+                return {
+                    "source": "data_url",
+                    "url": None,
+                    "mime_type": mime_type,
+                    "data": data,
+                    "kind": Tools.detect_media_kind(mime_type),
+                }
+
+            if parsed := Tools.parse_base64_blob(s):
+                mime_type, data = parsed
+                mime_type = mime_type or Tools.guess_mime_from_bytes(data)
+                return {
+                    "source"    : "base64",
+                    "url"       : None,
+                    "mime_type" : mime_type,
+                    "data"      : data,
+                    "kind"      : Tools.detect_media_kind(mime_type or "")
+                }
+
+            return None
+
+        # 2) dict 结构
+        if isinstance(value, dict):
+            for key in ("url", "src", "href"):
+                if isinstance(value.get(key), str):
+                    ref = Tools.detect_media_ref(value[key])
+                    if ref:
+                        return ref | {"source": "json_path"}
+
+            for key in ("data_url", "dataUrl"):
+                if isinstance(value.get(key), str):
+                    ref = Tools.detect_media_ref(value[key])
+                    if ref:
+                        return ref | {"source": "json_path"}
+
+            for key in ("base64", "content", "data"):
+                if isinstance(value.get(key), str):
+                    ref = Tools.detect_media_ref(value[key])
+                    if ref:
+                        return ref | {"source": "json_path"}
+
+        return None
+
+    @staticmethod
+    async def materialize_media_ref(
+        *,
+        ref: dict[str, typing.Any],
+        save_dir: str,
+        tool: str,
+        default_name: str = "media",
+        timeout: float = 30.0,
+    ) -> tuple[dict[str, typing.Any], dict[str, typing.Any]]:
+        source = str(ref.get("source") or "unknown")
+        url = ref.get("url")
+        mime_type = ref.get("mime_type")
+        data = ref.get("data")
+        kind = ref.get("kind") or Tools.detect_media_kind(mime_type or "")
+
+        if url:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                resp = await client.get(str(url))
+                resp.raise_for_status()
+                data = resp.content
+                mime_type = str(resp.headers.get("content-type") or mime_type or "").split(";")[0].strip()
+                kind = kind or Tools.detect_media_kind(mime_type)
+
+        if not isinstance(data, (bytes, bytearray)) or not data:
+            raise ValueError("empty media data")
+
+        if not mime_type:
+            mime_type = Tools.guess_mime_from_bytes(bytes(data), fallback_kind=kind)
+
+        kind = kind or Tools.detect_media_kind(mime_type or "")
+        if kind not in {"image", "video"}:
+            raise ValueError(f"unsupported media kind: mime={mime_type!r}")
+
+        out_dir = Tools.mk_out_dir(save_dir, tool)
+        ext = Tools.media_suffix(mime_type or "", fallback_kind=kind)
+        filename = f"{default_name}{ext}"
+        out_file = out_dir / filename
+        out_file.write_bytes(bytes(data))
+
+        media_info = {
+            "kind"      : kind,
+            "source"    : source,
+            "path"      : str(out_file),
+            "filename"  : filename,
+            "mime_type" : mime_type,
+            "size"      : len(data)
+        }
+
+        attachment = {
+            "kind"      : kind,
+            "path"      : str(out_file),
+            "filename"  : filename,
+            "mime_type" : mime_type,
+            "size"      : len(data),
+            "source"    : source
+        }
+        return media_info, attachment
+
+    @staticmethod
+    async def collect_media(
+        *,
+        source_kind: str,
+        source: typing.Any,
+        content_type: str | None = None,
+        media_path: str | None = None,
+        media_index: int | None = None,
+        save_response: bool = False,
+        save_dir: str | None = None,
+        tool: str = "media",
+        timeout: float = 30.0,
+    ) -> tuple[list[dict[str, typing.Any]], list[dict[str, typing.Any]], list[str]]:
+        media_list: list[dict[str, typing.Any]] = []
+        attachments: list[dict[str, typing.Any]] = []
+        logs: list[str] = []
+
+        try:
+            # A. HTTP body 本身就是媒体
+            if source_kind == "http_body":
+                kind = Tools.detect_media_kind(content_type or "")
+                if kind and isinstance(source, (bytes, bytearray)):
+                    if save_response:
+                        ref = {
+                            "source": "response_body",
+                            "url": None,
+                            "mime_type": str(content_type or "").split(";")[0].strip(),
+                            "data": bytes(source),
+                            "kind": kind,
+                        }
+                        media_info, attachment = await Tools.materialize_media_ref(
+                            ref=ref,
+                            save_dir=save_dir or "./downloads",
+                            tool=tool,
+                            default_name=kind,
+                            timeout=timeout,
+                        )
+                        media_list.append(media_info)
+                        attachments.append(attachment)
+                    else:
+                        media_list.append({
+                            "kind"      : kind,
+                            "source"    : "response_body",
+                            "path"      : None,
+                            "filename"  : None,
+                            "mime_type" : str(content_type or "").split(";")[0].strip(),
+                            "size"      : len(source),
+                        })
+                return media_list, attachments, logs
+
+            # B. JSON / dict / list / SSE / WS 路径提取
+            target = source
+
+            if source_kind in {"sse_events", "ws_messages"}:
+                if media_index is not None and isinstance(target, list):
+                    target = target[int(media_index)]
+                elif isinstance(target, list) and target:
+                    target = target[0]
+
+            if media_path:
+                ok_pick, value = Tools.safe_pick(target, media_path)
+                if not ok_pick:
+                    logs.append(f"media_path[{media_path}] -> {value}")
+                    return media_list, attachments, logs
+                target = value
+
+            ref = Tools.detect_media_ref(target)
+            if not ref:
+                return media_list, attachments, logs
+
+            if save_response:
+                media_info, attachment = await Tools.materialize_media_ref(
+                    ref=ref,
+                    save_dir=save_dir or "./downloads",
+                    tool=tool,
+                    default_name="media",
+                    timeout=timeout,
+                )
+                media_list.append(media_info)
+                attachments.append(attachment)
+            else:
+                media_list.append({
+                    "kind"      : ref.get("kind"),
+                    "source"    : ref.get("source"),
+                    "path"      : None,
+                    "filename"  : None,
+                    "mime_type" : ref.get("mime_type"),
+                    "size"      : (len(ref["data"]) if isinstance(ref.get("data"), (bytes, bytearray)) else None)
+                })
+
+        except Exception as e:
+            logs.append(f"collect_media[{source_kind}] -> {type(e).__name__}: {e}")
+
+        return media_list, attachments, logs
+
+
+class Nexus(object):
+    """Nexus class."""
+
+    agent_id: str = "nexus"
+
+    def __init__(self):
+        self.runs: dict[str, RunRecord] = {}
 
     @staticmethod
     async def request(
@@ -550,7 +842,7 @@ class Nexus(object):
     ) -> dict[str, typing.Any]:
 
         method  = (method or "GET").upper()
-        url     = Nexus.url_join(base_url, url)
+        url     = Tools.url_join(base_url, url)
         headers = dict(headers or {})
 
         t0 = time.perf_counter()
@@ -559,7 +851,7 @@ class Nexus(object):
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=follow_redirects) as client:
             for _ in range(max(0, int(retries)) + 1):
                 try:
-                    files_payload = Nexus.files_payload(files)
+                    files_payload = Tools.files_payload(files)
 
                     resp = await client.request(
                         method,
@@ -571,62 +863,35 @@ class Nexus(object):
                         data=form,
                         files=files_payload
                     )
-                    elapsed_ms = Nexus.ms_since(t0)
+                    elapsed_ms = Tools.ms_since(t0)
 
-                    resp_ct    = str(resp.headers.get("content-type") or "")
-                    media_kind = Nexus.detect_media_kind(resp_ct)
+                    resp_ct = str(resp.headers.get("content-type") or "")
                     body_bytes = resp.content
-                    media_info = None
-                    attachments: list[dict[str, typing.Any]] = []
 
-                    if media_kind:
+                    try:
+                        body_json = resp.json()
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        body_json = None
+
+                    try:
+                        body_text_view = resp.text
+                    except (TypeError, ValueError, AttributeError):
+                        body_text_view = None
+
+                    # 如果 body 本身就是 image/video，则不保留 body_text/body_json
+                    if Tools.detect_media_kind(resp_ct):
                         body_json = None
                         body_text_view = None
-                    else:
-                        try:
-                            body_json = resp.json()
-                        except (TypeError, ValueError, json.JSONDecodeError):
-                            body_json = None
 
-                        try:
-                            body_text_view = resp.text
-                        except (TypeError, ValueError, AttributeError):
-                            body_text_view = None
-
-                    if media_kind and save_response:
-                        out_dir = Nexus.mk_out_dir(save_dir, "http_media")
-
-                        ext = Nexus.media_suffix(resp_ct)
-                        filename = f"{media_kind}{ext}"
-                        out_file = out_dir / filename
-                        out_file.write_bytes(body_bytes)
-
-                        media_info = {
-                            "kind"      : media_kind,
-                            "path"      : str(out_file),
-                            "filename"  : filename,
-                            "mime_type" : resp_ct.split(";")[0].strip(),
-                            "size"      : len(body_bytes),
-                            "source"    : "response_body"
-                        }
-
-                        attachments.append({
-                            "kind"      : media_kind,
-                            "path"      : str(out_file),
-                            "filename"  : filename,
-                            "mime_type" : resp_ct.split(";")[0].strip(),
-                            "size"      : len(body_bytes),
-                            "source"    : "response_body"
-                        })
-                    elif media_kind:
-                        media_info = {
-                            "kind"      : media_kind,
-                            "path"      : None,
-                            "filename"  : None,
-                            "mime_type" : resp_ct.split(";")[0].strip(),
-                            "size"      : len(body_bytes),
-                            "source"    : "response_body"
-                        }
+                    media_list, attachments, media_logs = await Tools.collect_media(
+                        source_kind="http_body",
+                        source=body_bytes,
+                        content_type=resp_ct,
+                        save_response=save_response,
+                        save_dir=save_dir,
+                        tool="http_media",
+                        timeout=timeout
+                    )
 
                     ok = 200 <= int(resp.status_code) < 400
 
@@ -664,13 +929,13 @@ class Nexus(object):
                                 "body_json"      : body_json,
                                 "content_type"   : resp_ct,
                                 "content_length" : len(body_bytes),
-                                "media"          : media_info
+                                "media"          : media_list
                             }
                         },
                         "logs": []
                     }
 
-                    checked = Nexus.apply_extract_assert(
+                    checked = Tools.apply_extract_assert(
                         pack["data"], extract=extract, asserts=asserts
                     )
 
@@ -692,7 +957,7 @@ class Nexus(object):
                 except (httpx.TimeoutException, httpx.RequestError, OSError) as e:
                     last_err = f"{type(e).__name__}: {e}"
 
-        elapsed_ms = Nexus.ms_since(t0)
+        elapsed_ms = Tools.ms_since(t0)
 
         pack = {
             "text"        : f"{method} {url} -> ERROR ({elapsed_ms}ms) {last_err}",
@@ -735,7 +1000,7 @@ class Nexus(object):
             "logs": []
         }
 
-        checked = Nexus.apply_extract_assert(
+        checked = Tools.apply_extract_assert(
             pack["data"], extract=extract, asserts=asserts
         )
 
@@ -771,11 +1036,15 @@ class Nexus(object):
         follow_redirects: bool = True,
         max_events: typing.Optional[int] = None,
         extract: typing.Optional[dict[str, str]] = None,
-        asserts: typing.Optional[list[dict[str, typing.Any]]] = None
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        media_index: typing.Optional[int] = None,
+        media_path: typing.Optional[str] = None,
+        save_response: bool = False,
+        save_dir: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
 
         method  = (method or "GET").upper()
-        url     = Nexus.url_join(base_url, url)
+        url     = Tools.url_join(base_url, url)
         headers = dict(headers or {})
 
         t0 = time.perf_counter()
@@ -784,7 +1053,7 @@ class Nexus(object):
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=follow_redirects) as client:
             for _ in range(max(0, int(retries)) + 1):
                 try:
-                    files_payload = Nexus.files_payload(files)
+                    files_payload = Tools.files_payload(files)
 
                     events: list[dict[str, typing.Any]] = []
                     status: typing.Optional[int] = None
@@ -801,7 +1070,7 @@ class Nexus(object):
                     ) as resp:
 
                         status     = resp.status_code
-                        elapsed_ms = Nexus.ms_since(t0)
+                        elapsed_ms = Tools.ms_since(t0)
 
                         if status != 200:
                             pack = {
@@ -840,7 +1109,7 @@ class Nexus(object):
                                 "logs": []
                             }
 
-                            checked = Nexus.apply_extract_assert(
+                            checked = Tools.apply_extract_assert(
                                 pack["data"], extract=extract, asserts=asserts
                             )
 
@@ -866,7 +1135,7 @@ class Nexus(object):
 
                             while "\n\n" in buf:
                                 raw, buf = buf.split("\n\n", 1)
-                                ev = Nexus.sse_block(raw)
+                                ev = Tools.sse_block(raw)
                                 if not ev: continue
 
                                 events.append({
@@ -876,7 +1145,7 @@ class Nexus(object):
                                 })
 
                                 if max_events and 0 < int(max_events) <= len(events):
-                                    elapsed_ms = Nexus.ms_since(t0)
+                                    elapsed_ms = Tools.ms_since(t0)
                                     pack = {
                                         "text"        : f"SSE {method} {url} events={len(events)} ({elapsed_ms}ms)",
                                         "attachments" : [],
@@ -913,7 +1182,7 @@ class Nexus(object):
                                         "logs": []
                                     }
 
-                                    checked = Nexus.apply_extract_assert(
+                                    checked = Tools.apply_extract_assert(
                                         pack["data"], extract=extract, asserts=asserts
                                     )
 
@@ -932,11 +1201,22 @@ class Nexus(object):
 
                                     return pack
 
-                        if tail := Nexus.sse_block(buf):
+                        if tail := Tools.sse_block(buf):
                             events.append({"event": tail.event, "id": tail.id, "data": tail.data})
 
-                    elapsed_ms = Nexus.ms_since(t0)
+                    elapsed_ms = Tools.ms_since(t0)
                     ok = (status == 200 and len(events) > 0)
+
+                    media_list, attachments, media_logs = await Tools.collect_media(
+                        source_kind="sse_events",
+                        source=events,
+                        media_index=media_index,
+                        media_path=media_path,
+                        save_response=save_response,
+                        save_dir=save_dir,
+                        tool="sse_media",
+                        timeout=timeout
+                    )
 
                     pack = {
                         "text"        : f"SSE {method} {url} events={len(events)} ({elapsed_ms}ms)",
@@ -965,16 +1245,21 @@ class Nexus(object):
                                 ]
                             },
                             "response": {
-                                "status"     : status,
-                                "headers"    : dict(resp.headers),
-                                "elapsed_ms" : elapsed_ms,
-                                "events"     : events
+                                "status"         : status,
+                                "headers"        : dict(resp.headers),
+                                "elapsed_ms"     : elapsed_ms,
+                                "events"         : events,
+                                "content_type"   : str(resp.headers.get("content-type") or ""),
+                                "content_length" : None,
+                                "body_text"      : None,
+                                "body_json"      : None,
+                                "media"          : media_list
                             }
                         },
                         "logs": []
                     }
 
-                    checked = Nexus.apply_extract_assert(
+                    checked = Tools.apply_extract_assert(
                         pack["data"], extract=extract, asserts=asserts
                     )
 
@@ -996,7 +1281,7 @@ class Nexus(object):
                 except (httpx.TimeoutException, httpx.RequestError, OSError) as e:
                     last_err = f"{type(e).__name__}: {e}"
 
-        elapsed_ms = Nexus.ms_since(t0)
+        elapsed_ms = Tools.ms_since(t0)
         pack = {
             "text"        : f"SSE {method} {url} -> ERROR ({elapsed_ms}ms) {last_err}",
             "attachments" : [],
@@ -1034,7 +1319,7 @@ class Nexus(object):
             "logs": []
         }
 
-        checked = Nexus.apply_extract_assert(
+        checked = Tools.apply_extract_assert(
             pack["data"], extract=extract, asserts=asserts
         )
 
@@ -1062,7 +1347,11 @@ class Nexus(object):
         timeout: float = 60.0,
         max_messages: int = 10,
         extract: typing.Optional[dict[str, str]] = None,
-        asserts: typing.Optional[list[dict[str, typing.Any]]] = None
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        media_index: typing.Optional[int] = None,
+        media_path: typing.Optional[str] = None,
+        save_response: bool = False,
+        save_dir: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
 
         t0 = time.perf_counter()
@@ -1092,8 +1381,26 @@ class Nexus(object):
         ) as e:
             last_err = f"{type(e).__name__}: {e}"
 
-        elapsed_ms = Nexus.ms_since(t0)
+        elapsed_ms = Tools.ms_since(t0)
         ok = (last_err is None) or bool(recv)
+
+        msg_target: list[typing.Any] = []
+        for x in recv:
+            try:
+                msg_target.append(json.loads(x))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                msg_target.append(x)
+
+        media_list, attachments, media_logs = await Tools.collect_media(
+            source_kind="ws_messages",
+            source=msg_target,
+            media_index=media_index,
+            media_path=media_path,
+            save_response=save_response,
+            save_dir=save_dir,
+            tool="ws_media",
+            timeout=timeout,
+        )
 
         pack =  {
             "text"        : f"WS {url} msgs={len(recv)} ({elapsed_ms}ms)",
@@ -1108,15 +1415,22 @@ class Nexus(object):
                     "max_messages" : max_messages
                 },
                 "response": {
-                    "elapsed_ms" : elapsed_ms,
-                    "messages"   : recv,
-                    "error"      : (None if ok else last_err)
+                    "elapsed_ms"     : elapsed_ms,
+                    "messages"       : recv,
+                    "error"          : (None if ok else last_err),
+                    "status"         : None,
+                    "headers"        : {},
+                    "content_type"   : None,
+                    "content_length" : None,
+                    "body_text"      : None,
+                    "body_json"      : None,
+                    "media"          : media_list
                 }
             },
             "logs": []
         }
 
-        checked = Nexus.apply_extract_assert(
+        checked = Tools.apply_extract_assert(
             pack["data"], extract=extract, asserts=asserts
         )
 
@@ -1149,7 +1463,10 @@ class Nexus(object):
         retries: int = 0,
         follow_redirects: bool = True,
         extract: typing.Optional[dict[str, str]] = None,
-        asserts: typing.Optional[list[dict[str, typing.Any]]] = None
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        media_path: typing.Optional[str] = None,
+        save_response: bool = False,
+        save_dir: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
 
         hd = dict(headers or {})
@@ -1180,6 +1497,26 @@ class Nexus(object):
         resp      = data.get("response") or {}
         body_json = resp.get("body_json") if isinstance(resp, dict) else None
 
+        attachments = list(pack.get("attachments") or [])
+        logs = list(pack.get("logs") or [])
+
+        media_list, media_attachments, media_logs = await Tools.collect_media(
+            source_kind="json_body",
+            source=body_json,
+            media_path=media_path,
+            save_response=save_response,
+            save_dir=save_dir,
+            tool="graphql_media",
+            timeout=timeout,
+        )
+
+        attachments.extend(media_attachments)
+        logs.extend(media_logs)
+
+        resp["media"] = media_list
+        pack["attachments"] = attachments
+        pack["logs"] = logs
+
         gql_errors = None
         gql_ok     = bool(data.get("ok", False))
 
@@ -1200,12 +1537,12 @@ class Nexus(object):
 
         if gql_ok:
             pack["text"] = (
-                f"GQL POST {Nexus.url_join(base_url, url)} "
+                f"GQL POST {Tools.url_join(base_url, url)} "
                 f"-> {resp.get('status')} ({resp.get('elapsed_ms')}ms)"
             )
         else:
             pack["text"] = (
-                f"GQL POST {Nexus.url_join(base_url, url)} "
+                f"GQL POST {Tools.url_join(base_url, url)} "
                 f"-> FAIL ({resp.get('elapsed_ms')}ms)"
             )
 
@@ -1223,22 +1560,6 @@ class Nexus(object):
         payload: dict[str, typing.Any],
         concurrency: int = 1
     ) -> dict[str, typing.Any]:
-        """
-        payload:
-          env?: {base_url?: str, headers?: dict, timeout?: float}
-          vars?: dict
-          options?: {fail_fast?: bool}
-          items?: [
-            {
-              name?,
-              request:{method?,url,base_url?,headers?,params?,json?,json_body?,body?,body_text?,form?,files?,timeout?,retries?,follow_redirects?},
-              extract?: {alias: path},
-              asserts?: [{path: str, op: str, value?: any}]
-            }
-          ]
-          # files item: {field,path?|filename?|content_type?|text?|bytes?}
-          # 单请求也允许直接放在顶层：method/url/base_url?/headers?/params?/json?/json_body?/body?/body_text?/form?/files?/timeout?/retries?/follow_redirects?/extract?/asserts?...
-        """
         return await self.task_sequence(payload, concurrency, kind="http")
 
     # workflow: ==== MCP Tool ====
@@ -1247,29 +1568,6 @@ class Nexus(object):
         payload: dict[str, typing.Any],
         concurrency: int = 1
     ) -> dict[str, typing.Any]:
-        """
-        payload:
-          env?: {base_url?: str, headers?: dict, timeout?: float}
-          vars?: dict
-          options?: {fail_fast?: bool}
-          items?: [
-            {
-              name?,
-              request:{
-                method?, url, base_url?, headers?, params?,
-                json?, json_body?, body?, body_text?,
-                form?, files?,
-                timeout?, retries?, follow_redirects?,
-                max_events?
-              },
-              extract?: {alias: path},
-              asserts?: [{path: str, op: str, value?: any}]
-            }
-          ]
-          # files item: {field,path?|filename?|content_type?|text?|bytes?}
-          # 单请求也允许直接放在顶层：
-          # method/url/base_url?/headers?/params?/json?/json_body?/body?/body_text?/form?/files?/timeout?/retries?/follow_redirects?/max_events?/extract?/asserts?...
-        """
         return await self.task_sequence(payload, concurrency, kind="sse")
 
     # workflow: ==== MCP Tool ====
@@ -1278,21 +1576,6 @@ class Nexus(object):
         payload: dict[str, typing.Any],
         concurrency: int = 1
     ) -> dict[str, typing.Any]:
-        """
-        payload:
-          env?: {headers?: dict, timeout?: float}
-          vars?: dict
-          options?: {fail_fast?: bool}
-          items?: [
-            {
-              name?,
-              request:{url,headers?,sends?,timeout?,max_messages?},
-              extract?: {alias: path},
-              asserts?: [{path: str, op: str, value?: any}]
-            }
-          ]
-          # 单请求也允许直接放在顶层：url/headers?/sends?/timeout?/max_messages?/extract?/asserts?...
-        """
         return await self.task_sequence(payload, concurrency, kind="ws")
 
     # workflow: ==== MCP Tool ====
@@ -1301,21 +1584,6 @@ class Nexus(object):
         payload: dict[str, typing.Any],
         concurrency: int = 1
     ) -> dict[str, typing.Any]:
-        """
-        payload:
-          env?: {base_url?: str, headers?: dict, timeout?: float}
-          vars?: dict
-          options?: {fail_fast?: bool}
-          items?: [
-            {
-              name?,
-              request:{url,query,variables?,operation_name?,operationName?,base_url?,headers?,params?,timeout?,retries?,follow_redirects?},
-              extract?: {alias: path},
-              asserts?: [{path: str, op: str, value?: any}]
-            }
-          ]
-          # 单请求也允许直接放在顶层：url/query/variables?/operation_name?/operationName?/base_url?/headers?/params?/timeout?/retries?/follow_redirects?/extract?/asserts?...
-        """
         return await self.task_sequence(payload, concurrency, kind="graphql")
 
     async def task_sequence(
@@ -1325,9 +1593,6 @@ class Nexus(object):
         *,
         kind: typing.Literal["http", "sse", "ws", "graphql"]
     ) -> dict[str, typing.Any]:
-        """
-        批量任务执行入口。
-        """
         if not isinstance(payload, dict):
             return {
                 "text"        : f"kind={kind} invalid payload",
@@ -1340,7 +1605,7 @@ class Nexus(object):
                 "logs": []
             }
 
-        started_ms = Nexus.ms_now()
+        started_ms = Tools.ms_now()
         mission_id = f"nexus_{started_ms}"
 
         # 1) vars -> ctx
@@ -1350,14 +1615,14 @@ class Nexus(object):
 
         # 2) env / options 也走模板
         env   = payload.get("env") if isinstance(payload.get("env"), dict) else {}
-        env_r = Nexus.template(env, ctx) if env else {}
+        env_r = Tools.template(env, ctx) if env else {}
 
         base_url     = str(env_r.get("base_url") or "")
         base_headers = dict(env_r.get("headers") or {})
         base_timeout = float(env_r.get("timeout", 30.0))
 
         options   = payload.get("options") if isinstance(payload.get("options"), dict) else {}
-        options_r = Nexus.template(options, ctx) if options else {}
+        options_r = Tools.template(options, ctx) if options else {}
         fail_fast = bool(options_r.get("fail_fast", True))
 
         items = payload.get("items")
@@ -1382,13 +1647,13 @@ class Nexus(object):
 
                 req   = item.get("request")
                 req   = req if isinstance(req, dict) else {}
-                req_r = Nexus.template(req, ctx)
+                req_r = Tools.template(req, ctx)
 
                 item_extract = item.get("extract") if isinstance(item.get("extract"), dict) else None
                 item_asserts = item.get("asserts") if isinstance(item.get("asserts"), list) else None
 
-                extract_r = Nexus.template(item_extract, ctx) if item_extract else None
-                asserts_r = Nexus.template(item_asserts, ctx) if item_asserts else None
+                extract_r = Tools.template(item_extract, ctx) if item_extract else None
+                asserts_r = Tools.template(item_asserts, ctx) if item_asserts else None
 
                 t0 = time.perf_counter()
 
@@ -1412,7 +1677,7 @@ class Nexus(object):
                         save_dir=(str(req_r.get("save_dir")) if req_r.get("save_dir") else None)
                     )
                     data = pack.get("data") or {}
-                    elapsed_ms = Nexus.ms_since(t0)
+                    elapsed_ms = Tools.ms_since(t0)
                     return i, StepResult(
                         name=name,
                         type="http",
@@ -1444,10 +1709,14 @@ class Nexus(object):
                         follow_redirects=bool(req_r.get("follow_redirects", True)),
                         max_events=(None if req_r.get("max_events", None) is None else int(req_r.get("max_events"))),
                         extract=extract_r,
-                        asserts=asserts_r
+                        asserts=asserts_r,
+                        media_index=(None if req_r.get("media_index") is None else int(req_r.get("media_index"))),
+                        media_path=(str(req_r.get("media_path")) if req_r.get("media_path") else None),
+                        save_response=bool(req_r.get("save_response", False)),
+                        save_dir=(str(req_r.get("save_dir")) if req_r.get("save_dir") else None)
                     )
                     data = pack.get("data") or {}
-                    elapsed_ms = Nexus.ms_since(t0)
+                    elapsed_ms = Tools.ms_since(t0)
                     return i, StepResult(
                         name=name,
                         type="sse",
@@ -1476,10 +1745,13 @@ class Nexus(object):
                         retries=int(req_r.get("retries", 0)),
                         follow_redirects=bool(req_r.get("follow_redirects", True)),
                         extract=extract_r,
-                        asserts=asserts_r
+                        asserts=asserts_r,
+                        media_path=(str(req_r.get("media_path")) if req_r.get("media_path") else None),
+                        save_response=bool(req_r.get("save_response", False)),
+                        save_dir=(str(req_r.get("save_dir")) if req_r.get("save_dir") else None)
                     )
                     data = pack.get("data") or {}
-                    elapsed_ms = Nexus.ms_since(t0)
+                    elapsed_ms = Tools.ms_since(t0)
                     return i, StepResult(
                         name=name,
                         type="graphql",
@@ -1510,10 +1782,14 @@ class Nexus(object):
                     timeout=float(req_r.get("timeout", base_timeout)),
                     max_messages=int(req_r.get("max_messages", 10)),
                     extract=extract_r,
-                    asserts=asserts_r
+                    asserts=asserts_r,
+                    media_index=(None if req_r.get("media_index") is None else int(req_r.get("media_index"))),
+                    media_path=(str(req_r.get("media_path")) if req_r.get("media_path") else None),
+                    save_response=bool(req_r.get("save_response", False)),
+                    save_dir=(str(req_r.get("save_dir")) if req_r.get("save_dir") else None)
                 )
                 data = pack.get("data") or {}
-                elapsed_ms = Nexus.ms_since(t0)
+                elapsed_ms = Tools.ms_since(t0)
                 return i, StepResult(
                     name=name,
                     type="ws",
@@ -1554,7 +1830,7 @@ class Nexus(object):
             step_results = [sr for _, sr in out]
 
         ok_run = all(s.ok for s in step_results) if step_results else False
-        finished_ms = Nexus.ms_now()
+        finished_ms = Tools.ms_now()
 
         rec = RunRecord(
             mission_id=mission_id,
@@ -1582,10 +1858,10 @@ class Nexus(object):
                     "fail"    : sum(1 for s in step_results if not s.ok),
                     "cost_ms" : finished_ms - started_ms
                 },
-                "steps"     : [self.step_dict(s) for s in step_results],
+                "steps"     : [Tools.step_dict(s) for s in step_results],
                 "final_ctx" : ctx,
                 "payload"   : payload,
-                "evidence"  : {"steps": [self.step_dict(s) for s in step_results]}
+                "evidence"  : {"steps": [Tools.step_dict(s) for s in step_results]}
             },
             "logs": []
         }
