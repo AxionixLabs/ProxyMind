@@ -33,30 +33,27 @@ class Enhancer(object):
         self.metadata  = metadata
 
     @staticmethod
-    def nexus_media_dir(
-        src_arguments: dict[str, typing.Any],
-        default_dir: str
-    ) -> dict[str, typing.Any]:
+    def nexus_media_dir(src: dict[str, typing.Any], default: str) -> dict[str, typing.Any]:
 
-        def _has_dir(x: typing.Any) -> bool:
+        def has_dir(x: typing.Any) -> bool:
             return isinstance(x, str) and bool(x.strip())
 
-        payload = src_arguments.get("payload")
+        payload = src.get("payload")
         if not isinstance(payload, dict):
-            return src_arguments
+            return src
 
         root = dict(payload)
 
         # 单请求
         if "items" not in root:
-            if bool(root.get("save_response")) and not _has_dir(root.get("save_dir")):
-                root["save_dir"] = default_dir
-            return src_arguments | {"payload": root}
+            if bool(root.get("save_response")) and not has_dir(root.get("save_dir")):
+                root["save_dir"] = default
+            return src | {"payload": root}
 
         # 批请求
         items = root.get("items")
         if not isinstance(items, list):
-            return src_arguments
+            return src
 
         patched: list[dict[str, typing.Any]] = []
 
@@ -69,14 +66,14 @@ class Enhancer(object):
             req = cloned.get("request")
             req = dict(req) if isinstance(req, dict) else {}
 
-            if bool(req.get("save_response")) and not _has_dir(req.get("save_dir")):
-                req["save_dir"] = default_dir
+            if bool(req.get("save_response")) and not has_dir(req.get("save_dir")):
+                req["save_dir"] = default
 
             cloned["request"] = req
             patched.append(cloned)
 
         root["items"] = patched
-        return src_arguments | {"payload": root}
+        return src | {"payload": root}
 
     @staticmethod
     def exchange(
