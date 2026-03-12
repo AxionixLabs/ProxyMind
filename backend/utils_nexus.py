@@ -1205,21 +1205,25 @@ class PrepareTools(object):
 
     @staticmethod
     def handle_uuid4(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        _ = ctx
         output = PrepareTools._ensure_output(step, "uuid4")
         return {output: str(uuid.uuid4())}
 
     @staticmethod
     def handle_timestamp_ms(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        _ = ctx
         output = PrepareTools._ensure_output(step, "timestamp_ms")
         return {output: int(time.time() * 1000)}
 
     @staticmethod
     def handle_timestamp_s(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        _ = ctx
         output = PrepareTools._ensure_output(step, "timestamp_s")
         return {output: int(time.time())}
 
     @staticmethod
     def handle_nonce(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        _ = ctx
         output = PrepareTools._ensure_output(step, "nonce")
         length = int(step.get("length", 16))
         alphabet = str(step.get("alphabet") or "")
@@ -1228,6 +1232,7 @@ class PrepareTools(object):
 
     @staticmethod
     def handle_random_int(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        _ = ctx
         output = PrepareTools._ensure_output(step, "random_int")
         lo = int(step.get("min", 0))
         hi = int(step.get("max", 999999))
@@ -1237,6 +1242,7 @@ class PrepareTools(object):
 
     @staticmethod
     def handle_random_text(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        _ = ctx
         output = PrepareTools._ensure_output(step, "random_text")
         length = int(step.get("length", 16))
         alphabet = str(step.get("alphabet") or "")
@@ -1245,6 +1251,7 @@ class PrepareTools(object):
 
     @staticmethod
     def handle_const(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        _ = ctx
         output = PrepareTools._ensure_output(step, "const")
         return {output: step.get("value")}
 
@@ -1262,12 +1269,7 @@ class PrepareTools(object):
         path = str(step.get("path") or "").strip()
         if not path:
             raise ValueError("prepare[pick] missing path")
-        source = step.get("source", ctx)
-        source_r = PrepareTools._render(source, ctx)
-        if source is step.get("source", None):
-            base = source_r
-        else:
-            base = source_r
+        base = PrepareTools._render(step.get("source", ctx), ctx)
         ok, value = Tools.safe_pick(base, path)
         if not ok:
             raise KeyError(value)
@@ -1494,7 +1496,7 @@ class PrepareTools(object):
 
     @staticmethod
     def handle_format_time(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        output = PrepareTools._ensure_output(step, "strftime")
+        output = PrepareTools._ensure_output(step, "format_time")
         fmt = str(step.get("format") or "%Y-%m-%d %H:%M:%S")
         ts = step.get("timestamp")
         if ts is None:
@@ -1507,7 +1509,7 @@ class PrepareTools(object):
                 else:
                     dt = time.localtime(float(ts_r))
             else:
-                raise ValueError("prepare[strftime] timestamp must be int/float")
+                raise ValueError("prepare[format_time] timestamp must be int/float")
         return {output: time.strftime(fmt, dt)}
 
     @staticmethod
@@ -1650,7 +1652,7 @@ class PrepareTools(object):
             PrepareTools._to_text(token),
             PrepareTools._to_text(secret),
             algorithms=["HS256"],
-            options=options or None
+            options=options or {}
         )
 
         return {output: payload if return_payload else True}
@@ -1677,7 +1679,7 @@ class PrepareTools(object):
             PrepareTools._to_text(token),
             PrepareTools._to_text(public_key),
             algorithms=["RS256"],
-            options=options or None
+            options=options or {}
         )
 
         return {output: payload if return_payload else True}
@@ -1754,7 +1756,6 @@ class PrepareTools(object):
                 TypeError,
                 ValueError,
                 KeyError,
-                LookupError,
                 LookupError,
                 json.JSONDecodeError,
                 binascii.Error,
