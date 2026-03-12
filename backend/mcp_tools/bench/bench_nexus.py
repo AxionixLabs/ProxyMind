@@ -28,73 +28,23 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         C: nexus
         A: nexus_http
         P:
-          payload: dict  # HTTP 请求入口（支持单请求或 items 并发）
-            - env?: dict                        # 默认请求环境；支持模板展开
-              - base_url?: str
-              - headers?: dict[str,str]
-              - timeout?: float
-
-            - vars?: dict[str,any]              # 模板上下文；env/request/extract/asserts 均可用 {{expr}}
-            - options?: dict                    # 支持模板展开
-              - fail_fast?: bool=True
-
-            - extract?: dict[str,str]           # 顶层单请求提取规则；支持模板展开
-              - alias: path
-            - asserts?: list[dict]              # 顶层单请求断言规则；支持模板展开
-              - path: str
-              - op: str
-              - value?: any
-
-            - 单请求（直接顶层字段）:          # 支持模板展开
-              - method?: str="GET"
-              - url: str
-              - base_url?: str                  # 覆盖 env.base_url
-              - headers?: dict[str,str]         # 叠加 env.headers
-              - params?: dict[str,any]
-              - json?: dict[str,any]
-              - json_body?: dict[str,any]       # alias
-              - body?: str
-              - body_text?: str                 # alias
-              - form?: dict[str,any]
-              - files?: list[dict]
-                - field?: str="file"
-                - path?: str
-                - filename?: str
-                - content_type?: str
-                - text?: str
-                - bytes?: bytes|str
-              - timeout?: float                 # 覆盖 env.timeout
-              - retries?: int=0
-              - follow_redirects?: bool=True
-              - save_response?: bool=False      # 若响应体为 image/* 或 video/*，是否保存到本地
-              - save_dir?: str                  # 媒体保存根目录
-
-            - 批请求（并发）:
-              - items?: list[dict]
-                - item.name?: str
-                - item.request: dict            # 同“单请求字段”；支持模板展开
-                - item.extract?: dict[str,str]  # 支持模板展开
-                  - alias: path
-                - item.asserts?: list[dict]     # 支持模板展开
-                  - path: str
-                  - op: str
-                  - value?: any
-
-          concurrency: int=1                    # items 并发度（Semaphore）
+          payload: dict  # HTTP 入口（单请求或 items 并发）；支持模板 {{expr}}
+            - env?: {base_url?: str, headers?: dict[str,str], timeout?: float}
+            - vars?: dict[str,any]                # 初始模板上下文
+            - options?: {fail_fast?: bool=True}
+            - prepare?: list[dict]                # 常见 prepare type 包括：uuid4 / timestamp_ms / nonce / format / hmac_sha256 / rsa_sign_sha256 / jwt_hs256 等
+            - extract?: dict[str,str]             # alias -> path
+            - asserts?: list[dict]                # {path, op, value?}
+            - request(单请求字段): method/url/base_url/headers/params/json/body/form/files/timeout/retries/follow_redirects/save_response/save_dir
+            - items?(批请求): list[{name?, prepare?, request, extract?, asserts?}]
+          concurrency: int=1                      # items 并发度（Semaphore）
         R: CTR
         N:
-          - 单请求：payload 顶层请求字段 + 顶层 extract/asserts 生效
-          - 批请求：payload.items 生效；每个 item 可独立定义 extract/asserts
-          - env.base_url / env.headers / env.timeout 作为默认值，可被 request 同名字段覆盖
-          - headers 为叠加：request.headers 覆盖 env.headers 同名键
-          - 模板作用范围：env / options / request / extract / asserts
-          - 模板语法：支持 {{expr}}；可引用 vars 中的上下文变量
-          - 模板边界：仅支持受限表达式；不支持函数调用、导入、推导式等危险语法
-          - 响应证据统一写入 data.request / data.response
-          - 若响应 Content-Type 为 image/* 或 video/*，会识别为媒体响应并写入 response.media[]
-          - save_response=true 时，媒体会落盘，并写入 response.media[].path / filename / mime_type / size
-          - 可通过 response.media[].kind / path / filename / mime_type / size 做提取与断言
-          - 仅负责请求、提取与断言证据采集；是否通过可继续交给 suffix / 大模型总结
+          - 执行模式：items 为空=单请求；items 非空=批请求（每个 item 独立 prepare/extract/asserts）
+          - env 合并：request.base_url/timeout 覆盖 env；headers 叠加（request 覆盖 env 同名键）
+          - 模板：作用于 env/options/prepare/request/extract/asserts；上下文=vars + 当前 step 变量；受限表达式（无函数/导入/推导式）
+          - prepare：顺序执行，仅注入当前 step_ctx；不回写全局 ctx；并发 items 之间 ctx 隔离不串值
+          - 证据：data.request / data.response；媒体响应写入 response.media[]；save_response=true 时落盘并补充 path/filename/mime_type/size
         """
 
         args = {
@@ -128,78 +78,29 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         C: nexus
         A: nexus_sse
         P:
-          payload: dict  # SSE 拉流入口（支持单请求或 items 并发）
-            - env?: dict                        # 默认请求环境；支持模板展开
-              - base_url?: str
-              - headers?: dict[str,str]
-              - timeout?: float
-
-            - vars?: dict[str,any]              # 模板上下文；env/request/extract/asserts 均可用 {{expr}}
-            - options?: dict                    # 支持模板展开
-              - fail_fast?: bool=True
-
-            - extract?: dict[str,str]           # 顶层单请求提取规则；支持模板展开
-              - alias: path
-            - asserts?: list[dict]              # 顶层单请求断言规则；支持模板展开
-              - path: str
-              - op: str
-              - value?: any
-
-            - 单请求（直接顶层字段）:          # 支持模板展开
-              - method?: str="GET"
-              - url: str
-              - base_url?: str                  # 覆盖 env.base_url
-              - headers?: dict[str,str]         # 叠加 env.headers
-              - params?: dict[str,any]
-              - json?: dict[str,any]
-              - json_body?: dict[str,any]       # alias
-              - body?: str
-              - body_text?: str                 # alias
-              - form?: dict[str,any]
-              - files?: list[dict]
-                - field?: str="file"
-                - path?: str
-                - filename?: str
-                - content_type?: str
-                - text?: str
-                - bytes?: bytes|str
-              - timeout?: float                 # 覆盖 env.timeout
-              - retries?: int=0
-              - follow_redirects?: bool=True
-              - max_events?: int=None           # 达到该数量后提前返回
-              - media_index?: int               # 从 events 中选择第几个事件做媒体抽取；默认首个
-              - media_path?: str                # 在目标事件内按路径提取媒体字段
-              - save_response?: bool=False      # 抽到媒体后是否保存到本地
-              - save_dir?: str                  # 媒体保存根目录
-
-            - 批请求（并发）:
-              - items?: list[dict]
-                - item.name?: str
-                - item.request: dict            # 同“单请求字段”；支持模板展开
-                - item.extract?: dict[str,str]  # 支持模板展开
-                  - alias: path
-                - item.asserts?: list[dict]     # 支持模板展开
-                  - path: str
-                  - op: str
-                  - value?: any
-
+          payload: dict  # SSE 入口（单请求或 items 并发）；支持模板 {{expr}}
+            - env?: {base_url?: str, headers?: dict[str,str], timeout?: float}
+            - vars?: dict[str,any]
+            - options?: {fail_fast?: bool=True}
+            - prepare?: list[dict]           # 常见 prepare type 包括：uuid4 / timestamp_ms / nonce / format / hmac_sha256 / rsa_sign_sha256 / jwt_hs256 等
+            - extract?: dict[str,str]
+            - asserts?: list[dict]
+            - request(SSE 字段): method/url/base_url/headers/params/json/body/form/files/timeout/retries/follow_redirects
+              - max_events: int?=None        # None=不设上限；非空达到即提前返回
+              - media_index: int?            # 从 events 选第几个事件（默认首个）
+              - media_path: str?             # 在目标事件内按路径取媒体字段
+              - save_response: bool=False
+              - save_dir: str?
+            - items?(批请求): list[{name?, prepare?, request, extract?, asserts?}]
           concurrency: int=1
         R: CTR
         N:
-          - 单请求：payload 顶层请求字段 + 顶层 extract/asserts 生效
-          - 批请求：payload.items 生效；每个 item 可独立定义 extract/asserts
-          - env.base_url / env.headers / env.timeout 作为默认值，可被 request 同名字段覆盖
-          - headers 为叠加：request.headers 覆盖 env.headers 同名键
-          - 模板作用范围：env / options / request / extract / asserts
-          - 模板语法：支持 {{expr}}；可引用 vars 中的上下文变量
-          - 模板边界：仅支持受限表达式；不支持函数调用、导入、推导式等危险语法
-          - SSE 事件按 response.events[] 返回；每项结构为 {event,id,data}
-          - 达到 max_events 后会提前返回；否则在流结束后返回已采集 events
-          - 响应证据统一写入 data.request / data.response
-          - 支持通过 media_index / media_path 从 SSE events 中提取媒体引用，并写入 response.media[]
-          - save_response=true 时，提取到的媒体会落盘，并写入 response.media[].path / filename / mime_type / size
-          - 可通过 response.media[].kind / path / filename / mime_type / size 做提取与断言
-          - 仅负责 SSE 请求、事件采集、提取与断言证据整理
+          - 执行模式：items 为空=单 SSE；items 非空=批 SSE（每个 item 独立 prepare/extract/asserts）
+          - env 合并：request.base_url/timeout 覆盖 env；headers 叠加（request 覆盖 env 同名键）
+          - 模板：作用于 env/options/prepare/request/extract/asserts；上下文=vars+step 变量；受限表达式
+          - prepare：顺序执行，仅注入当前 step_ctx；并发 items 之间 ctx 隔离不串值
+          - events: response.events[]={event,id,data}；max_events 达到提前返回，否则流结束后返回
+          - media: 可用 media_index/media_path 从 events 提取媒体写入 response.media[]；save_response=true 时落盘并补充 path/filename/mime_type/size
         """
 
         args = {
@@ -233,62 +134,29 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         C: nexus
         A: nexus_ws
         P:
-          payload: dict  # WebSocket 入口（支持单请求或 items 并发）
-            - env?: dict                        # 默认请求环境；支持模板展开
-              - headers?: dict[str,str]
-              - timeout?: float
-
-            - vars?: dict[str,any]              # 模板上下文；env/request/extract/asserts 均可用 {{expr}}
-            - options?: dict                    # 支持模板展开
-              - fail_fast?: bool=True
-
-            - extract?: dict[str,str]           # 顶层单请求提取规则；支持模板展开
-              - alias: path
-            - asserts?: list[dict]              # 顶层单请求断言规则；支持模板展开
-              - path: str
-              - op: str
-              - value?: any
-
-            - 单请求（直接顶层字段）:          # 支持模板展开
-              - url: str                        # ws:// 或 wss://
-              - headers?: dict[str,str]         # 叠加 env.headers
-              - sends?: list[str]
-              - timeout?: float                 # 覆盖 env.timeout
-              - max_messages?: int=10
-              - media_index?: int               # 从 messages 中选择第几个消息做媒体抽取；默认首个
-              - media_path?: str                # 在目标消息内按路径提取媒体字段
-              - save_response?: bool=False      # 抽到媒体后是否保存到本地
-              - save_dir?: str                  # 媒体保存根目录
-
-            - 批请求（并发）:
-              - items?: list[dict]
-                - item.name?: str
-                - item.request: dict            # 同“单请求字段”；支持模板展开
-                - item.extract?: dict[str,str]  # 支持模板展开
-                  - alias: path
-                - item.asserts?: list[dict]     # 支持模板展开
-                  - path: str
-                  - op: str
-                  - value?: any
-
+          payload: dict  # WebSocket 入口（单请求或 items 并发）；支持模板 {{expr}}
+            - env?: {headers?: dict[str,str], timeout?: float}
+            - vars?: dict[str,any]
+            - options?: {fail_fast?: bool=True}
+            - prepare?: list[dict]          # 常见 prepare type 包括：uuid4 / timestamp_ms / nonce / format / hmac_sha256 / rsa_sign_sha256 / jwt_hs256 等
+            - extract?: dict[str,str]
+            - asserts?: list[dict]
+            - request(WS 字段): url/headers/sends/timeout
+              - max_messages: int=10
+              - media_index: int?           # 从 messages 选第几个消息（默认首个）
+              - media_path: str?            # 在目标消息内按路径取媒体字段（消息会尝试 JSON 解析用于提取）
+              - save_response: bool=False
+              - save_dir: str?
+            - items?(批请求): list[{name?, prepare?, request, extract?, asserts?}]
           concurrency: int=1
         R: CTR
         N:
-          - 单请求：payload 顶层请求字段 + 顶层 extract/asserts 生效
-          - 批请求：payload.items 生效；每个 item 可独立定义 extract/asserts
-          - env.headers / env.timeout 作为默认值，可被 request 同名字段覆盖
-          - headers 为叠加：request.headers 覆盖 env.headers 同名键
-          - 模板作用范围：env / options / request / extract / asserts
-          - 模板语法：支持 {{expr}}；可引用 vars 中的上下文变量
-          - 模板边界：仅支持受限表达式；不支持函数调用、导入、推导式等危险语法
-          - 收到 ConnectionClosedOK 时会提前停止收消息
-          - 最多采集 max_messages 条消息；原始消息写入 response.messages[]
-          - 内部会尝试对每条消息做 JSON 解析，仅用于媒体路径提取；原始返回仍以 messages[] 为准
-          - 响应证据统一写入 data.request / data.response
-          - 支持通过 media_index / media_path 从 WS 消息中提取媒体引用，并写入 response.media[]
-          - save_response=true 时，提取到的媒体会落盘，并写入 response.media[].path / filename / mime_type / size
-          - 可通过 response.media[].kind / path / filename / mime_type / size 做提取与断言
-          - 仅负责 WS 消息采集、提取与断言证据整理
+          - 执行模式：items 为空=单 WS；items 非空=批 WS（每个 item 独立 prepare/extract/asserts）
+          - env 合并：request.timeout 覆盖 env；headers 叠加（request 覆盖 env 同名键）
+          - 模板：作用于 env/options/prepare/request/extract/asserts；上下文=vars+step 变量；受限表达式
+          - prepare：顺序执行，仅注入当前 step_ctx；并发 items 之间 ctx 隔离不串值
+          - messages: 最多采集 max_messages 条写入 response.messages[]；ConnectionClosedOK 会提前停止
+          - media: media_index/media_path 从消息提取媒体写入 response.media[]；save_response=true 时落盘并补充 path/filename/mime_type/size
         """
 
         args = {
@@ -320,64 +188,29 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         """
         D: bench
         C: nexus
-        A: nexus_ws
+        A: nexus_graphql
         P:
-          payload: dict  # WebSocket 入口（支持单请求或 items 并发）
-            - env?: dict                        # 默认请求环境；支持模板展开
-              - headers?: dict[str,str]
-              - timeout?: float
-
-            - vars?: dict[str,any]              # 模板上下文；env/request/extract/asserts 均可用 {{expr}}
-            - options?: dict                    # 支持模板展开
-              - fail_fast?: bool=True
-
-            - extract?: dict[str,str]           # 顶层单请求提取规则；支持模板展开
-              - alias: path
-            - asserts?: list[dict]              # 顶层单请求断言规则；支持模板展开
-              - path: str
-              - op: str
-              - value?: any
-
-            - 单请求（直接顶层字段）:          # 支持模板展开
-              - url: str                        # ws:// 或 wss://
-              - headers?: dict[str,str]         # 叠加 env.headers
-              - sends?: list[str]
-              - timeout?: float                 # 覆盖 env.timeout
-              - max_messages?: int=10
-              - media_index?: int               # 从 messages 中选择第几个消息做媒体抽取；默认首个
-              - media_path?: str                # 在目标消息内按路径提取媒体字段
-              - save_response?: bool=False      # 抽到媒体后是否保存到本地
-              - save_dir?: str                  # 媒体保存根目录
-
-            - 批请求（并发）:
-              - items?: list[dict]
-                - item.name?: str
-                - item.request: dict            # 同“单请求字段”；支持模板展开
-                - item.extract?: dict[str,str]  # 支持模板展开
-                  - alias: path
-                - item.asserts?: list[dict]     # 支持模板展开
-                  - path: str
-                  - op: str
-                  - value?: any
-
+          payload: dict  # GraphQL 入口（单请求或 items 并发）；支持模板 {{expr}}
+            - env?: {base_url?: str, headers?: dict[str,str], timeout?: float}
+            - vars?: dict[str,any]
+            - options?: {fail_fast?: bool=True}
+            - prepare?: list[dict]  # 常见 prepare type 包括：uuid4 / timestamp_ms / nonce / format / hmac_sha256 / rsa_sign_sha256 / jwt_hs256 等
+            - extract?: dict[str,str]
+            - asserts?: list[dict]
+            - request(GraphQL 字段): url/query/variables/operation_name|operationName/base_url/headers/params/timeout/retries/follow_redirects
+              - media_path: str?
+              - save_response: bool=False
+              - save_dir: str?
+            - items?(批请求): list[{name?, prepare?, request, extract?, asserts?}]
           concurrency: int=1
         R: CTR
         N:
-          - 单请求：payload 顶层请求字段 + 顶层 extract/asserts 生效
-          - 批请求：payload.items 生效；每个 item 可独立定义 extract/asserts
-          - env.headers / env.timeout 作为默认值，可被 request 同名字段覆盖
-          - headers 为叠加：request.headers 覆盖 env.headers 同名键
-          - 模板作用范围：env / options / request / extract / asserts
-          - 模板语法：支持 {{expr}}；可引用 vars 中的上下文变量
-          - 模板边界：仅支持受限表达式；不支持函数调用、导入、推导式等危险语法
-          - 收到 ConnectionClosedOK 时会提前停止收消息
-          - 最多采集 max_messages 条消息；原始消息写入 response.messages[]
-          - 内部会尝试对每条消息做 JSON 解析，仅用于媒体路径提取；原始返回仍以 messages[] 为准
-          - 响应证据统一写入 data.request / data.response
-          - 支持通过 media_index / media_path 从 WS 消息中提取媒体引用，并写入 response.media[]
-          - save_response=true 时，提取到的媒体会落盘，并写入 response.media[].path / filename / mime_type / size
-          - 可通过 response.media[].kind / path / filename / mime_type / size 做提取与断言
-          - 仅负责 WS 消息采集、提取与断言证据整理
+          - 执行模式：items 为空=单 GraphQL；items 非空=批 GraphQL（每个 item 独立 prepare/extract/asserts）
+          - env 合并：request.base_url/timeout 覆盖 env；headers 叠加（request 覆盖 env 同名键）
+          - 模板：作用于 env/options/prepare/request/extract/asserts；上下文=vars+step 变量；受限表达式
+          - prepare：顺序执行，仅注入当前 step_ctx；并发 items 之间 ctx 隔离不串值
+          - 请求：HTTP POST {query, variables, operationName}；2xx 但 errors 非空仍视为失败（证据写入 data.graphql）
+          - media: media_path 从 body_json 提取媒体写入 response.media[]；save_response=true 时落盘并补充 path/filename/mime_type/size
         """
 
         args = {
