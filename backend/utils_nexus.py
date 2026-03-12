@@ -8,6 +8,7 @@
 
 import re
 import ast
+import jwt
 import hmac
 import json
 import time
@@ -16,19 +17,23 @@ import httpx
 import base64
 import typing
 import string
-import asyncio
 import hashlib
 import secrets
 import binascii
 import operator
-import websockets
-from urllib.parse import (
-    quote, unquote
-)
+from urllib.parse import quote
 from pathlib import Path
 from dataclasses import (
     dataclass, field
 )
+from collections.abc import (
+    Callable, Mapping
+)
+from cryptography.hazmat.primitives import (
+    hashes, serialization
+)
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.exceptions import InvalidSignature
 from loguru import logger
 from backend.utilities import const
 
@@ -65,7 +70,7 @@ class Evaluation(object):
 
     EXPR_RE = re.compile(r"\{\{\s*(.*?)\s*}}")
 
-    _BIN_OPS = {
+    _BIN_OPS: Mapping[type[ast.operator], Callable[[typing.Any, typing.Any], typing.Any]] = {
         ast.Add: operator.add,
         ast.Sub: operator.sub,
         ast.Mult: operator.mul,
@@ -74,7 +79,7 @@ class Evaluation(object):
         ast.Mod: operator.mod,
     }
 
-    _CMP_OPS = {
+    _CMP_OPS: Mapping[type[ast.cmpop], Callable[[typing.Any, typing.Any], bool]] = {
         ast.Eq: operator.eq,
         ast.NotEq: operator.ne,
         ast.Gt: operator.gt,
@@ -85,12 +90,12 @@ class Evaluation(object):
         ast.NotIn: lambda a, b: a not in b,
     }
 
-    _BOOL_OPS = {
+    _BOOL_OPS: Mapping[type[ast.boolop], Callable[[list[typing.Any]], bool]] = {
         ast.And: all,
         ast.Or: any,
     }
 
-    _UNARY_OPS = {
+    _UNARY_OPS: Mapping[type[ast.unaryop], Callable[[typing.Any], typing.Any]] = {
         ast.UAdd: operator.pos,
         ast.USub: operator.neg,
         ast.Not: operator.not_,
@@ -113,13 +118,6 @@ class Evaluation(object):
 
     @staticmethod
     def safe_eval_expr(expr: str, ctx: dict[str, typing.Any]) -> typing.Any:
-        """
-        受限表达式求值：
-        - 支持 name / constant / binop / boolop / compare / unaryop
-        - 支持 dict/list/tuple 下标
-        - 支持 dict 的点路径访问（user.id）
-        - 禁止 call / import / lambda / 推导式等
-        """
         try:
             node = ast.parse(expr, mode="eval")
         except SyntaxError as e:
@@ -143,7 +141,6 @@ class Evaluation(object):
 
             if isinstance(n, ast.Subscript):
                 base = walk(n.value)
-                # py3.9+: slice 直接是 expr
                 key = walk(n.slice)
                 return base[key]
 
@@ -158,38 +155,38 @@ class Evaluation(object):
 
             if isinstance(n, ast.BinOp):
                 op_type = type(n.op)
-                if op_type not in Evaluation._BIN_OPS:
+                fn = Evaluation._BIN_OPS.get(op_type)
+                if fn is None:
                     raise ValueError(f"unsupported binop: {op_type.__name__}")
-                return Evaluation._BIN_OPS[op_type](walk(n.left), walk(n.right))
+                return fn(walk(n.left), walk(n.right))
 
             if isinstance(n, ast.UnaryOp):
                 op_type = type(n.op)
-                if op_type not in Evaluation._UNARY_OPS:
+                fn = Evaluation._UNARY_OPS.get(op_type)
+                if fn is None:
                     raise ValueError(f"unsupported unaryop: {op_type.__name__}")
-                return Evaluation._UNARY_OPS[op_type](walk(n.operand))
+                return fn(walk(n.operand))
 
             if isinstance(n, ast.BoolOp):
                 op_type = type(n.op)
                 if op_type not in Evaluation._BOOL_OPS:
                     raise ValueError(f"unsupported boolop: {op_type.__name__}")
                 vals = [walk(v) for v in n.values]
-                if op_type is ast.And:
-                    return all(vals)
-                return any(vals)
+                return all(vals) if op_type is ast.And else any(vals)
 
             if isinstance(n, ast.Compare):
                 left = walk(n.left)
                 for op, comp in zip(n.ops, n.comparators):
                     op_type = type(op)
-                    if op_type not in Evaluation._CMP_OPS:
+                    fn = Evaluation._CMP_OPS.get(op_type)
+                    if fn is None:
                         raise ValueError(f"unsupported cmpop: {op_type.__name__}")
                     right = walk(comp)
-                    if not Evaluation._CMP_OPS[op_type](left, right):
+                    if not fn(left, right):
                         return False
                     left = right
                 return True
 
-            # 明确禁止
             if isinstance(n, ast.Call):
                 raise ValueError("function call not allowed in template")
             if isinstance(n, ast.Lambda):
@@ -1137,6 +1134,76 @@ class PrepareTools(object):
         return merged
 
     @staticmethod
+    def _load_private_key(value: typing.Any):
+        raw = PrepareTools._to_bytes(value)
+        return serialization.load_pem_private_key(raw, password=None)
+
+    @staticmethod
+    def _load_public_key(value: typing.Any):
+        raw = PrepareTools._to_bytes(value)
+        return serialization.load_pem_public_key(raw)
+
+    @staticmethod
+    def _rsa_sign_sha256(
+        private_key_value: typing.Any,
+        message: typing.Any,
+        *,
+        encoding: str = "utf-8",
+        out: str = "base64"
+    ) -> str | bytes:
+        private_key = PrepareTools._load_private_key(private_key_value)
+        data = PrepareTools._to_bytes(message, encoding=encoding)
+
+        signature = private_key.sign(
+            data,
+            padding.PKCS1v15(),
+            hashes.SHA256()
+        )
+
+        if out == "bytes":
+            return signature
+        if out == "hex":
+            return signature.hex()
+        if out == "base64":
+            return base64.b64encode(signature).decode("ascii")
+        raise ValueError(f"unsupported rsa sign out: {out}")
+
+    @staticmethod
+    def _rsa_verify_sha256(
+        public_key_value: typing.Any,
+        message: typing.Any,
+        signature_value: typing.Any,
+        *,
+        encoding: str = "utf-8",
+        signature_format: str = "base64"
+    ) -> bool:
+        public_key = PrepareTools._load_public_key(public_key_value)
+        data = PrepareTools._to_bytes(message, encoding=encoding)
+
+        if signature_format == "bytes":
+            signature = PrepareTools._to_bytes(signature_value, encoding=encoding)
+        elif signature_format == "hex":
+            signature = bytes.fromhex(PrepareTools._to_text(signature_value, encoding=encoding).strip())
+        elif signature_format == "base64":
+            signature = base64.b64decode(
+                PrepareTools._to_text(signature_value, encoding=encoding).strip(),
+                validate=False
+            )
+        else:
+            raise ValueError(f"unsupported rsa verify signature_format: {signature_format}")
+
+        try:
+            public_key.verify(
+                signature,
+                data,
+                padding.PKCS1v15(),
+                hashes.SHA256()
+            )
+            return True
+        except InvalidSignature:
+            return False
+
+    @staticmethod
     def handle_uuid4(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
         output = PrepareTools._ensure_output(step, "uuid4")
         return {output: str(uuid.uuid4())}
@@ -1307,7 +1374,18 @@ class PrepareTools(object):
         value = PrepareTools._render(step.get("input"), ctx)
         ensure_ascii = bool(step.get("ensure_ascii", False))
         sort_keys = bool(step.get("sort_keys", False))
-        separators = tuple(step.get("separators", (",", ":")))
+
+        raw_separators = step.get("separators", (",", ":"))
+        separators: tuple[str, str] | None = None
+        if raw_separators is not None:
+            if (
+                isinstance(raw_separators, (list, tuple))
+                and len(raw_separators) == 2
+            ):
+                separators = (str(raw_separators[0]), str(raw_separators[1]))
+            else:
+                raise ValueError("json_dumps.separators must be a 2-item list/tuple or null")
+
         return {
             output: json.dumps(
                 value,
@@ -1415,7 +1493,7 @@ class PrepareTools(object):
         return {output: PrepareTools._canonical_query(value)}
 
     @staticmethod
-    def handle_strftime(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    def handle_format_time(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
         output = PrepareTools._ensure_output(step, "strftime")
         fmt = str(step.get("format") or "%Y-%m-%d %H:%M:%S")
         ts = step.get("timestamp")
@@ -1432,40 +1510,219 @@ class PrepareTools(object):
                 raise ValueError("prepare[strftime] timestamp must be int/float")
         return {output: time.strftime(fmt, dt)}
 
+    @staticmethod
+    def handle_rsa_sign_sha256(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        output = PrepareTools._ensure_output(step, "rsa_sign_sha256")
+
+        private_key = PrepareTools._render(step.get("private_key"), ctx)
+        if private_key in (None, ""):
+            raise ValueError("prepare[rsa_sign_sha256] missing private_key")
+
+        value = PrepareTools._render(step.get("input"), ctx)
+        encoding = str(step.get("encoding") or "utf-8")
+        out = str(step.get("out") or "base64").strip().lower()
+
+        return {
+            output: PrepareTools._rsa_sign_sha256(
+                private_key,
+                value,
+                encoding=encoding,
+                out=out
+            )
+        }
+
+    @staticmethod
+    def handle_rsa_verify_sha256(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        output = PrepareTools._ensure_output(step, "rsa_verify_sha256")
+
+        public_key = PrepareTools._render(step.get("public_key"), ctx)
+        if public_key in (None, ""):
+            raise ValueError("prepare[rsa_verify_sha256] missing public_key")
+
+        value = PrepareTools._render(step.get("input"), ctx)
+        signature = PrepareTools._render(step.get("signature"), ctx)
+        if signature in (None, ""):
+            raise ValueError("prepare[rsa_verify_sha256] missing signature")
+
+        encoding = str(step.get("encoding") or "utf-8")
+        signature_format = str(step.get("signature_format") or "base64").strip().lower()
+
+        return {
+            output: PrepareTools._rsa_verify_sha256(
+                public_key,
+                value,
+                signature,
+                encoding=encoding,
+                signature_format=signature_format
+            )
+        }
+
+    @staticmethod
+    def handle_jwt_hs256(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        output = PrepareTools._ensure_output(step, "jwt_hs256")
+
+        secret = PrepareTools._render(step.get("secret"), ctx)
+        if secret in (None, ""):
+            raise ValueError("prepare[jwt_hs256] missing secret")
+
+        payload = PrepareTools._render(step.get("payload"), ctx)
+        if not isinstance(payload, dict):
+            raise ValueError("prepare[jwt_hs256] payload must be dict")
+
+        headers = PrepareTools._render(step.get("headers"), ctx)
+        if headers is not None and not isinstance(headers, dict):
+            raise ValueError("prepare[jwt_hs256] headers must be dict")
+
+        token = jwt.encode(
+            payload,
+            PrepareTools._to_text(secret),
+            algorithm="HS256",
+            headers=headers
+        )
+        return {output: token}
+
+    @staticmethod
+    def handle_jwt_rs256(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        output = PrepareTools._ensure_output(step, "jwt_rs256")
+
+        private_key = PrepareTools._render(step.get("private_key"), ctx)
+        if private_key in (None, ""):
+            raise ValueError("prepare[jwt_rs256] missing private_key")
+
+        payload = PrepareTools._render(step.get("payload"), ctx)
+        if not isinstance(payload, dict):
+            raise ValueError("prepare[jwt_rs256] payload must be dict")
+
+        headers = PrepareTools._render(step.get("headers"), ctx)
+        if headers is not None and not isinstance(headers, dict):
+            raise ValueError("prepare[jwt_rs256] headers must be dict")
+
+        token = jwt.encode(
+            payload,
+            PrepareTools._to_text(private_key),
+            algorithm="RS256",
+            headers=headers
+        )
+        return {output: token}
+
+    @staticmethod
+    def handle_jwt_decode_unverified(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        output = PrepareTools._ensure_output(step, "jwt_decode_unverified")
+
+        token = PrepareTools._render(step.get("token"), ctx)
+        if token in (None, ""):
+            raise ValueError("prepare[jwt_decode_unverified] missing token")
+
+        complete = bool(step.get("complete", False))
+
+        if complete:
+            value = jwt.decode_complete(
+                PrepareTools._to_text(token),
+                options={"verify_signature": False}
+            )
+        else:
+            value = jwt.decode(
+                PrepareTools._to_text(token),
+                options={"verify_signature": False}
+            )
+
+        return {output: value}
+
+    @staticmethod
+    def handle_jwt_verify_hs256(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        output = PrepareTools._ensure_output(step, "jwt_verify_hs256")
+
+        token = PrepareTools._render(step.get("token"), ctx)
+        if token in (None, ""):
+            raise ValueError("prepare[jwt_verify_hs256] missing token")
+
+        secret = PrepareTools._render(step.get("secret"), ctx)
+        if secret in (None, ""):
+            raise ValueError("prepare[jwt_verify_hs256] missing secret")
+
+        options = PrepareTools._render(step.get("options"), ctx)
+        if options is not None and not isinstance(options, dict):
+            raise ValueError("prepare[jwt_verify_hs256] options must be dict")
+
+        return_payload = bool(step.get("return_payload", True))
+
+        payload = jwt.decode(
+            PrepareTools._to_text(token),
+            PrepareTools._to_text(secret),
+            algorithms=["HS256"],
+            options=options or None
+        )
+
+        return {output: payload if return_payload else True}
+
+    @staticmethod
+    def handle_jwt_verify_rs256(step: dict[str, typing.Any], ctx: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        output = PrepareTools._ensure_output(step, "jwt_verify_rs256")
+
+        token = PrepareTools._render(step.get("token"), ctx)
+        if token in (None, ""):
+            raise ValueError("prepare[jwt_verify_rs256] missing token")
+
+        public_key = PrepareTools._render(step.get("public_key"), ctx)
+        if public_key in (None, ""):
+            raise ValueError("prepare[jwt_verify_rs256] missing public_key")
+
+        options = PrepareTools._render(step.get("options"), ctx)
+        if options is not None and not isinstance(options, dict):
+            raise ValueError("prepare[jwt_verify_rs256] options must be dict")
+
+        return_payload = bool(step.get("return_payload", True))
+
+        payload = jwt.decode(
+            PrepareTools._to_text(token),
+            PrepareTools._to_text(public_key),
+            algorithms=["RS256"],
+            options=options or None
+        )
+
+        return {output: payload if return_payload else True}
+
     HANDLERS: dict[str, typing.Callable[[dict[str, typing.Any], dict[str, typing.Any]], dict[str, typing.Any]]] = {
-        "uuid4": handle_uuid4.__func__,
-        "timestamp_ms": handle_timestamp_ms.__func__,
-        "timestamp_s": handle_timestamp_s.__func__,
-        "nonce": handle_nonce.__func__,
-        "random_int": handle_random_int.__func__,
-        "random_text": handle_random_text.__func__,
-        "const": handle_const.__func__,
-        "copy": handle_copy.__func__,
-        "pick": handle_pick.__func__,
-        "coalesce": handle_coalesce.__func__,
-        "format": handle_format.__func__,
-        "concat": handle_concat.__func__,
-        "join": handle_join.__func__,
-        "base64_encode": handle_base64_encode.__func__,
-        "base64_decode": handle_base64_decode.__func__,
-        "base64url_encode": handle_base64url_encode.__func__,
-        "base64url_decode": handle_base64url_decode.__func__,
-        "hex_encode": handle_hex_encode.__func__,
-        "hex_decode": handle_hex_decode.__func__,
-        "json_dumps": handle_json_dumps.__func__,
-        "json_loads": handle_json_loads.__func__,
-        "md5": handle_md5.__func__,
-        "sha1": handle_sha1.__func__,
-        "sha256": handle_sha256.__func__,
-        "sha512": handle_sha512.__func__,
-        "hmac_md5": handle_hmac_md5.__func__,
-        "hmac_sha1": handle_hmac_sha1.__func__,
-        "hmac_sha256": handle_hmac_sha256.__func__,
-        "hmac_sha512": handle_hmac_sha512.__func__,
-        "dict_merge": handle_dict_merge.__func__,
-        "sort_keys": handle_sort_keys.__func__,
-        "canonical_query": handle_canonical_query.__func__,
-        "strftime": handle_strftime.__func__,
+        "uuid4": handle_uuid4,
+        "timestamp_ms": handle_timestamp_ms,
+        "timestamp_s": handle_timestamp_s,
+        "nonce": handle_nonce,
+        "random_int": handle_random_int,
+        "random_text": handle_random_text,
+        "const": handle_const,
+        "copy": handle_copy,
+        "pick": handle_pick,
+        "coalesce": handle_coalesce,
+        "format": handle_format,
+        "concat": handle_concat,
+        "join": handle_join,
+        "base64_encode": handle_base64_encode,
+        "base64_decode": handle_base64_decode,
+        "base64url_encode": handle_base64url_encode,
+        "base64url_decode": handle_base64url_decode,
+        "hex_encode": handle_hex_encode,
+        "hex_decode": handle_hex_decode,
+        "json_dumps": handle_json_dumps,
+        "json_loads": handle_json_loads,
+        "md5": handle_md5,
+        "sha1": handle_sha1,
+        "sha256": handle_sha256,
+        "sha512": handle_sha512,
+        "hmac_md5": handle_hmac_md5,
+        "hmac_sha1": handle_hmac_sha1,
+        "hmac_sha256": handle_hmac_sha256,
+        "hmac_sha512": handle_hmac_sha512,
+        "dict_merge": handle_dict_merge,
+        "sort_keys": handle_sort_keys,
+        "canonical_query": handle_canonical_query,
+        "format_time": handle_format_time,
+        "rsa_sign_sha256": handle_rsa_sign_sha256,
+        "rsa_verify_sha256": handle_rsa_verify_sha256,
+        "jwt_hs256": handle_jwt_hs256,
+        "jwt_rs256": handle_jwt_rs256,
+        "jwt_decode_unverified": handle_jwt_decode_unverified,
+        "jwt_verify_hs256": handle_jwt_verify_hs256,
+        "jwt_verify_rs256": handle_jwt_verify_rs256
     }
 
     @staticmethod
@@ -1498,8 +1755,11 @@ class PrepareTools(object):
                 ValueError,
                 KeyError,
                 LookupError,
+                LookupError,
                 json.JSONDecodeError,
-                binascii.Error
+                binascii.Error,
+                InvalidSignature,
+                jwt.PyJWTError
         ) as e:
             return False, {}, f"prepare[{tp}] -> {type(e).__name__}: {e}", []
 
