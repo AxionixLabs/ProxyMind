@@ -1038,6 +1038,20 @@ class Nexus(object):
         t0 = time.perf_counter()
         last_err: typing.Optional[str] = None
 
+        request_data = Build.build_request_http_like(
+            method=method,
+            url=url,
+            headers=headers,
+            params=params,
+            json_body=json_body,
+            body_text=body_text,
+            timeout=timeout,
+            retries=retries,
+            follow_redirects=follow_redirects,
+            form=form,
+            files=files
+        )
+
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=follow_redirects) as client:
             for _ in range(max(0, int(retries)) + 1):
                 try:
@@ -1055,8 +1069,10 @@ class Nexus(object):
                     )
                     elapsed_ms = Tools.ms_since(t0)
 
-                    resp_ct = str(resp.headers.get("content-type") or "")
-                    body_bytes = resp.content
+                    status       = resp.status_code
+                    resp_headers = dict(resp.headers)
+                    resp_ct      = str(resp.headers.get("content-type") or "")
+                    body_bytes    = resp.content
 
                     try:
                         body_json = resp.json()
@@ -1083,23 +1099,9 @@ class Nexus(object):
                         timeout=timeout
                     )
 
-                    request_data = Build.build_request_http_like(
-                        method=method,
-                        url=url,
-                        headers=headers,
-                        params=params,
-                        json_body=json_body,
-                        body_text=body_text,
-                        timeout=timeout,
-                        retries=retries,
-                        follow_redirects=follow_redirects,
-                        form=form,
-                        files=files
-                    )
-
                     response_data = Build.build_response_http_like(
-                        status=resp.status_code,
-                        headers=dict(resp.headers),
+                        status=status,
+                        headers=resp_headers,
                         elapsed_ms=elapsed_ms,
                         body_text=body_text_view,
                         body_json=body_json,
@@ -1141,8 +1143,8 @@ class Nexus(object):
         )
 
         response_data = Build.build_response_http_like(
-            status=resp.status_code,
-            headers=dict(resp.headers),
+            status=status,
+            headers=resp_headers,
             elapsed_ms=elapsed_ms,
             body_text=body_text_view,
             body_json=body_json,
@@ -1193,6 +1195,31 @@ class Nexus(object):
         t0 = time.perf_counter()
         last_err: typing.Optional[str] = None
 
+        request_data = Build.build_request_http_like(
+            method=method,
+            url=url,
+            headers=headers,
+            params=params,
+            json_body=json_body,
+            body_text=body_text,
+            timeout=timeout,
+            retries=retries,
+            follow_redirects=follow_redirects,
+            form=form,
+            files=files
+        )
+
+        events: list[dict[str, typing.Any]] = []
+        status: typing.Optional[int] = None
+        resp_headers: dict[str, typing.Any] = {}
+        resp_ct: typing.Optional[str] = None
+
+        media_list: list[dict[str, typing.Any]] = []
+        attachments: list[dict[str, typing.Any]] = []
+        media_logs: list[str] = []
+
+        ok = False
+
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=follow_redirects) as client:
             for _ in range(max(0, int(retries)) + 1):
                 try:
@@ -1212,30 +1239,18 @@ class Nexus(object):
                         files=files_payload
                     ) as resp:
 
-                        status     = resp.status_code
-                        elapsed_ms = Tools.ms_since(t0)
+                        status       = resp.status_code
+                        resp_headers = dict(resp.headers)
+                        resp_ct      = str(resp.headers.get("content-type") or "")
+                        elapsed_ms   = Tools.ms_since(t0)
 
                         if status != 200:
-                            request_data = Build.build_request_http_like(
-                                method=method,
-                                url=url,
-                                headers=headers,
-                                params=params,
-                                json_body=json_body,
-                                body_text=body_text,
-                                timeout=timeout,
-                                retries=retries,
-                                follow_redirects=follow_redirects,
-                                form=form,
-                                files=files
-                            )
-
                             response_data = Build.build_response_sse(
                                 status=status,
-                                headers=dict(resp.headers),
+                                headers=resp_headers,
                                 elapsed_ms=elapsed_ms,
                                 events=events,
-                                content_type=str(resp.headers.get("content-type") or ""),
+                                content_type=resp_ct,
                                 content_length=None,
                                 media=media_list
                             )
@@ -1283,10 +1298,10 @@ class Nexus(object):
 
                                     response_data = Build.build_response_sse(
                                         status=status,
-                                        headers=dict(resp.headers),
+                                        headers=resp_headers,
                                         elapsed_ms=elapsed_ms,
                                         events=events,
-                                        content_type=str(resp.headers.get("content-type") or ""),
+                                        content_type=resp_ct,
                                         content_length=None,
                                         media=media_list
                                     )
@@ -1321,10 +1336,10 @@ class Nexus(object):
 
                     response_data = Build.build_response_sse(
                         status=status,
-                        headers=dict(resp.headers),
+                        headers=resp_headers,
                         elapsed_ms=elapsed_ms,
                         events=events,
-                        content_type=str(resp.headers.get("content-type") or ""),
+                        content_type=resp_ct,
                         content_length=None,
                         media=media_list
                     )
@@ -1347,10 +1362,10 @@ class Nexus(object):
 
         response_data = Build.build_response_sse(
             status=status,
-            headers=dict(resp.headers),
+            headers=resp_headers,
             elapsed_ms=elapsed_ms,
             events=events,
-            content_type=str(resp.headers.get("content-type") or ""),
+            content_type=resp_ct,
             content_length=None,
             media=media_list
         )
@@ -1444,7 +1459,7 @@ class Nexus(object):
             error=None if ok else last_err,
             media=media_list
         )
-        
+
         pack = Build.build_pack(
             text=f"WS {url} msgs={len(recv)} ({elapsed_ms}ms)",
             ok=ok,
