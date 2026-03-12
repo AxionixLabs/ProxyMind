@@ -813,6 +813,195 @@ class Tools(object):
         return media_list, attachments, logs
 
 
+class Build(object):
+
+    @staticmethod
+    def build_pack(
+        *,
+        text: str,
+        ok: bool,
+        request: dict[str, typing.Any],
+        response: dict[str, typing.Any],
+        attachments: typing.Optional[list[dict[str, typing.Any]]] = None,
+        logs: typing.Optional[list[str]] = None,
+        error: typing.Optional[str] = None,
+        extra_data: typing.Optional[dict[str, typing.Any]] = None
+    ) -> dict[str, typing.Any]:
+        data: dict[str, typing.Any] = {
+            "ok": ok, "request": request, "response": response
+        }
+        if error is not None:
+            data["error"] = error
+        if extra_data:
+            data.update(extra_data)
+
+        return {
+            "text"        : text,
+            "attachments" : attachments or [],
+            "data"        : data,
+            "logs"        : logs or []
+        }
+
+    @staticmethod
+    def finalize_pack(
+        pack: dict[str, typing.Any],
+        *,
+        extract: typing.Optional[dict[str, str]] = None,
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None
+    ) -> dict[str, typing.Any]:
+        checked = Tools.apply_extract_assert(
+            pack.get("data") or {},
+            extract=extract,
+            asserts=asserts
+        )
+
+        data = pack.setdefault("data", {})
+        logs = pack.setdefault("logs", [])
+
+        data["extract"] = checked["extract"]
+        data["asserts"] = checked["asserts"]
+        data["assert_summary"] = checked["summary"]
+        data["assert_ok"] = bool(checked["ok"])
+        data["ok"] = bool(data.get("ok")) and bool(checked["ok"])
+
+        logs.extend(checked["logs"])
+
+        if extract or asserts:
+            pack["text"] = str(pack.get("text") or "") + (
+                f" extract={len(checked['extract'])}"
+                f" fail={checked['summary']['fail']}"
+            )
+
+        return pack
+
+    @staticmethod
+    def files_meta(
+        files: typing.Optional[list[dict[str, typing.Any]]]
+    ) -> list[dict[str, typing.Any]]:
+        return [
+            {
+                "field"        : x.get("field"),
+                "filename"     : x.get("filename"),
+                "content_type" : x.get("content_type"),
+                "path"         : x.get("path")
+            }
+            for x in (files or []) if isinstance(x, dict)
+        ]
+
+    @staticmethod
+    def build_request_http_like(
+        *,
+        method: str,
+        url: str,
+        headers: typing.Optional[dict[str, str]] = None,
+        params: typing.Optional[dict[str, typing.Any]] = None,
+        json_body: typing.Optional[dict[str, typing.Any]] = None,
+        body_text: typing.Optional[str] = None,
+        timeout: float = 30.0,
+        retries: int = 0,
+        follow_redirects: bool = True,
+        form: typing.Optional[dict[str, typing.Any]] = None,
+        files: typing.Optional[list[dict[str, typing.Any]]] = None
+    ) -> dict[str, typing.Any]:
+        return {
+            "method"           : method,
+            "url"              : url,
+            "headers"          : dict(headers or {}),
+            "params"           : params,
+            "json"             : json_body,
+            "body_text"        : body_text,
+            "timeout"          : timeout,
+            "retries"          : retries,
+            "follow_redirects" : follow_redirects,
+            "form"             : form,
+            "files"            : Build.files_meta(files)
+        }
+
+    @staticmethod
+    def build_request_ws(
+        *,
+        url: str,
+        headers: typing.Optional[dict[str, str]] = None,
+        sends: typing.Optional[list[str]] = None,
+        timeout: float = 60.0,
+        max_messages: int = 10
+    ) -> dict[str, typing.Any]:
+        return {
+            "url"          : url,
+            "headers"      : dict(headers or {}),
+            "sends"        : sends or [],
+            "timeout"      : timeout,
+            "max_messages" : max_messages
+        }
+
+    @staticmethod
+    def build_response_http_like(
+        *,
+        status: typing.Optional[int],
+        headers: typing.Optional[dict[str, typing.Any]],
+        elapsed_ms: int,
+        body_text: typing.Optional[str],
+        body_json: typing.Any,
+        content_type: typing.Optional[str],
+        content_length: typing.Optional[int],
+        media: typing.Optional[list[dict[str, typing.Any]]] = None
+    ) -> dict[str, typing.Any]:
+        return {
+            "status"         : status,
+            "headers"        : dict(headers or {}),
+            "elapsed_ms"     : elapsed_ms,
+            "body_text"      : body_text,
+            "body_json"      : body_json,
+            "content_type"   : content_type,
+            "content_length" : content_length,
+            "media"          : media or []
+        }
+
+    @staticmethod
+    def build_response_sse(
+        *,
+        status: typing.Optional[int],
+        headers: typing.Optional[dict[str, typing.Any]],
+        elapsed_ms: int,
+        events: typing.Optional[list[dict[str, typing.Any]]] = None,
+        content_type: typing.Optional[str] = None,
+        content_length: typing.Optional[int] = None,
+        media: typing.Optional[list[dict[str, typing.Any]]] = None
+    ) -> dict[str, typing.Any]:
+        return {
+            "status"         : status,
+            "headers"        : dict(headers or {}),
+            "elapsed_ms"     : elapsed_ms,
+            "events"         : events or [],
+            "content_type"   : content_type,
+            "content_length" : content_length,
+            "body_text"      : None,
+            "body_json"      : None,
+            "media"          : media or []
+        }
+
+    @staticmethod
+    def build_response_ws(
+        *,
+        elapsed_ms: int,
+        messages: typing.Optional[list[str]] = None,
+        error: typing.Optional[str] = None,
+        media: typing.Optional[list[dict[str, typing.Any]]] = None
+    ) -> dict[str, typing.Any]:
+        return {
+            "status"         : None,
+            "headers"        : {},
+            "elapsed_ms"     : elapsed_ms,
+            "messages"       : messages or [],
+            "error"          : error,
+            "content_type"   : None,
+            "content_length" : None,
+            "body_text"      : None,
+            "body_json"      : None,
+            "media"          : media or []
+        }
+
+
 class Nexus(object):
     """Nexus class."""
 
@@ -894,131 +1083,84 @@ class Nexus(object):
                         timeout=timeout
                     )
 
-                    ok = 200 <= int(resp.status_code) < 400
-
-                    pack =  {
-                        "text"        : f"{method} {url} -> {resp.status_code} ({elapsed_ms}ms)",
-                        "attachments" : attachments,
-                        "data": {
-                            "ok": ok,
-                            "request": {
-                                "method"           : method,
-                                "url"              : url,
-                                "headers"          : headers,
-                                "params"           : params,
-                                "json"             : json_body,
-                                "body_text"        : body_text,
-                                "timeout"          : timeout,
-                                "retries"          : retries,
-                                "follow_redirects" : follow_redirects,
-                                "form"             : form,
-                                "files": [
-                                    {
-                                        "field"        : x.get("field"),
-                                        "filename"     : x.get("filename"),
-                                        "content_type" : x.get("content_type"),
-                                        "path"         : x.get("path")
-                                    }
-                                    for x in (files or []) if isinstance(x, dict)
-                                ]
-                            },
-                            "response": {
-                                "status"         : resp.status_code,
-                                "headers"        : dict(resp.headers),
-                                "elapsed_ms"     : elapsed_ms,
-                                "body_text"      : body_text_view,
-                                "body_json"      : body_json,
-                                "content_type"   : resp_ct,
-                                "content_length" : len(body_bytes),
-                                "media"          : media_list
-                            }
-                        },
-                        "logs": media_logs[:]
-                    }
-
-                    checked = Tools.apply_extract_assert(
-                        pack["data"], extract=extract, asserts=asserts
+                    request_data = Build.build_request_http_like(
+                        method=method,
+                        url=url,
+                        headers=headers,
+                        params=params,
+                        json_body=json_body,
+                        body_text=body_text,
+                        timeout=timeout,
+                        retries=retries,
+                        follow_redirects=follow_redirects,
+                        form=form,
+                        files=files
                     )
 
-                    pack["data"]["extract"] = checked["extract"]
-                    pack["data"]["asserts"] = checked["asserts"]
-                    pack["data"]["assert_summary"] = checked["summary"]
-                    pack["data"]["assert_ok"] = bool(checked["ok"])
-                    pack["data"]["ok"] = bool(pack["data"]["ok"]) and bool(checked["ok"])
-                    pack["logs"].extend(checked["logs"])
+                    response_data = Build.build_response_http_like(
+                        status=resp.status_code,
+                        headers=dict(resp.headers),
+                        elapsed_ms=elapsed_ms,
+                        body_text=body_text_view,
+                        body_json=body_json,
+                        content_type=resp_ct,
+                        content_length=len(body_bytes),
+                        media=media_list
+                    )
 
-                    if extract or asserts:
-                        pack["text"] += (
-                            f" extract={len(checked['extract'])}"
-                            f" fail={checked['summary']['fail']}"
-                        )
+                    ok = 200 <= int(resp.status_code) < 400
 
-                    return pack
+                    pack = Build.build_pack(
+                        text=f"{method} {url} -> {resp.status_code} ({elapsed_ms}ms)",
+                        ok=ok,
+                        request=request_data,
+                        response=response_data,
+                        attachments=attachments,
+                        logs=media_logs[:],
+                        error=last_err
+                    )
+                    return Build.finalize_pack(pack, extract=extract, asserts=asserts)
 
                 except (httpx.TimeoutException, httpx.RequestError, OSError) as e:
                     last_err = f"{type(e).__name__}: {e}"
 
         elapsed_ms = Tools.ms_since(t0)
 
-        pack = {
-            "text"        : f"{method} {url} -> ERROR ({elapsed_ms}ms) {last_err}",
-            "attachments" : [],
-            "data": {
-                "ok": False,
-                "request": {
-                    "method"           : method,
-                    "url"              : url,
-                    "headers"          : headers,
-                    "params"           : params,
-                    "json"             : json_body,
-                    "body_text"        : body_text,
-                    "timeout"          : timeout,
-                    "retries"          : retries,
-                    "follow_redirects" : follow_redirects,
-                    "form"             : form,
-                    "files": [
-                        {
-                            "field"        : x.get("field"),
-                            "filename"     : x.get("filename"),
-                            "content_type" : x.get("content_type"),
-                            "path"         : x.get("path")
-                        }
-                        for x in (files or []) if isinstance(x, dict)
-                    ]
-                },
-                "response": {
-                    "status"         : None,
-                    "headers"        : {},
-                    "elapsed_ms"     : elapsed_ms,
-                    "body_text"      : None,
-                    "body_json"      : None,
-                    "content_type"   : None,
-                    "content_length" : 0,
-                    "media"          : []
-                },
-                "error": last_err
-            },
-            "logs": []
-        }
-
-        checked = Tools.apply_extract_assert(
-            pack["data"], extract=extract, asserts=asserts
+        request_data = Build.build_request_http_like(
+            method=method,
+            url=url,
+            headers=headers,
+            params=params,
+            json_body=json_body,
+            body_text=body_text,
+            timeout=timeout,
+            retries=retries,
+            follow_redirects=follow_redirects,
+            form=form,
+            files=files
         )
 
-        pack["data"]["extract"] = checked["extract"]
-        pack["data"]["asserts"] = checked["asserts"]
-        pack["data"]["assert_summary"] = checked["summary"]
-        pack["data"]["assert_ok"] = bool(checked["ok"])
-        pack["data"]["ok"] = bool(pack["data"]["ok"]) and bool(checked["ok"])
-        pack["logs"].extend(checked["logs"])
+        response_data = Build.build_response_http_like(
+            status=resp.status_code,
+            headers=dict(resp.headers),
+            elapsed_ms=elapsed_ms,
+            body_text=body_text_view,
+            body_json=body_json,
+            content_type=resp_ct,
+            content_length=len(body_bytes),
+            media=media_list
+        )
 
-        if extract or asserts:
-            pack["text"] += (
-                f" extract={len(checked['extract'])}"
-                f" fail={checked['summary']['fail']}"
-            )
-
-        return pack
+        pack = Build.build_pack(
+            text=f"{method} {url} -> ERROR ({elapsed_ms}ms) {last_err}",
+            ok=ok,
+            request=request_data,
+            response=response_data,
+            attachments=attachments,
+            logs=media_logs[:],
+            error=last_err
+        )
+        return Build.finalize_pack(pack, extract=extract, asserts=asserts)
 
     @staticmethod
     async def sse(
@@ -1074,65 +1216,40 @@ class Nexus(object):
                         elapsed_ms = Tools.ms_since(t0)
 
                         if status != 200:
-                            pack = {
-                                "text"        : f"SSE {method} {url} -> {status} ({elapsed_ms}ms)",
-                                "attachments" : [],
-                                "data": {
-                                    "ok": False,
-                                    "request": {
-                                        "method"           : method,
-                                        "url"              : url,
-                                        "headers"          : headers,
-                                        "params"           : params,
-                                        "json"             : json_body,
-                                        "body_text"        : body_text,
-                                        "timeout"          : timeout,
-                                        "retries"          : retries,
-                                        "follow_redirects" : follow_redirects,
-                                        "form"             : form,
-                                        "files": [
-                                            {
-                                                "field"        : x.get("field"),
-                                                "filename"     : x.get("filename"),
-                                                "content_type" : x.get("content_type"),
-                                                "path"         : x.get("path")
-                                            }
-                                            for x in (files or []) if isinstance(x, dict)
-                                        ]
-                                    },
-                                    "response": {
-                                        "status"         : status,
-                                        "headers"        : dict(resp.headers),
-                                        "elapsed_ms"     : elapsed_ms,
-                                        "events"         : events,
-                                        "content_type"   : str(resp.headers.get("content-type") or ""),
-                                        "content_length" : None,
-                                        "body_text"      : None,
-                                        "body_json"      : None,
-                                        "media"          : []
-                                    }
-                                },
-                                "logs": []
-                            }
-
-                            checked = Tools.apply_extract_assert(
-                                pack["data"], extract=extract, asserts=asserts
+                            request_data = Build.build_request_http_like(
+                                method=method,
+                                url=url,
+                                headers=headers,
+                                params=params,
+                                json_body=json_body,
+                                body_text=body_text,
+                                timeout=timeout,
+                                retries=retries,
+                                follow_redirects=follow_redirects,
+                                form=form,
+                                files=files
                             )
 
-                            pack["data"]["extract"] = checked["extract"]
-                            pack["data"]["asserts"] = checked["asserts"]
-                            pack["data"]["assert_summary"] = checked["summary"]
-                            pack["data"]["assert_ok"] = bool(checked["ok"])
-                            pack["data"]["ok"] = bool(pack["data"]["ok"]) and bool(checked["ok"])
-                            pack["logs"].extend(checked["logs"])
+                            response_data = Build.build_response_sse(
+                                status=status,
+                                headers=dict(resp.headers),
+                                elapsed_ms=elapsed_ms,
+                                events=events,
+                                content_type=str(resp.headers.get("content-type") or ""),
+                                content_length=None,
+                                media=media_list
+                            )
 
-                            if extract or asserts:
-                                pack["text"] += (
-                                    f" extract={len(checked['extract'])}"
-                                    f" fail={checked['summary']['fail']}"
-                                )
-
-                            return pack
+                            pack = Build.build_pack(
+                                text=f"SSE {method} {url} -> {status} ({elapsed_ms}ms)",
+                                ok=ok,
+                                request=request_data,
+                                response=response_data,
+                                attachments=attachments,
+                                logs=media_logs[:],
+                                error=last_err
+                            )
+                            return Build.finalize_pack(pack, extract=extract, asserts=asserts)
 
                         buf = ""
                         async for chunk in resp.aiter_text():
@@ -1152,7 +1269,7 @@ class Nexus(object):
 
                                 if max_events and 0 < int(max_events) <= len(events):
                                     elapsed_ms = Tools.ms_since(t0)
-                                    
+
                                     media_list, attachments, media_logs = await Tools.collect_media(
                                         source_kind="sse_events",
                                         source=events,
@@ -1163,66 +1280,27 @@ class Nexus(object):
                                         tool="sse_media",
                                         timeout=timeout
                                     )
-                                    
-                                    pack = {
-                                        "text"        : f"SSE {method} {url} events={len(events)} ({elapsed_ms}ms)",
-                                        "attachments" : attachments,
-                                        "data": {
-                                            "ok": True,
-                                            "request": {
-                                                "method"           : method,
-                                                "url"              : url,
-                                                "headers"          : headers,
-                                                "params"           : params,
-                                                "json"             : json_body,
-                                                "body_text"        : body_text,
-                                                "timeout"          : timeout,
-                                                "retries"          : retries,
-                                                "follow_redirects" : follow_redirects,
-                                                "form"             : form,
-                                                "files": [
-                                                    {
-                                                        "field"        : x.get("field"),
-                                                        "filename"     : x.get("filename"),
-                                                        "content_type" : x.get("content_type"),
-                                                        "path"         : x.get("path")
-                                                    }
-                                                    for x in (files or []) if isinstance(x, dict)
-                                                ]
-                                            },
-                                            "response": {
-                                                "status"         : status,
-                                                "headers"        : dict(resp.headers),
-                                                "elapsed_ms"     : elapsed_ms,
-                                                "events"         : events,
-                                                "content_type"   : str(resp.headers.get("content-type") or ""),
-                                                "content_length" : None,
-                                                "body_text"      : None,
-                                                "body_json"      : None,
-                                                "media"          : media_list
-                                            }
-                                        },
-                                        "logs": media_logs[:]
-                                    }
 
-                                    checked = Tools.apply_extract_assert(
-                                        pack["data"], extract=extract, asserts=asserts
+                                    response_data = Build.build_response_sse(
+                                        status=status,
+                                        headers=dict(resp.headers),
+                                        elapsed_ms=elapsed_ms,
+                                        events=events,
+                                        content_type=str(resp.headers.get("content-type") or ""),
+                                        content_length=None,
+                                        media=media_list
                                     )
 
-                                    pack["data"]["extract"] = checked["extract"]
-                                    pack["data"]["asserts"] = checked["asserts"]
-                                    pack["data"]["assert_summary"] = checked["summary"]
-                                    pack["data"]["assert_ok"] = bool(checked["ok"])
-                                    pack["data"]["ok"] = bool(pack["data"]["ok"]) and bool(checked["ok"])
-                                    pack["logs"].extend(checked["logs"])
-
-                                    if extract or asserts:
-                                        pack["text"] += (
-                                            f" extract={len(checked['extract'])}"
-                                            f" fail={checked['summary']['fail']}"
-                                        )
-
-                                    return pack
+                                    pack = Build.build_pack(
+                                        text=f"SSE {method} {url} events={len(events)} ({elapsed_ms}ms)",
+                                        ok=ok,
+                                        request=request_data,
+                                        response=response_data,
+                                        attachments=attachments,
+                                        logs=media_logs[:],
+                                        error=last_err
+                                    )
+                                    return Build.finalize_pack(pack, extract=extract, asserts=asserts)
 
                         if tail := Tools.sse_block(buf):
                             events.append({"event": tail.event, "id": tail.id, "data": tail.data})
@@ -1241,130 +1319,52 @@ class Nexus(object):
                         timeout=timeout
                     )
 
-                    pack = {
-                        "text"        : f"SSE {method} {url} events={len(events)} ({elapsed_ms}ms)",
-                        "attachments" : attachments,
-                        "data": {
-                            "ok": ok,
-                            "request": {
-                                "method"           : method,
-                                "url"              : url,
-                                "headers"          : headers,
-                                "params"           : params,
-                                "json"             : json_body,
-                                "body_text"        : body_text,
-                                "timeout"          : timeout,
-                                "retries"          : retries,
-                                "follow_redirects" : follow_redirects,
-                                "form"             : form,
-                                "files": [
-                                    {
-                                        "field"        : x.get("field"),
-                                        "filename"     : x.get("filename"),
-                                        "content_type" : x.get("content_type"),
-                                        "path"         : x.get("path")
-                                    }
-                                    for x in (files or []) if isinstance(x, dict)
-                                ]
-                            },
-                            "response": {
-                                "status"         : status,
-                                "headers"        : dict(resp.headers),
-                                "elapsed_ms"     : elapsed_ms,
-                                "events"         : events,
-                                "content_type"   : str(resp.headers.get("content-type") or ""),
-                                "content_length" : None,
-                                "body_text"      : None,
-                                "body_json"      : None,
-                                "media"          : media_list
-                            }
-                        },
-                        "logs": media_logs[:]
-                    }
-
-                    checked = Tools.apply_extract_assert(
-                        pack["data"], extract=extract, asserts=asserts
+                    response_data = Build.build_response_sse(
+                        status=status,
+                        headers=dict(resp.headers),
+                        elapsed_ms=elapsed_ms,
+                        events=events,
+                        content_type=str(resp.headers.get("content-type") or ""),
+                        content_length=None,
+                        media=media_list
                     )
 
-                    pack["data"]["extract"] = checked["extract"]
-                    pack["data"]["asserts"] = checked["asserts"]
-                    pack["data"]["assert_summary"] = checked["summary"]
-                    pack["data"]["assert_ok"] = bool(checked["ok"])
-                    pack["data"]["ok"] = bool(pack["data"]["ok"]) and bool(checked["ok"])
-                    pack["logs"].extend(checked["logs"])
-
-                    if extract or asserts:
-                        pack["text"] += (
-                            f" extract={len(checked['extract'])}"
-                            f" fail={checked['summary']['fail']}"
-                        )
-
-                    return pack
+                    pack = Build.build_pack(
+                        text=f"SSE {method} {url} events={len(events)} ({elapsed_ms}ms)",
+                        ok=ok,
+                        request=request_data,
+                        response=response_data,
+                        attachments=attachments,
+                        logs=media_logs[:],
+                        error=last_err
+                    )
+                    return Build.finalize_pack(pack, extract=extract, asserts=asserts)
 
                 except (httpx.TimeoutException, httpx.RequestError, OSError) as e:
                     last_err = f"{type(e).__name__}: {e}"
 
         elapsed_ms = Tools.ms_since(t0)
-        pack = {
-            "text"        : f"SSE {method} {url} -> ERROR ({elapsed_ms}ms) {last_err}",
-            "attachments" : [],
-            "data": {
-                "ok": False,
-                "request": {
-                    "method"           : method,
-                    "url"              : url,
-                    "headers"          : headers,
-                    "params"           : params,
-                    "json"             : json_body,
-                    "body_text"        : body_text,
-                    "timeout"          : timeout,
-                    "retries"          : retries,
-                    "follow_redirects" : follow_redirects,
-                    "form"             : form,
-                    "files": [
-                        {
-                            "field"        : x.get("field"),
-                            "filename"     : x.get("filename"),
-                            "content_type" : x.get("content_type"),
-                            "path"         : x.get("path")
-                        }
-                        for x in (files or []) if isinstance(x, dict)
-                    ]
-                },
-                "response": {
-                    "status"         : None,
-                    "headers"        : {},
-                    "elapsed_ms"     : elapsed_ms,
-                    "events"         : [],
-                    "content_type"   : None,
-                    "content_length" : None,
-                    "body_text"      : None,
-                    "body_json"      : None,
-                    "media"          : []
-                },
-                "error": last_err
-            },
-            "logs": []
-        }
 
-        checked = Tools.apply_extract_assert(
-            pack["data"], extract=extract, asserts=asserts
+        response_data = Build.build_response_sse(
+            status=status,
+            headers=dict(resp.headers),
+            elapsed_ms=elapsed_ms,
+            events=events,
+            content_type=str(resp.headers.get("content-type") or ""),
+            content_length=None,
+            media=media_list
         )
 
-        pack["data"]["extract"] = checked["extract"]
-        pack["data"]["asserts"] = checked["asserts"]
-        pack["data"]["assert_summary"] = checked["summary"]
-        pack["data"]["assert_ok"] = bool(checked["ok"])
-        pack["data"]["ok"] = bool(pack["data"]["ok"]) and bool(checked["ok"])
-        pack["logs"].extend(checked["logs"])
-
-        if extract or asserts:
-            pack["text"] += (
-                f" extract={len(checked['extract'])}"
-                f" fail={checked['summary']['fail']}"
-            )
-
-        return pack
+        pack = Build.build_pack(
+            text=f"SSE {method} {url} -> ERROR ({elapsed_ms}ms) {last_err}",
+            ok=ok,
+            request=request_data,
+            response=response_data,
+            attachments=attachments,
+            logs=media_logs[:],
+            error=last_err
+        )
+        return Build.finalize_pack(pack, extract=extract, asserts=asserts)
 
     @staticmethod
     async def ws(
@@ -1430,52 +1430,31 @@ class Nexus(object):
             timeout=timeout
         )
 
-        pack =  {
-            "text"        : f"WS {url} msgs={len(recv)} ({elapsed_ms}ms)",
-            "attachments" : attachments,
-            "data": {
-                "ok": ok,
-                "request": {
-                    "url"          : url,
-                    "headers"      : headers,
-                    "sends"        : sends,
-                    "timeout"      : timeout,
-                    "max_messages" : max_messages
-                },
-                "response": {
-                    "elapsed_ms"     : elapsed_ms,
-                    "messages"       : recv,
-                    "error"          : (None if ok else last_err),
-                    "status"         : None,
-                    "headers"        : {},
-                    "content_type"   : None,
-                    "content_length" : None,
-                    "body_text"      : None,
-                    "body_json"      : None,
-                    "media"          : media_list
-                }
-            },
-            "logs": media_logs[:]
-        }
-
-        checked = Tools.apply_extract_assert(
-            pack["data"], extract=extract, asserts=asserts
+        request_data = Build.build_request_ws(
+            url=url,
+            headers=headers,
+            sends=sends,
+            timeout=timeout,
+            max_messages=max_messages
         )
 
-        pack["data"]["extract"] = checked["extract"]
-        pack["data"]["asserts"] = checked["asserts"]
-        pack["data"]["assert_summary"] = checked["summary"]
-        pack["data"]["assert_ok"] = bool(checked["ok"])
-        pack["data"]["ok"] = bool(pack["data"]["ok"]) and bool(checked["ok"])
-        pack["logs"].extend(checked["logs"])
-
-        if extract or asserts:
-            pack["text"] += (
-                f" extract={len(checked['extract'])}"
-                f" fail={checked['summary']['fail']}"
-            )
-
-        return pack
+        response_data = Build.build_response_ws(
+            elapsed_ms=elapsed_ms,
+            messages=recv,
+            error=None if ok else last_err,
+            media=media_list
+        )
+        
+        pack = Build.build_pack(
+            text=f"WS {url} msgs={len(recv)} ({elapsed_ms}ms)",
+            ok=ok,
+            request=request_data,
+            response=response_data,
+            attachments=attachments,
+            logs=media_logs[:],
+            error=last_err
+        )
+        return Build.finalize_pack(pack, extract=extract, asserts=asserts)
 
     @staticmethod
     async def graphql(
@@ -1537,7 +1516,7 @@ class Nexus(object):
             save_response=save_response,
             save_dir=save_dir,
             tool="graphql_media",
-            timeout=timeout,
+            timeout=timeout
         )
 
         attachments.extend(media_attachments)
