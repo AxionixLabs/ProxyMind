@@ -90,7 +90,7 @@ class Enhancer(object):
                 return src_arguments
             return src_arguments | {"output_dir": report.toolkit_path}
 
-        elif name.startswith("nexus_http"):
+        elif name.startswith("nexus_"):
             return Enhancer.nexus_media_dir(src_arguments, report.toolkit_path)
 
         elif name.startswith("file_logcat_dump"):
