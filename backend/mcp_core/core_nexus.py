@@ -1037,6 +1037,18 @@ class Nexus(object):
 
         t0 = time.perf_counter()
         last_err: typing.Optional[str] = None
+        
+        body_text_view: typing.Optional[str] = None
+        body_json: typing.Any = None
+        body_bytes: bytes = b""
+
+        status: typing.Optional[int] = None
+        resp_headers: dict[str, typing.Any] = {}
+        resp_ct: typing.Optional[str] = None
+        media_list: list[dict[str, typing.Any]] = []
+        attachments: list[dict[str, typing.Any]] = []
+        media_logs: list[str] = []
+        ok: bool = False
 
         request_data = Build.build_request_http_like(
             method=method,
@@ -1195,6 +1207,16 @@ class Nexus(object):
         t0 = time.perf_counter()
         last_err: typing.Optional[str] = None
 
+        events: list[dict[str, typing.Any]] = []
+
+        status: typing.Optional[int] = None
+        resp_headers: dict[str, typing.Any] = {}
+        resp_ct: typing.Optional[str] = None
+        media_list: list[dict[str, typing.Any]] = []
+        attachments: list[dict[str, typing.Any]] = []
+        media_logs: list[str] = []
+        ok: bool = False
+
         request_data = Build.build_request_http_like(
             method=method,
             url=url,
@@ -1208,17 +1230,6 @@ class Nexus(object):
             form=form,
             files=files
         )
-
-        events: list[dict[str, typing.Any]] = []
-        status: typing.Optional[int] = None
-        resp_headers: dict[str, typing.Any] = {}
-        resp_ct: typing.Optional[str] = None
-
-        media_list: list[dict[str, typing.Any]] = []
-        attachments: list[dict[str, typing.Any]] = []
-        media_logs: list[str] = []
-
-        ok = False
 
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=follow_redirects) as client:
             for _ in range(max(0, int(retries)) + 1):
