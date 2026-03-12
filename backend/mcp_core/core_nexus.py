@@ -889,6 +889,23 @@ class Build(object):
         ]
 
     @staticmethod
+    def build_gql_extra(
+        *,
+        query: str,
+        variables: dict[str, typing.Any],
+        operation_name: typing.Optional[str],
+        errors: typing.Any
+    ) -> dict[str, typing.Any]:
+        return {
+            "graphql": {
+                "query"          : query,
+                "variables"      : variables,
+                "operation_name" : operation_name,
+                "errors"         : errors
+            }
+        }
+
+    @staticmethod
     def build_request_http_like(
         *,
         method: str,
@@ -1503,98 +1520,164 @@ class Nexus(object):
         save_dir: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
 
-        hd = dict(headers or {})
-        hd.setdefault("Content-Type", "application/json")
+        gql_method  = "POST"
+        gql_url     = Tools.url_join(base_url, url)
+        gql_headers = dict(headers or {})
+        gql_headers.setdefault("Content-Type", "application/json")
 
-        payload = {
-            "query"     : query,
-            "variables" : variables or {}
+        gql_payload: dict[str, typing.Any] = {
+            "query": query,
+            "variables": variables or {}
         }
         if operation_name:
-            payload["operationName"] = operation_name
+            gql_payload["operationName"] = operation_name
 
-        pack = await Nexus.request(
-            method="POST",
-            url=url,
-            base_url=base_url,
-            headers=hd,
+        t0 = time.perf_counter()
+        last_err: typing.Optional[str] = None
+
+        body_text_view: typing.Optional[str] = None
+        body_json: typing.Any = None
+        body_bytes: bytes = b""
+        gql_errors: typing.Any = None
+
+        status: typing.Optional[int] = None
+        resp_headers: dict[str, typing.Any] = {}
+        resp_ct: typing.Optional[str] = None
+        media_list: list[dict[str, typing.Any]] = []
+        attachments: list[dict[str, typing.Any]] = []
+        media_logs: list[str] = []
+        ok: bool = False
+
+        request_data = Build.build_request_http_like(
+            method=gql_method,
+            url=gql_url,
+            headers=gql_headers,
             params=params,
-            json_body=payload,
+            json_body=gql_payload,
+            body_text=None,
             timeout=timeout,
             retries=retries,
             follow_redirects=follow_redirects,
-            extract=extract,
-            asserts=asserts,
-            save_response=save_response,
-            save_dir=save_dir
+            form=None,
+            files=None
         )
 
-        data      = pack.get("data") or {}
-        resp      = data.get("response") or {}
-        body_json = resp.get("body_json") if isinstance(resp, dict) else None
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=follow_redirects) as client:
+            for _ in range(max(0, int(retries)) + 1):
+                try:
+                    resp = await client.request(
+                        gql_method,
+                        gql_url,
+                        headers=gql_headers,
+                        params=params,
+                        json=gql_payload
+                    )
+                    elapsed_ms = Tools.ms_since(t0)
 
-        attachments = list(pack.get("attachments") or [])
-        logs = list(pack.get("logs") or [])
+                    status       = resp.status_code
+                    resp_headers = dict(resp.headers)
+                    resp_ct      = str(resp.headers.get("content-type") or "")
+                    body_bytes   = resp.content
 
-        media_list, media_attachments, media_logs = await Tools.collect_media(
-            source_kind="json_body",
-            source=body_json,
-            media_path=media_path,
-            save_response=save_response,
-            save_dir=save_dir,
-            tool="graphql_media",
-            timeout=timeout
+                    try:
+                        body_json = resp.json()
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        body_json = None
+
+                    try:
+                        body_text_view = resp.text
+                    except (TypeError, ValueError, AttributeError):
+                        body_text_view = None
+
+                    if Tools.detect_media_kind(resp_ct):
+                        body_json = None
+                        body_text_view = None
+
+                    media_list, attachments, media_logs = await Tools.collect_media(
+                        source_kind="json_body",
+                        source=body_json,
+                        media_path=media_path,
+                        save_response=save_response,
+                        save_dir=save_dir,
+                        tool="graphql_media",
+                        timeout=timeout
+                    )
+
+                    http_ok = 200 <= int(status) < 400
+
+                    if isinstance(body_json, dict):
+                        gql_errors = body_json.get("errors")
+                    else:
+                        gql_errors = None
+
+                    ok = bool(http_ok) and not bool(gql_errors)
+
+                    response_data = Build.build_response_http_like(
+                        status=status,
+                        headers=resp_headers,
+                        elapsed_ms=elapsed_ms,
+                        body_text=body_text_view,
+                        body_json=body_json,
+                        content_type=resp_ct,
+                        content_length=len(body_bytes),
+                        media=media_list
+                    )
+
+                    pack = Build.build_pack(
+                        text=(
+                            f"GQL POST {url} -> {status} ({elapsed_ms}ms)"
+                            if ok else
+                            f"GQL POST {url} -> FAIL ({elapsed_ms}ms)"
+                        ),
+                        ok=ok,
+                        request=request_data,
+                        response=response_data,
+                        attachments=attachments,
+                        logs=media_logs[:],
+                        error=None,
+                        extra_data=Build.build_gql_extra(
+                            query=query, 
+                            variables=variables, 
+                            operation_name=operation_name, 
+                            errors=gql_errors
+                        )
+                    )
+                    return Build.finalize_pack(pack, extract=extract, asserts=asserts)
+
+                except (httpx.TimeoutException, httpx.RequestError, OSError) as e:
+                    last_err = f"{type(e).__name__}: {e}"
+
+        elapsed_ms = Tools.ms_since(t0)
+
+        response_data = Build.build_response_http_like(
+            status=status,
+            headers=resp_headers,
+            elapsed_ms=elapsed_ms,
+            body_text=body_text_view,
+            body_json=body_json,
+            content_type=resp_ct,
+            content_length=len(body_bytes),
+            media=media_list
         )
 
-        attachments.extend(media_attachments)
-        logs.extend(media_logs)
-
-        existing_media = resp.get("media") if isinstance(resp.get("media"), list) else []
-        resp["media"] = [*existing_media, *media_list]
-
-        data["response"]    = resp
-        pack["data"]        = data
-        pack["attachments"] = attachments
-        pack["logs"]        = logs
-
-        gql_errors = None
-        gql_ok     = bool(data.get("ok", False))
-
-        if isinstance(body_json, dict):
-            gql_errors = body_json.get("errors")
-            if gql_errors:
-                gql_ok = False
-
-        data["graphql"] = {
-            "query"          : query,
-            "variables"      : variables or {},
-            "operation_name" : operation_name,
-            "errors"         : gql_errors
-        }
-        data["ok"] = gql_ok
-
-        pack["data"] = data
-
-        if gql_ok:
-            pack["text"] = (
-                f"GQL POST {Tools.url_join(base_url, url)} "
-                f"-> {resp.get('status')} ({resp.get('elapsed_ms')}ms)"
+        pack = Build.build_pack(
+            text=f"GQL POST {url} -> ERROR ({elapsed_ms}ms) {last_err}",
+            ok=ok,
+            request=request_data,
+            response=response_data,
+            attachments=attachments,
+            logs=media_logs[:],
+            error=last_err,
+            extra_data=Build.build_gql_extra(
+                query=query,
+                variables=variables,
+                operation_name=operation_name,
+                errors=gql_errors
             )
-        else:
-            pack["text"] = (
-                f"GQL POST {Tools.url_join(base_url, url)} "
-                f"-> FAIL ({resp.get('elapsed_ms')}ms)"
-            )
+        )
+        return Build.finalize_pack(pack, extract=extract, asserts=asserts)
 
-        if extract or asserts:
-            pack["text"] += (
-                f" extract={len(data.get('extract') or {})}"
-                f" fail={(data.get('assert_summary') or {}).get('fail', 0)}"
-            )
-
-        return pack
-
-    # workflow: ==== MCP Tool ====
+    # workflow: ==== Nexus MCP Tool ====
     async def nexus_http(
         self,
         payload: dict[str, typing.Any],
@@ -1602,7 +1685,7 @@ class Nexus(object):
     ) -> dict[str, typing.Any]:
         return await self.task_sequence(payload, concurrency, kind="http")
 
-    # workflow: ==== MCP Tool ====
+    # workflow: ==== Nexus MCP Tool ====
     async def nexus_sse(
         self,
         payload: dict[str, typing.Any],
@@ -1610,7 +1693,7 @@ class Nexus(object):
     ) -> dict[str, typing.Any]:
         return await self.task_sequence(payload, concurrency, kind="sse")
 
-    # workflow: ==== MCP Tool ====
+    # workflow: ==== Nexus MCP Tool ====
     async def nexus_ws(
         self,
         payload: dict[str, typing.Any],
@@ -1618,7 +1701,7 @@ class Nexus(object):
     ) -> dict[str, typing.Any]:
         return await self.task_sequence(payload, concurrency, kind="ws")
 
-    # workflow: ==== MCP Tool ====
+    # workflow: ==== Nexus MCP Tool ====
     async def nexus_graphql(
         self,
         payload: dict[str, typing.Any],
