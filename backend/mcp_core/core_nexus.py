@@ -1166,7 +1166,7 @@ class Nexus(object):
                                     
                                     pack = {
                                         "text"        : f"SSE {method} {url} events={len(events)} ({elapsed_ms}ms)",
-                                        "attachments" : [],
+                                        "attachments" : attachments,
                                         "data": {
                                             "ok": True,
                                             "request": {
