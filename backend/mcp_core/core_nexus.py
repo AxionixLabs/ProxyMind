@@ -13,7 +13,7 @@ import typing
 import asyncio
 import websockets
 from backend.mcp_utils.utils_nexus import (
-    StepResult, RunRecord, Tools, Build, PrepareTools
+    StepResult, RunRecord, Tools, Build
 )
 from backend.utilities import const
 
@@ -751,14 +751,20 @@ class Nexus(object):
         if isinstance(items, list) and items:
             raw_items = [x for x in items if isinstance(x, dict)]
         else:
+            single_req = {
+                k: v for k, v in dict(payload).items()
+                if k not in {"name", "extract", "asserts", "items", "env", "vars", "options", "request"}
+            }
+
+            if isinstance(payload.get("request"), dict):
+                legacy_req = dict(payload["request"])
+                single_req = {**legacy_req, **single_req}
+
             raw_items = [{
-                "name": payload.get("name"),
-                "request": {
-                    k: v for k, v in dict(payload).items()
-                    if k not in {"name", "prepare", "extract", "asserts", "items", "env", "vars", "options"}
-                },
-                "extract": payload.get("extract"),
-                "asserts": payload.get("asserts")
+                "name"    : payload.get("name"),
+                "request" : single_req,
+                "extract" : payload.get("extract"),
+                "asserts" : payload.get("asserts")
             }]
 
         sem = asyncio.Semaphore(max(1, int(concurrency)))
@@ -766,47 +772,22 @@ class Nexus(object):
         async def mission_once(i: int, item: dict[str, typing.Any]) -> tuple[int, StepResult]:
             async with sem:
                 name = str(item.get("name") or f"{kind}_{i + 1:03d}")
-                step_ctx = dict(ctx)
 
                 req = item.get("request")
                 req = req if isinstance(req, dict) else {}
 
-                item_prepare = item.get("prepare") if isinstance(item.get("prepare"), list) else None
-                prepare_result = PrepareTools.run_prepare(item_prepare, step_ctx)
+                if "url" not in req and isinstance(req.get("request"), dict):
+                    req = dict(req["request"])
 
-                if not prepare_result.get("ok"):
-                    return i, StepResult(
-                        name=name,
-                        type=kind,
-                        ok=False,
-                        elapsed_ms=0,
-                        detail={
-                            "prepare"        : prepare_result.get("masked") or {},
-                            "prepare_ok"     : False,
-                            "prepare_logs"   : prepare_result.get("logs") or [],
-                            "request"        : {},
-                            "response"       : {},
-                            "extract"        : None,
-                            "asserts"        : None,
-                            "assert_summary" : None,
-                            "assert_ok"      : False,
-                            "attachments"    : []
-                        }
-                    )
-
-                step_ctx.update(prepare_result.get("data") or {})
-
-                req_r = Tools.template(req, step_ctx)
+                req_r = Tools.template(req, ctx)
 
                 item_extract = item.get("extract") if isinstance(item.get("extract"), dict) else None
                 item_asserts = item.get("asserts") if isinstance(item.get("asserts"), list) else None
 
-                extract_r = Tools.template(item_extract, step_ctx) if item_extract else None
-                asserts_r = Tools.template(item_asserts, step_ctx) if item_asserts else None
+                extract_r = Tools.template(item_extract, ctx) if item_extract else None
+                asserts_r = Tools.template(item_asserts, ctx) if item_asserts else None
 
                 t0 = time.perf_counter()
-
-                # ==== http/sse/ws/graphql 分支 ====
 
                 if kind == "http":
                     pack = await self.request(
@@ -835,9 +816,6 @@ class Nexus(object):
                         ok=bool(data.get("ok")),
                         elapsed_ms=elapsed_ms,
                         detail={
-                            "prepare"        : prepare_result.get("masked") or {},
-                            "prepare_ok"     : True,
-                            "prepare_logs"   : prepare_result.get("logs") or [],
                             "request"        : data.get("request"),
                             "response"       : data.get("response"),
                             "extract"        : data.get("extract"),
@@ -878,9 +856,6 @@ class Nexus(object):
                         ok=bool(data.get("ok")),
                         elapsed_ms=elapsed_ms,
                         detail={
-                            "prepare"        : prepare_result.get("masked") or {},
-                            "prepare_ok"     : True,
-                            "prepare_logs"   : prepare_result.get("logs") or [],
                             "request"        : data.get("request") or {},
                             "response"       : data.get("response") or {},
                             "extract"        : data.get("extract"),
@@ -917,9 +892,6 @@ class Nexus(object):
                         ok=bool(data.get("ok")),
                         elapsed_ms=elapsed_ms,
                         detail={
-                            "prepare"        : prepare_result.get("masked") or {},
-                            "prepare_ok"     : True,
-                            "prepare_logs"   : prepare_result.get("logs") or [],
                             "request"        : data.get("request"),
                             "response"       : data.get("response"),
                             "extract"        : data.get("extract"),
@@ -959,9 +931,6 @@ class Nexus(object):
                     ok=bool(data.get("ok")),
                     elapsed_ms=elapsed_ms,
                     detail={
-                        "prepare"        : prepare_result.get("masked") or {},
-                        "prepare_ok"     : True,
-                        "prepare_logs"   : prepare_result.get("logs") or [],
                         "request"        : data.get("request") or {},
                         "response"       : data.get("response") or {},
                         "extract"        : data.get("extract"),

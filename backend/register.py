@@ -44,9 +44,11 @@ def register_bench_tools(mcp: FastMCP, idle: Idle) -> None:
 
 def register_common_tools(mcp: FastMCP, idle: Idle) -> None:
     from backend.mcp_tools.common import inspect
+    from backend.mcp_tools.common import prepare
     from backend.mcp_tools.common import runtime
 
     inspect.bind(mcp, idle)
+    prepare.bind(mcp)
     runtime.bind(mcp, idle)
 
 

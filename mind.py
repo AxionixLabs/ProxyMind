@@ -418,10 +418,11 @@ class Mind(object):
         """Plan Exec Looper"""
 
         exclude = [
+            {"domain": "common", "class": "prepare"},
             {"domain": "common", "class": "runtime", "name": "loop_steps"}
         ]
         regular = {
-            "class_not_in": {"tool", "framix", "nexus", "inspect", "runtime", "audio", "ffmpeg"}
+            "class_not_in": {"tool", "framix", "nexus", "inspect", "prepare", "runtime", "audio", "ffmpeg"}
         }
 
         ft = Tooling.filter_tools(openai_tools, domains, exclude=exclude)
