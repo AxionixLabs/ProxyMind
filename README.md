@@ -3883,17 +3883,68 @@ if __name__ == "__main__":
 ```python
 import jwt
 import json
+import time
+import base64
 import typing
 import asyncio
 from pathlib import Path
+from pydantic import BaseModel
 from fastapi import (
     FastAPI, Request, WebSocket, WebSocketDisconnect
 )
 from fastapi.responses import (
     JSONResponse, StreamingResponse, FileResponse
 )
+from cryptography.hazmat.primitives import (
+    hashes, serialization
+)
+from cryptography.hazmat.primitives.asymmetric import padding
 
 SECRET = "demo-secret"
+
+PRIVATE_KEY_PEM = """-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEAvhWd/rTTJYh266eICXFcTdCQymv12n/2dpHUV2zJwQRjbrU4
+QhTEVdbH5w8UlE8qZ8LZZM7q5UUB5fY6gKT3yqs4bmNn4bnr4zPsxMxI+lHiipHx
+2NlnYy1cXmErnXttuM3UFbmMb4Im7MBqkEEP3acJayhFXFiOqhD+iT5o0e6Ezjkl
+/+Z86R3MkJ7wqTgVxdmruy0E5OECcu8sENUgvXuWsc+eApolhRPh00A/6l0ZkATF
+4cmgeZUTR4jUprjiwgw2I8D14LAUc5TowBEfiC1Ynv7vQhz4fmnwhNiOLeoM7edX
+IFLIGIxFWcyJqa7N8SJli0U46uiflYENEuCEDQIDAQABAoIBAByvkfefjdLW+I1h
+K74zEZk7rbIin0hhcc4cfVVROVRL536MUihkzmle362ewL4OAWoFxX15XYkKhDoS
+UetamfuHod1E2qc9wdu4mRVs9+Fw7JV5Z2xQiNH2hT9H/kdGmn0ecNBzfz5Pv7SQ
+aDSLYQvT+q+ldOw2ABept2P6W2K8z72IyGfQY3jLg8BzsF8kJV3Wdov4fHB1+/3M
+PQjvCJ44Nn7qQG+tOrDhwzQwVoVdDZOgLZreMjKIBJMGUi3gG5ftsfLqh85fDKu/
+qN4BCaYufH+taEcFYRiuH30mgC/lq+Fyuck9oPDEWp22lPOVM2tfUv+09LKATxGI
+YjRkKDkCgYEA50/7I5ZK0bsBXNdXwwhUj+5MUttxE7cA7AIUZ0/JHrn7D8J8UUIQ
+Y7LV8EzMHA+hUUa+9TMm0W8qS/8JTNcsqaY7Coqvvixcw4N8vhN5oXRSnKm3QEa/
+4xmaAW/EQIRj21VUvAPSHXIxQpsnp/klqESPX3BzX4tCOd4+opIrzhUCgYEA0l8v
+7G83odtrE9e00JexZ5IsnWkFvxT6Ee4BLau1zlr+n00pZbgaIq01o5BJ3a1vOaxb
+Welxen2uB23nQxv7gzHFsaK/mW6phaFQapCWcLI/oCx+QTqRhzRdUJmZfn0as/Hy
+mPAdFfsZTPCOb5NLtGxD9toNbiZjRYohvNow1BkCgYAUCI1Lq7yXJYccr1nefl40
+iQL7Oh41AuiFiDiUKgjVLG5eEw4JS5t3xwlYYo5a78+c5m+rdN6rzODw7Am2Kfyo
+RMlgRFqsMdNm64BmRfGG1jhBcUF5w6bi2FjKPw/UNqMfX+iS0BHmkvlJN37bwWxN
+goKYVXjokXsO3/y0v8wjcQKBgQDEqXuRmf717rtRF2vPPJ/55KqUlONsWF3WeRrc
+6RLS0DoMDgRPNSYpmKb2OyLyevnpfnj/ur389pTEGTgCgpxDbzoS78QR2WPcqosU
+tAoPXHMid7WnoOr+7DL38D+QAb/+zIYv9vgZ3l0ukgt1vssc5cE7eWjoujY/gfw8
+IfVXsQKBgQC4qmHMLOFqlqmbFa0mlCnW3IBKHflnlx50wqMRW1dRv8lZN95N+2jP
+dlok4YfXSQ5bP38rwxBKAMMoIo4BrIOVIOgwqaCjk6jBt46QUrni3jjB8p9GwHbB
+Qemt0q5LUYc7+UpQxpU4NXcPc6dR+2tCfUNLb1JQjxZX0tcaOoVaGA==
+-----END RSA PRIVATE KEY-----"""
+
+PUBLIC_KEY_PEM = """-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvhWd/rTTJYh266eICXFc
+TdCQymv12n/2dpHUV2zJwQRjbrU4QhTEVdbH5w8UlE8qZ8LZZM7q5UUB5fY6gKT3
+yqs4bmNn4bnr4zPsxMxI+lHiipHx2NlnYy1cXmErnXttuM3UFbmMb4Im7MBqkEEP
+3acJayhFXFiOqhD+iT5o0e6Ezjkl/+Z86R3MkJ7wqTgVxdmruy0E5OECcu8sENUg
+vXuWsc+eApolhRPh00A/6l0ZkATF4cmgeZUTR4jUprjiwgw2I8D14LAUc5TowBEf
+iC1Ynv7vQhz4fmnwhNiOLeoM7edXIFLIGIxFWcyJqa7N8SJli0U46uiflYENEuCE
+DQIDAQAB-----END PUBLIC KEY-----
+"""
+
+
+class LoginBody(BaseModel):
+    username: str
+    password_cipher: str
+
 
 BASE_DIR = Path(__file__).resolve().parent
 ASSET_DIR = BASE_DIR / "mock_assets"
@@ -4272,6 +4323,170 @@ async def secure_profile(request: Request) -> JSONResponse:
         },
         status_code=200
     )
+
+
+@app.get("/mock/rsa/public-key")
+async def mock_rsa_public_key() -> JSONResponse:
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "type": "http",
+            "key_id": "rsa_k1",
+            "algorithm": "RSA_OAEP_SHA256",
+            "public_key": PUBLIC_KEY_PEM,
+            "plain_rule": "password|timestamp|nonce"
+        },
+        status_code=200
+    )
+
+
+@app.post("/mock/rsa/login-bundle")
+async def mock_rsa_login_bundle(body: LoginBody) -> JSONResponse:
+    try:
+        private_key = serialization.load_pem_private_key(
+            PRIVATE_KEY_PEM.encode("utf-8"),
+            password=None
+        )
+
+        cipher_bytes = base64.b64decode(body.password_cipher, validate=False)
+
+        plain_bytes = private_key.decrypt(
+            cipher_bytes,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
+        )
+        plain_text = plain_bytes.decode("utf-8")
+
+    except Exception as e:
+        return JSONResponse(
+            {
+                "ok": False,
+                "type": "http",
+                "error": f"decrypt failed: {type(e).__name__}"
+            },
+            status_code=400
+        )
+
+    parts = plain_text.split("|")
+    if len(parts) != 3:
+        return JSONResponse(
+            {
+                "ok": False,
+                "type": "http",
+                "error": "invalid plain format",
+                "expected": "password|timestamp|nonce",
+                "actual_plain": plain_text
+            },
+            status_code=400
+        )
+
+    password_plain, timestamp_text, nonce_text = parts
+
+    try:
+        timestamp_value = int(timestamp_text)
+    except Exception:
+        return JSONResponse(
+            {
+                "ok": False,
+                "type": "http",
+                "error": "timestamp must be int",
+                "actual_timestamp": timestamp_text
+            },
+            status_code=400
+        )
+
+    if not nonce_text.strip():
+        return JSONResponse(
+            {
+                "ok": False,
+                "type": "http",
+                "error": "nonce is empty"
+            },
+            status_code=400
+        )
+
+    if body.username != "ace" or password_plain != "123456":
+        return JSONResponse(
+            {
+                "ok": False,
+                "type": "http",
+                "error": "invalid credential",
+                "user": {
+                    "username": body.username
+                },
+                "security": {
+                    "password_decrypted": password_plain,
+                    "timestamp": timestamp_value,
+                    "nonce": nonce_text
+                }
+            },
+            status_code=401
+        )
+
+    now_s = int(time.time())
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "type": "http",
+            "user": {
+                "username": body.username
+            },
+            "security": {
+                "algorithm": "RSA_OAEP_SHA256",
+                "plain_rule": "password|timestamp|nonce",
+                "password_decrypted": password_plain,
+                "timestamp": timestamp_value,
+                "nonce": nonce_text,
+                "server_now": now_s,
+                "cipher_present": bool(body.password_cipher)
+            },
+            "request_meta": {
+                "password_cipher_length": len(body.password_cipher)
+            }
+        },
+        status_code=200
+    )
+
+
+def rsa_self_check() -> None:
+    private_key = serialization.load_pem_private_key(
+        PRIVATE_KEY_PEM.encode("utf-8"),
+        password=None
+    )
+    public_key = serialization.load_pem_public_key(
+        PUBLIC_KEY_PEM.encode("utf-8")
+    )
+
+    plain = b"123456|1700000000|abc12345"
+
+    cipher = public_key.encrypt(
+        plain,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+
+    decoded = private_key.decrypt(
+        cipher,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+
+    print(decoded.decode("utf-8"))
+    print(base64.b64encode(cipher).decode("ascii"))
+
+
+rsa_self_check()
 
 
 if __name__ == "__main__":
