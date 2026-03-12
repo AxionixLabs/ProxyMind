@@ -15,6 +15,7 @@ import httpx
 import base64
 import typing
 import asyncio
+import binascii
 import operator
 import websockets
 from pathlib import Path
@@ -547,7 +548,7 @@ class Tools(object):
             else:
                 data = raw.encode(const.CHARSET)
             return mime_type, data
-        except Exception:
+        except (binascii.Error, ValueError, TypeError, UnicodeEncodeError, LookupError):
             return None
 
     @staticmethod
@@ -560,7 +561,7 @@ class Tools(object):
             return None
 
         # 避免把普通短文本误判成 base64
-        if len(s) < 32:
+        if not re.fullmatch(r"[A-Za-z0-9+/=\s_-]+", s):
             return None
 
         # 排除 URL / data_url
@@ -569,7 +570,7 @@ class Tools(object):
 
         try:
             data = base64.b64decode(s, validate=False)
-        except Exception:
+        except (binascii.Error, ValueError):
             return None
 
         if not data:
@@ -748,7 +749,7 @@ class Tools(object):
                         }
                         media_info, attachment = await Tools.materialize_media_ref(
                             ref=ref,
-                            save_dir=save_dir or "./downloads",
+                            save_dir=save_dir,
                             tool=tool,
                             default_name=kind,
                             timeout=timeout,
@@ -789,7 +790,7 @@ class Tools(object):
             if save_response:
                 media_info, attachment = await Tools.materialize_media_ref(
                     ref=ref,
-                    save_dir=save_dir or "./downloads",
+                    save_dir=save_dir,
                     tool=tool,
                     default_name="media",
                     timeout=timeout,
@@ -932,7 +933,7 @@ class Nexus(object):
                                 "media"          : media_list
                             }
                         },
-                        "logs": []
+                        "logs": media_logs[:]
                     }
 
                     checked = Tools.apply_extract_assert(
@@ -993,7 +994,7 @@ class Nexus(object):
                     "body_json"      : None,
                     "content_type"   : None,
                     "content_length" : 0,
-                    "media"          : None
+                    "media"          : []
                 },
                 "error": last_err
             },
@@ -1100,10 +1101,15 @@ class Nexus(object):
                                         ]
                                     },
                                     "response": {
-                                        "status"     : status,
-                                        "headers"    : dict(resp.headers),
-                                        "elapsed_ms" : elapsed_ms,
-                                        "events"     : events
+                                        "status"         : status,
+                                        "headers"        : dict(resp.headers),
+                                        "elapsed_ms"     : elapsed_ms,
+                                        "events"         : events,
+                                        "content_type"   : str(resp.headers.get("content-type") or ""),
+                                        "content_length" : None,
+                                        "body_text"      : None,
+                                        "body_json"      : None,
+                                        "media"          : []
                                     }
                                 },
                                 "logs": []
@@ -1220,7 +1226,7 @@ class Nexus(object):
 
                     pack = {
                         "text"        : f"SSE {method} {url} events={len(events)} ({elapsed_ms}ms)",
-                        "attachments" : [],
+                        "attachments" : attachments,
                         "data": {
                             "ok": ok,
                             "request": {
@@ -1256,7 +1262,7 @@ class Nexus(object):
                                 "media"          : media_list
                             }
                         },
-                        "logs": []
+                        "logs": media_logs[:]
                     }
 
                     checked = Tools.apply_extract_assert(
@@ -1309,10 +1315,15 @@ class Nexus(object):
                     ]
                 },
                 "response": {
-                    "status"     : None,
-                    "headers"    : {},
-                    "elapsed_ms" : elapsed_ms,
-                    "events"     : []
+                    "status"         : None,
+                    "headers"        : {},
+                    "elapsed_ms"     : elapsed_ms,
+                    "events"         : [],
+                    "content_type"   : str(resp.headers.get("content-type") or ""),
+                    "content_length" : None,
+                    "body_text"      : None,
+                    "body_json"      : None,
+                    "media"          : []
                 },
                 "error": last_err
             },
@@ -1399,12 +1410,12 @@ class Nexus(object):
             save_response=save_response,
             save_dir=save_dir,
             tool="ws_media",
-            timeout=timeout,
+            timeout=timeout
         )
 
         pack =  {
             "text"        : f"WS {url} msgs={len(recv)} ({elapsed_ms}ms)",
-            "attachments" : [],
+            "attachments" : attachments,
             "data": {
                 "ok": ok,
                 "request": {
@@ -1427,7 +1438,7 @@ class Nexus(object):
                     "media"          : media_list
                 }
             },
-            "logs": []
+            "logs": media_logs[:]
         }
 
         checked = Tools.apply_extract_assert(
@@ -1490,7 +1501,9 @@ class Nexus(object):
             retries=retries,
             follow_redirects=follow_redirects,
             extract=extract,
-            asserts=asserts
+            asserts=asserts,
+            save_response=save_response,
+            save_dir=save_dir
         )
 
         data      = pack.get("data") or {}
@@ -1513,9 +1526,13 @@ class Nexus(object):
         attachments.extend(media_attachments)
         logs.extend(media_logs)
 
-        resp["media"] = media_list
+        existing_media = resp.get("media") if isinstance(resp.get("media"), list) else []
+        resp["media"] = [*existing_media, *media_list]
+
+        data["response"]    = resp
+        pack["data"]        = data
         pack["attachments"] = attachments
-        pack["logs"] = logs
+        pack["logs"]        = logs
 
         gql_errors = None
         gql_ok     = bool(data.get("ok", False))
@@ -1532,8 +1549,6 @@ class Nexus(object):
             "errors"         : gql_errors
         }
         data["ok"] = gql_ok
-
-        pack["data"] = data
 
         if gql_ok:
             pack["text"] = (
@@ -1689,7 +1704,8 @@ class Nexus(object):
                             "extract"        : data.get("extract"),
                             "asserts"        : data.get("asserts"),
                             "assert_summary" : data.get("assert_summary"),
-                            "assert_ok"      : data.get("assert_ok")
+                            "assert_ok"      : data.get("assert_ok"),
+                            "attachments"    : data.get("attachments")
                         }
                     )
 
@@ -1728,7 +1744,8 @@ class Nexus(object):
                             "extract"        : data.get("extract"),
                             "asserts"        : data.get("asserts"),
                             "assert_summary" : data.get("assert_summary"),
-                            "assert_ok"      : data.get("assert_ok")
+                            "assert_ok"      : data.get("assert_ok"),
+                            "attachments"    : data.get("attachments")
                         }
                     )
 
@@ -1763,7 +1780,8 @@ class Nexus(object):
                             "extract"        : data.get("extract"),
                             "asserts"        : data.get("asserts"),
                             "assert_summary" : data.get("assert_summary"),
-                            "assert_ok"      : data.get("assert_ok")
+                            "assert_ok"      : data.get("assert_ok"),
+                            "attachments"    : data.get("attachments")
                         }
                     )
 
@@ -1801,7 +1819,8 @@ class Nexus(object):
                         "extract"        : data.get("extract"),
                         "asserts"        : data.get("asserts"),
                         "assert_summary" : data.get("assert_summary"),
-                        "assert_ok"      : data.get("assert_ok")
+                        "assert_ok"      : data.get("assert_ok"),
+                        "attachments"    : data.get("attachments")
                     }
                 )
 
@@ -1847,7 +1866,7 @@ class Nexus(object):
 
         return {
             "text"        : text,
-            "attachments" : [],
+            "attachments" : [(s.detail or {}).get("attachments") or [] for s in step_results],
             "data": {
                 "ok"         : ok_run,
                 "mission_id" : mission_id,
