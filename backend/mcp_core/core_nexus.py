@@ -1152,6 +1152,18 @@ class Nexus(object):
 
                                 if max_events and 0 < int(max_events) <= len(events):
                                     elapsed_ms = Tools.ms_since(t0)
+                                    
+                                    media_list, attachments, media_logs = await Tools.collect_media(
+                                        source_kind="sse_events",
+                                        source=events,
+                                        media_index=media_index,
+                                        media_path=media_path,
+                                        save_response=save_response,
+                                        save_dir=save_dir,
+                                        tool="sse_media",
+                                        timeout=timeout
+                                    )
+                                    
                                     pack = {
                                         "text"        : f"SSE {method} {url} events={len(events)} ({elapsed_ms}ms)",
                                         "attachments" : [],
@@ -1190,7 +1202,7 @@ class Nexus(object):
                                                 "media"          : media_list
                                             }
                                         },
-                                        "logs": []
+                                        "logs": media_logs[:]
                                     }
 
                                     checked = Tools.apply_extract_assert(
