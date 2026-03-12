@@ -1503,7 +1503,7 @@ class Nexus(object):
     @staticmethod
     async def graphql(
         *,
-        # url: str,
+        url: str,
         query: str,
         variables: typing.Optional[dict[str, typing.Any]] = None,
         operation_name: typing.Optional[str] = None,
