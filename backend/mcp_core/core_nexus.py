@@ -1037,7 +1037,7 @@ class Nexus(object):
 
         t0 = time.perf_counter()
         last_err: typing.Optional[str] = None
-        
+
         body_text_view: typing.Optional[str] = None
         body_json: typing.Any = None
         body_bytes: bytes = b""
@@ -1295,6 +1295,7 @@ class Nexus(object):
 
                                 if max_events and 0 < int(max_events) <= len(events):
                                     elapsed_ms = Tools.ms_since(t0)
+                                    ok = (status == 200 and len(events) > 0)
 
                                     media_list, attachments, media_logs = await Tools.collect_media(
                                         source_kind="sse_events",
