@@ -1503,7 +1503,7 @@ class Nexus(object):
     @staticmethod
     async def graphql(
         *,
-        url: str,
+        # url: str,
         query: str,
         variables: typing.Optional[dict[str, typing.Any]] = None,
         operation_name: typing.Optional[str] = None,
@@ -1625,9 +1625,9 @@ class Nexus(object):
 
                     pack = Build.build_pack(
                         text=(
-                            f"GQL POST {url} -> {status} ({elapsed_ms}ms)"
+                            f"GQL POST {gql_url} -> {status} ({elapsed_ms}ms)"
                             if ok else
-                            f"GQL POST {url} -> FAIL ({elapsed_ms}ms)"
+                            f"GQL POST {gql_url} -> FAIL ({elapsed_ms}ms)"
                         ),
                         ok=ok,
                         request=request_data,
@@ -1636,9 +1636,9 @@ class Nexus(object):
                         logs=media_logs[:],
                         error=None,
                         extra_data=Build.build_gql_extra(
-                            query=query, 
-                            variables=variables, 
-                            operation_name=operation_name, 
+                            query=query,
+                            variables=variables or {},
+                            operation_name=operation_name,
                             errors=gql_errors
                         )
                     )
@@ -1661,7 +1661,7 @@ class Nexus(object):
         )
 
         pack = Build.build_pack(
-            text=f"GQL POST {url} -> ERROR ({elapsed_ms}ms) {last_err}",
+            text=f"GQL POST {gql_url} -> ERROR ({elapsed_ms}ms) {last_err}",
             ok=ok,
             request=request_data,
             response=response_data,
@@ -1670,7 +1670,7 @@ class Nexus(object):
             error=last_err,
             extra_data=Build.build_gql_extra(
                 query=query,
-                variables=variables,
+                variables=variables or {},
                 operation_name=operation_name,
                 errors=gql_errors
             )
