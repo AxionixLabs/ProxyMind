@@ -715,9 +715,13 @@ class Nexus(object):
         *,
         kind: typing.Literal["http", "sse", "ws", "graphql"]
     ) -> dict[str, typing.Any]:
+        """Task Sequence"""
+        if isinstance(payload, dict) and isinstance(payload.get("payload"), dict):
+            payload = payload["payload"]
+
         if not isinstance(payload, dict):
             return {
-                "text"        : f"kind={kind} invalid payload",
+                "text"        : f"kind={kind} invalid payload: payload must be dict or standard wrapper",
                 "attachments" : [],
                 "data": {
                     "ok"      : False,
