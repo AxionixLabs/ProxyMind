@@ -230,7 +230,6 @@ class StreamTyperLogger(object):
 
     async def stop(self) -> None:
         self.flush()
-
         await self.typewriter.stop()
 
         if self.fp:
@@ -248,9 +247,10 @@ class StreamTyperLogger(object):
             self.log_file, "a", encoding=const.CHARSET, buffering=1, newline=""
         )
 
-    async def feed(self, chunk: typing.Optional[str]) -> None:
+    async def feed(self, chunk: typing.Optional[str], *, echo: bool = True) -> None:
         if not chunk: return None
         delta = str(chunk)
+        echo_now = bool(echo)
 
         # 1) ==== 全量落盘 ====
         self.buffer += delta
@@ -261,6 +261,9 @@ class StreamTyperLogger(object):
             self.buffer = self.buffer[pos + 1:]
             if self.fp:
                 self.fp.write(line)
+
+        if not echo_now:
+            return None
 
         # 2) ==== 终端按行截断实时展示 ====
         line_limit = 120
@@ -286,7 +289,7 @@ class StreamTyperLogger(object):
             parts.append(" ...")
             self.line_cut = True
 
-        if parts:
+        if echo_now and parts:
             await self.typewriter.feed("".join(parts))
 
     def flush(self) -> None:

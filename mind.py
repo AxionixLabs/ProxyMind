@@ -319,8 +319,11 @@ class Mind(object):
 
         if mode == "fast":
             exclude = [
-                {"domain": "device"}, {"domain": "bench", "class": "framix"}, {"domain": "bench", "class": "memrix"},
-                {"domain": "common", "class": "inspect"}, {"domain": "media", "class": "screen"}
+                {"domain": "device"},
+                {"domain": "bench", "class": "framix"},
+                {"domain": "bench", "class": "memrix"},
+                {"domain": "common", "class": "inspect"},
+                {"domain": "media", "class": "screen"}
             ]
 
         ft = Tooling.filter_tools(openai_tools=openai_tools, tool_meta=domains, exclude=exclude)
@@ -389,7 +392,7 @@ class Mind(object):
                         continue
 
                     case "tool_result":
-                        await slog.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
+                        # await slog.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
                         continue
 
                     case _:
@@ -418,11 +421,12 @@ class Mind(object):
         """Plan Exec Looper"""
 
         exclude = [
-            {"domain": "common", "class": "prepare"},
-            {"domain": "common", "class": "runtime", "name": "loop_steps"}
+            {"domain": "common", "class": "security"},
+            {"domain": "common", "class": "runtime", "name": "loop_steps"},
+            {"domain": "bench", "class": "nexus"}
         ]
         regular = {
-            "class_not_in": {"tool", "framix", "nexus", "inspect", "prepare", "runtime", "audio", "ffmpeg"}
+            "class_not_in": {"tool", "framix", "nexus", "inspect", "security", "runtime", "audio", "ffmpeg"}
         }
 
         ft = Tooling.filter_tools(openai_tools, domains, exclude=exclude)
@@ -600,6 +604,7 @@ class Mind(object):
                         return logger.error(fields)
 
                     logger.info(fields.get("text"))
+
                     emit({
                         "type"    : "lifecycle",
                         "scope"   : "step",

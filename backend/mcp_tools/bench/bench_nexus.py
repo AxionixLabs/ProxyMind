@@ -10,101 +10,180 @@ import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.middlewares.mid_task import task_middleware
+from backend.nexus.domain.models import (
+    NexusBatchItem, NexusBatchRequest, NexusKind, NexusRequest
+)
 from backend.utilities.instance import Ins
 from backend.utilities.pipeline import Idle
 from backend.utilities.toolbox import broadcast
 
 
+def _request_model(
+    *,
+    request: dict[str, typing.Any],
+    template_vars: typing.Optional[dict[str, typing.Any]] = None,
+    extract: typing.Optional[dict[str, str]] = None,
+    asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+    name: typing.Optional[str] = None
+) -> NexusRequest:
+    """Build normalized single-request model from MCP tool arguments."""
+    return NexusRequest(
+        name=name,
+        request=dict(request or {}),
+        template_vars=dict(template_vars or {}),
+        extract=extract,
+        asserts=asserts
+    )
+
+
+def _batch_model(
+    *,
+    items: list[dict[str, typing.Any]],
+    env: typing.Optional[dict[str, typing.Any]] = None,
+    template_vars: typing.Optional[dict[str, typing.Any]] = None,
+    concurrency: int = 1,
+    fail_fast: bool = True,
+) -> NexusBatchRequest:
+    """Build normalized batch model from MCP tool arguments."""
+    return NexusBatchRequest(
+        items=[
+            NexusBatchItem(
+                name=item.get("name"),
+                request=dict(item.get("request") or {}),
+                extract=item.get("extract") if isinstance(item.get("extract"), dict) else None,
+                asserts=item.get("asserts") if isinstance(item.get("asserts"), list) else None,
+            )
+            for item in items
+            if isinstance(item, dict)
+        ],
+        env=dict(env or {}),
+        template_vars=dict(template_vars or {}),
+        concurrency=concurrency,
+        fail_fast=fail_fast
+    )
+
+
 def bind(mcp: FastMCP, idle: Idle) -> None:
 
     @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
-    @task_middleware("nexus_http")
-    async def nexus_http(
-        payload: dict[str, typing.Any],
-        concurrency: int = 1
+    @task_middleware("nexus_render_request")
+    async def nexus_render_request(
+        kind: NexusKind,
+        request: dict[str, typing.Any],
+        env: typing.Optional[dict[str, typing.Any]] = None,
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        extract: typing.Optional[dict[str, str]] = None,
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        name: typing.Optional[str] = None
     ) -> CallToolResult:
         """
         D: bench
         C: nexus
-        A: nexus_http
+        A: nexus_render_request
         P:
-          payload: dict  # HTTP 入口（支持单请求或 items 并发）；支持模板 {{expr}}
-            - env?: dict
-              - base_url?: str
-              - headers?: dict[str,str]
-              - timeout?: float
-            - vars?: dict[str,any]                # 模板上下文
-            - options?: dict
-              - fail_fast?: bool=True
-
-            - extract?: dict[str,str]             # 顶层单请求提取规则；alias -> path
-            - asserts?: list[dict]
-              - path: str
-              - op: str
-              - value?: any
-
-            - 单请求（直接放在 payload 顶层；支持模板展开）:
-              - method?: str="GET"
-              - url: str
-              - base_url?: str
-              - headers?: dict[str,str]
-              - params?: dict[str,any]
-              - json?: dict[str,any]
-              - json_body?: dict[str,any]
-              - body?: str
-              - body_text?: str
-              - form?: dict[str,any]
-              - files?: list[dict]
-                - field?: str="file"
-                - path?: str
-                - filename?: str
-                - content_type?: str
-                - text?: str
-                - bytes?: bytes|str
-              - timeout?: float
-              - retries?: int=0
-              - follow_redirects?: bool=True
-              - save_response?: bool=False
-              - save_dir?: str
-
-            - 批请求（并发）:
-              - items?: list[dict]
-                - item.name?: str
-                - item.request: dict
-                - item.extract?: dict[str,str]
-                  - alias: path
-                - item.asserts?: list[dict]
-                  - path: str
-                  - op: str
-                  - value?: any
-
-          concurrency: int=1
+          kind: NexusKind
+          request: dict
+          env: dict?=None
+          template_vars: dict?=None
+          extract: dict?=None
+          asserts: list[dict]?=None
+          name: str?=None
         R: CTR
         N:
-          - payload.items 为空时按单请求执行；非空时按批请求执行
-          - env.base_url / env.timeout 为默认值；可被请求同名字段覆盖
-          - headers 为叠加：request.headers 覆盖 env.headers 同名键
-          - 模板作用范围：env / options / request / extract / asserts
-          - 模板上下文仅来自 vars；各 item 独立渲染，不共享变量结果
-          - 提取与断言基于返回 data 执行，常用路径起点为 request.* / response.*
-          - 若响应体为 image/* 或 video/*，会写入 response.media[]
-          - save_response=true 时，媒体可落盘，并补充 path / filename / mime_type / size
+          - 单请求统一使用 `request` 边界
+          - 仅做模板渲染与默认值合并，不执行网络调用
         """
-
         args = {
-            "payload"     : payload,
-            "concurrency" : concurrency
+            "kind"          : kind,
+            "request"       : request,
+            "template_vars" : template_vars,
+            "extract"       : extract,
+            "asserts"       : asserts,
+            "name"          : name,
+            "env"           : env
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.nexus_http", args=args)
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.render_request", args=args)
             try:
-                return await Ins.nexus.nexus_http(**args)
+                return Ins.nexus.render_request(
+                    kind=kind,
+                    request=_request_model(
+                        request=request,
+                        template_vars=template_vars,
+                        extract=extract,
+                        asserts=asserts,
+                        name=name
+                    ),
+                    env=dict(env or {})
+                )
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="nexus_http",
+            tool="nexus_render_request",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call, overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_validate_request")
+    async def nexus_validate_request(
+        kind: NexusKind,
+        request: dict[str, typing.Any],
+        env: typing.Optional[dict[str, typing.Any]] = None,
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        extract: typing.Optional[dict[str, str]] = None,
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        name: typing.Optional[str] = None
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_validate_request
+        P:
+          kind: NexusKind
+          request: dict
+          env: dict?=None
+          template_vars: dict?=None
+          extract: dict?=None
+          asserts: list[dict]?=None
+          name: str?=None
+        R: CTR
+        N:
+          - 单请求统一使用 `request` 边界
+          - 仅做结构校验与模板渲染，不执行网络调用
+        """
+        args = {
+            "kind"          : kind,
+            "request"       : request,
+            "template_vars" : template_vars,
+            "extract"       : extract,
+            "asserts"       : asserts,
+            "name"          : name,
+            "env"           : env
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.validate_request", args=args)
+            try:
+                return Ins.nexus.validate_request(
+                    kind=kind,
+                    request=_request_model(
+                        request=request,
+                        template_vars=template_vars,
+                        extract=extract,
+                        asserts=asserts,
+                        name=name
+                    ),
+                    env=dict(env or {})
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_validate_request",
             args=args,
             target_list=[Ins.nexus],
             call=call,
@@ -112,98 +191,58 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
-    @task_middleware("nexus_sse")
-    async def nexus_sse(
-        payload: dict[str, typing.Any],
-        concurrency: int = 1
+    @task_middleware("nexus_render_batch")
+    async def nexus_render_batch(
+        kind: NexusKind,
+        items: list[dict[str, typing.Any]],
+        env: typing.Optional[dict[str, typing.Any]] = None,
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        concurrency: int = 1,
+        fail_fast: bool = True
     ) -> CallToolResult:
         """
         D: bench
         C: nexus
-        A: nexus_sse
+        A: nexus_render_batch
         P:
-          payload: dict  # SSE 入口（支持单请求或 items 并发）；支持模板 {{expr}}
-            - env?: dict
-              - base_url?: str
-              - headers?: dict[str,str]
-              - timeout?: float
-            - vars?: dict[str,any]                # 模板上下文
-            - options?: dict
-              - fail_fast?: bool=True
-
-            - extract?: dict[str,str]
-              - alias: path
-            - asserts?: list[dict]
-              - path: str
-              - op: str
-              - value?: any
-
-            - 单请求（直接放在 payload 顶层；支持模板展开）:
-              - method?: str="GET"
-              - url: str
-              - base_url?: str
-              - headers?: dict[str,str]
-              - params?: dict[str,any]
-              - json?: dict[str,any]
-              - json_body?: dict[str,any]
-              - body?: str
-              - body_text?: str
-              - form?: dict[str,any]
-              - files?: list[dict]
-                - field?: str="file"
-                - path?: str
-                - filename?: str
-                - content_type?: str
-                - text?: str
-                - bytes?: bytes|str
-              - timeout?: float
-              - retries?: int=0
-              - follow_redirects?: bool=True
-              - max_events?: int
-              - media_index?: int
-              - media_path?: str
-              - save_response?: bool=False
-              - save_dir?: str
-
-            - 批请求（并发）:
-              - items?: list[dict]
-                - item.name?: str
-                - item.request: dict
-                - item.extract?: dict[str,str]
-                  - alias: path
-                - item.asserts?: list[dict]
-                  - path: str
-                  - op: str
-                  - value?: any
-
+          kind: NexusKind
+          items: list[dict]
+          env: dict?=None
+          template_vars: dict?=None
           concurrency: int=1
+          fail_fast: bool=True
         R: CTR
         N:
-          - payload.items 为空时按单请求执行；非空时按批请求执行
-          - env.base_url / env.timeout 为默认值；可被请求同名字段覆盖
-          - headers 为叠加：request.headers 覆盖 env.headers 同名键
-          - 模板作用范围：env / options / request / extract / asserts
-          - 模板上下文仅来自 vars；各 item 独立渲染，不共享变量结果
-          - response.events[] 结构固定为 {event, id, data}
-          - max_events 达到上限会提前返回；否则在流结束后返回
-          - media_index / media_path 基于 response.events 提取媒体，结果写入 response.media[]
-          - save_response=true 时，媒体可落盘，并补充 path / filename / mime_type / size
+          - 批量统一使用 `items + env` 边界
+          - 仅做模板渲染与默认值合并，不执行网络调用
         """
-
         args = {
-            "payload"     : payload,
-            "concurrency" : concurrency
+            "kind"          : kind,
+            "items"         : items,
+            "env"           : env,
+            "template_vars" : template_vars,
+            "concurrency"   : concurrency,
+            "fail_fast"     : fail_fast
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.nexus_sse", args=args)
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.render_batch", args=args)
             try:
-                return await Ins.nexus.nexus_sse(**args)
+                return Ins.nexus.render_batch(
+                    kind=kind,
+                    batch=_batch_model(
+                        items=items,
+                        env=env,
+                        template_vars=template_vars,
+                        concurrency=concurrency,
+                        fail_fast=fail_fast
+                    )
+                )
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="nexus_sse",
+            tool="nexus_render_batch",
             args=args,
             target_list=[Ins.nexus],
             call=call,
@@ -211,82 +250,58 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
-    @task_middleware("nexus_ws")
-    async def nexus_ws(
-        payload: dict[str, typing.Any],
-        concurrency: int = 1
+    @task_middleware("nexus_validate_batch")
+    async def nexus_validate_batch(
+        kind: NexusKind,
+        items: list[dict[str, typing.Any]],
+        env: typing.Optional[dict[str, typing.Any]] = None,
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        concurrency: int = 1,
+        fail_fast: bool = True
     ) -> CallToolResult:
         """
         D: bench
         C: nexus
-        A: nexus_ws
+        A: nexus_validate_batch
         P:
-          payload: dict  # WebSocket 入口（支持单请求或 items 并发）；支持模板 {{expr}}
-            - env?: dict
-              - headers?: dict[str,str]
-              - timeout?: float
-            - vars?: dict[str,any]                # 模板上下文
-            - options?: dict
-              - fail_fast?: bool=True
-
-            - extract?: dict[str,str]
-              - alias: path
-            - asserts?: list[dict]
-              - path: str
-              - op: str
-              - value?: any
-
-            - 单请求（直接放在 payload 顶层；支持模板展开）:
-              - url: str
-              - headers?: dict[str,str]
-              - sends?: list[str]
-              - timeout?: float
-              - max_messages?: int=10
-              - media_index?: int
-              - media_path?: str
-              - save_response?: bool=False
-              - save_dir?: str
-
-            - 批请求（并发）:
-              - items?: list[dict]
-                - item.name?: str
-                - item.request: dict
-                - item.extract?: dict[str,str]
-                  - alias: path
-                - item.asserts?: list[dict]
-                  - path: str
-                  - op: str
-                  - value?: any
-
+          kind: NexusKind
+          items: list[dict]
+          env: dict?=None
+          template_vars: dict?=None
           concurrency: int=1
+          fail_fast: bool=True
         R: CTR
         N:
-          - payload.items 为空时按单请求执行；非空时按批请求执行
-          - env.timeout 为默认值；可被请求同名字段覆盖
-          - headers 为叠加：request.headers 覆盖 env.headers 同名键
-          - 模板作用范围：env / options / request / extract / asserts
-          - 模板上下文仅来自 vars；各 item 独立渲染，不共享变量结果
-          - 建连后按 sends 顺序发送；最多采集 max_messages 条消息
-          - 遇到 ConnectionClosedOK 会提前停止接收
-          - response.messages[] 保存原始消息字符串；内部会尝试解析 JSON 以支持 media_path 提取
-          - media_index / media_path 基于消息内容提取媒体，结果写入 response.media[]
-          - save_response=true 时，媒体可落盘，并补充 path / filename / mime_type / size
+          - 批量统一使用 `items + env` 边界
+          - 仅做结构校验与模板渲染，不执行网络调用
         """
-
         args = {
-            "payload"     : payload,
-            "concurrency" : concurrency
+            "kind"          : kind,
+            "items"         : items,
+            "env"           : env,
+            "template_vars" : template_vars,
+            "concurrency"   : concurrency,
+            "fail_fast"     : fail_fast
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.nexus_ws", args=args)
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.validate_batch", args=args)
             try:
-                return await Ins.nexus.nexus_ws(**args)
+                return Ins.nexus.validate_batch(
+                    kind=kind,
+                    batch=_batch_model(
+                        items=items,
+                        env=env,
+                        template_vars=template_vars,
+                        concurrency=concurrency,
+                        fail_fast=fail_fast
+                    )
+                )
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="nexus_ws",
+            tool="nexus_validate_batch",
             args=args,
             target_list=[Ins.nexus],
             call=call,
@@ -294,89 +309,1025 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
-    @task_middleware("nexus_graphql")
-    async def nexus_graphql(
-        payload: dict[str, typing.Any],
-        concurrency: int = 1
+    @task_middleware("nexus_http_request")
+    async def nexus_http_request(
+        request: dict[str, typing.Any],
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        extract: typing.Optional[dict[str, str]] = None,
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        name: typing.Optional[str] = None
     ) -> CallToolResult:
         """
         D: bench
         C: nexus
-        A: nexus_graphql
+        A: nexus_http_request
         P:
-          payload: dict  # GraphQL 入口（支持单请求或 items 并发）；支持模板 {{expr}}
-            - env?: dict
-              - base_url?: str
-              - headers?: dict[str,str]
-              - timeout?: float
-            - vars?: dict[str,any]                # 模板上下文
-            - options?: dict
-              - fail_fast?: bool=True
-
-            - extract?: dict[str,str]
-              - alias: path
-            - asserts?: list[dict]
-              - path: str
-              - op: str
-              - value?: any
-
-            - 单请求（直接放在 payload 顶层；支持模板展开）:
-              - url: str
-              - query: str
-              - variables?: dict[str,any]
-              - operation_name?: str
-              - operationName?: str
-              - base_url?: str
-              - headers?: dict[str,str]
-              - params?: dict[str,any]
-              - timeout?: float
-              - retries?: int=0
-              - follow_redirects?: bool=True
-              - media_path?: str
-              - save_response?: bool=False
-              - save_dir?: str
-
-            - 批请求（并发）:
-              - items?: list[dict]
-                - item.name?: str
-                - item.request: dict
-                - item.extract?: dict[str,str]
-                  - alias: path
-                - item.asserts?: list[dict]
-                  - path: str
-                  - op: str
-                  - value?: any
-
-          concurrency: int=1
+          request: dict
+          template_vars: dict?=None
+          extract: dict?=None
+          asserts: list[dict]?=None
+          name: str?=None
         R: CTR
         N:
-          - payload.items 为空时按单请求执行；非空时按批请求执行
-          - env.base_url / env.timeout 为默认值；可被请求同名字段覆盖
-          - headers 为叠加：request.headers 覆盖 env.headers 同名键
-          - 模板作用范围：env / options / request / extract / asserts
-          - 模板上下文仅来自 vars；各 item 独立渲染，不共享变量结果
-          - 实际请求固定为 HTTP POST，请求体为 {query, variables, operationName}
-          - operation_name 与 operationName 二选一传入，内部统一映射为 operationName
-          - 若 response.body_json.errors 非空，则整体 ok=False
-          - GraphQL 额外证据写入 data.graphql={query, variables, operation_name, errors}
-          - media_path 基于 response.body_json 提取媒体，结果写入 response.media[]
-          - save_response=true 时，媒体可落盘，并补充 path / filename / mime_type / size
+          - HTTP 单请求工具
+          - `request` 直接传协议字段，不再平铺为工具参数
+          - 适合单次接口调用、提取和断言
         """
-
         args = {
-            "payload"     : payload,
-            "concurrency" : concurrency
+            "request"       : request,
+            "template_vars" : template_vars,
+            "extract"       : extract,
+            "asserts"       : asserts,
+            "name"          : name
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.nexus_graphql", args=args)
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
             try:
-                return await Ins.nexus.nexus_graphql(**args)
+                return await Ins.nexus.execute_request(
+                    kind="http",
+                    request=_request_model(
+                        request=request,
+                        template_vars=template_vars,
+                        extract=extract,
+                        asserts=asserts,
+                        name=name
+                    )
+                )
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="nexus_graphql",
+            tool="nexus_http_request",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_http_batch")
+    async def nexus_http_batch(
+        items: list[dict[str, typing.Any]],
+        env: typing.Optional[dict[str, typing.Any]] = None,
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        concurrency: int = 1,
+        fail_fast: bool = True
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_http_batch
+        P:
+          items: list[dict]
+          env: dict?=None
+          template_vars: dict?=None
+          concurrency: int=1
+          fail_fast: bool=True
+        R: CTR
+        N:
+          - HTTP 批量请求工具
+          - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - 支持并发执行和 fail-fast
+        """
+        args = {
+            "items"         : items,
+            "env"           : env,
+            "template_vars" : template_vars,
+            "concurrency"   : concurrency,
+            "fail_fast"     : fail_fast
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            try:
+                return await Ins.nexus.execute_batch(
+                    kind="http",
+                    batch=_batch_model(
+                        items=items,
+                        env=env,
+                        template_vars=template_vars,
+                        concurrency=concurrency,
+                        fail_fast=fail_fast
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_http_batch",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_sse_request")
+    async def nexus_sse_request(
+        request: dict[str, typing.Any],
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        extract: typing.Optional[dict[str, str]] = None,
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        name: typing.Optional[str] = None
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_sse_request
+        P:
+          request: dict
+          template_vars: dict?=None
+          extract: dict?=None
+          asserts: list[dict]?=None
+          name: str?=None
+        R: CTR
+        N:
+          - SSE 单请求工具
+          - `request` 直接传协议字段，不再平铺为工具参数
+          - 适合流式事件消费、提取和断言
+        """
+        args = {
+            "request"       : request,
+            "template_vars" : template_vars,
+            "extract"       : extract,
+            "asserts"       : asserts,
+            "name"          : name
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            try:
+                return await Ins.nexus.execute_request(
+                    kind="sse",
+                    request=_request_model(
+                        request=request,
+                        template_vars=template_vars,
+                        extract=extract,
+                        asserts=asserts,
+                        name=name
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_sse_request",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_sse_batch")
+    async def nexus_sse_batch(
+        items: list[dict[str, typing.Any]],
+        env: typing.Optional[dict[str, typing.Any]] = None,
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        concurrency: int = 1,
+        fail_fast: bool = True
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_sse_batch
+        P:
+          items: list[dict]
+          env: dict?=None
+          template_vars: dict?=None
+          concurrency: int=1
+          fail_fast: bool=True
+        R: CTR
+        N:
+          - SSE 批量请求工具
+          - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - 支持并发执行和 fail-fast
+        """
+        args = {
+            "items"         : items,
+            "env"           : env,
+            "template_vars" : template_vars,
+            "concurrency"   : concurrency,
+            "fail_fast"     : fail_fast
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            try:
+                return await Ins.nexus.execute_batch(
+                    kind="sse",
+                    batch=_batch_model(
+                        items=items,
+                        env=env,
+                        template_vars=template_vars,
+                        concurrency=concurrency,
+                        fail_fast=fail_fast
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_sse_batch",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_ws_request")
+    async def nexus_ws_request(
+        request: dict[str, typing.Any],
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        extract: typing.Optional[dict[str, str]] = None,
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        name: typing.Optional[str] = None
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_ws_request
+        P:
+          request: dict
+          template_vars: dict?=None
+          extract: dict?=None
+          asserts: list[dict]?=None
+          name: str?=None
+        R: CTR
+        N:
+          - WebSocket 单请求工具
+          - `request` 直接传协议字段，不再平铺为工具参数
+          - 适合建连、发送、接收和断言
+        """
+        args = {
+            "request"       : request,
+            "template_vars" : template_vars,
+            "extract"       : extract,
+            "asserts"       : asserts,
+            "name"          : name
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            try:
+                return await Ins.nexus.execute_request(
+                    kind="ws",
+                    request=_request_model(
+                        request=request,
+                        template_vars=template_vars,
+                        extract=extract,
+                        asserts=asserts,
+                        name=name
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_ws_request",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_ws_batch")
+    async def nexus_ws_batch(
+        items: list[dict[str, typing.Any]],
+        env: typing.Optional[dict[str, typing.Any]] = None,
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        concurrency: int = 1,
+        fail_fast: bool = True
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_ws_batch
+        P:
+          items: list[dict]
+          env: dict?=None
+          template_vars: dict?=None
+          concurrency: int=1
+          fail_fast: bool=True
+        R: CTR
+        N:
+          - WebSocket 批量请求工具
+          - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - 支持并发执行和 fail-fast
+        """
+        args = {
+            "items"         : items,
+            "env"           : env,
+            "template_vars" : template_vars,
+            "concurrency"   : concurrency,
+            "fail_fast"     : fail_fast
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            try:
+                return await Ins.nexus.execute_batch(
+                    kind="ws",
+                    batch=_batch_model(
+                        items=items,
+                        env=env,
+                        template_vars=template_vars,
+                        concurrency=concurrency,
+                        fail_fast=fail_fast
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_ws_batch",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_graphql_request")
+    async def nexus_graphql_request(
+        request: dict[str, typing.Any],
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        extract: typing.Optional[dict[str, str]] = None,
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        name: typing.Optional[str] = None
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_graphql_request
+        P:
+          request: dict
+          template_vars: dict?=None
+          extract: dict?=None
+          asserts: list[dict]?=None
+          name: str?=None
+        R: CTR
+        N:
+          - GraphQL 单请求工具
+          - `request` 直接传协议字段，不再平铺为工具参数
+          - 适合 query / mutation 的单次调用
+        """
+        args = {
+            "request"       : request,
+            "template_vars" : template_vars,
+            "extract"       : extract,
+            "asserts"       : asserts,
+            "name"          : name
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            try:
+                return await Ins.nexus.execute_request(
+                    kind="graphql",
+                    request=_request_model(
+                        request=request,
+                        template_vars=template_vars,
+                        extract=extract,
+                        asserts=asserts,
+                        name=name
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_graphql_request",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_graphql_batch")
+    async def nexus_graphql_batch(
+        items: list[dict[str, typing.Any]],
+        env: typing.Optional[dict[str, typing.Any]] = None,
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        concurrency: int = 1,
+        fail_fast: bool = True
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_graphql_batch
+        P:
+          items: list[dict]
+          env: dict?=None
+          template_vars: dict?=None
+          concurrency: int=1
+          fail_fast: bool=True
+        R: CTR
+        N:
+          - GraphQL 批量请求工具
+          - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - 支持并发执行和 fail-fast
+        """
+        args = {
+            "items"         : items,
+            "env"           : env,
+            "template_vars" : template_vars,
+            "concurrency"   : concurrency,
+            "fail_fast"     : fail_fast
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            try:
+                return await Ins.nexus.execute_batch(
+                    kind="graphql",
+                    batch=_batch_model(
+                        items=items,
+                        env=env,
+                        template_vars=template_vars,
+                        concurrency=concurrency,
+                        fail_fast=fail_fast
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_graphql_batch",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_tcp_request")
+    async def nexus_tcp_request(
+        request: dict[str, typing.Any],
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        extract: typing.Optional[dict[str, str]] = None,
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        name: typing.Optional[str] = None
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_tcp_request
+        P:
+          request: dict
+          template_vars: dict?=None
+          extract: dict?=None
+          asserts: list[dict]?=None
+          name: str?=None
+        R: CTR
+        N:
+          - TCP 单请求工具
+          - `request` 直接传协议字段，不再平铺为工具参数
+          - 适合端口连通、原始报文发送和响应断言
+        """
+        args = {
+            "request"       : request,
+            "template_vars" : template_vars,
+            "extract"       : extract,
+            "asserts"       : asserts,
+            "name"          : name
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            try:
+                return await Ins.nexus.execute_request(
+                    kind="tcp",
+                    request=_request_model(
+                        request=request,
+                        template_vars=template_vars,
+                        extract=extract,
+                        asserts=asserts,
+                        name=name
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_tcp_request",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_tcp_batch")
+    async def nexus_tcp_batch(
+        items: list[dict[str, typing.Any]],
+        env: typing.Optional[dict[str, typing.Any]] = None,
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        concurrency: int = 1,
+        fail_fast: bool = True
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_tcp_batch
+        P:
+          items: list[dict]
+          env: dict?=None
+          template_vars: dict?=None
+          concurrency: int=1
+          fail_fast: bool=True
+        R: CTR
+        N:
+          - TCP 批量请求工具
+          - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - 支持并发执行和 fail-fast
+        """
+        args = {
+            "items"         : items,
+            "env"           : env,
+            "template_vars" : template_vars,
+            "concurrency"   : concurrency,
+            "fail_fast"     : fail_fast
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            try:
+                return await Ins.nexus.execute_batch(
+                    kind="tcp",
+                    batch=_batch_model(
+                        items=items,
+                        env=env,
+                        template_vars=template_vars,
+                        concurrency=concurrency,
+                        fail_fast=fail_fast
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_tcp_batch",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_udp_request")
+    async def nexus_udp_request(
+        request: dict[str, typing.Any],
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        extract: typing.Optional[dict[str, str]] = None,
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        name: typing.Optional[str] = None
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_udp_request
+        P:
+          request: dict
+          template_vars: dict?=None
+          extract: dict?=None
+          asserts: list[dict]?=None
+          name: str?=None
+        R: CTR
+        N:
+          - UDP 单请求工具
+          - `request` 直接传协议字段，不再平铺为工具参数
+          - 适合轻量探测、报文发送和响应断言
+        """
+        args = {
+            "request"       : request,
+            "template_vars" : template_vars,
+            "extract"       : extract,
+            "asserts"       : asserts,
+            "name"          : name
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            try:
+                return await Ins.nexus.execute_request(
+                    kind="udp",
+                    request=_request_model(
+                        request=request,
+                        template_vars=template_vars,
+                        extract=extract,
+                        asserts=asserts,
+                        name=name
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_udp_request",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_udp_batch")
+    async def nexus_udp_batch(
+        items: list[dict[str, typing.Any]],
+        env: typing.Optional[dict[str, typing.Any]] = None,
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        concurrency: int = 1,
+        fail_fast: bool = True
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_udp_batch
+        P:
+          items: list[dict]
+          env: dict?=None
+          template_vars: dict?=None
+          concurrency: int=1
+          fail_fast: bool=True
+        R: CTR
+        N:
+          - UDP 批量请求工具
+          - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - 支持并发执行和 fail-fast
+        """
+        args = {
+            "items"         : items,
+            "env"           : env,
+            "template_vars" : template_vars,
+            "concurrency"   : concurrency,
+            "fail_fast"     : fail_fast
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            try:
+                return await Ins.nexus.execute_batch(
+                    kind="udp",
+                    batch=_batch_model(
+                        items=items,
+                        env=env,
+                        template_vars=template_vars,
+                        concurrency=concurrency,
+                        fail_fast=fail_fast
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_udp_batch",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_smtp_request")
+    async def nexus_smtp_request(
+        request: dict[str, typing.Any],
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        extract: typing.Optional[dict[str, str]] = None,
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        name: typing.Optional[str] = None
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_smtp_request
+        P:
+          request: dict
+          template_vars: dict?=None
+          extract: dict?=None
+          asserts: list[dict]?=None
+          name: str?=None
+        R: CTR
+        N:
+          - SMTP 单请求工具
+          - `request` 直接传协议字段，不再平铺为工具参数
+          - 适合连通性验证、NOOP 和发送邮件测试
+        """
+        args = {
+            "request"       : request,
+            "template_vars" : template_vars,
+            "extract"       : extract,
+            "asserts"       : asserts,
+            "name"          : name
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            try:
+                return await Ins.nexus.execute_request(
+                    kind="smtp",
+                    request=_request_model(
+                        request=request,
+                        template_vars=template_vars,
+                        extract=extract,
+                        asserts=asserts,
+                        name=name
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_smtp_request",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_smtp_batch")
+    async def nexus_smtp_batch(
+        items: list[dict[str, typing.Any]],
+        env: typing.Optional[dict[str, typing.Any]] = None,
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        concurrency: int = 1,
+        fail_fast: bool = True
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_smtp_batch
+        P:
+          items: list[dict]
+          env: dict?=None
+          template_vars: dict?=None
+          concurrency: int=1
+          fail_fast: bool=True
+        R: CTR
+        N:
+          - SMTP 批量请求工具
+          - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - 支持并发执行和 fail-fast
+        """
+        args = {
+            "items"         : items,
+            "env"           : env,
+            "template_vars" : template_vars,
+            "concurrency"   : concurrency,
+            "fail_fast"     : fail_fast
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            try:
+                return await Ins.nexus.execute_batch(
+                    kind="smtp",
+                    batch=_batch_model(
+                        items=items,
+                        env=env,
+                        template_vars=template_vars,
+                        concurrency=concurrency,
+                        fail_fast=fail_fast
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_smtp_batch",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_imap_request")
+    async def nexus_imap_request(
+        request: dict[str, typing.Any],
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        extract: typing.Optional[dict[str, str]] = None,
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        name: typing.Optional[str] = None
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_imap_request
+        P:
+          request: dict
+          template_vars: dict?=None
+          extract: dict?=None
+          asserts: list[dict]?=None
+          name: str?=None
+        R: CTR
+        N:
+          - IMAP 单请求工具
+          - `request` 直接传协议字段，不再平铺为工具参数
+          - 适合邮箱登录、搜索、抓取和断言
+        """
+        args = {
+            "request"       : request,
+            "template_vars" : template_vars,
+            "extract"       : extract,
+            "asserts"       : asserts,
+            "name"          : name
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            try:
+                return await Ins.nexus.execute_request(
+                    kind="imap",
+                    request=_request_model(
+                        request=request,
+                        template_vars=template_vars,
+                        extract=extract,
+                        asserts=asserts,
+                        name=name
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_imap_request",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_imap_batch")
+    async def nexus_imap_batch(
+        items: list[dict[str, typing.Any]],
+        env: typing.Optional[dict[str, typing.Any]] = None,
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        concurrency: int = 1,
+        fail_fast: bool = True
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_imap_batch
+        P:
+          items: list[dict]
+          env: dict?=None
+          template_vars: dict?=None
+          concurrency: int=1
+          fail_fast: bool=True
+        R: CTR
+        N:
+          - IMAP 批量请求工具
+          - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - 支持并发执行和 fail-fast
+        """
+        args = {
+            "items"         : items,
+            "env"           : env,
+            "template_vars" : template_vars,
+            "concurrency"   : concurrency,
+            "fail_fast"     : fail_fast
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            try:
+                return await Ins.nexus.execute_batch(
+                    kind="imap",
+                    batch=_batch_model(
+                        items=items,
+                        env=env,
+                        template_vars=template_vars,
+                        concurrency=concurrency,
+                        fail_fast=fail_fast
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_imap_batch",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_ftp_request")
+    async def nexus_ftp_request(
+        request: dict[str, typing.Any],
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        extract: typing.Optional[dict[str, str]] = None,
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        name: typing.Optional[str] = None
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_ftp_request
+        P:
+          request: dict
+          template_vars: dict?=None
+          extract: dict?=None
+          asserts: list[dict]?=None
+          name: str?=None
+        R: CTR
+        N:
+          - FTP 单请求工具
+          - `request` 直接传协议字段，不再平铺为工具参数
+          - 适合列目录、上传、下载和删除测试
+        """
+        args = {
+            "request"       : request,
+            "template_vars" : template_vars,
+            "extract"       : extract,
+            "asserts"       : asserts,
+            "name"          : name
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            try:
+                return await Ins.nexus.execute_request(
+                    kind="ftp",
+                    request=_request_model(
+                        request=request,
+                        template_vars=template_vars,
+                        extract=extract,
+                        asserts=asserts,
+                        name=name
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_ftp_request",
+            args=args,
+            target_list=[Ins.nexus],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "nexus"})
+    @task_middleware("nexus_ftp_batch")
+    async def nexus_ftp_batch(
+        items: list[dict[str, typing.Any]],
+        env: typing.Optional[dict[str, typing.Any]] = None,
+        template_vars: typing.Optional[dict[str, typing.Any]] = None,
+        concurrency: int = 1,
+        fail_fast: bool = True
+    ) -> CallToolResult:
+        """
+        D: bench
+        C: nexus
+        A: nexus_ftp_batch
+        P:
+          items: list[dict]
+          env: dict?=None
+          template_vars: dict?=None
+          concurrency: int=1
+          fail_fast: bool=True
+        R: CTR
+        N:
+          - FTP 批量请求工具
+          - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - 支持并发执行和 fail-fast
+        """
+        args = {
+            "items"         : items,
+            "env"           : env,
+            "template_vars" : template_vars,
+            "concurrency"   : concurrency,
+            "fail_fast"     : fail_fast
+        }
+
+        async def call(*_) -> typing.Any:
+            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            try:
+                return await Ins.nexus.execute_batch(
+                    kind="ftp",
+                    batch=_batch_model(
+                        items=items,
+                        env=env,
+                        template_vars=template_vars,
+                        concurrency=concurrency,
+                        fail_fast=fail_fast
+                    )
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="nexus_ftp_batch",
             args=args,
             target_list=[Ins.nexus],
             call=call,

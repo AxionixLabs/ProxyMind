@@ -7,6 +7,7 @@
 
 import typing
 import asyncio
+import json
 from pathlib import Path
 from loguru import logger
 from mcp import ClientSession
@@ -38,42 +39,29 @@ class Enhancer(object):
         def has_dir(x: typing.Any) -> bool:
             return isinstance(x, str) and bool(x.strip())
 
-        payload = src.get("payload")
-        if not isinstance(payload, dict):
-            return src
-
-        root = dict(payload)
-
-        # 单请求
-        if "items" not in root:
+        # 请求边界：request
+        if isinstance(request_args := src.get("request"), dict):
+            root = dict(request_args)
             if bool(root.get("save_response")) and not has_dir(root.get("save_dir")):
                 root["save_dir"] = default
-            return src | {"payload": root}
+            return src | {"request": root}
 
-        # 批请求
-        items = root.get("items")
-        if not isinstance(items, list):
-            return src
+        # 批量边界：items + env
+        if isinstance(items := src.get("items"), list):
+            patched: list[dict[str, typing.Any]] = []
+            for item in items:
+                if not isinstance(item, dict):
+                    patched.append(item)
+                    continue
+                cloned = dict(item)
+                req = dict(cloned.get("request") or {}) if isinstance(cloned.get("request"), dict) else {}
+                if bool(req.get("save_response")) and not has_dir(req.get("save_dir")):
+                    req["save_dir"] = default
+                cloned["request"] = req
+                patched.append(cloned)
+            return src | {"items": patched}
 
-        patched: list[dict[str, typing.Any]] = []
-
-        for item in items:
-            if not isinstance(item, dict):
-                patched.append(item)
-                continue
-
-            cloned = dict(item)
-            req = cloned.get("request")
-            req = dict(req) if isinstance(req, dict) else {}
-
-            if bool(req.get("save_response")) and not has_dir(req.get("save_dir")):
-                req["save_dir"] = default
-
-            cloned["request"] = req
-            patched.append(cloned)
-
-        root["items"] = patched
-        return src | {"payload": root}
+        return src
 
     @staticmethod
     def exchange(
@@ -144,25 +132,46 @@ class Enhancer(object):
 
         fields = self.fields(result)
 
-        if not ok: return fields
+        if not ok:
+            return fields
+
+        if name.startswith("nexus_"):
+            return await self.__nexus(result, slog)
 
         match name:
             case "free_rule":
-                return await self.__free_rule(result, slog)
+                output = await self.__free_rule(result, slog)
             case "ffmpeg_extract_snapshot":
-                return await self.__ffmpeg_frame(result)
+                output = await self.__ffmpeg_frame(result)
             case "ffmpeg_extract_keyframes":
-                return await self.__ffmpeg_frame(result)
+                output = await self.__ffmpeg_frame(result)
             case "ffmpeg_extract_scene":
-                return await self.__ffmpeg_frame(result)
+                output = await self.__ffmpeg_frame(result)
             case "screenshot":
-                return await self.__screenshot(result)
+                output = await self.__screenshot(result)
             case "heal_element":
-                return await self.__heal_element(arguments, result, slog)
+                output = await self.__heal_element(arguments, result, slog)
             case "loop_steps":
-                return await self.__loop_steps(result, slog)
+                output = await self.__loop_steps(result, slog)
             case _:
-                return fields
+                output = fields
+
+        return output
+
+    async def __nexus(
+        self,
+        result: CallToolResult,
+        slog: typing.Optional[StreamTyperLogger] = None
+    ) -> typing.Union[str, dict[str, typing.Any]]:
+        """Nexus: 全量静默落盘并返回原始 fields。"""
+        fields = self.fields(result)
+
+        if slog and isinstance(fields, dict):
+            await slog.feed(
+                json.dumps(fields, ensure_ascii=False, indent=2) + "\n", echo=False
+            )
+
+        return fields
 
     async def __free_rule(
         self,

@@ -44,12 +44,12 @@ def register_bench_tools(mcp: FastMCP, idle: Idle) -> None:
 
 def register_common_tools(mcp: FastMCP, idle: Idle) -> None:
     from backend.mcp_tools.common import inspect
-    from backend.mcp_tools.common import prepare
     from backend.mcp_tools.common import runtime
+    from backend.mcp_tools.common import security
 
     inspect.bind(mcp, idle)
-    prepare.bind(mcp)
     runtime.bind(mcp, idle)
+    security.bind(mcp)
 
 
 def register_media_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
