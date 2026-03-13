@@ -735,6 +735,8 @@ class Nexus(object):
         if isinstance(payload.get("vars"), dict):
             ctx.update(payload["vars"])
 
+        allow_ctx_merge = int(concurrency) == 1
+
         # 2) env / options 也走模板
         env   = payload.get("env") if isinstance(payload.get("env"), dict) else {}
         env_r = Tools.template(env, ctx) if env else {}
@@ -809,6 +811,7 @@ class Nexus(object):
                         save_dir=(str(req_r.get("save_dir")) if req_r.get("save_dir") else None)
                     )
                     data = pack.get("data") or {}
+                    Tools.merge_step_extract(data, ctx, allow_ctx_merge)
                     elapsed_ms = Tools.ms_since(t0)
                     return i, StepResult(
                         name=name,
@@ -849,6 +852,7 @@ class Nexus(object):
                         save_dir=(str(req_r.get("save_dir")) if req_r.get("save_dir") else None)
                     )
                     data = pack.get("data") or {}
+                    Tools.merge_step_extract(data, ctx, allow_ctx_merge)
                     elapsed_ms = Tools.ms_since(t0)
                     return i, StepResult(
                         name=name,
@@ -885,6 +889,7 @@ class Nexus(object):
                         save_dir=(str(req_r.get("save_dir")) if req_r.get("save_dir") else None)
                     )
                     data = pack.get("data") or {}
+                    Tools.merge_step_extract(data, ctx, allow_ctx_merge)
                     elapsed_ms = Tools.ms_since(t0)
                     return i, StepResult(
                         name=name,
@@ -924,6 +929,7 @@ class Nexus(object):
                     save_dir=(str(req_r.get("save_dir")) if req_r.get("save_dir") else None)
                 )
                 data = pack.get("data") or {}
+                Tools.merge_step_extract(data, ctx, allow_ctx_merge)
                 elapsed_ms = Tools.ms_since(t0)
                 return i, StepResult(
                     name=name,
