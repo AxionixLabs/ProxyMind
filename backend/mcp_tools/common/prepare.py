@@ -508,30 +508,49 @@ def bind(mcp: FastMCP) -> None:
         encoding: str = "utf-8",
         out_mode: str = "base64",
         signature_format: str = "base64",
-        ciphertext_format: str = "base64"
+        ciphertext_format: str = "base64",
+        encrypt_padding: str = "oaep",
+        decrypt_padding: str = "oaep",
+        sign_padding: str = "pkcs1v15",
+        verify_padding: str = "pkcs1v15",
+        algorithm: str = "sha256",
+        mgf_algorithm: str | None = None,
+        label: str | None = None,
+        salt_length: str = "max"
     ) -> CallToolResult:
         """
         D: common
         C: prepare
         A: prepare_crypto
         P:
-          kind: str                         # rsa_sign_sha256 | rsa_verify_sha256 | rsa_encrypt_oaep_sha256 | rsa_decrypt_oaep_sha256
+          kind: str                         # rsa_sign | rsa_verify | rsa_encrypt | rsa_decrypt
           output: str                       # 输出变量名
-          input_value: any=None             # 原文输入；sign/encrypt/verify 时使用
-          private_key: str?=None            # 私钥；支持完整 PEM 或裸 key 字符串
-          public_key: str?=None             # 公钥；支持完整 PEM 或裸 key 字符串
-          signature: any=None               # rsa_verify_sha256 签名值
-          ciphertext: any=None              # rsa_decrypt_oaep_sha256 密文
+          input_value: any=None             # sign / encrypt / verify 原文输入
+          private_key: str?=None            # sign / decrypt 私钥；支持完整 PEM 或裸 key 字符串
+          public_key: str?=None             # verify / encrypt 公钥；支持完整 PEM 或裸 key 字符串
+          signature: any=None               # verify 输入签名
+          ciphertext: any=None              # decrypt 输入密文
           encoding: str="utf-8"             # 文本编码
-          out_mode: str="base64"            # sign/encrypt 输出格式：base64 | hex | bytes
+          out_mode: str="base64"            # sign / encrypt 输出格式：base64 | hex | bytes
           signature_format: str="base64"    # verify 输入签名格式：base64 | hex | bytes
           ciphertext_format: str="base64"   # decrypt 输入密文格式：base64 | hex | bytes
+          encrypt_padding: str="oaep"       # encrypt 填充：oaep | pkcs1v15
+          decrypt_padding: str="oaep"       # decrypt 填充：oaep | pkcs1v15
+          sign_padding: str="pkcs1v15"      # sign 填充：pkcs1v15 | pss
+          verify_padding: str="pkcs1v15"    # verify 填充：pkcs1v15 | pss
+          algorithm: str="sha256"           # 摘要算法：sha1 | sha224 | sha256 | sha384 | sha512
+          mgf_algorithm: str?=None          # OAEP/PSS 的 MGF1 摘要算法；未填则跟随 algorithm
+          label: str?=None                  # OAEP label；未填则为 None
+          salt_length: str="max"            # PSS salt 长度：max | digest | auto | 整数文本
         R: CTR
         N:
           - 用于 RSA 签名、验签、公钥加密、私钥解密
           - key 支持完整 PEM，也支持裸字符串，内部会自动补 BEGIN/END
-          - 签名算法：PKCS1v15 + SHA256
-          - 加密算法：OAEP + SHA256
+          - 私钥兼容 PKCS8 / PKCS1；公钥兼容 SPKI / PKCS1
+          - 加密/解密填充可配置：OAEP 或 PKCS1v15
+          - 签名/验签填充可配置：PKCS1v15 或 PSS
+          - OAEP / PSS 支持自定义摘要算法与 MGF1 摘要算法
+          - salt_length=auto 仅用于 rsa_verify + pss
         """
 
         tp = str(kind or "").strip().lower()
@@ -539,166 +558,279 @@ def bind(mcp: FastMCP) -> None:
         if not out:
             raise ValueError("output is required")
 
-        def _to_text(v: typing.Any) -> str:
-            if v is None:
+        def _as_text(value_in: typing.Any) -> str:
+            if value_in is None:
                 return ""
-            if isinstance(v, str):
-                return v
-            if isinstance(v, bytes):
-                return v.decode(encoding)
-            if isinstance(v, bytearray):
-                return bytes(v).decode(encoding)
-            return str(v)
+            if isinstance(value_in, str):
+                return value_in
+            if isinstance(value_in, bytes):
+                return value_in.decode(encoding)
+            if isinstance(value_in, bytearray):
+                return bytes(value_in).decode(encoding)
+            return str(value_in)
 
-        def _to_bytes(v: typing.Any) -> bytes:
-            if v is None:
+        def _as_bytes(value_in: typing.Any) -> bytes:
+            if value_in is None:
                 return b""
-            if isinstance(v, bytes):
-                return v
-            if isinstance(v, bytearray):
-                return bytes(v)
-            if isinstance(v, str):
-                return v.encode(encoding)
-            return str(v).encode(encoding)
+            if isinstance(value_in, bytes):
+                return value_in
+            if isinstance(value_in, bytearray):
+                return bytes(value_in)
+            if isinstance(value_in, str):
+                return value_in.encode(encoding)
+            return str(value_in).encode(encoding)
 
-        def _normalize_pem(value: str, pem_type: str) -> str:
-            _raw = str(value or "").strip()
-            if not _raw:
-                raise ValueError(f"{pem_type.lower()} is required")
+        def _normalize_pem_key(key_value: str, pem_types: list[str]) -> str:
+            normalized = str(key_value or "").strip()
+            if not normalized:
+                raise ValueError("key is required")
 
-            if "-----BEGIN " in _raw and "-----END " in _raw:
-                return _raw
+            if "-----BEGIN " in normalized and "-----END " in normalized:
+                return normalized
 
-            body = "".join(_raw.split())
-            if not body:
-                raise ValueError(f"{pem_type.lower()} is empty")
+            body_only = "".join(normalized.split())
+            if not body_only:
+                raise ValueError("key is empty")
 
-            lines = [body[i:i + 64] for i in range(0, len(body), 64)]
+            head_type = pem_types[0]
+            chunks = [body_only[i:i + 64] for i in range(0, len(body_only), 64)]
             return (
-                f"-----BEGIN {pem_type}-----\n"
-                + "\n".join(lines)
-                + f"\n-----END {pem_type}-----\n"
+                f"-----BEGIN {head_type}-----\n"
+                + "\n".join(chunks)
+                + f"\n-----END {head_type}-----\n"
             )
 
-        def _load_private_key(value: str):
-            pem = _normalize_pem(value, "PRIVATE KEY")
-            return serialization.load_pem_private_key(
-                _to_bytes(pem),
-                password=None
-            )
+        def _load_rsa_private_key(key_value: str) -> rsa.RSAPrivateKey:
+            last_error: Exception | None = None
+            for pem_text in (
+                    _normalize_pem_key(key_value, ["PRIVATE KEY"]),
+                    _normalize_pem_key(key_value, ["RSA PRIVATE KEY"])
+            ):
+                try:
+                    loaded_key = serialization.load_pem_private_key(
+                        _as_bytes(pem_text), password=None
+                    )
+                    if not isinstance(loaded_key, rsa.RSAPrivateKey):
+                        raise ValueError("private_key is not RSA private key")
+                    return loaded_key
+                except Exception as exc:
+                    last_error = exc
 
-        def _load_public_key(value: str):
-            pem = _normalize_pem(value, "PUBLIC KEY")
-            return serialization.load_pem_public_key(
-                _to_bytes(pem)
-            )
+            raise ValueError(f"private_key load failed: {last_error}")
 
-        def _encode_output(raw_bytes: bytes, mode: str) -> typing.Any:
-            mode_v = str(mode or "base64").strip().lower()
-            if mode_v == "bytes":
-                return raw_bytes
-            if mode_v == "hex":
-                return raw_bytes.hex()
-            if mode_v == "base64":
-                return base64.b64encode(raw_bytes).decode("ascii")
-            raise ValueError(f"unsupported out_mode: {mode}")
+        def _load_rsa_public_key(key_value: str) -> rsa.RSAPublicKey:
+            last_error: Exception | None = None
+            for pem_text in (
+                    _normalize_pem_key(key_value, ["PUBLIC KEY"]),
+                    _normalize_pem_key(key_value, ["RSA PUBLIC KEY"])
+            ):
+                try:
+                    loaded_key = serialization.load_pem_public_key(
+                        _as_bytes(pem_text)
+                    )
+                    if not isinstance(loaded_key, rsa.RSAPublicKey):
+                        raise ValueError("public_key is not RSA public key")
+                    return loaded_key
+                except Exception as exc:
+                    last_error = exc
 
-        def _decode_input(raw_value: typing.Any, mode: str) -> bytes:
-            mode_v = str(mode or "base64").strip().lower()
-            if mode_v == "bytes":
-                return _to_bytes(raw_value)
-            if mode_v == "hex":
-                return bytes.fromhex(_to_text(raw_value).strip())
-            if mode_v == "base64":
-                return base64.b64decode(_to_text(raw_value).strip(), validate=False)
-            raise ValueError(f"unsupported input format: {mode}")
+            raise ValueError(f"public_key load failed: {last_error}")
 
-        if tp == "rsa_sign_sha256":
+        def _encode_result(binary_value: bytes, mode_value: str) -> typing.Any:
+            mode_norm = str(mode_value or "base64").strip().lower()
+            if mode_norm == "bytes":
+                return binary_value
+            if mode_norm == "hex":
+                return binary_value.hex()
+            if mode_norm == "base64":
+                return base64.b64encode(binary_value).decode("ascii")
+            raise ValueError(f"unsupported out_mode: {mode_value}")
+
+        def _decode_result(input_data: typing.Any, mode_value: str) -> bytes:
+            mode_norm = str(mode_value or "base64").strip().lower()
+            if mode_norm == "bytes":
+                return _as_bytes(input_data)
+            if mode_norm == "hex":
+                try:
+                    return bytes.fromhex(_as_text(input_data).strip())
+                except ValueError as exc:
+                    raise ValueError("invalid hex input") from exc
+            if mode_norm == "base64":
+                try:
+                    return base64.b64decode(_as_text(input_data).strip(), validate=True)
+                except Exception as exc:
+                    raise ValueError("invalid base64 input") from exc
+            raise ValueError(f"unsupported input format: {mode_value}")
+
+        def _resolve_hash(hash_name: str | None) -> hashes.HashAlgorithm:
+            hash_norm = str(hash_name or "sha256").strip().lower()
+            mapping: dict[str, type[hashes.HashAlgorithm]] = {
+                "sha1": hashes.SHA1,
+                "sha224": hashes.SHA224,
+                "sha256": hashes.SHA256,
+                "sha384": hashes.SHA384,
+                "sha512": hashes.SHA512,
+            }
+            hash_cls = mapping.get(hash_norm)
+            if hash_cls is None:
+                raise ValueError(f"unsupported hash algorithm: {hash_name}")
+            return hash_cls()
+
+        def _resolve_sign_salt_length(salt_value: str, hash_obj: hashes.HashAlgorithm) -> int:
+            salt_norm = str(salt_value or "max").strip().lower()
+            if salt_norm == "max":
+                return padding.PSS.MAX_LENGTH
+            if salt_norm == "digest":
+                return hash_obj.digest_size
+            if salt_norm == "auto":
+                raise ValueError("salt_length=auto is only supported for rsa_verify")
+            try:
+                salt_int = int(salt_norm)
+            except ValueError as exc:
+                raise ValueError(f"unsupported salt_length: {salt_value}") from exc
+            if salt_int < 0:
+                raise ValueError("salt_length must be >= 0")
+            return salt_int
+
+        def _resolve_verify_salt_length(salt_value: str, hash_obj: hashes.HashAlgorithm) -> int:
+            salt_norm = str(salt_value or "max").strip().lower()
+            if salt_norm == "max":
+                return padding.PSS.MAX_LENGTH
+            if salt_norm == "digest":
+                return hash_obj.digest_size
+            if salt_norm == "auto":
+                return padding.PSS.AUTO
+            try:
+                salt_int = int(salt_norm)
+            except ValueError as exc:
+                raise ValueError(f"unsupported salt_length: {salt_value}") from exc
+            if salt_int < 0:
+                raise ValueError("salt_length must be >= 0")
+            return salt_int
+
+        def _build_encrypt_pad() -> padding.AsymmetricPadding:
+            pad_norm = str(encrypt_padding or "oaep").strip().lower()
+            algo_obj = _resolve_hash(algorithm)
+            mgf_algo_obj = _resolve_hash(mgf_algorithm or algorithm)
+
+            if pad_norm == "oaep":
+                return padding.OAEP(
+                    mgf=padding.MGF1(algorithm=mgf_algo_obj),
+                    algorithm=algo_obj,
+                    label=None if label is None else _as_bytes(label)
+                )
+            if pad_norm == "pkcs1v15":
+                return padding.PKCS1v15()
+            raise ValueError(f"unsupported encrypt_padding: {encrypt_padding}")
+
+        def _build_decrypt_pad() -> padding.AsymmetricPadding:
+            pad_norm = str(decrypt_padding or "oaep").strip().lower()
+            algo_obj = _resolve_hash(algorithm)
+            mgf_algo_obj = _resolve_hash(mgf_algorithm or algorithm)
+
+            if pad_norm == "oaep":
+                return padding.OAEP(
+                    mgf=padding.MGF1(algorithm=mgf_algo_obj),
+                    algorithm=algo_obj,
+                    label=None if label is None else _as_bytes(label)
+                )
+            if pad_norm == "pkcs1v15":
+                return padding.PKCS1v15()
+            raise ValueError(f"unsupported decrypt_padding: {decrypt_padding}")
+
+        def _build_sign_pad() -> padding.AsymmetricPadding:
+            pad_norm = str(sign_padding or "pkcs1v15").strip().lower()
+            algo_obj = _resolve_hash(algorithm)
+            mgf_algo_obj = _resolve_hash(mgf_algorithm or algorithm)
+
+            if pad_norm == "pkcs1v15":
+                return padding.PKCS1v15()
+            if pad_norm == "pss":
+                return padding.PSS(
+                    mgf=padding.MGF1(mgf_algo_obj),
+                    salt_length=_resolve_sign_salt_length(salt_length, algo_obj)
+                )
+            raise ValueError(f"unsupported sign_padding: {sign_padding}")
+
+        def _build_verify_pad() -> padding.AsymmetricPadding:
+            pad_norm = str(verify_padding or "pkcs1v15").strip().lower()
+            algo_obj = _resolve_hash(algorithm)
+            mgf_algo_obj = _resolve_hash(mgf_algorithm or algorithm)
+
+            if pad_norm == "pkcs1v15":
+                return padding.PKCS1v15()
+            if pad_norm == "pss":
+                return padding.PSS(
+                    mgf=padding.MGF1(mgf_algo_obj),
+                    salt_length=_resolve_verify_salt_length(salt_length, algo_obj)
+                )
+            raise ValueError(f"unsupported verify_padding: {verify_padding}")
+
+        if tp == "rsa_sign":
             if not private_key:
                 raise ValueError("private_key is required")
 
-            signer = _load_private_key(private_key)
-            if not isinstance(signer, rsa.RSAPrivateKey):
-                raise ValueError("private_key is not RSA private key")
+            signer_key = _load_rsa_private_key(private_key)
+            message_bytes = _as_bytes(input_value)
+            sign_hash = _resolve_hash(algorithm)
+            sign_pad_obj = _build_sign_pad()
 
-            raw = _to_bytes(input_value)
-
-            signed = signer.sign(
-                raw,
-                padding.PKCS1v15(),
-                hashes.SHA256()
+            signature_bytes = signer_key.sign(
+                message_bytes, sign_pad_obj, sign_hash
             )
-            result: typing.Any = _encode_output(signed, out_mode)
+            result: typing.Any = _encode_result(signature_bytes, out_mode)
 
-        elif tp == "rsa_verify_sha256":
+        elif tp == "rsa_verify":
             if not public_key:
                 raise ValueError("public_key is required")
             if signature is None:
                 raise ValueError("signature is required")
 
-            verifier = _load_public_key(public_key)
-            if not isinstance(verifier, rsa.RSAPublicKey):
-                raise ValueError("public_key is not RSA public key")
-
-            raw = _to_bytes(input_value)
-            sig_bytes = _decode_input(signature, signature_format)
+            verifier_key = _load_rsa_public_key(public_key)
+            message_bytes = _as_bytes(input_value)
+            signature_bytes = _decode_result(signature, signature_format)
+            verify_hash = _resolve_hash(algorithm)
+            verify_pad_obj = _build_verify_pad()
 
             try:
-                verifier.verify(
-                    sig_bytes,
-                    raw,
-                    padding.PKCS1v15(),
-                    hashes.SHA256()
+                verifier_key.verify(
+                    signature_bytes, message_bytes, verify_pad_obj, verify_hash
                 )
                 result = True
             except InvalidSignature:
                 result = False
 
-        elif tp == "rsa_encrypt_oaep_sha256":
+        elif tp == "rsa_encrypt":
             if not public_key:
                 raise ValueError("public_key is required")
 
-            encryptor = _load_public_key(public_key)
-            if not isinstance(encryptor, rsa.RSAPublicKey):
-                raise ValueError("public_key is not RSA public key")
+            encrypt_key = _load_rsa_public_key(public_key)
+            plaintext_bytes = _as_bytes(input_value)
+            encrypt_pad_obj = _build_encrypt_pad()
 
-            raw = _to_bytes(input_value)
-
-            encrypted = encryptor.encrypt(
-                raw,
-                padding.OAEP(
-                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                    algorithm=hashes.SHA256(),
-                    label=None
-                )
+            encrypted_bytes = encrypt_key.encrypt(
+                plaintext_bytes, encrypt_pad_obj
             )
-            result = _encode_output(encrypted, out_mode)
+            result = _encode_result(encrypted_bytes, out_mode)
 
-        elif tp == "rsa_decrypt_oaep_sha256":
+        elif tp == "rsa_decrypt":
             if not private_key:
                 raise ValueError("private_key is required")
             if ciphertext is None:
                 raise ValueError("ciphertext is required")
 
-            dec = _load_private_key(private_key)
-            if not isinstance(dec, rsa.RSAPrivateKey):
-                raise ValueError("private_key is not RSA private key")
+            decrypt_key = _load_rsa_private_key(private_key)
+            ciphertext_bytes = _decode_result(ciphertext, ciphertext_format)
+            decrypt_pad_obj = _build_decrypt_pad()
 
-            cipher_bytes = _decode_input(ciphertext, ciphertext_format)
-
-            plain = dec.decrypt(
-                cipher_bytes,
-                padding.OAEP(
-                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                    algorithm=hashes.SHA256(),
-                    label=None
-                )
+            plaintext_bytes = decrypt_key.decrypt(
+                ciphertext_bytes, decrypt_pad_obj
             )
 
             try:
-                result = plain.decode(encoding)
+                result = plaintext_bytes.decode(encoding)
             except UnicodeDecodeError:
-                result = plain
+                result = plaintext_bytes
 
         else:
             raise ValueError(f"unsupported kind: {kind}")
@@ -707,10 +839,10 @@ def bind(mcp: FastMCP) -> None:
         structured: typing.Any = {
             "text": text,
             "data": {
-                "kind"   : tp,
-                "output" : out,
-                "value"  : result,
-                "data"   : {out: result}
+                "kind": tp,
+                "output": out,
+                "value": result,
+                "data": {out: result}
             }
         }
 
