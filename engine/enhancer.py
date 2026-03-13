@@ -155,8 +155,6 @@ class Enhancer(object):
                 return await self.__ffmpeg_frame(result)
             case "ffmpeg_extract_scene":
                 return await self.__ffmpeg_frame(result)
-            # case "file_logcat_dump":
-            #     return await self.__file_logcat_dump(result)
             case "screenshot":
                 return await self.__screenshot(result)
             case "heal_element":
