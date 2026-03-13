@@ -258,9 +258,11 @@ class Tools(object):
         return ev
 
     @staticmethod
-    def merge_step_extract(pack_data: typing.Any, ctx: dict[str, typing.Any]) -> None:
+    def merge_step_extract(pack_data: typing.Any, ctx: dict[str, typing.Any], allow_ctx_merge: bool) -> None:
+        if not allow_ctx_merge:
+            return None
         if not isinstance(pack_data, dict):
-            return
+            return None
 
         step_extract = pack_data.get("extract")
         if isinstance(step_extract, dict) and step_extract:
