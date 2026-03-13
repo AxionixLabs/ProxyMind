@@ -258,6 +258,15 @@ class Tools(object):
         return ev
 
     @staticmethod
+    def merge_step_extract(pack_data: typing.Any, ctx: dict[str, typing.Any]) -> None:
+        if not isinstance(pack_data, dict):
+            return
+
+        step_extract = pack_data.get("extract")
+        if isinstance(step_extract, dict) and step_extract:
+            ctx.update(step_extract)
+
+    @staticmethod
     def step_dict(step: StepResult) -> dict[str, typing.Any]:
         return {
             "name"       : step.name,
