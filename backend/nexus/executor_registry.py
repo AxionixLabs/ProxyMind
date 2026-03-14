@@ -23,8 +23,115 @@ from backend.nexus.executors.ws_executor import WsExecutor
 class NexusExecutorRegistry(object):
     """Protocol dispatch for normalized nexus request execution."""
 
+    @staticmethod
+    def _pick(request: dict[str, typing.Any], env: dict[str, typing.Any], key: str) -> typing.Any:
+        """request 优先，其次 env。"""
+        value = request.get(key)
+        return env.get(key) if value is None else value
+
+    @staticmethod
+    def _as_str(value: typing.Any, default: str = "") -> str:
+        """安全字符串化；None 返回默认值。"""
+        return default if value is None else str(value)
+
+    @staticmethod
+    def _as_optional_str(value: typing.Any) -> typing.Optional[str]:
+        """安全可空字符串化；None 保持 None。"""
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text or text.lower() == "none":
+            return None
+        return text
+
+    @staticmethod
+    def _as_int(value: typing.Any, default: int = 0) -> int:
+        """安全整数化。"""
+        if value is None:
+            return default
+        return int(value)
+
+    @staticmethod
+    def _as_float(value: typing.Any, default: float = 0.0) -> float:
+        """安全浮点化。"""
+        if value is None:
+            return default
+        return float(value)
+
+    @staticmethod
+    def _as_bool(value: typing.Any, default: bool = False) -> bool:
+        """安全布尔化。"""
+        if value is None:
+            return default
+        return bool(value)
+
+    @staticmethod
+    def _as_dict(value: typing.Any) -> dict[str, typing.Any]:
+        """确保返回 dict。"""
+        return dict(value) if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _as_list(value: typing.Any) -> typing.Optional[list[typing.Any]]:
+        """确保返回 list 或 None。"""
+        return value if isinstance(value, list) else None
+
+    @staticmethod
+    def _as_str_list(value: typing.Any, none_as: typing.Optional[list[str]] = None) -> typing.Optional[list[str]]:
+        """统一把单值/列表转成字符串列表。"""
+        if value is None:
+            return none_as
+        if isinstance(value, list):
+            return [str(item) for item in value]
+        return [str(value)]
+
+    @classmethod
+    def _request_or_env_str(
+        cls,
+        request: dict[str, typing.Any],
+        env: dict[str, typing.Any],
+        key: str
+    ) -> typing.Optional[str]:
+        """request/env 中的可空字符串字段。"""
+        return cls._as_optional_str(cls._pick(request, env, key))
+
+    @classmethod
+    def _request_or_env_int(
+        cls,
+        request: dict[str, typing.Any],
+        env: dict[str, typing.Any],
+        key: str,
+        default: int
+    ) -> int:
+        """request/env 中的整数值。"""
+        value = cls._pick(request, env, key)
+        return cls._as_int(value, default)
+
+    @classmethod
+    def _request_or_env_float(
+        cls,
+        request: dict[str, typing.Any],
+        env: dict[str, typing.Any],
+        key: str,
+        default: float
+    ) -> float:
+        """request/env 中的浮点值。"""
+        value = cls._pick(request, env, key)
+        return cls._as_float(value, default)
+
+    @classmethod
+    def _request_or_env_bool(
+        cls,
+        request: dict[str, typing.Any],
+        env: dict[str, typing.Any],
+        key: str,
+        default: bool
+    ) -> bool:
+        """request/env 中的布尔值。"""
+        value = cls._pick(request, env, key)
+        return cls._as_bool(value, default)
+
+    @staticmethod
     async def execute(
-        self,
         *,
         kind: NexusKind,
         request: dict[str, typing.Any],
@@ -33,190 +140,230 @@ class NexusExecutorRegistry(object):
         asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
     ) -> dict[str, typing.Any]:
         """根据 kind 把标准化请求路由到对应协议执行器。"""
-        base_url = str(env.get("base_url") or "") or None
-        base_headers = dict(env.get("headers") or {})
-        base_timeout = float(env.get("timeout", 30.0))
+        request = dict(request or {})
+        env = dict(env or {})
+
+        base_url = NexusExecutorRegistry._as_optional_str(env.get("base_url"))
+        base_headers = NexusExecutorRegistry._as_dict(env.get("headers"))
+        base_timeout = NexusExecutorRegistry._as_float(env.get("timeout"), 30.0)
 
         if kind == "http":
+            req_base_url = NexusExecutorRegistry._as_optional_str(
+                request.get("base_url", base_url)
+            )
             return await HttpExecutor.execute(
-                method=str(request.get("method", "GET")),
-                url=str(request.get("url", "")),
-                base_url=str(request.get("base_url") or base_url) or None,
-                headers={**base_headers, **dict(request.get("headers") or {})},
+                method=NexusExecutorRegistry._as_str(request.get("method"), "GET"),
+                url=NexusExecutorRegistry._as_str(request.get("url")),
+                base_url=req_base_url,
+                headers={**base_headers, **NexusExecutorRegistry._as_dict(request.get("headers"))},
                 params=request.get("params"),
                 json_body=request.get("json") or request.get("json_body"),
                 body_text=request.get("body") or request.get("body_text"),
                 form=request.get("form") if isinstance(request.get("form"), dict) else None,
                 files=request.get("files") if isinstance(request.get("files"), list) else None,
-                timeout=float(request.get("timeout", base_timeout)),
-                retries=int(request.get("retries", 0)),
-                follow_redirects=bool(request.get("follow_redirects", True)),
+                timeout=NexusExecutorRegistry._as_float(request.get("timeout"), base_timeout),
+                retries=NexusExecutorRegistry._as_int(request.get("retries"), 0),
+                follow_redirects=NexusExecutorRegistry._as_bool(request.get("follow_redirects"), True),
                 extract=extract,
                 asserts=asserts,
-                save_response=bool(request.get("save_response", False)),
-                save_dir=(str(request.get("save_dir")) if request.get("save_dir") else None),
+                save_response=NexusExecutorRegistry._as_bool(request.get("save_response"), False),
+                save_dir=NexusExecutorRegistry._as_optional_str(request.get("save_dir"))
             )
 
         if kind == "sse":
+            req_base_url = NexusExecutorRegistry._as_optional_str(
+                request.get("base_url", base_url)
+            )
             return await SseExecutor.execute(
-                method=str(request.get("method", "GET")),
-                url=str(request.get("url", "")),
-                base_url=str(request.get("base_url") or base_url) or None,
-                headers={**base_headers, **dict(request.get("headers") or {})},
+                method=NexusExecutorRegistry._as_str(request.get("method"), "GET"),
+                url=NexusExecutorRegistry._as_str(request.get("url")),
+                base_url=req_base_url,
+                headers={**base_headers, **NexusExecutorRegistry._as_dict(request.get("headers"))},
                 params=request.get("params"),
                 json_body=request.get("json") or request.get("json_body"),
                 body_text=request.get("body") or request.get("body_text"),
                 form=request.get("form") if isinstance(request.get("form"), dict) else None,
                 files=request.get("files") if isinstance(request.get("files"), list) else None,
-                timeout=float(request.get("timeout", base_timeout)),
-                retries=int(request.get("retries", 0)),
-                follow_redirects=bool(request.get("follow_redirects", True)),
-                max_events=(None if request.get("max_events") is None else int(request.get("max_events"))),
+                timeout=NexusExecutorRegistry._as_float(request.get("timeout"), base_timeout),
+                retries=NexusExecutorRegistry._as_int(request.get("retries"), 0),
+                follow_redirects=NexusExecutorRegistry._as_bool(request.get("follow_redirects"), True),
+                max_events=(
+                    None if request.get("max_events") is None
+                    else NexusExecutorRegistry._as_int(request.get("max_events"))
+                ),
                 extract=extract,
                 asserts=asserts,
-                media_index=(None if request.get("media_index") is None else int(request.get("media_index"))),
-                media_path=(str(request.get("media_path")) if request.get("media_path") else None),
-                save_response=bool(request.get("save_response", False)),
-                save_dir=(str(request.get("save_dir")) if request.get("save_dir") else None),
+                media_index=(
+                    None if request.get("media_index") is None
+                    else NexusExecutorRegistry._as_int(request.get("media_index"))
+                ),
+                media_path=NexusExecutorRegistry._as_optional_str(request.get("media_path")),
+                save_response=NexusExecutorRegistry._as_bool(request.get("save_response"), False),
+                save_dir=NexusExecutorRegistry._as_optional_str(request.get("save_dir"))
             )
 
         if kind == "graphql":
+            req_base_url = NexusExecutorRegistry._as_optional_str(
+                request.get("base_url", base_url)
+            )
             return await GraphqlExecutor.execute(
-                url=str(request.get("url", "")),
-                query=str(request.get("query", "")),
+                url=NexusExecutorRegistry._as_str(request.get("url")),
+                query=NexusExecutorRegistry._as_str(request.get("query")),
                 variables=request.get("variables") if isinstance(request.get("variables"), dict) else {},
                 operation_name=request.get("operation_name") or request.get("operationName"),
-                base_url=str(request.get("base_url") or base_url) or None,
-                headers={**base_headers, **dict(request.get("headers") or {})},
+                base_url=req_base_url,
+                headers={**base_headers, **NexusExecutorRegistry._as_dict(request.get("headers"))},
                 params=request.get("params"),
-                timeout=float(request.get("timeout", base_timeout)),
-                retries=int(request.get("retries", 0)),
-                follow_redirects=bool(request.get("follow_redirects", True)),
+                timeout=NexusExecutorRegistry._as_float(request.get("timeout"), base_timeout),
+                retries=NexusExecutorRegistry._as_int(request.get("retries"), 0),
+                follow_redirects=NexusExecutorRegistry._as_bool(request.get("follow_redirects"), True),
                 extract=extract,
                 asserts=asserts,
-                media_path=(str(request.get("media_path")) if request.get("media_path") else None),
-                save_response=bool(request.get("save_response", False)),
-                save_dir=(str(request.get("save_dir")) if request.get("save_dir") else None),
+                media_path=NexusExecutorRegistry._as_optional_str(request.get("media_path")),
+                save_response=NexusExecutorRegistry._as_bool(request.get("save_response"), False),
+                save_dir=NexusExecutorRegistry._as_optional_str(request.get("save_dir"))
             )
 
         if kind == "tcp":
             raw_sends = request.get("sends", env.get("sends"))
-            if isinstance(raw_sends, list):
-                sends = [str(item) for item in raw_sends]
-            elif raw_sends is None:
-                sends = None
-            else:
-                sends = [str(raw_sends)]
+            sends = NexusExecutorRegistry._as_str_list(raw_sends, none_as=None)
+
             return await TcpExecutor.execute(
-                host=str(request.get("host") or env.get("host") or ""),
-                port=int(request.get("port", env.get("port", 0))),
-                body_text=(None if request.get("body_text") is None else str(request.get("body_text"))),
+                host=NexusExecutorRegistry._as_str(request.get("host") or env.get("host")),
+                port=NexusExecutorRegistry._request_or_env_int(request, env, "port", 0),
+                body_text=NexusExecutorRegistry._as_optional_str(request.get("body_text")),
                 sends=sends,
-                encoding=str(request.get("encoding", env.get("encoding", "utf-8"))),
-                timeout=float(request.get("timeout", env.get("timeout", 10.0))),
-                read_size=int(request.get("read_size", env.get("read_size", 4096))),
-                close_write=bool(request.get("close_write", env.get("close_write", True))),
-                max_reads=int(request.get("max_reads", env.get("max_reads", 1))),
-                read_until=(None if (request.get("read_until") or env.get("read_until")) is None else str(request.get("read_until") or env.get("read_until"))),
+                encoding=NexusExecutorRegistry._as_str(
+                    NexusExecutorRegistry._pick(request, env, "encoding"), "utf-8"
+                ),
+                timeout=NexusExecutorRegistry._request_or_env_float(request, env, "timeout", 10.0),
+                read_size=NexusExecutorRegistry._request_or_env_int(request, env, "read_size", 4096),
+                close_write=NexusExecutorRegistry._request_or_env_bool(request, env, "close_write", True),
+                max_reads=NexusExecutorRegistry._request_or_env_int(request, env, "max_reads", 1),
+                read_until=NexusExecutorRegistry._request_or_env_str(request, env, "read_until"),
                 extract=extract,
-                asserts=asserts,
+                asserts=asserts
             )
 
         if kind == "udp":
             return await UdpExecutor.execute(
-                host=str(request.get("host") or env.get("host") or ""),
-                port=int(request.get("port", env.get("port", 0))),
-                body_text=str(request.get("body_text", env.get("body_text", ""))),
-                encoding=str(request.get("encoding", env.get("encoding", "utf-8"))),
-                timeout=float(request.get("timeout", env.get("timeout", 10.0))),
-                read_size=int(request.get("read_size", env.get("read_size", 4096))),
+                host=NexusExecutorRegistry._as_str(request.get("host") or env.get("host")),
+                port=NexusExecutorRegistry._request_or_env_int(request, env, "port", 0),
+                body_text=NexusExecutorRegistry._as_str(
+                    NexusExecutorRegistry._pick(request, env, "body_text")
+                ),
+                encoding=NexusExecutorRegistry._as_str(
+                    NexusExecutorRegistry._pick(request, env, "encoding"), "utf-8"
+                ),
+                timeout=NexusExecutorRegistry._request_or_env_float(request, env, "timeout", 10.0),
+                read_size=NexusExecutorRegistry._request_or_env_int(request, env, "read_size", 4096),
                 extract=extract,
-                asserts=asserts,
+                asserts=asserts
             )
 
         if kind == "smtp":
             raw_to_addrs = request.get("to_addrs", env.get("to_addrs"))
-            if isinstance(raw_to_addrs, list):
-                to_addrs = [str(item) for item in raw_to_addrs]
-            elif raw_to_addrs is None:
-                to_addrs = None
-            else:
-                to_addrs = [str(raw_to_addrs)]
+            to_addrs = NexusExecutorRegistry._as_str_list(raw_to_addrs, none_as=None)
+
             return await SmtpExecutor.execute(
-                host=str(request.get("host") or env.get("host") or ""),
-                port=int(request.get("port", env.get("port", 25))),
-                action=str(request.get("action", env.get("action", "noop"))),
-                username=(None if (request.get("username") or env.get("username")) is None else str(request.get("username") or env.get("username"))),
-                password=(None if (request.get("password") or env.get("password")) is None else str(request.get("password") or env.get("password"))),
-                use_ssl=bool(request.get("use_ssl", env.get("use_ssl", False))),
-                use_tls=bool(request.get("use_tls", env.get("use_tls", False))),
-                from_addr=(None if (request.get("from_addr") or env.get("from_addr")) is None else str(request.get("from_addr") or env.get("from_addr"))),
+                host=NexusExecutorRegistry._as_str(request.get("host") or env.get("host")),
+                port=NexusExecutorRegistry._request_or_env_int(request, env, "port", 25),
+                action=NexusExecutorRegistry._as_str(
+                    NexusExecutorRegistry._pick(request, env, "action"), "noop"
+                ),
+                username=NexusExecutorRegistry._request_or_env_str(request, env, "username"),
+                password=NexusExecutorRegistry._request_or_env_str(request, env, "password"),
+                use_ssl=NexusExecutorRegistry._request_or_env_bool(request, env, "use_ssl", False),
+                use_tls=NexusExecutorRegistry._request_or_env_bool(request, env, "use_tls", False),
+                from_addr=NexusExecutorRegistry._request_or_env_str(request, env, "from_addr"),
                 to_addrs=to_addrs,
-                subject=(None if request.get("subject") is None else str(request.get("subject"))),
-                body_text=(None if request.get("body_text") is None else str(request.get("body_text"))),
-                html_body=(None if request.get("html_body") is None else str(request.get("html_body"))),
+                subject=NexusExecutorRegistry._as_optional_str(request.get("subject")),
+                body_text=NexusExecutorRegistry._as_optional_str(request.get("body_text")),
+                html_body=NexusExecutorRegistry._as_optional_str(request.get("html_body")),
                 attachments=request.get("attachments") if isinstance(request.get("attachments"), list) else None,
-                timeout=float(request.get("timeout", env.get("timeout", 15.0))),
+                timeout=NexusExecutorRegistry._request_or_env_float(request, env, "timeout", 15.0),
                 extract=extract,
-                asserts=asserts,
+                asserts=asserts
             )
 
         if kind == "imap":
             return await ImapExecutor.execute(
-                host=str(request.get("host") or env.get("host") or ""),
-                port=int(request.get("port", env.get("port", 993))),
-                username=str(request.get("username") or env.get("username") or ""),
-                password=str(request.get("password") or env.get("password") or ""),
-                action=str(request.get("action", env.get("action", "search"))),
-                mailbox=str(request.get("mailbox", env.get("mailbox", "INBOX"))),
-                criteria=str(request.get("criteria", env.get("criteria", "ALL"))),
-                message_set=str(request.get("message_set", env.get("message_set", "1"))),
-                fetch_parts=str(request.get("fetch_parts", env.get("fetch_parts", "BODY.PEEK[HEADER]"))),
-                parse_messages=bool(request.get("parse_messages", env.get("parse_messages", False))),
-                use_ssl=bool(request.get("use_ssl", env.get("use_ssl", True))),
-                timeout=float(request.get("timeout", env.get("timeout", 15.0))),
+                host=NexusExecutorRegistry._as_str(request.get("host") or env.get("host")),
+                port=NexusExecutorRegistry._request_or_env_int(request, env, "port", 993),
+                username=NexusExecutorRegistry._as_str(request.get("username") or env.get("username")),
+                password=NexusExecutorRegistry._as_str(request.get("password") or env.get("password")),
+                action=NexusExecutorRegistry._as_str(
+                    NexusExecutorRegistry._pick(request, env, "action"), "search"
+                ),
+                mailbox=NexusExecutorRegistry._as_str(
+                    NexusExecutorRegistry._pick(request, env, "mailbox"), "INBOX"
+                ),
+                criteria=NexusExecutorRegistry._as_str(
+                    NexusExecutorRegistry._pick(request, env, "criteria"), "ALL"
+                ),
+                message_set=NexusExecutorRegistry._as_str(
+                    NexusExecutorRegistry._pick(request, env, "message_set"), "1"
+                ),
+                fetch_parts=NexusExecutorRegistry._as_str(
+                    NexusExecutorRegistry._pick(request, env, "fetch_parts"), "BODY.PEEK[HEADER]"
+                ),
+                parse_messages=NexusExecutorRegistry._request_or_env_bool(request, env, "parse_messages", False),
+                use_ssl=NexusExecutorRegistry._request_or_env_bool(request, env, "use_ssl", True),
+                timeout=NexusExecutorRegistry._request_or_env_float(request, env, "timeout", 15.0),
                 extract=extract,
-                asserts=asserts,
+                asserts=asserts
             )
 
         if kind == "ftp":
             return await FtpExecutor.execute(
-                host=str(request.get("host") or env.get("host") or ""),
-                port=int(request.get("port", env.get("port", 21))),
-                username=str(request.get("username", env.get("username", "anonymous"))),
-                password=str(request.get("password", env.get("password", "anonymous@"))),
-                action=str(request.get("action", env.get("action", "list"))),
-                path=str(request.get("path", env.get("path", "."))),
-                payload_text=(None if request.get("payload_text") is None else str(request.get("payload_text"))),
-                payload_base64=(None if request.get("payload_base64") is None else str(request.get("payload_base64"))),
-                encoding=str(request.get("encoding", env.get("encoding", "utf-8"))),
-                use_tls=bool(request.get("use_tls", env.get("use_tls", False))),
-                timeout=float(request.get("timeout", env.get("timeout", 15.0))),
+                host=NexusExecutorRegistry._as_str(request.get("host") or env.get("host")),
+                port=NexusExecutorRegistry._request_or_env_int(request, env, "port", 21),
+                username=NexusExecutorRegistry._as_str(
+                    NexusExecutorRegistry._pick(request, env, "username"), "anonymous"
+                ),
+                password=NexusExecutorRegistry._as_str(
+                    NexusExecutorRegistry._pick(request, env, "password"), "anonymous@"
+                ),
+                action=NexusExecutorRegistry._as_str(
+                    NexusExecutorRegistry._pick(request, env, "action"), "list"
+                ),
+                path=NexusExecutorRegistry._as_str(
+                    NexusExecutorRegistry._pick(request, env, "path"), "."
+                ),
+                payload_text=NexusExecutorRegistry._as_optional_str(request.get("payload_text")),
+                payload_base64=NexusExecutorRegistry._as_optional_str(request.get("payload_base64")),
+                encoding=NexusExecutorRegistry._as_str(
+                    NexusExecutorRegistry._pick(request, env, "encoding"), "utf-8"
+                ),
+                use_tls=NexusExecutorRegistry._request_or_env_bool(request, env, "use_tls", False),
+                timeout=NexusExecutorRegistry._request_or_env_float(request, env, "timeout", 15.0),
                 extract=extract,
-                asserts=asserts,
+                asserts=asserts
             )
 
-        if kind != "ws":
-            raise ValueError(f"unsupported nexus kind: {kind}")
+        if kind == "ws":
+            raw_sends = request.get("sends")
+            sends = NexusExecutorRegistry._as_str_list(raw_sends, none_as=[])
 
-        raw_sends = request.get("sends")
-        if isinstance(raw_sends, list):
-            sends = [str(item) for item in raw_sends]
-        elif raw_sends is None:
-            sends = []
-        else:
-            sends = [str(raw_sends)]
+            return await WsExecutor.execute(
+                url=NexusExecutorRegistry._as_str(request.get("url")),
+                headers={**base_headers, **NexusExecutorRegistry._as_dict(request.get("headers"))},
+                sends=sends,
+                timeout=NexusExecutorRegistry._as_float(request.get("timeout"), base_timeout),
+                max_messages=NexusExecutorRegistry._as_int(request.get("max_messages"), 10),
+                extract=extract,
+                asserts=asserts,
+                media_index=(
+                    None if request.get("media_index") is None
+                    else NexusExecutorRegistry._as_int(request.get("media_index"))
+                ),
+                media_path=NexusExecutorRegistry._as_optional_str(request.get("media_path")),
+                save_response=NexusExecutorRegistry._as_bool(request.get("save_response"), False),
+                save_dir=NexusExecutorRegistry._as_optional_str(request.get("save_dir"))
+            )
 
-        return await WsExecutor.execute(
-            url=str(request.get("url", "")),
-            headers={**base_headers, **dict(request.get("headers") or {})},
-            sends=sends,
-            timeout=float(request.get("timeout", base_timeout)),
-            max_messages=int(request.get("max_messages", 10)),
-            extract=extract,
-            asserts=asserts,
-            media_index=(None if request.get("media_index") is None else int(request.get("media_index"))),
-            media_path=(str(request.get("media_path")) if request.get("media_path") else None),
-            save_response=bool(request.get("save_response", False)),
-            save_dir=(str(request.get("save_dir")) if request.get("save_dir") else None),
-        )
+        raise ValueError(f"unsupported nexus kind: {kind}")
+
+
+if __name__ == '__main__':
+    pass
