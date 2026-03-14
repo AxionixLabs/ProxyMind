@@ -1,30 +1,34 @@
-#  ____
-# |  _ \ _ __ ___ _ __   __ _ _ __ ___
-# | |_) | '__/ _ \ '_ \ / _` | '__/ _ \
-# |  __/| | |  __/ |_) | (_| | | |  __/
-# |_|   |_|  \___| .__/ \__,_|_|  \___|
-#                |_|
+#  ____                       _ _           ____                  _
+# / ___|  ___  ___ _   _ _ __(_) |_ _   _  / ___|  ___ _ ____   _(_) ___ ___
+# \___ \ / _ \/ __| | | | '__| | __| | | | \___ \ / _ \ '__\ \ / / |/ __/ _ \
+#  ___) |  __/ (__| |_| | |  | | |_| |_| |  ___) |  __/ |   \ V /| | (_|  __/
+# |____/ \___|\___|\__,_|_|  |_|\__|\__, | |____/ \___|_|    \_/ |_|\___\___|
+#                                   |___/
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
 from mcp.server import FastMCP
-from mcp.types import CallToolResult, TextContent
-from backend.nexus.security.service import SecurityService
+from mcp.types import (
+    CallToolResult, TextContent
+)
+from backend.nexus.security.security_service import SecurityService
 
 
 def _tool_result(agent_id: str, result: dict[str, typing.Any]) -> CallToolResult:
     """把 security 服务结果包装成统一的 MCP 返回结构。"""
-    kind = str(result["kind"])
+    kind   = str(result["kind"])
     output = str(result["output"])
-    text = f"agent_id={agent_id} ok=True kind={kind} output={output}"
+    text   = f"agent_id={agent_id} ok=True kind={kind} output={output}"
+
     structured: typing.Any = {
         "text": text,
         "data": result
     }
+
     return CallToolResult(
         content=[TextContent(type="text", text=text)],
-        structuredContent=structured,
+        structuredContent=structured
     )
 
 

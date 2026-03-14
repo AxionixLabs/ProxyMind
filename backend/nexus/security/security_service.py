@@ -1,3 +1,11 @@
+#  ____                  _
+# / ___|  ___ _ ____   _(_) ___ ___
+# \___ \ / _ \ '__\ \ / / |/ __/ _ \
+#  ___) |  __/ |   \ V /| | (_|  __/
+# |____/ \___|_|    \_/ |_|\___\___|
+#
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
+
 import jwt
 import hmac
 import base64
@@ -616,7 +624,10 @@ class SecurityService(object):
                 nonce_bytes = _decode(nonce, nonce_format)
                 if not nonce_bytes:
                     raise ValueError("nonce is required for gcm")
-                return Cipher(algorithms.AES(key_content), modes.GCM(nonce_bytes, tag_content) if tag_content is not None else modes.GCM(nonce_bytes))
+                return Cipher(
+                    algorithms.AES(key_content), modes.GCM(nonce_bytes, tag_content)
+                    if tag_content is not None else modes.GCM(nonce_bytes)
+                )
             raise ValueError(f"unsupported mode: {mode}")
 
         def _pad_plain(plain: bytes) -> bytes:
@@ -803,8 +814,8 @@ class SecurityService(object):
                     continue
                 filename = "" if one.get("filename") is None else str(one.get("filename"))
                 content_type = "" if one.get("content_type") is None else str(one.get("content_type"))
-                value = one.get("value")
-                file_text = filename if use_filename_only else ("" if value is None else str(value))
+                _value = one.get("value")
+                file_text = filename if use_filename_only else ("" if _value is None else str(_value))
                 if include_content_type:
                     file_text = f"{file_text}:{content_type}"
                 if ignore_empty and _is_empty(file_text):
