@@ -34,32 +34,39 @@ class Enhancer(object):
         self.metadata  = metadata
 
     @staticmethod
-    def nexus_media_dir(src: dict[str, typing.Any], default: str) -> dict[str, typing.Any]:
+    def nexus_artifact(src: dict[str, typing.Any], default: str) -> dict[str, typing.Any]:
 
         def has_dir(x: typing.Any) -> bool:
             return isinstance(x, str) and bool(x.strip())
 
-        # 请求边界：request
-        if isinstance(request_args := src.get("request"), dict):
-            root = dict(request_args)
-            if "artifact_dir" in root and not has_dir(root.get("artifact_dir")):
-                root["artifact_dir"] = default
-            return src | {"request": root}
+        def patch_request(req: typing.Any) -> dict[str, typing.Any]:
+            merged = dict(req) if isinstance(req, dict) else {}
+            if not has_dir(merged.get("artifact_dir")):
+                merged["artifact_dir"] = default
+            return merged
 
-        # 批量边界：items + env
-        if isinstance(items := src.get("items"), list):
-            patched: list[dict[str, typing.Any]] = []
-            for item in items:
+        # 单请求边界：request
+        if isinstance(src.get("request"), dict):
+            merged_src = dict(src)
+            merged_src["request"] = patch_request(src.get("request"))
+            return merged_src
+
+        # 批量边界：items
+        if isinstance(src.get("items"), list):
+            merged_src = dict(src)
+            patched_items: list[dict[str, typing.Any]] = []
+
+            for item in src["items"]:
                 if not isinstance(item, dict):
-                    patched.append(item)
+                    patched_items.append(item)
                     continue
-                cloned = dict(item)
-                req = dict(cloned.get("request") or {}) if isinstance(cloned.get("request"), dict) else {}
-                if "artifact_dir" in req and not has_dir(req.get("artifact_dir")):
-                    req["artifact_dir"] = default
-                cloned["request"] = req
-                patched.append(cloned)
-            return src | {"items": patched}
+
+                merged_item = dict(item)
+                merged_item["request"] = patch_request(item.get("request"))
+                patched_items.append(merged_item)
+
+            merged_src["items"] = patched_items
+            return merged_src
 
         return src
 
@@ -76,7 +83,7 @@ class Enhancer(object):
             return src_arguments | {"output_dir": report.toolkit_path}
 
         elif name.startswith("nexus_"):
-            return Enhancer.nexus_media_dir(src_arguments, report.toolkit_path)
+            return Enhancer.nexus_artifact(src_arguments, report.toolkit_path)
 
         elif name.startswith("file_logcat_dump"):
             if src_arguments.get("saved"):

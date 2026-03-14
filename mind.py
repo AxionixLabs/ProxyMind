@@ -775,7 +775,7 @@ class Mind(object):
             if m := re_apikey.match(raw):
                 apikey = await function("apikey") or apikey
                 continue
-                
+
             func = self.mind_chat
 
             match tag:
