@@ -7,6 +7,7 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import re
+import json
 import typing
 
 
@@ -48,13 +49,16 @@ class ExtractService(object):
     @staticmethod
     def _pick_path(data: typing.Any, path: str) -> typing.Any:
         """按点路径从嵌套对象中提取值，支持 * / first / last / 过滤段。"""
-        if not path: return data
+        if not path:
+            return data
+
         segments = [segment for segment in str(path).split(".") if segment != ""]
 
         def walk(current: typing.Any, remaining: list[str]) -> typing.Any:
-            if not remaining: return current
-            segment = remaining[0]
+            if not remaining:
+                return current
 
+            segment = remaining[0]
             tail = remaining[1:]
 
             if segment == "":
@@ -71,9 +75,11 @@ class ExtractService(object):
             if match:
                 if not isinstance(current, list):
                     raise KeyError(segment)
+
                 filter_path = str(match.group(1)).strip()
                 expected = ExtractService._parse_filter_expected(match.group(2).strip())
                 collect_all = bool(match.group(3))
+
                 matched_items: list[typing.Any] = []
                 for item in current:
                     ok_pick, actual = ExtractService.safe_pick(item, filter_path)
@@ -82,12 +88,14 @@ class ExtractService(object):
                             matched_items.append(item)
                         else:
                             return walk(item, tail)
+
                 if collect_all:
                     if not matched_items:
                         raise KeyError(segment)
                     if not tail:
                         return matched_items
                     return [walk(item, tail) for item in matched_items]
+
                 raise KeyError(segment)
 
             if isinstance(current, dict):
@@ -108,25 +116,63 @@ class ExtractService(object):
 
     @staticmethod
     def apply_ops(value: typing.Any, ops: list[str]) -> typing.Any:
-        """对提取结果执行最小后处理：default / len / join。"""
+        """对提取结果执行最小后处理：default / len / join / json / pick / regex。"""
         current = value
+
         for op in ops:
             op_name, _, op_arg = op.partition(":")
             op_name = op_name.strip().lower()
+            op_arg = op_arg.strip()
+
             if op_name == "default":
                 if current is None:
                     current = op_arg
                 continue
+
             if op_name == "len":
                 current = len(current) if current is not None else 0
                 continue
+
             if op_name == "join":
                 sep = op_arg
                 if not isinstance(current, list):
                     raise ValueError("join requires list value")
                 current = sep.join("" if item is None else str(item) for item in current)
                 continue
+
+            if op_name == "json":
+                current = json.loads(str(current or ""))
+                continue
+
+            if op_name == "pick":
+                if not op_arg:
+                    raise ValueError("pick requires path")
+                current = ExtractService._pick_path(current, op_arg)
+                continue
+
+            if op_name == "regex":
+                pattern = op_arg
+                if not pattern:
+                    raise ValueError("regex requires pattern")
+                match = re.search(pattern, "" if current is None else str(current))
+                if not match:
+                    raise ValueError("regex no match")
+                if match.groups():
+                    current = match.group(1)
+                else:
+                    current = match.group(0)
+                continue
+
+            if op_name == "regex_group":
+                if not op_arg:
+                    raise ValueError("regex_group requires index")
+                if not isinstance(current, re.Match):
+                    raise ValueError("regex_group requires previous regex match object")
+                current = current.group(int(op_arg))
+                continue
+
             raise ValueError(f"unsupported extract op: {op_name}")
+
         return current
 
     @staticmethod
