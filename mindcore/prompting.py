@@ -44,12 +44,10 @@ class SlashCommandCompleter(Completer):
         {"text": "/q", "display": "/q", "meta": "退出会话"},
         {"text": "/model ", "display": "/model", "meta": "输入模型名"},
         {"text": "/apikey ", "display": "/apikey", "meta": "输入 API Key"},
-        {"text": "/again ", "display": "/again", "meta": "输入次数和目标"},
     )
     TOP_LEVEL: tuple[str, ...] = (
         "/chat", "/fast", "/plan", "/help", "/quit", "/model", "/apikey"
     )
-
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
         stripped = text.lstrip()
@@ -58,7 +56,7 @@ class SlashCommandCompleter(Completer):
             return
 
         token = stripped.splitlines()[-1]
-        if " " in token and not token.startswith(("/model", "/apikey", "/again")):
+        if " " in token and not token.startswith(("/model", "/apikey")):
             return
 
         if token == "/":
@@ -240,10 +238,6 @@ class CommandAutoSuggest(AutoSuggest):
             "/api": "key ",
             "/apikey": " your-api-key",
             "/apikey ": "your-api-key",
-            "/ag": "ain 3 次循环",
-            "/aga": "in 3 次循环",
-            "/again": " 3 次循环",
-            "/again ": "3 次循环",
             "/su": "bscription",
             "/sub": "scription",
             "/li": "cense",
@@ -325,7 +319,7 @@ class CommandAutoSuggest(AutoSuggest):
 class PromptToolkitBox(object):
     """Async prompt_toolkit wrapper for the CLI loop."""
 
-    PARAMETERIZED_COMMANDS: tuple[str, ...] = ("/model ", "/apikey ", "/again ")
+    PARAMETERIZED_COMMANDS: tuple[str, ...] = ("/model ", "/apikey ")
     MODEL_DISPLAY_MAX: int = 24
 
     def __init__(self) -> None:
