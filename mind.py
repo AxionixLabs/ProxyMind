@@ -13,7 +13,6 @@ import json
 import stat
 import time
 import httpx
-import random
 import shutil
 import signal
 import typing
@@ -33,6 +32,7 @@ from mcp.client.streamable_http import streamable_http_client
 # ====[ from: 本地模块 ]====
 from mindcore.api import Api
 from mindcore.design import Design
+from mindcore.prompting import PromptToolkitBox
 from engine.enhancer import Enhancer
 from engine.manage import ServerManage
 from engine.scaling import (
@@ -93,6 +93,8 @@ class Mind(object):
         self.sid: typing.Optional[str] = None
 
         self.report: Report = Report(self.src_total_place, self.gravity)
+
+        self.prompt_box: PromptToolkitBox = PromptToolkitBox()
 
     @property
     def remote(self) -> dict:
@@ -699,15 +701,8 @@ class Mind(object):
                         "sk-...   (API Key)", "gsk_...  (API Key)", "ds-...   (API Key)", "<token>  (Pure token)"
                     ]
 
-            for s in styles: Design.console.print(f"[bold {rc}]  • {s}[/]")
+            for s in styles: Design.console.print(f"[bold #AFC7D8]  • {s}[/]")
             return Design.console.print(f"[bold #FF5F5F]\n {types} invalid: /{types} {const.ERR}{pref_name}")
-
-        cp = [
-            "#5FFF87", "#87FFAF", "#5FD7FF", "#D7AFFF", "#FFD75F",
-            "#FF5F5F", "#FF87D7", "#AF87FF", "#00D7AF", "#00AFFF",
-            "#FFAF00", "#AFD7FF",
-        ]
-        rc = random.choice(cp)
 
         model  = self.pref.model
         apikey = self.pref.apikey
@@ -720,65 +715,28 @@ class Mind(object):
         subs_set: set[str] = {"/subscription", "/sub"}
 
         doc = """\
-        [bold]
-        [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
+        [bold][bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
         [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
         [bold #5FD7AF]/subscription, /sub[/]       订阅信息（授权状态/到期）
         [bold #FF5F5F]/quit, /q, quit, exit[/]     断开会话（安全退出）
         [bold #AFD7FF]/model <name>[/]             引擎切换（选择推理内核）
         [bold #AFD7FF]/apikey <key>[/]             凭证更新（替换访问密钥）
-        [bold #AFD7FF]/again N <goal>[/]           复现回放（目标 × N 次）
         [bold #FFD75F]/chat[/]                     对话模式（自由对话）
         [bold #FFD75F]/fast[/]                     高速模式（压测采集）
         [bold #FFD75F]/plan[/]                     编排模式（工具执行）
         [/]"""
 
-        re_again  = re.compile(r"^\s*/again\s+(\d+)\s+(.+?)\s*$", re.IGNORECASE)
         re_model  = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
         re_apikey = re.compile(r"^\s*/apikey(?:\s+(.*))?\s*$", re.IGNORECASE)
 
         tag: typing.Literal["CHAT", "FAST", "PLAN"] = "CHAT"
 
-        theme = {
-            "CHAT": {
-                "banner"   : "╔═⟦ 𝑪𝒉𝒂𝒕 ⟧═╗",
-                "prompt"   : "│ 〉Chat",
-                "tag"      : "#FFAF00",
-                "prompt_c" : "#FFD75F",
-                "model"    : "#FFAF00",
-                "ready"    : "#AFD7FF",
-                "hint"     : "#FFAF00"
-            },
-            "FAST": {
-                "banner"   : "╔═⟦ 𝑭𝒂𝒔𝒕 ⟧═╗",
-                "prompt"   : "│ 〉Fast",
-                "tag"      : "#FF87D7",
-                "prompt_c" : "#FFD75F",
-                "model"    : "#FFAF5F",
-                "ready"    : "#D7AFFF",
-                "hint"     : "#FF87D7"
-            },
-            "PLAN": {
-                "banner"   : "╔═⟦ 𝑷𝒍𝒂𝒏 ⟧═╗",
-                "prompt"   : "│ 〉Plan",
-                "tag"      : "#5FD7FF",
-                "prompt_c" : "#87FFAF",
-                "model"    : "#5FFF87",
-                "ready"    : "#AFD7FF",
-                "hint"     : "#5FD7FF"
-            }
-        }
-
         while not self.task_event.is_set():
-            th = theme[tag]
-            ask = (
-                f"\n[bold {th['tag']}]{th['banner']}[/]"
-                f"\n[bold {th['prompt_c']}]{th['prompt']}[/] [bold {th['model']}]<{model}>[/]"
-                f"\n[bold {th['ready']}]ready 输入目标或 /help[/]"
-            )
-
             try:
-                raw = Prompt.ask(ask, console=Design.console).strip()
+                raw = await self.prompt_box.prompt_async(tag=tag, model=model)
+            except KeyboardInterrupt:
+                self.task_event.set()
+                break
             except (EOFError, UnicodeDecodeError):
                 continue
 
@@ -822,10 +780,7 @@ class Mind(object):
                 apikey = await function("apikey") or apikey
                 continue
 
-            if hit := re_again.match(raw):
-                message = f"{hit.group(2).strip()}，循环 {int(hit.group(1))} 次"
-            else:
-                message = raw
+            message = raw
 
             func = self.mind_chat
 
