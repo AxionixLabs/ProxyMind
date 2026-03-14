@@ -1,3 +1,11 @@
+#   ____ _               _      ____                  _          
+#  / ___| |__   ___  ___| | __ / ___|  ___ _ ____   _(_) ___ ___ 
+# | |   | '_ \ / _ \/ __| |/ / \___ \ / _ \ '__\ \ / / |/ __/ _ \
+# | |___| | | |  __/ (__|   <   ___) |  __/ |   \ V /| | (_|  __/
+#  \____|_| |_|\___|\___|_|\_\ |____/ \___|_|    \_/ |_|\___\___|
+#                                                                
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
+
 import typing
 from backend.nexus.domain.extract_service import ExtractService
 from backend.nexus.domain.assertion_service import AssertionService
@@ -129,3 +137,7 @@ class CheckService(object):
             )
 
         return pack
+
+
+if __name__ == '__main__':
+    pass
