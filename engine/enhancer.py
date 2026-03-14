@@ -129,7 +129,6 @@ class Enhancer(object):
         slog: typing.Optional[StreamTyperLogger] = None
     ) -> typing.Union[str, dict[str, typing.Any]]:
         """Enhance"""
-
         fields = self.fields(result)
 
         if not ok:
@@ -138,25 +137,26 @@ class Enhancer(object):
         if name.startswith("nexus_"):
             return await self.__nexus(result, slog)
 
-        match name:
-            case "free_rule":
-                output = await self.__free_rule(result, slog)
-            case "ffmpeg_extract_snapshot":
-                output = await self.__ffmpeg_frame(result)
-            case "ffmpeg_extract_keyframes":
-                output = await self.__ffmpeg_frame(result)
-            case "ffmpeg_extract_scene":
-                output = await self.__ffmpeg_frame(result)
-            case "screenshot":
-                output = await self.__screenshot(result)
-            case "heal_element":
-                output = await self.__heal_element(arguments, result, slog)
-            case "loop_steps":
-                output = await self.__loop_steps(result, slog)
-            case _:
-                output = fields
+        if name == "free_rule":
+            return await self.__free_rule(result, slog)
 
-        return output
+        if name in {
+            "ffmpeg_extract_snapshot",
+            "ffmpeg_extract_keyframes",
+            "ffmpeg_extract_scene"
+        }:
+            return await self.__ffmpeg_frame(result)
+
+        if name == "screenshot":
+            return await self.__screenshot(result)
+
+        if name == "heal_element":
+            return await self.__heal_element(arguments, result, slog)
+
+        if name == "loop_steps":
+            return await self.__loop_steps(result, slog)
+
+        return fields
 
     async def __nexus(
         self,
