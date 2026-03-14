@@ -779,9 +779,7 @@ class Mind(object):
             if m := re_apikey.match(raw):
                 apikey = await function("apikey") or apikey
                 continue
-
-            message = raw
-
+                
             func = self.mind_chat
 
             match tag:
@@ -791,7 +789,7 @@ class Mind(object):
 
             model_api = self.pref.to_config(model=model, apikey=apikey)
 
-            await self.calling(model_api, message=message, func=func, metadata=metadata)
+            await self.calling(model_api, message=raw, func=func, metadata=metadata)
 
     # Notes: ==== Pack 批量模式 ====
     async def mind_pack(
