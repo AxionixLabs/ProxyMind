@@ -9,18 +9,22 @@
 
 import re
 import ast
-import json
 import gzip
+import json
 import time
-import typing
 import uuid
-import base64
-import operator
-import secrets
-import string
 import zlib
-from datetime import datetime, timedelta, timezone
-from urllib.parse import urlencode, parse_qs, quote, unquote
+import base64
+import string
+import typing
+import secrets
+import operator
+from datetime import (
+    datetime, timedelta, timezone
+)
+from urllib.parse import (
+    urlencode, parse_qs, quote
+)
 from collections.abc import (
     Callable, Mapping
 )
@@ -37,7 +41,7 @@ class TemplateEvaluation(object):
         ast.Mult: operator.mul,
         ast.Div: operator.truediv,
         ast.FloorDiv: operator.floordiv,
-        ast.Mod: operator.mod,
+        ast.Mod: operator.mod
     }
 
     _CMP_OPS: Mapping[type[ast.cmpop], Callable[[typing.Any, typing.Any], bool]] = {
@@ -48,18 +52,18 @@ class TemplateEvaluation(object):
         ast.Lt: operator.lt,
         ast.LtE: operator.le,
         ast.In: lambda a, b: a in b,
-        ast.NotIn: lambda a, b: a not in b,
+        ast.NotIn: lambda a, b: a not in b
     }
 
     _BOOL_OPS: Mapping[type[ast.boolop], Callable[[list[typing.Any]], bool]] = {
         ast.And: all,
-        ast.Or: any,
+        ast.Or: any
     }
 
     _UNARY_OPS: Mapping[type[ast.unaryop], Callable[[typing.Any], typing.Any]] = {
         ast.UAdd: operator.pos,
         ast.USub: operator.neg,
-        ast.Not: operator.not_,
+        ast.Not: operator.not_
     }
 
     @staticmethod
@@ -119,7 +123,7 @@ class TemplateEvaluation(object):
     def _helper_json_dumps(
         value: typing.Any,
         ensure_ascii: bool = False,
-        sort_keys: bool = False,
+        sort_keys: bool = False
     ) -> str:
         """把对象稳定序列化为 JSON 文本。"""
         return json.dumps(value, ensure_ascii=ensure_ascii, sort_keys=sort_keys, separators=(",", ":"))
@@ -134,7 +138,7 @@ class TemplateEvaluation(object):
         value: dict[str, typing.Any],
         doseq: bool = True,
         safe: str = "",
-        plus_for_space: bool = True,
+        plus_for_space: bool = True
     ) -> str:
         """把 dict 编码为 query string。"""
         if not isinstance(value, dict):
@@ -243,7 +247,7 @@ class TemplateEvaluation(object):
         input_format: str = "text",
         out_mode: str = "base64",
         encoding: str = "utf-8",
-        compress_level: int = 9,
+        compress_level: int = 9
     ) -> typing.Any:
         """把输入压缩为 gzip。"""
         source = TemplateEvaluation._decode_binary(value, input_format, encoding)
@@ -255,7 +259,7 @@ class TemplateEvaluation(object):
         value: typing.Any,
         input_format: str = "base64",
         out_mode: str = "text",
-        encoding: str = "utf-8",
+        encoding: str = "utf-8"
     ) -> typing.Any:
         """把 gzip 内容解压。"""
         source = TemplateEvaluation._decode_binary(value, input_format, encoding)
@@ -267,7 +271,7 @@ class TemplateEvaluation(object):
         input_format: str = "text",
         out_mode: str = "base64",
         encoding: str = "utf-8",
-        compress_level: int = 9,
+        compress_level: int = 9
     ) -> typing.Any:
         """把输入压缩为 zlib。"""
         source = TemplateEvaluation._decode_binary(value, input_format, encoding)
@@ -280,7 +284,7 @@ class TemplateEvaluation(object):
         input_format: str = "base64",
         out_mode: str = "text",
         encoding: str = "utf-8",
-        wbits: int = zlib.MAX_WBITS,
+        wbits: int = zlib.MAX_WBITS
     ) -> typing.Any:
         """把 zlib 内容解压。"""
         source = TemplateEvaluation._decode_binary(value, input_format, encoding)
@@ -309,7 +313,7 @@ class TemplateEvaluation(object):
         timestamp: int | float,
         unit: str = "s",
         fmt: str = "%Y-%m-%dT%H:%M:%SZ",
-        utc: bool = True,
+        utc: bool = True
     ) -> str:
         """格式化给定时间戳。"""
         return TemplateEvaluation._resolve_datetime(timestamp, str(unit or "s").strip().lower(), utc).strftime(fmt)
@@ -320,7 +324,7 @@ class TemplateEvaluation(object):
         unit: str = "s",
         offset_seconds: int = 0,
         offset_minutes: int = 0,
-        offset_hours: int = 0,
+        offset_hours: int = 0
     ) -> int:
         """对给定时间戳做偏移并返回同单位整数时间戳。"""
         unit_norm = str(unit or "s").strip().lower()
@@ -334,30 +338,30 @@ class TemplateEvaluation(object):
         return int(dt.timestamp())
 
     _HELPERS: Mapping[str, Callable[..., typing.Any]] = {
-        "pick": _helper_pick.__func__,
-        "coalesce": _helper_coalesce.__func__,
-        "now_s": _helper_now_s.__func__,
-        "now_ms": _helper_now_ms.__func__,
-        "uuid4": _helper_uuid4.__func__,
-        "nonce": _helper_nonce.__func__,
-        "b64encode": _helper_b64encode.__func__,
-        "b64decode": _helper_b64decode.__func__,
-        "json_dumps": _helper_json_dumps.__func__,
-        "json_loads": _helper_json_loads.__func__,
-        "urlencode": _helper_urlencode.__func__,
-        "urldecode": _helper_urldecode.__func__,
-        "dict_merge": _helper_dict_merge.__func__,
-        "sort_keys": _helper_sort_keys.__func__,
-        "canonical_query": _helper_canonical_query.__func__,
-        "hex_encode": _helper_hex_encode.__func__,
-        "hex_decode": _helper_hex_decode.__func__,
-        "gzip_encode": _helper_gzip_encode.__func__,
-        "gzip_decode": _helper_gzip_decode.__func__,
-        "zlib_encode": _helper_zlib_encode.__func__,
-        "zlib_decode": _helper_zlib_decode.__func__,
-        "now_iso": _helper_now_iso.__func__,
-        "format_ts": _helper_format_ts.__func__,
-        "offset_ts": _helper_offset_ts.__func__,
+        "pick"            : _helper_pick,
+        "coalesce"        : _helper_coalesce,
+        "now_s"           : _helper_now_s,
+        "now_ms"          : _helper_now_ms,
+        "uuid4"           : _helper_uuid4,
+        "nonce"           : _helper_nonce,
+        "b64encode"       : _helper_b64encode,
+        "b64decode"       : _helper_b64decode,
+        "json_dumps"      : _helper_json_dumps,
+        "json_loads"      : _helper_json_loads,
+        "urlencode"       : _helper_urlencode,
+        "urldecode"       : _helper_urldecode,
+        "dict_merge"      : _helper_dict_merge,
+        "sort_keys"       : _helper_sort_keys,
+        "canonical_query" : _helper_canonical_query,
+        "hex_encode"      : _helper_hex_encode,
+        "hex_decode"      : _helper_hex_decode,
+        "gzip_encode"     : _helper_gzip_encode,
+        "gzip_decode"     : _helper_gzip_decode,
+        "zlib_encode"     : _helper_zlib_encode,
+        "zlib_decode"     : _helper_zlib_decode,
+        "now_iso"         : _helper_now_iso,
+        "format_ts"       : _helper_format_ts,
+        "offset_ts"       : _helper_offset_ts
     }
 
     @staticmethod
@@ -371,60 +375,73 @@ class TemplateEvaluation(object):
                 return obj[name]
             raise KeyError(name)
 
-        if hasattr(obj, name):
+        try:
             return getattr(obj, name)
-
-        raise KeyError(name)
+        except AttributeError as e:
+            raise KeyError(name) from e
 
     @staticmethod
     def safe_eval_expr(expr: str, ctx: dict[str, typing.Any]) -> typing.Any:
         """在受限 AST 范围内安全求值模板表达式。"""
+        if "__" in expr:
+            raise ValueError("dunder not allowed in template")
+
         try:
-            node = typing.cast(ast.Expression, ast.parse(expr, mode="eval"))
+            node = ast.parse(expr, mode="eval")
         except SyntaxError as e:
             raise ValueError(f"invalid template expr: {expr!r}: {e}") from e
 
-        def walk(n: ast.expr) -> typing.Any:
+        def walk(n: ast.AST) -> typing.Any:
             if isinstance(n, ast.Constant):
                 return n.value
+
             if isinstance(n, ast.Name):
                 if n.id in ctx:
                     return ctx[n.id]
                 raise KeyError(n.id)
+
             if isinstance(n, ast.Attribute):
                 return TemplateEvaluation._attr_or_key(walk(n.value), n.attr)
+
             if isinstance(n, ast.Subscript):
                 return walk(n.value)[walk(n.slice)]
+
             if isinstance(n, ast.List):
                 return [walk(x) for x in n.elts]
+
             if isinstance(n, ast.Tuple):
                 return tuple(walk(x) for x in n.elts)
+
             if isinstance(n, ast.Dict):
                 pairs: dict[typing.Any, typing.Any] = {}
-                for key_node, value_node in zip(n.keys, n.values):
+                for key_node, value_node in zip(n.keys, n.values, strict=True):
                     if key_node is None:
                         raise ValueError("dict unpacking not allowed in template")
                     pairs[walk(key_node)] = walk(value_node)
                 return pairs
+
             if isinstance(n, ast.BinOp):
                 fn = TemplateEvaluation._BIN_OPS.get(type(n.op))
                 if fn is None:
                     raise ValueError(f"unsupported binop: {type(n.op).__name__}")
                 return fn(walk(n.left), walk(n.right))
+
             if isinstance(n, ast.UnaryOp):
                 fn = TemplateEvaluation._UNARY_OPS.get(type(n.op))
                 if fn is None:
                     raise ValueError(f"unsupported unaryop: {type(n.op).__name__}")
                 return fn(walk(n.operand))
+
             if isinstance(n, ast.BoolOp):
                 op_type = type(n.op)
                 if op_type not in TemplateEvaluation._BOOL_OPS:
                     raise ValueError(f"unsupported boolop: {op_type.__name__}")
                 vals = [walk(v) for v in n.values]
                 return all(vals) if op_type is ast.And else any(vals)
+
             if isinstance(n, ast.Compare):
                 left = walk(n.left)
-                for op, comp in zip(n.ops, n.comparators):
+                for op, comp in zip(n.ops, n.comparators, strict=True):
                     fn = TemplateEvaluation._CMP_OPS.get(type(op))
                     if fn is None:
                         raise ValueError(f"unsupported cmpop: {type(op).__name__}")
@@ -433,25 +450,32 @@ class TemplateEvaluation(object):
                         return False
                     left = right
                 return True
+
             if isinstance(n, ast.Call):
                 if not isinstance(n.func, ast.Name):
                     raise ValueError("only helper call allowed in template")
+
                 helper = TemplateEvaluation._HELPERS.get(n.func.id)
                 if helper is None:
                     raise ValueError(f"unsupported helper: {n.func.id}")
+
                 args = [walk(arg) for arg in n.args]
-                kwargs = {
-                    kw.arg: walk(kw.value)
-                    for kw in n.keywords
-                    if kw.arg is not None
-                }
+
+                kwargs: dict[str, typing.Any] = {}
+                for kw in n.keywords:
+                    key = kw.arg
+                    if key is None:
+                        raise ValueError("kwargs unpacking not allowed in template")
+                    kwargs[key] = walk(kw.value)
+
                 return helper(*args, **kwargs)
+
             if isinstance(n, ast.Lambda):
                 raise ValueError("lambda not allowed in template")
+
             if isinstance(n, (ast.ListComp, ast.DictComp, ast.SetComp, ast.GeneratorExp)):
                 raise ValueError("comprehension not allowed in template")
-            if "__" in expr:
-                raise ValueError("dunder not allowed in template")
+
             raise ValueError(f"unsupported expr node: {type(n).__name__}")
 
         return walk(node.body)
