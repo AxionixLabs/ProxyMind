@@ -1,18 +1,18 @@
-#  ____                ____                      _ _
-# |  _ \ _   _ _ __   |  _ \ ___ _ __   ___  ___(_) |_ ___  _ __ _   _
-# | |_) | | | | '_ \  | |_) / _ \ '_ \ / _ \/ __| | __/ _ \| '__| | | |
-# |  _ <| |_| | | | | |  _ <  __/ |_) | (_) \__ \ | || (_) | |  | |_| |
-# |_| \_\\__,_|_| |_| |_| \_\___| .__/ \___/|___/_|\__\___/|_|   \__, |
-#                               |_|                              |___/
+#  ____                      _ _
+# |  _ \ ___ _ __   ___  ___(_) |_ ___  _ __ _   _
+# | |_) / _ \ '_ \ / _ \/ __| | __/ _ \| '__| | | |
+# |  _ <  __/ |_) | (_) \__ \ | || (_) | |  | |_| |
+# |_| \_\___| .__/ \___/|___/_|\__\___/|_|   \__, |
+#           |_|                              |___/
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.nexus.domain.models import RunRecord
+from backend.nexus.domain.model import RunRecord
 
 
 class MemoryRunRepository(object):
-    """In-memory repository for nexus mission runs."""
+    """用于保存 nexus mission 运行记录的内存仓储。"""
 
     def __init__(self) -> None:
         """初始化内存态运行记录字典。"""
@@ -34,3 +34,7 @@ class MemoryRunRepository(object):
     def save(self, record: RunRecord) -> None:
         """保存或覆盖单次运行记录。"""
         self._runs[record.mission_id] = record
+
+
+if __name__ == '__main__':
+    pass

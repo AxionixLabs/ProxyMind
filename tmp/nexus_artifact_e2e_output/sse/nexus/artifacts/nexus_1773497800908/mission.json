@@ -1,0 +1,154 @@
+{
+  "artifact": {
+    "artifact_id": "nexus_1773497800908_mission",
+    "kind": "mission",
+    "path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/sse/nexus/artifacts/nexus_1773497800908",
+    "manifest_path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/sse/nexus/artifacts/nexus_1773497800908/mission.json",
+    "mission_id": "nexus_1773497800908",
+    "protocol": "sse",
+    "created_ms": 1773497800909,
+    "step_index": null,
+    "step_name": null,
+    "media_dir": null,
+    "parent_artifact_id": null
+  },
+  "mission": {
+    "mission_id": "nexus_1773497800908",
+    "kind": "sse",
+    "ok": true,
+    "started_ms": 1773497800908,
+    "finished_ms": 1773497800966,
+    "cost_ms": 58
+  },
+  "request": {
+    "env": {},
+    "template_vars": {},
+    "fail_fast": true,
+    "concurrency": 1,
+    "items": [
+      {
+        "name": "sse_image",
+        "request": {
+          "method": "GET",
+          "url": "http://127.0.0.1:8000/sse/image",
+          "max_events": 2,
+          "media_index": 0,
+          "media_path": "image_url",
+          "artifact_dir": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/sse"
+        },
+        "extract": {
+          "media_path": "response.media.0.path"
+        },
+        "asserts": null
+      }
+    ]
+  },
+  "final_ctx": {
+    "media_path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/sse/nexus/artifacts/nexus_1773497800908/steps/001_sse_image/media/media_0.png"
+  },
+  "steps": [
+    {
+      "name": "sse_image",
+      "type": "sse",
+      "ok": true,
+      "elapsed_ms": 57,
+      "detail": {
+        "request": {
+          "method": "GET",
+          "url": "http://127.0.0.1:8000/sse/image",
+          "headers": {},
+          "params": null,
+          "json": null,
+          "body_text": null,
+          "timeout": 30.0,
+          "retries": 0,
+          "follow_redirects": true,
+          "form": null,
+          "files": []
+        },
+        "response": {
+          "status": 200,
+          "headers": {
+            "date": "Sat, 14 Mar 2026 14:16:40 GMT",
+            "server": "uvicorn",
+            "content-type": "text/event-stream; charset=utf-8",
+            "transfer-encoding": "chunked"
+          },
+          "elapsed_ms": 36,
+          "events": [
+            {
+              "event": "image",
+              "id": "1",
+              "data": "{\"image_url\": \"http://127.0.0.1:8000/mock-image\", \"title\": \"local_image\", \"source\": \"mock\"}"
+            },
+            {
+              "event": "done",
+              "id": "2",
+              "data": "{\"done\": true, \"count\": 1}"
+            }
+          ],
+          "content_type": "text/event-stream; charset=utf-8",
+          "content_length": null,
+          "body_text": null,
+          "body_json": null,
+          "media": [
+            {
+              "kind": "image",
+              "source": "url",
+              "path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/sse/nexus/artifacts/nexus_1773497800908/steps/001_sse_image/media/media_0.png",
+              "filename": "media_0.png",
+              "mime_type": "image/png",
+              "size": 8336
+            }
+          ]
+        },
+        "extract": {
+          "media_path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/sse/nexus/artifacts/nexus_1773497800908/steps/001_sse_image/media/media_0.png"
+        },
+        "asserts": [],
+        "assert_summary": {
+          "total": 0,
+          "pass": 0,
+          "fail": 0
+        },
+        "assert_ok": true,
+        "attachments": [
+          {
+            "kind": "image",
+            "path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/sse/nexus/artifacts/nexus_1773497800908/steps/001_sse_image/media/media_0.png",
+            "filename": "media_0.png",
+            "mime_type": "image/png",
+            "size": 8336,
+            "source": "url"
+          }
+        ],
+        "artifact": {
+          "artifact_id": "nexus_1773497800908_step_001",
+          "kind": "step",
+          "path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/sse/nexus/artifacts/nexus_1773497800908/steps/001_sse_image",
+          "manifest_path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/sse/nexus/artifacts/nexus_1773497800908/steps/001_sse_image/artifact.json",
+          "mission_id": "nexus_1773497800908",
+          "protocol": "sse",
+          "created_ms": 1773497800909,
+          "step_index": 0,
+          "step_name": "sse_image",
+          "media_dir": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/sse/nexus/artifacts/nexus_1773497800908/steps/001_sse_image/media",
+          "parent_artifact_id": "nexus_1773497800908_mission"
+        }
+      },
+      "artifact": {
+        "artifact_id": "nexus_1773497800908_step_001",
+        "kind": "step",
+        "path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/sse/nexus/artifacts/nexus_1773497800908/steps/001_sse_image",
+        "manifest_path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/sse/nexus/artifacts/nexus_1773497800908/steps/001_sse_image/artifact.json",
+        "mission_id": "nexus_1773497800908",
+        "protocol": "sse",
+        "created_ms": 1773497800909,
+        "step_index": 0,
+        "step_name": "sse_image",
+        "media_dir": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/sse/nexus/artifacts/nexus_1773497800908/steps/001_sse_image/media",
+        "parent_artifact_id": "nexus_1773497800908_mission"
+      }
+    }
+  ]
+}

@@ -1,14 +1,14 @@
-#   ____ _               _      ____                  _          
-#  / ___| |__   ___  ___| | __ / ___|  ___ _ ____   _(_) ___ ___ 
-# | |   | '_ \ / _ \/ __| |/ / \___ \ / _ \ '__\ \ / / |/ __/ _ \
-# | |___| | | |  __/ (__|   <   ___) |  __/ |   \ V /| | (_|  __/
-#  \____|_| |_|\___|\___|_|\_\ |____/ \___|_|    \_/ |_|\___\___|
-#                                                                
+#   ____ _               _
+#  / ___| |__   ___  ___| | __
+# | |   | '_ \ / _ \/ __| |/ /
+# | |___| | | |  __/ (__|   <
+#  \____|_| |_|\___|\___|_|\_\
+#
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.nexus.domain.extract_service import ExtractService
-from backend.nexus.domain.assertion_service import AssertionService
+from backend.nexus.domain.extract import ExtractService
+from backend.nexus.domain.assertion import AssertionService
 
 
 class CheckService(object):
@@ -50,43 +50,43 @@ class CheckService(object):
             if op == "exists":
                 passed = bool(ok_pick)
                 result = {
-                    "path": path,
-                    "op": op,
-                    "expected": None,
-                    "actual": actual if ok_pick else None,
-                    "ok": passed,
-                    "error": None if ok_pick else actual
+                    "path"     : path,
+                    "op"       : op,
+                    "expected" : None,
+                    "actual"   : actual if ok_pick else None,
+                    "ok"       : passed,
+                    "error"    : None if ok_pick else actual
                 }
             elif not ok_pick:
                 passed = False
                 result = {
-                    "path": path,
-                    "op": op,
-                    "expected": expected,
-                    "actual": None,
-                    "ok": False,
-                    "error": actual
+                    "path"     : path,
+                    "op"       : op,
+                    "expected" : expected,
+                    "actual"   : None,
+                    "ok"       : False,
+                    "error"    : actual
                 }
             else:
                 try:
                     passed = AssertionService.compare(actual, op, expected)
                     result = {
-                        "path": path,
-                        "op": op,
-                        "expected": expected,
-                        "actual": actual,
-                        "ok": passed,
-                        "error": None
+                        "path"     : path,
+                        "op"       : op,
+                        "expected" : expected,
+                        "actual"   : actual,
+                        "ok"       : passed,
+                        "error"    : None
                     }
                 except Exception as e:
                     passed = False
                     result = {
-                        "path": path,
-                        "op": op,
-                        "expected": expected,
-                        "actual": actual,
-                        "ok": False,
-                        "error": f"{type(e).__name__}: {e}"
+                        "path"     : path,
+                        "op"       : op,
+                        "expected" : expected,
+                        "actual"   : actual,
+                        "ok"       : False,
+                        "error"    : f"{type(e).__name__}: {e}"
                     }
 
             if not passed:
@@ -99,9 +99,9 @@ class CheckService(object):
             "extract": extracted,
             "asserts": results,
             "summary": {
-                "total": total,
-                "pass": total - fail_count,
-                "fail": fail_count
+                "total" : total,
+                "pass"  : total - fail_count,
+                "fail"  : fail_count
             },
             "logs": logs
         }

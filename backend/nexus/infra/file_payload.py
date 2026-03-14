@@ -1,8 +1,8 @@
-#  _____ _ _        ____             _                 _   ____                  _
-# |  ___(_) | ___  |  _ \ __ _ _   _| | ___   __ _  __| | / ___|  ___ _ ____   _(_) ___ ___
-# | |_  | | |/ _ \ | |_) / _` | | | | |/ _ \ / _` |/ _` | \___ \ / _ \ '__\ \ / / |/ __/ _ \
-# |  _| | | |  __/ |  __/ (_| | |_| | | (_) | (_| | (_| |  ___) |  __/ |   \ V /| | (_|  __/
-# |_|   |_|_|\___| |_|   \__,_|\__, |_|\___/ \__,_|\__,_| |____/ \___|_|    \_/ |_|\___\___|
+#  _____ _ _        ____             _                 _
+# |  ___(_) | ___  |  _ \ __ _ _   _| | ___   __ _  __| |
+# | |_  | | |/ _ \ | |_) / _` | | | | |/ _ \ / _` |/ _` |
+# |  _| | | |  __/ |  __/ (_| | |_| | | (_) | (_| | (_| |
+# |_|   |_|_|\___| |_|   \__,_|\__, |_|\___/ \__,_|\__,_|
 #                              |___/
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
@@ -27,8 +27,8 @@ class FilePayloadService(object):
             if not isinstance(item, dict):
                 continue
 
-            field = str(item.get("field") or "file")
-            filename = str(item.get("filename") or "upload.bin")
+            field        = str(item.get("field") or "file")
+            filename     = str(item.get("filename") or "upload.bin")
             content_type = str(item.get("content_type") or "application/octet-stream")
 
             if item.get("path"):
@@ -39,8 +39,10 @@ class FilePayloadService(object):
                 except Exception as e:
                     logger.error(f"Error reading file {path}: {e}")
                     continue
+
             elif item.get("text") is not None:
                 payload.append((field, (filename, str(item.get("text") or "").encode(const.CHARSET), content_type)))
+
             elif item.get("bytes") is not None:
                 raw = item.get("bytes")
                 if isinstance(raw, bytes):

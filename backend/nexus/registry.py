@@ -1,14 +1,14 @@
-#  _____                     _               ____            _     _
-# | ____|_  _____  ___ _   _| |_ ___  _ __  |  _ \ ___  __ _(_)___| |_ _ __ _   _
-# |  _| \ \/ / _ \/ __| | | | __/ _ \| '__| | |_) / _ \/ _` | / __| __| '__| | | |
-# | |___ >  <  __/ (__| |_| | || (_) | |    |  _ <  __/ (_| | \__ \ |_| |  | |_| |
-# |_____/_/\_\___|\___|\__,_|\__\___/|_|    |_| \_\___|\__, |_|___/\__|_|   \__, |
-#                                                      |___/                |___/
+#  ____            _     _
+# |  _ \ ___  __ _(_)___| |_ _ __ _   _
+# | |_) / _ \/ _` | / __| __| '__| | | |
+# |  _ <  __/ (_| | \__ \ |_| |  | |_| |
+# |_| \_\___|\__, |_|___/\__|_|   \__, |
+#            |___/                |___/
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.nexus.domain.models import NexusKind
+from backend.nexus.domain.model import NexusKind
 from backend.nexus.executors.ftp_executor import FtpExecutor
 from backend.nexus.executors.graphql_executor import GraphqlExecutor
 from backend.nexus.executors.http_executor import HttpExecutor
@@ -21,7 +21,7 @@ from backend.nexus.executors.ws_executor import WsExecutor
 
 
 class NexusExecutorRegistry(object):
-    """Protocol dispatch for normalized nexus request execution."""
+    """负责把标准化后的 nexus 请求分发到对应协议执行器。"""
 
     @staticmethod
     def _pick(request: dict[str, typing.Any], env: dict[str, typing.Any], key: str) -> typing.Any:
@@ -138,12 +138,13 @@ class NexusExecutorRegistry(object):
         env: dict[str, typing.Any],
         extract: typing.Optional[dict[str, str]] = None,
         asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        step_artifact_dir: typing.Optional[str] = None,
     ) -> dict[str, typing.Any]:
         """根据 kind 把标准化请求路由到对应协议执行器。"""
         request = dict(request or {})
-        env = dict(env or {})
+        env     = dict(env or {})
 
-        base_url = NexusExecutorRegistry._as_optional_str(env.get("base_url"))
+        base_url     = NexusExecutorRegistry._as_optional_str(env.get("base_url"))
         base_headers = NexusExecutorRegistry._as_dict(env.get("headers"))
         base_timeout = NexusExecutorRegistry._as_float(env.get("timeout"), 30.0)
 
@@ -166,8 +167,7 @@ class NexusExecutorRegistry(object):
                 follow_redirects=NexusExecutorRegistry._as_bool(request.get("follow_redirects"), True),
                 extract=extract,
                 asserts=asserts,
-                save_response=NexusExecutorRegistry._as_bool(request.get("save_response"), False),
-                save_dir=NexusExecutorRegistry._as_optional_str(request.get("save_dir"))
+                step_artifact_dir=step_artifact_dir
             )
 
         if kind == "sse":
@@ -198,8 +198,7 @@ class NexusExecutorRegistry(object):
                     else NexusExecutorRegistry._as_int(request.get("media_index"))
                 ),
                 media_path=NexusExecutorRegistry._as_optional_str(request.get("media_path")),
-                save_response=NexusExecutorRegistry._as_bool(request.get("save_response"), False),
-                save_dir=NexusExecutorRegistry._as_optional_str(request.get("save_dir"))
+                step_artifact_dir=step_artifact_dir
             )
 
         if kind == "graphql":
@@ -220,8 +219,7 @@ class NexusExecutorRegistry(object):
                 extract=extract,
                 asserts=asserts,
                 media_path=NexusExecutorRegistry._as_optional_str(request.get("media_path")),
-                save_response=NexusExecutorRegistry._as_bool(request.get("save_response"), False),
-                save_dir=NexusExecutorRegistry._as_optional_str(request.get("save_dir"))
+                step_artifact_dir=step_artifact_dir
             )
 
         if kind == "tcp":
@@ -242,7 +240,8 @@ class NexusExecutorRegistry(object):
                 max_reads=NexusExecutorRegistry._request_or_env_int(request, env, "max_reads", 1),
                 read_until=NexusExecutorRegistry._request_or_env_str(request, env, "read_until"),
                 extract=extract,
-                asserts=asserts
+                asserts=asserts,
+                step_artifact_dir=step_artifact_dir
             )
 
         if kind == "udp":
@@ -258,7 +257,8 @@ class NexusExecutorRegistry(object):
                 timeout=NexusExecutorRegistry._request_or_env_float(request, env, "timeout", 10.0),
                 read_size=NexusExecutorRegistry._request_or_env_int(request, env, "read_size", 4096),
                 extract=extract,
-                asserts=asserts
+                asserts=asserts,
+                step_artifact_dir=step_artifact_dir
             )
 
         if kind == "smtp":
@@ -283,7 +283,8 @@ class NexusExecutorRegistry(object):
                 attachments=request.get("attachments") if isinstance(request.get("attachments"), list) else None,
                 timeout=NexusExecutorRegistry._request_or_env_float(request, env, "timeout", 15.0),
                 extract=extract,
-                asserts=asserts
+                asserts=asserts,
+                step_artifact_dir=step_artifact_dir
             )
 
         if kind == "imap":
@@ -310,8 +311,10 @@ class NexusExecutorRegistry(object):
                 parse_messages=NexusExecutorRegistry._request_or_env_bool(request, env, "parse_messages", False),
                 use_ssl=NexusExecutorRegistry._request_or_env_bool(request, env, "use_ssl", True),
                 timeout=NexusExecutorRegistry._request_or_env_float(request, env, "timeout", 15.0),
+                media_path=NexusExecutorRegistry._as_optional_str(request.get("media_path")),
                 extract=extract,
-                asserts=asserts
+                asserts=asserts,
+                step_artifact_dir=step_artifact_dir
             )
 
         if kind == "ftp":
@@ -337,8 +340,10 @@ class NexusExecutorRegistry(object):
                 ),
                 use_tls=NexusExecutorRegistry._request_or_env_bool(request, env, "use_tls", False),
                 timeout=NexusExecutorRegistry._request_or_env_float(request, env, "timeout", 15.0),
+                media_path=NexusExecutorRegistry._as_optional_str(request.get("media_path")),
                 extract=extract,
-                asserts=asserts
+                asserts=asserts,
+                step_artifact_dir=step_artifact_dir
             )
 
         if kind == "ws":
@@ -358,8 +363,7 @@ class NexusExecutorRegistry(object):
                     else NexusExecutorRegistry._as_int(request.get("media_index"))
                 ),
                 media_path=NexusExecutorRegistry._as_optional_str(request.get("media_path")),
-                save_response=NexusExecutorRegistry._as_bool(request.get("save_response"), False),
-                save_dir=NexusExecutorRegistry._as_optional_str(request.get("save_dir"))
+                step_artifact_dir=step_artifact_dir
             )
 
         raise ValueError(f"unsupported nexus kind: {kind}")

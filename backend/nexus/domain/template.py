@@ -1,8 +1,8 @@
-#  _____                    _       _         ____                  _
-# |_   _|__ _ __ ___  _ __ | | __ _| |_ ___  / ___|  ___ _ ____   _(_) ___ ___
-#   | |/ _ \ '_ ` _ \| '_ \| |/ _` | __/ _ \ \___ \ / _ \ '__\ \ / / |/ __/ _ \
-#   | |  __/ | | | | | |_) | | (_| | ||  __/  ___) |  __/ |   \ V /| | (_|  __/
-#   |_|\___|_| |_| |_| .__/|_|\__,_|\__\___| |____/ \___|_|    \_/ |_|\___\___|
+#  _____                    _       _
+# |_   _|__ _ __ ___  _ __ | | __ _| |_ ___
+#   | |/ _ \ '_ ` _ \| '_ \| |/ _` | __/ _ \
+#   | |  __/ | | | | | |_) | | (_| | ||  __/
+#   |_|\___|_| |_| |_| .__/|_|\__,_|\__\___|
 #                    |_|
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
@@ -28,7 +28,7 @@ from urllib.parse import (
 from collections.abc import (
     Callable, Mapping
 )
-from backend.nexus.domain.extract_service import ExtractService
+from backend.nexus.domain.extract import ExtractService
 
 
 class TemplateEvaluation(object):

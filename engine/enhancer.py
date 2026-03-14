@@ -42,8 +42,8 @@ class Enhancer(object):
         # 请求边界：request
         if isinstance(request_args := src.get("request"), dict):
             root = dict(request_args)
-            if bool(root.get("save_response")) and not has_dir(root.get("save_dir")):
-                root["save_dir"] = default
+            if "artifact_dir" in root and not has_dir(root.get("artifact_dir")):
+                root["artifact_dir"] = default
             return src | {"request": root}
 
         # 批量边界：items + env
@@ -55,8 +55,8 @@ class Enhancer(object):
                     continue
                 cloned = dict(item)
                 req = dict(cloned.get("request") or {}) if isinstance(cloned.get("request"), dict) else {}
-                if bool(req.get("save_response")) and not has_dir(req.get("save_dir")):
-                    req["save_dir"] = default
+                if "artifact_dir" in req and not has_dir(req.get("artifact_dir")):
+                    req["artifact_dir"] = default
                 cloned["request"] = req
                 patched.append(cloned)
             return src | {"items": patched}

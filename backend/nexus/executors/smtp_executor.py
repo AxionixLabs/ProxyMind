@@ -12,8 +12,8 @@ import typing
 import asyncio
 import smtplib
 from email.message import EmailMessage
-from backend.nexus.check_service import CheckService
-from backend.nexus.infra.core_helpers import ClockService
+from backend.nexus.infra.core import ClockService
+from backend.nexus.infra.result import ExecutorResultService
 from backend.nexus.infra.pack_builder import PackBuilder
 
 
@@ -37,7 +37,8 @@ class SmtpExecutor(object):
         attachments: typing.Optional[list[dict[str, typing.Any]]] = None,
         timeout: float = 15.0,
         extract: typing.Optional[dict[str, str]] = None,
-        asserts: typing.Optional[list[dict[str, typing.Any]]] = None
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        step_artifact_dir: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
         """执行 SMTP 探测或发信动作，并返回统一结果结构。"""
         t0 = time.perf_counter()
@@ -45,28 +46,24 @@ class SmtpExecutor(object):
         result_data: dict[str, typing.Any] = {}
         ok = False
 
-        request_data = {
-            "host"      : host,
-            "port"      : int(port),
-            "action"    : action,
-            "username"  : username,
-            "use_ssl"   : bool(use_ssl),
-            "use_tls"   : bool(use_tls),
-            "from_addr" : from_addr,
-            "to_addrs"  : list(to_addrs or []),
-            "subject"   : subject,
-            "body_text" : body_text,
-            "html_body" : html_body,
-            "attachments": [
-                {
-                    "filename"     : item.get("filename"),
-                    "content_type" : item.get("content_type"),
-                    "path"         : item.get("path")
-                }
-                for item in (attachments or []) if isinstance(item, dict)
-            ],
-            "timeout": float(timeout)
-        }
+        # 不做任何“执行中落盘”
+        _ = step_artifact_dir
+
+        request_data = PackBuilder.build_request_smtp(
+            host=host,
+            port=port,
+            action=action,
+            username=username,
+            use_ssl=use_ssl,
+            use_tls=use_tls,
+            from_addr=from_addr,
+            to_addrs=to_addrs,
+            subject=subject,
+            body_text=body_text,
+            html_body=html_body,
+            attachments=attachments,
+            timeout=timeout
+        )
 
         def _attachment_payload(item: dict[str, typing.Any]) -> tuple[bytes, str, str]:
             content_type = str(item.get("content_type") or "application/octet-stream")
@@ -162,24 +159,18 @@ class SmtpExecutor(object):
             last_err = f"{type(e).__name__}: {e}"
 
         elapsed_ms = ClockService.ms_since(t0)
-        response_data = {
-            "status"         : None,
-            "headers"        : {},
-            "elapsed_ms"     : elapsed_ms,
-            "body_text"      : None,
-            "body_json"      : result_data,
-            "content_type"   : "application/json",
-            "content_length" : None
-        }
-        pack = PackBuilder.build_pack(
+        return ExecutorResultService.finalize_pack(
             text=f"SMTP {action} {host}:{port} ({elapsed_ms}ms)",
             ok=ok,
             request=request_data,
-            response=response_data,
-            extra_data={"smtp": result_data},
+            response=PackBuilder.build_response_smtp(
+                elapsed_ms=elapsed_ms,
+                result=result_data
+            ),
+            extract=extract,
+            asserts=asserts,
             error=last_err
         )
-        return CheckService.finalize_pack(pack, extract=extract, asserts=asserts)
 
 
 if __name__ == '__main__':

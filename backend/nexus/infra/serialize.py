@@ -1,13 +1,13 @@
-#  ____  _               ____            _       _ _
-# / ___|| |_ ___ _ __   / ___|  ___ _ __(_) __ _| (_)_______ _ __
-# \___ \| __/ _ \ '_ \  \___ \ / _ \ '__| |/ _` | | |_  / _ \ '__|
-#  ___) | ||  __/ |_) |  ___) |  __/ |  | | (_| | | |/ /  __/ |
-# |____/ \__\___| .__/  |____/ \___|_|  |_|\__,_|_|_/___\___|_|
-#               |_|
+#  ____            _       _ _
+# / ___|  ___ _ __(_) __ _| (_)_______ _ __
+# \___ \ / _ \ '__| |/ _` | | |_  / _ \ '__|
+#  ___) |  __/ |  | | (_| | | |/ /  __/ |
+# |____/ \___|_|  |_|\__,_|_|_/___\___|_|
+#
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.nexus.domain.models import StepResult
+from backend.nexus.domain.model import StepResult
 
 
 class StepSerializer(object):
@@ -20,7 +20,8 @@ class StepSerializer(object):
             "type"       : step.type,
             "ok"         : step.ok,
             "elapsed_ms" : step.elapsed_ms,
-            "detail"     : step.detail
+            "detail"     : step.detail,
+            "artifact"   : step.artifact
         }
 
 

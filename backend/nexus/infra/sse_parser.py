@@ -7,7 +7,7 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.nexus.domain.models import SseEvent
+from backend.nexus.domain.model import SseEvent
 
 
 class SseParser(object):
@@ -25,8 +25,10 @@ class SseParser(object):
             if line.startswith(":") or ":" not in line:
                 continue
             key, value = line.split(":", 1)
-            key = key.strip()
+
+            key   = key.strip()
             value = value.lstrip()
+
             if key == "event":
                 event.event = value
             elif key == "data":

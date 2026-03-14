@@ -1,15 +1,13 @@
 #  __  __           _      _
-# |  \/  | ___   __| | ___| |___
-# | |\/| |/ _ \ / _` |/ _ \ / __|
-# | |  | | (_) | (_| |  __/ \__ \
-# |_|  |_|\___/ \__,_|\___|_|___/
+# |  \/  | ___   __| | ___| |
+# | |\/| |/ _ \ / _` |/ _ \ |
+# | |  | | (_) | (_| |  __/ |
+# |_|  |_|\___/ \__,_|\___|_|
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from dataclasses import (
-    dataclass, field
-)
+from dataclasses import dataclass, field
 
 NexusKind = typing.Literal["http", "sse", "ws", "graphql", "tcp", "udp", "smtp", "imap", "ftp"]
 
@@ -28,6 +26,7 @@ class StepResult:
     ok: bool
     elapsed_ms: int
     detail: dict[str, typing.Any] = field(default_factory=dict)
+    artifact: typing.Optional[dict[str, typing.Any]] = None
 
 
 @dataclass
@@ -65,6 +64,22 @@ class RunRecord:
     payload: dict[str, typing.Any]
     final_ctx: dict[str, typing.Any]
     steps: list[StepResult]
+    artifact: typing.Optional[dict[str, typing.Any]] = None
+
+
+@dataclass
+class ArtifactRecord:
+    artifact_id: str
+    kind: typing.Literal["mission", "step"]
+    path: str
+    manifest_path: str
+    mission_id: str
+    protocol: str
+    created_ms: int
+    step_index: typing.Optional[int] = None
+    step_name: typing.Optional[str] = None
+    media_dir: typing.Optional[str] = None
+    parent_artifact_id: typing.Optional[str] = None
 
 
 if __name__ == '__main__':

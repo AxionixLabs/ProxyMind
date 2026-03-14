@@ -1187,6 +1187,16 @@ mind --chat "com.example.app に対して Monkey ランダムイベント注入�
 - `CheckService`：负责 `extract + asserts` 的检查编排与结果收尾
 - `PackBuilder`：只负责构造统一返回包，不再承载检查逻辑
 
+Nexus 协议字段模板约定：
+- `request` 始终传协议原生字段，不把协议参数抬到工具顶层
+- `extract` / `asserts` 作用于最终 `pack.data`
+- `http / graphql` 常见提取路径仍以 `response.status`、`response.body_json`、`response.media` 为主
+- `tcp` 使用协议字段模板：`response.body_text`、`response.messages`、`response.remote`、`response.body_hex`
+- `udp` 使用协议字段模板：`response.body_text`、`response.remote`、`response.body_hex`
+- `smtp` 使用协议字段模板：`response.action`、`response.ehlo`、`response.noop`、`response.send`、`response.attachments`
+- `imap` 使用协议字段模板：`response.login`、`response.select`、`response.search`、`response.fetch`、`response.parsed_messages`、`response.media`
+- `ftp` 使用协议字段模板：`response.welcome`、`response.list`、`response.download_binary`、`response.upload_text`、`response.upload_binary`、`response.media`
+
 ### 模板 Helper 最小替代集
 - 当前模板层已支持轻量 helper，可直接在 `request`、`env`、`items[].request`、`template_vars` 中使用 `{{ ... }}` 表达式
 - 适合迁入模板层的，是轻量、纯函数、无副作用的数据准备逻辑
@@ -3311,8 +3321,7 @@ Mind :: 2026-03-12 02:37:57.845 | DEBUG    | Chat done ...
 request = {
     "method": "GET",
     "url": "http://127.0.0.1:8000/mock-image",
-    "save_response": True,
-    "save_dir": None
+    "artifact_dir": None
 }
 
 接口说明：
@@ -3349,8 +3358,7 @@ response.media 的第一项应识别为 image，且路径非空、MIME 为 image
 request = {
     "method": "GET",
     "url": "http://127.0.0.1:8000/mock-video",
-    "save_response": True,
-    "save_dir": None
+    "artifact_dir": None
 }
 
 接口说明：
@@ -3474,8 +3482,7 @@ request = {
     "max_events": 2,
     "media_index": 0,
     "media_path": "image_url",
-    "save_response": True,
-    "save_dir": None
+    "artifact_dir": None
 }
 
 接口说明：
@@ -3571,8 +3578,7 @@ request = {
     "max_messages": 2,
     "media_index": 0,
     "media_path": "image_url",
-    "save_response": True,
-    "save_dir": None
+    "artifact_dir": None
 }
 
 接口说明：
@@ -3610,8 +3616,7 @@ request = {
     "max_messages": 2,
     "media_index": 0,
     "media_path": "video_url",
-    "save_response": True,
-    "save_dir": None
+    "artifact_dir": None
 }
 
 接口说明：
@@ -3742,8 +3747,7 @@ request = {
     "query": "query GetAssetImage { asset { id title cover { url mime_type } } }",
     "operation_name": "GetAssetImage",
     "media_path": "data.asset.cover.url",
-    "save_response": True,
-    "save_dir": None
+    "artifact_dir": None
 }
 
 接口说明：
@@ -3783,8 +3787,7 @@ request = {
     "query": "query GetAssetVideo { asset { id title video { url mime_type } } }",
     "operation_name": "GetAssetVideo",
     "media_path": "data.asset.video.url",
-    "save_response": True,
-    "save_dir": None
+    "artifact_dir": None
 }
 
 接口说明：

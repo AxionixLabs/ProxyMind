@@ -8,11 +8,11 @@
 
 import typing
 
-from backend.nexus.domain.models import NexusBatchRequest, NexusKind, NexusRequest
-from backend.nexus.executor_registry import NexusExecutorRegistry
-from backend.nexus.inspection_service import NexusInspectionService
-from backend.nexus.mission_service import NexusMissionService
-from backend.nexus.run_repository import MemoryRunRepository
+from backend.nexus.domain.model import NexusBatchRequest, NexusKind, NexusRequest
+from backend.nexus.registry import NexusExecutorRegistry
+from backend.nexus.inspect import NexusInspectionService
+from backend.nexus.mission import NexusMissionService
+from backend.nexus.repository import MemoryRunRepository
 
 
 class Nexus(object):

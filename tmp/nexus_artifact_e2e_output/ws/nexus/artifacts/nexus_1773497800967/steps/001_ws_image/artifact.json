@@ -1,0 +1,123 @@
+{
+  "artifact": {
+    "artifact_id": "nexus_1773497800967_step_001",
+    "kind": "step",
+    "path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/ws/nexus/artifacts/nexus_1773497800967/steps/001_ws_image",
+    "manifest_path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/ws/nexus/artifacts/nexus_1773497800967/steps/001_ws_image/artifact.json",
+    "mission_id": "nexus_1773497800967",
+    "protocol": "ws",
+    "created_ms": 1773497800967,
+    "step_index": 0,
+    "step_name": "ws_image",
+    "media_dir": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/ws/nexus/artifacts/nexus_1773497800967/steps/001_ws_image/media",
+    "parent_artifact_id": "nexus_1773497800967_mission"
+  },
+  "step": {
+    "name": "ws_image",
+    "type": "ws",
+    "ok": true,
+    "elapsed_ms": 38
+  },
+  "text": "WS ws://127.0.0.1:8000/ws/media msgs=2 (14ms) extract=1 fail=0",
+  "logs": [],
+  "data": {
+    "ok": true,
+    "request": {
+      "url": "ws://127.0.0.1:8000/ws/media",
+      "headers": {},
+      "sends": [
+        "image"
+      ],
+      "timeout": 30.0,
+      "max_messages": 2
+    },
+    "response": {
+      "status": null,
+      "headers": {},
+      "elapsed_ms": 14,
+      "messages": [
+        "{\"type\": \"image\", \"image_url\": \"http://127.0.0.1:8000/mock-image\", \"trace_id\": \"ws_img_001\"}",
+        "{\"type\": \"done\", \"ok\": true}"
+      ],
+      "error": null,
+      "content_type": null,
+      "content_length": null,
+      "body_text": null,
+      "body_json": null,
+      "media": [
+        {
+          "kind": "image",
+          "source": "url",
+          "path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/ws/nexus/artifacts/nexus_1773497800967/steps/001_ws_image/media/media_0.png",
+          "filename": "media_0.png",
+          "mime_type": "image/png",
+          "size": 8336
+        }
+      ]
+    },
+    "extract": {
+      "media_path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/ws/nexus/artifacts/nexus_1773497800967/steps/001_ws_image/media/media_0.png"
+    },
+    "asserts": [],
+    "assert_summary": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0
+    },
+    "assert_ok": true
+  },
+  "request": {
+    "url": "ws://127.0.0.1:8000/ws/media",
+    "headers": {},
+    "sends": [
+      "image"
+    ],
+    "timeout": 30.0,
+    "max_messages": 2
+  },
+  "response": {
+    "status": null,
+    "headers": {},
+    "elapsed_ms": 14,
+    "messages": [
+      "{\"type\": \"image\", \"image_url\": \"http://127.0.0.1:8000/mock-image\", \"trace_id\": \"ws_img_001\"}",
+      "{\"type\": \"done\", \"ok\": true}"
+    ],
+    "error": null,
+    "content_type": null,
+    "content_length": null,
+    "body_text": null,
+    "body_json": null,
+    "media": [
+      {
+        "kind": "image",
+        "source": "url",
+        "path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/ws/nexus/artifacts/nexus_1773497800967/steps/001_ws_image/media/media_0.png",
+        "filename": "media_0.png",
+        "mime_type": "image/png",
+        "size": 8336
+      }
+    ]
+  },
+  "extract": {
+    "media_path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/ws/nexus/artifacts/nexus_1773497800967/steps/001_ws_image/media/media_0.png"
+  },
+  "asserts": [],
+  "assert_summary": {
+    "total": 0,
+    "pass": 0,
+    "fail": 0
+  },
+  "assert_ok": true,
+  "error": null,
+  "attachments": [
+    {
+      "kind": "image",
+      "path": "/Users/acekeppel/PycharmProjects/ProxyMind/tmp/nexus_artifact_e2e_output/ws/nexus/artifacts/nexus_1773497800967/steps/001_ws_image/media/media_0.png",
+      "filename": "media_0.png",
+      "mime_type": "image/png",
+      "size": 8336,
+      "source": "url"
+    }
+  ]
+}

@@ -10,8 +10,8 @@ import time
 import typing
 import asyncio
 import contextlib
-from backend.nexus.check_service import CheckService
-from backend.nexus.infra.core_helpers import ClockService
+from backend.nexus.infra.core import ClockService
+from backend.nexus.infra.result import ExecutorResultService
 from backend.nexus.infra.pack_builder import PackBuilder
 
 
@@ -31,7 +31,8 @@ class TcpExecutor(object):
         max_reads: int = 1,
         read_until: typing.Optional[str] = None,
         extract: typing.Optional[dict[str, str]] = None,
-        asserts: typing.Optional[list[dict[str, typing.Any]]] = None
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        step_artifact_dir: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
         """执行单次 TCP 连接、发送数据并读取响应。"""
         t0 = time.perf_counter()
@@ -41,22 +42,25 @@ class TcpExecutor(object):
         response_messages: list[str] = []
         ok = False
 
+        # 不做任何“执行中落盘”
+        _ = step_artifact_dir
+
         send_items = [str(item) for item in (sends or [])]
         if body_text is not None and not send_items:
             send_items = [body_text]
 
-        request_data = {
-            "host"        : host,
-            "port"        : int(port),
-            "body_text"   : body_text,
-            "sends"       : send_items,
-            "encoding"    : encoding,
-            "timeout"     : float(timeout),
-            "read_size"   : int(read_size),
-            "close_write" : bool(close_write),
-            "max_reads"   : int(max_reads),
-            "read_until"  : read_until
-        }
+        request_data = PackBuilder.build_request_tcp(
+            host=host,
+            port=port,
+            body_text=body_text,
+            sends=send_items,
+            encoding=encoding,
+            timeout=timeout,
+            read_size=read_size,
+            close_write=close_write,
+            max_reads=max_reads,
+            read_until=read_until
+        )
 
         writer = None
         try:
@@ -95,26 +99,22 @@ class TcpExecutor(object):
                     await writer.wait_closed()
 
         elapsed_ms = ClockService.ms_since(t0)
-        response_data = {
-            "status"         : None,
-            "headers"        : {},
-            "elapsed_ms"     : elapsed_ms,
-            "body_text"      : response_text,
-            "body_json"      : None,
-            "content_type"   : "application/octet-stream",
-            "content_length" : len(response_bytes),
-            "body_hex"       : response_bytes.hex(),
-            "messages"       : response_messages,
-            "remote"         : {"host": host, "port": int(port)}
-        }
-        pack = PackBuilder.build_pack(
+        return ExecutorResultService.finalize_pack(
             text=f"TCP {host}:{port} ({elapsed_ms}ms)",
             ok=ok,
             request=request_data,
-            response=response_data,
+            response=PackBuilder.build_response_tcp(
+                elapsed_ms=elapsed_ms,
+                body_text=response_text,
+                content_length=len(response_bytes),
+                body_hex=response_bytes.hex(),
+                messages=response_messages,
+                remote={"host": host, "port": int(port)}
+            ),
+            extract=extract,
+            asserts=asserts,
             error=last_err
         )
-        return CheckService.finalize_pack(pack, extract=extract, asserts=asserts)
 
 
 if __name__ == '__main__':

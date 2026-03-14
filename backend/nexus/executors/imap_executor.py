@@ -8,13 +8,14 @@
 
 import time
 import email
+import base64
 import typing
 import asyncio
 import imaplib
 import contextlib
 from email import policy
-from backend.nexus.check_service import CheckService
-from backend.nexus.infra.core_helpers import ClockService
+from backend.nexus.infra.core import ClockService
+from backend.nexus.infra.result import ExecutorResultService
 from backend.nexus.infra.pack_builder import PackBuilder
 from backend.utilities import const
 
@@ -36,8 +37,10 @@ class ImapExecutor(object):
         parse_messages: bool = False,
         use_ssl: bool = True,
         timeout: float = 15.0,
+        media_path: typing.Optional[str] = None,
         extract: typing.Optional[dict[str, str]] = None,
-        asserts: typing.Optional[list[dict[str, typing.Any]]] = None
+        asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        step_artifact_dir: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
         """执行 IMAP 登录、查询或抓取动作，并返回统一结果结构。"""
         t0 = time.perf_counter()
@@ -45,19 +48,20 @@ class ImapExecutor(object):
         result_data: dict[str, typing.Any] = {}
         ok = False
 
-        request_data = {
-            "host"           : host,
-            "port"           : int(port),
-            "username"       : username,
-            "action"         : action,
-            "mailbox"        : mailbox,
-            "criteria"       : criteria,
-            "message_set"    : message_set,
-            "fetch_parts"    : fetch_parts,
-            "parse_messages" : bool(parse_messages),
-            "use_ssl"        : bool(use_ssl),
-            "timeout"        : float(timeout)
-        }
+        request_data = PackBuilder.build_request_imap(
+            host=host,
+            port=port,
+            username=username,
+            action=action,
+            mailbox=mailbox,
+            criteria=criteria,
+            message_set=message_set,
+            fetch_parts=fetch_parts,
+            parse_messages=parse_messages,
+            use_ssl=use_ssl,
+            timeout=timeout,
+            media_path=media_path
+        )
 
         def _decode_part_bytes(part: email.message.Message, payload: bytes) -> str:
             """按 part 的 charset 解码字节，失败时兜底 replace。"""
@@ -139,7 +143,7 @@ class ImapExecutor(object):
 
             text_parts: list[str] = []
             html_parts: list[str] = []
-            attachments: list[dict[str, typing.Any]] = []
+            _attachments: list[dict[str, typing.Any]] = []
 
             if hasattr(msg, "walk"):
                 parts_iter = msg.walk()
@@ -165,12 +169,23 @@ class ImapExecutor(object):
                     disposition = str(part.get_content_disposition() or "").lower()
 
                 if _is_attachment(part):
-                    attachments.append(
+                    payload = part.get_payload(decode=True)
+                    _attachments.append(
                         {
                             "filename"            : filename,
                             "content_type"        : content_type,
                             "content_disposition" : disposition or None,
-                            "size"                : _part_size(part)
+                            "size"                : _part_size(part),
+                            "base64"              : (
+                                base64.b64encode(payload).decode("ascii")
+                                if isinstance(payload, bytes)
+                                and payload
+                                and (
+                                    content_type.startswith("image/")
+                                    or content_type.startswith("video/")
+                                )
+                                else None
+                            )
                         }
                     )
                     continue
@@ -199,7 +214,7 @@ class ImapExecutor(object):
                 "content_type" : msg.get_content_type() if hasattr(msg, "get_content_type") else None,
                 "text"         : "\n\n".join(item for item in text_parts if item).strip() or None,
                 "html"         : "\n\n".join(item for item in html_parts if item).strip() or None,
-                "attachments"  : attachments
+                "attachments"  : _attachments
             }
 
         def _normalize_fetch_items(fetch_data: typing.Any) -> list[typing.Any]:
@@ -286,25 +301,33 @@ class ImapExecutor(object):
             last_err = f"{type(e).__name__}: {e}"
 
         elapsed_ms = ClockService.ms_since(t0)
-        response_data = {
-            "status"         : None,
-            "headers"        : {},
-            "elapsed_ms"     : elapsed_ms,
-            "body_text"      : None,
-            "body_json"      : result_data,
-            "content_type"   : "application/json",
-            "content_length" : None
-        }
-
-        pack = PackBuilder.build_pack(
+        media_list: list[dict[str, typing.Any]] = []
+        attachments: list[dict[str, typing.Any]] = []
+        media_logs: list[str] = []
+        if ok:
+            media_list, attachments, media_logs = await ExecutorResultService.collect_media(
+                source_kind="json_body",
+                source=result_data,
+                media_path=media_path,
+                tool="imap_media",
+                step_artifact_dir=step_artifact_dir,
+                timeout=timeout
+            )
+        return ExecutorResultService.finalize_pack(
             text=f"IMAP {action} {host}:{port}/{mailbox} ({elapsed_ms}ms)",
             ok=ok,
             request=request_data,
-            response=response_data,
-            extra_data={"imap": result_data},
+            response=PackBuilder.build_response_imap(
+                elapsed_ms=elapsed_ms,
+                result=result_data,
+                media=media_list
+            ),
+            extract=extract,
+            asserts=asserts,
+            attachments=attachments,
+            logs=media_logs,
             error=last_err
         )
-        return CheckService.finalize_pack(pack, extract=extract, asserts=asserts)
 
 
 if __name__ == '__main__':

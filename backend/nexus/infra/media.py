@@ -1,8 +1,8 @@
-#  __  __          _ _         ____                  _
-# |  \/  | ___  __| (_) __ _  / ___|  ___ _ ____   _(_) ___ ___
-# | |\/| |/ _ \/ _` | |/ _` | \___ \ / _ \ '__\ \ / / |/ __/ _ \
-# | |  | |  __/ (_| | | (_| |  ___) |  __/ |   \ V /| | (_|  __/
-# |_|  |_|\___|\__,_|_|\__,_| |____/ \___|_|    \_/ |_|\___\___|
+#  __  __          _ _
+# |  \/  | ___  __| (_) __ _
+# | |\/| |/ _ \/ _` | |/ _` |
+# | |  | |  __/ (_| | | (_| |
+# |_|  |_|\___|\__,_|_|\__,_|
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
@@ -16,7 +16,8 @@ import typing
 import binascii
 from pathlib import Path
 from backend.utilities import const
-from backend.nexus.domain.extract_service import ExtractService
+from backend.nexus.domain.extract import ExtractService
+from backend.nexus.infra.core import UrlService
 
 
 class MediaService(object):
@@ -67,17 +68,26 @@ class MediaService(object):
         return out_dir
 
     @staticmethod
+    def mk_artifact_media_dir(artifact_dir: str) -> Path:
+        """Resolve the media folder for a prepared step artifact directory."""
+        out_dir = Path(artifact_dir).expanduser().resolve() / "media"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        return out_dir
+
+    @staticmethod
     def parse_data_url(value: str) -> tuple[str, bytes] | None:
         """解析 data URL 为 MIME 类型和二进制内容。"""
         if not isinstance(value, str) or not value.startswith("data:"):
             return None
+
         match = re.match(r"^data:([^;,]+)?(;base64)?,(.*)$", value, re.I | re.S)
         if not match:
             return None
 
         mime_type = (match.group(1) or "application/octet-stream").strip().lower()
-        is_b64 = bool(match.group(2))
-        raw = match.group(3)
+        is_b64    = bool(match.group(2))
+        raw       = match.group(3)
+
         try:
             if is_b64:
                 data = base64.b64decode(raw, validate=False)
@@ -224,8 +234,8 @@ class MediaService(object):
     async def materialize_media_ref(
         *,
         ref: dict[str, typing.Any],
-        save_dir: str,
         tool: str,
+        step_artifact_dir: str | None = None,
         default_name: str = "media",
         timeout: float = 30.0
     ) -> tuple[dict[str, typing.Any], dict[str, typing.Any]]:
@@ -237,7 +247,13 @@ class MediaService(object):
         kind      = ref.get("kind") or MediaService.detect_media_kind(mime_type or "")
 
         if url:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                **UrlService.httpx_client_kwargs(
+                    url=str(url),
+                    timeout=timeout,
+                    follow_redirects=True
+                )
+            ) as client:
                 resp = await client.get(str(url))
                 resp.raise_for_status()
                 data = resp.content
@@ -256,7 +272,11 @@ class MediaService(object):
         if kind not in {"image", "video"}:
             raise ValueError(f"unsupported media kind: mime={mime_type!r}")
 
-        out_dir = MediaService.mk_out_dir(save_dir, tool)
+        out_dir = (
+            MediaService.mk_artifact_media_dir(step_artifact_dir)
+            if step_artifact_dir else
+            MediaService.mk_out_dir(".", tool)
+        )
         ext = MediaService.media_suffix(mime_type or "", fallback_kind=kind)
         filename = f"{default_name}{ext}"
         out_file = out_dir / filename
@@ -288,9 +308,8 @@ class MediaService(object):
         content_type: str | None = None,
         media_path: str | None = None,
         media_index: int | None = None,
-        save_response: bool = False,
-        save_dir: str | None = None,
         tool: str = "media",
+        step_artifact_dir: str | None = None,
         timeout: float = 30.0
     ) -> tuple[list[dict[str, typing.Any]], list[dict[str, typing.Any]], list[str]]:
         """从响应体、事件流或消息列表中提取媒体信息。"""
@@ -302,7 +321,7 @@ class MediaService(object):
             if source_kind == "http_body":
                 kind = MediaService.detect_media_kind(content_type or "")
                 if kind and isinstance(source, (bytes, bytearray)):
-                    if save_response:
+                    if step_artifact_dir:
                         ref = {
                             "source"    : "response_body",
                             "url"       : None,
@@ -312,8 +331,8 @@ class MediaService(object):
                         }
                         media_info, attachment = await MediaService.materialize_media_ref(
                             ref=ref,
-                            save_dir=save_dir,
                             tool=tool,
+                            step_artifact_dir=step_artifact_dir,
                             default_name=kind,
                             timeout=timeout
                         )
@@ -370,11 +389,11 @@ class MediaService(object):
                 return media_list, attachments, logs
 
             for index, ref in enumerate(refs):
-                if save_response:
+                if step_artifact_dir:
                     media_info, attachment = await MediaService.materialize_media_ref(
                         ref=ref,
-                        save_dir=save_dir,
                         tool=tool,
+                        step_artifact_dir=step_artifact_dir,
                         default_name=f"media_{index}",
                         timeout=timeout
                     )

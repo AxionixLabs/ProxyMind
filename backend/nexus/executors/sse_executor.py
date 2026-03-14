@@ -9,13 +9,12 @@
 import time
 import httpx
 import typing
-from backend.nexus.check_service import CheckService
 from backend.nexus.infra.pack_builder import PackBuilder
-from backend.nexus.infra.media_service import MediaService
-from backend.nexus.infra.core_helpers import (
+from backend.nexus.infra.result import ExecutorResultService
+from backend.nexus.infra.core import (
     ClockService, UrlService
 )
-from backend.nexus.infra.file_payload_service import FilePayloadService
+from backend.nexus.infra.file_payload import FilePayloadService
 from backend.nexus.infra.sse_parser import SseParser
 
 
@@ -41,8 +40,7 @@ class SseExecutor(object):
         asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
         media_index: typing.Optional[int] = None,
         media_path: typing.Optional[str] = None,
-        save_response: bool = False,
-        save_dir: typing.Optional[str] = None
+        step_artifact_dir: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
         """执行单次 SSE 请求，并把事件流整理成统一结果。"""
         method  = (method or "GET").upper()
@@ -75,7 +73,13 @@ class SseExecutor(object):
             files=files
         )
 
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=follow_redirects) as client:
+        async with httpx.AsyncClient(
+            **UrlService.httpx_client_kwargs(
+                url=url,
+                timeout=timeout,
+                follow_redirects=follow_redirects
+            )
+        ) as client:
             for _ in range(max(0, int(retries)) + 1):
                 try:
                     files_payload = FilePayloadService.files_payload(files)
@@ -98,25 +102,23 @@ class SseExecutor(object):
                         elapsed_ms   = ClockService.ms_since(t0)
 
                         if status != 200:
-                            response_data = PackBuilder.build_response_sse(
+                            return ExecutorResultService.finalize_sse(
+                                text=f"SSE {method} {url} -> {status} ({elapsed_ms}ms)",
+                                ok=ok,
+                                request=request_data,
                                 status=status,
                                 headers=resp_headers,
                                 elapsed_ms=elapsed_ms,
                                 events=events,
                                 content_type=resp_ct,
                                 content_length=None,
-                                media=media_list
-                            )
-                            pack = PackBuilder.build_pack(
-                                text=f"SSE {method} {url} -> {status} ({elapsed_ms}ms)",
-                                ok=ok,
-                                request=request_data,
-                                response=response_data,
+                                media=media_list,
+                                extract=extract,
+                                asserts=asserts,
                                 attachments=attachments,
-                                logs=media_logs[:],
+                                logs=media_logs,
                                 error=last_err
                             )
-                            return CheckService.finalize_pack(pack, extract=extract, asserts=asserts)
 
                         buf = ""
                         async for chunk in resp.aiter_text():
@@ -132,35 +134,32 @@ class SseExecutor(object):
                                 if max_events and 0 < int(max_events) <= len(events):
                                     elapsed_ms = ClockService.ms_since(t0)
                                     ok = status == 200 and len(events) > 0
-                                    media_list, attachments, media_logs = await MediaService.collect_media(
+                                    media_list, attachments, media_logs = await ExecutorResultService.collect_media(
                                         source_kind="sse_events",
                                         source=events,
                                         media_index=media_index,
                                         media_path=media_path,
-                                        save_response=save_response,
-                                        save_dir=save_dir,
                                         tool="sse_media",
+                                        step_artifact_dir=step_artifact_dir,
                                         timeout=timeout
                                     )
-                                    response_data = PackBuilder.build_response_sse(
+                                    return ExecutorResultService.finalize_sse(
+                                        text=f"SSE {method} {url} events={len(events)} ({elapsed_ms}ms)",
+                                        ok=ok,
+                                        request=request_data,
                                         status=status,
                                         headers=resp_headers,
                                         elapsed_ms=elapsed_ms,
                                         events=events,
                                         content_type=resp_ct,
                                         content_length=None,
-                                        media=media_list
-                                    )
-                                    pack = PackBuilder.build_pack(
-                                        text=f"SSE {method} {url} events={len(events)} ({elapsed_ms}ms)",
-                                        ok=ok,
-                                        request=request_data,
-                                        response=response_data,
+                                        media=media_list,
+                                        extract=extract,
+                                        asserts=asserts,
                                         attachments=attachments,
-                                        logs=media_logs[:],
+                                        logs=media_logs,
                                         error=last_err
                                     )
-                                    return CheckService.finalize_pack(pack, extract=extract, asserts=asserts)
 
                         tail = SseParser.parse_block(buf)
                         if tail:
@@ -168,58 +167,53 @@ class SseExecutor(object):
 
                     elapsed_ms = ClockService.ms_since(t0)
                     ok = status == 200 and len(events) > 0
-                    media_list, attachments, media_logs = await MediaService.collect_media(
+                    media_list, attachments, media_logs = await ExecutorResultService.collect_media(
                         source_kind="sse_events",
                         source=events,
                         media_index=media_index,
                         media_path=media_path,
-                        save_response=save_response,
-                        save_dir=save_dir,
                         tool="sse_media",
+                        step_artifact_dir=step_artifact_dir,
                         timeout=timeout
                     )
-                    response_data = PackBuilder.build_response_sse(
+                    return ExecutorResultService.finalize_sse(
+                        text=f"SSE {method} {url} events={len(events)} ({elapsed_ms}ms)",
+                        ok=ok,
+                        request=request_data,
                         status=status,
                         headers=resp_headers,
                         elapsed_ms=elapsed_ms,
                         events=events,
                         content_type=resp_ct,
                         content_length=None,
-                        media=media_list
-                    )
-                    pack = PackBuilder.build_pack(
-                        text=f"SSE {method} {url} events={len(events)} ({elapsed_ms}ms)",
-                        ok=ok,
-                        request=request_data,
-                        response=response_data,
+                        media=media_list,
+                        extract=extract,
+                        asserts=asserts,
                         attachments=attachments,
-                        logs=media_logs[:],
+                        logs=media_logs,
                         error=last_err
                     )
-                    return CheckService.finalize_pack(pack, extract=extract, asserts=asserts)
                 except (httpx.TimeoutException, httpx.RequestError, OSError) as e:
                     last_err = f"{type(e).__name__}: {e}"
 
         elapsed_ms = ClockService.ms_since(t0)
-        response_data = PackBuilder.build_response_sse(
+        return ExecutorResultService.finalize_sse(
+            text=f"SSE {method} {url} -> ERROR ({elapsed_ms}ms) {last_err}",
+            ok=ok,
+            request=request_data,
             status=status,
             headers=resp_headers,
             elapsed_ms=elapsed_ms,
             events=events,
             content_type=resp_ct,
             content_length=None,
-            media=media_list
-        )
-        pack = PackBuilder.build_pack(
-            text=f"SSE {method} {url} -> ERROR ({elapsed_ms}ms) {last_err}",
-            ok=ok,
-            request=request_data,
-            response=response_data,
+            media=media_list,
+            extract=extract,
+            asserts=asserts,
             attachments=attachments,
-            logs=media_logs[:],
+            logs=media_logs,
             error=last_err
         )
-        return CheckService.finalize_pack(pack, extract=extract, asserts=asserts)
 
 
 if __name__ == '__main__':

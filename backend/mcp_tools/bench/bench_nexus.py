@@ -10,7 +10,7 @@ import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.middlewares.mid_task import task_middleware
-from backend.nexus.domain.models import (
+from backend.nexus.domain.model import (
     NexusBatchItem, NexusBatchRequest, NexusKind, NexusRequest
 )
 from backend.utilities.instance import Ins
@@ -331,6 +331,11 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - HTTP 单请求工具
           - `request` 直接传协议字段，不再平铺为工具参数
+          - `request` 常用字段：
+            `url` 必填；
+            `method/headers/params/json/body/body_text/form/files/timeout/retries/follow_redirects` 可选；
+            `artifact_dir` 可选，传入后会把 request/response/extract/media 落到 `<artifact_dir>/nexus/artifacts/...`
+          - `extract` / `asserts` 作用于最终 `pack.data`，常见路径如 `response.status`、`response.body_json`、`response.media.0.path`
           - 适合单次接口调用、提取和断言
         """
         args = {
@@ -388,6 +393,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - HTTP 批量请求工具
           - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - `items[].request` 结构与 `nexus_http_request.request` 相同
           - 支持并发执行和 fail-fast
         """
         args = {
@@ -445,6 +451,12 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - SSE 单请求工具
           - `request` 直接传协议字段，不再平铺为工具参数
+          - `request` 常用字段：
+            `url` 必填；
+            `method/headers/params/json/body/body_text/form/files/timeout/retries/follow_redirects/max_events` 可选；
+            `media_index/media_path` 用于从事件流中定位媒体引用；
+            `artifact_dir` 可选，传入后会把事件证据链和媒体文件一起落盘
+          - `extract` / `asserts` 作用于最终 `pack.data`，常见路径如 `response.events.0.data`、`response.media.0.path`
           - 适合流式事件消费、提取和断言
         """
         args = {
@@ -502,6 +514,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - SSE 批量请求工具
           - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - `items[].request` 结构与 `nexus_sse_request.request` 相同
           - 支持并发执行和 fail-fast
         """
         args = {
@@ -559,6 +572,12 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - WebSocket 单请求工具
           - `request` 直接传协议字段，不再平铺为工具参数
+          - `request` 常用字段：
+            `url` 必填；
+            `headers/sends/timeout/max_messages` 可选；
+            `media_index/media_path` 用于从消息列表中定位媒体引用；
+            `artifact_dir` 可选，传入后会把消息证据链和媒体文件一起落盘
+          - `extract` / `asserts` 作用于最终 `pack.data`，常见路径如 `response.messages.0`、`response.media.0.path`
           - 适合建连、发送、接收和断言
         """
         args = {
@@ -616,6 +635,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - WebSocket 批量请求工具
           - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - `items[].request` 结构与 `nexus_ws_request.request` 相同
           - 支持并发执行和 fail-fast
         """
         args = {
@@ -673,6 +693,12 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - GraphQL 单请求工具
           - `request` 直接传协议字段，不再平铺为工具参数
+          - `request` 常用字段：
+            `url/query` 必填；
+            `variables/operation_name/headers/params/timeout/retries/follow_redirects` 可选；
+            `media_path` 用于从 GraphQL JSON 结果中定位媒体引用；
+            `artifact_dir` 可选，传入后会把 response/extract/media 一起落盘
+          - `extract` / `asserts` 作用于最终 `pack.data`，常见路径如 `response.body_json.data`、`response.media.0.path`
           - 适合 query / mutation 的单次调用
         """
         args = {
@@ -730,6 +756,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - GraphQL 批量请求工具
           - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - `items[].request` 结构与 `nexus_graphql_request.request` 相同
           - 支持并发执行和 fail-fast
         """
         args = {
@@ -787,6 +814,12 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - TCP 单请求工具
           - `request` 直接传协议字段，不再平铺为工具参数
+          - `request` 常用字段：
+            `host/port` 必填；
+            `body_text/sends/encoding/timeout/read_size/close_write/max_reads/read_until` 可选；
+          - `response` 为 TCP 协议字段模板，常见路径有：
+            `response.body_text`、`response.messages`、`response.remote.host`、`response.body_hex`
+          - `extract` / `asserts` 作用于最终 `pack.data`
           - 适合端口连通、原始报文发送和响应断言
         """
         args = {
@@ -844,6 +877,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - TCP 批量请求工具
           - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - `items[].request` 结构与 `nexus_tcp_request.request` 相同
           - 支持并发执行和 fail-fast
         """
         args = {
@@ -901,6 +935,12 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - UDP 单请求工具
           - `request` 直接传协议字段，不再平铺为工具参数
+          - `request` 常用字段：
+            `host/port/body_text` 必填；
+            `encoding/timeout/read_size` 可选；
+          - `response` 为 UDP 协议字段模板，常见路径有：
+            `response.body_text`、`response.remote.host`、`response.body_hex`
+          - `extract` / `asserts` 作用于最终 `pack.data`
           - 适合轻量探测、报文发送和响应断言
         """
         args = {
@@ -958,6 +998,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - UDP 批量请求工具
           - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - `items[].request` 结构与 `nexus_udp_request.request` 相同
           - 支持并发执行和 fail-fast
         """
         args = {
@@ -1015,6 +1056,13 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - SMTP 单请求工具
           - `request` 直接传协议字段，不再平铺为工具参数
+          - `request` 常用字段：
+            `host/port` 必填；
+            `action` 可选，支持 `noop/send`；
+            发送邮件时常用 `username/password/use_ssl/use_tls/from_addr/to_addrs/subject/body_text/html_body/attachments/timeout`
+          - `response` 为 SMTP 协议字段模板，常见路径有：
+            `response.action`、`response.ehlo.code`、`response.noop.code`、`response.send.accepted`、`response.attachments`
+          - `extract` / `asserts` 作用于最终 `pack.data`
           - 适合连通性验证、NOOP 和发送邮件测试
         """
         args = {
@@ -1072,6 +1120,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - SMTP 批量请求工具
           - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - `items[].request` 结构与 `nexus_smtp_request.request` 相同
           - 支持并发执行和 fail-fast
         """
         args = {
@@ -1129,6 +1178,14 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - IMAP 单请求工具
           - `request` 直接传协议字段，不再平铺为工具参数
+          - `request` 常用字段：
+            `host/port/username/password` 必填；
+            `action/mailbox/criteria/message_set/fetch_parts/parse_messages/use_ssl/timeout` 可选；
+            `media_path` 可选，用于从 `parsed_messages` 或附件结构中定位媒体引用；
+            `artifact_dir` 可选，传入后会把 IMAP 结果、提取结果和命中的媒体文件一起落盘
+          - `response` 为 IMAP 协议字段模板，常见路径有：
+            `response.login.type`、`response.select.type`、`response.fetch.items`、`response.parsed_messages.0.subject`、`response.media.0.path`
+          - `extract` / `asserts` 作用于最终 `pack.data`
           - 适合邮箱登录、搜索、抓取和断言
         """
         args = {
@@ -1186,6 +1243,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - IMAP 批量请求工具
           - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - `items[].request` 结构与 `nexus_imap_request.request` 相同
           - 支持并发执行和 fail-fast
         """
         args = {
@@ -1243,6 +1301,15 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - FTP 单请求工具
           - `request` 直接传协议字段，不再平铺为工具参数
+          - `request` 常用字段：
+            `host/port` 必填；
+            `action` 可选，常见值有 `list/upload_text/upload_binary/download_text/download_binary/delete/mkdir`；
+            `username/password/path/payload_text/payload_base64/encoding/use_tls/timeout` 可选；
+            `media_path` 可选，用于从下载结果中定位媒体引用；
+            `artifact_dir` 可选，传入后会把 FTP 结果、提取结果和命中的媒体文件一起落盘
+          - `response` 为 FTP 协议字段模板，常见路径有：
+            `response.welcome`、`response.list`、`response.download_binary.filename`、`response.upload_text.reply`、`response.media.0.path`
+          - `extract` / `asserts` 作用于最终 `pack.data`
           - 适合列目录、上传、下载和删除测试
         """
         args = {
@@ -1300,6 +1367,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         N:
           - FTP 批量请求工具
           - `env` 提供共享默认值，`items[].request` 覆盖同名字段
+          - `items[].request` 结构与 `nexus_ftp_request.request` 相同
           - 支持并发执行和 fail-fast
         """
         args = {

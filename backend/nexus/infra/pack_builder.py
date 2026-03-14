@@ -57,6 +57,20 @@ class PackBuilder(object):
         ]
 
     @staticmethod
+    def attachments_meta(
+        attachments: typing.Optional[list[dict[str, typing.Any]]]
+    ) -> list[dict[str, typing.Any]]:
+        """提取附件参数中的可展示元信息。"""
+        return [
+            {
+                "filename"     : item.get("filename"),
+                "content_type" : item.get("content_type"),
+                "path"         : item.get("path")
+            }
+            for item in (attachments or []) if isinstance(item, dict)
+        ]
+
+    @staticmethod
     def build_gql_extra(
         *,
         query: str,
@@ -120,6 +134,150 @@ class PackBuilder(object):
             "sends"        : sends or [],
             "timeout"      : timeout,
             "max_messages" : max_messages
+        }
+
+    @staticmethod
+    def build_request_tcp(
+        *,
+        host: str,
+        port: int,
+        body_text: typing.Optional[str] = None,
+        sends: typing.Optional[list[str]] = None,
+        encoding: str = "utf-8",
+        timeout: float = 10.0,
+        read_size: int = 4096,
+        close_write: bool = True,
+        max_reads: int = 1,
+        read_until: typing.Optional[str] = None
+    ) -> dict[str, typing.Any]:
+        """构造 TCP 协议的标准请求快照。"""
+        return {
+            "host"        : host,
+            "port"        : int(port),
+            "body_text"   : body_text,
+            "sends"       : [str(item) for item in (sends or [])],
+            "encoding"    : encoding,
+            "timeout"     : float(timeout),
+            "read_size"   : int(read_size),
+            "close_write" : bool(close_write),
+            "max_reads"   : int(max_reads),
+            "read_until"  : read_until
+        }
+
+    @staticmethod
+    def build_request_udp(
+        *,
+        host: str,
+        port: int,
+        body_text: str = "",
+        encoding: str = "utf-8",
+        timeout: float = 10.0,
+        read_size: int = 4096
+    ) -> dict[str, typing.Any]:
+        """构造 UDP 协议的标准请求快照。"""
+        return {
+            "host"      : host,
+            "port"      : int(port),
+            "body_text" : body_text,
+            "encoding"  : encoding,
+            "timeout"   : float(timeout),
+            "read_size" : int(read_size)
+        }
+
+    @staticmethod
+    def build_request_smtp(
+        *,
+        host: str,
+        port: int,
+        action: str = "noop",
+        username: typing.Optional[str] = None,
+        use_ssl: bool = False,
+        use_tls: bool = False,
+        from_addr: typing.Optional[str] = None,
+        to_addrs: typing.Optional[list[str]] = None,
+        subject: typing.Optional[str] = None,
+        body_text: typing.Optional[str] = None,
+        html_body: typing.Optional[str] = None,
+        attachments: typing.Optional[list[dict[str, typing.Any]]] = None,
+        timeout: float = 15.0
+    ) -> dict[str, typing.Any]:
+        """构造 SMTP 协议的标准请求快照。"""
+        return {
+            "host"        : host,
+            "port"        : int(port),
+            "action"      : action,
+            "username"    : username,
+            "use_ssl"     : bool(use_ssl),
+            "use_tls"     : bool(use_tls),
+            "from_addr"   : from_addr,
+            "to_addrs"    : list(to_addrs or []),
+            "subject"     : subject,
+            "body_text"   : body_text,
+            "html_body"   : html_body,
+            "attachments" : PackBuilder.attachments_meta(attachments),
+            "timeout"     : float(timeout)
+        }
+
+    @staticmethod
+    def build_request_imap(
+        *,
+        host: str,
+        port: int,
+        username: str,
+        action: str = "search",
+        mailbox: str = "INBOX",
+        criteria: str = "ALL",
+        message_set: str = "1",
+        fetch_parts: str = "(BODY.PEEK[])",
+        parse_messages: bool = False,
+        use_ssl: bool = True,
+        timeout: float = 15.0,
+        media_path: typing.Optional[str] = None
+    ) -> dict[str, typing.Any]:
+        """构造 IMAP 协议的标准请求快照。"""
+        return {
+            "host"           : host,
+            "port"           : int(port),
+            "username"       : username,
+            "action"         : action,
+            "mailbox"        : mailbox,
+            "criteria"       : criteria,
+            "message_set"    : message_set,
+            "fetch_parts"    : fetch_parts,
+            "parse_messages" : bool(parse_messages),
+            "use_ssl"        : bool(use_ssl),
+            "timeout"        : float(timeout),
+            "media_path"     : media_path
+        }
+
+    @staticmethod
+    def build_request_ftp(
+        *,
+        host: str,
+        port: int,
+        username: str = "anonymous",
+        action: str = "list",
+        path: str = ".",
+        payload_text: typing.Optional[str] = None,
+        payload_base64: typing.Optional[str] = None,
+        encoding: str = "utf-8",
+        use_tls: bool = False,
+        timeout: float = 15.0,
+        media_path: typing.Optional[str] = None
+    ) -> dict[str, typing.Any]:
+        """构造 FTP 协议的标准请求快照。"""
+        return {
+            "host"           : host,
+            "port"           : int(port),
+            "username"       : username,
+            "action"         : action,
+            "path"           : path,
+            "payload_text"   : payload_text,
+            "payload_base64" : payload_base64,
+            "encoding"       : encoding,
+            "use_tls"        : bool(use_tls),
+            "timeout"        : float(timeout),
+            "media_path"     : media_path
         }
 
     @staticmethod
@@ -190,6 +348,133 @@ class PackBuilder(object):
             "body_text"      : None,
             "body_json"      : None,
             "media"          : media or []
+        }
+
+    @staticmethod
+    def build_response_tcp(
+        *,
+        elapsed_ms: int,
+        body_text: typing.Optional[str],
+        content_length: int,
+        body_hex: str,
+        messages: typing.Optional[list[str]] = None,
+        remote: typing.Optional[dict[str, typing.Any]] = None
+    ) -> dict[str, typing.Any]:
+        """构造 TCP 协议的标准响应快照。"""
+        return {
+            "status"         : None,
+            "headers"        : {},
+            "elapsed_ms"     : elapsed_ms,
+            "body_text"      : body_text,
+            "body_json"      : None,
+            "content_type"   : "application/octet-stream",
+            "content_length" : content_length,
+            "body_hex"       : body_hex,
+            "messages"       : messages or [],
+            "remote"         : dict(remote or {})
+        }
+
+    @staticmethod
+    def build_response_udp(
+        *,
+        elapsed_ms: int,
+        body_text: typing.Optional[str],
+        content_length: int,
+        body_hex: str,
+        remote: typing.Optional[dict[str, typing.Any]] = None
+    ) -> dict[str, typing.Any]:
+        """构造 UDP 协议的标准响应快照。"""
+        return {
+            "status"         : None,
+            "headers"        : {},
+            "elapsed_ms"     : elapsed_ms,
+            "body_text"      : body_text,
+            "body_json"      : None,
+            "content_type"   : "application/octet-stream",
+            "content_length" : content_length,
+            "body_hex"       : body_hex,
+            "remote"         : dict(remote or {})
+        }
+
+    @staticmethod
+    def build_response_smtp(
+        *,
+        elapsed_ms: int,
+        result: typing.Optional[dict[str, typing.Any]] = None
+    ) -> dict[str, typing.Any]:
+        """构造 SMTP 协议的标准响应快照。"""
+        result = dict(result or {})
+        return {
+            "status"         : None,
+            "headers"        : {},
+            "elapsed_ms"     : elapsed_ms,
+            "body_text"      : None,
+            "body_json"      : None,
+            "content_type"   : "application/json",
+            "content_length" : None,
+            "action"         : result.get("action"),
+            "ehlo"           : result.get("ehlo"),
+            "starttls"       : result.get("starttls"),
+            "ehlo_after_tls" : result.get("ehlo_after_tls"),
+            "login"          : result.get("login"),
+            "noop"           : result.get("noop"),
+            "send"           : result.get("send"),
+            "html"           : result.get("html"),
+            "attachments"    : result.get("attachments") or []
+        }
+
+    @staticmethod
+    def build_response_imap(
+        *,
+        elapsed_ms: int,
+        result: typing.Optional[dict[str, typing.Any]] = None,
+        media: typing.Optional[list[dict[str, typing.Any]]] = None
+    ) -> dict[str, typing.Any]:
+        """构造 IMAP 协议的标准响应快照。"""
+        result = dict(result or {})
+        return {
+            "status"          : None,
+            "headers"         : {},
+            "elapsed_ms"      : elapsed_ms,
+            "body_text"       : None,
+            "body_json"       : None,
+            "content_type"    : "application/json",
+            "content_length"  : None,
+            "login"           : result.get("login"),
+            "select"          : result.get("select"),
+            "search"          : result.get("search"),
+            "fetch"           : result.get("fetch"),
+            "noop"            : result.get("noop"),
+            "parsed_messages" : result.get("parsed_messages") or [],
+            "media"           : media or []
+        }
+
+    @staticmethod
+    def build_response_ftp(
+        *,
+        elapsed_ms: int,
+        result: typing.Optional[dict[str, typing.Any]] = None,
+        media: typing.Optional[list[dict[str, typing.Any]]] = None
+    ) -> dict[str, typing.Any]:
+        """构造 FTP 协议的标准响应快照。"""
+        result = dict(result or {})
+        return {
+            "status"          : None,
+            "headers"         : {},
+            "elapsed_ms"      : elapsed_ms,
+            "body_text"       : None,
+            "body_json"       : None,
+            "content_type"    : "application/json",
+            "content_length"  : None,
+            "welcome"         : result.get("welcome"),
+            "list"            : result.get("list"),
+            "download_text"   : result.get("download_text"),
+            "download_binary" : result.get("download_binary"),
+            "upload_text"     : result.get("upload_text"),
+            "upload_binary"   : result.get("upload_binary"),
+            "delete"          : result.get("delete"),
+            "mkdir"           : result.get("mkdir"),
+            "media"           : media or []
         }
 
 

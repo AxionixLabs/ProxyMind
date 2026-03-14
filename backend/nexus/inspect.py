@@ -1,16 +1,17 @@
-#  ___                           _   _               ____                  _
-# |_ _|_ __  ___ _ __   ___  ___| |_(_) ___  _ __   / ___|  ___ _ ____   _(_) ___ ___
-#  | || '_ \/ __| '_ \ / _ \/ __| __| |/ _ \| '_ \  \___ \ / _ \ '__\ \ / / |/ __/ _ \
-#  | || | | \__ \ |_) |  __/ (__| |_| | (_) | | | |  ___) |  __/ |   \ V /| | (_|  __/
-# |___|_| |_|___/ .__/ \___|\___|\__|_|\___/|_| |_| |____/ \___|_|    \_/ |_|\___\___|
+#  ___                           _
+# |_ _|_ __  ___ _ __   ___  ___| |_
+#  | || '_ \/ __| '_ \ / _ \/ __| __|
+#  | || | | \__ \ |_) |  __/ (__| |_
+# |___|_| |_|___/ .__/ \___|\___|\__|
 #               |_|
+#
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.nexus.domain.models import (
+from backend.nexus.domain.model import (
     NexusBatchRequest, NexusKind, NexusRequest
 )
-from backend.nexus.domain.template_service import TemplateService
+from backend.nexus.domain.template import TemplateService
 
 
 class NexusInspectionService(object):
@@ -21,7 +22,7 @@ class NexusInspectionService(object):
         *,
         kind: NexusKind,
         request: NexusRequest,
-        env: typing.Optional[dict[str, typing.Any]] = None,
+        env: typing.Optional[dict[str, typing.Any]] = None
     ) -> dict[str, typing.Any]:
         """渲染单请求中的模板变量与共享默认值。"""
         ctx       = dict(request.template_vars or {})
@@ -77,7 +78,7 @@ class NexusInspectionService(object):
         *,
         kind: NexusKind,
         request: NexusRequest,
-        env: typing.Optional[dict[str, typing.Any]] = None,
+        env: typing.Optional[dict[str, typing.Any]] = None
     ) -> dict[str, typing.Any]:
         """校验单请求的必填字段与基础结构。"""
         rendered = NexusInspectionService.render_request(kind=kind, request=request, env=env)
