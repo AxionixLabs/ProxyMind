@@ -23,7 +23,6 @@ from pathlib import Path
 
 # ====[ from: 第三方库 ]====
 from loguru import logger
-from rich.prompt import Prompt
 from mcp import (
     ClientSession, ListToolsResult
 )
@@ -759,17 +758,14 @@ class Mind(object):
 
             if raw.lower() == "/chat":
                 tag = "CHAT"
-                Design.console.print(f"[bold {theme['CHAT']['hint']}]Exchange → Chat[/]")
                 continue
 
             if raw.lower() == "/fast":
                 tag = "FAST"
-                Design.console.print(f"[bold {theme['FAST']['hint']}]Exchange → Fast[/]")
                 continue
 
             if raw.lower() == "/plan":
                 tag = "PLAN"
-                Design.console.print(f"[bold {theme['PLAN']['hint']}]Exchange → Plan[/]")
                 continue
 
             if m := re_model.match(raw):
