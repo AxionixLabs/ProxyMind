@@ -240,26 +240,31 @@ class CommandAutoSuggest(AutoSuggest):
 
     def get_suggestion(self, buffer, document):
         text = document.text_before_cursor
+        current_line = text.splitlines()[-1] if text.splitlines() else text
+        if text.endswith("\n"):
+            current_line = ""
+        if not current_line:
+            return None
 
         for prefix, suggestion in self.templates.items():
-            if text == prefix:
+            if current_line == prefix:
                 return Suggestion(suggestion)
 
         for prefix, suggestion in self.chat_templates:
-            if text == prefix:
+            if current_line == prefix:
                 return Suggestion(suggestion)
 
-        if not text.startswith("/"):
-            alias_suggestion = self._mode_alias_suggestion(text)
+        if not current_line.startswith("/"):
+            alias_suggestion = self._mode_alias_suggestion(current_line)
             if alias_suggestion is not None:
                 return alias_suggestion
 
-            prefix_suggestion = self._best_prefix_completion(text, self.chat_templates)
+            prefix_suggestion = self._best_prefix_completion(current_line, self.chat_templates)
             if prefix_suggestion is not None:
                 return prefix_suggestion
 
-        if not text.startswith("/"):
-            stripped = text.strip()
+        if not current_line.startswith("/"):
+            stripped = current_line.strip()
             matched = [
                 item
                 for item in self.intent_templates
