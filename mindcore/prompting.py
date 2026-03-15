@@ -23,6 +23,12 @@ from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.shortcuts import CompleteStyle
 from prompt_toolkit.styles import Style
 from mindnova import const
+from mindcore.prompting_ghost import (
+    CHAT_TEMPLATES,
+    COMMAND_TEMPLATES,
+    VERB_DOMAIN_WEIGHTS,
+    build_intent_templates,
+)
 
 PROMPT_TAG = typing.Literal["CHAT", "FAST", "PLAN"]
 
@@ -81,211 +87,93 @@ class SlashCommandCompleter(Completer):
 class CommandAutoSuggest(AutoSuggest):
     """Dim inline suggestions for parameterized slash commands."""
 
-    INTENT_GROUPS: tuple[tuple[str, int, tuple[tuple[str, str], ...]], ...] = (
-        ("screen", 80, (
-            ("打开", "投屏"),
-            ("进入", "投屏"),
-            ("启动", "投屏"),
-            ("关闭", "投屏"),
-            ("停止", "投屏"),
-            ("开始", "投屏"),
-            ("打开", "录屏"),
-            ("开始", "录屏"),
-            ("启动", "录屏"),
-            ("停止", "录屏"),
-            ("结束", "录屏"),
-            ("保存", "录屏"),
-            ("录", "屏"),
-            ("录屏", ""),
-            ("截", "图"),
-            ("截图", ""),
-            ("截取", "截图"),
-            ("保存", "截图"),
-            ("打开", "截图"),
-            ("拉取", "截图"),
-        )),
-        ("device", 70, (
-            ("连接", "设备"),
-            ("连上", "设备"),
-            ("连接到", "设备"),
-            ("选择", "设备"),
-            ("切换到", "设备"),
-            ("查看", "设备信息"),
-            ("获取", "设备信息"),
-        )),
-        ("app", 60, (
-            ("打开", "应用"),
-            ("进入", "应用"),
-            ("启动", "应用"),
-            ("关闭", "应用"),
-            ("停止", "应用"),
-            ("安装", "应用"),
-            ("卸载", "应用"),
-            ("重启", "应用"),
-        )),
-        ("inspect", 75, (
-            ("查看", "日志"),
-            ("检查", "日志"),
-            ("获取", "日志"),
-            ("导出", "日志"),
-            ("查看", "页面结构"),
-            ("获取", "页面结构"),
-            ("查看", "控件树"),
-            ("分析", "页面结构"),
-        )),
-        ("network", 72, (
-            ("爬", "接口"),
-            ("抓", "接口"),
-            ("拉", "接口"),
-            ("获取", "接口"),
-            ("查看", "接口"),
-            ("分析", "接口"),
-            ("爬", "请求"),
-            ("抓", "请求"),
-            ("拉", "请求"),
-            ("获取", "响应"),
-            ("查看", "响应"),
-            ("分析", "响应"),
-        )),
-        ("performance", 85, [
-            ("查看", "内存"),
-            ("分析", "内存"),
-            ("测试", "内存"),
-            ("查看", "流畅度"),
-            ("分析", "流畅度"),
-            ("测试", "流畅度"),
-            ("查看", "启动速度"),
-            ("分析", "启动速度"),
-            ("测试", "启动速度"),
-            ("查看", "页面切换速度"),
-            ("分析", "页面切换速度"),
-            ("测试", "页面切换速度"),
-            ("查看", "流式tokens"),
-            ("分析", "流式tokens"),
-            ("测试", "流式tokens"),
-            ("查看", "首字上屏"),
-            ("分析", "首字上屏"),
-            ("测试", "首字上屏"),
-            ("查看", "尾字上屏"),
-            ("分析", "尾字上屏"),
-            ("测试", "尾字上屏"),
-            ("压测", "内存"),
-            ("压测", "流畅度"),
-            ("压测", "启动速度"),
-            ("压测", "页面切换速度"),
-        ]),
-        ("report", 90, (
-            ("生成", "内存报告"),
-            ("输出", "内存报告"),
-            ("导出", "内存报告"),
-            ("生成", "阶段帧分析报告"),
-            ("输出", "阶段帧分析报告"),
-            ("导出", "阶段帧分析报告"),
-            ("生成", "流畅度分析报告"),
-            ("输出", "流畅度分析报告"),
-            ("导出", "流畅度分析报告"),
-        )),
-        ("system", 50, (
-            ("打开", "设置"),
-            ("进入", "设置"),
-            ("返回", "首页"),
-            ("回到", "首页"),
-            ("清理", "缓存"),
-        )),
-    )
-    VERB_DOMAIN_WEIGHTS: dict[str, dict[str, int]] = {
-        "查看": {"performance": 100, "inspect": 95, "device": 90, "network": 85},
-        "获取": {"network": 100, "device": 95, "inspect": 90},
-        "分析": {"performance": 100, "inspect": 95, "network": 90},
-        "测试": {"performance": 100},
-        "压测": {"performance": 100},
-        "生成": {"report": 100},
-        "输出": {"report": 100},
-        "导出": {"report": 100, "inspect": 90},
-        "打开": {"screen": 100, "app": 90, "system": 80},
-        "进入": {"screen": 100, "app": 90, "system": 80},
-        "启动": {"screen": 100, "app": 90},
-        "关闭": {"screen": 100, "app": 90},
-        "停止": {"screen": 100, "app": 90},
-        "开始": {"screen": 100, "performance": 85},
-        "连接": {"device": 100},
-        "连上": {"device": 100},
-        "连接到": {"device": 100},
-        "选择": {"device": 100},
-        "切换到": {"device": 100},
-        "安装": {"app": 100},
-        "卸载": {"app": 100},
-        "重启": {"app": 100},
-        "爬": {"network": 100},
-        "抓": {"network": 100},
-        "拉": {"network": 100},
-        "拉取": {"screen": 95, "network": 90},
-        "截": {"screen": 100},
-        "截图": {"screen": 100},
-        "截取": {"screen": 100},
-        "录": {"screen": 100},
-        "录屏": {"screen": 100},
-        "返回": {"system": 100},
-        "回到": {"system": 100},
-        "清理": {"system": 100},
+    MODE_ALLOWED_DOMAINS: dict[PROMPT_TAG, frozenset[str]] = {
+        "CHAT": frozenset({
+            "device_connection",
+            "app_lifecycle",
+            "ui_action",
+            "keyevent",
+            "system",
+            "file",
+            "screen_capture",
+            "package_info",
+            "inspect_runtime",
+            "security",
+            "network_http",
+            "network_sse_ws",
+            "network_graphql",
+            "network_socket",
+            "network_mail_file",
+            "performance_memrix",
+            "performance_framix",
+            "stability_monkey",
+            "media_video",
+            "media_audio",
+            "report",
+        }),
+        "FAST": frozenset({
+            "inspect_runtime",
+            "security",
+            "network_http",
+            "network_sse_ws",
+            "network_graphql",
+            "network_socket",
+            "network_mail_file",
+            "media_video",
+            "media_audio",
+            "report",
+        }),
+        "PLAN": frozenset({
+            "device_connection",
+            "app_lifecycle",
+            "ui_action",
+            "keyevent",
+            "system",
+            "file",
+            "screen_capture",
+            "package_info",
+            "inspect_runtime",
+            "report",
+        }),
     }
 
     def __init__(self) -> None:
-        self.templates: dict[str, str] = {
-            "/model": " your-model-name",
-            "/model ": "your-model-name",
-            "/ap": "ikey ",
-            "/api": "key ",
-            "/apikey": " your-api-key",
-            "/apikey ": "your-api-key",
-            "/su": "bscription",
-            "/sub": "scription",
-            "/li": "cense",
-            "/lic": "ense",
-            "ex": "it",
-            "qui": "t",
-            "su": "bscription",
-            "sub": "scription",
-            "li": "cense",
-            "lic": "ense",
-        }
-        self.chat_templates: tuple[tuple[str, str], ...] = (
-            ("你", "好"),
-            ("你好", "，请介绍一下你自己"),
-            ("请", "介绍一下你自己"),
-            ("介绍", "一下你自己"),
-            ("你是", "谁"),
-            ("你能", "做什么"),
-            ("帮我", "分析一下这个问题"),
-            ("帮我看", "一下这个问题"),
-            ("解释", "一下这个问题"),
-            ("说说", "这个功能"),
-            ("总结", "一下这个内容"),
-            ("给我", "一个方案"),
-            ("怎么", "做"),
-            ("怎么", "实现"),
-            ("如何", "做"),
-            ("如何", "实现"),
-            ("怎样", "做"),
-            ("怎样", "实现"),
-            ("哪样", "更合适"),
-            ("为什么", "会这样"),
-            ("是否", "可以这样做"),
-            ("能不能", "这样做"),
-            ("可不可以", "这样做"),
-            ("有没有", "更好的方案"),
-        )
-        self.intent_templates: tuple[dict[str, typing.Any], ...] = tuple(
-            {
-                "domain": domain,
-                "group_weight": weight,
-                "verb": verb,
-                "suggestion": suggestion,
-                "order": order,
-            }
-            for domain, weight, pairs in self.INTENT_GROUPS
-            for order, (verb, suggestion) in enumerate(pairs)
-        )
+        self.tag: PROMPT_TAG = "CHAT"
+        self.templates: dict[str, str] = COMMAND_TEMPLATES
+        self.chat_templates: tuple[tuple[str, str], ...] = CHAT_TEMPLATES
+        self.intent_templates: tuple[dict[str, typing.Any], ...] = build_intent_templates()
+
+    def set_tag(self, tag: PROMPT_TAG) -> None:
+        self.tag = tag
+
+    @staticmethod
+    def _best_prefix_completion(
+        text: str,
+        pairs: tuple[tuple[str, str], ...],
+    ) -> typing.Optional[Suggestion]:
+        stripped = text.strip()
+        if not stripped:
+            return None
+
+        candidates: list[tuple[int, str]] = []
+        for prefix, suffix in pairs:
+            full = f"{prefix}{suffix}"
+            if full == stripped:
+                continue
+            if full.startswith(stripped):
+                remain = full[len(stripped):]
+                if remain:
+                    candidates.append((len(remain), remain))
+            elif prefix.startswith(stripped):
+                remain = prefix[len(stripped):] + suffix
+                if remain:
+                    candidates.append((len(remain), remain))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda item: item[0])
+        return Suggestion(candidates[0][1])
 
     def get_suggestion(self, buffer, document):
         text = document.text_before_cursor
@@ -299,20 +187,47 @@ class CommandAutoSuggest(AutoSuggest):
                 return Suggestion(suggestion)
 
         if not text.startswith("/"):
+            prefix_suggestion = self._best_prefix_completion(text, self.chat_templates)
+            if prefix_suggestion is not None:
+                return prefix_suggestion
+
+        if not text.startswith("/"):
             stripped = text.strip()
             matched = [
-                item for item in self.intent_templates if stripped == item["verb"]
+                item
+                for item in self.intent_templates
+                if stripped == item["verb"]
+                and item["domain"] in self.MODE_ALLOWED_DOMAINS[self.tag]
             ]
             if matched:
                 matched.sort(
                     key=lambda item: (
-                        self.VERB_DOMAIN_WEIGHTS.get(item["verb"], {}).get(item["domain"], 0),
+                        VERB_DOMAIN_WEIGHTS.get(item["verb"], {}).get(item["domain"], 0),
                         item["group_weight"],
                         -item["order"],
                     ),
                     reverse=True
                 )
                 return Suggestion(matched[0]["suggestion"])
+
+            prefix_intents = []
+            for item in self.intent_templates:
+                if item["domain"] not in self.MODE_ALLOWED_DOMAINS[self.tag]:
+                    continue
+                full = f"{item['verb']}{item['suggestion']}"
+                if full.startswith(stripped) and full != stripped:
+                    remain = full[len(stripped):]
+                    prefix_intents.append((
+                        len(remain),
+                        VERB_DOMAIN_WEIGHTS.get(item["verb"], {}).get(item["domain"], 0),
+                        item["group_weight"],
+                        -item["order"],
+                        remain,
+                    ))
+
+            if prefix_intents:
+                prefix_intents.sort(key=lambda item: (item[0], -item[1], -item[2], item[3]))
+                return Suggestion(prefix_intents[0][4])
         return None
 
 
@@ -505,6 +420,7 @@ class PromptToolkitBox(object):
         """Render a themed async prompt."""
         th = self._theme(tag)
         message = self._render_message(model, th)
+        self.auto_suggest.set_tag(tag)
 
         with patch_stdout(raw=True):
             value = await self._get_session().prompt_async(

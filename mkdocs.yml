@@ -1,0 +1,27 @@
+site_name: Mind Docs
+site_description: ProxyMind documentation site generated from README and docs.
+site_url: ""
+
+docs_dir: .site-docs
+site_dir: site
+
+theme:
+  name: material
+  language: zh
+
+nav:
+  - 首页: index.md
+  - 文档索引: docs/README.md
+  - 星图协议深入说明: docs/cli-code.md
+  - 接口实战教学: docs/api-playbook.md
+  - 交互模式详解: docs/interactive-mode.md
+  - 多媒体链路实战教学: docs/media-playbook.md
+  - 性能实战教学: docs/performance-playbook.md
+  - 背景与架构: docs/architecture.md
+  - 维护者指南: docs/maintainer-guide.md
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
