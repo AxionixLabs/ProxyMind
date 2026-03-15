@@ -67,6 +67,8 @@ device / bench / common / media
 - `docs/performance-playbook.md`：性能蓝本与典型跑法
 - `docs/interactive-mode.md`：REPL 说明
 - `docs/architecture.md`：背景、云端架构、推理集群
+- `website/mind/`：官网展示壳与站点入口骨架
+- `website/mind/CLOUDFLARE.md`：Cloudflare Pages 部署说明
 
 维护原则：
 - 用户入口变重时，优先下沉到 `docs/`
@@ -90,6 +92,12 @@ SoftwareCenter/Assets/Mind/
   ├── README.md
   ├── LICENSE.md
   └── docs/
+
+SoftwareCenter/site/mind/
+  ├── mkdocs.yml
+  ├── requirements.txt
+  ├── scripts/
+  └── docs/
 ```
 
 维护要求：
@@ -98,6 +106,9 @@ SoftwareCenter/Assets/Mind/
   - `docs/README.md` 已补索引
   - README 是否需要补入口
   - 同步后相对路径仍可达
+- 如果改了 `website/mind/`，要确认同步后仍映射到 `SoftwareCenter/site/mind/`
+- 如果改了正文文档结构，记得同步检查 `website/mind/scripts/sync_docs.py` 的映射
+- 同步 workflow 会先运行 `website/mind/scripts/sync_docs.py`，再复制官网壳到公共仓库
 
 ## 变更检查清单 (Change Checklist)
 每次涉及模式、文档或同步链路的改动，至少检查下面这些点：

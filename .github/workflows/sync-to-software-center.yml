@@ -16,7 +16,8 @@ jobs:
 
       - name: Set variables
         run: |
-          echo "TARGET_DIR=SoftwareCenter/Assets/Mind" >> $GITHUB_ENV
+          echo "DOCS_TARGET_DIR=SoftwareCenter/Assets/Mind" >> $GITHUB_ENV
+          echo "SITE_TARGET_DIR=SoftwareCenter/site/mind" >> $GITHUB_ENV
           echo "REPO_NAME=Mind" >> $GITHUB_ENV
 
       - name: Clone public SoftwareCenter repo
@@ -27,13 +28,20 @@ jobs:
           git config --global user.email "action@github.com"
           git clone https://x-access-token:${GH_TOKEN}@github.com/PlaxtonFlarion/SoftwareCenter.git SoftwareCenter
 
-      - name: Copy README, LICENSE and docs to target repo
+      - name: Build website reference docs
         run: |
-          mkdir -p $TARGET_DIR
-          rm -rf $TARGET_DIR/docs
-          cp README.md $TARGET_DIR/ || true
-          cp LICENSE.md $TARGET_DIR/ || true
-          cp -R docs $TARGET_DIR/ || true
+          python website/mind/scripts/sync_docs.py
+
+      - name: Copy README, LICENSE, docs and website shell to target repo
+        run: |
+          mkdir -p $DOCS_TARGET_DIR
+          mkdir -p $SITE_TARGET_DIR
+          rm -rf $DOCS_TARGET_DIR/docs
+          rm -rf $SITE_TARGET_DIR/*
+          cp README.md $DOCS_TARGET_DIR/ || true
+          cp LICENSE.md $DOCS_TARGET_DIR/ || true
+          cp -R docs $DOCS_TARGET_DIR/ || true
+          cp -R website/mind/. $SITE_TARGET_DIR/ || true
 
       - name: Push to SoftwareCenter (only if changed)
         run: |
