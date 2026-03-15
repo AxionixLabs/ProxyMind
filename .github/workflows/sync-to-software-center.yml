@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  sync_readme_license:
+  sync_docs_bundle:
     runs-on: ubuntu-latest
 
     permissions:
@@ -27,11 +27,13 @@ jobs:
           git config --global user.email "action@github.com"
           git clone https://x-access-token:${GH_TOKEN}@github.com/PlaxtonFlarion/SoftwareCenter.git SoftwareCenter
 
-      - name: Copy non-binary files to public repo
+      - name: Copy README, LICENSE and docs to target repo
         run: |
           mkdir -p $TARGET_DIR
+          rm -rf $TARGET_DIR/docs
           cp README.md $TARGET_DIR/ || true
           cp LICENSE.md $TARGET_DIR/ || true
+          cp -R docs $TARGET_DIR/ || true
 
       - name: Push to SoftwareCenter (only if changed)
         run: |
@@ -40,6 +42,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit. Skipping push."
           else
-            git commit -m "Sync README/LICENSE for $REPO_NAME"
+            git commit -m "Sync docs bundle for $REPO_NAME"
             git push
           fi
