@@ -714,7 +714,8 @@ class Mind(object):
         subs_set: set[str] = {"/subscription", "/sub"}
 
         doc = """\
-        [bold][bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
+        [bold]
+        [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
         [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
         [bold #5FD7AF]/subscription, /sub[/]       订阅信息（授权状态/到期）
         [bold #FF5F5F]/quit, /q, quit, exit[/]     断开会话（安全退出）
@@ -757,14 +758,17 @@ class Mind(object):
                 continue
 
             if raw.lower() == "/chat":
+                Design.console.print()
                 tag = "CHAT"
                 continue
 
             if raw.lower() == "/fast":
+                Design.console.print()
                 tag = "FAST"
                 continue
 
             if raw.lower() == "/plan":
+                Design.console.print()
                 tag = "PLAN"
                 continue
 
