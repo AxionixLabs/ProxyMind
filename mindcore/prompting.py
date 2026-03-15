@@ -26,6 +26,7 @@ from mindnova import const
 from mindcore.prompting_ghost import (
     CHAT_TEMPLATES,
     COMMAND_TEMPLATES,
+    MODE_ALIAS_TEMPLATES,
     VERB_DOMAIN_WEIGHTS,
     build_intent_templates,
 )
@@ -136,6 +137,36 @@ class CommandAutoSuggest(AutoSuggest):
             "report",
         }),
     }
+    MODE_PREFERRED_PHRASES: dict[PROMPT_TAG, dict[str, tuple[str, ...]]] = {
+        "CHAT": {
+            "查看": ("设备信息", "页面结构", "HTTP 响应", "内存趋势", "视频信息"),
+            "分析": ("接口响应", "视频帧", "内存趋势", "页面切换速度"),
+            "生成": ("内存报告", "阶段帧分析报告", "执行结果"),
+            "提取": ("关键帧", "场景帧", "音轨"),
+            "打开": ("设置", "应用", "录屏"),
+        },
+        "FAST": {
+            "查看": ("HTTP 响应", "接口响应", "响应", "SSE 事件流", "WebSocket 消息", "视频信息"),
+            "分析": ("HTTP 响应", "接口响应", "GraphQL 响应", "视频帧"),
+            "生成": ("结果摘要", "执行结果"),
+            "提取": ("关键帧", "场景帧", "音轨"),
+            "请求": ("HTTP 接口", "GraphQL 接口"),
+            "连接": ("WebSocket",),
+            "看": ("接口响应", "HTTP 响应", "响应", "WebSocket 消息", "GraphQL 响应"),
+            "连": ("接 WebSocket",),
+            "抽取": ("音轨", "截图"),
+            "抽": ("关键帧", "场景帧", "音轨", "截图"),
+        },
+        "PLAN": {
+            "查看": ("设备信息", "当前控件树", "当前焦点"),
+            "打开": ("设置", "通知栏", "应用"),
+            "开": ("设置", "通知栏", "应用"),
+            "进入": ("应用", "设置"),
+            "返回": ("首页", "上一页"),
+            "等待": ("元素出现", "元素消失", "3 秒"),
+            "滚动": ("到目标元素", "到顶部", "到底部"),
+        },
+    }
 
     def __init__(self) -> None:
         self.tag: PROMPT_TAG = "CHAT"
@@ -145,6 +176,38 @@ class CommandAutoSuggest(AutoSuggest):
 
     def set_tag(self, tag: PROMPT_TAG) -> None:
         self.tag = tag
+
+    def _mode_alias_suggestion(self, text: str) -> typing.Optional[Suggestion]:
+        stripped = text.strip().lower()
+        if not stripped or stripped.startswith("/"):
+            return None
+
+        candidates: list[tuple[int, str]] = []
+        for prefix, suffix in MODE_ALIAS_TEMPLATES[self.tag]:
+            full = f"{prefix}{suffix}"
+            if full == stripped:
+                continue
+            if full.startswith(stripped):
+                remain = full[len(stripped):]
+                if remain:
+                    candidates.append((len(remain), remain))
+            elif prefix.startswith(stripped):
+                remain = prefix[len(stripped):] + suffix
+                if remain:
+                    candidates.append((len(remain), remain))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda item: item[0])
+        return Suggestion(candidates[0][1])
+
+    def _phrase_priority(self, verb: str, suggestion: str) -> int:
+        preferred = self.MODE_PREFERRED_PHRASES[self.tag].get(verb, ())
+        for idx, phrase in enumerate(preferred):
+            if suggestion == phrase:
+                return len(preferred) - idx
+        return 0
 
     @staticmethod
     def _best_prefix_completion(
@@ -187,6 +250,10 @@ class CommandAutoSuggest(AutoSuggest):
                 return Suggestion(suggestion)
 
         if not text.startswith("/"):
+            alias_suggestion = self._mode_alias_suggestion(text)
+            if alias_suggestion is not None:
+                return alias_suggestion
+
             prefix_suggestion = self._best_prefix_completion(text, self.chat_templates)
             if prefix_suggestion is not None:
                 return prefix_suggestion
@@ -202,6 +269,7 @@ class CommandAutoSuggest(AutoSuggest):
             if matched:
                 matched.sort(
                     key=lambda item: (
+                        self._phrase_priority(item["verb"], item["suggestion"]),
                         VERB_DOMAIN_WEIGHTS.get(item["verb"], {}).get(item["domain"], 0),
                         item["group_weight"],
                         -item["order"],
@@ -219,6 +287,7 @@ class CommandAutoSuggest(AutoSuggest):
                     remain = full[len(stripped):]
                     prefix_intents.append((
                         len(remain),
+                        self._phrase_priority(item["verb"], item["suggestion"]),
                         VERB_DOMAIN_WEIGHTS.get(item["verb"], {}).get(item["domain"], 0),
                         item["group_weight"],
                         -item["order"],
@@ -226,8 +295,8 @@ class CommandAutoSuggest(AutoSuggest):
                     ))
 
             if prefix_intents:
-                prefix_intents.sort(key=lambda item: (item[0], -item[1], -item[2], item[3]))
-                return Suggestion(prefix_intents[0][4])
+                prefix_intents.sort(key=lambda item: (item[0], -item[1], -item[2], -item[3], item[4]))
+                return Suggestion(prefix_intents[0][5])
         return None
 
 
