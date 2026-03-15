@@ -70,5 +70,5 @@ data/
 schematic/supports/
 Structure/
 website/mind/site/
-website/mind/docs/reference/*.md
-!website/mind/docs/reference/.gitkeep
+website/mind/pages/generated/*.md
+!website/mind/pages/generated/.gitkeep
