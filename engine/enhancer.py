@@ -5,14 +5,15 @@
 # |_____|_| |_|_| |_|\__,_|_| |_|\___\___|_|
 #
 
+import json
 import typing
 import asyncio
-import json
 from pathlib import Path
 from loguru import logger
 from mcp import ClientSession
 from mcp.types import CallToolResult
 from engine.tinker import StreamTyperLogger
+from mindcore.api import Api
 from mindnova.report import Report
 from mindnova import request
 
@@ -472,6 +473,14 @@ class Enhancer(object):
 
         fields = self.fields(result)
         attachments: list[dict[str, str]] = []
+
+        heal_status = await Api.heal_license() or {}
+        if not heal_status.get("enabled", False):
+            return {
+                "text"        : "远程元素自愈服务暂不可用",
+                "attachments" : attachments,
+                "data"        : {"ok": False, "fields": fields}
+            }
 
         if not (results := fields.get("data", {}).get("results")):
             return {

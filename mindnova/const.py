@@ -65,6 +65,7 @@ MCP_ED   = r"/helix/mcp"
 
 # ========【专有服务】========
 ATLAS_URL    = f"https://api.appserverx.com/mind-atlas"
+HEAL_LIC_URL = f"https://api.appserverx.com/mind-heal-license"
 MANIFEST_URL = f"https://api.appserverx.com/mind-manifest"
 
 # ========【应用授权】========

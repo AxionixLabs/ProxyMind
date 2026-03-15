@@ -42,6 +42,17 @@ class Api(object):
         return auth_info.get("mode", {})
 
     @staticmethod
+    async def heal_license() -> typing.Optional[dict]:
+        """获取远程元素自愈服务的可用状态。"""
+        try:
+            sign_data = await Api.ask_request_get(const.HEAL_LIC_URL)
+            auth_info = authorize.verify_signature(sign_data)
+        except Exception as e:
+            return logger.debug(e)
+
+        return auth_info.get("heal_element", {})
+
+    @staticmethod
     async def remote_config() -> typing.Optional[dict]:
         """获取远程配置中心的全局配置数据。"""
         try:
