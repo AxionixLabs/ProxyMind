@@ -154,6 +154,8 @@ MODE_ALIAS_TEMPLATES: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "PLAN": (
         ("scrcpy", " 录屏"),
+        ("重复", "执行 3 次"),
+        ("循环", "执行 3 次"),
     ),
 }
 
@@ -285,7 +287,6 @@ INTENT_GROUPS: tuple[tuple[str, int, tuple[tuple[str, str], ...]], ...] = (
         ("等待", "3 秒"),
         ("循环执行", "步骤"),
         ("按步骤", "执行任务"),
-        ("跑", "自由规则"),
     )),
     ("security", 68, (
         ("计算", "sha256 摘要"),
@@ -507,6 +508,8 @@ VERB_DOMAIN_WEIGHTS: dict[str, dict[str, int]] = {
     "熄灭": {"system": 100},
     "组合键": {"system": 100},
     "执行": {"stability_monkey": 100},
+    "重复": {"inspect_runtime": 98},
+    "循环": {"inspect_runtime": 96},
     "注入": {"stability_monkey": 100},
     "跑": {"stability_monkey": 94, "inspect_runtime": 90},
     "做": {"security": 84, "stability_monkey": 82},
@@ -532,7 +535,6 @@ VERB_DOMAIN_WEIGHTS: dict[str, dict[str, int]] = {
     "听": {"media_audio": 100},
     "播放": {"media_audio": 100},
     "试听": {"media_audio": 100},
-    "循环执行": {"inspect_runtime": 100},
 }
 
 

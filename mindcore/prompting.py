@@ -134,6 +134,11 @@ class CommandAutoSuggest(AutoSuggest):
             "screen_capture",
             "package_info",
             "inspect_runtime",
+            "performance_memrix",
+            "performance_framix",
+            "stability_monkey",
+            "media_video",
+            "media_audio",
             "report",
         }),
     }
@@ -167,6 +172,11 @@ class CommandAutoSuggest(AutoSuggest):
             "滚动": ("到目标元素", "到顶部", "到底部"),
         },
     }
+    MODE_BLOCKED_FULL_PHRASES: dict[PROMPT_TAG, frozenset[str]] = {
+        "CHAT": frozenset(),
+        "FAST": frozenset(),
+        "PLAN": frozenset({"循环执行步骤"}),
+    }
 
     def __init__(self) -> None:
         self.tag: PROMPT_TAG = "CHAT"
@@ -185,6 +195,8 @@ class CommandAutoSuggest(AutoSuggest):
         candidates: list[tuple[int, str]] = []
         for prefix, suffix in MODE_ALIAS_TEMPLATES[self.tag]:
             full = f"{prefix}{suffix}"
+            if full in self.MODE_BLOCKED_FULL_PHRASES[self.tag]:
+                continue
             if full == stripped:
                 continue
             if full.startswith(stripped):
@@ -270,6 +282,7 @@ class CommandAutoSuggest(AutoSuggest):
                 for item in self.intent_templates
                 if stripped == item["verb"]
                 and item["domain"] in self.MODE_ALLOWED_DOMAINS[self.tag]
+                and f"{item['verb']}{item['suggestion']}" not in self.MODE_BLOCKED_FULL_PHRASES[self.tag]
             ]
             if matched:
                 matched.sort(
@@ -288,6 +301,8 @@ class CommandAutoSuggest(AutoSuggest):
                 if item["domain"] not in self.MODE_ALLOWED_DOMAINS[self.tag]:
                     continue
                 full = f"{item['verb']}{item['suggestion']}"
+                if full in self.MODE_BLOCKED_FULL_PHRASES[self.tag]:
+                    continue
                 if full.startswith(stripped) and full != stripped:
                     remain = full[len(stripped):]
                     prefix_intents.append((
