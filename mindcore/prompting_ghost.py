@@ -1,3 +1,11 @@
+#  ____                            _   _                ____ _               _
+# |  _ \ _ __ ___  _ __ ___  _ __ | |_(_)_ __   __ _   / ___| |__   ___  ___| |_
+# | |_) | '__/ _ \| '_ ` _ \| '_ \| __| | '_ \ / _` | | |  _| '_ \ / _ \/ __| __|
+# |  __/| | | (_) | | | | | | |_) | |_| | | | | (_| | | |_| | | | | (_) \__ \ |_
+# |_|   |_|  \___/|_| |_| |_| .__/ \__|_|_| |_|\__, |  \____|_| |_|\___/|___/\__|
+#                           |_|                |___/
+#
+
 import typing
 
 
@@ -540,3 +548,7 @@ def build_intent_templates() -> tuple[dict[str, typing.Any], ...]:
         for domain, weight, pairs in INTENT_GROUPS
         for order, (verb, suggestion) in enumerate(pairs)
     )
+
+
+if __name__ == '__main__':
+    pass
