@@ -720,9 +720,9 @@ class Mind(object):
         [bold #FF5F5F]/quit, /q, quit, exit[/]     断开会话（安全退出）
         [bold #AFD7FF]/model <name>[/]             引擎切换（选择推理内核）
         [bold #AFD7FF]/apikey <key>[/]             凭证更新（替换访问密钥）
-        [bold #FFD75F]/chat[/]                     对话模式（自由对话）
-        [bold #FFD75F]/fast[/]                     高速模式（压测采集）
-        [bold #FFD75F]/plan[/]                     编排模式（工具执行）
+        [bold #FFD75F]/chat[/]                     对话模式（全域能力接入/自然语言交互）
+        [bold #FFD75F]/fast[/]                     高速模式（高吞吐任务流/数据媒体直达）
+        [bold #FFD75F]/plan[/]                     编排模式（结构任务拆解/确定路径执行）
         [/]"""
 
         re_model  = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)

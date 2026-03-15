@@ -24,7 +24,7 @@ from prompt_toolkit.shortcuts import CompleteStyle
 from prompt_toolkit.styles import Style
 from mindnova import const
 
-PromptTag = typing.Literal["CHAT", "FAST", "PLAN"]
+PROMPT_TAG = typing.Literal["CHAT", "FAST", "PLAN"]
 
 
 class SlashCommandCompleter(Completer):
@@ -451,7 +451,7 @@ class PromptToolkitBox(object):
         return self.session
 
     @staticmethod
-    def _theme(tag: PromptTag) -> dict[str, str]:
+    def _theme(tag: PROMPT_TAG) -> dict[str, str]:
         return {
             "CHAT": {
                 "brand": "#74B6FF",
@@ -501,7 +501,7 @@ class PromptToolkitBox(object):
             f"<prompt.kicker>.</prompt.kicker> "
         )
 
-    async def prompt_async(self, *, tag: PromptTag, model: str) -> str:
+    async def prompt_async(self, *, tag: PROMPT_TAG, model: str) -> str:
         """Render a themed async prompt."""
         th = self._theme(tag)
         message = self._render_message(model, th)

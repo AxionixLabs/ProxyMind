@@ -20,7 +20,7 @@ class Parser(object):
         custom_made_usage = f"""\
         --------------------------------------------
         \033[1;35m{const.APP_NAME}\033[0m --chat "Unlock the device"
-        \033[1;35m{const.APP_NAME}\033[0m --fast "Record screen, wait for 2 seconds, stop recording"
+        \033[1;35m{const.APP_NAME}\033[0m --fast "Extract keyframes from /path/to/demo.mp4 and return evidence"
         \033[1;35m{const.APP_NAME}\033[0m --plan "Unlock, wait 1 second, then tap 500,1000"
         """
         self.__parse_engine = argparse.ArgumentParser(
@@ -89,7 +89,7 @@ class Parser(object):
             help=textwrap.dedent(f'''\
                 \033[1;34m^* 边界协议 *^\033[0m
                 -------------------------
-                - 启用性能压测与指标采集通道，用于探测系统性能边界。
+                - 快速执行通道，适合接口、文本与媒体类短链路任务。
 
             ''')
         )
