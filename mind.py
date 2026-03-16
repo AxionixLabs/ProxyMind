@@ -34,6 +34,7 @@ from mindcore.design import Design
 from mindcore.prompting import PromptToolkitBox
 from engine.enhancer import Enhancer
 from engine.manage import ServerManage
+from engine.animaion import AsyncAnimManager
 from engine.scaling import (
     PackItem, Pack
 )
@@ -73,11 +74,7 @@ class Mind(object):
         self.task_event: asyncio.Event = asyncio.Event()
         self.task_info: list = []
 
-        self.stream_event: typing.Optional[asyncio.Event] = None
-        self.stream_task: typing.Optional[asyncio.Task] = None
-
-        self.plan_event: typing.Optional[asyncio.Event] = None
-        self.plan_task: typing.Optional[asyncio.Task] = None
+        self.anim_manager: AsyncAnimManager = AsyncAnimManager()
 
         self.last_refresh_ts: float = 0.0
         self.ttl_sec: float         = 1.0
@@ -112,20 +109,13 @@ class Mind(object):
         Design.show_exit()
         sys.exit(130)
 
-    async def stop_stream_anim(self) -> None:
-        """Stop Stream"""
-        self.stream_event and self.stream_event.set()
-        self.stream_task and await self.stream_task
+    async def stop_anim(self) -> None:
+        """Stop Anim"""
+        await self.anim_manager.stop()
 
-    async def stop_plan_anim(self) -> None:
-        """Stop Plan"""
-        self.plan_event and self.plan_event.set()
-        self.plan_task and await self.plan_task
-
-    async def stop_all_anim(self) -> None:
-        """Stop All"""
-        await self.stop_stream_anim()
-        await self.stop_plan_anim()
+    async def start_anim(self, mode: typing.Literal["chat", "fast", "plan"] = "chat") -> None:
+        """Start Anim"""
+        await self.anim_manager.start(lambda stop_event: self.design.stream_wait_live(stop_event, mode))
 
     @staticmethod
     def ensure_model_api(model_api: dict[str, typing.Any]) -> None:
@@ -252,6 +242,7 @@ class Mind(object):
         *,
         message: str,
         func: typing.Callable,
+        mode: typing.Literal["chat", "fast", "plan"] = "chat",
         **kwargs
     ) -> None:
         """Calling"""
@@ -269,21 +260,18 @@ class Mind(object):
         sid = meta_in.get("sid") if isinstance(meta_in, dict) else None
         kwargs["metadata"] = self.begin_session(cid=cid, sid=sid)
 
-        self.stream_event = asyncio.Event()
-        self.stream_task = asyncio.create_task(
-            self.design.prefix_line(self.stream_event)
-        )
+        await self.start_anim(mode)
 
         try:
             return await func(model_api, message, **kwargs)
 
         except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as eg:
-            await self.stop_all_anim()
+            await self.stop_anim()
             for ex in flatten_exceptions(eg):
                 logger.error(f"❌ [NET] {ex!r}")
 
         except* httpx.HTTPStatusError as eg:
-            await self.stop_all_anim()
+            await self.stop_anim()
             for ex in flatten_exceptions(eg):
                 if isinstance(ex, httpx.HTTPStatusError):
                     body = ex.response.extensions.get("error_body", b"")
@@ -293,9 +281,11 @@ class Mind(object):
                     logger.error(f"❌ [HTTP] unexpected: {ex!r}")
 
         except* Exception as eg:
-            await self.stop_all_anim()
+            await self.stop_anim()
             for ex in flatten_exceptions(eg):
                 logger.error(f"❌ [ERROR] {ex!r}")
+        finally:
+            await self.stop_anim()
 
     # workflow: ==== Chat 对话模式 ====
     async def stream_looper(
@@ -345,11 +335,14 @@ class Mind(object):
 
         slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
         await slog.open()
+        anim_stopped = False
 
         # workflow: ==== Chat Streaming ====
         try:
             async for chat in request.stream_chat(mode, model_api, message, ft, slog=slog, **kwargs):
-                await self.stop_stream_anim()
+                if not anim_stopped:
+                    await self.stop_anim()
+                    anim_stopped = True
                 await slog.start()
 
                 match chat.get("type"):
@@ -471,9 +464,12 @@ class Mind(object):
             "steps"      : [],
             "current"    : None
         }
+        anim_stopped = False
 
         async for plan in request.stream_plan(mode, model_api, message, ft, extras, **kwargs):
-            await self.stop_stream_anim()
+            if not anim_stopped:
+                await self.stop_anim()
+                anim_stopped = True
             if plan.get("type") == "error":
                 await finish("fail", error=json.dumps(plan, ensure_ascii=False))
                 return logger.error(plan)
@@ -789,7 +785,7 @@ class Mind(object):
 
             model_api = self.pref.to_config(model=model, apikey=apikey)
 
-            await self.calling(model_api, message=raw, func=func, metadata=metadata)
+            await self.calling(model_api, message=raw, func=func, mode=tag.lower(), metadata=metadata)
 
     # Notes: ==== Pack 批量模式 ====
     async def mind_pack(
@@ -847,16 +843,12 @@ class Mind(object):
                 "ts"    : time.time()
             })
 
-            self.stream_event = asyncio.Event()
-            self.stream_task = asyncio.create_task(
-                self.design.prefix_line(self.stream_event)
-            )
+            await self.start_anim(mode)
 
             try:
                 await func(session, mode, model_api, msg, openai_tools, domains, **kwargs)
             except BaseException as exc:
                 error = Pack.brief_err(exc)
-                await self.stop_all_anim()
 
                 ev_report.emit({
                     "type"  : "lifecycle",
@@ -870,6 +862,8 @@ class Mind(object):
                     "ts"    : time.time()
                 })
                 logger.error(f"❌ virtual failed: {name} file={p} err={error}\n")
+            finally:
+                await self.stop_anim()
 
             ev_report.emit({
                 "type"  : "lifecycle",
@@ -987,7 +981,7 @@ class Mind(object):
                                 f"▶️  [{idx}/{len(items)}] {it.name} item_run={item_run}/{it.loop} file={p}"
                             )
 
-                            last_exc: typing.Optional[BaseException] = None
+                            last_error: typing.Optional[str] = None
 
                             for attempt in range(1, attempts + 1):
                                 t0 = time.time()
@@ -1020,10 +1014,7 @@ class Mind(object):
                                 if rule:
                                     final_msg = f"{final_msg}\n\n{rule}"
 
-                                self.stream_event = asyncio.Event()
-                                self.stream_task = asyncio.create_task(
-                                    self.design.prefix_line(self.stream_event)
-                                )
+                                await self.start_anim(mode)
 
                                 try:
                                     await func(session, mode, model_api, final_msg, openai_tools, domains, **kwargs)
@@ -1044,13 +1035,11 @@ class Mind(object):
                                         "ts"         : time.time()
                                     })
 
-                                    last_exc = None
                                     break
 
                                 except BaseException as exc:
-                                    last_exc = exc
                                     error = Pack.brief_err(exc)
-                                    await self.stop_all_anim()
+                                    last_error = error
 
                                     ev_report.emit({
                                         "type"         : "lifecycle",
@@ -1093,9 +1082,10 @@ class Mind(object):
                                             "ts"         : time.time()
                                         })
                                         await asyncio.sleep(backoff)
+                                finally:
+                                    await self.stop_anim()
 
-                            if last_exc is not None:
-                                last_error = Pack.brief_err(last_exc)
+                            else:
                                 ev_report.emit({
                                     "type"         : "lifecycle",
                                     "scope"        : "task",
@@ -1264,9 +1254,9 @@ async def main() -> None:
     await authorized()
 
     # 检查每个工具是否存在，如果缺失则显示错误信息并退出程序
-    for tls in tools:
-        if not shutil.which((tls_name := os.path.basename(tls))):
-            raise MindError(f"{const.APP_DESC} missing files {tls_name}")
+    # for tls in tools:
+    #     if not shutil.which((tls_name := os.path.basename(tls))):
+    #         raise MindError(f"{const.APP_DESC} missing files {tls_name}")
 
     # 远程全局配置
     global_config_task = asyncio.create_task(Api.remote_config())
@@ -1294,6 +1284,7 @@ async def main() -> None:
     await pref.load_pref()
 
     launch_cmd = [helix, "--level", level]
+    launch_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), "backend", "helix.py"), "--level", level]
     server: ServerManage = ServerManage(launch_cmd)
     await server.ensure_running()
     await server.close()
@@ -1314,11 +1305,11 @@ async def main() -> None:
     signal.signal(signal.SIGINT, mind.signal_processor)
 
     if chat := cmd_lines.chat:
-        await mind.calling(message=chat, func=mind.mind_chat)
+        await mind.calling(message=chat, func=mind.mind_chat, mode="chat")
     elif fast := cmd_lines.fast:
-        await mind.calling(message=fast, func=mind.mind_fast)
+        await mind.calling(message=fast, func=mind.mind_fast, mode="fast")
     elif plan := cmd_lines.plan:
-        await mind.calling(message=plan, func=mind.mind_plan)
+        await mind.calling(message=plan, func=mind.mind_plan, mode="plan")
     elif code := cmd_lines.code:
         if cmd_lines.chat is not None:
             func = mind.stream_looper

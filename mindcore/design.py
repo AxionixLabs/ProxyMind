@@ -882,6 +882,371 @@ class Design(object):
             await settle(t)
             await draw([" "] * width)
 
+    async def stream_wait_live(
+        self,
+        stop_event: asyncio.Event,
+        theme: typing.Literal["chat", "fast", "plan"] = "chat"
+    ) -> None:
+        """流式等待动画效果。"""
+        if self.design_level != const.SHOW_LEVEL:
+            return None
+
+        palettes: dict[str, dict[str, typing.Any]] = {
+            "chat": {
+                "glyphs": {
+                    "spin"         : "◜◠◝◞◡◟",
+                    "bubble_left"  : "◖",
+                    "bubble_right" : "◗",
+                    "bubble_dot"   : "●",
+                    "focus"        : "◉",
+                    "pulse"        : "•",
+                    "echo"         : "·",
+                    "beam_a"       : "═",
+                    "beam_b"       : "─",
+                    "noise"        : "˙"
+                },
+                "colors": {
+                    "prefix"     : "#A3E635",
+                    "core"       : "#C4FFF0",
+                    "near"       : "#9EF7E7",
+                    "beam"       : "#67E8F9",
+                    "beam_dim"   : "#3F9FB3",
+                    "dust"       : "#3F3F46",
+                    "sweep_core" : "#93C5FD",
+                    "sweep_tail" : "#60A5FA",
+                    "shell"      : "#244454",
+                    "shell_dim"  : "#22313A",
+                    "orbit_a"    : "#FDE68A",
+                    "orbit_b"    : "#8BE9FD",
+                    "orbit_c"    : "#5EEAD4"
+                },
+                "motion": {
+                    "phase_div"      : 6.6,
+                    "handshake_freq" : 0.78,
+                    "bridge_freq"    : 1.25,
+                    "echo_phase"     : 1.2
+                }
+            },
+            "fast": {
+                "glyphs": {
+                    "spin"   : "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏",
+                    "packet" : "◈",
+                    "core"   : "◆",
+                    "near"   : "•",
+                    "beam_a" : "=",
+                    "beam_b" : "-",
+                    "trail"  : ":",
+                    "echo"   : "~",
+                    "gate"   : ">",
+                    "dust"   : "˙",
+                    "orbit"  : ".",
+                    "glitch" : "·:~"
+                },
+                "colors": {
+                    "prefix"     : "#F59E0B",
+                    "core"       : "#FFF3C4",
+                    "near"       : "#FCD34D",
+                    "beam"       : "#FB7185",
+                    "beam_dim"   : "#BE5672",
+                    "dust"       : "#4A2D33",
+                    "sweep_core" : "#F97316",
+                    "sweep_tail" : "#FB7185",
+                    "shell"      : "#5B2C1A",
+                    "shell_dim"  : "#3A2320",
+                    "orbit_a"    : "#FDBA74",
+                    "orbit_b"    : "#F472B6",
+                    "orbit_c"    : "#FDE68A"
+                },
+                "motion": {
+                    "phase_div"    : 3.0,
+                    "lead_freq"    : 0.92,
+                    "echo_phase"   : 0.85,
+                    "pilot_freq"   : 1.8,
+                    "pilot_offset" : 3.0,
+                    "pilot_amp"    : 1.5
+                }
+            },
+            "plan": {
+                "glyphs": {
+                    "spin"     : "◴◷◶◵",
+                    "done"     : "◆",
+                    "active"   : "◉",
+                    "next"     : "◇",
+                    "idle"     : "○",
+                    "beam_a"   : "═",
+                    "beam_b"   : "─",
+                    "progress" : "▸",
+                    "pulse"    : "•",
+                    "echo"     : "·"
+                },
+                "colors": {
+                    "prefix"     : "#34D399",
+                    "core"       : "#D1FAE5",
+                    "near"       : "#6EE7B7",
+                    "beam"       : "#A7F3D0",
+                    "beam_dim"   : "#4E9F8A",
+                    "dust"       : "#31403D",
+                    "sweep_core" : "#10B981",
+                    "sweep_tail" : "#34D399",
+                    "shell"      : "#1F4D45",
+                    "shell_dim"  : "#203733",
+                    "orbit_a"    : "#A7F3D0",
+                    "orbit_b"    : "#93C5FD",
+                    "orbit_c"    : "#C4B5FD"
+                },
+                "motion": {
+                    "phase_div"   : 7.2,
+                    "active_freq" : 0.8,
+                    "bridge_freq" : 1.2
+                }
+            }
+        }
+        palette = palettes.get(theme, palettes["chat"])
+
+        glyphs: dict[str, str] = palette["glyphs"]
+        colors: dict[str, str] = palette["colors"]
+        motion: dict[str, float] = palette["motion"]
+        width = min(30, max(22, self.console.width - 22))
+
+        fps  = 32
+        spin = glyphs["spin"]
+        tick = 0
+
+        def clamp(pos: int) -> int:
+            return max(0, min(width - 1, pos))
+
+        def build_chat(i: int) -> tuple[list[str], dict[int, str]]:
+            phase     = i / motion["phase_div"]
+            center    = width // 2
+            handshake = 0.5 + 0.5 * math.sin(phase * motion["handshake_freq"])
+            left      = clamp(int(2 + handshake * (center - 4)))
+            right     = clamp(int((width - 3) - handshake * (center - 4)))
+            bridge    = left + int((right - left) * (0.5 + 0.5 * math.sin(phase * motion["bridge_freq"])))
+            echo      = left + int(
+                (right - left) * (0.5 + 0.5 * math.sin((phase * motion["bridge_freq"]) + motion["echo_phase"]))
+            )
+            chars = [" "] * width
+            styles: dict[int, str] = dict()
+
+            chars[left]  = glyphs["bubble_left"]
+            styles[left] = f"bold {colors['orbit_a']}"
+            chars[clamp(left + 1)]  = glyphs["bubble_dot"]
+            styles[clamp(left + 1)] = f"bold {colors['core']}"
+
+            chars[right]  = glyphs["bubble_right"]
+            styles[right] = f"bold {colors['orbit_c']}"
+            chars[clamp(right - 1)]  = glyphs["bubble_dot"]
+            styles[clamp(right - 1)] = f"bold {colors['near']}"
+
+            for pos in range(left + 2, right - 1):
+                ratio     = (pos - left) / max(right - left, 1)
+                dist      = abs(pos - bridge)
+                echo_dist = abs(pos - echo)
+
+                if dist == 0:
+                    chars[pos] = glyphs["focus"]
+                    styles[pos] = f"bold {colors['sweep_core']}"
+                elif dist <= 1:
+                    chars[pos] = glyphs["pulse"]
+                    styles[pos] = f"bold {colors['sweep_tail']}"
+                elif echo_dist <= 1:
+                    chars[pos] = glyphs["echo"]
+                    styles[pos] = f"bold {colors['beam_dim']}"
+                elif 0.2 < ratio < 0.8:
+                    chars[pos] = glyphs["beam_a"] if (pos + i) % 2 == 0 else glyphs["beam_b"]
+                    styles[pos] = f"bold {colors['beam']}"
+                elif (pos + i) % 3 == 0:
+                    chars[pos] = glyphs["echo"]
+                    styles[pos] = f"bold {colors['shell']}"
+
+            for pos in (clamp(left - 1), clamp(left - 2), clamp(right + 1), clamp(right + 2)):
+                if chars[pos].strip():
+                    continue
+                chars[pos] = glyphs["noise"]
+                styles[pos] = f"bold {colors['shell_dim']}"
+
+            mid = clamp((left + right) // 2)
+            if not chars[mid].strip():
+                chars[mid] = glyphs["pulse"]
+                styles[mid] = f"bold {colors['orbit_b']}"
+            return chars, styles
+
+        def build_fast(i: int) -> tuple[list[str], dict[int, str]]:
+            phase = i / motion["phase_div"]
+            lead  = 0.5 + 0.5 * math.sin(phase * motion["lead_freq"])
+            head  = clamp(int(lead * (width - 1)))
+            echo  = clamp(
+                int((0.5 + 0.5 * math.sin((phase * motion["lead_freq"]) + motion["echo_phase"])) * (width - 1))
+            )
+            pilot = clamp(min(
+                width - 1,
+                head + int(motion["pilot_offset"] + motion["pilot_amp"] * math.sin(phase * motion["pilot_freq"]))
+            ))
+            chars = [" "] * width
+            styles: dict[int, str] = {}
+            glitch = glyphs["glitch"]
+
+            for pos in range(width):
+                dist = abs(pos - head)
+                if dist == 0:
+                    chars[pos] = glyphs["packet"]
+                    styles[pos] = f"bold {colors['sweep_core']}"
+                elif dist <= 1:
+                    chars[pos] = glyphs["core"]
+                    styles[pos] = f"bold {colors['core']}"
+                elif dist <= 2:
+                    chars[pos] = glyphs["near"]
+                    styles[pos] = f"bold {colors['near']}"
+                elif pos < head and (head - pos) <= 10:
+                    tail = head - pos
+                    if tail <= 2:
+                        chars[pos] = glyphs["near"]
+                        styles[pos] = f"bold {colors['near']}"
+                    elif tail <= 5:
+                        chars[pos] = glyphs["beam_a"] if (pos + i) % 2 == 0 else glyphs["beam_b"]
+                        styles[pos] = f"bold {colors['beam']}"
+                    else:
+                        chars[pos] = glitch[(pos + i) % len(glitch)]
+                        styles[pos] = f"bold {colors['beam_dim']}"
+                elif pos > head and (pos - head) <= 2:
+                    chars[pos] = glyphs["trail"]
+                    styles[pos] = f"bold {colors['sweep_tail']}"
+                elif pos < head and (head - pos) <= 14 and (pos + i) % 4 == 0:
+                    chars[pos] = glitch[(head - pos + i) % len(glitch)]
+                    styles[pos] = f"bold {colors['dust']}"
+                elif pos > head and (pos - head) <= 6 and (pos + i) % 3 == 0:
+                    chars[pos] = glyphs["dust"]
+                    styles[pos] = f"bold {colors['shell_dim']}"
+                elif (pos + i) % 9 == 0:
+                    chars[pos] = glyphs["dust"]
+                    styles[pos] = f"bold {colors['dust']}"
+
+            if not chars[echo].strip():
+                chars[echo] = glyphs["echo"]
+                styles[echo] = f"bold {colors['beam_dim']}"
+
+            if not chars[pilot].strip():
+                chars[pilot] = glyphs["trail"]
+                styles[pilot] = f"bold {colors['sweep_tail']}"
+
+            for pos, color in (
+                (clamp(head - 12), "orbit_a"),
+                (clamp(head - 7), "orbit_b"),
+                (clamp(head + 7), "orbit_c"),
+            ):
+                if chars[pos].strip():
+                    continue
+                chars[pos] = glyphs["orbit"]
+                styles[pos] = f"bold {colors[color]}"
+
+            if head > 2:
+                gate = clamp(head - 2)
+                if not chars[gate].strip():
+                    chars[gate] = glyphs["gate"]
+                    styles[gate] = f"bold {colors['beam']}"
+
+            return chars, styles
+
+        def build_plan(i: int) -> tuple[list[str], dict[int, str]]:
+            phase = i / motion["phase_div"]
+            cols  = [2, width // 3, (2 * width) // 3, width - 3]
+            chars = [" "] * width
+            styles: dict[int, str] = {}
+            active = int((0.5 + 0.5 * math.sin(phase * motion["active_freq"])) * (len(cols) - 1) + 0.5)
+            bridge = 0.5 + 0.5 * math.sin(phase * motion["bridge_freq"])
+            prev_idx = max(0, active - 1)
+            next_idx = min(len(cols) - 1, active + 1)
+
+            for idx, pos in enumerate(cols):
+                if idx < active:
+                    chars[pos] = glyphs["done"]
+                    styles[pos] = f"bold {colors['beam']}"
+                elif idx == active:
+                    chars[pos] = glyphs["active"]
+                    styles[pos] = f"bold {colors['core']}"
+                elif idx == next_idx:
+                    chars[pos] = glyphs["next"]
+                    styles[pos] = f"bold {colors['near']}"
+                else:
+                    chars[pos] = glyphs["idle"]
+                    styles[pos] = f"bold {colors['beam_dim']}"
+
+            for idx in range(len(cols) - 1):
+                a, b = cols[idx], cols[idx + 1]
+                progress_pos = clamp(a + 1 + int((b - a - 2) * bridge))
+                for pos in range(a + 1, b):
+                    ratio = (pos - a) / max(b - a, 1)
+                    if idx < active:
+                        chars[pos] = glyphs["beam_a"] if (pos + i) % 2 == 0 else glyphs["beam_b"]
+                        styles[pos] = f"bold {colors['beam']}"
+                    elif idx == active and ratio <= bridge:
+                        if pos == progress_pos:
+                            chars[pos] = glyphs["progress"]
+                            styles[pos] = f"bold {colors['sweep_core']}"
+                        elif pos >= progress_pos - 2:
+                            chars[pos] = glyphs["pulse"]
+                            styles[pos] = f"bold {colors['sweep_tail']}"
+                        else:
+                            chars[pos] = glyphs["beam_b"]
+                            styles[pos] = f"bold {colors['near']}"
+                    elif idx == active:
+                        chars[pos] = glyphs["echo"]
+                        styles[pos] = f"bold {colors['shell']}"
+                    elif (pos + i) % 6 == 0:
+                        chars[pos] = glyphs["echo"]
+                        styles[pos] = f"bold {colors['shell_dim']}"
+
+            halo = [
+                clamp(cols[active] - 2), clamp(cols[active] - 1),
+                clamp(cols[active] + 1), clamp(cols[active] + 2)
+            ]
+            for idx, pos in enumerate(halo):
+                if chars[pos].strip():
+                    continue
+                chars[pos] = glyphs["echo"] if idx % 2 == 0 else glyphs["pulse"]
+                styles[pos] = f"bold {(colors['orbit_a'], colors['orbit_b'], colors['orbit_c'], colors['orbit_a'])[idx]}"
+
+            for pos in (clamp(cols[prev_idx] - 1), clamp(cols[next_idx] + 1)):
+                if chars[pos].strip():
+                    continue
+                chars[pos] = glyphs["echo"]
+                styles[pos] = f"bold {colors['orbit_b']}"
+            return chars, styles
+
+        def frame(i: int) -> Text:
+            match theme:
+                case "fast":
+                    chars, styles = build_fast(i)
+                case "plan":
+                    chars, styles = build_plan(i)
+                case _:
+                    chars, styles = build_chat(i)
+
+            out = Text()
+            prefix = f"{spin[i % len(spin)]} "
+            out.append(prefix, style=f"bold {colors['prefix']}")
+
+            for pos, ch in enumerate(chars):
+                out.append(ch, style=styles.get(pos, "bold #2A2A2A"))
+            return out
+
+        async def settle(i: int) -> None:
+            for step in range(7):
+                fade = Text(" " * (width + 2), style="bold #202020")
+                if step < 5:
+                    live.update(frame(i + step))
+                    await asyncio.sleep(0.016)
+                live.update(fade)
+                await asyncio.sleep(0.009)
+
+        with Live(frame(0), console=self.console, refresh_per_second=fps, transient=True) as live:
+            while not stop_event.is_set():
+                tick += 1
+                live.update(frame(tick))
+                await asyncio.sleep(1 / fps)
+
+            await settle(tick)
+
     async def deep_thinking(self, task_info: list, task_event: asyncio.Event) -> None:
         if self.design_level != const.SHOW_LEVEL:
             return None

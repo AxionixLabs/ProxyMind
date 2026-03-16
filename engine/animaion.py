@@ -1,0 +1,99 @@
+#     _          _                 _   _
+#    / \   _ __ (_)_ __ ___   __ _| |_(_) ___  _ __
+#   / _ \ | '_ \| | '_ ` _ \ / _` | __| |/ _ \| '_ \
+#  / ___ \| | | | | | | | | | (_| | |_| | (_) | | | |
+# /_/   \_\_| |_|_|_| |_| |_|\__,_|\__|_|\___/|_| |_|
+#
+
+import typing
+import asyncio
+
+
+class AsyncAnimManager(object):
+    """单实例异步动画管理器。"""
+
+    def __init__(self) -> None:
+        self._lock: asyncio.Lock = asyncio.Lock()
+        self._event: typing.Optional[asyncio.Event] = None
+        self._task: typing.Optional[asyncio.Task] = None
+
+    @property
+    def running(self) -> bool:
+        """当前是否有动画在运行。"""
+        task = self._task
+        return bool(task and not task.done())
+
+    async def start(
+        self,
+        runner: typing.Callable[[asyncio.Event], typing.Awaitable[None]]
+    ) -> None:
+        """启动动画；启动前会严格停止当前动画。"""
+        while True:
+            async with self._lock:
+                event, task = self._detach_locked()
+                if not task:
+                    event = asyncio.Event()
+                    task = asyncio.create_task(self._drive(runner, event))
+
+                    self._event = event
+                    self._task = task
+                    return None
+
+            await self._wait_stopped(event, task)
+
+    async def stop(self) -> None:
+        """停止当前动画。"""
+        async with self._lock:
+            event, task = self._detach_locked()
+
+        await self._wait_stopped(event, task)
+
+    async def _drive(
+        self,
+        runner: typing.Callable[[asyncio.Event], typing.Awaitable[None]],
+        event: asyncio.Event
+    ) -> None:
+        task = asyncio.current_task()
+
+        try:
+            await runner(event)
+        finally:
+            async with self._lock:
+                if self._task is task:
+                    self._event = None
+                    self._task = None
+
+    def _detach_locked(self) -> tuple[typing.Optional[asyncio.Event], typing.Optional[asyncio.Task]]:
+        event, task = self._event, self._task
+        self._event = None
+        self._task = None
+        return event, task
+
+    @staticmethod
+    async def _wait_stopped(
+        event: typing.Optional[asyncio.Event],
+        task: typing.Optional[asyncio.Task]
+    ) -> None:
+        if not task:
+            return None
+
+        if event:
+            event.set()
+
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=1.0)
+            return None
+        except asyncio.TimeoutError:
+            task.cancel()
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+
+        try:
+            await task
+        except asyncio.CancelledError:
+            return None
+
+
+if __name__ == '__main__':
+    pass
