@@ -522,7 +522,7 @@ class PromptToolkitBox(object):
                 multiline=True,
                 prompt_continuation=self._render_continuation(),
                 placeholder=HTML(
-                    f"<placeholder>{html.escape(th['placeholder'])}</placeholder>"
+                    f"<placeholder> {html.escape(th['placeholder'])}</placeholder>"
                 ),
                 reserve_space_for_menu=4,
                 style=self.style,
