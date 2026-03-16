@@ -30,7 +30,13 @@ class AsyncAnimManager(object):
         """启动动画；启动前会严格停止当前动画。"""
         while True:
             async with self._lock:
-                event, task = self._detach_locked()
+                event, task = self._event, self._task
+
+                if task and task.done():
+                    self._event = None
+                    self._task = None
+                    event, task = None, None
+
                 if not task:
                     event = asyncio.Event()
                     task = asyncio.create_task(self._drive(runner, event))
@@ -39,14 +45,25 @@ class AsyncAnimManager(object):
                     self._task = task
                     return None
 
-            await self._wait_stopped(event, task)
+                if event:
+                    event.set()
+
+            await self._wait_task_done(task)
 
     async def stop(self) -> None:
         """停止当前动画。"""
         async with self._lock:
-            event, task = self._detach_locked()
+            event, task = self._event, self._task
 
-        await self._wait_stopped(event, task)
+            if task and task.done():
+                self._event = None
+                self._task = None
+                return None
+
+            if event:
+                event.set()
+
+        await self._wait_task_done(task)
 
     async def _drive(
         self,
@@ -63,22 +80,12 @@ class AsyncAnimManager(object):
                     self._event = None
                     self._task = None
 
-    def _detach_locked(self) -> tuple[typing.Optional[asyncio.Event], typing.Optional[asyncio.Task]]:
-        event, task = self._event, self._task
-        self._event = None
-        self._task = None
-        return event, task
-
     @staticmethod
-    async def _wait_stopped(
-        event: typing.Optional[asyncio.Event],
+    async def _wait_task_done(
         task: typing.Optional[asyncio.Task]
     ) -> None:
         if not task:
             return None
-
-        if event:
-            event.set()
 
         try:
             await asyncio.wait_for(asyncio.shield(task), timeout=1.0)
