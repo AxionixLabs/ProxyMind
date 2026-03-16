@@ -334,16 +334,16 @@ class PromptToolkitBox(object):
         self.auto_suggest: CommandAutoSuggest = CommandAutoSuggest()
         self.style: Style = Style.from_dict({
             "prompt": "bold #E2E5EA",
-            "prompt.kicker": "bold #949BA6",
+            "prompt.kicker": "bold #7B838E",
             "prompt.model": "bold #F3F5F8",
-            "prompt.muted": "bold #848B96",
+            "prompt.muted": "bold #767D87",
             "placeholder": "bold #727983",
-            "auto-suggestion": "bold #7C828C bg:#0A0D18",
+            "auto-suggestion": "#5A616A bg:#0A0D18",
             "completion-menu": "bg:#111315 #D8DCE2",
             "completion-menu.completion": "bg:#111315 bold #D6DBE2",
-            "completion-menu.completion.current": "bg:#464B52 bold #FFFFFF",
-            "completion-menu.meta.completion": "bg:#111315 bold #8C939C",
-            "completion-menu.meta.completion.current": "bg:#464B52 bold #E7EBF0",
+            "completion-menu.completion.current": "bg:#3B4148 bold #F4F7FA",
+            "completion-menu.meta.completion": "bg:#111315 #7D858F",
+            "completion-menu.meta.completion.current": "bg:#3B4148 #D9E0E7",
             "scrollbar.background": "bg:#111315",
             "scrollbar.button": "bg:#666D76",
         })
@@ -458,18 +458,18 @@ class PromptToolkitBox(object):
     def _theme(tag: PROMPT_TAG) -> dict[str, str]:
         return {
             "CHAT": {
-                "brand": "#74B6FF",
-                "soft": "#E8EEF3",
+                "brand": "#4F8FC8",
+                "soft": "#2F6FAD",
                 "placeholder": "Chat 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
             },
             "FAST": {
-                "brand": "#72D7A6",
-                "soft": "#E9EFEA",
+                "brand": "#4FA37D",
+                "soft": "#2E7D5B",
                 "placeholder": "Fast 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
             },
             "PLAN": {
-                "brand": "#A99BFF",
-                "soft": "#EEEBF5",
+                "brand": "#866FD1",
+                "soft": "#6B57B8",
                 "placeholder": "Plan 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
             }
         }[tag]
