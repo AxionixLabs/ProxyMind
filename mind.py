@@ -776,16 +776,23 @@ class Mind(object):
                 apikey = await function("apikey") or apikey
                 continue
 
-            func = self.mind_chat
+            func: typing.Callable = self.mind_chat
+            mode: typing.Literal["chat", "fast", "plan"] = "chat"
 
             match tag:
-                case "CHAT": func = self.mind_chat
-                case "FAST": func = self.mind_fast
-                case "PLAN": func = self.mind_plan
+                case "CHAT":
+                    mode = "chat"
+                    func = self.mind_chat
+                case "FAST":
+                    mode = "fast"
+                    func = self.mind_fast
+                case "PLAN":
+                    mode = "plan"
+                    func = self.mind_plan
 
             model_api = self.pref.to_config(model=model, apikey=apikey)
 
-            await self.calling(model_api, message=raw, func=func, mode=tag.lower(), metadata=metadata)
+            await self.calling(model_api, message=raw, func=func, mode=mode, metadata=metadata)
 
     # Notes: ==== Pack 批量模式 ====
     async def mind_pack(
