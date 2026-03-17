@@ -1445,6 +1445,25 @@ class TypewriterStreamSession(object):
             max_lines=self.lines.maxlen
         )
 
+    async def render(self, content: str) -> None:
+        if self.live is None:
+            return None
+
+        self.out = content
+        self.live.update(Text(self.out, style="bold"))
+
+    async def sync(self, content: str, *, animate: bool = False) -> None:
+        if self.live is None:
+            return None
+
+        if animate and content.startswith(self.out):
+            delta = content[len(self.out):]
+            if delta:
+                return await self.feed(delta)
+            return None
+
+        await self.render(content)
+
 
 if __name__ == '__main__':
     pass
