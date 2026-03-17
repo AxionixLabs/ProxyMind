@@ -285,23 +285,17 @@ async def stream_heal(
         match event.get("type"):
             case "thinking":
                 if slog:
-                    await slog.feed(
-                        f"\n{event['content']}\n", display=StreamTyperLogger.BLOCK
-                    )
+                    await slog.feed(event["content"], display=StreamTyperLogger.BLOCK)
                 else: logger.debug(event["content"])
                 continue
             case "done":
                 if slog:
-                    await slog.feed(
-                        "\nHeal done ...\n", display=StreamTyperLogger.BLOCK
-                    )
+                    await slog.feed("Heal done ...", display=StreamTyperLogger.BLOCK)
                 else: logger.debug("Heal done ...")
                 continue
             case "heal":
                 if slog:
-                    await slog.feed(
-                        f"\n{event['content']}\n", display=StreamTyperLogger.BLOCK
-                    )
+                    await slog.feed(event["content"], display=StreamTyperLogger.BLOCK)
                 else: logger.debug(event["content"])
 
         yield event
