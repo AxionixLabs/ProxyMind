@@ -213,17 +213,120 @@ class Tooling(object):
             or (class_in and cls in class_in)
         )
 
+    @staticmethod
+    def summarize_tool_arguments(tool_name: str, tool_args: typing.Any) -> str:
+
+        def short_text(raw_value: typing.Any, limit: int = 40) -> str:
+            text = str(raw_value).replace("\n", " ").strip()
+            return text if len(text) <= limit else f"{text[:limit - 3]}..."
+
+        def summarize_value(arg_value: typing.Any) -> str:
+            if isinstance(arg_value, str):
+                return short_text(arg_value)
+            if isinstance(arg_value, bool):
+                return "true" if arg_value else "false"
+            if arg_value is None:
+                return "null"
+            if isinstance(arg_value, (int, float)):
+                return str(arg_value)
+            if isinstance(arg_value, list):
+                size = len(arg_value)
+                if size == 0:
+                    return "0 items"
+                return f"{size} items"
+            if isinstance(arg_value, dict):
+                dict_keys = [str(k) for k in list(arg_value.keys())[:4]]
+                suffix = "" if len(arg_value) <= 4 else f", +{len(arg_value) - 4}"
+                return f"{{{', '.join(dict_keys)}{suffix}}}"
+            return short_text(arg_value)
+
+        def summarize_locator(locator: typing.Any) -> str:
+            if not isinstance(locator, dict):
+                return summarize_value(locator)
+            by = locator.get("by")
+            value = locator.get("value")
+            if by and value is not None:
+                return f"{by}:{short_text(value, 32)}"
+            primary = locator.get("primary")
+            if isinstance(primary, dict) and primary.get("by") and primary.get("value") is not None:
+                return f"{primary['by']}:{short_text(primary['value'], 32)}"
+            return summarize_value(locator)
+
+        def summarize_flag(flag_name: str, flag_value: typing.Any) -> typing.Optional[str]:
+            if not isinstance(flag_value, bool):
+                return None
+            if flag_value:
+                return flag_name
+            return f"no-{flag_name}"
+
+        def summarize_field(field_name: str, field_value: typing.Any) -> str:
+            if field_name == "locator":
+                return f"{field_name}={summarize_locator(field_value)}"
+            if field_name == "url":
+                return f'{field_name}="{short_text(field_value, 56)}"'
+            if field_name == "path":
+                return f'{field_name}="{short_text(field_value, 48)}"'
+            if field_name in {"query", "target", "text"}:
+                return f'{field_name}="{short_text(field_value, 56)}"'
+            if field_name in {"topk", "limit", "count", "wait", "timeout"}:
+                suffix = "s" if field_name in {"wait", "timeout"} else ""
+                return f"{field_name}={summarize_value(field_value)}{suffix}"
+            if isinstance(field_value, list):
+                return f"{field_name}={len(field_value)} items"
+            if isinstance(field_value, dict):
+                if field_name in {"filters", "flags", "options", "context"}:
+                    names = list(field_value.keys())[:4]
+                    suffix = "" if len(field_value) <= 4 else f", +{len(field_value) - 4}"
+                    return f"{field_name}={{{', '.join(map(str, names))}{suffix}}}"
+                return f"{field_name}={summarize_value(field_value)}"
+            if isinstance(field_value, bool):
+                return summarize_flag(field_name, field_value) or f"{field_name}=false"
+            return f"{field_name}={summarize_value(field_value)}"
+
+        if not isinstance(tool_args, dict):
+            return short_text(tool_args, 120)
+
+        preferred = [
+            "query", "target", "text", "locator", "url", "path",
+            "page_id", "agent_id", "serial", "topk", "limit",
+            "count", "wait", "timeout"
+        ]
+        ordered_keys = [k for k in preferred if k in tool_args]
+        ordered_keys += [k for k in tool_args.keys() if k not in ordered_keys]
+
+        parts: list[str] = []
+        for key in ordered_keys[:6]:
+            parts.append(summarize_field(key, tool_args.get(key)))
+
+        if len(tool_args) > 6:
+            parts.append(f"+{len(tool_args) - 6} fields")
+
+        summary = ", ".join(parts)
+        if summary:
+            summary = f"{tool_name}: {summary}"
+        return summary if len(summary) <= 180 else f"{summary[:177]}..."
+
 
 class StreamTyperLogger(object):
     """打字机 + 流式转录日志。"""
 
+    STREAM          = "stream"
+    BLOCK           = "block"
+    ELLIPSIS        = " ..."
+    MIN_LINE_LIMIT  = 48
+    MAX_LINE_LIMIT  = 160
+    LINE_PADDING    = 6
+    MIN_BLOCK_LIMIT = 96
+    MAX_BLOCK_LIMIT = 320
+    BLOCK_LINES     = 2
+
     def __init__(self, log_file: str) -> None:
         self.log_file = log_file
         self.buffer: str = ""
-        self.line_len: int = 0
-        self.line_cut: bool = False
         self.fp: typing.Optional[typing.TextIO] = None
         self.typewriter: TypewriterStreamSession = TypewriterStreamSession()
+        self.display_segments: list[dict[str, str]] = []
+        self.display_text: str = ""
 
     async def start(self) -> None:
         await self.typewriter.start()
@@ -247,9 +350,17 @@ class StreamTyperLogger(object):
             self.log_file, "a", encoding=const.CHARSET, buffering=1, newline=""
         )
 
-    async def feed(self, chunk: typing.Optional[str], *, echo: bool = True) -> None:
+    async def feed(
+        self,
+        chunk: typing.Optional[str],
+        *,
+        echo: bool = True,
+        display: str = STREAM,
+        display_chunk: typing.Optional[str] = None
+    ) -> None:
         if not chunk: return None
         delta = str(chunk)
+        visible_delta = str(display_chunk) if display_chunk is not None else delta
         echo_now = bool(echo)
 
         # 1) ==== 全量落盘 ====
@@ -265,32 +376,132 @@ class StreamTyperLogger(object):
         if not echo_now:
             return None
 
-        # 2) ==== 终端按行截断实时展示 ====
-        line_limit = 120
+        self._append_segment(display, visible_delta)
+        visible = self._compose_visible_text()
+        animate = (display == self.STREAM and visible.startswith(self.display_text))
+        self.display_text = visible
+        await self.typewriter.sync(visible, animate=animate)
+
+    def _append_segment(self, display: str, delta: str) -> None:
+        if (
+            display == self.STREAM
+            and self.display_segments
+            and self.display_segments[-1]["mode"] == self.STREAM
+        ):
+            self.display_segments[-1]["text"] += delta
+            return None
+
+        self.display_segments.append({"mode": display, "text": delta})
+
+    def _compose_visible_text(self) -> str:
         parts: list[str] = []
+        line_limit = self._line_limit()
+        block_limit = self._block_limit(line_limit)
+
+        for segment in self.display_segments:
+            mode = segment["mode"]
+            text = segment["text"]
+            if mode == self.BLOCK:
+                parts.append(self._render_block(text, block_limit))
+                continue
+            parts.append(self._render_stream(text, line_limit))
+
+        return "".join(parts)
+
+    def _render_block(self, delta: str, limit: int) -> str:
+        visible = 0
+        parts: list[str] = []
+        trimmed = False
+
+        for ch in delta:
+            if ch == "\n":
+                parts.append(ch)
+                continue
+
+            if visible < limit:
+                parts.append(ch)
+                visible += 1
+                continue
+
+            trimmed = True
+            break
+
+        out = "".join(parts)
+
+        if trimmed:
+            self._trim_visible_tail(parts, limit, len(self.ELLIPSIS))
+            out = "".join(parts).rstrip("\n")
+            if not out.endswith(self.ELLIPSIS):
+                out = f"{out}{self.ELLIPSIS}"
+            if delta.endswith("\n") and not out.endswith("\n"):
+                out += "\n"
+
+        return out
+
+    def _render_stream(self, delta: str, limit: int) -> str:
+        parts: list[str] = []
+        line_start = 0
+        line_len = 0
+        line_cut = False
 
         for ch in delta:
             if ch == "\n":
                 parts.append("\n")
-                self.line_len = 0
-                self.line_cut = False
+                line_start = len(parts)
+                line_len = 0
+                line_cut = False
                 continue
 
-            if self.line_cut:
-                # 当前行已经截断，直到换行前都丢弃
+            if line_cut:
                 continue
 
-            if self.line_len < line_limit:
+            if line_len < limit:
                 parts.append(ch)
-                self.line_len += 1
+                line_len += 1
                 continue
 
-            # 到这里说明刚刚超过上限，补一个截断标记，然后整行静默
-            parts.append(" ...")
-            self.line_cut = True
+            need = max(0, line_len - (limit - len(self.ELLIPSIS)))
+            removed = self._trim_tail(parts, line_start, need)
+            if removed == need:
+                parts.append(self.ELLIPSIS)
+            line_cut = True
 
-        if echo_now and parts:
-            await self.typewriter.feed("".join(parts))
+        return "".join(parts)
+
+    def _line_limit(self) -> int:
+        width = max(0, int(getattr(Design.console, "width", 0) or 0))
+        limit = width - self.LINE_PADDING
+        return max(self.MIN_LINE_LIMIT, min(self.MAX_LINE_LIMIT, limit))
+
+    def _block_limit(self, line_limit: int) -> int:
+        limit = line_limit * self.BLOCK_LINES
+        return max(self.MIN_BLOCK_LIMIT, min(self.MAX_BLOCK_LIMIT, limit))
+
+    @staticmethod
+    def _trim_tail(parts: list[str], line_start: int, count: int) -> int:
+        removed = 0
+        while count > 0 and len(parts) > line_start:
+            parts.pop()
+            count -= 1
+            removed += 1
+        return removed
+
+    @staticmethod
+    def _trim_visible_tail(parts: list[str], limit: int, reserve: int) -> None:
+        keep = max(0, limit - reserve)
+        visible = 0
+        kept: list[str] = []
+
+        for ch in parts:
+            if ch == "\n":
+                kept.append(ch)
+                continue
+            if visible >= keep:
+                continue
+            kept.append(ch)
+            visible += 1
+
+        parts[:] = kept
 
     def flush(self) -> None:
         if not self.buffer:
