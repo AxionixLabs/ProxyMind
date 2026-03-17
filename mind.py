@@ -218,7 +218,7 @@ class Mind(object):
         if ((now := time.time()) - self.last_refresh_ts) < self.ttl_sec:
             tip = f"ttl-hit: skip refresh ttl={self.ttl_sec:.3f}s"
             if slog and self.level != const.SHOW_LEVEL:
-                return await slog.feed(f"\n{tip}\n")
+                return await slog.feed(f"\n{tip}\n", display=StreamTyperLogger.BLOCK)
             else:
                 return logger.debug(tip)
 
@@ -232,7 +232,7 @@ class Mind(object):
         self.last_refresh_ts = now
 
         if slog and self.level != const.SHOW_LEVEL:
-            return await slog.feed(f"\n{content}\n")
+            return await slog.feed(f"\n{content}\n", display=StreamTyperLogger.BLOCK)
         else:
             return logger.debug(content)
 
@@ -347,12 +347,12 @@ class Mind(object):
 
                 match chat.get("type"):
                     case "error":
-                        await slog.feed(chat.get("content"))
+                        await slog.feed(chat.get("content"), display=StreamTyperLogger.BLOCK)
                         await finish("fail", error=chat.get("content"))
                         return await slog.stop()
 
                     case "chat":
-                        await slog.feed(chat.get("content"))
+                        await slog.feed(chat.get("content"), display=StreamTyperLogger.STREAM)
                         continue
 
                     case "tool_call":
@@ -360,11 +360,15 @@ class Mind(object):
 
                         if Tooling.require(domains, name, **regular):
                             if error := await self.wakeup(session, slog):
-                                await slog.feed(error)
+                                await slog.feed(error, display=StreamTyperLogger.BLOCK)
                                 await finish("fail", error=str(error))
                                 return await slog.stop()
 
-                        await slog.feed(f"\n{name} {arguments}\n")
+                        await slog.feed(
+                            f"\n{name} {arguments}\n",
+                            display=StreamTyperLogger.BLOCK,
+                            display_chunk=f"\n{Tooling.summarize_tool_arguments(name, arguments)}\n"
+                        )
 
                         # workflow: ==== 参数增强 ====
                         arguments = Enhancer.exchange(name, arguments, self.report)
@@ -377,7 +381,9 @@ class Mind(object):
                         enhancer: Enhancer = Enhancer(session, mode, model_api, kwargs.get("metadata"))
                         fields = await enhancer.enhance(name, arguments, result, ok, slog)
 
-                        await slog.feed(f"\n{fields.get('text')}\n")
+                        await slog.feed(
+                            f"\n{fields.get('text')}\n", display=StreamTyperLogger.BLOCK
+                        )
 
                         await request.post_tool_result(
                             chat["cid"], chat["sid"], chat["call_id"], name, ok, fields
@@ -393,7 +399,7 @@ class Mind(object):
                         continue
 
         except Exception as e:
-            await slog.feed(str(e))
+            await slog.feed(str(e), display=StreamTyperLogger.BLOCK)
             await finish("fail", error=f"{type(e).__name__}: {e}")
             return await slog.stop()
 
