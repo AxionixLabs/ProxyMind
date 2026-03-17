@@ -560,7 +560,7 @@ class Enhancer(object):
 
         async def say(line: str) -> None:
             if slog:
-                return await slog.feed(f"{line}\n", display=StreamTyperLogger.BLOCK)
+                return await slog.feed(line, display=StreamTyperLogger.BLOCK)
 
         fields = self.fields(result)
 
