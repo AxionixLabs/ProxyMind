@@ -215,96 +215,41 @@ class Tooling(object):
 
     @staticmethod
     def summarize_tool_arguments(tool_name: str, tool_args: typing.Any) -> str:
-
-        def short_text(raw_value: typing.Any, limit: int = 40) -> str:
+        def short_text(raw_value: typing.Any, limit: int = 48) -> str:
             text = str(raw_value).replace("\n", " ").strip()
             return text if len(text) <= limit else f"{text[:limit - 3]}..."
 
-        def summarize_value(arg_value: typing.Any) -> str:
-            if isinstance(arg_value, str):
-                return short_text(arg_value)
-            if isinstance(arg_value, bool):
-                return "true" if arg_value else "false"
-            if arg_value is None:
+        def short_value(raw_value: typing.Any) -> str:
+            if isinstance(raw_value, str):
+                return short_text(raw_value)
+            if isinstance(raw_value, bool):
+                return "true" if raw_value else "false"
+            if raw_value is None:
                 return "null"
-            if isinstance(arg_value, (int, float)):
-                return str(arg_value)
-            if isinstance(arg_value, list):
-                size = len(arg_value)
-                if size == 0:
-                    return "0 items"
-                return f"{size} items"
-            if isinstance(arg_value, dict):
-                dict_keys = [str(k) for k in list(arg_value.keys())[:4]]
-                suffix = "" if len(arg_value) <= 4 else f", +{len(arg_value) - 4}"
-                return f"{{{', '.join(dict_keys)}{suffix}}}"
-            return short_text(arg_value)
-
-        def summarize_locator(locator: typing.Any) -> str:
-            if not isinstance(locator, dict):
-                return summarize_value(locator)
-            by = locator.get("by")
-            value = locator.get("value")
-            if by and value is not None:
-                return f"{by}:{short_text(value, 32)}"
-            primary = locator.get("primary")
-            if isinstance(primary, dict) and primary.get("by") and primary.get("value") is not None:
-                return f"{primary['by']}:{short_text(primary['value'], 32)}"
-            return summarize_value(locator)
-
-        def summarize_flag(flag_name: str, flag_value: typing.Any) -> typing.Optional[str]:
-            if not isinstance(flag_value, bool):
-                return None
-            if flag_value:
-                return flag_name
-            return f"no-{flag_name}"
-
-        def summarize_field(field_name: str, field_value: typing.Any) -> str:
-            if field_name == "locator":
-                return f"{field_name}={summarize_locator(field_value)}"
-            if field_name == "url":
-                return f'{field_name}="{short_text(field_value, 56)}"'
-            if field_name == "path":
-                return f'{field_name}="{short_text(field_value, 48)}"'
-            if field_name in {"query", "target", "text"}:
-                return f'{field_name}="{short_text(field_value, 56)}"'
-            if field_name in {"topk", "limit", "count", "wait", "timeout"}:
-                suffix = "s" if field_name in {"wait", "timeout"} else ""
-                return f"{field_name}={summarize_value(field_value)}{suffix}"
-            if isinstance(field_value, list):
-                return f"{field_name}={len(field_value)} items"
-            if isinstance(field_value, dict):
-                if field_name in {"filters", "flags", "options", "context"}:
-                    names = list(field_value.keys())[:4]
-                    suffix = "" if len(field_value) <= 4 else f", +{len(field_value) - 4}"
-                    return f"{field_name}={{{', '.join(map(str, names))}{suffix}}}"
-                return f"{field_name}={summarize_value(field_value)}"
-            if isinstance(field_value, bool):
-                return summarize_flag(field_name, field_value) or f"{field_name}=false"
-            return f"{field_name}={summarize_value(field_value)}"
+            if isinstance(raw_value, (int, float)):
+                return str(raw_value)
+            if isinstance(raw_value, list):
+                return f"[{len(raw_value)} items]"
+            if isinstance(raw_value, dict):
+                keys = list(raw_value.keys())
+                head = ", ".join(map(str, keys[:3]))
+                suffix = "" if len(keys) <= 3 else f", +{len(keys) - 3}"
+                return f"{{{head}{suffix}}}"
+            return short_text(raw_value)
 
         if not isinstance(tool_args, dict):
-            return short_text(tool_args, 120)
-
-        preferred = [
-            "query", "target", "text", "locator", "url", "path",
-            "page_id", "agent_id", "serial", "topk", "limit",
-            "count", "wait", "timeout"
-        ]
-        ordered_keys = [k for k in preferred if k in tool_args]
-        ordered_keys += [k for k in tool_args.keys() if k not in ordered_keys]
+            summary = short_text(tool_args, 120)
+            return f"{tool_name}: {summary}" if tool_name else summary
 
         parts: list[str] = []
-        for key in ordered_keys[:6]:
-            parts.append(summarize_field(key, tool_args.get(key)))
+        for key, value in list(tool_args.items())[:4]:
+            parts.append(f"{key}={short_value(value)}")
 
-        if len(tool_args) > 6:
-            parts.append(f"+{len(tool_args) - 6} fields")
+        if len(tool_args) > 4:
+            parts.append(f"+{len(tool_args) - 4} fields")
 
         summary = ", ".join(parts)
-        if summary:
-            summary = f"{tool_name}: {summary}"
-        return summary if len(summary) <= 180 else f"{summary[:177]}..."
+        return f"{tool_name}: {summary}" if tool_name else summary
 
 
 class StreamTyperLogger(object):
@@ -327,6 +272,8 @@ class StreamTyperLogger(object):
         self.typewriter: TypewriterStreamSession = TypewriterStreamSession()
         self.display_segments: list[dict[str, str]] = []
         self.display_text: str = ""
+        self.log_at_line_start: bool = True
+        self.display_at_line_start: bool = True
 
     async def start(self) -> None:
         await self.typewriter.start()
@@ -363,6 +310,16 @@ class StreamTyperLogger(object):
         visible_delta = str(display_chunk) if display_chunk is not None else delta
         echo_now = bool(echo)
 
+        if display == self.BLOCK:
+            # BLOCK 统一按“段落”处理：外部不传分隔换行，内部负责按需断行并在块后留空行。
+            delta = self._normalize_block_text(delta, at_line_start=self.log_at_line_start)
+            visible_delta = self._normalize_block_text(
+                visible_delta, at_line_start=self.display_at_line_start
+            )
+
+        if not delta:
+            return None
+
         # 1) ==== 全量落盘 ====
         self.buffer += delta
         while True:
@@ -373,13 +330,19 @@ class StreamTyperLogger(object):
             if self.fp:
                 self.fp.write(line)
 
+        self.log_at_line_start = delta.endswith("\n")
+
         if not echo_now:
+            return None
+
+        if not visible_delta:
             return None
 
         self._append_segment(display, visible_delta)
         visible = self._compose_visible_text()
         animate = (display == self.STREAM and visible.startswith(self.display_text))
         self.display_text = visible
+        self.display_at_line_start = visible_delta.endswith("\n")
         await self.typewriter.sync(visible, animate=animate)
 
     def _append_segment(self, display: str, delta: str) -> None:
@@ -467,6 +430,14 @@ class StreamTyperLogger(object):
             line_cut = True
 
         return "".join(parts)
+
+    @staticmethod
+    def _normalize_block_text(text: str, *, at_line_start: bool) -> str:
+        out = text.strip("\n")
+        if not out:
+            return "\n" if not at_line_start else ""
+        prefix = "" if at_line_start else "\n"
+        return f"{prefix}{out}\n\n"
 
     def _line_limit(self) -> int:
         width = max(0, int(getattr(Design.console, "width", 0) or 0))
