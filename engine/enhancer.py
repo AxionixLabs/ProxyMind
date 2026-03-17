@@ -512,7 +512,7 @@ class Enhancer(object):
                     }
                     per_device[serial] = {"ok": True, "locator": locator, "smart": reason}
 
-                if slog: await slog.feed(reason)
+                if slog: await slog.feed(reason, display=StreamTyperLogger.BLOCK)
                 else: logger.debug(reason)
 
         matrix = {k: v["locator"] for k, v in per_device.items() if v.get("locator")}
@@ -560,7 +560,7 @@ class Enhancer(object):
 
         async def say(line: str) -> None:
             if slog:
-                return await slog.feed(f"{line}\n")
+                return await slog.feed(f"{line}\n", display=StreamTyperLogger.BLOCK)
 
         fields = self.fields(result)
 
