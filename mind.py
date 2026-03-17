@@ -1119,7 +1119,7 @@ class Mind(object):
                                 logger.error(
                                     f"🧯 give up: {it.name} "
                                     f"item_run={item_run}/{it.loop} "
-                                    f"attempts={attempts} last={last_error}"
+                                    f"attempts={attempts} last={last_error}\n"
                                 )
                                 if stop_on_fail: return None
                                 continue
