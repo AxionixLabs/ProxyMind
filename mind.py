@@ -218,7 +218,7 @@ class Mind(object):
         if ((now := time.time()) - self.last_refresh_ts) < self.ttl_sec:
             tip = f"ttl-hit: skip refresh ttl={self.ttl_sec:.3f}s"
             if slog and self.level != const.SHOW_LEVEL:
-                return await slog.feed(f"\n{tip}\n", display=StreamTyperLogger.BLOCK)
+                return await slog.feed(tip, display=StreamTyperLogger.BLOCK)
             else:
                 return logger.debug(tip)
 
@@ -232,7 +232,7 @@ class Mind(object):
         self.last_refresh_ts = now
 
         if slog and self.level != const.SHOW_LEVEL:
-            return await slog.feed(f"\n{content}\n", display=StreamTyperLogger.BLOCK)
+            return await slog.feed(content, display=StreamTyperLogger.BLOCK)
         else:
             return logger.debug(content)
 
@@ -365,9 +365,9 @@ class Mind(object):
                                 return await slog.stop()
 
                         await slog.feed(
-                            f"\n{name} {arguments}\n",
+                            f"{name} {arguments}",
                             display=StreamTyperLogger.BLOCK,
-                            display_chunk=f"\n{Tooling.summarize_tool_arguments(name, arguments)}\n"
+                            display_chunk=Tooling.summarize_tool_arguments(name, arguments)
                         )
 
                         # workflow: ==== 参数增强 ====
@@ -382,7 +382,7 @@ class Mind(object):
                         fields = await enhancer.enhance(name, arguments, result, ok, slog)
 
                         await slog.feed(
-                            f"\n{fields.get('text')}\n", display=StreamTyperLogger.BLOCK
+                            f"{fields.get('text')}", display=StreamTyperLogger.BLOCK
                         )
 
                         await request.post_tool_result(
@@ -478,7 +478,7 @@ class Mind(object):
                 anim_stopped = True
             if plan.get("type") == "error":
                 await finish("fail", error=json.dumps(plan, ensure_ascii=False))
-                return logger.error(plan)
+                return logger.error(f"{plan}\n")
 
             steps, loop_count, reasoning = plan["steps"], plan["loop_count"], plan["reasoning"]
             runtime_context["reasoning"] = reasoning
