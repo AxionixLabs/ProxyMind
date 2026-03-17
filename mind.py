@@ -530,7 +530,7 @@ class Mind(object):
                     if Tooling.require(domains, name, **regular):
                         if error := await self.wakeup(session):
                             await finish("fail", error=str(error), run=index, index=step_idx, name=name)
-                            return logger.error(error)
+                            return logger.error(f"{error}\n")
 
                     logger.info(f"{name} -> args={arguments}")
 
@@ -593,14 +593,15 @@ class Mind(object):
                         "ts"      : time.time()
                     })
 
-                    data_ok = bool((fields or {}).get("data", {}).get("ok"))
+                    data = fields.get("data") if isinstance(fields, dict) else None
+                    data_ok = bool(data.get("ok")) if isinstance(data, dict) else False
                     if not ok or not data_ok:
                         step_context["data_ok"] = data_ok
                         brief_err = (fields.get("text") if isinstance(fields, dict) else "step failed")
                         await finish("fail", run=index, index=step_idx, name=name, error=brief_err)
-                        return logger.error(fields)
+                        return logger.error(f"{fields}\n")
 
-                    logger.info(fields.get("text"))
+                    logger.info(fields.get("text") if isinstance(fields, dict) else "")
 
                     emit({
                         "type"    : "lifecycle",
