@@ -241,11 +241,12 @@ async def stream_chat(
     async for event in streaming(url, headers, payload, timeout):
         match event.get("type"):
             case "thinking":
-                logger.debug(event["content"])
+                if slog:
+                    await slog.feed(event["content"], display=StreamTyperLogger.STREAM)
                 continue
             case "done":
-                if slog: await slog.stop()
-                logger.debug("Chat done ...")
+                if slog: 
+                    await slog.feed("Chat done ...", display=StreamTyperLogger.STREAM)
                 continue
 
         yield event
