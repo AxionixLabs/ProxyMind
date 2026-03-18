@@ -305,7 +305,9 @@ class StreamTyperLogger(object):
         display: str = STREAM,
         display_chunk: typing.Optional[str] = None
     ) -> None:
+        """Feed"""
         if not chunk: return None
+
         delta = str(chunk)
         visible_delta = str(display_chunk) if display_chunk is not None else delta
         echo_now = bool(echo)
@@ -372,9 +374,10 @@ class StreamTyperLogger(object):
         return "".join(parts)
 
     def _render_block(self, delta: str, limit: int) -> str:
-        visible = 0
         parts: list[str] = []
-        trimmed = False
+
+        visible: int = 0
+        trimmed: bool = False
 
         for ch in delta:
             if ch == "\n":
@@ -403,6 +406,7 @@ class StreamTyperLogger(object):
 
     def _render_stream(self, delta: str, limit: int) -> str:
         parts: list[str] = []
+
         line_start = 0
         line_len = 0
         line_cut = False
