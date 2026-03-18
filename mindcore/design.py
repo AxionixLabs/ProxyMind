@@ -895,15 +895,20 @@ class Design(object):
             "chat": {
                 "glyphs": {
                     "spin"         : "◜◠◝◞◡◟",
-                    "bubble_left"  : "◖",
-                    "bubble_right" : "◗",
-                    "bubble_dot"   : "●",
-                    "focus"        : "◉",
+                    "bubble_left"  : "〈《(",
+                    "bubble_right" : ")》〉",
+                    "bubble_dot"   : "●◉",
+                    "focus"        : "◆",
                     "pulse"        : "•",
                     "echo"         : "·",
                     "beam_a"       : "═",
                     "beam_b"       : "─",
-                    "noise"        : "˙"
+                    "noise"        : "˙",
+                    "tail"         : "•",
+                    "trail"        : "⋅",
+                    "reply"        : "◦◎",
+                    "listen"       : "◌◍",
+                    "speak"        : "◉◍"
                 },
                 "colors": {
                     "prefix"     : "#A3E635",
@@ -921,10 +926,15 @@ class Design(object):
                     "orbit_c"    : "#5EEAD4"
                 },
                 "motion": {
-                    "phase_div"      : 6.6,
-                    "handshake_freq" : 0.78,
-                    "bridge_freq"    : 1.25,
-                    "echo_phase"     : 1.2
+                    "phase_div"      : 4.2,
+                    "lead_freq"      : 1.08,
+                    "reply_freq"     : 0.72,
+                    "reply_phase"    : 1.45,
+                    "breathe_freq"   : 0.88,
+                    "sender_freq"    : 1.62,
+                    "receiver_freq"  : 1.28,
+                    "receiver_phase" : 2.2,
+                    "chat_cycle"     : 16
                 }
             },
             "fast": {
@@ -1016,48 +1026,128 @@ class Design(object):
             return max(0, min(width - 1, pos))
 
         def build_chat(i: int) -> tuple[list[str], dict[int, str]]:
-            phase     = i / motion["phase_div"]
-            center    = width // 2
-            handshake = 0.5 + 0.5 * math.sin(phase * motion["handshake_freq"])
-            left      = clamp(int(2 + handshake * (center - 4)))
-            right     = clamp(int((width - 3) - handshake * (center - 4)))
-            bridge    = left + int((right - left) * (0.5 + 0.5 * math.sin(phase * motion["bridge_freq"])))
-            echo      = left + int(
-                (right - left) * (0.5 + 0.5 * math.sin((phase * motion["bridge_freq"]) + motion["echo_phase"]))
-            )
-            chars = [" "] * width
+            phase = i / motion["phase_div"]
+            cycle = max(12, int(motion["chat_cycle"]))
+            beat  = i % cycle
+
+            sender_talk     = beat in {1, 2, 3, 4, 5, 6, 7}
+            sender_release  = beat in {8, 9}
+            receiver_listen = beat in {10, 11, 12, 13}
+            receiver_ack    = beat in {14, 15, 16, 17}
+
+            left_rest      = 2
+            right_rest     = width - 3
+            sender_shift   = -1 if sender_talk else 0
+            receiver_shift = 1 if receiver_ack else 0
+
+            left       = clamp(left_rest + sender_shift)
+            right      = clamp(right_rest + receiver_shift)
+            lane_start = left + 2
+            lane_end   = right - 2
+            lane_span  = max(1, lane_end - lane_start)
+            lead       = 0.5 + 0.5 * math.sin(phase * motion["lead_freq"])
+            head_ratio = 0.10 + 0.78 * lead
+
+            if sender_talk:
+                head_ratio = min(0.96, head_ratio + 0.06)
+
+            head       = clamp(lane_start + int(lane_span * head_ratio))
+            tail_len   = min(8, max(4, width // 4))
+            reply_gate = 0.5 + 0.5 * math.sin((phase * motion["reply_freq"]) + motion["reply_phase"])
+            reply_head = clamp(lane_end - int((lane_span * 0.22) * reply_gate))
+            chars      = [" "] * width
+
             styles: dict[int, str] = dict()
 
-            chars[left]  = glyphs["bubble_left"]
-            styles[left] = f"bold {colors['orbit_a']}"
-            chars[clamp(left + 1)]  = glyphs["bubble_dot"]
-            styles[clamp(left + 1)] = f"bold {colors['core']}"
+            left_shell       = glyphs["bubble_left"][1 if sender_talk else (2 if sender_release else 0)]
+            right_shell      = glyphs["bubble_right"][1 if receiver_ack else (2 if receiver_listen else 0)]
+            left_dot_idle    = glyphs["bubble_dot"][0]
+            left_dot_talk    = glyphs["speak"][0] if (i % 4) < 2 else glyphs["speak"][1]
+            right_dot_idle   = glyphs["listen"][0]
+            right_dot_listen = glyphs["listen"][1] if (i % 4) < 2 else glyphs["pulse"]
+            reply_glyph      = glyphs["reply"][1] if (i % 4) < 2 else glyphs["reply"][0]
 
-            chars[right]  = glyphs["bubble_right"]
-            styles[right] = f"bold {colors['orbit_c']}"
-            chars[clamp(right - 1)]  = glyphs["bubble_dot"]
-            styles[clamp(right - 1)] = f"bold {colors['near']}"
+            chars[left]  = left_shell
+            styles[left] = (
+                f"bold {colors['core']}" if sender_talk
+                else (f"bold {colors['near']}" if sender_release else f"bold {colors['orbit_a']}")
+            )
 
-            for pos in range(left + 2, right - 1):
-                ratio     = (pos - left) / max(right - left, 1)
-                dist      = abs(pos - bridge)
-                echo_dist = abs(pos - echo)
+            left_dot = clamp(left + 1)
+            chars[left_dot] = left_dot_talk if sender_talk else (glyphs["tail"] if sender_release else left_dot_idle)
+            styles[left_dot] = (
+                f"bold {colors['sweep_core']}" if sender_talk
+                else (f"bold {colors['sweep_tail']}" if sender_release else f"bold {colors['core']}")
+            )
 
-                if dist == 0:
+            left_aura = clamp(left + 2)
+            if sender_talk:
+                chars[left_aura] = glyphs["tail"] if (i % 4) in {1, 2} else glyphs["trail"]
+                styles[left_aura] = f"bold {colors['sweep_tail']}"
+            elif sender_release and (i % 2 == 0):
+                chars[left_aura] = glyphs["trail"]
+                styles[left_aura] = f"bold {colors['beam_dim']}"
+
+            chars[right]  = right_shell
+            styles[right] = (
+                f"bold {colors['orbit_b']}" if receiver_ack
+                else (f"bold {colors['near']}" if receiver_listen else f"bold {colors['orbit_c']}")
+            )
+
+            right_dot = clamp(right - 1)
+            chars[right_dot] = reply_glyph if receiver_ack else (right_dot_listen if receiver_listen else right_dot_idle)
+            styles[right_dot] = (
+                f"bold {colors['orbit_b']}" if receiver_ack
+                else (f"bold {colors['core']}" if receiver_listen else f"bold {colors['near']}")
+            )
+
+            right_aura = clamp(right - 2)
+            if receiver_ack:
+                chars[right_aura] = glyphs["pulse"] if (i % 4) in {1, 2} else reply_glyph
+                styles[right_aura] = f"bold {colors['orbit_b']}"
+            elif receiver_listen and (i % 2 == 0):
+                chars[right_aura] = glyphs["listen"][0]
+                styles[right_aura] = f"bold {colors['beam_dim']}"
+
+            for pos in range(lane_start, lane_end + 1):
+                dist = head - pos
+                reply_dist = abs(pos - reply_head)
+
+                if pos == head:
                     chars[pos] = glyphs["focus"]
                     styles[pos] = f"bold {colors['sweep_core']}"
-                elif dist <= 1:
-                    chars[pos] = glyphs["pulse"]
-                    styles[pos] = f"bold {colors['sweep_tail']}"
-                elif echo_dist <= 1:
-                    chars[pos] = glyphs["echo"]
-                    styles[pos] = f"bold {colors['beam_dim']}"
-                elif 0.2 < ratio < 0.8:
+                elif 0 < dist <= 2:
+                    chars[pos] = glyphs["tail"]
+                    styles[pos] = f"bold {colors['core']}"
+                elif 0 < dist <= tail_len:
                     chars[pos] = glyphs["beam_a"] if (pos + i) % 2 == 0 else glyphs["beam_b"]
                     styles[pos] = f"bold {colors['beam']}"
-                elif (pos + i) % 3 == 0:
+                elif 0 < dist <= tail_len + 4:
+                    if (pos + i) % 2 != 0:
+                        continue
+                    chars[pos] = glyphs["trail"]
+                    styles[pos] = f"bold {colors['beam_dim']}"
+                elif head < pos <= min(lane_end, head + 2):
+                    chars[pos] = glyphs["echo"]
+                    styles[pos] = f"bold {colors['sweep_tail']}"
+                elif pos >= right - 5 and reply_dist == 0 and receiver_ack:
+                    chars[pos] = reply_glyph
+                    styles[pos] = f"bold {colors['orbit_b']}"
+                elif pos >= right - 5 and reply_dist <= 1 and receiver_ack and (i + pos) % 2 == 0:
+                    chars[pos] = glyphs["pulse"]
+                    styles[pos] = f"bold {colors['near']}"
+                elif pos >= right - 6 and receiver_listen and (pos + i) % 2 == 0:
+                    chars[pos] = glyphs["listen"][0]
+                    styles[pos] = f"bold {colors['beam_dim']}"
+                elif pos >= right - 7 and (pos + i) % 3 == 0:
                     chars[pos] = glyphs["echo"]
                     styles[pos] = f"bold {colors['shell']}"
+                elif pos <= left + 4 and sender_talk and (pos + i) % 2 == 0:
+                    chars[pos] = glyphs["trail"] if (i + pos) % 4 == 0 else glyphs["pulse"]
+                    styles[pos] = f"bold {colors['shell_dim']}"
+                elif (pos + i) % 7 == 0:
+                    chars[pos] = glyphs["noise"]
+                    styles[pos] = f"bold {colors['dust']}"
 
             for pos in (clamp(left - 1), clamp(left - 2), clamp(right + 1), clamp(right + 2)):
                 if chars[pos].strip():
@@ -1065,10 +1155,28 @@ class Design(object):
                 chars[pos] = glyphs["noise"]
                 styles[pos] = f"bold {colors['shell_dim']}"
 
-            mid = clamp((left + right) // 2)
-            if not chars[mid].strip():
-                chars[mid] = glyphs["pulse"]
-                styles[mid] = f"bold {colors['orbit_b']}"
+            if sender_talk:
+                ember = clamp(left - 1)
+                chars[ember] = glyphs["trail"]
+                styles[ember] = f"bold {colors['beam_dim']}"
+            elif sender_release:
+                ember = clamp(left - 1)
+                chars[ember] = glyphs["echo"]
+                styles[ember] = f"bold {colors['shell_dim']}"
+
+            if receiver_ack:
+                wink = clamp(right + 1)
+                chars[wink] = reply_glyph
+                styles[wink] = f"bold {colors['orbit_b']}"
+            elif receiver_listen:
+                wink = clamp(right + 1)
+                chars[wink] = glyphs["trail"]
+                styles[wink] = f"bold {colors['shell_dim']}"
+
+            mid = clamp((lane_start + lane_end) // 2)
+            if not chars[mid].strip() and abs(mid - head) > 3 and (i // 2) % 2 == 0:
+                chars[mid] = glyphs["trail"]
+                styles[mid] = f"bold {colors['beam_dim']}"
             return chars, styles
 
         def build_fast(i: int) -> tuple[list[str], dict[int, str]]:
@@ -1214,6 +1322,8 @@ class Design(object):
             return chars, styles
 
         def frame(i: int) -> Text:
+            chars, styles = build_chat(i)
+
             match theme:
                 case "fast":
                     chars, styles = build_fast(i)
