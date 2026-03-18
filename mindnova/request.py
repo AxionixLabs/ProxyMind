@@ -179,7 +179,6 @@ async def stream_chat(
     openai_tools: list[dict],
     attachments: typing.Optional[list[dict[str, typing.Any]]] = None,
     timeout: float = 60.0,
-    slog: typing.Optional[StreamTyperLogger] = None,
     *_,
     **kwargs
 ) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
@@ -200,12 +199,8 @@ async def stream_chat(
     async for event in streaming(url, headers, payload, timeout):
         match event.get("type"):
             case "thinking":
-                if slog:
-                    await slog.feed(event["content"], display=StreamTyperLogger.BLOCK)
                 continue
             case "done":
-                if slog:
-                    await slog.feed(event["content"], display=StreamTyperLogger.BLOCK)
                 continue
 
         yield event
