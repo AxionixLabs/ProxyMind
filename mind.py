@@ -392,7 +392,9 @@ class Mind(object):
                         continue
 
                     case "tool_result":
-                        # await slog.feed(f"\n{chat['name']} ok={chat.get('ok')}\n")
+                        # await slog.feed(
+                        #     f"{chat['name']} ok={chat.get('ok')}", display=StreamTyperLogger.BLOCK
+                        # )
                         continue
 
                     case _:
@@ -1119,7 +1121,7 @@ class Mind(object):
                                 logger.error(
                                     f"🧯 give up: {it.name} "
                                     f"item_run={item_run}/{it.loop} "
-                                    f"attempts={attempts} last={last_error}\n"
+                                    f"attempts={attempts} last={last_error}"
                                 )
                                 if stop_on_fail: return None
                                 continue
