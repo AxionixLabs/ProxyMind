@@ -9,19 +9,18 @@
 import os
 import re
 import time
-import uuid
 import base64
 import typing
 import asyncio
 import secrets
 import tempfile
-import contextlib
 import urllib.parse
 from pathlib import Path
 import xml.etree.ElementTree as Et
 from engine.terminal import Terminal
 from backend.mcp_hub.hub_device import Phone
 from backend.mcp_hub.hub_device import Widget
+from backend.mcp_hub.hub_device.vision import similarity
 from backend.utilities import const
 
 
@@ -436,11 +435,8 @@ class Device(Phone):
         return {
             "text"        : "logcat cleaned",
             "attachments" : [],
-            "data": {
-                "ok"  : True,
-                "raw" : raw or ""
-            },
-            "logs": []
+            "data"        : {"ok": True, "raw": raw or ""},
+            "logs"        : []
         }
 
     # workflow: ==== File ====
@@ -450,21 +446,6 @@ class Device(Phone):
             "logcat", "-v", "threadtime"
         ]
         return await Terminal.cmd_link(cmd)
-
-    # workflow: ==== Info Control MCP Tool ====
-    async def screenshot(self, local: str) -> str:
-        """在设备上截屏 -> pull 到指定本地路径，返回本地路径。"""
-        filename = f"screenshot_{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
-
-        cmd = self.prefix + [
-            "shell", "screencap", "-p", remote := "/data/local/tmp/" + filename
-        ]
-        await Terminal.cmd_line(cmd)
-
-        new_local = await self.file_pull(remote, local)
-        await self.file_remove(remote)
-
-        return new_local
 
     # workflow: ==== Info Control MCP Tool ====
     async def grep_packages(
@@ -665,51 +646,6 @@ class Device(Phone):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def scroll_direction(
-        self,
-        direction: typing.Literal["up", "down", "left", "right"],
-        x: int,
-        y: int,
-        duration: int = 300
-    ) -> typing.Any:
-        """
-        以锚点为参考，按“内容滚动方向（scroll）”进行语义滑动。
-        注意：底层 adb `input swipe` 是“手指轨迹”，因此这里会做方向反转：
-          - scroll up    -> finger down
-          - scroll down  -> finger up
-          - scroll left  -> finger right
-          - scroll right -> finger left
-        """
-
-        w, h = await self.st_wm_size()
-
-        x1, y1 = x, y
-        x2, y2 = x1, y1
-
-        # 这里的 0.25 / 0.75 只是目标落点比例：你也可以改成基于锚点的偏移量
-        match direction:
-            # 内容向上滚：手指向下
-            case "up":
-                x2, y2 = x1, min(h - 1, int(h * 0.75))
-
-            # 内容向下滚：手指向上
-            case "down":
-                x2, y2 = x1, max(0, int(h * 0.25))
-
-            # 内容向左滚：手指向右
-            case "left":
-                x2, y2 = min(w - 1, int(w * 0.75)), y1
-
-            # 内容向右滚：手指向左
-            case "right":
-                x2, y2 = max(0, int(w * 0.25)), y1
-
-        cmd = self.prefix + [
-            "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration)
-        ]
-        return await Terminal.cmd_line(cmd)
-
-    # workflow: ==== UI Interaction MCP Tool ====
     async def scroll_to_top(self) -> dict[str, typing.Any]:
         """内容向上滚动到顶部。"""
         return await self.scroll_to_edge("top")
@@ -732,23 +668,62 @@ class Device(Phone):
         should_click: bool = False
     ) -> dict[str, typing.Any]:
         """把元素“滚到可见”。可选滚到后点击。"""
-        resp = await self.scroll_until(
+        result = await self.scroll_until(
             by, value, match, ignore_case, direction, timeout=timeout, max_swipes=max_swipes
         )
-        if not resp.get("data", {}).get("ok"):
-            return resp
+
+        attachments: list[dict[str, typing.Any]] = []
+        logs: list[str] = []
+
+        if not result.get("ok"):
+            reason = result.get("reason")
+            text = {
+                "xpath_not_supported" : "by=xpath 暂不支持（Android uiautomator dump 非标准 XPath）。",
+                "wm_size_unavailable" : "获取屏幕尺寸失败。",
+                "timeout"             : "超时未找到目标元素。",
+                "scroll_fail"         : "滑动失败，已停止。",
+                "stable_stop"         : "屏幕内容稳定（几乎不变），停止滑动，仍未找到目标元素。",
+                "max_swipes_reached"  : "已达到最大滑动次数，仍未找到目标元素。"
+            }.get(reason, "滚动查找失败。")
+            return {
+                "text"        : text,
+                "attachments" : attachments,
+                "data"        : result,
+                "logs"        : logs
+            }
+
+        widget = result.get("widget")
+        data = {
+            **result,
+            "widget" : widget.semantic if widget else None,
+            "node": {
+                "id"     : widget.id,
+                "desc"   : widget.desc,
+                "text"   : widget.text,
+                "class"  : widget.clazz,
+                "center" : widget.center,
+                "bbox"   : widget.bbox
+            } if widget else None
+        }
 
         if should_click:
-            node = resp.get("data", {}).get("node") or {}
+            node = data.get("node") or {}
             center = node.get("center")
             if center and isinstance(center, (list, tuple)) and len(center) == 2:
                 await self.tap(int(center[0]), int(center[1]))
-                resp["data"]["clicked"] = True
+                data["clicked"] = True
             else:
-                resp["data"]["clicked"]      = False
-                resp["data"]["click_reason"] = "no_center"
+                data["clicked"] = False
+                data["click_reason"] = "no_center"
 
-        return resp
+        return {
+            "text": "已找到目标元素。" if not should_click else (
+                "已找到目标元素并完成点击。" if data.get("clicked") else "已找到目标元素，但缺少可点击坐标。"
+            ),
+            "attachments" : attachments,
+            "data"        : data,
+            "logs"        : logs
+        }
 
     # workflow: ==== UI Interaction MCP Tool ====
     async def tap(self, x: int, y: int) -> typing.Any:
@@ -1112,33 +1087,6 @@ class Device(Phone):
             await asyncio.sleep(0.25)
 
     # workflow: ==== UI ====
-    async def current_xml(self) -> typing.Optional[str]:
-        """导出当前 UI 层级 XML。"""
-        xml_file = "/data/local/tmp/window_dump.xml"
-
-        cmd = self.prefix + [
-            "shell", "uiautomator", "dump", "--compressed", xml_file
-        ]
-        await Terminal.cmd_line(cmd)
-
-        cat = self.prefix + ["shell", "cat", xml_file]
-        try:
-            for _ in range(6):
-                xml = await Terminal.cmd_line(cat)
-
-                xml = xml.decode(const.CHARSET, const.IGNORE) if isinstance(
-                    xml, (bytes, bytearray)
-                ) else (xml or "")
-
-                if "<hierarchy" in xml:
-                    return xml
-                await asyncio.sleep(0.12)
-            return None
-        finally:
-            with contextlib.suppress(Exception):
-                await self.file_remove(xml_file)
-
-    # workflow: ==== UI ====
     async def ensure_ime(self) -> dict[str, typing.Any]:
         """切换到 AdbIME；若 enable/set 任一提示 Unknown input method，则直接返回错误结果。"""
         ime = "com.android.adbkeyboard/.AdbIME"
@@ -1250,7 +1198,7 @@ class Device(Phone):
                 await asyncio.sleep(settle_ms / 1000)
 
                 cur = await self.screenshot(cur_path)
-                last_sim = float(self.similarity(prev, cur))
+                last_sim = float(similarity(prev, cur))
 
                 # 防抖：累计连续“几乎不变”的次数
                 if last_sim >= similarity_threshold:
@@ -1292,303 +1240,6 @@ class Device(Phone):
                 },
                 "logs": []
             }
-
-    # workflow: ==== UI ====
-    async def scroll_until(
-        self,
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
-        value: str | list,
-        match: typing.Literal["eq", "contains", "regex"] = "eq",
-        ignore_case: bool = False,
-        direction: typing.Literal["down", "up", "left", "right"] = "down",
-        anchor: typing.Optional[tuple[int, int]] = None,
-        duration: int = 320,
-        settle: float = 0.25,
-        timeout: float = 12.0,
-        max_swipes: int = 12,
-        stop_on_stable: bool = True,
-        similarity_threshold: float = 0.992,
-        stable_required: int = 2,
-        min_swipes_before_stop: int = 2
-    ) -> dict[str, typing.Any]:
-        """
-        滑动查找目标元素（每次滑动 -> 等待 -> find_widget -> 可选 stop_on_stable）。
-        """
-        if by == "xpath":
-            return {
-                "text"        : " by=xpath 暂不支持（Android uiautomator dump 非标准 XPath）。",
-                "attachments" : [],
-                "data": {
-                    "ok"        : False,
-                    "found"     : False,
-                    "by"        : by,
-                    "value"     : value,
-                    "direction" : direction,
-                    "swipes"    : 0,
-                    "reason"    : "xpath_not_supported",
-                    "actions"   : []
-                },
-                "logs": []
-            }
-
-        deadline = time.monotonic() + float(timeout)
-        actions: list[dict[str, typing.Any]] = []
-
-        # 先尝试不滑动直接找
-        if widget := await self.find_widget(by, value, match, ignore_case):
-            return {
-                "text"        : "已在当前屏幕找到目标元素（无需滑动）。",
-                "attachments" : [],
-                "data": {
-                    "ok"        : True,
-                    "found"     : True,
-                    "by"        : by,
-                    "value"     : value,
-                    "direction" : direction,
-                    "swipes"    : 0,
-                    "widget"    : widget.semantic,
-                    "reason"    : "found_initial",
-                    "actions"   : actions
-                },
-                "logs": []
-            }
-
-        # 计算 anchor（仅用于 scroll_direction）
-        if not (wm := await self.st_wm_size()):
-            return {
-                "text"        : "获取屏幕尺寸失败。",
-                "attachments" : [],
-                "data": {
-                    "ok"      : False,
-                    "found"   : False,
-                    "reason"  : "wm_size_unavailable",
-                    "actions" : actions
-                },
-                "logs": []
-            }
-
-        w, h = wm
-        if anchor is None:
-            ax = int(w * 0.5)
-            ay = int(h * 0.55)
-        else:
-            ax, ay = anchor
-
-        # 稳定检测：用截图相似度判断“内容没变”
-        stable_hits = 0
-        last_sim: typing.Optional[float] = None
-
-        with tempfile.TemporaryDirectory(prefix="scroll_until_caps_") as tmp:
-            tmp_dir   = Path(tmp)
-            prev_path = str(tmp_dir / "prev.png")
-            cur_path  = str(tmp_dir / "cur.png")
-
-            prev_ok = False
-            if stop_on_stable:
-                try:
-                    prev_path = await self.screenshot(prev_path)  # 用真实落盘路径覆盖
-                    prev_ok = True
-                except Exception as e:
-                    actions.append({
-                        "kind"  : "screenshot_prev_fail",
-                        "error" : f"{type(e).__name__}: {e}"
-                    })
-                    prev_ok = False
-
-            for i in range(1, int(max_swipes) + 1):
-                if time.monotonic() >= deadline:
-                    return {
-                        "text"        : "超时未找到目标元素。",
-                        "attachments" : [],
-                        "data": {
-                            "ok"              : False,
-                            "found"           : False,
-                            "by"              : by,
-                            "value"           : value,
-                            "direction"       : direction,
-                            "swipes"          : i - 1,
-                            "reason"          : "timeout",
-                            "actions"         : actions,
-                            "last_similarity" : (round(last_sim, 4) if last_sim is not None else None)
-                        },
-                        "logs": []
-                    }
-
-                # 滑动
-                try:
-                    await self.scroll_direction(direction, ax, ay, duration=duration)
-                    actions.append({
-                        "kind"      : "scroll",
-                        "n"         : i,
-                        "direction" : direction,
-                        "anchor"    : [ax, ay],
-                        "duration"  : duration
-                    })
-                except Exception as e:
-                    actions.append({"kind": "scroll_fail", "n": i, "error": f"{type(e).__name__}: {e}"})
-                    return {
-                        "text"        : "滑动失败，已停止。",
-                        "attachments" : [],
-                        "data": {
-                            "ok"        : False,
-                            "found"     : False,
-                            "by"        : by,
-                            "value"     : value,
-                            "direction" : direction,
-                            "swipes"    : i - 1,
-                            "reason"    : "scroll_fail",
-                            "actions"   : actions
-                        },
-                        "logs": []
-                    }
-
-                await asyncio.sleep(float(settle))
-
-                # 每次滑动后立即查找（不盲滑）
-                if widget := await self.find_widget(by, value, match, ignore_case):
-                    return {
-                        "text"        : "已找到目标元素。",
-                        "attachments" : [],
-                        "data": {
-                            "ok"        : True,
-                            "found"     : True,
-                            "by"        : by,
-                            "value"     : value,
-                            "direction" : direction,
-                            "swipes"    : i,
-                            "widget"    : widget.semantic,
-                            "reason"    : "found_after_scroll",
-                            "actions"   : actions
-                        },
-                        "logs": []
-                    }
-
-                # 稳定检测
-                if stop_on_stable and prev_ok:
-                    try:
-                        cur_path = await self.screenshot(cur_path)
-                        sim      = float(self.similarity(prev_path, cur_path))
-                        last_sim = sim
-
-                        stable_hits = stable_hits + 1 if sim >= float(similarity_threshold) else 0
-                        actions.append({
-                            "kind"        : "similarity",
-                            "n"           : i,
-                            "sim"         : round(sim, 4),
-                            "stable_hits" : stable_hits
-                        })
-
-                        if i >= int(min_swipes_before_stop) and stable_hits >= int(stable_required):
-                            return {
-                                "text"        : "屏幕内容稳定（几乎不变），停止滑动，仍未找到目标元素。",
-                                "attachments" : [],
-                                "data": {
-                                    "ok"          : False,
-                                    "found"       : False,
-                                    "by"          : by,
-                                    "value"       : value,
-                                    "direction"   : direction,
-                                    "swipes"      : i,
-                                    "reason"      : "stable_stop",
-                                    "similarity"  : round(sim, 4),
-                                    "stable_hits" : stable_hits,
-                                    "actions"     : actions
-                                },
-                                "logs": []
-                            }
-
-                        # 下一轮对比基准，交换“真实路径”
-                        prev_path, cur_path = cur_path, prev_path
-
-                    except Exception as e:
-                        actions.append({
-                            "kind"  : "similarity_fail",
-                            "n"     : i,
-                            "error" : f"{type(e).__name__}: {e}"}
-                        )
-                        # 相似度失败不致命
-
-            # 达到最大次数
-            return {
-                "text"        : "已达到最大滑动次数，仍未找到目标元素。",
-                "attachments" : [],
-                "data": {
-                    "ok"              : False,
-                    "found"           : False,
-                    "by"              : by,
-                    "value"           : value,
-                    "direction"       : direction,
-                    "swipes"          : int(max_swipes),
-                    "reason"          : "max_swipes_reached",
-                    "last_similarity" : (round(last_sim, 4) if last_sim is not None else None),
-                    "actions"         : actions
-                },
-                "logs": []
-            }
-
-    # workflow: ==== UI ====
-    async def find_widget(
-        self,
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
-        value: str | list,
-        match: typing.Literal["eq", "contains", "regex"] = "eq",
-        ignore_case: bool = False
-    ) -> typing.Optional[Widget]:
-        """Dump 当前页面 XML -> 构建 Widget 列表 -> 按 by/value + match/ignore_case 返回第一个命中控件。"""
-        if by == "xpath":
-            return None
-
-        if not (xml := await self.current_xml()):
-            return None
-
-        xml = re.sub(r"^\s*<\?xml[^>]*\?>\s*", "", xml)
-
-        try:
-            root = Et.fromstring(xml)
-        except (Et.ParseError, TypeError):
-            return None
-
-        widget_list = [
-            Widget(node.attrib) for node in root.iter("node")
-        ]
-
-        # bbox：不走正则/大小写/contains，直接按 bbox 精确命中
-        if by == "bbox":
-            if not isinstance(value, (list, tuple)):
-                return None
-            for widget in widget_list:
-                if widget.bbox == list(value):
-                    return widget
-            return None
-
-        # 非 bbox：value 必须是 str，否则不匹配
-        if not isinstance(value, str):
-            return None
-
-        needle = value.lower() if ignore_case else value
-        pattern: typing.Optional[re.Pattern[str]] = None
-
-        if match == "regex":
-            flags = re.IGNORECASE if ignore_case else 0
-            try:
-                pattern = re.compile(value, flags)
-            except re.error:
-                return None
-
-        for widget in widget_list:
-            got = getattr(widget, by, "")
-            hay = got.lower() if ignore_case else got
-
-            if match == "eq":
-                ok = (hay == needle) if ignore_case else (got == value)
-            elif match == "contains":
-                ok = needle in hay
-            else:
-                ok = bool(pattern.search(got)) if pattern else False
-
-            if ok: return widget
-
-        return None
 
 
 if __name__ == '__main__':
