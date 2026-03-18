@@ -172,47 +172,6 @@ async def post_tool_result(
         r.raise_for_status()
 
 
-async def stream_plan(
-    mode: str,
-    model_api: dict[str, typing.Any],
-    message: str,
-    openai_tools: list[dict],
-    extras: typing.Optional[dict[str, typing.Any]] = None,
-    timeout: float = 60.0,
-    *_,
-    **kwargs
-) -> typing.AsyncGenerator[dict, None]:
-    """Stream Planner"""
-
-    url = f"https://api.appserverx.com/mind-plan"
-    headers = Channel.make_headers()
-    payload = {
-        "mode"      : mode,
-        "model_api" : model_api,
-        "message"   : message,
-        "tools"     : openai_tools,
-        "extras"    : extras,
-        **kwargs
-    }
-
-    async for event in streaming(url, headers, payload, timeout):
-        match event.get("type"):
-            case "thinking":
-                logger.debug(event["content"])
-                continue
-            case "done":
-                logger.debug("Plan done ...")
-                continue
-            case "plan":
-                if not (steps := event.get("steps")) or not (loop_count := event.get("loop_count")):
-                    logger.warning(event)
-                    continue
-                logger.debug(f"Loop Count -> {loop_count}")
-                for step in steps: logger.debug(step["action"])
-
-        yield event
-
-
 async def stream_chat(
     mode: str,
     model_api: dict[str, typing.Any],
@@ -242,12 +201,54 @@ async def stream_chat(
         match event.get("type"):
             case "thinking":
                 if slog:
-                    await slog.feed(event["content"], display=StreamTyperLogger.STREAM)
+                    await slog.feed(event["content"], display=StreamTyperLogger.BLOCK)
                 continue
             case "done":
-                if slog: 
-                    await slog.feed("Chat done ...", display=StreamTyperLogger.STREAM)
+                if slog:
+                    await slog.feed(event["content"], display=StreamTyperLogger.BLOCK)
                 continue
+
+        yield event
+        
+        
+async def stream_plan(
+    mode: str,
+    model_api: dict[str, typing.Any],
+    message: str,
+    openai_tools: list[dict],
+    extras: typing.Optional[dict[str, typing.Any]] = None,
+    timeout: float = 60.0,
+    *_,
+    **kwargs
+) -> typing.AsyncGenerator[dict, None]:
+    """Stream Planner"""
+
+    url = f"https://api.appserverx.com/mind-plan"
+    headers = Channel.make_headers()
+    payload = {
+        "mode"      : mode,
+        "model_api" : model_api,
+        "message"   : message,
+        "tools"     : openai_tools,
+        "extras"    : extras,
+        **kwargs
+    }
+
+    async for event in streaming(url, headers, payload, timeout):
+        match event.get("type"):
+            case "thinking":
+                logger.debug(event["content"])
+                continue
+            case "done":
+                logger.debug(event["content"])
+                continue
+            
+            case "plan":
+                if not (steps := event.get("steps")) or not (loop_count := event.get("loop_count")):
+                    logger.warning(event)
+                    continue
+                logger.debug(f"Loop Count -> {loop_count}")
+                for step in steps: logger.debug(step["action"])
 
         yield event
 
@@ -291,9 +292,10 @@ async def stream_heal(
                 continue
             case "done":
                 if slog:
-                    await slog.feed("Heal done ...", display=StreamTyperLogger.BLOCK)
-                else: logger.debug("Heal done ...")
+                    await slog.feed(event["content"], display=StreamTyperLogger.BLOCK)
+                else: logger.debug(event["content"])
                 continue
+            
             case "heal":
                 if slog:
                     await slog.feed(event["content"], display=StreamTyperLogger.BLOCK)
