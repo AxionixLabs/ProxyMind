@@ -1406,7 +1406,10 @@ class Design(object):
 
 class TypewriterStreamSession(object):
 
-    def __init__(self, max_lines: int = 24) -> None:
+    MIN_VIEW_LINES = 6
+    VIEW_MARGIN    = 4
+
+    def __init__(self, max_lines: int = 12) -> None:
         self.lines: deque = deque(maxlen=max_lines)
         self.out: str     = ""
         self.col: int     = 0
@@ -1415,10 +1418,35 @@ class TypewriterStreamSession(object):
 
         self.live: typing.Optional[Live] = None
 
+    def _viewport_lines(self) -> int:
+        height = max(0, int(getattr(Design.console, "height", 0) or 0))
+        if height <= 0:
+            return self.lines.maxlen
+        return max(self.MIN_VIEW_LINES, min(self.lines.maxlen, height - self.VIEW_MARGIN))
+
+    def _tail_text(self, text: str) -> str:
+        max_lines = self._viewport_lines()
+        if not text or max_lines <= 0:
+            return text
+
+        parts = text.split("\n")
+        if text.endswith("\n"):
+            rows = parts[-max_lines - 1:]
+        else:
+            rows = parts[-max_lines:]
+        return "\n".join(rows)
+
+    def _tail_renderable(self) -> Text:
+        return Text(self._tail_text(self.out), style="bold")
+
     async def start(self) -> None:
         if self.live: return None
         self.live = Live(
-            Text(self.out, style="bold"), console=Design.console, refresh_per_second=20
+            self._tail_renderable(),
+            console=Design.console,
+            refresh_per_second=12,
+            transient=True,
+            vertical_overflow="crop"
         )
         self.live.__enter__()
 
@@ -1426,12 +1454,16 @@ class TypewriterStreamSession(object):
         if self.live is not None:
             try:
                 await Design.cursor_blink(
-                    self.live, self.out, self.cursor, max_lines=self.lines.maxlen
+                    self.live, self.out, self.cursor, max_lines=self._viewport_lines()
                 )
             finally:
                 self.live.__exit__(None, None, None)
                 self.live = None
 
+        if self.out:
+            Design.console.print(Text("─" * min(28, max(16, Design.console.width // 3)), style="dim #5A5A5A"))
+            Design.console.print(Text(f"{const.APP_DESC} Reply", style="bold #AFFFFF"))
+            Design.console.print(Text(self.out, style="bold"))
         Design.console.print()
 
     async def feed(self, delta: str) -> None:
@@ -1442,7 +1474,7 @@ class TypewriterStreamSession(object):
 
         self.out, self.delay = await Design.typewriter(
             self.live, delta, self.out, self.delay, final_delay, self.cursor,
-            max_lines=self.lines.maxlen
+            max_lines=self._viewport_lines()
         )
 
     async def render(self, content: str) -> None:
@@ -1450,7 +1482,7 @@ class TypewriterStreamSession(object):
             return None
 
         self.out = content
-        self.live.update(Text(self.out, style="bold"))
+        self.live.update(self._tail_renderable())
 
     async def sync(self, content: str, *, animate: bool = False) -> None:
         if self.live is None:
