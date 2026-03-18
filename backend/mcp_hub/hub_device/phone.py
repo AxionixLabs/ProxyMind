@@ -8,11 +8,17 @@
 
 import re
 import time
+import uuid
 import typing
 import asyncio
-import numpy as np
-from PIL import Image
+import tempfile
+import contextlib
+from pathlib import Path
+import xml.etree.ElementTree as Et
 from engine.terminal import Terminal
+from backend.mcp_hub.hub_device.widget import Widget
+from backend.mcp_hub.hub_device.vision import similarity
+from backend.utilities import const
 
 
 class Phone(object):
@@ -212,6 +218,33 @@ class Phone(object):
         ]
         return "true" in await Terminal.cmd_line(cmd)
 
+    # workflow: ==== Info ====
+    async def screenshot(self, local: str) -> str:
+        """在设备上截屏 -> pull 到指定本地路径，返回本地路径。"""
+        filename = f"screenshot_{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
+        remote = "/data/local/tmp/" + filename
+
+        capture = self.prefix + ["shell", "screencap", "-p", remote]
+        await Terminal.cmd_line(capture)
+
+        p = Path(local)
+        if p.suffix:
+            destination = p.with_name(f"{p.stem}_{self.serial}{p.suffix}")
+        else:
+            destination = p / f"screenshot_{self.serial}_{uuid.uuid4().hex[:6]}.png"
+
+        destination = destination.expanduser().resolve()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        pull = self.prefix + ["pull", remote, str(destination)]
+        await Terminal.cmd_line(pull)
+
+        remove = self.prefix + ["shell", "rm", "-f", remote]
+        with contextlib.suppress(Exception):
+            await Terminal.cmd_line(remove)
+
+        return str(destination)
+
     # workflow: ==== Keyevent ====
     async def key_event(self, keycode: int, longpress: bool = False) -> typing.Any:
         """向设备发送 Android 系统按键事件（支持普通按键与长按）。"""
@@ -311,61 +344,331 @@ class Phone(object):
         return package, activity, raw
 
     # workflow: ==== UI ====
-    @staticmethod
-    def similarity(img_path1: str, img_path2: str) -> float:
-        """0~1：越大越相似（基于灰度 + downscale + 加权MSE，含轻微裁剪增强）。"""
-        def prepare(path: str) -> np.ndarray:
-            with Image.open(path) as im:
-                im = im.convert("L")
-                width, height = im.size
+    async def scroll_until(
+        self,
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: str | list,
+        match: typing.Literal["eq", "contains", "regex"] = "eq",
+        ignore_case: bool = False,
+        direction: typing.Literal["down", "up", "left", "right"] = "down",
+        anchor: typing.Optional[tuple[int, int]] = None,
+        duration: int = 320,
+        settle: float = 0.25,
+        timeout: float = 12.0,
+        max_swipes: int = 12,
+        stop_on_stable: bool = True,
+        similarity_threshold: float = 0.992,
+        stable_required: int = 2,
+        min_swipes_before_stop: int = 2
+    ) -> dict[str, typing.Any]:
+        """滑动查找目标元素，返回基础数据，不包装 MCP 多模态结构。"""
+        if by == "xpath":
+            return {
+                "ok"        : False,
+                "found"     : False,
+                "by"        : by,
+                "value"     : value,
+                "direction" : direction,
+                "swipes"    : 0,
+                "reason"    : "xpath_not_supported",
+                "actions"   : []
+            }
 
-                # 裁剪边缘，减少状态栏/导航栏/吸顶影响
-                left   = int(width * crop_left)
-                right  = int(width * (1.0 - crop_right))
-                top    = int(height * crop_top)
-                bottom = int(height * (1.0 - crop_bottom))
+        deadline = time.monotonic() + float(timeout)
+        actions: list[dict[str, typing.Any]] = []
 
-                # 兜底：裁剪不能把图裁没
-                if (right - left) >= 4 and (bottom - top) >= 4:
-                    im = im.crop((left, top, right, bottom))
+        if widget := await self.find_widget(by, value, match, ignore_case):
+            return {
+                "ok"          : True,
+                "found"       : True,
+                "by"          : by,
+                "value"       : value,
+                "match"       : match,
+                "ignore_case" : ignore_case,
+                "direction"   : direction,
+                "swipes"      : 0,
+                "widget"      : widget,
+                "reason"      : "found_initial",
+                "actions"     : actions
+            }
 
-                # 再缩放到固定大小
-                im = im.resize(size)
+        if not (wm := await self.st_wm_size()):
+            return {
+                "ok"          : False,
+                "found"       : False,
+                "by"          : by,
+                "value"       : value,
+                "match"       : match,
+                "ignore_case" : ignore_case,
+                "reason"      : "wm_size_unavailable",
+                "actions"     : actions
+            }
 
-                return np.asarray(im, dtype=np.float32)
+        w, h = wm
+        if anchor is None:
+            ax = int(w * 0.5)
+            ay = int(h * 0.55)
+        else:
+            ax, ay = anchor
 
-        size: tuple[int, int] = (96, 96)
+        stable_hits = 0
+        last_sim: typing.Optional[float] = None
 
-        # 裁剪比例：去掉顶部/底部固定栏（默认较温和，可按实际 UI 调）
-        crop_top: float    = 0.15
-        crop_bottom: float = 0.12
-        crop_left: float   = 0.00
-        crop_right: float  = 0.00
+        with tempfile.TemporaryDirectory(prefix="scroll_until_caps_") as tmp:
+            tmp_dir = Path(tmp)
+            prev_path = str(tmp_dir / "prev.png")
+            cur_path = str(tmp_dir / "cur.png")
 
-        # 中心权重：越大越强调中心（1.0=无权重）
-        center_weight: float = 1.8
+            prev_ok = False
+            if stop_on_stable:
+                try:
+                    prev_path = await self.screenshot(prev_path)
+                    prev_ok = True
+                except Exception as e:
+                    actions.append({
+                        "kind"  : "screenshot_prev_fail",
+                        "error" : f"{type(e).__name__}: {e}"
+                    })
 
-        a1 = prepare(img_path1)
-        a2 = prepare(img_path2)
+            for i in range(1, int(max_swipes) + 1):
+                if time.monotonic() >= deadline:
+                    return {
+                        "ok"              : False,
+                        "found"           : False,
+                        "by"              : by,
+                        "value"           : value,
+                        "match"           : match,
+                        "ignore_case"     : ignore_case,
+                        "direction"       : direction,
+                        "swipes"          : i - 1,
+                        "reason"          : "timeout",
+                        "actions"         : actions,
+                        "last_similarity" : round(last_sim, 4) if last_sim is not None else None
+                    }
 
-        # 中心加权（边缘权重低一点，中心权重高一点）
-        h, w = a1.shape
-        yy, xx = np.mgrid[0:h, 0:w]
-        cy, cx = max(1e-6, (h - 1) / 2.0), max(1e-6, (w - 1) / 2.0)
+                try:
+                    await self.scroll_direction(direction, ax, ay, duration=duration)
+                    actions.append({
+                        "kind"      : "scroll",
+                        "n"         : i,
+                        "direction" : direction,
+                        "anchor"    : [ax, ay],
+                        "duration"  : duration
+                    })
+                except Exception as e:
+                    actions.append({
+                        "kind"  : "scroll_fail",
+                        "n"     : i,
+                        "error" : f"{type(e).__name__}: {e}"
+                    })
+                    return {
+                        "ok"          : False,
+                        "found"       : False,
+                        "by"          : by,
+                        "value"       : value,
+                        "match"       : match,
+                        "ignore_case" : ignore_case,
+                        "direction"   : direction,
+                        "swipes"      : i - 1,
+                        "reason"      : "scroll_fail",
+                        "actions"     : actions
+                    }
 
-        # 归一化半径：中心0，边缘~1
-        r = np.sqrt(((yy - cy) / cy) ** 2 + ((xx - cx) / cx) ** 2)
-        r = np.clip(r, 0.0, 1.0)
+                await asyncio.sleep(float(settle))
 
-        # 权重：中心 = center_weight，边缘 = 1.0（平滑过渡）
-        weights = 1.0 + (center_weight - 1.0) * (1.0 - r) ** 2
+                if widget := await self.find_widget(by, value, match, ignore_case):
+                    return {
+                        "ok"          : True,
+                        "found"       : True,
+                        "by"          : by,
+                        "value"       : value,
+                        "match"       : match,
+                        "ignore_case" : ignore_case,
+                        "direction"   : direction,
+                        "swipes"      : i,
+                        "widget"      : widget,
+                        "reason"      : "found_after_scroll",
+                        "actions"     : actions
+                    }
 
-        diff = a1 - a2
-        mse = float(np.sum((diff * diff) * weights)) / float(np.sum(weights))
+                if stop_on_stable and prev_ok:
+                    try:
+                        cur_path = await self.screenshot(cur_path)
+                        sim = float(similarity(prev_path, cur_path))
+                        last_sim = sim
 
-        # 归一化：像素范围 0~255，最大 MSE=255^2
-        sim = 1.0 - min(1.0, mse / (255.0 * 255.0))
-        return float(sim)
+                        stable_hits = stable_hits + 1 if sim >= float(similarity_threshold) else 0
+                        actions.append({
+                            "kind"        : "similarity",
+                            "n"           : i,
+                            "sim"         : round(sim, 4),
+                            "stable_hits" : stable_hits
+                        })
+
+                        if i >= int(min_swipes_before_stop) and stable_hits >= int(stable_required):
+                            return {
+                                "ok"          : False,
+                                "found"       : False,
+                                "by"          : by,
+                                "value"       : value,
+                                "match"       : match,
+                                "ignore_case" : ignore_case,
+                                "direction"   : direction,
+                                "swipes"      : i,
+                                "reason"      : "stable_stop",
+                                "similarity"  : round(sim, 4),
+                                "stable_hits" : stable_hits,
+                                "actions"     : actions
+                            }
+
+                        prev_path, cur_path = cur_path, prev_path
+                    except Exception as e:
+                        actions.append({
+                            "kind"  : "similarity_fail",
+                            "n"     : i,
+                            "error" : f"{type(e).__name__}: {e}"
+                        })
+
+        return {
+            "ok"              : False,
+            "found"           : False,
+            "by"              : by,
+            "value"           : value,
+            "match"           : match,
+            "ignore_case"     : ignore_case,
+            "direction"       : direction,
+            "swipes"          : int(max_swipes),
+            "reason"          : "max_swipes_reached",
+            "last_similarity" : round(last_sim, 4) if last_sim is not None else None,
+            "actions"         : actions
+        }
+
+    # workflow: ==== UI ====
+    async def current_xml(self) -> typing.Optional[str]:
+        """导出当前 UI 层级 XML。"""
+        xml_file = "/data/local/tmp/window_dump.xml"
+
+        cmd = self.prefix + [
+            "shell", "uiautomator", "dump", "--compressed", xml_file
+        ]
+        await Terminal.cmd_line(cmd)
+
+        cat = self.prefix + ["shell", "cat", xml_file]
+        remove = self.prefix + ["shell", "rm", "-f", xml_file]
+        try:
+            for _ in range(6):
+                xml = await Terminal.cmd_line(cat)
+
+                xml = xml.decode(const.CHARSET, const.IGNORE) if isinstance(
+                    xml, (bytes, bytearray)
+                ) else (xml or "")
+
+                if "<hierarchy" in xml:
+                    return xml
+                await asyncio.sleep(0.12)
+            return None
+        finally:
+            with contextlib.suppress(Exception):
+                await Terminal.cmd_line(remove)
+
+    # workflow: ==== UI ====
+    async def scroll_direction(
+        self,
+        direction: typing.Literal["up", "down", "left", "right"],
+        x: int,
+        y: int,
+        duration: int = 300
+    ) -> typing.Any:
+        """
+        以锚点为参考，按“内容滚动方向（scroll）”进行语义滑动。
+        注意：底层 adb `input swipe` 是“手指轨迹”，因此这里会做方向反转：
+          - scroll up    -> finger down
+          - scroll down  -> finger up
+          - scroll left  -> finger right
+          - scroll right -> finger left
+        """
+        w, h = await self.st_wm_size()
+
+        x1, y1 = x, y
+        x2, y2 = x1, y1
+
+        match direction:
+            case "up":
+                x2, y2 = x1, min(h - 1, int(h * 0.75))
+            case "down":
+                x2, y2 = x1, max(0, int(h * 0.25))
+            case "left":
+                x2, y2 = min(w - 1, int(w * 0.75)), y1
+            case "right":
+                x2, y2 = max(0, int(w * 0.25)), y1
+
+        cmd = self.prefix + [
+            "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration)
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    # workflow: ==== UI ====
+    async def find_widget(
+        self,
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: str | list,
+        match: typing.Literal["eq", "contains", "regex"] = "eq",
+        ignore_case: bool = False
+    ) -> typing.Optional[Widget]:
+        """Dump 当前页面 XML -> 构建 Widget 列表 -> 按 by/value + match/ignore_case 返回第一个命中控件。"""
+        if by == "xpath":
+            return None
+
+        if not (xml := await self.current_xml()):
+            return None
+
+        xml = re.sub(r"^\s*<\?xml[^>]*\?>\s*", "", xml)
+
+        try:
+            root = Et.fromstring(xml)
+        except (Et.ParseError, TypeError):
+            return None
+
+        widget_list = [
+            Widget(node.attrib) for node in root.iter("node")
+        ]
+
+        if by == "bbox":
+            if not isinstance(value, (list, tuple)):
+                return None
+            for widget in widget_list:
+                if widget.bbox == list(value):
+                    return widget
+            return None
+
+        if not isinstance(value, str):
+            return None
+
+        needle = value.lower() if ignore_case else value
+        pattern: typing.Optional[re.Pattern[str]] = None
+
+        if match == "regex":
+            flags = re.IGNORECASE if ignore_case else 0
+            try:
+                pattern = re.compile(value, flags)
+            except re.error:
+                return None
+
+        for widget in widget_list:
+            got = getattr(widget, by, "")
+            hay = got.lower() if ignore_case else got
+
+            if match == "eq":
+                ok = (hay == needle) if ignore_case else (got == value)
+            elif match == "contains":
+                ok = needle in hay
+            else:
+                ok = bool(pattern.search(got)) if pattern else False
+
+            if ok:
+                return widget
+
+        return None
 
 
 if __name__ == '__main__':
