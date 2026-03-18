@@ -1461,8 +1461,6 @@ class TypewriterStreamSession(object):
                 self.live = None
 
         if self.out:
-            Design.console.print(Text("─" * min(28, max(16, Design.console.width // 3)), style="dim #5A5A5A"))
-            Design.console.print(Text(f"{const.APP_DESC} Reply", style="bold #AFFFFF"))
             Design.console.print(Text(self.out, style="bold"))
         Design.console.print()
 
