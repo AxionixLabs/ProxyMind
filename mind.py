@@ -339,7 +339,7 @@ class Mind(object):
 
         # workflow: ==== Chat Streaming ====
         try:
-            async for chat in request.stream_chat(mode, model_api, message, ft, slog=slog, **kwargs):
+            async for chat in request.stream_chat(mode, model_api, message, ft, **kwargs):
                 if not anim_stopped:
                     await self.stop_anim()
                     anim_stopped = True
