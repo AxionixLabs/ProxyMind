@@ -146,15 +146,13 @@ class Mind(object):
             openai_tools.append({
                 "type": "function",
                 "function": {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.inputSchema
+                    "name"        : tool.name,
+                    "description" : tool.description,
+                    "parameters"  : tool.inputSchema
                 }
             })
 
-        logger.debug(f"Tool [{len(openai_tools)}]")
-        for tool in openai_tools:
-            logger.debug(f"Tool {tool['function']['name']}")
+        logger.debug(f"[Tooling] count={len(openai_tools)}")
 
         return openai_tools, domains
 
@@ -208,6 +206,47 @@ class Mind(object):
                     openai_tools, domains = self.build_openai_tools(list_tools)
                     await function(session, openai_tools, domains)
 
+    async def with_mcp_guard(
+        self,
+        runner: typing.Callable[..., typing.Awaitable[None]],
+        *,
+        anim_mode: typing.Literal["chat", "fast", "plan"] = "chat",
+        **kwargs
+    ) -> None:
+        """统一执行保护：动画 + 网络/HTTP/通用异常捕获"""
+
+        def flatten_exceptions(exc: BaseException) -> typing.Generator[BaseException, None, None]:
+            if isinstance(exc, BaseExceptionGroup):
+                for sub in exc.exceptions:
+                    yield from flatten_exceptions(sub)
+            else:
+                yield exc
+
+        await self.start_anim(anim_mode)
+
+        try:
+            await runner(**kwargs)
+
+        except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as eg:
+            for ex in flatten_exceptions(eg):
+                logger.error(f"❌ [NET] {ex!r}")
+
+        except* httpx.HTTPStatusError as eg:
+            for ex in flatten_exceptions(eg):
+                if isinstance(ex, httpx.HTTPStatusError):
+                    body = ex.response.extensions.get("error_body", b"")
+                    text = body.decode(const.CHARSET, errors="replace")
+                    logger.error(f"❌ [HTTP] {ex.response.status_code} {text}")
+                else:
+                    logger.error(f"❌ [HTTP] unexpected: {ex!r}")
+
+        except* Exception as eg:
+            for ex in flatten_exceptions(eg):
+                logger.error(f"❌ [ERROR] {ex!r}")
+
+        finally:
+            await self.stop_anim()
+
     async def wakeup(
         self,
         session: ClientSession,
@@ -247,12 +286,6 @@ class Mind(object):
     ) -> None:
         """Calling"""
 
-        def flatten_exceptions(exc: BaseException) -> typing.Generator[BaseException, None, None]:
-            if isinstance(exc, BaseExceptionGroup):
-                for sub in exc.exceptions: yield from flatten_exceptions(sub)
-            else:
-                yield exc
-
         model_api = model_api or self.pref.to_config()
 
         meta_in = kwargs.get("metadata") or {}
@@ -260,32 +293,9 @@ class Mind(object):
         sid = meta_in.get("sid") if isinstance(meta_in, dict) else None
         kwargs["metadata"] = self.begin_session(cid=cid, sid=sid)
 
-        await self.start_anim(mode)
-
-        try:
-            return await func(model_api, message, **kwargs)
-
-        except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as eg:
-            await self.stop_anim()
-            for ex in flatten_exceptions(eg):
-                logger.error(f"❌ [NET] {ex!r}")
-
-        except* httpx.HTTPStatusError as eg:
-            await self.stop_anim()
-            for ex in flatten_exceptions(eg):
-                if isinstance(ex, httpx.HTTPStatusError):
-                    body = ex.response.extensions.get("error_body", b"")
-                    text = body.decode(const.CHARSET, errors="replace")
-                    logger.error(f"❌ [HTTP] {ex.response.status_code} {text}")
-                else:
-                    logger.error(f"❌ [HTTP] unexpected: {ex!r}")
-
-        except* Exception as eg:
-            await self.stop_anim()
-            for ex in flatten_exceptions(eg):
-                logger.error(f"❌ [ERROR] {ex!r}")
-        finally:
-            await self.stop_anim()
+        return await self.with_mcp_guard(
+            func, mode=mode, model_api=model_api, message=message, **kwargs
+        )
 
     # workflow: ==== Chat 对话模式 ====
     async def stream_looper(
@@ -540,7 +550,7 @@ class Mind(object):
                             await finish("fail", error=str(error), run=index, index=step_idx, name=name)
                             return logger.error(f"{error}\n")
 
-                    logger.info(f"{name} -> args={arguments}")
+                    logger.info(Tooling.summarize_tool_arguments(name, arguments))
 
                     # workflow: ==== 参数增强 ====
                     arguments = Enhancer.exchange(name, arguments, self.report)
@@ -688,9 +698,12 @@ class Mind(object):
     # Notes: ==== Loop 循环模式 ====
     async def mind_loop(self) -> None:
         """Mind Loop"""
-        async def function(types: typing.Literal["model", "apikey"]) -> typing.Optional[str]:
+        async def exchange(
+            matcher: re.Match[str],
+            types: typing.Literal["model", "apikey"]
+        ) -> typing.Optional[str]:
             """Exchange"""
-            if pref_name := m.group(1).strip() if m.group(1) else None:
+            if pref_name := matcher.group(1).strip() if matcher.group(1) else None:
                 return pref_name
 
             styles: list[str] = []
@@ -708,100 +721,131 @@ class Mind(object):
             for s in styles: Design.console.print(f"[bold #AFC7D8]  • {s}[/]")
             return Design.console.print(f"[bold #FF5F5F]\n {types} invalid: /{types} {const.ERR}{pref_name}")
 
-        model  = self.pref.model
-        apikey = self.pref.apikey
+        async def function(
+            session: ClientSession,
+            openai_tools: list[dict[str, typing.Any]],
+            domains: dict[str, dict[str, typing.Any]]
+        ) -> None:
+            """Loop with shared MCP session"""
 
-        metadata = self.begin_session()
+            model  = self.pref.model
+            apikey = self.pref.apikey
 
-        quit_set: set[str] = {"/quit", "/q", "quit", "exit"}
-        help_set: set[str] = {"/help", "/h"}
-        seal_set: set[str] = {"/license", "/lic"}
-        subs_set: set[str] = {"/subscription", "/sub"}
+            metadata = self.begin_session()
 
-        doc = """\
-        [bold]
-        [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
-        [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
-        [bold #5FD7AF]/subscription, /sub[/]       订阅信息（授权状态/到期）
-        [bold #FF5F5F]/quit, /q, quit, exit[/]     断开会话（安全退出）
-        [bold #AFD7FF]/model <name>[/]             引擎切换（选择推理内核）
-        [bold #AFD7FF]/apikey <key>[/]             凭证更新（替换访问密钥）
-        [bold #FFD75F]/chat[/]                     对话模式（全域能力接入/自然语言交互）
-        [bold #FFD75F]/fast[/]                     高速模式（高吞吐任务流/数据媒体直达）
-        [bold #FFD75F]/plan[/]                     编排模式（结构任务拆解/确定路径执行）
-        [/]"""
+            quit_set: set[str] = {"/quit", "/q", "quit", "exit"}
+            help_set: set[str] = {"/help", "/h"}
+            seal_set: set[str] = {"/license", "/lic"}
+            subs_set: set[str] = {"/subscription", "/sub"}
 
-        re_model  = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
-        re_apikey = re.compile(r"^\s*/apikey(?:\s+(.*))?\s*$", re.IGNORECASE)
+            doc = """\
+            [bold]
+            [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
+            [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
+            [bold #5FD7AF]/subscription, /sub[/]       订阅信息（授权状态/到期）
+            [bold #FF5F5F]/quit, /q, quit, exit[/]     断开会话（安全退出）
+            [bold #AFD7FF]/model <name>[/]             引擎切换（选择推理内核）
+            [bold #AFD7FF]/apikey <key>[/]             凭证更新（替换访问密钥）
+            [bold #FFD75F]/chat[/]                     对话模式（全域能力接入/自然语言交互）
+            [bold #FFD75F]/fast[/]                     高速模式（高吞吐任务流/数据媒体直达）
+            [bold #FFD75F]/plan[/]                     编排模式（结构任务拆解/确定路径执行）
+            [/]"""
 
-        tag: typing.Literal["CHAT", "FAST", "PLAN"] = "CHAT"
+            re_model  = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
+            re_apikey = re.compile(r"^\s*/apikey(?:\s+(.*))?\s*$", re.IGNORECASE)
 
-        while not self.task_event.is_set():
-            try:
-                raw = await self.prompt_box.prompt_async(tag=tag, model=model)
-            except KeyboardInterrupt:
-                self.task_event.set()
-                break
-            except (EOFError, UnicodeDecodeError):
-                continue
+            tag: typing.Literal["CHAT", "FAST", "PLAN"] = "CHAT"
 
-            if raw.lower() in quit_set:
-                self.task_event.set()
-                break
+            while not self.task_event.is_set():
+                try:
+                    raw = await self.prompt_box.prompt_async(tag=tag, model=model)
+                except KeyboardInterrupt:
+                    self.task_event.set()
+                    break
+                except (EOFError, UnicodeDecodeError):
+                    continue
 
-            if raw.lower() in help_set:
-                Design.console.print(doc)
-                continue
+                if raw.lower() in quit_set:
+                    self.task_event.set()
+                    break
 
-            if raw.lower() in seal_set:
-                Design.startup_logo()
-                continue
+                if raw.lower() in help_set:
+                    Design.console.print(doc)
+                    continue
 
-            if raw.lower() in subs_set:
-                lic_file = Path(self.src_opera_place) / const.LIC_FILE
-                await authorize.verify_license(lic_file)
-                continue
+                if raw.lower() in seal_set:
+                    Design.startup_logo()
+                    continue
 
-            if raw.lower() == "/chat":
-                Design.console.print()
-                tag = "CHAT"
-                continue
+                if raw.lower() in subs_set:
+                    lic_file = Path(self.src_opera_place) / const.LIC_FILE
+                    await authorize.verify_license(lic_file)
+                    continue
 
-            if raw.lower() == "/fast":
-                Design.console.print()
-                tag = "FAST"
-                continue
+                if raw.lower() == "/chat":
+                    Design.console.print()
+                    tag = "CHAT"
+                    continue
 
-            if raw.lower() == "/plan":
-                Design.console.print()
-                tag = "PLAN"
-                continue
+                if raw.lower() == "/fast":
+                    Design.console.print()
+                    tag = "FAST"
+                    continue
 
-            if m := re_model.match(raw):
-                model = await function("model") or model
-                continue
+                if raw.lower() == "/plan":
+                    Design.console.print()
+                    tag = "PLAN"
+                    continue
 
-            if m := re_apikey.match(raw):
-                apikey = await function("apikey") or apikey
-                continue
+                if m := re_model.match(raw):
+                    model = await exchange(m, "model") or model
+                    continue
 
-            func: typing.Callable = self.mind_chat
-            mode: typing.Literal["chat", "fast", "plan"] = "chat"
+                if m := re_apikey.match(raw):
+                    apikey = await exchange(m, "apikey") or apikey
+                    continue
 
-            match tag:
-                case "CHAT":
-                    mode = "chat"
-                    func = self.mind_chat
-                case "FAST":
-                    mode = "fast"
-                    func = self.mind_fast
-                case "PLAN":
-                    mode = "plan"
-                    func = self.mind_plan
+                # model_api = self.pref.to_config(model=model, apikey=apikey)
 
-            model_api = self.pref.to_config(model=model, apikey=apikey)
+                if tag == "CHAT":
+                    await self.with_mcp_guard(
+                        self.stream_looper,
+                        mode="chat",
+                        anim_mode="chat",
+                        session=session,
+                        model_api=model_api,
+                        message=raw,
+                        openai_tools=openai_tools,
+                        domains=domains,
+                        metadata=metadata
+                    )
+                elif tag == "FAST":
+                    await self.with_mcp_guard(
+                        self.stream_looper,
+                        mode="fast",
+                        anim_mode="fast",
+                        session=session,
+                        model_api=model_api,
+                        message=raw,
+                        openai_tools=openai_tools,
+                        domains=domains,
+                        metadata=metadata
+                    )
+                else:
+                    await self.with_mcp_guard(
+                        self.static_looper,
+                        mode="plan",
+                        anim_mode="plan",
+                        session=session,
+                        model_api=model_api,
+                        message=raw,
+                        openai_tools=openai_tools,
+                        domains=domains,
+                        metadata=metadata
+                    )
 
-            await self.calling(model_api, message=raw, func=func, mode=mode, metadata=metadata)
+        model_api = self.pref.to_config()
+        return await self.with_mcp_session(model_api, function)
 
     # Notes: ==== Pack 批量模式 ====
     async def mind_pack(
