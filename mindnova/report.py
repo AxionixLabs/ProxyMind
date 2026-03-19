@@ -47,9 +47,9 @@ class Report(object):
         self.__log_path: str = os.path.join(self.total_path, "logs")
         if not (log_dir := Path(self.__log_path)).exists():
             log_dir.mkdir(parents=True, exist_ok=True)
-            
+
         # 自研：native
-        self.__native_path: str = os.path.join(self.native_path, "native")
+        self.__native_path: str = os.path.join(self.total_path, "native")
         if not (native_dir := Path(self.__native_path)).exists():
             native_dir.mkdir(parents=True, exist_ok=True)
 
@@ -76,7 +76,7 @@ class Report(object):
     def log_path(self) -> str:
         """获取日志文件夹路径"""
         return self.__log_path
-    
+
     @property
     def native_path(self) -> str:
         """native 文件夹路径"""
