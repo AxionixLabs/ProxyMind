@@ -222,8 +222,6 @@ class Framix(object):
             "--debug"
         ]
 
-        logger.warning(cmd)
-
         resp = await self.__engine(*cmd)
 
         self.fx_report_session.update({
