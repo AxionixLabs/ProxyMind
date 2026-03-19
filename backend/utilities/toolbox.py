@@ -8,13 +8,25 @@
 
 import sys
 import time
+import uuid
 import shutil
 import typing
 import asyncio
+from pathlib import Path
 from mcp.types import (
     CallToolResult, TextContent
 )
 from engine.terminal import Terminal
+
+
+def mk_out_dir(output_dir: str, engine: str, tool: str) -> Path:
+    base_dir = Path(output_dir or ".").expanduser().resolve()
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    tag = f"{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    out_dir = base_dir / engine / tool / tag
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir
 
 
 async def port_listen(port: int, *, host: str = "127.0.0.1") -> bool:
