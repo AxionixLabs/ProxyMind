@@ -20,7 +20,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
     @mcp.tool(meta={"hidden": False, "domain": "bench", "class": "framix"})
     @task_middleware("fx_frame_analysis")
-    async def fx_analysis(
+    async def fx_frame_analysis(
         video: list[str],
         total: typing.Optional[str],
         scale: float = 0.3
