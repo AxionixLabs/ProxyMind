@@ -74,11 +74,14 @@ class Record(object):
         return s[:max_len] if max_len > 0 else s
 
     def as_video(self, video_suffix: str = "mkv") -> str:
-        token = self.as_token(self.device.serial, max_len=24)
-        uid   = uuid.uuid4().hex[:6]
-        ts    = time.strftime("%Y%m%d%H%M%S")
-        rnd   = random.randint(100, 999)
-        return f"{ts}_{token}_{uid}_{rnd}.{video_suffix}"
+        sn  = self.as_token(self.device.serial, max_len=24)
+        uid = uuid.uuid4().hex[:6]
+        ts  = time.strftime("%Y%m%d%H%M%S")
+        day = time.strftime("%Y%m%d")
+        rnd = random.randint(100, 999)
+
+        token = f"{ts}_{sn}_{uid}_{rnd}.{video_suffix}"
+        return os.path.join(day, self.agent_id, self.device.serial, token)
 
     async def acquire(self) -> None:
         async with self.sessions_lock:
@@ -241,9 +244,10 @@ class Record(object):
                     vs = 2.5
                 cmd += ["--no-display"] if vs <= 2.4 else ["--no-window"]
 
-            cmd += [
-                "-r", video_temp := f"{os.path.join(directory, 'screen')}_{self.as_video()}"
-            ]
+            video_temp = os.path.join(directory, self.as_video())
+            os.makedirs(os.path.dirname(video_temp), exist_ok=True)
+            cmd += ["-r", video_temp]
+
             await self.launcher(cmd)
             await self.check_timer(video_temp)
 
