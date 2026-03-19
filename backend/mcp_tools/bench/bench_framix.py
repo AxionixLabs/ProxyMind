@@ -67,7 +67,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
     @task_middleware("fx_frame_analyzer")
     async def fx_frame_analyzer(
         title: str,
-        total: str,
+        total: typing.Optional[str] = None,
         scale: float = 0.3
     ) -> CallToolResult:
         """
@@ -76,21 +76,22 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         A: fx_frame_analyzer
         P:
           title: str
-          total: str
+          total: str?=None  # 默认不传
           scale: float=0.3  # 等比缩放，范围[0.1, 1.0]
         R: CTR
         N:
           - Framix 批量分析入口（内部回填）：输入视频来自 Ins.video_list（由录制/回填流程写入），无需传视频路径
-          - total 作为报告输出目录；执行后会清空 Ins.video_list
+          - total 为可选项；默认不传，自动使用引擎默认目录
+          - 仅当用户明确指定输出目录时，才传 total
+          - 执行后会清空 Ins.video_list
           - query_idle 可用于查看当前回填/队列状态
           - 多模态对齐输出：text/attachments/data/logs（成败以 data.ok 为准）
         """
 
         await Requires.connect_framix()
 
-        Ins.framix.total = total
-
         args = {
+            "video" : Ins.video_list,
             "title" : title,
             "total" : total,
             "scale" : scale
@@ -99,7 +100,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{Ins.framix.agent_id}.fx_frame_analyzer", args=args)
             try:
-                return await Ins.framix.fx_frame_analyzer(title, Ins.video_list, scale)
+                return await Ins.framix.fx_frame_analyzer(**args)
             finally:
                 Ins.video_list.clear()
                 await idle.job_final(job_id)
