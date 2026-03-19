@@ -19,7 +19,7 @@ from backend.mcp_core.core_buffer import (
     LineBuffer, GateMachine, FX_SPEC
 )
 from backend.utilities import (
-    const, marked, toolbox
+    const, marked
 )
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -204,9 +204,7 @@ class Framix(object):
         scale: float = 0.3
     ) -> dict[str, typing.Any]:
 
-        out_dir = toolbox.mk_out_dir(total, engine=self.agent_id, tool="fx_frame_analyzer")
-        
-        self.total = str(out_dir)
+        self.total = total
 
         marked.ensure_i(video, "video")
         marked.ensure_d(self.total, "total")
@@ -223,6 +221,8 @@ class Framix(object):
             "--total", self.total,
             "--debug"
         ]
+
+        logger.warning(cmd)
 
         resp = await self.__engine(*cmd)
 
