@@ -10,8 +10,11 @@ import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.middlewares.mid_task import task_middleware
-from backend.nexus.domain.model import (
-    NexusBatchItem, NexusBatchRequest, NexusKind, NexusRequest
+from backend.models.model_nexus import (
+    NexusBatchItem,
+    NexusBatchRequest,
+    NexusKind,
+    NexusRequest
 )
 from backend.utilities.instance import Ins
 from backend.utilities.pipeline import Idle

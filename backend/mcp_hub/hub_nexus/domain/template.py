@@ -28,7 +28,7 @@ from urllib.parse import (
 from collections.abc import (
     Callable, Mapping
 )
-from backend.nexus.domain.extract import ExtractService
+from .extract import ExtractService
 
 
 class TemplateEvaluation(object):

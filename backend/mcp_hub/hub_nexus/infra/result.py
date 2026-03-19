@@ -7,9 +7,9 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.nexus.check import CheckService
-from backend.nexus.infra.media import MediaService
-from backend.nexus.infra.pack_builder import PackBuilder
+from backend.mcp_hub.hub_nexus.check import CheckService
+from backend.mcp_hub.hub_nexus.infra.media import MediaService
+from backend.mcp_hub.hub_nexus.infra.pack_builder import PackBuilder
 
 
 class ExecutorResultService(object):

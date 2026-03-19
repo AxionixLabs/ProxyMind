@@ -7,12 +7,13 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-
-from backend.nexus.domain.model import NexusBatchRequest, NexusKind, NexusRequest
-from backend.nexus.registry import NexusExecutorRegistry
-from backend.nexus.inspect import NexusInspectionService
-from backend.nexus.mission import NexusMissionService
-from backend.nexus.repository import MemoryRunRepository
+from backend.models.model_nexus import (
+    NexusKind, NexusRequest, NexusBatchRequest
+)
+from backend.mcp_hub.hub_nexus import NexusInspectionService
+from backend.mcp_hub.hub_nexus import NexusMissionService
+from backend.mcp_hub.hub_nexus import NexusExecutorRegistry
+from backend.mcp_hub.hub_nexus import MemoryRunRepository
 
 
 class Nexus(object):

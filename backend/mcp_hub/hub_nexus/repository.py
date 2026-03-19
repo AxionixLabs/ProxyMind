@@ -8,7 +8,7 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.nexus.domain.model import RunRecord
+from backend.models.model_nexus import RunRecord
 
 
 class MemoryRunRepository(object):

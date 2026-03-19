@@ -12,7 +12,7 @@ from mcp.server import FastMCP
 from mcp.types import (
     CallToolResult, TextContent
 )
-from backend.nexus.security.security_service import SecurityService
+from backend.mcp_hub.hub_nexus import SecurityService
 
 
 def _tool_result(agent_id: str, result: dict[str, typing.Any]) -> CallToolResult:

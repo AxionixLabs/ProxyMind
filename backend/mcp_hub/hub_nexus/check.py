@@ -7,8 +7,8 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.nexus.domain.extract import ExtractService
-from backend.nexus.domain.assertion import AssertionService
+from .domain.extract import ExtractService
+from .domain.assertion import AssertionService
 
 
 class CheckService(object):

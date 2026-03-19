@@ -191,13 +191,13 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 基于 scroll_to_edge('top')：循环滚动，直到到达边界或判定无变化
+          - 循环滚动，直到到达边界或判定无变化
         """
 
         async def call(device: Device, a: dict) -> dict:
             job_id = await idle.job_begin("ui.scroll_to_top", args=a)
             try:
-                return await device.scroll_to_top()
+                return await device.scroll_to_edge("top")
             finally:
                 await idle.job_final(job_id)
 
@@ -222,13 +222,13 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 基于 scroll_to_edge('bottom')：循环滚动，直到到达边界或判定无变化
+          - 循环滚动，直到到达边界或判定无变化
         """
 
         async def call(device: Device, a: dict) -> dict:
             job_id = await idle.job_begin("ui.scroll_to_bottom", args=a)
             try:
-                return await device.scroll_to_bottom()
+                return await device.scroll_to_edge("bottom")
             finally:
                 await idle.job_final(job_id)
 
@@ -342,42 +342,6 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
-    @task_middleware("tap")
-    async def tap(
-        x: int,
-        y: int,
-        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
-    ) -> CallToolResult:
-        """
-        D: device
-        C: ui
-        A: tap
-        P:
-          x: int
-          y: int
-          matrix: overrides? (serial->args)
-        R: CTR
-        N:
-          - absolute coordinates（px）
-        """
-
-        args = {
-            "x" : x,
-            "y" : y
-        }
-
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.tap(**a)
-
-        return await broadcast(
-            tool="tap",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
     @task_middleware("click")
     async def click(
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
@@ -458,15 +422,15 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
-    @task_middleware("send_keys")
-    async def send_keys(
+    @task_middleware("input_text")
+    async def input_text(
         text: str,
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
     ) -> CallToolResult:
         """
         D: device
         C: ui
-        A: send_keys
+        A: input_text
         P:
           text: str
           matrix: overrides? (serial->args)
@@ -481,43 +445,10 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            return await device.send_keys(**a)
+            return await device.input_text(**a)
 
         return await broadcast(
-            tool="send_keys",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
-    @task_middleware("send_keys_fallback")
-    async def send_keys_fallback(
-        text: str,
-        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
-    ) -> CallToolResult:
-        """
-        D: device
-        C: ui
-        A: send_keys_fallback
-        P:
-          text: str
-          matrix: overrides? (serial->args)
-        R: CTR
-        N:
-          - 降级输入：直接使用 `adb shell input text`
-          - 依赖当前存在可编辑焦点（需先确保焦点在目标输入框）
-          - 对中文/emoji/特殊字符兼容性依设备/ROM 而异；空格会转换为 `%s`
-        """
-
-        args = {"text": text}
-
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.send_keys_fallback(**a)
-
-        return await broadcast(
-            tool="send_keys_fallback",
+            tool="input_text",
             args=args,
             target_list=manage.snapshot,
             call=call,

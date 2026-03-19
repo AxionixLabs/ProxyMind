@@ -11,8 +11,8 @@ import json
 import typing
 from pathlib import Path
 from dataclasses import asdict
-from backend.nexus.domain.model import ArtifactRecord
-from backend.nexus.infra.core import ClockService
+from backend.models.model_nexus import ArtifactRecord
+from .core import ClockService
 from backend.utilities import const
 
 

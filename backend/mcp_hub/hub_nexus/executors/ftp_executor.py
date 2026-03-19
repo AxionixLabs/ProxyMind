@@ -10,12 +10,12 @@ import io
 import time
 import base64
 import ftplib
-import mimetypes
 import typing
 import asyncio
-from backend.nexus.infra.core import ClockService
-from backend.nexus.infra.result import ExecutorResultService
-from backend.nexus.infra.pack_builder import PackBuilder
+import mimetypes
+from backend.mcp_hub.hub_nexus.infra.core import ClockService
+from backend.mcp_hub.hub_nexus.infra.result import ExecutorResultService
+from backend.mcp_hub.hub_nexus.infra.pack_builder import PackBuilder
 
 
 class FtpExecutor(object):

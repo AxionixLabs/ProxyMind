@@ -46,14 +46,14 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "system"})
-    @task_middleware("open_settings")
-    async def open_settings(
+    @task_middleware("open_quick_settings")
+    async def open_quick_settings(
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
     ) -> CallToolResult:
         """
         D: device
         C: system
-        A: open_settings
+        A: open_quick_settings
         P:
           matrix: overrides? (serial->args)
         R: CTR
@@ -62,10 +62,10 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         """
 
         async def call(device: Device, *_) -> typing.Any:
-            return await device.open_settings()
+            return await device.open_quick_settings()
 
         return await broadcast(
-            tool="open_settings",
+            tool="open_quick_settings",
             args={},
             target_list=manage.snapshot,
             call=call,

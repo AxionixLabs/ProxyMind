@@ -14,9 +14,9 @@ import asyncio
 import imaplib
 import contextlib
 from email import policy
-from backend.nexus.infra.core import ClockService
-from backend.nexus.infra.result import ExecutorResultService
-from backend.nexus.infra.pack_builder import PackBuilder
+from backend.mcp_hub.hub_nexus.infra.core import ClockService
+from backend.mcp_hub.hub_nexus.infra.result import ExecutorResultService
+from backend.mcp_hub.hub_nexus.infra.pack_builder import PackBuilder
 from backend.utilities import const
 
 

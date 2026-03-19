@@ -8,16 +8,16 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.nexus.domain.model import NexusKind
-from backend.nexus.executors.ftp_executor import FtpExecutor
-from backend.nexus.executors.graphql_executor import GraphqlExecutor
-from backend.nexus.executors.http_executor import HttpExecutor
-from backend.nexus.executors.imap_executor import ImapExecutor
-from backend.nexus.executors.sse_executor import SseExecutor
-from backend.nexus.executors.smtp_executor import SmtpExecutor
-from backend.nexus.executors.tcp_executor import TcpExecutor
-from backend.nexus.executors.udp_executor import UdpExecutor
-from backend.nexus.executors.ws_executor import WsExecutor
+from backend.models.model_nexus import NexusKind
+from .executors.ftp_executor import FtpExecutor
+from .executors.graphql_executor import GraphqlExecutor
+from .executors.http_executor import HttpExecutor
+from .executors.imap_executor import ImapExecutor
+from .executors.sse_executor import SseExecutor
+from .executors.smtp_executor import SmtpExecutor
+from .executors.tcp_executor import TcpExecutor
+from .executors.udp_executor import UdpExecutor
+from .executors.ws_executor import WsExecutor
 
 
 class NexusExecutorRegistry(object):

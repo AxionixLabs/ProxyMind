@@ -15,9 +15,9 @@ import base64
 import typing
 import binascii
 from pathlib import Path
+from backend.mcp_hub.hub_nexus.domain.extract import ExtractService
+from backend.mcp_hub.hub_nexus.infra.core import UrlService
 from backend.utilities import const
-from backend.nexus.domain.extract import ExtractService
-from backend.nexus.infra.core import UrlService
 
 
 class MediaService(object):

@@ -11,9 +11,9 @@ import time
 import typing
 import asyncio
 import websockets
-from backend.nexus.infra.pack_builder import PackBuilder
-from backend.nexus.infra.result import ExecutorResultService
-from backend.nexus.infra.core import (
+from backend.mcp_hub.hub_nexus.infra.pack_builder import PackBuilder
+from backend.mcp_hub.hub_nexus.infra.result import ExecutorResultService
+from backend.mcp_hub.hub_nexus.infra.core import (
     ClockService, UrlService
 )
 from backend.utilities import const

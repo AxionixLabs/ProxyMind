@@ -7,7 +7,7 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.nexus.domain.model import SseEvent
+from backend.models.model_nexus import SseEvent
 
 
 class SseParser(object):

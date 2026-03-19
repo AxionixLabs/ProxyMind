@@ -14,18 +14,17 @@ import typing
 import asyncio
 import secrets
 import tempfile
-import urllib.parse
-from pathlib import Path
 import xml.etree.ElementTree as Et
-from engine.terminal import Terminal
-from backend.mcp_hub.hub_device import Phone
-from backend.mcp_hub.hub_device import Widget
-from backend.mcp_hub.hub_device.vision import similarity
+from pathlib import Path
+from .phone_combo import PhoneCombo
+from .widget import Widget
+from .vision import similarity
 from backend.utilities import const
+from engine.terminal import Terminal
 
 
-class Device(Phone):
-    """Device class."""
+class Device(PhoneCombo):
+    """对外语义层"""
 
     def __init__(self, serial: str):
         super().__init__(serial)
@@ -439,14 +438,6 @@ class Device(Phone):
             "logs"        : []
         }
 
-    # workflow: ==== File ====
-    async def file_logcat_link(self) -> asyncio.subprocess.Process:
-        """读取日志。"""
-        cmd = self.prefix + [
-            "logcat", "-v", "threadtime"
-        ]
-        return await Terminal.cmd_link(cmd)
-
     # workflow: ==== Info Control MCP Tool ====
     async def grep_packages(
         self,
@@ -535,7 +526,7 @@ class Device(Phone):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== System Control MCP Tool ====
-    async def open_settings(self) -> typing.Any:
+    async def open_quick_settings(self) -> typing.Any:
         """打开快速设置面板（Quick Settings Panel）。"""
         cmd = self.prefix + [
             "shell", "cmd", "statusbar", "expand-settings"
@@ -646,16 +637,6 @@ class Device(Phone):
         return await Terminal.cmd_line(cmd)
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def scroll_to_top(self) -> dict[str, typing.Any]:
-        """内容向上滚动到顶部。"""
-        return await self.scroll_to_edge("top")
-
-    # workflow: ==== UI Interaction MCP Tool ====
-    async def scroll_to_bottom(self) -> dict[str, typing.Any]:
-        """内容向下滚动到底部。"""
-        return await self.scroll_to_edge("bottom")
-
-    # workflow: ==== UI Interaction MCP Tool ====
     async def scroll_into_view(
         self,
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
@@ -724,14 +705,6 @@ class Device(Phone):
             "data"        : data,
             "logs"        : logs
         }
-
-    # workflow: ==== UI Interaction MCP Tool ====
-    async def tap(self, x: int, y: int) -> typing.Any:
-        """点击指定坐标。"""
-        cmd = self.prefix + [
-            "shell", "input", "tap", str(x), str(y)
-        ]
-        return await Terminal.cmd_line(cmd)
 
     # workflow: ==== UI Interaction MCP Tool ====
     async def click(
@@ -804,7 +777,7 @@ class Device(Phone):
         return await Terminal.cmd_line_shell(cmd)
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def send_keys(self, text: str) -> typing.Any:
+    async def input_text(self, text: str) -> typing.Any:
         """向当前焦点输入文本。"""
         def sh_quote_single(s: str) -> str:
             """Quote a string for POSIX shell using single quotes."""
@@ -820,54 +793,6 @@ class Device(Phone):
             "shell", "am", "broadcast", "-a", "ADB_INPUT_TEXT", "--es", "msg", text
         ]
         return await Terminal.cmd_line(cmd)
-
-    # workflow: ==== UI Interaction MCP Tool ====
-    async def send_keys_fallback(self, text: str) -> dict[str, typing.Any]:
-        """降级输入：直接使用 adb shell input text。返回多模态结构。"""
-        def escape(s: str) -> str:
-            """
-            adb shell input text 转义：
-            - 空格 => %s
-            - 其它字符尽量做 URL 编码（多数 ROM 可用）
-            """
-            s = s.replace(" ", "%s")
-            return urllib.parse.quote(s, safe="%._-~:/@")
-
-        attachments: list[dict[str, typing.Any]] = []
-
-        if not (raw := "" if text is None else str(text)):
-            return {
-                "text"        : "输入内容为空，已跳过。",
-                "attachments" : attachments,
-                "data": {
-                    "ok"      : True,
-                    "method"  : "send_keys_fallback",
-                    "skipped" : True
-                },
-                "logs": []
-            }
-
-        cmd = self.prefix + [
-            "shell", "input", "text", escaped := escape(raw)
-        ]
-
-        out = await Terminal.cmd_line(cmd)
-        out_text = str(out).strip() if out else ""
-
-        low = out_text.lower()
-        ok = not any(k in low for k in ("error", "exception", "not found", "invalid"))
-
-        return {
-            "text"        : "已使用降级输入（adb input text）。" if ok else "降级输入失败（adb input text）。",
-            "attachments" : attachments,
-            "data": {
-                "ok"        : ok,
-                "method"    : "send_keys_fallback",
-                "input_len" : len(raw),
-                "escaped"   : escaped
-            },
-            "logs": []
-        }
 
     # workflow: ==== UI Interaction MCP Tool ====
     async def clear_text(self) -> typing.Any:
@@ -1155,7 +1080,7 @@ class Device(Phone):
         }
 
     # workflow: ==== UI ====
-    async def scroll_to_edge(self, edge: typing.Literal["top", "bottom"] = "top") -> dict[str, typing.Any]:
+    async def scroll_to_edge(self, edge: typing.Literal["top", "bottom"]) -> dict[str, typing.Any]:
         """滑动到边界：top=回到顶部(手指上->下)，bottom=滑到底部(手指下->上)"""
         max_swipes: int = 30
 

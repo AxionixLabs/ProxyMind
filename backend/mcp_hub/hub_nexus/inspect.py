@@ -8,10 +8,10 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.nexus.domain.model import (
-    NexusBatchRequest, NexusKind, NexusRequest
+from backend.models.model_nexus import (
+    NexusKind, NexusRequest, NexusBatchRequest
 )
-from backend.nexus.domain.template import TemplateService
+from .domain.template import TemplateService
 
 
 class NexusInspectionService(object):

@@ -9,13 +9,13 @@
 import time
 import httpx
 import typing
-from backend.nexus.infra.pack_builder import PackBuilder
-from backend.nexus.infra.result import ExecutorResultService
-from backend.nexus.infra.core import (
+from backend.mcp_hub.hub_nexus.infra.pack_builder import PackBuilder
+from backend.mcp_hub.hub_nexus.infra.result import ExecutorResultService
+from backend.mcp_hub.hub_nexus.infra.core import (
     ClockService, UrlService
 )
-from backend.nexus.infra.file_payload import FilePayloadService
-from backend.nexus.infra.sse_parser import SseParser
+from backend.mcp_hub.hub_nexus.infra.file_payload import FilePayloadService
+from backend.mcp_hub.hub_nexus.infra.sse_parser import SseParser
 
 
 class SseExecutor(object):

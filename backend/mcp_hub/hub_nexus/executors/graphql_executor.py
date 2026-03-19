@@ -1,9 +1,9 @@
-#  _   _ _   _           _____                _
-# | | | | |_| |_ _ __   | ____|_  _____ _   _| |_ ___  _ __
-# | |_| | __| __| '_ \  |  _| \ \/ / __| | | | __/ _ \| '__|
-# |  _  | |_| |_| |_) | | |___ >  < (__| |_| | || (_) | |
-# |_| |_|\__|\__| .__/  |_____/_/\_\___|\__,_|\__\___/|_|
-#               |_|
+#   ____                 _      ___  _       _____                _
+#  / ___|_ __ __ _ _ __ | |__  / _ \| |     | ____|_  _____ _   _| |_ ___  _ __
+# | |  _| '__/ _` | '_ \| '_ \| | | | |     |  _| \ \/ / __| | | | __/ _ \| '__|
+# | |_| | | | (_| | |_) | | | | |_| | |___  | |___ >  < (__| |_| | || (_) | |
+#  \____|_|  \__,_| .__/|_| |_|\__\_\_____| |_____/_/\_\___|\__,_|\__\___/|_|
+#                 |_|
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
@@ -11,40 +11,46 @@ import json
 import time
 import httpx
 import typing
-from backend.nexus.infra.pack_builder import PackBuilder
-from backend.nexus.infra.media import MediaService
-from backend.nexus.infra.result import ExecutorResultService
-from backend.nexus.infra.core import (
+from backend.mcp_hub.hub_nexus.infra.pack_builder import PackBuilder
+from backend.mcp_hub.hub_nexus.infra.media import MediaService
+from backend.mcp_hub.hub_nexus.infra.result import ExecutorResultService
+from backend.mcp_hub.hub_nexus.infra.core import (
     ClockService, UrlService
 )
-from backend.nexus.infra.file_payload import FilePayloadService
 
 
-class HttpExecutor(object):
+class GraphqlExecutor(object):
 
     @staticmethod
     async def execute(
         *,
-        method: str,
         url: str,
+        query: str,
+        variables: typing.Optional[dict[str, typing.Any]] = None,
+        operation_name: typing.Optional[str] = None,
         base_url: typing.Optional[str] = None,
         headers: typing.Optional[dict[str, str]] = None,
         params: typing.Optional[dict[str, typing.Any]] = None,
-        json_body: typing.Optional[dict[str, typing.Any]] = None,
-        body_text: typing.Optional[str] = None,
-        form: typing.Optional[dict[str, typing.Any]] = None,
-        files: typing.Optional[list[dict[str, typing.Any]]] = None,
         timeout: float = 30.0,
         retries: int = 0,
         follow_redirects: bool = True,
         extract: typing.Optional[dict[str, str]] = None,
         asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
+        media_path: typing.Optional[str] = None,
         step_artifact_dir: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
-        """执行单次 HTTP 请求，并返回统一格式的执行结果。"""
-        method  = (method or "GET").upper()
-        url     = UrlService.join(base_url, url)
-        headers = dict(headers or {})
+        """执行单次 GraphQL 请求，并附带 GraphQL 专属调试信息。"""
+        gql_method  = "POST"
+        gql_url     = UrlService.join(base_url, url)
+        gql_headers = dict(headers or {})
+        gql_headers.setdefault("Content-Type", "application/json")
+
+        gql_payload: dict[str, typing.Any] = {
+            "query"     : query,
+            "variables" : variables or {}
+        }
+        if operation_name:
+            gql_payload["operationName"] = operation_name
 
         t0 = time.perf_counter()
         last_err: typing.Optional[str] = None
@@ -52,6 +58,7 @@ class HttpExecutor(object):
         body_text_view: typing.Optional[str] = None
         body_json: typing.Any = None
         body_bytes: bytes = b""
+        gql_errors: typing.Any = None
 
         status: typing.Optional[int] = None
         resp_headers: dict[str, typing.Any] = {}
@@ -62,46 +69,41 @@ class HttpExecutor(object):
         ok = False
 
         request_data = PackBuilder.build_request_http_like(
-            method=method,
-            url=url,
-            headers=headers,
+            method=gql_method,
+            url=gql_url,
+            headers=gql_headers,
             params=params,
-            json_body=json_body,
-            body_text=body_text,
+            json_body=gql_payload,
+            body_text=None,
             timeout=timeout,
             retries=retries,
             follow_redirects=follow_redirects,
-            form=form,
-            files=files
+            form=None,
+            files=None
         )
 
         async with httpx.AsyncClient(
             **UrlService.httpx_client_kwargs(
-                url=url,
+                url=gql_url,
                 timeout=timeout,
                 follow_redirects=follow_redirects
             )
         ) as client:
             for _ in range(max(0, int(retries)) + 1):
                 try:
-                    files_payload = FilePayloadService.files_payload(files)
-
                     resp = await client.request(
-                        method,
-                        url,
-                        headers=headers,
+                        gql_method,
+                        gql_url,
+                        headers=gql_headers,
                         params=params,
-                        json=json_body,
-                        content=body_text,
-                        data=form,
-                        files=files_payload
+                        json=gql_payload
                     )
                     elapsed_ms = ClockService.ms_since(t0)
 
-                    status = resp.status_code
+                    status       = resp.status_code
                     resp_headers = dict(resp.headers)
-                    resp_ct = str(resp.headers.get("content-type") or "")
-                    body_bytes = resp.content
+                    resp_ct      = str(resp.headers.get("content-type") or "")
+                    body_bytes   = resp.content
 
                     try:
                         body_json = resp.json()
@@ -118,17 +120,24 @@ class HttpExecutor(object):
                         body_text_view = None
 
                     media_list, attachments, media_logs = await ExecutorResultService.collect_media(
-                        source_kind="http_body",
-                        source=body_bytes,
-                        content_type=resp_ct,
-                        tool="http_media",
+                        source_kind="json_body",
+                        source=body_json,
+                        media_path=media_path,
+                        tool="graphql_media",
                         step_artifact_dir=step_artifact_dir,
                         timeout=timeout
                     )
 
-                    ok = 200 <= int(resp.status_code) < 400
+                    http_ok = 200 <= int(status) < 400
+                    gql_errors = body_json.get("errors") if isinstance(body_json, dict) else None
+                    ok = bool(http_ok) and not bool(gql_errors)
+
                     return ExecutorResultService.finalize_http_like(
-                        text=f"{method} {url} -> {resp.status_code} ({elapsed_ms}ms)",
+                        text=(
+                            f"GQL POST {gql_url} -> {status} ({elapsed_ms}ms)"
+                            if ok else
+                            f"GQL POST {gql_url} -> FAIL ({elapsed_ms}ms)"
+                        ),
                         ok=ok,
                         request=request_data,
                         status=status,
@@ -143,14 +152,20 @@ class HttpExecutor(object):
                         asserts=asserts,
                         attachments=attachments,
                         logs=media_logs,
-                        error=last_err
+                        error=None,
+                        extra_data=PackBuilder.build_gql_extra(
+                            query=query,
+                            variables=variables or {},
+                            operation_name=operation_name,
+                            errors=gql_errors
+                        )
                     )
                 except (httpx.TimeoutException, httpx.RequestError, OSError) as e:
                     last_err = f"{type(e).__name__}: {e}"
 
         elapsed_ms = ClockService.ms_since(t0)
         return ExecutorResultService.finalize_http_like(
-            text=f"{method} {url} -> ERROR ({elapsed_ms}ms) {last_err}",
+            text=f"GQL POST {gql_url} -> ERROR ({elapsed_ms}ms) {last_err}",
             ok=ok,
             request=request_data,
             status=status,
@@ -165,7 +180,13 @@ class HttpExecutor(object):
             asserts=asserts,
             attachments=attachments,
             logs=media_logs,
-            error=last_err
+            error=last_err,
+            extra_data=PackBuilder.build_gql_extra(
+                query=query,
+                variables=variables or {},
+                operation_name=operation_name,
+                errors=gql_errors
+            )
         )
 
 
