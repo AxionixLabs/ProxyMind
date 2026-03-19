@@ -96,6 +96,11 @@ class Enhancer(object):
                 return src_arguments
             return src_arguments | {"directory": report.rec_path}
 
+        elif name.startswith("fx_frame_analyzer"):
+            if src_arguments.get("total"):
+                return src_arguments
+            return src_arguments | {"total": report.toolkit_path}
+
         elif name.startswith("screenshot"):
             if local := src_arguments.get("local"):
                 p = Path(str(local)).expanduser()
