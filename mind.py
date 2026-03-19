@@ -934,6 +934,9 @@ class Mind(object):
             round_prefix = (cfg.get("round_prefix") or "").strip()
             round_suffix = (cfg.get("round_suffix") or "").strip()
 
+            item_prefix = (cfg.get("item_prefix") or "").strip()
+            item_suffix = (cfg.get("item_suffix") or "").strip()
+
             global_prefix = (cfg.get("global_prefix") or "").strip()
             global_suffix = (cfg.get("global_suffix") or "").strip()
             global_rule   = (cfg.get("global_rule") or "").strip()
@@ -978,89 +981,64 @@ class Mind(object):
                             logger.debug(f"⏭️  skip [{idx}/{len(items)}] {it.name} (filter)")
                             continue
 
-                        for item_run in range(1, it.loop + 1):
-                            ev_report.emit({
-                                "type"       : "lifecycle",
-                                "scope"      : "task",
-                                "phase"      : "start",
-                                "file"       : str(p),
-                                "run"        : r,
-                                "index"      : idx,
-                                "total"      : len(items),
-                                "name"       : it.name,
-                                "item_run"   : item_run,
-                                "item_total" : it.loop,
-                                "ts"         : time.time()
-                            })
+                        ev_report.emit({
+                            "type"  : "lifecycle",
+                            "scope" : "item_hook",
+                            "phase" : "start",
+                            "hook"  : "item_prefix",
+                            "file"  : str(p),
+                            "run"   : r,
+                            "index" : idx,
+                            "total" : len(items),
+                            "name"  : it.name,
+                            "ts"    : time.time()
+                        })
+                        await virtual(
+                            p, items, session, openai_tools, domains,"__item_prefix__", item_prefix, r
+                        )
+                        ev_report.emit({
+                            "type"  : "lifecycle",
+                            "scope" : "item_hook",
+                            "phase" : "done",
+                            "hook"  : "item_prefix",
+                            "file"  : str(p),
+                            "run"   : r,
+                            "index" : idx,
+                            "total" : len(items),
+                            "name"  : it.name,
+                            "ts"    : time.time()
+                        })
 
-                            logger.info(
-                                f"▶️  [{idx}/{len(items)}] {it.name} item_run={item_run}/{it.loop} file={p}"
-                            )
 
-                            last_error: typing.Optional[str] = None
-
-                            for attempt in range(1, attempts + 1):
-                                t0 = time.time()
-
+                        try:
+                            for item_run in range(1, it.loop + 1):
                                 ev_report.emit({
-                                    "type"         : "lifecycle",
-                                    "scope"        : "task",
-                                    "phase"        : "attempt",
-                                    "file"         : str(p),
-                                    "run"          : r,
-                                    "index"        : idx,
-                                    "total"        : len(items),
-                                    "name"         : it.name,
-                                    "item_run"     : item_run,
-                                    "item_total"   : it.loop,
-                                    "attempt"      : attempt,
-                                    "max_attempts" : attempts,
-                                    "ts"           : time.time()
+                                    "type"       : "lifecycle",
+                                    "scope"      : "task",
+                                    "phase"      : "start",
+                                    "file"       : str(p),
+                                    "run"        : r,
+                                    "index"      : idx,
+                                    "total"      : len(items),
+                                    "name"       : it.name,
+                                    "item_run"   : item_run,
+                                    "item_total" : it.loop,
+                                    "ts"         : time.time()
                                 })
 
-                                prefix = (it.meta.get("prefix") or global_prefix or "").strip()
-                                suffix = (it.meta.get("suffix") or global_suffix or "").strip()
-                                rule   = (it.meta.get("rule") or global_rule or "").strip()
+                                logger.info(
+                                    f"▶️  [{idx}/{len(items)}] {it.name} item_run={item_run}/{it.loop} file={p}"
+                                )
 
-                                final_msg = it.message
-                                if prefix:
-                                    final_msg = f"{prefix}\n{final_msg}"
-                                if suffix:
-                                    final_msg = f"{final_msg}\n{suffix}"
-                                if rule:
-                                    final_msg = f"{final_msg}\n\n{rule}"
+                                last_error: typing.Optional[str] = None
 
-                                await self.start_anim(mode)
-
-                                try:
-                                    await func(session, mode, model_api, final_msg, openai_tools, domains, **kwargs)
-
-                                    ev_report.emit({
-                                        "type"       : "lifecycle",
-                                        "scope"      : "task",
-                                        "phase"      : "done",
-                                        "file"       : str(p),
-                                        "run"        : r,
-                                        "index"      : idx,
-                                        "total"      : len(items),
-                                        "name"       : it.name,
-                                        "item_run"   : item_run,
-                                        "item_total" : it.loop,
-                                        "attempt"    : attempt,
-                                        "cost_ms"    : int((time.time() - t0) * 1000),
-                                        "ts"         : time.time()
-                                    })
-
-                                    break
-
-                                except BaseException as exc:
-                                    error = Pack.brief_err(exc)
-                                    last_error = error
+                                for attempt in range(1, attempts + 1):
+                                    t0 = time.time()
 
                                     ev_report.emit({
                                         "type"         : "lifecycle",
                                         "scope"        : "task",
-                                        "phase"        : "fail",
+                                        "phase"        : "attempt",
                                         "file"         : str(p),
                                         "run"          : r,
                                         "index"        : idx,
@@ -1070,22 +1048,30 @@ class Mind(object):
                                         "item_total"   : it.loop,
                                         "attempt"      : attempt,
                                         "max_attempts" : attempts,
-                                        "error"        : error,
                                         "ts"           : time.time()
                                     })
 
-                                    logger.error(
-                                        f"❌ item failed: {it.name} "
-                                        f"item_run={item_run}/{it.loop} "
-                                        f"attempt={attempt}/{attempts} err={error}\n"
-                                    )
+                                    prefix = (it.meta.get("prefix") or global_prefix or "").strip()
+                                    suffix = (it.meta.get("suffix") or global_suffix or "").strip()
+                                    rule = (it.meta.get("rule") or global_rule or "").strip()
 
-                                    if attempt < attempts:
-                                        backoff = 0.5 * (2 ** (attempt - 1))
+                                    final_msg = it.message
+                                    if prefix:
+                                        final_msg = f"{prefix}\n{final_msg}"
+                                    if suffix:
+                                        final_msg = f"{final_msg}\n{suffix}"
+                                    if rule:
+                                        final_msg = f"{final_msg}\n\n{rule}"
+
+                                    await self.start_anim(mode)
+
+                                    try:
+                                        await func(session, mode, model_api, final_msg, openai_tools, domains, **kwargs)
+
                                         ev_report.emit({
                                             "type"       : "lifecycle",
                                             "scope"      : "task",
-                                            "phase"      : "retry_wait",
+                                            "phase"      : "done",
                                             "file"       : str(p),
                                             "run"        : r,
                                             "index"      : idx,
@@ -1094,37 +1080,113 @@ class Mind(object):
                                             "item_run"   : item_run,
                                             "item_total" : it.loop,
                                             "attempt"    : attempt,
-                                            "wait_s"     : backoff,
+                                            "cost_ms"    : int((time.time() - t0) * 1000),
                                             "ts"         : time.time()
                                         })
-                                        await asyncio.sleep(backoff)
-                                finally:
-                                    await self.stop_anim()
 
-                            else:
-                                ev_report.emit({
-                                    "type"         : "lifecycle",
-                                    "scope"        : "task",
-                                    "phase"        : "give_up",
-                                    "file"         : str(p),
-                                    "run"          : r,
-                                    "index"        : idx,
-                                    "total"        : len(items),
-                                    "name"         : it.name,
-                                    "item_run"     : item_run,
-                                    "item_total"   : it.loop,
-                                    "max_attempts" : attempts,
-                                    "error"        : last_error,
-                                    "ts"           : time.time()
-                                })
+                                        break
 
-                                logger.error(
-                                    f"🧯 give up: {it.name} "
-                                    f"item_run={item_run}/{it.loop} "
-                                    f"attempts={attempts} last={last_error}"
-                                )
-                                if stop_on_fail: return None
-                                continue
+                                    except BaseException as exc:
+                                        error = Pack.brief_err(exc)
+                                        last_error = error
+
+                                        ev_report.emit({
+                                            "type"         : "lifecycle",
+                                            "scope"        : "task",
+                                            "phase"        : "fail",
+                                            "file"         : str(p),
+                                            "run"          : r,
+                                            "index"        : idx,
+                                            "total"        : len(items),
+                                            "name"         : it.name,
+                                            "item_run"     : item_run,
+                                            "item_total"   : it.loop,
+                                            "attempt"      : attempt,
+                                            "max_attempts" : attempts,
+                                            "error"        : error,
+                                            "ts"           : time.time()
+                                        })
+
+                                        logger.error(
+                                            f"❌ item failed: {it.name} "
+                                            f"item_run={item_run}/{it.loop} "
+                                            f"attempt={attempt}/{attempts} err={error}\n"
+                                        )
+
+                                        if attempt < attempts:
+                                            backoff = 0.5 * (2 ** (attempt - 1))
+                                            ev_report.emit({
+                                                "type"       : "lifecycle",
+                                                "scope"      : "task",
+                                                "phase"      : "retry_wait",
+                                                "file"       : str(p),
+                                                "run"        : r,
+                                                "index"      : idx,
+                                                "total"      : len(items),
+                                                "name"       : it.name,
+                                                "item_run"   : item_run,
+                                                "item_total" : it.loop,
+                                                "attempt"    : attempt,
+                                                "wait_s"     : backoff,
+                                                "ts"         : time.time()
+                                            })
+                                            await asyncio.sleep(backoff)
+                                    finally:
+                                        await self.stop_anim()
+
+                                else:
+                                    ev_report.emit({
+                                        "type"         : "lifecycle",
+                                        "scope"        : "task",
+                                        "phase"        : "give_up",
+                                        "file"         : str(p),
+                                        "run"          : r,
+                                        "index"        : idx,
+                                        "total"        : len(items),
+                                        "name"         : it.name,
+                                        "item_run"     : item_run,
+                                        "item_total"   : it.loop,
+                                        "max_attempts" : attempts,
+                                        "error"        : last_error,
+                                        "ts"           : time.time()
+                                    })
+
+                                    logger.error(
+                                        f"🧯 give up: {it.name} "
+                                        f"item_run={item_run}/{it.loop} "
+                                        f"attempts={attempts} last={last_error}"
+                                    )
+                                    if stop_on_fail: return None
+                                    continue
+
+                        finally:
+                            ev_report.emit({
+                                "type"  : "lifecycle",
+                                "scope" : "item_hook",
+                                "phase" : "start",
+                                "hook"  : "item_suffix",
+                                "file"  : str(p),
+                                "run"   : r,
+                                "index" : idx,
+                                "total" : len(items),
+                                "name"  : it.name,
+                                "ts"    : time.time()
+                            })
+                            await virtual(
+                                p, items, session, openai_tools, domains,"__item_suffix__", item_suffix, r
+                            )
+                            ev_report.emit({
+                                "type"  : "lifecycle",
+                                "scope" : "item_hook",
+                                "phase" : "done",
+                                "hook"  : "item_suffix",
+                                "file"  : str(p),
+                                "run"   : r,
+                                "index" : idx,
+                                "total" : len(items),
+                                "name"  : it.name,
+                                "ts"    : time.time()
+                            })
 
                     await virtual(
                         p, items, session, openai_tools, domains, "__round_suffix__", round_suffix, r
