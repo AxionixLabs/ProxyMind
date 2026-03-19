@@ -1322,8 +1322,6 @@ class Design(object):
             return chars, styles
 
         def frame(i: int) -> Text:
-            chars, styles = build_chat(i)
-
             match theme:
                 case "fast":
                     chars, styles = build_fast(i)
