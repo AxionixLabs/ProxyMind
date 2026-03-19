@@ -99,7 +99,7 @@ class Enhancer(object):
         elif name.startswith("fx_frame_analyzer"):
             if src_arguments.get("total"):
                 return src_arguments
-            return src_arguments | {"total": report.toolkit_path}
+            return src_arguments | {"total": report.native_path}
 
         elif name.startswith("screenshot"):
             if local := src_arguments.get("local"):
