@@ -10,20 +10,50 @@ import time
 import typing
 import asyncio
 import tempfile
+import uuid
+import contextlib
 from pathlib import Path
 from backend.models.model_device import ActionResult
 from .phone import Phone
 from .vision import similarity
-from engine.terminal import Terminal
 
 
-class Combo(Phone):
+class Combo(object):
     """设备组合能力层。"""
 
-    def __init__(self, serial: str):
-        super().__init__(serial)
+    def __init__(self, phone: Phone):
+        self.phone = phone
 
-    async def wait_fg(
+    @property
+    def serial(self) -> str:
+        return self.phone.serial
+
+    async def save_screenshot(self, local: str) -> str:
+        """保存截图到本地路径。"""
+        filename = f"screenshot_{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
+        remote = "/data/local/tmp/" + filename
+
+        await self.phone.screencap(remote)
+
+        if (p := Path(local)).suffix:
+            destination = p.with_name(f"{p.stem}_{self.serial}{p.suffix}")
+        else:
+            destination = p / f"screenshot_{self.serial}_{uuid.uuid4().hex[:6]}.png"
+
+        destination = destination.expanduser().resolve()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        await self.phone.file_pull(remote, str(destination))
+
+        with contextlib.suppress(Exception):
+            await self.phone.file_remove(remote)
+
+        if not destination.exists():
+            raise FileNotFoundError(f"screenshot pull failed: {destination}")
+
+        return str(destination)
+
+    async def wait_foreground(
         self,
         package: str,
         wait_s: float,
@@ -37,7 +67,7 @@ class Combo(Phone):
 
         deadline = time.time() + float(wait_s)
         while time.time() < deadline:
-            focus = await self.focus_info()
+            focus = await self.phone.focus_info()
             current_package = focus.get("package")
             last_focus = {
                 "package"  : current_package,
@@ -56,28 +86,51 @@ class Combo(Phone):
 
         return False, last_focus, hit
 
-    async def screen(self, on: bool, settle: float = 0.2) -> None:
+    async def app_foreground(
+        self,
+        package: str,
+        activity: typing.Optional[str] = None
+    ) -> dict[str, typing.Any]:
+        """确保应用位于前台。"""
+        t0 = time.time()
+        poll = 0.25
+
+        ok0, focus0, _ = await self.wait_foreground(package, 0.8, poll, 1)
+        if ok0:
+            return {"ok": True, "reason": None, "stage": "already", "focus": focus0, "cost_ms": int((time.time() - t0) * 1000)}
+
+        await self.phone.app_start(package, activity)
+        ok1, focus1, _ = await self.wait_foreground(package, 8.0, poll, 2)
+        if ok1:
+            return {"ok": True, "reason": None, "stage": "start", "focus": focus1, "cost_ms": int((time.time() - t0) * 1000)}
+
+        await self.phone.app_stop(package)
+        await self.phone.app_start(package, activity)
+        ok2, focus2, _ = await self.wait_foreground(package, 5.0, poll, 2)
+        if ok2:
+            return {"ok": True, "reason": None, "stage": "retry", "focus": focus2, "cost_ms": int((time.time() - t0) * 1000)}
+
+        return {"ok": False, "reason": "retry_timeout", "stage": "retry", "focus": focus2, "cost_ms": int((time.time() - t0) * 1000)}
+
+    async def screen_set(self, on: bool, settle: float = 0.2) -> None:
         """设置屏幕电源状态。"""
         # POWER 键本身是切换语义，因此先读状态，避免把幂等操作变成反向操作。
-        if on == await self.is_screen_on():
+        if on == await self.phone.is_screen_on():
             return None
 
-        await self.send_keyevent(26)
+        await self.phone.send_keyevent(26)
         await asyncio.sleep(settle)
 
-    async def ime(self) -> dict[str, typing.Any]:
+    async def ensure_ime(self) -> dict[str, typing.Any]:
         """确保当前输入法为 AdbIME。"""
         # 这是内部组合流程：检查 -> enable -> set -> 再校验，不属于 Device 工具语义层。
         ime = "com.android.adbkeyboard/.AdbIME"
-        cmd = self.prefix + ["shell", "settings", "get", "secure", "default_input_method"]
-        if (await Terminal.cmd_line(cmd) or "").strip() == ime:
+        if await self.phone.ime_current() == ime:
             return ActionResult.success().to_dict()
 
-        e_out = await Terminal.cmd_line(self.prefix + ["shell", "ime", "enable", ime])
-        s_out = await Terminal.cmd_line(self.prefix + ["shell", "ime", "set", ime])
+        e_text = await self.phone.ime_enable(ime)
+        s_text = await self.phone.ime_set(ime)
 
-        e_text = "" if e_out is None else str(e_out)
-        s_text = "" if s_out is None else str(s_out)
         merged = f"{e_text}\n{s_text}".lower()
 
         if "unknown" in merged or "cannot" in merged:
@@ -88,13 +141,36 @@ class Combo(Phone):
                 stage.append("set")
             return ActionResult.fail("ime_not_found", stage=stage).to_dict()
 
-        current = (await Terminal.cmd_line(cmd)) or ""
-        if current.strip() == ime:
+        if await self.phone.ime_current() == ime:
             return ActionResult.success().to_dict()
 
         return ActionResult.fail("ime_not_effective").to_dict()
 
-    async def scroll_find(
+    async def wait_element(
+        self,
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: str | list,
+        match: typing.Literal["eq", "contains", "regex"] = "eq",
+        ignore_case: bool = False,
+        timeout: float = 10.0,
+        state: typing.Literal["exists", "gone"] = "exists"
+    ) -> dict[str, typing.Any]:
+        """等待节点出现或消失。"""
+        want_exists = (state == "exists")
+        deadline = time.monotonic() + float(timeout)
+
+        while True:
+            node = await self.phone.find_ui_widget(by, value, match, ignore_case)
+            found = bool(node)
+            if found == want_exists:
+                return {"ok": True, "reason": None, "found": found, "node": node}
+
+            if time.monotonic() >= deadline:
+                return {"ok": False, "reason": "timeout", "found": found, "node": None}
+
+            await asyncio.sleep(0.25)
+
+    async def scroll_until(
         self,
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
         value: str | list,
@@ -134,10 +210,10 @@ class Combo(Phone):
 
         deadline = time.monotonic() + float(timeout)
 
-        if widget := await self.find_ui_widget(by, value, match, ignore_case):
+        if widget := await self.phone.find_ui_widget(by, value, match, ignore_case):
             return pack(True, None, 0, widget)
 
-        if not (wm := await self.wm_size()):
+        if not (wm := await self.phone.wm_size()):
             return pack(False, "wm_size_unavailable", 0)
 
         w, h = wm
@@ -167,14 +243,11 @@ class Combo(Phone):
                 if time.monotonic() >= deadline:
                     return pack(False, "timeout", i - 1)
 
-                try:
-                    await self.scroll_by_direction(direction, ax, ay, duration=duration)
-                except RuntimeError:
-                    return pack(False, "scroll_fail", i - 1)
+                await self.phone.scroll_by_direction(direction, ax, ay, duration=duration)
 
                 await asyncio.sleep(float(settle))
 
-                if widget := await self.find_ui_widget(by, value, match, ignore_case):
+                if widget := await self.phone.find_ui_widget(by, value, match, ignore_case):
                     return pack(True, None, i, widget)
 
                 if stop_on_stable and prev_ok:
@@ -193,6 +266,113 @@ class Combo(Phone):
                         prev_ok = False
 
         return pack(False, "max_swipes_reached", int(max_swipes))
+
+    async def scroll_into_view(
+        self,
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
+        value: str | list,
+        match: typing.Literal["eq", "contains", "regex"] = "eq",
+        ignore_case: bool = False,
+        direction: typing.Literal["down", "up", "left", "right"] = "down",
+        timeout: float = 12.0,
+        max_swipes: int = 12,
+        should_click: bool = False
+    ) -> dict[str, typing.Any]:
+        """将目标元素滚动到可见区域。"""
+        result = await self.scroll_until(by, value, match, ignore_case, direction, None, 320, 0.25, timeout, max_swipes)
+        node = result.get("node")
+        data = {
+            "ok": bool(result.get("ok")),
+            "reason": result.get("reason"),
+            "swipes": result.get("swipes", 0),
+            "node": node,
+        }
+
+        if should_click and node:
+            center = getattr(node, "center", None)
+            if center and isinstance(center, (list, tuple)) and len(center) == 2:
+                await self.phone.tap(int(center[0]), int(center[1]))
+                data["clicked"] = True
+            else:
+                data["clicked"] = False
+                data["reason"] = "missing_center"
+
+        return data
+
+    async def scroll_to_edge(self, edge: typing.Literal["top", "bottom"]) -> dict[str, typing.Any]:
+        """滑动到页面边界。"""
+        max_swipes: int = 30
+
+        duration_ms: int = 450
+        settle_ms: int   = 450
+
+        similarity_threshold: float = 0.992
+        stable_required: int        = 3
+        min_swipes_before_stop: int = 2
+
+        x_ratio: float     = 0.5
+        upper_ratio: float = 0.20
+        lower_ratio: float = 0.80
+
+        if not (wm := await self.phone.wm_size()):
+            return {"ok": False, "reason": "wm_size_unavailable", "swipes": 0}
+
+        w, h = wm
+        x = int(w * x_ratio)
+
+        y_upper = int(h * upper_ratio)
+        y_lower = int(h * lower_ratio)
+
+        if edge == "top":
+            y_from, y_to = y_upper, y_lower
+        else:
+            y_from, y_to = y_lower, y_upper
+
+        last_sim = 0.0
+        stable_hits = 0
+
+        with tempfile.TemporaryDirectory(prefix="scroll_caps_") as tmp:
+            tmp_dir   = Path(tmp)
+            prev_path = str(tmp_dir / "prev.png")
+            cur_path  = str(tmp_dir / "cur.png")
+
+            prev = await self.save_screenshot(prev_path)
+
+            for n in range(1, max_swipes + 1):
+                await self.phone.swipe(x, y_from, x, y_to, duration_ms)
+                await asyncio.sleep(settle_ms / 1000)
+
+                cur = await self.save_screenshot(cur_path)
+                last_sim = float(similarity(prev, cur))
+
+                if last_sim >= similarity_threshold:
+                    stable_hits += 1
+                else:
+                    stable_hits = 0
+
+                if n >= min_swipes_before_stop and stable_hits >= stable_required:
+                    return {"ok": True, "reason": "screen_not_changed", "swipes": n}
+
+                prev, cur = cur, prev
+                prev_path, cur_path = cur_path, prev_path
+
+            return {"ok": True, "reason": "max_swipes_reached", "swipes": max_swipes}
+
+    async def swipe_unlock(self) -> dict[str, typing.Any]:
+        """点亮屏幕并上滑解锁。"""
+        await self.screen_set(True)
+
+        if not (wm := await self.phone.wm_size()):
+            return {"ok": False, "reason": "wm_size_unavailable"}
+
+        w, h = wm
+        x = w // 2
+        y1 = int(h * 0.80)
+        y2 = int(h * 0.35)
+
+        await self.phone.swipe(x, y1, x, y2, 1000)
+        await asyncio.sleep(0.2)
+        return {"ok": True, "reason": None}
 
 
 if __name__ == '__main__':
