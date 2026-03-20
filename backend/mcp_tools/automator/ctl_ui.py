@@ -19,8 +19,9 @@ from backend.utilities.toolbox import broadcast
 def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
-    @task_middleware("scroll_up")
-    async def scroll_up(
+    @task_middleware("scroll")
+    async def scroll(
+        direction: typing.Literal["up", "down", "left", "right"],
         x: int,
         y: int,
         duration: int = 300,
@@ -29,29 +30,31 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         """
         D: device
         C: ui
-        A: scroll_up
+        A: scroll
         P:
+          direction: oneof(up|down|left|right)
           x: int
           y: int
           duration: int=300   # ms
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 语义是“内容向上滚动”（不是手指方向）；内部会反转为 adb 手指轨迹
+          - 方向语义是“内容滚动方向”（不是手指方向）；内部会反转为 adb 手指轨迹
           - 具体效果依赖目标控件是否可滚动
         """
 
         args = {
-            "x"        : x,
-            "y"        : y,
-            "duration" : duration
+            "direction" : direction,
+            "x"         : x,
+            "y"         : y,
+            "duration"  : duration
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            return await device.scroll_up(**a)
+            return await device.scroll(**a)
 
         return await broadcast(
-            tool="scroll_up",
+            tool="scroll",
             args=args,
             target_list=manage.snapshot,
             call=call,
@@ -59,182 +62,37 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
-    @task_middleware("scroll_down")
-    async def scroll_down(
-        x: int,
-        y: int,
-        duration: int = 300,
+    @task_middleware("scroll_to_edge")
+    async def scroll_to_edge(
+        edge: typing.Literal["top", "bottom"],
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
     ) -> CallToolResult:
         """
         D: device
         C: ui
-        A: scroll_down
+        A: scroll_to_edge
         P:
-          x: int
-          y: int
-          duration: int=300   # ms
-          matrix: overrides? (serial->args)
-        R: CTR
-        N:
-          - 语义是“内容向下滚动”（不是手指方向）；内部会反转为 adb 手指轨迹
-          - 具体效果依赖目标控件是否可滚动
-        """
-
-        args = {
-            "x"        : x,
-            "y"        : y,
-            "duration" : duration
-        }
-
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.scroll_down(**a)
-
-        return await broadcast(
-            tool="scroll_down",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
-    @task_middleware("scroll_left")
-    async def scroll_left(
-        x: int,
-        y: int,
-        duration: int = 300,
-        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
-    ) -> CallToolResult:
-        """
-        D: device
-        C: ui
-        A: scroll_left
-        P:
-          x: int
-          y: int
-          duration: int=300   # ms
-          matrix: overrides? (serial->args)
-        R: CTR
-        N:
-          - 语义是“内容向左滚动”（不是手指方向）；内部会反转为 adb 手指轨迹
-          - 具体效果依赖目标控件是否支持横向滚动
-        """
-
-        args = {
-            "x"        : x,
-            "y"        : y,
-            "duration" : duration
-        }
-
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.scroll_left(**a)
-
-        return await broadcast(
-            tool="scroll_left",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
-    @task_middleware("scroll_right")
-    async def scroll_right(
-        x: int,
-        y: int,
-        duration: int = 300,
-        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
-    ) -> CallToolResult:
-        """
-        D: device
-        C: ui
-        A: scroll_right
-        P:
-          x: int
-          y: int
-          duration: int=300   # ms
-          matrix: overrides? (serial->args)
-        R: CTR
-        N:
-          - 语义是“内容向右滚动”（不是手指方向）；内部会反转为 adb 手指轨迹
-          - 具体效果依赖目标控件是否支持横向滚动
-        """
-
-        args = {
-            "x"        : x,
-            "y"        : y,
-            "duration" : duration
-        }
-
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.scroll_right(**a)
-
-        return await broadcast(
-            tool="scroll_right",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
-    @task_middleware("scroll_to_top")
-    async def scroll_to_top(
-        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
-    ) -> CallToolResult:
-        """
-        D: device
-        C: ui
-        A: scroll_to_top
-        P:
+          edge: oneof(top|bottom)
           matrix: overrides? (serial->args)
         R: CTR
         N:
           - 循环滚动，直到到达边界或判定无变化
         """
 
+        args = {
+            "edge" : edge
+        }
+
         async def call(device: Device, a: dict) -> dict:
-            job_id = await idle.job_begin("ui.scroll_to_top", args=a)
+            job_id = await idle.job_begin(f"ui.scroll_to_edge.{a.get('edge')}", args=a)
             try:
-                return await device.scroll_to_top()
+                return await device.scroll_to_edge(**a)
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="scroll_to_top",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
-    @task_middleware("scroll_to_bottom")
-    async def scroll_to_bottom(
-        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
-    ) -> CallToolResult:
-        """
-        D: device
-        C: ui
-        A: scroll_to_bottom
-        P:
-          matrix: overrides? (serial->args)
-        R: CTR
-        N:
-          - 循环滚动，直到到达边界或判定无变化
-        """
-
-        async def call(device: Device, a: dict) -> dict:
-            job_id = await idle.job_begin("ui.scroll_to_bottom", args=a)
-            try:
-                return await device.scroll_to_bottom()
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="scroll_to_bottom",
-            args={},
+            tool="scroll_to_edge",
+            args=args,
             target_list=manage.snapshot,
             call=call,
             overrides=matrix
@@ -286,55 +144,10 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            return await device.scroll_element_into_view(**a)
+            return await device.scroll_into_view(**a)
 
         return await broadcast(
             tool="scroll_into_view",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
-    @task_middleware("swipe")
-    async def swipe(
-        x1: int,
-        y1: int,
-        x2: int,
-        y2: int,
-        duration: int = 300,
-        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
-    ) -> CallToolResult:
-        """
-        D: device
-        C: ui
-        A: swipe
-        P:
-          x1: int
-          y1: int
-          x2: int
-          y2: int
-          duration: int=300   # ms
-          matrix: overrides? (serial->args)
-        R: CTR
-        N:
-          - absolute coordinates（px），效果依赖控件/页面手势响应
-        """
-
-        args = {
-            "x1"       : x1,
-            "y1"       : y1,
-            "x2"       : x2,
-            "y2"       : y2,
-            "duration" : duration
-        }
-
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.swipe(**a)
-
-        return await broadcast(
-            tool="swipe",
             args=args,
             target_list=manage.snapshot,
             call=call,
@@ -638,29 +451,31 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
-    @task_middleware("wait_exists")
-    async def wait_exists(
+    @task_middleware("wait_element")
+    async def wait_element(
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
         value: str | list,
         match: typing.Literal["eq", "contains", "regex"] = "eq",
         ignore_case: bool = False,
         timeout: float = 10.0,
+        state: typing.Literal["exists", "gone"] = "exists",
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
     ) -> CallToolResult:
         """
         D: device
         C: ui
-        A: wait_exists
+        A: wait_element
         P:
           by: oneof(id|desc|text|bbox|xpath)
           value: str|list
           match: oneof(eq|contains|regex)="eq"
           ignore_case: bool=False
           timeout: float=10.0
+          state: oneof(exists|gone)="exists"
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 轮询查找元素，命中=>True，超时=>False
+          - 轮询等待元素出现或消失
           - match/ignore_case 仅对字符串类定位（id/desc/text/xpath）生效
         """
 
@@ -669,60 +484,15 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
             "value"       : value,
             "match"       : match,
             "ignore_case" : ignore_case,
-            "timeout"     : timeout
+            "timeout"     : timeout,
+            "state"       : state
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            return await device.wait_exists(**a)
+            return await device.wait_element(**a)
 
         return await broadcast(
-            tool="wait_exists",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "ui"})
-    @task_middleware("wait_gone")
-    async def wait_gone(
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
-        value: str | list,
-        match: typing.Literal["eq", "contains", "regex"] = "eq",
-        ignore_case: bool = False,
-        timeout: float = 10.0,
-        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
-    ) -> CallToolResult:
-        """
-        D: device
-        C: ui
-        A: wait_gone
-        P:
-          by: oneof(id|desc|text|bbox|xpath)
-          value: str|list
-          match: oneof(eq|contains|regex)="eq"
-          ignore_case: bool=False
-          timeout: float=10.0
-          matrix: overrides? (serial->args)
-        R: CTR
-        N:
-          - 轮询查找元素，消失=>True，超时=>False
-          - match/ignore_case 仅对字符串类定位（id/desc/text/xpath）生效
-        """
-
-        args = {
-            "by"          : by,
-            "value"       : value,
-            "match"       : match,
-            "ignore_case" : ignore_case,
-            "timeout"     : timeout
-        }
-
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.wait_gone(**a)
-
-        return await broadcast(
-            tool="wait_gone",
+            tool="wait_element",
             args=args,
             target_list=manage.snapshot,
             call=call,
