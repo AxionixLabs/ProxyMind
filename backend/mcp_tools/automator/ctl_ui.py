@@ -48,7 +48,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            return await device.scroll_direction(direction="up", **a)
+            return await device.scroll_up(**a)
 
         return await broadcast(
             tool="scroll_up",
@@ -88,7 +88,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            return await device.scroll_direction(direction="down", **a)
+            return await device.scroll_down(**a)
 
         return await broadcast(
             tool="scroll_down",
@@ -128,7 +128,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            return await device.scroll_direction(direction="left", **a)
+            return await device.scroll_left(**a)
 
         return await broadcast(
             tool="scroll_left",
@@ -168,7 +168,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            return await device.scroll_direction(direction="right", **a)
+            return await device.scroll_right(**a)
 
         return await broadcast(
             tool="scroll_right",
@@ -197,7 +197,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         async def call(device: Device, a: dict) -> dict:
             job_id = await idle.job_begin("ui.scroll_to_top", args=a)
             try:
-                return await device.scroll_to_edge("top")
+                return await device.scroll_to_top()
             finally:
                 await idle.job_final(job_id)
 
@@ -228,7 +228,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         async def call(device: Device, a: dict) -> dict:
             job_id = await idle.job_begin("ui.scroll_to_bottom", args=a)
             try:
-                return await device.scroll_to_edge("bottom")
+                return await device.scroll_to_bottom()
             finally:
                 await idle.job_final(job_id)
 
@@ -286,7 +286,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            return await device.scroll_into_view(**a)
+            return await device.scroll_element_into_view(**a)
 
         return await broadcast(
             tool="scroll_into_view",
@@ -673,7 +673,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            return await device.wait_element(**a, state="exists")
+            return await device.wait_exists(**a)
 
         return await broadcast(
             tool="wait_exists",
@@ -719,7 +719,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            return await device.wait_element(**a, state="gone")
+            return await device.wait_gone(**a)
 
         return await broadcast(
             tool="wait_gone",
