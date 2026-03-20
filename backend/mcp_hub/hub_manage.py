@@ -13,6 +13,7 @@ import shutil
 import typing
 import asyncio
 from backend.mcp_hub.hub_device import Device
+from backend.models.model_device import SemanticResult
 from engine.terminal import Terminal
 
 
@@ -50,7 +51,7 @@ class DeviceManage(object):
         self.last_refresh_ts = time.time()
 
         await asyncio.gather(
-            *(device.st_load_info() for device in self.device_list)
+            *(device.refresh_device_props() for device in self.device_list)
         )
 
         return self.snapshot
@@ -61,6 +62,22 @@ class DeviceManage(object):
 
         async with self.lock:
             return await self.connect()
+
+    async def refresh_summary(self, ttl_sec: float = 1.0) -> dict[str, typing.Any]:
+        device_list = await self.refresh(ttl_sec)
+        preview = [(await device.device_snapshot()).get("text", "") for device in device_list]
+        serials = [device.serial for device in device_list]
+
+        return SemanticResult.from_text(
+            f"refresh ok: devices={len(serials)}\n" + "\n".join(preview),
+            data={
+                "ok"      : True,
+                "reason"  : None,
+                "ttl_sec" : ttl_sec,
+                "count"   : len(serials),
+                "serials" : serials
+            }
+        ).to_dict()
 
 
 class Requires(object):
