@@ -17,155 +17,25 @@ import tempfile
 from pathlib import Path
 from backend.models.model_device import (
     Attachment,
-    SemanticResult,
+    SemanticResult
 )
+from .phone import Phone
 from .combo import Combo
 from .widget import Widget
-from .vision import similarity
 from backend.utilities import const
-from engine.terminal import Terminal
 
 
-class Device(Combo):
+class Device(object):
     """设备工具语义层。"""
 
-    battery = None
-    file_logcat_link = None
-    find_ui_widget = None
-    focus_info = None
-    ime = None
-    is_emulator = None
-    is_online = None
-    is_screen_locked = None
-    is_screen_on = None
-    refresh_device_props = None
-    save_screenshot = None
-    screen = None
-    screencap = None
-    scroll_by_direction = None
-    scroll_find = None
-    send_keyevent = None
-    set_bluetooth = None
-    set_mobile_data = None
-    set_wifi = None
-    tap = None
-    ui_widgets = None
-    ui_xml = None
-    wait_fg = None
-    wm_size = None
-
     def __init__(self, serial: str):
-        super().__init__(serial)
+        self.serial = serial
+        self.phone = Phone(serial)
+        self.combo = Combo(self.phone)
 
-    async def _battery(self) -> int | None:
-        return await super().battery()
-
-    async def _file_logcat_link(self) -> asyncio.subprocess.Process:
-        return await super().file_logcat_link()
-
-    async def _find_ui_widget(
-        self,
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
-        value: str | list,
-        match: typing.Literal["eq", "contains", "regex"] = "eq",
-        ignore_case: bool = False
-    ) -> typing.Optional[Widget]:
-        return await super().find_ui_widget(by, value, match, ignore_case)
-
-    async def _focus_info(self) -> dict[str, typing.Optional[str] | str]:
-        return await super().focus_info()
-
-    async def _ime(self) -> dict[str, typing.Any]:
-        return await super().ime()
-
-    async def _is_emulator(self) -> bool:
-        return await super().is_emulator()
-
-    async def _is_online(self) -> bool:
-        return await super().is_online()
-
-    async def _is_screen_locked(self) -> bool:
-        return await super().is_screen_locked()
-
-    async def _is_screen_on(self) -> bool:
-        return await super().is_screen_on()
-
-    async def _refresh_device_props(self) -> dict[str, typing.Any]:
-        return await super().refresh_device_props()
-
-    async def _save_screenshot(self, local: str) -> str:
-        return await super().save_screenshot(local)
-
-    async def _screen(self, on: bool, settle: float = 0.2) -> None:
-        return await super().screen(on, settle)
-
-    async def _screencap(self, remote: str) -> typing.Any:
-        return await super().screencap(remote)
-
-    async def _scroll_by_direction(
-        self,
-        direction: typing.Literal["up", "down", "left", "right"],
-        x: int,
-        y: int,
-        duration: int = 300
-    ) -> typing.Any:
-        return await super().scroll_by_direction(direction, x, y, duration)
-
-    async def _scroll_find(
-        self,
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
-        value: str | list,
-        match: typing.Literal["eq", "contains", "regex"] = "eq",
-        ignore_case: bool = False,
-        direction: typing.Literal["down", "up", "left", "right"] = "down",
-        anchor: typing.Optional[tuple[int, int]] = None,
-        duration: int = 320,
-        settle: float = 0.25,
-        timeout: float = 12.0,
-        max_swipes: int = 12,
-        stop_on_stable: bool = True,
-        similarity_threshold: float = 0.992,
-        stable_required: int = 2,
-        min_swipes_before_stop: int = 2
-    ) -> dict[str, typing.Any]:
-        return await super().scroll_find(
-            by, value, match, ignore_case, direction, anchor, duration, settle,
-            timeout, max_swipes, stop_on_stable, similarity_threshold,
-            stable_required, min_swipes_before_stop
-        )
-
-    async def _send_keyevent(self, keycode: int, longpress: bool = False) -> typing.Any:
-        return await super().send_keyevent(keycode, longpress)
-
-    async def _set_bluetooth(self, status: typing.Literal["enable", "disable"]) -> typing.Any:
-        return await super().set_bluetooth(status)
-
-    async def _set_mobile_data(self, status: typing.Literal["enable", "disable"]) -> typing.Any:
-        return await super().set_mobile_data(status)
-
-    async def _set_wifi(self, status: typing.Literal["enable", "disable"]) -> typing.Any:
-        return await super().set_wifi(status)
-
-    async def _tap(self, x: int, y: int) -> typing.Any:
-        return await super().tap(x, y)
-
-    async def _ui_widgets(self) -> list[Widget]:
-        return await super().ui_widgets()
-
-    async def _ui_xml(self) -> typing.Optional[str]:
-        return await super().ui_xml()
-
-    async def _wait_fg(
-        self,
-        package: str,
-        wait_s: float,
-        poll: float,
-        stable_hits: int
-    ) -> tuple[bool, dict[str, typing.Any], int]:
-        return await super().wait_fg(package, wait_s, poll, stable_hits)
-
-    async def _wm_size(self) -> tuple[int, int] | None:
-        return await super().wm_size()
+    @property
+    def device_props(self) -> dict[str, typing.Any]:
+        return self.phone.device_props
 
     def __str__(self):
         """返回调试展示文本。"""
@@ -267,13 +137,13 @@ class Device(Combo):
     async def device_snapshot(self) -> dict[str, typing.Any]:
         """返回设备当前快照。"""
         # 这里是 Device 门面的典型做法：汇总底层能力，再统一包装成 SemanticResult。
-        props = await self._refresh_device_props()
-        battery     = await self._battery()
-        wm_size     = await self._wm_size()
-        online      = await self._is_online()
-        emulator    = await self._is_emulator()
-        screen_lock = await self._is_screen_locked()
-        screen_on   = await self._is_screen_on()
+        props = await self.phone.refresh_device_props()
+        battery     = await self.phone.battery()
+        wm_size     = await self.phone.wm_size()
+        online      = await self.phone.is_online()
+        emulator    = await self.phone.is_emulator()
+        screen_lock = await self.phone.is_screen_locked()
+        screen_on   = await self.phone.is_screen_on()
 
         information = props | {
             "battery"     : battery,
@@ -307,10 +177,7 @@ class Device(Combo):
     # workflow: ==== App Control MCP Tool ====
     async def app_deep_link(self, url: str) -> typing.Any:
         """通过深度链接启动应用。"""
-        cmd = self.prefix + [
-            "shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url
-        ]
-        await Terminal.cmd_line_shell(" ".join(cmd))
+        await self.phone.app_deep_link(url)
         return SemanticResult.from_text(
             "深度链接已执行。",
             data={"ok": True, "reason": None}
@@ -319,23 +186,7 @@ class Device(Combo):
     # workflow: ==== App Control MCP Tool ====
     async def app_start(self, package: str, activity: typing.Optional[str] = None) -> typing.Any:
         """启动指定应用。"""
-        action   = "android.intent.action.MAIN"
-        category = "android.intent.category.LAUNCHER"
-
-        if activity:
-            cmd = self.prefix + [
-                "shell", "am", "start", "-a", action, "-c", category, "-n", f"{package}/{activity}"
-            ]
-            await Terminal.cmd_line(cmd)
-            return SemanticResult.from_text(
-                "应用启动命令已执行。",
-                data={"ok": True, "reason": None}
-            ).to_dict()
-
-        cmd = self.prefix + [
-            "shell", "monkey", "-p", package, "-c", category, "1"
-        ]
-        await Terminal.cmd_line(cmd)
+        await self.phone.app_start(package, activity)
         return SemanticResult.from_text(
             "应用启动命令已执行。",
             data={"ok": True, "reason": None}
@@ -344,10 +195,7 @@ class Device(Combo):
     # workflow: ==== App Control MCP Tool ====
     async def app_stop(self, package: str) -> typing.Any:
         """强制停止指定应用。"""
-        cmd = self.prefix + [
-            "shell", "am", "force-stop", package
-        ]
-        await Terminal.cmd_line(cmd)
+        await self.phone.app_stop(package)
         return SemanticResult.from_text(
             "应用停止命令已执行。",
             data={"ok": True, "reason": None}
@@ -362,15 +210,7 @@ class Device(Combo):
         test: bool = False
     ) -> typing.Any:
         """安装 APK 文件。"""
-        cmd = self.prefix + ["install"]
-
-        if replace: cmd.append("-r")
-        if downgrade: cmd.append("-d")
-        if test: cmd.append("-t")
-
-        cmd.append(apk)
-
-        await Terminal.cmd_line(cmd)
+        await self.phone.app_install(apk, replace, downgrade, test)
         return SemanticResult.from_text(
             "APK 安装命令已执行。",
             data={"ok": True, "reason": None}
@@ -379,15 +219,7 @@ class Device(Combo):
     # workflow: ==== App Control MCP Tool ====
     async def app_uninstall(self, package: str, keep_data: bool = False) -> typing.Any:
         """卸载指定应用。"""
-        cmd = self.prefix + [
-            "shell", "pm", "uninstall"
-        ]
-
-        if keep_data: cmd.append("-k")
-
-        cmd.append(package)
-
-        await Terminal.cmd_line(cmd)
+        await self.phone.app_uninstall(package, keep_data)
         return SemanticResult.from_text(
             "应用卸载命令已执行。",
             data={"ok": True, "reason": None}
@@ -396,10 +228,7 @@ class Device(Combo):
     # workflow: ==== App Control MCP Tool ====
     async def app_clear(self, package: str) -> typing.Any:
         """清除指定应用的数据。"""
-        cmd = self.prefix + [
-            "shell", "pm", "clear", package
-        ]
-        await Terminal.cmd_line(cmd)
+        await self.phone.app_clear(package)
         return SemanticResult.from_text(
             "应用数据清理命令已执行。",
             data={"ok": True, "reason": None}
@@ -412,76 +241,13 @@ class Device(Combo):
         activity: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
         """确保应用位于前台。"""
-        t0 = time.time()
-
-        poll: float = 0.25
-
-        quick_wait: float = 0.8
-        quick_hits: int   = 1
-
-        first_wait: float = 8.0
-        first_hits: int   = 2
-
-        retry_wait: float = 5.0
-        retry_hits: int   = 2
-
-        # 快速检查
-        ok0, focus0, _ = await self._wait_fg(package, quick_wait, poll, quick_hits)
-        if ok0:
-            return SemanticResult.from_text(
-                "应用已在前台，无需拉起。",
-                data={
-                    "ok"      : True,
-                    "reason"  : None,
-                    "stage"   : "already",
-                    "focus"   : focus0,
-                    "cost_ms" : int((time.time() - t0) * 1000)
-                }
-            ).to_dict()
-
-        # 首次拉起
-        await self.app_start(package, activity)
-
-        ok1, focus1, _ = await self._wait_fg(package, first_wait, poll, first_hits)
-        if ok1:
-            return SemanticResult.from_text(
-                "应用已成功进入前台。",
-                data={
-                    "ok"      : True,
-                    "reason"  : None,
-                    "stage"   : "start",
-                    "focus"   : focus1,
-                    "cost_ms" : int((time.time() - t0) * 1000)
-                }
-            ).to_dict()
-
-        # 默认重试一次
-        await self.app_stop(package)
-        await self.app_start(package, activity)
-
-        ok2, focus2, _ = await self._wait_fg(package, retry_wait, poll, retry_hits)
-        if ok2:
-            return SemanticResult.from_text(
-                "首次拉起未命中前台，重试后已进入前台。",
-                data={
-                    "ok"      : True,
-                    "reason"  : None,
-                    "stage"   : "retry",
-                    "focus"   : focus2,
-                    "cost_ms" : int((time.time() - t0) * 1000)
-                }
-            ).to_dict()
-
-        return SemanticResult.from_text(
-            "拉起应用超时（已重试一次仍失败）。",
-            data={
-                "ok"      : False,
-                "reason"  : "retry_timeout",
-                "stage"   : "retry",
-                "focus"   : focus2,
-                "cost_ms" : int((time.time() - t0) * 1000)
-            }
-        ).to_dict()
+        result = await self.combo.app_foreground(package, activity)
+        text = {
+            "already": "应用已在前台，无需拉起。",
+            "start": "应用已成功进入前台。",
+            "retry": "首次拉起未命中前台，重试后已进入前台。" if result.get("ok") else "拉起应用超时（已重试一次仍失败）。",
+        }.get(result.get("stage"), "应用前台流程执行完成。")
+        return SemanticResult.from_text(text, data=result).to_dict()
 
     # workflow: ==== File Control MCP Tool ====
     async def file_pull(self, remote: str, local: str) -> dict[str, typing.Any]:
@@ -498,10 +264,7 @@ class Device(Combo):
         # 确保父目录存在
         destination.parent.mkdir(parents=True, exist_ok=True)
 
-        cmd = self.prefix + [
-            "pull", remote, destination
-        ]
-        await Terminal.cmd_line(cmd)
+        await self.phone.file_pull(remote, str(destination))
 
         return SemanticResult.from_text(
             f"文件已拉取到 {destination}",
@@ -511,10 +274,7 @@ class Device(Combo):
     # workflow: ==== File Control MCP Tool ====
     async def file_push(self, local: str, remote: str) -> typing.Any:
         """向设备推送文件。"""
-        cmd = self.prefix + [
-            "push", local, remote
-        ]
-        await Terminal.cmd_line(cmd)
+        await self.phone.file_push(local, remote)
         return SemanticResult.from_text(
             "文件推送命令已执行。",
             data={"ok": True, "reason": None}
@@ -523,14 +283,15 @@ class Device(Combo):
     # workflow: ==== File Control MCP Tool ====
     async def file_remove(self, path: str) -> typing.Any:
         """删除设备文件。"""
-        cmd = self.prefix + [
-            "shell", "rm", "-f", path
-        ]
-        await Terminal.cmd_line(cmd)
+        await self.phone.file_remove(path)
         return SemanticResult.from_text(
             "文件删除命令已执行。",
             data={"ok": True, "reason": None}
         ).to_dict()
+
+    async def file_logcat_link(self) -> asyncio.subprocess.Process:
+        """连接 logcat 流，供内部注入流程消费。"""
+        return await self.phone.logcat_link()
 
     # workflow: ==== File Control MCP Tool ====
     async def file_logcat_dump(
@@ -544,28 +305,7 @@ class Device(Combo):
         """导出一次性 logcat 快照。"""
         max_summary_lines = 2000
         max_process_lines = 20000
-
-        lv = str(level or "W").upper().strip()
-        if lv not in {"V", "D", "I", "W", "E", "F", "S"}:
-            lv = "W"
-
-        cmd = self.prefix + ["logcat", "-v", "threadtime"]
-
-        ts: list[str] = []
-        if tags:
-            ts = [str(t).strip() for t in tags if t and str(t).strip()]
-            if ts:
-                for tag in ts:
-                    cmd.append(f"{tag}:{lv}")
-                cmd.append("*:S")
-            else:
-                cmd.append(f"*:{lv}")
-        else:
-            cmd.append(f"*:{lv}")
-
-        cmd.append("-d")
-
-        raw   = await Terminal.cmd_line(cmd)
+        raw = await self.phone.logcat_dump(tags, level)
         lines = (raw or "").splitlines()
 
         if len(lines) > max_process_lines:
@@ -655,8 +395,7 @@ class Device(Combo):
     # workflow: ==== File Control MCP Tool ====
     async def file_logcat_clean(self, *_, **__) -> dict[str, typing.Any]:
         """清空 logcat 日志。"""
-        cmd = self.prefix + ["logcat", "-c"]
-        await Terminal.cmd_line(cmd)
+        await self.phone.logcat_clean()
 
         return SemanticResult.from_text(
             "logcat cleaned",
@@ -670,48 +409,17 @@ class Device(Combo):
         scope: typing.Literal["user", "system", "all"] = "user"
     ) -> dict:
         """按范围和关键字筛选应用包名。"""
-        def parse_pm_list_packages(text: str) -> list[str]:
-            """解析 `pm list packages` 输出。"""
-            pkg_list: list[str] = []
-            for line in (text or "").splitlines():
-                if not (line := line.strip()):
-                    continue
-                if line.startswith("package:"):
-                    pkg_list.append(line.split("package:", 1)[1].strip())
-                else:
-                    pkg_list.append(line)
-
-            # 去重保持顺序
-            seen: set[str] = set()
-            out: list[str] = []
-            for pkg in pkg_list:
-                if pkg and pkg not in seen:
-                    seen.add(pkg)
-                    out.append(pkg)
-            return out
-
         kw = (keyword or "").strip()
-
-        base = ["shell", "pm", "list", "packages"]
-        match scope:
-            case "user"   : base += ["-3"]
-            case "system" : base += ["-s"]
-            case "all"    : pass
-
-        # 不传 keyword：直接列出
         if not kw:
-            resp = await Terminal.cmd_line(self.prefix + base)
-            pkgs = parse_pm_list_packages(resp)
+            resp = await self.phone.list_packages(scope)
+            pkgs = self.phone.parse_package_list(resp)
             return SemanticResult.from_text(
                 "\n".join(pkgs),
                 data={"ok": True, "reason": None, "count": len(pkgs), "packages": pkgs}
             ).to_dict()
 
-        # 传 keyword：过滤（保持当前 “| grep -i” 的写法）
-        resp = await Terminal.cmd_line(self.prefix + base + [
-            "|", "grep", "-i", kw
-        ])
-        pkgs = parse_pm_list_packages(resp)
+        resp = await self.phone.grep_packages(kw, scope)
+        pkgs = self.phone.parse_package_list(resp)
         return SemanticResult.from_text(
             "\n".join(pkgs),
             data={"ok": True, "reason": None, "count": len(pkgs), "packages": pkgs}
@@ -720,10 +428,7 @@ class Device(Combo):
     # workflow: ==== System Control MCP Tool ====
     async def open_notification(self) -> typing.Any:
         """打开通知栏。"""
-        cmd = self.prefix + [
-            "shell", "cmd", "statusbar", "expand-notifications"
-        ]
-        await Terminal.cmd_line(cmd)
+        await self.phone.open_notification()
         return SemanticResult.from_text(
             "通知栏已打开。",
             data={"ok": True, "reason": None}
@@ -732,85 +437,46 @@ class Device(Combo):
     # workflow: ==== System Control MCP Tool ====
     async def open_quick_settings(self) -> typing.Any:
         """打开快捷设置面板。"""
-        cmd = self.prefix + [
-            "shell", "cmd", "statusbar", "expand-settings"
-        ]
-        await Terminal.cmd_line(cmd)
+        await self.phone.open_quick_settings()
         return SemanticResult.from_text(
             "快捷设置面板已打开。",
             data={"ok": True, "reason": None}
         ).to_dict()
 
     # workflow: ==== System Control MCP Tool ====
-    async def screen_on(self) -> dict[str, typing.Any]:
-        """点亮屏幕。"""
-        await self.screen(True)
+    async def set_screen(self, on: bool) -> dict[str, typing.Any]:
+        """设置屏幕开关。"""
+        await self.combo.screen_set(on)
         return SemanticResult.from_text(
-            "屏幕已点亮。",
-            data={"ok": True, "reason": None}
+            "屏幕已点亮。" if on else "屏幕已关闭。",
+            data={"ok": True, "reason": None, "on": on}
         ).to_dict()
 
     # workflow: ==== System Control MCP Tool ====
-    async def screen_off(self) -> dict[str, typing.Any]:
-        """关闭屏幕。"""
-        await self.screen(False)
+    async def set_bluetooth(self, enabled: bool) -> dict[str, typing.Any]:
+        """设置蓝牙开关。"""
+        await self.phone.set_service("bluetooth", enabled)
         return SemanticResult.from_text(
-            "屏幕已关闭。",
-            data={"ok": True, "reason": None}
+            "蓝牙已打开。" if enabled else "蓝牙已关闭。",
+            data={"ok": True, "reason": None, "enabled": enabled}
         ).to_dict()
 
     # workflow: ==== System Control MCP Tool ====
-    async def bluetooth_on(self) -> dict[str, typing.Any]:
-        """打开蓝牙。"""
-        await self._set_bluetooth("enable")
+    async def set_wifi(self, enabled: bool) -> dict[str, typing.Any]:
+        """设置 WiFi 开关。"""
+        await self.phone.set_service("wifi", enabled)
         return SemanticResult.from_text(
-            "蓝牙已打开。",
-            data={"ok": True, "reason": None}
+            "WiFi 已打开。" if enabled else "WiFi 已关闭。",
+            data={"ok": True, "reason": None, "enabled": enabled}
         ).to_dict()
 
     # workflow: ==== System Control MCP Tool ====
-    async def bluetooth_off(self) -> dict[str, typing.Any]:
-        """关闭蓝牙。"""
-        await self._set_bluetooth("disable")
+    async def set_mobile_data(self, enabled: bool) -> dict[str, typing.Any]:
+        """设置移动数据开关。"""
+        await self.phone.set_service("data", enabled)
         return SemanticResult.from_text(
-            "蓝牙已关闭。",
-            data={"ok": True, "reason": None}
-        ).to_dict()
-
-    # workflow: ==== System Control MCP Tool ====
-    async def wifi_on(self) -> dict[str, typing.Any]:
-        """打开 WiFi。"""
-        await self._set_wifi("enable")
-        return SemanticResult.from_text(
-            "WiFi 已打开。",
-            data={"ok": True, "reason": None}
-        ).to_dict()
-
-    # workflow: ==== System Control MCP Tool ====
-    async def wifi_off(self) -> dict[str, typing.Any]:
-        """关闭 WiFi。"""
-        await self._set_wifi("disable")
-        return SemanticResult.from_text(
-            "WiFi 已关闭。",
-            data={"ok": True, "reason": None}
-        ).to_dict()
-
-    # workflow: ==== System Control MCP Tool ====
-    async def data_on(self) -> dict[str, typing.Any]:
-        """打开移动数据。"""
-        await self._set_mobile_data("enable")
-        return SemanticResult.from_text(
-            "移动数据已打开。",
-            data={"ok": True, "reason": None}
-        ).to_dict()
-
-    # workflow: ==== System Control MCP Tool ====
-    async def data_off(self) -> dict[str, typing.Any]:
-        """关闭移动数据。"""
-        await self._set_mobile_data("disable")
-        return SemanticResult.from_text(
-            "移动数据已关闭。",
-            data={"ok": True, "reason": None}
+            "移动数据已打开。" if enabled else "移动数据已关闭。",
+            data={"ok": True, "reason": None, "enabled": enabled}
         ).to_dict()
 
     # workflow: ==== System Control MCP Tool ====
@@ -822,13 +488,7 @@ class Device(Combo):
                 data={"ok": False, "reason": "missing_others"}
             ).to_dict()
 
-        commands = [f"input keyevent {other}" for other in others]
-
-        shell_cmd = " ".join(
-            self.prefix + ["shell", "input", "keyevent"]
-        ) + f" --longpress {first} & sleep 0.03; " + "; ".join(commands)
-
-        await Terminal.cmd_line_shell(shell_cmd)
+        await self.phone.combo_key(first, others)
         return SemanticResult.from_text(
             "组合按键已执行。",
             data={"ok": True, "reason": None}
@@ -837,8 +497,7 @@ class Device(Combo):
     # workflow: ==== System Control MCP Tool ====
     async def ime_reset(self) -> typing.Any:
         """重置为系统默认输入法。"""
-        cmd = self.prefix + ["shell", "ime", "reset"]
-        await Terminal.cmd_line(cmd)
+        await self.phone.ime_reset()
         return SemanticResult.from_text(
             "输入法已重置。",
             data={"ok": True, "reason": None}
@@ -852,18 +511,16 @@ class Device(Combo):
         wait_timeout: float = 120.0
     ) -> dict[str, typing.Any]:
         """重启设备。"""
-        cmd = self.prefix + ["reboot"] + ([mode] if mode else [])
-
-        raw = await Terminal.cmd_line(cmd)
+        raw = await self.phone.reboot(mode)
         out = ("" if raw is None else str(raw)).strip()
 
-        data: dict[str, typing.Any] = {"ok": True, "mode": mode, "cmd": cmd, "out": out}
+        data: dict[str, typing.Any] = {"ok": True, "mode": mode, "out": out}
 
         # 仅普通重启才支持 wait-for-device
         if wait and mode == "":
             try:
                 await asyncio.wait_for(
-                    Terminal.cmd_line(self.prefix + ["wait-for-device"]),
+                    self.phone.wait_for_device(),
                     timeout=wait_timeout
                 )
                 return SemanticResult.from_text(
@@ -889,61 +546,30 @@ class Device(Combo):
     # workflow: ==== System Control MCP Tool ====
     async def swipe_unlock(self) -> dict[str, typing.Any]:
         """点亮屏幕并上滑解锁。"""
-        await self._screen(True)
-
-        if not (wm := await self._wm_size()):
-            return SemanticResult.from_text(
-                "获取屏幕尺寸失败。",
-                data={"ok": False, "reason": "wm_size_unavailable"}
-            ).to_dict()
-
-        w, h = wm
-
-        x = w // 2
-        y1 = int(h * 0.80)
-        y2 = int(h * 0.35)
-
-        await self.swipe(x, y1, x, y2, 1000)
-        await asyncio.sleep(0.2)
-        return SemanticResult.from_text(
-            "已执行上滑解锁。",
-            data={"ok": True, "reason": None}
-        ).to_dict()
+        result = await self.combo.swipe_unlock()
+        text = "已执行上滑解锁。" if result.get("ok") else "获取屏幕尺寸失败。"
+        return SemanticResult.from_text(text, data=result).to_dict()
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def swipe(self, x1: int, y1: int, x2: int, y2: int, duration: int = 300) -> typing.Any:
-        """执行一次滑动手势。"""
-        cmd = self.prefix + [
-            "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration)
-        ]
-        await Terminal.cmd_line(cmd)
-        return SemanticResult.from_text(
-            "滑动已执行。",
-            data={"ok": True, "reason": None}
-        ).to_dict()
+    async def scroll(
+        self,
+        direction: typing.Literal["up", "down", "left", "right"],
+        x: int,
+        y: int,
+        duration: int = 300
+    ) -> dict[str, typing.Any]:
+        """按方向滚动。"""
+        await self.phone.scroll_by_direction(direction, x, y, duration)
+        text_map = {
+            "up": "向上滚动已执行。",
+            "down": "向下滚动已执行。",
+            "left": "向左滚动已执行。",
+            "right": "向右滚动已执行。",
+        }
+        return SemanticResult.from_text(text_map[direction], data={"ok": True, "reason": None}).to_dict()
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def scroll_up(self, x: int, y: int, duration: int = 300) -> dict[str, typing.Any]:
-        await self._scroll_by_direction("up", x, y, duration)
-        return SemanticResult.from_text("向上滚动已执行。", data={"ok": True, "reason": None}).to_dict()
-
-    # workflow: ==== UI Interaction MCP Tool ====
-    async def scroll_down(self, x: int, y: int, duration: int = 300) -> dict[str, typing.Any]:
-        await self._scroll_by_direction("down", x, y, duration)
-        return SemanticResult.from_text("向下滚动已执行。", data={"ok": True, "reason": None}).to_dict()
-
-    # workflow: ==== UI Interaction MCP Tool ====
-    async def scroll_left(self, x: int, y: int, duration: int = 300) -> dict[str, typing.Any]:
-        await self._scroll_by_direction("left", x, y, duration)
-        return SemanticResult.from_text("向左滚动已执行。", data={"ok": True, "reason": None}).to_dict()
-
-    # workflow: ==== UI Interaction MCP Tool ====
-    async def scroll_right(self, x: int, y: int, duration: int = 300) -> dict[str, typing.Any]:
-        await self._scroll_by_direction("right", x, y, duration)
-        return SemanticResult.from_text("向右滚动已执行。", data={"ok": True, "reason": None}).to_dict()
-
-    # workflow: ==== UI Interaction MCP Tool ====
-    async def scroll_element_into_view(
+    async def scroll_into_view(
         self,
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
         value: str | list,
@@ -955,9 +581,7 @@ class Device(Combo):
         should_click: bool = False
     ) -> dict[str, typing.Any]:
         """将目标元素滚动到可见区域。"""
-        result = await self._scroll_find(
-            by, value, match, ignore_case, direction, timeout=timeout, max_swipes=max_swipes
-        )
+        result = await self.combo.scroll_into_view(by, value, match, ignore_case, direction, timeout, max_swipes, should_click)
         # Device 只消费 Combo 的动作结果，不再关心滚动过程里的内部细节。
         matched = result.get("node")
         data = {
@@ -970,13 +594,9 @@ class Device(Combo):
             reason = result.get("reason")
             return SemanticResult.from_text(self._scroll_find_text(reason), data=data).to_dict()
 
-        if should_click and matched:
-            center = getattr(matched, "center", None)
-            if center and isinstance(center, (list, tuple)) and len(center) == 2:
-                await self._tap(int(center[0]), int(center[1]))
-                data["clicked"] = True
-            else:
-                data["clicked"] = False
+        if should_click:
+            data["clicked"] = bool(result.get("clicked"))
+            if result.get("reason") == "missing_center":
                 data["reason"] = "missing_center"
 
         if should_click:
@@ -1000,19 +620,7 @@ class Device(Combo):
         ignore_case: bool = False
     ) -> dict[str, typing.Any]:
         """点击匹配到的目标元素。"""
-        def pack_node(node: typing.Optional[Widget]) -> typing.Optional[dict[str, typing.Any]]:
-            if not node:
-                return None
-            return {
-                "id"     : node.id,
-                "desc"   : node.desc,
-                "text"   : node.text,
-                "class"  : node.clazz,
-                "center" : node.center,
-                "bbox"   : node.bbox
-            }
-
-        if not (widget := await self._find_ui_widget(by, value, match, ignore_case)):
+        if not (widget := await self.phone.find_ui_widget(by, value, match, ignore_case)):
             return SemanticResult.from_text(
                 "未找到可点击的节点。",
                 data={"ok": False, "reason": "node_not_found", "node": None, "clicked": False}
@@ -1021,24 +629,20 @@ class Device(Combo):
         if not widget.center:
             return SemanticResult.from_text(
                 "找到节点但缺少可点击坐标（center）。",
-                data={"ok": False, "reason": "missing_center", "node": pack_node(widget), "clicked": False}
+                data={"ok": False, "reason": "missing_center", "node": widget.to_node(), "clicked": False}
             ).to_dict()
 
-        await self._tap(*widget.center)
+        await self.phone.tap(*widget.center)
 
         return SemanticResult.from_text(
             "点击完成。",
-            data={"ok": True, "reason": None, "node": pack_node(widget), "clicked": True}
+            data={"ok": True, "reason": None, "node": widget.to_node(), "clicked": True}
         ).to_dict()
 
     # workflow: ==== UI Interaction MCP Tool ====
     async def double_click(self, x: int, y: int) -> typing.Any:
         """在同一坐标执行双击。"""
-        cmd = (
-            " ".join(self.prefix)
-            + f" shell input tap {x} {y}; sleep 0.08; input tap {x} {y}"
-        )
-        await Terminal.cmd_line_shell(cmd)
+        await self.phone.double_tap(x, y)
         return SemanticResult.from_text(
             "双击已执行。",
             data={"ok": True, "reason": None}
@@ -1047,7 +651,7 @@ class Device(Combo):
     # workflow: ==== UI Interaction MCP Tool ====
     async def key_event(self, keycode: int, longpress: bool = False) -> dict[str, typing.Any]:
         """发送系统按键。"""
-        await self._send_keyevent(keycode, longpress)
+        await self.phone.send_keyevent(keycode, longpress)
         return SemanticResult.from_text(
             "按键已发送。",
             data={"ok": True, "reason": None}
@@ -1056,7 +660,7 @@ class Device(Combo):
     # workflow: ==== Info Control MCP Tool ====
     async def screenshot(self, local: str) -> dict[str, typing.Any]:
         """保存截图到本地。"""
-        saved = await self._save_screenshot(local)
+        saved = await self.combo.save_screenshot(local)
         return SemanticResult.from_text(
             f"截图已保存到 {saved}",
             data={"ok": True, "reason": None, "path": saved}
@@ -1065,20 +669,10 @@ class Device(Combo):
     # workflow: ==== UI Interaction MCP Tool ====
     async def input_text(self, text: str) -> typing.Any:
         """向当前焦点输入文本。"""
-        def sh_quote_single(s: str) -> str:
-            """按单引号规则转义 shell 文本。"""
-            return "'" + s.replace("'", r"'\''") + "'"
-
-        if not (ime := await self._ime()).get("ok"):
+        if not (ime := await self.combo.ensure_ime()).get("ok"):
             return ime
 
-        text = "" if text is None else str(text)
-        text = sh_quote_single(text)
-
-        cmd = self.prefix + [
-            "shell", "am", "broadcast", "-a", "ADB_INPUT_TEXT", "--es", "msg", text
-        ]
-        await Terminal.cmd_line(cmd)
+        await self.phone.input_text("" if text is None else str(text))
         return SemanticResult.from_text(
             "文本输入已执行。",
             data={"ok": True, "reason": None}
@@ -1087,13 +681,10 @@ class Device(Combo):
     # workflow: ==== UI Interaction MCP Tool ====
     async def clear_text(self) -> typing.Any:
         """清空当前焦点输入框文本。"""
-        if not (ime := await self._ime()).get("ok"):
+        if not (ime := await self.combo.ensure_ime()).get("ok"):
             return ime
 
-        cmd = self.prefix + [
-            "shell", "am", "broadcast", "-a", "ADB_CLEAR_TEXT"
-        ]
-        await Terminal.cmd_line(cmd)
+        await self.phone.clear_text()
         return SemanticResult.from_text(
             "文本已清空。",
             data={"ok": True, "reason": None}
@@ -1102,7 +693,7 @@ class Device(Combo):
     # workflow: ==== UI Interaction MCP Tool ====
     async def current_focus(self) -> dict[str, typing.Any]:
         """获取当前前台焦点。"""
-        focus = await self._focus_info()
+        focus = await self.phone.focus_info()
         package = focus.get("package")
         activity = focus.get("activity")
         raw = focus.get("raw", "")
@@ -1137,17 +728,17 @@ class Device(Combo):
 
             return False
 
-        if not (xml := await self._ui_xml()):
+        if not (xml := await self.phone.ui_xml()):
             return SemanticResult.from_text(
                 "未获取到 UI XML。",
                 data={"ok": False, "reason": "xml_unavailable", "count": 0}
             ).to_dict()
 
-        widget_list = self._parse_widgets(xml)
+        widget_list = self.phone.parse_widgets(xml)
         if not widget_list:
             return SemanticResult.from_text(
-                "解析 UI XML 失败或页面为空。",
-                data={"ok": False, "reason": "parse_failed", "count": 0}
+                "当前页面没有可用控件。",
+                data={"ok": True, "reason": "empty", "count": 0}
             ).to_dict()
 
         lines: list[str] = [
@@ -1171,24 +762,17 @@ class Device(Combo):
         """查找当前页面中的目标控件。"""
         if by == "xpath":
             return SemanticResult.from_text(
-                " by=xpath 暂不支持（Android uiautomator dump 非标准 XPath）。",
+                "by=xpath 暂不支持（Android uiautomator dump 非标准 XPath）。",
                 data={"ok": False, "reason": "xpath_not_supported", "node": None}
             ).to_dict()
 
-        if found_node := await self._find_ui_widget(by, value, match, ignore_case):
+        if found_node := await self.phone.find_ui_widget(by, value, match, ignore_case):
             return SemanticResult.from_text(
                 "已找到目标控件。",
                 data={
                     "ok"     : True,
                     "reason" : None,
-                    "node": {
-                        "id"     : found_node.id,
-                        "desc"   : found_node.desc,
-                        "text"   : found_node.text,
-                        "class"  : found_node.clazz,
-                        "center" : found_node.center,
-                        "bbox"   : found_node.bbox
-                    }
+                    "node"   : found_node.to_node()
                 }
             ).to_dict()
 
@@ -1202,7 +786,7 @@ class Device(Combo):
         """执行元素自愈流程。"""
         # 这是给 enhancer 的专用裸 payload，刻意不走 SemanticResult。
         page_id, page_dump, wm = await asyncio.gather(
-            self.current_focus(), self._ui_xml(), self._wm_size()
+            self.current_focus(), self.phone.ui_xml(), self.phone.wm_size()
         )
         w, h = wm if wm else (0, 0)
         payload = {
@@ -1215,7 +799,7 @@ class Device(Combo):
         }
 
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-            new_local = await self._save_screenshot(tmp.name)
+            new_local = await self.combo.save_screenshot(tmp.name)
             with open(new_local, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode()
             payload["screenshot_base64"]   = b64
@@ -1225,8 +809,8 @@ class Device(Combo):
 
         return payload
 
-    # workflow: ==== UI ====
-    async def _wait_element(
+    # workflow: ==== UI Interaction MCP Tool ====
+    async def wait_element(
         self,
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
         value: str | list,
@@ -1235,142 +819,26 @@ class Device(Combo):
         timeout: float = 10.0,
         state: typing.Literal["exists", "gone"] = "exists"
     ) -> dict[str, typing.Any]:
-        """等待节点出现或消失。"""
-        # 等待逻辑沉到私有 helper，对外只暴露 wait_exists / wait_gone 两个工具语义入口。
-        want_exists = (state == "exists")
-        deadline    = time.monotonic() + float(timeout)
-        found       = False
-
-        while True:
-            observed_node = await self._find_ui_widget(by, value, match, ignore_case)
-            found = bool(observed_node)
-            if found == want_exists:
-                return SemanticResult.from_text(
-                    "等待节点成功（已出现）。" if want_exists else "等待节点成功（已消失）。",
-                    data={
-                        "ok"     : True,
-                        "reason" : None,
-                        "found"  : found,
-                        "node": {
-                            "id"     : observed_node.id,
-                            "desc"   : observed_node.desc,
-                            "text"   : observed_node.text,
-                            "class"  : observed_node.clazz,
-                            "center" : observed_node.center,
-                            "bbox"   : observed_node.bbox
-                        } if observed_node else None
-                    }
-                ).to_dict()
-
-            if time.monotonic() >= deadline:
-                return SemanticResult.from_text(
-                    "等待节点超时（未出现）。" if want_exists else "等待节点超时（未消失）。",
-                    data={"ok": False, "reason": "timeout", "found": found, "node": None}
-                ).to_dict()
-
-            await asyncio.sleep(0.25)
-
-    # workflow: ==== UI ====
-    async def _scroll_to_edge(self, edge: typing.Literal["top", "bottom"]) -> dict[str, typing.Any]:
-        """滑动到页面边界。"""
-        # 这是内部滚动流程 helper，对外工具层只看到 scroll_to_top / scroll_to_bottom。
-        max_swipes: int = 30
-
-        duration_ms: int = 450
-        settle_ms: int   = 450
-
-        similarity_threshold: float = 0.992  # 相似度阈值
-        stable_required: int        = 3      # 连续 3 次相似才停
-        min_swipes_before_stop: int = 2      # 至少滑 2 次后才允许停
-
-        x_ratio: float     = 0.5
-        upper_ratio: float = 0.20  # 更靠近边缘一点 => 滑动更明显
-        lower_ratio: float = 0.80
-
-        if not (wm := await self._wm_size()):
-            return SemanticResult.from_text(
-                "获取屏幕尺寸失败。",
-                data={"ok": False, "reason": "wm_size_unavailable", "swipes": 0}
-            ).to_dict()
-
-        w, h = wm
-        x = int(w * x_ratio)
-
-        y_upper = int(h * upper_ratio)
-        y_lower = int(h * lower_ratio)
-
-        if edge == "top":
-            y_from, y_to = y_upper, y_lower  # 👇 swipe down (回到更上面)
-        else:
-            y_from, y_to = y_lower, y_upper  # 👆 swipe up (去到更下面)
-
-        last_sim    = 0.0
-        stable_hits = 0
-
-        with tempfile.TemporaryDirectory(prefix="scroll_caps_") as tmp:
-            tmp_dir   = Path(tmp)
-            prev_path = str(tmp_dir / "prev.png")
-            cur_path  = str(tmp_dir / "cur.png")
-
-            prev = await self._save_screenshot(prev_path)
-
-            for n in range(1, max_swipes + 1):
-                await self.swipe(x, y_from, x, y_to, duration_ms)
-                await asyncio.sleep(settle_ms / 1000)
-
-                cur = await self._save_screenshot(cur_path)
-                last_sim = float(similarity(prev, cur))
-
-                # 防抖：累计连续“几乎不变”的次数
-                if last_sim >= similarity_threshold:
-                    stable_hits += 1
-                else:
-                    stable_hits = 0
-
-                # 至少滑动几次后，且连续 stable_required 次相似才停
-                if n >= min_swipes_before_stop and stable_hits >= stable_required:
-                    return SemanticResult.from_text(
-                        "屏幕已稳定（内容未变化），停止滑动。",
-                        data={"ok": True, "reason": "screen_not_changed", "swipes": n}
-                    ).to_dict()
-
-                prev, cur = cur, prev
-                prev_path, cur_path = cur_path, prev_path
-
-            return SemanticResult.from_text(
-                "已达到最大滑动次数，停止滑动。",
-                data={"ok": True, "reason": "max_swipes_reached", "swipes": max_swipes}
-            ).to_dict()
+        result = await self.combo.wait_element(by, value, match, ignore_case, timeout, state=state)
+        node = result.get("node")
+        success_text = "等待节点成功（已出现）。" if state == "exists" else "等待节点成功（已消失）。"
+        fail_text = "等待节点超时（未出现）。" if state == "exists" else "等待节点超时（未消失）。"
+        return SemanticResult.from_text(
+            success_text if result.get("ok") else fail_text,
+            data={
+                "ok"     : bool(result.get("ok")),
+                "reason" : result.get("reason"),
+                "found"  : result.get("found", False),
+                "node"   : node.to_node() if node else None
+            }
+        ).to_dict()
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def wait_exists(
-        self,
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
-        value: str | list,
-        match: typing.Literal["eq", "contains", "regex"] = "eq",
-        ignore_case: bool = False,
-        timeout: float = 10.0
-    ) -> dict[str, typing.Any]:
-        return await self._wait_element(by, value, match, ignore_case, timeout, state="exists")
-
-    # workflow: ==== UI Interaction MCP Tool ====
-    async def wait_gone(
-        self,
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
-        value: str | list,
-        match: typing.Literal["eq", "contains", "regex"] = "eq",
-        ignore_case: bool = False,
-        timeout: float = 10.0
-    ) -> dict[str, typing.Any]:
-        return await self._wait_element(by, value, match, ignore_case, timeout, state="gone")
-
-    # workflow: ==== UI Interaction MCP Tool ====
-    async def scroll_to_top(self) -> dict[str, typing.Any]:
-        return await self._scroll_to_edge("top")
-
-    # workflow: ==== UI Interaction MCP Tool ====
-    async def scroll_to_bottom(self) -> dict[str, typing.Any]:
-        return await self._scroll_to_edge("bottom")
+    async def scroll_to_edge(self, edge: typing.Literal["top", "bottom"]) -> dict[str, typing.Any]:
+        """滚动到边界。"""
+        result = await self.combo.scroll_to_edge(edge)
+        text = "屏幕已稳定（内容未变化），停止滑动。" if result.get("reason") == "screen_not_changed" else "已达到最大滑动次数，停止滑动。"
+        return SemanticResult.from_text(text, data=result).to_dict()
 
 
 if __name__ == '__main__':
