@@ -8,7 +8,7 @@
 
 import typing
 from dataclasses import (
-    dataclass, field, asdict
+    asdict, dataclass, field
 )
 
 
@@ -29,6 +29,43 @@ class Attachment:
 
 
 @dataclass(slots=True)
+class PrimitiveResult:
+    ok: bool
+    reason: str | None = None
+    data: dict[str, typing.Any] | None = None
+
+    @classmethod
+    def success(cls, **data: typing.Any) -> "PrimitiveResult":
+        return cls(
+            ok=True,
+            reason=None,
+            data=data or None
+        )
+
+    @classmethod
+    def fail(cls, reason: str, **data: typing.Any) -> "PrimitiveResult":
+        return cls(
+            ok=False,
+            reason=reason,
+            data=data or None
+        )
+
+    def get(self, key: str, default: typing.Any = None) -> typing.Any:
+        return (self.data or {}).get(key, default)
+
+    def to_dict(self) -> dict[str, typing.Any]:
+        payload: dict[str, typing.Any] = {"ok": self.ok}
+
+        if self.reason is not None:
+            payload["reason"] = self.reason
+
+        if self.data:
+            payload["data"] = self.data
+
+        return payload
+
+
+@dataclass(slots=True)
 class ActionResult:
     ok: bool
     reason: str | None = None
@@ -36,11 +73,36 @@ class ActionResult:
 
     @classmethod
     def success(cls, **data: typing.Any) -> "ActionResult":
-        return cls(ok=True, reason=None, data=data or None)
+        return cls(
+            ok=True,
+            reason=None,
+            data=data or None
+        )
 
     @classmethod
     def fail(cls, reason: str, **data: typing.Any) -> "ActionResult":
-        return cls(ok=False, reason=reason, data=data or None)
+        return cls(
+            ok=False,
+            reason=reason,
+            data=data or None
+        )
+
+    @classmethod
+    def from_primitive(
+        cls,
+        primitive: PrimitiveResult,
+        **extra: typing.Any,
+    ) -> "ActionResult":
+        merged = dict(primitive.data or {})
+        merged.update(extra)
+        return cls(
+            ok=primitive.ok,
+            reason=primitive.reason,
+            data=merged or None
+        )
+
+    def get(self, key: str, default: typing.Any = None) -> typing.Any:
+        return (self.data or {}).get(key, default)
 
     def to_dict(self) -> dict[str, typing.Any]:
         payload: dict[str, typing.Any] = {"ok": self.ok}
@@ -68,7 +130,7 @@ class SemanticResult:
         *,
         attachments: list[Attachment] | None = None,
         data: dict[str, typing.Any] | None = None,
-        logs: list[str] | None = None
+        logs: list[str] | None = None,
     ) -> "SemanticResult":
         return cls(
             text=text,
