@@ -35,27 +35,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         }
 
         async def call(*_) -> dict:
-            attachments: list[dict] = []
-            logs: list[str] = []
-
-            device_list = await manage.refresh(ttl_sec)
-
-            preview = [await device.device_snapshot() for device in device_list]
-            serials = [device.serial for device in device_list]
-
-            text = f"refresh ok: devices={len(serials)}" + "\n".join(preview)
-
-            return {
-                "text"        : text,
-                "attachments" : attachments,
-                "data": {
-                    "ok"      : True,
-                    "ttl_sec" : ttl_sec,
-                    "count"   : len(serials),
-                    "serials" : serials
-                },
-                "logs": logs
-            }
+            return await manage.refresh_summary(ttl_sec)
 
         return await broadcast(
             tool="refresh",
