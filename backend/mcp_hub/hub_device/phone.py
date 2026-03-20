@@ -7,13 +7,10 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import re
-import time
-import uuid
 import typing
 import asyncio
 import contextlib
 import xml.etree.ElementTree as Et
-from pathlib import Path
 from .widget import Widget
 from backend.utilities import const
 from engine.terminal import Terminal
@@ -24,8 +21,6 @@ class Phone(object):
 
     def __init__(self, serial: str):
         self.serial = serial
-
-        self.agent_id: str = self.serial
 
         self._device_props_cache: dict[str, typing.Any] = {
             "serial"     : self.serial,
@@ -105,6 +100,31 @@ class Phone(object):
     def _normalize_xml(xml: str) -> str:
         return re.sub(r"^\s*<\?xml[^>]*\?>\s*", "", xml or "")
 
+    @staticmethod
+    def _sh_quote_single(text: str) -> str:
+        """按单引号规则转义 shell 文本。"""
+        return "'" + text.replace("'", r"'\''") + "'"
+
+    @staticmethod
+    def parse_package_list(text: str) -> list[str]:
+        """解析 `pm list packages` 输出。"""
+        pkg_list: list[str] = []
+        for line in (text or "").splitlines():
+            if not (line := line.strip()):
+                continue
+            if line.startswith("package:"):
+                pkg_list.append(line.split("package:", 1)[1].strip())
+            else:
+                pkg_list.append(line)
+
+        seen: set[str] = set()
+        out: list[str] = []
+        for pkg in pkg_list:
+            if pkg and pkg not in seen:
+                seen.add(pkg)
+                out.append(pkg)
+        return out
+
     @classmethod
     def _parse_widgets(cls, xml: str) -> list[Widget]:
         """解析页面控件列表。"""
@@ -116,6 +136,11 @@ class Phone(object):
         return [
             Widget(node.attrib) for node in root.iter("node")
         ]
+
+    @classmethod
+    def parse_widgets(cls, xml: str) -> list[Widget]:
+        """解析 XML 为控件列表。"""
+        return cls._parse_widgets(xml)
 
     @staticmethod
     def _match_widget(
@@ -237,48 +262,12 @@ class Phone(object):
         resp = await Terminal.cmd_line(cmd)
         return bool(resp and "true" in resp)
 
-    async def screencap(self, remote: str) -> typing.Any:
+    async def screencap(self, remote: str) -> str | None:
         """执行设备端截图。"""
         capture = self.prefix + ["shell", "screencap", "-p", remote]
         return await Terminal.cmd_line(capture)
 
-    async def save_screenshot(self, local: str) -> str:
-        """保存截图到本地路径。"""
-        # 远端文件名每次唯一，避免并发截图时互相覆盖。
-        filename = f"screenshot_{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
-        remote = "/data/local/tmp/" + filename
-
-        await self.screencap(remote)
-
-        if (p := Path(local)).suffix:
-            destination = p.with_name(f"{p.stem}_{self.serial}{p.suffix}")
-        else:
-            destination = p / f"screenshot_{self.serial}_{uuid.uuid4().hex[:6]}.png"
-
-        destination = destination.expanduser().resolve()
-        destination.parent.mkdir(parents=True, exist_ok=True)
-
-        pull = self.prefix + ["pull", remote, str(destination)]
-        await Terminal.cmd_line(pull)
-
-        remove = self.prefix + ["shell", "rm", "-f", remote]
-        with contextlib.suppress(Exception):
-            await Terminal.cmd_line(remove)
-
-        # pull 成功与否不能只看命令返回，最终以本地文件是否存在为准。
-        if not destination.exists():
-            raise FileNotFoundError(f"screenshot pull failed: {destination}")
-
-        return str(destination)
-
-    async def file_logcat_link(self) -> asyncio.subprocess.Process:
-        """连接 logcat 输出流。"""
-        cmd = self.prefix + [
-            "logcat", "-v", "threadtime"
-        ]
-        return await Terminal.cmd_link(cmd)
-
-    async def send_keyevent(self, keycode: int, longpress: bool = False) -> typing.Any:
+    async def send_keyevent(self, keycode: int, longpress: bool = False) -> str | None:
         """发送系统按键事件。"""
         cmd = self.prefix + [
             "shell", "input", "keyevent"
@@ -288,31 +277,246 @@ class Phone(object):
 
         return await Terminal.cmd_line(cmd)
 
-    async def set_bluetooth(self, status: typing.Literal["enable", "disable"]) -> typing.Any:
-        """设置蓝牙状态。"""
+    async def set_service(
+        self,
+        service: typing.Literal["bluetooth", "wifi", "data"],
+        enabled: bool
+    ) -> str | None:
+        """设置系统服务开关状态。"""
+        status: typing.Literal["enable", "disable"] = "enable" if enabled else "disable"
         cmd = self.prefix + [
-            "shell", "svc", "bluetooth", status
+            "shell", "svc", service, status
         ]
         return await Terminal.cmd_line(cmd)
 
-    async def set_wifi(self, status: typing.Literal["enable", "disable"]) -> typing.Any:
-        """设置 WiFi 状态。"""
-        cmd = self.prefix + [
-            "shell", "svc", "wifi", status
-        ]
-        return await Terminal.cmd_line(cmd)
-
-    async def set_mobile_data(self, status: typing.Literal["enable", "disable"]) -> typing.Any:
-        """设置移动数据状态。"""
-        cmd = self.prefix + [
-            "shell", "svc", "data", status
-        ]
-        return await Terminal.cmd_line(cmd)
-
-    async def tap(self, x: int, y: int) -> typing.Any:
+    async def tap(self, x: int, y: int) -> str | None:
         """点击指定坐标。"""
         cmd = self.prefix + [
             "shell", "input", "tap", str(x), str(y)
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    async def swipe(self, x1: int, y1: int, x2: int, y2: int, duration: int = 300) -> str | None:
+        """执行一次滑动手势。"""
+        cmd = self.prefix + [
+            "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration)
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    async def app_start(self, package: str, activity: typing.Optional[str] = None) -> str | None:
+        """执行应用启动命令。"""
+        action = "android.intent.action.MAIN"
+        category = "android.intent.category.LAUNCHER"
+
+        if activity:
+            cmd = self.prefix + [
+                "shell", "am", "start", "-a", action, "-c", category, "-n", f"{package}/{activity}"
+            ]
+            return await Terminal.cmd_line(cmd)
+
+        cmd = self.prefix + [
+            "shell", "monkey", "-p", package, "-c", category, "1"
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    async def app_stop(self, package: str) -> str | None:
+        """执行应用停止命令。"""
+        cmd = self.prefix + [
+            "shell", "am", "force-stop", package
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    async def app_deep_link(self, url: str) -> str | None:
+        """执行深度链接启动命令。"""
+        cmd = self.prefix + [
+            "shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url
+        ]
+        return await Terminal.cmd_line_shell(" ".join(cmd))
+
+    async def app_install(
+        self,
+        apk: str,
+        replace: bool = True,
+        downgrade: bool = False,
+        test: bool = False
+    ) -> str | None:
+        """执行 APK 安装命令。"""
+        cmd = self.prefix + ["install"]
+        if replace:
+            cmd.append("-r")
+        if downgrade:
+            cmd.append("-d")
+        if test:
+            cmd.append("-t")
+        cmd.append(apk)
+        return await Terminal.cmd_line(cmd)
+
+    async def app_uninstall(self, package: str, keep_data: bool = False) -> str | None:
+        """执行应用卸载命令。"""
+        cmd = self.prefix + ["shell", "pm", "uninstall"]
+        if keep_data:
+            cmd.append("-k")
+        cmd.append(package)
+        return await Terminal.cmd_line(cmd)
+
+    async def app_clear(self, package: str) -> str | None:
+        """执行应用数据清理命令。"""
+        cmd = self.prefix + [
+            "shell", "pm", "clear", package
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    async def file_pull(self, remote: str, local: str) -> str | None:
+        """从设备拉取文件。"""
+        cmd = self.prefix + ["pull", remote, local]
+        return await Terminal.cmd_line(cmd)
+
+    async def file_push(self, local: str, remote: str) -> str | None:
+        """向设备推送文件。"""
+        cmd = self.prefix + ["push", local, remote]
+        return await Terminal.cmd_line(cmd)
+
+    async def file_remove(self, path: str) -> str | None:
+        """删除设备文件。"""
+        cmd = self.prefix + ["shell", "rm", "-f", path]
+        return await Terminal.cmd_line(cmd)
+
+    async def logcat_link(self) -> asyncio.subprocess.Process:
+        """连接 logcat 输出流。"""
+        cmd = self.prefix + [
+            "logcat", "-v", "threadtime"
+        ]
+        return await Terminal.cmd_link(cmd)
+
+    async def logcat_dump(self, tags: typing.Optional[list[str]] = None, level: str = "W") -> str:
+        """读取一次性 logcat 输出。"""
+        lv = str(level or "W").upper().strip()
+        if lv not in {"V", "D", "I", "W", "E", "F", "S"}:
+            lv = "W"
+
+        cmd = self.prefix + ["logcat", "-v", "threadtime"]
+        cleaned_tags = [str(tag).strip() for tag in (tags or []) if str(tag).strip()]
+        if cleaned_tags:
+            for tag in cleaned_tags:
+                cmd.append(f"{tag}:{lv}")
+            cmd.append("*:S")
+        else:
+            cmd.append(f"*:{lv}")
+        cmd.append("-d")
+        return await Terminal.cmd_line(cmd)
+
+    async def logcat_clean(self) -> str | None:
+        """清空 logcat。"""
+        cmd = self.prefix + ["logcat", "-c"]
+        return await Terminal.cmd_line(cmd)
+
+    async def list_packages(self, scope: typing.Literal["user", "system", "all"] = "user") -> str:
+        """按范围列出包名。"""
+        cmd = self.prefix + ["shell", "pm", "list", "packages"]
+        match scope:
+            case "user":
+                cmd += ["-3"]
+            case "system":
+                cmd += ["-s"]
+            case "all":
+                pass
+        return await Terminal.cmd_line(cmd)
+
+    async def grep_packages(self, keyword: str, scope: typing.Literal["user", "system", "all"] = "user") -> str:
+        """按关键字过滤包名。"""
+        cmd = self.prefix + ["shell", "pm", "list", "packages"]
+        match scope:
+            case "user":
+                cmd += ["-3"]
+            case "system":
+                cmd += ["-s"]
+            case "all":
+                pass
+        cmd += ["|", "grep", "-i", keyword]
+        return await Terminal.cmd_line(cmd)
+
+    async def open_notification(self) -> str | None:
+        """打开通知栏。"""
+        cmd = self.prefix + [
+            "shell", "cmd", "statusbar", "expand-notifications"
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    async def open_quick_settings(self) -> str | None:
+        """打开快捷设置。"""
+        cmd = self.prefix + [
+            "shell", "cmd", "statusbar", "expand-settings"
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    async def combo_key(self, first: int, others: list[int]) -> str | None:
+        """执行组合按键。"""
+        commands = [f"input keyevent {other}" for other in others]
+        shell_cmd = " ".join(
+            self.prefix + ["shell", "input", "keyevent"]
+        ) + f" --longpress {first} & sleep 0.03; " + "; ".join(commands)
+        return await Terminal.cmd_line_shell(shell_cmd)
+
+    async def ime_reset(self) -> str | None:
+        """重置输入法。"""
+        cmd = self.prefix + ["shell", "ime", "reset"]
+        return await Terminal.cmd_line(cmd)
+
+    async def ime_current(self) -> str:
+        """读取当前默认输入法。"""
+        cmd = self.prefix + [
+            "shell", "settings", "get", "secure", "default_input_method"
+        ]
+        resp = await Terminal.cmd_line(cmd)
+        return ("" if resp is None else str(resp)).strip()
+
+    async def ime_enable(self, ime: str) -> str:
+        """启用输入法。"""
+        cmd = self.prefix + [
+            "shell", "ime", "enable", ime
+        ]
+        resp = await Terminal.cmd_line(cmd)
+        return "" if resp is None else str(resp)
+
+    async def ime_set(self, ime: str) -> str:
+        """切换输入法。"""
+        cmd = self.prefix + [
+            "shell", "ime", "set", ime
+        ]
+        resp = await Terminal.cmd_line(cmd)
+        return "" if resp is None else str(resp)
+
+    async def reboot(self, mode: typing.Literal["", "recovery", "bootloader", "edl"] = "") -> str | None:
+        """执行重启命令。"""
+        cmd = self.prefix + ["reboot"] + ([mode] if mode else [])
+        return await Terminal.cmd_line(cmd)
+
+    async def wait_for_device(self) -> str | None:
+        """等待设备重新上线。"""
+        cmd = self.prefix + [
+            "wait-for-device"
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    async def double_tap(self, x: int, y: int) -> str | None:
+        """执行双击。"""
+        cmd = (
+            " ".join(self.prefix)
+            + f" shell input tap {x} {y}; sleep 0.08; input tap {x} {y}"
+        )
+        return await Terminal.cmd_line_shell(cmd)
+
+    async def input_text(self, text: str) -> str | None:
+        """通过 ADB_INPUT_TEXT 广播输入文本。"""
+        cmd = self.prefix + [
+            "shell", "am", "broadcast", "-a", "ADB_INPUT_TEXT", "--es", "msg", self._sh_quote_single(text)
+        ]
+        return await Terminal.cmd_line(cmd)
+
+    async def clear_text(self) -> str | None:
+        """通过 ADB_CLEAR_TEXT 广播清空文本。"""
+        cmd = self.prefix + [
+            "shell", "am", "broadcast", "-a", "ADB_CLEAR_TEXT"
         ]
         return await Terminal.cmd_line(cmd)
 
@@ -337,7 +541,6 @@ class Phone(object):
         await Terminal.cmd_line(cmd)
 
         cat = self.prefix + ["shell", "cat", xml_file]
-        remove = self.prefix + ["shell", "rm", "-f", xml_file]
         try:
             # uiautomator dump 生成文件有延迟，短轮询几次比一次性读取更稳。
             for _ in range(6):
@@ -353,7 +556,7 @@ class Phone(object):
             return None
         finally:
             with contextlib.suppress(Exception):
-                await Terminal.cmd_line(remove)
+                await self.file_remove(xml_file)
 
     async def ui_widgets(self) -> list[Widget]:
         """获取当前页面控件列表。"""
@@ -368,14 +571,12 @@ class Phone(object):
         x: int,
         y: int,
         duration: int = 300
-    ) -> typing.Any:
+    ) -> str | None:
         """按内容方向执行语义滑动。"""
-        # 这里依赖真实分辨率做手势落点，拿不到屏幕尺寸时直接失败。
         if not (wm := await self.wm_size()):
-            raise RuntimeError("wm_size unavailable")
+            return None
 
         w, h = wm
-
         x1, y1 = x, y
         x2, y2 = x1, y1
 
@@ -389,10 +590,7 @@ class Phone(object):
             case "right":
                 x2, y2 = max(0, int(w * 0.25)), y1
 
-        cmd = self.prefix + [
-            "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration)
-        ]
-        return await Terminal.cmd_line(cmd)
+        return await self.swipe(x1, y1, x2, y2, duration)
 
     async def find_ui_widget(
         self,
