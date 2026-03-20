@@ -220,7 +220,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
          """
 
         async def call(device: Device, *_) -> typing.Any:
-            return await device.screen_set(True)
+            return await device.screen_on()
 
         return await broadcast(
             tool="screen_on",
@@ -247,7 +247,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         """
 
         async def call(device: Device, *_) -> typing.Any:
-            return await device.screen_set(False)
+            return await device.screen_off()
 
         return await broadcast(
             tool="screen_off",
@@ -274,7 +274,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         """
 
         async def call(device: Device, *_) -> typing.Any:
-            return await device.bluetooth_set("enable")
+            return await device.bluetooth_on()
 
         return await broadcast(
             tool="bluetooth_on",
@@ -301,7 +301,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         """
 
         async def call(device: Device, *_) -> typing.Any:
-            return await device.bluetooth_set("disable")
+            return await device.bluetooth_off()
 
         return await broadcast(
             tool="bluetooth_off",
@@ -328,7 +328,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         """
 
         async def call(device: Device, *_) -> typing.Any:
-            return await device.wifi_set("enable")
+            return await device.wifi_on()
 
         return await broadcast(
             tool="wifi_on",
@@ -355,7 +355,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         """
 
         async def call(device: Device, *_) -> typing.Any:
-            return await device.wifi_set("disable")
+            return await device.wifi_off()
 
         return await broadcast(
             tool="wifi_off",
@@ -382,7 +382,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         """
 
         async def call(device: Device, *_) -> typing.Any:
-            return await device.data_set("enable")
+            return await device.data_on()
 
         return await broadcast(
             tool="data_on",
@@ -409,7 +409,7 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         """
 
         async def call(device: Device, *_) -> typing.Any:
-            return await device.data_set("disable")
+            return await device.data_off()
 
         return await broadcast(
             tool="data_off",
