@@ -22,29 +22,36 @@ class Attachment:
     extra: dict[str, typing.Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, typing.Any]:
-        data = asdict(self)
-        if not data["extra"]:
-            data.pop("extra", None)
-        return data
+        payload = asdict(self)
+        if not payload["extra"]:
+            payload.pop("extra", None)
+        return {k: v for k, v in payload.items() if v is not None}
 
 
 @dataclass(slots=True)
-class PrimitiveResult:
-    ok: bool
-    raw: str = ""
-
-    def to_dict(self) -> dict[str, typing.Any]:
-        return asdict(self)
-
-
-@dataclass(slots=True)
-class ComboResult:
+class ActionResult:
     ok: bool
     reason: str | None = None
     data: dict[str, typing.Any] | None = None
 
+    @classmethod
+    def success(cls, **data: typing.Any) -> "ActionResult":
+        return cls(ok=True, reason=None, data=data or None)
+
+    @classmethod
+    def fail(cls, reason: str, **data: typing.Any) -> "ActionResult":
+        return cls(ok=False, reason=reason, data=data or None)
+
     def to_dict(self) -> dict[str, typing.Any]:
-        return asdict(self)
+        payload: dict[str, typing.Any] = {"ok": self.ok}
+
+        if self.reason is not None:
+            payload["reason"] = self.reason
+
+        if self.data:
+            payload["data"] = self.data
+
+        return payload
 
 
 @dataclass(slots=True)
@@ -54,13 +61,45 @@ class SemanticResult:
     data: dict[str, typing.Any] | None = None
     logs: list[str] = field(default_factory=list)
 
+    @classmethod
+    def from_text(
+        cls,
+        text: str,
+        *,
+        attachments: list[Attachment] | None = None,
+        data: dict[str, typing.Any] | None = None,
+        logs: list[str] | None = None
+    ) -> "SemanticResult":
+        return cls(
+            text=text,
+            attachments=attachments or [],
+            data=data,
+            logs=logs or []
+        )
+
+    def add_log(self, message: str) -> None:
+        if message:
+            self.logs.append(message)
+
+    def add_attachment(self, attachment: Attachment) -> None:
+        self.attachments.append(attachment)
+
     def to_dict(self) -> dict[str, typing.Any]:
-        return {
-            "text"        : self.text,
-            "attachments" : [a.to_dict() if isinstance(a, Attachment) else a for a in self.attachments],
-            "data"        : self.data,
-            "logs"        : self.logs
-        }
+        payload: dict[str, typing.Any] = {"text": self.text}
+
+        if self.attachments:
+            payload["attachments"] = [
+                item.to_dict() if isinstance(item, Attachment) else item
+                for item in self.attachments
+            ]
+
+        if self.data:
+            payload["data"] = self.data
+
+        if self.logs:
+            payload["logs"] = self.logs
+
+        return payload
 
 
 if __name__ == '__main__':
