@@ -61,33 +61,6 @@ class PhoneCombo(Phone):
         await asyncio.sleep(settle)
 
     # workflow: ==== UI ====
-    async def send_keys_fallback(self, text: str) -> dict[str, typing.Any]:
-        """降级输入：直接使用 adb shell input text。返回统一底层结果。"""
-
-        def escape(s: str) -> str:
-            """
-            adb shell input text 转义：
-            - 空格 => %s
-            - 其它字符尽量做 URL 编码（多数 ROM 可用）
-            """
-            s = s.replace(" ", "%s")
-            return urllib.parse.quote(s, safe="%._-~:/@")
-
-        if not text:
-            return {"ok": True, "raw": ""}
-
-        cmd = self.prefix + [
-            "shell", "input", "text", escape(str(text))
-        ]
-
-        raw = await Terminal.cmd_line(cmd)
-        out = raw or str(raw).strip().lower()
-
-        ok = not any(k in out for k in ("error", "exception", "not found", "invalid"))
-
-        return {"ok": ok, "raw": out}
-
-    # workflow: ==== UI ====
     async def scroll_until(
         self,
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
