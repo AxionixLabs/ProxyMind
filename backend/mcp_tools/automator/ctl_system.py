@@ -204,216 +204,124 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "system"})
-    @task_middleware("screen_on")
-    async def screen_on(
+    @task_middleware("set_screen")
+    async def set_screen(
+        on: bool,
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
     ) -> CallToolResult:
         """
-         D: device
-         C: system
-         A: screen_on
-         P:
-           matrix: overrides? (serial->args)
-         R: CTR
-         N:
-           - 幂等：已亮则 no-op；仅熄屏时发送 POWER 点亮
-         """
+        D: device
+        C: system
+        A: set_screen
+        P:
+          on: bool
+          matrix: overrides? (serial->args)
+        R: CTR
+        N:
+          - 幂等：仅在目标状态不一致时发送 POWER 切换
+        """
 
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.screen_on()
+        args = {"on": on}
+
+        async def call(device: Device, a: dict) -> typing.Any:
+            return await device.set_screen(**a)
 
         return await broadcast(
-            tool="screen_on",
-            args={},
+            tool="set_screen",
+            args=args,
             target_list=manage.snapshot,
             call=call,
             overrides=matrix
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "system"})
-    @task_middleware("screen_off")
-    async def screen_off(
+    @task_middleware("set_bluetooth")
+    async def set_bluetooth(
+        enabled: bool,
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
     ) -> CallToolResult:
         """
         D: device
         C: system
-        A: screen_off
+        A: set_bluetooth
         P:
+          enabled: bool
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 幂等：已锁屏则 no-op；仅亮屏时发送 POWER 熄屏
+          - 通过 `adb shell svc bluetooth enable|disable`
         """
 
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.screen_off()
+        args = {"enabled": enabled}
+
+        async def call(device: Device, a: dict) -> typing.Any:
+            return await device.set_bluetooth(**a)
 
         return await broadcast(
-            tool="screen_off",
-            args={},
+            tool="set_bluetooth",
+            args=args,
             target_list=manage.snapshot,
             call=call,
             overrides=matrix
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "system"})
-    @task_middleware("bluetooth_on")
-    async def bluetooth_on(
+    @task_middleware("set_wifi")
+    async def set_wifi(
+        enabled: bool,
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
     ) -> CallToolResult:
         """
         D: device
         C: system
-        A: bluetooth_on
+        A: set_wifi
         P:
+          enabled: bool
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 通过 `adb shell svc bluetooth enable`
+          - 通过 `adb shell svc wifi enable|disable`
         """
 
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.bluetooth_on()
+        args = {"enabled": enabled}
+
+        async def call(device: Device, a: dict) -> typing.Any:
+            return await device.set_wifi(**a)
 
         return await broadcast(
-            tool="bluetooth_on",
-            args={},
+            tool="set_wifi",
+            args=args,
             target_list=manage.snapshot,
             call=call,
             overrides=matrix
         )
 
     @mcp.tool(meta={"hidden": False, "domain": "device", "class": "system"})
-    @task_middleware("bluetooth_off")
-    async def bluetooth_off(
+    @task_middleware("set_mobile_data")
+    async def set_mobile_data(
+        enabled: bool,
         matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
     ) -> CallToolResult:
         """
         D: device
         C: system
-        A: bluetooth_off
+        A: set_mobile_data
         P:
+          enabled: bool
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 通过 `adb shell svc bluetooth disable`
+          - 通过 `adb shell svc data enable|disable`
         """
 
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.bluetooth_off()
+        args = {"enabled": enabled}
+
+        async def call(device: Device, a: dict) -> typing.Any:
+            return await device.set_mobile_data(**a)
 
         return await broadcast(
-            tool="bluetooth_off",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "system"})
-    @task_middleware("wifi_on")
-    async def wifi_on(
-        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
-    ) -> CallToolResult:
-        """
-        D: device
-        C: system
-        A: wifi_on
-        P:
-          matrix: overrides? (serial->args)
-        R: CTR
-        N:
-          - 通过 `adb shell svc wifi enable`
-        """
-
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.wifi_on()
-
-        return await broadcast(
-            tool="wifi_on",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "system"})
-    @task_middleware("wifi_off")
-    async def wifi_off(
-        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
-    ) -> CallToolResult:
-        """
-        D: device
-        C: system
-        A: wifi_off
-        P:
-          matrix: overrides? (serial->args)
-        R: CTR
-        N:
-          - 通过 `adb shell svc wifi disable`
-        """
-
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.wifi_off()
-
-        return await broadcast(
-            tool="wifi_off",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "system"})
-    @task_middleware("data_on")
-    async def data_on(
-        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
-    ) -> CallToolResult:
-        """
-        D: device
-        C: system
-        A: data_on
-        P:
-          matrix: overrides? (serial->args)
-        R: CTR
-        N:
-          - 通过 `adb shell svc data enable`
-        """
-
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.data_on()
-
-        return await broadcast(
-            tool="data_on",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "system"})
-    @task_middleware("data_off")
-    async def data_off(
-        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
-    ) -> CallToolResult:
-        """
-        D: device
-        C: system
-        A: data_off
-        P:
-          matrix: overrides? (serial->args)
-        R: CTR
-        N:
-          - 通过 `adb shell svc data disable`
-        """
-
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.data_off()
-
-        return await broadcast(
-            tool="data_off",
-            args={},
+            tool="set_mobile_data",
+            args=args,
             target_list=manage.snapshot,
             call=call,
             overrides=matrix
