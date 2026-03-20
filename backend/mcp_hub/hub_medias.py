@@ -15,6 +15,7 @@ import contextlib
 from pathlib import Path
 from collections import deque
 from loguru import logger
+from backend.models.model_base import Attachment
 from backend.utilities import (
     marked, toolbox
 )
@@ -45,48 +46,33 @@ class FFmpeg(object):
         p = Path(path)
         suf = p.suffix.lower()
         if suf in {".png", ".jpg", ".jpeg", ".webp"}:
-            return {
-                "kind"      : "image",
-                "local"     : str(p),
-                "filename"  : p.name,
-                "mime_type" : f"image/{suf.lstrip('.').replace('jpg', 'jpeg')}"
-            }
+            return Attachment(
+                kind="image",
+                local=str(p),
+                filename=p.name,
+                mime_type=f"image/{suf.lstrip('.').replace('jpg', 'jpeg')}"
+            ).to_dict()
         if suf in {".mp4", ".mkv", ".mov", ".webm"}:
-            return {
-                "kind"      : "file",
-                "local"     : str(p),
-                "filename"  : p.name,
-                "mime_type" : "video/" + suf.lstrip(".")
-            }
+            return Attachment(
+                kind="file",
+                local=str(p),
+                filename=p.name,
+                mime_type="video/" + suf.lstrip(".")
+            ).to_dict()
         if suf in {".mp3", ".wav", ".aac", ".m4a", ".ogg", ".flac"}:
-            return {
-                "kind"      : "file",
-                "local"     : str(p),
-                "filename"  : p.name,
-                "mime_type" : "audio/" + suf.lstrip(".")
-            }
+            return Attachment(
+                kind="file",
+                local=str(p),
+                filename=p.name,
+                mime_type="audio/" + suf.lstrip(".")
+            ).to_dict()
 
-        return {
-            "kind"      : "file",
-            "local"     : str(p),
-            "filename"  : p.name,
-            "mime_type" : "application/octet-stream"
-        }
-
-    # @staticmethod
-    # def mk_out_dir(output_dir: str, tool: str) -> Path:
-    #     """
-    #     每次调用创建一个独立 out 目录：避免并发覆盖。
-    #     output_dir: 用户传入的根目录（已确保是目录）
-    #     tool:       工具名（用于分类）
-    #     """
-    #     base_dir = Path(output_dir or ".").expanduser().resolve()
-    #     base_dir.mkdir(parents=True, exist_ok=True)
-    #
-    #     tag = f"{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
-    #     out_dir = base_dir / "ffmpeg" / tool / tag
-    #     out_dir.mkdir(parents=True, exist_ok=True)
-    #     return out_dir
+        return Attachment(
+            kind="file",
+            local=str(p),
+            filename=p.name,
+            mime_type="application/octet-stream"
+        ).to_dict()
 
     @staticmethod
     def mk_out_file(out_dir: Path, input_path: str, op: str, suffix: str) -> str:

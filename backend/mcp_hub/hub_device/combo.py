@@ -15,7 +15,9 @@ import contextlib
 from pathlib import Path
 from backend.mcp_hub.hub_device.phone import Phone
 from backend.mcp_hub.hub_device.vision import similarity
-from backend.models.model_device import ActionResult
+from backend.models.model_device import (
+    ActionResult, Attachment, SemanticResult
+)
 
 
 class Combo(object):
@@ -47,9 +49,6 @@ class Combo(object):
 
         with contextlib.suppress(Exception):
             await self.phone.file_remove(remote)
-
-        if not destination.exists():
-            raise FileNotFoundError(f"screenshot pull failed: {destination}")
 
         return str(destination)
 
@@ -98,44 +97,56 @@ class Combo(object):
 
         ok0, focus0, _ = await self.wait_foreground(package, 0.8, poll, 1)
         if ok0:
-            return {
+            result = {
                 "ok"      : True,
-                "reason"  : None,
                 "stage"   : "already",
                 "focus"   : focus0,
                 "cost_ms" : int((time.time() - t0) * 1000)
             }
+            return SemanticResult(text=
+                "应用已在前台，无需拉起。",
+                data=result
+            ).to_dict()
 
         await self.phone.app_start(package, activity)
         ok1, focus1, _ = await self.wait_foreground(package, 8.0, poll, 2)
         if ok1:
-            return {
+            result = {
                 "ok"      : True,
-                "reason"  : None,
                 "stage"   : "start",
                 "focus"   : focus1,
                 "cost_ms" : int((time.time() - t0) * 1000)
             }
+            return SemanticResult(text=
+                "应用已成功进入前台。",
+                data=result
+            ).to_dict()
 
         await self.phone.app_stop(package)
         await self.phone.app_start(package, activity)
         ok2, focus2, _ = await self.wait_foreground(package, 5.0, poll, 2)
         if ok2:
-            return {
+            result = {
                 "ok"      : True,
-                "reason"  : None,
                 "stage"   : "retry",
                 "focus"   : focus2,
                 "cost_ms" : int((time.time() - t0) * 1000)
             }
+            return SemanticResult(text=
+                "首次拉起未命中前台，重试后已进入前台。",
+                data=result
+            ).to_dict()
 
-        return {
+        result = {
             "ok"      : False,
-            "reason"  : "retry_timeout",
             "stage"   : "retry",
             "focus"   : focus2,
             "cost_ms" : int((time.time() - t0) * 1000)
         }
+        return SemanticResult(text=
+            "拉起应用超时（已重试一次仍失败）。",
+            data=result
+        ).to_dict()
 
     async def screen_set(self, on: bool, settle: float = 0.2) -> None:
         """设置屏幕电源状态。"""
@@ -145,11 +156,22 @@ class Combo(object):
         await self.phone.send_keyevent(26)
         await asyncio.sleep(settle)
 
+    async def set_screen(self, on: bool) -> dict[str, typing.Any]:
+        """设置屏幕开关。"""
+        await self.screen_set(on)
+        return SemanticResult(text=
+            "屏幕已点亮。" if on else "屏幕已关闭。",
+            data={"ok": True, "on": on}
+        ).to_dict()
+
     async def ensure_ime(self) -> dict[str, typing.Any]:
         """确保当前输入法为 AdbIME。"""
         ime = "com.android.adbkeyboard/.AdbIME"
         if await self.phone.ime_current() == ime:
-            return ActionResult.success().to_dict()
+            return SemanticResult(
+                text="AdbIME 已就绪。",
+                data={"ok": True}
+            ).to_dict()
 
         e_text = await self.phone.ime_enable(ime)
         s_text = await self.phone.ime_set(ime)
@@ -162,12 +184,22 @@ class Combo(object):
                 stage.append("enable")
             if "unknown" in s_text.lower() or "cannot" in s_text.lower():
                 stage.append("set")
-            return ActionResult.fail("ime_not_found", stage=stage).to_dict()
+            detail = f"（失败阶段：{', '.join(stage)}）" if stage else ""
+            return SemanticResult(
+                text=f"AdbIME 不可用{detail}。",
+                data={"ok": False, "stage": stage}
+            ).to_dict()
 
         if await self.phone.ime_current() == ime:
-            return ActionResult.success().to_dict()
+            return SemanticResult(
+                text="AdbIME 已就绪。",
+                data={"ok": True}
+            ).to_dict()
 
-        return ActionResult.fail("ime_not_effective").to_dict()
+        return SemanticResult(
+            text="AdbIME 未生效。",
+            data={"ok": False}
+        ).to_dict()
 
     async def wait_element(
         self,
@@ -186,10 +218,26 @@ class Combo(object):
             node  = await self.phone.find_ui_widget(by, value, match, ignore_case)
             found = bool(node)
             if found == want_exists:
-                return {"ok": True, "reason": None, "found": found, "node": node}
+                result = {
+                    "ok"     : True,
+                    "found"  : found,
+                    "node"   : node.to_node() if node else None
+                }
+                return SemanticResult(
+                    text="等待节点成功（已出现）。" if state == "exists" else "等待节点成功（已消失）。",
+                    data=result
+                ).to_dict()
 
             if time.monotonic() >= deadline:
-                return {"ok": False, "reason": "timeout", "found": found, "node": None}
+                result = {
+                    "ok"     : False,
+                    "found"  : found,
+                    "node"   : None
+                }
+                return SemanticResult(
+                    text="等待节点超时（未出现）。" if state == "exists" else "等待节点超时（未消失）。",
+                    data=result
+                ).to_dict()
 
             await asyncio.sleep(0.25)
 
@@ -209,36 +257,18 @@ class Combo(object):
         similarity_threshold: float = 0.992,
         stable_required: int = 2,
         min_swipes_before_stop: int = 2
-    ) -> dict[str, typing.Any]:
-        """滑动查找目标元素。"""
-
-        def pack(
-            ok: bool,
-            reason: typing.Optional[str],
-            swipes: int,
-            node: typing.Optional[typing.Any] = None
-        ) -> dict[str, typing.Any]:
-            # Combo 对外仍返回扁平动作结果，方便 Device 继续做语义封装。
-            result = (
-                ActionResult.success(swipes=swipes, node=node)
-                if ok else
-                ActionResult.fail(reason or "unknown", swipes=swipes, node=node)
-            ).to_dict()
-            payload = dict(result.get("data") or {})
-            payload["ok"] = result.get("ok", False)
-            payload["reason"] = result.get("reason")
-            return payload
-
+    ) -> ActionResult:
+        """滑动查找目标元素，返回组合动作结果。"""
         if by == "xpath":
-            return pack(False, "xpath_not_supported", 0)
-
-        deadline = time.monotonic() + float(timeout)
+            return ActionResult.fail(reason="xpath_not_supported", swipes=0)
 
         if widget := await self.phone.find_ui_widget(by, value, match, ignore_case):
-            return pack(True, None, 0, widget)
+            return ActionResult.success(swipes=0, widget=widget)
 
         if not (wm := await self.phone.wm_size()):
-            return pack(False, "wm_size_unavailable", 0)
+            return ActionResult.fail(reason="wm_size_unavailable", swipes=0)
+
+        deadline = time.monotonic() + float(timeout)
 
         w, h = wm
         if anchor is None:
@@ -248,48 +278,50 @@ class Combo(object):
             ax, ay = anchor
 
         stable_hits = 0
+        last_sim: float | None = None
 
         with tempfile.TemporaryDirectory(prefix="scroll_until_caps_") as tmp:
-            tmp_dir = Path(tmp)
+            tmp_dir   = Path(tmp)
             prev_path = str(tmp_dir / "prev.png")
-            cur_path = str(tmp_dir / "cur.png")
+            cur_path  = str(tmp_dir / "cur.png")
 
             prev_ok = False
             if stop_on_stable:
-                try:
-                    # 用截图相似度判断“页面已经滑到尽头”，比只看控件数量更稳。
-                    prev_path = await self.save_screenshot(prev_path)
-                    prev_ok = True
-                except OSError:
-                    prev_ok = False
+                prev_path = await self.save_screenshot(prev_path)
+                prev_ok = bool(prev_path)
 
             for i in range(1, int(max_swipes) + 1):
                 if time.monotonic() >= deadline:
-                    return pack(False, "timeout", i - 1)
+                    return ActionResult.fail(reason="timeout", swipes=i - 1)
 
-                await self.phone.scroll_by_direction(direction, ax, ay, duration=duration)
+                await self.phone.scroll_by_direction(direction, ax, ay, duration)
 
                 await asyncio.sleep(float(settle))
 
                 if widget := await self.phone.find_ui_widget(by, value, match, ignore_case):
-                    return pack(True, None, i, widget)
+                    return ActionResult.success(swipes=i, widget=widget)
 
                 if stop_on_stable and prev_ok:
-                    try:
-                        cur_path = await self.save_screenshot(cur_path)
+                    cur_saved = await self.save_screenshot(cur_path)
+                    if not cur_saved:
+                        prev_ok = False
+                    else:
+                        cur_path = cur_saved
                         sim = float(similarity(prev_path, cur_path))
+                        last_sim = sim
 
                         stable_hits = stable_hits + 1 if sim >= float(similarity_threshold) else 0
 
-                        # 连续稳定命中达到阈值后停止，避免在边界页无意义死滑。
                         if i >= int(min_swipes_before_stop) and stable_hits >= int(stable_required):
-                            return pack(False, "stable_stop", i)
+                            return ActionResult.fail(reason="stable_stop", swipes=i, similarity=round(sim, 4))
 
                         prev_path, cur_path = cur_path, prev_path
-                    except (OSError, TypeError, ValueError):
-                        prev_ok = False
 
-        return pack(False, "max_swipes_reached", int(max_swipes))
+        data: dict[str, typing.Any] = {"swipes": int(max_swipes)}
+        if last_sim is not None:
+            data["similarity"] = round(last_sim, 4)
+
+        return ActionResult.fail(reason="max_swipes_reached", **data)
 
     async def scroll_into_view(
         self,
@@ -303,27 +335,64 @@ class Combo(object):
         should_click: bool = False
     ) -> dict[str, typing.Any]:
         """将目标元素滚动到可见区域。"""
-        result = await self.scroll_until(
-            by, value, match, ignore_case, direction, None, 320, 0.25, timeout, max_swipes
+        action = await self.scroll_until(
+            by=by,
+            value=value,
+            match=match,
+            ignore_case=ignore_case,
+            direction=direction,
+            timeout=timeout,
+            max_swipes=max_swipes
         )
-        node = result.get("node")
+        node = action.get("widget")
+
         data = {
-            "ok"     : bool(result.get("ok")),
-            "reason" : result.get("reason"),
-            "swipes" : result.get("swipes", 0),
-            "node"   : node
+            "ok"     : action.ok,
+            "swipes" : action.get("swipes", 0),
+            "node"   : node.to_node() if node else None
         }
 
-        if should_click and node:
+        if action.ok and should_click and node:
             center = getattr(node, "center", None)
             if center and isinstance(center, (list, tuple)) and len(center) == 2:
                 await self.phone.tap(int(center[0]), int(center[1]))
                 data["clicked"] = True
             else:
                 data["clicked"] = False
-                data["reason"] = "missing_center"
+                return SemanticResult(
+                    text="已找到目标元素，但缺少可点击坐标。",
+                    data=data
+                ).to_dict()
 
-        return data
+        if not action.ok:
+            if action.reason == "xpath_not_supported":
+                text = "by=xpath 暂不支持（Android uiautomator dump 非标准 XPath）。"
+            elif action.reason == "wm_size_unavailable":
+                text = "获取屏幕尺寸失败。"
+            elif action.reason == "timeout":
+                text = "超时未找到目标元素。"
+            elif action.reason == "scroll_fail":
+                text = "滑动失败，已停止。"
+            elif action.reason == "stable_stop":
+                text = "屏幕内容稳定（几乎不变），停止滑动，仍未找到目标元素。"
+            elif action.reason == "max_swipes_reached":
+                text = "已达到最大滑动次数，仍未找到目标元素。"
+            else:
+                text = "滚动查找失败。"
+            return SemanticResult(
+                text=text,
+                data=data
+            ).to_dict()
+
+        if should_click:
+            text = "已找到目标元素并完成点击。"
+        else:
+            text = "已找到目标元素。"
+
+        return SemanticResult(
+            text=text,
+            data=data
+        ).to_dict()
 
     async def scroll_to_edge(self, edge: typing.Literal["top", "bottom"]) -> dict[str, typing.Any]:
         """滑动到页面边界。"""
@@ -341,7 +410,10 @@ class Combo(object):
         lower_ratio: float = 0.80
 
         if not (wm := await self.phone.wm_size()):
-            return {"ok": False, "reason": "wm_size_unavailable", "swipes": 0}
+            return SemanticResult(
+                text="获取屏幕尺寸失败。",
+                data={"ok": False, "swipes": 0}
+            ).to_dict()
 
         w, h = wm
         x = int(w * x_ratio)
@@ -354,7 +426,6 @@ class Combo(object):
         else:
             y_from, y_to = y_lower, y_upper
 
-        last_sim: float  = 0.0
         stable_hits: int = 0
 
         with tempfile.TemporaryDirectory(prefix="scroll_caps_") as tmp:
@@ -369,36 +440,63 @@ class Combo(object):
                 await asyncio.sleep(settle_ms / 1000)
 
                 cur = await self.save_screenshot(cur_path)
-                last_sim = float(similarity(prev, cur))
 
-                if last_sim >= similarity_threshold:
+                if float(similarity(prev, cur)) >= similarity_threshold:
                     stable_hits += 1
                 else:
                     stable_hits = 0
 
                 if n >= min_swipes_before_stop and stable_hits >= stable_required:
-                    return {"ok": True, "reason": "screen_not_changed", "swipes": n}
+                    return SemanticResult(
+                        text="屏幕已稳定（内容未变化），停止滑动。",
+                        data={"ok": True, "swipes": n}
+                    ).to_dict()
 
                 prev, cur = cur, prev
                 prev_path, cur_path = cur_path, prev_path
 
-            return {"ok": True, "reason": "max_swipes_reached", "swipes": max_swipes}
+            return SemanticResult(
+                text="已达到最大滑动次数，停止滑动。",
+                data={"ok": True, "swipes": max_swipes}
+            ).to_dict()
 
     async def swipe_unlock(self) -> dict[str, typing.Any]:
         """点亮屏幕并上滑解锁。"""
         await self.screen_set(True)
 
         if not (wm := await self.phone.wm_size()):
-            return {"ok": False, "reason": "wm_size_unavailable"}
+            return SemanticResult(
+                text="获取屏幕尺寸失败。",
+                data={"ok": False}
+            ).to_dict()
 
         w, h = wm
         x = w // 2
         y1 = int(h * 0.80)
         y2 = int(h * 0.35)
 
-        await self.phone.swipe(x, y1, x, y2, 1000)
+        raw = await self.phone.swipe(x, y1, x, y2, 1000)
         await asyncio.sleep(0.2)
-        return {"ok": True, "reason": None}
+        return SemanticResult(
+            text="已执行上滑解锁。",
+            data={"ok": True, "raw": raw}
+        ).to_dict()
+
+    async def screenshot(self, local: str) -> dict[str, typing.Any]:
+        """保存截图到本地。"""
+        saved = await self.save_screenshot(local)
+        return SemanticResult(
+            text=f"截图已保存到 {saved}",
+            attachments=[
+                Attachment(
+                    kind="image",
+                    local=saved,
+                    filename=Path(saved).name,
+                    mime_type="image/png"
+                )
+            ],
+            data={"ok": True, "path": saved}
+        ).to_dict()
 
 
 if __name__ == '__main__':

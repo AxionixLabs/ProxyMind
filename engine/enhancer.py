@@ -133,6 +133,109 @@ class Enhancer(object):
         """Fields"""
         return sc if (sc := result.structuredContent) else result.content[0].text
 
+    @staticmethod
+    def element_ok(element: dict[str, typing.Any]) -> bool:
+        if isinstance(element.get("ok"), bool):
+            return element.get("ok", False)
+        if isinstance(data := element.get("data"), dict):
+            return bool(data.get("ok"))
+        return False
+
+    @staticmethod
+    def element_text(element: dict[str, typing.Any]) -> str:
+        return str(element.get("text") or "")
+
+    @staticmethod
+    def element_attachments(element: dict[str, typing.Any]) -> list[dict[str, typing.Any]]:
+        attachments = element.get("attachments", [])
+        if not isinstance(attachments, list):
+            return []
+
+        normalized: list[dict[str, typing.Any]] = []
+        for item in attachments:
+            if isinstance(item, dict):
+                normalized.append(item)
+            elif hasattr(item, "to_dict"):
+                normalized.append(item.to_dict())
+        return normalized
+
+    @staticmethod
+    async def upload_local(
+        local: str,
+        agent_id: str,
+        bucket: str,
+        kind: str = "file",
+        filename: typing.Optional[str] = None,
+        mime_type: typing.Optional[str] = None
+    ) -> tuple[typing.Optional[dict[str, typing.Any]], dict[str, typing.Any]]:
+        try:
+            up = await request.upload_file_stream(local, agent_id, bucket)
+            url = up.get("url")
+
+            if not url:
+                return None, {
+                    "ok"    : False,
+                    "local" : local,
+                    "error" : f"upload returned no url: {up!r}"
+                }
+
+            attachment = {
+                "kind"      : kind,
+                "url"       : url,
+                "agent_id"  : agent_id,
+                "filename"  : up.get("filename", filename),
+                "mime_type" : up.get("mime_type", mime_type)
+            }
+            uploaded = {
+                "ok"        : True,
+                "local"     : local,
+                "url"       : url,
+                "r2_key"    : up.get("key"),
+                "filename"  : up.get("filename", filename),
+                "mime_type" : up.get("mime_type", mime_type)
+            }
+            return attachment, uploaded
+        except Exception as e:
+            return None, {
+                "ok"    : False,
+                "local" : local,
+                "error" : f"{type(e).__name__}: {e}"
+            }
+
+    @staticmethod
+    async def upload_attachments(
+        local_attachments: list[dict[str, typing.Any]],
+        agent_id: str,
+        bucket: str,
+        default_kind: str = "file"
+    ) -> tuple[list[dict[str, typing.Any]], list[dict[str, typing.Any]]]:
+        attachments: list[dict[str, typing.Any]] = []
+        uploads: list[dict[str, typing.Any]] = []
+
+        for a in local_attachments:
+            if not isinstance(a, dict):
+                continue
+
+            local = a.get("local")
+            if not local:
+                if a.get("url"):
+                    attachments.append(a)
+                continue
+
+            attachment, uploaded = await Enhancer.upload_local(
+                local=local,
+                agent_id=agent_id,
+                bucket=bucket,
+                kind="image" if a.get("kind") == "image" else default_kind,
+                filename=a.get("filename"),
+                mime_type=a.get("mime_type")
+            )
+            uploads.append(uploaded)
+            if attachment:
+                attachments.append(attachment)
+
+        return attachments, uploads
+
     async def enhance(
         self,
         name: str,
@@ -159,6 +262,9 @@ class Enhancer(object):
             "ffmpeg_extract_scene"
         }:
             return await self.__ffmpeg_frame(result)
+
+        if name == "file_logcat_dump":
+            return await self.__file_logcat_dump(result)
 
         if name == "screenshot":
             return await self.__screenshot(result)
@@ -203,7 +309,7 @@ class Enhancer(object):
                 "data"        : {"ok": False}
             }
 
-        per_device: dict[str, typing.Any] = {}
+        per_agent: dict[str, typing.Any] = {}
 
         if slog:
             await slog.open()
@@ -219,15 +325,15 @@ class Enhancer(object):
                 chunks: list[str] = []
                 async for event in request.stream_rule(self.mode, self.model_api, message, context, self.metadata):
                     if event.get("type") == "error":
-                        per_device[agent_id] = {"ok": False, "message": message, "error": event}
+                        per_agent[agent_id] = {"ok": False, "message": message, "error": event}
                         continue
                     chunks.append(chunk := event["content"])
                     if slog:
                         await slog.feed(chunk)
 
-                per_device[agent_id] = {"ok": True, "message": message, "chunks": chunks}
+                per_agent[agent_id] = {"ok": True, "message": message, "chunks": chunks}
 
-            ok = all(v.get("ok") for v in per_device.values()) if per_device else False
+            ok = all(v.get("ok") for v in per_agent.values()) if per_agent else False
 
             return {
                 "text"        : "free rule done",
@@ -237,7 +343,7 @@ class Enhancer(object):
                     "mode"       : self.mode,
                     "api"        : self.model_api.get("api"),
                     "model"      : self.model_api.get("model"),
-                    "per_device" : per_device
+                    "per_agent" : per_agent
                 }
             }
         finally:
@@ -245,228 +351,145 @@ class Enhancer(object):
                 await slog.stop()
 
     async def __ffmpeg_frame(self, result: CallToolResult) -> dict:
-        fields = self.fields(result)
         attachments: list[dict[str, typing.Any]] = []
 
-        if not (results := fields.get("data", {}).get("results")):
+        if not (results := self.fields(result).get("data", {}).get("results")):
             return {
                 "text"        : "未获取到视频帧结果",
                 "attachments" : attachments,
-                "data"        : {"ok": False}
+                "data"        : {"ok": False, "upload_ok": False, "per_agent": {}}
             }
 
-        per_device: dict[str, typing.Any] = {}
+        per_agent: dict[str, typing.Any] = {}
 
         for element in results:
             agent_id = element.get("agent_id", "unknown")
 
-            if not element.get("ok"):
-                per_device[agent_id] = {"ok": False, "error": element.get("text")}
+            if not self.element_ok(element):
+                per_agent[agent_id] = {
+                    "ok"      : False,
+                    "uploads" : [{"ok": False, "error": self.element_text(element)}]
+                }
                 continue
 
-            # 获取附件
-            local_attachments = element.get("attachments", [])
+            local_attachments = self.element_attachments(element)
+            uploaded_attachments, uploads = await self.upload_attachments(
+                local_attachments, agent_id, bucket="frames"
+            )
+            attachments.extend(uploaded_attachments)
 
-            for a in local_attachments:
-                # 如果附件类型不对，跳过
-                if not isinstance(a, dict):
-                    continue
+            if not uploads:
+                uploads = [{"ok": False, "error": "missing uploadable attachments"}]
 
-                local = a.get("local")
-                if not local:
-                    # 跳过没有 local 的附件，或已经是 URL
-                    if a.get("url"):
-                        attachments.append(a)
-                    continue
-
-                # 上传附件并获取 URL
-                try:
-                    up = await request.upload_file_stream(local, agent_id, "frames")
-                    url = up.get("url")
-
-                    if not url:
-                        per_device[agent_id] = {"ok": False, "error": f"upload returned no url: {up!r}"}
-                        continue
-
-                    # 更新附件
-                    attachments.append({
-                        "kind"      : "image" if a.get("kind") == "image" else "file",
-                        "url"       : url,
-                        "agent_id"  : agent_id,
-                        "filename"  : up.get("filename", a.get("filename")),
-                        "mime_type" : up.get("mime_type", a.get("mime_type"))
-                    })
-
-                    per_device[agent_id] = {
-                        "ok"       : True,
-                        "local"    : local,
-                        "url"      : url,
-                        "r2_key"   : up.get("key"),
-                        "filename" : up.get("filename", a.get("filename")),
-                        "mime_type": up.get("mime_type", a.get("mime_type"))
-                    }
-
-                except Exception as e:
-                    # 如果上传失败，记录错误
-                    per_device[agent_id] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
-                    continue
-
-        # 判断是否所有上传都成功
-        ok = all(v.get("ok") for v in per_device.values()) if per_device else False
-
-        # 组织返回结构
-        fields["attachments"] = attachments
-        fields["data"] = {
-            "ok"         : ok,
-            "upload_ok"  : ok,
-            "per_device" : per_device
-        }
-        fields["text"] = f"upload {'ok' if ok else 'done'} attachments={len(attachments)}"
-
-        return fields
-
-    async def __file_logcat_dump(self, result: CallToolResult) -> dict:
-        fields = self.fields(result)
-        attachments: list[dict[str, typing.Any]] = []
-
-        if not (results := fields.get("data", {}).get("results")):
-            return {
-                "text"        : "未获取到 logcat 结果",
-                "attachments" : attachments,
-                "data"        : {"ok": False}
-            }
-
-        per_device: dict[str, typing.Any] = {}
-
-        for element in results:
-            agent_id = element.get("agent_id", "unknown")
-
-            if not element.get("ok"):
-                per_device[agent_id] = {"ok": False, "error": element.get("text")}
-                continue
-
-            local_attachments = element.get("attachments", []) or []
-            device_ok = True
-            uploads: list[dict[str, typing.Any]] = []
-
-            for a in local_attachments:
-                if not isinstance(a, dict):
-                    continue
-
-                local = a.get("local")
-                if not local:
-                    if a.get("url"):
-                        attachments.append(a)
-                    continue
-
-                try:
-                    up = await request.upload_file_stream(local, agent_id, "logcat")
-                    logger.warning(up)
-                    url = up.get("url")
-
-                    if not url:
-                        device_ok = False
-                        uploads.append({
-                            "ok"    : False,
-                            "local" : local,
-                            "error" : f"upload returned no url: {up!r}"
-                        })
-                        continue
-
-                    attachments.append({
-                        "kind"      : "file",
-                        "url"       : url,
-                        "agent_id"  : agent_id,
-                        "filename"  : up.get("filename", a.get("filename")),
-                        "mime_type" : up.get("mime_type", a.get("mime_type"))
-                    })
-
-                    uploads.append({
-                        "ok"        : True,
-                        "local"     : local,
-                        "url"       : url,
-                        "r2_key"    : up.get("key"),
-                        "filename"  : up.get("filename", a.get("filename")),
-                        "mime_type" : up.get("mime_type", a.get("mime_type"))
-                    })
-
-                except Exception as e:
-                    device_ok = False
-                    uploads.append({
-                        "ok"    : False,
-                        "local" : local,
-                        "error" : f"{type(e).__name__}: {e}"
-                    })
-
-            per_device[agent_id] = {
-                "ok"      : device_ok,
+            per_agent[agent_id] = {
+                "ok"      : all(item.get("ok") for item in uploads),
                 "uploads" : uploads
             }
 
-        ok = all(v.get("ok") for v in per_device.values()) if per_device else False
+        ok = all(v.get("ok") for v in per_agent.values()) if per_agent else False
+
+        return {
+            "text"        : "视频帧上传成功" if ok else "视频帧上传完成（存在失败）",
+            "attachments" : attachments,
+            "data": {
+                "ok"        : ok,
+                "upload_ok" : ok,
+                "per_agent" : per_agent
+            }
+        }
+
+    async def __file_logcat_dump(self, result: CallToolResult) -> dict:
+        attachments: list[dict[str, typing.Any]] = []
+
+        if not (results := self.fields(result).get("data", {}).get("results")):
+            return {
+                "text"        : "未获取到 logcat 结果",
+                "attachments" : attachments,
+                "data"        : {"ok": False, "upload_ok": False, "per_agent": {}}
+            }
+
+        per_agent: dict[str, typing.Any] = {}
+
+        for element in results:
+            agent_id = element.get("agent_id", "unknown")
+
+            if not self.element_ok(element):
+                per_agent[agent_id] = {
+                    "ok"      : False,
+                    "uploads" : [{"ok": False, "error": self.element_text(element)}]
+                }
+                continue
+
+            local_attachments = self.element_attachments(element)
+            uploaded_attachments, uploads = await self.upload_attachments(
+                local_attachments, agent_id, bucket="logcat"
+            )
+            attachments.extend(uploaded_attachments)
+            if not uploads:
+                uploads = [{"ok": False, "error": "missing uploadable attachments"}]
+
+            per_agent[agent_id] = {
+                "ok"      : all(item.get("ok") for item in uploads),
+                "uploads" : uploads
+            }
+
+        ok = all(v.get("ok") for v in per_agent.values()) if per_agent else False
 
         return {
             "text"        : "logcat 上传成功" if ok else "logcat 上传完成（存在失败）",
             "attachments" : attachments,
             "data": {
-                "ok"         : ok,
-                "upload_ok"  : ok,
-                "per_device" : per_device
+                "ok"        : ok,
+                "upload_ok" : ok,
+                "per_agent" : per_agent
             }
         }
 
     async def __screenshot(self, result: CallToolResult) -> dict:
-        fields = self.fields(result)
         attachments: list[dict[str, typing.Any]] = []
 
-        if not (results := fields.get("data", {}).get("results")):
+        if not (results := self.fields(result).get("data", {}).get("results")):
             return {
                 "text"        : "未获取到截图结果",
                 "attachments" : attachments,
-                "data"        : {"ok": False, "fields": fields}
+                "data"        : {"ok": False, "upload_ok": False, "per_agent": {}}
             }
 
-        per_device: dict[str, typing.Any] = {}
+        per_agent: dict[str, typing.Any] = {}
 
         for element in results:
             agent_id = element.get("agent_id", "unknown")
 
-            if not element.get("ok"):
-                per_device[agent_id] = {"ok": False, "error": element.get("text")}
+            if not self.element_ok(element):
+                per_agent[agent_id] = {
+                    "ok"      : False,
+                    "uploads" : [{"ok": False, "error": self.element_text(element)}]
+                }
                 continue
 
-            if not (local := element.get("text")) or not isinstance(local, str):
-                per_device[agent_id] = {"ok": False, "error": "missing local screenshot path"}
-                continue
+            local_attachments = self.element_attachments(element)
+            uploaded_attachments, uploads = await self.upload_attachments(
+                local_attachments, agent_id, bucket="screenshots"
+            )
+            attachments.extend(uploaded_attachments)
+            if not uploads:
+                uploads = [{"ok": False, "error": "missing uploadable attachments"}]
 
-            try:
-                up = await request.upload_file_stream(local, agent_id, "screenshots")
-                if not (url := up.get("url")):
-                    per_device[agent_id] = {"ok": False, "error": f"upload returned no url: {up!r}"}
-                    continue
+            per_agent[agent_id] = {
+                "ok"      : all(item.get("ok") for item in uploads),
+                "uploads" : uploads
+            }
 
-                attachments.append({"kind": "image", "url": url, "agent_id": agent_id})
-                per_device[agent_id] = {
-                    "ok"        : True,
-                    "local"     : local,
-                    "url"       : url,
-                    "r2_key"    : (up or {}).get("key"),
-                    "filename"  : (up or {}).get("filename"),
-                    "mime_type" : (up or {}).get("mime_type")
-                }
-            except Exception as e:
-                per_device[agent_id] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
-                return {
-                    "text"        : f"屏幕截图上传异常：{type(e).__name__}: {e}",
-                    "attachments" : attachments,
-                    "data"        : {"ok": False, "per_device": per_device}
-                }
+        ok = all(v.get("ok") for v in per_agent.values()) if per_agent else False
 
-        ok = all(v.get("ok") for v in per_device.values()) if per_device else False
         return {
             "text"        : "屏幕截图上传成功" if ok else "屏幕截图上传完成（存在失败）",
             "attachments" : attachments,
-            "data"        : {"ok": ok, "per_device": per_device}
+            "data": {
+                "ok"        : ok,
+                "upload_ok" : ok,
+                "per_agent" : per_agent
+            }
         }
 
     async def __heal_element(
@@ -494,7 +517,7 @@ class Enhancer(object):
                 "data"        : {"ok": False, "fields": fields}
             }
 
-        per_device: dict[str, dict[str, typing.Any]] = {}
+        per_agent: dict[str, dict[str, typing.Any]] = {}
 
         for element in results:
             data   = element["data"]
@@ -502,7 +525,7 @@ class Enhancer(object):
 
             async for heal in request.stream_heal(self.model_api, **data, slog=slog):
                 if heal.get("type") == "error":
-                    per_device[serial] = {"ok": False, "error": heal["content"]}
+                    per_agent[serial] = {"ok": False, "error": heal["content"]}
                     continue
 
                 if not (smart := heal.get("smart")):
@@ -510,31 +533,31 @@ class Enhancer(object):
 
                 reason = smart.get("details", {}).get("reason", "unknown")
 
-                if serial not in per_device:
+                if serial not in per_agent:
                     locator = {
                         "by": smart["new_selector"]["primary"]["by"],
                         "value": smart["new_selector"]["primary"]["value"]
                     }
-                    per_device[serial] = {"ok": True, "locator": locator, "smart": reason}
+                    per_agent[serial] = {"ok": True, "locator": locator, "smart": reason}
 
                 if slog: await slog.feed(reason, display=StreamTyperLogger.BLOCK)
                 else: logger.debug(reason)
 
-        matrix = {k: v["locator"] for k, v in per_device.items() if v.get("locator")}
+        matrix = {k: v["locator"] for k, v in per_agent.items() if v.get("locator")}
 
         if not matrix:
             return {
                 "text"        : "元素定位失败",
                 "attachments" : attachments,
-                "data"        : {"ok": False, "per_device": per_device}
+                "data"        : {"ok": False, "per_agent": per_agent}
             }
 
         if not arguments.get("should_click"):
-            ok = all(v.get("ok") for v in per_device.values()) if per_device else False
+            ok = all(v.get("ok") for v in per_agent.values()) if per_agent else False
             return {
                 "text"        : "元素定位成功" if ok else "元素定位完成（存在失败）",
                 "attachments" : attachments,
-                "data"        : {"ok": ok, "per_device": per_device}
+                "data"        : {"ok": ok, "per_agent": per_agent}
             }
 
         wait_s = float(arguments.get("wait") or 0)
@@ -547,14 +570,14 @@ class Enhancer(object):
             return {
                 "text"        : "点击失败",
                 "attachments" : attachments,
-                "data"        : {"ok": False, "per_device": per_device, "fields": f}
+                "data"        : {"ok": False, "per_agent": per_agent, "fields": f}
             }
 
-        ok = all(v.get("ok") for v in per_device.values()) if per_device else False
+        ok = all(v.get("ok") for v in per_agent.values()) if per_agent else False
         return {
             "text"        : "元素定位成功，并已点击" if ok else "元素定位完成并已点击（存在失败）",
             "attachments" : attachments,
-            "data"        : {"ok": ok, "per_device": per_device, "fields": f}
+            "data"        : {"ok": ok, "per_agent": per_agent, "fields": f}
         }
 
     async def __loop_steps(
