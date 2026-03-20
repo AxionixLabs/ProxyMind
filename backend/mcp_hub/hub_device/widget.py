@@ -50,6 +50,17 @@ class Widget(object):
             f"[{label}] id={self.id};desc={self.desc};text={self.text};class={self.clazz};bbox={self.bbox}"
         )
 
+    def to_node(self) -> dict[str, typing.Any]:
+        """导出统一节点结构。"""
+        return {
+            "id"     : self.id,
+            "desc"   : self.desc,
+            "text"   : self.text,
+            "class"  : self.clazz,
+            "center" : self.center,
+            "bbox"   : self.bbox
+        }
+
     @staticmethod
     def truthy(char: typing.Optional[str]) -> bool:
         """将 XML 属性值（'true'/'false'/None）安全转换为 bool。"""
