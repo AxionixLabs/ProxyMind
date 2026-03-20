@@ -35,8 +35,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 启动 scrcpy 镜像长任务，用于远程观察/问题复现/交互调试
-          - 每台设备创建独立 Record 会话并写入 sessions[serial]，供后续 scrcpy_close 收束
+          - 为目标设备启动一次 scrcpy 镜像会话。
+          - 该工具只负责打开镜像会话，不负责收束；后续应调用 `scrcpy_close` 结束会话。
+          - 多设备执行时每台设备都会建立独立会话。
         """
 
         version = await Requires.connect_scrcpy()
@@ -74,14 +75,15 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         C: scrcpy
         A: scrcpy_record
         P:
-          directory: str?=None  # 由增强层自动传递，无需显示传递
+          directory: str?=None  # 可选。录屏保存目录或基准路径
           fps: int=60
           silence: bool=False
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 启动 scrcpy 录屏长任务：每台设备生成独立视频文件并返回路径
-          - 同时保存 Record 会话到 sessions[serial]，供后续 scrcpy_close 关闭/清理
+          - 为目标设备启动一次 scrcpy 录屏会话。
+          - 该工具只负责开始录制并返回会话信息；后续应调用 `scrcpy_close` 收束录制并释放资源。
+          - 多设备执行时每台设备会生成独立视频文件，`directory` 作为保存目录或基准路径使用。
         """
 
         version = await Requires.connect_scrcpy()
@@ -129,8 +131,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 停止 scrcpy_mirror/scrcpy_record 并释放资源（确保窗口关闭/文件可用）
-          - 从 sessions[serial] 取 Record 会话执行 close；无会话则跳过；结束后移除会话避免泄漏
+          - 关闭目标设备当前活跃的 scrcpy 会话。
+          - 该工具用于收束 `scrcpy_mirror` 或 `scrcpy_record` 打开的长会话，并释放相关资源。
+          - 若当前没有活跃会话，则按“无需关闭”处理，不会报错中断。
         """
 
         async def call(device: Device, *_) -> typing.Any:

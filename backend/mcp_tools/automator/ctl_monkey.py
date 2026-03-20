@@ -47,8 +47,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 对指定包执行 `adb shell monkey` 并抓取 logcat 证据
-          - 内部流程：logcat -c -> 启动 logcat 长连接 -> monkey 注入；按关键词命中收集 tail（降低噪音）
+          - 对指定应用执行一次 `adb shell monkey` 事件注入。
+          - 只注入 touch、motion、nav 三类事件，并固定关闭 appswitch 与 syskeys 百分比。
+          - 执行前会清空 logcat，执行期间持续抓取命中的异常证据 tail，用于回传 crash/anr 等线索。
         """
 
         args = {

@@ -56,8 +56,9 @@ def bind(mcp: FastMCP) -> None:
           out_mode: str="hex"        # hex | base64 | bytes
         R: CTR
         N:
-          - 用于摘要和 HMAC 计算
-          - 结果写入 structuredContent.data.value 与 structuredContent.data.data[output]
+          - 计算摘要或 HMAC。
+          - 该工具只负责确定性的加密摘要计算，不负责业务签名串拼装。
+          - `kind`、`secret` 和 `out_mode` 共同决定最终输出形态。
         """
         return _tool_result(
             "security_digest",
@@ -99,8 +100,9 @@ def bind(mcp: FastMCP) -> None:
           complete: bool=False             # decode_unverified 是否返回完整结构
         R: CTR
         N:
-          - 用于 HS256 JWT 的生成、无验签解析和验签解析
-          - 轻量鉴权链路优先用本工具，不放到模板 helper
+          - 处理 HS256 JWT 的生成、无验签解析或验签解析。
+          - 该工具只覆盖对称密钥 JWT，不处理 RSA 或 EC 非对称签名。
+          - 生成、解析或验签由 `kind` 决定，输入字段需与对应模式匹配。
         """
         return _tool_result(
             "security_jwt",
@@ -145,8 +147,9 @@ def bind(mcp: FastMCP) -> None:
           return_payload: bool=True        # verify 时返回 payload，否则返回 True
         R: CTR
         N:
-          - 用于 RS256 / ES256 JWT 的生成与验签
-          - RSA key 兼容完整 PEM 或裸 key 补齐；EC key 需完整 PEM
+          - 处理 RS256 或 ES256 JWT 的生成与验签。
+          - 该工具面向非对称密钥 JWT，不处理 HS256 对称密钥场景。
+          - 私钥、公钥和 `kind` 必须对应；密钥格式不正确时会失败。
         """
         return _tool_result(
             "security_jwt_rs",
@@ -211,8 +214,9 @@ def bind(mcp: FastMCP) -> None:
           salt_length: str="max"           # PSS salt 长度：max | digest | auto | 整数文本
         R: CTR
         N:
-          - 用于 RSA 签名、验签、公钥加密、私钥解密
-          - 提供强语义别名 kind，减少调用侧组合 padding / algorithm 的心智负担
+          - 执行 RSA 签名、验签、公钥加密或私钥解密。
+          - 该工具只覆盖 RSA 相关能力，不处理 AES 或 JWT。
+          - `kind` 决定具体动作；padding、摘要算法和输入格式需要与目标模式匹配。
         """
         return _tool_result(
             "security_crypto",
@@ -285,8 +289,9 @@ def bind(mcp: FastMCP) -> None:
           padding_mode: str="pkcs7"        # cbc/ecb 可用：pkcs7 | none
         R: CTR
         N:
-          - 用于 AES CBC / ECB / GCM 加解密
-          - GCM 加密返回 {ciphertext, tag}
+          - 执行 AES 加密或解密。
+          - 支持 CBC、ECB 和 GCM；不同模式对 `iv`、`nonce`、`aad`、`tag` 的要求不同。
+          - GCM 模式下加密结果会同时包含密文和认证标签。
         """
         return _tool_result(
             "security_aes",
@@ -346,8 +351,9 @@ def bind(mcp: FastMCP) -> None:
           ignore_keys: list[str]?=None     # 忽略字段名
         R: CTR
         N:
-          - 用于常见签名串拼装
-          - 适合把业务签名规范收敛成确定性文本
+          - 生成业务签名前使用的确定性文本。
+          - 该工具只负责文本拼装，不负责摘要、加密或验签。
+          - `data`、`items`、排序规则和分隔符会直接影响最终签名串。
         """
         return _tool_result(
             "security_sign_text",
@@ -399,8 +405,9 @@ def bind(mcp: FastMCP) -> None:
           include_content_type: bool=False # 文件签名文本是否包含 content_type
         R: CTR
         N:
-          - 用于 multipart/form-data 场景的签名前串构造
-          - 只负责签名文本，不负责真实 multipart 编码
+          - 生成 multipart/form-data 场景的签名前文本。
+          - 该工具只负责签名文本拼装，不负责真实 multipart 编码或上传。
+          - 文件部分如何参与签名，由 `kind`、`use_filename_only` 和 `include_content_type` 决定。
         """
         return _tool_result(
             "security_multipart_sign",

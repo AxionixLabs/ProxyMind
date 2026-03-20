@@ -33,8 +33,9 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 深度链接跳转（am start VIEW）
-          - 需系统存在对应 handler，否则可能失败/无效果
+          - 向设备发送一次 VIEW deep link 启动请求。
+          - 只负责执行跳转命令，不保证目标应用一定成功打开到预期页面。
+          - 若系统没有可处理该 URL 的 handler，可能无效果或直接失败。
         """
 
         args = {
@@ -69,7 +70,9 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 启动应用：activity 指定则精确启动；不指定则启动主入口
+          - 启动指定应用。
+          - 提供 activity 时按 package/activity 精确启动；不提供时启动系统解析到的默认入口。
+          - 该工具只下发启动命令，不校验应用是否最终进入前台。
         """
 
         args = {
@@ -103,7 +106,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 强制停止应用（终止进程与后台任务），用于重启/清理状态
+          - 强制停止指定包名对应的应用进程。
+          - 适合在重启应用、清理运行态或回归前做状态归零。
         """
 
         args = {
@@ -142,8 +146,9 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 安装 APK：replace=-r（替换安装），downgrade=-d（降级安装），test=-t（测试包）
-          - 输入路径不可用/签名不匹配/权限受限会失败
+          - 安装本地 APK 到设备。
+          - replace=True 使用替换安装；downgrade=True 允许降级；test=True 允许测试包。
+          - 本地路径不存在、签名不兼容、权限不足或设备策略限制时会失败。
         """
 
         args = {
@@ -181,7 +186,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 卸载应用；keep_data=True 时保留数据目录（pm uninstall -k）
+          - 卸载指定应用。
+          - keep_data=True 时保留应用数据目录；False 时同时移除应用数据。
         """
 
         args = {
@@ -215,7 +221,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 清除应用数据（pm clear），不卸载应用，用于重置状态
+          - 清空指定应用的数据与缓存，但不卸载应用本体。
+          - 适合登录态重置、首启场景回放或回归前清场。
         """
 
         args = {
@@ -250,7 +257,9 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 确保应用在前台：快速检查 -> start -> 等待前台；失败则 force-stop 后重试一次
+          - 尝试把目标应用带到前台，并返回最终是否成功进入前台。
+          - 内部流程是：先检查当前前台 -> 启动应用 -> 等待前台稳定命中。
+          - 首次拉起失败时会执行一次 force-stop 后重试。
         """
         args = {
             "package"  : package,

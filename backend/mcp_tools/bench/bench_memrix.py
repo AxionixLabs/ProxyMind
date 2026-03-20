@@ -35,8 +35,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           title: str?=None
         R: CTR
         N:
-          - 启动 Memrix(记忆星核) 内存采样任务（focus/imply/title 透传给引擎）
-          - 单任务执行：一次会话只采集一个目标包/设备
+          - 启动一次 Memrix 内存采样任务。
+          - 该工具只负责开始采样，不负责结束采样或生成报告。
+          - 一次会话只对应一个采样任务；后续需用 `mx_task_final` 收束，再按需调用 reporter 生成报告。
         """
 
         await Requires.connect_memrix()
@@ -96,8 +97,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           title: str?=None
         R: CTR
         N:
-          - 启动 Memrix(记忆星核) 流畅度/帧率采样任务（focus/imply/title 透传给引擎）
-          - 单任务执行：一次会话只采集一个目标包/设备
+          - 启动一次 Memrix 图形性能采样任务，用于后续 FPS、jank、流畅度分析。
+          - 该工具只负责开始采样，不负责结束采样或生成报告。
+          - 一次会话只对应一个采样任务；后续需用 `mx_task_final` 收束，再按需调用 reporter 生成报告。
         """
 
         await Requires.connect_memrix()
@@ -150,12 +152,12 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         C: memrix
         A: mx_task_final
         P:
-          token: str?  # 会话 token（None 时由引擎/内部默认会话决定）
+          token: str?  # 会话 token（None 时按当前会话状态决定）
         R: CTR
         N:
-          - 停止采集并收束会话：通过 socket(8765) 发送 token 结束采集/关闭流/落盘（若有）
-          - 可用 query_idle 查询当前会话 token 状态
-          - 单任务聚合执行（非多设备并发）
+          - 停止当前或指定 token 对应的 Memrix 采样任务，并收束会话。
+          - 该工具只负责结束采样与关闭会话，不负责生成分析报告。
+          - 若不传 token，则按当前内部会话状态决定结束哪一个任务。
         """
 
         await Requires.connect_memrix()
@@ -189,11 +191,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           layer: bool=False
         R: CTR
         N:
-          - 生成内存采样报告：用于诊断泄漏/抖动/峰值（Storm）
-          - scene 提供时：以 scene 指定的结果目录生成报告
-          - scene 不提供时：使用内部回填的最近采样结果（可用 query_idle 查看回填/队列状态）
-          - layer=True 时分层展示前台/后台曲线与统计，未明确需要分层时应当为：layer=False
-          - 单任务聚合执行（非多设备并发）
+          - 基于已有 Memrix 内存采样结果生成报告。
+          - scene 提供时使用指定结果目录；不提供时使用当前保存的最近一次采样结果。
+          - layer=True 会输出更细的分层视图；未明确需要分层时保持 False 更稳妥。
         """
 
         await Requires.connect_memrix()
@@ -231,10 +231,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           scene: str?=None  # 报告目录分类名（如 202512301120_Sleek）
         R: CTR
         N:
-          - 生成流畅度采样报告：汇总 FPS/掉帧/jank 等指标用于性能诊断与回归对比（Sleek）
-          - scene 提供时：以 scene 指定的结果目录生成报告
-          - scene 不提供时：使用内部回填的最近采样结果（可用 query_idle 查看回填/队列状态）
-          - 单任务聚合执行（非多设备并发）
+          - 基于已有 Memrix 图形采样结果生成流畅度报告。
+          - scene 提供时使用指定结果目录；不提供时使用当前保存的最近一次采样结果。
+          - 报告面向 FPS、掉帧、jank 等图形指标分析，不会重新启动采样任务。
         """
 
         await Requires.connect_memrix()

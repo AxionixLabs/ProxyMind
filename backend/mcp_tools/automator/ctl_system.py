@@ -31,7 +31,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 系统级 UI 操作（禁止用 click/tap 模拟）
+          - 展开系统通知栏。
+          - 这是系统级入口操作，不依赖页面元素，也不需要通过 click/tap 模拟。
         """
 
         async def call(device: Device, *_) -> typing.Any:
@@ -58,7 +59,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 系统级 UI 操作（禁止用 click/tap 模拟）
+          - 展开系统快捷设置面板。
+          - 这是系统级入口操作，不依赖页面元素，也不需要通过 click/tap 模拟。
         """
 
         async def call(device: Device, *_) -> typing.Any:
@@ -89,7 +91,9 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - shell-level 组合键（近同时触发）
+          - 发送一组组合按键。
+          - first 作为起始按键，others 作为近同时追加触发的按键列表。
+          - 是否被系统或应用识别，取决于当前设备、输入上下文和 ROM 行为。
         """
 
         args = {
@@ -121,8 +125,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 等价 `adb shell ime reset`
-          - 可能受系统策略/权限影响而失败
+          - 重置设备当前输入法配置。
+          - 常用于输入法状态异常后的恢复；是否生效取决于系统策略与权限。
         """
 
         async def call(device: Device, *_) -> typing.Any:
@@ -155,8 +159,9 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - mode="" 且 wait=True 时：等待设备重新 adb online（超时 wait_timeout）
-          - mode!= ""（recovery/bootloader/edl）通常不回到 adb online，不建议 wait=True
+          - 重启设备，可选重启到 recovery、bootloader 或 edl。
+          - 仅在 mode="" 且 wait=True 时等待设备重新回到 adb online。
+          - 若重启到 recovery、bootloader 或 edl，通常不会回到正常 adb online，不建议开启 wait。
         """
 
         args = {
@@ -189,7 +194,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 点亮 + 上滑解锁（不处理密码/指纹/人脸等二次验证）
+          - 尝试点亮屏幕并执行一次上滑解锁。
+          - 只覆盖无密码的滑动解锁场景，不处理 PIN、图案、指纹或人脸等二次认证。
         """
 
         async def call(device: Device, *_) -> typing.Any:
@@ -218,7 +224,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 幂等：仅在目标状态不一致时发送 POWER 切换
+          - 把屏幕切换到目标开关状态。
+          - 内部先检查当前亮灭屏状态，仅在状态不一致时才发送 POWER 键切换。
         """
 
         args = {"on": on}
@@ -249,7 +256,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 通过 `adb shell svc bluetooth enable|disable`
+          - 通过系统 `svc bluetooth` 打开或关闭蓝牙。
+          - 是否允许切换取决于设备系统版本、ROM 限制和 adb 权限。
         """
 
         args = {"enabled": enabled}
@@ -280,7 +288,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 通过 `adb shell svc wifi enable|disable`
+          - 通过系统 `svc wifi` 打开或关闭 Wi-Fi。
+          - 是否允许切换取决于设备系统版本、ROM 限制和 adb 权限。
         """
 
         args = {"enabled": enabled}
@@ -311,7 +320,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 通过 `adb shell svc data enable|disable`
+          - 通过系统 `svc data` 打开或关闭移动数据。
+          - 是否允许切换取决于设备系统版本、ROM 限制和 adb 权限。
         """
 
         args = {"enabled": enabled}

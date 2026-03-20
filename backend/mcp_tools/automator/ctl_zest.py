@@ -26,8 +26,9 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           ttl_sec: float=1.0
         R: CTR
         N:
-          - 刷新可用设备列表：ttl 内复用缓存；超出 ttl 才重扫 adb
-          - 输出 devices 数量与 serials 列表（用于执行前更新设备可用性）
+          - 刷新当前可用设备列表。
+          - ttl_sec 窗口内优先复用缓存；超过 ttl_sec 才重新扫描 adb。
+          - 适合在批量执行前先同步一次在线设备视图。
         """
 
         args = {

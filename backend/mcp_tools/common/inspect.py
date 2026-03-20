@@ -28,8 +28,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           none
         R: CTR
         N:
-          - 查询服务状态快照：运行状态/后台任务数量/任务概览
-          - 用于判断并发占用、空闲程度与是否可接新任务
+          - 查询当前运行时的空闲与任务状态快照。
+          - 返回的是运行时观测信息，不会触发任何新任务。
+          - 适合在批跑、回填或收束前判断当前是否还有挂起任务。
         """
 
         async def call(*_) -> dict:
@@ -58,8 +59,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           context: dict?=None  # 执行期聚合上下文（如 plan/step/tool 结果）
         R: CTR
         N:
-          - 用途：调用远程大模型执行通用能力（断言/闲聊/评价/打分/规则判断等）
-          - 本工具仅透传 message/context（原样回传）；实际调用与结果解析由增强层接管
+          - 声明一次自由规则判断请求。
+          - 该工具只透传 `message` 和 `context`，不直接完成模型调用或规则求值。
+          - 真正的调用、增强和结果解析由上层执行链接管。
         """
 
         args = {

@@ -28,8 +28,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           delay: float
         R: CTR
         N:
-          - 固定时间等待，用于节奏控制/动画缓冲
-          - 仅时间延迟 ≠ 页面就绪（需要时应配合 wait_* 断言）
+          - 按给定秒数执行一次固定等待。
+          - 该工具只负责时间延迟，不判断页面、任务或设备是否已经就绪。
+          - 需要等待具体状态时，应改用对应领域的显式检查或等待工具。
         """
 
         args = {
@@ -68,10 +69,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           stop_on_fail: bool=True
         R: CTR
         N:
-          - 全局“宏编排声明器”：仅做 loops/steps 校验与归一化，返回可执行声明（declaration），不执行 steps。
-          - steps[].tool 是工具名；steps[].args 原样保留（包含 matrix 时也不改写）。
-          - 禁止嵌套 loop_steps（steps 内不得出现 loop_steps）。
-          - 实际循环执行由执行层/runner 读取 declaration 后完成；每一步由 step.args.matrix 自行分发到设备。
+          - 声明一个可循环执行的步骤列表。
+          - 该工具只校验并返回标准化声明，不会真的执行 `steps`。
+          - 不允许嵌套 `loop_steps`；实际循环执行由后续执行层读取声明后完成。
         """
 
         args = {

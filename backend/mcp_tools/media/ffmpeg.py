@@ -35,14 +35,15 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         A: ffmpeg_extract_snapshot
         P:
           input_video: str
-          output_dir: str?=None        # 可选，输出目录；None 时由引擎选择默认目录
+          output_dir: str?=None        # 可选，输出目录；None 时使用默认落盘位置
           at_sec: float=0.0
           image_format: oneof(jpg|png|webp)="png"
           overwrite: bool=True
         R: CTR
         N:
-          - 视频取帧：从指定时间点导出单帧图片（封面/缩略图）
-          - 输出文件名/最终路径由引擎生成并在结果中返回（attachments/data）
+          - 从视频中提取指定时间点的一张静态图片。
+          - 该工具只输出单帧图片，不做批量抽帧或关键帧分析。
+          - 输出文件路径由结果返回；`output_dir` 只决定落盘目录。
         """
 
         await Requires.connect_ffmpeg()
@@ -102,9 +103,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           overwrite: bool=True
         R: CTR
         N:
-          - 视频导出为图片序列：支持抽帧(fps)/截取(start+duration)/缩放(scale_w/scale_h)
-          - output_dir=None 时由引擎选择默认目录；完整输出模板/目录在 data.output_tpl/data.output_dir
-          - 返回仅附带少量帧附件（控大小），全量帧在 output_dir
+          - 把视频导出为图片序列。
+          - 支持按帧率抽帧、按时间窗口截取和按尺寸缩放。
+          - 返回中只附带少量代表性附件；完整帧序列以落盘目录为准。
         """
 
         await Requires.connect_ffmpeg()
@@ -161,8 +162,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           overwrite: bool=True
         R: CTR
         N:
-          - 抽关键帧：按时长均匀采样 -> 合并去重 -> 截断到 max_frames
-          - output_dir=None 时由引擎选择默认目录；输出目录/文件列表在 data.output_dir/data.files
+          - 从视频中提取关键帧并输出为图片。
+          - 返回的附件数量受 `max_frames` 约束，用于快速查看代表性画面。
+          - 若需要完整图片序列，应改用 `ffmpeg_extract_frames`。
         """
 
         await Requires.connect_ffmpeg()
@@ -225,8 +227,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           overwrite: bool=True
         R: CTR
         N:
-          - 场景变化抽帧：按画面变化 select='gt(scene,th)' 选帧并输出图片序列（th 越大越少帧）
-          - max_frames 仅限制返回/attachments 数量，不影响实际写盘帧数；输出目录/文件列表在 data.output_dir/data.files
+          - 按场景变化强度从视频中抽取代表性画面。
+          - `scene_th` 越大，命中的场景切换帧通常越少。
+          - `max_frames` 只限制返回中的附件数量，不限制实际落盘帧数。
         """
 
         await Requires.connect_ffmpeg()
@@ -294,9 +297,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           overwrite: bool=True
         R: CTR
         N:
-          - 按时间范围裁剪视频：end_sec 与 duration_sec 二选一（都不填=从 start_sec 到结尾）
-          - mode=copy 不重编码（快但仅关键帧附近精确）；mode=reencode 重编码更精确（video_codec/crf/preset 生效）
-          - output_format=None 时沿用输入容器后缀；输出文件/目录在 data.output_file/data.output_dir
+          - 按时间范围裁剪视频。
+          - `mode=copy` 更快但裁剪精度受关键帧限制；`mode=reencode` 更慢但时间边界更精确。
+          - 该工具只处理时间裁剪，不改变画面尺寸或帧率。
         """
 
         await Requires.connect_ffmpeg()
@@ -362,9 +365,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           overwrite: bool=True
         R: CTR
         N:
-          - 缩放并输出新视频（重编码）：scale_w/scale_h 任一为 None 时用 -1 等比
-          - keep_audio=True 保留音频（copy）；False 去音轨
-          - output_format=None 时沿用输入容器后缀；输出文件/目录在 data.output_file/data.output_dir
+          - 把视频缩放到新的尺寸并输出新文件。
+          - 至少应给出一个目标边；另一个边留空时会按比例自动计算。
+          - 该工具会重编码视频；是否保留音频由 `keep_audio` 决定。
         """
 
         await Requires.connect_ffmpeg()
@@ -427,9 +430,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           overwrite: bool=True
         R: CTR
         N:
-          - 重编码转换视频帧率；画质/体积主要受 crf 与 preset 影响
-          - keep_audio=True 保留音频（copy）；False 去音轨
-          - output_format=None 时沿用输入容器后缀；输出文件/目录在 data.output_file/data.output_dir
+          - 把视频重编码到新的目标帧率。
+          - 该工具会重编码视频流，画质与体积主要受 `video_codec`、`crf` 和 `preset` 影响。
+          - 是否保留音频由 `keep_audio` 决定。
         """
 
         await Requires.connect_ffmpeg()
@@ -491,9 +494,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           output_format: oneof(mp4|mkv|mov|webm)="mp4"
         R: CTR
         N:
-          - concat demuxer 拼接：list_file 每行 `file '/abs/path/x.mp4'`
-          - reencode=False 走 -c copy（要求片段参数一致，最快）；reencode=True 重编码更稳（video/audio 编码参数生效）
-          - 输出到 output_dir 下独立目录以避免并发覆盖；输出文件/目录在 data.output_file/data.output_dir
+          - 按 `list_file` 中的顺序拼接多段视频。
+          - `reencode=False` 速度更快，但要求输入片段的编码参数足够一致；`reencode=True` 更稳。
+          - 该工具只负责顺序拼接，不做自动对齐、补帧或内容理解。
         """
 
         await Requires.connect_ffmpeg()
@@ -545,9 +548,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           overwrite: bool=True
         R: CTR
         N:
-          - 仅换容器/封装（-c copy，不重编码，最快），如 mkv <-> mp4
-          - output_format=None 时按输入后缀自动选择“不同的”容器
-          - 输出到 output_dir 下独立目录以避免并发覆盖；输出文件/目录在 data.output_file/data.output_dir
+          - 仅更换媒体容器，不重编码音视频流。
+          - 该工具适合在兼容的封装格式之间做快速 remux，不适合修复编码本身的问题。
+          - `output_format` 不传时会选择一个与输入不同的容器格式。
         """
 
         await Requires.connect_ffmpeg()
@@ -594,9 +597,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           overwrite: bool=True
         R: CTR
         N:
-          - 去音轨：输出静音视频（-c:v copy + -an，不重编码，最快）
-          - output_format=None 时沿用输入容器后缀（无后缀时兜底 mp4）
-          - 输出到 output_dir 下独立目录以避免并发覆盖；输出文件/目录在 data.output_file/data.output_dir
+          - 移除视频中的音轨并输出静音视频。
+          - 该工具保留原视频画面，不做重新剪辑或重新编码视频流。
+          - 如果只想替换音轨，应改用 `ffmpeg_replace_audio`。
         """
 
         await Requires.connect_ffmpeg()
@@ -636,9 +639,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           input_file: str
         R: CTR
         N:
-          - 仅探测不输出文件：等价 `ffmpeg -i <input_file>`
-          - 无论成功/异常均返回多模态结构
-          - duration_sec 会从输出中解析（data.duration_sec），raw 为完整输出
+          - 读取媒体文件的基础探测信息。
+          - 该工具只做探测，不会生成新文件。
+          - 返回中会包含解析出的时长等信息，以及底层探测输出。
         """
 
         await Requires.connect_ffmpeg()
@@ -684,9 +687,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           overwrite: bool=True
         R: CTR
         N:
-          - 抽取音轨：从媒体文件导出音频（-vn，不输出视频）
-          - 输出文件名/后缀由内部生成（audio_format 决定后缀）；audio_codec=None 时由 ffmpeg 自选
-          - output_dir=None 时由引擎选择默认目录；输出文件/目录在 data.output_file/data.output_dir
+          - 从视频或媒体文件中提取音轨。
+          - 该工具只输出音频文件，不保留视频画面。
+          - 输出格式由 `audio_format` 决定，编码器未显式指定时由 ffmpeg 自行选择。
         """
 
         await Requires.connect_ffmpeg()
@@ -740,9 +743,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           overwrite: bool=True
         R: CTR
         N:
-          - 保留画面替换为新音频（配音/换 BGM）；默认以较短轨道为准（-shortest）
-          - keep_video=True 视频流 copy 不重编码；False 时由 ffmpeg 自行处理（通常会重编码）
-          - 输出文件名/后缀由内部生成（output_format 决定后缀）；输出文件/目录在 data.output_file/data.output_dir
+          - 用新的音频文件替换原视频中的音轨。
+          - 默认按较短的音视频轨道输出结果，避免超过任一输入长度。
+          - 是否保留原视频流不重编码，由 `keep_video` 决定。
         """
 
         await Requires.connect_ffmpeg()
@@ -800,9 +803,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           overwrite: bool=True
         R: CTR
         N:
-          - 任意音频/视频 → 音频文件（-vn，不输出视频）
-          - 输出文件名/后缀由内部生成（output_format 决定后缀）；audio_codec=None 时由 ffmpeg 自选
-          - output_dir=None 时由引擎选择默认目录；输出文件/目录在 data.output_file/data.output_dir
+          - 把输入媒体转换为目标音频文件。
+          - 输入可以是音频或视频，但输出始终是音频，不保留视频画面。
+          - 采样率、声道数、码率和编码器由参数控制，未指定时由 ffmpeg 或容器默认值决定。
         """
 
         await Requires.connect_ffmpeg()

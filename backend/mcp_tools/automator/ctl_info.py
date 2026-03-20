@@ -30,8 +30,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 采集所有在线设备的状态快照（型号/联网/屏幕/电量等）
-          - 并发采集：单设备失败不影响其他设备（失败以 per-device 结果体现）
+          - 采集设备当前状态快照，包括基础属性、联网状态、屏幕状态和电量等信息。
+          - 多设备场景下逐台并发采集，单台失败不会阻断其他设备。
         """
 
         async def call(device: Device, *_) -> typing.Any:
@@ -56,11 +56,12 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
         C: info
         A: screenshot
         P:
-          local: str?  # 由增强层自动传递，无需显示传递
+          local: str?  # 可选。本地保存目录或基准路径
           matrix: dict[str, dict[str, typing.Any]]?
         R: CTR
         N:
-          - 多设备时，local 按 serial 分文件名，不会冲突
+          - 截取设备当前屏幕并返回本地附件路径。
+          - 提供 local 时作为保存目录或基准路径使用；多设备执行时会按设备 serial 自动区分文件名。
         """
 
         args = {
@@ -95,14 +96,9 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 过滤/列出设备已安装包名：
-            - keyword 为空：按 scope 列出全部
-            - keyword 非空：按关键字（大小写不敏感）过滤
-          - scope:
-            - user   -> 第三方（用户安装）包（pm list packages -3）
-            - system -> 系统包（pm list packages -s）
-            - all    -> 全部包（pm list packages）
-          - 过滤基于 `pm list packages ... | grep -i <keyword>`（设备侧 grep）
+          - 列出设备上已安装的包名。
+          - keyword 为空时按 scope 返回整类包；keyword 非空时做大小写不敏感的包含过滤。
+          - scope=user 仅第三方包，scope=system 仅系统包，scope=all 返回全部包。
         """
 
         args = {

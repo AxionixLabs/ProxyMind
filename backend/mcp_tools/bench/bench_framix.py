@@ -31,13 +31,13 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         A: fx_frame_analysis
         P:
           video: list[str]  # 显式视频路径列表（会展开为 --video v1 --video v2 ...）
-          total: str?       # 报告输出目录（None 时由引擎/内部规则决定）
+          total: str?       # 报告输出目录（None 时使用默认规则）
           scale: float=0.3  # 等比缩放，范围[0.1, 1.0]
         R: CTR
         N:
-          - Framix 批量分析入口（显式输入）：对 video 列表逐个执行帧分析/抽帧诊断并汇总落盘
-          - 非内部回填：不读取 Ins.video_list
-          - 多模态对齐输出：text/attachments/data/logs（成败以 data.ok 为准）
+          - 对显式传入的 `video` 列表执行一次 Framix 帧分析。
+          - 该工具只使用当前参数中的视频路径，不读取内部视频队列。
+          - 结果会按 Framix 规则输出分析产物与报告附件，成败以 `data.ok` 为准。
         """
 
         await Requires.connect_framix()
@@ -80,12 +80,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           scale: float=0.3  # 等比缩放，范围[0.1, 1.0]
         R: CTR
         N:
-          - Framix 批量分析入口（内部回填）：输入视频来自 Ins.video_list（由录制/回填流程写入），无需传视频路径
-          - total 为可选项；默认不传，自动使用引擎默认目录
-          - 仅当用户明确指定输出目录时，才传 total
-          - 执行后会清空 Ins.video_list
-          - query_idle 可用于查看当前回填/队列状态
-          - 多模态对齐输出：text/attachments/data/logs（成败以 data.ok 为准）
+          - 对当前视频队列执行一次 Framix 帧分析。
+          - 输入视频来自 `Ins.video_list`，适合接在录制或视频入队链路之后，不需要再手动传视频路径。
+          - 执行完成后会清空视频队列；若要复用同一批视频，需要重新入队。
         """
 
         await Requires.connect_framix()
@@ -124,10 +121,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
           total: str?=None
         R: CTR
         N:
-          - 生成视频帧分析报告，阶段分类报告
-          - total 提供时：以 total 作为目标目录/报告根目录
-          - total 不提供时：使用内部回填的报告路径作为输入（可用 query_idle 查看当前回填/队列状态）
-          - 多模态对齐输出：text/attachments/data/logs（成败以 data.ok 为准）
+          - 基于已有 Framix 分析结果生成报告。
+          - total 提供时使用指定目录；不提供时使用当前结果目录。
+          - 该工具只负责汇总和产出报告，不会重新执行视频分析。
         """
 
         await Requires.connect_framix()

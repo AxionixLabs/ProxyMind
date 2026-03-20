@@ -39,8 +39,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 方向语义是“内容滚动方向”（不是手指方向）；内部会反转为 adb 手指轨迹
-          - 具体效果依赖目标控件是否可滚动
+          - 在给定坐标附近执行一次滚动手势。
+          - direction 表示内容移动方向，不是手指滑动方向；内部会自动换算成对应手势轨迹。
+          - 是否真的发生滚动，取决于当前位置是否存在可滚动容器。
         """
 
         args = {
@@ -76,7 +77,8 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 循环滚动，直到到达边界或判定无变化
+          - 按指定方向反复滚动，直到到达顶部或底部边界。
+          - 内部会通过页面稳定性判断是否已经无法继续滚动。
         """
 
         args = {
@@ -127,9 +129,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 连续滚动直到目标元素可见并返回命中节点信息；超过 max_swipes 或 timeout 则停止
-          - should_click=True 时命中后点击元素中心点
-          - match/ignore_case 仅对字符串类定位（id/desc/text/xpath）生效
+          - 持续滚动当前页面，直到目标元素出现在视口内，或达到 timeout / max_swipes 上限。
+          - 命中后返回节点摘要；should_click=True 时会继续点击该节点中心点。
+          - match 和 ignore_case 仅对字符串类定位生效，bbox 走坐标匹配。
         """
 
         args = {
@@ -175,8 +177,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 按选择器查找节点（支持非精确匹配）并点击其中心点
-          - match/ignore_case 仅对字符串类定位（id/desc/text/xpath）生效
+          - 在当前页面查找第一个匹配节点，并点击其中心点。
+          - 仅查找当前可见层级，不会自动滚动页面。
+          - match 和 ignore_case 仅对字符串类定位生效，bbox 走坐标匹配。
         """
 
         args = {
@@ -214,8 +217,8 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - absolute coordinates（px）
-          - 内部实现：tap -> sleep(0.08) -> tap（具体间隔以实现为准）
+          - 在绝对屏幕坐标 `(x, y)` 执行双击。
+          - 内部实现是两次连续 tap，中间存在一个很短的固定间隔。
         """
 
         args = {
@@ -249,8 +252,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 依赖当前存在可编辑焦点（需你先确保焦点在目标输入框）
-          - 可能因输入法不可用/AdbIME 未启用/权限受限而失败
+          - 向当前已有焦点的输入框注入文本。
+          - 该工具不会主动帮你选中输入框，调用前应先把焦点放到目标输入控件。
+          - 依赖 AdbIME 可用；输入法未安装、未启用或系统限制时会失败。
         """
 
         args = {
@@ -281,8 +285,8 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 等价 `adb shell am broadcast -a ADB_CLEAR_TEXT`
-          - 依赖可编辑焦点/AdbIME 安装与启用/权限；不满足时可能无效果
+          - 清空当前已有焦点的输入框内容。
+          - 依赖可编辑焦点和 AdbIME；前置条件不满足时可能无效果。
         """
 
         async def call(device: Device, *_) -> typing.Any:
@@ -309,7 +313,8 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 优先提取 package/activity；失败则退化提取 package（activity 可能为空）
+          - 读取设备当前前台焦点信息。
+          - 优先返回 package 和 activity；系统无法完整解析时 activity 可能为空。
         """
 
         async def call(device: Device, *_) -> typing.Any:
@@ -334,15 +339,12 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         C: ui
         A: current_widgets
         P:
-          view: oneof(interactive|credible|all)="interactive"
+          view: oneof(interactive|credible|all)="all"
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - Dump 当前页面 XML，并解析为 Widget 语义清单（每行一个控件）
-          - view:
-              - interactive：仅保留可交互控件（clickable/focusable/scrollable 任一为 True）
-              - credible：仅保留可识别控件（id/desc/text 任一非空）
-              - all：全量控件
+          - Dump 当前页面层级并解析为 Widget 列表。
+          - view=interactive 仅返回可交互控件；view=credible 仅返回具备可识别文本或标识的控件；view=all 返回全部解析结果。
         """
 
         args = {
@@ -381,14 +383,10 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 在当前页面控件列表中查找第一个匹配控件，并返回语义摘要
-          - by=xpath：不支持（Android uiautomator dump 非标准 XPath）
-          - match:
-              - eq：精确匹配
-              - contains：子串匹配
-              - regex：正则匹配（value 作为 pattern）
-          - ignore_case：contains/regex 时可选忽略大小写
-          - match/ignore_case 仅对字符串类定位（id/desc/text/xpath）生效
+          - 在当前页面中查找第一个匹配控件，并返回该控件的摘要信息。
+          - 仅基于当前一次层级快照查找，不会自动滚动页面。
+          - xpath 当前不作为稳定能力使用；更适合优先使用 id、desc、text 或 bbox。
+          - match 和 ignore_case 仅对字符串类定位生效，bbox 走坐标匹配。
         """
 
         args = {
@@ -428,9 +426,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 每台设备输出一份诊断 payload（可含截图/层级/定位结果）
-          - wait>0：命中后点击前 sleep(wait)（用于动画/页面稳定）
-          - 采集后会清理远端截图临时文件
+          - 对给定 locator 执行一次定位诊断，并返回可用于排障的诊断结果。
+          - 结果可能包含截图、页面层级、候选节点和命中情况。
+          - should_click=True 时若成功命中会尝试点击；wait>0 时会在点击前额外等待。
         """
 
         args = {
@@ -475,8 +473,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 轮询等待元素出现或消失
-          - match/ignore_case 仅对字符串类定位（id/desc/text/xpath）生效
+          - 按固定轮询间隔等待元素出现或消失。
+          - timeout 到期后仍未满足目标状态则返回超时结果。
+          - match 和 ignore_case 仅对字符串类定位生效，bbox 走坐标匹配。
         """
 
         args = {

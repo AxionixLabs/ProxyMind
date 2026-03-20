@@ -34,7 +34,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 多设备同时 pull 到同一 local 不会覆盖/冲突（按 serial 分目录）
+          - 从设备拉取单个文件到本地。
+          - 多设备同时执行时会按设备 serial 自动区分落盘路径，避免互相覆盖。
         """
 
         args = {
@@ -70,7 +71,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - remote 需可写权限
+          - 把本地文件推送到设备指定路径。
+          - 要求本地文件存在，且 remote 所在位置对 adb shell 具备写权限。
         """
 
         args = {
@@ -104,8 +106,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 仅删除文件（不删目录）
-          - 不存在则忽略（rm -f 语义）
+          - 删除设备上的单个文件路径。
+          - 不递归删除目录；目标不存在时按忽略处理。
         """
 
         args = {
@@ -146,9 +148,10 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - text/data.content: 永远返回摘要（行数受 max_lines 与内部上限共同约束）
-          - 过滤顺序：tags+level -> keywords(OR, ignore-case)
-          - saved: None 不落盘；非空落盘过滤后全量并返回附件
+          - 导出一次过滤后的 logcat 快照。
+          - 先按 tags 和 level 从设备侧取日志，再按 keywords 做大小写不敏感的 OR 过滤。
+          - text 和 data.content 返回摘要内容，摘要行数受 max_lines 与内部上限共同约束。
+          - saved=None 时只返回摘要；saved 非空时会把过滤后的完整结果落盘并作为附件返回。
         """
     
         args = {
@@ -183,7 +186,8 @@ def bind(mcp: FastMCP, manage: DeviceManage) -> None:
           matrix: overrides? (serial->args)
         R: CTR
         N:
-          - 由设备端执行 logcat 清理（不是 rm 文件）
+          - 清空设备当前 logcat 缓冲区。
+          - 这是日志缓冲清理，不是删除磁盘日志文件。
         """
 
         async def call(device: Device, *_) -> typing.Any:
