@@ -9,15 +9,15 @@
 
 import typing
 from backend.models.model_nexus import NexusKind
-from .executors.ftp_executor import FtpExecutor
-from .executors.graphql_executor import GraphqlExecutor
-from .executors.http_executor import HttpExecutor
-from .executors.imap_executor import ImapExecutor
-from .executors.sse_executor import SseExecutor
-from .executors.smtp_executor import SmtpExecutor
-from .executors.tcp_executor import TcpExecutor
-from .executors.udp_executor import UdpExecutor
-from .executors.ws_executor import WsExecutor
+from backend.mcp_hub.hub_nexus.executors.ftp_executor import FtpExecutor
+from backend.mcp_hub.hub_nexus.executors.graphql_executor import GraphqlExecutor
+from backend.mcp_hub.hub_nexus.executors.http_executor import HttpExecutor
+from backend.mcp_hub.hub_nexus.executors.imap_executor import ImapExecutor
+from backend.mcp_hub.hub_nexus.executors.sse_executor import SseExecutor
+from backend.mcp_hub.hub_nexus.executors.smtp_executor import SmtpExecutor
+from backend.mcp_hub.hub_nexus.executors.tcp_executor import TcpExecutor
+from backend.mcp_hub.hub_nexus.executors.udp_executor import UdpExecutor
+from backend.mcp_hub.hub_nexus.executors.ws_executor import WsExecutor
 
 
 class NexusExecutorRegistry(object):

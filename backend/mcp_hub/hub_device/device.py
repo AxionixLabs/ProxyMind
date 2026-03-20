@@ -16,12 +16,11 @@ import secrets
 import tempfile
 from pathlib import Path
 from backend.models.model_device import (
-    Attachment,
-    SemanticResult
+    Attachment, SemanticResult
 )
-from .phone import Phone
-from .combo import Combo
-from .widget import Widget
+from backend.mcp_hub.hub_device.phone import Phone
+from backend.mcp_hub.hub_device.combo import Combo
+from backend.mcp_hub.hub_device.widget import Widget
 from backend.utilities import const
 
 
@@ -30,8 +29,11 @@ class Device(object):
 
     def __init__(self, serial: str):
         self.serial = serial
-        self.phone = Phone(serial)
-        self.combo = Combo(self.phone)
+
+        self.agent_id: str = self.serial
+
+        self.phone: Phone = Phone(serial)
+        self.combo: Combo = Combo(self.phone)
 
     @property
     def device_props(self) -> dict[str, typing.Any]:
@@ -52,7 +54,6 @@ class Device(object):
     @staticmethod
     def _device_semantics(device_snap: dict) -> dict:
         """构建设备快照的语义描述。"""
-        # Device 层负责把结构化设备信息进一步压成“可读摘要 + 语义键值”。
 
         def brief(v: typing.Optional[bool]) -> typing.Optional[str]:
             if v is None:
@@ -136,8 +137,8 @@ class Device(object):
     # workflow: ==== Info Control MCP Tool ====
     async def device_snapshot(self) -> dict[str, typing.Any]:
         """返回设备当前快照。"""
-        # 这里是 Device 门面的典型做法：汇总底层能力，再统一包装成 SemanticResult。
         props = await self.phone.refresh_device_props()
+
         battery     = await self.phone.battery()
         wm_size     = await self.phone.wm_size()
         online      = await self.phone.is_online()
@@ -235,17 +236,13 @@ class Device(object):
         ).to_dict()
 
     # workflow: ==== App Control MCP Tool ====
-    async def app_foreground(
-        self,
-        package: str,
-        activity: typing.Optional[str] = None
-    ) -> dict[str, typing.Any]:
+    async def app_foreground(self, package: str, activity: typing.Optional[str] = None) -> dict[str, typing.Any]:
         """确保应用位于前台。"""
         result = await self.combo.app_foreground(package, activity)
         text = {
-            "already": "应用已在前台，无需拉起。",
-            "start": "应用已成功进入前台。",
-            "retry": "首次拉起未命中前台，重试后已进入前台。" if result.get("ok") else "拉起应用超时（已重试一次仍失败）。",
+            "already" : "应用已在前台，无需拉起。",
+            "start"   : "应用已成功进入前台。",
+            "retry"   : "首次拉起未命中前台，重试后已进入前台。" if result.get("ok") else "拉起应用超时（已重试一次仍失败）。",
         }.get(result.get("stage"), "应用前台流程执行完成。")
         return SemanticResult.from_text(text, data=result).to_dict()
 

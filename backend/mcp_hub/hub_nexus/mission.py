@@ -9,7 +9,7 @@
 import time
 import typing
 import asyncio
-from .domain.context import ContextMergeService
+from backend.mcp_hub.hub_nexus.domain.context import ContextMergeService
 from backend.models.model_nexus import (
     ArtifactRecord,
     NexusBatchItem,
@@ -19,12 +19,12 @@ from backend.models.model_nexus import (
     RunRecord,
     StepResult
 )
-from .domain.template import TemplateService
-from .registry import NexusExecutorRegistry
-from .infra.artifact import ArtifactService
-from .infra.core import ClockService
-from .infra.serialize import StepSerializer
-from .repository import MemoryRunRepository
+from backend.mcp_hub.hub_nexus.domain.template import TemplateService
+from backend.mcp_hub.hub_nexus.registry import NexusExecutorRegistry
+from backend.mcp_hub.hub_nexus.infra.artifact import ArtifactService
+from backend.mcp_hub.hub_nexus.infra.core import ClockService
+from backend.mcp_hub.hub_nexus.infra.serialize import StepSerializer
+from backend.mcp_hub.hub_nexus.repository import MemoryRunRepository
 
 
 class NexusMissionService(object):

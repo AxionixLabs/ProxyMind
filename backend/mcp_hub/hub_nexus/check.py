@@ -7,8 +7,8 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from .domain.extract import ExtractService
-from .domain.assertion import AssertionService
+from backend.mcp_hub.hub_nexus.domain.assertion import AssertionService
+from backend.mcp_hub.hub_nexus.domain.extract import ExtractService
 
 
 class CheckService(object):

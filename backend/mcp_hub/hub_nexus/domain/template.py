@@ -28,7 +28,7 @@ from urllib.parse import (
 from collections.abc import (
     Callable, Mapping
 )
-from .extract import ExtractService
+from backend.mcp_hub.hub_nexus.domain.extract import ExtractService
 
 
 class TemplateEvaluation(object):

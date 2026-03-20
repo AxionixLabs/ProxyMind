@@ -11,7 +11,7 @@ import typing
 import asyncio
 import contextlib
 import xml.etree.ElementTree as Et
-from .widget import Widget
+from backend.mcp_hub.hub_device.widget import Widget
 from backend.utilities import const
 from engine.terminal import Terminal
 
@@ -74,7 +74,7 @@ class Phone(object):
             "locale"     : cls._pick_prop(resp, "persist.sys.locale"),
             "timezone"   : cls._pick_prop(resp, "persist.sys.timezone"),
             "debuggable" : cls._pick_prop(resp, "ro.debuggable") == "1",
-            "secure"     : cls._pick_prop(resp, "ro.secure") == "1",
+            "secure"     : cls._pick_prop(resp, "ro.secure") == "1"
         }
 
     @staticmethod
@@ -104,43 +104,6 @@ class Phone(object):
     def _sh_quote_single(text: str) -> str:
         """按单引号规则转义 shell 文本。"""
         return "'" + text.replace("'", r"'\''") + "'"
-
-    @staticmethod
-    def parse_package_list(text: str) -> list[str]:
-        """解析 `pm list packages` 输出。"""
-        pkg_list: list[str] = []
-        for line in (text or "").splitlines():
-            if not (line := line.strip()):
-                continue
-            if line.startswith("package:"):
-                pkg_list.append(line.split("package:", 1)[1].strip())
-            else:
-                pkg_list.append(line)
-
-        seen: set[str] = set()
-        out: list[str] = []
-        for pkg in pkg_list:
-            if pkg and pkg not in seen:
-                seen.add(pkg)
-                out.append(pkg)
-        return out
-
-    @classmethod
-    def _parse_widgets(cls, xml: str) -> list[Widget]:
-        """解析页面控件列表。"""
-        try:
-            root = Et.fromstring(cls._normalize_xml(xml))
-        except (Et.ParseError, TypeError):
-            return []
-
-        return [
-            Widget(node.attrib) for node in root.iter("node")
-        ]
-
-    @classmethod
-    def parse_widgets(cls, xml: str) -> list[Widget]:
-        """解析 XML 为控件列表。"""
-        return cls._parse_widgets(xml)
 
     @staticmethod
     def _match_widget(
@@ -190,6 +153,38 @@ class Phone(object):
                 return widget
 
         return None
+
+    @classmethod
+    def parse_widgets(cls, xml: str) -> list[Widget]:
+        """解析页面控件列表。"""
+        try:
+            root = Et.fromstring(cls._normalize_xml(xml))
+        except (Et.ParseError, TypeError):
+            return []
+
+        return [
+            Widget(node.attrib) for node in root.iter("node")
+        ]
+
+    @staticmethod
+    def parse_package_list(text: str) -> list[str]:
+        """解析 `pm list packages` 输出。"""
+        pkg_list: list[str] = []
+        for line in (text or "").splitlines():
+            if not (line := line.strip()):
+                continue
+            if line.startswith("package:"):
+                pkg_list.append(line.split("package:", 1)[1].strip())
+            else:
+                pkg_list.append(line)
+
+        seen: set[str] = set()
+        out: list[str] = []
+        for pkg in pkg_list:
+            if pkg and pkg not in seen:
+                seen.add(pkg)
+                out.append(pkg)
+        return out
 
     async def refresh_device_props(self) -> dict[str, typing.Any]:
         """刷新设备属性缓存。"""
@@ -305,7 +300,7 @@ class Phone(object):
 
     async def app_start(self, package: str, activity: typing.Optional[str] = None) -> str | None:
         """执行应用启动命令。"""
-        action = "android.intent.action.MAIN"
+        action   = "android.intent.action.MAIN"
         category = "android.intent.category.LAUNCHER"
 
         if activity:
@@ -368,17 +363,23 @@ class Phone(object):
 
     async def file_pull(self, remote: str, local: str) -> str | None:
         """从设备拉取文件。"""
-        cmd = self.prefix + ["pull", remote, local]
+        cmd = self.prefix + [
+            "pull", remote, local
+        ]
         return await Terminal.cmd_line(cmd)
 
     async def file_push(self, local: str, remote: str) -> str | None:
         """向设备推送文件。"""
-        cmd = self.prefix + ["push", local, remote]
+        cmd = self.prefix + [
+            "push", local, remote
+        ]
         return await Terminal.cmd_line(cmd)
 
     async def file_remove(self, path: str) -> str | None:
         """删除设备文件。"""
-        cmd = self.prefix + ["shell", "rm", "-f", path]
+        cmd = self.prefix + [
+            "shell", "rm", "-f", path
+        ]
         return await Terminal.cmd_line(cmd)
 
     async def logcat_link(self) -> asyncio.subprocess.Process:
@@ -407,19 +408,21 @@ class Phone(object):
 
     async def logcat_clean(self) -> str | None:
         """清空 logcat。"""
-        cmd = self.prefix + ["logcat", "-c"]
+        cmd = self.prefix + [
+            "logcat", "-c"
+        ]
         return await Terminal.cmd_line(cmd)
 
     async def list_packages(self, scope: typing.Literal["user", "system", "all"] = "user") -> str:
         """按范围列出包名。"""
-        cmd = self.prefix + ["shell", "pm", "list", "packages"]
+        cmd = self.prefix + [
+            "shell", "pm", "list", "packages"
+        ]
         match scope:
             case "user":
                 cmd += ["-3"]
             case "system":
                 cmd += ["-s"]
-            case "all":
-                pass
         return await Terminal.cmd_line(cmd)
 
     async def grep_packages(self, keyword: str, scope: typing.Literal["user", "system", "all"] = "user") -> str:
@@ -430,8 +433,6 @@ class Phone(object):
                 cmd += ["-3"]
             case "system":
                 cmd += ["-s"]
-            case "all":
-                pass
         cmd += ["|", "grep", "-i", keyword]
         return await Terminal.cmd_line(cmd)
 
@@ -451,7 +452,9 @@ class Phone(object):
 
     async def combo_key(self, first: int, others: list[int]) -> str | None:
         """执行组合按键。"""
-        commands = [f"input keyevent {other}" for other in others]
+        commands = [
+            f"input keyevent {other}" for other in others
+        ]
         shell_cmd = " ".join(
             self.prefix + ["shell", "input", "keyevent"]
         ) + f" --longpress {first} & sleep 0.03; " + "; ".join(commands)
@@ -459,7 +462,9 @@ class Phone(object):
 
     async def ime_reset(self) -> str | None:
         """重置输入法。"""
-        cmd = self.prefix + ["shell", "ime", "reset"]
+        cmd = self.prefix + [
+            "shell", "ime", "reset"
+        ]
         return await Terminal.cmd_line(cmd)
 
     async def ime_current(self) -> str:
@@ -563,7 +568,7 @@ class Phone(object):
         if not (xml := await self.ui_xml()):
             return []
 
-        return self._parse_widgets(xml)
+        return self.parse_widgets(xml)
 
     async def scroll_by_direction(
         self,

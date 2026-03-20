@@ -11,7 +11,7 @@ import typing
 from backend.models.model_nexus import (
     NexusKind, NexusRequest, NexusBatchRequest
 )
-from .domain.template import TemplateService
+from backend.mcp_hub.hub_nexus.domain.template import TemplateService
 
 
 class NexusInspectionService(object):

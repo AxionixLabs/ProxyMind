@@ -12,7 +12,7 @@ import typing
 from pathlib import Path
 from dataclasses import asdict
 from backend.models.model_nexus import ArtifactRecord
-from .core import ClockService
+from backend.mcp_hub.hub_nexus.infra.core import ClockService
 from backend.utilities import const
 
 

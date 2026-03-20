@@ -7,15 +7,15 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import time
+import uuid
 import typing
 import asyncio
 import tempfile
-import uuid
 import contextlib
 from pathlib import Path
+from backend.mcp_hub.hub_device.phone import Phone
+from backend.mcp_hub.hub_device.vision import similarity
 from backend.models.model_device import ActionResult
-from .phone import Phone
-from .vision import similarity
 
 
 class Combo(object):
@@ -31,7 +31,7 @@ class Combo(object):
     async def save_screenshot(self, local: str) -> str:
         """保存截图到本地路径。"""
         filename = f"screenshot_{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
-        remote = "/data/local/tmp/" + filename
+        remote   = "/data/local/tmp/" + filename
 
         await self.phone.screencap(remote)
 
@@ -61,9 +61,10 @@ class Combo(object):
         stable_hits: int
     ) -> tuple[bool, dict[str, typing.Any], int]:
         """等待指定应用稳定进入前台。"""
-        # 组合层负责“等待/重试/稳定命中”这类多步流程，而不是单条 adb 调用。
         hit = 0
-        last_focus: dict[str, typing.Any] = {"package": None, "activity": None, "raw": ""}
+        last_focus: dict[str, typing.Any] = {
+            "package": None, "activity": None, "raw": ""
+        }
 
         deadline = time.time() + float(wait_s)
         while time.time() < deadline:
@@ -92,29 +93,52 @@ class Combo(object):
         activity: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
         """确保应用位于前台。"""
-        t0 = time.time()
+        t0   = time.time()
         poll = 0.25
 
         ok0, focus0, _ = await self.wait_foreground(package, 0.8, poll, 1)
         if ok0:
-            return {"ok": True, "reason": None, "stage": "already", "focus": focus0, "cost_ms": int((time.time() - t0) * 1000)}
+            return {
+                "ok"      : True,
+                "reason"  : None,
+                "stage"   : "already",
+                "focus"   : focus0,
+                "cost_ms" : int((time.time() - t0) * 1000)
+            }
 
         await self.phone.app_start(package, activity)
         ok1, focus1, _ = await self.wait_foreground(package, 8.0, poll, 2)
         if ok1:
-            return {"ok": True, "reason": None, "stage": "start", "focus": focus1, "cost_ms": int((time.time() - t0) * 1000)}
+            return {
+                "ok"      : True,
+                "reason"  : None,
+                "stage"   : "start",
+                "focus"   : focus1,
+                "cost_ms" : int((time.time() - t0) * 1000)
+            }
 
         await self.phone.app_stop(package)
         await self.phone.app_start(package, activity)
         ok2, focus2, _ = await self.wait_foreground(package, 5.0, poll, 2)
         if ok2:
-            return {"ok": True, "reason": None, "stage": "retry", "focus": focus2, "cost_ms": int((time.time() - t0) * 1000)}
+            return {
+                "ok"      : True,
+                "reason"  : None,
+                "stage"   : "retry",
+                "focus"   : focus2,
+                "cost_ms" : int((time.time() - t0) * 1000)
+            }
 
-        return {"ok": False, "reason": "retry_timeout", "stage": "retry", "focus": focus2, "cost_ms": int((time.time() - t0) * 1000)}
+        return {
+            "ok"      : False,
+            "reason"  : "retry_timeout",
+            "stage"   : "retry",
+            "focus"   : focus2,
+            "cost_ms" : int((time.time() - t0) * 1000)
+        }
 
     async def screen_set(self, on: bool, settle: float = 0.2) -> None:
         """设置屏幕电源状态。"""
-        # POWER 键本身是切换语义，因此先读状态，避免把幂等操作变成反向操作。
         if on == await self.phone.is_screen_on():
             return None
 
@@ -123,7 +147,6 @@ class Combo(object):
 
     async def ensure_ime(self) -> dict[str, typing.Any]:
         """确保当前输入法为 AdbIME。"""
-        # 这是内部组合流程：检查 -> enable -> set -> 再校验，不属于 Device 工具语义层。
         ime = "com.android.adbkeyboard/.AdbIME"
         if await self.phone.ime_current() == ime:
             return ActionResult.success().to_dict()
@@ -157,10 +180,10 @@ class Combo(object):
     ) -> dict[str, typing.Any]:
         """等待节点出现或消失。"""
         want_exists = (state == "exists")
-        deadline = time.monotonic() + float(timeout)
+        deadline    = time.monotonic() + float(timeout)
 
         while True:
-            node = await self.phone.find_ui_widget(by, value, match, ignore_case)
+            node  = await self.phone.find_ui_widget(by, value, match, ignore_case)
             found = bool(node)
             if found == want_exists:
                 return {"ok": True, "reason": None, "found": found, "node": node}
@@ -188,6 +211,7 @@ class Combo(object):
         min_swipes_before_stop: int = 2
     ) -> dict[str, typing.Any]:
         """滑动查找目标元素。"""
+
         def pack(
             ok: bool,
             reason: typing.Optional[str],
@@ -279,13 +303,15 @@ class Combo(object):
         should_click: bool = False
     ) -> dict[str, typing.Any]:
         """将目标元素滚动到可见区域。"""
-        result = await self.scroll_until(by, value, match, ignore_case, direction, None, 320, 0.25, timeout, max_swipes)
+        result = await self.scroll_until(
+            by, value, match, ignore_case, direction, None, 320, 0.25, timeout, max_swipes
+        )
         node = result.get("node")
         data = {
-            "ok": bool(result.get("ok")),
-            "reason": result.get("reason"),
-            "swipes": result.get("swipes", 0),
-            "node": node,
+            "ok"     : bool(result.get("ok")),
+            "reason" : result.get("reason"),
+            "swipes" : result.get("swipes", 0),
+            "node"   : node
         }
 
         if should_click and node:
@@ -328,8 +354,8 @@ class Combo(object):
         else:
             y_from, y_to = y_lower, y_upper
 
-        last_sim = 0.0
-        stable_hits = 0
+        last_sim: float  = 0.0
+        stable_hits: int = 0
 
         with tempfile.TemporaryDirectory(prefix="scroll_caps_") as tmp:
             tmp_dir   = Path(tmp)
