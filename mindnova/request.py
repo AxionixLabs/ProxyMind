@@ -187,10 +187,10 @@ async def stream_chat(
     url = f"https://api.appserverx.com/mind-chat"
     headers = Channel.make_headers()
     payload = {
-        "mode"      : mode,
-        "model_api" : model_api,
-        "message"   : message,
-        "tools"     : openai_tools,
+        "mode"     : mode,
+        "llm_conf" : model_api,
+        "message"  : message,
+        "tools"    : openai_tools,
         **kwargs
     }
     if attachments:
@@ -204,8 +204,8 @@ async def stream_chat(
                 continue
 
         yield event
-        
-        
+
+
 async def stream_plan(
     mode: str,
     model_api: dict[str, typing.Any],
@@ -221,11 +221,11 @@ async def stream_plan(
     url = f"https://api.appserverx.com/mind-plan"
     headers = Channel.make_headers()
     payload = {
-        "mode"      : mode,
-        "model_api" : model_api,
-        "message"   : message,
-        "tools"     : openai_tools,
-        "extras"    : extras,
+        "mode"     : mode,
+        "llm_conf" : model_api,
+        "message"  : message,
+        "tools"    : openai_tools,
+        "extras"   : extras,
         **kwargs
     }
 
@@ -237,7 +237,7 @@ async def stream_plan(
             case "done":
                 logger.debug(event["content"])
                 continue
-            
+
             case "plan":
                 if not (steps := event.get("steps")) or not (loop_count := event.get("loop_count")):
                     logger.warning(event)
@@ -267,7 +267,7 @@ async def stream_heal(
     headers = Channel.make_headers()
 
     payload = {
-        "model_api"  : model_api,
+        "llm_conf"   : model_api,
         "app_id"     : const.APP_DESC,
         "page_id"    : page_id,
         "platform"   : station,
@@ -290,7 +290,7 @@ async def stream_heal(
                     await slog.feed(event["content"], display=StreamTyperLogger.BLOCK)
                 else: logger.debug(event["content"])
                 continue
-            
+
             case "heal":
                 if slog:
                     await slog.feed(event["content"], display=StreamTyperLogger.BLOCK)
@@ -313,7 +313,7 @@ async def stream_rule(
     headers = Channel.make_headers()
     payload = {
         "mode"      : mode,
-        "model_api" : model_api,
+        "llm_conf"  : model_api,
         "message"   : message,
         "metadata"  : metadata,
         "extras"    : {"context" : context}

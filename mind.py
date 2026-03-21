@@ -39,13 +39,13 @@ from engine.scaling import (
     PackItem, Pack
 )
 from engine.tinker import (
-    MindError, Active, Tooling, StreamTyperLogger
+    MindError, Active, Tooling, StreamTyperLogger, FileAssist
 )
 from engine.terminal import Terminal
 from engine.upgrade import Upgrade
 from mindcore import authorize
 from mindcore.parser import Parser
-from mindcore.profile import Preferences
+from mindcore.preference import Preferences
 from mindnova.report import Report
 from mindnova.request import EventReport
 from mindnova import (
@@ -120,7 +120,15 @@ class Mind(object):
     @staticmethod
     def ensure_model_api(model_api: dict[str, typing.Any]) -> None:
         """Ensure Model Key"""
-        api, model, apikey = model_api["api"], model_api["model"], model_api["apikey"]
+        primary = model_api.get("primary") if isinstance(model_api, dict) else None
+        if isinstance(primary, dict):
+            api    = primary.get("api")
+            model  = primary.get("model")
+            apikey = primary.get("apikey")
+        else:
+            api    = model_api["api"]
+            model  = model_api["model"]
+            apikey = model_api["apikey"]
 
         if api and model and apikey:
             return None
@@ -728,8 +736,10 @@ class Mind(object):
         ) -> None:
             """Loop with shared MCP session"""
 
-            model  = self.pref.model
-            apikey = self.pref.apikey
+            pref_cfg = self.pref.to_config()
+            primary  = pref_cfg.get("primary") or {}
+            model    = primary.get("model", "")
+            apikey   = primary.get("apikey", "")
 
             metadata = self.begin_session()
 
@@ -804,8 +814,6 @@ class Mind(object):
                 if m := re_apikey.match(raw):
                     apikey = await exchange(m, "apikey") or apikey
                     continue
-
-                # model_api = self.pref.to_config(model=model, apikey=apikey)
 
                 if tag == "CHAT":
                     await self.with_mcp_guard(
@@ -1344,17 +1352,6 @@ async def main() -> None:
     pref_file = os.path.join(initial_source, const.SRC_OPERA_PLACE, const.PREF)
     pref = Preferences(pref_file)
 
-    if cmd_lines.pref:
-        return await pref.view_pref()
-
-    # Notes: ========== 授权流程 ==========
-    lic_file = Path(src_opera_place) / const.LIC_FILE
-
-    if apply_code := cmd_lines.apply:
-        return await authorize.receive_license(apply_code, lic_file)
-
-    await authorize.verify_license(lic_file)
-
     # Notes: ========== 工具路径设置 ==========
     if platform == "win32":
         supports = os.path.join(turbo, "windows").format()
@@ -1367,6 +1364,23 @@ async def main() -> None:
 
     for tls in (tools := [helix]):
         os.environ["PATH"] = os.path.dirname(tls) + env_symbol + os.environ.get("PATH", "")
+
+    # Notes: ========== 启动命令 ==========
+    launch_cmd = [helix, "--level", level]
+
+    if cmd_lines.pref:
+        server: ServerManage = ServerManage(launch_cmd)
+        await server.ensure_running()
+        await server.close()
+        return await FileAssist.open_url("http://127.0.0.1:3333/pref")
+
+    # Notes: ========== 授权流程 ==========
+    lic_file = Path(src_opera_place) / const.LIC_FILE
+
+    if apply_code := cmd_lines.apply:
+        return await authorize.receive_license(apply_code, lic_file)
+
+    await authorize.verify_license(lic_file)
 
     if cmd_lines.upgrade:
         up: Upgrade = Upgrade()
@@ -1403,12 +1417,10 @@ async def main() -> None:
         logger.debug(f"TLS: {tls}")
     logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}\n")
 
-    await pref.load_pref()
-
-    launch_cmd = [helix, "--level", level]
     server: ServerManage = ServerManage(launch_cmd)
     await server.ensure_running()
     await server.close()
+    await pref.load_pref()
 
     positions = (
         cmd_lines.chat, cmd_lines.fast, cmd_lines.plan,

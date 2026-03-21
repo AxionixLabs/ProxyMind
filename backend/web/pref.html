@@ -1,0 +1,906 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="icon" type="image/png" href="/static/favicon-96x96.png" sizes="96x96" />
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+  <link rel="shortcut icon" href="/static/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-title" content="Helix" />
+  <link rel="manifest" href="/static/site.webmanifest" />
+  <title>Helix Pref</title>
+  <style>
+    :root{
+      --bg:#05060a;
+      --fg:#d7f7ff;
+      --muted:#89a3ad;
+      --line:rgba(255,255,255,.08);
+      --glow:rgba(92,255,214,.35);
+      --accent:#5cffd6;
+      --accent2:#7aa7ff;
+      --warn:#ffd27a;
+      --danger:#ff5c9a;
+      --shadow:0 30px 90px rgba(0,0,0,.65);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      color:var(--fg);
+      background:
+        radial-gradient(1200px 700px at 20% 10%, rgba(122,167,255,.12), transparent 55%),
+        radial-gradient(900px 600px at 80% 30%, rgba(92,255,214,.12), transparent 60%),
+        radial-gradient(700px 500px at 55% 80%, rgba(255,92,154,.10), transparent 60%),
+        var(--bg);
+      font:14px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    }
+    .grid{
+      position:fixed; inset:0;
+      background-image:
+        linear-gradient(to right, rgba(255,255,255,.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,.04) 1px, transparent 1px);
+      background-size:44px 44px;
+      mask-image: radial-gradient(600px 500px at 50% 20%, black 40%, transparent 80%);
+      pointer-events:none;
+      opacity:.55;
+    }
+    .wrap{
+      width:min(980px, calc(100% - 32px));
+      margin:28px auto 40px;
+      position:relative;
+    }
+    .card{
+      border:1px solid var(--line);
+      border-radius:18px;
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      box-shadow:var(--shadow);
+      box-shadow:
+        0 30px 90px rgba(0,0,0,.65),
+        0 0 0 1px rgba(92,255,214,.06) inset;
+      backdrop-filter:blur(10px);
+      overflow:hidden;
+      position:relative;
+    }
+    .card::before{
+      content:"";
+      position:absolute; inset:0;
+      background:
+        radial-gradient(700px 300px at 20% 0%, rgba(92,255,214,.12), transparent 55%),
+        radial-gradient(600px 260px at 100% 10%, rgba(122,167,255,.10), transparent 60%);
+      pointer-events:none;
+    }
+    .bar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      padding:15px 18px;
+      border-bottom:1px solid rgba(255,255,255,.06);
+      background:rgba(0,0,0,.16);
+    }
+    .dots{display:flex; gap:8px}
+    .dots i{width:10px; height:10px; border-radius:999px; display:block}
+    .dots i:nth-child(1){background:#ff6f98}
+    .dots i:nth-child(2){background:#ffc86f}
+    .dots i:nth-child(3){background:#6fffd1}
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:6px 10px;
+      border-radius:999px;
+      font-size:12px;
+      color:var(--muted);
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(0,0,0,.16);
+    }
+    .pad{padding:22px}
+    .hero-shell{
+      width:100%;
+    }
+    .eyebrow{
+      color:var(--accent);
+      letter-spacing:.16em;
+      text-transform:uppercase;
+      font-size:12px;
+    }
+    h1{
+      margin:10px 0 0;
+      font-size:34px;
+      letter-spacing:.12em;
+      text-transform:uppercase;
+      text-shadow: 0 0 18px rgba(92,255,214,.22);
+    }
+    .signal-title{
+      position:relative;
+      display:inline-block;
+      padding:0 0 10px;
+      color:rgba(215,247,255,.96);
+      overflow:hidden;
+    }
+    .signal-title::before{
+      content:attr(data-text);
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      color:transparent;
+      background:linear-gradient(
+        115deg,
+        transparent 0%,
+        transparent 36%,
+        rgba(255,255,255,.92) 48%,
+        rgba(92,255,214,.92) 52%,
+        transparent 64%,
+        transparent 100%
+      );
+      background-size:220% 100%;
+      -webkit-background-clip:text;
+      background-clip:text;
+      animation:titleSweep 4.8s ease-in-out infinite;
+      opacity:.95;
+    }
+    .signal-title::after{
+      content:"";
+      position:absolute;
+      left:0;
+      right:0;
+      bottom:0;
+      height:2px;
+      border-radius:999px;
+      background:
+        linear-gradient(90deg, rgba(122,167,255,.18), rgba(92,255,214,.88) 50%, rgba(122,167,255,.18));
+      box-shadow:
+        0 0 0 1px rgba(92,255,214,.06),
+        0 0 16px rgba(92,255,214,.22);
+      transform-origin:left center;
+      animation:titleBeam 3.8s ease-in-out infinite;
+    }
+    @keyframes titleSweep{
+      0%, 16%{
+        background-position:160% 0;
+        opacity:0;
+      }
+      28%{
+        opacity:.98;
+      }
+      52%{
+        background-position:30% 0;
+        opacity:.9;
+      }
+      72%, 100%{
+        background-position:-80% 0;
+        opacity:0;
+      }
+    }
+    @keyframes titleBeam{
+      0%, 100%{
+        transform:scaleX(.22);
+        opacity:.45;
+      }
+      45%{
+        transform:scaleX(1);
+        opacity:1;
+      }
+      70%{
+        transform:scaleX(.72);
+        opacity:.7;
+      }
+    }
+    .sub{
+      margin:14px 0 0;
+      color:var(--muted);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .hero-actions{
+      display:grid;
+      grid-template-columns:repeat(3, minmax(0, 1fr));
+      gap:12px;
+      margin-top:20px;
+      width:min(560px, 100%);
+    }
+    .btn{
+      appearance:none;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(0,0,0,.14);
+      color:var(--fg);
+      text-decoration:none;
+      padding:11px 14px;
+      border-radius:14px;
+      font-size:13px;
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      width:auto;
+      min-width:160px;
+      box-shadow: 0 0 0 1px rgba(92,255,214,.05) inset;
+      transition:transform .12s ease, border-color .12s ease, background .12s ease;
+    }
+    .btn:hover{transform:translateY(-1px); border-color:rgba(111,255,209,.38)}
+    .btn.primary{
+      background: rgba(0,0,0,.14);
+    }
+    .btn[disabled]{
+      opacity:.6;
+      cursor:default;
+      transform:none;
+    }
+    .btn.is-busy{
+      border-color:rgba(92,255,214,.28);
+      box-shadow:
+        0 0 0 1px rgba(92,255,214,.10) inset,
+        0 0 18px rgba(92,255,214,.10);
+    }
+    .hero{
+      margin-bottom:16px;
+    }
+    .layout{
+      display:block;
+    }
+    .section{
+      padding:22px;
+    }
+    .section-shell{
+      width:100%;
+    }
+    .section-head{
+      display:flex;
+      align-items:flex-start;
+      flex-direction:column;
+      gap:10px;
+      margin-bottom:24px;
+    }
+    .section-title{
+      margin:0;
+      font-size:16px;
+      letter-spacing:.02em;
+    }
+    .section-desc{
+      margin:6px 0 0;
+      color:var(--muted);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .fields{
+      display:grid;
+      gap:22px;
+    }
+    .field{
+      display:grid;
+      gap:10px;
+    }
+    .field + .field{
+      margin-top:8px;
+    }
+    .field.split{
+      grid-template-columns: 1fr 1fr;
+      gap:18px;
+    }
+    .field.split + .field,
+    .field + .field.split{
+      margin-top:12px;
+    }
+    .inline-pair{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:18px;
+    }
+    .inline-pair + .field{
+      margin-top:12px;
+    }
+    .pair-item{
+      display:grid;
+      gap:10px;
+      min-width:0;
+    }
+    .pair-item .label-row{
+      min-height:18px;
+    }
+    .label-row{
+      display:flex;
+      align-items:flex-end;
+      justify-content:flex-start;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    label{
+      font-size:13px;
+      color:var(--fg);
+    }
+    .hint{
+      color:var(--muted);
+      font-size:12px;
+      opacity:.78;
+    }
+    input, select, textarea{
+      width:100%;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(4,10,16,.75);
+      color:var(--fg);
+      border-radius:14px;
+      padding:12px 13px;
+      min-height:48px;
+      font:inherit;
+      outline:none;
+      transition:border-color .12s ease, box-shadow .12s ease, background .12s ease;
+    }
+    select{
+      padding-right:38px;
+      line-height:1.2;
+      background-image:
+        linear-gradient(45deg, transparent 50%, rgba(215,247,255,.78) 50%),
+        linear-gradient(135deg, rgba(215,247,255,.78) 50%, transparent 50%);
+      background-position:
+        calc(100% - 18px) calc(50% - 2px),
+        calc(100% - 12px) calc(50% - 2px);
+      background-size:6px 6px, 6px 6px;
+      background-repeat:no-repeat;
+      appearance:none;
+      -webkit-appearance:none;
+      -moz-appearance:none;
+    }
+    textarea{
+      min-height:104px;
+      resize:vertical;
+    }
+    input:focus, select:focus, textarea:focus{
+      border-color:rgba(111,255,209,.48);
+      box-shadow:0 0 0 3px rgba(111,255,209,.10);
+      background:rgba(5,12,18,.9);
+    }
+    .group{
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:14px;
+      padding:20px;
+      background: rgba(0,0,0,.14);
+      box-shadow: 0 0 0 1px rgba(92,255,214,.05) inset;
+    }
+    .group-title{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:18px;
+    }
+    .group-title strong{
+      font-size:15px;
+      letter-spacing:.02em;
+    }
+    .note{
+      margin-top:16px;
+      padding:12px 14px;
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:12px;
+      background:rgba(0,0,0,.14);
+      color:var(--muted);
+      font-size:12px;
+    }
+    .note.ok{
+      color:#b7ffd9;
+      border-color:rgba(92,255,214,.22);
+    }
+    .note.err{
+      color:#ffd1df;
+      border-color:rgba(255,92,154,.24);
+    }
+    .toast-stage{
+      position:fixed;
+      inset:0;
+      z-index:60;
+      display:grid;
+      place-items:center;
+      padding:24px;
+      pointer-events:none;
+    }
+    .toast{
+      width:min(540px, calc(100vw - 40px));
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:24px;
+      background:
+        radial-gradient(520px 220px at 20% 0%, rgba(92,255,214,.14), transparent 60%),
+        radial-gradient(420px 200px at 100% 10%, rgba(122,167,255,.12), transparent 60%),
+        rgba(6,12,18,.9);
+      box-shadow:
+        0 28px 80px rgba(0,0,0,.48),
+        0 0 0 1px rgba(92,255,214,.07) inset;
+      padding:20px 22px 20px;
+      color:var(--fg);
+      opacity:0;
+      transform:translateY(18px) scale(.965);
+      transition:opacity .26s ease, transform .26s ease;
+      backdrop-filter:blur(12px);
+      overflow:hidden;
+      position:relative;
+    }
+    .toast::before{
+      content:"";
+      position:absolute;
+      inset:auto -10% 0 -10%;
+      height:2px;
+      background:linear-gradient(90deg, transparent, rgba(92,255,214,.85), transparent);
+      box-shadow:0 0 18px rgba(92,255,214,.45);
+      animation: toastSweep 1.8s linear infinite;
+      opacity:.8;
+    }
+    .toast::after{
+      content:"";
+      position:absolute;
+      inset:50% auto auto 50%;
+      width:24px;
+      height:24px;
+      border-radius:999px;
+      border:1px solid rgba(92,255,214,.38);
+      transform:translate(-50%, -50%) scale(.2);
+      opacity:0;
+      pointer-events:none;
+    }
+    @keyframes toastSweep{
+      0%{transform:translateX(-28%)}
+      100%{transform:translateX(28%)}
+    }
+    .toast.show{
+      opacity:1;
+      transform:translateY(0) scale(1);
+    }
+    .toast.ok{
+      border-color:rgba(92,255,214,.24);
+    }
+    .toast.ok.show::after{
+      animation: toastBurst .55s ease-out 1;
+    }
+    .toast.err{
+      border-color:rgba(255,92,154,.28);
+      background:
+        radial-gradient(520px 220px at 20% 0%, rgba(255,92,154,.16), transparent 60%),
+        radial-gradient(420px 200px at 100% 10%, rgba(122,167,255,.10), transparent 60%),
+        rgba(20,8,14,.92);
+    }
+    .toast.err.show{
+      animation: toastAlert .34s ease-out 1, toastErrPulse 1.2s ease-in-out 2;
+    }
+    .toast.err::after{
+      border-color:rgba(255,92,154,.42);
+    }
+    .toast-head{
+      display:grid;
+      grid-template-columns:minmax(0, 1fr) auto;
+      align-items:center;
+      column-gap:14px;
+      position:relative;
+      z-index:1;
+    }
+    .toast-sig{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:7px 11px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(0,0,0,.18);
+      font-size:11px;
+      color:var(--muted);
+      letter-spacing:.18em;
+      text-transform:uppercase;
+      width:max-content;
+      min-width:0;
+      line-height:1;
+    }
+    .toast-led{
+      width:8px;
+      height:8px;
+      border-radius:999px;
+      background:var(--accent);
+      box-shadow:0 0 0 3px rgba(92,255,214,.14), 0 0 14px rgba(92,255,214,.45);
+    }
+    .toast.err .toast-led{
+      background:var(--danger);
+      box-shadow:0 0 0 3px rgba(255,92,154,.14), 0 0 14px rgba(255,92,154,.45);
+    }
+    .toast-mark{
+      justify-self:end;
+      font-size:12px;
+      color:var(--accent);
+      letter-spacing:.22em;
+      text-transform:uppercase;
+      line-height:1;
+      text-align:right;
+      white-space:nowrap;
+      opacity:.92;
+    }
+    .toast.err .toast-mark{
+      color:var(--danger);
+    }
+    .toast-title{
+      display:block;
+      margin-top:16px;
+      font-size:24px;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      line-height:1.1;
+      position:relative;
+      z-index:1;
+    }
+    .toast-body{
+      display:block;
+      max-width:34ch;
+      margin-top:10px;
+      font-size:13px;
+      color:var(--muted);
+      line-height:1.6;
+      position:relative;
+      z-index:1;
+    }
+    @keyframes toastBurst{
+      0%{
+        opacity:.45;
+        transform:translate(-50%, -50%) scale(.2);
+      }
+      100%{
+        opacity:0;
+        transform:translate(-50%, -50%) scale(18);
+      }
+    }
+    @keyframes toastAlert{
+      0%, 100%{transform:translateY(0) scale(1)}
+      20%{transform:translateY(0) translateX(-4px) scale(1.01)}
+      40%{transform:translateY(0) translateX(4px) scale(1.01)}
+      60%{transform:translateY(0) translateX(-2px) scale(1)}
+      80%{transform:translateY(0) translateX(2px) scale(1)}
+    }
+    @keyframes toastErrPulse{
+      0%, 100%{box-shadow:0 28px 80px rgba(0,0,0,.48), 0 0 0 1px rgba(255,92,154,.10) inset}
+      50%{box-shadow:0 28px 80px rgba(0,0,0,.48), 0 0 0 1px rgba(255,92,154,.18) inset, 0 0 26px rgba(255,92,154,.16)}
+    }
+    .footer{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+      padding:16px 22px 22px;
+      border-top:1px solid rgba(255,255,255,.06);
+      color:var(--muted);
+      font-size:12px;
+    }
+    .status{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+    }
+    .led{
+      width:8px;
+      height:8px;
+      border-radius:999px;
+      background:var(--accent);
+      box-shadow:0 0 0 3px rgba(111,255,209,.12), 0 0 16px rgba(111,255,209,.44);
+    }
+    @media (max-width: 980px){
+      .hero-actions,
+      .field.split,
+      .inline-pair{
+        grid-template-columns:1fr;
+      }
+    }
+    @media (max-width: 640px){
+      .bar,
+      .footer{
+        flex-direction:column;
+        align-items:flex-start;
+      }
+      .section-shell,
+      .hero-shell{
+        width:100%;
+      }
+    }
+    @media (prefers-reduced-motion: reduce){
+      .signal-title::before,
+      .signal-title::after{
+        animation:none;
+      }
+      .signal-title::before{opacity:0}
+    }
+  </style>
+</head>
+<body>
+  <div class="grid"></div>
+  <div class="toast-stage" id="toast-stage" aria-live="polite" aria-atomic="true"></div>
+
+  <main class="wrap">
+    <section class="hero">
+      <div class="card">
+        <div class="bar">
+          <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+          <div class="chip">local preferences</div>
+        </div>
+        <div class="pad">
+          <div class="hero-shell">
+            <div class="eyebrow">Preferences</div>
+            <h1><span class="signal-title" data-text="Model Settings">Model Settings</span></h1>
+            <p class="sub">
+              两组本地模型槽位，直接映射到 pref。
+            </p>
+            <div class="hero-actions">
+              <button class="btn primary" type="button" id="save-pref">Save Preferences</button>
+              <button class="btn" type="button" id="reload-pref">Reload Draft</button>
+              <a class="btn" href="/">Back To Index</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="layout">
+      <div class="card">
+        <div class="bar">
+          <div class="chip">Preference Form</div>
+          <div class="chip">v__APP_VERSION__</div>
+        </div>
+        <div class="section">
+          <div class="section-shell">
+            <div class="section-head">
+              <h2 class="section-title">Provider And Model Settings</h2>
+              <p class="section-desc">
+                两个独立槽位，各自维护 provider 和 model。
+              </p>
+              <div class="chip">local only</div>
+            </div>
+
+            <form class="fields" id="pref-form">
+              <div class="group">
+                <div class="group-title">
+                  <strong>Primary Model</strong>
+                  <span class="chip">slot 1</span>
+                </div>
+                <div class="inline-pair">
+                  <div class="pair-item">
+                    <div class="label-row">
+                      <label for="primary-api">Provider</label>
+                      <span class="hint">single source</span>
+                    </div>
+                    <select id="primary-api" name="primary_api">
+                      <option>OpenAI</option>
+                      <option>Groq</option>
+                    </select>
+                  </div>
+                  <div class="pair-item">
+                    <div class="label-row">
+                      <label for="primary-type">Model Type</label>
+                      <span class="hint">capability lane</span>
+                    </div>
+                    <select id="primary-type" name="primary_type">
+                      <option>Text</option>
+                      <option>Multimodal</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="field">
+                  <div class="label-row">
+                    <label for="primary-base-url">Base URL</label>
+                    <span class="hint">optional override</span>
+                  </div>
+                  <input id="primary-base-url" name="primary_base_url" placeholder="https://api.example.com/v1" />
+                </div>
+                <div class="field">
+                  <div class="label-row">
+                    <label for="primary-api-key">API Key</label>
+                    <span class="hint">local secret only</span>
+                  </div>
+                  <input id="primary-api-key" name="primary_apikey" type="password" placeholder="sk-..." />
+                </div>
+                <div class="field">
+                  <div class="label-row">
+                    <label for="primary-model">Model Name</label>
+                    <span class="hint">runtime target</span>
+                  </div>
+                  <input id="primary-model" name="primary_model" placeholder="gpt-5 / gpt-4.1 / qwen-vl-max" />
+                </div>
+              </div>
+
+              <div class="group">
+                <div class="group-title">
+                  <strong>Secondary Model</strong>
+                  <span class="chip">slot 2</span>
+                </div>
+                <div class="inline-pair">
+                  <div class="pair-item">
+                    <div class="label-row">
+                      <label for="secondary-api">Provider</label>
+                      <span class="hint">single source</span>
+                    </div>
+                    <select id="secondary-api" name="secondary_api">
+                      <option>OpenAI</option>
+                      <option>Groq</option>
+                    </select>
+                  </div>
+                  <div class="pair-item">
+                    <div class="label-row">
+                      <label for="secondary-type">Model Type</label>
+                      <span class="hint">capability lane</span>
+                    </div>
+                    <select id="secondary-type" name="secondary_type">
+                      <option>Text</option>
+                      <option>Multimodal</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="field">
+                  <div class="label-row">
+                    <label for="secondary-base-url">Base URL</label>
+                    <span class="hint">optional override</span>
+                  </div>
+                  <input id="secondary-base-url" name="secondary_base_url" placeholder="https://api.example.com/v1" />
+                </div>
+                <div class="field">
+                  <div class="label-row">
+                    <label for="secondary-api-key">API Key</label>
+                    <span class="hint">local secret only</span>
+                  </div>
+                  <input id="secondary-api-key" name="secondary_apikey" type="password" placeholder="sk-..." />
+                </div>
+                <div class="field">
+                  <div class="label-row">
+                    <label for="secondary-model">Model Name</label>
+                    <span class="hint">runtime target</span>
+                  </div>
+                  <input id="secondary-model" name="secondary_model" placeholder="gpt-5 / gpt-4.1 / qwen-vl-max" />
+                </div>
+              </div>
+            </form>
+
+            <div class="note" id="pref-note">
+              Local draft ready. Save will write to the local pref file.
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <div class="status"><span class="led"></span><span id="pref-status">Local pref connected.</span></div>
+          <div>Helix local workspace</div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script>
+    const form = document.getElementById("pref-form");
+    const saveButton = document.getElementById("save-pref");
+    const reloadButton = document.getElementById("reload-pref");
+    const note = document.getElementById("pref-note");
+    const status = document.getElementById("pref-status");
+    const toastStage = document.getElementById("toast-stage");
+
+    function setMessage(text, kind = "") {
+      note.textContent = text;
+      note.className = kind ? `note ${kind}` : "note";
+    }
+
+    function showToast(title, detail, kind = "") {
+      toastStage.innerHTML = "";
+      const toast = document.createElement("div");
+      toast.className = kind ? `toast ${kind}` : "toast";
+      toast.innerHTML = `
+        <div class="toast-head">
+          <div class="toast-sig"><span class="toast-led"></span><span>SIGNAL</span></div>
+          <div class="toast-mark">${kind === "err" ? "Alert" : "Confirmed"}</div>
+        </div>
+        <strong class="toast-title">${title}</strong>
+        <span class="toast-body">${detail}</span>
+      `;
+      toastStage.appendChild(toast);
+
+      requestAnimationFrame(() => {
+        toast.classList.add("show");
+      });
+
+      setTimeout(() => {
+        toast.classList.remove("show");
+        setTimeout(() => toast.remove(), 220);
+      }, 2400);
+    }
+
+    function setBusy(busy) {
+      saveButton.disabled = busy;
+      saveButton.classList.toggle("is-busy", busy);
+      saveButton.setAttribute("aria-busy", busy ? "true" : "false");
+    }
+
+    function fieldValue(id, value) {
+      const target = document.getElementById(id);
+      if (target) target.value = value || "";
+    }
+
+    function applyPref(data) {
+      const primary = data.primary || {};
+      const secondary = data.secondary || {};
+
+      fieldValue("primary-api", primary.api);
+      fieldValue("primary-type", primary.type || "Text");
+      fieldValue("primary-base-url", primary.base_url);
+      fieldValue("primary-api-key", primary.apikey);
+      fieldValue("primary-model", primary.model);
+
+      fieldValue("secondary-api", secondary.api);
+      fieldValue("secondary-type", secondary.type || "Text");
+      fieldValue("secondary-base-url", secondary.base_url);
+      fieldValue("secondary-api-key", secondary.apikey);
+      fieldValue("secondary-model", secondary.model);
+    }
+
+    function collectSlot(prefix) {
+      return {
+        api      : document.getElementById(`${prefix}-api`).value.trim(),
+        type     : document.getElementById(`${prefix}-type`).value,
+        base_url : document.getElementById(`${prefix}-base-url`).value.trim(),
+        apikey   : document.getElementById(`${prefix}-api-key`).value.trim(),
+        model    : document.getElementById(`${prefix}-model`).value.trim()
+      };
+    }
+
+    function collectPref() {
+      const primary = collectSlot("primary");
+      const secondary = collectSlot("secondary");
+
+      return {
+        schema_version : 2,
+        primary,
+        secondary
+      };
+    }
+
+    async function loadPref(options = {}) {
+      const {silent = false} = options;
+      setMessage("Loading local preferences...");
+      try {
+        const resp = await fetch("/api/pref", {cache: "no-store"});
+        if (!resp.ok) throw new Error("load failed");
+        const payload = await resp.json();
+        applyPref(payload.data || {});
+        status.textContent = "Local pref loaded.";
+        setMessage("Local preferences loaded.", "ok");
+        if (!silent) {
+          showToast("Reloaded", "Preferences loaded from local storage.", "ok");
+        }
+      } catch (_err) {
+        status.textContent = silent ? "Local pref pending." : "Local pref unavailable.";
+        setMessage(
+          silent ? "Local preferences will appear after the first successful save." : "Unable to load local preferences.",
+          silent ? "" : "err"
+        );
+        if (!silent) {
+          showToast("Reload Failed", "Unable to load local preferences.", "err");
+        }
+      }
+    }
+
+    async function savePref() {
+      setBusy(true);
+      setMessage("Saving local preferences...");
+      try {
+        const resp = await fetch("/api/pref", {
+          method  : "PUT",
+          headers : {"Content-Type": "application/json"},
+          body    : JSON.stringify(collectPref())
+        });
+        if (!resp.ok) throw new Error("save failed");
+        const payload = await resp.json();
+        applyPref(payload.data || {});
+        status.textContent = "Local pref saved.";
+        setMessage("Local preferences saved.", "ok");
+        showToast("Saved", "Preferences written to local storage.", "ok");
+      } catch (_err) {
+        status.textContent = "Local pref save failed.";
+        setMessage("Unable to save local preferences.", "err");
+        showToast("Save Failed", "Unable to save local preferences.", "err");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    saveButton.addEventListener("click", savePref);
+    reloadButton.addEventListener("click", () => loadPref());
+    loadPref({silent: true});
+  </script>
+</body>
+</html>

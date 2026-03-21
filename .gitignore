@@ -67,6 +67,7 @@ Thumbs.db
 # ========================
 applications/
 backend/requires/
+backend/data/
 data/
 schematic/supports/
 Structure/

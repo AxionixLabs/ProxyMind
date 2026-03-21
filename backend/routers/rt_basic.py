@@ -13,6 +13,9 @@ from fastapi import (
 )
 from fastapi.responses import Response
 from backend.utilities import const
+from backend.utilities.prefs import (
+    load_pref, save_pref
+)
 
 basic_router = APIRouter(tags=["Basic"])
 
@@ -23,6 +26,31 @@ async def api_root() -> Response:
     html = html.read_text(encoding=const.CHARSET, errors="replace")
     html = html.replace("__APP_VERSION__", const.APP_VERSION)
     return Response(html, media_type="text/html; charset=utf-8")
+
+
+@basic_router.get(path="/pref", include_in_schema=False)
+async def api_pref_page() -> Response:
+    html = Path(__file__).resolve().parent.parent / "web" / "pref.html"
+    html = html.read_text(encoding=const.CHARSET, errors="replace")
+    html = html.replace("__APP_VERSION__", const.APP_VERSION)
+    return Response(html, media_type="text/html; charset=utf-8")
+
+
+@basic_router.get(path="/api/pref", include_in_schema=False)
+async def api_pref_load() -> dict:
+    return {
+        "ok"   : True,
+        "data" : load_pref()
+    }
+
+
+@basic_router.put(path="/api/pref", include_in_schema=False)
+async def api_pref_save(request: Request) -> dict:
+    payload = await request.json()
+    return {
+        "ok"   : True,
+        "data" : save_pref(payload)
+    }
 
 
 @basic_router.get(path="/idle", include_in_schema=False)

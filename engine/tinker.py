@@ -92,6 +92,12 @@ class Active(object):
 class FileAssist(object):
     """FileAssist class."""
 
+    CHROME_CANDIDATES_WIN = (
+        os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+    )
+
     @staticmethod
     async def open(file: str) -> typing.Optional[str]:
         if sys.platform == "win32":
@@ -102,7 +108,35 @@ class FileAssist(object):
 
     @staticmethod
     async def open_url(url: str) -> None:
-        return await asyncio.to_thread(webbrowser.open, url)
+        if sys.platform == "darwin":
+            if os.path.exists("/Applications/Google Chrome.app"):
+                await Terminal.cmd_link(["open", "-a", "Google Chrome", url])
+                return None
+
+        elif sys.platform == "win32":
+            chrome = FileAssist._find_windows_chrome()
+            if chrome:
+                await Terminal.cmd_link([chrome, url])
+                return None
+
+        else:
+            for chrome_cmd in ("google-chrome", "google-chrome-stable", "chrome", "chromium", "chromium-browser"):
+                if shutil.which(chrome_cmd):
+                    await Terminal.cmd_link([chrome_cmd, url])
+                    return None
+
+        await asyncio.to_thread(webbrowser.open, url)
+
+    @staticmethod
+    def _find_windows_chrome() -> typing.Optional[str]:
+        chrome_exec = shutil.which("chrome") or shutil.which("chrome.exe")
+        if chrome_exec:
+            return chrome_exec
+
+        for candidate in FileAssist.CHROME_CANDIDATES_WIN:
+            if candidate and os.path.exists(candidate):
+                return candidate
+        return None
 
     @staticmethod
     def read_json(file: str) -> dict:

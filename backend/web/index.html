@@ -17,41 +17,55 @@
       --fg:#d7f7ff;
       --muted:#89a3ad;
       --line:rgba(255,255,255,.08);
-      --glow:rgba(92,255,214,.35);
       --accent:#5cffd6;
       --accent2:#7aa7ff;
-      --warn:#ffd27a;
-      --danger:#ff5c9a;
       --ok:#5cff7a;
+      --danger:#ff5c9a;
     }
     *{box-sizing:border-box}
-    html,body{height:100%}
+    html,body{min-height:100%}
     body{
       margin:0;
-      background: radial-gradient(1200px 700px at 20% 10%, rgba(122,167,255,.12), transparent 55%),
-                  radial-gradient(900px 600px at 80% 30%, rgba(92,255,214,.12), transparent 60%),
-                  radial-gradient(700px 500px at 55% 80%, rgba(255,92,154,.10), transparent 60%),
-                  var(--bg);
       color:var(--fg);
-      font: 14px/1.35 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
-      overflow:hidden;
+      background:
+        radial-gradient(1200px 700px at 20% 10%, rgba(122,167,255,.12), transparent 55%),
+        radial-gradient(900px 600px at 80% 30%, rgba(92,255,214,.12), transparent 60%),
+        radial-gradient(700px 500px at 55% 80%, rgba(255,92,154,.10), transparent 60%),
+        var(--bg);
+      font:14px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
     }
-
-    /* subtle grid */
+    .aurora{
+      position:fixed;
+      inset:-20% -10% auto -10%;
+      height:72vh;
+      background:
+        radial-gradient(40% 55% at 18% 24%, rgba(92,255,214,.16), transparent 68%),
+        radial-gradient(36% 48% at 76% 18%, rgba(122,167,255,.14), transparent 70%),
+        radial-gradient(28% 38% at 52% 10%, rgba(255,92,154,.10), transparent 72%);
+      filter:blur(24px);
+      opacity:.95;
+      pointer-events:none;
+      animation: auroraShift 16s ease-in-out infinite alternate;
+    }
+    @keyframes auroraShift{
+      0%{transform:translate3d(0, 0, 0) scale(1)}
+      50%{transform:translate3d(1.5%, 2%, 0) scale(1.04)}
+      100%{transform:translate3d(-2%, 4%, 0) scale(1.08)}
+    }
     .grid{
-      position:fixed; inset:0;
+      position:fixed;
+      inset:0;
       background-image:
         linear-gradient(to right, rgba(255,255,255,.04) 1px, transparent 1px),
         linear-gradient(to bottom, rgba(255,255,255,.04) 1px, transparent 1px);
-      background-size: 44px 44px;
-      mask-image: radial-gradient(600px 500px at 50% 20%, black 40%, transparent 80%);
+      background-size:44px 44px;
+      mask-image: radial-gradient(680px 540px at 50% 18%, black 40%, transparent 82%);
       opacity:.55;
       pointer-events:none;
     }
-
-    /* scanlines */
     .scan{
-      position:fixed; inset:-60px 0;
+      position:fixed;
+      inset:-60px 0;
       background: repeating-linear-gradient(
         to bottom,
         rgba(255,255,255,.035),
@@ -59,8 +73,8 @@
         transparent 2px,
         transparent 6px
       );
-      opacity:.25;
-      mix-blend-mode: overlay;
+      opacity:.24;
+      mix-blend-mode:overlay;
       animation: scan 8s linear infinite;
       pointer-events:none;
     }
@@ -68,257 +82,73 @@
       0%{transform:translateY(-40px)}
       100%{transform:translateY(40px)}
     }
-
-    /* floating particles */
-    .p{
-      position:fixed; inset:0;
+    .rays{
+      position:fixed;
+      inset:-20% 0 auto 0;
+      height:56vh;
+      background:
+        linear-gradient(120deg, transparent 0%, rgba(92,255,214,.06) 34%, transparent 58%),
+        linear-gradient(70deg, transparent 8%, rgba(122,167,255,.06) 40%, transparent 64%);
+      mix-blend-mode:screen;
+      opacity:.65;
+      transform-origin:50% 0%;
+      animation: rayDrift 18s linear infinite;
       pointer-events:none;
-      opacity:.7;
+    }
+    @keyframes rayDrift{
+      0%{transform:translateX(-6%) skewY(-4deg)}
+      50%{transform:translateX(4%) skewY(-2deg)}
+      100%{transform:translateX(-6%) skewY(-4deg)}
+    }
+    .particles{
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      opacity:.72;
       filter: drop-shadow(0 0 10px rgba(92,255,214,.25));
     }
     .dot{
       position:absolute;
-      width:2px;height:2px;
+      width:2px;
+      height:2px;
       background:rgba(215,247,255,.85);
       border-radius:999px;
       animation: float var(--t) linear infinite;
-      transform: translateY(120vh);
+      transform:translateY(120vh);
     }
     @keyframes float{
       0%{transform:translateY(120vh) translateX(0)}
       100%{transform:translateY(-20vh) translateX(var(--dx))}
     }
-
-    /* layout */
     .wrap{
       position:relative;
-      height:100%;
+      width:min(980px, calc(100% - 32px));
+      margin:28px auto 32px;
+    }
+    .stack{
       display:grid;
-      place-items:center;
-      padding:28px;
+      gap:16px;
     }
-    .shell{
-      width:min(980px, 100%);
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:18px;
-    }
-    @media (max-width: 900px){
-      .shell{grid-template-columns: 1fr}
-    }
-
     .card{
       border:1px solid var(--line);
       border-radius:18px;
-      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
       box-shadow:
         0 30px 90px rgba(0,0,0,.65),
         0 0 0 1px rgba(92,255,214,.06) inset;
-      backdrop-filter: blur(10px);
+      backdrop-filter:blur(10px);
       overflow:hidden;
       position:relative;
     }
     .card::before{
       content:"";
-      position:absolute; inset:0;
-      background: radial-gradient(700px 300px at 20% 0%, rgba(92,255,214,.12), transparent 55%),
-                  radial-gradient(600px 260px at 100% 10%, rgba(122,167,255,.10), transparent 60%);
+      position:absolute;
+      inset:0;
+      background:
+        radial-gradient(700px 300px at 20% 0%, rgba(92,255,214,.12), transparent 55%),
+        radial-gradient(600px 260px at 100% 10%, rgba(122,167,255,.10), transparent 60%);
       pointer-events:none;
     }
-    .pad{padding:18px 18px 16px}
-    .bar{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      padding:14px 18px;
-      border-bottom:1px solid rgba(255,255,255,.06);
-      background:rgba(0,0,0,.18);
-    }
-    .dots{display:flex; gap:8px}
-    .dots i{width:10px;height:10px;border-radius:999px;display:inline-block}
-    .dots i:nth-child(1){background:rgba(255,92,154,.9)}
-    .dots i:nth-child(2){background:rgba(255,210,122,.9)}
-    .dots i:nth-child(3){background:rgba(92,255,122,.9)}
-    .chip{
-      font-size:12px;
-      color:var(--muted);
-      border:1px solid rgba(255,255,255,.09);
-      border-radius:999px;
-      padding:6px 10px;
-      background: rgba(0,0,0,.16);
-    }
-
-    /* Glitch title */
-    .title{
-      position:relative;
-      margin:0;
-      font-size:34px;
-      letter-spacing:.12em;
-      text-transform:uppercase;
-      text-shadow: 0 0 18px rgba(92,255,214,.22);
-    }
-    .glitch{
-      position:relative;
-      display:inline-block;
-    }
-    .glitch::before,
-    .glitch::after{
-      content:attr(data-text);
-      position:absolute; left:0; top:0;
-      opacity:.85;
-      clip-path: inset(0 0 0 0);
-      mix-blend-mode: screen;
-    }
-    .glitch::before{
-      transform:translateX(-1px);
-      color:rgba(122,167,255,.95);
-      animation: glitch1 2.4s infinite steps(10, end);
-    }
-    .glitch::after{
-      transform:translateX(1px);
-      color:rgba(92,255,214,.95);
-      animation: glitch2 2.0s infinite steps(11, end);
-    }
-    @keyframes glitch1{
-      0%{clip-path: inset(0 0 85% 0)}
-      10%{clip-path: inset(0 0 10% 0)}
-      20%{clip-path: inset(30% 0 55% 0)}
-      30%{clip-path: inset(65% 0 15% 0)}
-      40%{clip-path: inset(5% 0 75% 0)}
-      50%{clip-path: inset(55% 0 35% 0)}
-      60%{clip-path: inset(10% 0 60% 0)}
-      70%{clip-path: inset(75% 0 5% 0)}
-      80%{clip-path: inset(25% 0 50% 0)}
-      90%{clip-path: inset(45% 0 35% 0)}
-      100%{clip-path: inset(0 0 85% 0)}
-    }
-    @keyframes glitch2{
-      0%{clip-path: inset(80% 0 0 0)}
-      12%{clip-path: inset(20% 0 55% 0)}
-      24%{clip-path: inset(45% 0 35% 0)}
-      36%{clip-path: inset(10% 0 70% 0)}
-      48%{clip-path: inset(60% 0 15% 0)}
-      60%{clip-path: inset(30% 0 50% 0)}
-      72%{clip-path: inset(75% 0 5% 0)}
-      84%{clip-path: inset(5% 0 78% 0)}
-      100%{clip-path: inset(80% 0 0 0)}
-    }
-
-    .sub{
-      margin:10px 0 0;
-      color:var(--muted);
-      max-width: 52ch;
-    }
-
-    .kpis{
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap:10px;
-      margin-top:14px;
-    }
-    .kpi{
-      border:1px solid rgba(255,255,255,.08);
-      border-radius:14px;
-      padding:12px 12px;
-      background: rgba(0,0,0,.14);
-      box-shadow: 0 0 0 1px rgba(92,255,214,.05) inset;
-    }
-    .kpi .h{font-size:12px;color:var(--muted)}
-    .kpi .v{margin-top:6px;font-size:14px}
-    .pill{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      font-size:12px;
-      padding:6px 10px;
-      border-radius:999px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(0,0,0,.16);
-      color:var(--fg);
-    }
-    .led{
-      width:8px;height:8px;border-radius:999px;
-      background: var(--ok);
-      box-shadow: 0 0 0 3px rgba(92,255,122,.12), 0 0 14px rgba(92,255,122,.55);
-      animation: pulse 1.8s ease-in-out infinite;
-    }
-    @keyframes pulse{
-      0%,100%{transform:scale(1); opacity:1}
-      50%{transform:scale(.85); opacity:.75}
-    }
-
-    .actions{
-      display:flex;
-      flex-wrap:wrap;
-      gap:10px;
-      margin-top:14px;
-    }
-    .btn{
-      appearance:none;
-      border:1px solid rgba(255,255,255,.12);
-      background: rgba(0,0,0,.14);
-      color: var(--fg);
-      padding:10px 12px;
-      border-radius:12px;
-      text-decoration:none;
-      font-size:13px;
-      display:inline-flex;
-      align-items:center;
-      gap:10px;
-      cursor:pointer;
-      box-shadow: 0 0 0 1px rgba(92,255,214,.05) inset;
-      transition: transform .12s ease, border-color .12s ease;
-    }
-    .btn:hover{transform: translateY(-1px); border-color: rgba(92,255,214,.35)}
-    .btn:active{transform: translateY(0px)}
-    .tag{
-      font-size:11px;
-      color:rgba(0,0,0,.85);
-      padding:2px 8px;
-      border-radius:999px;
-      background: rgba(92,255,214,.9);
-      box-shadow: 0 0 14px rgba(92,255,214,.25);
-    }
-
-    /* right panel - "console" */
-    .console{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      background: rgba(0,0,0,.28);
-      border-top:1px solid rgba(255,255,255,.06);
-      padding:14px 18px 16px;
-    }
-    .line{display:flex; gap:10px; margin:6px 0; color:rgba(215,247,255,.92)}
-    .prompt{color:rgba(92,255,214,.95)}
-    .dim{color:rgba(137,163,173,.95)}
-    .mono{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-
-    .hint{
-      margin-top:12px;
-      border-top:1px dashed rgba(255,255,255,.10);
-      padding-top:12px;
-      color:var(--muted);
-      font-size:12px;
-    }
-
-    /* footer */
-    .foot{
-      position:fixed;
-      left:0; right:0; bottom:14px;
-      display:flex;
-      justify-content:center;
-      pointer-events:none;
-    }
-    .foot span{
-      pointer-events:auto;
-      color:rgba(137,163,173,.85);
-      font-size:12px;
-      border:1px solid rgba(255,255,255,.07);
-      background: rgba(0,0,0,.14);
-      padding:6px 10px;
-      border-radius:999px;
-    }
-
-    /* small "beam" */
     .beam{
       position:absolute;
       left:-20%;
@@ -332,143 +162,428 @@
       pointer-events:none;
     }
     @keyframes spin{to{transform:rotate(360deg)}}
+    .bar{
+      position:relative;
+      z-index:1;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      padding:14px 18px;
+      border-bottom:1px solid rgba(255,255,255,.06);
+      background:rgba(0,0,0,.18);
+    }
+    .dots{display:flex; gap:8px}
+    .dots i{width:10px; height:10px; border-radius:999px; display:block}
+    .dots i:nth-child(1){background:rgba(255,92,154,.9)}
+    .dots i:nth-child(2){background:rgba(255,210,122,.9)}
+    .dots i:nth-child(3){background:rgba(92,255,122,.9)}
+    .chip{
+      font-size:12px;
+      color:var(--muted);
+      border:1px solid rgba(255,255,255,.09);
+      border-radius:999px;
+      padding:6px 10px;
+      background:rgba(0,0,0,.16);
+    }
+    .pad{
+      position:relative;
+      z-index:1;
+      padding:20px 18px 18px;
+    }
+    .hero{
+      display:block;
+    }
+    .hero-main{
+      width:min(760px, 100%);
+    }
+    .title{
+      margin:0;
+      font-size:clamp(30px, 5vw, 40px);
+      letter-spacing:.12em;
+      text-transform:uppercase;
+      text-shadow:0 0 18px rgba(92,255,214,.22);
+    }
+    .glitch{
+      position:relative;
+      display:inline-block;
+    }
+    .glitch::before,
+    .glitch::after{
+      content:attr(data-text);
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      opacity:.72;
+      mix-blend-mode:screen;
+    }
+    .glitch::before{
+      color:rgba(122,167,255,.92);
+      transform:translateX(-1px);
+      clip-path:inset(0 0 0 0);
+      animation: glitchA 2.4s infinite steps(10, end);
+    }
+    .glitch::after{
+      color:rgba(92,255,214,.92);
+      transform:translateX(1px);
+      clip-path:inset(0 0 0 0);
+      animation: glitchB 2s infinite steps(11, end);
+    }
+    @keyframes glitchA{
+      0%{clip-path: inset(0 0 85% 0)}
+      10%{clip-path: inset(0 0 10% 0)}
+      20%{clip-path: inset(30% 0 55% 0)}
+      30%{clip-path: inset(65% 0 15% 0)}
+      40%{clip-path: inset(5% 0 75% 0)}
+      50%{clip-path: inset(55% 0 35% 0)}
+      60%{clip-path: inset(10% 0 60% 0)}
+      70%{clip-path: inset(75% 0 5% 0)}
+      80%{clip-path: inset(25% 0 50% 0)}
+      90%{clip-path: inset(45% 0 35% 0)}
+      100%{clip-path: inset(0 0 85% 0)}
+    }
+    @keyframes glitchB{
+      0%{clip-path: inset(80% 0 0 0)}
+      12%{clip-path: inset(20% 0 55% 0)}
+      24%{clip-path: inset(45% 0 35% 0)}
+      36%{clip-path: inset(10% 0 70% 0)}
+      48%{clip-path: inset(60% 0 15% 0)}
+      60%{clip-path: inset(30% 0 50% 0)}
+      72%{clip-path: inset(75% 0 5% 0)}
+      84%{clip-path: inset(5% 0 78% 0)}
+      100%{clip-path: inset(80% 0 0 0)}
+    }
+    .sub{
+      margin:10px 0 0;
+      max-width:42ch;
+      color:var(--muted);
+    }
+    .primary-action{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:14px;
+      margin-top:18px;
+      padding:16px;
+      min-height:92px;
+      border:1px solid rgba(92,255,214,.18);
+      border-radius:16px;
+      background:linear-gradient(135deg, rgba(0,0,0,.24), rgba(9,20,28,.44));
+      color:var(--fg);
+      text-decoration:none;
+      box-shadow:
+        0 0 0 1px rgba(92,255,214,.06) inset,
+        0 12px 32px rgba(0,0,0,.24);
+      transition:transform .12s ease, border-color .12s ease;
+    }
+    .primary-action > div{
+      flex:1 1 auto;
+      min-width:0;
+    }
+    .primary-action:hover{
+      transform:translateY(-1px);
+      border-color:rgba(92,255,214,.34);
+    }
+    .primary-action strong{
+      display:block;
+      font-size:15px;
+      font-weight:600;
+      letter-spacing:.02em;
+    }
+    .primary-action span{
+      display:block;
+      margin-top:6px;
+      color:rgba(215,247,255,.8);
+      font-size:12px;
+      line-height:1.45;
+    }
+    .primary-mark{
+      flex:0 0 auto;
+      font-size:11px;
+      color:var(--accent);
+      padding:4px 10px;
+      border-radius:999px;
+      background:rgba(92,255,214,.10);
+      border:1px solid rgba(92,255,214,.18);
+      box-shadow:0 0 14px rgba(92,255,214,.12);
+    }
+    .actions{
+      display:grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap:10px;
+      margin-top:12px;
+    }
+    @media (max-width: 760px){
+      .actions{grid-template-columns:1fr}
+    }
+    @media (max-width: 620px){
+      .actions{grid-template-columns:1fr}
+    }
+    .action{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      padding:14px;
+      min-height:92px;
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:14px;
+      background:rgba(0,0,0,.14);
+      color:var(--fg);
+      text-decoration:none;
+      transition:transform .12s ease, border-color .12s ease;
+      box-shadow:0 0 0 1px rgba(92,255,214,.05) inset;
+    }
+    .action > div{
+      flex:1 1 auto;
+      min-width:0;
+    }
+    .action:hover{
+      transform:translateY(-1px);
+      border-color:rgba(92,255,214,.35);
+    }
+    .action strong{
+      display:block;
+      font-size:15px;
+      font-weight:600;
+    }
+    .action span{
+      display:block;
+      margin-top:4px;
+      font-size:12px;
+      line-height:1.45;
+      color:var(--muted);
+    }
+    .tag{
+      flex:0 0 auto;
+      font-size:11px;
+      color:rgba(0,0,0,.85);
+      padding:2px 8px;
+      border-radius:999px;
+      background:rgba(92,255,214,.9);
+      box-shadow:0 0 14px rgba(92,255,214,.25);
+    }
+    .status-list{
+      display:flex;
+      align-items:center;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:18px;
+    }
+    .led{
+      width:8px;
+      height:8px;
+      border-radius:999px;
+      background:var(--ok);
+      box-shadow:0 0 0 3px rgba(92,255,122,.12), 0 0 14px rgba(92,255,122,.55);
+    }
+    .status-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 12px;
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:999px;
+      background:rgba(0,0,0,.14);
+      font-size:12px;
+      color:var(--fg);
+    }
+    .status-pill code{
+      color:var(--accent);
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+    .tip{
+      margin-top:10px;
+      max-width:62ch;
+      color:var(--muted);
+      font-size:12px;
+    }
+    .tip code{color:var(--accent2)}
+    .foot{
+      margin-top:8px;
+      text-align:center;
+      color:rgba(137,163,173,.85);
+      font-size:12px;
+    }
+    @media (prefers-reduced-motion: reduce){
+      .aurora,
+      .scan,
+      .rays,
+      .dot,
+      .beam,
+      .glitch::before,
+      .glitch::after{
+        animation:none !important;
+      }
+    }
   </style>
 </head>
 <body>
+  <div class="aurora"></div>
   <div class="grid"></div>
   <div class="scan"></div>
-
-  <div class="p" aria-hidden="true" id="particles"></div>
+  <div class="rays"></div>
+  <div class="particles" aria-hidden="true" id="particles"></div>
 
   <main class="wrap">
-    <section class="shell">
-      <!-- Left: Hero -->
+    <section class="stack">
       <div class="card">
         <div class="beam"></div>
         <div class="bar">
           <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
           <div class="chip">transport: streamable-http</div>
         </div>
+        <div class="pad hero">
+          <div class="hero-main">
+              <h1 class="title"><span class="glitch" data-text="HELIX">HELIX</span></h1>
+              <p class="sub">
+                Preferences and diagnostics.
+              </p>
 
-        <div class="pad">
-          <h1 class="title">
-            <span class="glitch" data-text="HELIX">HELIX</span>
-          </h1>
-          <p class="sub">
-            MCP Neural Core — automation
-          </p>
+              <div id="primary-entry"></div>
 
-          <div class="kpis">
-            <div class="kpi">
-              <div class="h">Status</div>
-              <div class="v">
-                <span class="pill"><span class="led"></span> online</span>
+              <div class="actions" id="secondary-entries"></div>
+
+              <div class="status-list">
+                <span class="status-pill" id="status-pill"><span class="led"></span><span id="ready-text">checking</span></span>
+                <span class="status-pill"><code>/mcp</code></span>
+                <span class="status-pill"><code>/pref</code></span>
+                <span class="status-pill" id="version-pill">v__APP_VERSION__</span>
               </div>
-            </div>
-            <div class="kpi">
-              <div class="h">Endpoints</div>
-              <div class="v">
-                <span class="pill">/idle</span>
-                <span class="pill">/ready</span>
-              </div>
-            </div>
-          </div>
 
-          <div class="actions">
-            <a class="btn" href="/idle">
-              <span class="tag">GET</span>
-              <span>idle</span>
-            </a>
-            <a class="btn" href="/ready">
-              <span class="tag">GET</span>
-              <span>ready</span>
-            </a>
-            <a class="btn" href="/docs">
-              <span class="tag">UI</span>
-              <span>OpenAPI</span>
-            </a>
-          </div>
-        </div>
-
-        <div class="console" role="region" aria-label="Helix console">
-          <div class="line"><span class="prompt">helix</span><span class="dim">::</span><span class="mono">boot</span></div>
-          <div class="line"><span class="dim">▸</span><span class="mono">mcp streamable-http mounted</span></div>
-          <div class="line"><span class="dim">▸</span><span class="mono">auth: enabled (tool endpoints)</span></div>
-          <div class="line"><span class="dim">▸</span><span class="mono">ready: public</span></div>
-          <div class="hint">
-            Tip: If you see <span style="color:var(--danger)">401 invalid_token</span> on <code>/mcp</code>, attach a valid bearer token.
-          </div>
-        </div>
-      </div>
-
-      <!-- Right: “Mission panel” -->
-      <div class="card">
-        <div class="bar">
-          <div class="chip">Mission Panel</div>
-          <div class="chip">Helix</div>
-        </div>
-        <div class="pad">
-          <p style="margin:0;color:var(--muted)">
-            This page is intentionally static. It exists for humans, not clients.
-          </p>
-
-          <div style="margin-top:14px; border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:12px; background:rgba(0,0,0,.12)">
-            <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap">
-              <div class="pill"><span class="led" style="background:var(--accent); box-shadow:0 0 0 3px rgba(92,255,214,.12), 0 0 14px rgba(92,255,214,.55)"></span> core</div>
-              <div class="pill"><span class="led" style="background:var(--accent2); box-shadow:0 0 0 3px rgba(122,167,255,.12), 0 0 14px rgba(122,167,255,.55)"></span> session</div>
-              <div class="pill"><span class="led" style="background:var(--warn); box-shadow:0 0 0 3px rgba(255,210,122,.10), 0 0 14px rgba(255,210,122,.40)"></span> tools</div>
-            </div>
-
-            <div style="margin-top:12px; color:rgba(215,247,255,.92); font-family:ui-monospace,monospace">
-              <div style="margin:6px 0"><span style="color:var(--accent)">/mcp</span>  — MCP transport (auth)</div>
-              <div style="margin:6px 0"><span style="color:var(--accent)">/idle</span>   — idle snapshot</div>
-              <div style="margin:6px 0"><span style="color:var(--accent)">/ready</span>  — readiness (public)</div>
-            </div>
-          </div>
-
-          <div style="margin-top:14px; color:var(--muted); font-size:12px">
-            Keyboard: <code>R</code> refresh · <code>I</code> idle · <code>Y</code> ready
+              <div class="tip" id="entry-tip"></div>
           </div>
         </div>
       </div>
     </section>
+
+    <div class="foot">HELIX · local shell · v__APP_VERSION__</div>
   </main>
 
-  <div class="foot"><span>HELIX · mcp service · v__APP_VERSION__</span></div>
-
   <script>
-    // particles (purely cosmetic)
     const host = document.getElementById("particles");
-    const W = () => window.innerWidth;
-    const H = () => window.innerHeight;
+    const width = () => window.innerWidth;
+    const primaryEntryHost = document.getElementById("primary-entry");
+    const secondaryEntriesHost = document.getElementById("secondary-entries");
+    const entryTipHost = document.getElementById("entry-tip");
+    const entryConfig = {
+      primary: {
+        title: "Preferences",
+        description: "Model slots and providers.",
+        href: "/pref",
+        tag: "PRIMARY"
+      },
+      secondary: [
+        {
+          title: "OpenAPI",
+          description: "API surface.",
+          href: "/docs",
+          tag: "UI"
+        },
+        {
+          title: "Readiness",
+          description: "Service status.",
+          href: "/ready",
+          tag: "GET"
+        },
+        {
+          title: "Idle Snapshot",
+          description: "Idle state.",
+          href: "/idle",
+          tag: "GET"
+        }
+      ],
+      tipLines: [
+        "If <code>/mcp</code> returns <span style=\"color:var(--danger)\">401 invalid_token</span>, attach a valid bearer token.",
+        "Keyboard: <code>R</code> refresh, <code>I</code> idle, <code>Y</code> ready."
+      ]
+    };
+
+    function renderPrimaryEntry(entry){
+      primaryEntryHost.innerHTML = `
+        <a class="primary-action" href="${entry.href}">
+          <div>
+            <strong>${entry.title}</strong>
+            <span>${entry.description}</span>
+          </div>
+          <span class="primary-mark">${entry.tag}</span>
+        </a>
+      `;
+    }
+
+    function renderSecondaryEntries(entries){
+      secondaryEntriesHost.innerHTML = entries.map((entry) => `
+        <a class="action" href="${entry.href}">
+          <div>
+            <strong>${entry.title}</strong>
+            <span>${entry.description}</span>
+          </div>
+          <span class="tag">${entry.tag}</span>
+        </a>
+      `).join("");
+    }
+
+    function renderTip(lines){
+      entryTipHost.innerHTML = lines.map((line) => `<div>${line}</div>`).join("");
+    }
 
     function spawn(n){
       host.innerHTML = "";
-      for(let i=0;i<n;i++){
-        const d=document.createElement("div");
-        d.className="dot";
-        const x=Math.random()*W();
-        const t= 6 + Math.random()*10;      // duration
-        const dx = (Math.random()*2-1)*60;  // drift
-        const delay = -Math.random()*t;
-        d.style.left = x+"px";
-        d.style.top = (Math.random()*H())+"px";
-        d.style.setProperty("--t", t+"s");
-        d.style.setProperty("--dx", dx+"px");
-        d.style.animationDelay = delay+"s";
+      for(let i = 0; i < n; i += 1){
+        const d = document.createElement("div");
+        d.className = "dot";
+        const x = Math.random() * width();
+        const t = 6 + Math.random() * 10;
+        const dx = (Math.random() * 2 - 1) * 60;
+        const delay = -Math.random() * t;
+        d.style.left = x + "px";
+        d.style.top = (Math.random() * window.innerHeight) + "px";
+        d.style.setProperty("--t", t + "s");
+        d.style.setProperty("--dx", dx + "px");
+        d.style.animationDelay = delay + "s";
         host.appendChild(d);
       }
     }
-    spawn(Math.min(110, Math.floor(window.innerWidth/10)));
 
-    window.addEventListener("resize", () => spawn(Math.min(110, Math.floor(window.innerWidth/10))));
+    renderPrimaryEntry(entryConfig.primary);
+    renderSecondaryEntries(entryConfig.secondary);
+    renderTip(entryConfig.tipLines);
+    spawn(Math.min(110, Math.floor(window.innerWidth / 10)));
+    window.addEventListener("resize", () => {
+      spawn(Math.min(110, Math.floor(window.innerWidth / 10)));
+    });
 
-    // keyboard shortcuts
+    async function loadStatus(){
+      const readyText = document.getElementById("ready-text");
+      const versionPill = document.getElementById("version-pill");
+
+      try{
+        const readyResp = await fetch("/ready", {cache: "no-store"});
+        readyText.textContent = readyResp.ok ? "online" : "degraded";
+      }catch(_err){
+        readyText.textContent = "offline";
+      }
+
+      try{
+        const versionResp = await fetch("/version", {cache: "no-store"});
+        if(versionResp.ok){
+          const payload = await versionResp.json();
+          if(payload.version){
+            versionPill.textContent = "v" + payload.version;
+          }
+        }
+      }catch(_err){
+        versionPill.textContent = "version n/a";
+      }
+    }
+
+    loadStatus();
+
     window.addEventListener("keydown", (e) => {
       const k = (e.key || "").toLowerCase();
-      if(k === "r") location.reload();
-      if(k === "y") location.href = "/ready";
-      if(k === "i") location.href = "/idle";
+      if (k === "r") location.reload();
+      if (k === "y") location.href = "/ready";
+      if (k === "i") location.href = "/idle";
     });
   </script>
 </body>
