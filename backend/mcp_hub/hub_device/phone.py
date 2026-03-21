@@ -427,7 +427,9 @@ class Phone(object):
 
     async def grep_packages(self, keyword: str, scope: typing.Literal["user", "system", "all"] = "user") -> str:
         """按关键字过滤包名。"""
-        cmd = self.prefix + ["shell", "pm", "list", "packages"]
+        cmd = self.prefix + [
+            "shell", "pm", "list", "packages"
+        ]
         match scope:
             case "user":
                 cmd += ["-3"]
