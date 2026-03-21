@@ -101,7 +101,7 @@ class Preferences(object):
             FileAssist.dump_json, self.pref_file, self.prefs
         )
 
-    async def view_perf(self) -> None:
+    async def view_pref(self) -> None:
         if not Path(self.pref_file).exists():
             await self.dump_pref()
 

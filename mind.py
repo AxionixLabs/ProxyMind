@@ -1345,7 +1345,7 @@ async def main() -> None:
     pref = Preferences(pref_file)
 
     if cmd_lines.pref:
-        return await pref.view_perf()
+        return await pref.view_pref()
 
     # Notes: ========== 授权流程 ==========
     lic_file = Path(src_opera_place) / const.LIC_FILE
