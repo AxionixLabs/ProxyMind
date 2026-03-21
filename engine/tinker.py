@@ -11,6 +11,8 @@ import json
 import random
 import shutil
 import typing
+import asyncio
+import webbrowser
 from loguru import logger
 from rich.text import Text
 from rich.console import Console
@@ -97,6 +99,10 @@ class FileAssist(object):
         else:
             cmd = ["open", "-W", "-a", "TextEdit"]
         return await Terminal.cmd_line(cmd + [file])
+
+    @staticmethod
+    async def open_url(url: str) -> None:
+        return await asyncio.to_thread(webbrowser.open, url)
 
     @staticmethod
     def read_json(file: str) -> dict:
