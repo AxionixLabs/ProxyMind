@@ -1357,10 +1357,10 @@ async def main() -> None:
 
     # Notes: ========== 工具路径设置 ==========
     if platform == "win32":
-        supports = os.path.join(turbo, "Windows").format()
+        supports = os.path.join(turbo, "windows").format()
         helix = os.path.join(supports, "helix.dist", "helix.exe")
     elif platform == "darwin":
-        supports = os.path.join(turbo, "MacOS").format()
+        supports = os.path.join(turbo, "macos").format()
         helix = os.path.join(supports, "helix.app", "Contents", "MacOS", "helix")
     else:
         raise MindError(f"{const.APP_DESC} is not supported on this platform: {platform}.")

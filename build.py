@@ -267,7 +267,7 @@ async def packaging() -> tuple[
         binary_file = rename[1] / f"{const.APP_NAME}.exe"
         arch_info = [dumpbin, "/headers", f"{str(Path(__file__).parent / binary_file)}"]
 
-        support = "Windows"
+        support = "windows"
 
     elif ops == "darwin":
         target = app / f"{const.APP_DESC}.app" / f"Contents" / f"MacOS"
@@ -284,7 +284,7 @@ async def packaging() -> tuple[
         binary_file = target / f"{const.APP_NAME}"
         arch_info = ["file", f"{str(Path(__file__).parent / binary_file)}"]
 
-        support = "MacOS"
+        support = "macos"
 
     else:
         raise MindError(f"Unsupported platforms {ops}")
