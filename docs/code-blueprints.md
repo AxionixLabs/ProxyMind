@@ -4,34 +4,21 @@ README 只保留入口层信息；如果你要看一份蓝本到底应该写到�
 
 这页只做两件事：
 - 给出贴近现有工具能力的蓝本规格样例
-- 给每个样例配一套可本地验证的 mock 接口
+- 用接近真实环境的接口写法表达步骤，接口地址可用 example 占位
 
 这页不做的事：
 - 不重复解释所有协议字段
 - 不把样例写成底层执行 AST
 - 不写工具根本不支持的能力
 
-## 统一 Mock 验证
+## 接口占位约定
 
-所有样例都可以复用同一个本地 mock 服务。
+样例里的接口按真实请求结构写，但域名和部分业务值可以用 example 占位。
 
-- 脚本路径：website/mind/scripts/blueprint_mock_server.py
-- 启动命令：python website/mind/scripts/blueprint_mock_server.py
-- HTTP 基地址：http://127.0.0.1:18080
-- WebSocket 基地址：ws://127.0.0.1:18080
-
-推荐直接使用下面这组环境变量：
-
-- base_url = http://127.0.0.1:18080
-- ws_url = ws://127.0.0.1:18080
-- username = tester
-- password = pass123
-- app_id = demo-app
-- app_secret = demo-secret
-- order_id = ORD-1001
-- amount = 99.50
-- job_id = JOB-1001
-- token = mock-token-tester
+- HTTP 基地址建议写成 https://api.example.com
+- WebSocket 基地址建议写成 wss://ws.example.com
+- 文档重点是请求结构、断言、提取和步骤依赖，不是要求你真的连这个地址
+- 如果你有真实环境，只需要把 env 里的 example 值替换掉
 
 ## 写蓝本的基本规则
 
@@ -59,11 +46,11 @@ global_rule: |
 - package = com.example.app
 - activity = .MainActivity
 
-Mock 验证：
-- base_url 指向 http://127.0.0.1:18080
+接口约定：
+- base_url 可写为 https://api.example.com
 - 登录接口使用 POST /api/login
 - 首页准备检查使用 GET /api/home/ready?package={{ package }}
-- username = tester 且 password = pass123 时返回 token = mock-token-tester
+- 成功时返回 token，供后续首页确认复用
 
 执行链：
 - 发送 POST {{ base_url }}/api/login
@@ -118,11 +105,11 @@ global_rule: |
 - ts = {{ now_s() }}
 - nonce = {{ nonce(16) }}
 
-Mock 验证：
-- base_url 指向 http://127.0.0.1:18080
+接口约定：
+- base_url 可写为 https://api.example.com
 - 支付接口使用 POST /api/secure/pay
-- mock 服务内置 app_id = demo-app 对应 app_secret = demo-secret
-- 服务端会校验 X-App-Id、X-Timestamp、X-Nonce、X-Sign 和请求体中的 order_id、amount
+- 服务端校验 X-App-Id、X-Timestamp、X-Nonce、X-Sign 和请求体中的 order_id、amount
+- app_id、app_secret、order_id、amount 都可用 example 值占位
 
 执行链：
 - 先准备待签名字段 app_id、ts、nonce、order_id、amount
@@ -170,11 +157,11 @@ global_rule: |
 - job_id = {{ env.job_id }}
 - package = com.example.app
 
-Mock 验证：
-- ws_url 指向 ws://127.0.0.1:18080
+接口约定：
+- ws_url 可写为 wss://ws.example.com
 - WebSocket 地址使用 /ws/task
 - HTTP 轮询地址使用 GET /api/job/status?id={{ job_id }}
-- 发送 start_job 后，mock 服务会先返回 PROCESSING，再在短延迟后进入 DONE
+- 任务触发后，状态通常会从 PROCESSING 收敛到 DONE
 
 执行链：
 - 连接 {{ ws_url }}/ws/task
@@ -217,11 +204,11 @@ global_rule: |
 - order_id = {{ env.order_id }}
 - package = com.example.app
 
-Mock 验证：
-- base_url 指向 http://127.0.0.1:18080
+接口约定：
+- base_url 可写为 https://api.example.com
 - 订单详情接口使用 GET /api/order/detail?id={{ order_id }}
 - Authorization 使用 Bearer {{ token }}
-- token = mock-token-tester 时，ORD-1001 返回 SUCCESS 和固定金额
+- order_id、token 都可用 example 值占位，但返回结构要能支撑断言和提取
 
 执行链：
 - 发送 GET {{ base_url }}/api/order/detail?id={{ order_id }}
@@ -261,10 +248,10 @@ global_rule: |
 - base_url = {{ env.base_url }}
 - package = com.example.app
 
-Mock 验证：
-- base_url 指向 http://127.0.0.1:18080
+接口约定：
+- base_url 可写为 https://api.example.com
 - 报告回执接口使用 POST /api/media/report
-- mock 接口会校验 video_id、frame_count 和 report_type
+- 请求体至少包含 video_id、frame_count 和 report_type
 
 执行链：
 - 启动一次 scrcpy 录屏会话
@@ -288,7 +275,7 @@ Mock 验证：
 - 录屏成功
 - 关键帧提取成功
 - 报告生成成功
-- mock 报告回执接口断言通过
+- 报告回执接口断言通过
 ``````
 
 为什么值得写成蓝本：
@@ -315,11 +302,11 @@ global_rule: |
 - password = {{ env.password }}
 - package = com.example.app
 
-Mock 验证：
-- base_url 指向 http://127.0.0.1:18080
+接口约定：
+- base_url 可写为 https://api.example.com
 - 登录接口使用 POST /api/login
 - 首页准备检查使用 GET /api/home/ready?package={{ package }}
-- 默认账号 tester / pass123 每轮都会返回稳定 token
+- 用户名、密码可用 example 值占位，但返回结构要稳定支持回归断言
 
 每轮动作：
 - 重置应用状态
