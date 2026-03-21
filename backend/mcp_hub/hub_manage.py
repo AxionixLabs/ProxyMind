@@ -14,7 +14,7 @@ import typing
 import asyncio
 from backend.mcp_hub.hub_device import Device
 from backend.models.model_device import SemanticResult
-from engine.terminal import Terminal
+from backend.utilities.flux import Flux
 
 
 class DeviceManage(object):
@@ -36,7 +36,7 @@ class DeviceManage(object):
         if not shutil.which("adb"):
             raise RuntimeError("ADB not found in PATH")
 
-        resp = await Terminal.cmd_line(["adb", "devices"])
+        resp = await Flux.cmd_line(["adb", "devices"])
 
         if not resp or not (lines := [line.strip() for line in resp.splitlines() if line.strip()]):
             raise RuntimeError("Device not connected")
@@ -89,7 +89,7 @@ class Requires(object):
             navigator = "https://github.com/Genymobile/scrcpy"
             raise RuntimeError(f"Requires {application}. install it first, {navigator}.")
 
-        return (await Terminal.cmd_line([application, "--version"]) or "").strip()
+        return (await Flux.cmd_line([application, "--version"]) or "").strip()
 
     @staticmethod
     async def connect_ffmpeg() -> typing.Optional[str]:
@@ -97,7 +97,7 @@ class Requires(object):
             navigator = "https://www.ffmpeg.org/"
             raise RuntimeError(f"Requires {application}. install it first, {navigator}.")
 
-        return (await Terminal.cmd_line([application, "-version"]) or "").strip()
+        return (await Flux.cmd_line([application, "-version"]) or "").strip()
 
     @staticmethod
     async def connect_framix() -> typing.Optional[str]:
@@ -109,7 +109,7 @@ class Requires(object):
                 navigator = f"{domain}/Framix-macos-v1.0.0"
             raise RuntimeError(f"Requires {application}. install it first, {navigator}.")
 
-        return (await Terminal.cmd_line([application, "-h"]) or "").strip()
+        return (await Flux.cmd_line([application, "-h"]) or "").strip()
 
     @staticmethod
     async def connect_memrix() -> typing.Optional[str]:
@@ -121,7 +121,7 @@ class Requires(object):
                 navigator = f"{domain}/Memrix-macos-v1.0.0"
             raise RuntimeError(f"Requires {application}. install it first, {navigator}.")
 
-        return (await Terminal.cmd_line([application, "-h"]) or "").strip()
+        return (await Flux.cmd_line([application, "-h"]) or "").strip()
 
 
 if __name__ == '__main__':

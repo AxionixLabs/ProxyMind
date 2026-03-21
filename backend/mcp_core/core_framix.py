@@ -14,13 +14,13 @@ import typing
 import asyncio
 from collections import deque
 from loguru import logger
-from engine.terminal import Terminal
 from backend.mcp_core.core_buffer import (
     LineBuffer, GateMachine, FX_SPEC
 )
 from backend.utilities import (
     const, marked
 )
+from backend.utilities.flux import Flux
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
@@ -126,7 +126,7 @@ class Framix(object):
         self.out_ring = deque(maxlen=20)
 
         cmd = [self.prefix] + list(args)
-        self.__transports = await Terminal.cmd_link(cmd)
+        self.__transports = await Flux.cmd_link(cmd)
 
         gates = [GateMachine(FX_SPEC)]
 

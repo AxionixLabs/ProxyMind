@@ -7,6 +7,12 @@
 #
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
+import os
+import sys
+import stat
+import shutil
+import typing
+from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.utilities.pipeline import Idle
@@ -62,7 +68,106 @@ def register_media_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None
     screen.bind(mcp, manage, idle)
 
 
+def initialize(tools: typing.Iterable[str] = ("adb", "ffmpeg")) -> dict[str, typing.Any]:
+    """
+    初始化 backend/requires 下的工具目录。
+
+    行为：
+    - 按系统自动路由到 backend/requires/windows 或 backend/requires/macos
+    - 将命中的工具目录 prepend 到 PATH
+    - 不对缺失工具报错；具体工具调用时再由各域检查
+    """
+    requires_layout: dict[str, dict[str, list[str]]] = {
+        "windows": {
+            "adb": ["platform-tools"],
+            "ffmpeg": ["ffmpeg", "bin"]
+        },
+        "macos": {
+            "adb": ["platform-tools"],
+            "ffmpeg": ["ffmpeg", "bin"]
+        }
+    }
+
+    executable_names: dict[str, dict[str, str]] = {
+        "windows": {
+            "adb": "adb.exe",
+            "ffmpeg": "ffmpeg.exe"
+        },
+        "macos": {
+            "adb": "adb",
+            "ffmpeg": "ffmpeg"
+        }
+    }
+
+    def _platform_key() -> str:
+        if sys.platform.startswith("win"):
+            return "windows"
+        if sys.platform == "darwin":
+            return "macos"
+        raise RuntimeError(f"Unsupported platform: {sys.platform}")
+
+    def _requires_root() -> Path:
+        return Path(__file__).resolve().parent / "requires" / _platform_key()
+
+    def _prepend_path(folder: Path) -> None:
+        current = os.environ.get("PATH", "")
+        parts = [p for p in current.split(os.pathsep) if p]
+        if (text := str(folder)) in parts:
+            return None
+        os.environ["PATH"] = text + (os.pathsep + current if current else "")
+
+    def _tool_dir(root: Path, tool: str) -> typing.Optional[Path]:
+        parts = requires_layout.get(_platform_key(), {}).get(tool)
+        if not parts:
+            return None
+
+        directory = root.joinpath(*parts)
+        return directory if directory.exists() else None
+
+    def _tool_exec(directory: Path, tool: str) -> typing.Optional[Path]:
+        name = executable_names.get(_platform_key(), {}).get(tool)
+        if not name:
+            return None
+
+        target = directory / name
+        return target if target.exists() else None
+
+    def _ensure_exec(target: Path) -> None:
+        if _platform_key() != "macos" or not target.is_file():
+            return None
+
+        mode = target.stat().st_mode
+        want = mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+        if want != mode:
+            target.chmod(want)
+
+    _root = _requires_root()
+    if not _root.exists():
+        raise RuntimeError(f"requires root not found: {_root}")
+
+    _routed: dict[str, str] = {}
+    for _tool in dict.fromkeys(tools):
+        if _directory := _tool_dir(_root, _tool):
+            if _target := _tool_exec(_directory, _tool):
+                _ensure_exec(_target)
+            _prepend_path(_directory)
+            _routed[_tool] = str(_directory)
+
+    _available = {
+        t: shutil.which(t) for t in dict.fromkeys(tools)
+    }
+
+    return {
+        "ok"       : True,
+        "platform" : _platform_key(),
+        "root"     : str(_root),
+        "routed"   : _routed,
+        "available": _available
+    }
+
+
 def register_all_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
+    initialize()
     register_automator_tools(mcp, manage, idle)
     register_bench_tools(mcp, idle)
     register_common_tools(mcp, idle)

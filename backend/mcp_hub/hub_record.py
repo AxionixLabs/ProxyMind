@@ -17,8 +17,8 @@ import asyncio
 from collections import deque
 from loguru import logger
 from backend.mcp_hub.hub_device import Device
-from engine.terminal import Terminal
 from backend.utilities import const
+from backend.utilities.flux import Flux
 
 
 class Record(object):
@@ -188,11 +188,11 @@ class Record(object):
 
     async def launcher(self, cmd: list[str]) -> None:
         if self.station == "win32":
-            self.transports = await Terminal.cmd_link(cmd)
+            self.transports = await Flux.cmd_link(cmd)
             asyncio.create_task(self.input_stream())
             asyncio.create_task(self.error_stream())
         else:
-            self.transports = await Terminal.cmd_link_pty(cmd)
+            self.transports = await Flux.cmd_link_pty(cmd)
             asyncio.create_task(self.merge_stream())
 
     # workflow: ==== MCP Tool ====
@@ -282,12 +282,12 @@ class Record(object):
     async def scrcpy_close(self) -> dict[str, typing.Any]:
 
         async def win_stop_child(pid: typing.Union[str, int]) -> str:
-            off = await Terminal.cmd_line([pwsh, "-Command", "Stop-Process", "-Id", pid, "-Force"])
+            off = await Flux.cmd_line([pwsh, "-Command", "Stop-Process", "-Id", pid, "-Force"])
             logger.debug(msg := f"{desc} PID={pid} OFF={off}")
             return msg
 
         async def mac_stop_child(pid: typing.Union[str, int]) -> str:
-            off = await Terminal.cmd_line_shell(f"pgrep -P {pid} | xargs kill -15")
+            off = await Flux.cmd_line_shell(f"pgrep -P {pid} | xargs kill -15")
             logger.debug(msg := f"{desc} PID={pid} OFF={off}")
             return msg
 
@@ -305,7 +305,7 @@ class Record(object):
                 "logs": []
             }
 
-        desc = f"{self.device.brand} {self.device.serial} PPID={(ppid := self.transports.pid)}"
+        desc = f"{self.device.serial} PPID={(ppid := self.transports.pid)}"
 
         try:
             if self.station == "win32":
@@ -315,7 +315,7 @@ class Record(object):
                     f"{{ $_.ParentProcessId -eq {ppid} }}", "|", "Select-Object", "-ExpandProperty", "ProcessId"
                 ]
 
-                if not (child_pids := await Terminal.cmd_line(line)):
+                if not (child_pids := await Flux.cmd_line(line)):
                     return {
                         "text"        : "未发现可关闭的子进程（可能已退出）。",
                         "attachments" : [],

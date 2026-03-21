@@ -13,7 +13,7 @@ import contextlib
 import xml.etree.ElementTree as Et
 from backend.mcp_hub.hub_device.widget import Widget
 from backend.utilities import const
-from engine.terminal import Terminal
+from backend.utilities.flux import Flux
 
 
 class Phone(object):
@@ -191,7 +191,7 @@ class Phone(object):
         cmd = self.prefix + [
             "shell", "getprop"
         ]
-        if not (resp := await Terminal.cmd_line(cmd)):
+        if not (resp := await Flux.cmd_line(cmd)):
             return self._sync_device_props_cache({})
 
         return self._sync_device_props_cache(self._parse_device_props(resp, self.serial))
@@ -199,7 +199,7 @@ class Phone(object):
     async def battery(self) -> int | None:
         """读取电池电量百分比。"""
         cmd = self.prefix + ["shell", "dumpsys", "battery"]
-        if not (resp := await Terminal.cmd_line(cmd)):
+        if not (resp := await Flux.cmd_line(cmd)):
             return None
 
         m_level = re.search(r"(?m)^\s*level:\s*(\d+)\s*$", resp)
@@ -217,7 +217,7 @@ class Phone(object):
         cmd = self.prefix + [
             "shell", "wm", "size"
         ]
-        if not (resp := await Terminal.cmd_line(cmd)):
+        if not (resp := await Flux.cmd_line(cmd)):
             return None
 
         if not (m := re.search(r"Physical size:\s*(\d+)x(\d+)", resp)):
@@ -227,7 +227,7 @@ class Phone(object):
 
     async def is_online(self) -> bool:
         """检查设备是否联网。"""
-        resp = await Terminal.cmd_line(
+        resp = await Flux.cmd_line(
             self.prefix + ["shell", "ping", "-c", "1", "1.1.1.1"]
         )
         return bool(resp and "1 packets transmitted" in resp)
@@ -246,7 +246,7 @@ class Phone(object):
         cmd = self.prefix + [
             "shell", "dumpsys", "window", "policy", "|", "grep", "mInputRestricted"
         ]
-        resp = await Terminal.cmd_line(cmd)
+        resp = await Flux.cmd_line(cmd)
         return bool(resp and "true" in resp)
 
     async def is_screen_on(self) -> bool:
@@ -254,13 +254,13 @@ class Phone(object):
         cmd = self.prefix + [
             "shell", "dumpsys", "deviceidle", "|", "grep", "mScreenOn"
         ]
-        resp = await Terminal.cmd_line(cmd)
+        resp = await Flux.cmd_line(cmd)
         return bool(resp and "true" in resp)
 
     async def screencap(self, remote: str) -> str | None:
         """执行设备端截图。"""
         capture = self.prefix + ["shell", "screencap", "-p", remote]
-        return await Terminal.cmd_line(capture)
+        return await Flux.cmd_line(capture)
 
     async def send_keyevent(self, keycode: int, longpress: bool = False) -> str | None:
         """发送系统按键事件。"""
@@ -270,7 +270,7 @@ class Phone(object):
         if longpress: cmd += ["--longpress"]
         cmd += [str(keycode)]
 
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def set_service(
         self,
@@ -282,21 +282,21 @@ class Phone(object):
         cmd = self.prefix + [
             "shell", "svc", service, status
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def tap(self, x: int, y: int) -> str | None:
         """点击指定坐标。"""
         cmd = self.prefix + [
             "shell", "input", "tap", str(x), str(y)
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def swipe(self, x1: int, y1: int, x2: int, y2: int, duration: int = 300) -> str | None:
         """执行一次滑动手势。"""
         cmd = self.prefix + [
             "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration)
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def app_start(self, package: str, activity: typing.Optional[str] = None) -> str | None:
         """执行应用启动命令。"""
@@ -307,26 +307,26 @@ class Phone(object):
             cmd = self.prefix + [
                 "shell", "am", "start", "-a", action, "-c", category, "-n", f"{package}/{activity}"
             ]
-            return await Terminal.cmd_line(cmd)
+            return await Flux.cmd_line(cmd)
 
         cmd = self.prefix + [
             "shell", "monkey", "-p", package, "-c", category, "1"
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def app_stop(self, package: str) -> str | None:
         """执行应用停止命令。"""
         cmd = self.prefix + [
             "shell", "am", "force-stop", package
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def app_deep_link(self, url: str) -> str | None:
         """执行深度链接启动命令。"""
         cmd = self.prefix + [
             "shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url
         ]
-        return await Terminal.cmd_line_shell(" ".join(cmd))
+        return await Flux.cmd_line_shell(" ".join(cmd))
 
     async def app_install(
         self,
@@ -344,7 +344,7 @@ class Phone(object):
         if test:
             cmd.append("-t")
         cmd.append(apk)
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def app_uninstall(self, package: str, keep_data: bool = False) -> str | None:
         """执行应用卸载命令。"""
@@ -352,42 +352,42 @@ class Phone(object):
         if keep_data:
             cmd.append("-k")
         cmd.append(package)
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def app_clear(self, package: str) -> str | None:
         """执行应用数据清理命令。"""
         cmd = self.prefix + [
             "shell", "pm", "clear", package
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def file_pull(self, remote: str, local: str) -> str | None:
         """从设备拉取文件。"""
         cmd = self.prefix + [
             "pull", remote, local
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def file_push(self, local: str, remote: str) -> str | None:
         """向设备推送文件。"""
         cmd = self.prefix + [
             "push", local, remote
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def file_remove(self, path: str) -> str | None:
         """删除设备文件。"""
         cmd = self.prefix + [
             "shell", "rm", "-f", path
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def logcat_link(self) -> asyncio.subprocess.Process:
         """连接 logcat 输出流。"""
         cmd = self.prefix + [
             "logcat", "-v", "threadtime"
         ]
-        return await Terminal.cmd_link(cmd)
+        return await Flux.cmd_link(cmd)
 
     async def logcat_dump(self, tags: typing.Optional[list[str]] = None, level: str = "W") -> str:
         """读取一次性 logcat 输出。"""
@@ -404,14 +404,14 @@ class Phone(object):
         else:
             cmd.append(f"*:{lv}")
         cmd.append("-d")
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def logcat_clean(self) -> str | None:
         """清空 logcat。"""
         cmd = self.prefix + [
             "logcat", "-c"
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def list_packages(self, scope: typing.Literal["user", "system", "all"] = "user") -> str:
         """按范围列出包名。"""
@@ -423,7 +423,7 @@ class Phone(object):
                 cmd += ["-3"]
             case "system":
                 cmd += ["-s"]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def grep_packages(self, keyword: str, scope: typing.Literal["user", "system", "all"] = "user") -> str:
         """按关键字过滤包名。"""
@@ -436,21 +436,21 @@ class Phone(object):
             case "system":
                 cmd += ["-s"]
         cmd += ["|", "grep", "-i", keyword]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def open_notification(self) -> str | None:
         """打开通知栏。"""
         cmd = self.prefix + [
             "shell", "cmd", "statusbar", "expand-notifications"
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def open_quick_settings(self) -> str | None:
         """打开快捷设置。"""
         cmd = self.prefix + [
             "shell", "cmd", "statusbar", "expand-settings"
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def combo_key(self, first: int, others: list[int]) -> str | None:
         """执行组合按键。"""
@@ -460,21 +460,21 @@ class Phone(object):
         shell_cmd = " ".join(
             self.prefix + ["shell", "input", "keyevent"]
         ) + f" --longpress {first} & sleep 0.03; " + "; ".join(commands)
-        return await Terminal.cmd_line_shell(shell_cmd)
+        return await Flux.cmd_line_shell(shell_cmd)
 
     async def ime_reset(self) -> str | None:
         """重置输入法。"""
         cmd = self.prefix + [
             "shell", "ime", "reset"
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def ime_current(self) -> str:
         """读取当前默认输入法。"""
         cmd = self.prefix + [
             "shell", "settings", "get", "secure", "default_input_method"
         ]
-        resp = await Terminal.cmd_line(cmd)
+        resp = await Flux.cmd_line(cmd)
         return ("" if resp is None else str(resp)).strip()
 
     async def ime_enable(self, ime: str) -> str:
@@ -482,7 +482,7 @@ class Phone(object):
         cmd = self.prefix + [
             "shell", "ime", "enable", ime
         ]
-        resp = await Terminal.cmd_line(cmd)
+        resp = await Flux.cmd_line(cmd)
         return "" if resp is None else str(resp)
 
     async def ime_set(self, ime: str) -> str:
@@ -490,20 +490,20 @@ class Phone(object):
         cmd = self.prefix + [
             "shell", "ime", "set", ime
         ]
-        resp = await Terminal.cmd_line(cmd)
+        resp = await Flux.cmd_line(cmd)
         return "" if resp is None else str(resp)
 
     async def reboot(self, mode: typing.Literal["", "recovery", "bootloader", "edl"] = "") -> str | None:
         """执行重启命令。"""
         cmd = self.prefix + ["reboot"] + ([mode] if mode else [])
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def wait_for_device(self) -> str | None:
         """等待设备重新上线。"""
         cmd = self.prefix + [
             "wait-for-device"
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def double_tap(self, x: int, y: int) -> str | None:
         """执行双击。"""
@@ -511,21 +511,21 @@ class Phone(object):
             " ".join(self.prefix)
             + f" shell input tap {x} {y}; sleep 0.08; input tap {x} {y}"
         )
-        return await Terminal.cmd_line_shell(cmd)
+        return await Flux.cmd_line_shell(cmd)
 
     async def input_text(self, text: str) -> str | None:
         """通过 ADB_INPUT_TEXT 广播输入文本。"""
         cmd = self.prefix + [
             "shell", "am", "broadcast", "-a", "ADB_INPUT_TEXT", "--es", "msg", self._sh_quote_single(text)
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def clear_text(self) -> str | None:
         """通过 ADB_CLEAR_TEXT 广播清空文本。"""
         cmd = self.prefix + [
             "shell", "am", "broadcast", "-a", "ADB_CLEAR_TEXT"
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     async def focus_info(self) -> dict[str, typing.Optional[str] | str]:
         """获取当前前台焦点。"""
@@ -533,7 +533,7 @@ class Phone(object):
             "shell", "dumpsys", "window", "|", "grep", "mCurrentFocus"
         ]
 
-        if not (resp := await Terminal.cmd_line(cmd)):
+        if not (resp := await Flux.cmd_line(cmd)):
             return {"package": None, "activity": None, "raw": ""}
 
         return self._parse_focus(str(resp))
@@ -545,13 +545,13 @@ class Phone(object):
         cmd = self.prefix + [
             "shell", "uiautomator", "dump", "--compressed", xml_file
         ]
-        await Terminal.cmd_line(cmd)
+        await Flux.cmd_line(cmd)
 
         cat = self.prefix + ["shell", "cat", xml_file]
         try:
             # uiautomator dump 生成文件有延迟，短轮询几次比一次性读取更稳。
             for _ in range(6):
-                xml = await Terminal.cmd_line(cat)
+                xml = await Flux.cmd_line(cat)
 
                 xml = xml.decode(const.CHARSET, const.IGNORE) if isinstance(
                     xml, (bytes, bytearray)

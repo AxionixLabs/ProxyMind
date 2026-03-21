@@ -13,9 +13,9 @@ import asyncio
 import contextlib
 from collections import deque
 from loguru import logger
-from engine.terminal import Terminal
 from backend.mcp_hub.hub_device import Device
 from backend.utilities import const
+from backend.utilities.flux import Flux
 
 
 class Monkey(object):
@@ -146,7 +146,7 @@ class Monkey(object):
         err: typing.Optional[str] = None
 
         try:
-            self.proc_monkey = await Terminal.cmd_link(cmd_monkey)
+            self.proc_monkey = await Flux.cmd_link(cmd_monkey)
             self.task_monkey = asyncio.create_task(
                 self.reader(self.proc_monkey, "monkey")
             )

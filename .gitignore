@@ -66,6 +66,7 @@ Thumbs.db
 # 项目自定义目录排除
 # ========================
 applications/
+backend/requires/
 data/
 schematic/supports/
 Structure/

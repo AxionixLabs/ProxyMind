@@ -19,7 +19,7 @@ from backend.models.model_base import Attachment
 from backend.utilities import (
     marked, toolbox
 )
-from engine.terminal import Terminal
+from backend.utilities.flux import Flux
 
 try:
     os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
@@ -101,7 +101,7 @@ class FFmpeg(object):
         cmd = [self.prefix] + cmd
         logger.info(f"[FFMPEG] {' '.join(cmd)}")
 
-        switch_resp = await Terminal.cmd_line(cmd)
+        switch_resp = await Flux.cmd_line(cmd)
         logger.info(f"[FFMPEG] \n{switch_resp}")
 
         frame_re = re.compile(r"frame.*fps.*speed.*", re.IGNORECASE)
