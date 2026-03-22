@@ -1385,7 +1385,7 @@ async def main() -> None:
         server: ServerManage = ServerManage(launch_cmd)
         await server.ensure_running()
         await server.close()
-        return await FileAssist.open_url("http://127.0.0.1:3333/pref")
+        return await FileAssist.open_url(f"{const.BASE_URL}/pref")
 
     # Notes: ========== 授权流程 ==========
     lic_file = Path(src_opera_place) / const.LIC_FILE
@@ -1422,6 +1422,8 @@ async def main() -> None:
     await server.ensure_running()
     await server.close()
     await pref.load_pref()
+
+    Design.Doc.log(f"[bold #0EA5E9]🌐 Link: {const.BASE_URL}[/]\n")
 
     positions = (
         cmd_lines.chat, cmd_lines.fast, cmd_lines.plan,
