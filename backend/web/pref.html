@@ -194,6 +194,39 @@
       overflow:hidden;
       text-overflow:ellipsis;
     }
+    .shell-nav{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:18px;
+    }
+    .shell-nav-link{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:10px 14px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(0,0,0,.16);
+      color:var(--fg);
+      text-decoration:none;
+      font-size:12px;
+      transition:border-color .12s ease, transform .12s ease, background .12s ease;
+    }
+    .shell-nav-link:hover{
+      transform:translateY(-1px);
+      border-color:rgba(92,255,214,.32);
+      background:rgba(255,255,255,.04);
+    }
+    .shell-nav-link.active{
+      border-color:rgba(92,255,214,.18);
+      background:rgba(92,255,214,.08);
+      color:var(--accent);
+    }
+    .shell-nav-link code{
+      color:var(--accent2);
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
     .hero-actions{
       display:grid;
       grid-template-columns:repeat(3, minmax(0, 1fr));
@@ -566,6 +599,10 @@
       color:var(--muted);
       font-size:12px;
     }
+    .shell-footer{
+      color:rgba(137,163,173,.85);
+      font-size:12px;
+    }
     .status{
       display:inline-flex;
       align-items:center;
@@ -579,6 +616,9 @@
       box-shadow:0 0 0 3px rgba(111,255,209,.12), 0 0 16px rgba(111,255,209,.44);
     }
     @media (max-width: 980px){
+      .nav{
+        display:grid;
+      }
       .hero-actions,
       .field.split,
       .inline-pair{
@@ -620,13 +660,12 @@
           <div class="hero-shell">
             <div class="eyebrow">Preferences</div>
             <h1><span class="signal-title" data-text="Model Settings">Model Settings</span></h1>
-            <p class="sub">
-              两组本地模型槽位，直接映射到 pref。
-            </p>
-            <div class="hero-actions">
-              <button class="btn primary" type="button" id="save-pref">Save Preferences</button>
-              <button class="btn" type="button" id="reload-pref">Reload Draft</button>
-              <a class="btn" href="/">Back To Index</a>
+            <p class="sub">两组本地模型槽位，直接映射到 pref。</p>
+            <div id="page-nav"></div>
+            <div class="hero-actions" id="pref-actions">
+              <button class="btn primary" type="button" id="save-pref">Save</button>
+              <button class="btn" type="button" id="reload-pref">Reload</button>
+              <a class="btn" href="/">Workspace</a>
             </div>
           </div>
         </div>
@@ -646,7 +685,7 @@
               <p class="section-desc">
                 两个独立槽位，各自维护 provider 和 model。
               </p>
-              <div class="chip">local only</div>
+              <div class="chip">local workspace</div>
             </div>
 
             <form class="fields" id="pref-form">
@@ -752,13 +791,13 @@
             </form>
 
             <div class="note" id="pref-note">
-              Local draft ready. Save will write to the local pref file.
+              Local configuration ready. Save will write to local storage.
             </div>
           </div>
         </div>
         <div class="footer">
-          <div class="status"><span class="led"></span><span id="pref-status">Local pref connected.</span></div>
-          <div>Helix local workspace</div>
+          <div class="status"><span class="led"></span><span id="pref-status">Local configuration connected.</span></div>
+          <div id="page-footer-inline"></div>
         </div>
       </div>
     </section>
@@ -770,6 +809,61 @@
     const note = document.getElementById("pref-note");
     const status = document.getElementById("pref-status");
     const toastStage = document.getElementById("toast-stage");
+    const previewMode = location.protocol === "file:";
+    const previewPref = {
+      schema_version : 2,
+      primary        : {api: "OpenAI", type: "Text", base_url: "https://api.openai.com/v1", apikey: "", model: "gpt-5"},
+      secondary      : {api: "Groq", type: "Multimodal", base_url: "https://api.groq.com/openai/v1", apikey: "", model: "qwen-vl-max"}
+    };
+
+    function escapeHtml(value){
+      return String(value || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function mountNav(targetId, nav, activeHref){
+      const root = document.getElementById(targetId);
+      if(!root) return;
+      root.innerHTML = `
+        <nav class="shell-nav" aria-label="workspace">
+          ${nav.map((item) => `
+            <a class="shell-nav-link${item.href === activeHref ? " active" : ""}" href="${item.href}">
+              <span>${escapeHtml(item.title)}</span>
+              <code>${escapeHtml(item.tag)}</code>
+            </a>
+          `).join("")}
+        </nav>
+      `;
+    }
+
+    function mountFooter(targetId, text){
+      const root = document.getElementById(targetId);
+      if(!root) return;
+      root.innerHTML = `<div class="shell-footer">${escapeHtml(text)}</div>`;
+    }
+
+    function shellMessage(kind){
+      const dict = {
+        reloaded: ["Reloaded", "Local settings loaded."],
+        load_failed: ["Load Failed", "Unable to load local settings."],
+        saved: ["Saved", "Local settings saved."],
+        save_failed: ["Save Failed", "Unable to save local settings."]
+      };
+      return dict[kind] || ["Notice", ""];
+    }
+
+    mountNav("page-nav", [
+      {title: "Workspace", href: "/", tag: "home"},
+      {title: "Preferences", href: "/pref", tag: "config"},
+      {title: "OpenAPI", href: "/docs", tag: "schema"},
+      {title: "Health", href: "/ready", tag: "health"},
+      {title: "Runtime", href: "/idle", tag: "runtime"}
+    ], "/pref");
+    mountFooter("page-footer-inline", "HELIX · workspace config");
 
     function setMessage(text, kind = "") {
       note.textContent = text;
@@ -851,32 +945,45 @@
 
     async function loadPref(options = {}) {
       const {silent = false} = options;
+      if (previewMode) {
+        applyPref(previewPref);
+        status.textContent = "Preview mode active.";
+        setMessage("Preview mode active. Start helix to load local configuration.", "");
+        return;
+      }
       setMessage("Loading local preferences...");
       try {
         const resp = await fetch("/api/pref", {cache: "no-store"});
         if (!resp.ok) throw new Error("load failed");
         const payload = await resp.json();
         applyPref(payload.data || {});
-        status.textContent = "Local pref loaded.";
-        setMessage("Local preferences loaded.", "ok");
+        status.textContent = "Local configuration loaded.";
+        setMessage("Local configuration loaded.", "ok");
         if (!silent) {
-          showToast("Reloaded", "Preferences loaded from local storage.", "ok");
+          const [title, detail] = shellMessage("reloaded");
+          showToast(title, detail, "ok");
         }
       } catch (_err) {
-        status.textContent = silent ? "Local pref pending." : "Local pref unavailable.";
+        status.textContent = silent ? "Local configuration pending." : "Local configuration unavailable.";
         setMessage(
-          silent ? "Local preferences will appear after the first successful save." : "Unable to load local preferences.",
+          silent ? "Local configuration will appear after the first successful save." : "Unable to load local configuration.",
           silent ? "" : "err"
         );
         if (!silent) {
-          showToast("Reload Failed", "Unable to load local preferences.", "err");
+          const [title, detail] = shellMessage("load_failed");
+          showToast(title, detail, "err");
         }
       }
     }
 
     async function savePref() {
+      if (previewMode) {
+        setMessage("Preview mode only. Start helix to save local configuration.", "");
+        showToast("Preview Mode", "Start helix to save local configuration.", "err");
+        return;
+      }
       setBusy(true);
-      setMessage("Saving local preferences...");
+      setMessage("Saving local configuration...");
       try {
         const resp = await fetch("/api/pref", {
           method  : "PUT",
@@ -886,13 +993,15 @@
         if (!resp.ok) throw new Error("save failed");
         const payload = await resp.json();
         applyPref(payload.data || {});
-        status.textContent = "Local pref saved.";
-        setMessage("Local preferences saved.", "ok");
-        showToast("Saved", "Preferences written to local storage.", "ok");
+        status.textContent = "Local configuration saved.";
+        setMessage("Local configuration saved.", "ok");
+        const [title, detail] = shellMessage("saved");
+        showToast(title, detail, "ok");
       } catch (_err) {
-        status.textContent = "Local pref save failed.";
-        setMessage("Unable to save local preferences.", "err");
-        showToast("Save Failed", "Unable to save local preferences.", "err");
+        status.textContent = "Local configuration save failed.";
+        setMessage("Unable to save local configuration.", "err");
+        const [title, detail] = shellMessage("save_failed");
+        showToast(title, detail, "err");
       } finally {
         setBusy(false);
       }

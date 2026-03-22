@@ -30,7 +30,6 @@ SLOT_COLUMN_MAP = {
     "apikey"   : "api_key",
     "model"    : "model_name",
     "type"     : "model_type",
-    "input"    : "input_type",
     "notes"    : "notes",
 }
 
@@ -43,7 +42,6 @@ DEFAULT_SCHEMA_VERSION = 2
 DEFAULT_PROFILE_KEY    = "default"
 DEFAULT_PROVIDER       = "OpenAI"
 DEFAULT_MODEL_TYPE     = "Text"
-DEFAULT_INPUT_TYPE     = "Text"
 
 
 def _default_slot() -> Slot:
@@ -53,7 +51,6 @@ def _default_slot() -> Slot:
         "apikey"   : "",
         "model"    : "",
         "type"     : DEFAULT_MODEL_TYPE,
-        "input"    : DEFAULT_INPUT_TYPE,
         "notes"    : "",
     }
 
@@ -86,7 +83,6 @@ CREATE TABLE IF NOT EXISTS pref_model_slots (
     api_key       TEXT NOT NULL DEFAULT '',
     model_name    TEXT NOT NULL DEFAULT '',
     model_type    TEXT NOT NULL DEFAULT 'Text',
-    input_type    TEXT NOT NULL DEFAULT 'Text',
     notes         TEXT NOT NULL DEFAULT '',
     created_at    INTEGER NOT NULL,
     updated_at    INTEGER NOT NULL,
@@ -158,25 +154,24 @@ def _ensure_profile(conn: sqlite3.Connection, profile_key: str = DEFAULT_PROFILE
             f"""
             INSERT INTO {TABLE_SLOTS} (
                 profile_id, slot_key, provider, base_url, api_key, model_name,
-                model_type, input_type, notes, created_at, updated_at
+                model_type, notes, created_at, updated_at
             )
-            VALUES (?, ?, ?, '', '', '', ?, ?, '', ?, ?)
+            VALUES (?, ?, ?, '', '', '', ?, '', ?, ?)
             ON CONFLICT(profile_id, slot_key) DO NOTHING
             """,
-            (profile_id, slot_key, DEFAULT_PROVIDER, DEFAULT_MODEL_TYPE, DEFAULT_INPUT_TYPE, now, now)
+            (profile_id, slot_key, DEFAULT_PROVIDER, DEFAULT_MODEL_TYPE, now, now)
         )
 
     return profile_id
 
 
-def _slot_record(slot: Slot) -> tuple[str, str, str, str, str, str, str]:
+def _slot_record(slot: Slot) -> tuple[str, str, str, str, str, str]:
     return (
         slot["api"],
         slot["base_url"],
         slot["apikey"],
         slot["model"],
         slot["type"],
-        slot["input"],
         slot["notes"],
     )
 
@@ -213,9 +208,7 @@ def normalize_pref(raw: typing.Any) -> dict[str, typing.Any]:
     prefs["secondary"] = _merge_slot(prefs["secondary"], raw.get("secondary"))
 
     prefs["primary"]["type"] = prefs["primary"]["type"] or DEFAULT_MODEL_TYPE
-    prefs["primary"]["input"] = prefs["primary"]["input"] or DEFAULT_INPUT_TYPE
     prefs["secondary"]["type"] = prefs["secondary"]["type"] or DEFAULT_MODEL_TYPE
-    prefs["secondary"]["input"] = prefs["secondary"]["input"] or DEFAULT_INPUT_TYPE
 
     return prefs
 
@@ -227,7 +220,7 @@ def load_pref() -> dict[str, typing.Any]:
 
         rows = conn.execute(
             f"""
-            SELECT slot_key, provider, base_url, api_key, model_name, model_type, input_type, notes
+            SELECT slot_key, provider, base_url, api_key, model_name, model_type, notes
             FROM {TABLE_SLOTS}
             WHERE profile_id = ?
             """,
@@ -251,27 +244,26 @@ def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
 
         for slot_key in SLOT_KEYS:
             slot = prefs[slot_key]
-            provider, base_url, api_key, model_name, model_type, input_type, notes = _slot_record(slot)
+            provider, base_url, api_key, model_name, model_type, notes = _slot_record(slot)
             conn.execute(
                 f"""
                 INSERT INTO {TABLE_SLOTS} (
                     profile_id, slot_key, provider, base_url, api_key, model_name,
-                    model_type, input_type, notes, created_at, updated_at
+                    model_type, notes, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(profile_id, slot_key) DO UPDATE SET
                     provider   = excluded.provider,
                     base_url   = excluded.base_url,
                     api_key    = excluded.api_key,
                     model_name = excluded.model_name,
                     model_type = excluded.model_type,
-                    input_type = excluded.input_type,
                     notes      = excluded.notes,
                     updated_at = excluded.updated_at
                 """,
                 (
                     profile_id, slot_key, provider, base_url, api_key, model_name,
-                    model_type, input_type, notes, now, now
+                    model_type, notes, now, now
                 )
             )
 

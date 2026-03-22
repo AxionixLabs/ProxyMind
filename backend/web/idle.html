@@ -1,0 +1,1372 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Helix Idle</title>
+  <meta name="color-scheme" content="dark" />
+  <link rel="icon" type="image/png" href="/static/favicon-96x96.png" sizes="96x96" />
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+  <link rel="shortcut icon" href="/static/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-title" content="Helix" />
+  <link rel="manifest" href="/static/site.webmanifest" />
+  <style>
+    :root{
+      --bg:#05060a;
+      --fg:#d7f7ff;
+      --muted:#89a3ad;
+      --line:rgba(255,255,255,.08);
+      --accent:#5cffd6;
+      --accent2:#7aa7ff;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      color:var(--fg);
+      background:
+        radial-gradient(900px 540px at 18% 8%, rgba(122,167,255,.10), transparent 58%),
+        radial-gradient(760px 480px at 82% 14%, rgba(92,255,214,.08), transparent 60%),
+        #05060a;
+      font:14px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    }
+    .grid{
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      opacity:.22;
+      background-image:
+        linear-gradient(to right, rgba(255,255,255,.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,.04) 1px, transparent 1px);
+      background-size:44px 44px;
+      mask-image:radial-gradient(800px 520px at 50% 15%, #000 42%, transparent 82%);
+    }
+    .wrap{
+      width:min(1180px, calc(100% - 32px));
+      margin:28px auto 40px;
+      display:grid;
+      gap:16px;
+    }
+    .card{
+      border:1px solid var(--line);
+      border-radius:18px;
+      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      box-shadow:
+        0 30px 90px rgba(0,0,0,.65),
+        0 0 0 1px rgba(92,255,214,.06) inset;
+      overflow:hidden;
+      position:relative;
+      backdrop-filter:blur(10px);
+    }
+    .card::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      background:
+        radial-gradient(700px 260px at 20% 0%, rgba(92,255,214,.08), transparent 56%),
+        radial-gradient(700px 240px at 100% 0%, rgba(122,167,255,.08), transparent 58%);
+    }
+    .bar{
+      position:relative;
+      z-index:1;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      padding:14px 18px;
+      border-bottom:1px solid rgba(255,255,255,.06);
+      background:rgba(0,0,0,.16);
+    }
+    .dots{display:flex; gap:8px}
+    .dots i{display:block; width:10px; height:10px; border-radius:999px}
+    .dots i:nth-child(1){background:#ff6f98}
+    .dots i:nth-child(2){background:#ffc86f}
+    .dots i:nth-child(3){background:#6fffd1}
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:6px 10px;
+      border-radius:999px;
+      font-size:12px;
+      color:var(--muted);
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(0,0,0,.16);
+    }
+    .pad{
+      position:relative;
+      z-index:1;
+      padding:22px 18px;
+    }
+    .eyebrow{
+      color:var(--accent);
+      letter-spacing:.16em;
+      text-transform:uppercase;
+      font-size:12px;
+    }
+    h1{
+      margin:8px 0 0;
+      font-size:34px;
+      letter-spacing:.10em;
+      text-transform:uppercase;
+      text-shadow: 0 0 18px rgba(92,255,214,.22);
+    }
+    .signal-title{
+      position:relative;
+      display:inline-block;
+      padding:0 0 10px;
+      color:rgba(215,247,255,.96);
+      overflow:hidden;
+    }
+    .signal-title::before{
+      content:attr(data-text);
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      color:transparent;
+      background:linear-gradient(
+        115deg,
+        transparent 0%,
+        transparent 36%,
+        rgba(255,255,255,.92) 48%,
+        rgba(92,255,214,.92) 52%,
+        transparent 64%,
+        transparent 100%
+      );
+      background-size:220% 100%;
+      -webkit-background-clip:text;
+      background-clip:text;
+      animation:titleSweep 4.8s ease-in-out infinite;
+      opacity:.95;
+    }
+    .signal-title::after{
+      content:"";
+      position:absolute;
+      left:0;
+      right:0;
+      bottom:0;
+      height:2px;
+      border-radius:999px;
+      background:
+        linear-gradient(90deg, rgba(122,167,255,.18), rgba(92,255,214,.88) 50%, rgba(122,167,255,.18));
+      box-shadow:
+        0 0 0 1px rgba(92,255,214,.06),
+        0 0 16px rgba(92,255,214,.22);
+      transform-origin:left center;
+      animation:titleBeam 3.8s ease-in-out infinite;
+    }
+    @keyframes titleSweep{
+      0%, 16%{
+        background-position:160% 0;
+        opacity:0;
+      }
+      28%{
+        opacity:.98;
+      }
+      52%{
+        background-position:30% 0;
+        opacity:.9;
+      }
+      72%, 100%{
+        background-position:-80% 0;
+        opacity:0;
+      }
+    }
+    @keyframes titleBeam{
+      0%, 100%{
+        transform:scaleX(.22);
+        opacity:.45;
+      }
+      45%{
+        transform:scaleX(1);
+        opacity:1;
+      }
+      70%{
+        transform:scaleX(.72);
+        opacity:.7;
+      }
+    }
+    .sub{
+      margin:12px 0 0;
+      max-width:62ch;
+      color:var(--muted);
+    }
+    .shell-nav{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:18px;
+    }
+    .shell-nav-link{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:10px 14px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(0,0,0,.16);
+      color:var(--fg);
+      text-decoration:none;
+      font-size:12px;
+      transition:border-color .12s ease, transform .12s ease, background .12s ease;
+    }
+    .shell-nav-link:hover{
+      transform:translateY(-1px);
+      border-color:rgba(92,255,214,.32);
+      background:rgba(255,255,255,.04);
+    }
+    .shell-nav-link.active{
+      border-color:rgba(92,255,214,.18);
+      background:rgba(92,255,214,.08);
+      color:var(--accent);
+    }
+    .shell-nav-link code{
+      color:var(--accent2);
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+    .hero-tools{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+      margin-top:14px;
+    }
+    .overview{
+      display:grid;
+      grid-template-columns:repeat(4, minmax(0, 1fr));
+      gap:14px;
+    }
+    .metric{
+      padding:16px;
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:16px;
+      background:rgba(0,0,0,.14);
+      display:grid;
+      gap:8px;
+    }
+    .metric b{
+      font-size:12px;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:var(--muted);
+    }
+    .metric .value{
+      font-size:26px;
+      line-height:1;
+    }
+    .metric .meta{
+      font-size:12px;
+      color:var(--muted);
+    }
+    .section-grid{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:18px;
+    }
+    .section-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:16px;
+      margin-bottom:18px;
+    }
+    .section-title-wrap{
+      flex:0 1 auto;
+      min-width:0;
+      padding-top:2px;
+    }
+    .section-tools{
+      flex:1 1 auto;
+      min-width:0;
+      display:flex;
+      align-items:flex-start;
+      justify-content:flex-end;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+    .section-head h2{
+      margin:0;
+      font-size:16px;
+      letter-spacing:.02em;
+      white-space:nowrap;
+    }
+    .search{
+      min-width:180px;
+      max-width:220px;
+      padding:9px 12px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(0,0,0,.14);
+      color:var(--fg);
+      outline:none;
+    }
+    .search::placeholder{
+      color:var(--muted);
+    }
+    .select{
+      min-width:132px;
+      padding:9px 12px;
+      padding-right:38px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(0,0,0,.14);
+      color:var(--fg);
+      outline:none;
+      line-height:1.2;
+      background-image:
+        linear-gradient(45deg, transparent 50%, rgba(215,247,255,.78) 50%),
+        linear-gradient(135deg, rgba(215,247,255,.78) 50%, transparent 50%);
+      background-position:
+        calc(100% - 18px) calc(50% - 2px),
+        calc(100% - 12px) calc(50% - 2px);
+      background-size:6px 6px, 6px 6px;
+      background-repeat:no-repeat;
+      appearance:none;
+      -webkit-appearance:none;
+      -moz-appearance:none;
+    }
+    .refresh-btn{
+      appearance:none;
+      border:1px solid rgba(92,255,214,.18);
+      background:rgba(92,255,214,.08);
+      color:var(--accent);
+      border-radius:12px;
+      padding:8px 12px;
+      font-size:11px;
+      letter-spacing:.06em;
+      text-transform:uppercase;
+      cursor:pointer;
+    }
+    .section-tools .chip{
+      white-space:nowrap;
+    }
+    .filter-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-bottom:16px;
+    }
+    .filter-chip{
+      appearance:none;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(0,0,0,.14);
+      color:var(--muted);
+      border-radius:999px;
+      padding:7px 10px;
+      font-size:12px;
+      cursor:pointer;
+      transition:border-color .12s ease, color .12s ease, background .12s ease;
+    }
+    .filter-chip.active{
+      border-color:rgba(92,255,214,.22);
+      background:rgba(92,255,214,.10);
+      color:var(--accent);
+    }
+    .filter-chip b{
+      color:inherit;
+      font-weight:600;
+    }
+    .stack{
+      display:grid;
+      gap:12px;
+    }
+    .item{
+      padding:16px;
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:14px;
+      background:rgba(0,0,0,.14);
+      display:grid;
+      gap:10px;
+    }
+    .item-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .item-title{
+      font-size:15px;
+      font-weight:600;
+      line-height:1.3;
+    }
+    .item-id{
+      color:var(--accent2);
+      font-size:12px;
+      line-height:1.4;
+      font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .item-body{
+      display:grid;
+      gap:10px;
+    }
+    .kv{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+    }
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:7px 11px;
+      border-radius:999px;
+      background:rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.08);
+      font-size:12px;
+      line-height:1.35;
+      color:var(--muted);
+    }
+    .more-btn{
+      appearance:none;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(255,255,255,.03);
+      color:var(--accent);
+      border-radius:999px;
+      padding:6px 10px;
+      font-size:12px;
+      cursor:pointer;
+      width:max-content;
+    }
+    mark{
+      padding:1px 4px;
+      border-radius:6px;
+      background:rgba(92,255,214,.16);
+      color:var(--fg);
+      box-shadow:0 0 0 1px rgba(92,255,214,.14) inset;
+    }
+    .scene{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+    }
+    .scene span{
+      display:inline-flex;
+      align-items:center;
+      padding:6px 10px;
+      border-radius:10px;
+      background:rgba(122,167,255,.10);
+      color:#cfe0ff;
+      font-size:12px;
+    }
+    .empty{
+      padding:20px 16px;
+      border:1px dashed rgba(255,255,255,.10);
+      border-radius:14px;
+      color:var(--muted);
+      background:rgba(0,0,0,.10);
+      text-align:center;
+    }
+    .banner{
+      position:fixed;
+      top:50%;
+      left:50%;
+      width:min(520px, calc(100vw - 40px));
+      min-width:min(320px, calc(100vw - 40px));
+      padding:20px 22px;
+      border-radius:22px;
+      transform:translate(-50%, -50%) scale(.98);
+      z-index:20;
+      border:1px solid rgba(255,255,255,.10);
+      background:
+        radial-gradient(520px 220px at 20% 0%, rgba(92,255,214,.14), transparent 60%),
+        radial-gradient(420px 200px at 100% 10%, rgba(122,167,255,.10), transparent 60%),
+        rgba(6,14,20,.90);
+      box-shadow:
+        0 28px 80px rgba(0,0,0,.48),
+        0 0 0 1px rgba(92,255,214,.08) inset;
+      color:var(--fg);
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .18s ease, transform .18s ease;
+      overflow:hidden;
+    }
+    .banner.show{
+      opacity:1;
+      transform:translate(-50%, -50%) scale(1);
+    }
+    .banner::before{
+      content:"";
+      position:absolute;
+      inset:auto -12% 0 -12%;
+      height:2px;
+      background:linear-gradient(90deg, transparent, rgba(92,255,214,.92), rgba(122,167,255,.55), transparent);
+      box-shadow:0 0 18px rgba(92,255,214,.28);
+      opacity:.9;
+      animation:bannerSweep 1.8s linear infinite;
+    }
+    .banner::after{
+      content:"";
+      position:absolute;
+      inset:50% auto auto 50%;
+      width:26px;
+      height:26px;
+      border-radius:999px;
+      border:1px solid rgba(92,255,214,.30);
+      transform:translate(-50%, -50%) scale(.24);
+      opacity:0;
+      pointer-events:none;
+    }
+    .banner.show::after{
+      animation:bannerRipple .7s ease-out 1;
+    }
+    .banner.show:not(.err){
+      animation:bannerConfirm .26s ease-out 1, bannerOkPulse 1s ease-in-out 1;
+    }
+    .banner.err{
+      border-color:rgba(255,92,154,.22);
+      background:
+        radial-gradient(520px 220px at 20% 0%, rgba(255,92,154,.16), transparent 60%),
+        radial-gradient(420px 200px at 100% 10%, rgba(122,167,255,.10), transparent 60%),
+        rgba(20,8,14,.92);
+      box-shadow:
+        0 28px 80px rgba(0,0,0,.48),
+        0 0 0 1px rgba(255,92,154,.10) inset;
+    }
+    .banner.err::after{
+      border:1px solid rgba(255,92,154,.34);
+    }
+    .banner.err::before{
+      background:linear-gradient(90deg, transparent, rgba(255,92,154,.92), rgba(122,167,255,.55), transparent);
+      box-shadow:0 0 18px rgba(255,92,154,.35);
+    }
+    .banner.err.show{
+      animation:bannerAlert .34s ease-out 1, bannerPulse 1.3s ease-in-out 2;
+    }
+    .banner strong{
+      display:block;
+      margin-bottom:10px;
+      font-size:18px;
+      letter-spacing:.12em;
+      text-transform:uppercase;
+    }
+    .banner span{
+      font-size:14px;
+      line-height:1.65;
+      color:var(--muted);
+    }
+    @keyframes bannerSweep{
+      0%{transform:translateX(-28%)}
+      100%{transform:translateX(28%)}
+    }
+    @keyframes bannerAlert{
+      0%, 100%{transform:translate(-50%, -50%) scale(1)}
+      20%{transform:translate(-50%, -50%) translateX(-5px) scale(1.01)}
+      40%{transform:translate(-50%, -50%) translateX(5px) scale(1.01)}
+      60%{transform:translate(-50%, -50%) translateX(-3px) scale(1)}
+      80%{transform:translate(-50%, -50%) translateX(3px) scale(1)}
+    }
+    @keyframes bannerConfirm{
+      0%{transform:translate(-50%, -50%) scale(.975)}
+      55%{transform:translate(-50%, -50%) scale(1.01)}
+      100%{transform:translate(-50%, -50%) scale(1)}
+    }
+    @keyframes bannerPulse{
+      0%, 100%{
+        box-shadow:
+          0 28px 80px rgba(0,0,0,.48),
+          0 0 0 1px rgba(255,92,154,.10) inset;
+      }
+      50%{
+        box-shadow:
+          0 28px 80px rgba(0,0,0,.48),
+          0 0 0 1px rgba(255,92,154,.16) inset,
+          0 0 28px rgba(255,92,154,.14);
+      }
+    }
+    @keyframes bannerOkPulse{
+      0%, 100%{
+        box-shadow:
+          0 28px 80px rgba(0,0,0,.48),
+          0 0 0 1px rgba(92,255,214,.08) inset;
+      }
+      50%{
+        box-shadow:
+          0 28px 80px rgba(0,0,0,.48),
+          0 0 0 1px rgba(92,255,214,.14) inset,
+          0 0 26px rgba(92,255,214,.12);
+      }
+    }
+    @keyframes bannerRipple{
+      0%{
+        opacity:.4;
+        transform:translate(-50%, -50%) scale(.24);
+      }
+      100%{
+        opacity:0;
+        transform:translate(-50%, -50%) scale(16);
+      }
+    }
+    .shell-footer{
+      margin-top:8px;
+      text-align:center;
+      color:rgba(137,163,173,.85);
+      font-size:12px;
+    }
+    @media (max-width: 980px){
+      .overview,
+      .section-grid{
+        grid-template-columns:1fr;
+      }
+      .section-head{
+        flex-direction:column;
+        align-items:stretch;
+      }
+      .section-tools{
+        justify-content:flex-start;
+      }
+      .search,
+      .select{
+        max-width:none;
+      }
+    }
+    @media (prefers-reduced-motion: reduce){
+      .signal-title::before,
+      .signal-title::after,
+      .banner.err,
+      .banner.err::before,
+      .banner.err::after{
+        animation:none;
+      }
+      .signal-title::before{opacity:0}
+    }
+  </style>
+</head>
+<body>
+  <div class="grid"></div>
+  <div class="banner" id="banner" aria-live="polite" aria-atomic="true"></div>
+  <main class="wrap">
+    <section class="card">
+      <div class="bar">
+        <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="chip">runtime snapshots</div>
+      </div>
+      <div class="pad">
+        <div class="eyebrow">Runtime</div>
+        <h1><span class="signal-title" data-text="Runtime Board">Runtime Board</span></h1>
+        <p class="sub">卡片式展示当前空闲队列、session 和 Instance 快照。数据直接来自 /api/idle。</p>
+        <div id="page-nav"></div>
+        <div class="hero-tools">
+          <button class="refresh-btn" type="button" id="refresh-idle">Refresh</button>
+          <div class="chip" id="refresh-time">sync pending</div>
+          <label class="chip" for="auto-refresh">
+            <input id="auto-refresh" type="checkbox" checked />
+            <span>auto sync</span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <section class="overview" id="overview"></section>
+
+    <section class="section-grid">
+      <section class="card">
+        <div class="bar">
+          <div class="chip">runtime jobs</div>
+          <div class="chip" id="jobs-count">0/0</div>
+        </div>
+        <div class="pad">
+          <div class="section-head">
+            <div class="section-title-wrap">
+              <h2>Active Jobs</h2>
+            </div>
+            <div class="section-tools">
+              <input class="search" id="jobs-search" type="search" placeholder="Search jobs" />
+              <select class="select" id="jobs-sort">
+                <option value="age-desc">Oldest first</option>
+                <option value="age-asc">Newest first</option>
+                <option value="name-asc">Name A-Z</option>
+              </select>
+              <select class="select" id="jobs-filter">
+                <option value="all">All jobs</option>
+                <option value="with-args">With args</option>
+                <option value="no-args">No args</option>
+              </select>
+              <div class="chip" id="idle-age">idle</div>
+            </div>
+          </div>
+          <div class="filter-row" id="jobs-chips"></div>
+          <div class="stack" id="jobs-list"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="bar">
+          <div class="chip">runtime sessions</div>
+          <div class="chip" id="sessions-count">0/0</div>
+        </div>
+        <div class="pad">
+          <div class="section-head">
+            <div class="section-title-wrap">
+              <h2>Session Map</h2>
+            </div>
+            <div class="section-tools">
+              <input class="search" id="sessions-search" type="search" placeholder="Search sessions" />
+              <select class="select" id="sessions-sort">
+                <option value="age-desc">Oldest first</option>
+                <option value="age-asc">Newest first</option>
+                <option value="key-asc">Key A-Z</option>
+              </select>
+              <select class="select" id="sessions-filter">
+                <option value="all">All sessions</option>
+                <option value="with-args">With args</option>
+                <option value="no-args">No args</option>
+              </select>
+              <div class="chip">session links</div>
+            </div>
+          </div>
+          <div class="filter-row" id="sessions-chips"></div>
+          <div class="stack" id="sessions-list"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="bar">
+          <div class="chip">instance videos</div>
+          <div class="chip">snapshot</div>
+        </div>
+        <div class="pad">
+          <div class="section-head">
+            <div class="section-title-wrap">
+              <h2>Video Snapshot</h2>
+            </div>
+            <div class="section-tools">
+              <input class="search" id="video-search" type="search" placeholder="Search videos" />
+              <div class="chip" id="video-fp">fp</div>
+            </div>
+          </div>
+          <div class="stack" id="video-list"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="bar">
+          <div class="chip">instance reports</div>
+          <div class="chip">snapshot</div>
+        </div>
+        <div class="pad">
+          <div class="section-head">
+            <div class="section-title-wrap">
+              <h2>Report Sessions</h2>
+            </div>
+            <div class="section-tools">
+              <input class="search" id="reports-search" type="search" placeholder="Search reports" />
+              <div class="chip" id="report-meta">mx / fx</div>
+            </div>
+          </div>
+          <div class="stack" id="reports-list"></div>
+        </div>
+      </section>
+    </section>
+
+    <div id="page-footer"></div>
+  </main>
+
+  <script>
+    function escapeHtml(value){
+      return String(value || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function mountNav(targetId, nav, activeHref){
+      const root = document.getElementById(targetId);
+      if(!root) return;
+      root.innerHTML = `
+        <nav class="shell-nav" aria-label="workspace">
+          ${nav.map((item) => `
+            <a class="shell-nav-link${item.href === activeHref ? " active" : ""}" href="${item.href}">
+              <span>${escapeHtml(item.title)}</span>
+              <code>${escapeHtml(item.tag)}</code>
+            </a>
+          `).join("")}
+        </nav>
+      `;
+    }
+
+    function mountFooter(targetId, text){
+      const root = document.getElementById(targetId);
+      if(!root) return;
+      root.innerHTML = `<div class="shell-footer">${escapeHtml(text)}</div>`;
+    }
+
+    function shellMessage(kind){
+      const dict = {
+        synced: ["Synced", "Runtime updated."],
+        sync_failed: ["Sync Failed", "Unable to update runtime."],
+        load_failed: ["Load Failed", "Unable to load runtime data."]
+      };
+      return dict[kind] || ["Notice", ""];
+    }
+
+    mountNav("page-nav", [
+      {title: "Workspace", href: "/", tag: "home"},
+      {title: "Preferences", href: "/pref", tag: "config"},
+      {title: "OpenAPI", href: "/docs", tag: "schema"},
+      {title: "Health", href: "/ready", tag: "health"},
+      {title: "Runtime", href: "/idle", tag: "runtime"}
+    ], "/idle");
+    mountFooter("page-footer", "HELIX · runtime workspace · v__APP_VERSION__");
+
+    const overviewHost = document.getElementById("overview");
+    const jobsHost = document.getElementById("jobs-list");
+    const sessionsHost = document.getElementById("sessions-list");
+    const videoHost = document.getElementById("video-list");
+    const reportsHost = document.getElementById("reports-list");
+    const banner = document.getElementById("banner");
+    const jobsSearch = document.getElementById("jobs-search");
+    const sessionsSearch = document.getElementById("sessions-search");
+    const videoSearch = document.getElementById("video-search");
+    const reportsSearch = document.getElementById("reports-search");
+    const refreshButton = document.getElementById("refresh-idle");
+    const refreshTime = document.getElementById("refresh-time");
+    const autoRefresh = document.getElementById("auto-refresh");
+    const jobsChips = document.getElementById("jobs-chips");
+    const sessionsChips = document.getElementById("sessions-chips");
+    const jobsSort = document.getElementById("jobs-sort");
+    const jobsFilter = document.getElementById("jobs-filter");
+    const sessionsSort = document.getElementById("sessions-sort");
+    const sessionsFilter = document.getElementById("sessions-filter");
+    const previewMode = location.protocol === "file:";
+    let idleData = null;
+    let refreshTimer = null;
+    const qs = new URLSearchParams(location.search);
+    let jobsScope = qs.get("jobs_scope") || "all";
+    let sessionsScope = qs.get("sessions_scope") || "all";
+    const expandedCards = new Set();
+    const previewIdleData = {
+      active_jobs : 1,
+      idle_sec    : 18.4,
+      ttl_sec     : 1800.0,
+      jobs        : [
+        {id: "job-preview-01", name: "nexus.plan", age_sec: 18.4, args: {mode: "preview", lane: "primary"}}
+      ],
+      sessions    : {
+        "sess-preview-01": {job_id: "job-preview-01", name: "runtime.preview", age_sec: 12.1, args: {source: "file-preview"}}
+      },
+      instance    : {
+        video_list        : {fp: "preview", count: 2, head: [{parent: "shots", name: "frame_001.png"}], parent_stats: [{parent: "shots", count: 2}]},
+        fx_report_session : {fp: "preview", count: 1, head: [{id: "fx-01", parent: "reports", name: "fx_head.json"}], parent_stats: [{parent: "reports", count: 1}], tail: []},
+        mx_report_session : {fp: "preview", count: 1, head: [{id: "mx-01", item: {type: "scene", n: 1, scene: ["preview lane"], repr: "preview summary"}}], tail: []}
+      }
+    };
+
+    function fmtSec(v){
+      const n = Number(v || 0);
+      if (!Number.isFinite(n)) return "0.0s";
+      if (n < 60) return `${n.toFixed(1)}s`;
+      const m = Math.floor(n / 60);
+      const s = Math.floor(n % 60);
+      return `${m}m ${s}s`;
+    }
+
+    function fmtClock(date){
+      return date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
+    }
+
+    function showBanner(title, detail, kind = ""){
+      banner.className = kind ? `banner ${kind}` : "banner";
+      banner.innerHTML = `<strong>${title}</strong><span>${detail}</span>`;
+      banner.classList.add("show");
+      clearTimeout(showBanner.timer);
+      showBanner.timer = setTimeout(() => banner.classList.remove("show"), 1800);
+    }
+
+    function renderOverview(data){
+      const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+      const sessions = data.sessions && typeof data.sessions === "object" ? Object.keys(data.sessions) : [];
+      overviewHost.innerHTML = `
+        <div class="metric">
+          <b>Active Jobs</b>
+          <div class="value">${data.active_jobs ?? 0}</div>
+          <div class="meta">${jobs.length} cards rendered</div>
+        </div>
+        <div class="metric">
+          <b>Idle Time</b>
+          <div class="value">${fmtSec(data.idle_sec)}</div>
+          <div class="meta">ttl ${fmtSec(data.ttl_sec)}</div>
+        </div>
+        <div class="metric">
+          <b>Sessions</b>
+          <div class="value">${sessions.length}</div>
+          <div class="meta">mapped runtime handles</div>
+        </div>
+        <div class="metric">
+          <b>Instance</b>
+          <div class="value">${Object.keys(data.instance || {}).length}</div>
+          <div class="meta">snapshot groups</div>
+        </div>
+      `;
+    }
+
+    function renderArgsBlock(args, query, cardKey){
+      const entries = Object.entries(args || {});
+      if(!entries.length){
+        return `<div class="kv"><div class="pill">args: empty</div></div>`;
+      }
+      const expanded = expandedCards.has(cardKey);
+      const visible = expanded ? entries : entries.slice(0, 6);
+      const hiddenCount = Math.max(0, entries.length - visible.length);
+      return `
+        <div class="item-body">
+          <div class="kv">
+            ${visible.map(([k, v]) => `<div class="pill">${highlightText(k, query)}: ${highlightText(String(v), query)}</div>`).join("")}
+          </div>
+          ${entries.length > 6 ? `<button class="more-btn" type="button" data-expand="${cardKey}">${expanded ? "Show Less" : `Show ${hiddenCount} More`}</button>` : ""}
+        </div>
+      `;
+    }
+
+    function sortByAge(items){
+      return [...items].sort((a, b) => Number(b.age_sec || 0) - Number(a.age_sec || 0));
+    }
+
+    function sortByAgeAsc(items){
+      return [...items].sort((a, b) => Number(a.age_sec || 0) - Number(b.age_sec || 0));
+    }
+
+    function sortByName(items, key = "name"){
+      return [...items].sort((a, b) => searchText(a[key]).localeCompare(searchText(b[key])));
+    }
+
+    function searchText(value){
+      return String(value || "").toLowerCase();
+    }
+
+    function escapeHtml(value){
+      return String(value || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function escapeRegExp(value){
+      return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
+    function highlightText(value, query){
+      const raw = String(value || "");
+      if(!query) return escapeHtml(raw);
+      const re = new RegExp(`(${escapeRegExp(query)})`, "ig");
+      return escapeHtml(raw).replace(re, "<mark>$1</mark>");
+    }
+
+    function matchesQuery(parts, query){
+      if(!query) return true;
+      return parts.some((part) => searchText(part).includes(query));
+    }
+
+    function hasArgs(args){
+      return !!(args && typeof args === "object" && Object.keys(args).length);
+    }
+
+    function applyFilter(items, mode){
+      if(mode === "with-args"){
+        return items.filter((item) => hasArgs(item.args));
+      }
+      if(mode === "no-args"){
+        return items.filter((item) => !hasArgs(item.args));
+      }
+      return items;
+    }
+
+    function applySort(items, mode, nameKey){
+      if(mode === "age-asc") return sortByAgeAsc(items);
+      if(mode === "name-asc" || mode === "key-asc") return sortByName(items, nameKey);
+      return sortByAge(items);
+    }
+
+    function categoryOf(name){
+      const raw = String(name || "").trim();
+      if(!raw) return "uncategorized";
+      const text = raw.toLowerCase();
+      if(text.startsWith("device.") || text.includes("phone") || text.includes("widget")) return "device";
+      if(text.startsWith("media.") || text.includes("video") || text.includes("ffmpeg") || text.includes("player")) return "media";
+      if(text.startsWith("bench.") || text.includes("bench")) return "bench";
+      if(text.startsWith("nexus.") || text.includes("nexus")) return "nexus";
+      if(text.startsWith("ui.") || text.includes("scroll") || text.includes("tap")) return "ui";
+      if(text.startsWith("memrix.") || text.includes("memrix")) return "memrix";
+      if(text.startsWith("framix.") || text.includes("framix")) return "framix";
+      if(text.startsWith("idle.") || text.includes("idle")) return "idle";
+      const head = raw.split(".")[0].split(":")[0].split("/")[0].trim().toLowerCase();
+      return head || "uncategorized";
+    }
+
+    function renderScopeChips(host, items, selected, onSelect, keyName){
+      const counts = items.reduce((acc, item) => {
+        const cat = categoryOf(item[keyName]);
+        acc[cat] = (acc[cat] || 0) + 1;
+        return acc;
+      }, {});
+      const cats = Object.keys(counts).sort();
+      const all = ["all", ...cats];
+      host.innerHTML = all.map((cat) => `
+        <button class="filter-chip${cat === selected ? " active" : ""}" type="button" data-scope="${cat}">
+          <span>${cat}</span>
+          <b>${cat === "all" ? items.length : counts[cat]}</b>
+        </button>
+      `).join("");
+      host.onclick = (event) => {
+        const button = event.target.closest("button[data-scope]");
+        if(!button) return;
+        onSelect(button.getAttribute("data-scope") || "all");
+      };
+    }
+
+    function applyScope(items, scope, keyName){
+      if(scope === "all") return items;
+      return items.filter((item) => categoryOf(item[keyName]) === scope);
+    }
+
+    function syncQuery(){
+      const next = new URLSearchParams();
+      if (jobsScope !== "all") next.set("jobs_scope", jobsScope);
+      if (sessionsScope !== "all") next.set("sessions_scope", sessionsScope);
+      if (jobsSearch.value.trim()) next.set("jobs_q", jobsSearch.value.trim());
+      if (sessionsSearch.value.trim()) next.set("sessions_q", sessionsSearch.value.trim());
+      if (jobsSort.value !== "age-desc") next.set("jobs_sort", jobsSort.value);
+      if (sessionsSort.value !== "age-desc") next.set("sessions_sort", sessionsSort.value);
+      if (jobsFilter.value !== "all") next.set("jobs_filter", jobsFilter.value);
+      if (sessionsFilter.value !== "all") next.set("sessions_filter", sessionsFilter.value);
+      const query = next.toString();
+      history.replaceState(null, "", query ? `${location.pathname}?${query}` : location.pathname);
+    }
+
+    function setRefreshStamp(text){
+      refreshTime.textContent = text;
+    }
+
+    function renderJobs(data){
+      const query = searchText(jobsSearch.value).trim();
+      const baseJobs = Array.isArray(data.jobs) ? data.jobs : [];
+      renderScopeChips(jobsChips, baseJobs, jobsScope, (scope) => {
+        jobsScope = scope;
+        rerenderFilters();
+      }, "name");
+      const filteredBase = applyScope(applyFilter(baseJobs, jobsFilter.value), jobsScope, "name");
+      const allJobs = applySort(filteredBase, jobsSort.value, "name");
+      const jobs = allJobs.filter((job) => matchesQuery([
+        job.id,
+        job.name,
+        JSON.stringify(job.args || {})
+      ], query));
+      document.getElementById("jobs-count").textContent = `${jobs.length}/${allJobs.length}`;
+      document.getElementById("idle-age").textContent = `idle ${fmtSec(data.idle_sec)}`;
+      jobsHost.innerHTML = jobs.length ? jobs.map((job) => `
+        <div class="item">
+          <div class="item-head">
+            <div>
+              <div class="item-title">${highlightText(job.name || "unnamed job", query)}</div>
+              <div class="item-id">${highlightText(job.id || "-", query)}</div>
+            </div>
+            <div class="pill">${fmtSec(job.age_sec)}</div>
+          </div>
+          ${renderArgsBlock(job.args || {}, query, `job:${job.id || job.name || "unknown"}`)}
+        </div>
+      `).join("") : `<div class="empty">${allJobs.length ? "No jobs match current search." : "No active jobs."}</div>`;
+    }
+
+    function renderSessions(data){
+      const query = searchText(sessionsSearch.value).trim();
+      const allSessionsBase = data.sessions && typeof data.sessions === "object"
+        ? Object.entries(data.sessions).map(([key, value]) => ({key, ...(value || {})}))
+        : [];
+      renderScopeChips(sessionsChips, allSessionsBase, sessionsScope, (scope) => {
+        sessionsScope = scope;
+        rerenderFilters();
+      }, "name");
+      const allSessions = applySort(
+        applyScope(applyFilter(allSessionsBase, sessionsFilter.value), sessionsScope, "name"),
+        sessionsSort.value,
+        "key"
+      );
+      const sessions = allSessions.filter((value) => matchesQuery([
+        value.key,
+        value.job_id,
+        value.name,
+        JSON.stringify(value.args || {})
+      ], query));
+      document.getElementById("sessions-count").textContent = `${sessions.length}/${allSessions.length}`;
+      sessionsHost.innerHTML = sessions.length ? sessions.map((value) => `
+        <div class="item">
+          <div class="item-head">
+            <div>
+              <div class="item-title">${highlightText(value.key, query)}</div>
+              <div class="item-id">${highlightText(value.job_id || "-", query)}</div>
+            </div>
+            <div class="pill">${fmtSec(value.age_sec)}</div>
+          </div>
+          <div class="pill">${highlightText(value.name || "unknown session", query)}</div>
+          ${renderArgsBlock(value.args || {}, query, `session:${value.key || value.job_id || "unknown"}`)}
+        </div>
+      `).join("") : `<div class="empty">${allSessions.length ? "No sessions match current search." : "No mapped sessions."}</div>`;
+    }
+
+    function renderScene(scene){
+      return Array.isArray(scene) && scene.length
+        ? `<div class="scene">${scene.map((item) => `<span>${item}</span>`).join("")}</div>`
+        : `<div class="pill">scene: empty</div>`;
+    }
+
+    function renderSummaryItem(item, query = ""){
+      const scene = Array.isArray((item.item || {}).scene) ? (item.item || {}).scene : [];
+      const type = (item.item || {}).type || "unknown";
+      const n = (item.item || {}).n;
+      const repr = (item.item || {}).repr;
+      return `
+        <div class="item">
+          <div class="item-head">
+            <div>
+              <div class="item-title">${highlightText(item.id, query)}</div>
+              <div class="item-id">${highlightText(type, query)}</div>
+            </div>
+            ${n !== undefined ? `<div class="pill">n ${n}</div>` : `<div class="pill">scene ${scene.length}</div>`}
+          </div>
+          ${scene.length ? renderScene(scene.map((one) => highlightText(one, query))) : ""}
+          ${repr ? `<div class="pill">${highlightText(repr, query)}</div>` : ""}
+        </div>
+      `;
+    }
+
+    function renderVideo(instance){
+      const query = searchText(videoSearch.value).trim();
+      const video = (instance || {}).video_list || {};
+      document.getElementById("video-fp").textContent = video.fp || "fp";
+      const rows = [];
+      if (Array.isArray(video.head) && video.head.length){
+        const headItems = video.head.map((item) => `${item.parent}/${item.name}`).filter((item) => matchesQuery([item], query));
+        if (headItems.length){
+        rows.push(`
+          <div class="item">
+            <div class="item-head">
+              <div class="item-title">Head</div>
+              <div class="pill">${video.count || 0} files</div>
+            </div>
+            ${renderScene(headItems.map((item) => highlightText(item, query)))}
+          </div>
+        `);
+        }
+      }
+      if (Array.isArray(video.parent_stats) && video.parent_stats.length){
+        const parentItems = video.parent_stats.map((item) => `${item.parent}:${item.count}`).filter((item) => matchesQuery([item], query));
+        if (parentItems.length){
+        rows.push(`
+          <div class="item">
+            <div class="item-head">
+              <div class="item-title">Parent Stats</div>
+              <div class="pill">top folders</div>
+            </div>
+            ${renderScene(parentItems.map((item) => highlightText(item, query)))}
+          </div>
+        `);
+        }
+      }
+      videoHost.innerHTML = rows.length ? rows.join("") : `<div class="empty">${query ? "No video items match current search." : "No video snapshot yet."}</div>`;
+    }
+
+    function renderReports(instance){
+      const query = searchText(reportsSearch.value).trim();
+      const fx = (instance || {}).fx_report_session || {};
+      const mx = (instance || {}).mx_report_session || {};
+      document.getElementById("report-meta").textContent = `fx ${fx.count || 0} · mx ${mx.count || 0}`;
+
+      const cards = [];
+      if (Array.isArray(fx.head) && fx.head.length){
+        const fxHead = fx.head.map((item) => `${item.id}:${item.parent}/${item.name}`).filter((item) => matchesQuery([item], query));
+        if (fxHead.length){
+        cards.push(`
+          <div class="item">
+            <div class="item-head">
+              <div class="item-title">FX Report Session</div>
+              <div class="pill">${fx.fp || "fp"}</div>
+            </div>
+            ${renderScene(fxHead.map((item) => highlightText(item, query)))}
+          </div>
+        `);
+        }
+      }
+      if (Array.isArray(fx.parent_stats) && fx.parent_stats.length){
+        const fxParents = fx.parent_stats.map((item) => `${item.parent}:${item.count}`).filter((item) => matchesQuery([item], query));
+        if (fxParents.length){
+        cards.push(`
+          <div class="item">
+            <div class="item-head">
+              <div class="item-title">FX Parent Stats</div>
+              <div class="pill">folders</div>
+            </div>
+            ${renderScene(fxParents.map((item) => highlightText(item, query)))}
+          </div>
+        `);
+        }
+      }
+      if (Array.isArray(fx.tail) && fx.tail.length){
+        const fxTail = fx.tail.map((item) => `${item.id}:${item.parent}/${item.name}`).filter((item) => matchesQuery([item], query));
+        if (fxTail.length){
+        cards.push(`
+          <div class="item">
+            <div class="item-head">
+              <div class="item-title">FX Tail</div>
+              <div class="pill">${fx.tail.length}</div>
+            </div>
+            ${renderScene(fxTail.map((item) => highlightText(item, query)))}
+          </div>
+        `);
+        }
+      }
+      if (Array.isArray(mx.head) && mx.head.length){
+        const mxHead = mx.head.filter((item) => matchesQuery([
+          item.id,
+          (item.item || {}).type,
+          ((item.item || {}).scene || []).join(" "),
+          (item.item || {}).repr
+        ], query));
+        if (mxHead.length){
+        cards.push(`
+          <div class="item">
+            <div class="item-head">
+              <div class="item-title">MX Report Session</div>
+              <div class="pill">${mx.fp || "fp"}</div>
+            </div>
+            <div class="stack">
+              ${mxHead.map((item) => renderSummaryItem(item, query)).join("")}
+            </div>
+          </div>
+        `);
+        }
+      }
+      if (Array.isArray(mx.tail) && mx.tail.length){
+        const mxTail = mx.tail.filter((item) => matchesQuery([
+          item.id,
+          (item.item || {}).type,
+          ((item.item || {}).scene || []).join(" "),
+          (item.item || {}).repr
+        ], query));
+        if (mxTail.length){
+        cards.push(`
+          <div class="item">
+            <div class="item-head">
+              <div class="item-title">MX Tail</div>
+              <div class="pill">${mx.tail.length}</div>
+            </div>
+            <div class="stack">
+              ${mxTail.map((item) => renderSummaryItem(item, query)).join("")}
+            </div>
+          </div>
+        `);
+        }
+      }
+      reportsHost.innerHTML = cards.length ? cards.join("") : `<div class="empty">${query ? "No report items match current search." : "No instance reports yet."}</div>`;
+    }
+
+    async function loadIdle(options = {}){
+      const {silent = false} = options;
+      if(previewMode){
+        idleData = previewIdleData;
+        renderOverview(idleData);
+        renderJobs(idleData);
+        renderSessions(idleData);
+        renderVideo(idleData.instance || {});
+        renderReports(idleData.instance || {});
+        setRefreshStamp("preview mode");
+        return;
+      }
+      setRefreshStamp("syncing");
+      const resp = await fetch("/api/idle", {cache: "no-store"});
+      if(!resp.ok) throw new Error("idle load failed");
+      idleData = await resp.json();
+      renderOverview(idleData);
+      renderJobs(idleData);
+      renderSessions(idleData);
+      renderVideo(idleData.instance || {});
+      renderReports(idleData.instance || {});
+      setRefreshStamp(`updated ${fmtClock(new Date())}`);
+      if(!silent){
+        const [title] = shellMessage("synced");
+        showBanner(title, "Runtime snapshot updated.", "");
+      }
+    }
+
+    function rerenderFilters(){
+      if(!idleData) return;
+      syncQuery();
+      renderJobs(idleData);
+      renderSessions(idleData);
+    }
+
+    function scheduleRefresh(){
+      if(refreshTimer){
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+      }
+      if(previewMode){
+        setRefreshStamp("preview mode");
+        return;
+      }
+      if(!autoRefresh.checked) return;
+      refreshTimer = setInterval(() => {
+        loadIdle({silent: true}).catch(() => {
+          setRefreshStamp("sync failed");
+          const [title] = shellMessage("sync_failed");
+          showBanner(title, "Unable to update runtime snapshot.", "err");
+        });
+      }, 12000);
+    }
+
+    if (qs.get("jobs_q")) jobsSearch.value = qs.get("jobs_q");
+    if (qs.get("sessions_q")) sessionsSearch.value = qs.get("sessions_q");
+    if (qs.get("jobs_sort")) jobsSort.value = qs.get("jobs_sort");
+    if (qs.get("sessions_sort")) sessionsSort.value = qs.get("sessions_sort");
+    if (qs.get("jobs_filter")) jobsFilter.value = qs.get("jobs_filter");
+    if (qs.get("sessions_filter")) sessionsFilter.value = qs.get("sessions_filter");
+
+    jobsSearch.addEventListener("input", rerenderFilters);
+    sessionsSearch.addEventListener("input", rerenderFilters);
+    jobsSort.addEventListener("change", rerenderFilters);
+    jobsFilter.addEventListener("change", rerenderFilters);
+    sessionsSort.addEventListener("change", rerenderFilters);
+    sessionsFilter.addEventListener("change", rerenderFilters);
+    videoSearch.addEventListener("input", () => {
+      if(!idleData) return;
+      renderVideo(idleData.instance || {});
+    });
+    reportsSearch.addEventListener("input", () => {
+      if(!idleData) return;
+      renderReports(idleData.instance || {});
+    });
+    refreshButton.addEventListener("click", () => {
+      loadIdle().catch(() => {
+        setRefreshStamp("sync failed");
+        const [title] = shellMessage("sync_failed");
+        showBanner(title, "Unable to update runtime snapshot.", "err");
+      });
+    });
+    autoRefresh.addEventListener("change", scheduleRefresh);
+    document.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-expand]");
+      if(!button) return;
+      const key = button.getAttribute("data-expand");
+      if(!key) return;
+      if(expandedCards.has(key)) expandedCards.delete(key);
+      else expandedCards.add(key);
+      rerenderFilters();
+    });
+
+    loadIdle().catch(() => {
+      setRefreshStamp("sync failed");
+      const [title] = shellMessage("load_failed");
+      showBanner(title, "Unable to load runtime snapshot.", "err");
+      overviewHost.innerHTML = `<div class="metric"><b>Status</b><div class="value">N/A</div><div class="meta">idle snapshot unavailable</div></div>`;
+      jobsHost.innerHTML = `<div class="empty">Unable to load idle snapshot.</div>`;
+      sessionsHost.innerHTML = `<div class="empty">Unable to load session map.</div>`;
+      videoHost.innerHTML = `<div class="empty">Unable to load video snapshot.</div>`;
+      reportsHost.innerHTML = `<div class="empty">Unable to load report snapshots.</div>`;
+    });
+    scheduleRefresh();
+  </script>
+</body>
+</html>

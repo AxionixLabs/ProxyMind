@@ -1362,6 +1362,11 @@ async def main() -> None:
     else:
         raise MindError(f"{const.APP_DESC} is not supported on this platform: {platform}.")
 
+    # Notes: ========== 升级流程 ==========
+    if cmd_lines.upgrade:
+        up: Upgrade = Upgrade()
+        return await up.upgrade_app(supports)
+
     for tls in (tools := [helix]):
         os.environ["PATH"] = os.path.dirname(tls) + env_symbol + os.environ.get("PATH", "")
 
@@ -1389,10 +1394,6 @@ async def main() -> None:
         return await authorize.receive_license(apply_code, lic_file)
 
     await authorize.verify_license(lic_file)
-
-    if cmd_lines.upgrade:
-        up: Upgrade = Upgrade()
-        return await up.upgrade_app(supports)
 
     # 远程全局配置
     global_config_task = asyncio.create_task(Api.remote_config())

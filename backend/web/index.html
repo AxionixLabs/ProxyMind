@@ -43,7 +43,7 @@
         radial-gradient(36% 48% at 76% 18%, rgba(122,167,255,.14), transparent 70%),
         radial-gradient(28% 38% at 52% 10%, rgba(255,92,154,.10), transparent 72%);
       filter:blur(24px);
-      opacity:.95;
+      opacity:.9;
       pointer-events:none;
       animation: auroraShift 16s ease-in-out infinite alternate;
     }
@@ -60,7 +60,7 @@
         linear-gradient(to bottom, rgba(255,255,255,.04) 1px, transparent 1px);
       background-size:44px 44px;
       mask-image: radial-gradient(680px 540px at 50% 18%, black 40%, transparent 82%);
-      opacity:.55;
+      opacity:.5;
       pointer-events:none;
     }
     .scan{
@@ -73,7 +73,7 @@
         transparent 2px,
         transparent 6px
       );
-      opacity:.24;
+      opacity:.22;
       mix-blend-mode:overlay;
       animation: scan 8s linear infinite;
       pointer-events:none;
@@ -90,7 +90,7 @@
         linear-gradient(120deg, transparent 0%, rgba(92,255,214,.06) 34%, transparent 58%),
         linear-gradient(70deg, transparent 8%, rgba(122,167,255,.06) 40%, transparent 64%);
       mix-blend-mode:screen;
-      opacity:.65;
+      opacity:.56;
       transform-origin:50% 0%;
       animation: rayDrift 18s linear infinite;
       pointer-events:none;
@@ -122,7 +122,7 @@
     }
     .wrap{
       position:relative;
-      width:min(980px, calc(100% - 32px));
+      width:min(1120px, calc(100% - 32px));
       margin:28px auto 32px;
     }
     .stack{
@@ -199,10 +199,10 @@
     }
     .title{
       margin:0;
-      font-size:clamp(30px, 5vw, 40px);
-      letter-spacing:.12em;
+      font-size:clamp(28px, 4.4vw, 36px);
+      letter-spacing:.10em;
       text-transform:uppercase;
-      text-shadow:0 0 18px rgba(92,255,214,.22);
+      text-shadow:0 0 12px rgba(92,255,214,.12);
     }
     .glitch{
       position:relative;
@@ -255,7 +255,80 @@
     }
     .sub{
       margin:10px 0 0;
-      max-width:42ch;
+      max-width:none;
+      color:var(--muted);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .eyebrow{
+      color:var(--accent);
+      letter-spacing:.16em;
+      text-transform:uppercase;
+      font-size:12px;
+      margin-bottom:6px;
+    }
+    .shell-nav{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:18px;
+    }
+    .shell-nav-link{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:10px 14px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(0,0,0,.16);
+      color:var(--fg);
+      text-decoration:none;
+      font-size:12px;
+      transition:border-color .12s ease, transform .12s ease, background .12s ease;
+    }
+    .shell-nav-link:hover{
+      transform:translateY(-1px);
+      border-color:rgba(92,255,214,.32);
+      background:rgba(255,255,255,.04);
+    }
+    .shell-nav-link.active{
+      border-color:rgba(92,255,214,.18);
+      background:rgba(92,255,214,.08);
+      color:var(--accent);
+    }
+    .shell-nav-link code{
+      color:var(--accent2);
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+    .overview{
+      display:grid;
+      grid-template-columns:repeat(4, minmax(0, 1fr));
+      gap:12px;
+      margin-top:20px;
+    }
+    .status-card{
+      padding:14px;
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:16px;
+      background:rgba(0,0,0,.14);
+      box-shadow:0 0 0 1px rgba(92,255,214,.05) inset;
+      display:grid;
+      gap:8px;
+    }
+    .status-card b{
+      font-size:12px;
+      color:var(--muted);
+      letter-spacing:.08em;
+      text-transform:uppercase;
+    }
+    .status-value{
+      font-size:20px;
+      line-height:1.1;
+      letter-spacing:.02em;
+    }
+    .status-meta{
+      font-size:12px;
       color:var(--muted);
     }
     .primary-action{
@@ -393,17 +466,66 @@
       font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     }
     .tip{
-      margin-top:10px;
-      max-width:62ch;
+      margin-top:16px;
+      max-width:72ch;
       color:var(--muted);
       font-size:12px;
     }
     .tip code{color:var(--accent2)}
-    .foot{
+    .toast-stage{
+      position:fixed;
+      top:24px;
+      left:50%;
+      transform:translateX(-50%);
+      z-index:30;
+      pointer-events:none;
+    }
+    .toast{
+      min-width:280px;
+      max-width:min(420px, calc(100vw - 32px));
+      padding:14px 16px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(6,14,20,.88);
+      box-shadow:0 18px 44px rgba(0,0,0,.35), 0 0 0 1px rgba(92,255,214,.08) inset;
+      backdrop-filter:blur(12px);
+      opacity:0;
+      transform:translate(-50%, -8px) scale(.98);
+      transition:opacity .18s ease, transform .18s ease;
+      position:relative;
+      left:50%;
+    }
+    .toast.show{
+      opacity:1;
+      transform:translate(-50%, 0) scale(1);
+    }
+    .toast.err{
+      border-color:rgba(255,92,154,.26);
+      box-shadow:0 18px 44px rgba(0,0,0,.35), 0 0 0 1px rgba(255,92,154,.12) inset;
+    }
+    .toast-title{
+      display:block;
+      margin-bottom:4px;
+      font-size:13px;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:var(--fg);
+    }
+    .toast-body{
+      color:var(--muted);
+      font-size:13px;
+    }
+    .shell-footer{
       margin-top:8px;
       text-align:center;
       color:rgba(137,163,173,.85);
       font-size:12px;
+    }
+    @media (max-width: 920px){
+      .overview{grid-template-columns:repeat(2, minmax(0, 1fr))}
+    }
+    @media (max-width: 720px){
+      .overview{grid-template-columns:1fr}
     }
     @media (prefers-reduced-motion: reduce){
       .aurora,
@@ -424,6 +546,7 @@
   <div class="scan"></div>
   <div class="rays"></div>
   <div class="particles" aria-hidden="true" id="particles"></div>
+  <div class="toast-stage" id="toast-stage" aria-live="polite" aria-atomic="true"></div>
 
   <main class="wrap">
     <section class="stack">
@@ -435,10 +558,12 @@
         </div>
         <div class="pad hero">
           <div class="hero-main">
+              <div class="eyebrow">Helix</div>
               <h1 class="title"><span class="glitch" data-text="HELIX">HELIX</span></h1>
-              <p class="sub">
-                Preferences and diagnostics.
-              </p>
+              <p class="sub">Local workspace for preferences, diagnostics, and runtime inspection.</p>
+              <div id="page-nav"></div>
+
+              <div class="overview" id="overview-cards"></div>
 
               <div id="primary-entry"></div>
 
@@ -449,6 +574,7 @@
                 <span class="status-pill"><code>/mcp</code></span>
                 <span class="status-pill"><code>/pref</code></span>
                 <span class="status-pill" id="version-pill">v__APP_VERSION__</span>
+                <span class="status-pill" id="refresh-pill">syncing</span>
               </div>
 
               <div class="tip" id="entry-tip"></div>
@@ -457,47 +583,155 @@
       </div>
     </section>
 
-    <div class="foot">HELIX · local shell · v__APP_VERSION__</div>
+    <div id="page-footer"></div>
   </main>
 
   <script>
     const host = document.getElementById("particles");
     const width = () => window.innerWidth;
+    const overviewHost = document.getElementById("overview-cards");
     const primaryEntryHost = document.getElementById("primary-entry");
     const secondaryEntriesHost = document.getElementById("secondary-entries");
     const entryTipHost = document.getElementById("entry-tip");
+    const toastStage = document.getElementById("toast-stage");
     const entryConfig = {
+      nav: [
+        {title: "Preferences", href: "/pref", tag: "config", primary: true},
+        {title: "OpenAPI", href: "/docs", tag: "schema"},
+        {title: "Health", href: "/ready", tag: "health"},
+        {title: "Runtime", href: "/idle", tag: "runtime"}
+      ],
+      overview: [
+        {key: "ready", title: "Ready", value: "Checking", meta: "/ready"},
+        {key: "version", title: "Version", value: "Loading", meta: "/version"},
+        {key: "idle", title: "Idle Queue", value: "Loading", meta: "/idle"},
+        {key: "transport", title: "Transport", value: "HTTP", meta: "/mcp"}
+      ],
       primary: {
         title: "Preferences",
-        description: "Model slots and providers.",
+        description: "Open local model slots and provider configuration.",
         href: "/pref",
         tag: "PRIMARY"
       },
       secondary: [
         {
           title: "OpenAPI",
-          description: "API surface.",
+          description: "Browse local schema and routes.",
           href: "/docs",
           tag: "UI"
         },
         {
-          title: "Readiness",
-          description: "Service status.",
+          title: "Health",
+          description: "Inspect current health response.",
           href: "/ready",
           tag: "GET"
         },
         {
-          title: "Idle Snapshot",
-          description: "Idle state.",
+          title: "Runtime",
+          description: "Inspect current queue snapshot.",
           href: "/idle",
           tag: "GET"
         }
       ],
       tipLines: [
         "If <code>/mcp</code> returns <span style=\"color:var(--danger)\">401 invalid_token</span>, attach a valid bearer token.",
-        "Keyboard: <code>R</code> refresh, <code>I</code> idle, <code>Y</code> ready."
+        "Keyboard: <code>R</code> refresh status, <code>I</code> idle, <code>Y</code> ready, <code>P</code> preferences."
       ]
     };
+
+    function showToast(title, detail, kind = ""){
+      toastStage.innerHTML = "";
+      const toast = document.createElement("div");
+      toast.className = kind ? `toast ${kind}` : "toast";
+      toast.innerHTML = `
+        <strong class="toast-title">${title}</strong>
+        <span class="toast-body">${detail}</span>
+      `;
+      toastStage.appendChild(toast);
+      requestAnimationFrame(() => toast.classList.add("show"));
+      setTimeout(() => {
+        toast.classList.remove("show");
+        setTimeout(() => toast.remove(), 180);
+      }, 1800);
+    }
+
+    function escapeHtml(value){
+      return String(value || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function mountNav(targetId, nav, activeHref){
+      const root = document.getElementById(targetId);
+      if(!root) return;
+      root.innerHTML = `
+        <nav class="shell-nav" aria-label="workspace">
+          ${nav.map((item) => `
+            <a class="shell-nav-link${item.href === activeHref ? " active" : ""}" href="${item.href}">
+              <span>${escapeHtml(item.title)}</span>
+              <code>${escapeHtml(item.tag)}</code>
+            </a>
+          `).join("")}
+        </nav>
+      `;
+    }
+
+    function mountFooter(targetId, text){
+      const root = document.getElementById(targetId);
+      if(!root) return;
+      root.innerHTML = `<div class="shell-footer">${escapeHtml(text)}</div>`;
+    }
+
+    function shellMessage(kind){
+      const dict = {
+        module_open: ["Open Module", "Opening module."],
+        synced: ["Synced", "Status updated."],
+        sync_failed: ["Sync Failed", "Unable to update status."]
+      };
+      return dict[kind] || ["Notice", ""];
+    }
+
+    function renderOverview(cards){
+      overviewHost.innerHTML = cards.map((card) => `
+        <div class="status-card" data-card="${card.key}">
+          <b>${card.title}</b>
+          <div class="status-value" data-value="${card.key}">${card.value}</div>
+          <div class="status-meta" data-meta="${card.key}">${card.meta}</div>
+        </div>
+      `).join("");
+    }
+
+    function summarizeIdle(payload){
+      const pendingCount = Array.isArray(payload.pending)
+        ? payload.pending.length
+        : Array.isArray(payload.jobs)
+          ? payload.jobs.length
+          : typeof payload.pending_total === "number"
+            ? payload.pending_total
+            : typeof payload.total === "number"
+              ? payload.total
+              : 0;
+      const runningCount = Array.isArray(payload.running)
+        ? payload.running.length
+        : typeof payload.running_total === "number"
+          ? payload.running_total
+          : 0;
+      const total = pendingCount + runningCount;
+
+      let meta = "queue is clear";
+      if(runningCount && pendingCount){
+        meta = `${runningCount} running · ${pendingCount} pending`;
+      }else if(runningCount){
+        meta = `${runningCount} active job${runningCount > 1 ? "s" : ""}`;
+      }else if(pendingCount){
+        meta = `${pendingCount} queued job${pendingCount > 1 ? "s" : ""}`;
+      }
+
+      return {value: String(total), meta};
+    }
 
     function renderPrimaryEntry(entry){
       primaryEntryHost.innerHTML = `
@@ -548,6 +782,9 @@
     renderPrimaryEntry(entryConfig.primary);
     renderSecondaryEntries(entryConfig.secondary);
     renderTip(entryConfig.tipLines);
+    mountNav("page-nav", entryConfig.nav, "/");
+    mountFooter("page-footer", "HELIX · local workspace · v__APP_VERSION__");
+    renderOverview(entryConfig.overview);
     spawn(Math.min(110, Math.floor(window.innerWidth / 10)));
     window.addEventListener("resize", () => {
       spawn(Math.min(110, Math.floor(window.innerWidth / 10)));
@@ -556,12 +793,29 @@
     async function loadStatus(){
       const readyText = document.getElementById("ready-text");
       const versionPill = document.getElementById("version-pill");
+      const refreshPill = document.getElementById("refresh-pill");
+      const readyValue = document.querySelector('[data-value="ready"]');
+      const readyMeta = document.querySelector('[data-meta="ready"]');
+      const versionValue = document.querySelector('[data-value="version"]');
+      const versionMeta = document.querySelector('[data-meta="version"]');
+      const idleValue = document.querySelector('[data-value="idle"]');
+      const idleMeta = document.querySelector('[data-meta="idle"]');
+      const transportValue = document.querySelector('[data-value="transport"]');
+      const transportMeta = document.querySelector('[data-meta="transport"]');
 
+      refreshPill.textContent = "syncing";
+      transportValue.textContent = "HTTP";
+      transportMeta.textContent = "streamable transport";
       try{
         const readyResp = await fetch("/ready", {cache: "no-store"});
-        readyText.textContent = readyResp.ok ? "online" : "degraded";
+        const readyOk = readyResp.ok;
+        readyText.textContent = readyOk ? "online" : "degraded";
+        readyValue.textContent = readyOk ? "Online" : "Degraded";
+        readyMeta.textContent = readyOk ? "runtime reachable" : "status endpoint degraded";
       }catch(_err){
         readyText.textContent = "offline";
+        readyValue.textContent = "Offline";
+        readyMeta.textContent = "status endpoint unreachable";
       }
 
       try{
@@ -570,20 +824,72 @@
           const payload = await versionResp.json();
           if(payload.version){
             versionPill.textContent = "v" + payload.version;
+            versionValue.textContent = payload.version;
+            versionMeta.textContent = payload.service || "/version";
           }
         }
       }catch(_err){
         versionPill.textContent = "version n/a";
+        versionValue.textContent = "N/A";
+        versionMeta.textContent = "version unavailable";
       }
+
+      try{
+        const idleResp = await fetch("/api/idle", {cache: "no-store"});
+        if(idleResp.ok){
+          const payload = await idleResp.json();
+          const idle = summarizeIdle(payload);
+          idleValue.textContent = idle.value;
+          idleMeta.textContent = idle.meta;
+        }else{
+          idleValue.textContent = "N/A";
+          idleMeta.textContent = "idle snapshot unavailable";
+        }
+      }catch(_err){
+        idleValue.textContent = "N/A";
+        idleMeta.textContent = "idle endpoint unreachable";
+      }
+
+      refreshPill.textContent = new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
     }
 
     loadStatus();
 
+    document.getElementById("page-nav").addEventListener("click", (event) => {
+      const link = event.target.closest("a");
+      if(!link) return;
+      const [title] = shellMessage("module_open");
+      showToast(title, `Open ${link.getAttribute("href")}`, "");
+    });
+
+    secondaryEntriesHost.addEventListener("click", (event) => {
+      const link = event.target.closest("a");
+      if(!link) return;
+      const [title] = shellMessage("module_open");
+      showToast(title, `Open ${link.getAttribute("href")}`, "");
+    });
+
+    primaryEntryHost.addEventListener("click", () => {
+      const [title] = shellMessage("module_open");
+      showToast(title, "Open /pref", "");
+    });
+
     window.addEventListener("keydown", (e) => {
       const k = (e.key || "").toLowerCase();
-      if (k === "r") location.reload();
+      if (k === "r"){
+        loadStatus()
+          .then(() => {
+            const [title, detail] = shellMessage("synced");
+            showToast(title, detail, "");
+          })
+          .catch(() => {
+            const [title, detail] = shellMessage("sync_failed");
+            showToast(title, detail, "err");
+          });
+      }
       if (k === "y") location.href = "/ready";
       if (k === "i") location.href = "/idle";
+      if (k === "p") location.href = "/pref";
     });
   </script>
 </body>
