@@ -18,8 +18,8 @@ from mcp.server.auth.settings import AuthSettings
 from mcp_core.core_cli import Cli
 from mcp_hub.hub_manage import DeviceManage
 from middlewares.mid_auth import HelixTokenVerifier
-from middlewares.mid_touch import touch_middleware
-from routers.rt_basic import basic_router
+from middlewares import register_middlewares
+from routers import register_routers
 from utilities import const
 from utilities.pipeline import (
     Active, Idle
@@ -75,8 +75,8 @@ def main() -> None:
     register_all_tools(mcp, DeviceManage(), idle)
 
     app: FastAPI = FastAPI(lifespan=lifespan)
-    app.middleware("http")(touch_middleware)
-    app.include_router(basic_router)
+    register_middlewares(app)
+    register_routers(app)
 
     uvicorn.run(
         app,
