@@ -12,7 +12,7 @@ from fastapi import (
 )
 from fastapi.responses import Response
 from backend.utilities import const
-from backend.utilities.prefs import (
+from backend.utilities.storage.prefs import (
     load_pref, save_pref
 )
 

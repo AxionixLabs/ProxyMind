@@ -12,16 +12,16 @@ import time
 import typing
 import sqlite3
 from pathlib import Path
+from backend.utilities import const
 
 Slot = dict[str, typing.Any]
 
-# ========【入口与命名】========
-APP_ENTRY_NAMES    = {"helix", "helix.exe"}
-SCRIPT_ENTRY_NAMES = {"helix.py"}
-PROFILE_TITLE      = "Default"
+APP_ENTRY_NAMES    = {const.APP_NAME, f"{const.APP_NAME}.exe"}
+SCRIPT_ENTRY_NAMES = {f"{const.APP_NAME}.py"}
+PROFILE_TITLE      = f"Default"
 SLOT_KEYS          = ("primary", "secondary")
+APP_DATA_DIR_NAME  = f"{const.APP_DESC}"
 
-# ========【表与字段】========
 TABLE_PROFILES  = "pref_profiles"
 TABLE_SLOTS     = "pref_model_slots"
 SLOT_COLUMN_MAP = {
@@ -33,11 +33,9 @@ SLOT_COLUMN_MAP = {
     "notes"    : "notes",
 }
 
-# ========【本地数据目录】========
-DATA_ROOT_DIR = f"data"
-DATA_FILENAME = "helix.db"
+DATA_STORAGE_DIR = f"storage"
+DATA_FILENAME    = f"{const.APP_NAME}.db"
 
-# ========【默认偏好元数据】========
 DEFAULT_SCHEMA_VERSION = 2
 DEFAULT_PROFILE_KEY    = "default"
 DEFAULT_PROVIDER       = "OpenAI"
@@ -63,7 +61,7 @@ def _default_prefs() -> dict[str, typing.Any]:
         "secondary"      : _default_slot(),
     }
 
-# ========【SQLite Schema】========
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS pref_profiles (
     profile_id   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,17 +96,28 @@ def _app_root() -> Path:
     software = Path(sys.argv[0]).name.strip().lower()
 
     if software in APP_ENTRY_NAMES:
-        return Path(sys.argv[0]).resolve().parent.parent
+        return Path(sys.argv[0]).resolve().parent
 
     if software in SCRIPT_ENTRY_NAMES:
-        return Path(__file__).resolve().parents[2]
+        return Path(__file__).resolve().parents[3]
 
     return Path.cwd()
 
 
+def _data_root() -> Path:
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / APP_DATA_DIR_NAME
+
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if base:
+            return Path(base) / APP_DATA_DIR_NAME
+
+    return _app_root() / APP_DATA_DIR_NAME
+
+
 def pref_path() -> Path:
-    root = _app_root()
-    return root / DATA_ROOT_DIR / DATA_FILENAME
+    return _data_root() / DATA_STORAGE_DIR / DATA_FILENAME
 
 
 def _connect() -> sqlite3.Connection:

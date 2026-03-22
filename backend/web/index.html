@@ -572,7 +572,9 @@
               <div class="status-list">
                 <span class="status-pill" id="status-pill"><span class="led"></span><span id="ready-text">checking</span></span>
                 <span class="status-pill"><code>/mcp</code></span>
+                <span class="status-pill"><code>/idle</code></span>
                 <span class="status-pill"><code>/pref</code></span>
+                <span class="status-pill"><code>/logs</code></span>
                 <span class="status-pill" id="version-pill">v__APP_VERSION__</span>
                 <span class="status-pill" id="refresh-pill">syncing</span>
               </div>
@@ -597,6 +599,7 @@
     const entryConfig = {
       nav: [
         {title: "Preferences", href: "/pref", tag: "config", primary: true},
+        {title: "Logs", href: "/logs", tag: "logs"},
         {title: "OpenAPI", href: "/docs", tag: "schema"},
         {title: "Health", href: "/ready", tag: "health"},
         {title: "Runtime", href: "/idle", tag: "runtime"}
@@ -614,6 +617,12 @@
         tag: "PRIMARY"
       },
       secondary: [
+        {
+          title: "Logs",
+          description: "Inspect local server logs.",
+          href: "/logs",
+          tag: "UI"
+        },
         {
           title: "OpenAPI",
           description: "Browse local schema and routes.",
@@ -634,8 +643,7 @@
         }
       ],
       tipLines: [
-        "If <code>/mcp</code> returns <span style=\"color:var(--danger)\">401 invalid_token</span>, attach a valid bearer token.",
-        "Keyboard: <code>R</code> refresh status, <code>I</code> idle, <code>Y</code> ready, <code>P</code> preferences."
+        "Keyboard: <code>R</code> refresh status, <code>I</code> idle, <code>P</code> preferences, <code>L</code> logs."
       ]
     };
 
@@ -887,9 +895,9 @@
             showToast(title, detail, "err");
           });
       }
-      if (k === "y") location.href = "/ready";
       if (k === "i") location.href = "/idle";
       if (k === "p") location.href = "/pref";
+      if (k === "l") location.href = "/logs";
     });
   </script>
 </body>

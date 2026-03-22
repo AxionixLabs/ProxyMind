@@ -1,0 +1,895 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Helix Logs</title>
+  <meta name="color-scheme" content="dark" />
+  <link rel="icon" type="image/png" href="/static/favicon-96x96.png" sizes="96x96" />
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+  <link rel="shortcut icon" href="/static/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-title" content="Helix" />
+  <link rel="manifest" href="/static/site.webmanifest" />
+  <style>
+    :root{
+      --bg:#05060a;
+      --fg:#d7f7ff;
+      --muted:#89a3ad;
+      --line:rgba(255,255,255,.08);
+      --accent:#5cffd6;
+      --accent2:#7aa7ff;
+      --warn:#ffd27a;
+      --danger:#ff5c9a;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      color:var(--fg);
+      background:
+        radial-gradient(900px 540px at 18% 8%, rgba(122,167,255,.10), transparent 58%),
+        radial-gradient(760px 480px at 82% 14%, rgba(92,255,214,.08), transparent 60%),
+        #05060a;
+      font:14px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    }
+    .grid{
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      opacity:.22;
+      background-image:
+        linear-gradient(to right, rgba(255,255,255,.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,.04) 1px, transparent 1px);
+      background-size:44px 44px;
+      mask-image:radial-gradient(800px 520px at 50% 15%, #000 42%, transparent 82%);
+    }
+    .wrap{
+      width:min(1180px, calc(100% - 32px));
+      margin:28px auto 40px;
+      display:grid;
+      gap:16px;
+    }
+    .card{
+      border:1px solid var(--line);
+      border-radius:18px;
+      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      box-shadow:
+        0 30px 90px rgba(0,0,0,.65),
+        0 0 0 1px rgba(92,255,214,.06) inset;
+      overflow:hidden;
+      position:relative;
+      backdrop-filter:blur(10px);
+    }
+    .card::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      background:
+        radial-gradient(700px 260px at 20% 0%, rgba(92,255,214,.08), transparent 56%),
+        radial-gradient(700px 240px at 100% 0%, rgba(122,167,255,.08), transparent 58%);
+    }
+    .bar{
+      position:relative;
+      z-index:1;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      padding:14px 18px;
+      border-bottom:1px solid rgba(255,255,255,.06);
+      background:rgba(0,0,0,.16);
+    }
+    .dots{display:flex; gap:8px}
+    .dots i{display:block; width:10px; height:10px; border-radius:999px}
+    .dots i:nth-child(1){background:#ff6f98}
+    .dots i:nth-child(2){background:#ffc86f}
+    .dots i:nth-child(3){background:#6fffd1}
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:6px 10px;
+      border-radius:999px;
+      font-size:12px;
+      color:var(--muted);
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(0,0,0,.16);
+      white-space:nowrap;
+    }
+    .pad{
+      position:relative;
+      z-index:1;
+      padding:22px 18px;
+    }
+    .eyebrow{
+      color:var(--accent);
+      letter-spacing:.16em;
+      text-transform:uppercase;
+      font-size:12px;
+    }
+    h1{
+      margin:8px 0 0;
+      font-size:34px;
+      letter-spacing:.10em;
+      text-transform:uppercase;
+      text-shadow:0 0 18px rgba(92,255,214,.22);
+    }
+    .signal-title{
+      position:relative;
+      display:inline-block;
+      padding:0 0 10px;
+      color:rgba(215,247,255,.96);
+      overflow:hidden;
+    }
+    .signal-title::before{
+      content:attr(data-text);
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      color:transparent;
+      background:linear-gradient(
+        115deg,
+        transparent 0%,
+        transparent 36%,
+        rgba(255,255,255,.92) 48%,
+        rgba(92,255,214,.92) 52%,
+        transparent 64%,
+        transparent 100%
+      );
+      background-size:220% 100%;
+      -webkit-background-clip:text;
+      background-clip:text;
+      animation:titleSweep 4.8s ease-in-out infinite;
+      opacity:.95;
+    }
+    .signal-title::after{
+      content:"";
+      position:absolute;
+      left:0;
+      right:0;
+      bottom:0;
+      height:2px;
+      border-radius:999px;
+      background:linear-gradient(90deg, rgba(122,167,255,.18), rgba(92,255,214,.88) 50%, rgba(122,167,255,.18));
+      box-shadow:0 0 0 1px rgba(92,255,214,.06), 0 0 16px rgba(92,255,214,.22);
+      transform-origin:left center;
+      animation:titleBeam 3.8s ease-in-out infinite;
+    }
+    @keyframes titleSweep{
+      0%, 16%{background-position:160% 0; opacity:0}
+      28%{opacity:.98}
+      52%{background-position:30% 0; opacity:.9}
+      72%, 100%{background-position:-80% 0; opacity:0}
+    }
+    @keyframes titleBeam{
+      0%, 100%{transform:scaleX(.22); opacity:.45}
+      45%{transform:scaleX(1); opacity:1}
+      70%{transform:scaleX(.72); opacity:.7}
+    }
+    .sub{
+      margin:12px 0 0;
+      max-width:64ch;
+      color:var(--muted);
+    }
+    .shell-nav{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:18px;
+    }
+    .shell-nav-link{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:10px 14px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(0,0,0,.16);
+      color:var(--fg);
+      text-decoration:none;
+      font-size:12px;
+      transition:border-color .12s ease, transform .12s ease, background .12s ease;
+    }
+    .shell-nav-link:hover{
+      transform:translateY(-1px);
+      border-color:rgba(92,255,214,.32);
+      background:rgba(255,255,255,.04);
+    }
+    .shell-nav-link.active{
+      border-color:rgba(92,255,214,.18);
+      background:rgba(92,255,214,.08);
+      color:var(--accent);
+    }
+    .shell-nav-link code{
+      color:var(--accent2);
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+    .hero-tools{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+      margin-top:14px;
+    }
+    .refresh-btn{
+      appearance:none;
+      border:1px solid rgba(92,255,214,.18);
+      background:rgba(92,255,214,.08);
+      color:var(--accent);
+      border-radius:12px;
+      padding:8px 12px;
+      font-size:11px;
+      letter-spacing:.06em;
+      text-transform:uppercase;
+      cursor:pointer;
+    }
+    .search{
+      min-width:220px;
+      max-width:320px;
+      padding:9px 12px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(0,0,0,.14);
+      color:var(--fg);
+      outline:none;
+    }
+    .search::placeholder{color:var(--muted)}
+    .ghost-btn{
+      appearance:none;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(0,0,0,.14);
+      color:var(--fg);
+      border-radius:12px;
+      padding:8px 12px;
+      font-size:11px;
+      letter-spacing:.06em;
+      text-transform:uppercase;
+      cursor:pointer;
+    }
+    .metrics{
+      display:grid;
+      grid-template-columns:repeat(4, minmax(0, 1fr));
+      gap:14px;
+    }
+    .metric{
+      padding:16px;
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:16px;
+      background:rgba(0,0,0,.14);
+      display:grid;
+      gap:8px;
+    }
+    .metric b{
+      font-size:12px;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:var(--muted);
+    }
+    .metric .value{
+      font-size:26px;
+      line-height:1;
+    }
+    .metric .meta{
+      font-size:12px;
+      color:var(--muted);
+      word-break:break-all;
+    }
+    .section-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:16px;
+      margin-bottom:18px;
+    }
+    .section-title-wrap{
+      min-width:0;
+      flex:0 1 auto;
+    }
+    .section-head h2{
+      margin:0;
+      font-size:16px;
+      letter-spacing:.02em;
+      white-space:nowrap;
+    }
+    .section-tools{
+      min-width:0;
+      flex:1 1 auto;
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+    .filter-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-bottom:16px;
+    }
+    .filter-chip{
+      appearance:none;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(0,0,0,.14);
+      color:var(--muted);
+      border-radius:999px;
+      padding:7px 10px;
+      font-size:12px;
+      cursor:pointer;
+      transition:border-color .12s ease, color .12s ease, background .12s ease;
+    }
+    .filter-chip.active{
+      border-color:rgba(92,255,214,.22);
+      background:rgba(92,255,214,.10);
+      color:var(--accent);
+    }
+    .console{
+      min-height:560px;
+      padding:18px;
+      border:1px solid rgba(255,255,255,.06);
+      border-radius:16px;
+      background:rgba(3,8,12,.82);
+      box-shadow:0 0 0 1px rgba(92,255,214,.05) inset;
+      font:12px/1.7 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      white-space:pre-wrap;
+      word-break:break-word;
+      color:#dbe9ef;
+    }
+    .line{
+      display:grid;
+      grid-template-columns:56px 180px 84px 1fr;
+      gap:14px;
+      padding:6px 0 6px 10px;
+      border-bottom:1px solid rgba(255,255,255,.04);
+      align-items:start;
+      position:relative;
+    }
+    .line::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top:7px;
+      bottom:7px;
+      width:2px;
+      border-radius:999px;
+      background:rgba(255,255,255,.08);
+    }
+    .line-no{
+      color:rgba(137,163,173,.72);
+      text-align:right;
+      user-select:none;
+    }
+    .line-text{
+      min-width:0;
+      white-space:pre-wrap;
+    }
+    .line-time{
+      color:#b8c9d1;
+      white-space:nowrap;
+    }
+    .line-level{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:72px;
+      padding:2px 8px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.08);
+      background:rgba(255,255,255,.03);
+      font-size:11px;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+    }
+    .line[data-level="INFO"]{color:#d7f7ff}
+    .line[data-level="DEBUG"]{color:#9ad7ff}
+    .line[data-level="WARNING"]{color:#ffd27a}
+    .line[data-level="ERROR"],
+    .line[data-level="CRITICAL"]{color:#ff9abb}
+    .line[data-level="INFO"]::before{background:rgba(215,247,255,.16)}
+    .line[data-level="DEBUG"]::before{background:rgba(154,215,255,.28)}
+    .line[data-level="WARNING"]::before{background:rgba(255,210,122,.38)}
+    .line[data-level="ERROR"]::before,
+    .line[data-level="CRITICAL"]::before{background:rgba(255,154,187,.44)}
+    .line[data-level="INFO"] .line-level{color:#d7f7ff;border-color:rgba(215,247,255,.12)}
+    .line[data-level="DEBUG"] .line-level{color:#9ad7ff;border-color:rgba(154,215,255,.18)}
+    .line[data-level="WARNING"] .line-level{color:#ffd27a;border-color:rgba(255,210,122,.18)}
+    .line[data-level="ERROR"] .line-level,
+    .line[data-level="CRITICAL"] .line-level{color:#ff9abb;border-color:rgba(255,154,187,.22)}
+    .line:hover{background:rgba(255,255,255,.02)}
+    mark{
+      padding:1px 4px;
+      border-radius:6px;
+      background:rgba(92,255,214,.16);
+      color:var(--fg);
+      box-shadow:0 0 0 1px rgba(92,255,214,.14) inset;
+    }
+    .empty{
+      padding:20px 16px;
+      border:1px dashed rgba(255,255,255,.10);
+      border-radius:14px;
+      color:var(--muted);
+      background:rgba(0,0,0,.10);
+      text-align:center;
+    }
+    .banner{
+      position:fixed;
+      top:50%;
+      left:50%;
+      width:min(520px, calc(100vw - 40px));
+      min-width:min(320px, calc(100vw - 40px));
+      padding:20px 22px;
+      border-radius:22px;
+      transform:translate(-50%, -50%) scale(.98);
+      z-index:20;
+      border:1px solid rgba(255,255,255,.10);
+      background:
+        radial-gradient(520px 220px at 20% 0%, rgba(92,255,214,.14), transparent 60%),
+        radial-gradient(420px 200px at 100% 10%, rgba(122,167,255,.10), transparent 60%),
+        rgba(6,14,20,.90);
+      box-shadow:
+        0 28px 80px rgba(0,0,0,.48),
+        0 0 0 1px rgba(92,255,214,.08) inset;
+      color:var(--fg);
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .18s ease, transform .18s ease;
+      overflow:hidden;
+    }
+    .banner.show{
+      opacity:1;
+      transform:translate(-50%, -50%) scale(1);
+    }
+    .banner::before{
+      content:"";
+      position:absolute;
+      inset:auto -12% 0 -12%;
+      height:2px;
+      background:linear-gradient(90deg, transparent, rgba(92,255,214,.92), rgba(122,167,255,.55), transparent);
+      box-shadow:0 0 18px rgba(92,255,214,.28);
+      opacity:.9;
+      animation:bannerSweep 1.8s linear infinite;
+    }
+    .banner::after{
+      content:"";
+      position:absolute;
+      inset:50% auto auto 50%;
+      width:26px;
+      height:26px;
+      border-radius:999px;
+      border:1px solid rgba(92,255,214,.30);
+      transform:translate(-50%, -50%) scale(.24);
+      opacity:0;
+      pointer-events:none;
+    }
+    .banner.show::after{
+      animation:bannerRipple .7s ease-out 1;
+    }
+    .banner.show:not(.err){
+      animation:bannerConfirm .26s ease-out 1, bannerOkPulse 1s ease-in-out 1;
+    }
+    .banner.err{
+      border-color:rgba(255,92,154,.22);
+      background:
+        radial-gradient(520px 220px at 20% 0%, rgba(255,92,154,.16), transparent 60%),
+        radial-gradient(420px 200px at 100% 10%, rgba(122,167,255,.10), transparent 60%),
+        rgba(20,8,14,.92);
+      box-shadow:
+        0 28px 80px rgba(0,0,0,.48),
+        0 0 0 1px rgba(255,92,154,.10) inset;
+    }
+    .banner.err::before{
+      background:linear-gradient(90deg, transparent, rgba(255,92,154,.92), rgba(122,167,255,.55), transparent);
+      box-shadow:0 0 18px rgba(255,92,154,.35);
+    }
+    .banner.err::after{
+      border-color:rgba(255,92,154,.34);
+    }
+    .banner.err.show{
+      animation:bannerAlert .34s ease-out 1, bannerPulse 1.3s ease-in-out 2;
+    }
+    .banner strong{
+      display:block;
+      margin-bottom:10px;
+      font-size:18px;
+      letter-spacing:.12em;
+      text-transform:uppercase;
+    }
+    .banner span{
+      font-size:14px;
+      line-height:1.65;
+      color:var(--muted);
+    }
+    .shell-footer{
+      margin-top:8px;
+      text-align:center;
+      color:rgba(137,163,173,.85);
+      font-size:12px;
+    }
+    @keyframes bannerSweep{
+      0%{transform:translateX(-28%)}
+      100%{transform:translateX(28%)}
+    }
+    @keyframes bannerAlert{
+      0%,100%{transform:translate(-50%, -50%) scale(1)}
+      20%{transform:translate(-50%, -50%) translateX(-5px) scale(1.01)}
+      40%{transform:translate(-50%, -50%) translateX(5px) scale(1.01)}
+      60%{transform:translate(-50%, -50%) translateX(-3px) scale(1)}
+      80%{transform:translate(-50%, -50%) translateX(3px) scale(1)}
+    }
+    @keyframes bannerConfirm{
+      0%{transform:translate(-50%, -50%) scale(.975)}
+      55%{transform:translate(-50%, -50%) scale(1.01)}
+      100%{transform:translate(-50%, -50%) scale(1)}
+    }
+    @keyframes bannerPulse{
+      0%,100%{
+        box-shadow:
+          0 28px 80px rgba(0,0,0,.48),
+          0 0 0 1px rgba(255,92,154,.10) inset;
+      }
+      50%{
+        box-shadow:
+          0 28px 80px rgba(0,0,0,.48),
+          0 0 0 1px rgba(255,92,154,.16) inset,
+          0 0 28px rgba(255,92,154,.14);
+      }
+    }
+    @keyframes bannerOkPulse{
+      0%,100%{
+        box-shadow:
+          0 28px 80px rgba(0,0,0,.48),
+          0 0 0 1px rgba(92,255,214,.08) inset;
+      }
+      50%{
+        box-shadow:
+          0 28px 80px rgba(0,0,0,.48),
+          0 0 0 1px rgba(92,255,214,.14) inset,
+          0 0 26px rgba(92,255,214,.12);
+      }
+    }
+    @keyframes bannerRipple{
+      0%{opacity:.4; transform:translate(-50%, -50%) scale(.24)}
+      100%{opacity:0; transform:translate(-50%, -50%) scale(16)}
+    }
+    @media (max-width: 980px){
+      .metrics{grid-template-columns:1fr 1fr}
+      .section-head{flex-direction:column; align-items:stretch}
+      .section-tools{justify-content:flex-start}
+    }
+    @media (max-width: 720px){
+      .metrics{grid-template-columns:1fr}
+      .search{max-width:none}
+      .line{grid-template-columns:44px 1fr}
+      .line-time,.line-level{grid-column:2}
+    }
+    @media (prefers-reduced-motion: reduce){
+      .signal-title::before,
+      .signal-title::after,
+      .banner,
+      .banner::before,
+      .banner::after{
+        animation:none;
+      }
+      .signal-title::before{opacity:0}
+    }
+  </style>
+</head>
+<body>
+  <div class="grid"></div>
+  <div class="banner" id="banner" aria-live="polite" aria-atomic="true"></div>
+
+  <main class="wrap">
+    <section class="card">
+      <div class="bar">
+        <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="chip">runtime logs</div>
+      </div>
+      <div class="pad">
+        <div class="eyebrow">Helix</div>
+        <h1><span class="signal-title" data-text="Server Logs">Server Logs</span></h1>
+        <p class="sub">查看本地 helix 运行日志，支持搜索、级别过滤和自动刷新。</p>
+        <div id="page-nav"></div>
+        <div class="hero-tools">
+          <button class="refresh-btn" type="button" id="refresh-logs">Refresh</button>
+          <div class="chip" id="refresh-time">sync pending</div>
+          <label class="chip" for="auto-refresh">
+            <input id="auto-refresh" type="checkbox" checked />
+            <span>auto sync</span>
+          </label>
+          <button class="ghost-btn" type="button" id="copy-log-path">Copy Path</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="metrics" id="metrics"></section>
+
+    <section class="card">
+      <div class="bar">
+        <div class="chip">log stream</div>
+        <div class="chip" id="log-count">0/0</div>
+      </div>
+      <div class="pad">
+        <div class="section-head">
+          <div class="section-title-wrap">
+            <h2>Server Output</h2>
+          </div>
+          <div class="section-tools">
+            <input class="search" id="log-search" type="search" placeholder="Search logs" />
+            <div class="chip" id="log-path-chip">log path</div>
+          </div>
+        </div>
+        <div class="filter-row" id="level-filters"></div>
+        <div class="console" id="log-console"></div>
+      </div>
+    </section>
+
+    <div id="page-footer"></div>
+  </main>
+
+  <script>
+    function escapeHtml(value){
+      return String(value || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function escapeRegExp(value){
+      return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
+    function mountNav(targetId, nav, activeHref){
+      const root = document.getElementById(targetId);
+      if(!root) return;
+      root.innerHTML = `
+        <nav class="shell-nav" aria-label="workspace">
+          ${nav.map((item) => `
+            <a class="shell-nav-link${item.href === activeHref ? " active" : ""}" href="${item.href}">
+              <span>${escapeHtml(item.title)}</span>
+              <code>${escapeHtml(item.tag)}</code>
+            </a>
+          `).join("")}
+        </nav>
+      `;
+    }
+
+    function mountFooter(targetId, text){
+      const root = document.getElementById(targetId);
+      if(!root) return;
+      root.innerHTML = `<div class="shell-footer">${escapeHtml(text)}</div>`;
+    }
+
+    function shellMessage(kind){
+      const dict = {
+        synced: ["Synced", "Logs updated."],
+        sync_failed: ["Sync Failed", "Unable to update logs."],
+        load_failed: ["Load Failed", "Unable to load logs."]
+      };
+      return dict[kind] || ["Notice", ""];
+    }
+
+    mountNav("page-nav", [
+      {title:"Workspace", href:"/", tag:"home"},
+      {title:"Preferences", href:"/pref", tag:"config"},
+      {title:"Logs", href:"/logs", tag:"logs"},
+      {title:"OpenAPI", href:"/docs", tag:"schema"},
+      {title:"Health", href:"/ready", tag:"health"},
+      {title:"Runtime", href:"/idle", tag:"runtime"}
+    ], "/logs");
+    mountFooter("page-footer", "HELIX · log workspace · v__APP_VERSION__");
+
+    const banner = document.getElementById("banner");
+    const metricsHost = document.getElementById("metrics");
+    const filtersHost = document.getElementById("level-filters");
+    const consoleHost = document.getElementById("log-console");
+    const refreshTime = document.getElementById("refresh-time");
+    const refreshButton = document.getElementById("refresh-logs");
+    const autoRefresh = document.getElementById("auto-refresh");
+    const searchInput = document.getElementById("log-search");
+    const countChip = document.getElementById("log-count");
+    const pathChip = document.getElementById("log-path-chip");
+    const copyPathButton = document.getElementById("copy-log-path");
+    const previewMode = location.protocol === "file:";
+    const previewPayload = {
+      exists: true,
+      path: "/preview/data/storage/helix.log",
+      line_count: 4,
+      truncated: false,
+      size: 248,
+      lines: [
+        "2026-03-22 10:08:11.102 | INFO     | helix boot",
+        "2026-03-22 10:08:12.328 | DEBUG    | idle watcher ready",
+        "2026-03-22 10:08:14.884 | WARNING  | runtime queue delayed",
+        "2026-03-22 10:08:18.015 | ERROR    | probe failed: preview"
+      ]
+    };
+    let logData = previewPayload;
+    let refreshTimer = null;
+    let levelScope = "all";
+
+    function showBanner(title, detail, kind = ""){
+      banner.className = kind ? `banner show ${kind}` : "banner show";
+      banner.innerHTML = `<strong>${title}</strong><span>${detail}</span>`;
+      clearTimeout(showBanner.timer);
+      showBanner.timer = setTimeout(() => banner.classList.remove("show"), 1800);
+    }
+
+    function fmtClock(date){
+      return date.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"});
+    }
+
+    function levelOf(line){
+      const hit = String(line || "").match(/\|\s([A-Z]+)\s+\|/);
+      return hit ? hit[1] : "INFO";
+    }
+
+    function parseLogLine(line){
+      const raw = String(line || "");
+      const match = raw.match(/^(.+?)\s+\|\s+([A-Z]+)\s+\|\s+(.*)$/);
+      if(!match){
+        return {time:"", level:levelOf(raw), message:raw};
+      }
+      return {
+        time: match[1],
+        level: match[2],
+        message: match[3]
+      };
+    }
+
+    function highlightText(value, query){
+      const raw = String(value || "");
+      if(!query) return escapeHtml(raw);
+      const re = new RegExp(`(${escapeRegExp(query)})`, "ig");
+      return escapeHtml(raw).replace(re, "<mark>$1</mark>");
+    }
+
+    function renderMetrics(data){
+      const lines = Array.isArray(data.lines) ? data.lines : [];
+      const levels = lines.reduce((acc, line) => {
+        const level = levelOf(line);
+        acc[level] = (acc[level] || 0) + 1;
+        return acc;
+      }, {});
+      metricsHost.innerHTML = `
+        <div class="metric">
+          <b>Total Lines</b>
+          <div class="value">${data.line_count || 0}</div>
+          <div class="meta">${data.truncated ? "tail view" : "full view"}</div>
+        </div>
+        <div class="metric">
+          <b>Errors</b>
+          <div class="value">${levels.ERROR || 0}</div>
+          <div class="meta">${levels.CRITICAL || 0} critical</div>
+        </div>
+        <div class="metric">
+          <b>Warnings</b>
+          <div class="value">${levels.WARNING || 0}</div>
+          <div class="meta">${levels.INFO || 0} info</div>
+        </div>
+        <div class="metric">
+          <b>Source</b>
+          <div class="value">${previewMode ? "Preview" : "Local"}</div>
+          <div class="meta">${escapeHtml(data.path || "log path")}</div>
+        </div>
+      `;
+    }
+
+    function renderLevelFilters(lines){
+      const counts = lines.reduce((acc, line) => {
+        const level = levelOf(line);
+        acc[level] = (acc[level] || 0) + 1;
+        return acc;
+      }, {});
+      const levels = ["all", "INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"]
+        .filter((key) => key === "all" || counts[key]);
+      filtersHost.innerHTML = levels.map((level) => `
+        <button class="filter-chip${levelScope === level ? " active" : ""}" type="button" data-level="${level}">
+          ${level} ${level === "all" ? lines.length : counts[level]}
+        </button>
+      `).join("");
+      filtersHost.onclick = (event) => {
+        const button = event.target.closest("button[data-level]");
+        if(!button) return;
+        levelScope = button.getAttribute("data-level") || "all";
+        renderConsole(logData);
+      };
+    }
+
+    function renderConsole(data){
+      const lines = Array.isArray(data.lines) ? data.lines : [];
+      const query = String(searchInput.value || "").trim().toLowerCase();
+      const filtered = lines.filter((line) => {
+        const level = levelOf(line);
+        if(levelScope !== "all" && level !== levelScope) return false;
+        if(query && !String(line).toLowerCase().includes(query)) return false;
+        return true;
+      });
+      countChip.textContent = `${filtered.length}/${lines.length}`;
+      pathChip.textContent = data.exists === false ? "log missing" : (data.truncated ? "tail view" : "full view");
+      consoleHost.innerHTML = filtered.length
+        ? filtered.map((line, index) => `
+            ${(() => {
+              const parsed = parseLogLine(line);
+              return `<span class="line" data-level="${parsed.level}">
+              <span class="line-no">${index + 1}</span>
+              <span class="line-time">${highlightText(parsed.time || "--", query)}</span>
+              <span class="line-level">${highlightText(parsed.level, query)}</span>
+              <span class="line-text">${highlightText(parsed.message, query)}</span>
+            </span>`;
+            })()}
+          `).join("")
+        : `<div class="empty">No log lines match current filters.</div>`;
+      renderLevelFilters(lines);
+    }
+
+    async function loadLogs(options = {}){
+      const {silent = false} = options;
+      if(previewMode){
+        logData = previewPayload;
+        renderMetrics(logData);
+        renderConsole(logData);
+        refreshTime.textContent = "preview mode";
+        return;
+      }
+      refreshTime.textContent = "syncing";
+      const resp = await fetch("/api/logs", {cache:"no-store"});
+      if(!resp.ok) throw new Error("logs load failed");
+      const payload = await resp.json();
+      logData = payload.data || {lines:[]};
+      renderMetrics(logData);
+      renderConsole(logData);
+      refreshTime.textContent = `updated ${fmtClock(new Date())}`;
+      if(!silent){
+        const [title, detail] = shellMessage("synced");
+        showBanner(title, detail, "");
+      }
+    }
+
+    function scheduleRefresh(){
+      if(refreshTimer){
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+      }
+      if(previewMode || !autoRefresh.checked) return;
+      refreshTimer = setInterval(() => {
+        loadLogs({silent:true}).catch(() => {
+          refreshTime.textContent = "sync failed";
+          const [title, detail] = shellMessage("sync_failed");
+          showBanner(title, detail, "err");
+        });
+      }, 12000);
+    }
+
+    refreshButton.addEventListener("click", () => {
+      loadLogs().catch(() => {
+        refreshTime.textContent = "sync failed";
+        const [title, detail] = shellMessage("sync_failed");
+        showBanner(title, detail, "err");
+      });
+    });
+    copyPathButton.addEventListener("click", async () => {
+      const target = (logData && logData.path) || "";
+      if(!target) return;
+      try{
+        await navigator.clipboard.writeText(target);
+        showBanner("Copied", "Log path copied.", "");
+      }catch(_err){
+        showBanner("Copy Failed", "Unable to copy log path.", "err");
+      }
+    });
+    autoRefresh.addEventListener("change", scheduleRefresh);
+    searchInput.addEventListener("input", () => renderConsole(logData));
+
+    loadLogs().catch(() => {
+      refreshTime.textContent = "sync failed";
+      const [title, detail] = shellMessage("load_failed");
+      showBanner(title, detail, "err");
+      renderMetrics({lines:[], line_count:0, path:"log path", truncated:false, exists:false});
+      consoleHost.innerHTML = `<div class="empty">Unable to load log stream.</div>`;
+      pathChip.textContent = "log unavailable";
+    });
+    scheduleRefresh();
+  </script>
+</body>
+</html>

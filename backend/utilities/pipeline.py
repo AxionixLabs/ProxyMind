@@ -23,6 +23,7 @@ from rich.logging import (
 )
 from backend.utilities.instance import Ins
 from backend.utilities import const
+from backend.utilities.storage.logs import ensure_log_path
 
 
 class _HelixBaseError(BaseException):
@@ -87,6 +88,15 @@ class Active(object):
         logger.remove()
         logger.add(
             Active._RichSink(Active.console), level=log_level, format=const.PRINT_FORMAT
+        )
+        logger.add(
+            ensure_log_path(),
+            level=log_level,
+            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {message}",
+            encoding=const.CHARSET,
+            rotation="10 MB",
+            retention="14 days",
+            compression="zip"
         )
 
 
