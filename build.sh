@@ -55,6 +55,7 @@ mkdir -p "$ROOT/dist"
 # === 执行 create-dmg（v1.2.1语法） ===
 create-dmg \
   --volname "$VOL" \
+  --window-pos 240 140 \
   --window-size 500 350 \
   --icon-size 100 \
   --background "$BGP" \
