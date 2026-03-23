@@ -46,7 +46,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
             _, on_begin, on_final = idle.hooks(
                 "scrcpy.scrcpy_mirror",
                 args={},
-                args_fn=lambda: {"serial": device.serial, "brand": device.brand}
+                args_fn=lambda: {"serial": device.serial, "brand": device.device_props.get("brand")}
             )
             record: Record = Record(
                 device, version, Ins.station, Ins.sessions, Ins.sessions_lock,
@@ -98,7 +98,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
             _, on_begin, on_final = idle.hooks(
                 "scrcpy.scrcpy_record",
                 args=a,
-                args_fn=lambda: {"serial": device.serial, "brand": device.brand}
+                args_fn=lambda: {"serial": device.serial, "brand": device.device_props.get("brand")}
             )
             record: Record = Record(
                 device, version, Ins.station, Ins.sessions, Ins.sessions_lock,
