@@ -33,7 +33,7 @@ nuitka ^
   --show-progress ^
   --show-memory ^
   --assume-yes-for-downloads ^
-  --output-dir=schematic/supports/Windows ^
+  --output-dir=schematic/supports/windows ^
   backend/helix.py
 
 if errorlevel 1 (
@@ -42,7 +42,7 @@ if errorlevel 1 (
 )
 
 echo 🧹 清理 Windows 编译中间目录...
-if exist build rmdir /s /q build
+for /d %%D in ("schematic\supports\windows\*.build") do rmdir /s /q "%%D"
 
 echo ✅ Helix Windows 编译完成
 endlocal

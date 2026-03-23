@@ -31,10 +31,10 @@ nuitka \
   --include-data-dir=backend/web=web \
   --include-data-dir=backend/requires/macos=requires/macos \
   --show-progress \
-  --output-dir=schematic/supports/MacOS \
+  --output-dir=schematic/supports/macos \
   backend/helix.py
 
 echo "🧹 清理 macOS 编译中间目录..."
-rm -rf build dist
+rm -rf schematic/supports/macos/*.build schematic/supports/macos/*.dist
 
 echo "✅ Helix macOS 编译完成"
