@@ -20,6 +20,7 @@ APP_ENTRY_NAMES    = {const.APP_NAME, f"{const.APP_NAME}.exe"}
 SCRIPT_ENTRY_NAMES = {f"{const.APP_NAME}.py"}
 PROFILE_TITLE      = f"Default"
 SLOT_KEYS          = ("primary", "secondary")
+REQUIRED_SLOT_KEYS = ("primary",)
 APP_DATA_DIR_NAME  = f"{const.APP_DESC}"
 
 TABLE_PROFILES  = "pref_profiles"
@@ -58,7 +59,7 @@ def _default_prefs() -> dict[str, typing.Any]:
         "schema_version" : DEFAULT_SCHEMA_VERSION,
         "profile_key"    : DEFAULT_PROFILE_KEY,
         "primary"        : _default_slot(),
-        "secondary"      : _default_slot(),
+        "secondary"      : None,
     }
 
 
@@ -158,7 +159,7 @@ def _ensure_profile(conn: sqlite3.Connection, profile_key: str = DEFAULT_PROFILE
         raise RuntimeError("failed to initialize pref profile")
 
     profile_id = int(row["profile_id"])
-    for slot_key in SLOT_KEYS:
+    for slot_key in REQUIRED_SLOT_KEYS:
         conn.execute(
             f"""
             INSERT INTO {TABLE_SLOTS} (
@@ -208,16 +209,27 @@ def _merge_slot(base: Slot, incoming: typing.Any) -> Slot:
     return merged
 
 
+def _is_slot_configured(slot: typing.Any) -> bool:
+    if not isinstance(slot, dict):
+        return False
+
+    return bool(
+        str(slot.get("model", "")).strip()
+        and str(slot.get("apikey", "")).strip()
+    )
+
+
 def normalize_pref(raw: typing.Any) -> dict[str, typing.Any]:
     prefs = _default_prefs()
     if not isinstance(raw, dict):
         return prefs
 
     prefs["primary"] = _merge_slot(prefs["primary"], raw.get("primary"))
-    prefs["secondary"] = _merge_slot(prefs["secondary"], raw.get("secondary"))
-
     prefs["primary"]["type"] = prefs["primary"]["type"] or DEFAULT_MODEL_TYPE
-    prefs["secondary"]["type"] = prefs["secondary"]["type"] or DEFAULT_MODEL_TYPE
+
+    secondary = _merge_slot(_default_slot(), raw.get("secondary"))
+    secondary["type"] = secondary["type"] or DEFAULT_MODEL_TYPE
+    prefs["secondary"] = secondary if _is_slot_configured(secondary) else None
 
     return prefs
 
@@ -239,7 +251,8 @@ def load_pref() -> dict[str, typing.Any]:
     slots = {str(row["slot_key"]): _row_to_slot(row) for row in rows}
     prefs = _default_prefs()
     prefs["primary"] = slots.get("primary", _default_slot())
-    prefs["secondary"] = slots.get("secondary", _default_slot())
+    secondary = slots.get("secondary")
+    prefs["secondary"] = secondary if _is_slot_configured(secondary) else None
     return prefs
 
 
@@ -251,7 +264,7 @@ def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
         _init_schema(conn)
         profile_id = _ensure_profile(conn, str(prefs.get("profile_key") or DEFAULT_PROFILE_KEY))
 
-        for slot_key in SLOT_KEYS:
+        for slot_key in REQUIRED_SLOT_KEYS:
             slot = prefs[slot_key]
             provider, base_url, api_key, model_name, model_type, notes = _slot_record(slot)
             conn.execute(
@@ -274,6 +287,36 @@ def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
                     profile_id, slot_key, provider, base_url, api_key, model_name,
                     model_type, notes, now, now
                 )
+            )
+
+        secondary = prefs.get("secondary")
+        if _is_slot_configured(secondary):
+            provider, base_url, api_key, model_name, model_type, notes = _slot_record(secondary)
+            conn.execute(
+                f"""
+                INSERT INTO {TABLE_SLOTS} (
+                    profile_id, slot_key, provider, base_url, api_key, model_name,
+                    model_type, notes, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(profile_id, slot_key) DO UPDATE SET
+                    provider   = excluded.provider,
+                    base_url   = excluded.base_url,
+                    api_key    = excluded.api_key,
+                    model_name = excluded.model_name,
+                    model_type = excluded.model_type,
+                    notes      = excluded.notes,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    profile_id, "secondary", provider, base_url, api_key, model_name,
+                    model_type, notes, now, now
+                )
+            )
+        else:
+            conn.execute(
+                f"DELETE FROM {TABLE_SLOTS} WHERE profile_id = ? AND slot_key = ?",
+                (profile_id, "secondary")
             )
 
     return prefs
