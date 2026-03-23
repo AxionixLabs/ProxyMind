@@ -27,11 +27,6 @@ def _default_slot() -> dict[str, str]:
     }
 
 
-def _is_complete_secondary_slot(slot: dict[str, typing.Any]) -> bool:
-    required_keys = ("api", "model", "apikey", "base_url")
-    return all(str(slot.get(key, "")).strip() for key in required_keys)
-
-
 def _default_prefs() -> dict[str, typing.Any]:
     return {
         "schema_version" : DEFAULT_SCHEMA_VERSION,
@@ -104,16 +99,12 @@ class Preferences(object):
             "secondary": None
         }
 
-        if isinstance(secondary, dict) and _is_complete_secondary_slot(secondary):
-            api      = str(secondary.get("api", "")).strip()
-            model    = str(secondary.get("model", "")).strip()
-            apikey   = str(secondary.get("apikey", "")).strip()
-            base_url = str(secondary.get("base_url", "")).strip()
+        if isinstance(secondary, dict):
             prefs["secondary"] = {
-                "api"      : api,
-                "model"    : model,
-                "apikey"   : apikey,
-                "base_url" : base_url
+                "api"      : str(secondary.get("api", DEFAULT_PROVIDER)),
+                "model"    : str(secondary.get("model", "")),
+                "apikey"   : str(secondary.get("apikey", "")),
+                "base_url" : str(secondary.get("base_url", ""))
             }
 
         self.prefs = prefs
