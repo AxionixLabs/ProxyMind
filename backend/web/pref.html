@@ -813,7 +813,7 @@
     const previewPref = {
       schema_version : 2,
       primary        : {api: "OpenAI", type: "Text", base_url: "https://api.openai.com/v1", apikey: "", model: "gpt-5"},
-      secondary      : {api: "Groq", type: "Multimodal", base_url: "https://api.groq.com/openai/v1", apikey: "", model: "qwen-vl-max"}
+      secondary      : null
     };
 
     function escapeHtml(value){
@@ -906,6 +906,16 @@
       if (target) target.value = value || "";
     }
 
+    function fieldInputValue(id) {
+      const target = document.getElementById(id);
+      return target ? target.value.trim() : "";
+    }
+
+    function fieldSelectValue(id, fallback = "") {
+      const target = document.getElementById(id);
+      return target ? target.value : fallback;
+    }
+
     function applyPref(data) {
       const primary = data.primary || {};
       const secondary = data.secondary || {};
@@ -925,23 +935,35 @@
 
     function collectSlot(prefix) {
       return {
-        api      : document.getElementById(`${prefix}-api`).value.trim(),
-        type     : document.getElementById(`${prefix}-type`).value,
-        base_url : document.getElementById(`${prefix}-base-url`).value.trim(),
-        apikey   : document.getElementById(`${prefix}-api-key`).value.trim(),
-        model    : document.getElementById(`${prefix}-model`).value.trim()
+        api      : fieldSelectValue(`${prefix}-api`, "OpenAI"),
+        type     : fieldSelectValue(`${prefix}-type`, "Text"),
+        base_url : fieldInputValue(`${prefix}-base-url`),
+        apikey   : fieldInputValue(`${prefix}-api-key`),
+        model    : fieldInputValue(`${prefix}-model`)
       };
+    }
+
+    function slotConfigured(slot) {
+      if (!slot) return false;
+      return Boolean(
+        String(slot.model || "").trim() &&
+        String(slot.apikey || "").trim()
+      );
     }
 
     function collectPref() {
       const primary = collectSlot("primary");
       const secondary = collectSlot("secondary");
-
-      return {
+      const payload = {
         schema_version : 2,
-        primary,
-        secondary
+        primary
       };
+
+      if (slotConfigured(secondary)) {
+        payload.secondary = secondary;
+      }
+
+      return payload;
     }
 
     async function loadPref(options = {}) {
