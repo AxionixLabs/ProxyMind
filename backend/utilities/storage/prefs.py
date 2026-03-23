@@ -213,10 +213,8 @@ def _is_slot_configured(slot: typing.Any) -> bool:
     if not isinstance(slot, dict):
         return False
 
-    return bool(
-        str(slot.get("model", "")).strip()
-        and str(slot.get("apikey", "")).strip()
-    )
+    meaningful_keys = ("base_url", "apikey", "model", "notes")
+    return any(str(slot.get(key, "")).strip() for key in meaningful_keys)
 
 
 def normalize_pref(raw: typing.Any) -> dict[str, typing.Any]:
