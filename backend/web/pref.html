@@ -946,8 +946,9 @@
     function slotConfigured(slot) {
       if (!slot) return false;
       return Boolean(
-        String(slot.model || "").trim() &&
-        String(slot.apikey || "").trim()
+        String(slot.base_url || "").trim() ||
+        String(slot.apikey || "").trim() ||
+        String(slot.model || "").trim()
       );
     }
 
