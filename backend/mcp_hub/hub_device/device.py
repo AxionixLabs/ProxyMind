@@ -614,7 +614,9 @@ class Device(object):
     # workflow: ==== UI Interaction MCP Tool ====
     async def input_text(self, text: str) -> typing.Any:
         """向当前焦点输入文本。"""
-        if not (ime := await self.combo.ensure_ime()).get("ok"):
+        ime = await self.combo.ensure_ime()
+
+        if not ime.get("data", {}).get("ok"):
             return ime
 
         raw = await self.phone.input_text("" if text is None else str(text))
@@ -626,7 +628,9 @@ class Device(object):
     # workflow: ==== UI Interaction MCP Tool ====
     async def clear_text(self) -> typing.Any:
         """清空当前焦点输入框文本。"""
-        if not (ime := await self.combo.ensure_ime()).get("ok"):
+        ime = await self.combo.ensure_ime()
+
+        if not ime.get("data", {}).get("ok"):
             return ime
 
         raw = await self.phone.clear_text()
