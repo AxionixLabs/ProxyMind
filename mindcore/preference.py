@@ -23,25 +23,29 @@ def _default_slot() -> dict[str, str]:
         "api"      : DEFAULT_PROVIDER,
         "model"    : "",
         "apikey"   : "",
-        "base_url" : "",
+        "base_url" : ""
     }
+
+
+def _is_complete_secondary_slot(slot: dict[str, typing.Any]) -> bool:
+    required_keys = ("api", "model", "apikey", "base_url")
+    return all(str(slot.get(key, "")).strip() for key in required_keys)
 
 
 def _default_prefs() -> dict[str, typing.Any]:
     return {
         "schema_version" : DEFAULT_SCHEMA_VERSION,
         "primary"        : _default_slot(),
-        "secondary"      : _default_slot(),
+        "secondary"      : None
     }
 
 
 class Preferences(object):
     """Preferences class."""
 
-    prefs = _default_prefs()
-
     def __init__(self, pref_file: typing.Any):
         self.pref_file = pref_file
+        self.prefs     = _default_prefs()
 
     def __getstate__(self):
         return self.prefs
@@ -86,18 +90,32 @@ class Preferences(object):
         return payload.get("data") or {}
 
     def _apply_primary_slot(self, payload: dict[str, typing.Any]) -> None:
-        primary = payload.get("primary") or {}
-        secondary = payload.get("secondary") or {}
-        prefs = _default_prefs()
-        prefs["schema_version"] = int(payload.get("schema_version", DEFAULT_SCHEMA_VERSION) or DEFAULT_SCHEMA_VERSION)
-        prefs["primary"]["api"] = str(primary.get("api", DEFAULT_PROVIDER))
-        prefs["primary"]["model"] = str(primary.get("model", ""))
-        prefs["primary"]["apikey"] = str(primary.get("apikey", ""))
-        prefs["primary"]["base_url"] = str(primary.get("base_url", ""))
-        prefs["secondary"]["api"] = str(secondary.get("api", DEFAULT_PROVIDER))
-        prefs["secondary"]["model"] = str(secondary.get("model", ""))
-        prefs["secondary"]["apikey"] = str(secondary.get("apikey", ""))
-        prefs["secondary"]["base_url"] = str(secondary.get("base_url", ""))
+        primary   = payload.get("primary") or {}
+        secondary = payload.get("secondary")
+
+        prefs = {
+            "schema_version": int(payload.get("schema_version", DEFAULT_SCHEMA_VERSION) or DEFAULT_SCHEMA_VERSION),
+            "primary": {
+                "api"      : str(primary.get("api", DEFAULT_PROVIDER)),
+                "model"    : str(primary.get("model", "")),
+                "apikey"   : str(primary.get("apikey", "")),
+                "base_url" : str(primary.get("base_url", ""))
+            },
+            "secondary": None
+        }
+
+        if isinstance(secondary, dict) and _is_complete_secondary_slot(secondary):
+            api      = str(secondary.get("api", "")).strip()
+            model    = str(secondary.get("model", "")).strip()
+            apikey   = str(secondary.get("apikey", "")).strip()
+            base_url = str(secondary.get("base_url", "")).strip()
+            prefs["secondary"] = {
+                "api"      : api,
+                "model"    : model,
+                "apikey"   : apikey,
+                "base_url" : base_url
+            }
+
         self.prefs = prefs
 
     async def load_pref(self) -> None:
