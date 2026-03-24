@@ -722,13 +722,9 @@ class Mind(object):
 
             match types:
                 case "model":
-                    styles = [
-                        "llama-3.3-70b-versatile", "openai/gpt-oss-120b", "gpt-4o-mini", "deepseek-chat"
-                    ]
+                    styles = ["<model> (Model name or ID)"]
                 case "apikey":
-                    styles = [
-                        "sk-...   (API Key)", "gsk_...  (API Key)", "ds-...   (API Key)", "<token>  (Pure token)"
-                    ]
+                    styles = ["<apikey> (Provider API key)"]
 
             for s in styles: Design.console.print(f"[bold #AFC7D8]  • {s}[/]")
             return Design.console.print(f"[bold #FF5F5F]\n {types} invalid: /{types} {const.ERR}{pref_name}")

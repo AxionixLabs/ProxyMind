@@ -94,19 +94,15 @@ async def post_stream_event(
     timeout: float = 30.0
 ) -> None:
     """事件上报：把一条事件写入服务端缓存并广播给 SSE 订阅者。"""
-
-    url = f"https://api.appserverx.com/events-ingest"
     headers = Channel.make_headers()
-
     payload = {
         "mode"  : mode,
         "cid"   : cid,
         "sid"   : sid,
         "event" : event
     }
-
     async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(url, headers=headers, json=payload)
+        r = await client.post(const.STREAM_EVENT_URL, headers=headers, json=payload)
         r.raise_for_status()
 
 
@@ -117,11 +113,9 @@ async def upload_file_stream(
     timeout: float = 60.0
 ) -> dict[str, typing.Any]:
     """流式上传本地文件到服务端 /upload（服务端再流式转发到 R2）。"""
-
     if not (p := Path(path).expanduser()).exists() or not p.is_file():
         raise RuntimeError(f"upload_file_stream: file not exists: {p}")
 
-    url = "https://api.appserverx.com/upload"
     headers = Channel.make_headers()
     headers.pop("Content-Type", None)
 
@@ -133,7 +127,7 @@ async def upload_file_stream(
         }
         files = {"file": (p.name, f, ctype)}
         async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.post(url, headers=headers, data=data, files=files)
+            r = await client.post(const.FILE_STREAM_URL, headers=headers, data=data, files=files)
             r.raise_for_status()
             return r.json()
 
@@ -155,8 +149,6 @@ async def post_tool_result(
     ]
 ) -> None:
     """Post function tool output back to the server loop."""
-
-    url = f"https://api.appserverx.com/tool-result"
     headers = Channel.make_headers()
     payload = {
         "cid"     : cid,
@@ -168,8 +160,9 @@ async def post_tool_result(
     }
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await client.post(url, headers=headers, json=payload)
+        r = await client.post(const.TOOL_RESULT_URL, headers=headers, json=payload)
         r.raise_for_status()
+
 
 async def stream_chat(
     mode: str,
@@ -182,8 +175,6 @@ async def stream_chat(
     **kwargs
 ) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
     """Stream stable turn events for chat and fast modes."""
-
-    url = f"https://api.appserverx.com/mind-chat"
     headers = Channel.make_headers()
     payload = {
         "mode"     : mode,
@@ -195,7 +186,7 @@ async def stream_chat(
     if attachments:
         payload["attachments"] = attachments
 
-    async for event in streaming(url, headers, payload, timeout):
+    async for event in streaming(const.STREAM_CHAT_URL, headers, payload, timeout):
         match event.get("type"):
             case "ping":
                 continue
@@ -214,8 +205,6 @@ async def stream_plan(
     **kwargs
 ) -> typing.AsyncGenerator[dict, None]:
     """Stream plan events."""
-
-    url = f"https://api.appserverx.com/mind-plan"
     headers = Channel.make_headers()
     payload = {
         "mode"     : mode,
@@ -226,7 +215,7 @@ async def stream_plan(
         **kwargs
     }
 
-    async for event in streaming(url, headers, payload, timeout):
+    async for event in streaming(const.STREAM_PLAN_URL, headers, payload, timeout):
         match event.get("type"):
             case "ping":
                 continue
@@ -255,10 +244,7 @@ async def stream_heal(
     **kwargs
 ) -> typing.AsyncGenerator[dict, None]:
     """Stream stable heal events."""
-
-    url = "https://api.appserverx.com/mind-heal"
     headers = Channel.make_headers()
-
     payload = {
         "llm_conf"   : model_api,
         "app_id"     : const.APP_DESC,
@@ -271,7 +257,7 @@ async def stream_heal(
         "context"    : kwargs
     }
 
-    async for event in streaming(url, headers, payload, timeout):
+    async for event in streaming(const.STREAM_HEAL_URL, headers, payload, timeout):
         match event.get("type"):
             case "ping":
                 continue
@@ -305,8 +291,6 @@ async def stream_rule(
     timeout: float = 60.0
 ) -> typing.AsyncGenerator[dict, None]:
     """Stream stable rule events."""
-
-    url = f"https://api.appserverx.com/mind-rule"
     headers = Channel.make_headers()
     payload = {
         "mode"      : mode,
@@ -316,7 +300,7 @@ async def stream_rule(
         "extras"    : {"context" : context}
     }
 
-    async for event in streaming(url, headers, payload, timeout):
+    async for event in streaming(const.STREAM_RULE_URL, headers, payload, timeout):
         match event.get("type"):
             case "ping":
                 continue

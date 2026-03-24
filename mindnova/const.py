@@ -63,18 +63,28 @@ AUDIENCE = r"helix-mcp-api"
 BASE_URL = r"http://127.0.0.1:3333"
 MCP_ED   = r"/helix/mcp"
 
+# ========【域名管理】========
+DOMAIN = f"https://cdn.appserverx.com"
+
 # ========【专有服务】========
-ATLAS_URL    = f"https://api.appserverx.com/mind-atlas"
-HEAL_LIC_URL = f"https://api.appserverx.com/mind-heal-license"
-MANIFEST_URL = f"https://api.appserverx.com/mind-manifest"
+ATLAS_URL        = f"{DOMAIN}/mind-atlas"
+HEAL_LIC_URL     = f"{DOMAIN}/mind-heal-license"
+MANIFEST_URL     = f"{DOMAIN}/mind-manifest"
+STREAM_EVENT_URL = f"{DOMAIN}/events-ingest"
+FILE_STREAM_URL  = f"{DOMAIN}/upload"
+TOOL_RESULT_URL  = f"{DOMAIN}/tool-result"
+STREAM_CHAT_URL  = f"{DOMAIN}/mind-chat"
+STREAM_PLAN_URL  = f"{DOMAIN}/mind-plan"
+STREAM_HEAL_URL  = f"{DOMAIN}/mind-heal"
+STREAM_RULE_URL  = f"{DOMAIN}/mind-rule"
 
 # ========【应用授权】========
-BOOTSTRAP_URL      = f"https://api.appserverx.com/bootstrap"
+BOOTSTRAP_URL      = f"{DOMAIN}/bootstrap"
 TEMPLATE_META_URL  = f""
 BUSINESS_CASE_URL  = f""
 SPEECH_META_URL    = f""
 SPEECH_VOICE_URL   = f""
-GLOBAL_CF_URL      = f"https://api.appserverx.com/global-configuration"
+GLOBAL_CF_URL      = f"{DOMAIN}/global-configuration"
 PREDICT_URL        = r""
 TOOLKIT_META_URL   = r""
 MODEL_META_URL     = r""

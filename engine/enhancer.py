@@ -331,7 +331,9 @@ class Enhancer(object):
                         continue
                     if rule_event.get("type") not in {"text.delta", "text.done"}:
                         continue
-                    if not (chunk := str(rule_event.get("text") or "")):
+
+                    chunk = str(rule_event.get("text") or "")
+                    if not chunk:
                         continue
                     chunks.append(chunk)
                     if slog:
