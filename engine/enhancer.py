@@ -323,11 +323,17 @@ class Enhancer(object):
                 context = element.get("data", {}).get("context") or {}
 
                 chunks: list[str] = []
-                async for event in request.stream_rule(self.mode, self.model_api, message, context, self.metadata):
-                    if event.get("type") == "error":
-                        per_agent[agent_id] = {"ok": False, "message": message, "error": event}
+                async for rule_event in request.stream_rule(
+                    self.mode, self.model_api, message, context, self.metadata
+                ):
+                    if rule_event.get("type") == "turn.failed":
+                        per_agent[agent_id] = {"ok": False, "message": message, "error": rule_event}
                         continue
-                    chunks.append(chunk := event["content"])
+                    if rule_event.get("type") not in {"text.delta", "text.done"}:
+                        continue
+                    if not (chunk := str(rule_event.get("text") or "")):
+                        continue
+                    chunks.append(chunk)
                     if slog:
                         await slog.feed(chunk)
 
@@ -336,7 +342,7 @@ class Enhancer(object):
             ok = all(v.get("ok") for v in per_agent.values()) if per_agent else False
 
             return {
-                "text"        : "free rule done",
+                "text"        : "free rule completed",
                 "attachments" : attachments,
                 "data": {
                     "ok"         : ok,
@@ -523,22 +529,27 @@ class Enhancer(object):
             data   = element["data"]
             serial = data.pop("serial", "unknown")
 
-            async for heal in request.stream_heal(self.model_api, **data, slog=slog):
-                if heal.get("type") == "error":
-                    per_agent[serial] = {"ok": False, "error": heal["content"]}
+            async for heal_event in request.stream_heal(self.model_api, **data, slog=slog):
+                if heal_event.get("type") == "heal.failed":
+                    per_agent[serial] = {"ok": False, "error": heal_event.get("error")}
                     continue
 
-                if not (smart := heal.get("smart")):
+                if heal_event.get("type") != "heal.result":
                     continue
 
-                reason = smart.get("details", {}).get("reason", "unknown")
+                heal_result = heal_event.get("result")
+                if not isinstance(heal_result, dict):
+                    continue
+
+                reason = (heal_result.get("details") or {}).get("reason", "unknown")
 
                 if serial not in per_agent:
+                    selector = ((heal_result.get("new_selector") or {}).get("primary") or {})
                     locator = {
-                        "by": smart["new_selector"]["primary"]["by"],
-                        "value": smart["new_selector"]["primary"]["value"]
+                        "by": selector.get("by"),
+                        "value": selector.get("value")
                     }
-                    per_agent[serial] = {"ok": True, "locator": locator, "smart": reason}
+                    per_agent[serial] = {"ok": True, "locator": locator, "reason": reason}
 
                 if slog: await slog.feed(reason, display=StreamTyperLogger.BLOCK)
                 else: logger.debug(reason)
