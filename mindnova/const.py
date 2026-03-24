@@ -55,6 +55,10 @@ ERR = f"[bold #FFFFFF on #FF6347]"
 PRINT_FORMAT = f"<level>{{level: <8}}</level> | <level>{{message}}</level>"
 WRITE_FORMAT = f"{OTHER_HEAD} <green>{{time:YYYY-MM-DD HH:mm:ss.SSS}}</green> | <level>{{level: <8}}</level> | <level>{{message}}</level>"
 
+# ========【运行时配置】========
+KEEPALIVE_SEC         = 300.0
+KEEPALIVE_TIMEOUT_SEC = 3.0
+
 # ========【服务授权】========
 # openssl rand -base64 64 | tr '+/' '-_' | tr -d '=\n'
 MASTER   = r"7zUyfFya8Av0_ixhxKgLeGfVkKF0xy5qQw9pGnEobEZx6kgjKmrUVHiUvdlibNKwybf_H1vRt7_-2PfMLmtACA%"

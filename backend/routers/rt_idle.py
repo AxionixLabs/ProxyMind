@@ -34,5 +34,18 @@ async def api_idle(request: Request) -> Response:
     )
 
 
+@idle_router.get(path="/api/keepalive", include_in_schema=False)
+async def api_keepalive(request: Request) -> dict:
+    data = await request.app.state.idle.snapshot()
+    return {
+        "ok"            : True,
+        "service"       : f"{const.APP_NAME} keepalive",
+        "ttl_sec"       : data.get("ttl_sec"),
+        "idle_sec"      : data.get("idle_sec"),
+        "keepalive_sec" : const.KEEPALIVE_SEC,
+        "active_jobs"   : data.get("active_jobs")
+    }
+
+
 if __name__ == '__main__':
     pass

@@ -27,7 +27,11 @@ class ServerManage(object):
     def __init__(self, cmd: list[str], timeout: float = 0.6):
         self.cmd = cmd
         self.base_url = const.BASE_URL.rstrip("/")
-        self.__client = httpx.AsyncClient(base_url=self.base_url, timeout=timeout)
+        self.__client = httpx.AsyncClient(
+            base_url=self.base_url,
+            timeout=timeout,
+            trust_env=False
+        )
 
     @staticmethod
     def has_new(local: dict[str, typing.Any], remote: dict[str, typing.Any]) -> bool:

@@ -82,7 +82,7 @@ class Preferences(object):
 
     async def _fetch_remote_pref(self) -> dict[str, typing.Any]:
         """从本地服务拉取最新偏好配置。"""
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
             resp = await client.get(self.pref_api)
             resp.raise_for_status()
             payload = resp.json()

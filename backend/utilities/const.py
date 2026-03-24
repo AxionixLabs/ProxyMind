@@ -39,6 +39,11 @@ PRINT_FORMAT = f"<level>{{message}}</level>"
 HINT_HLT = "当前步骤可能无法得到有效结果，建议先暂停推进并检查输入/配置/环境后再继续。"
 CODE_EXC = "EXC"
 
+# ========【运行时配置】========
+IDLE_TTL_SEC      = 1800.0
+KEEPALIVE_SEC     = 300.0
+KEEPALIVE_TIMEOUT = 3.0
+
 # ========【服务授权】========
 # openssl rand -base64 64 | tr '+/' '-_' | tr -d '=\n'
 MASTER   = r"7zUyfFya8Av0_ixhxKgLeGfVkKF0xy5qQw9pGnEobEZx6kgjKmrUVHiUvdlibNKwybf_H1vRt7_-2PfMLmtACA%"

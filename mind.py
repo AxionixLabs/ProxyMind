@@ -17,6 +17,7 @@ import shutil
 import signal
 import typing
 import asyncio
+import contextlib
 
 # ====[ from: 内置模块 ]====
 from pathlib import Path
@@ -188,6 +189,36 @@ class Mind(object):
     ) -> None:
         """With MCP Session"""
 
+        async def keepalive_loop(req_client: httpx.AsyncClient, stop_event: asyncio.Event) -> None:
+            """Keepalive Loop"""
+            keepalive_sec = float(const.KEEPALIVE_SEC)
+
+            while not stop_event.is_set():
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=keepalive_sec)
+                    break
+                except asyncio.TimeoutError:
+                    pass
+
+                try:
+                    resp = await req_client.get(
+                        f"{const.BASE_URL}/api/keepalive",
+                        headers={"accept": "application/json"},
+                        timeout=float(const.KEEPALIVE_TIMEOUT_SEC)
+                    )
+                    resp.raise_for_status()
+
+                    payload = resp.json() if resp.headers.get(
+                        "content-type", ""
+                    ).lower().startswith("application/json") else {}
+
+                    if isinstance(payload, dict):
+                        value = payload.get("keepalive_sec")
+                        if isinstance(value, (int, float)) and value > 0:
+                            keepalive_sec = float(value)
+                except Exception as e:
+                    logger.debug(f"[Keepalive] failed: {type(e).__name__}: {e}")
+
         async def inject_auth(req: httpx.Request) -> None:
             """Inject Auth"""
             now = int(time.time())
@@ -206,13 +237,33 @@ class Mind(object):
             "request": [inject_auth], "response": [request.cap_response]
         }
 
-        async with httpx.AsyncClient(timeout=timeout, event_hooks=event_hooks) as client:
-            async with streamable_http_client(url, http_client=client) as (r, w, _):
-                async with ClientSession(r, w) as session:
-                    await session.initialize()
-                    list_tools = await session.list_tools()
-                    openai_tools, domains = self.build_openai_tools(list_tools)
-                    await function(session, openai_tools, domains)
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            event_hooks=event_hooks,
+            trust_env=False
+        ) as client:
+            keepalive_stop = asyncio.Event()
+            keepalive_task: typing.Optional[asyncio.Task[None]] = None
+
+            try:
+                async with streamable_http_client(url, http_client=client) as (r, w, _):
+                    async with ClientSession(r, w) as session:
+                        await session.initialize()
+                        list_tools = await session.list_tools()
+                        openai_tools, domains = self.build_openai_tools(list_tools)
+
+                        keepalive_task = asyncio.create_task(
+                            keepalive_loop(client, keepalive_stop)
+                        )
+
+                        await function(session, openai_tools, domains)
+            finally:
+                keepalive_stop.set()
+
+                if keepalive_task:
+                    keepalive_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await keepalive_task
 
     async def with_mcp_guard(
         self,

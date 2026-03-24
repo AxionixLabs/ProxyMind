@@ -46,7 +46,7 @@ mcp: FastMCP = FastMCP(
     )
 )
 
-idle: Idle = Idle(ttl_sec=1800.0)
+idle: Idle = Idle(ttl_sec=const.IDLE_TTL_SEC)
 
 
 @contextlib.asynccontextmanager
