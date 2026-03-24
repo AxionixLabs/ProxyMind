@@ -306,6 +306,7 @@
     .field{
       display:grid;
       gap:10px;
+      min-width:0;
     }
     .field + .field{
       margin-top:8px;
@@ -331,8 +332,44 @@
       gap:10px;
       min-width:0;
     }
+    .select-wrap{
+      position:relative;
+      isolation:isolate;
+    }
+    .select-wrap::before{
+      content:"";
+      position:absolute;
+      top:8px;
+      right:10px;
+      bottom:8px;
+      width:34px;
+      border-radius:10px;
+      border:1px solid rgba(255,255,255,.08);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+      box-shadow:0 0 0 1px rgba(92,255,214,.04) inset;
+      pointer-events:none;
+      transition:border-color .14s ease, background .14s ease, transform .14s ease;
+    }
+    .select-wrap::after{
+      content:"";
+      position:absolute;
+      top:50%;
+      right:22px;
+      width:8px;
+      height:8px;
+      border-right:2px solid rgba(215,247,255,.88);
+      border-bottom:2px solid rgba(215,247,255,.88);
+      transform:translateY(-62%) rotate(45deg);
+      pointer-events:none;
+      transition:transform .14s ease, border-color .14s ease, opacity .14s ease;
+    }
     .pair-item .label-row{
       min-height:18px;
+    }
+    .field .label-row,
+    .pair-item .label-row{
+      transition:transform .14s ease, color .14s ease, opacity .14s ease;
     }
     .label-row{
       display:flex;
@@ -344,38 +381,74 @@
     label{
       font-size:13px;
       color:var(--fg);
+      transition:color .14s ease, text-shadow .14s ease;
     }
     .hint{
       color:var(--muted);
       font-size:12px;
       opacity:.78;
+      transition:color .14s ease, opacity .14s ease;
     }
     input, select, textarea{
       width:100%;
       border:1px solid rgba(255,255,255,.10);
-      background:rgba(4,10,16,.75);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,0)),
+        rgba(4,10,16,.78);
       color:var(--fg);
       border-radius:14px;
       padding:12px 13px;
       min-height:48px;
       font:inherit;
       outline:none;
-      transition:border-color .12s ease, box-shadow .12s ease, background .12s ease;
+      box-shadow:
+        0 1px 0 rgba(255,255,255,.03) inset,
+        0 0 0 1px rgba(92,255,214,.02) inset;
+      transition:border-color .12s ease, box-shadow .12s ease, background .12s ease, transform .12s ease;
+    }
+    input::placeholder,
+    textarea::placeholder{
+      color:rgba(137,163,173,.72);
+    }
+    input:hover,
+    textarea:hover{
+      border-color:rgba(111,255,209,.24);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.01)),
+        rgba(6,14,22,.92);
+      transform:translateY(-1px);
     }
     select{
-      padding-right:38px;
+      cursor:pointer;
+      padding-right:56px;
+      font-weight:600;
+      letter-spacing:.01em;
       line-height:1.2;
       background-image:
-        linear-gradient(45deg, transparent 50%, rgba(215,247,255,.78) 50%),
-        linear-gradient(135deg, rgba(215,247,255,.78) 50%, transparent 50%);
-      background-position:
-        calc(100% - 18px) calc(50% - 2px),
-        calc(100% - 12px) calc(50% - 2px);
-      background-size:6px 6px, 6px 6px;
-      background-repeat:no-repeat;
+        linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,0)),
+        linear-gradient(90deg, rgba(122,167,255,.05), rgba(92,255,214,.03));
       appearance:none;
       -webkit-appearance:none;
       -moz-appearance:none;
+    }
+    .select-wrap:active::before{
+      transform:translateY(0);
+    }
+    .select-wrap:active::after{
+      transform:translateY(-50%) rotate(45deg) scale(.92);
+    }
+    .select-wrap:hover::before{
+      border-color:rgba(111,255,209,.24);
+      background:
+        linear-gradient(180deg, rgba(92,255,214,.12), rgba(255,255,255,.03));
+      transform:translateY(-1px);
+    }
+    .select-wrap:hover::after{
+      border-color:rgba(92,255,214,.96);
+    }
+    .select-wrap:hover select{
+      border-color:rgba(111,255,209,.32);
+      background:rgba(6,14,22,.92);
     }
     textarea{
       min-height:104px;
@@ -383,8 +456,99 @@
     }
     input:focus, select:focus, textarea:focus{
       border-color:rgba(111,255,209,.48);
-      box-shadow:0 0 0 3px rgba(111,255,209,.10);
-      background:rgba(5,12,18,.9);
+      box-shadow:
+        0 0 0 3px rgba(111,255,209,.10),
+        0 0 0 1px rgba(111,255,209,.08) inset,
+        0 10px 24px rgba(0,0,0,.18);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.01)),
+        rgba(5,12,18,.94);
+      transform:translateY(-1px);
+    }
+    .field:focus-within .label-row,
+    .pair-item:focus-within .label-row{
+      transform:translateX(2px);
+    }
+    .field:focus-within label,
+    .pair-item:focus-within label{
+      color:#f2fdff;
+      text-shadow:0 0 14px rgba(92,255,214,.14);
+    }
+    .field:focus-within .hint,
+    .pair-item:focus-within .hint{
+      color:rgba(183,255,225,.92);
+      opacity:1;
+    }
+    .field[data-filled="true"] label{
+      color:rgba(215,247,255,.98);
+    }
+    .field[data-filled="true"] .hint{
+      color:rgba(160,192,203,.92);
+      opacity:.96;
+    }
+    .field[data-filled="true"] input{
+      border-color:rgba(122,167,255,.18);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.01)),
+        rgba(7,14,22,.9);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,.04) inset,
+        0 0 0 1px rgba(122,167,255,.04) inset;
+    }
+    .select-wrap:focus-within::before{
+      border-color:rgba(111,255,209,.42);
+      background:
+        linear-gradient(180deg, rgba(92,255,214,.18), rgba(122,167,255,.06));
+      transform:translateY(-1px);
+    }
+    .select-wrap:focus-within::after{
+      border-color:rgba(92,255,214,1);
+      transform:translateY(-40%) rotate(225deg);
+    }
+    .select-wrap[data-single="true"]::before{
+      width:56px;
+      border-color:rgba(122,167,255,.14);
+      background:
+        linear-gradient(180deg, rgba(122,167,255,.10), rgba(255,255,255,.02));
+    }
+    .select-wrap[data-single="true"]::after{
+      content:attr(data-meta);
+      top:50%;
+      right:18px;
+      width:auto;
+      height:auto;
+      border:0;
+      color:rgba(122,167,255,.92);
+      font-size:10px;
+      font-weight:700;
+      letter-spacing:.12em;
+      text-transform:uppercase;
+      transform:translateY(-50%);
+      opacity:.88;
+    }
+    .select-wrap[data-single="true"] select{
+      cursor:default;
+      padding-right:76px;
+      border-color:rgba(122,167,255,.18);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.01)),
+        linear-gradient(90deg, rgba(122,167,255,.07), rgba(92,255,214,.02));
+    }
+    .select-wrap[data-single="true"]:hover::before{
+      border-color:rgba(122,167,255,.2);
+      background:
+        linear-gradient(180deg, rgba(122,167,255,.12), rgba(255,255,255,.03));
+      transform:none;
+    }
+    .select-wrap[data-single="true"]:hover select{
+      border-color:rgba(122,167,255,.24);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)),
+        linear-gradient(90deg, rgba(122,167,255,.08), rgba(92,255,214,.03));
+    }
+    option{
+      color:#d7f7ff;
+      background:#0b1118;
     }
     .group{
       border:1px solid rgba(255,255,255,.08);
@@ -392,6 +556,20 @@
       padding:20px;
       background: rgba(0,0,0,.14);
       box-shadow: 0 0 0 1px rgba(92,255,214,.05) inset;
+      transition:border-color .16s ease, box-shadow .16s ease, transform .16s ease, background .16s ease;
+    }
+    .group:hover{
+      border-color:rgba(255,255,255,.12);
+      background:rgba(0,0,0,.18);
+      box-shadow:
+        0 0 0 1px rgba(92,255,214,.07) inset,
+        0 12px 30px rgba(0,0,0,.12);
+    }
+    .group:focus-within{
+      border-color:rgba(111,255,209,.2);
+      box-shadow:
+        0 0 0 1px rgba(92,255,214,.10) inset,
+        0 18px 34px rgba(0,0,0,.18);
     }
     .group-title{
       display:flex;
@@ -680,13 +858,13 @@
         </div>
         <div class="section">
           <div class="section-shell">
-            <div class="section-head">
-              <h2 class="section-title">Provider And Model Settings</h2>
-              <p class="section-desc">
-                两个独立槽位，各自维护 provider 和 model。
-              </p>
-              <div class="chip">local workspace</div>
-            </div>
+              <div class="section-head">
+                <h2 class="section-title">Provider And Model Settings</h2>
+                <p class="section-desc">
+                两个独立槽位，各自维护连接与模型配置。
+                </p>
+                <div class="chip">local workspace</div>
+              </div>
 
             <form class="fields" id="pref-form">
               <div class="group">
@@ -700,20 +878,23 @@
                       <label for="primary-api">Provider</label>
                       <span class="hint">single source</span>
                     </div>
-                    <select id="primary-api" name="primary_api">
-                      <option>OpenAI</option>
-                      <option>Groq</option>
-                    </select>
+                    <div class="select-wrap">
+                      <select id="primary-api" name="primary_api">
+                        <option>OpenAI</option>
+                      </select>
+                    </div>
                   </div>
                   <div class="pair-item">
                     <div class="label-row">
                       <label for="primary-type">Model Type</label>
                       <span class="hint">capability lane</span>
                     </div>
-                    <select id="primary-type" name="primary_type">
-                      <option>Text</option>
-                      <option>Multimodal</option>
-                    </select>
+                    <div class="select-wrap">
+                      <select id="primary-type" name="primary_type">
+                        <option>Text</option>
+                        <option>Multimodal</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
                 <div class="field">
@@ -728,14 +909,14 @@
                     <label for="primary-api-key">API Key</label>
                     <span class="hint">local secret only</span>
                   </div>
-                  <input id="primary-api-key" name="primary_apikey" type="password" placeholder="sk-..." />
+                  <input id="primary-api-key" name="primary_apikey" type="password" placeholder="api-key" />
                 </div>
                 <div class="field">
                   <div class="label-row">
                     <label for="primary-model">Model Name</label>
                     <span class="hint">runtime target</span>
                   </div>
-                  <input id="primary-model" name="primary_model" placeholder="gpt-5 / gpt-4.1 / qwen-vl-max" />
+                  <input id="primary-model" name="primary_model" placeholder="model-id" />
                 </div>
               </div>
 
@@ -750,20 +931,23 @@
                       <label for="secondary-api">Provider</label>
                       <span class="hint">single source</span>
                     </div>
-                    <select id="secondary-api" name="secondary_api">
-                      <option>OpenAI</option>
-                      <option>Groq</option>
-                    </select>
+                    <div class="select-wrap">
+                      <select id="secondary-api" name="secondary_api">
+                        <option>OpenAI</option>
+                      </select>
+                    </div>
                   </div>
                   <div class="pair-item">
                     <div class="label-row">
                       <label for="secondary-type">Model Type</label>
                       <span class="hint">capability lane</span>
                     </div>
-                    <select id="secondary-type" name="secondary_type">
-                      <option>Text</option>
-                      <option>Multimodal</option>
-                    </select>
+                    <div class="select-wrap">
+                      <select id="secondary-type" name="secondary_type">
+                        <option>Text</option>
+                        <option>Multimodal</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
                 <div class="field">
@@ -778,14 +962,14 @@
                     <label for="secondary-api-key">API Key</label>
                     <span class="hint">local secret only</span>
                   </div>
-                  <input id="secondary-api-key" name="secondary_apikey" type="password" placeholder="sk-..." />
+                  <input id="secondary-api-key" name="secondary_apikey" type="password" placeholder="api-key" />
                 </div>
                 <div class="field">
                   <div class="label-row">
                     <label for="secondary-model">Model Name</label>
                     <span class="hint">runtime target</span>
                   </div>
-                  <input id="secondary-model" name="secondary_model" placeholder="gpt-5 / gpt-4.1 / qwen-vl-max" />
+                  <input id="secondary-model" name="secondary_model" placeholder="model-id" />
                 </div>
               </div>
             </form>
@@ -812,7 +996,7 @@
     const previewMode = location.protocol === "file:";
     const previewPref = {
       schema_version : 2,
-      primary        : {api: "OpenAI", type: "Text", base_url: "https://api.openai.com/v1", apikey: "", model: "gpt-5"},
+      primary        : {api: "OpenAI", type: "Text", base_url: "", apikey: "", model: ""},
       secondary      : null
     };
 
@@ -916,6 +1100,34 @@
       return target ? target.value : fallback;
     }
 
+    function syncSelectWrapState(select) {
+      if (!select) return;
+      const wrap = select.closest(".select-wrap");
+      if (!wrap) return;
+      wrap.dataset.single = select.options.length <= 1 ? "true" : "false";
+      wrap.dataset.meta = select.options.length <= 1 ? "fixed" : "";
+      wrap.dataset.value = select.value || "";
+    }
+
+    function syncSelectStates() {
+      document.querySelectorAll(".select-wrap select").forEach((select) => {
+        syncSelectWrapState(select);
+      });
+    }
+
+    function syncFieldState(input) {
+      if (!input) return;
+      const field = input.closest(".field");
+      if (!field) return;
+      field.dataset.filled = input.value && String(input.value).trim() ? "true" : "false";
+    }
+
+    function syncFieldStates() {
+      document.querySelectorAll(".field input, .field textarea").forEach((input) => {
+        syncFieldState(input);
+      });
+    }
+
     function applyPref(data) {
       const primary = data.primary || {};
       const secondary = data.secondary || {};
@@ -931,6 +1143,8 @@
       fieldValue("secondary-base-url", secondary.base_url);
       fieldValue("secondary-api-key", secondary.apikey);
       fieldValue("secondary-model", secondary.model);
+      syncSelectStates();
+      syncFieldStates();
     }
 
     function collectSlot(prefix) {
@@ -1033,6 +1247,16 @@
 
     saveButton.addEventListener("click", savePref);
     reloadButton.addEventListener("click", () => loadPref());
+    document.querySelectorAll(".select-wrap select").forEach((select) => {
+      select.addEventListener("change", () => syncSelectWrapState(select));
+      select.addEventListener("blur", () => syncSelectWrapState(select));
+    });
+    document.querySelectorAll(".field input, .field textarea").forEach((input) => {
+      input.addEventListener("input", () => syncFieldState(input));
+      input.addEventListener("blur", () => syncFieldState(input));
+    });
+    syncSelectStates();
+    syncFieldStates();
     loadPref({silent: true});
   </script>
 </body>
