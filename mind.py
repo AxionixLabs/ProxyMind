@@ -157,7 +157,7 @@ class Mind(object):
                 "function": {
                     "name"        : tool.name,
                     "description" : tool.description,
-                    "parameters"  : tool.inputSchema
+                    "parameters"  : Tooling.normalize_openai_schema(tool.inputSchema)
                 }
             })
 
