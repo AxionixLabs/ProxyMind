@@ -305,7 +305,7 @@ class Mind(object):
             func, mode=mode, model_api=model_api, message=message, **kwargs
         )
 
-    # workflow: ==== Chat 对话模式 ====
+    # workflow: ==== 对话事件模式 ====
     async def stream_looper(
         self,
         session: ClientSession,
@@ -317,7 +317,7 @@ class Mind(object):
         *_,
         **kwargs
     ) -> None:
-        """Chat Exec Looper"""
+        """Consume stable turn events for chat/fast modes."""
 
         exclude = [
             {"domain": "common", "class": "inspect", "name": "free_rule"}
@@ -355,26 +355,33 @@ class Mind(object):
         await slog.open()
         anim_stopped = False
 
-        # workflow: ==== Chat Streaming ====
+        # workflow: ==== Stable Turn Event Streaming ====
         try:
-            async for chat in request.stream_chat(mode, model_api, message, ft, **kwargs):
+            async for event in request.stream_chat(mode, model_api, message, ft, **kwargs):
                 if not anim_stopped:
                     await self.stop_anim()
                     anim_stopped = True
                 await slog.start()
 
-                match chat.get("type"):
-                    case "error":
-                        await slog.feed(chat.get("content"), display=StreamTyperLogger.BLOCK)
-                        await finish("fail", error=chat.get("content"))
+                match event.get("type"):
+                    case "turn.failed":
+                        error = str(event.get("error") or "unknown error")
+                        await slog.feed(error, display=StreamTyperLogger.BLOCK)
+                        await finish("fail", error=error)
                         return await slog.stop()
 
-                    case "chat":
-                        await slog.feed(chat.get("content"), display=StreamTyperLogger.STREAM)
+                    case "text.delta":
+                        await slog.feed(str(event.get("text") or ""), display=StreamTyperLogger.STREAM)
                         continue
 
-                    case "tool_call":
-                        name, arguments = chat["name"], chat.get("arguments", {})
+                    case "text.done":
+                        continue
+
+                    case "turn.done":
+                        continue
+
+                    case "tool.call":
+                        name, arguments = event["name"], event.get("arguments", {})
 
                         if Tooling.require(domains, name, **regular):
                             if error := await self.wakeup(session, slog):
@@ -404,15 +411,12 @@ class Mind(object):
                         )
 
                         await request.post_tool_result(
-                            chat["cid"], chat["sid"], chat["call_id"], name, ok, fields
+                            event["cid"], event["sid"], event["call_id"], name, ok, fields
                         )
 
                         continue
 
-                    case "tool_result":
-                        # await slog.feed(
-                        #     f"{chat['name']} ok={chat.get('ok')}", display=StreamTyperLogger.BLOCK
-                        # )
+                    case "tool.output":
                         continue
 
                     case _:
