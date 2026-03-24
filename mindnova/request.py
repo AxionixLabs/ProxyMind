@@ -154,7 +154,7 @@ async def post_tool_result(
         dict[str, typing.Any]
     ]
 ) -> None:
-    """Post tool result"""
+    """Post function tool output back to the server loop."""
 
     url = f"https://api.appserverx.com/tool-result"
     headers = Channel.make_headers()
@@ -171,7 +171,6 @@ async def post_tool_result(
         r = await client.post(url, headers=headers, json=payload)
         r.raise_for_status()
 
-
 async def stream_chat(
     mode: str,
     model_api: dict[str, typing.Any],
@@ -182,7 +181,7 @@ async def stream_chat(
     *_,
     **kwargs
 ) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
-    """Stream Chat"""
+    """Stream stable turn events for chat and fast modes."""
 
     url = f"https://api.appserverx.com/mind-chat"
     headers = Channel.make_headers()
@@ -198,9 +197,7 @@ async def stream_chat(
 
     async for event in streaming(url, headers, payload, timeout):
         match event.get("type"):
-            case "thinking":
-                continue
-            case "done":
+            case "ping":
                 continue
 
         yield event
@@ -216,7 +213,7 @@ async def stream_plan(
     *_,
     **kwargs
 ) -> typing.AsyncGenerator[dict, None]:
-    """Stream Planner"""
+    """Stream plan events."""
 
     url = f"https://api.appserverx.com/mind-plan"
     headers = Channel.make_headers()
@@ -231,11 +228,7 @@ async def stream_plan(
 
     async for event in streaming(url, headers, payload, timeout):
         match event.get("type"):
-            case "thinking":
-                logger.debug(event["content"])
-                continue
-            case "done":
-                logger.debug(event["content"])
+            case "ping":
                 continue
 
             case "plan":
@@ -261,7 +254,7 @@ async def stream_heal(
     *_,
     **kwargs
 ) -> typing.AsyncGenerator[dict, None]:
-    """Stream Heal"""
+    """Stream stable heal events."""
 
     url = "https://api.appserverx.com/mind-heal"
     headers = Channel.make_headers()
@@ -280,21 +273,25 @@ async def stream_heal(
 
     async for event in streaming(url, headers, payload, timeout):
         match event.get("type"):
-            case "thinking":
-                if slog:
-                    await slog.feed(event["content"], display=StreamTyperLogger.BLOCK)
-                else: logger.debug(event["content"])
-                continue
-            case "done":
-                if slog:
-                    await slog.feed(event["content"], display=StreamTyperLogger.BLOCK)
-                else: logger.debug(event["content"])
+            case "ping":
                 continue
 
-            case "heal":
+            case "heal.step":
+                message = str(event.get("message") or "")
+                if not message:
+                    continue
                 if slog:
-                    await slog.feed(event["content"], display=StreamTyperLogger.BLOCK)
-                else: logger.debug(event["content"])
+                    await slog.feed(message, display=StreamTyperLogger.BLOCK)
+                else:
+                    logger.debug(message)
+                continue
+
+            case "heal.failed":
+                error = str(event.get("error") or "unknown heal error")
+                if slog:
+                    await slog.feed(error, display=StreamTyperLogger.BLOCK)
+                else:
+                    logger.debug(error)
 
         yield event
 
@@ -307,7 +304,7 @@ async def stream_rule(
     metadata: dict[str, typing.Any],
     timeout: float = 60.0
 ) -> typing.AsyncGenerator[dict, None]:
-    """调用自由规则服务。"""
+    """Stream stable rule events."""
 
     url = f"https://api.appserverx.com/mind-rule"
     headers = Channel.make_headers()
@@ -321,9 +318,7 @@ async def stream_rule(
 
     async for event in streaming(url, headers, payload, timeout):
         match event.get("type"):
-            case "thinking":
-                continue
-            case "done":
+            case "ping":
                 continue
 
         yield event
