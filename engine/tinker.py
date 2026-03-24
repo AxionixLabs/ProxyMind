@@ -295,7 +295,7 @@ class Tooling(object):
         规则：
         1) 先排除：name ∈ name_not_in 或 meta.class ∈ class_not_in => False
         2) 再命中：name_in / domain_in / class_in 任一命中 => True（OR）
-        3) 都不传：默认（domain=device 或 class=scrcpy）
+        3) 都不传：不命中，返回 False
         """
 
         meta = meta_map.get(name) or {}
@@ -306,7 +306,7 @@ class Tooling(object):
             return False
 
         if domain_in is None and class_in is None and name_in is None:
-            domain_in, class_in = {"device"}, {"scrcpy"}
+            return False
 
         return bool(
             (name_in and name in name_in)
