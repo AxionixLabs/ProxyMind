@@ -28,6 +28,7 @@ TABLE_SLOTS     = "pref_model_slots"
 SLOT_COLUMN_MAP = {
     "api"      : "provider",
     "base_url" : "base_url",
+    "route"    : "route",
     "apikey"   : "api_key",
     "model"    : "model_name",
     "type"     : "model_type",
@@ -40,6 +41,7 @@ DATA_FILENAME    = f"{const.APP_NAME}.db"
 DEFAULT_SCHEMA_VERSION = 2
 DEFAULT_PROFILE_KEY    = "default"
 DEFAULT_PROVIDER       = "OpenAI"
+DEFAULT_ROUTE          = "responses"
 DEFAULT_MODEL_TYPE     = "Text"
 
 
@@ -47,6 +49,7 @@ def _default_slot() -> Slot:
     return {
         "api"      : DEFAULT_PROVIDER,
         "base_url" : "",
+        "route"    : DEFAULT_ROUTE,
         "apikey"   : "",
         "model"    : "",
         "type"     : DEFAULT_MODEL_TYPE,
@@ -79,6 +82,7 @@ CREATE TABLE IF NOT EXISTS pref_model_slots (
     slot_key      TEXT NOT NULL,
     provider      TEXT NOT NULL DEFAULT '',
     base_url      TEXT NOT NULL DEFAULT '',
+    route         TEXT NOT NULL DEFAULT 'responses',
     api_key       TEXT NOT NULL DEFAULT '',
     model_name    TEXT NOT NULL DEFAULT '',
     model_type    TEXT NOT NULL DEFAULT 'Text',
@@ -132,6 +136,20 @@ def _connect() -> sqlite3.Connection:
 
 def _init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_SQL)
+    _ensure_slot_columns(conn)
+
+
+def _ensure_slot_columns(conn: sqlite3.Connection) -> None:
+    columns = {
+        str(row["name"]) for row in conn.execute(
+            f"PRAGMA table_info({TABLE_SLOTS})"
+        ).fetchall()
+    }
+
+    if "route" not in columns:
+        conn.execute(
+            f"ALTER TABLE {TABLE_SLOTS} ADD COLUMN route TEXT NOT NULL DEFAULT '{DEFAULT_ROUTE}'"
+        )
 
 
 def _now_ms() -> int:
@@ -163,22 +181,23 @@ def _ensure_profile(conn: sqlite3.Connection, profile_key: str = DEFAULT_PROFILE
         conn.execute(
             f"""
             INSERT INTO {TABLE_SLOTS} (
-                profile_id, slot_key, provider, base_url, api_key, model_name,
+                profile_id, slot_key, provider, base_url, route, api_key, model_name,
                 model_type, notes, created_at, updated_at
             )
-            VALUES (?, ?, ?, '', '', '', ?, '', ?, ?)
+            VALUES (?, ?, ?, '', ?, '', '', ?, '', ?, ?)
             ON CONFLICT(profile_id, slot_key) DO NOTHING
             """,
-            (profile_id, slot_key, DEFAULT_PROVIDER, DEFAULT_MODEL_TYPE, now, now)
+            (profile_id, slot_key, DEFAULT_PROVIDER, DEFAULT_ROUTE, DEFAULT_MODEL_TYPE, now, now)
         )
 
     return profile_id
 
 
-def _slot_record(slot: Slot) -> tuple[str, str, str, str, str, str]:
+def _slot_record(slot: Slot) -> tuple[str, str, str, str, str, str, str]:
     return (
         slot["api"],
         slot["base_url"],
+        slot["route"],
         slot["apikey"],
         slot["model"],
         slot["type"],
@@ -224,9 +243,11 @@ def normalize_pref(raw: typing.Any) -> dict[str, typing.Any]:
 
     prefs["primary"] = _merge_slot(prefs["primary"], raw.get("primary"))
     prefs["primary"]["type"] = prefs["primary"]["type"] or DEFAULT_MODEL_TYPE
+    prefs["primary"]["route"] = prefs["primary"]["route"] or DEFAULT_ROUTE
 
     secondary = _merge_slot(_default_slot(), raw.get("secondary"))
     secondary["type"] = secondary["type"] or DEFAULT_MODEL_TYPE
+    secondary["route"] = secondary["route"] or DEFAULT_ROUTE
     prefs["secondary"] = secondary if _is_slot_configured(secondary) else None
 
     return prefs
@@ -240,6 +261,7 @@ def load_pref() -> dict[str, typing.Any]:
         rows = conn.execute(
             f"""
             SELECT slot_key, provider, base_url, api_key, model_name, model_type, notes
+                 , route
             FROM {TABLE_SLOTS}
             WHERE profile_id = ?
             """,
@@ -264,17 +286,18 @@ def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
 
         for slot_key in REQUIRED_SLOT_KEYS:
             slot = prefs[slot_key]
-            provider, base_url, api_key, model_name, model_type, notes = _slot_record(slot)
+            provider, base_url, route, api_key, model_name, model_type, notes = _slot_record(slot)
             conn.execute(
                 f"""
                 INSERT INTO {TABLE_SLOTS} (
-                    profile_id, slot_key, provider, base_url, api_key, model_name,
+                    profile_id, slot_key, provider, base_url, route, api_key, model_name,
                     model_type, notes, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(profile_id, slot_key) DO UPDATE SET
                     provider   = excluded.provider,
                     base_url   = excluded.base_url,
+                    route      = excluded.route,
                     api_key    = excluded.api_key,
                     model_name = excluded.model_name,
                     model_type = excluded.model_type,
@@ -282,24 +305,25 @@ def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
                     updated_at = excluded.updated_at
                 """,
                 (
-                    profile_id, slot_key, provider, base_url, api_key, model_name,
+                    profile_id, slot_key, provider, base_url, route, api_key, model_name,
                     model_type, notes, now, now
                 )
             )
 
         secondary = prefs.get("secondary")
         if _is_slot_configured(secondary):
-            provider, base_url, api_key, model_name, model_type, notes = _slot_record(secondary)
+            provider, base_url, route, api_key, model_name, model_type, notes = _slot_record(secondary)
             conn.execute(
                 f"""
                 INSERT INTO {TABLE_SLOTS} (
-                    profile_id, slot_key, provider, base_url, api_key, model_name,
+                    profile_id, slot_key, provider, base_url, route, api_key, model_name,
                     model_type, notes, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(profile_id, slot_key) DO UPDATE SET
                     provider   = excluded.provider,
                     base_url   = excluded.base_url,
+                    route      = excluded.route,
                     api_key    = excluded.api_key,
                     model_name = excluded.model_name,
                     model_type = excluded.model_type,
@@ -307,7 +331,7 @@ def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
                     updated_at = excluded.updated_at
                 """,
                 (
-                    profile_id, "secondary", provider, base_url, api_key, model_name,
+                    profile_id, "secondary", provider, base_url, route, api_key, model_name,
                     model_type, notes, now, now
                 )
             )
