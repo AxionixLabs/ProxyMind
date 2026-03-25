@@ -220,13 +220,6 @@ async def stream_plan(
             case "ping":
                 continue
 
-            case "plan":
-                if not (steps := event.get("steps")) or not (loop_count := event.get("loop_count")):
-                    logger.warning(event)
-                    continue
-                logger.debug(f"Loop Count -> {loop_count}")
-                for step in steps: logger.debug(step["action"])
-
         yield event
 
 
