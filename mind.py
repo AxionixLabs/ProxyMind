@@ -415,6 +415,14 @@ class Mind(object):
         slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
         await slog.open()
         anim_stopped = False
+        slog_stopped = False
+
+        async def stop_slog() -> None:
+            nonlocal slog_stopped
+            if slog_stopped:
+                return None
+            slog_stopped = True
+            await slog.stop()
 
         # workflow: ==== Stable Turn Event Streaming ====
         try:
@@ -425,11 +433,19 @@ class Mind(object):
                 await slog.start()
 
                 match event.get("type"):
+                    case "error" | "response.failed" | "response.incomplete":
+                        error = str(event.get("error") or event.get("message") or "unknown error")
+                        await slog.feed(error, display=StreamTyperLogger.BLOCK)
+                        await stop_slog()
+                        await finish("failed", error=error)
+                        return None
+
                     case "turn.failed":
                         error = str(event.get("error") or "unknown error")
                         await slog.feed(error, display=StreamTyperLogger.BLOCK)
+                        await stop_slog()
                         await finish("failed", error=error)
-                        return await slog.stop()
+                        return None
 
                     case "text.delta":
                         text = str(event.get("text") or "")
@@ -450,11 +466,19 @@ class Mind(object):
                                 "text" : text,
                                 "ts"   : time.time()
                             })
-                        continue
+                        await stop_slog()
+                        await finish("completed")
+                        return None
 
                     case "turn.done":
+                        await stop_slog()
                         await finish("completed")
-                        return await slog.stop()
+                        return None
+
+                    case "response.completed":
+                        await stop_slog()
+                        await finish("completed")
+                        return None
 
                     case "tool.call":
                         name, arguments = event["name"], event.get("arguments", {})
@@ -470,8 +494,9 @@ class Mind(object):
                         if Tooling.needs_wakeup(domains, name):
                             if error := await self.wakeup(session, slog):
                                 await slog.feed(error, display=StreamTyperLogger.BLOCK)
+                                await stop_slog()
                                 await finish("failed", error=str(error))
-                                return await slog.stop()
+                                return None
 
                         await slog.feed(
                             f"{name} {arguments}",
@@ -518,11 +543,12 @@ class Mind(object):
 
         except Exception as e:
             await slog.feed(str(e), display=StreamTyperLogger.BLOCK)
+            await stop_slog()
             await finish("failed", error=f"{type(e).__name__}: {e}")
-            return await slog.stop()
+            return None
 
+        await stop_slog()
         await finish("completed")
-        await slog.stop()
 
     # workflow: ==== Plan 编排模式 ====
     async def static_looper(
