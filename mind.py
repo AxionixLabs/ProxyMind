@@ -373,10 +373,6 @@ class Mind(object):
         exclude = [
             {"domain": "common", "class": "inspect", "name": "free_rule"}
         ]
-        regular = {
-            "class_not_in": {"tool", "framix", "nexus", "inspect", "runtime", "audio", "ffmpeg"}
-        }
-
         if mode == "fast":
             exclude = [
                 {"domain": "device"},
@@ -434,7 +430,7 @@ class Mind(object):
                     case "tool.call":
                         name, arguments = event["name"], event.get("arguments", {})
 
-                        if Tooling.require(domains, name, **regular):
+                        if Tooling.needs_wakeup(domains, name):
                             if error := await self.wakeup(session, slog):
                                 await slog.feed(error, display=StreamTyperLogger.BLOCK)
                                 await finish("fail", error=str(error))
@@ -500,10 +496,6 @@ class Mind(object):
             {"domain": "common", "class": "runtime", "name": "loop_steps"},
             {"domain": "bench", "class": "nexus"}
         ]
-        regular = {
-            "class_not_in": {"tool", "framix", "nexus", "inspect", "security", "runtime", "audio", "ffmpeg"}
-        }
-
         ft = Tooling.filter_tools(openai_tools, domains, exclude=exclude)
 
         ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
@@ -608,7 +600,7 @@ class Mind(object):
                         "ts"    : time.time()
                     })
 
-                    if Tooling.require(domains, name, **regular):
+                    if Tooling.needs_wakeup(domains, name):
                         if error := await self.wakeup(session):
                             await finish("fail", error=str(error), run=index, index=step_idx, name=name)
                             return logger.error(f"{error}\n")
