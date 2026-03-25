@@ -16,6 +16,7 @@ from mindnova import const
 
 DEFAULT_SCHEMA_VERSION = 2
 DEFAULT_PROVIDER       = "OpenAI"
+DEFAULT_ROUTE          = "responses"
 
 
 def _default_slot() -> dict[str, str]:
@@ -24,7 +25,8 @@ def _default_slot() -> dict[str, str]:
         "api"      : DEFAULT_PROVIDER,
         "model"    : "",
         "apikey"   : "",
-        "base_url" : ""
+        "base_url" : "",
+        "route"    : DEFAULT_ROUTE
     }
 
 
@@ -58,7 +60,8 @@ class Preferences(object):
         api: str = "",
         model: str = "",
         apikey: str = "",
-        base_url: str = ""
+        base_url: str = "",
+        route: str = ""
     ) -> dict[str, typing.Any]:
         """基于当前配置生成运行时可用的配置副本。"""
         payload = copy.deepcopy(self.prefs)
@@ -72,6 +75,8 @@ class Preferences(object):
             primary["apikey"] = apikey
         if base_url:
             primary["base_url"] = base_url
+        if route:
+            primary["route"] = route
 
         return payload
 
@@ -113,7 +118,8 @@ class Preferences(object):
                 "api"      : str(primary.get("api", DEFAULT_PROVIDER)),
                 "model"    : str(primary.get("model", "")),
                 "apikey"   : str(primary.get("apikey", "")),
-                "base_url" : str(primary.get("base_url", ""))
+                "base_url" : str(primary.get("base_url", "")),
+                "route"    : str(primary.get("route", DEFAULT_ROUTE) or DEFAULT_ROUTE)
             }
         }
 
@@ -122,7 +128,8 @@ class Preferences(object):
                 "api"      : str(secondary.get("api", DEFAULT_PROVIDER)),
                 "model"    : str(secondary.get("model", "")),
                 "apikey"   : str(secondary.get("apikey", "")),
-                "base_url" : str(secondary.get("base_url", ""))
+                "base_url" : str(secondary.get("base_url", "")),
+                "route"    : str(secondary.get("route", DEFAULT_ROUTE) or DEFAULT_ROUTE)
             }
 
         self.prefs = prefs
