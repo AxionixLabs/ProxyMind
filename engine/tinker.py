@@ -279,40 +279,15 @@ class Tooling(object):
         return out
 
     @staticmethod
-    def require(
+    def needs_wakeup(
         meta_map: dict[str, dict[str, typing.Any]],
-        name: str,
-        *,
-        domain_in: typing.Optional[typing.Container[str]] = None,
-        class_in: typing.Optional[typing.Container[str]] = None,
-        name_in: typing.Optional[typing.Container[str]] = None,
-        class_not_in: typing.Optional[typing.Container[str]] = None,
-        name_not_in: typing.Optional[typing.Container[str]] = None
+        name: str
     ) -> bool:
-        """
-        判断某工具是否需要“连接/设备准备”等前置动作。
-
-        规则：
-        1) 先排除：name ∈ name_not_in 或 meta.class ∈ class_not_in => False
-        2) 再命中：name_in / domain_in / class_in 任一命中 => True（OR）
-        3) 都不传：不命中，返回 False
-        """
-
-        meta = meta_map.get(name) or {}
-        dom  = meta.get("domain", "")
-        cls  = meta.get("class", "")
-
-        if (name_not_in and name in name_not_in) or (class_not_in and cls in class_not_in):
-            return False
-
-        if domain_in is None and class_in is None and name_in is None:
-            return False
-
-        return bool(
-            (name_in and name in name_in)
-            or (domain_in and dom in domain_in)
-            or (class_in and cls in class_in)
-        )
+        """判断某工具是否需要“连接/设备准备”等前置动作。"""
+        cls = str((meta_map.get(name) or {}).get("class") or "")
+        return cls not in {
+            "tool", "framix", "nexus", "inspect", "security", "runtime", "audio", "ffmpeg"
+        }
 
     @staticmethod
     def summarize_tool_arguments(tool_name: str, tool_args: typing.Any) -> str:
