@@ -324,7 +324,15 @@
       grid-template-columns:1fr 1fr;
       gap:18px;
     }
+    .inline-triplet{
+      display:grid;
+      grid-template-columns:1fr 1fr 1fr;
+      gap:18px;
+    }
     .inline-pair + .field{
+      margin-top:12px;
+    }
+    .inline-triplet + .field{
       margin-top:12px;
     }
     .pair-item{
@@ -799,7 +807,8 @@
       }
       .hero-actions,
       .field.split,
-      .inline-pair{
+      .inline-pair,
+      .inline-triplet{
         grid-template-columns:1fr;
       }
     }
@@ -872,7 +881,7 @@
                   <strong>Primary Model</strong>
                   <span class="chip">slot 1</span>
                 </div>
-                <div class="inline-pair">
+                <div class="inline-triplet">
                   <div class="pair-item">
                     <div class="label-row">
                       <label for="primary-api">Provider</label>
@@ -893,6 +902,18 @@
                       <select id="primary-type" name="primary_type">
                         <option>Text</option>
                         <option>Multimodal</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="pair-item">
+                    <div class="label-row">
+                      <label for="primary-route">Route</label>
+                      <span class="hint">delivery lane</span>
+                    </div>
+                    <div class="select-wrap">
+                      <select id="primary-route" name="primary_route">
+                        <option value="responses">Responses API</option>
+                        <option value="chat_completions">Chat Completions API</option>
                       </select>
                     </div>
                   </div>
@@ -925,7 +946,7 @@
                   <strong>Secondary Model</strong>
                   <span class="chip">slot 2</span>
                 </div>
-                <div class="inline-pair">
+                <div class="inline-triplet">
                   <div class="pair-item">
                     <div class="label-row">
                       <label for="secondary-api">Provider</label>
@@ -946,6 +967,18 @@
                       <select id="secondary-type" name="secondary_type">
                         <option>Text</option>
                         <option>Multimodal</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="pair-item">
+                    <div class="label-row">
+                      <label for="secondary-route">Route</label>
+                      <span class="hint">delivery lane</span>
+                    </div>
+                    <div class="select-wrap">
+                      <select id="secondary-route" name="secondary_route">
+                        <option value="responses">Responses API</option>
+                        <option value="chat_completions">Chat Completions API</option>
                       </select>
                     </div>
                   </div>
@@ -996,7 +1029,7 @@
     const previewMode = location.protocol === "file:";
     const previewPref = {
       schema_version : 2,
-      primary        : {api: "OpenAI", type: "Text", base_url: "", apikey: "", model: ""},
+      primary        : {api: "OpenAI", type: "Text", base_url: "", route: "responses", apikey: "", model: ""},
       secondary      : null
     };
 
@@ -1135,12 +1168,14 @@
       fieldValue("primary-api", primary.api);
       fieldValue("primary-type", primary.type || "Text");
       fieldValue("primary-base-url", primary.base_url);
+      fieldValue("primary-route", primary.route || "responses");
       fieldValue("primary-api-key", primary.apikey);
       fieldValue("primary-model", primary.model);
 
       fieldValue("secondary-api", secondary.api);
       fieldValue("secondary-type", secondary.type || "Text");
       fieldValue("secondary-base-url", secondary.base_url);
+      fieldValue("secondary-route", secondary.route || "responses");
       fieldValue("secondary-api-key", secondary.apikey);
       fieldValue("secondary-model", secondary.model);
       syncSelectStates();
@@ -1152,6 +1187,7 @@
         api      : fieldSelectValue(`${prefix}-api`, "OpenAI"),
         type     : fieldSelectValue(`${prefix}-type`, "Text"),
         base_url : fieldInputValue(`${prefix}-base-url`),
+        route    : fieldSelectValue(`${prefix}-route`, "responses"),
         apikey   : fieldInputValue(`${prefix}-api-key`),
         model    : fieldInputValue(`${prefix}-model`)
       };
