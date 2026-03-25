@@ -542,10 +542,10 @@ class Enhancer(object):
                 "text"        : "free rule completed",
                 "attachments" : attachments,
                 "data": {
-                    "ok"         : ok,
-                    "mode"       : self.mode,
-                    "api"        : self.model_api.get("api"),
-                    "model"      : self.model_api.get("model"),
+                    "ok"        : ok,
+                    "mode"      : self.mode,
+                    "api"       : self.model_api.get("api"),
+                    "model"     : self.model_api.get("model"),
                     "per_agent" : per_agent
                 }
             }

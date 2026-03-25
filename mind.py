@@ -453,7 +453,8 @@ class Mind(object):
                         continue
 
                     case "turn.done":
-                        continue
+                        await finish("completed")
+                        return await slog.stop()
 
                     case "tool.call":
                         name, arguments = event["name"], event.get("arguments", {})
