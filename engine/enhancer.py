@@ -134,22 +134,78 @@ class Enhancer(object):
         return sc if (sc := result.structuredContent) else result.content[0].text
 
     @staticmethod
-    def element_ok(element: dict[str, typing.Any]) -> bool:
-        if isinstance(element.get("ok"), bool):
-            return element.get("ok", False)
-        if isinstance(data := element.get("data"), dict):
-            return bool(data.get("ok"))
-        return False
+    def fields_map(result: CallToolResult) -> dict[str, typing.Any]:
+        """
+        把工具返回统一归一成 dict。
+
+        输入：
+        - `result.structuredContent` 为 dict：直接返回。
+        - `result.content[0].text` 为 JSON 对象字符串：解析后返回。
+        - 其他文本/对象：包装成最小结构返回。
+
+        输出最小结构：
+        - `text: str`
+        - `attachments: list`
+        - `data: dict`
+
+        说明：
+        - 后续通用上传链路只依赖这三个字段，因此这里负责把“可能是 str 的结果”
+          收敛成稳定的 mapping，避免下游直接 `.get()` 时触发 AttributeError。
+        """
+        fields = Enhancer.fields(result)
+        if isinstance(fields, dict):
+            return fields
+
+        if isinstance(fields, str):
+            raw = fields.strip()
+            if raw:
+                try:
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError:
+                    pass
+                else:
+                    if isinstance(parsed, dict):
+                        return parsed
+
+            return {
+                "text"        : fields,
+                "attachments" : [],
+                "data"        : {}
+            }
+
+        return {
+            "text"        : str(fields),
+            "attachments" : [],
+            "data"        : {}
+        }
 
     @staticmethod
-    def element_text(element: dict[str, typing.Any]) -> str:
-        return str(element.get("text") or "")
+    def normalize_element(element: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        """
+        把 `fields["data"]["results"][]` 中的单个元素归一化。
 
-    @staticmethod
-    def element_attachments(element: dict[str, typing.Any]) -> list[dict[str, typing.Any]]:
+        期望输入结构（broadcast 的单 agent 结果）：
+        - `agent_id: str`
+        - `ok: bool` 或 `data.ok: bool`
+        - `text: str`
+        - `attachments: list[dict | AttachmentLike]`
+
+        其中 `attachments[]` 的上传约定为：
+        - 本地文件：`{"local", "kind"?, "filename"?, "mime_type"?}`
+        - 已上传附件：`{"url", "kind"?, "filename"?, "mime_type"?}`
+
+        输出结构：
+        - `ok: bool`
+        - `text: str`
+        - `attachments: list[dict]`
+
+        说明：
+        - 这里会把带 `to_dict()` 的附件对象转成普通 dict。
+        - 这里不处理上传，只做单元素的“判定 + 标准化”。
+        """
         attachments = element.get("attachments", [])
         if not isinstance(attachments, list):
-            return []
+            attachments = []
 
         normalized: list[dict[str, typing.Any]] = []
         for item in attachments:
@@ -157,7 +213,17 @@ class Enhancer(object):
                 normalized.append(item)
             elif hasattr(item, "to_dict"):
                 normalized.append(item.to_dict())
-        return normalized
+
+        ok_raw = element.get("ok")
+        data = element.get("data")
+
+        return {
+            "ok"          : ok_raw if isinstance(ok_raw, bool) else (
+                bool(data.get("ok")) if isinstance(data, dict) else False
+            ),
+            "text"        : str(element.get("text") or ""),
+            "attachments" : normalized
+        }
 
     @staticmethod
     async def upload_local(
@@ -168,6 +234,18 @@ class Enhancer(object):
         filename: typing.Optional[str] = None,
         mime_type: typing.Optional[str] = None
     ) -> tuple[typing.Optional[dict[str, typing.Any]], dict[str, typing.Any]]:
+        """
+        上传单个本地文件，并返回两份结果：
+
+        1. 给上游继续透传的附件：
+           - `{"kind", "url", "agent_id", "filename", "mime_type"}`
+        2. 给内部汇总/审计的上传记录：
+           - `{"ok", "local", "url"?, "r2_key"?, "filename"?, "mime_type"?, "error"?}`
+
+        说明：
+        - `bucket` 决定远端上传前缀，例如 `screenshots` / `logcat` / `frames`。
+        - `kind` 只用于生成返回附件元信息，不影响实际上传内容。
+        """
         try:
             up = await request.upload_file_stream(local, agent_id, bucket)
             url = up.get("url")
@@ -209,6 +287,22 @@ class Enhancer(object):
         bucket: str,
         default_kind: str = "file"
     ) -> tuple[list[dict[str, typing.Any]], list[dict[str, typing.Any]]]:
+        """
+        批量处理并上传附件列表。
+
+        输入 `local_attachments` 要求是归一化后的附件 dict 列表，单项支持两种形态：
+        - 本地附件：`{"local", "kind"?, "filename"?, "mime_type"?}`
+        - 已有远端地址：`{"url", "kind"?, "filename"?, "mime_type"?}`
+
+        返回：
+        - `attachments`：可继续上抛给模型/前端的附件列表
+        - `uploads`：本次上传的逐项执行结果，供 `per_agent.uploads` 汇总
+
+        规则：
+        - 有 `local`：执行上传
+        - 无 `local` 但有 `url`：视为已上传，直接透传
+        - 两者都没有：跳过
+        """
         attachments: list[dict[str, typing.Any]] = []
         uploads: list[dict[str, typing.Any]] = []
 
@@ -236,6 +330,115 @@ class Enhancer(object):
 
         return attachments, uploads
 
+    async def __upload_tool_result(
+        self,
+        result: CallToolResult,
+        *,
+        bucket: str,
+        missing_text: str,
+        success_text: str,
+        partial_text: str,
+        default_kind: str = "file"
+    ) -> dict[str, typing.Any]:
+        """
+        处理“带附件产物”的工具结果，并统一完成上传汇总。
+
+        当前仅服务于：
+        - `screenshot`
+        - `file_logcat_dump`
+        - `ffmpeg_extract_snapshot`
+        - `ffmpeg_extract_keyframes`
+        - `ffmpeg_extract_scene`
+
+        期望 `result` 的结构化内容至少满足：
+        - `fields.data.results: list[element]`
+        - 每个 `element` 由 `normalize_element()` 负责归一化
+
+        输出统一结构：
+        - `text`
+        - `attachments`
+        - `data.ok`
+        - `data.upload_ok`
+        - `data.per_agent`
+
+        这样上层不再关心具体工具是截图、logcat 还是抽帧，只看统一上传结果。
+        """
+        attachments: list[dict[str, typing.Any]] = []
+        fields = self.fields_map(result)
+
+        if not (results := fields.get("data", {}).get("results")):
+            return {
+                "text"        : missing_text,
+                "attachments" : attachments,
+                "data"        : {"ok": False, "upload_ok": False, "per_agent": {}, "fields": fields}
+            }
+
+        per_agent: dict[str, typing.Any] = {}
+
+        for element in results:
+            agent_id = element.get("agent_id", "unknown")
+            uploaded_attachments, payload = await self.__upload_tool_element(
+                element, agent_id, bucket=bucket, default_kind=default_kind
+            )
+            attachments.extend(uploaded_attachments)
+            per_agent[agent_id] = payload
+
+        ok = all(v.get("ok") for v in per_agent.values()) if per_agent else False
+
+        return {
+            "text"        : success_text if ok else partial_text,
+            "attachments" : attachments,
+            "data": {
+                "ok"        : ok,
+                "upload_ok" : ok,
+                "per_agent" : per_agent
+            }
+        }
+
+    async def __upload_tool_element(
+        self,
+        element: dict[str, typing.Any],
+        agent_id: str,
+        *,
+        bucket: str,
+        default_kind: str = "file"
+    ) -> tuple[list[dict[str, typing.Any]], dict[str, typing.Any]]:
+        """
+        处理单个 agent 的附件上传。
+
+        输入：
+        - `element`：`results[]` 中的单项
+        - `agent_id`：当前 agent 标识
+
+        输出：
+        - `uploaded_attachments`：已可对外返回的附件列表
+        - `payload`：当前 agent 的汇总结果
+          结构为 `{"ok": bool, "uploads": list[dict]}`
+
+        说明：
+        - 如果单 agent 本身执行失败，不会尝试上传，直接把失败文本写入 `uploads`。
+        - 如果执行成功但没有可上传附件，会返回 `missing uploadable attachments`。
+        """
+        normalized = self.normalize_element(element)
+
+        if not normalized["ok"]:
+            return [], {
+                "ok"      : False,
+                "uploads" : [{"ok": False, "error": normalized["text"]}]
+            }
+
+        uploaded_attachments, uploads = await self.upload_attachments(
+            normalized["attachments"], agent_id, bucket=bucket, default_kind=default_kind
+        )
+
+        if not uploads:
+            uploads = [{"ok": False, "error": "missing uploadable attachments"}]
+
+        return uploaded_attachments, {
+            "ok"      : all(item.get("ok") for item in uploads),
+            "uploads" : uploads
+        }
+
     async def enhance(
         self,
         name: str,
@@ -259,15 +462,11 @@ class Enhancer(object):
         if name in {
             "ffmpeg_extract_snapshot",
             "ffmpeg_extract_keyframes",
-            "ffmpeg_extract_scene"
+            "ffmpeg_extract_scene",
+            "file_logcat_dump",
+            "screenshot"
         }:
-            return await self.__ffmpeg_frame(result)
-
-        if name == "file_logcat_dump":
-            return await self.__file_logcat_dump(result)
-
-        if name == "screenshot":
-            return await self.__screenshot(result)
+            return await self.__artifact_upload(name, result)
 
         if name == "heal_element":
             return await self.__heal_element(arguments, result, slog)
@@ -299,7 +498,7 @@ class Enhancer(object):
     ) -> dict[str, typing.Any]:
         """Free Rule"""
 
-        fields = self.fields(result)
+        fields = self.fields_map(result)
         attachments: list[dict[str, typing.Any]] = []
 
         if not (results := fields.get("data", {}).get("results")):
@@ -358,147 +557,55 @@ class Enhancer(object):
             if slog:
                 await slog.stop()
 
-    async def __ffmpeg_frame(self, result: CallToolResult) -> dict:
-        attachments: list[dict[str, typing.Any]] = []
+    async def __artifact_upload(self, name: str, result: CallToolResult) -> dict:
+        """
+        为指定工具选择上传配置，然后转发到统一上传链路。
 
-        if not (results := self.fields(result).get("data", {}).get("results")):
-            return {
-                "text"        : "未获取到视频帧结果",
-                "attachments" : attachments,
-                "data"        : {"ok": False, "upload_ok": False, "per_agent": {}}
-            }
-
-        per_agent: dict[str, typing.Any] = {}
-
-        for element in results:
-            agent_id = element.get("agent_id", "unknown")
-
-            if not self.element_ok(element):
-                per_agent[agent_id] = {
-                    "ok"      : False,
-                    "uploads" : [{"ok": False, "error": self.element_text(element)}]
-                }
-                continue
-
-            local_attachments = self.element_attachments(element)
-            uploaded_attachments, uploads = await self.upload_attachments(
-                local_attachments, agent_id, bucket="frames"
-            )
-            attachments.extend(uploaded_attachments)
-
-            if not uploads:
-                uploads = [{"ok": False, "error": "missing uploadable attachments"}]
-
-            per_agent[agent_id] = {
-                "ok"      : all(item.get("ok") for item in uploads),
-                "uploads" : uploads
-            }
-
-        ok = all(v.get("ok") for v in per_agent.values()) if per_agent else False
-
-        return {
-            "text"        : "视频帧上传成功" if ok else "视频帧上传完成（存在失败）",
-            "attachments" : attachments,
-            "data": {
-                "ok"        : ok,
-                "upload_ok" : ok,
-                "per_agent" : per_agent
-            }
-        }
-
-    async def __file_logcat_dump(self, result: CallToolResult) -> dict:
-        attachments: list[dict[str, typing.Any]] = []
-
-        if not (results := self.fields(result).get("data", {}).get("results")):
-            return {
-                "text"        : "未获取到 logcat 结果",
-                "attachments" : attachments,
-                "data"        : {"ok": False, "upload_ok": False, "per_agent": {}}
-            }
-
-        per_agent: dict[str, typing.Any] = {}
-
-        for element in results:
-            agent_id = element.get("agent_id", "unknown")
-
-            if not self.element_ok(element):
-                per_agent[agent_id] = {
-                    "ok"      : False,
-                    "uploads" : [{"ok": False, "error": self.element_text(element)}]
-                }
-                continue
-
-            local_attachments = self.element_attachments(element)
-            uploaded_attachments, uploads = await self.upload_attachments(
-                local_attachments, agent_id, bucket="logcat"
-            )
-            attachments.extend(uploaded_attachments)
-            if not uploads:
-                uploads = [{"ok": False, "error": "missing uploadable attachments"}]
-
-            per_agent[agent_id] = {
-                "ok"      : all(item.get("ok") for item in uploads),
-                "uploads" : uploads
-            }
-
-        ok = all(v.get("ok") for v in per_agent.values()) if per_agent else False
-
-        return {
-            "text"        : "logcat 上传成功" if ok else "logcat 上传完成（存在失败）",
-            "attachments" : attachments,
-            "data": {
-                "ok"        : ok,
-                "upload_ok" : ok,
-                "per_agent" : per_agent
+        这里只做“工具名 -> 上传策略”的映射：
+        - bucket
+        - 缺失结果文案
+        - 成功文案
+        - 部分失败文案
+        - 默认 kind
+        """
+        specs = {
+            "ffmpeg_extract_snapshot": {
+                "bucket"       : "frames",
+                "missing_text" : "未获取到视频帧结果",
+                "success_text" : "视频帧上传成功",
+                "partial_text" : "视频帧上传完成（存在失败）",
+                "default_kind" : "file"
+            },
+            "ffmpeg_extract_keyframes": {
+                "bucket"       : "frames",
+                "missing_text" : "未获取到视频帧结果",
+                "success_text" : "视频帧上传成功",
+                "partial_text" : "视频帧上传完成（存在失败）",
+                "default_kind" : "file"
+            },
+            "ffmpeg_extract_scene": {
+                "bucket"       : "frames",
+                "missing_text" : "未获取到视频帧结果",
+                "success_text" : "视频帧上传成功",
+                "partial_text" : "视频帧上传完成（存在失败）",
+                "default_kind" : "file"
+            },
+            "file_logcat_dump": {
+                "bucket"       : "logcat",
+                "missing_text" : "未获取到 logcat 结果",
+                "success_text" : "logcat 上传成功",
+                "partial_text" : "logcat 上传完成（存在失败）",
+                "default_kind" : "file"
+            },
+            "screenshot": {
+                "bucket"       : "screenshots",
+                "missing_text" : "未获取到截图结果",
+                "success_text" : "屏幕截图上传成功",
+                "partial_text" : "屏幕截图上传完成（存在失败）",
+                "default_kind" : "file"
             }
         }
-
-    async def __screenshot(self, result: CallToolResult) -> dict:
-        attachments: list[dict[str, typing.Any]] = []
-
-        if not (results := self.fields(result).get("data", {}).get("results")):
-            return {
-                "text"        : "未获取到截图结果",
-                "attachments" : attachments,
-                "data"        : {"ok": False, "upload_ok": False, "per_agent": {}}
-            }
-
-        per_agent: dict[str, typing.Any] = {}
-
-        for element in results:
-            agent_id = element.get("agent_id", "unknown")
-
-            if not self.element_ok(element):
-                per_agent[agent_id] = {
-                    "ok"      : False,
-                    "uploads" : [{"ok": False, "error": self.element_text(element)}]
-                }
-                continue
-
-            local_attachments = self.element_attachments(element)
-            uploaded_attachments, uploads = await self.upload_attachments(
-                local_attachments, agent_id, bucket="screenshots"
-            )
-            attachments.extend(uploaded_attachments)
-            if not uploads:
-                uploads = [{"ok": False, "error": "missing uploadable attachments"}]
-
-            per_agent[agent_id] = {
-                "ok"      : all(item.get("ok") for item in uploads),
-                "uploads" : uploads
-            }
-
-        ok = all(v.get("ok") for v in per_agent.values()) if per_agent else False
-
-        return {
-            "text"        : "屏幕截图上传成功" if ok else "屏幕截图上传完成（存在失败）",
-            "attachments" : attachments,
-            "data": {
-                "ok"        : ok,
-                "upload_ok" : ok,
-                "per_agent" : per_agent
-            }
-        }
+        return await self.__upload_tool_result(result, **specs[name])
 
     async def __heal_element(
         self,
@@ -506,8 +613,7 @@ class Enhancer(object):
         result: CallToolResult,
         slog: typing.Optional[StreamTyperLogger] = None
     ) -> typing.Optional[dict[str, typing.Any]]:
-
-        fields = self.fields(result)
+        fields_map = self.fields_map(result)
         attachments: list[dict[str, str]] = []
 
         heal_status = await Api.heal_license() or {}
@@ -515,14 +621,14 @@ class Enhancer(object):
             return {
                 "text"        : "远程元素自愈服务暂不可用",
                 "attachments" : attachments,
-                "data"        : {"ok": False, "fields": fields}
+                "data"        : {"ok": False, "fields": fields_map}
             }
 
-        if not (results := fields.get("data", {}).get("results")):
+        if not (results := fields_map.get("data", {}).get("results")):
             return {
                 "text"        : "未获取到设备结果",
                 "attachments" : attachments,
-                "data"        : {"ok": False, "fields": fields}
+                "data"        : {"ok": False, "fields": fields_map}
             }
 
         per_agent: dict[str, dict[str, typing.Any]] = {}
@@ -603,7 +709,7 @@ class Enhancer(object):
             if slog:
                 return await slog.feed(line, display=StreamTyperLogger.BLOCK)
 
-        fields = self.fields(result)
+        fields = self.fields_map(result)
 
         results: list[
             dict[str, typing.Any]
@@ -703,7 +809,8 @@ class Enhancer(object):
                     if stop_on_fail: break
 
                 await say(
-                    f"loop_steps:  step {i + 1}/{len(steps)} tool={tool} {step_fields.get('text')}"
+                    f"loop_steps:  step {i + 1}/{len(steps)} tool={tool} "
+                    f"{step_fields.get('text') if isinstance(step_fields, dict) else str(step_fields)}"
                 )
 
             runs.append({"round": r + 1, "ok": round_ok, "steps": round_steps})
