@@ -1,10 +1,5 @@
-#   ____       _
-#  / ___|  ___| |_ _   _ _ __
-#  \___ \ / _ \ __| | | | '_ \
-#   ___) |  __/ |_| |_| | |_) |
-#  |____/ \___|\__|\__,_| .__/
-#                       |_|
-#
+# -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 from mindnova import const
 from setuptools import setup, find_packages

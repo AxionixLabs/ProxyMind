@@ -1,11 +1,6 @@
-#  __  __ _           _
-# |  \/  (_)_ __   __| |
-# | |\/| | | '_ \ / _` |
-# | |  | | | | | | (_| |
-# |_|  |_|_|_| |_|\__,_|
-#
+# -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
-# ====[ 内置模块 ]====
 import os
 import re
 import sys
@@ -350,11 +345,24 @@ class Mind(object):
         meta_in = kwargs.get("metadata") or {}
         cid = meta_in.get("cid") if isinstance(meta_in, dict) else None
         sid = meta_in.get("sid") if isinstance(meta_in, dict) else None
-        kwargs["metadata"] = self.begin_session(cid=cid, sid=sid)
+        kwargs["metadata"] = meta = self.begin_session(cid=cid, sid=sid)
 
-        return await self.with_mcp_guard(
-            func, mode=mode, model_api=model_api, message=message, **kwargs
-        )
+        ev_report = kwargs.get("ev_report")
+        owns_ev_report = False
+        if not ev_report:
+            ev_report = EventReport(mode, meta["cid"], meta["sid"])
+            kwargs["ev_report"] = ev_report
+            await ev_report.open()
+            owns_ev_report = True
+
+        try:
+            return await self.with_mcp_guard(
+                func, mode=mode, model_api=model_api, message=message, **kwargs
+            )
+        finally:
+            if owns_ev_report:
+                await ev_report.flush()
+                await ev_report.close()
 
     # workflow: ==== 对话事件模式 ====
     async def stream_looper(
@@ -386,16 +394,22 @@ class Mind(object):
 
         ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
-        async def finish(phase: str, **extra) -> None:
+        async def finish(status: typing.Literal["completed", "failed"], **extra) -> None:
             """统一收尾：先 emit，再 flush（确保返回前事件到达服务端）"""
             if not ev_report: return None
-            ev_report.emit({
-                "type"  : "lifecycle",
-                "scope" : "chat",
-                "phase" : phase,
-                "ts"    : time.time(),
-                **extra
-            })
+            if status == "completed":
+                ev_report.emit({
+                    "type"   : "turn.done",
+                    "status" : "completed",
+                    "ts"     : time.time(),
+                    **extra
+                })
+            else:
+                ev_report.emit({
+                    "type"  : "turn.failed",
+                    "error" : str(extra.get("error") or "unknown error"),
+                    "ts"    : time.time()
+                })
             await ev_report.flush()
 
         slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
@@ -414,14 +428,28 @@ class Mind(object):
                     case "turn.failed":
                         error = str(event.get("error") or "unknown error")
                         await slog.feed(error, display=StreamTyperLogger.BLOCK)
-                        await finish("fail", error=error)
+                        await finish("failed", error=error)
                         return await slog.stop()
 
                     case "text.delta":
-                        await slog.feed(str(event.get("text") or ""), display=StreamTyperLogger.STREAM)
+                        text = str(event.get("text") or "")
+                        if ev_report and text:
+                            ev_report.emit({
+                                "type" : "text.delta",
+                                "text" : text,
+                                "ts"   : time.time()
+                            })
+                        await slog.feed(text, display=StreamTyperLogger.STREAM)
                         continue
 
                     case "text.done":
+                        text = str(event.get("text") or "")
+                        if ev_report:
+                            ev_report.emit({
+                                "type" : "text.done",
+                                "text" : text,
+                                "ts"   : time.time()
+                            })
                         continue
 
                     case "turn.done":
@@ -429,11 +457,19 @@ class Mind(object):
 
                     case "tool.call":
                         name, arguments = event["name"], event.get("arguments", {})
+                        if ev_report:
+                            ev_report.emit({
+                                "type"      : "tool.call",
+                                "call_id"   : event.get("call_id"),
+                                "name"      : name,
+                                "arguments" : arguments,
+                                "ts"        : time.time()
+                            })
 
                         if Tooling.needs_wakeup(domains, name):
                             if error := await self.wakeup(session, slog):
                                 await slog.feed(error, display=StreamTyperLogger.BLOCK)
-                                await finish("fail", error=str(error))
+                                await finish("failed", error=str(error))
                                 return await slog.stop()
 
                         await slog.feed(
@@ -457,6 +493,16 @@ class Mind(object):
                             f"{fields.get('text')}", display=StreamTyperLogger.BLOCK
                         )
 
+                        if ev_report:
+                            ev_report.emit({
+                                "type"    : "tool.output",
+                                "call_id" : event.get("call_id"),
+                                "name"    : name,
+                                "ok"      : ok,
+                                "result"  : fields,
+                                "ts"      : time.time()
+                            })
+
                         await request.post_tool_result(
                             event["cid"], event["sid"], event["call_id"], name, ok, fields
                         )
@@ -471,10 +517,10 @@ class Mind(object):
 
         except Exception as e:
             await slog.feed(str(e), display=StreamTyperLogger.BLOCK)
-            await finish("fail", error=f"{type(e).__name__}: {e}")
+            await finish("failed", error=f"{type(e).__name__}: {e}")
             return await slog.stop()
 
-        await finish("done")
+        await finish("completed")
         await slog.stop()
 
     # workflow: ==== Plan 编排模式 ====
@@ -504,15 +550,22 @@ class Mind(object):
             if ev_report:
                 ev_report.emit(ev)
 
-        async def finish(phase: str, **extra) -> None:
+        async def finish(status: typing.Literal["completed", "failed"], **extra) -> None:
             if not ev_report: return None
-            ev_report.emit({
-                "type"  : "lifecycle",
-                "scope" : "plan",
-                "phase" : phase,
-                "ts"    : time.time(),
-                **extra
-            })
+            if status == "completed":
+                ev_report.emit({
+                    "type"   : "plan.done",
+                    "status" : "completed",
+                    "ts"     : time.time(),
+                    **extra
+                })
+            else:
+                ev_report.emit({
+                    "type"  : "plan.failed",
+                    "error" : str(extra.get("error") or "plan failed"),
+                    "ts"    : time.time(),
+                    **extra
+                })
             await ev_report.flush()
 
         slog: StreamTyperLogger = StreamTyperLogger(self.report.log_papers)
@@ -521,11 +574,10 @@ class Mind(object):
         extras = None if probes.isError else {"devices": probes.content[0].text}
 
         emit({
-            "type"  : "lifecycle",
-            "scope" : "plan",
-            "phase" : "start",
-            "mode"  : mode,
-            "ts"    : time.time()
+            "type"    : "plan.start",
+            "message" : message,
+            "mode"    : mode,
+            "ts"      : time.time()
         })
 
         runtime_context: dict[str, typing.Any] = {
@@ -552,37 +604,32 @@ class Mind(object):
 
             if event_type == "plan.failed":
                 error = str(plan.get("error") or "plan request failed")
-                await finish("fail", error=error)
+                await finish("failed", error=error)
                 return logger.error(f"{plan}\n")
 
             if event_type != "plan.result":
                 continue
 
             if not isinstance(result := plan.get("result"), dict):
-                await finish("fail", error="plan.result missing result payload")
+                await finish("failed", error="plan.result missing result payload")
                 return logger.error(f"{plan}\n")
 
             result_type = str(result.get("type") or "")
             if result_type == "error":
                 error = str(result.get("reasoning") or result.get("goal") or "plan unavailable")
-                await finish("fail", error=error)
-                return logger.error(f"{plan}\n")
-
-            if result_type != "plan":
-                error = f"unsupported plan.result type={result_type}"
-                await finish("fail", error=error)
+                await finish("failed", error=error)
                 return logger.error(f"{plan}\n")
 
             steps = result.get("steps")
-            if not isinstance(steps, list) or not steps:
+            if not isinstance(steps, list):
                 logger.warning(plan)
-                await finish("fail", error="plan.result missing executable steps")
+                await finish("failed", error="plan.result missing executable steps")
                 return logger.error(f"{plan}\n")
 
             loop_count = result.get("loop_count")
-            if not isinstance(loop_count, int) or loop_count < 1:
+            if not isinstance(loop_count, int):
                 logger.warning(plan)
-                await finish("fail", error="plan.result invalid loop_count")
+                await finish("failed", error="plan.result invalid loop_count")
                 return logger.error(f"{plan}\n")
 
             logger.debug(f"Loop Count -> {loop_count}")
@@ -597,19 +644,14 @@ class Mind(object):
             logger.info(reasoning)
 
             emit({
-                "type"       : "lifecycle",
-                "scope"      : "plan",
-                "phase"      : "ready",
-                "loop_count" : loop_count,
-                "steps"      : len(steps),
-                "ts"         : time.time()
+                "type"   : "plan.result",
+                "result" : result,
+                "ts"     : time.time()
             })
 
             for index, _ in enumerate(range(loop_count), start=1):
                 emit({
-                    "type"  : "lifecycle",
-                    "scope" : "loop",
-                    "phase" : "start",
+                    "type"  : "loop.start",
                     "run"   : index,
                     "total" : loop_count,
                     "ts"    : time.time()
@@ -632,9 +674,7 @@ class Mind(object):
                     runtime_context["current"] = step_context
 
                     emit({
-                        "type"  : "lifecycle",
-                        "scope" : "step",
-                        "phase" : "start",
+                        "type"  : "step.start",
                         "run"   : index,
                         "index" : step_idx,
                         "total" : len(steps),
@@ -645,7 +685,7 @@ class Mind(object):
 
                     if Tooling.needs_wakeup(domains, name):
                         if error := await self.wakeup(session):
-                            await finish("fail", error=str(error), run=index, index=step_idx, name=name)
+                            await finish("failed", error=str(error), run=index, index=step_idx, name=name)
                             return logger.error(f"{error}\n")
 
                     logger.info(Tooling.summarize_tool_arguments(name, arguments))
@@ -673,7 +713,7 @@ class Mind(object):
                     call_id = craft.short_uid()
 
                     emit({
-                        "type"      : "tool_call",
+                        "type"      : "tool.call",
                         "call_id"   : call_id,
                         "name"      : name,
                         "arguments" : arguments,
@@ -699,12 +739,11 @@ class Mind(object):
                     runtime_context["current"] = step_context
 
                     emit({
-                        "type"    : "tool_result",
+                        "type"    : "tool.output",
                         "call_id" : call_id,
                         "name"    : name,
                         "ok"      : ok,
-                        "text"    : (fields.get("text") if isinstance(fields, dict) else ""),
-                        "data"    : (fields.get("data") if isinstance(fields, dict) else None),
+                        "result"  : fields,
                         "cost_ms" : int((time.time() - t0) * 1000),
                         "ts"      : time.time()
                     })
@@ -714,15 +753,13 @@ class Mind(object):
                     if not ok or not data_ok:
                         step_context["data_ok"] = data_ok
                         brief_err = (fields.get("text") if isinstance(fields, dict) else "step failed")
-                        await finish("fail", run=index, index=step_idx, name=name, error=brief_err)
+                        await finish("failed", run=index, index=step_idx, name=name, error=brief_err)
                         return logger.error(f"{fields}\n")
 
                     logger.info(fields.get("text") if isinstance(fields, dict) else "")
 
                     emit({
-                        "type"    : "lifecycle",
-                        "scope"   : "step",
-                        "phase"   : "done",
+                        "type"    : "step.done",
                         "run"     : index,
                         "index"   : step_idx,
                         "total"   : len(steps),
@@ -732,9 +769,7 @@ class Mind(object):
                     })
 
                 emit({
-                    "type"  : "lifecycle",
-                    "scope" : "loop",
-                    "phase" : "done",
+                    "type"  : "loop.done",
                     "run"   : index,
                     "total" : loop_count,
                     "ts"    : time.time()
@@ -744,10 +779,10 @@ class Mind(object):
 
         if not plan_received:
             err = {"type": "error", "error": "plan stream ended without executable plan.result"}
-            await finish("fail", error=json.dumps(err, ensure_ascii=False))
+            await finish("failed", error=json.dumps(err, ensure_ascii=False))
             return logger.error(f"{err}\n")
 
-        await finish("done")
+        await finish("completed")
         await slog.stop()
 
     # Notes: ==== Chat 对话模式 ====
@@ -906,42 +941,37 @@ class Mind(object):
                     apikey = await exchange(m, "apikey") or apikey
                     continue
 
+                async def guarded_with_report(
+                    mode: typing.Literal["chat", "fast", "plan"],
+                    runner: typing.Callable[..., typing.Awaitable[None]],
+                    *,
+                    anim_mode: typing.Literal["chat", "fast", "plan"],
+                ) -> None:
+                    ev_report = EventReport(mode, metadata["cid"], metadata["sid"])
+                    await ev_report.open()
+                    try:
+                        await self.with_mcp_guard(
+                            runner,
+                            mode=mode,
+                            anim_mode=anim_mode,
+                            session=session,
+                            model_api=model_api,
+                            message=raw,
+                            openai_tools=openai_tools,
+                            domains=domains,
+                            metadata=metadata,
+                            ev_report=ev_report
+                        )
+                    finally:
+                        await ev_report.flush()
+                        await ev_report.close()
+
                 if tag == "CHAT":
-                    await self.with_mcp_guard(
-                        self.stream_looper,
-                        mode="chat",
-                        anim_mode="chat",
-                        session=session,
-                        model_api=model_api,
-                        message=raw,
-                        openai_tools=openai_tools,
-                        domains=domains,
-                        metadata=metadata
-                    )
+                    await guarded_with_report("chat", self.stream_looper, anim_mode="chat")
                 elif tag == "FAST":
-                    await self.with_mcp_guard(
-                        self.stream_looper,
-                        mode="fast",
-                        anim_mode="fast",
-                        session=session,
-                        model_api=model_api,
-                        message=raw,
-                        openai_tools=openai_tools,
-                        domains=domains,
-                        metadata=metadata
-                    )
+                    await guarded_with_report("fast", self.stream_looper, anim_mode="fast")
                 else:
-                    await self.with_mcp_guard(
-                        self.static_looper,
-                        mode="plan",
-                        anim_mode="plan",
-                        session=session,
-                        model_api=model_api,
-                        message=raw,
-                        openai_tools=openai_tools,
-                        domains=domains,
-                        metadata=metadata
-                    )
+                    await guarded_with_report("plan", self.static_looper, anim_mode="plan")
 
         model_api = self.pref.to_config()
         return await self.with_mcp_session(model_api, function)
@@ -978,6 +1008,13 @@ class Mind(object):
         kwargs["ev_report"] = ev_report
         await ev_report.open()
 
+        def emit_diag(event_type: str, **payload: typing.Any) -> None:
+            ev_report.emit({
+                "type" : event_type,
+                "ts"   : time.time(),
+                **payload
+            })
+
         async def virtual(
             p: Path,
             items: list[PackItem],
@@ -992,15 +1029,7 @@ class Mind(object):
             if not msg.strip(): return None
             logger.info(f"🧩 {name} file={p}")
 
-            ev_report.emit({
-                "type"  : "lifecycle",
-                "scope" : "virtual",
-                "phase" : "start",
-                "file"  : str(p),
-                "name"  : name,
-                "run"   : run,
-                "ts"    : time.time()
-            })
+            emit_diag("virtual.start", file=str(p), name=name, run=run)
 
             await self.start_anim(mode)
 
@@ -1009,30 +1038,19 @@ class Mind(object):
             except BaseException as exc:
                 error = Pack.brief_err(exc)
 
-                ev_report.emit({
-                    "type"  : "lifecycle",
-                    "scope" : "virtual",
-                    "phase" : "fail",
-                    "file"  : str(p),
-                    "total" : len(items),
-                    "error" : error,
-                    "name"  : name,
-                    "run"   : run,
-                    "ts"    : time.time()
-                })
+                emit_diag(
+                    "virtual.failed",
+                    file=str(p),
+                    total=len(items),
+                    error=error,
+                    name=name,
+                    run=run
+                )
                 logger.error(f"❌ virtual failed: {name} file={p} err={error}\n")
             finally:
                 await self.stop_anim()
 
-            ev_report.emit({
-                "type"  : "lifecycle",
-                "scope" : "virtual",
-                "phase" : "done",
-                "file"  : str(p),
-                "name"  : name,
-                "run"   : run,
-                "ts"    : time.time()
-            })
+            emit_diag("virtual.done", file=str(p), name=name, run=run)
 
         async def packer(
             p: Path,
@@ -1084,15 +1102,7 @@ class Mind(object):
             global_suffix = (cfg.get("global_suffix") or "").strip()
             global_rule   = (cfg.get("global_rule") or "").strip()
 
-            ev_report.emit({
-                "type"   : "lifecycle",
-                "scope"  : "batch",
-                "phase"  : "start",
-                "file"   : str(p),
-                "items"  : len(items),
-                "repeat" : repeat,
-                "ts"     : time.time()
-            })
+            emit_diag("batch.start", file=str(p), items=len(items), repeat=repeat)
 
             await virtual(
                 p, items, session, openai_tools, domains, "__loop_prefix__", loop_prefix
@@ -1100,6 +1110,7 @@ class Mind(object):
 
             try:
                 for r in range(1, repeat + 1):
+                    emit_diag("round.start", file=str(p), run=r, total=repeat, items=len(items))
                     await virtual(
                         p, items, session, openai_tools, domains, "__round_prefix__", round_prefix, r
                     )
@@ -1108,66 +1119,54 @@ class Mind(object):
 
                     for idx, it in enumerate(items, start=1):
                         if regx and not regx.search(it.name):
-                            ev_report.emit({
-                                "type"       : "lifecycle",
-                                "scope"      : "task",
-                                "phase"      : "skip",
-                                "file"       : str(p),
-                                "run"        : r,
-                                "index"      : idx,
-                                "total"      : len(items),
-                                "name"       : it.name,
-                                "item_total" : it.loop,
-                                "reason"     : "filter",
-                                "ts"         : time.time()
-                            })
+                            emit_diag(
+                                "task.skip",
+                                file=str(p),
+                                run=r,
+                                index=idx,
+                                total=len(items),
+                                name=it.name,
+                                item_total=it.loop,
+                                reason="filter"
+                            )
                             logger.debug(f"⏭️  skip [{idx}/{len(items)}] {it.name} (filter)")
                             continue
 
-                        ev_report.emit({
-                            "type"  : "lifecycle",
-                            "scope" : "item_hook",
-                            "phase" : "start",
-                            "hook"  : "item_prefix",
-                            "file"  : str(p),
-                            "run"   : r,
-                            "index" : idx,
-                            "total" : len(items),
-                            "name"  : it.name,
-                            "ts"    : time.time()
-                        })
+                        emit_diag(
+                            "item_hook.start",
+                            hook="item_prefix",
+                            file=str(p),
+                            run=r,
+                            index=idx,
+                            total=len(items),
+                            name=it.name
+                        )
                         await virtual(
                             p, items, session, openai_tools, domains,"__item_prefix__", item_prefix, r
                         )
-                        ev_report.emit({
-                            "type"  : "lifecycle",
-                            "scope" : "item_hook",
-                            "phase" : "done",
-                            "hook"  : "item_prefix",
-                            "file"  : str(p),
-                            "run"   : r,
-                            "index" : idx,
-                            "total" : len(items),
-                            "name"  : it.name,
-                            "ts"    : time.time()
-                        })
+                        emit_diag(
+                            "item_hook.done",
+                            hook="item_prefix",
+                            file=str(p),
+                            run=r,
+                            index=idx,
+                            total=len(items),
+                            name=it.name
+                        )
 
 
                         try:
                             for item_run in range(1, it.loop + 1):
-                                ev_report.emit({
-                                    "type"       : "lifecycle",
-                                    "scope"      : "task",
-                                    "phase"      : "start",
-                                    "file"       : str(p),
-                                    "run"        : r,
-                                    "index"      : idx,
-                                    "total"      : len(items),
-                                    "name"       : it.name,
-                                    "item_run"   : item_run,
-                                    "item_total" : it.loop,
-                                    "ts"         : time.time()
-                                })
+                                emit_diag(
+                                    "task.start",
+                                    file=str(p),
+                                    run=r,
+                                    index=idx,
+                                    total=len(items),
+                                    name=it.name,
+                                    item_run=item_run,
+                                    item_total=it.loop
+                                )
 
                                 logger.info(
                                     f"▶️  [{idx}/{len(items)}] {it.name} item_run={item_run}/{it.loop} file={p}"
@@ -1178,21 +1177,18 @@ class Mind(object):
                                 for attempt in range(1, attempts + 1):
                                     t0 = time.time()
 
-                                    ev_report.emit({
-                                        "type"         : "lifecycle",
-                                        "scope"        : "task",
-                                        "phase"        : "attempt",
-                                        "file"         : str(p),
-                                        "run"          : r,
-                                        "index"        : idx,
-                                        "total"        : len(items),
-                                        "name"         : it.name,
-                                        "item_run"     : item_run,
-                                        "item_total"   : it.loop,
-                                        "attempt"      : attempt,
-                                        "max_attempts" : attempts,
-                                        "ts"           : time.time()
-                                    })
+                                    emit_diag(
+                                        "task.attempt",
+                                        file=str(p),
+                                        run=r,
+                                        index=idx,
+                                        total=len(items),
+                                        name=it.name,
+                                        item_run=item_run,
+                                        item_total=it.loop,
+                                        attempt=attempt,
+                                        max_attempts=attempts
+                                    )
 
                                     prefix = (it.meta.get("prefix") or global_prefix or "").strip()
                                     suffix = (it.meta.get("suffix") or global_suffix or "").strip()
@@ -1211,21 +1207,18 @@ class Mind(object):
                                     try:
                                         await func(session, mode, model_api, final_msg, openai_tools, domains, **kwargs)
 
-                                        ev_report.emit({
-                                            "type"       : "lifecycle",
-                                            "scope"      : "task",
-                                            "phase"      : "done",
-                                            "file"       : str(p),
-                                            "run"        : r,
-                                            "index"      : idx,
-                                            "total"      : len(items),
-                                            "name"       : it.name,
-                                            "item_run"   : item_run,
-                                            "item_total" : it.loop,
-                                            "attempt"    : attempt,
-                                            "cost_ms"    : int((time.time() - t0) * 1000),
-                                            "ts"         : time.time()
-                                        })
+                                        emit_diag(
+                                            "task.done",
+                                            file=str(p),
+                                            run=r,
+                                            index=idx,
+                                            total=len(items),
+                                            name=it.name,
+                                            item_run=item_run,
+                                            item_total=it.loop,
+                                            attempt=attempt,
+                                            cost_ms=int((time.time() - t0) * 1000)
+                                        )
 
                                         break
 
@@ -1233,22 +1226,19 @@ class Mind(object):
                                         error = Pack.brief_err(exc)
                                         last_error = error
 
-                                        ev_report.emit({
-                                            "type"         : "lifecycle",
-                                            "scope"        : "task",
-                                            "phase"        : "fail",
-                                            "file"         : str(p),
-                                            "run"          : r,
-                                            "index"        : idx,
-                                            "total"        : len(items),
-                                            "name"         : it.name,
-                                            "item_run"     : item_run,
-                                            "item_total"   : it.loop,
-                                            "attempt"      : attempt,
-                                            "max_attempts" : attempts,
-                                            "error"        : error,
-                                            "ts"           : time.time()
-                                        })
+                                        emit_diag(
+                                            "task.failed",
+                                            file=str(p),
+                                            run=r,
+                                            index=idx,
+                                            total=len(items),
+                                            name=it.name,
+                                            item_run=item_run,
+                                            item_total=it.loop,
+                                            attempt=attempt,
+                                            max_attempts=attempts,
+                                            error=error
+                                        )
 
                                         logger.error(
                                             f"❌ item failed: {it.name} "
@@ -1258,41 +1248,35 @@ class Mind(object):
 
                                         if attempt < attempts:
                                             backoff = 0.5 * (2 ** (attempt - 1))
-                                            ev_report.emit({
-                                                "type"       : "lifecycle",
-                                                "scope"      : "task",
-                                                "phase"      : "retry_wait",
-                                                "file"       : str(p),
-                                                "run"        : r,
-                                                "index"      : idx,
-                                                "total"      : len(items),
-                                                "name"       : it.name,
-                                                "item_run"   : item_run,
-                                                "item_total" : it.loop,
-                                                "attempt"    : attempt,
-                                                "wait_s"     : backoff,
-                                                "ts"         : time.time()
-                                            })
+                                            emit_diag(
+                                                "task.retry_wait",
+                                                file=str(p),
+                                                run=r,
+                                                index=idx,
+                                                total=len(items),
+                                                name=it.name,
+                                                item_run=item_run,
+                                                item_total=it.loop,
+                                                attempt=attempt,
+                                                wait_s=backoff
+                                            )
                                             await asyncio.sleep(backoff)
                                     finally:
                                         await self.stop_anim()
 
                                 else:
-                                    ev_report.emit({
-                                        "type"         : "lifecycle",
-                                        "scope"        : "task",
-                                        "phase"        : "give_up",
-                                        "file"         : str(p),
-                                        "run"          : r,
-                                        "index"        : idx,
-                                        "total"        : len(items),
-                                        "name"         : it.name,
-                                        "item_run"     : item_run,
-                                        "item_total"   : it.loop,
-                                        "max_attempts" : attempts,
-                                        "error"        : last_error,
-                                        "ts"           : time.time()
-                                    })
+                                    emit_diag(
+                                        "task.give_up",
+                                        file=str(p),
+                                        run=r,
+                                        index=idx,
+                                        total=len(items),
+                                        name=it.name,
+                                        item_run=item_run,
+                                        item_total=it.loop,
+                                        max_attempts=attempts,
+                                        error=last_error
+                                    )
 
                                     logger.error(
                                         f"🧯 give up: {it.name} "
@@ -1303,52 +1287,39 @@ class Mind(object):
                                     continue
 
                         finally:
-                            ev_report.emit({
-                                "type"  : "lifecycle",
-                                "scope" : "item_hook",
-                                "phase" : "start",
-                                "hook"  : "item_suffix",
-                                "file"  : str(p),
-                                "run"   : r,
-                                "index" : idx,
-                                "total" : len(items),
-                                "name"  : it.name,
-                                "ts"    : time.time()
-                            })
+                            emit_diag(
+                                "item_hook.start",
+                                hook="item_suffix",
+                                file=str(p),
+                                run=r,
+                                index=idx,
+                                total=len(items),
+                                name=it.name
+                            )
                             await virtual(
                                 p, items, session, openai_tools, domains,"__item_suffix__", item_suffix, r
                             )
-                            ev_report.emit({
-                                "type"  : "lifecycle",
-                                "scope" : "item_hook",
-                                "phase" : "done",
-                                "hook"  : "item_suffix",
-                                "file"  : str(p),
-                                "run"   : r,
-                                "index" : idx,
-                                "total" : len(items),
-                                "name"  : it.name,
-                                "ts"    : time.time()
-                            })
+                            emit_diag(
+                                "item_hook.done",
+                                hook="item_suffix",
+                                file=str(p),
+                                run=r,
+                                index=idx,
+                                total=len(items),
+                                name=it.name
+                            )
 
                     await virtual(
                         p, items, session, openai_tools, domains, "__round_suffix__", round_suffix, r
                     )
+                    emit_diag("round.done", file=str(p), run=r, total=repeat, items=len(items))
 
                 await virtual(
                     p, items, session, openai_tools, domains, "__loop_suffix__", loop_suffix
                 )
 
             finally:
-                ev_report.emit({
-                    "type"   : "lifecycle",
-                    "scope"  : "batch",
-                    "phase"  : "done",
-                    "file"   : str(p),
-                    "items"  : len(items),
-                    "repeat" : repeat,
-                    "ts"     : time.time()
-                })
+                emit_diag("batch.done", file=str(p), items=len(items), repeat=repeat)
 
         async def function(
             session: ClientSession,

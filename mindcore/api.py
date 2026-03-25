@@ -1,10 +1,5 @@
-#      _          _
-#     / \   _ __ (_)
-#    / _ \ | '_ \| |
-#   / ___ \| |_) | |
-#  /_/   \_\ .__/|_|
-#          |_|
-#
+# -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
 
 import typing
 from loguru import logger
