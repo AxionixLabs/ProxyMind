@@ -538,16 +538,59 @@ class Mind(object):
             "current"    : None
         }
         anim_stopped = False
+        plan_received = False
 
         async for plan in request.stream_plan(mode, model_api, message, ft, extras, **kwargs):
             if not anim_stopped:
                 await self.stop_anim()
                 anim_stopped = True
-            if plan.get("type") == "error":
-                await finish("fail", error=json.dumps(plan, ensure_ascii=False))
+
+            event_type = str(plan.get("type") or "")
+
+            if event_type in ["plan.start", "plan.done"]:
+                continue
+
+            if event_type == "plan.failed":
+                error = str(plan.get("error") or "plan request failed")
+                await finish("fail", error=error)
                 return logger.error(f"{plan}\n")
 
-            steps, loop_count, reasoning = plan["steps"], plan["loop_count"], plan["reasoning"]
+            if event_type != "plan.result":
+                continue
+
+            if not isinstance(result := plan.get("result"), dict):
+                await finish("fail", error="plan.result missing result payload")
+                return logger.error(f"{plan}\n")
+
+            result_type = str(result.get("type") or "")
+            if result_type == "error":
+                error = str(result.get("reasoning") or result.get("goal") or "plan unavailable")
+                await finish("fail", error=error)
+                return logger.error(f"{plan}\n")
+
+            if result_type != "plan":
+                error = f"unsupported plan.result type={result_type}"
+                await finish("fail", error=error)
+                return logger.error(f"{plan}\n")
+
+            steps = result.get("steps")
+            if not isinstance(steps, list) or not steps:
+                logger.warning(plan)
+                await finish("fail", error="plan.result missing executable steps")
+                return logger.error(f"{plan}\n")
+
+            loop_count = result.get("loop_count")
+            if not isinstance(loop_count, int) or loop_count < 1:
+                logger.warning(plan)
+                await finish("fail", error="plan.result invalid loop_count")
+                return logger.error(f"{plan}\n")
+
+            logger.debug(f"Loop Count -> {loop_count}")
+            for step in steps:
+                logger.debug(step["action"])
+
+            plan_received = True
+            reasoning = result.get("reasoning") or ""
             runtime_context["reasoning"] = reasoning
             runtime_context["loop_count"] = loop_count
 
@@ -699,8 +742,13 @@ class Mind(object):
 
                 if index != loop_count: self.task_info.clear()
 
-            await finish("done")
-            await slog.stop()
+        if not plan_received:
+            err = {"type": "error", "error": "plan stream ended without executable plan.result"}
+            await finish("fail", error=json.dumps(err, ensure_ascii=False))
+            return logger.error(f"{err}\n")
+
+        await finish("done")
+        await slog.stop()
 
     # Notes: ==== Chat 对话模式 ====
     async def mind_chat(self, model_api: dict[str, typing.Any], message: str, *_, **kwargs) -> None:
