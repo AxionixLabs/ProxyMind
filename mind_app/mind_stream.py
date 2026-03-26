@@ -40,19 +40,26 @@ async def stream_looper(
 
     filtered_tools = Tooling.filter_tools(openai_tools, tool_meta, exclude=exclude)
     event_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
+    protocol_types = {
+        "turn.start",
+        "text.delta",
+        "text.done",
+        "tool.call",
+        "tool.output",
+        "turn.done",
+        "turn.failed",
+    }
 
-    async def finish(status: typing.Literal["completed", "failed"], **extra) -> None:
+    async def finish(
+        status: typing.Literal["completed", "failed"],
+        *,
+        emit_terminal: bool,
+        **extra,
+    ) -> None:
         """统一结束流式事件，并确保事件在返回前刷到服务端。"""
         if not event_report:
             return None
-        if status == "completed":
-            event_report.emit({
-                "type"   : "turn.done",
-                "status" : "completed",
-                "ts"     : time.time(),
-                **extra
-            })
-        else:
+        if emit_terminal and status == "failed":
             event_report.emit({
                 "type"  : "turn.failed",
                 "error" : str(extra.get("error") or "unknown error"),
@@ -67,6 +74,7 @@ async def stream_looper(
     saw_delta = False
     final_status: typing.Literal["completed", "failed"] = "failed"
     finish_extra: dict[str, typing.Any] = {"error": "stream ended before turn.done"}
+    terminal_event_seen = False
 
     try:
         async for event in request.stream_chat(mode, model_api, message, filtered_tools, **kwargs):
@@ -77,62 +85,49 @@ async def stream_looper(
 
             event_type = str(event.get("type") or "")
 
+            if event_report:
+                event_report.bind_event(event)
+                if event_type in protocol_types:
+                    event_report.emit(event)
+
+            if event_type in {"turn.done", "turn.failed"}:
+                terminal_event_seen = True
+
             match event_type:
-                case "error" | "response.failed" | "response.incomplete":
-                    error = str(event.get("error") or event.get("message") or "unknown error")
-                    await slog.feed(chunk=error, display=StreamTyperLogger.BLOCK)
-                    final_status = "failed"
-                    finish_extra = {"error": error}
-                    break
+                case "turn.start":
+                    saw_delta = False
+                    terminal_event_seen = False
+                    continue
 
                 case "turn.failed":
                     error = str(event.get("error") or "unknown error")
                     await slog.feed(chunk=error, display=StreamTyperLogger.BLOCK)
+                    saw_delta = False
                     final_status = "failed"
                     finish_extra = {"error": error}
                     break
 
                 case "text.delta":
                     text = str(event.get("text") or "")
-                    if event_report and text:
-                        event_report.emit({"type": "text.delta", "text": text, "ts": time.time()})
                     saw_delta = True
                     await slog.feed(chunk=text, display=StreamTyperLogger.STREAM)
                     continue
 
                 case "text.done":
                     text = str(event.get("text") or "")
-                    if event_report:
-                        event_report.emit({
-                            "type" : "text.done",
-                            "text" : text,
-                            "ts"   : time.time()
-                        })
                     if not saw_delta and text:
-                        await slog.feed(chunk=text, display=StreamTyperLogger.STREAM)
+                        await slog.feed(chunk=text, display=StreamTyperLogger.BLOCK)
                     saw_delta = False
                     continue
 
                 case "turn.done":
+                    saw_delta = False
                     final_status = "completed"
                     finish_extra = {}
                     break
 
-                case "response.completed":
-                    continue
-
                 case "tool.call":
                     name, arguments = event["name"], event.get("arguments", {})
-                    saw_delta = False
-                    if event_report:
-                        event_report.emit({
-                            "type"      : "tool.call",
-                            "call_id"   : event.get("call_id"),
-                            "name"      : name,
-                            "arguments" : arguments,
-                            "ts"        : time.time()
-                        })
-
                     if Tooling.needs_wakeup(tool_meta, name):
                         if error := await mind.wakeup(session, slog):
                             await slog.feed(error, display=StreamTyperLogger.BLOCK)
@@ -156,16 +151,6 @@ async def stream_looper(
 
                     await slog.feed(chunk=f"{fields.get('text')}", display=StreamTyperLogger.BLOCK)
 
-                    if event_report:
-                        event_report.emit({
-                            "type"    : "tool.output",
-                            "call_id" : event.get("call_id"),
-                            "name"    : name,
-                            "ok"      : ok,
-                            "result"  : fields,
-                            "ts"      : time.time()
-                        })
-
                     await request.post_tool_result(
                         event["cid"], event["sid"], event["call_id"], name, ok, fields
                     )
@@ -179,11 +164,12 @@ async def stream_looper(
 
     except Exception as e:
         await slog.feed(chunk=str(e), display=StreamTyperLogger.BLOCK)
+        saw_delta = False
         final_status = "failed"
         finish_extra = {"error": f"{type(e).__name__}: {e}"}
 
     await slog.stop()
-    return await finish(final_status, **finish_extra)
+    return await finish(final_status, emit_terminal=not terminal_event_seen, **finish_extra)
 
 
 if __name__ == '__main__':

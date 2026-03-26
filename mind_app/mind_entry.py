@@ -22,11 +22,10 @@ from mind_core.design import Design
 from mind_core.parser import Parser
 from mind_core.preference import Preferences
 from mind_nova import const
-
 from .mind_core import Mind
 
 
-async def main() -> None:
+async def main(entry_file: typing.Optional[str] = None) -> None:
     """Main"""
     async def authorized() -> None:
         if platform != "darwin":
@@ -73,7 +72,7 @@ async def main() -> None:
         mind_work = os.path.dirname(sys.executable)
         mind_feasible = os.path.dirname(mind_work)
     elif software == f"{const.APP_NAME}.py":
-        mind_work = os.path.dirname(os.path.abspath(__file__))
+        mind_work = os.path.dirname(os.path.abspath(entry_file or __file__))
         mind_feasible = mind_work
     else:
         raise MindError(f"{const.APP_DESC} compatible with {const.APP_NAME} command")

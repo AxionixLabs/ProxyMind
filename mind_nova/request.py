@@ -13,7 +13,9 @@ from pathlib import Path
 from loguru import logger
 from engine.channel import Channel
 from engine.tinker import StreamTyperLogger
-from mind_nova import const
+from mind_nova import (
+    const, craft
+)
 
 
 async def cap_request(req: httpx.Request) -> None:
@@ -299,16 +301,26 @@ async def stream_rule(
 class EventReport(object):
     """事件上报器（Strong Ordering）"""
 
+    PROTO_BY_MODE: dict[str, str] = {
+        "chat": "mind.chat",
+        "fast": "mind.chat",
+        "plan": "mind.plan",
+    }
+
     def __init__(
         self,
         mode: typing.Literal["chat", "fast", "plan"],
         cid: str,
-        sid: str
+        sid: str,
+        proto: typing.Optional[str] = None,
     ):
         self.mode = mode
 
         self.cid = cid
         self.sid = sid
+        self.proto = proto or self.PROTO_BY_MODE.get(mode, f"mind.{mode}")
+        self.turn_id = craft.short_uid(12)
+        self.round = 1
 
         self.timeout: float = 30.0
 
@@ -317,6 +329,31 @@ class EventReport(object):
 
         self.stop = asyncio.Event()
         self.worker: typing.Optional[asyncio.Task] = None
+
+    def begin_turn(
+        self,
+        turn_id: typing.Optional[str] = None,
+        *,
+        round: typing.Optional[int] = None
+    ) -> str:
+        self.turn_id = str(turn_id or craft.short_uid(12))
+        if isinstance(round, int) and round > 0:
+            self.round = round
+        return self.turn_id
+
+    def set_round(self, round: typing.Any) -> None:
+        if isinstance(round, int) and round > 0:
+            self.round = round
+
+    def bind_event(self, event: dict[str, typing.Any]) -> None:
+        if not isinstance(event, dict):
+            return None
+
+        if proto := event.get("proto"):
+            self.proto = str(proto)
+        if turn_id := event.get("turn_id"):
+            self.turn_id = str(turn_id)
+        self.set_round(event.get("round"))
 
     def emit(self, event: dict[str, typing.Any]) -> None:
         """
@@ -328,9 +365,12 @@ class EventReport(object):
             self.seq += 1
             ev = dict(event or {})
             ev.setdefault("ts", time.time())
+            ev.setdefault("proto", self.proto)
             ev["cid"] = self.cid
             ev["sid"] = self.sid
-            ev["seq"] = self.seq
+            ev.setdefault("turn_id", self.turn_id)
+            ev.setdefault("round", self.round)
+            ev.setdefault("seq", self.seq)
 
             self.q.put_nowait(ev)
         except asyncio.QueueFull:

@@ -107,6 +107,9 @@ def _build_pack_config(cfg: dict[str, typing.Any]) -> PackConfig:
 
 def _emit_diagnostic(event_report: EventReport, event_type: str, **payload: typing.Any) -> None:
     """发送批处理诊断事件，统一补齐时间戳。"""
+    if isinstance(payload.get("run"), int):
+        event_report.set_round(payload["run"])
+        payload.setdefault("round", payload["run"])
     event_report.emit({"type": event_type, "ts": time.time(), **payload})
 
 
@@ -584,9 +587,10 @@ async def mind_pack(
     atlas = f"{const.ATLAS_URL}?mode={mode}&cid={meta['cid']}&sid={meta['sid']}"
     logger.info(f"🌐 Atlas: {atlas}")
 
-    event_report = EventReport(mode, meta["cid"], meta["sid"])
+    event_report = EventReport(mode, meta["cid"], meta["sid"], proto="mind.batch")
     kwargs["ev_report"] = event_report
     await event_report.open()
+    event_report.begin_turn(round=1)
 
     runtime = PackRuntime(mode=mode, model_api=model_api, event_report=event_report, runner=runner)
 
