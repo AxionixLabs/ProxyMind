@@ -334,16 +334,16 @@ class EventReport(object):
         self,
         turn_id: typing.Optional[str] = None,
         *,
-        round: typing.Optional[int] = None
+        round_no: typing.Optional[int] = None
     ) -> str:
         self.turn_id = str(turn_id or craft.short_uid(12))
-        if isinstance(round, int) and round > 0:
-            self.round = round
+        if isinstance(round_no, int) and round_no > 0:
+            self.round = round_no
         return self.turn_id
 
-    def set_round(self, round: typing.Any) -> None:
-        if isinstance(round, int) and round > 0:
-            self.round = round
+    def set_round(self, round_no: typing.Any) -> None:
+        if isinstance(round_no, int) and round_no > 0:
+            self.round = round_no
 
     def bind_event(self, event: dict[str, typing.Any]) -> None:
         if not isinstance(event, dict):

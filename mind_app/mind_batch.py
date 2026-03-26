@@ -590,7 +590,7 @@ async def mind_pack(
     event_report = EventReport(mode, meta["cid"], meta["sid"], proto="mind.batch")
     kwargs["ev_report"] = event_report
     await event_report.open()
-    event_report.begin_turn(round=1)
+    event_report.begin_turn(round_no=1)
 
     runtime = PackRuntime(mode=mode, model_api=model_api, event_report=event_report, runner=runner)
 

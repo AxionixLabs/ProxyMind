@@ -77,7 +77,7 @@ async def static_looper(
     plan_extras = None if refresh_result.isError else {"devices": refresh_result.content[0].text}
 
     if event_report:
-        event_report.begin_turn(round=1)
+        event_report.begin_turn(round_no=1)
 
     runtime_context: dict[str, typing.Any] = {
         "goal"       : message,

@@ -144,7 +144,7 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
 
     await authorize.verify_license(lic_file)
 
-    # 远程全局配置
+    远程全局配置
     global_config_task = asyncio.create_task(Api.remote_config())
 
     logger.debug(f"{'=' * 15} 系统调试 {'=' * 15}")
