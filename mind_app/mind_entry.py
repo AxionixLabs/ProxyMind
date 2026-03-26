@@ -26,112 +26,126 @@ from mind_nova import const
 from .mind_core import Mind
 
 
-async def main(entry_file: typing.Optional[str] = None) -> None:
-    """应用入口：完成环境初始化、服务准备和命令分发。"""
-
-    async def ensure_tool_permissions() -> None:
-        """在 macOS 上为必要的辅助工具添加执行权限。"""
+async def main() -> None:
+    """Main"""
+    async def authorized() -> None:
         if platform != "darwin":
             return None
 
-        existing_tools = [t for t in [helix] if Path(t).exists()]
+        tools_set = [kit for kit in [helix] if Path(kit).exists()]
 
-        tools_needing_auth = [
-            t for t in existing_tools if not (Path(t).stat().st_mode & stat.S_IXUSR)
+        ensure = [
+            kit for kit in tools_set if not (Path(kit).stat().st_mode & stat.S_IXUSR)
         ]
 
-        if not tools_needing_auth:
+        if not ensure:
             return None
 
-        for t in tools_needing_auth:
-            logger.debug(f"授权工具: {t}")
+        for auth in ensure:
+            logger.debug(f"Authorizing: {auth}")
 
-        for chmod_result in await asyncio.gather(
-            *(Terminal.cmd_line(["chmod", "+x", t]) for t in tools_needing_auth),
-            return_exceptions=True
+        for resp in await asyncio.gather(
+            *(Terminal.cmd_line(["chmod", "+x", kit]) for kit in ensure), return_exceptions=True
         ):
-            logger.debug(f"授权结果: {chmod_result}")
+            logger.debug(f"Authorize: {resp}")
 
+    # Notes: ========== Start from here ==========
     await Design.particle_aggregate()
 
+    # 解析命令行参数
     parser = Parser()
+    cmd_lines = parser.parse_cmd
 
-    cli_args = parser.parse_cmd
+    # 获取命令行参数
+    wires = sys.argv[1:]
 
-    cli_wires = sys.argv[1:]
-
+    # 获取当前操作系统平台和应用名称
     platform = sys.platform.strip().lower()
     software = os.path.basename(os.path.abspath(sys.argv[0])).strip().lower()
     sys_symbol = os.sep
     env_symbol = os.path.pathsep
 
+    # 根据应用名称确定工作目录和配置目录
     if software == f"{const.APP_NAME}.exe":
-        app_root = os.path.dirname(os.path.abspath(sys.argv[0]))
-        workspace_root = os.path.dirname(app_root)
+        mind_work = os.path.dirname(os.path.abspath(sys.argv[0]))
+        mind_feasible = os.path.dirname(mind_work)
     elif software == f"{const.APP_NAME}":
-        app_root = os.path.dirname(sys.executable)
-        workspace_root = os.path.dirname(app_root)
+        mind_work = os.path.dirname(sys.executable)
+        mind_feasible = os.path.dirname(mind_work)
     elif software == f"{const.APP_NAME}.py":
-        source_file = entry_file or __file__
-        app_root = os.path.dirname(os.path.abspath(source_file))
-        workspace_root = app_root
+        mind_work = os.path.dirname(os.path.abspath(__file__))
+        mind_feasible = mind_work
     else:
         raise MindError(f"{const.APP_DESC} compatible with {const.APP_NAME} command")
 
-    support_root = os.path.join(app_root, const.SCHEMATIC, const.SUPPORTS).format()
+    # Notes: ========== 路径初始化 ==========
+    turbo = os.path.join(mind_work, const.SCHEMATIC, const.SUPPORTS).format()
 
-    if not os.path.exists(initial_source := os.path.join(workspace_root, const.STRUCTURE).format()):
+    if not os.path.exists(
+        initial_source := os.path.join(mind_feasible, const.STRUCTURE).format()
+    ):
         os.makedirs(initial_source, exist_ok=True)
 
-    if not os.path.exists(src_opera_place := os.path.join(initial_source, const.SRC_OPERA_PLACE).format()):
+    if not os.path.exists(
+        src_opera_place := os.path.join(initial_source, const.SRC_OPERA_PLACE).format()
+    ):
         os.makedirs(src_opera_place, exist_ok=True)
 
-    if not os.path.exists(src_total_place := os.path.join(initial_source, const.SRC_TOTAL_PLACE).format()):
+    if not os.path.exists(
+        src_total_place := os.path.join(initial_source, const.SRC_TOTAL_PLACE).format()
+    ):
         os.makedirs(src_total_place, exist_ok=True)
 
-    Active.active(level := "DEBUG" if cli_args.reflection else "INFO")
+    # 激活日志
+    Active.active(level := "DEBUG" if cmd_lines.reflection else "INFO")
 
     pref_file = os.path.join(initial_source, const.SRC_OPERA_PLACE, const.PREF)
     pref = Preferences(pref_file)
 
+    # Notes: ========== 工具路径设置 ==========
     if platform == "win32":
-        supports = os.path.join(support_root, "windows").format()
+        supports = os.path.join(turbo, "windows").format()
         helix = os.path.join(supports, "helix.dist", "helix.exe")
     elif platform == "darwin":
-        supports = os.path.join(support_root, "macos").format()
+        supports = os.path.join(turbo, "macos").format()
         helix = os.path.join(supports, "helix.app", "Contents", "MacOS", "helix")
     else:
         raise MindError(f"{const.APP_DESC} is not supported on this platform: {platform}.")
 
-    if cli_args.upgrade:
-        upgrader = Upgrade()
-        return await upgrader.upgrade_app(supports)
+    # Notes: ========== 升级流程 ==========
+    if cmd_lines.upgrade:
+        up: Upgrade = Upgrade()
+        return await up.upgrade_app(supports)
 
-    tool_paths = [helix]
-    for tool_path in tool_paths:
-        os.environ["PATH"] = os.path.dirname(tool_path) + env_symbol + os.environ.get("PATH", "")
+    for tls in (tools := [helix]):
+        os.environ["PATH"] = os.path.dirname(tls) + env_symbol + os.environ.get("PATH", "")
 
-    for tool_path in tool_paths:
-        if not shutil.which((tool_name := os.path.basename(tool_path))):
-            raise MindError(f"{const.APP_DESC} missing files {tool_name}")
+    # 检查每个工具是否存在，如果缺失则显示错误信息并退出程序
+    for tls in tools:
+        if not shutil.which((tls_name := os.path.basename(tls))):
+            raise MindError(f"{const.APP_DESC} missing files {tls_name}")
 
-    await ensure_tool_permissions()
+    # 三方应用以及文件授权
+    await authorized()
 
+    # Notes: ========== 启动命令 ==========
     launch_cmd = [helix, "--level", level]
 
-    if cli_args.pref:
+    if cmd_lines.pref:
         server: ServerManage = ServerManage(launch_cmd)
         await server.ensure_running()
         await server.close()
         return await FileAssist.open_url(f"{const.BASE_URL}/pref")
 
+    # Notes: ========== 授权流程 ==========
     lic_file = Path(src_opera_place) / const.LIC_FILE
 
-    if apply_code := cli_args.apply:
+    if apply_code := cmd_lines.apply:
         return await authorize.receive_license(apply_code, lic_file)
 
     await authorize.verify_license(lic_file)
 
+    # 远程全局配置
     global_config_task = asyncio.create_task(Api.remote_config())
 
     logger.debug(f"{'=' * 15} 系统调试 {'=' * 15}")
@@ -141,17 +155,17 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
     logger.debug(f"系统路径: {sys_symbol}")
     logger.debug(f"环境变量: {env_symbol}")
     logger.debug(f"日志等级: {level}")
-    logger.debug(f"工具目录: {support_root}")
+    logger.debug(f"工具目录: {turbo}")
     logger.debug(f"{'=' * 15} 系统调试 {'=' * 15}\n")
 
     logger.debug(f"{'=' * 15} 环境变量 {'=' * 15}")
-    for env_path in os.environ["PATH"].split(env_symbol):
-        logger.debug(f"PATH: {env_path}")
+    for env in os.environ["PATH"].split(env_symbol):
+        logger.debug(f"ENV: {env}")
     logger.debug(f"{'=' * 15} 环境变量 {'=' * 15}\n")
 
     logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}")
-    for tool_path in tool_paths:
-        logger.debug(f"工具: {tool_path}")
+    for tls in tools:
+        logger.debug(f"TLS: {tls}")
     logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}\n")
 
     server: ServerManage = ServerManage(launch_cmd)
@@ -162,48 +176,44 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
     Design.Doc.log(f"[bold #0EA5E9]🌐 Link: {const.BASE_URL}[/]\n")
 
     positions = (
-        cli_args.chat,
-        cli_args.fast,
-        cli_args.plan,
-        cli_args.gravity,
-        cli_args.reflection,
-        cli_args.code
+        cmd_lines.chat, cmd_lines.fast, cmd_lines.plan,
+        cmd_lines.gravity, cmd_lines.reflection, cmd_lines.code
     )
-    init_kwargs = {
-        "src_opera_place": src_opera_place,
-        "src_total_place": src_total_place,
-        "pref": pref
+    keywords = {
+        "src_opera_place" : src_opera_place,
+        "src_total_place" : src_total_place,
+        "pref"            : pref
     }
     remote = await global_config_task
 
-    mind = Mind(cli_wires, level, power, remote, *positions, **init_kwargs)
+    mind = Mind(wires, level, power, remote, *positions, **keywords)
 
     signal.signal(signal.SIGINT, mind.signal_processor)
 
-    if chat := cli_args.chat:
+    if chat := cmd_lines.chat:
         await mind.calling(message=chat, func=mind.mind_chat, mode="chat")
-    elif fast := cli_args.fast:
+    elif fast := cmd_lines.fast:
         await mind.calling(message=fast, func=mind.mind_fast, mode="fast")
-    elif plan := cli_args.plan:
+    elif plan := cmd_lines.plan:
         await mind.calling(message=plan, func=mind.mind_plan, mode="plan")
-    elif code := cli_args.code:
-        if cli_args.chat is not None:
-            runner = mind.stream_looper
+    elif code := cmd_lines.code:
+        if cmd_lines.chat is not None:
+            func = mind.stream_looper
             mode: typing.Literal["chat"] = "chat"
-        elif cli_args.fast is not None:
-            runner = mind.stream_looper
+        elif cmd_lines.fast is not None:
+            func = mind.stream_looper
             mode: typing.Literal["fast"] = "fast"
         else:
-            runner = mind.static_looper
+            func = mind.static_looper
             mode: typing.Literal["plan"] = "plan"
 
-        await mind.mind_pack(code, mode, runner)
+        await mind.mind_pack(code, mode, func)
+
     else:
         await mind.mind_loop()
 
 
 async def test() -> None:
-    """测试入口占位：当前未定义独立测试流程。"""
     pass
 
 
