@@ -6,7 +6,7 @@ import time
 import typing
 from pathlib import Path
 from loguru import logger
-from mindnova import const
+from mind_nova import const
 
 
 class Report(object):

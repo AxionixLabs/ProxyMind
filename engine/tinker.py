@@ -17,10 +17,10 @@ from rich.logging import (
     LogRecord, RichHandler
 )
 from engine.terminal import Terminal
-from mindcore.design import (
+from mind_core.design import (
     Design, TypewriterStreamSession
 )
-from mindnova import const
+from mind_nova import const
 
 
 class _MindBaseError(BaseException):

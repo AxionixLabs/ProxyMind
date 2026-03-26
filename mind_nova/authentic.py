@@ -7,7 +7,7 @@ import time
 import base64
 import hashlib
 import secrets
-from mindnova import const
+from mind_nova import const
 
 
 def derive_hs256_secret(*, step_sec: int = 300, ts: int | None = None) -> str:

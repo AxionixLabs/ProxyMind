@@ -5,8 +5,7 @@
 
 import sys
 import asyncio
-
-from mindcore.design import Design
+from mind_core.design import Design
 from engine.tinker import MindError
 from mind_app.mind_entry import main as _main
 

@@ -8,8 +8,8 @@ from engine.enhancer import Enhancer
 from engine.tinker import (
     Tooling, StreamTyperLogger
 )
-from mindnova.request import EventReport
-from mindnova import request
+from mind_nova.request import EventReport
+from mind_nova import request
 
 if typing.TYPE_CHECKING:
     from .mind_core import Mind

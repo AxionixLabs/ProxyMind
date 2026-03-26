@@ -22,8 +22,8 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from engine.channel import Channel
 from engine.terminal import Terminal
 from engine.tinker import MindError
-from mindcore.design import Design
-from mindnova import const
+from mind_core.design import Design
+from mind_nova import const
 
 
 def mask_fields(data: dict, keys: list[str], mask_char: str = "*", keep: int = 4) -> dict:

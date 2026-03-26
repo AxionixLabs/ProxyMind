@@ -10,8 +10,8 @@ from loguru import logger
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from engine.tinker import StreamTyperLogger
-from mindnova.request import EventReport
-from mindnova import (
+from mind_nova.request import EventReport
+from mind_nova import (
     authentic, const, request
 )
 

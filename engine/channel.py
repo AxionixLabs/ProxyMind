@@ -10,7 +10,7 @@ import typing
 import hashlib
 import secrets
 from engine.tinker import MindError
-from mindnova import const
+from mind_nova import const
 
 
 class Channel(object):

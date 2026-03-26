@@ -17,8 +17,8 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.shortcuts import CompleteStyle
 from prompt_toolkit.styles import Style
-from mindnova import const
-from mindcore.prompting_ghost import (
+from mind_nova import const
+from mind_core.prompting_ghost import (
     CHAT_TEMPLATES,
     COMMAND_TEMPLATES,
     MODE_ALIAS_TEMPLATES,

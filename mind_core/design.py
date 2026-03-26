@@ -13,7 +13,7 @@ from rich.text import Text
 from rich.tree import Tree
 from rich.console import Console
 from rich.cells import cell_len
-from mindnova import const
+from mind_nova import const
 
 
 class Design(object):

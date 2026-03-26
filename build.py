@@ -18,8 +18,8 @@ from engine.tinker import (
     Active, MindError
 )
 from engine.terminal import Terminal
-from mindcore.design import Design
-from mindnova import const
+from mind_core.design import Design
+from mind_nova import const
 
 nuitka_version = "2.8.9"  # 编译器版本
 

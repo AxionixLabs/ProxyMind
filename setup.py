@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mindnova import const
-from setuptools import setup, find_packages
+from mind_nova import const
+from setuptools import (
+    setup, find_packages
+)
 
 with open('requirements.txt') as f:
     requirements = f.read().splitlines()
@@ -31,3 +33,7 @@ setup(
         'Natural Language :: English',
     ]
 )
+
+
+if __name__ == '__main__':
+    pass

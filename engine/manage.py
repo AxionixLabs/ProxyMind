@@ -9,9 +9,9 @@ import typing
 import asyncio
 import subprocess
 from loguru import logger
-from mindcore.design import Design
+from mind_core.design import Design
 from engine.tinker import MindError
-from mindnova import (
+from mind_nova import (
     const, request
 )
 

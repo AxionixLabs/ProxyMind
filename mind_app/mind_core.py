@@ -12,11 +12,11 @@ from engine.animaion import AsyncAnimManager
 from engine.tinker import (
     MindError, Tooling, StreamTyperLogger
 )
-from mindcore.design import Design
-from mindcore.prompting import PromptToolkitBox
-from mindcore.preference import Preferences
-from mindnova.report import Report
-from mindnova import craft
+from mind_core.design import Design
+from mind_core.prompting import PromptToolkitBox
+from mind_core.preference import Preferences
+from mind_nova.report import Report
+from mind_nova import craft
 from .mind_modes import (
     mind_chat as run_mind_chat,
     mind_fast as run_mind_fast,

@@ -5,7 +5,7 @@ import os
 import sys
 import typing
 import asyncio
-from mindnova import const
+from mind_nova import const
 
 
 class Terminal(object):

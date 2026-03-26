@@ -16,12 +16,12 @@ from engine.tinker import (
 )
 from engine.terminal import Terminal
 from engine.upgrade import Upgrade
-from mindcore import authorize
-from mindcore.api import Api
-from mindcore.design import Design
-from mindcore.parser import Parser
-from mindcore.preference import Preferences
-from mindnova import const
+from mind_core import authorize
+from mind_core.api import Api
+from mind_core.design import Design
+from mind_core.parser import Parser
+from mind_core.preference import Preferences
+from mind_nova import const
 
 from .mind_core import Mind
 

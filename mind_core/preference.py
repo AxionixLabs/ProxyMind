@@ -8,7 +8,7 @@ import httpx
 import typing
 import asyncio
 from engine.tinker import FileAssist
-from mindnova import const
+from mind_nova import const
 
 DEFAULT_SCHEMA_VERSION = 2
 DEFAULT_PROVIDER       = "OpenAI"

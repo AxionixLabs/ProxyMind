@@ -6,8 +6,8 @@ from loguru import logger
 from engine.channel import (
     Channel, Messenger
 )
-from mindcore import authorize
-from mindnova import const
+from mind_core import authorize
+from mind_nova import const
 
 
 class Api(object):

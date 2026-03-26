@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 from engine.tinker import MindError
-from mindcore.design import Design
-from mindnova import (
+from mind_core.design import Design
+from mind_nova import (
     craft, request
 )
 

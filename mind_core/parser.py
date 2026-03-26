@@ -4,7 +4,7 @@
 import typing
 import argparse
 import textwrap
-from mindnova import const
+from mind_nova import const
 
 
 class Parser(object):

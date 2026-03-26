@@ -13,7 +13,7 @@ from pathlib import Path
 from loguru import logger
 from engine.channel import Channel
 from engine.tinker import StreamTyperLogger
-from mindnova import const
+from mind_nova import const
 
 
 async def cap_request(req: httpx.Request) -> None:

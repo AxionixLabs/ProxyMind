@@ -7,7 +7,7 @@ import typing
 import asyncio
 from pathlib import Path
 from engine.tinker import FileAssist
-from mindcore.design import Design
+from mind_core.design import Design
 
 
 class Preferences(object):

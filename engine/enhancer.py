@@ -9,9 +9,9 @@ from loguru import logger
 from mcp import ClientSession
 from mcp.types import CallToolResult
 from engine.tinker import StreamTyperLogger
-from mindcore.api import Api
-from mindnova.report import Report
-from mindnova import request
+from mind_core.api import Api
+from mind_nova.report import Report
+from mind_nova import request
 
 
 class Enhancer(object):

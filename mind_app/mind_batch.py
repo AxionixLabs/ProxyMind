@@ -13,8 +13,8 @@ from engine.scaling import (
     PackItem, Pack
 )
 from engine.tinker import MindError
-from mindnova.request import EventReport
-from mindnova import const
+from mind_nova.request import EventReport
+from mind_nova import const
 
 if typing.TYPE_CHECKING:
     from .mind_core import Mind
