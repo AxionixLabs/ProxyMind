@@ -64,7 +64,7 @@ BASE_URL = r"http://127.0.0.1:3333"
 MCP_ED   = r"/helix/mcp"
 
 # ========【域名管理】========
-DOMAIN = f"https://cdn.appserverx.com"
+DOMAIN = f"https://api.appserverx.com"
 
 # ========【专有服务】========
 ATLAS_URL        = f"{DOMAIN}/mind-atlas"
