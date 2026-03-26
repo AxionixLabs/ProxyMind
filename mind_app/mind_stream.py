@@ -64,8 +64,9 @@ async def stream_looper(
     await slog.open()
 
     has_stopped_anim = False
-    final_status: typing.Literal["completed", "failed"] = "completed"
-    finish_extra: dict[str, typing.Any] = {}
+    saw_delta = False
+    final_status: typing.Literal["completed", "failed"] = "failed"
+    finish_extra: dict[str, typing.Any] = {"error": "stream ended before turn.done"}
 
     try:
         async for event in request.stream_chat(mode, model_api, message, filtered_tools, **kwargs):
@@ -74,7 +75,9 @@ async def stream_looper(
                 has_stopped_anim = True
             await slog.start()
 
-            match event.get("type"):
+            event_type = str(event.get("type") or "")
+
+            match event_type:
                 case "error" | "response.failed" | "response.incomplete":
                     error = str(event.get("error") or event.get("message") or "unknown error")
                     await slog.feed(chunk=error, display=StreamTyperLogger.BLOCK)
@@ -93,6 +96,7 @@ async def stream_looper(
                     text = str(event.get("text") or "")
                     if event_report and text:
                         event_report.emit({"type": "text.delta", "text": text, "ts": time.time()})
+                    saw_delta = True
                     await slog.feed(chunk=text, display=StreamTyperLogger.STREAM)
                     continue
 
@@ -104,9 +108,10 @@ async def stream_looper(
                             "text" : text,
                             "ts"   : time.time()
                         })
-                    final_status = "completed"
-                    finish_extra = {}
-                    break
+                    if not saw_delta and text:
+                        await slog.feed(chunk=text, display=StreamTyperLogger.STREAM)
+                    saw_delta = False
+                    continue
 
                 case "turn.done":
                     final_status = "completed"
@@ -114,12 +119,11 @@ async def stream_looper(
                     break
 
                 case "response.completed":
-                    final_status = "completed"
-                    finish_extra = {}
-                    break
+                    continue
 
                 case "tool.call":
                     name, arguments = event["name"], event.get("arguments", {})
+                    saw_delta = False
                     if event_report:
                         event_report.emit({
                             "type"      : "tool.call",
