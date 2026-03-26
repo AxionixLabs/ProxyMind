@@ -171,7 +171,7 @@ async def stream_chat(
     *_,
     **kwargs
 ) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
-    """Stream stable turn events for chat and fast modes."""
+    """流式获取 chat/fast 模式事件。"""
     headers = Channel.make_headers()
     payload = {
         "mode"     : mode,
@@ -184,9 +184,10 @@ async def stream_chat(
         payload["attachments"] = attachments
 
     async for event in streaming(const.STREAM_CHAT_URL, headers, payload, timeout):
-        match event.get("type"):
-            case "ping":
-                continue
+        event_type = str(event.get("type") or "")
+
+        if event_type == "ping":
+            continue
 
         yield event
 
