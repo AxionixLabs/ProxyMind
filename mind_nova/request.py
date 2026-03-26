@@ -19,7 +19,7 @@ from mind_nova import (
 
 
 async def cap_request(req: httpx.Request) -> None:
-    """Cap Request"""
+    """记录请求摘要，便于排查鉴权和链路问题。"""
     a = req.headers.get("Authorization", "")
     logger.debug(
         f"[MCP] {req.method} {req.url} auth={'OK' if a.startswith('Bearer ') else 'MISSING'}"
@@ -27,7 +27,7 @@ async def cap_request(req: httpx.Request) -> None:
 
 
 async def cap_response(response: httpx.Response) -> None:
-    """Cap Response"""
+    """捕获失败响应体，便于后续调试。"""
     if response.status_code >= 400:
         try:
             response.extensions["error_body"] = await response.aread()
@@ -37,6 +37,7 @@ async def cap_response(response: httpx.Response) -> None:
 
 
 async def fetch_manifest() -> typing.Optional[dict[str, typing.Any]]:
+    """获取当前平台对应的清单配置。"""
     headers = Channel.make_headers()
     params  = Channel.make_params() | {
         "station" : sys.platform,
@@ -64,7 +65,7 @@ async def streaming(
     payload: dict,
     timeout: float = 60.0
 ) -> typing.AsyncGenerator[dict, None]:
-    """Streaming"""
+    """按 SSE `data:` 行读取并解析事件流。"""
 
     async with httpx.AsyncClient(timeout=timeout, event_hooks={"response": [cap_response]}) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
@@ -145,7 +146,7 @@ async def post_tool_result(
         dict[str, typing.Any]
     ]
 ) -> None:
-    """Post function tool output back to the server loop."""
+    """把工具执行结果回传给服务端主循环。"""
     headers = Channel.make_headers()
     payload = {
         "cid"     : cid,
@@ -186,7 +187,7 @@ async def stream_chat(
     async for event in streaming(const.STREAM_CHAT_URL, headers, payload, timeout):
         event_type = str(event.get("type") or "")
 
-        if event_type == "ping":
+        if event_type in ["turn.thinking", "ping"]:
             continue
 
         yield event
@@ -202,7 +203,7 @@ async def stream_plan(
     *_,
     **kwargs
 ) -> typing.AsyncGenerator[dict, None]:
-    """Stream plan events."""
+    """流式获取静态规划事件。"""
     headers = Channel.make_headers()
     payload = {
         "mode"     : mode,
@@ -214,9 +215,10 @@ async def stream_plan(
     }
 
     async for event in streaming(const.STREAM_PLAN_URL, headers, payload, timeout):
-        match event.get("type"):
-            case "ping":
-                continue
+        event_type = str(event.get("type") or "")
+
+        if event_type in ["plan.start", "plan.done", "ping"]:
+            continue
 
         yield event
 
@@ -234,7 +236,7 @@ async def stream_heal(
     *_,
     **kwargs
 ) -> typing.AsyncGenerator[dict, None]:
-    """Stream stable heal events."""
+    """流式获取修复链路事件。"""
     headers = Channel.make_headers()
     payload = {
         "llm_conf"   : model_api,
@@ -281,7 +283,7 @@ async def stream_rule(
     metadata: dict[str, typing.Any],
     timeout: float = 60.0
 ) -> typing.AsyncGenerator[dict, None]:
-    """Stream stable rule events."""
+    """流式获取规则执行事件。"""
     headers = Channel.make_headers()
     payload = {
         "mode"      : mode,
@@ -292,15 +294,16 @@ async def stream_rule(
     }
 
     async for event in streaming(const.STREAM_RULE_URL, headers, payload, timeout):
-        match event.get("type"):
-            case "ping":
-                continue
+        event_type = str(event.get("type") or "")
+
+        if event_type in {"turn.thinking", "ping"}:
+            continue
 
         yield event
 
 
 class EventReport(object):
-    """事件上报器（Strong Ordering）"""
+    """事件上报器，保证队列内事件按顺序发送。"""
 
     PROTO_BY_MODE: dict[str, str] = {
         "chat": "mind.chat",

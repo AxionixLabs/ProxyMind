@@ -908,12 +908,11 @@
                   <div class="pair-item">
                     <div class="label-row">
                       <label for="primary-route">Route</label>
-                      <span class="hint">delivery lane</span>
+                      <span class="hint">fixed responses</span>
                     </div>
                     <div class="select-wrap">
                       <select id="primary-route" name="primary_route">
                         <option value="responses">Responses API</option>
-                        <option value="chat_completions">Chat Completions API</option>
                       </select>
                     </div>
                   </div>
@@ -1168,7 +1167,7 @@
       fieldValue("primary-api", primary.api);
       fieldValue("primary-type", primary.type || "Text");
       fieldValue("primary-base-url", primary.base_url);
-      fieldValue("primary-route", primary.route || "responses");
+      fieldValue("primary-route", "responses");
       fieldValue("primary-api-key", primary.apikey);
       fieldValue("primary-model", primary.model);
 
@@ -1187,7 +1186,7 @@
         api      : fieldSelectValue(`${prefix}-api`, "OpenAI"),
         type     : fieldSelectValue(`${prefix}-type`, "Text"),
         base_url : fieldInputValue(`${prefix}-base-url`),
-        route    : fieldSelectValue(`${prefix}-route`, "responses"),
+        route    : prefix === "primary" ? "responses" : fieldSelectValue(`${prefix}-route`, "responses"),
         apikey   : fieldInputValue(`${prefix}-api-key`),
         model    : fieldInputValue(`${prefix}-model`)
       };

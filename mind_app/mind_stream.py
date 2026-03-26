@@ -39,112 +39,66 @@ async def stream_looper(
         ]
 
     filtered_tools = Tooling.filter_tools(openai_tools, tool_meta, exclude=exclude)
-    event_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
+    ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
-    protocol_types = {
-        "turn.start",
-        "text.delta",
-        "text.done",
-        "tool.call",
-        "tool.output",
-        "turn.done",
-        "turn.failed"
-    }
-
-    async def finish(
-        status: typing.Literal["completed", "failed"],
-        *,
-        emit_terminal: bool,
-        **extra
-    ) -> None:
+    async def finish(phase: str, **extra) -> None:
         """统一结束流式事件，并确保事件在返回前刷到服务端。"""
-        if not event_report:
-            return None
-        if emit_terminal and status == "failed":
-            event_report.emit({
-                "type"  : "turn.failed",
-                "error" : str(extra.get("error") or "unknown error"),
-                "ts"    : time.time()
-            })
-        await event_report.flush()
+        if not ev_report: return None
+        ev_report.emit({"type": phase, "ts": time.time(), **extra})
+        await ev_report.flush()
 
     slog: StreamTyperLogger = StreamTyperLogger(mind.report.log_papers)
     await slog.open()
 
-    is_first_frame = True
-    saw_delta = False
-    final_status: typing.Literal["completed", "failed"] = "failed"
-    finish_extra: dict[str, typing.Any] = {"error": "stream ended before turn.done"}
-    terminal_event_seen = False
+    first_frame = True
 
     try:
         async for event in request.stream_chat(mode, model_api, message, filtered_tools, **kwargs):
+            if ev_report:
+                ev_report.bind_event(event)
+
+            if first_frame:
+                await mind.stop_anim()
+                first_frame = False
+
+            await slog.start()
+
             event_type = str(event.get("type") or "")
 
-            if is_first_frame and event_type in {"turn.failed", "text.delta", "tool.call"}:
-                await mind.stop_anim()
-                is_first_frame = False
-
-            if not is_first_frame:
-                await slog.start()
-
-            if event_report:
-                event_report.bind_event(event)
-                if event_type in protocol_types:
-                    event_report.emit(event)
-
-            if event_type in {"turn.done", "turn.failed"}:
-                terminal_event_seen = True
-
             if event_type == "turn.start":
-                saw_delta = False
-                terminal_event_seen = False
                 continue
 
             if event_type == "turn.failed":
                 error = str(event.get("error") or "unknown error")
                 await slog.feed(chunk=error, display=StreamTyperLogger.BLOCK)
-                saw_delta = False
-                final_status = "failed"
-                finish_extra = {"error": error}
+                await slog.stop()
                 break
 
             if event_type == "text.delta":
                 text = str(event.get("text") or "")
-                saw_delta = True
                 await slog.feed(chunk=text, display=StreamTyperLogger.STREAM)
                 continue
 
             if event_type == "text.done":
-                text = str(event.get("text") or "")
-                if not saw_delta and text:
-                    if is_first_frame:
-                        await mind.stop_anim()
-                        is_first_frame = False
-                        await slog.start()
-                    await slog.feed(chunk=text, display=StreamTyperLogger.BLOCK)
-                saw_delta = False
                 continue
 
             if event_type == "turn.done":
-                saw_delta = False
-                final_status = "completed"
-                finish_extra = {}
                 break
 
             if event_type == "tool.call":
                 name, arguments = event["name"], event.get("arguments", {})
+
                 if Tooling.needs_wakeup(tool_meta, name):
                     if error := await mind.wakeup(session, slog):
                         await slog.feed(error, display=StreamTyperLogger.BLOCK)
-                        final_status = "failed"
-                        finish_extra = {"error": str(error)}
+                        await slog.stop()
+                        await finish(phase="turn.failed", error=str(error))
                         break
 
                 await slog.feed(
                     chunk=f"{name} {arguments}",
                     display=StreamTyperLogger.BLOCK,
-                    display_chunk=Tooling.summarize_tool_arguments(name, arguments),
+                    display_chunk=Tooling.summarize_tool_arguments(name, arguments)
                 )
 
                 arguments = Enhancer.exchange(name, arguments, mind.report)
@@ -168,17 +122,11 @@ async def stream_looper(
             continue
 
     except Exception as e:
-        if is_first_frame:
-            await mind.stop_anim()
-            is_first_frame = False
-            await slog.start()
         await slog.feed(chunk=str(e), display=StreamTyperLogger.BLOCK)
-        saw_delta = False
-        final_status = "failed"
-        finish_extra = {"error": f"{type(e).__name__}: {e}"}
+        await slog.stop()
+        await finish(phase="turn.failed", error=f"{type(e).__name__}: {e}")
 
     await slog.stop()
-    return await finish(final_status, emit_terminal=not terminal_event_seen, **finish_extra)
 
 
 if __name__ == '__main__':

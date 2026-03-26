@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-"""Mind 模块：兼容入口，负责把执行流程转交给 `mind_app`。"""
-
 import sys
 import asyncio
 from mind_core.design import Design

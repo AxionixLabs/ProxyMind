@@ -42,6 +42,7 @@ DEFAULT_SCHEMA_VERSION = 2
 DEFAULT_PROFILE_KEY    = "default"
 DEFAULT_PROVIDER       = "OpenAI"
 DEFAULT_ROUTE          = "responses"
+ALLOWED_ROUTES         = {"responses", "chat_completions"}
 DEFAULT_MODEL_TYPE     = "Text"
 
 
@@ -64,6 +65,17 @@ def _default_prefs() -> dict[str, typing.Any]:
         "primary"        : _default_slot(),
         "secondary"      : None,
     }
+
+
+def _normalize_route(value: typing.Any, *, allow_chat_completions: bool = False) -> str:
+    route = str(value or "").strip()
+    if route == DEFAULT_ROUTE:
+        return route
+
+    if allow_chat_completions and route in ALLOWED_ROUTES:
+        return route
+
+    return DEFAULT_ROUTE
 
 
 SCHEMA_SQL = """
@@ -213,17 +225,23 @@ def _row_to_slot(row: sqlite3.Row | None) -> Slot:
     for slot_key, column_name in SLOT_COLUMN_MAP.items():
         fallback = slot.get(slot_key, "")
         slot[slot_key] = str(row[column_name] or fallback)
+
+    allow_chat_completions = str(row["slot_key"] or "") == "secondary"
+    slot["route"] = _normalize_route(slot.get("route"), allow_chat_completions=allow_chat_completions)
     return slot
 
 
-def _merge_slot(base: Slot, incoming: typing.Any) -> Slot:
+def _merge_slot(base: Slot, incoming: typing.Any, *, allow_chat_completions: bool = False) -> Slot:
     merged = dict(base)
     if not isinstance(incoming, dict):
         return merged
 
     for key in merged:
         if key in incoming and incoming[key] is not None:
-            merged[key] = str(incoming[key])
+            merged[key] = (
+                _normalize_route(incoming[key], allow_chat_completions=allow_chat_completions)
+                if key == "route" else str(incoming[key])
+            )
 
     return merged
 
@@ -243,11 +261,11 @@ def normalize_pref(raw: typing.Any) -> dict[str, typing.Any]:
 
     prefs["primary"] = _merge_slot(prefs["primary"], raw.get("primary"))
     prefs["primary"]["type"] = prefs["primary"]["type"] or DEFAULT_MODEL_TYPE
-    prefs["primary"]["route"] = prefs["primary"]["route"] or DEFAULT_ROUTE
+    prefs["primary"]["route"] = _normalize_route(prefs["primary"].get("route"))
 
-    secondary = _merge_slot(_default_slot(), raw.get("secondary"))
+    secondary = _merge_slot(_default_slot(), raw.get("secondary"), allow_chat_completions=True)
     secondary["type"] = secondary["type"] or DEFAULT_MODEL_TYPE
-    secondary["route"] = secondary["route"] or DEFAULT_ROUTE
+    secondary["route"] = _normalize_route(secondary.get("route"), allow_chat_completions=True)
     prefs["secondary"] = secondary if _is_slot_configured(secondary) else None
 
     return prefs
