@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import time
 import typing
 
 from rich.text import Text
 from mind_core.design import Design
+from .duration import format_elapsed
 
 StatusKind = typing.Literal["search", "tool", "wait"]
 
@@ -23,6 +25,7 @@ class StatusSession(object):
         self.kind: StatusKind = self.STATUS_SEARCH
         self.phase: float = 0.0
         self.animated: bool = True
+        self.started_at: float = 0.0
 
     @property
     def active(self) -> bool:
@@ -48,6 +51,7 @@ class StatusSession(object):
         )
         if reset_phase:
             self.phase = 0.0
+            self.started_at = time.perf_counter()
 
         self.text = status
         self.kind = next_kind
@@ -60,6 +64,7 @@ class StatusSession(object):
         self.kind = self.STATUS_SEARCH
         self.phase = 0.0
         self.animated = True
+        self.started_at = 0.0
         return was_active
 
     def set_phase(self, phase: float) -> None:
@@ -67,18 +72,28 @@ class StatusSession(object):
 
     def renderable(self) -> Text:
         if not self.animated and self.kind == self.STATUS_TOOL:
-            return Design.tool_status_static_renderable(self.text)
+            out = Design.tool_status_static_renderable(self.text)
+            self._append_elapsed(out)
+            return out
         if not self.animated:
-            return Text(self.text, style="bold #8FA4B8")
+            out = Text(self.text, style="bold #8FA4B8")
+            self._append_elapsed(out)
+            return out
         if self.kind == self.STATUS_TOOL:
-            return Design.tool_status_renderable(self.phase, self.text)
+            out = Design.tool_status_renderable(self.phase, self.text)
+            self._append_elapsed(out)
+            return out
         if self.kind == self.STATUS_WAIT:
-            return Design.thinking_status_renderable(self.phase, self.text)
-        return Design.search_status_renderable(self.phase, self.text)
+            out = Design.thinking_status_renderable(self.phase, self.text)
+            self._append_elapsed(out)
+            return out
+        out = Design.search_status_renderable(self.phase, self.text)
+        self._append_elapsed(out)
+        return out
 
     def refresh_per_second(self) -> int:
         if not self.animated:
-            return 16
+            return 4
         if self.kind == self.STATUS_TOOL:
             return int(Design.tool_status_refresh_per_second())
         if self.kind == self.STATUS_WAIT:
@@ -87,7 +102,7 @@ class StatusSession(object):
 
     def interval(self) -> float:
         if not self.animated:
-            return 1 / 16
+            return 0.25
         if self.kind == self.STATUS_TOOL:
             return float(Design.tool_status_interval())
         if self.kind == self.STATUS_WAIT:
@@ -102,6 +117,14 @@ class StatusSession(object):
         if self.kind == self.STATUS_WAIT:
             return 0.65
         return 1.0
+
+    def _append_elapsed(self, out: Text) -> None:
+        if not self.started_at:
+            return None
+
+        elapsed = max(0.0, time.perf_counter() - self.started_at)
+        out.append(" ", style="bold #5F6E76")
+        out.append(format_elapsed(elapsed), style="bold #7E9198")
 
 
 if __name__ == '__main__':

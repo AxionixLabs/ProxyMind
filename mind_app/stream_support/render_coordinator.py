@@ -77,10 +77,7 @@ class RenderCoordinator(object):
             await self._on_status_update()
             return None
 
-        if self.status_session.animated:
-            await self.status_driver.start(reset_phase=reset_phase)
-        else:
-            await self.status_driver.stop(reset_phase=reset_phase)
+        await self.status_driver.start(reset_phase=reset_phase)
         await self._on_status_update()
 
     async def clear_status(self) -> None:
@@ -129,11 +126,16 @@ class RenderCoordinator(object):
 
     def _compose_status_renderable(self) -> Text:
         if self.text_session.display_text:
-            out = self.text_session.renderable()
+            base_text = self.text_renderer.tail_text(
+                self.text_session.display_text,
+                reserve_lines=1
+            )
+            out = Text(base_text, style="bold")
         else:
+            base_text = ""
             out = Text()
 
-        spacer = self.text_session.status_spacer()
+        spacer = self._status_spacer(base_text)
         if spacer:
             out.append(spacer, style="bold")
 
@@ -143,6 +145,14 @@ class RenderCoordinator(object):
             out += Text(" ", style="bold")
 
         return out
+
+    @staticmethod
+    def _status_spacer(text: str) -> str:
+        if not text:
+            return ""
+        if text.endswith("\n"):
+            return ""
+        return "\n"
 
 
 if __name__ == '__main__':

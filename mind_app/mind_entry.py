@@ -120,16 +120,15 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
         os.environ["PATH"] = os.path.dirname(tls) + env_symbol + os.environ.get("PATH", "")
 
     # 检查每个工具是否存在，如果缺失则显示错误信息并退出程序
-    # for tls in tools:
-    #     if not shutil.which((tls_name := os.path.basename(tls))):
-    #         raise MindError(f"{const.APP_DESC} missing files {tls_name}")
+    for tls in tools:
+        if not shutil.which((tls_name := os.path.basename(tls))):
+            raise MindError(f"{const.APP_DESC} missing files {tls_name}")
 
     # 三方应用以及文件授权
     await authorized()
 
     # Notes: ========== 启动命令 ==========
     launch_cmd = [helix, "--level", level]
-    launch_cmd = [sys.executable, str(Path(__file__).parents[1] / "backend" / "helix.py"), "--level", level]
 
     if cmd_lines.pref:
         server: ServerManage = ServerManage(launch_cmd)

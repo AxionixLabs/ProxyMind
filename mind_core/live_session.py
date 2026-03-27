@@ -75,10 +75,10 @@ class LiveRenderSession(object):
 
 class TypewriterStreamSession(LiveRenderSession):
 
-    MIN_VIEW_LINES = 6
+    MIN_VIEW_LINES = 8
     VIEW_MARGIN = 4
 
-    def __init__(self, max_lines: int = 12, refresh_per_second: int = 12) -> None:
+    def __init__(self, max_lines: int = 16, refresh_per_second: int = 12) -> None:
         self.lines: deque = deque(maxlen=max_lines)
         self.col: int = 0
         self.delay: float = 0.01
@@ -91,8 +91,8 @@ class TypewriterStreamSession(LiveRenderSession):
             return self.lines.maxlen
         return max(self.MIN_VIEW_LINES, min(self.lines.maxlen, height - self.VIEW_MARGIN))
 
-    def _tail_text(self, text: str) -> str:
-        max_lines = self._viewport_lines()
+    def _tail_text(self, text: str, *, reserve_lines: int = 0) -> str:
+        max_lines = self._viewport_lines() - max(0, int(reserve_lines))
         if not text or max_lines <= 0:
             return text
 
@@ -102,6 +102,9 @@ class TypewriterStreamSession(LiveRenderSession):
         else:
             rows = parts[-max_lines:]
         return "\n".join(rows)
+
+    def tail_text(self, text: str, *, reserve_lines: int = 0) -> str:
+        return self._tail_text(text, reserve_lines=reserve_lines)
 
     def _live_renderable(self) -> typing.Any:
         return self.renderable if self.renderable is not None else Text(self._tail_text(self.out), style="bold")

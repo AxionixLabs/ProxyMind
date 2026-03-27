@@ -36,6 +36,9 @@ class TextLiveRenderer(object):
     async def stop(self) -> None:
         await self.session.stop()
 
+    def tail_text(self, content: str, *, reserve_lines: int = 0) -> str:
+        return self.session.tail_text(content, reserve_lines=reserve_lines)
+
 
 if __name__ == '__main__':
     pass

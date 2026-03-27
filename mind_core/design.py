@@ -1249,7 +1249,6 @@ class Design(object):
                 phase += step
                 live.update(cls.tool_status_renderable(phase, text))
 
-    @classmethod
     async def preview_search_status_live(cls, duration: float = 15.0) -> None:
         text     = "searching"
         phase    = 0.0
@@ -1272,15 +1271,15 @@ class Design(object):
     @classmethod
     def tool_status_renderable(cls, phase: float, text: str) -> Text:
         colors = {
-            "edge"      : "bold #59666E",
-            "shell"     : "bold #9CB8BF",
-            "core"      : "bold #F8FEFF",
-            "pulse"     : "bold #E5F5F8",
-            "dust"      : "bold #6E8087",
-            "text_peak" : "bold #F7FEFF",
-            "text_near" : "bold #D6E7EB",
-            "text_mid"  : "bold #B3C5CB",
-            "text_dim"  : "bold #8698A0"
+            "edge"      : "bold #6A6256",
+            "shell"     : "bold #C7B8A1",
+            "core"      : "bold #FFF7E7",
+            "pulse"     : "bold #F2DEC0",
+            "dust"      : "bold #8F816E",
+            "text_peak" : "bold #FFF7EA",
+            "text_near" : "bold #EBD8B7",
+            "text_mid"  : "bold #CDB999",
+            "text_dim"  : "bold #9D8C79"
         }
 
         text  = str(text or "").strip() or "function calling"
@@ -1309,10 +1308,10 @@ class Design(object):
     @classmethod
     def tool_status_static_renderable(cls, text: str) -> Text:
         colors = {
-            "edge"      : "bold #5B676F",
-            "text_peak" : "bold #DCE9ED",
-            "text_mid"  : "bold #A5B6BD",
-            "text_dim"  : "bold #7E9098"
+            "edge"      : "bold #6D655A",
+            "text_peak" : "bold #F2E4C7",
+            "text_mid"  : "bold #C4B093",
+            "text_dim"  : "bold #978774"
         }
 
         text   = str(text or "").strip() or "function calling"
@@ -1337,38 +1336,75 @@ class Design(object):
     @classmethod
     def search_status_renderable(cls, phase: float, text: str) -> Text:
         stable_colors = {
-            "edge"     : "bold #4B5861",
-            "core"     : "bold #EAF4F6",
-            "near"     : "bold #C5D7DC",
-            "trail"    : "bold #8CA5AD",
-            "dust"     : "bold #55656D",
-            "text"     : "bold #EDF4F5",
-            "text_dim" : "bold #92A5AB"
+            "edge"     : "bold #425663",
+            "core"     : "bold #F0FBFF",
+            "near"     : "bold #C8E2EC",
+            "trail"    : "bold #87A8B6",
+            "dust"     : "bold #526B77",
+            "text"     : "bold #EAF8FC",
+            "text_dim" : "bold #8EAAB5"
         }
 
         colors  = stable_colors
         breathe = 0.5 + (0.5 * math.sin(phase * 0.55))
-        halo    = 0.5 + (0.5 * math.sin((phase * 0.55) - 0.9))
+        left_outer_phase = 0.5 + (0.5 * math.sin((phase * 0.55) - 1.45))
+        left_inner_phase = 0.5 + (0.5 * math.sin((phase * 0.55) - 0.75))
+        right_inner_phase = 0.5 + (0.5 * math.sin((phase * 0.55) + 0.75))
+        right_outer_phase = 0.5 + (0.5 * math.sin((phase * 0.55) + 1.45))
+        shell_phase = 0.5 + (0.5 * math.sin((phase * 0.55) + 2.1))
         drift   = int(phase * 0.65) % max(1, len(text))
-        core    = "◉" if breathe > 0.7 else ("◎" if breathe > 0.42 else "◌")
-        left    = "◦" if halo > 0.72 else ("·" if halo > 0.38 else " ")
 
-        right_phase = 0.5 + (0.5 * math.sin((phase * 0.55) + 0.9))
+        if breathe > 0.86:
+            core = "*"
+        elif breathe > 0.66:
+            core = "O"
+        elif breathe > 0.42:
+            core = "o"
+        else:
+            core = "."
 
-        right  = "◦" if right_phase > 0.72 else ("·" if right_phase > 0.38 else " ")
-        accent = "·" if breathe > 0.82 else " "
+        if left_inner_phase > 0.82:
+            left_inner = "o"
+        elif left_inner_phase > 0.56:
+            left_inner = "."
+        else:
+            left_inner = " "
+
+        if right_inner_phase > 0.82:
+            right_inner = "o"
+        elif right_inner_phase > 0.56:
+            right_inner = "."
+        else:
+            right_inner = " "
+
+        if left_outer_phase > 0.88:
+            left_outer = "o"
+        elif left_outer_phase > 0.66:
+            left_outer = "."
+        else:
+            left_outer = " "
+
+        if right_outer_phase > 0.88:
+            right_outer = "o"
+        elif right_outer_phase > 0.66:
+            right_outer = "."
+        else:
+            right_outer = " "
+
+        edge_left = "<" if shell_phase > 0.5 else "["
+        edge_right = ">" if shell_phase > 0.5 else "]"
 
         out = Text()
 
-        out.append("‹", style=colors["edge"])
-        out.append(left, style=colors["near"] if left == "◦" else colors["trail"])
+        out.append(edge_left, style=colors["edge"])
+        out.append(left_outer, style=colors["trail"] if left_outer.strip() else colors["edge"])
+        out.append(left_inner, style=colors["near"] if left_inner.strip() else colors["edge"])
         out.append(" ", style=colors["edge"])
         out.append(core, style=colors["core"])
         out.append(" ", style=colors["edge"])
-        out.append(right, style=colors["near"] if right == "◦" else colors["trail"])
-        out.append(" ", style=colors["edge"])
-        out.append(accent, style=colors["dust"] if accent == " " else colors["trail"])
-        out.append("›", style=colors["edge"])
+        out.append(right_inner, style=colors["near"] if right_inner.strip() else colors["edge"])
+        out.append(right_outer, style=colors["trail"] if right_outer.strip() else colors["edge"])
+        out.append(edge_right, style=colors["edge"])
 
         out.append(" ", style=colors["edge"])
         for pos, char in enumerate(text):
@@ -1381,32 +1417,73 @@ class Design(object):
     @classmethod
     def thinking_status_renderable(cls, phase: float, text: str) -> Text:
         colors = {
-            "edge"     : "bold #4E5B63",
-            "dot"      : "bold #E7F0F2",
-            "dot_soft" : "bold #C6D4D8",
-            "dot_dim"  : "bold #7F9299",
-            "text"     : "bold #E4ECEE",
-            "text_dim" : "bold #8FA2A8"
+            "edge"     : "bold #485E5C",
+            "dot"      : "bold #E8F6F2",
+            "dot_soft" : "bold #C6DED8",
+            "dot_dim"  : "bold #7F9A94",
+            "text"     : "bold #E6F1EE",
+            "text_dim" : "bold #8EA6A0"
         }
 
         text = str(text or "").strip() or "thinking"
         breathe = 0.5 + (0.5 * math.sin(phase * 0.42))
-        side    = 0.5 + (0.5 * math.sin((phase * 0.42) + 1.4))
-        trail   = 0.5 + (0.5 * math.sin((phase * 0.42) - 1.1))
+        left_outer_phase = 0.5 + (0.5 * math.sin((phase * 0.42) - 1.7))
+        left_inner_phase = 0.5 + (0.5 * math.sin((phase * 0.42) - 0.9))
+        right_inner_phase = 0.5 + (0.5 * math.sin((phase * 0.42) + 0.9))
+        right_outer_phase = 0.5 + (0.5 * math.sin((phase * 0.42) + 1.7))
+        shell_phase = 0.5 + (0.5 * math.sin((phase * 0.42) + 2.2))
 
         out = Text()
 
-        left = "·" if trail > 0.64 else " "
-        core = "◉" if breathe > 0.74 else ("◎" if breathe > 0.42 else "◌")
-        right = "·" if side > 0.64 else " "
+        if left_outer_phase > 0.86:
+            left_outer = "o"
+        elif left_outer_phase > 0.64:
+            left_outer = "."
+        else:
+            left_outer = " "
 
-        out.append("‹", style=colors["edge"])
-        out.append(left, style=colors["dot_dim"] if left.strip() else colors["edge"])
+        if breathe > 0.82:
+            core = "*"
+        elif breathe > 0.62:
+            core = "O"
+        elif breathe > 0.42:
+            core = "o"
+        else:
+            core = "."
+
+        if left_inner_phase > 0.8:
+            left_inner = "o"
+        elif left_inner_phase > 0.56:
+            left_inner = "."
+        else:
+            left_inner = " "
+
+        if right_inner_phase > 0.8:
+            right_inner = "o"
+        elif right_inner_phase > 0.56:
+            right_inner = "."
+        else:
+            right_inner = " "
+
+        if right_outer_phase > 0.86:
+            right_outer = "o"
+        elif right_outer_phase > 0.64:
+            right_outer = "."
+        else:
+            right_outer = " "
+
+        edge_left = "<" if shell_phase > 0.58 else "["
+        edge_right = ">" if shell_phase > 0.58 else "]"
+
+        out.append(edge_left, style=colors["edge"])
+        out.append(left_outer, style=colors["dot_dim"] if left_outer.strip() else colors["edge"])
+        out.append(left_inner, style=colors["dot_soft"] if left_inner.strip() else colors["edge"])
         out.append(" ", style=colors["edge"])
         out.append(core, style=colors["dot"] if breathe > 0.58 else colors["dot_soft"])
         out.append(" ", style=colors["edge"])
-        out.append(right, style=colors["dot_soft"] if right.strip() else colors["edge"])
-        out.append("›", style=colors["edge"])
+        out.append(right_inner, style=colors["dot_soft"] if right_inner.strip() else colors["edge"])
+        out.append(right_outer, style=colors["dot_dim"] if right_outer.strip() else colors["edge"])
+        out.append(edge_right, style=colors["edge"])
         out.append(" ", style=colors["edge"])
 
         focus = ((math.sin((phase * 0.18) - 0.6) + 1.0) * 0.5) * max(1.0, len(text) - 1)
@@ -1437,38 +1514,76 @@ class Design(object):
     @classmethod
     def _tool_status_indicator(cls, phase: float, *, subtle: bool = False) -> Text:
         colors = {
-            "edge"  : "bold #59666E",
-            "shell" : "bold #A7C2C9",
-            "core"  : "bold #F8FEFF",
-            "pulse" : "bold #E5F5F8",
-            "dust"  : "bold #6E8087"
+            "edge"  : "bold #6A6256",
+            "shell" : "bold #C7B8A1",
+            "core"  : "bold #FFF7E7",
+            "pulse" : "bold #F2DEC0",
+            "dust"  : "bold #8F816E"
         }
         if subtle:
             breathe = 0.46
-            halo = 0.58
+            left_phase = 0.58
+            right_phase = 0.58
+            shell_phase = 0.0
         else:
             breathe = 0.5 + (0.5 * math.sin(phase * 0.52))
-            halo = 0.5 + (0.5 * math.sin((phase * 0.52) - 0.85))
-        iris_frames = ("◜", "◠", "◝", "◞", "◡", "◟")
-        iris = "◠" if subtle else iris_frames[int(phase * 0.85) % len(iris_frames)]
-        chamber_left = "·" if halo > 0.72 else " "
-        chamber_right = "·" if halo < 0.28 else " "
-        if subtle:
-            core = "◉"
-            echo = " "
+            left_phase = 0.5 + (0.5 * math.sin((phase * 0.52) - 0.95))
+            right_phase = 0.5 + (0.5 * math.sin((phase * 0.52) + 0.95))
+            shell_phase = phase * 0.72
+
+        shell_frames = (("(", ")"), ("(", ")"), ("<", ">"), ("{", "}"), ("<", ">"))
+        shell_left, shell_right = ("(", ")") if subtle else shell_frames[
+            int(shell_phase) % len(shell_frames)
+        ]
+
+        if left_phase > 0.84:
+            chamber_left = "o"
+        elif left_phase > 0.72:
+            chamber_left = "."
         else:
-            core = "✺" if breathe > 0.82 else ("✹" if breathe > 0.64 else ("◉" if breathe > 0.42 else "◎"))
-            echo = "·" if breathe > 0.88 else " "
+            chamber_left = " "
+
+        if right_phase > 0.84:
+            chamber_right = "o"
+        elif right_phase > 0.72:
+            chamber_right = "."
+        else:
+            chamber_right = " "
+
+        if subtle:
+            core = "o"
+            echo_left = " "
+            echo_right = " "
+        else:
+            if breathe > 0.88:
+                core = "@"
+            elif breathe > 0.72:
+                core = "*"
+            elif breathe > 0.58:
+                core = "O"
+            else:
+                core = "o"
+
+            if breathe > 0.9:
+                echo_left = "o"
+                echo_right = "o"
+            elif breathe > 0.82:
+                echo_left = "."
+                echo_right = "."
+            else:
+                echo_left = " "
+                echo_right = " "
         out = Text()
 
-        out.append("⟬", style=colors["edge"])
+        out.append("[", style=colors["edge"])
+        out.append(echo_left, style=colors["dust"] if echo_left.strip() else colors["edge"])
         out.append(chamber_left, style=colors["dust"])
-        out.append(iris, style=colors["shell"] if breathe < 0.76 else colors["pulse"])
+        out.append(shell_left, style=colors["shell"] if breathe < 0.76 else colors["pulse"])
         out.append(core, style=colors["core"] if breathe > 0.58 else colors["pulse"])
-        out.append(iris, style=colors["shell"] if breathe < 0.76 else colors["pulse"])
+        out.append(shell_right, style=colors["shell"] if breathe < 0.76 else colors["pulse"])
         out.append(chamber_right, style=colors["dust"])
-        out.append(echo, style=colors["dust"] if echo.strip() else colors["edge"])
-        out.append("⟭", style=colors["edge"])
+        out.append(echo_right, style=colors["dust"] if echo_right.strip() else colors["edge"])
+        out.append("]", style=colors["edge"])
         return out
 
 
