@@ -41,24 +41,34 @@ class Parser(object):
         # Workflow: ======================== 参数互斥 ========================
 
         major_group.add_argument(
-            "--apply", type=str,
+            "--hello", action="store_true",
             help=textwrap.dedent(f'''\
-                \033[1;34m^* 原点协议 *^\033[0m
+                \033[1;34m^* 中枢协议 *^\033[0m
                 -------------------------
-                - 使用激活码向授权中心申请并写入 LIC 授权文件。
+                - 拉起后台管理中心面板，统一管理模型配置、日志与服务状态。
 
             ''')
         )
 
-        major_group.add_argument(
-            "--pref", action="store_true",
-            help=textwrap.dedent(f'''\
-                \033[1;34m^* 基线协议 *^\033[0m
-                -------------------------
-                - 指定/加载模型偏好或配置。
+        # major_group.add_argument(
+        #     "--apply", type=str,
+        #     help=textwrap.dedent(f'''\
+        #         \033[1;34m^* 原点协议 *^\033[0m
+        #         -------------------------
+        #         - 使用激活码向授权中心申请并写入 LIC 授权文件。
+        #
+        #     ''')
+        # )
 
-            ''')
-        )
+        # major_group.add_argument(
+        #     "--pref", action="store_true",
+        #     help=textwrap.dedent(f'''\
+        #         \033[1;34m^* 基线协议 *^\033[0m
+        #         -------------------------
+        #         - 指定/加载模型偏好或配置。
+        #
+        #     ''')
+        # )
 
         major_group.add_argument(
             "--upgrade", action="store_true",

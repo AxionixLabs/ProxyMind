@@ -135,11 +135,13 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
     else:
         launch_cmd = [sys.executable, str(Path(__file__).parents[1] / "backend" / "helix.py"), "--level", level]
 
-    if cmd_lines.pref:
+    # if cmd_lines.pref:
+    if cmd_lines.hello:
         server: ServerManage = ServerManage(launch_cmd)
         await server.ensure_running()
         await server.close()
-        return await FileAssist.open_url(f"{const.BASE_URL}/pref")
+        # return await FileAssist.open_url(f"{const.BASE_URL}/pref")
+        return await FileAssist.open_url(const.BASE_URL)
 
     # Notes: ========== 授权流程 ==========
     # lic_file = Path(src_opera_place) / const.LIC_FILE
