@@ -16,8 +16,8 @@ from engine.tinker import (
 )
 from engine.terminal import Terminal
 from engine.upgrade import Upgrade
-from mind_core import authorize
-from mind_core.api import Api
+# from mind_core import authorize
+# from mind_core.api import Api
 from mind_core.design import Design
 from mind_core.parser import Parser
 from mind_core.preference import Preferences
@@ -49,7 +49,8 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
             logger.debug(f"Authorize: {resp}")
 
     # Notes: ========== Start from here ==========
-    await Design.particle_aggregate()
+    # await Design.particle_aggregate()
+    Design.startup_cursor_intro()
 
     # 解析命令行参数
     parser = Parser()
@@ -95,13 +96,13 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
     ):
         os.makedirs(src_total_place, exist_ok=True)
 
-    # 激活日志
+    # Notes: ========== 激活日志 ==========
     Active.active(level := "DEBUG" if cmd_lines.reflection else "INFO")
 
     pref_file = os.path.join(initial_source, const.SRC_OPERA_PLACE, const.PREF)
     pref = Preferences(pref_file)
 
-    # Notes: ========== 工具路径设置 ==========
+    # Notes: ========== 工具路径 ==========
     if platform == "win32":
         supports = os.path.join(turbo, "windows").format()
         helix = os.path.join(supports, "helix.dist", "helix.exe")
@@ -119,16 +120,20 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
     for tls in (tools := [helix]):
         os.environ["PATH"] = os.path.dirname(tls) + env_symbol + os.environ.get("PATH", "")
 
-    # 检查每个工具是否存在，如果缺失则显示错误信息并退出程序
-    for tls in tools:
-        if not shutil.which((tls_name := os.path.basename(tls))):
-            raise MindError(f"{const.APP_DESC} missing files {tls_name}")
+    # Notes: ========== 检查工具 ==========
+    if not software.endswith(".py"):
+        for tls in tools:
+            if not shutil.which((tls_name := os.path.basename(tls))):
+                raise MindError(f"{const.APP_DESC} missing files {tls_name}")
 
-    # 三方应用以及文件授权
+    # Notes: ========== 三方应用 ==========
     await authorized()
 
     # Notes: ========== 启动命令 ==========
-    launch_cmd = [helix, "--level", level]
+    if not software.endswith(".py"):
+        launch_cmd = [helix, "--level", level]
+    else:
+        launch_cmd = [sys.executable, str(Path(__file__).parents[1] / "backend" / "helix.py"), "--level", level]
 
     if cmd_lines.pref:
         server: ServerManage = ServerManage(launch_cmd)
@@ -137,15 +142,13 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
         return await FileAssist.open_url(f"{const.BASE_URL}/pref")
 
     # Notes: ========== 授权流程 ==========
-    lic_file = Path(src_opera_place) / const.LIC_FILE
+    # lic_file = Path(src_opera_place) / const.LIC_FILE
+    # if apply_code := cmd_lines.apply:
+    #     return await authorize.receive_license(apply_code, lic_file)
+    # await authorize.verify_license(lic_file)
 
-    if apply_code := cmd_lines.apply:
-        return await authorize.receive_license(apply_code, lic_file)
-
-    await authorize.verify_license(lic_file)
-
-    # 远程全局配置
-    global_config_task = asyncio.create_task(Api.remote_config())
+    # Notes: ========== 远程配置 ==========
+    # global_config_task = asyncio.create_task(Api.remote_config())
 
     logger.debug(f"{'=' * 15} 系统调试 {'=' * 15}")
     logger.debug(f"操作系统: {platform}")
@@ -172,7 +175,7 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
     await server.close()
     await pref.load_pref()
 
-    Design.Doc.log(f"[bold #0EA5E9]🌐 Link: {const.BASE_URL}[/]\n")
+    # Design.Doc.log(f"[bold #0EA5E9]🌐 {const.BASE_URL}[/]\n")
 
     positions = (
         cmd_lines.chat, cmd_lines.fast, cmd_lines.plan,
@@ -183,7 +186,9 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
         "src_total_place" : src_total_place,
         "pref"            : pref
     }
-    remote = await global_config_task
+
+    # remote = await global_config_task
+    remote = {}
 
     mind = Mind(wires, level, power, remote, *positions, **keywords)
 
@@ -210,10 +215,6 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
 
     else:
         await mind.mind_loop()
-
-
-async def test() -> None:
-    pass
 
 
 if __name__ == '__main__':

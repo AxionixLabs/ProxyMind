@@ -2,9 +2,9 @@
 # Notes: ==== Mind™ ====
 
 from .mind_core import Mind
-from .mind_entry import main, test
+from .mind_entry import main
 
-__all__ = ["Mind", "main", "test"]
+__all__ = ["Mind", "main"]
 
 
 if __name__ == '__main__':

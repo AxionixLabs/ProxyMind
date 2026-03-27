@@ -4,30 +4,33 @@
 import typing
 import asyncio
 from rich.text import Text
-from .animation_driver import AnimationDriver
-from .status_session import StatusKind, StatusSession
-from .text_renderer import TextLiveRenderer
-from .text_session import TextStreamSession
+from mind_core.design import Design
+from .rd_anim import AnimDriver
+from .st_status import (
+    StatusKind, StatusState
+)
+from .rd_text import TextRenderer
+from .st_text import TextState
 
 
-class RenderCoordinator(object):
+class RenderCoord(object):
     """用单一 typewriter live 合成正文与轻量状态动画。"""
 
     def __init__(self, *, refresh_per_second: int = 16) -> None:
         self.refresh_per_second = max(1, int(refresh_per_second))
 
-        self.text_session   = TextStreamSession()
-        self.status_session = StatusSession()
+        self.text_state   = TextState()
+        self.status_state = StatusState()
 
         self.reserve_status_slot = False
 
-        self.status_driver = AnimationDriver(
-            is_active=lambda: self.status_session.active,
-            get_interval=self.status_session.interval,
-            get_step=self.status_session.step,
+        self.status_driver = AnimDriver(
+            is_active=lambda: self.status_state.animating,
+            get_interval=self.status_state.interval,
+            get_phase_rate=self.status_state.phase_rate,
             on_tick=self._on_status_tick
         )
-        self.text_renderer = TextLiveRenderer(refresh_per_second=self.refresh_per_second)
+        self.text_renderer = TextRenderer(refresh_per_second=self.refresh_per_second)
         self.render_lock: asyncio.Lock = asyncio.Lock()
 
     async def stop(self) -> None:
@@ -35,9 +38,9 @@ class RenderCoordinator(object):
         self.release_status_slot()
 
         async with self.render_lock:
-            if self.text_session.display_text:
+            if self.text_state.display_text:
                 await self.text_renderer.show(
-                    self.text_session.display_text,
+                    self.text_state.display_text,
                     animate=False,
                     refresh_per_second=self.refresh_per_second
                 )
@@ -51,38 +54,41 @@ class RenderCoordinator(object):
         chunk: typing.Optional[str],
         *,
         echo: bool = True,
-        display: str = TextStreamSession.STREAM,
+        display: str = TextState.STREAM,
         display_chunk: typing.Optional[str] = None
     ) -> None:
-        animate = self.text_session.append(
+        animate = self.text_state.append(
             chunk, echo=echo, display=display, display_chunk=display_chunk
         )
         if not (echo and chunk):
             return None
 
         async with self.render_lock:
-            await self._render_current(animate=animate and not self.status_session.active)
+            await self._render_current(animate=animate and not self.status_state.active)
 
     async def set_status(
         self,
         text: typing.Optional[str],
         *,
-        kind: StatusKind = StatusSession.STATUS_SEARCH,
+        kind: StatusKind = StatusState.STATUS_SEARCH,
         animated: bool = True
     ) -> None:
-        reset_phase = self.status_session.set_status(text, kind=kind, animated=animated)
+        reset_phase = self.status_state.set_status(text, kind=kind, animated=animated)
 
-        if not self.status_session.active:
+        if not self.status_state.animating:
             await self.status_driver.stop(reset_phase=True)
             await self._on_status_update()
             return None
 
-        await self.status_driver.start(reset_phase=reset_phase)
+        await self.status_driver.start(reset_phase=reset_phase and self.status_state.active)
         await self._on_status_update()
 
     async def clear_status(self) -> None:
-        had_status = self.status_session.clear_status()
-        await self.status_driver.stop(reset_phase=True)
+        had_status = self.status_state.clear_status()
+        if self.status_state.animating:
+            await self.status_driver.start(reset_phase=False)
+        else:
+            await self.status_driver.stop(reset_phase=True)
         if had_status:
             await self._on_status_update()
 
@@ -97,7 +103,7 @@ class RenderCoordinator(object):
         self.reserve_status_slot = False
 
     async def _on_status_tick(self, phase: float) -> None:
-        self.status_session.set_phase(phase)
+        self.status_state.set_phase(phase)
         await self._on_status_update()
 
     async def _on_status_update(self) -> None:
@@ -105,18 +111,18 @@ class RenderCoordinator(object):
             await self._render_current(animate=False)
 
     async def _render_current(self, *, animate: bool) -> None:
-        if self.status_session.active or self.reserve_status_slot:
+        if self.status_state.visible or self.reserve_status_slot:
             await self.text_renderer.show(
-                self.text_session.display_text,
+                self.text_state.display_text,
                 animate=False,
                 renderable=self._compose_status_renderable(),
-                refresh_per_second=self.status_session.refresh_per_second()
+                refresh_per_second=self.status_state.refresh_per_second()
             )
             return None
 
-        if self.text_session.display_text:
+        if self.text_state.display_text:
             await self.text_renderer.show(
-                self.text_session.display_text,
+                self.text_state.display_text,
                 animate=animate,
                 refresh_per_second=self.refresh_per_second
             )
@@ -125,9 +131,9 @@ class RenderCoordinator(object):
         await self.text_renderer.suspend()
 
     def _compose_status_renderable(self) -> Text:
-        if self.text_session.display_text:
+        if self.text_state.display_text:
             base_text = self.text_renderer.tail_text(
-                self.text_session.display_text,
+                self.text_state.display_text,
                 reserve_lines=1
             )
             out = Text(base_text, style="bold")
@@ -139,10 +145,10 @@ class RenderCoordinator(object):
         if spacer:
             out.append(spacer, style="bold")
 
-        if self.status_session.active:
-            out += self.status_session.renderable()
+        if self.status_state.visible:
+            out += Design.status_line_renderable(self.status_state.renderable())
         else:
-            out += Text(" ", style="bold")
+            out += Design.status_line_renderable(Text(" ", style="bold"))
 
         return out
 
@@ -150,10 +156,32 @@ class RenderCoordinator(object):
     def _status_spacer(text: str) -> str:
         if not text:
             return ""
+        wants_soft_gap = RenderCoord._needs_soft_gap(text)
         if text.endswith("\n"):
-            return ""
-        return "\n"
+            return "\n" if wants_soft_gap else ""
+        return "\n\n" if wants_soft_gap else "\n"
 
+    @staticmethod
+    def _needs_soft_gap(text: str) -> bool:
+        stripped = text.rstrip("\n")
+        if not stripped:
+            return False
+
+        lines = stripped.splitlines()
+        if not lines:
+            return False
+
+        last_line = next((line.strip() for line in reversed(lines) if line.strip()), "")
+        if not last_line:
+            return False
+
+        if last_line.startswith("Sources:"):
+            return True
+
+        if "http://" in last_line or "https://" in last_line:
+            return True
+
+        return len(last_line) >= 72 and last_line[:2].isdigit() and ". " in last_line
 
 if __name__ == '__main__':
     pass

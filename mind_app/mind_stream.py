@@ -8,12 +8,12 @@ from engine.tinker import Tooling
 from mind_nova.events import EventReport
 from mind_nova import request
 from .stream_ui import StreamUI
-from .stream_support.finish import finish_stream
-from .stream_support.search_status import (
+from .stream_support.evt_finish import finish_stream
+from .stream_support.fmt_search import (
     build_builtin_search_status,
 )
-from .stream_support.segment_state import (
-    SegmentStateTracker,
+from .stream_support.st_segment import (
+    SegmentTracker,
     build_sources_text
 )
 
@@ -51,7 +51,7 @@ async def stream_looper(
     await slog.open()
 
     first_frame = True
-    tracker = SegmentStateTracker()
+    tracker = SegmentTracker()
 
     try:
         async for event in request.stream_chat(mode, model_api, message, filtered_tools, **kwargs):

@@ -6,7 +6,11 @@ import typing
 from mind_nova.events import EventReport
 
 
-async def finish_stream(ev_report: typing.Optional[EventReport], phase: str, **extra: typing.Any) -> None:
+async def finish_stream(
+    ev_report: typing.Optional[EventReport],
+    phase: str,
+    **extra: typing.Any
+) -> None:
     """统一结束流式事件，并确保事件在返回前刷到服务端。"""
     if not ev_report:
         return None

@@ -119,9 +119,10 @@ class TypewriterStreamSession(LiveRenderSession):
                 self.live.__exit__(None, None, None)
                 self.live = None
 
-        if self.out:
-            Design.console.print(Text(self.out, style="bold"))
-        Design.console.print()
+        final_text = self.out.rstrip("\n")
+        if final_text:
+            Design.console.print(Text(final_text, style="bold"))
+            Design.console.print()
         self.renderable = None
 
     async def feed(self, delta: str) -> None:

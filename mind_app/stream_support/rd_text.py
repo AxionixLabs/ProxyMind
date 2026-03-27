@@ -2,11 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-
 from mind_core.live_session import TypewriterStreamSession
 
 
-class TextLiveRenderer(object):
+class TextRenderer(object):
     """单一正文 live renderer，同时承载正文和轻量状态 renderable。"""
 
     def __init__(self, *, refresh_per_second: int = 16) -> None:
@@ -38,7 +37,6 @@ class TextLiveRenderer(object):
 
     def tail_text(self, content: str, *, reserve_lines: int = 0) -> str:
         return self.session.tail_text(content, reserve_lines=reserve_lines)
-
 
 if __name__ == '__main__':
     pass

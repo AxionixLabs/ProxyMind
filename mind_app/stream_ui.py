@@ -4,17 +4,17 @@
 import typing
 import asyncio
 from loguru import logger
-from mind_app.stream_support.render_coordinator import RenderCoordinator
-from mind_app.stream_support.status_session import StatusKind
-from mind_app.stream_support.text_session import TextStreamSession
-from mind_app.stream_support.transcript import TranscriptWriter
+from mind_app.stream_support.rd_coord import RenderCoord
+from mind_app.stream_support.st_status import StatusKind
+from mind_app.stream_support.st_text import TextState
+from mind_app.stream_support.out_record import StreamRecordWriter
 
 
 class StreamUI(object):
-    """流式终端 UI façade：统一封装 transcript、正文渲染与轻状态显示。"""
+    """流式终端 UI façade：统一封装 record、正文渲染与轻状态显示。"""
 
-    STREAM = TextStreamSession.STREAM
-    BLOCK  = TextStreamSession.BLOCK
+    STREAM = TextState.STREAM
+    BLOCK  = TextState.BLOCK
 
     DEFAULT_REFRESH_PER_SECOND = 16
 
@@ -29,15 +29,16 @@ class StreamUI(object):
 
         self._has_stream_output = False
         self._pending_status_task: typing.Optional[asyncio.Task[None]] = None
+        self.record_writer: StreamRecordWriter
         self._reset_components()
 
     async def open(self) -> None:
-        await self.transcript.open()
+        await self.record_writer.open()
 
     async def stop(self) -> None:
         await self._cancel_pending_status_task()
         await self.coordinator.stop()
-        await self.transcript.close()
+        await self.record_writer.close()
         self._reset_components()
 
     async def feed(
@@ -57,7 +58,7 @@ class StreamUI(object):
             await self.end_status()
             self.coordinator.release_status_slot()
 
-        self.transcript.write(chunk, block=(display == self.BLOCK))
+        self.record_writer.write(chunk, block=(display == self.BLOCK))
         await self.coordinator.append(
             chunk,
             echo=echo,
@@ -112,13 +113,13 @@ class StreamUI(object):
         await self.coordinator.settle_stream()
 
     def flush(self) -> None:
-        self.transcript.flush()
+        self.record_writer.flush()
 
     def _reset_components(self) -> None:
         self._has_stream_output = False
         self._pending_status_task = None
-        self.transcript = TranscriptWriter(self.log_file)
-        self.coordinator = RenderCoordinator(
+        self.record_writer = StreamRecordWriter(self.log_file)
+        self.coordinator = RenderCoord(
             refresh_per_second=self.DEFAULT_REFRESH_PER_SECOND
         )
 

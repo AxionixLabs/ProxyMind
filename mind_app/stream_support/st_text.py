@@ -2,12 +2,11 @@
 # Notes: ==== Mind™ ====
 
 import typing
-
 from rich.text import Text
 from mind_core.design import Design
 
 
-class TextStreamSession(object):
+class TextState(object):
     """管理正文/块文本的可见内容和裁剪规则。"""
 
     STREAM          = "stream"
@@ -24,6 +23,8 @@ class TextStreamSession(object):
         self.display_segments: list[dict[str, str]] = []
         self.display_text: str = ""
         self.at_line_start: bool = True
+        self.trailing_newlines: int = 0
+        self.last_display: str | None = None
 
     def append(
         self,
@@ -37,10 +38,7 @@ class TextStreamSession(object):
             return False
 
         visible_delta = str(display_chunk) if display_chunk is not None else str(chunk)
-        if display == self.BLOCK:
-            visible_delta = self._normalize_block_text(
-                visible_delta, at_line_start=self.at_line_start
-            )
+        visible_delta = self._normalize_display_text(visible_delta, display=display)
 
         if not visible_delta:
             return False
@@ -50,6 +48,8 @@ class TextStreamSession(object):
         animate = (display == self.STREAM and visible.startswith(self.display_text))
         self.display_text = visible
         self.at_line_start = visible_delta.endswith("\n")
+        self.trailing_newlines = self._count_trailing_newlines(visible_delta)
+        self.last_display = display
         return animate
 
     def renderable(self) -> Text:
@@ -153,13 +153,54 @@ class TextStreamSession(object):
         limit = line_limit * self.BLOCK_LINES
         return max(self.MIN_BLOCK_LIMIT, min(self.MAX_BLOCK_LIMIT, limit))
 
+    def _normalize_display_text(self, text: str, *, display: str) -> str:
+        if display == self.BLOCK:
+            return self._normalize_block_text(text)
+        return self._normalize_stream_text(text)
+
+    def _normalize_block_text(self, text: str) -> str:
+        body = text.strip("\n")
+        if not body:
+            return ""
+
+        prefix = self._segment_prefix(for_display=self.BLOCK)
+        return f"{prefix}{body}\n"
+
+    def _normalize_stream_text(self, text: str) -> str:
+        if not text:
+            return ""
+
+        prefix = self._segment_prefix(for_display=self.STREAM, incoming_text=text)
+        return f"{prefix}{text}"
+
+    def _segment_prefix(
+        self,
+        *,
+        for_display: str,
+        incoming_text: str | None = None
+    ) -> str:
+        if self.last_display is None:
+            return ""
+
+        if self.last_display == self.STREAM and for_display == self.STREAM:
+            return ""
+
+        if self.trailing_newlines >= 2:
+            return ""
+
+        if for_display == self.STREAM and incoming_text and incoming_text.startswith("\n"):
+            return ""
+
+        return "\n" * (2 - self.trailing_newlines)
+
     @staticmethod
-    def _normalize_block_text(text: str, *, at_line_start: bool) -> str:
-        out = text.strip("\n")
-        if not out:
-            return "\n" if not at_line_start else ""
-        prefix = "" if at_line_start else "\n"
-        return f"{prefix}{out}\n\n"
+    def _count_trailing_newlines(text: str) -> int:
+        count = 0
+        for ch in reversed(text):
+            if ch != "\n":
+                break
+            count += 1
+        return count
 
     @staticmethod
     def _trim_tail(parts: list[str], line_start: int, count: int) -> int:
@@ -186,7 +227,6 @@ class TextStreamSession(object):
             visible += 1
 
         parts[:] = kept
-
 
 if __name__ == '__main__':
     pass

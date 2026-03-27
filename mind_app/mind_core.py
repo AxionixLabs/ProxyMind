@@ -8,7 +8,7 @@ from loguru import logger
 from mcp import (
     ClientSession, ListToolsResult
 )
-from engine.animaion import AsyncAnimManager
+from engine.animation import AsyncAnimManager
 from engine.tinker import (
     MindError, Tooling
 )

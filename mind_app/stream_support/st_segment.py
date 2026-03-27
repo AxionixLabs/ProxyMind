@@ -4,7 +4,7 @@
 import typing
 
 
-class SegmentStateTracker(object):
+class SegmentTracker(object):
     """维护流式文本段落及其 meta/sources 回填状态。"""
 
     def __init__(self) -> None:
@@ -280,7 +280,7 @@ def _format_source_entry(index: int, source: typing.Any) -> str:
     return f"{index}. {title}"
 
 
-def build_sources_text(tracker: SegmentStateTracker) -> str:
+def build_sources_text(tracker: "SegmentTracker") -> str:
     max_items = 3
     seen: set[str] = set()
     lines: list[str] = []
@@ -303,8 +303,7 @@ def build_sources_text(tracker: SegmentStateTracker) -> str:
         lines.append(f"... {total - len(lines)} more sources omitted")
 
     body = "\n".join(lines)
-    return f"\n\nSources:\n{body}"
-
+    return f"Sources:\n{body}"
 
 if __name__ == '__main__':
     pass

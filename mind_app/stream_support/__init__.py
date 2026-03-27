@@ -2,8 +2,8 @@
 # Notes: ==== Mind™ ====
 
 __all__ = [
-    "RenderCoordinator",
-    "SegmentStateTracker",
+    "RenderCoord",
+    "SegmentTracker",
     "build_builtin_search_status",
     "build_sources_text",
     "finish_stream",
