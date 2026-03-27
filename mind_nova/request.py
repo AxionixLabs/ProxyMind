@@ -3,19 +3,15 @@
 
 import sys
 import json
-import time
 import httpx
 import typing
-import asyncio
 import platform
 import mimetypes
 from pathlib import Path
 from loguru import logger
 from engine.channel import Channel
-from engine.tinker import StreamTyperLogger
-from mind_nova import (
-    const, craft
-)
+from mind_app.stream_ui import StreamUI
+from mind_nova import const
 
 
 async def cap_request(req: httpx.Request) -> None:
@@ -66,7 +62,6 @@ async def streaming(
     timeout: float = 60.0
 ) -> typing.AsyncGenerator[dict, None]:
     """按 SSE `data:` 行读取并解析事件流。"""
-
     async with httpx.AsyncClient(timeout=timeout, event_hooks={"response": [cap_response]}) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
             resp.raise_for_status()
@@ -187,7 +182,7 @@ async def stream_chat(
     async for event in streaming(const.STREAM_CHAT_URL, headers, payload, timeout):
         event_type = str(event.get("type") or "")
 
-        if event_type in ["turn.thinking", "ping"]:
+        if event_type == "ping":
             continue
 
         yield event
@@ -217,7 +212,7 @@ async def stream_plan(
     async for event in streaming(const.STREAM_PLAN_URL, headers, payload, timeout):
         event_type = str(event.get("type") or "")
 
-        if event_type in ["plan.start", "plan.done", "ping"]:
+        if event_type in ["plan.done", "ping"]:
             continue
 
         yield event
@@ -232,7 +227,7 @@ async def stream_heal(
     screenshot_base64: str,
     wm_size: dict,
     timeout: float = 60.0,
-    slog: typing.Optional[StreamTyperLogger] = None,
+    slog: typing.Optional[StreamUI] = None,
     *_,
     **kwargs
 ) -> typing.AsyncGenerator[dict, None]:
@@ -260,7 +255,7 @@ async def stream_heal(
                 if not message:
                     continue
                 if slog:
-                    await slog.feed(message, display=StreamTyperLogger.BLOCK)
+                    await slog.feed(message, display=StreamUI.BLOCK)
                 else:
                     logger.debug(message)
                 continue
@@ -268,7 +263,7 @@ async def stream_heal(
             case "heal.failed":
                 error = str(event.get("error") or "unknown heal error")
                 if slog:
-                    await slog.feed(error, display=StreamTyperLogger.BLOCK)
+                    await slog.feed(error, display=StreamUI.BLOCK)
                 else:
                     logger.debug(error)
 
@@ -300,125 +295,6 @@ async def stream_rule(
             continue
 
         yield event
-
-
-class EventReport(object):
-    """事件上报器，保证队列内事件按顺序发送。"""
-
-    PROTO_BY_MODE: dict[str, str] = {
-        "chat": "mind.chat",
-        "fast": "mind.chat",
-        "plan": "mind.plan",
-    }
-
-    def __init__(
-        self,
-        mode: typing.Literal["chat", "fast", "plan"],
-        cid: str,
-        sid: str,
-        proto: typing.Optional[str] = None,
-    ):
-        self.mode = mode
-
-        self.cid = cid
-        self.sid = sid
-        self.proto = proto or self.PROTO_BY_MODE.get(mode, f"mind.{mode}")
-        self.turn_id = craft.short_uid(12)
-        self.round = 1
-
-        self.timeout: float = 30.0
-
-        self.seq = 0
-        self.q: asyncio.Queue[dict[str, typing.Any]] = asyncio.Queue(maxsize=2000)
-
-        self.stop = asyncio.Event()
-        self.worker: typing.Optional[asyncio.Task] = None
-
-    def begin_turn(
-        self,
-        turn_id: typing.Optional[str] = None,
-        *,
-        round_no: typing.Optional[int] = None
-    ) -> str:
-        self.turn_id = str(turn_id or craft.short_uid(12))
-        if isinstance(round_no, int) and round_no > 0:
-            self.round = round_no
-        return self.turn_id
-
-    def set_round(self, round_no: typing.Any) -> None:
-        if isinstance(round_no, int) and round_no > 0:
-            self.round = round_no
-
-    def bind_event(self, event: dict[str, typing.Any]) -> None:
-        if not isinstance(event, dict):
-            return None
-
-        if proto := event.get("proto"):
-            self.proto = str(proto)
-        if turn_id := event.get("turn_id"):
-            self.turn_id = str(turn_id)
-        self.set_round(event.get("round"))
-
-    def emit(self, event: dict[str, typing.Any]) -> None:
-        """
-        非阻塞投递事件。
-        - 自动注入 cid/sid/ts/seq
-        - 队列满则丢弃（避免拖死主链路）
-        """
-        try:
-            self.seq += 1
-            ev = dict(event or {})
-            ev.setdefault("ts", time.time())
-            ev.setdefault("proto", self.proto)
-            ev["cid"] = self.cid
-            ev["sid"] = self.sid
-            ev.setdefault("turn_id", self.turn_id)
-            ev.setdefault("round", self.round)
-            ev.setdefault("seq", self.seq)
-
-            self.q.put_nowait(ev)
-        except asyncio.QueueFull:
-            logger.debug(f"[events] drop(queue_full) type={event.get('type')}")
-        except RuntimeError:
-            logger.debug(f"[events] drop(no_loop) type={event.get('type')}")
-
-    async def open(self) -> None:
-        """启动后台发送 worker（建议在 pack_start 前调用）"""
-        if self.worker and not self.worker.done():
-            return None
-        self.worker = asyncio.create_task(self.work())
-
-    async def work(self) -> None:
-        """单 worker：严格按队列顺序发送"""
-        while True:
-            if self.stop.is_set() and self.q.empty():
-                return None
-
-            try:
-                ev = await asyncio.wait_for(self.q.get(), timeout=0.5)
-            except asyncio.TimeoutError:
-                continue
-
-            try:
-                await post_stream_event(self.mode, self.cid, self.sid, ev, timeout=self.timeout)
-            except Exception as e:
-                # 上报失败：不影响主流程
-                logger.debug(
-                    f"[events] post fail: {e!r} type={ev.get('type')} seq={ev.get('seq')}"
-                )
-            finally:
-                self.q.task_done()
-
-    async def flush(self) -> None:
-        """等待队列清空（所有已 emit 的事件都发完）"""
-        await self.q.join()
-
-    async def close(self) -> None:
-        """优雅停止：先 flush，再退出 worker"""
-        await self.flush()
-        self.stop.set()
-        if self.worker:
-            await self.worker
 
 
 if __name__ == '__main__':

@@ -1,15 +1,21 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
 import typing
 from mcp import ClientSession
 from engine.enhancer import Enhancer
-from engine.tinker import (
-    Tooling, StreamTyperLogger
-)
-from mind_nova.request import EventReport
+from engine.tinker import Tooling
+from mind_nova.events import EventReport
 from mind_nova import request
+from .stream_ui import StreamUI
+from .stream_support.finish import finish_stream
+from .stream_support.search_status import (
+    build_builtin_search_status,
+)
+from .stream_support.segment_state import (
+    SegmentStateTracker,
+    build_sources_text
+)
 
 if typing.TYPE_CHECKING:
     from .mind_core import Mind
@@ -41,16 +47,11 @@ async def stream_looper(
     filtered_tools = Tooling.filter_tools(openai_tools, tool_meta, exclude=exclude)
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
-    async def finish(phase: str, **extra) -> None:
-        """统一结束流式事件，并确保事件在返回前刷到服务端。"""
-        if not ev_report: return None
-        ev_report.emit({"type": phase, "ts": time.time(), **extra})
-        await ev_report.flush()
-
-    slog: StreamTyperLogger = StreamTyperLogger(mind.report.log_papers)
+    slog: StreamUI = StreamUI(mind.report.log_papers)
     await slog.open()
 
     first_frame = True
+    tracker = SegmentStateTracker()
 
     try:
         async for event in request.stream_chat(mode, model_api, message, filtered_tools, **kwargs):
@@ -61,59 +62,82 @@ async def stream_looper(
                 await mind.stop_anim()
                 first_frame = False
 
-            await slog.start()
-
             event_type = str(event.get("type") or "")
 
             if event_type == "turn.start":
                 continue
 
+            if event_type == "turn.thinking":
+                await slog.begin_reply_wait_status()
+                continue
+
             if event_type == "turn.failed":
                 error = str(event.get("error") or "unknown error")
-                await slog.feed(chunk=error, display=StreamTyperLogger.BLOCK)
+                await slog.feed(chunk=error, display=StreamUI.BLOCK)
                 await slog.stop()
-                break
+                return None
 
             if event_type == "text.delta":
                 text = str(event.get("text") or "")
-                await slog.feed(chunk=text, display=StreamTyperLogger.STREAM)
+                tracker.on_text_delta(event)
+                await slog.feed(chunk=text, display=StreamUI.STREAM)
                 continue
 
             if event_type == "text.done":
+                tracker.on_text_done(event)
+                await slog.settle_stream()
+                continue
+
+            if event_type == "text.meta":
+                tracker.on_text_meta(event)
                 continue
 
             if event_type == "turn.done":
                 break
 
+            if event_type == "tool.builtin.call":
+                await slog.begin_search_status(build_builtin_search_status(event))
+                continue
+
+            if event_type == "tool.builtin.done":
+                tracker.on_builtin_done(event)
+                await slog.end_status()
+                continue
+
             if event_type == "tool.call":
                 name, arguments = event["name"], event.get("arguments", {})
+                summary = Tooling.summarize_tool_arguments(name, arguments)
 
                 if Tooling.needs_wakeup(tool_meta, name):
                     if error := await mind.wakeup(session, slog):
-                        await slog.feed(error, display=StreamTyperLogger.BLOCK)
+                        await slog.feed(error, display=StreamUI.BLOCK)
                         await slog.stop()
-                        await finish(phase="turn.failed", error=str(error))
-                        break
+                        await finish_stream(ev_report, phase="turn.failed", error=str(error))
+                        return None
 
                 await slog.feed(
                     chunk=f"{name} {arguments}",
-                    display=StreamTyperLogger.BLOCK,
-                    display_chunk=Tooling.summarize_tool_arguments(name, arguments)
+                    display=StreamUI.BLOCK,
+                    display_chunk=summary
                 )
 
                 arguments = Enhancer.exchange(name, arguments, mind.report)
+                await slog.begin_tool_status()
+                try:
+                    result = await session.call_tool(name, arguments)
+                    ok = not result.isError
 
-                result = await session.call_tool(name, arguments)
-                ok = not result.isError
+                    enhancer: Enhancer = Enhancer(session, mode, model_api, kwargs.get("metadata"))
+                    fields = await enhancer.enhance(name, arguments, result, ok, slog)
+                finally:
+                    await slog.end_status()
 
-                enhancer: Enhancer = Enhancer(session, mode, model_api, kwargs.get("metadata"))
-                fields = await enhancer.enhance(name, arguments, result, ok, slog)
-
-                await slog.feed(chunk=f"{fields.get('text')}", display=StreamTyperLogger.BLOCK)
+                await slog.feed(chunk=f"{fields.get('text')}", display=StreamUI.BLOCK)
 
                 await request.post_tool_result(
                     event["cid"], event["sid"], event["call_id"], name, ok, fields
                 )
+                await slog.begin_reply_wait_status()
                 continue
 
             if event_type == "tool.output":
@@ -122,10 +146,13 @@ async def stream_looper(
             continue
 
     except Exception as e:
-        await slog.feed(chunk=str(e), display=StreamTyperLogger.BLOCK)
+        await slog.feed(chunk=str(e), display=StreamUI.BLOCK)
         await slog.stop()
-        await finish(phase="turn.failed", error=f"{type(e).__name__}: {e}")
+        await finish_stream(ev_report, phase="turn.failed", error=f"{type(e).__name__}: {e}")
+        return None
 
+    await slog.end_status()
+    await slog.feed(chunk=build_sources_text(tracker), display=StreamUI.BLOCK)
     await slog.stop()
 
 

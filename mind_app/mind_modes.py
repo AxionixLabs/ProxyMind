@@ -7,7 +7,7 @@ from pathlib import Path
 from mcp import ClientSession
 from mind_core.design import Design
 from mind_core import authorize
-from mind_nova.request import EventReport
+from mind_nova.events import EventReport
 from mind_nova import const
 from .mind_static import static_looper
 from .mind_stream import stream_looper

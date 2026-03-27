@@ -10,13 +10,14 @@ from mcp import (
 )
 from engine.animaion import AsyncAnimManager
 from engine.tinker import (
-    MindError, Tooling, StreamTyperLogger
+    MindError, Tooling
 )
 from mind_core.design import Design
 from mind_core.prompting import PromptToolkitBox
 from mind_core.preference import Preferences
 from mind_nova.report import Report
 from mind_nova import craft
+from .stream_ui import StreamUI
 from .mind_modes import (
     mind_chat as run_mind_chat,
     mind_fast as run_mind_fast,
@@ -184,7 +185,7 @@ class Mind(object):
     async def wakeup(
         self,
         session: ClientSession,
-        slog: typing.Optional[StreamTyperLogger] = None
+        slog: typing.Optional[StreamUI] = None
     ) -> typing.Optional[str]:
         """刷新入口：按 TTL 规则委托运行时模块执行 refresh。"""
         return await run_wakeup(self, session, slog)

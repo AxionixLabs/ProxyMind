@@ -12,7 +12,6 @@ from rich.live import Live
 from rich.text import Text
 from rich.tree import Tree
 from rich.console import Console
-from rich.cells import cell_len
 from mind_nova import const
 
 
@@ -756,127 +755,6 @@ class Design(object):
             async for frame in agen:
                 live.update(frame)
 
-    async def prefix_line(self, stop_event: asyncio.Event) -> None:
-        if self.design_level != const.SHOW_LEVEL:
-            return None
-
-        width: int = 30
-        fps: int   = 60
-        dust: str  = "·∙•"
-        flash: str = "▓▒░"
-
-        t = 0
-
-        async def draw(chars: list[str], dt: float = 0.0) -> None:
-            live.update(Text("".join(chars[:width]).ljust(width), style="bold"))
-            if dt > 0: await asyncio.sleep(dt)
-
-        def base_frame(tick: int) -> list[str]:
-            line = [random.choice(dust) if random.random() < 0.10 else " " for _ in range(width)]
-
-            x = tick % (2 * (width - 1))
-            x = (2 * (width - 1) - x) if x >= (width - 1) else x
-
-            line[x] = "█"
-
-            if 0 <= x - 1 < width and random.random() < 0.85: line[x - 1] = "▉"
-            if 0 <= x + 1 < width and random.random() < 0.85: line[x + 1] = "▊"
-
-            return line
-
-        def tear(line: list[str]) -> tuple[list[str], list[str]]:
-            a = random.randrange(0, width - 8)
-            b = random.randrange(a + 4, min(width, a + random.randint(10, 18)))
-
-            shift = random.choice([-4, -3, -2, 2, 3, 4])
-
-            out = line[:]
-            seg = out[a:b]
-            for i in range(a, b):
-                j = i + shift
-                if 0 <= j < width:
-                    out[j] = seg[i - a]
-
-            for i in range(a, b):
-                if random.random() < 0.28:
-                    out[i] = random.choice(flash)
-
-            rebound = line[:]
-            for i in range(a, b):
-                if random.random() < 0.18:
-                    rebound[i] = random.choice(flash)
-            return out, rebound
-
-        def blackout() -> list[str]:
-            return [
-                random.choice(flash) if random.random() < 0.55 else " "
-                for _ in range(width)
-            ]
-
-        def afterglow(line: list[str]) -> list[str]:
-            out = line[:]
-
-            for _ in range(random.randint(2, 6)):
-                k = random.randrange(0, width)
-                out[k] = random.choice(flash)
-
-            return out
-
-        async def render(line: list[str], *, glitch_p: float = 0.22) -> None:
-            if (r := random.random()) < glitch_p * 0.55:
-                await draw(blackout(), 0.012)
-                await draw(blackout(), 0.010)
-                await draw(afterglow(line), 0.014)
-                return None
-
-            if r < glitch_p:
-                torn, rebound = tear(line)
-                await draw(torn, 0.014)
-                await draw(blackout(), 0.010)
-                await draw(rebound, 0.014)
-                await draw(afterglow(line), 0.010)
-                return None
-
-            await draw(line)
-
-        async def settle(final_tick: int, *, steps: int = 10) -> None:
-            """收束：glitch 逐步熄灭 -> 噪点收拢到中心 -> 一次轻闪 -> 清空一行。"""
-            mid = width // 2
-            for s in range(steps):
-                line = base_frame(final_tick + s)
-
-                # glitch 概率逐步下降
-                gp = 0.18 * (1.0 - (s / max(steps - 1, 1)))
-
-                # 把噪点“吸向中心”（越往后吸得越狠）
-                pull, out = (s + 1) / steps, [" "] * width
-
-                for i, ch in enumerate(line):
-                    if ch.strip():
-                        j = int(i + (mid - i) * pull)
-                        j = max(0, min(width - 1, j))
-                        out[j] = ch
-
-                # 光标也收拢到中心，最后变成一个点
-                out[mid] = "█" if s < steps - 1 else "▉"
-
-                await render(out, glitch_p=gp)
-                await asyncio.sleep(0.010 + 0.010 * (s / steps))
-
-            # 轻闪一下（收尾“咔哒”）
-            await draw(blackout(), 0.014)
-            await draw([" "] * width, 0.010)
-
-        with Live(Text(" " * width), console=self.console, refresh_per_second=fps) as live:
-            while not stop_event.is_set():
-                t += 1
-                frame = base_frame(t)
-                await render(frame)
-                await asyncio.sleep(1 / fps)
-
-            await settle(t)
-            await draw([" "] * width)
-
     async def stream_wait_live(
         self,
         stop_event: asyncio.Event,
@@ -1317,16 +1195,16 @@ class Design(object):
             return chars, styles
 
         def frame(i: int) -> Text:
-            match theme:
-                case "fast":
-                    chars, styles = build_fast(i)
-                case "plan":
-                    chars, styles = build_plan(i)
-                case _:
-                    chars, styles = build_chat(i)
+            if theme == "fast":
+                chars, styles = build_fast(i)
+            elif theme == "plan":
+                chars, styles = build_plan(i)
+            else:
+                chars, styles = build_chat(i)
+
+            prefix = f"{spin[i % len(spin)]} "
 
             out = Text()
-            prefix = f"{spin[i % len(spin)]} "
             out.append(prefix, style=f"bold {colors['prefix']}")
 
             for pos, ch in enumerate(chars):
@@ -1350,252 +1228,248 @@ class Design(object):
 
             await settle(tick)
 
-    async def deep_thinking(self, task_info: list, task_event: asyncio.Event) -> None:
-        if self.design_level != const.SHOW_LEVEL:
-            return None
+    @classmethod
+    async def preview_tool_status_live(cls, duration: float = 15.0) -> None:
+        text     = "function calling"
+        phase    = 0.0
+        fps      = cls.tool_status_refresh_per_second()
+        interval = cls.tool_status_interval()
+        step     = cls.tool_status_step()
 
-        indent  = "  "
-        line_w  = min(68, max(44, self.console.width - 10))
-        inner_w = line_w - cell_len(indent)
+        deadline = asyncio.get_running_loop().time() + max(0.0, float(duration))
 
-        spin = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-        logo = const.APP_DESC
+        with Live(
+            cls.tool_status_renderable(phase, text),
+            console=cls.console,
+            refresh_per_second=fps,
+            transient=True
+        ) as live:
+            while asyncio.get_running_loop().time() < deadline:
+                await asyncio.sleep(interval)
+                phase += step
+                live.update(cls.tool_status_renderable(phase, text))
 
-        dur = 1.0
-        fps = 60
-        rng = random.Random(7)
+    @classmethod
+    async def preview_search_status_live(cls, duration: float = 15.0) -> None:
+        text     = "searching"
+        phase    = 0.0
+        fps      = 24
+        interval = 1 / 24
+        step     = 1.0
+        deadline = asyncio.get_running_loop().time() + max(0.0, float(duration))
 
-        steps = max(12, int(dur * fps))
+        with Live(
+            cls.search_status_renderable(phase, text),
+            console=cls.console,
+            refresh_per_second=fps,
+            transient=True
+        ) as live:
+            while asyncio.get_running_loop().time() < deadline:
+                await asyncio.sleep(interval)
+                phase += step
+                live.update(cls.search_status_renderable(phase, text))
 
-        def padding(out: Text) -> Text:
-            out.truncate(line_w, overflow="crop")
-            if (remain := line_w - cell_len(out.plain)) > 0:
-                out.append(" " * remain)
-            return out
+    @classmethod
+    def tool_status_renderable(cls, phase: float, text: str) -> Text:
+        colors = {
+            "edge"      : "bold #59666E",
+            "shell"     : "bold #9CB8BF",
+            "core"      : "bold #F8FEFF",
+            "pulse"     : "bold #E5F5F8",
+            "dust"      : "bold #6E8087",
+            "text_peak" : "bold #F7FEFF",
+            "text_near" : "bold #D6E7EB",
+            "text_mid"  : "bold #B3C5CB",
+            "text_dim"  : "bold #8698A0"
+        }
 
-        def shimmer_logo(t: int) -> Text:
-            pos = t % max(1, len(logo) + 6)
+        text  = str(text or "").strip() or "function calling"
+        span  = max(1, len(text))
+        sweep = ((math.sin(phase * 0.24) + 1.0) * 0.5) * max(1.0, span - 1)
 
-            out = Text()
-            out.append(indent)
-            out.append("⌁ ", style="bold #444444")
-            for i, ch in enumerate(logo):
-                if (d := abs((i + 2) - pos)) == 0:
-                    out.append(ch, style="bold #87FFFF")
-                elif d == 1:
-                    out.append(ch, style="bold #AFFFFF")
-                elif d == 2:
-                    out.append(ch, style="bold #5FFFFF")
-                else:
-                    out.append(ch, style="bold #BBBBBB")
+        out = cls._tool_status_indicator(phase)
+        out.append(" ", style=colors["edge"])
 
-            out.append("  ", style="bold")
-            return padding(out)
-
-        def scan_line(t: int, p: float) -> Text:
-            out  = Text(indent)
-            bar  = min(28, max(18, line_w - 24))
-            scan = int((bar - 1) * (0.5 + 0.5 * math.sin(p * math.tau)))
-
-            out.append(f"{spin[t % len(spin)]} ", style="bold #AFFFFF")
-            out.append("starting ", style="bold")
-            out.append("[", style="bold #666666")
-
-            for i in range(bar):
-                if i == scan:
-                    out.append("█", style="bold #87FFFF")
-                elif abs(i - scan) == 1:
-                    out.append("█", style="bold #5FFFFF")
-                else:
-                    out.append("·", style="#2A2A2A")
-
-            out.append("]", style="bold #666666")
-            out.append(" ", style="bold")
-
-            right = "warming…".ljust(10)
-            out.append(right, style="bold dim")
-
-            if (pulse := (t % 6)) in (0, 1):
-                out.append(" ▋", style="bold #87FFFF")
-            elif pulse in (2, 3):
-                out.append(" ▋", style="bold #5FFFFF")
+        for pos, char in enumerate(text):
+            if char == " ":
+                style = colors["text_dim"]
             else:
-                out.append(" ▋", style="bold #2A2A2A")
-
-            return padding(out)
-
-        def micro_glitch(t: int) -> Text:
-            phases = ["warming", "priming", "binding", "syncing"]
-            phase  = phases[(t // 10) % len(phases)]
-            base   = f"boot: {phase} • cache warm • tools online"
-
-            s = base.ljust(inner_w)
-            if t % 13 in (0, 1):
-                s_list = list(s)
-                for _ in range(3):
-                    idx = rng.randrange(0, len(s_list))
-                    s_list[idx] = rng.choice("≈≋∿-_/\\")
-                s = "".join(s_list)
-                out = Text(indent + s, style="dim #8A8A8A")
-            else:
-                out = Text(indent + s, style="dim #777777")
-
-            return padding(out)
-
-        def spark_bits(t: int, p: float) -> Text:
-            w = line_w - len(indent)
-
-            rng2 = random.Random(1000 + t)
-            hot1 = int((w - 1) * (0.5 + 0.5 * math.cos(p * math.tau)))
-            hot2 = int((w - 1) * (0.5 + 0.5 * math.sin((p * 0.85 + 0.17) * math.tau)))
-
-            out = Text(indent)
-            for i in range(w):
-                if i == hot1:
-                    out.append("*", style="bold #87FFFF")
-                elif abs(i - hot1) == 1:
-                    out.append("+", style="bold #5FFFFF")
-                elif i == hot2:
-                    out.append("•", style="dim #6BDDDD")
-                elif abs(i - hot2) == 1:
-                    out.append("·", style="dim #3A3A3A")
+                distance = abs(pos - sweep)
+                if distance < 0.55:
+                    style = colors["text_peak"]
+                elif distance < 1.4:
+                    style = colors["text_near"]
+                elif distance < 2.6:
+                    style = colors["text_mid"]
                 else:
-                    out.append(rng2.choice("01  "), style="bold #2A2A2A")
+                    style = colors["text_dim"]
+            out.append(char, style=style)
+        return out
 
-            return padding(out)
+    @classmethod
+    def tool_status_static_renderable(cls, text: str) -> Text:
+        colors = {
+            "edge"      : "bold #5B676F",
+            "text_peak" : "bold #DCE9ED",
+            "text_mid"  : "bold #A5B6BD",
+            "text_dim"  : "bold #7E9098"
+        }
 
-        def build_task_info() -> Text:
-            t = Text()
-            for info in task_info:
-                row = Text(f"{indent}{info}", style="bold #FFAF87")
-                row.truncate(line_w, overflow="ellipsis")
-                t.append_text(row)
-                t.append("\n")
-            return t
+        text   = str(text or "").strip() or "function calling"
+        center = max(0.0, (max(1, len(text)) - 1) / 2)
+        out    = cls._tool_status_indicator(0.0, subtle=True)
+        out.append(" ", style=colors["edge"])
 
-        def finished() -> None:
-            final = Text()
-            final.append("\n")
-            final.append(indent + f"✓ {const.APP_DESC} Ready\n", style="bold #87FF00")
-            final.append_text(build_task_info())
-            final.append("\n")
-            self.console.print(final)
+        for pos, char in enumerate(text):
+            if char == " ":
+                style = colors["text_dim"]
+            else:
+                distance = abs(pos - center)
+                if distance < 1.2:
+                    style = colors["text_peak"]
+                elif distance < 3.0:
+                    style = colors["text_mid"]
+                else:
+                    style = colors["text_dim"]
+            out.append(char, style=style)
+        return out
 
-        def frame(t: int, p: float) -> Text:
-            txt = Text()
-            txt.append("\n")
-            txt.append_text(shimmer_logo(t))
-            txt.append("\n")
-            txt.append_text(scan_line(t, p))
-            txt.append("\n")
-            txt.append_text(micro_glitch(t))
-            txt.append("\n")
-            txt.append_text(spark_bits(t, p))
-            txt.append("\n")
-            txt.append_text(build_task_info())
+    @classmethod
+    def search_status_renderable(cls, phase: float, text: str) -> Text:
+        stable_colors = {
+            "edge"     : "bold #4B5861",
+            "core"     : "bold #EAF4F6",
+            "near"     : "bold #C5D7DC",
+            "trail"    : "bold #8CA5AD",
+            "dust"     : "bold #55656D",
+            "text"     : "bold #EDF4F5",
+            "text_dim" : "bold #92A5AB"
+        }
 
-            return txt
+        colors  = stable_colors
+        breathe = 0.5 + (0.5 * math.sin(phase * 0.55))
+        halo    = 0.5 + (0.5 * math.sin((phase * 0.55) - 0.9))
+        drift   = int(phase * 0.65) % max(1, len(text))
+        core    = "◉" if breathe > 0.7 else ("◎" if breathe > 0.42 else "◌")
+        left    = "◦" if halo > 0.72 else ("·" if halo > 0.38 else " ")
 
-        with Live(frame(0, 0.0), console=self.console, refresh_per_second=fps, transient=True) as live:
-            tick = 0
-            while not task_event.is_set():
-                for step in range(steps):
-                    live.update(frame(tick, (step + 1) / steps))
-                    tick += 1
-                    await asyncio.sleep(1 / fps)
+        right_phase = 0.5 + (0.5 * math.sin((phase * 0.55) + 0.9))
 
-        finished()
+        right  = "◦" if right_phase > 0.72 else ("·" if right_phase > 0.38 else " ")
+        accent = "·" if breathe > 0.82 else " "
 
+        out = Text()
 
-class TypewriterStreamSession(object):
+        out.append("‹", style=colors["edge"])
+        out.append(left, style=colors["near"] if left == "◦" else colors["trail"])
+        out.append(" ", style=colors["edge"])
+        out.append(core, style=colors["core"])
+        out.append(" ", style=colors["edge"])
+        out.append(right, style=colors["near"] if right == "◦" else colors["trail"])
+        out.append(" ", style=colors["edge"])
+        out.append(accent, style=colors["dust"] if accent == " " else colors["trail"])
+        out.append("›", style=colors["edge"])
 
-    MIN_VIEW_LINES = 6
-    VIEW_MARGIN    = 4
+        out.append(" ", style=colors["edge"])
+        for pos, char in enumerate(text):
+            style = colors["text"] if pos == drift else colors["text_dim"]
+            if char == " ":
+                style = colors["text_dim"]
+            out.append(char, style=style)
+        return out
 
-    def __init__(self, max_lines: int = 12) -> None:
-        self.lines: deque = deque(maxlen=max_lines)
-        self.out: str     = ""
-        self.col: int     = 0
-        self.delay: float = 0.01
-        self.cursor: str  = random.choice(["█", "▉", "▋"])
+    @classmethod
+    def thinking_status_renderable(cls, phase: float, text: str) -> Text:
+        colors = {
+            "edge"     : "bold #4E5B63",
+            "dot"      : "bold #E7F0F2",
+            "dot_soft" : "bold #C6D4D8",
+            "dot_dim"  : "bold #7F9299",
+            "text"     : "bold #E4ECEE",
+            "text_dim" : "bold #8FA2A8"
+        }
 
-        self.live: typing.Optional[Live] = None
+        text = str(text or "").strip() or "thinking"
+        breathe = 0.5 + (0.5 * math.sin(phase * 0.42))
+        side    = 0.5 + (0.5 * math.sin((phase * 0.42) + 1.4))
+        trail   = 0.5 + (0.5 * math.sin((phase * 0.42) - 1.1))
 
-    def _viewport_lines(self) -> int:
-        height = max(0, int(getattr(Design.console, "height", 0) or 0))
-        if height <= 0:
-            return self.lines.maxlen
-        return max(self.MIN_VIEW_LINES, min(self.lines.maxlen, height - self.VIEW_MARGIN))
+        out = Text()
 
-    def _tail_text(self, text: str) -> str:
-        max_lines = self._viewport_lines()
-        if not text or max_lines <= 0:
-            return text
+        left = "·" if trail > 0.64 else " "
+        core = "◉" if breathe > 0.74 else ("◎" if breathe > 0.42 else "◌")
+        right = "·" if side > 0.64 else " "
 
-        parts = text.split("\n")
-        if text.endswith("\n"):
-            rows = parts[-max_lines - 1:]
+        out.append("‹", style=colors["edge"])
+        out.append(left, style=colors["dot_dim"] if left.strip() else colors["edge"])
+        out.append(" ", style=colors["edge"])
+        out.append(core, style=colors["dot"] if breathe > 0.58 else colors["dot_soft"])
+        out.append(" ", style=colors["edge"])
+        out.append(right, style=colors["dot_soft"] if right.strip() else colors["edge"])
+        out.append("›", style=colors["edge"])
+        out.append(" ", style=colors["edge"])
+
+        focus = ((math.sin((phase * 0.18) - 0.6) + 1.0) * 0.5) * max(1.0, len(text) - 1)
+        for pos, char in enumerate(text):
+            if char == " ":
+                style = colors["text_dim"]
+            else:
+                distance = abs(pos - focus)
+                style = colors["text"] if distance < 0.8 else colors["text_dim"]
+            out.append(char, style=style)
+        return out
+
+    @classmethod
+    def tool_status_refresh_per_second(cls) -> int:
+        refresh_per_second = 18
+        return refresh_per_second
+
+    @classmethod
+    def tool_status_interval(cls) -> float:
+        interval = 1 / cls.tool_status_refresh_per_second()
+        return interval
+
+    @classmethod
+    def tool_status_step(cls) -> float:
+        step = 0.7
+        return step
+
+    @classmethod
+    def _tool_status_indicator(cls, phase: float, *, subtle: bool = False) -> Text:
+        colors = {
+            "edge"  : "bold #59666E",
+            "shell" : "bold #A7C2C9",
+            "core"  : "bold #F8FEFF",
+            "pulse" : "bold #E5F5F8",
+            "dust"  : "bold #6E8087"
+        }
+        if subtle:
+            breathe = 0.46
+            halo = 0.58
         else:
-            rows = parts[-max_lines:]
-        return "\n".join(rows)
+            breathe = 0.5 + (0.5 * math.sin(phase * 0.52))
+            halo = 0.5 + (0.5 * math.sin((phase * 0.52) - 0.85))
+        iris_frames = ("◜", "◠", "◝", "◞", "◡", "◟")
+        iris = "◠" if subtle else iris_frames[int(phase * 0.85) % len(iris_frames)]
+        chamber_left = "·" if halo > 0.72 else " "
+        chamber_right = "·" if halo < 0.28 else " "
+        if subtle:
+            core = "◉"
+            echo = " "
+        else:
+            core = "✺" if breathe > 0.82 else ("✹" if breathe > 0.64 else ("◉" if breathe > 0.42 else "◎"))
+            echo = "·" if breathe > 0.88 else " "
+        out = Text()
 
-    def _tail_renderable(self) -> Text:
-        return Text(self._tail_text(self.out), style="bold")
-
-    async def start(self) -> None:
-        if self.live: return None
-        self.live = Live(
-            self._tail_renderable(),
-            console=Design.console,
-            refresh_per_second=12,
-            transient=True,
-            vertical_overflow="crop"
-        )
-        self.live.__enter__()
-
-    async def stop(self) -> None:
-        if self.live is not None:
-            try:
-                await Design.cursor_blink(
-                    self.live, self.out, self.cursor, max_lines=self._viewport_lines()
-                )
-            finally:
-                self.live.__exit__(None, None, None)
-                self.live = None
-
-        if self.out:
-            Design.console.print(Text(self.out, style="bold"))
-        Design.console.print()
-
-    async def feed(self, delta: str) -> None:
-        if not delta or not self.live:
-            return None
-
-        final_delay = max(0.0015, self.delay * 0.65)
-
-        self.out, self.delay = await Design.typewriter(
-            self.live, delta, self.out, self.delay, final_delay, self.cursor,
-            max_lines=self._viewport_lines()
-        )
-
-    async def render(self, content: str) -> None:
-        if self.live is None:
-            return None
-
-        self.out = content
-        self.live.update(self._tail_renderable())
-
-    async def sync(self, content: str, *, animate: bool = False) -> None:
-        if self.live is None:
-            return None
-
-        if animate and content.startswith(self.out):
-            delta = content[len(self.out):]
-            if delta:
-                return await self.feed(delta)
-            return None
-
-        await self.render(content)
+        out.append("⟬", style=colors["edge"])
+        out.append(chamber_left, style=colors["dust"])
+        out.append(iris, style=colors["shell"] if breathe < 0.76 else colors["pulse"])
+        out.append(core, style=colors["core"] if breathe > 0.58 else colors["pulse"])
+        out.append(iris, style=colors["shell"] if breathe < 0.76 else colors["pulse"])
+        out.append(chamber_right, style=colors["dust"])
+        out.append(echo, style=colors["dust"] if echo.strip() else colors["edge"])
+        out.append("⟭", style=colors["edge"])
+        return out
 
 
 if __name__ == '__main__':

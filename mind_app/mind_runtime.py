@@ -9,11 +9,11 @@ import contextlib
 from loguru import logger
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from engine.tinker import StreamTyperLogger
-from mind_nova.request import EventReport
+from mind_nova.events import EventReport
 from mind_nova import (
     authentic, const, request
 )
+from .stream_ui import StreamUI
 
 if typing.TYPE_CHECKING:
     from .mind_core import Mind
@@ -149,14 +149,14 @@ async def with_mcp_guard(
 async def wakeup(
     mind: "Mind",
     session: ClientSession,
-    stream_logger: typing.Optional[StreamTyperLogger] = None
+    stream_ui: typing.Optional[StreamUI] = None
 ) -> typing.Optional[str]:
     """按 TTL 触发设备刷新，避免高频重复 refresh。"""
 
     if ((now := time.time()) - mind.last_refresh_ts) < mind.ttl_sec:
         tip = f"ttl-hit: skip refresh ttl={mind.ttl_sec:.3f}s"
-        if stream_logger and mind.level != const.SHOW_LEVEL:
-            return await stream_logger.feed(tip, display=StreamTyperLogger.BLOCK)
+        if stream_ui and mind.level != const.SHOW_LEVEL:
+            return await stream_ui.feed(tip, display=StreamUI.BLOCK)
         return logger.debug(tip)
 
     result = await session.call_tool("refresh", {"ttl_sec": mind.ttl_sec})
@@ -168,8 +168,8 @@ async def wakeup(
 
     mind.last_refresh_ts = now
 
-    if stream_logger and mind.level != const.SHOW_LEVEL:
-        return await stream_logger.feed(content, display=StreamTyperLogger.BLOCK)
+    if stream_ui and mind.level != const.SHOW_LEVEL:
+        return await stream_ui.feed(content, display=StreamUI.BLOCK)
     return logger.debug(content)
 
 

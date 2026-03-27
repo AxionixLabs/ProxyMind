@@ -8,10 +8,10 @@ from pathlib import Path
 from loguru import logger
 from mcp import ClientSession
 from mcp.types import CallToolResult
-from engine.tinker import StreamTyperLogger
 from mind_core.api import Api
 from mind_nova.report import Report
 from mind_nova import request
+from mind_app.stream_ui import StreamUI
 
 
 class Enhancer(object):
@@ -441,7 +441,7 @@ class Enhancer(object):
         arguments: dict[str, typing.Any],
         result: CallToolResult,
         ok: bool,
-        slog: typing.Optional[StreamTyperLogger] = None
+        slog: typing.Optional[StreamUI] = None
     ) -> typing.Union[str, dict[str, typing.Any]]:
         """Enhance"""
         fields = self.fields(result)
@@ -475,7 +475,7 @@ class Enhancer(object):
     async def __nexus(
         self,
         result: CallToolResult,
-        slog: typing.Optional[StreamTyperLogger] = None
+        slog: typing.Optional[StreamUI] = None
     ) -> typing.Union[str, dict[str, typing.Any]]:
         """Nexus: 全量静默落盘并返回原始 fields。"""
         fields = self.fields(result)
@@ -490,7 +490,7 @@ class Enhancer(object):
     async def __free_rule(
         self,
         result: CallToolResult,
-        slog: typing.Optional[StreamTyperLogger] = None
+        slog: typing.Optional[StreamUI] = None
     ) -> dict[str, typing.Any]:
         """Free Rule"""
 
@@ -508,7 +508,6 @@ class Enhancer(object):
 
         if slog:
             await slog.open()
-            await slog.start()
 
         try:
             for element in results:
@@ -607,7 +606,7 @@ class Enhancer(object):
         self,
         arguments: dict[str, typing.Any],
         result: CallToolResult,
-        slog: typing.Optional[StreamTyperLogger] = None
+        slog: typing.Optional[StreamUI] = None
     ) -> typing.Optional[dict[str, typing.Any]]:
         fields_map = self.fields_map(result)
         attachments: list[dict[str, str]] = []
@@ -655,7 +654,7 @@ class Enhancer(object):
                     }
                     per_agent[serial] = {"ok": True, "locator": locator, "reason": reason}
 
-                if slog: await slog.feed(reason, display=StreamTyperLogger.BLOCK)
+                if slog: await slog.feed(reason, display=StreamUI.BLOCK)
                 else: logger.debug(reason)
 
         matrix = {k: v["locator"] for k, v in per_agent.items() if v.get("locator")}
@@ -698,12 +697,12 @@ class Enhancer(object):
     async def __loop_steps(
         self,
         result: CallToolResult,
-        slog: typing.Optional[StreamTyperLogger] = None
+        slog: typing.Optional[StreamUI] = None
     ) -> dict[str, typing.Any]:
 
         async def say(line: str) -> None:
             if slog:
-                return await slog.feed(line, display=StreamTyperLogger.BLOCK)
+                return await slog.feed(line, display=StreamUI.BLOCK)
 
         fields = self.fields_map(result)
 

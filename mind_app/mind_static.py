@@ -7,13 +7,13 @@ from loguru import logger
 from mcp import ClientSession
 from mind_core.design import Design
 from engine.enhancer import Enhancer
-from engine.tinker import (
-    Tooling, StreamTyperLogger
-)
-from mind_nova.request import EventReport
+from engine.tinker import Tooling
+from mind_nova.events import EventReport
 from mind_nova import (
     craft, request
 )
+from .stream_ui import StreamUI
+from .stream_support.finish import finish_stream
 
 if typing.TYPE_CHECKING:
     from .mind_core import Mind
@@ -45,13 +45,8 @@ async def static_looper(
         if ev_report:
             ev_report.emit(event)
 
-    async def finish(phase: str, **extra) -> None:
-        """统一结束编排执行，并在返回前刷完事件。"""
-        if not ev_report: return None
-        ev_report.emit({"type": phase, "ts": time.time(), **extra})
-        await ev_report.flush()
-
-    slog: StreamTyperLogger = StreamTyperLogger(mind.report.log_papers)
+    slog: StreamUI = StreamUI(mind.report.log_papers)
+    await slog.open()
     result = await session.call_tool("refresh", {"ttl_sec": mind.ttl_sec})
     extras = None if result.isError else {"devices": result.content[0].text}
 
@@ -81,34 +76,40 @@ async def static_looper(
 
             event_type = str(plan.get("type") or "")
 
+            if event_type == "plan.start":
+                await slog.begin_reply_wait_status()
+                continue
+
             if event_type == "plan.failed":
                 error = str(plan.get("error") or "plan request failed")
-                await finish(phase="plan.failed", error=error)
+                await finish_stream(ev_report, phase="plan.failed", error=error)
                 return logger.error(f"{plan}\n")
 
             if event_type != "plan.result":
                 continue
 
+            await slog.end_status()
+
             if not isinstance(result := plan.get("result"), dict):
-                await finish(phase="plan.failed", error="plan.result missing result payload")
+                await finish_stream(ev_report, phase="plan.failed", error="plan.result missing result payload")
                 return logger.error(f"{plan}\n")
 
             result_type = str(result.get("type") or "")
             if result_type == "error":
                 error = str(result.get("reasoning") or result.get("goal") or "plan unavailable")
-                await finish(phase="plan.failed", error=error)
+                await finish_stream(ev_report, phase="plan.failed", error=error)
                 return logger.error(f"{plan}\n")
 
             steps = result.get("steps")
             if not isinstance(steps, list):
                 logger.warning(plan)
-                await finish(phase="plan.failed", error="plan.result missing executable steps")
+                await finish_stream(ev_report, phase="plan.failed", error="plan.result missing executable steps")
                 return logger.error(f"{plan}\n")
 
             loop_count = result.get("loop_count")
             if not isinstance(loop_count, int):
                 logger.warning(plan)
-                await finish(phase="plan.failed", error="plan.result invalid loop_count")
+                await finish_stream(ev_report, phase="plan.failed", error="plan.result invalid loop_count")
                 return logger.error(f"{plan}\n")
 
             logger.debug(f"Loop Count -> {loop_count}")
@@ -138,7 +139,9 @@ async def static_looper(
 
                 for step_idx, step in enumerate(steps, start=1):
                     action = step["action"]
+
                     name, arguments = action["action"], action["args"]
+                    summary = Tooling.summarize_tool_arguments(name, arguments)
 
                     step_context: dict[str, typing.Any] = {
                         "run"     : index,
@@ -165,7 +168,8 @@ async def static_looper(
 
                     if Tooling.needs_wakeup(tool_meta, name):
                         if error := await mind.wakeup(session):
-                            await finish(
+                            await finish_stream(
+                                ev_report,
                                 phase="exec.failed",
                                 error=str(error),
                                 run=index,
@@ -174,7 +178,7 @@ async def static_looper(
                             )
                             return logger.error(f"{error}\n")
 
-                    logger.info(Tooling.summarize_tool_arguments(name, arguments))
+                    logger.info(summary)
 
                     arguments = Enhancer.exchange(name, arguments, mind.report)
                     if name == "free_rule":
@@ -205,15 +209,20 @@ async def static_looper(
                     })
 
                     started_at = time.time()
-                    result = await session.call_tool(name, arguments)
-                    ok = not result.isError
 
-                    enhancer: Enhancer = Enhancer(session, mode, model_api, kwargs.get("metadata"))
-                    fields = await enhancer.enhance(name, arguments, result, ok, slog)
+                    await slog.begin_tool_status()
+                    try:
+                        result = await session.call_tool(name, arguments)
+                        ok = not result.isError
 
-                    step_context["ok"] = ok
-                    step_context["text"] = fields.get("text") if isinstance(fields, dict) else ""
-                    step_context["data"] = fields.get("data") if isinstance(fields, dict) else None
+                        enhancer: Enhancer = Enhancer(session, mode, model_api, kwargs.get("metadata"))
+                        fields = await enhancer.enhance(name, arguments, result, ok, slog)
+                    finally:
+                        await slog.end_status()
+
+                    step_context["ok"]      = ok
+                    step_context["text"]    = fields.get("text") if isinstance(fields, dict) else ""
+                    step_context["data"]    = fields.get("data") if isinstance(fields, dict) else None
                     step_context["cost_ms"] = int((time.time() - started_at) * 1000)
 
                     runtime_context["steps"].append(step_context)
@@ -234,7 +243,8 @@ async def static_looper(
                     if not ok or not data_ok:
                         step_context["data_ok"] = data_ok
                         brief_err = fields.get("text") if isinstance(fields, dict) else "step failed"
-                        await finish(
+                        await finish_stream(
+                            ev_report,
                             phase="exec.failed",
                             run=index,
                             index=step_idx,
@@ -264,7 +274,12 @@ async def static_looper(
                 if index != loop_count:
                     mind.task_info.clear()
 
-        await finish(phase="exec.done", status="completed", loop_count=runtime_context["loop_count"])
+        await finish_stream(
+            ev_report,
+            phase="exec.done",
+            status="completed",
+            loop_count=runtime_context["loop_count"]
+        )
 
     finally:
         await slog.stop()
