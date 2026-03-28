@@ -1,29 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ==============================
-# Helix :: macOS 编译脚本
-# 说明：
-# 1. 先切回项目根目录再执行编译
-# 2. 编译前检查 nuitka 是否已安装
-# 3. 编译完成后删除 build、dist 目录
-# ==============================
-
-# 切换到项目根目录
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
-# 检查 nuitka 是否已安装
-if ! command -v nuitka >/dev/null 2>&1; then
+NUITKA_BIN=""
+if [ -x "$ROOT_DIR/venv/bin/nuitka" ]; then
+  NUITKA_BIN="$ROOT_DIR/venv/bin/nuitka"
+elif command -v nuitka >/dev/null 2>&1; then
+  NUITKA_BIN="$(command -v nuitka)"
+fi
+
+if [ -z "$NUITKA_BIN" ]; then
   echo "❌ 未检测到 nuitka，请先安装："
   echo "   pip install nuitka"
   exit 1
 fi
 
-echo "✅ 已检测到 nuitka：$(command -v nuitka)"
+echo "✅ 已检测到 nuitka：$NUITKA_BIN"
 echo "🚀 开始编译 Helix macOS App Bundle..."
 
-nuitka \
+"$NUITKA_BIN" \
   --macos-create-app-bundle \
   --macos-app-name=Helix \
   --macos-app-version=1.0.0 \
