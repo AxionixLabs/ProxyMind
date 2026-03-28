@@ -1,29 +1,36 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 
 REM ==============================
-REM Helix :: Windows 编译脚本
-REM 说明：
-REM 1. 先切回项目根目录再执行编译
-REM 2. 编译前检查 nuitka 是否已安装
-REM 3. 编译完成后删除 build 目录
+REM Helix :: Windows build script
+REM 1. Switch to project root before compiling
+REM 2. Check whether nuitka is available
+REM 3. Remove build directories after compiling
 REM ==============================
 
-REM 切换到项目根目录（backend 的上一层）
-cd /d "%~dp0.."
+REM Switch to project root (parent of backend)
+for %%I in ("%~dp0..") do set "ROOT_DIR=%%~fI"
+cd /d "%ROOT_DIR%"
+if errorlevel 1 exit /b 1
 
-REM 检查 nuitka 是否已安装
-where nuitka >nul 2>nul
-if errorlevel 1 (
-    echo ❌ 未检测到 nuitka，请先安装：
+REM Check whether nuitka is installed
+set "NUITKA_PATH="
+if exist "%ROOT_DIR%\venv\Scripts\nuitka.cmd" (
+    set "NUITKA_PATH=%ROOT_DIR%\venv\Scripts\nuitka.cmd"
+) else (
+    for /f "delims=" %%I in ('where.exe nuitka 2^>nul') do if not defined NUITKA_PATH set "NUITKA_PATH=%%I"
+)
+
+if not defined NUITKA_PATH (
+    echo [ERROR] Nuitka was not found.
     echo    pip install nuitka
     exit /b 1
 )
 
-echo ✅ 已检测到 nuitka
-echo 🚀 开始编译 Helix Windows Standalone...
+echo [INFO] Nuitka: %NUITKA_PATH%
+echo [INFO] Building Helix Windows Standalone...
 
-nuitka ^
+call "%NUITKA_PATH%" ^
   --mode=standalone ^
   --product-name=Helix ^
   --product-version=1.0.0 ^
@@ -37,12 +44,12 @@ nuitka ^
   backend/helix.py
 
 if errorlevel 1 (
-    echo ❌ Windows 编译失败
+    echo [ERROR] Windows build failed.
     exit /b 1
 )
 
-echo 🧹 清理 Windows 编译中间目录...
-for /d %%D in ("schematic\supports\windows\*.build") do rmdir /s /q "%%D"
+echo [INFO] Cleaning Windows build directories...
+for /d %%D in ("schematic\supports\windows\*.build") do if exist "%%~fD" rmdir /s /q "%%~fD"
 
-echo ✅ Helix Windows 编译完成
+echo [OK] Helix Windows build completed.
 endlocal
