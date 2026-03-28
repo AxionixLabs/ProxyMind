@@ -26,7 +26,7 @@ from mind_core.prompting_ghost import (
     build_intent_templates,
 )
 
-PROMPT_TAG = typing.Literal["CHAT", "FAST", "PLAN"]
+RUN_MODE = typing.Literal["chat", "fast", "plan"]
 
 
 class SlashCommandCompleter(Completer):
@@ -83,8 +83,8 @@ class SlashCommandCompleter(Completer):
 class CommandAutoSuggest(AutoSuggest):
     """Dim inline suggestions for parameterized slash commands."""
 
-    MODE_ALLOWED_DOMAINS: dict[PROMPT_TAG, frozenset[str]] = {
-        "CHAT": frozenset({
+    MODE_ALLOWED_DOMAINS: dict[RUN_MODE, frozenset[str]] = {
+        "chat": frozenset({
             "device_connection",
             "app_lifecycle",
             "ui_action",
@@ -107,7 +107,7 @@ class CommandAutoSuggest(AutoSuggest):
             "media_audio",
             "report",
         }),
-        "FAST": frozenset({
+        "fast": frozenset({
             "inspect_runtime",
             "security",
             "network_http",
@@ -119,7 +119,7 @@ class CommandAutoSuggest(AutoSuggest):
             "media_audio",
             "report",
         }),
-        "PLAN": frozenset({
+        "plan": frozenset({
             "device_connection",
             "app_lifecycle",
             "ui_action",
@@ -137,15 +137,15 @@ class CommandAutoSuggest(AutoSuggest):
             "report",
         }),
     }
-    MODE_PREFERRED_PHRASES: dict[PROMPT_TAG, dict[str, tuple[str, ...]]] = {
-        "CHAT": {
+    MODE_PREFERRED_PHRASES: dict[RUN_MODE, dict[str, tuple[str, ...]]] = {
+        "chat": {
             "查看": ("设备信息", "页面结构", "HTTP 响应", "内存趋势", "视频信息"),
             "分析": ("接口响应", "视频帧", "内存趋势", "页面切换速度"),
             "生成": ("内存报告", "阶段帧分析报告", "执行结果"),
             "提取": ("关键帧", "场景帧", "音轨"),
             "打开": ("设置", "应用", "录屏"),
         },
-        "FAST": {
+        "fast": {
             "查看": ("HTTP 响应", "接口响应", "响应", "SSE 事件流", "WebSocket 消息", "视频信息"),
             "分析": ("HTTP 响应", "接口响应", "GraphQL 响应", "视频帧"),
             "生成": ("结果摘要", "执行结果"),
@@ -157,7 +157,7 @@ class CommandAutoSuggest(AutoSuggest):
             "抽取": ("音轨", "截图"),
             "抽": ("关键帧", "场景帧", "音轨", "截图"),
         },
-        "PLAN": {
+        "plan": {
             "查看": ("设备信息", "当前控件树", "当前焦点"),
             "打开": ("设置", "通知栏", "应用"),
             "开": ("设置", "通知栏", "应用"),
@@ -167,20 +167,20 @@ class CommandAutoSuggest(AutoSuggest):
             "滚动": ("到目标元素", "到顶部", "到底部"),
         },
     }
-    MODE_BLOCKED_FULL_PHRASES: dict[PROMPT_TAG, frozenset[str]] = {
-        "CHAT": frozenset(),
-        "FAST": frozenset(),
-        "PLAN": frozenset({"循环执行步骤"}),
+    MODE_BLOCKED_FULL_PHRASES: dict[RUN_MODE, frozenset[str]] = {
+        "chat": frozenset(),
+        "fast": frozenset(),
+        "plan": frozenset({"循环执行步骤"}),
     }
 
     def __init__(self) -> None:
-        self.tag: PROMPT_TAG = "CHAT"
+        self.mode: RUN_MODE = "chat"
         self.templates: dict[str, str] = COMMAND_TEMPLATES
         self.chat_templates: tuple[tuple[str, str], ...] = CHAT_TEMPLATES
         self.intent_templates: tuple[dict[str, typing.Any], ...] = build_intent_templates()
 
-    def set_tag(self, tag: PROMPT_TAG) -> None:
-        self.tag = tag
+    def set_mode(self, mode: RUN_MODE) -> None:
+        self.mode = mode
 
     def _mode_alias_suggestion(self, text: str) -> typing.Optional[Suggestion]:
         stripped = text.strip().lower()
@@ -188,9 +188,9 @@ class CommandAutoSuggest(AutoSuggest):
             return None
 
         candidates: list[tuple[int, str]] = []
-        for prefix, suffix in MODE_ALIAS_TEMPLATES[self.tag]:
+        for prefix, suffix in MODE_ALIAS_TEMPLATES[self.mode]:
             full = f"{prefix}{suffix}"
-            if full in self.MODE_BLOCKED_FULL_PHRASES[self.tag]:
+            if full in self.MODE_BLOCKED_FULL_PHRASES[self.mode]:
                 continue
             if full == stripped:
                 continue
@@ -210,7 +210,7 @@ class CommandAutoSuggest(AutoSuggest):
         return Suggestion(candidates[0][1])
 
     def _phrase_priority(self, verb: str, suggestion: str) -> int:
-        preferred = self.MODE_PREFERRED_PHRASES[self.tag].get(verb, ())
+        preferred = self.MODE_PREFERRED_PHRASES[self.mode].get(verb, ())
         for idx, phrase in enumerate(preferred):
             if suggestion == phrase:
                 return len(preferred) - idx
@@ -276,8 +276,8 @@ class CommandAutoSuggest(AutoSuggest):
                 item
                 for item in self.intent_templates
                 if stripped == item["verb"]
-                and item["domain"] in self.MODE_ALLOWED_DOMAINS[self.tag]
-                and f"{item['verb']}{item['suggestion']}" not in self.MODE_BLOCKED_FULL_PHRASES[self.tag]
+                and item["domain"] in self.MODE_ALLOWED_DOMAINS[self.mode]
+                and f"{item['verb']}{item['suggestion']}" not in self.MODE_BLOCKED_FULL_PHRASES[self.mode]
             ]
             if matched:
                 matched.sort(
@@ -293,10 +293,10 @@ class CommandAutoSuggest(AutoSuggest):
 
             prefix_intents = []
             for item in self.intent_templates:
-                if item["domain"] not in self.MODE_ALLOWED_DOMAINS[self.tag]:
+                if item["domain"] not in self.MODE_ALLOWED_DOMAINS[self.mode]:
                     continue
                 full = f"{item['verb']}{item['suggestion']}"
-                if full in self.MODE_BLOCKED_FULL_PHRASES[self.tag]:
+                if full in self.MODE_BLOCKED_FULL_PHRASES[self.mode]:
                     continue
                 if full.startswith(stripped) and full != stripped:
                     remain = full[len(stripped):]
@@ -450,24 +450,24 @@ class PromptToolkitBox(object):
         return self.session
 
     @staticmethod
-    def _theme(tag: PROMPT_TAG) -> dict[str, str]:
+    def _theme(mode: RUN_MODE) -> dict[str, str]:
         return {
-            "CHAT": {
+            "chat": {
                 "brand": "#4F8FC8",
                 "soft": "#2F6FAD",
                 "placeholder": "Chat 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
             },
-            "FAST": {
+            "fast": {
                 "brand": "#4FA37D",
                 "soft": "#2E7D5B",
                 "placeholder": "Fast 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
             },
-            "PLAN": {
+            "plan": {
                 "brand": "#866FD1",
                 "soft": "#6B57B8",
                 "placeholder": "Plan 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
             }
-        }[tag]
+        }[mode]
 
     @staticmethod
     def _clip_model_name(model: str, limit: int) -> str:
@@ -500,11 +500,11 @@ class PromptToolkitBox(object):
             f"<prompt.kicker>.</prompt.kicker> "
         )
 
-    async def prompt_async(self, *, tag: PROMPT_TAG, model: str) -> str:
+    async def prompt_async(self, *, mode: RUN_MODE, model: str) -> str:
         """Render a themed async prompt."""
-        th = self._theme(tag)
+        th = self._theme(mode)
         message = self._render_message(model, th)
-        self.auto_suggest.set_tag(tag)
+        self.auto_suggest.set_mode(mode)
 
         with patch_stdout(raw=True):
             value = await self._get_session().prompt_async(

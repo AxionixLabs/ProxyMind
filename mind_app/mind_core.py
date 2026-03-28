@@ -18,14 +18,9 @@ from mind_core.preference import Preferences
 from mind_nova.report import Report
 from mind_nova import craft
 from .stream_ui import StreamUI
-from .mind_modes import (
-    mind_chat as run_mind_chat,
-    mind_fast as run_mind_fast,
-    mind_loop as run_mind_loop,
-    mind_plan as run_mind_plan,
-    static_looper as run_static_looper,
-    stream_looper as run_stream_looper,
-)
+from .mind_repl import mind_loop as run_mind_loop
+from .mind_static import static_looper as run_static_looper
+from .mind_stream import stream_looper as run_stream_looper
 from .mind_batch import mind_pack as run_mind_pack
 from .mind_runtime import (
     calling as run_calling,
@@ -175,12 +170,12 @@ class Mind(object):
         self,
         runner: typing.Callable[..., typing.Awaitable[None]],
         *,
-        anim_mode: typing.Literal["chat", "fast", "plan"] = "chat",
+        mode: typing.Literal["chat", "fast", "plan"] = "chat",
         **kwargs
     ) -> None:
         """执行保护入口：统一委托给运行时模块处理动画和异常。"""
 
-        return await run_with_mcp_guard(self, runner, anim_mode=anim_mode, **kwargs)
+        return await run_with_mcp_guard(self, runner, mode=mode, **kwargs)
 
     async def wakeup(
         self,
@@ -195,16 +190,14 @@ class Mind(object):
         model_api: typing.Optional[dict[str, typing.Any]] = None,
         *,
         message: str,
-        func: typing.Callable,
         mode: typing.Literal["chat", "fast", "plan"] = "chat",
         **kwargs,
     ) -> None:
-        """调用入口：统一委托运行时模块处理 metadata 和事件报告。"""
+        """调用入口：统一委托运行时模块按 mode 执行单次请求。"""
         return await run_calling(
             self,
             model_api=model_api,
             message=message,
-            runner=func,
             mode=mode,
             **kwargs
         )
@@ -255,18 +248,6 @@ class Mind(object):
             **kwargs
         )
 
-    async def mind_chat(self, model_api: dict[str, typing.Any], message: str, *_, **kwargs) -> None:
-        """对话模式入口：委托给模式调度模块。"""
-        return await run_mind_chat(self, model_api, message, **kwargs)
-
-    async def mind_fast(self, model_api: dict[str, typing.Any], message: str, *_, **kwargs) -> None:
-        """高速模式入口：委托给模式调度模块。"""
-        return await run_mind_fast(self, model_api, message, **kwargs)
-
-    async def mind_plan(self, model_api: dict[str, typing.Any], message: str, *_, **kwargs) -> None:
-        """编排模式入口：委托给模式调度模块。"""
-        return await run_mind_plan(self, model_api, message, **kwargs)
-
     async def mind_loop(self) -> None:
         """交互循环入口：委托给模式调度模块。"""
         return await run_mind_loop(self)
@@ -275,12 +256,11 @@ class Mind(object):
         self,
         code: list[str],
         mode: typing.Literal["chat", "fast", "plan"],
-        func: typing.Callable[..., typing.Awaitable[None]],
         *_,
         **kwargs
     ) -> None:
         """批处理入口：委托给批处理模块。"""
-        return await run_mind_pack(self, code, mode, func, **kwargs)
+        return await run_mind_pack(self, code, mode, **kwargs)
 
 
 if __name__ == '__main__':

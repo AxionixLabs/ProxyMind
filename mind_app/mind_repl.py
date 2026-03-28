@@ -9,47 +9,19 @@ from mind_core.design import Design
 from mind_core import authorize
 from mind_nova.events import EventReport
 from mind_nova import const
-from .mind_static import static_looper
-from .mind_stream import stream_looper
+from .mind_runtime import resolve_mode_runner
 
 if typing.TYPE_CHECKING:
     from .mind_core import Mind
 
 
-async def _run_mode(
-    mind: "Mind",
-    model_api: dict[str, typing.Any],
-    message: str,
-    mode: typing.Literal["chat", "fast", "plan"],
-    runner: typing.Callable[..., typing.Awaitable[None]],
-    **kwargs
-) -> None:
-    """模式执行包装器：在共享 MCP 会话中运行指定模式。"""
+RUN_MODE = typing.Literal["chat", "fast", "plan"]
 
-    async def function(
-        session: ClientSession,
-        openai_tools: list[dict[str, typing.Any]],
-        tool_meta: dict[str, dict[str, typing.Any]]
-    ) -> None:
-        """把共享会话转交给具体模式执行器。"""
-        await runner(mind, session, mode, model_api, message, openai_tools, tool_meta, **kwargs)
-
-    return await mind.with_mcp_session(model_api, function)
-
-
-async def mind_chat(mind: "Mind", model_api: dict[str, typing.Any], message: str, *_, **kwargs) -> None:
-    """对话模式入口：绑定 chat 模式到流式执行器。"""
-    return await _run_mode(mind, model_api, message, "chat", stream_looper, **kwargs)
-
-
-async def mind_fast(mind: "Mind", model_api: dict[str, typing.Any], message: str, *_, **kwargs) -> None:
-    """高速模式入口：绑定 fast 模式到流式执行器。"""
-    return await _run_mode(mind, model_api, message, "fast", stream_looper, **kwargs)
-
-
-async def mind_plan(mind: "Mind", model_api: dict[str, typing.Any], message: str, *_, **kwargs) -> None:
-    """编排模式入口：绑定 plan 模式到静态执行器。"""
-    return await _run_mode(mind, model_api, message, "plan", static_looper, **kwargs)
+MODE_BY_COMMAND: dict[str, RUN_MODE] = {
+    "/chat": "chat",
+    "/fast": "fast",
+    "/plan": "plan",
+}
 
 
 async def mind_loop(mind: "Mind") -> None:
@@ -109,47 +81,39 @@ async def mind_loop(mind: "Mind") -> None:
         re_model  = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
         re_apikey = re.compile(r"^\s*/apikey(?:\s+(.*))?\s*$", re.IGNORECASE)
 
-        tag: typing.Literal["CHAT", "FAST", "PLAN"] = "CHAT"
+        mode: RUN_MODE = "chat"
 
         while not mind.task_event.is_set():
             try:
-                raw = await mind.prompt_box.prompt_async(tag=tag, model=model)
+                raw = await mind.prompt_box.prompt_async(mode=mode, model=model)
             except KeyboardInterrupt:
                 mind.task_event.set()
                 break
             except (EOFError, UnicodeDecodeError):
                 continue
 
-            if raw.lower() in quit_set:
+            command = raw.lower()
+
+            if command in quit_set:
                 mind.task_event.set()
                 break
 
-            if raw.lower() in help_set:
+            if command in help_set:
                 Design.console.print(doc)
                 continue
 
-            if raw.lower() in seal_set:
+            if command in seal_set:
                 Design.startup_logo()
                 continue
 
-            if raw.lower() in subs_set:
+            if command in subs_set:
                 lic_file = Path(mind.src_opera_place) / const.LIC_FILE
                 await authorize.verify_license(lic_file)
                 continue
 
-            if raw.lower() == "/chat":
+            if command in MODE_BY_COMMAND:
                 Design.console.print()
-                tag = "CHAT"
-                continue
-
-            if raw.lower() == "/fast":
-                Design.console.print()
-                tag = "FAST"
-                continue
-
-            if raw.lower() == "/plan":
-                Design.console.print()
-                tag = "PLAN"
+                mode = MODE_BY_COMMAND[command]
                 continue
 
             if m := re_model.match(raw):
@@ -161,20 +125,17 @@ async def mind_loop(mind: "Mind") -> None:
                 continue
 
             async def guarded_with_report(
-                mode: typing.Literal["chat", "fast", "plan"],
-                runner: typing.Callable[..., typing.Awaitable[None]],
-                *,
-                anim_mode: typing.Literal["chat", "fast", "plan"]
+                run_mode: RUN_MODE,
             ) -> None:
                 """为单轮交互附加事件上报和统一保护层。"""
-                ev_report = EventReport(mode, metadata["cid"], metadata["sid"])
+                ev_report = EventReport(run_mode, metadata["cid"], metadata["sid"])
+                runner = resolve_mode_runner(mind, run_mode)
                 await ev_report.open()
 
                 try:
                     await mind.with_mcp_guard(
                         runner,
-                        mode=mode,
-                        anim_mode=anim_mode,
+                        mode=run_mode,
                         session=session,
                         model_api=model_api,
                         message=raw,
@@ -187,12 +148,7 @@ async def mind_loop(mind: "Mind") -> None:
                     await ev_report.flush()
                     await ev_report.close()
 
-            if tag == "CHAT":
-                await guarded_with_report("chat", mind.stream_looper, anim_mode="chat")
-            elif tag == "FAST":
-                await guarded_with_report("fast", mind.stream_looper, anim_mode="fast")
-            else:
-                await guarded_with_report("plan", mind.static_looper, anim_mode="plan")
+            await guarded_with_report(mode)
 
     model_api = mind.pref.to_config()
     return await mind.with_mcp_session(model_api, function)

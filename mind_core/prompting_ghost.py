@@ -110,7 +110,7 @@ CHAT_TEMPLATES: tuple[tuple[str, str], ...] = (
 
 
 MODE_ALIAS_TEMPLATES: dict[str, tuple[tuple[str, str], ...]] = {
-    "CHAT": (
+    "chat": (
         ("http", " 接口"),
         ("https", " 请求"),
         ("ws", " 连接"),
@@ -129,7 +129,7 @@ MODE_ALIAS_TEMPLATES: dict[str, tuple[tuple[str, str], ...]] = {
         ("scrcpy", " 录屏"),
         ("ffmpeg", " 处理"),
     ),
-    "FAST": (
+    "fast": (
         ("http", " 接口"),
         ("https", " 请求"),
         ("ws", " 连接"),
@@ -147,7 +147,7 @@ MODE_ALIAS_TEMPLATES: dict[str, tuple[tuple[str, str], ...]] = {
         ("aes", " 加密"),
         ("ffmpeg", " 处理"),
     ),
-    "PLAN": (
+    "plan": (
         ("scrcpy", " 录屏"),
         ("重复", "执行 3 次"),
         ("循环", "执行 3 次"),
@@ -536,11 +536,11 @@ VERB_DOMAIN_WEIGHTS: dict[str, dict[str, int]] = {
 def build_intent_templates() -> tuple[dict[str, typing.Any], ...]:
     return tuple(
         {
-            "domain": domain,
-            "group_weight": weight,
-            "verb": verb,
-            "suggestion": suggestion,
-            "order": order,
+            "domain"       : domain,
+            "group_weight" : weight,
+            "verb"         : verb,
+            "suggestion"   : suggestion,
+            "order"        : order
         }
         for domain, weight, pairs in INTENT_GROUPS
         for order, (verb, suggestion) in enumerate(pairs)

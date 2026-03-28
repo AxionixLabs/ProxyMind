@@ -197,23 +197,20 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
     signal.signal(signal.SIGINT, mind.signal_processor)
 
     if chat := cmd_lines.chat:
-        await mind.calling(message=chat, func=mind.mind_chat, mode="chat")
+        await mind.calling(message=chat, mode="chat")
     elif fast := cmd_lines.fast:
-        await mind.calling(message=fast, func=mind.mind_fast, mode="fast")
+        await mind.calling(message=fast, mode="fast")
     elif plan := cmd_lines.plan:
-        await mind.calling(message=plan, func=mind.mind_plan, mode="plan")
+        await mind.calling(message=plan, mode="plan")
     elif code := cmd_lines.code:
         if cmd_lines.chat is not None:
-            func = mind.stream_looper
             mode: typing.Literal["chat"] = "chat"
         elif cmd_lines.fast is not None:
-            func = mind.stream_looper
             mode: typing.Literal["fast"] = "fast"
         else:
-            func = mind.static_looper
             mode: typing.Literal["plan"] = "plan"
 
-        await mind.mind_pack(code, mode, func)
+        await mind.mind_pack(code, mode)
 
     else:
         await mind.mind_loop()

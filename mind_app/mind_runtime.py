@@ -19,6 +19,18 @@ if typing.TYPE_CHECKING:
     from .mind_core import Mind
 
 
+def resolve_mode_runner(
+    mind: "Mind",
+    mode: typing.Literal["chat", "fast", "plan"],
+) -> typing.Callable[..., typing.Awaitable[None]]:
+    """根据单次调用模式选择底层执行器。"""
+    if mode in {"chat", "fast"}:
+        return mind.stream_looper
+    if mode == "plan":
+        return mind.static_looper
+    raise ValueError(f"Unsupported mode: {mode}")
+
+
 def _flatten_exceptions(exc: BaseException) -> typing.Generator[BaseException, None, None]:
     """展开异常组，便于统一记录底层异常。"""
     if isinstance(exc, BaseExceptionGroup):
@@ -116,14 +128,14 @@ async def with_mcp_guard(
     mind: "Mind",
     runner: typing.Callable[..., typing.Awaitable[None]],
     *,
-    anim_mode: typing.Literal["chat", "fast", "plan"] = "chat",
+    mode: typing.Literal["chat", "fast", "plan"] = "chat",
     **kwargs
 ) -> None:
     """为模式执行增加动画、网络异常和 HTTP 异常保护层。"""
-    await mind.start_anim(anim_mode)
+    await mind.start_anim(mode)
 
     try:
-        await runner(**kwargs)
+        await runner(mode=mode, **kwargs)
 
     except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as error_group:
         for error_item in _flatten_exceptions(error_group):
@@ -178,12 +190,12 @@ async def calling(
     model_api: typing.Optional[dict[str, typing.Any]] = None,
     *,
     message: str,
-    runner: typing.Callable,
     mode: typing.Literal["chat", "fast", "plan"] = "chat",
     **kwargs
 ) -> None:
-    """统一包装一次用户调用，负责 session 元数据和事件报告生命周期。"""
+    """统一包装一次用户调用，并由 mode 决定底层执行器。"""
     model_api = model_api or mind.pref.to_config()
+    runner = resolve_mode_runner(mind, mode)
 
     meta_in = kwargs.get("metadata") or {}
     cid = meta_in.get("cid") if isinstance(meta_in, dict) else None
@@ -198,15 +210,26 @@ async def calling(
         await event_report.open()
         owns_event_report = True
 
-    try:
-        return await with_mcp_guard(
+    async def function(
+        session: ClientSession,
+        openai_tools: list[dict[str, typing.Any]],
+        tool_meta: dict[str, dict[str, typing.Any]],
+    ) -> None:
+        """在共享 MCP 会话中执行单次请求。"""
+        await with_mcp_guard(
             mind,
             runner,
+            session=session,
             mode=mode,
             model_api=model_api,
             message=message,
+            openai_tools=openai_tools,
+            tool_meta=tool_meta,
             **kwargs
         )
+
+    try:
+        return await mind.with_mcp_session(model_api, function)
     finally:
         if owns_event_report:
             await event_report.flush()

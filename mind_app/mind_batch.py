@@ -15,6 +15,7 @@ from engine.scaling import (
 from engine.tinker import MindError
 from mind_nova.events import EventReport
 from mind_nova import const
+from .mind_runtime import resolve_mode_runner
 
 if typing.TYPE_CHECKING:
     from .mind_core import Mind
@@ -570,7 +571,6 @@ async def mind_pack(
     mind: "Mind",
     code: list[str],
     mode: typing.Literal["chat", "fast", "plan"],
-    runner: typing.Callable[..., typing.Awaitable[None]],
     *_,
     **kwargs
 ) -> None:
@@ -578,6 +578,7 @@ async def mind_pack(
 
     code_path = _resolve_code_paths(code)
     model_api = mind.pref.to_config()
+    runner = resolve_mode_runner(mind, mode)
 
     meta_in = kwargs.get("metadata") or {}
     cid = meta_in.get("cid") if isinstance(meta_in, dict) else None
