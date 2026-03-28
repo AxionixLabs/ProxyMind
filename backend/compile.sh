@@ -26,7 +26,7 @@ echo "🚀 开始编译 Helix macOS App Bundle..."
   --macos-app-version=1.0.0 \
   --macos-app-icon=schematic/resources/images/macos/helix_macos_icn.png \
   --include-data-dir=backend/web=web \
-  --include-data-dir=backend/requires/macos=requires/macos \
+  --include-raw-dir=backend/requires/macos=requires/macos \
   --show-progress \
   --output-dir=schematic/supports/macos \
   backend/helix.py

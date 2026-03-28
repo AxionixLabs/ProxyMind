@@ -18,7 +18,7 @@ if not defined NUITKA_PATH (
 echo [INFO] Nuitka: %NUITKA_PATH%
 echo [INFO] Building Helix Windows Standalone...
 
-call "%NUITKA_PATH%" --mode=standalone --product-name=Helix --product-version=1.0.0 --windows-icon-from-ico=schematic/resources/icons/helix_windows_icn.ico --include-data-dir=backend/web=web --include-data-dir=backend/requires/windows=requires/windows --show-progress --show-memory --assume-yes-for-downloads --output-dir=schematic/supports/windows backend/helix.py
+call "%NUITKA_PATH%" --mode=standalone --product-name=Helix --product-version=1.0.0 --windows-icon-from-ico=schematic/resources/icons/helix_windows_icn.ico --include-data-dir=backend/web=web --include-raw-dir=backend/requires/windows=requires/windows --show-progress --show-memory --assume-yes-for-downloads --output-dir=schematic/supports/windows backend/helix.py
 
 set "BUILD_RC=%ERRORLEVEL%"
 if not "%BUILD_RC%"=="0" goto build_failed
