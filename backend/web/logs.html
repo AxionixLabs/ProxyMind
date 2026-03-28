@@ -323,78 +323,91 @@
       color:var(--accent);
     }
     .console{
-      min-height:560px;
-      padding:18px;
+      min-height:420px;
+      padding:14px;
       border:1px solid rgba(255,255,255,.06);
       border-radius:16px;
       background:rgba(3,8,12,.82);
       box-shadow:0 0 0 1px rgba(92,255,214,.05) inset;
-      font:12px/1.7 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      white-space:pre-wrap;
+      font:12px/1.42 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       word-break:break-word;
       color:#dbe9ef;
     }
-    .line{
+    .entry{
       display:grid;
-      grid-template-columns:56px 180px 84px 1fr;
-      gap:14px;
-      padding:6px 0 6px 10px;
+      gap:6px;
+      padding:8px 10px 8px 14px;
       border-bottom:1px solid rgba(255,255,255,.04);
-      align-items:start;
       position:relative;
     }
-    .line::before{
+    .entry:last-child{border-bottom:none}
+    .entry::before{
       content:"";
       position:absolute;
       left:0;
-      top:7px;
-      bottom:7px;
+      top:8px;
+      bottom:8px;
       width:2px;
       border-radius:999px;
       background:rgba(255,255,255,.08);
     }
-    .line-no{
+    .entry-head{
+      display:grid;
+      grid-template-columns:176px 76px auto 48px;
+      gap:10px;
+      align-items:start;
+    }
+    .entry-no{
+      font-size:11px;
       color:rgba(137,163,173,.72);
       text-align:right;
+      justify-self:end;
       user-select:none;
     }
-    .line-text{
-      min-width:0;
-      white-space:pre-wrap;
-    }
-    .line-time{
+    .entry-time{
+      font-size:11px;
       color:#b8c9d1;
       white-space:nowrap;
     }
-    .line-level{
+    .entry-lines{
+      color:var(--muted);
+      white-space:nowrap;
+      font-size:10px;
+      letter-spacing:.04em;
+      text-transform:uppercase;
+      justify-self:end;
+    }
+    .entry-level{
       display:inline-flex;
       align-items:center;
       justify-content:center;
-      min-width:72px;
-      padding:2px 8px;
+      min-width:64px;
+      padding:1px 6px;
       border-radius:999px;
       border:1px solid rgba(255,255,255,.08);
       background:rgba(255,255,255,.03);
-      font-size:11px;
-      letter-spacing:.08em;
+      font-size:10px;
+      letter-spacing:.06em;
       text-transform:uppercase;
     }
-    .line[data-level="INFO"]{color:#d7f7ff}
-    .line[data-level="DEBUG"]{color:#9ad7ff}
-    .line[data-level="WARNING"]{color:#ffd27a}
-    .line[data-level="ERROR"],
-    .line[data-level="CRITICAL"]{color:#ff9abb}
-    .line[data-level="INFO"]::before{background:rgba(215,247,255,.16)}
-    .line[data-level="DEBUG"]::before{background:rgba(154,215,255,.28)}
-    .line[data-level="WARNING"]::before{background:rgba(255,210,122,.38)}
-    .line[data-level="ERROR"]::before,
-    .line[data-level="CRITICAL"]::before{background:rgba(255,154,187,.44)}
-    .line[data-level="INFO"] .line-level{color:#d7f7ff;border-color:rgba(215,247,255,.12)}
-    .line[data-level="DEBUG"] .line-level{color:#9ad7ff;border-color:rgba(154,215,255,.18)}
-    .line[data-level="WARNING"] .line-level{color:#ffd27a;border-color:rgba(255,210,122,.18)}
-    .line[data-level="ERROR"] .line-level,
-    .line[data-level="CRITICAL"] .line-level{color:#ff9abb;border-color:rgba(255,154,187,.22)}
-    .line:hover{background:rgba(255,255,255,.02)}
+    .entry-text{
+      min-width:0;
+      margin:0;
+      color:#dbe9ef;
+      white-space:pre-wrap;
+      line-height:1.4;
+    }
+    .entry[data-level="INFO"]::before{background:rgba(215,247,255,.16)}
+    .entry[data-level="DEBUG"]::before{background:rgba(154,215,255,.28)}
+    .entry[data-level="WARNING"]::before{background:rgba(255,210,122,.38)}
+    .entry[data-level="ERROR"]::before,
+    .entry[data-level="CRITICAL"]::before{background:rgba(255,154,187,.44)}
+    .entry[data-level="INFO"] .entry-level{color:#d7f7ff;border-color:rgba(215,247,255,.12)}
+    .entry[data-level="DEBUG"] .entry-level{color:#9ad7ff;border-color:rgba(154,215,255,.18)}
+    .entry[data-level="WARNING"] .entry-level{color:#ffd27a;border-color:rgba(255,210,122,.18)}
+    .entry[data-level="ERROR"] .entry-level,
+    .entry[data-level="CRITICAL"] .entry-level{color:#ff9abb;border-color:rgba(255,154,187,.22)}
+    .entry:hover{background:rgba(255,255,255,.02)}
     mark{
       padding:1px 4px;
       border-radius:6px;
@@ -558,8 +571,10 @@
     @media (max-width: 720px){
       .metrics{grid-template-columns:1fr}
       .search{max-width:none}
-      .line{grid-template-columns:44px 1fr}
-      .line-time,.line-level{grid-column:2}
+      .entry-head{grid-template-columns:1fr 44px}
+      .entry-time,.entry-level,.entry-lines{grid-column:1}
+      .entry-no{grid-column:2; grid-row:1; align-self:start}
+      .entry-lines{justify-self:start}
     }
     @media (prefers-reduced-motion: reduce){
       .signal-title::before,
@@ -694,14 +709,17 @@
     const previewPayload = {
       exists: true,
       path: "/preview/data/storage/helix.log",
-      line_count: 4,
+      line_count: 7,
       truncated: false,
       size: 248,
       lines: [
         "2026-03-22 10:08:11.102 | INFO     | helix boot",
         "2026-03-22 10:08:12.328 | DEBUG    | idle watcher ready",
         "2026-03-22 10:08:14.884 | WARNING  | runtime queue delayed",
-        "2026-03-22 10:08:18.015 | ERROR    | probe failed: preview"
+        "2026-03-22 10:08:18.015 | ERROR    | probe failed: preview",
+        "Traceback (most recent call last):",
+        "  File \"preview.py\", line 18, in <module>",
+        "RuntimeError: preview failure"
       ]
     };
     let logData = previewPayload;
@@ -728,13 +746,36 @@
       const raw = String(line || "");
       const match = raw.match(/^(.+?)\s+\|\s+([A-Z]+)\s+\|\s+(.*)$/);
       if(!match){
-        return {time:"", level:levelOf(raw), message:raw};
+        return {time:"", level:levelOf(raw), message:raw, structured:false};
       }
       return {
         time: match[1],
         level: match[2],
-        message: match[3]
+        message: match[3],
+        structured: true
       };
+    }
+
+    function buildLogEntries(lines){
+      return lines.reduce((entries, line, index) => {
+        const parsed = parseLogLine(line);
+        const current = entries[entries.length - 1];
+        if(parsed.structured || !current){
+          entries.push({
+            startLine: index + 1,
+            lineCount: 1,
+            time: parsed.time,
+            level: parsed.level,
+            message: parsed.message,
+            raw: String(line || "")
+          });
+          return entries;
+        }
+        current.lineCount += 1;
+        current.message = `${current.message}\n${parsed.message}`;
+        current.raw = `${current.raw}\n${String(line || "")}`;
+        return entries;
+      }, []);
     }
 
     function highlightText(value, query){
@@ -746,16 +787,17 @@
 
     function renderMetrics(data){
       const lines = Array.isArray(data.lines) ? data.lines : [];
-      const levels = lines.reduce((acc, line) => {
-        const level = levelOf(line);
+      const entries = buildLogEntries(lines);
+      const levels = entries.reduce((acc, entry) => {
+        const level = entry.level;
         acc[level] = (acc[level] || 0) + 1;
         return acc;
       }, {});
       metricsHost.innerHTML = `
         <div class="metric">
-          <b>Total Lines</b>
-          <div class="value">${data.line_count || 0}</div>
-          <div class="meta">${data.truncated ? "tail view" : "full view"}</div>
+          <b>Log Entries</b>
+          <div class="value">${entries.length}</div>
+          <div class="meta">${data.line_count || 0} lines · ${data.truncated ? "tail view" : "full view"}</div>
         </div>
         <div class="metric">
           <b>Errors</b>
@@ -775,9 +817,9 @@
       `;
     }
 
-    function renderLevelFilters(lines){
-      const counts = lines.reduce((acc, line) => {
-        const level = levelOf(line);
+    function renderLevelFilters(entries){
+      const counts = entries.reduce((acc, entry) => {
+        const level = entry.level;
         acc[level] = (acc[level] || 0) + 1;
         return acc;
       }, {});
@@ -785,7 +827,7 @@
         .filter((key) => key === "all" || counts[key]);
       filtersHost.innerHTML = levels.map((level) => `
         <button class="filter-chip${levelScope === level ? " active" : ""}" type="button" data-level="${level}">
-          ${level} ${level === "all" ? lines.length : counts[level]}
+          ${level} ${level === "all" ? entries.length : counts[level]}
         </button>
       `).join("");
       filtersHost.onclick = (event) => {
@@ -798,29 +840,27 @@
 
     function renderConsole(data){
       const lines = Array.isArray(data.lines) ? data.lines : [];
+      const entries = buildLogEntries(lines);
       const query = String(searchInput.value || "").trim().toLowerCase();
-      const filtered = lines.filter((line) => {
-        const level = levelOf(line);
-        if(levelScope !== "all" && level !== levelScope) return false;
-        if(query && !String(line).toLowerCase().includes(query)) return false;
+      const filtered = entries.filter((entry) => {
+        if(levelScope !== "all" && entry.level !== levelScope) return false;
+        if(query && !entry.raw.toLowerCase().includes(query)) return false;
         return true;
       });
-      countChip.textContent = `${filtered.length}/${lines.length}`;
+      countChip.textContent = `${filtered.length}/${entries.length}`;
       pathChip.textContent = data.exists === false ? "log missing" : (data.truncated ? "tail view" : "full view");
       consoleHost.innerHTML = filtered.length
-        ? filtered.map((line, index) => `
-            ${(() => {
-              const parsed = parseLogLine(line);
-              return `<span class="line" data-level="${parsed.level}">
-              <span class="line-no">${index + 1}</span>
-              <span class="line-time">${highlightText(parsed.time || "--", query)}</span>
-              <span class="line-level">${highlightText(parsed.level, query)}</span>
-              <span class="line-text">${highlightText(parsed.message, query)}</span>
-            </span>`;
-            })()}
-          `).join("")
-        : `<div class="empty">No log lines match current filters.</div>`;
-      renderLevelFilters(lines);
+        ? filtered.map((entry, index) => `<div class="entry" data-level="${entry.level}">
+              <div class="entry-head">
+                <span class="entry-time">${highlightText(entry.time || "--", query)}</span>
+                <span class="entry-level">${highlightText(entry.level, query)}</span>
+                <span class="entry-lines">${entry.lineCount} ${entry.lineCount === 1 ? "line" : "lines"}</span>
+                <span class="entry-no">${index + 1}</span>
+              </div>
+              <pre class="entry-text">${highlightText(entry.message, query)}</pre>
+            </div>`).join("")
+        : `<div class="empty">No log entries match current filters.</div>`;
+      renderLevelFilters(entries);
     }
 
     async function loadLogs(options = {}){
