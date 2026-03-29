@@ -172,7 +172,6 @@ class Mind(object):
         **kwargs
     ) -> None:
         """执行保护入口：统一委托给运行时模块处理动画和异常。"""
-
         return await run_with_mcp_guard(self, runner, mode=mode, **kwargs)
 
     async def wakeup(

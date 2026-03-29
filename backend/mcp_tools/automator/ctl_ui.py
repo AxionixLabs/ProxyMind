@@ -7,15 +7,12 @@ from mcp.types import CallToolResult
 from pydantic import Field
 from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import DeviceManage
+from backend.mcp_tools.shared import MatrixArg
 from backend.middlewares.mid_task import task_middleware
 from backend.utilities.pipeline import Idle
 from backend.utilities.toolbox import broadcast
 
 
-MatrixArg = typing.Annotated[
-    typing.Optional[dict[str, dict[str, typing.Any]]],
-    Field(description="多设备覆盖参数映射。键通常是设备标识，值是该设备专属参数。"),
-]
 ScrollDirectionArg = typing.Annotated[
     typing.Literal["up", "down", "left", "right"],
     Field(description="内容移动方向，不是手指滑动方向。"),

@@ -9,6 +9,7 @@ from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import (
     DeviceManage, Requires
 )
+from backend.mcp_tools.shared import MatrixArg
 from backend.mcp_hub.hub_record import Record
 from backend.middlewares.mid_task import task_middleware
 from backend.utilities.instance import Ins
@@ -16,10 +17,6 @@ from backend.utilities.pipeline import Idle
 from backend.utilities.toolbox import broadcast
 
 
-MatrixArg = typing.Annotated[
-    typing.Optional[dict[str, dict[str, typing.Any]]],
-    Field(description="多设备覆盖参数映射。键通常是设备标识，值是该设备专属参数。"),
-]
 RecordDirectoryArg = typing.Annotated[
     typing.Optional[str],
     Field(description="录屏文件保存目录或输出基准路径；多设备时每台设备会生成独立文件。"),

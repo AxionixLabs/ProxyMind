@@ -8,19 +8,12 @@ from pydantic import Field
 from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.mcp_hub.hub_monkey import Monkey
+from backend.mcp_tools.shared import MatrixArg, PackageArg
 from backend.middlewares.mid_task import task_middleware
 from backend.utilities.pipeline import Idle
 from backend.utilities.toolbox import broadcast
 
 
-MatrixArg = typing.Annotated[
-    typing.Optional[dict[str, dict[str, typing.Any]]],
-    Field(description="多设备覆盖参数映射。键通常是设备标识，值是该设备专属参数。"),
-]
-PackageArg = typing.Annotated[
-    str,
-    Field(description="要执行 monkey 事件注入的目标应用包名。"),
-]
 SeedArg = typing.Annotated[
     int,
     Field(description="monkey 随机种子；相同参数下有助于复现实验。"),
