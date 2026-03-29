@@ -61,18 +61,20 @@ device / bench / common / media
 
 ## 文档分层规则
 - `README.md`：入口页，只保留最小上手、边界、速查和跳转
-- `docs/README.md`：长文档索引
+- `docs/README.md`：长文档索引，由 `website/mind/docs_manifest.json` 生成
 - `docs/api-playbook.md`：接口约定与协议说明
 - `docs/media-playbook.md`：媒体命令与链路
 - `docs/performance-playbook.md`：性能星图与典型跑法
 - `docs/interactive-mode.md`：REPL 说明
 - `docs/architecture.md`：背景、云端架构、推理集群
 - `website/mind/pages/`：官网展示壳与站点入口页
+- `website/mind/docs_manifest.json`：官网生成层的正文清单与专题摘要
 - `website/mind/CLOUDFLARE.md`：Cloudflare Pages 部署说明
 
 维护原则：
 - 用户入口变重时，优先下沉到 `docs/`
 - 维护者说明不要反向塞回 README
+- `website/mind/pages/generated/` 只当生成产物看，不要手改
 
 ## 文档维护约定
 - 标题统一使用中文标题，不再在标题尾部追加英文副标题
@@ -139,11 +141,12 @@ SoftwareCenter/site/mind/
 维护要求：
 - README 和 `docs/README.md` 必须使用仓库内相对路径，不要写本机绝对路径
 - 如果新增 `docs/*.md`，要确认：
-  - `docs/README.md` 已补索引
+  - `website/mind/docs_manifest.json` 已补清单
+  - 运行 `website/mind/scripts/sync_docs.py` 后，`docs/README.md` 已自动补索引
   - README 是否需要补入口
   - 同步后相对路径仍可达
 - 如果改了 `website/mind/`，要确认同步后仍映射到 `SoftwareCenter/site/mind/`
-- 如果改了正文文档结构，记得同步检查 `website/mind/scripts/sync_docs.py` 的映射
+- 如果改了正文文档结构，记得同步检查 `website/mind/docs_manifest.json`
 - 同步 workflow 会先运行 `website/mind/scripts/sync_docs.py`，再复制官网壳到公共仓库
 
 ## 变更检查清单

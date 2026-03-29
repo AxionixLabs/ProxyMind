@@ -1,7 +1,20 @@
 name: Sync
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - README.md
+      - LICENSE.md
+      - docs/**
+      - website/mind/**
+      - .github/workflows/sync-to-software-center.yml
   workflow_dispatch:
+
+concurrency:
+  group: sync-to-software-center-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   sync_docs_bundle:
