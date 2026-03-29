@@ -578,6 +578,7 @@ async def mind_pack(
 
     code_path = _resolve_code_paths(code)
     model_api = mind.pref.to_config()
+
     runner = resolve_mode_runner(mind, mode)
 
     meta_in = kwargs.get("metadata") or {}
