@@ -3,6 +3,7 @@
 
 import time
 import typing
+import asyncio
 from loguru import logger
 from mcp import ClientSession
 from mind_core.design import Design
@@ -46,26 +47,27 @@ async def static_looper(
             ev_report.emit(event)
 
     slog: StreamUI = StreamUI(mind.report.log_papers)
-    await slog.open()
-    result = await session.call_tool("refresh", {"ttl_sec": mind.ttl_sec})
-    extras = None if result.isError else {"devices": result.content[0].text}
-
-    if ev_report:
-        ev_report.begin_turn(round_no=1)
-
-    context: dict[str, typing.Any] = {
-        "goal"       : message,
-        "mode"       : mode,
-        "reasoning"  : "",
-        "loop_count" : 1,
-        "metadata"   : kwargs.get("metadata") or {},
-        "steps"      : [],
-        "current"    : None
-    }
-
-    first_frame = True
-
+    interrupted = False
     try:
+        await slog.open()
+        result = await session.call_tool("refresh", {"ttl_sec": mind.ttl_sec})
+        extras = None if result.isError else {"devices": result.content[0].text}
+
+        if ev_report:
+            ev_report.begin_turn(round_no=1)
+
+        context: dict[str, typing.Any] = {
+            "goal"       : message,
+            "mode"       : mode,
+            "reasoning"  : "",
+            "loop_count" : 1,
+            "metadata"   : kwargs.get("metadata") or {},
+            "steps"      : [],
+            "current"    : None
+        }
+
+        first_frame = True
+
         async for plan in request.stream_plan(mode, model_api, message, filtered_tools, extras, **kwargs):
             if ev_report:
                 ev_report.bind_event(plan)
@@ -275,9 +277,12 @@ async def static_looper(
         await finish_stream(
             ev_report, phase="exec.done", status="completed", loop_count=context["loop_count"]
         )
+    except asyncio.CancelledError:
+        interrupted = True
+        raise
 
     finally:
-        await slog.stop()
+        await mind.await_cleanup(slog.stop(blink=not interrupted))
 
 
 if __name__ == '__main__':

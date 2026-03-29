@@ -130,6 +130,16 @@ class StatusState(object):
         self._reset_elapsed_transition()
         return was_visible
 
+    def reset(self) -> None:
+        """立即清空状态与退场残留，不保留任何过渡动画。"""
+        self.text = ""
+        self.family = self.FAMILY_BUILTIN
+        self.phase = 0.0
+        self.animated = True
+        self.started_at = 0.0
+        self._clear_exit()
+        self._reset_elapsed_transition()
+
     def set_phase(self, phase: float) -> None:
         self._prune_exit()
         if self.active:

@@ -62,6 +62,12 @@ class Mind(object):
         self.report: Report = Report(self.src_total_place, self.gravity)
         self.prompt_box: PromptToolkitBox = PromptToolkitBox()
 
+        self.runtime_loop: typing.Optional[asyncio.AbstractEventLoop] = None
+        self.root_task: typing.Optional[asyncio.Task[typing.Any]] = None
+
+        self.exit_code: int = 0
+        self.sig_count: int = 0
+
     @property
     def remote(self) -> dict:
         """返回远程全局配置。"""
@@ -72,12 +78,46 @@ class Mind(object):
         """设置远程全局配置，并在异常输入时兜底为空字典。"""
         self.__remote = value if isinstance(value, dict) else {}
 
+    def bind_runtime(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        root_task: typing.Optional[asyncio.Task[typing.Any]],
+    ) -> None:
+        """绑定当前事件循环与顶层任务，用于异步退出。"""
+        self.runtime_loop = loop
+        self.root_task = root_task
+
+    def _cancel_root_task(self) -> None:
+        """取消顶层任务，让退出沿协程栈执行清理逻辑。"""
+        task = self.root_task
+        if task is not None and not task.done():
+            task.cancel()
+
     def signal_processor(self, *_, **__) -> None:
-        """处理终止信号，并执行统一退出流程。"""
+        """处理终止信号，并优先触发异步清理。"""
+        self.sig_count += 1
         self.task_event.set()
-        Design.console.print()
-        Design.show_outro()
-        sys.exit(130)
+        self.exit_code = 130
+
+        if self.sig_count > 1:
+            sys.exit(self.exit_code)
+
+        loop = self.runtime_loop
+        if loop is not None and loop.is_running():
+            self._cancel_root_task()
+            return None
+
+        sys.exit(self.exit_code)
+
+    @staticmethod
+    async def await_cleanup(awaitable: typing.Awaitable[None]) -> None:
+        """在取消态下也等待清理逻辑执行完成。"""
+        task = asyncio.ensure_future(awaitable)
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            await task
+            raise
 
     async def stop_anim(self) -> None:
         """停止等待动画。"""

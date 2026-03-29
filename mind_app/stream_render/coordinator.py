@@ -33,9 +33,10 @@ class RenderCoord(object):
         self.text_renderer = TextRenderer(refresh_per_second=self.refresh_per_second)
         self.render_lock: asyncio.Lock = asyncio.Lock()
 
-    async def stop(self) -> None:
-        await self.clear_status()
+    async def stop(self, *, blink: bool = True) -> None:
         self.release_status_slot()
+        self.status_state.reset()
+        await self.status_driver.stop(reset_phase=True)
 
         async with self.render_lock:
             if self.text_state.display_text:
@@ -44,10 +45,10 @@ class RenderCoord(object):
                     animate=False,
                     refresh_per_second=self.refresh_per_second
                 )
-                await self.text_renderer.stop()
+                await self.text_renderer.stop(blink=blink)
                 return None
 
-            await self.text_renderer.stop()
+            await self.text_renderer.stop(blink=blink)
 
     async def append(
         self,

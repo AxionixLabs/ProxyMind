@@ -109,12 +109,13 @@ class TypewriterStreamSession(LiveRenderSession):
     def _live_renderable(self) -> typing.Any:
         return self.renderable if self.renderable is not None else Text(self._tail_text(self.out), style="bold")
 
-    async def stop(self) -> None:
+    async def stop(self, *, blink: bool = True) -> None:
         if self.live is not None:
             try:
-                await Design.cursor_blink(
-                    self.live, self.out, self.cursor, max_lines=self._viewport_lines()
-                )
+                if blink:
+                    await Design.cursor_blink(
+                        self.live, self.out, self.cursor, max_lines=self._viewport_lines()
+                    )
             finally:
                 self.live.__exit__(None, None, None)
                 self.live = None

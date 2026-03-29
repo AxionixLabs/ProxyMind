@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+import asyncio
 from mcp import ClientSession
 from engine.enhancer import Enhancer
 from engine.tinker import Tooling
@@ -50,11 +51,12 @@ async def stream_looper(
 
     slog: StreamUI = StreamUI(mind.report.log_papers)
     await slog.open()
-
-    first_frame = True
-    tracker = SegmentTracker()
+    interrupted = False
 
     try:
+        first_frame = True
+        tracker = SegmentTracker()
+
         async for event in request.stream_chat(mode, model_api, message, filtered_tools, **kwargs):
             if ev_report:
                 ev_report.bind_event(event)
@@ -75,7 +77,6 @@ async def stream_looper(
             if event_type == "turn.failed":
                 error = str(event.get("error") or "unknown error")
                 await slog.feed(chunk=error, display=StreamUI.BLOCK)
-                await slog.stop()
                 return None
 
             if event_type == "text.delta":
@@ -113,7 +114,6 @@ async def stream_looper(
                 if Tooling.needs_wakeup(tool_meta, name):
                     if error := await mind.wakeup(session, slog):
                         await slog.feed(error, display=StreamUI.BLOCK)
-                        await slog.stop()
                         await finish_stream(ev_report, phase="turn.failed", error=str(error))
                         return None
 
@@ -146,16 +146,21 @@ async def stream_looper(
                 continue
 
             continue
+    except asyncio.CancelledError:
+        interrupted = True
+        raise
 
     except Exception as e:
         await slog.feed(chunk=str(e), display=StreamUI.BLOCK)
-        await slog.stop()
         await finish_stream(ev_report, phase="turn.failed", error=f"{type(e).__name__}: {e}")
         return None
 
-    await slog.end_status()
-    await slog.feed(chunk=build_sources_text(tracker), display=StreamUI.BLOCK)
-    await slog.stop()
+    else:
+        await slog.end_status()
+        await slog.feed(chunk=build_sources_text(tracker), display=StreamUI.BLOCK)
+
+    finally:
+        await mind.await_cleanup(slog.stop(blink=not interrupted))
 
 
 if __name__ == '__main__':

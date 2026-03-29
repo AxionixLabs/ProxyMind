@@ -24,7 +24,6 @@ if typing.TYPE_CHECKING:
 @dataclass(slots=True)
 class PackConfig:
     """批处理配置：收敛 pack 文件中的运行参数。"""
-
     repeat: int
     attempts: int
     pattern: typing.Optional[re.Pattern[str]]
@@ -43,7 +42,6 @@ class PackConfig:
 @dataclass(slots=True)
 class PackRuntime:
     """批处理运行时：收敛会话、模型和事件上报依赖。"""
-
     mode: typing.Literal["chat", "fast", "plan"]
     model_api: dict[str, typing.Any]
     event_report: EventReport
@@ -52,7 +50,6 @@ class PackRuntime:
 
 def _resolve_code_paths(code: list[str]) -> list[Path]:
     """解析批处理输入文件，并校验文件是否存在。"""
-
     code_path = [Path(x).expanduser() for x in (code or [])]
 
     if not code_path:
@@ -67,7 +64,6 @@ def _resolve_code_paths(code: list[str]) -> list[Path]:
 
 def _build_pack_config(cfg: dict[str, typing.Any]) -> PackConfig:
     """把 pack 配置字典标准化为结构化配置。"""
-
     try:
         repeat = int(cfg.get("repeat") or 1)
     except (TypeError, ValueError):
@@ -116,7 +112,6 @@ def _emit_diagnostic(event_report: EventReport, event_type: str, **payload: typi
 
 def _build_task_message(item: PackItem, config: PackConfig) -> str:
     """组装单个任务的最终提示词。"""
-
     prefix = (item.meta.get("prefix") or config.global_prefix or "").strip()
     suffix = (item.meta.get("suffix") or config.global_suffix or "").strip()
 
@@ -148,7 +143,6 @@ async def _run_virtual_message(
     **kwargs
 ) -> None:
     """执行虚拟消息 hook，用于 loop/round/item 的前后缀扩展。"""
-
     if not msg.strip():
         return None
 
@@ -171,6 +165,8 @@ async def _run_virtual_message(
             tool_meta,
             **kwargs
         )
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
     except BaseException as exc:
         error = Pack.brief_err(exc)
         _emit_diagnostic(
@@ -187,7 +183,7 @@ async def _run_virtual_message(
         )
 
     finally:
-        await mind.stop_anim()
+        await mind.await_cleanup(mind.stop_anim())
 
     _emit_diagnostic(
         runtime.event_report, event_type="virtual.done", file=str(file_path), name=name, run=run
@@ -210,7 +206,6 @@ async def _run_pack_item(
     **kwargs,
 ) -> bool:
     """执行单个 item，内部负责重试、退避和失败收口。"""
-
     for item_run in range(1, item.loop + 1):
         _emit_diagnostic(
             runtime.event_report,
@@ -277,7 +272,8 @@ async def _run_pack_item(
                     cost_ms=int((time.time() - started_at) * 1000)
                 )
                 break
-
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                raise
             except BaseException as exc:
                 error = Pack.brief_err(exc)
                 last_error = error
@@ -320,7 +316,7 @@ async def _run_pack_item(
                     )
                     await asyncio.sleep(backoff)
             finally:
-                await mind.stop_anim()
+                await mind.await_cleanup(mind.stop_anim())
 
         else:
             _emit_diagnostic(
@@ -358,7 +354,6 @@ async def _run_pack_file(
     **kwargs
 ) -> None:
     """执行单个 pack 文件，负责 round/item/hook 的整体编排。"""
-
     try:
         text = file_path.read_text(encoding=const.CHARSET, errors="replace")
     except Exception as e:
@@ -575,7 +570,6 @@ async def mind_pack(
     **kwargs
 ) -> None:
     """批处理入口：绑定会话、事件流和 pack 文件执行流程。"""
-
     code_path = _resolve_code_paths(code)
     model_api = mind.pref.to_config()
 
@@ -609,8 +603,8 @@ async def mind_pack(
                     mind, runtime, path, session, openai_tools, tool_meta, **kwargs
                 )
         finally:
-            await event_report.flush()
-            await event_report.close()
+            await mind.await_cleanup(event_report.flush())
+            await mind.await_cleanup(event_report.close())
 
     return await mind.with_mcp_session(model_api, function)
 

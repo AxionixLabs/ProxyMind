@@ -32,8 +32,8 @@ class TextRenderer(object):
     async def suspend(self) -> None:
         await self.session.suspend()
 
-    async def stop(self) -> None:
-        await self.session.stop()
+    async def stop(self, *, blink: bool = True) -> None:
+        await self.session.stop(blink=blink)
 
     def tail_text(self, content: str, *, reserve_lines: int = 0) -> str:
         return self.session.tail_text(content, reserve_lines=reserve_lines)

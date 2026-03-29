@@ -25,7 +25,7 @@ from mind_nova import const
 from .mind_core import Mind
 
 
-async def main(entry_file: typing.Optional[str] = None) -> None:
+async def main(entry_file: typing.Optional[str] = None) -> int:
     """Main"""
     async def authorized() -> None:
         if platform != "darwin":
@@ -115,7 +115,8 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
     # Notes: ========== 升级流程 ==========
     if cmd_lines.upgrade:
         up: Upgrade = Upgrade()
-        return await up.upgrade_app(supports)
+        await up.upgrade_app(supports)
+        return 0
 
     for tls in (tools := [helix]):
         os.environ["PATH"] = os.path.dirname(tls) + env_symbol + os.environ.get("PATH", "")
@@ -141,7 +142,8 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
         await server.ensure_running()
         await server.close()
         # return await FileAssist.open_url(f"{const.BASE_URL}/pref")
-        return await FileAssist.open_url(const.BASE_URL)
+        await FileAssist.open_url(const.BASE_URL)
+        return 0
 
     # Notes: ========== 授权流程 ==========
     # lic_file = Path(src_opera_place) / const.LIC_FILE
@@ -193,6 +195,7 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
     remote = {}
 
     mind = Mind(wires, level, power, remote, *positions, **keywords)
+    mind.bind_runtime(asyncio.get_running_loop(), asyncio.current_task())
 
     signal.signal(signal.SIGINT, mind.signal_processor)
 
@@ -214,6 +217,8 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
 
     else:
         await mind.mind_loop()
+
+    return mind.exit_code
 
 
 if __name__ == '__main__':

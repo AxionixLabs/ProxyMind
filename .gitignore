@@ -48,6 +48,10 @@ test/
 */test/
 test_*.py
 *_test.py
+!tests/
+tests/*
+!tests/test_ctrl_c_shutdown.py
+tests/__pycache__/
 
 # ========================
 # 编辑器配置文件

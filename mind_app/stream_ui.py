@@ -34,9 +34,9 @@ class StreamUI(object):
     async def open(self) -> None:
         await self.record_writer.open()
 
-    async def stop(self) -> None:
+    async def stop(self, *, blink: bool = True) -> None:
         await self._cancel_pending_status_task()
-        await self.coordinator.stop()
+        await self.coordinator.stop(blink=blink)
         await self.record_writer.close()
         self._reset_components()
 

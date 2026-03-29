@@ -66,7 +66,7 @@ async def with_mcp_guard(
             logger.error(f"❌ [Runtime Error] {error_item!r}")
 
     finally:
-        await mind.stop_anim()
+        await mind.await_cleanup(mind.stop_anim())
 
 
 async def wakeup(

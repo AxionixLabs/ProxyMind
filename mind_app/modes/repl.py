@@ -87,6 +87,7 @@ async def mind_loop(mind: "Mind") -> None:
             try:
                 raw = await mind.prompt_box.prompt_async(mode=mode, model=model)
             except KeyboardInterrupt:
+                mind.exit_code = 130
                 mind.task_event.set()
                 break
             except (EOFError, UnicodeDecodeError):
@@ -124,12 +125,11 @@ async def mind_loop(mind: "Mind") -> None:
                 apikey = await exchange(m, types="apikey") or apikey
                 continue
 
-            async def guarded_with_report(
-                run_mode: RUN_MODE,
-            ) -> None:
+            async def guarded_with_report(run_mode: RUN_MODE) -> None:
                 """为单轮交互附加事件上报和统一保护层。"""
-                ev_report = EventReport(run_mode, metadata["cid"], metadata["sid"])
                 runner = resolve_mode_runner(mind, run_mode)
+
+                ev_report = EventReport(run_mode, metadata["cid"], metadata["sid"])
                 await ev_report.open()
 
                 try:
