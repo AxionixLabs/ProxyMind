@@ -53,7 +53,7 @@ async def static_looper(
     if ev_report:
         ev_report.begin_turn(round_no=1)
 
-    runtime_context: dict[str, typing.Any] = {
+    context: dict[str, typing.Any] = {
         "goal"       : message,
         "mode"       : mode,
         "reasoning"  : "",
@@ -118,8 +118,8 @@ async def static_looper(
 
             reasoning = result.get("reasoning") or ""
 
-            runtime_context["reasoning"]  = reasoning
-            runtime_context["loop_count"] = loop_count
+            context["reasoning"]  = reasoning
+            context["loop_count"] = loop_count
 
             logger.info(reasoning)
             emit_event({
@@ -154,7 +154,7 @@ async def static_looper(
                         "data"    : None,
                         "cost_ms" : 0
                     }
-                    runtime_context["current"] = step_context
+                    context["current"] = step_context
 
                     emit_event({
                         "type"  : "exec.step.start",
@@ -188,13 +188,13 @@ async def static_looper(
                             "context": {
                                 **(arguments.get("context") or {}),
                                 "plan": {
-                                    "goal"       : runtime_context["goal"],
-                                    "mode"       : runtime_context["mode"],
-                                    "reasoning"  : runtime_context["reasoning"],
-                                    "loop_count" : runtime_context["loop_count"],
-                                    "metadata"   : runtime_context["metadata"],
-                                    "steps"      : runtime_context["steps"],
-                                    "current"    : runtime_context["current"]
+                                    "goal"       : context["goal"],
+                                    "mode"       : context["mode"],
+                                    "reasoning"  : context["reasoning"],
+                                    "loop_count" : context["loop_count"],
+                                    "metadata"   : context["metadata"],
+                                    "steps"      : context["steps"],
+                                    "current"    : context["current"]
                                 }
                             }
                         }
@@ -225,8 +225,8 @@ async def static_looper(
                     step_context["data"]    = fields.get("data") if isinstance(fields, dict) else None
                     step_context["cost_ms"] = int((time.time() - started_at) * 1000)
 
-                    runtime_context["steps"].append(step_context)
-                    runtime_context["current"] = step_context
+                    context["steps"].append(step_context)
+                    context["current"] = step_context
 
                     emit_event({
                         "type"    : "exec.tool.output",
@@ -238,8 +238,9 @@ async def static_looper(
                         "ts"      : time.time()
                     })
 
-                    data = fields.get("data") if isinstance(fields, dict) else None
+                    data    = fields.get("data") if isinstance(fields, dict) else None
                     data_ok = bool(data.get("ok")) if isinstance(data, dict) else False
+
                     if not ok or not data_ok:
                         step_context["data_ok"] = data_ok
                         brief_err = fields.get("text") if isinstance(fields, dict) else "step failed"
@@ -271,14 +272,8 @@ async def static_looper(
                     "ts"    : time.time()
                 })
 
-                if index != loop_count:
-                    mind.task_info.clear()
-
         await finish_stream(
-            ev_report,
-            phase="exec.done",
-            status="completed",
-            loop_count=runtime_context["loop_count"]
+            ev_report, phase="exec.done", status="completed", loop_count=context["loop_count"]
         )
 
     finally:

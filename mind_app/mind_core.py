@@ -48,7 +48,6 @@ class Mind(object):
         self.pref: Preferences = kwargs["pref"]
 
         self.task_event: asyncio.Event = asyncio.Event()
-        self.task_info: list = []
 
         self.anim_manager: AsyncAnimManager = AsyncAnimManager()
 

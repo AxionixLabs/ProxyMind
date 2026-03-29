@@ -195,6 +195,7 @@ async def calling(
 ) -> None:
     """统一包装一次用户调用，并由 mode 决定底层执行器。"""
     model_api = model_api or mind.pref.to_config()
+
     runner = resolve_mode_runner(mind, mode)
 
     meta_in = kwargs.get("metadata") or {}
