@@ -86,7 +86,7 @@ class Design(object):
         scan_speed=0.2,
         scan_pad=2.6
     )
-    SEARCH_STATUS_SPEC: typing.Final[SweepStatusSpec] = SweepStatusSpec(
+    BUILTIN_STATUS_SPEC: typing.Final[SweepStatusSpec] = SweepStatusSpec(
         refresh_per_second=40,
         phase_rate=15.8,
         text_limit=48,
@@ -1461,24 +1461,24 @@ class Design(object):
                 live.update(cls.tool_status_renderable(phase, text))
 
     @classmethod
-    async def preview_search_status_live(cls, duration: float = 15.0) -> None:
-        text     = "searching"
-        fps      = cls.search_status_refresh_per_second()
-        interval = cls.search_status_interval()
+    async def preview_builtin_status_live(cls, duration: float = 15.0) -> None:
+        text     = "working"
+        fps      = cls.builtin_status_refresh_per_second()
+        interval = cls.builtin_status_interval()
         loop     = asyncio.get_running_loop()
         started_at = loop.time()
         deadline = started_at + max(0.0, float(duration))
 
         with Live(
-            cls.search_status_renderable(0.0, text),
+            cls.builtin_status_renderable(0.0, text),
             console=cls.console,
             refresh_per_second=fps,
             transient=True
         ) as live:
             while loop.time() < deadline:
                 await asyncio.sleep(interval)
-                phase = (loop.time() - started_at) * cls.search_status_phase_rate()
-                live.update(cls.search_status_renderable(phase, text))
+                phase = (loop.time() - started_at) * cls.builtin_status_phase_rate()
+                live.update(cls.builtin_status_renderable(phase, text))
 
     @classmethod
     def tool_status_renderable(cls, phase: float, text: str) -> Text:
@@ -1536,8 +1536,8 @@ class Design(object):
         return cls.tool_status_renderable(0.0, text)
 
     @classmethod
-    def search_status_renderable(cls, phase: float, text: str) -> Text:
-        spec = cls.search_status_spec()
+    def builtin_status_renderable(cls, phase: float, text: str) -> Text:
+        spec = cls.builtin_status_spec()
         stable_colors = {
             "edge"     : "bold #40515D",
             "core"     : "bold #DCE9ED",
@@ -1552,7 +1552,7 @@ class Design(object):
             "text_dim" : "bold #53656E"
         }
 
-        text = cls.fit_status_text(text, kind="search", fallback="searching")
+        text = cls.fit_status_text(text, kind="builtin", fallback="working")
         colors  = stable_colors
         shell_motion = phase * (spec.shell_freq * cls.STATUS_SHELL_MOTION_SCALE)
         breathe = 0.5 + (0.5 * math.sin(shell_motion))
@@ -1722,8 +1722,8 @@ class Design(object):
         return cls.TOOL_STATUS_SPEC
 
     @classmethod
-    def search_status_spec(cls) -> SweepStatusSpec:
-        return cls.SEARCH_STATUS_SPEC
+    def builtin_status_spec(cls) -> SweepStatusSpec:
+        return cls.BUILTIN_STATUS_SPEC
 
     @classmethod
     def thinking_status_spec(cls) -> ProgressiveStatusSpec:
@@ -1742,7 +1742,7 @@ class Design(object):
             spec = cls.thinking_status_spec()
             chrome_width = 17
         else:
-            spec = cls.search_status_spec()
+            spec = cls.builtin_status_spec()
             chrome_width = 17
 
         visible_limit = max(12, console_width - chrome_width)
@@ -2112,21 +2112,21 @@ class Design(object):
         return cls.tool_status_phase_rate()
 
     @classmethod
-    def search_status_refresh_per_second(cls) -> int:
-        return cls.search_status_spec().refresh_per_second
+    def builtin_status_refresh_per_second(cls) -> int:
+        return cls.builtin_status_spec().refresh_per_second
 
     @classmethod
-    def search_status_interval(cls) -> float:
-        interval = 1 / cls.search_status_refresh_per_second()
+    def builtin_status_interval(cls) -> float:
+        interval = 1 / cls.builtin_status_refresh_per_second()
         return interval
 
     @classmethod
-    def search_status_phase_rate(cls) -> float:
-        return cls.search_status_spec().phase_rate
+    def builtin_status_phase_rate(cls) -> float:
+        return cls.builtin_status_spec().phase_rate
 
     @classmethod
-    def search_status_step(cls) -> float:
-        return cls.search_status_phase_rate()
+    def builtin_status_step(cls) -> float:
+        return cls.builtin_status_phase_rate()
 
     @classmethod
     def thinking_status_refresh_per_second(cls) -> int:

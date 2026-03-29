@@ -4,10 +4,10 @@
 import typing
 import asyncio
 from loguru import logger
-from mind_app.stream_support.rd_coord import RenderCoord
-from mind_app.stream_support.st_status import StatusKind
-from mind_app.stream_support.st_text import TextState
-from mind_app.stream_support.out_record import StreamRecordWriter
+from mind_app.stream_support.render_coordinator import RenderCoord
+from mind_app.stream_support.state_status import StatusFamily
+from mind_app.stream_support.state_text import TextState
+from mind_app.stream_support.output_record import StreamRecordWriter
 
 
 class StreamUI(object):
@@ -17,12 +17,6 @@ class StreamUI(object):
     BLOCK  = TextState.BLOCK
 
     DEFAULT_REFRESH_PER_SECOND = 16
-
-    SEARCH_DELAY_SEC       = 0.35
-    TOOL_STATUS_TEXT       = "function calling"
-    TOOL_STATIC_DELAY_SEC  = 0.25
-    TOOL_ANIMATE_DELAY_SEC = 1.20
-    REPLY_WAIT_DELAY_SEC   = 0.35
 
     def __init__(self, log_file: str) -> None:
         self.log_file = log_file
@@ -66,41 +60,43 @@ class StreamUI(object):
             display_chunk=display_chunk
         )
 
-    async def begin_search_status(
+    async def begin_builtin_status(
         self,
         text: typing.Optional[str],
         *,
-        delay_sec: float = SEARCH_DELAY_SEC
+        delay_sec: float = 0.35
     ) -> None:
+        """显示 Responses builtin 名称，统一走 builtin 渲染族动画。"""
         if self._has_stream_output:
             return None
         await self._schedule_status_task(
             self._delayed_status(
                 text,
                 delay_sec=delay_sec,
-                kind="search",
+                family="builtin",
                 animated=True
             )
         )
 
     async def begin_tool_status(self) -> None:
         self.coordinator.hold_status_slot()
+        text = "function calling"
         await self._schedule_status_task(
-            self._delayed_tool_status(self.TOOL_STATUS_TEXT)
+            self._delayed_tool_status(text)
         )
 
     async def begin_reply_wait_status(
         self,
         text: typing.Optional[str] = "thinking",
         *,
-        delay_sec: float = REPLY_WAIT_DELAY_SEC
+        delay_sec: float = 0.35
     ) -> None:
         self.coordinator.hold_status_slot()
         await self._schedule_status_task(
             self._delayed_status(
                 text,
                 delay_sec=delay_sec,
-                kind="wait",
+                family="wait",
                 animated=True
             )
         )
@@ -164,7 +160,7 @@ class StreamUI(object):
         text: typing.Optional[str],
         *,
         delay_sec: float,
-        kind: StatusKind,
+        family: StatusFamily,
         animated: bool
     ) -> None:
         task = asyncio.current_task()
@@ -173,7 +169,7 @@ class StreamUI(object):
         try:
             await asyncio.sleep(delay_sec)
             self._clear_pending_status_task_ref(task)
-            await self.coordinator.set_status(text, kind=kind, animated=animated)
+            await self.coordinator.set_status(text, family=family, animated=animated)
         except asyncio.CancelledError:
             return None
 
@@ -181,14 +177,16 @@ class StreamUI(object):
         task = asyncio.current_task()
         if task is None:
             return None
+        static_delay_sec = 0.25
+        animate_delay_sec = 1.20
         try:
-            await asyncio.sleep(self.TOOL_STATIC_DELAY_SEC)
-            await self.coordinator.set_status(text, kind="tool", animated=False)
+            await asyncio.sleep(static_delay_sec)
+            await self.coordinator.set_status(text, family="tool", animated=False)
 
-            animate_delay = self.TOOL_ANIMATE_DELAY_SEC - self.TOOL_STATIC_DELAY_SEC
+            animate_delay = animate_delay_sec - static_delay_sec
             if animate_delay > 0:
                 await asyncio.sleep(animate_delay)
-                await self.coordinator.set_status(text, kind="tool", animated=True)
+                await self.coordinator.set_status(text, family="tool", animated=True)
 
             self._clear_pending_status_task_ref(task)
         except asyncio.CancelledError:

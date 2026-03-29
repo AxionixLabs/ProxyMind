@@ -6,7 +6,7 @@ import re
 import typing
 from rich.text import Text, Span
 from mind_core.design import Design, mix_hex_color
-from .fmt_time import (
+from .format_time import (
     format_elapsed,
     elapsed_format_key,
     elapsed_display_width,
@@ -14,15 +14,19 @@ from .fmt_time import (
     pad_elapsed_label,
 )
 
-StatusKind = typing.Literal["search", "tool", "wait"]
+StatusFamily = typing.Literal[
+    "builtin",
+    "tool",
+    "wait",
+]
 
 
 class StatusState(object):
-    """管理搜索/工具状态语义和渲染配置。"""
+    """管理状态行的渲染族与动画配置。"""
 
-    STATUS_SEARCH: typing.Final[StatusKind] = "search"
-    STATUS_TOOL: typing.Final[StatusKind] = "tool"
-    STATUS_WAIT: typing.Final[StatusKind] = "wait"
+    FAMILY_BUILTIN: typing.Final[StatusFamily] = "builtin"
+    FAMILY_TOOL: typing.Final[StatusFamily] = "tool"
+    FAMILY_WAIT: typing.Final[StatusFamily] = "wait"
 
     ENTER_DURATION_SEC: typing.Final[float] = 0.14
     EXIT_DURATION_SEC: typing.Final[float] = 0.18
@@ -40,13 +44,13 @@ class StatusState(object):
         self
     ) -> None:
         self.text: str = ""
-        self.kind: StatusKind = self.STATUS_SEARCH
+        self.family: StatusFamily = self.FAMILY_BUILTIN
         self.phase: float = 0.0
         self.animated: bool = True
         self.started_at: float = 0.0
 
         self._exit_text: str = ""
-        self._exit_kind: StatusKind = self.STATUS_SEARCH
+        self._exit_family: StatusFamily = self.FAMILY_BUILTIN
         self._exit_phase: float = 0.0
         self._exit_animated: bool = True
         self._exit_started_at: float = 0.0
@@ -76,21 +80,21 @@ class StatusState(object):
         self,
         text: typing.Optional[str],
         *,
-        kind: StatusKind = STATUS_SEARCH,
+        family: StatusFamily = FAMILY_BUILTIN,
         animated: bool = True
     ) -> bool:
         status = Design.truncate_status_text(
             text,
-            limit=Design.status_text_limit(kind)
+            limit=Design.status_text_limit(family)
         )
         if not status:
             return self.clear_status()
 
-        next_kind = kind
+        next_family = family
         next_animated = bool(animated)
         reset_phase = (
             status != self.text
-            or next_kind != self.kind
+            or next_family != self.family
             or next_animated != self.animated
         )
         if reset_phase:
@@ -100,7 +104,7 @@ class StatusState(object):
         self._clear_exit()
         self._reset_elapsed_transition()
         self.text = status
-        self.kind = next_kind
+        self.family = next_family
         self.animated = next_animated
         return reset_phase
 
@@ -110,7 +114,7 @@ class StatusState(object):
         if self.active:
             now = time.perf_counter()
             self._exit_text = self.text
-            self._exit_kind = self.kind
+            self._exit_family = self.family
             self._exit_phase = self.phase
             self._exit_animated = self.animated
             self._exit_started_at = now
@@ -119,7 +123,7 @@ class StatusState(object):
             self._clear_exit()
 
         self.text = ""
-        self.kind = self.STATUS_SEARCH
+        self.family = self.FAMILY_BUILTIN
         self.phase = 0.0
         self.animated = True
         self.started_at = 0.0
@@ -136,18 +140,18 @@ class StatusState(object):
         if state is None:
             return Text()
 
-        text, kind, phase, animated, presence, elapsed_override = state
+        text, family, phase, animated, presence, elapsed_override = state
 
-        if not animated and kind == self.STATUS_TOOL:
+        if not animated and family == self.FAMILY_TOOL:
             out = Design.tool_status_static_renderable(text)
         elif not animated:
             out = Text(text, style="bold #8FA4B8")
-        elif kind == self.STATUS_TOOL:
+        elif family == self.FAMILY_TOOL:
             out = Design.tool_status_renderable(phase, text)
-        elif kind == self.STATUS_WAIT:
+        elif family == self.FAMILY_WAIT:
             out = Design.thinking_status_renderable(phase, text)
         else:
-            out = Design.search_status_renderable(phase, text)
+            out = Design.builtin_status_renderable(phase, text)
 
         self._apply_presence(out, presence)
         self._append_elapsed(
@@ -162,13 +166,13 @@ class StatusState(object):
         if state is None:
             return 4
 
-        _, kind, _, animated, _, _ = state
+        _, family, _, animated, _, _ = state
         if self.active and animated:
-            if kind == self.STATUS_TOOL:
+            if family == self.FAMILY_TOOL:
                 return int(Design.tool_status_refresh_per_second())
-            if kind == self.STATUS_WAIT:
+            if family == self.FAMILY_WAIT:
                 return int(Design.thinking_status_refresh_per_second())
-            return int(Design.search_status_refresh_per_second())
+            return int(Design.builtin_status_refresh_per_second())
         return self.EXIT_REFRESH_PER_SECOND
 
     def interval(self) -> float:
@@ -176,42 +180,42 @@ class StatusState(object):
         if state is None:
             return 0.25
 
-        _, kind, _, animated, _, _ = state
+        _, family, _, animated, _, _ = state
         if self.active and animated:
-            if kind == self.STATUS_TOOL:
+            if family == self.FAMILY_TOOL:
                 return float(Design.tool_status_interval())
-            if kind == self.STATUS_WAIT:
+            if family == self.FAMILY_WAIT:
                 return float(Design.thinking_status_interval())
-            return float(Design.search_status_interval())
+            return float(Design.builtin_status_interval())
         return 1 / self.EXIT_REFRESH_PER_SECOND
 
     def step(self) -> float:
         if not self.active:
             return 0.0
-        if self.kind == self.STATUS_TOOL:
+        if self.family == self.FAMILY_TOOL:
             return float(Design.tool_status_step())
-        if self.kind == self.STATUS_WAIT:
+        if self.family == self.FAMILY_WAIT:
             return float(Design.thinking_status_step())
-        return float(Design.search_status_step())
+        return float(Design.builtin_status_step())
 
     def phase_rate(self) -> float:
         if not self.active:
             return 0.0
-        if self.kind == self.STATUS_TOOL:
+        if self.family == self.FAMILY_TOOL:
             return float(Design.tool_status_phase_rate())
-        if self.kind == self.STATUS_WAIT:
+        if self.family == self.FAMILY_WAIT:
             return float(Design.thinking_status_phase_rate())
-        return float(Design.search_status_phase_rate())
+        return float(Design.builtin_status_phase_rate())
 
     def _current_state(
         self
-    ) -> typing.Optional[tuple[str, StatusKind, float, bool, float, typing.Optional[float]]]:
+    ) -> typing.Optional[tuple[str, StatusFamily, float, bool, float, typing.Optional[float]]]:
         self._prune_exit()
         if self.active:
             age = max(0.0, time.perf_counter() - self.started_at)
             progress = min(1.0, age / self.ENTER_DURATION_SEC)
             presence = self._smoothstep(progress)
-            return self.text, self.kind, self.phase, self.animated, presence, None
+            return self.text, self.family, self.phase, self.animated, presence, None
 
         if self._exit_text:
             age = max(0.0, time.perf_counter() - self._exit_started_at)
@@ -219,7 +223,7 @@ class StatusState(object):
             presence = 1.0 - self._smoothstep(progress)
             return (
                 self._exit_text,
-                self._exit_kind,
+                self._exit_family,
                 self._exit_phase,
                 self._exit_animated,
                 presence,
@@ -279,7 +283,7 @@ class StatusState(object):
 
     def _clear_exit(self) -> None:
         self._exit_text = ""
-        self._exit_kind = self.STATUS_SEARCH
+        self._exit_family = self.FAMILY_BUILTIN
         self._exit_phase = 0.0
         self._exit_animated = True
         self._exit_started_at = 0.0

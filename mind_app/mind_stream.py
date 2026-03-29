@@ -8,11 +8,12 @@ from engine.tinker import Tooling
 from mind_nova.events import EventReport
 from mind_nova import request
 from .stream_ui import StreamUI
-from .stream_support.evt_finish import finish_stream
-from .stream_support.fmt_search import (
-    build_builtin_search_status,
+from .stream_support.event_finish import finish_stream
+from .stream_support.responses_builtin import (
+    resolve_builtin_name,
+    consume_builtin_done,
 )
-from .stream_support.st_segment import (
+from .stream_support.state_segment import (
     SegmentTracker,
     build_sources_text
 )
@@ -96,11 +97,11 @@ async def stream_looper(
                 break
 
             if event_type == "tool.builtin.call":
-                await slog.begin_search_status(build_builtin_search_status(event))
+                await slog.begin_builtin_status(resolve_builtin_name(event))
                 continue
 
             if event_type == "tool.builtin.done":
-                tracker.on_builtin_done(event)
+                consume_builtin_done(event, tracker)
                 await slog.end_status()
                 continue
 

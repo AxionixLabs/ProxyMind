@@ -5,12 +5,12 @@ import typing
 import asyncio
 from rich.text import Text
 from mind_core.design import Design
-from .rd_anim import AnimDriver
-from .st_status import (
-    StatusKind, StatusState
+from .render_animation import AnimDriver
+from .state_status import (
+    StatusFamily, StatusState
 )
-from .rd_text import TextRenderer
-from .st_text import TextState
+from .render_text import TextRenderer
+from .state_text import TextState
 
 
 class RenderCoord(object):
@@ -70,10 +70,10 @@ class RenderCoord(object):
         self,
         text: typing.Optional[str],
         *,
-        kind: StatusKind = StatusState.STATUS_SEARCH,
+        family: StatusFamily = StatusState.FAMILY_BUILTIN,
         animated: bool = True
     ) -> None:
-        reset_phase = self.status_state.set_status(text, kind=kind, animated=animated)
+        reset_phase = self.status_state.set_status(text, family=family, animated=animated)
 
         if not self.status_state.animating:
             await self.status_driver.stop(reset_phase=True)

@@ -13,7 +13,7 @@ from mind_nova import (
     craft, request
 )
 from .stream_ui import StreamUI
-from .stream_support.evt_finish import finish_stream
+from .stream_support.event_finish import finish_stream
 
 if typing.TYPE_CHECKING:
     from .mind_core import Mind
