@@ -3,11 +3,12 @@
 
 import typing
 import asyncio
+import time
 from loguru import logger
-from mind_app.stream_support.render_coordinator import RenderCoord
-from mind_app.stream_support.state_status import StatusFamily
-from mind_app.stream_support.state_text import TextState
-from mind_app.stream_support.output_record import StreamRecordWriter
+from mind_app.stream_render.coordinator import RenderCoord
+from mind_app.stream_state.status import StatusFamily
+from mind_app.stream_state.text import TextState
+from mind_app.stream_io.output_record import StreamRecordWriter
 
 
 class StreamUI(object):
@@ -23,6 +24,10 @@ class StreamUI(object):
 
         self._has_stream_output = False
         self._pending_status_task: typing.Optional[asyncio.Task[None]] = None
+        self._pending_status_force_reveal = False
+        self._pending_status_revealed: typing.Optional[asyncio.Event] = None
+        self._active_status_visible_at: typing.Optional[float] = None
+        self._active_status_min_visible_sec = 0.0
         self.record_writer: StreamRecordWriter
         self._reset_components()
 
@@ -64,46 +69,56 @@ class StreamUI(object):
         self,
         text: typing.Optional[str],
         *,
-        delay_sec: float = 0.35
+        delay_sec: float = 0.18
     ) -> None:
-        """显示 Responses builtin 名称，统一走 builtin 渲染族动画。"""
+        """显示 Responses builtin 名称，先静态露出，再切到动画。"""
         if self._has_stream_output:
             return None
         await self._schedule_status_task(
-            self._delayed_status(
+            self._delayed_status_flow(
                 text,
-                delay_sec=delay_sec,
+                show_delay_sec=delay_sec,
+                animate_after_sec=0.72,
                 family="builtin",
-                animated=True
-            )
+                min_visible_sec=0.0
+            ),
+            force_reveal=True
         )
 
     async def begin_tool_status(self) -> None:
         self.coordinator.hold_status_slot()
         text = "function calling"
         await self._schedule_status_task(
-            self._delayed_tool_status(text)
+            self._delayed_status_flow(
+                text,
+                show_delay_sec=0.18,
+                animate_after_sec=0.72,
+                family="tool"
+            )
         )
 
     async def begin_reply_wait_status(
         self,
         text: typing.Optional[str] = "thinking",
         *,
-        delay_sec: float = 0.35
+        delay_sec: float = 0.28
     ) -> None:
         self.coordinator.hold_status_slot()
         await self._schedule_status_task(
-            self._delayed_status(
+            self._delayed_status_flow(
                 text,
-                delay_sec=delay_sec,
+                show_delay_sec=delay_sec,
+                animate_after_sec=0.72,
                 family="wait",
-                animated=True
             )
         )
 
     async def end_status(self) -> None:
+        await self._wait_status_visibility_if_needed()
         await self._cancel_pending_status_task()
         await self.coordinator.clear_status()
+        self._active_status_visible_at = None
+        self._active_status_min_visible_sec = 0.0
 
     async def settle_stream(self) -> None:
         await self.coordinator.settle_stream()
@@ -114,6 +129,10 @@ class StreamUI(object):
     def _reset_components(self) -> None:
         self._has_stream_output = False
         self._pending_status_task = None
+        self._pending_status_force_reveal = False
+        self._pending_status_revealed = None
+        self._active_status_visible_at = None
+        self._active_status_min_visible_sec = 0.0
         self.record_writer = StreamRecordWriter(self.log_file)
         self.coordinator = RenderCoord(
             refresh_per_second=self.DEFAULT_REFRESH_PER_SECOND
@@ -121,12 +140,16 @@ class StreamUI(object):
 
     async def _schedule_status_task(
         self,
-        coro: typing.Coroutine[typing.Any, typing.Any, None]
+        coro: typing.Coroutine[typing.Any, typing.Any, None],
+        *,
+        force_reveal: bool = False
     ) -> None:
         await self._cancel_pending_status_task()
         task = asyncio.create_task(coro)
         task.add_done_callback(self._on_status_task_done)
         self._pending_status_task = task
+        self._pending_status_force_reveal = force_reveal
+        self._pending_status_revealed = asyncio.Event() if force_reveal else None
 
     async def _cancel_pending_status_task(self) -> None:
         task = self._pending_status_task
@@ -134,6 +157,8 @@ class StreamUI(object):
             return None
 
         self._pending_status_task = None
+        self._pending_status_force_reveal = False
+        self._pending_status_revealed = None
         task.cancel()
         try:
             await task
@@ -143,6 +168,8 @@ class StreamUI(object):
     def _clear_pending_status_task_ref(self, task: asyncio.Task[None]) -> None:
         if self._pending_status_task is task:
             self._pending_status_task = None
+            self._pending_status_force_reveal = False
+            self._pending_status_revealed = None
 
     @staticmethod
     def _on_status_task_done(task: asyncio.Task[None]) -> None:
@@ -155,42 +182,53 @@ class StreamUI(object):
         except Exception as e:
             logger.debug(f"[StreamUI] status task failed: {type(e).__name__}: {e}")
 
-    async def _delayed_status(
+    async def _delayed_status_flow(
         self,
         text: typing.Optional[str],
         *,
-        delay_sec: float,
+        show_delay_sec: float,
+        animate_after_sec: float,
         family: StatusFamily,
-        animated: bool
+        min_visible_sec: float = 0.0
     ) -> None:
         task = asyncio.current_task()
         if task is None:
             return None
         try:
-            await asyncio.sleep(delay_sec)
-            self._clear_pending_status_task_ref(task)
-            await self.coordinator.set_status(text, family=family, animated=animated)
-        except asyncio.CancelledError:
-            return None
-
-    async def _delayed_tool_status(self, text: typing.Optional[str]) -> None:
-        task = asyncio.current_task()
-        if task is None:
-            return None
-        static_delay_sec = 0.25
-        animate_delay_sec = 1.20
-        try:
-            await asyncio.sleep(static_delay_sec)
-            await self.coordinator.set_status(text, family="tool", animated=False)
-
-            animate_delay = animate_delay_sec - static_delay_sec
+            await asyncio.sleep(show_delay_sec)
+            await self.coordinator.set_status(text, family=family, animated=False)
+            self._mark_status_visible(min_visible_sec)
+            if self._pending_status_revealed is not None:
+                self._pending_status_revealed.set()
+            animate_delay = animate_after_sec - show_delay_sec
             if animate_delay > 0:
                 await asyncio.sleep(animate_delay)
-                await self.coordinator.set_status(text, family="tool", animated=True)
+                await self.coordinator.set_status(text, family=family, animated=True)
 
             self._clear_pending_status_task_ref(task)
         except asyncio.CancelledError:
             return None
+
+    def _mark_status_visible(self, min_visible_sec: float) -> None:
+        self._active_status_visible_at = time.perf_counter()
+        self._active_status_min_visible_sec = max(0.0, float(min_visible_sec))
+
+    async def _wait_status_visibility_if_needed(self) -> None:
+        task = self._pending_status_task
+        revealed = self._pending_status_revealed
+        if task and self._pending_status_force_reveal and revealed is not None:
+            try:
+                await revealed.wait()
+            except asyncio.CancelledError:
+                return None
+
+        if not self._active_status_visible_at or self._active_status_min_visible_sec <= 0:
+            return None
+
+        deadline = self._active_status_visible_at + self._active_status_min_visible_sec
+        remaining = deadline - time.perf_counter()
+        if remaining > 0:
+            await asyncio.sleep(remaining)
 
 
 if __name__ == '__main__':
