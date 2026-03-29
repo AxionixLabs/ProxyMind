@@ -4,7 +4,6 @@
 import os
 import sys
 import json
-import copy
 import random
 import shutil
 import typing
@@ -145,66 +144,6 @@ class FileAssist(object):
 
 
 class Tooling(object):
-
-    @staticmethod
-    def normalize_openai_schema(schema: typing.Any) -> dict[str, typing.Any]:
-        """
-        将 MCP inputSchema 归一化为 OpenAI function parameters
-        可接受的保守 JSON Schema。
-
-        这里不追求完整保留原始 schema 语义，而是优先保证：
-        1. 顶层一定是 object
-        2. properties 一定是 dict
-        3. required 一定是 list
-        4. 属性定义缺失或异常时统一降级，避免把复杂 schema 直接透传给上游
-        5. 显式关闭 additionalProperties，减少参数漂移
-        """
-        if not isinstance(schema, dict) or not schema:
-            return {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": False,
-            }
-
-        schema = copy.deepcopy(schema)
-
-        if schema.get("type") != "object":
-            return {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": False,
-            }
-
-        properties = schema.get("properties")
-        if not isinstance(properties, dict):
-            schema["properties"] = {}
-
-        required = schema.get("required")
-        if required is None:
-            schema["required"] = []
-        elif not isinstance(required, list):
-            schema["required"] = []
-
-        cleaned_properties: dict[str, dict[str, typing.Any]] = {}
-        for name, prop in schema["properties"].items():
-            if not isinstance(prop, dict):
-                cleaned_properties[name] = {
-                    "type": "string",
-                    "description": f"{name}",
-                }
-                continue
-
-            prop = copy.deepcopy(prop)
-
-            if "type" not in prop:
-                prop["type"] = "string"
-
-            cleaned_properties[str(name)] = prop
-
-        schema["properties"] = cleaned_properties
-        schema["additionalProperties"] = False
-
-        return schema
 
     @staticmethod
     def filter_tools(

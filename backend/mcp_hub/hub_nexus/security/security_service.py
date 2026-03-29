@@ -1,9 +1,4 @@
-#  ____                  _
-# / ___|  ___ _ ____   _(_) ___ ___
-# \___ \ / _ \ '__\ \ / / |/ __/ _ \
-#  ___) |  __/ |   \ V /| | (_|  __/
-# |____/ \___|_|    \_/ |_|\___\___|
-#
+# -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import jwt

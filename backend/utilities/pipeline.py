@@ -1,10 +1,4 @@
-#  ____  _            _ _
-# |  _ \(_)_ __   ___| (_)_ __   ___
-# | |_) | | '_ \ / _ \ | | '_ \ / _ \
-# |  __/| | |_) |  __/ | | | | |  __/
-# |_|   |_| .__/ \___|_|_|_| |_|\___|
-#         |_|
-#
+# -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import os

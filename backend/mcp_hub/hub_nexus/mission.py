@@ -1,9 +1,4 @@
-#  __  __ _         _
-# |  \/  (_)___ ___(_) ___  _ __
-# | |\/| | / __/ __| |/ _ \| '_ \
-# | |  | | \__ \__ \ | (_) | | | |
-# |_|  |_|_|___/___/_|\___/|_| |_|
-#
+# -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import time

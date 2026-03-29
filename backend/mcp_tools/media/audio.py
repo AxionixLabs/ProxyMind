@@ -1,37 +1,38 @@
-#     _             _ _
-#    / \  _   _  __| (_) ___
-#   / _ \| | | |/ _` | |/ _ \
-#  / ___ \ |_| | (_| | | (_) |
-# /_/   \_\__,_|\__,_|_|\___/
-#
+# -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
+import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
+from pydantic import Field
 from backend.middlewares.mid_task import task_middleware
 from backend.utilities.instance import Ins
 from backend.utilities.pipeline import Idle
 from backend.utilities.toolbox import broadcast
 
 
+AudioFileArg = typing.Annotated[
+    str,
+    Field(description="要在当前运行环境本机播放的音频文件路径。"),
+]
+VolumeArg = typing.Annotated[
+    float,
+    Field(description="播放音量倍率，`1.0` 表示原始音量。"),
+]
+
+
 def bind(mcp: FastMCP, idle: Idle) -> None:
 
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "audio"})
+    @mcp.tool(
+        description=(
+            "在当前运行环境本机播放一个音频文件。"
+            "该工具只负责本地播放，不会把音频推送到设备，也不会生成新媒体文件。"
+            "文件不存在、格式不支持或解码失败时会失败。"
+        ),
+        meta={"hidden": False, "domain": "media", "class": "audio"}
+    )
     @task_middleware("audio_play")
-    async def audio_play(audio_file: str, volume: float = 1.0) -> CallToolResult:
-        """
-        D: media
-        C: audio
-        A: audio_play
-        P:
-          audio_file: str
-          volume: float=1.0
-        R: CTR
-        N:
-          - 在当前运行环境本机播放一个音频文件。
-          - 该工具只负责本地播放，不会把音频推送到设备，也不会生成新媒体文件。
-          - 文件不存在、格式不支持或解码失败时会失败。
-        """
+    async def audio_play(audio_file: AudioFileArg, volume: VolumeArg = 1.0) -> CallToolResult:
 
         args = {
             "audio_file" : audio_file,

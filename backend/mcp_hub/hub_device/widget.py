@@ -1,10 +1,4 @@
-# __        ___     _            _
-# \ \      / (_) __| | __ _  ___| |_
-#  \ \ /\ / /| |/ _` |/ _` |/ _ \ __|
-#   \ V  V / | | (_| | (_| |  __/ |_
-#    \_/\_/  |_|\__,_|\__, |\___|\__|
-#                     |___/
-#
+# -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import re

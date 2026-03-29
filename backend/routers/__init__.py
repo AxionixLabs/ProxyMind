@@ -1,9 +1,4 @@
-#  ____             _
-# |  _ \ ___  _   _| |_ ___ _ __ ___
-# | |_) / _ \| | | | __/ _ \ '__/ __|
-# |  _ < (_) | |_| | ||  __/ |  \__ \
-# |_| \_\___/ \__,_|\__\___|_|  |___/
-#
+# -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 from fastapi import FastAPI

@@ -1,9 +1,4 @@
-#   ____                  ____ _ _
-#  / ___|___  _ __ ___   / ___| (_)
-# | |   / _ \| '__/ _ \ | |   | | |
-# | |__| (_) | | |  __/ | |___| | |
-#  \____\___/|_|  \___|  \____|_|_|
-#
+# -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing

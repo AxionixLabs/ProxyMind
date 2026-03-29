@@ -1,9 +1,5 @@
-# __     ___     _
-# \ \   / (_)___(_) ___  _ __
-#  \ \ / /| / __| |/ _ \| '_ \
-#   \ V / | \__ \ | (_) | | | |
-#    \_/  |_|___/_|\___/|_| |_|
-#
+# -*- coding: utf-8 -*-
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import numpy as np
 from PIL import Image

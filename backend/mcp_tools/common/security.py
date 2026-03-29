@@ -1,10 +1,4 @@
-#  ____                       _ _           ____                  _
-# / ___|  ___  ___ _   _ _ __(_) |_ _   _  / ___|  ___ _ ____   _(_) ___ ___
-# \___ \ / _ \/ __| | | | '__| | __| | | | \___ \ / _ \ '__\ \ / / |/ __/ _ \
-#  ___) |  __/ (__| |_| | |  | | |_| |_| |  ___) |  __/ |   \ V /| | (_|  __/
-# |____/ \___|\___|\__,_|_|  |_|\__|\__, | |____/ \___|_|    \_/ |_|\___\___|
-#                                   |___/
-#
+# -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
@@ -12,7 +6,218 @@ from mcp.server import FastMCP
 from mcp.types import (
     CallToolResult, TextContent
 )
+from pydantic import Field
 from backend.mcp_hub.hub_nexus import SecurityService
+
+
+OutputKeyArg = typing.Annotated[
+    str,
+    Field(description="结果在返回 `data` 中保存时使用的字段名。"),
+]
+DigestKindArg = typing.Annotated[
+    str,
+    Field(description="摘要或 HMAC 算法，如 md5、sha256、hmac_sha256。"),
+]
+DigestInputArg = typing.Annotated[
+    typing.Any,
+    Field(description="待计算摘要的输入值；文本会按 `encoding` 转字节。"),
+]
+SecretValueArg = typing.Annotated[
+    typing.Any,
+    Field(description="HMAC 密钥，或拼接签名文本时附加的密钥内容。"),
+]
+EncodingArg = typing.Annotated[
+    str,
+    Field(description="文本和字节之间转换时使用的字符编码。"),
+]
+DigestOutModeArg = typing.Annotated[
+    str,
+    Field(description="摘要结果输出格式，可选 `hex`、`base64` 或 `bytes`。"),
+]
+JwtHsKindArg = typing.Annotated[
+    str,
+    Field(description="HS256 JWT 模式，如 `jwt_hs256`、`jwt_decode_unverified` 或 `jwt_verify_hs256`。"),
+]
+JwtAsymmetricKindArg = typing.Annotated[
+    str,
+    Field(description="非对称 JWT 模式，如 `jwt_rs256`、`jwt_verify_rs256`、`jwt_es256` 或 `jwt_verify_es256`。"),
+]
+JwtPayloadArg = typing.Annotated[
+    typing.Optional[dict[str, typing.Any]],
+    Field(description="JWT 载荷。生成 token 时必填。"),
+]
+JwtSecretArg = typing.Annotated[
+    str | None,
+    Field(description="HS256 对称密钥。HS256 生成或验签时必填。"),
+]
+JwtTokenArg = typing.Annotated[
+    str | None,
+    Field(description="待解析或验签的 JWT 文本。"),
+]
+JwtHeadersArg = typing.Annotated[
+    typing.Optional[dict[str, typing.Any]],
+    Field(description="JWT 头部附加字段，如 `kid`。"),
+]
+JwtOptionsArg = typing.Annotated[
+    typing.Optional[dict[str, typing.Any]],
+    Field(description="JWT 验签选项，会透传给底层 JWT 库。"),
+]
+ReturnPayloadArg = typing.Annotated[
+    bool,
+    Field(description="验签成功后是否返回解析出的 payload；为 false 时返回布尔结果。"),
+]
+JwtCompleteArg = typing.Annotated[
+    bool,
+    Field(description="无验签解析时是否返回 header、payload 和 signature 的完整结构。"),
+]
+PrivateKeyArg = typing.Annotated[
+    str | None,
+    Field(description="私钥 PEM 文本。生成 JWT、RSA 签名或 RSA 解密时通常需要。"),
+]
+PublicKeyArg = typing.Annotated[
+    str | None,
+    Field(description="公钥 PEM 文本。JWT 验签、RSA 验签或 RSA 加密时通常需要。"),
+]
+CryptoKindArg = typing.Annotated[
+    str,
+    Field(description="RSA 动作，如 `rsa_sign`、`rsa_verify`、`rsa_encrypt`、`rsa_decrypt` 或强语义别名。"),
+]
+CryptoInputArg = typing.Annotated[
+    typing.Any,
+    Field(description="RSA 或 AES 操作的主输入值，例如明文、待签名文本或待解密密文。"),
+]
+SignatureArg = typing.Annotated[
+    typing.Any,
+    Field(description="待验签的签名值；实际编码由 `signature_format` 决定。"),
+]
+CiphertextArg = typing.Annotated[
+    typing.Any,
+    Field(description="待解密的密文；实际编码由 `ciphertext_format` 或 `input_format` 决定。"),
+]
+RsaOutModeArg = typing.Annotated[
+    str,
+    Field(description="RSA 二进制结果的输出格式，可选 `base64`、`hex` 或 `bytes`。"),
+]
+AesOutModeArg = typing.Annotated[
+    str,
+    Field(description="AES 结果输出格式，可选 `base64`、`hex`、`bytes` 或 `text`。"),
+]
+BinaryFormatArg = typing.Annotated[
+    str,
+    Field(description="输入二进制值的编码格式，可选 `text`、`base64`、`hex` 或 `bytes`。"),
+]
+PaddingArg = typing.Annotated[
+    str,
+    Field(description="RSA padding 模式，如 `oaep`、`pkcs1v15` 或 `pss`。"),
+]
+HashAlgorithmArg = typing.Annotated[
+    str,
+    Field(description="摘要算法，如 `sha256`、`sha384` 或 `sha512`。"),
+]
+MgfAlgorithmArg = typing.Annotated[
+    str | None,
+    Field(description="OAEP 或 PSS 的 MGF1 摘要算法；为空时跟随 `algorithm`。"),
+]
+RsaLabelArg = typing.Annotated[
+    str | None,
+    Field(description="OAEP label 文本；为空时不传 label。"),
+]
+SaltLengthArg = typing.Annotated[
+    str,
+    Field(description="PSS salt 长度，可为 `max`、`digest`、`auto` 或非负整数文本。"),
+]
+AesKindArg = typing.Annotated[
+    str,
+    Field(description="AES 动作，支持 `aes_encrypt` 或 `aes_decrypt`。"),
+]
+AesKeyArg = typing.Annotated[
+    typing.Any,
+    Field(description="AES 密钥，解码后长度必须为 16、24 或 32 字节。"),
+]
+AesIvArg = typing.Annotated[
+    typing.Any,
+    Field(description="CBC 模式使用的初始化向量；解码后必须为 16 字节。"),
+]
+AesNonceArg = typing.Annotated[
+    typing.Any,
+    Field(description="GCM 模式使用的 nonce。"),
+]
+AesAadArg = typing.Annotated[
+    typing.Any,
+    Field(description="GCM 模式的附加认证数据；加解密两侧必须一致。"),
+]
+AesTagArg = typing.Annotated[
+    typing.Any,
+    Field(description="GCM 解密时需要的认证标签。"),
+]
+AesModeArg = typing.Annotated[
+    str,
+    Field(description="AES 模式，可选 `cbc`、`ecb` 或 `gcm`。"),
+]
+PaddingModeArg = typing.Annotated[
+    str,
+    Field(description="分组填充模式，可选 `pkcs7` 或 `none`；GCM 下会被忽略。"),
+]
+SignTextKindArg = typing.Annotated[
+    str,
+    Field(description="签名文本拼装模式，如 `key_value_join`、`query_like`、`body_plus_secret` 或 `prefix_suffix`。"),
+]
+SignDataArg = typing.Annotated[
+    typing.Optional[dict[str, typing.Any]],
+    Field(description="键值对输入，适用于 `key_value_join` 或 `query_like`。"),
+]
+SignItemsArg = typing.Annotated[
+    typing.Optional[list[typing.Any]],
+    Field(description="顺序拼接的片段列表，适用于 `body_plus_secret` 或 `prefix_suffix`。"),
+]
+PrefixArg = typing.Annotated[
+    str,
+    Field(description="最终签名文本前缀。"),
+]
+SuffixArg = typing.Annotated[
+    str,
+    Field(description="最终签名文本后缀。"),
+]
+PairSepArg = typing.Annotated[
+    str,
+    Field(description="键值对之间的分隔符。"),
+]
+KvSepArg = typing.Annotated[
+    str,
+    Field(description="键和值之间的分隔符。"),
+]
+SortKeysArg = typing.Annotated[
+    bool,
+    Field(description="是否按键和值排序，以获得稳定输出。"),
+]
+IgnoreEmptyArg = typing.Annotated[
+    bool,
+    Field(description="是否忽略空值、空列表、空对象等空元素。"),
+]
+IgnoreKeysArg = typing.Annotated[
+    typing.Optional[list[str]],
+    Field(description="需要从签名文本中排除的字段名列表。"),
+]
+MultipartKindArg = typing.Annotated[
+    str,
+    Field(description="multipart 签名文本模式，如 `multipart_field_text`、`multipart_file_text` 或 `multipart_all_text`。"),
+]
+MultipartFieldsArg = typing.Annotated[
+    typing.Optional[dict[str, typing.Any]],
+    Field(description="multipart 普通字段字典。"),
+]
+MultipartFilesArg = typing.Annotated[
+    typing.Optional[list[dict[str, typing.Any]]],
+    Field(description="multipart 文件项列表。每项通常包含 `field`、`filename`、`content_type` 和 `value`。"),
+]
+UseFilenameOnlyArg = typing.Annotated[
+    bool,
+    Field(description="文件部分参与签名时是否只使用文件名，而不使用文件内容。"),
+]
+IncludeContentTypeArg = typing.Annotated[
+    bool,
+    Field(description="文件部分参与签名时是否把 `content_type` 也拼进文本。"),
+]
 
 
 def _tool_result(agent_id: str, result: dict[str, typing.Any]) -> CallToolResult:
@@ -34,32 +239,22 @@ def _tool_result(agent_id: str, result: dict[str, typing.Any]) -> CallToolResult
 
 def bind(mcp: FastMCP) -> None:
 
-    @mcp.tool(meta={"hidden": False, "domain": "common", "class": "security"})
+    @mcp.tool(
+        description=(
+            "计算摘要或 HMAC。"
+            " 该工具只负责确定性的加密摘要计算，不负责业务签名串拼装。"
+            " `kind` 用来选择摘要或 HMAC 算法；当 `kind` 为 `hmac_*` 时必须同时提供 `secret`。"
+        ),
+        meta={"hidden": False, "domain": "common", "class": "security"}
+    )
     def security_digest(
-        kind: str,
-        output: str,
-        input_value: typing.Any,
-        secret: typing.Any = None,
-        encoding: str = "utf-8",
-        out_mode: str = "hex"
+        kind: DigestKindArg,
+        output: OutputKeyArg,
+        input_value: DigestInputArg,
+        secret: SecretValueArg = None,
+        encoding: EncodingArg = "utf-8",
+        out_mode: DigestOutModeArg = "hex"
     ) -> CallToolResult:
-        """
-        D: common
-        C: security
-        A: security_digest
-        P:
-          kind: str                  # md5 | sha1 | sha224 | sha256 | sha384 | sha512 | hmac_md5 | hmac_sha1 | hmac_sha224 | hmac_sha256 | hmac_sha384 | hmac_sha512
-          output: str                # 输出变量名
-          input_value: any           # 输入值
-          secret: any=None           # HMAC 密钥；仅 hmac_* 需要
-          encoding: str="utf-8"      # 文本转字节时使用的编码
-          out_mode: str="hex"        # hex | base64 | bytes
-        R: CTR
-        N:
-          - 计算摘要或 HMAC。
-          - 该工具只负责确定性的加密摘要计算，不负责业务签名串拼装。
-          - `kind`、`secret` 和 `out_mode` 共同决定最终输出形态。
-        """
         return _tool_result(
             "security_digest",
             SecurityService.digest(
@@ -72,38 +267,25 @@ def bind(mcp: FastMCP) -> None:
             )
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "common", "class": "security"})
+    @mcp.tool(
+        description=(
+            "处理 HS256 JWT 的生成、无验签解析或验签解析。"
+            " 该工具只覆盖对称密钥 JWT，不处理 RSA 或 EC 非对称签名。"
+            " `kind` 决定当前模式；生成时需要 `payload` 和 `secret`，解析或验签时需要 `token`。"
+        ),
+        meta={"hidden": False, "domain": "common", "class": "security"}
+    )
     def security_jwt(
-        kind: str,
-        output: str,
-        payload: typing.Optional[dict[str, typing.Any]] = None,
-        secret: str | None = None,
-        token: str | None = None,
-        headers: typing.Optional[dict[str, typing.Any]] = None,
-        options: typing.Optional[dict[str, typing.Any]] = None,
-        return_payload: bool = True,
-        complete: bool = False
+        kind: JwtHsKindArg,
+        output: OutputKeyArg,
+        payload: JwtPayloadArg = None,
+        secret: JwtSecretArg = None,
+        token: JwtTokenArg = None,
+        headers: JwtHeadersArg = None,
+        options: JwtOptionsArg = None,
+        return_payload: ReturnPayloadArg = True,
+        complete: JwtCompleteArg = False
     ) -> CallToolResult:
-        """
-        D: common
-        C: security
-        A: security_jwt
-        P:
-          kind: str                        # jwt_hs256 | jwt_decode_unverified | jwt_verify_hs256
-          output: str                      # 输出变量名
-          payload: dict?=None              # jwt_hs256 的载荷
-          secret: str?=None                # HS256 密钥
-          token: str?=None                 # decode / verify 的输入 token
-          headers: dict?=None              # jwt_hs256 headers
-          options: dict?=None              # jwt_verify_hs256 options
-          return_payload: bool=True        # verify 时返回 payload，否则返回 True
-          complete: bool=False             # decode_unverified 是否返回完整结构
-        R: CTR
-        N:
-          - 处理 HS256 JWT 的生成、无验签解析或验签解析。
-          - 该工具只覆盖对称密钥 JWT，不处理 RSA 或 EC 非对称签名。
-          - 生成、解析或验签由 `kind` 决定，输入字段需与对应模式匹配。
-        """
         return _tool_result(
             "security_jwt",
             SecurityService.jwt_hs(
@@ -119,38 +301,25 @@ def bind(mcp: FastMCP) -> None:
             )
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "common", "class": "security"})
+    @mcp.tool(
+        description=(
+            "处理 RS256 或 ES256 JWT 的生成与验签。"
+            " 该工具面向非对称密钥 JWT，不处理 HS256 对称密钥场景。"
+            " 私钥、公钥和 `kind` 必须对应，密钥格式不正确时会失败。"
+        ),
+        meta={"hidden": False, "domain": "common", "class": "security"}
+    )
     def security_jwt_rs(
-        kind: str,
-        output: str,
-        payload: typing.Optional[dict[str, typing.Any]] = None,
-        token: str | None = None,
-        private_key: str | None = None,
-        public_key: str | None = None,
-        headers: typing.Optional[dict[str, typing.Any]] = None,
-        options: typing.Optional[dict[str, typing.Any]] = None,
-        return_payload: bool = True
+        kind: JwtAsymmetricKindArg,
+        output: OutputKeyArg,
+        payload: JwtPayloadArg = None,
+        token: JwtTokenArg = None,
+        private_key: PrivateKeyArg = None,
+        public_key: PublicKeyArg = None,
+        headers: JwtHeadersArg = None,
+        options: JwtOptionsArg = None,
+        return_payload: ReturnPayloadArg = True
     ) -> CallToolResult:
-        """
-        D: common
-        C: security
-        A: security_jwt_rs
-        P:
-          kind: str                        # jwt_rs256 | jwt_verify_rs256 | jwt_es256 | jwt_verify_es256
-          output: str                      # 输出变量名
-          payload: dict?=None              # jwt_rs256 / jwt_es256 载荷
-          token: str?=None                 # jwt_verify_rs256 / jwt_verify_es256 输入 token
-          private_key: str?=None           # jwt_rs256 / jwt_es256 私钥
-          public_key: str?=None            # jwt_verify_rs256 / jwt_verify_es256 公钥
-          headers: dict?=None              # 生成 token 时附带的 headers
-          options: dict?=None              # verify options
-          return_payload: bool=True        # verify 时返回 payload，否则返回 True
-        R: CTR
-        N:
-          - 处理 RS256 或 ES256 JWT 的生成与验签。
-          - 该工具面向非对称密钥 JWT，不处理 HS256 对称密钥场景。
-          - 私钥、公钥和 `kind` 必须对应；密钥格式不正确时会失败。
-        """
         return _tool_result(
             "security_jwt_rs",
             SecurityService.jwt_asymmetric(
@@ -166,58 +335,35 @@ def bind(mcp: FastMCP) -> None:
             )
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "common", "class": "security"})
+    @mcp.tool(
+        description=(
+            "执行 RSA 签名、验签、公钥加密或私钥解密。"
+            " 该工具只覆盖 RSA 相关能力，不处理 AES 或 JWT。"
+            " `kind`、padding、摘要算法和输入格式必须与目标模式匹配。"
+        ),
+        meta={"hidden": False, "domain": "common", "class": "security"}
+    )
     def security_crypto(
-        kind: str,
-        output: str,
-        input_value: typing.Any = None,
-        private_key: str | None = None,
-        public_key: str | None = None,
-        signature: typing.Any = None,
-        ciphertext: typing.Any = None,
-        encoding: str = "utf-8",
-        out_mode: str = "base64",
-        signature_format: str = "base64",
-        ciphertext_format: str = "base64",
-        encrypt_padding: str = "oaep",
-        decrypt_padding: str = "oaep",
-        sign_padding: str = "pkcs1v15",
-        verify_padding: str = "pkcs1v15",
-        algorithm: str = "sha256",
-        mgf_algorithm: str | None = None,
-        label: str | None = None,
-        salt_length: str = "max"
+        kind: CryptoKindArg,
+        output: OutputKeyArg,
+        input_value: CryptoInputArg = None,
+        private_key: PrivateKeyArg = None,
+        public_key: PublicKeyArg = None,
+        signature: SignatureArg = None,
+        ciphertext: CiphertextArg = None,
+        encoding: EncodingArg = "utf-8",
+        out_mode: RsaOutModeArg = "base64",
+        signature_format: BinaryFormatArg = "base64",
+        ciphertext_format: BinaryFormatArg = "base64",
+        encrypt_padding: PaddingArg = "oaep",
+        decrypt_padding: PaddingArg = "oaep",
+        sign_padding: PaddingArg = "pkcs1v15",
+        verify_padding: PaddingArg = "pkcs1v15",
+        algorithm: HashAlgorithmArg = "sha256",
+        mgf_algorithm: MgfAlgorithmArg = None,
+        label: RsaLabelArg = None,
+        salt_length: SaltLengthArg = "max"
     ) -> CallToolResult:
-        """
-        D: common
-        C: security
-        A: security_crypto
-        P:
-          kind: str                        # rsa_sign | rsa_verify | rsa_encrypt | rsa_decrypt | rsa_encrypt_oaep_sha256 | rsa_decrypt_oaep_sha256 | rsa_sign_pss_sha256 | rsa_verify_pss_sha256
-          output: str                      # 输出变量名
-          input_value: any=None            # sign / encrypt / verify 的原文输入
-          private_key: str?=None           # sign / decrypt 私钥
-          public_key: str?=None            # verify / encrypt 公钥
-          signature: any=None              # verify 输入签名
-          ciphertext: any=None             # decrypt 输入密文
-          encoding: str="utf-8"            # 文本编码
-          out_mode: str="base64"           # sign / encrypt 输出格式：base64 | hex | bytes
-          signature_format: str="base64"   # verify 输入签名格式：base64 | hex | bytes
-          ciphertext_format: str="base64"  # decrypt 输入密文格式：base64 | hex | bytes
-          encrypt_padding: str="oaep"      # oaep | pkcs1v15
-          decrypt_padding: str="oaep"      # oaep | pkcs1v15
-          sign_padding: str="pkcs1v15"     # pkcs1v15 | pss
-          verify_padding: str="pkcs1v15"   # pkcs1v15 | pss
-          algorithm: str="sha256"          # sha1 | sha224 | sha256 | sha384 | sha512
-          mgf_algorithm: str?=None         # OAEP / PSS 的 MGF1 摘要算法
-          label: str?=None                 # OAEP label
-          salt_length: str="max"           # PSS salt 长度：max | digest | auto | 整数文本
-        R: CTR
-        N:
-          - 执行 RSA 签名、验签、公钥加密或私钥解密。
-          - 该工具只覆盖 RSA 相关能力，不处理 AES 或 JWT。
-          - `kind` 决定具体动作；padding、摘要算法和输入格式需要与目标模式匹配。
-        """
         return _tool_result(
             "security_crypto",
             SecurityService.crypto(
@@ -243,56 +389,34 @@ def bind(mcp: FastMCP) -> None:
             )
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "common", "class": "security"})
+    @mcp.tool(
+        description=(
+            "执行 AES 加密或解密。"
+            " 该工具支持 CBC、ECB 和 GCM，不同模式对 `iv`、`nonce`、`aad` 和 `tag` 的要求不同。"
+            " GCM 模式下加密结果会同时包含密文和认证标签。"
+        ),
+        meta={"hidden": False, "domain": "common", "class": "security"}
+    )
     def security_aes(
-        kind: str,
-        output: str,
-        input_value: typing.Any = None,
-        key: typing.Any = None,
-        iv: typing.Any = None,
-        nonce: typing.Any = None,
-        aad: typing.Any = None,
-        tag: typing.Any = None,
-        mode: str = "cbc",
-        key_format: str = "text",
-        input_format: str = "text",
-        iv_format: str = "text",
-        nonce_format: str = "text",
-        aad_format: str = "text",
-        tag_format: str = "base64",
-        out_mode: str = "base64",
-        encoding: str = "utf-8",
-        padding_mode: str = "pkcs7"
+        kind: AesKindArg,
+        output: OutputKeyArg,
+        input_value: CryptoInputArg = None,
+        key: AesKeyArg = None,
+        iv: AesIvArg = None,
+        nonce: AesNonceArg = None,
+        aad: AesAadArg = None,
+        tag: AesTagArg = None,
+        mode: AesModeArg = "cbc",
+        key_format: BinaryFormatArg = "text",
+        input_format: BinaryFormatArg = "text",
+        iv_format: BinaryFormatArg = "text",
+        nonce_format: BinaryFormatArg = "text",
+        aad_format: BinaryFormatArg = "text",
+        tag_format: BinaryFormatArg = "base64",
+        out_mode: AesOutModeArg = "base64",
+        encoding: EncodingArg = "utf-8",
+        padding_mode: PaddingModeArg = "pkcs7"
     ) -> CallToolResult:
-        """
-        D: common
-        C: security
-        A: security_aes
-        P:
-          kind: str                        # aes_encrypt | aes_decrypt
-          output: str                      # 输出变量名
-          input_value: any=None            # 输入明文或密文
-          key: any=None                    # AES key
-          iv: any=None                     # CBC 用 IV
-          nonce: any=None                  # GCM 用 nonce
-          aad: any=None                    # GCM 附加认证数据
-          tag: any=None                    # GCM 解密 tag
-          mode: str="cbc"                  # cbc | ecb | gcm
-          key_format: str="text"           # text | base64 | hex | bytes
-          input_format: str="text"         # text | base64 | hex | bytes
-          iv_format: str="text"            # text | base64 | hex | bytes
-          nonce_format: str="text"         # text | base64 | hex | bytes
-          aad_format: str="text"           # text | base64 | hex | bytes
-          tag_format: str="base64"         # text | base64 | hex | bytes
-          out_mode: str="base64"           # text | base64 | hex | bytes
-          encoding: str="utf-8"            # 文本编码
-          padding_mode: str="pkcs7"        # cbc/ecb 可用：pkcs7 | none
-        R: CTR
-        N:
-          - 执行 AES 加密或解密。
-          - 支持 CBC、ECB 和 GCM；不同模式对 `iv`、`nonce`、`aad`、`tag` 的要求不同。
-          - GCM 模式下加密结果会同时包含密文和认证标签。
-        """
         return _tool_result(
             "security_aes",
             SecurityService.aes(
@@ -317,44 +441,28 @@ def bind(mcp: FastMCP) -> None:
             )
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "common", "class": "security"})
+    @mcp.tool(
+        description=(
+            "生成业务签名前使用的确定性文本。"
+            " 该工具只负责文本拼装，不负责摘要、加密或验签。"
+            " `data`、`items`、排序规则和分隔符会直接影响最终签名串。"
+        ),
+        meta={"hidden": False, "domain": "common", "class": "security"}
+    )
     def security_sign_text(
-        kind: str,
-        output: str,
-        data: typing.Optional[dict[str, typing.Any]] = None,
-        items: typing.Optional[list[typing.Any]] = None,
-        secret: typing.Any = None,
-        prefix: str = "",
-        suffix: str = "",
-        pair_sep: str = "&",
-        kv_sep: str = "=",
-        sort_keys: bool = True,
-        ignore_empty: bool = True,
-        ignore_keys: typing.Optional[list[str]] = None
+        kind: SignTextKindArg,
+        output: OutputKeyArg,
+        data: SignDataArg = None,
+        items: SignItemsArg = None,
+        secret: SecretValueArg = None,
+        prefix: PrefixArg = "",
+        suffix: SuffixArg = "",
+        pair_sep: PairSepArg = "&",
+        kv_sep: KvSepArg = "=",
+        sort_keys: SortKeysArg = True,
+        ignore_empty: IgnoreEmptyArg = True,
+        ignore_keys: IgnoreKeysArg = None
     ) -> CallToolResult:
-        """
-        D: common
-        C: security
-        A: security_sign_text
-        P:
-          kind: str                        # key_value_join | query_like | body_plus_secret | prefix_suffix
-          output: str                      # 输出变量名
-          data: dict?=None                 # key_value_join / query_like 输入
-          items: list?=None                # body_plus_secret / prefix_suffix 输入
-          secret: any=None                 # body_plus_secret 密钥
-          prefix: str=""                   # 前缀
-          suffix: str=""                   # 后缀
-          pair_sep: str="&"                # 键值对分隔符
-          kv_sep: str="="                  # 键值分隔符
-          sort_keys: bool=True             # 是否按 key 排序
-          ignore_empty: bool=True          # 是否忽略空值
-          ignore_keys: list[str]?=None     # 忽略字段名
-        R: CTR
-        N:
-          - 生成业务签名前使用的确定性文本。
-          - 该工具只负责文本拼装，不负责摘要、加密或验签。
-          - `data`、`items`、排序规则和分隔符会直接影响最终签名串。
-        """
         return _tool_result(
             "security_sign_text",
             SecurityService.sign_text(
@@ -373,42 +481,27 @@ def bind(mcp: FastMCP) -> None:
             )
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "common", "class": "security"})
+    @mcp.tool(
+        description=(
+            "生成 multipart/form-data 场景的签名前文本。"
+            " 该工具只负责签名文本拼装，不负责真实 multipart 编码或上传。"
+            " 文件部分如何参与签名由 `kind`、`use_filename_only` 和 `include_content_type` 决定。"
+        ),
+        meta={"hidden": False, "domain": "common", "class": "security"}
+    )
     def security_multipart_sign(
-        kind: str,
-        output: str,
-        fields: typing.Optional[dict[str, typing.Any]] = None,
-        files: typing.Optional[list[dict[str, typing.Any]]] = None,
-        pair_sep: str = "&",
-        kv_sep: str = "=",
-        sort_keys: bool = True,
-        ignore_empty: bool = True,
-        ignore_keys: typing.Optional[list[str]] = None,
-        use_filename_only: bool = True,
-        include_content_type: bool = False
+        kind: MultipartKindArg,
+        output: OutputKeyArg,
+        fields: MultipartFieldsArg = None,
+        files: MultipartFilesArg = None,
+        pair_sep: PairSepArg = "&",
+        kv_sep: KvSepArg = "=",
+        sort_keys: SortKeysArg = True,
+        ignore_empty: IgnoreEmptyArg = True,
+        ignore_keys: IgnoreKeysArg = None,
+        use_filename_only: UseFilenameOnlyArg = True,
+        include_content_type: IncludeContentTypeArg = False
     ) -> CallToolResult:
-        """
-        D: common
-        C: security
-        A: security_multipart_sign
-        P:
-          kind: str                        # multipart_field_text | multipart_file_text | multipart_all_text
-          output: str                      # 输出变量名
-          fields: dict?=None               # 表单字段
-          files: list[dict]?=None          # 文件列表：[{field, filename, content_type, value}]
-          pair_sep: str="&"                # 键值对分隔符
-          kv_sep: str="="                  # 键值分隔符
-          sort_keys: bool=True             # 是否排序
-          ignore_empty: bool=True          # 是否忽略空值
-          ignore_keys: list[str]?=None     # 忽略字段名
-          use_filename_only: bool=True     # 文件签名文本是否仅取 filename
-          include_content_type: bool=False # 文件签名文本是否包含 content_type
-        R: CTR
-        N:
-          - 生成 multipart/form-data 场景的签名前文本。
-          - 该工具只负责签名文本拼装，不负责真实 multipart 编码或上传。
-          - 文件部分如何参与签名，由 `kind`、`use_filename_only` 和 `include_content_type` 决定。
-        """
         return _tool_result(
             "security_multipart_sign",
             SecurityService.multipart_sign(

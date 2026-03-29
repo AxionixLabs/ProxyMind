@@ -1,36 +1,33 @@
-#   ____ _____ _       _____         _
-#  / ___|_   _| |     |__  /___  ___| |_
-# | |     | | | |       / // _ \/ __| __|
-# | |___  | | | |___   / /|  __/\__ \ |_
-#  \____| |_| |_____| /____\___||___/\__|
-#
+# -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
+import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
+from pydantic import Field
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.middlewares.mid_task import task_middleware
 from backend.utilities.toolbox import broadcast
 
 
+RefreshTtlArg = typing.Annotated[
+    float,
+    Field(description="设备列表缓存复用窗口，单位秒。"),
+]
+
+
 def bind(mcp: FastMCP, manage: DeviceManage) -> None:
 
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "tool"})
+    @mcp.tool(
+        description=(
+            "刷新当前可用设备列表。"
+            " `ttl_sec` 窗口内会优先复用缓存，超过后才重新扫描 adb。"
+            " 适合在批量执行前同步一次在线设备视图。"
+        ),
+        meta={"hidden": False, "domain": "device", "class": "tool"}
+    )
     @task_middleware("refresh")
-    async def refresh(ttl_sec: float = 1.0) -> CallToolResult:
-        """
-        D: device
-        C: tool
-        A: refresh
-        P:
-          ttl_sec: float=1.0
-        R: CTR
-        N:
-          - 刷新当前可用设备列表。
-          - ttl_sec 窗口内优先复用缓存；超过 ttl_sec 才重新扫描 adb。
-          - 适合在批量执行前先同步一次在线设备视图。
-        """
-
+    async def refresh(ttl_sec: RefreshTtlArg = 1.0) -> CallToolResult:
         args = {
             "ttl_sec" : ttl_sec
         }

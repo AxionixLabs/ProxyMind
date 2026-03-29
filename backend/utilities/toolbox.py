@@ -1,9 +1,4 @@
-#  _____           _ _
-# |_   _|__   ___ | | |__   _____  __
-#   | |/ _ \ / _ \| | '_ \ / _ \ \/ /
-#   | | (_) | (_) | | |_) | (_) >  <
-#   |_|\___/ \___/|_|_.__/ \___/_/\_\
-#
+# -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import sys

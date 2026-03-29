@@ -1,38 +1,46 @@
-#  ____              _   _
-# |  _ \ _   _ _ __ | |_(_)_ __ ___   ___
-# | |_) | | | | '_ \| __| | '_ ` _ \ / _ \
-# |  _ <| |_| | | | | |_| | | | | | |  __/
-# |_| \_\\__,_|_| |_|\__|_|_| |_| |_|\___|
-#
+# -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
 import asyncio
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
+from pydantic import Field
 from backend.middlewares.mid_task import task_middleware
 from backend.utilities.pipeline import Idle
 from backend.utilities.toolbox import broadcast
 
 
+DelayArg = typing.Annotated[
+    float,
+    Field(description="固定等待的秒数，支持小数秒。"),
+]
+LoopCountArg = typing.Annotated[
+    int,
+    Field(description="循环次数声明；工具内部会把值限制在 1 到 50 之间。"),
+]
+LoopStepsArg = typing.Annotated[
+    list[dict[str, typing.Any]],
+    Field(description="步骤声明列表。每项都应包含 `tool` 和 `args`，且不允许嵌套 `loop_steps`。"),
+]
+StopOnFailArg = typing.Annotated[
+    bool,
+    Field(description="供执行器读取的失败策略。为 true 时，后续真正执行时应在首个失败步骤后停止。"),
+]
+
+
 def bind(mcp: FastMCP, idle: Idle) -> None:
 
-    @mcp.tool(meta={"hidden": False, "domain": "common", "class": "runtime"})
+    @mcp.tool(
+        description=(
+            "按给定秒数执行一次固定等待。"
+            " 该工具只负责时间延迟，不判断页面、任务或设备是否已经就绪。"
+            " 需要等待具体状态时，应改用对应领域的显式检查或等待工具。"
+        ),
+        meta={"hidden": False, "domain": "common", "class": "runtime"}
+    )
     @task_middleware("sleep")
-    async def sleep(delay: float) -> CallToolResult:
-        """
-        D: common
-        C: runtime
-        A: sleep
-        P:
-          delay: float
-        R: CTR
-        N:
-          - 按给定秒数执行一次固定等待。
-          - 该工具只负责时间延迟，不判断页面、任务或设备是否已经就绪。
-          - 需要等待具体状态时，应改用对应领域的显式检查或等待工具。
-        """
-
+    async def sleep(delay: DelayArg) -> CallToolResult:
         args = {
             "delay" : delay
         }
@@ -52,28 +60,20 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             overrides=None
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "common", "class": "runtime"})
+    @mcp.tool(
+        description=(
+            "声明一个可循环执行的步骤列表。"
+            " 该工具只校验并返回标准化声明，不会真的执行 `steps`。"
+            " `steps` 中每一项应包含 `tool` 和 `args`，且不允许嵌套 `loop_steps`。"
+        ),
+        meta={"hidden": False, "domain": "common", "class": "runtime"}
+    )
     @task_middleware("loop_steps")
     async def loop_steps(
-        loops: int,
-        steps: list[dict[str, typing.Any]],
-        stop_on_fail: bool = True
+        loops: LoopCountArg,
+        steps: LoopStepsArg,
+        stop_on_fail: StopOnFailArg = True
     ) -> CallToolResult:
-        """
-        D: common
-        C: runtime
-        A: loop_steps
-        P:
-          loops: int
-          steps: list[{"tool": str, "args": dict}]
-          stop_on_fail: bool=True
-        R: CTR
-        N:
-          - 声明一个可循环执行的步骤列表。
-          - 该工具只校验并返回标准化声明，不会真的执行 `steps`。
-          - 不允许嵌套 `loop_steps`；实际循环执行由后续执行层读取声明后完成。
-        """
-
         args = {
             "loops"        : loops,
             "steps"        : steps,

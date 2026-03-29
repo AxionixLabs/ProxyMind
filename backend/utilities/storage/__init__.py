@@ -1,10 +1,5 @@
-#  ____  _
-# / ___|| |_ ___  _ __ __ _  __ _  ___
-# \___ \| __/ _ \| '__/ _` |/ _` |/ _ \
-#  ___) | || (_) | | | (_| | (_| |  __/
-# |____/ \__\___/|_|  \__,_|\__, |\___|
-#                           |___/
-#
+# -*- coding: utf-8 -*-
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 from .logs import (
     ensure_log_path, log_path, read_log_lines
@@ -21,7 +16,7 @@ __all__ = [
     "load_pref",
     "normalize_pref",
     "pref_path",
-    "save_pref",
+    "save_pref"
 ]
 
 

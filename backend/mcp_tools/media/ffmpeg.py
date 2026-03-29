@@ -1,15 +1,10 @@
-#  _____ _____
-# |  ___|  ___| __ ___  _ __   ___  __ _
-# | |_  | |_ | '_ ` _ \| '_ \ / _ \/ _` |
-# |  _| |  _|| | | | | | |_) |  __/ (_| |
-# |_|   |_|  |_| |_| |_| .__/ \___|\__, |
-#                      |_|         |___/
-#
+# -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
+from pydantic import Field
 from backend.mcp_hub.hub_manage import Requires
 from backend.middlewares.mid_task import task_middleware
 from backend.utilities.instance import Ins
@@ -17,34 +12,171 @@ from backend.utilities.pipeline import Idle
 from backend.utilities.toolbox import broadcast
 
 
+VideoPathArg = typing.Annotated[
+    str,
+    Field(description="输入视频文件路径。"),
+]
+MediaPathArg = typing.Annotated[
+    str,
+    Field(description="输入媒体文件路径，可以是音频或视频。"),
+]
+AudioPathArg = typing.Annotated[
+    str,
+    Field(description="输入音频文件路径。"),
+]
+OutputDirArg = typing.Annotated[
+    typing.Optional[str],
+    Field(description="输出目录；为空时由底层工具按默认规则选择落盘位置。"),
+]
+OverwriteArg = typing.Annotated[
+    bool,
+    Field(description="目标文件已存在时是否允许覆盖。"),
+]
+AtSecArg = typing.Annotated[
+    float,
+    Field(description="提取单帧时使用的时间点，单位秒。"),
+]
+ImageFormatArg = typing.Annotated[
+    typing.Literal["jpg", "png", "webp"],
+    Field(description="输出图片格式。"),
+]
+PatternArg = typing.Annotated[
+    str,
+    Field(description="批量输出文件名模式，如 `frame_%06d.png`。"),
+]
+OptionalFpsArg = typing.Annotated[
+    typing.Optional[float],
+    Field(description="按指定帧率抽帧或重编码；为空时保持默认行为。"),
+]
+StartSecArg = typing.Annotated[
+    typing.Optional[float],
+    Field(description="处理窗口起始时间，单位秒。"),
+]
+DurationSecArg = typing.Annotated[
+    typing.Optional[float],
+    Field(description="处理窗口持续时间，单位秒。"),
+]
+ScaleWArg = typing.Annotated[
+    typing.Optional[int],
+    Field(description="目标宽度；为空时由另一边或原始比例推导。"),
+]
+ScaleHArg = typing.Annotated[
+    typing.Optional[int],
+    Field(description="目标高度；为空时由另一边或原始比例推导。"),
+]
+MaxFramesArg = typing.Annotated[
+    int,
+    Field(description="返回或保留的代表性帧数量上限。"),
+]
+UniformNArg = typing.Annotated[
+    int,
+    Field(description="关键帧结果中均匀抽样保留的目标数量。"),
+]
+SceneThresholdArg = typing.Annotated[
+    float,
+    Field(description="场景变化阈值；值越大，命中的切换帧通常越少。"),
+]
+TrimStartArg = typing.Annotated[
+    float,
+    Field(description="裁剪起始时间，单位秒。"),
+]
+EndSecArg = typing.Annotated[
+    typing.Optional[float],
+    Field(description="裁剪结束时间，单位秒。"),
+]
+TrimModeArg = typing.Annotated[
+    typing.Literal["copy", "reencode"],
+    Field(description="时间裁剪模式；`copy` 更快，`reencode` 更精确。"),
+]
+VideoCodecArg = typing.Annotated[
+    str,
+    Field(description="视频编码器名称，如 `libx264`。"),
+]
+CrfArg = typing.Annotated[
+    int,
+    Field(description="视频质量参数；通常值越低画质越高、体积越大。"),
+]
+PresetArg = typing.Annotated[
+    str,
+    Field(description="编码速度预设，如 `veryfast`。"),
+]
+VideoOutputFormatArg = typing.Annotated[
+    typing.Optional[typing.Literal["mp4", "mkv", "mov", "webm"]],
+    Field(description="输出视频容器格式；为空时按工具默认规则选择。"),
+]
+KeepAudioArg = typing.Annotated[
+    bool,
+    Field(description="重编码或缩放视频时是否保留音轨。"),
+]
+TargetFpsArg = typing.Annotated[
+    float,
+    Field(description="目标视频帧率。"),
+]
+ListFileArg = typing.Annotated[
+    str,
+    Field(description="concat 清单文件路径，文件内按顺序列出待拼接片段。"),
+]
+ReencodeArg = typing.Annotated[
+    bool,
+    Field(description="拼接时是否统一重编码；为 false 时尝试直接拼接原始流。"),
+]
+AudioCodecArg = typing.Annotated[
+    str,
+    Field(description="音频编码器名称，如 `aac`。"),
+]
+RequiredVideoFormatArg = typing.Annotated[
+    typing.Literal["mp4", "mkv", "mov", "webm"],
+    Field(description="输出视频容器格式。"),
+]
+ProbeInputArg = typing.Annotated[
+    str,
+    Field(description="要探测的媒体文件路径。"),
+]
+AudioFormatArg = typing.Annotated[
+    typing.Literal["mp3", "aac", "wav", "m4a", "ogg", "flac"],
+    Field(description="输出音频格式。"),
+]
+OptionalAudioCodecArg = typing.Annotated[
+    typing.Optional[str],
+    Field(description="音频编码器名称；为空时由 ffmpeg 或容器默认值决定。"),
+]
+KeepVideoArg = typing.Annotated[
+    bool,
+    Field(description="替换音轨时是否尽量保留原视频流不重编码。"),
+]
+SampleRateArg = typing.Annotated[
+    typing.Optional[int],
+    Field(description="目标采样率，例如 44100 或 48000。"),
+]
+ChannelsArg = typing.Annotated[
+    typing.Optional[int],
+    Field(description="目标声道数，例如 1 或 2。"),
+]
+BitrateArg = typing.Annotated[
+    typing.Optional[str],
+    Field(description="目标音频码率，如 `128k`。"),
+]
+
+
 def bind(mcp: FastMCP, idle: Idle) -> None:
 
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @mcp.tool(
+        description=(
+            "从视频中提取指定时间点的一张静态图片。"
+            "该工具只输出单帧图片，不做批量抽帧或关键帧分析。"
+            "输出文件路径由结果返回；`output_dir` 只决定落盘目录。"
+        ),
+        meta={"hidden": False, "domain": "media", "class": "ffmpeg"}
+    )
     @task_middleware("ffmpeg_extract_snapshot")
     async def ffmpeg_extract_snapshot(
-        input_video: str,
-        output_dir: typing.Optional[str] = None,
+        input_video: VideoPathArg,
+        output_dir: OutputDirArg = None,
         *,
-        at_sec: float = 0.0,
-        image_format: typing.Literal["jpg", "png", "webp"] = "png",
-        overwrite: bool = True
+        at_sec: AtSecArg = 0.0,
+        image_format: ImageFormatArg = "png",
+        overwrite: OverwriteArg = True
     ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_extract_snapshot
-        P:
-          input_video: str
-          output_dir: str?=None        # 可选，输出目录；None 时使用默认落盘位置
-          at_sec: float=0.0
-          image_format: oneof(jpg|png|webp)="png"
-          overwrite: bool=True
-        R: CTR
-        N:
-          - 从视频中提取指定时间点的一张静态图片。
-          - 该工具只输出单帧图片，不做批量抽帧或关键帧分析。
-          - 输出文件路径由结果返回；`output_dir` 只决定落盘目录。
-        """
 
         await Requires.connect_ffmpeg()
 
@@ -71,42 +203,28 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             overrides=None
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @mcp.tool(
+        description=(
+            "把视频导出为图片序列。"
+            "支持按帧率抽帧、按时间窗口截取和按尺寸缩放。"
+            "返回中只附带少量代表性附件；完整帧序列以落盘目录为准。"
+        ),
+        meta={"hidden": False, "domain": "media", "class": "ffmpeg"}
+    )
     @task_middleware("ffmpeg_extract_frames")
     async def ffmpeg_extract_frames(
-        input_video: str,
-        output_dir: typing.Optional[str] = None,
+        input_video: VideoPathArg,
+        output_dir: OutputDirArg = None,
         *,
-        pattern: str = "frame_%06d.png",
-        fps: typing.Optional[float] = None,
-        image_format: typing.Literal["jpg", "png", "webp"] = "png",
-        start_sec: typing.Optional[float] = None,
-        duration_sec: typing.Optional[float] = None,
-        scale_w: typing.Optional[int] = None,
-        scale_h: typing.Optional[int] = None,
-        overwrite: bool = True
+        pattern: PatternArg = "frame_%06d.png",
+        fps: OptionalFpsArg = None,
+        image_format: ImageFormatArg = "png",
+        start_sec: StartSecArg = None,
+        duration_sec: DurationSecArg = None,
+        scale_w: ScaleWArg = None,
+        scale_h: ScaleHArg = None,
+        overwrite: OverwriteArg = True
     ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_extract_frames
-        P:
-          input_video: str
-          output_dir: str?=None
-          pattern: str="frame_%06d.png"      # 需包含 %d；扩展名会对齐 image_format
-          fps: float?=None
-          image_format: oneof(jpg|png|webp)="png"
-          start_sec: float?=None
-          duration_sec: float?=None
-          scale_w: int?=None                 # None 时等比用 -1
-          scale_h: int?=None                 # None 时等比用 -1
-          overwrite: bool=True
-        R: CTR
-        N:
-          - 把视频导出为图片序列。
-          - 支持按帧率抽帧、按时间窗口截取和按尺寸缩放。
-          - 返回中只附带少量代表性附件；完整帧序列以落盘目录为准。
-        """
 
         await Requires.connect_ffmpeg()
 
@@ -138,34 +256,24 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             overrides=None
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @mcp.tool(
+        description=(
+            "从视频中提取关键帧并输出为图片。"
+            "返回的附件数量受 `max_frames` 约束，用于快速查看代表性画面。"
+            "若需要完整图片序列，应改用 `ffmpeg_extract_frames`。"
+        ),
+        meta={"hidden": False, "domain": "media", "class": "ffmpeg"}
+    )
     @task_middleware("ffmpeg_extract_keyframes")
     async def ffmpeg_extract_keyframes(
-        input_video: str,
-        output_dir: typing.Optional[str] = None,
+        input_video: VideoPathArg,
+        output_dir: OutputDirArg = None,
         *,
-        max_frames: int = 12,
-        uniform_n: int = 6,
-        image_format: typing.Literal["jpg", "png", "webp"] = "png",
-        overwrite: bool = True
+        max_frames: MaxFramesArg = 12,
+        uniform_n: UniformNArg = 6,
+        image_format: ImageFormatArg = "png",
+        overwrite: OverwriteArg = True
     ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_extract_keyframes
-        P:
-          input_video: str
-          output_dir: str?=None
-          max_frames: int=12            # attachments 上限（>=1）
-          uniform_n: int=6              # 均匀采样张数（0=关闭）
-          image_format: oneof(jpg|png|webp)="png"
-          overwrite: bool=True
-        R: CTR
-        N:
-          - 从视频中提取关键帧并输出为图片。
-          - 返回的附件数量受 `max_frames` 约束，用于快速查看代表性画面。
-          - 若需要完整图片序列，应改用 `ffmpeg_extract_frames`。
-        """
 
         await Requires.connect_ffmpeg()
 
@@ -193,44 +301,29 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             overrides=None
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @mcp.tool(
+        description=(
+            "按场景变化强度从视频中抽取代表性画面。"
+            "`scene_th` 越大，命中的场景切换帧通常越少。"
+            "`max_frames` 只限制返回中的附件数量，不限制实际落盘帧数。"
+        ),
+        meta={"hidden": False, "domain": "media", "class": "ffmpeg"}
+    )
     @task_middleware("ffmpeg_extract_scene")
     async def ffmpeg_extract_scene(
-        input_video: str,
-        output_dir: typing.Optional[str] = None,
+        input_video: VideoPathArg,
+        output_dir: OutputDirArg = None,
         *,
-        scene_th: float = 0.35,
-        max_frames: int = 12,
-        pattern: str = "scene_%06d",
-        image_format: typing.Literal["jpg", "png", "webp"] = "png",
-        start_sec: typing.Optional[float] = None,
-        duration_sec: typing.Optional[float] = None,
-        scale_w: typing.Optional[int] = 256,
-        scale_h: typing.Optional[int] = None,
-        overwrite: bool = True
+        scene_th: SceneThresholdArg = 0.35,
+        max_frames: MaxFramesArg = 12,
+        pattern: PatternArg = "scene_%06d",
+        image_format: ImageFormatArg = "png",
+        start_sec: StartSecArg = None,
+        duration_sec: DurationSecArg = None,
+        scale_w: ScaleWArg = 256,
+        scale_h: ScaleHArg = None,
+        overwrite: OverwriteArg = True
     ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_extract_scene
-        P:
-          input_video: str
-          output_dir: str?=None
-          scene_th: float=0.35
-          max_frames: int=12
-          pattern: str="scene_%06d"
-          image_format: oneof(jpg|png|webp)="png"
-          start_sec: float?=None
-          duration_sec: float?=None
-          scale_w: int?=256
-          scale_h: int?=None
-          overwrite: bool=True
-        R: CTR
-        N:
-          - 按场景变化强度从视频中抽取代表性画面。
-          - `scene_th` 越大，命中的场景切换帧通常越少。
-          - `max_frames` 只限制返回中的附件数量，不限制实际落盘帧数。
-        """
 
         await Requires.connect_ffmpeg()
 
@@ -263,44 +356,29 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             overrides=None
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @mcp.tool(
+        description=(
+            "按时间范围裁剪视频。"
+            "`mode=copy` 更快但裁剪精度受关键帧限制；`mode=reencode` 更慢但时间边界更精确。"
+            "该工具只处理时间裁剪，不改变画面尺寸或帧率。"
+        ),
+        meta={"hidden": False, "domain": "media", "class": "ffmpeg"}
+    )
     @task_middleware("ffmpeg_trim_video")
     async def ffmpeg_trim_video(
-        input_video: str,
-        output_dir: typing.Optional[str] = None,
+        input_video: VideoPathArg,
+        output_dir: OutputDirArg = None,
         *,
-        start_sec: float = 0.0,
-        end_sec: typing.Optional[float] = None,
-        duration_sec: typing.Optional[float] = None,
-        mode: typing.Literal["copy", "reencode"] = "copy",
-        video_codec: str = "libx264",
-        crf: int = 23,
-        preset: str = "veryfast",
-        output_format: typing.Optional[typing.Literal["mp4", "mkv", "mov", "webm"]] = None,
-        overwrite: bool = True
+        start_sec: TrimStartArg = 0.0,
+        end_sec: EndSecArg = None,
+        duration_sec: DurationSecArg = None,
+        mode: TrimModeArg = "copy",
+        video_codec: VideoCodecArg = "libx264",
+        crf: CrfArg = 23,
+        preset: PresetArg = "veryfast",
+        output_format: VideoOutputFormatArg = None,
+        overwrite: OverwriteArg = True
     ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_trim_video
-        P:
-          input_video: str
-          output_dir: str?=None
-          start_sec: float=0.0
-          end_sec: float?=None
-          duration_sec: float?=None
-          mode: oneof(copy|reencode)="copy"
-          video_codec: str="libx264"
-          crf: int=23
-          preset: str="veryfast"
-          output_format: oneof(mp4|mkv|mov|webm)?=None
-          overwrite: bool=True
-        R: CTR
-        N:
-          - 按时间范围裁剪视频。
-          - `mode=copy` 更快但裁剪精度受关键帧限制；`mode=reencode` 更慢但时间边界更精确。
-          - 该工具只处理时间裁剪，不改变画面尺寸或帧率。
-        """
 
         await Requires.connect_ffmpeg()
 
@@ -333,42 +411,28 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             overrides=None
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @mcp.tool(
+        description=(
+            "把视频缩放到新的尺寸并输出新文件。"
+            "至少应给出一个目标边；另一个边留空时会按比例自动计算。"
+            "该工具会重编码视频；是否保留音频由 `keep_audio` 决定。"
+        ),
+        meta={"hidden": False, "domain": "media", "class": "ffmpeg"}
+    )
     @task_middleware("ffmpeg_scale_video")
     async def ffmpeg_scale_video(
-        input_video: str,
-        output_dir: typing.Optional[str] = None,
+        input_video: VideoPathArg,
+        output_dir: OutputDirArg = None,
         *,
-        scale_w: int | None = None,
-        scale_h: int | None = None,
-        video_codec: str = "libx264",
-        crf: int = 23,
-        preset: str = "veryfast",
-        keep_audio: bool = True,
-        output_format: typing.Optional[typing.Literal["mp4", "mkv", "mov", "webm"]] = None,
-        overwrite: bool = True,
+        scale_w: ScaleWArg = None,
+        scale_h: ScaleHArg = None,
+        video_codec: VideoCodecArg = "libx264",
+        crf: CrfArg = 23,
+        preset: PresetArg = "veryfast",
+        keep_audio: KeepAudioArg = True,
+        output_format: VideoOutputFormatArg = None,
+        overwrite: OverwriteArg = True,
     ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_scale_video
-        P:
-          input_video: str
-          output_dir: str?=None
-          scale_w: int?=None
-          scale_h: int?=None
-          video_codec: str="libx264"
-          crf: int=23
-          preset: str="veryfast"
-          keep_audio: bool=True
-          output_format: oneof(mp4|mkv|mov|webm)?=None
-          overwrite: bool=True
-        R: CTR
-        N:
-          - 把视频缩放到新的尺寸并输出新文件。
-          - 至少应给出一个目标边；另一个边留空时会按比例自动计算。
-          - 该工具会重编码视频；是否保留音频由 `keep_audio` 决定。
-        """
 
         await Requires.connect_ffmpeg()
 
@@ -400,40 +464,27 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             overrides=None
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @mcp.tool(
+        description=(
+            "把视频重编码到新的目标帧率。"
+            "该工具会重编码视频流，画质与体积主要受 `video_codec`、`crf` 和 `preset` 影响。"
+            "是否保留音频由 `keep_audio` 决定。"
+        ),
+        meta={"hidden": False, "domain": "media", "class": "ffmpeg"}
+    )
     @task_middleware("ffmpeg_convert_video")
     async def ffmpeg_convert_video(
-        input_video: str,
-        output_dir: typing.Optional[str] = None,
+        input_video: VideoPathArg,
+        output_dir: OutputDirArg = None,
         *,
-        fps: float = 60,
-        video_codec: str = "libx264",
-        crf: int = 23,
-        preset: str = "veryfast",
-        keep_audio: bool = True,
-        output_format: typing.Optional[typing.Literal["mp4", "mkv", "mov", "webm"]] = None,
-        overwrite: bool = True
+        fps: TargetFpsArg = 60,
+        video_codec: VideoCodecArg = "libx264",
+        crf: CrfArg = 23,
+        preset: PresetArg = "veryfast",
+        keep_audio: KeepAudioArg = True,
+        output_format: VideoOutputFormatArg = None,
+        overwrite: OverwriteArg = True
     ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_convert_video
-        P:
-          input_video: str
-          output_dir: str?=None
-          fps: float=60
-          video_codec: str="libx264"
-          crf: int=23
-          preset: str="veryfast"
-          keep_audio: bool=True
-          output_format: oneof(mp4|mkv|mov|webm)?=None
-          overwrite: bool=True
-        R: CTR
-        N:
-          - 把视频重编码到新的目标帧率。
-          - 该工具会重编码视频流，画质与体积主要受 `video_codec`、`crf` 和 `preset` 影响。
-          - 是否保留音频由 `keep_audio` 决定。
-        """
 
         await Requires.connect_ffmpeg()
 
@@ -464,40 +515,27 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             overrides=None
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @mcp.tool(
+        description=(
+            "按 `list_file` 中的顺序拼接多段视频。"
+            "`reencode=False` 速度更快，但要求输入片段的编码参数足够一致；`reencode=True` 更稳。"
+            "该工具只负责顺序拼接，不做自动对齐、补帧或内容理解。"
+        ),
+        meta={"hidden": False, "domain": "media", "class": "ffmpeg"}
+    )
     @task_middleware("ffmpeg_concat_video")
     async def ffmpeg_concat_video(
-        list_file: str,
-        output_dir: typing.Optional[str] = None,
+        list_file: ListFileArg,
+        output_dir: OutputDirArg = None,
         *,
-        overwrite: bool = True,
-        reencode: bool = False,
-        video_codec: str = "libx264",
-        crf: int = 23,
-        preset: str = "veryfast",
-        audio_codec: str = "aac",
-        output_format: typing.Optional[typing.Literal["mp4", "mkv", "mov", "webm"]] = "mp4"
+        overwrite: OverwriteArg = True,
+        reencode: ReencodeArg = False,
+        video_codec: VideoCodecArg = "libx264",
+        crf: CrfArg = 23,
+        preset: PresetArg = "veryfast",
+        audio_codec: AudioCodecArg = "aac",
+        output_format: VideoOutputFormatArg = "mp4"
     ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_concat_video
-        P:
-          list_file: str
-          output_dir: str?=None
-          overwrite: bool=True
-          reencode: bool=False
-          video_codec: str="libx264"
-          crf: int=23
-          preset: str="veryfast"
-          audio_codec: str="aac"
-          output_format: oneof(mp4|mkv|mov|webm)="mp4"
-        R: CTR
-        N:
-          - 按 `list_file` 中的顺序拼接多段视频。
-          - `reencode=False` 速度更快，但要求输入片段的编码参数足够一致；`reencode=True` 更稳。
-          - 该工具只负责顺序拼接，不做自动对齐、补帧或内容理解。
-        """
 
         await Requires.connect_ffmpeg()
 
@@ -528,30 +566,22 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             overrides=None
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @mcp.tool(
+        description=(
+            "仅更换媒体容器，不重编码音视频流。"
+            "该工具适合在兼容的封装格式之间做快速 remux，不适合修复编码本身的问题。"
+            "`output_format` 不传时会选择一个与输入不同的容器格式。"
+        ),
+        meta={"hidden": False, "domain": "media", "class": "ffmpeg"}
+    )
     @task_middleware("ffmpeg_remux_video")
     async def ffmpeg_remux_video(
-        input_video: str,
-        output_dir: typing.Optional[str] = None,
+        input_video: VideoPathArg,
+        output_dir: OutputDirArg = None,
         *,
-        output_format: typing.Optional[typing.Literal["mp4", "mkv", "mov", "webm"]] = None,
-        overwrite: bool = True
+        output_format: VideoOutputFormatArg = None,
+        overwrite: OverwriteArg = True
     ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_remux_video
-        P:
-          input_video: str
-          output_dir: str?=None
-          output_format: oneof(mp4|mkv|mov|webm)?=None
-          overwrite: bool=True
-        R: CTR
-        N:
-          - 仅更换媒体容器，不重编码音视频流。
-          - 该工具适合在兼容的封装格式之间做快速 remux，不适合修复编码本身的问题。
-          - `output_format` 不传时会选择一个与输入不同的容器格式。
-        """
 
         await Requires.connect_ffmpeg()
 
@@ -577,30 +607,22 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             overrides=None
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @mcp.tool(
+        description=(
+            "移除视频中的音轨并输出静音视频。"
+            "该工具保留原视频画面，不做重新剪辑或重新编码视频流。"
+            "如果只想替换音轨，应改用 `ffmpeg_replace_audio`。"
+        ),
+        meta={"hidden": False, "domain": "media", "class": "ffmpeg"}
+    )
     @task_middleware("ffmpeg_mute_video")
     async def ffmpeg_mute_video(
-        input_video: str,
-        output_dir: typing.Optional[str] = None,
+        input_video: VideoPathArg,
+        output_dir: OutputDirArg = None,
         *,
-        output_format: typing.Optional[typing.Literal["mp4", "mkv", "mov", "webm"]] = None,
-        overwrite: bool = True
+        output_format: VideoOutputFormatArg = None,
+        overwrite: OverwriteArg = True
     ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_mute_video
-        P:
-          input_video: str
-          output_dir: str?=None
-          output_format: oneof(mp4|mkv|mov|webm)?=None
-          overwrite: bool=True
-        R: CTR
-        N:
-          - 移除视频中的音轨并输出静音视频。
-          - 该工具保留原视频画面，不做重新剪辑或重新编码视频流。
-          - 如果只想替换音轨，应改用 `ffmpeg_replace_audio`。
-        """
 
         await Requires.connect_ffmpeg()
 
@@ -626,23 +648,18 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             overrides=None
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @mcp.tool(
+        description=(
+            "读取媒体文件的基础探测信息。"
+            "该工具只做探测，不会生成新文件。"
+            "返回中会包含解析出的时长等信息，以及底层探测输出。"
+        ),
+        meta={"hidden": False, "domain": "media", "class": "ffmpeg"}
+    )
     @task_middleware("ffmpeg_probe_video")
     async def ffmpeg_probe_video(
-        input_file: str
+        input_file: ProbeInputArg
     ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_probe_video
-        P:
-          input_file: str
-        R: CTR
-        N:
-          - 读取媒体文件的基础探测信息。
-          - 该工具只做探测，不会生成新文件。
-          - 返回中会包含解析出的时长等信息，以及底层探测输出。
-        """
 
         await Requires.connect_ffmpeg()
 
@@ -665,32 +682,23 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             overrides=None
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @mcp.tool(
+        description=(
+            "从视频或媒体文件中提取音轨。"
+            "该工具只输出音频文件，不保留视频画面。"
+            "输出格式由 `audio_format` 决定，编码器未显式指定时由 ffmpeg 自行选择。"
+        ),
+        meta={"hidden": False, "domain": "media", "class": "ffmpeg"}
+    )
     @task_middleware("ffmpeg_extract_audio")
     async def ffmpeg_extract_audio(
-        input_video: str,
-        output_dir: typing.Optional[str] = None,
+        input_video: VideoPathArg,
+        output_dir: OutputDirArg = None,
         *,
-        audio_format: typing.Literal["mp3", "aac", "wav", "m4a", "ogg", "flac"] = "mp3",
-        audio_codec: typing.Optional[str] = None,
-        overwrite: bool = True
+        audio_format: AudioFormatArg = "mp3",
+        audio_codec: OptionalAudioCodecArg = None,
+        overwrite: OverwriteArg = True
     ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_extract_audio
-        P:
-          input_video: str
-          output_dir: str?=None
-          audio_format: oneof(mp3|aac|wav|m4a|ogg|flac)="mp3"
-          audio_codec: str?=None
-          overwrite: bool=True
-        R: CTR
-        N:
-          - 从视频或媒体文件中提取音轨。
-          - 该工具只输出音频文件，不保留视频画面。
-          - 输出格式由 `audio_format` 决定，编码器未显式指定时由 ffmpeg 自行选择。
-        """
 
         await Requires.connect_ffmpeg()
 
@@ -717,36 +725,25 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             overrides=None
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @mcp.tool(
+        description=(
+            "用新的音频文件替换原视频中的音轨。"
+            "默认按较短的音视频轨道输出结果，避免超过任一输入长度。"
+            "是否保留原视频流不重编码，由 `keep_video` 决定。"
+        ),
+        meta={"hidden": False, "domain": "media", "class": "ffmpeg"}
+    )
     @task_middleware("ffmpeg_replace_audio")
     async def ffmpeg_replace_audio(
-        input_video: str,
-        input_audio: str,
-        output_dir: typing.Optional[str] = None,
+        input_video: VideoPathArg,
+        input_audio: AudioPathArg,
+        output_dir: OutputDirArg = None,
         *,
-        keep_video: bool = True,
-        audio_codec: str = "aac",
-        output_format: typing.Literal["mp4", "mkv", "mov", "webm"] = "mp4",
-        overwrite: bool = True
+        keep_video: KeepVideoArg = True,
+        audio_codec: AudioCodecArg = "aac",
+        output_format: RequiredVideoFormatArg = "mp4",
+        overwrite: OverwriteArg = True
     ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_replace_audio
-        P:
-          input_video: str
-          input_audio: str
-          output_dir: str?=None
-          keep_video: bool=True
-          audio_codec: str="aac"
-          output_format: oneof(mp4|mkv|mov|webm)="mp4"
-          overwrite: bool=True
-        R: CTR
-        N:
-          - 用新的音频文件替换原视频中的音轨。
-          - 默认按较短的音视频轨道输出结果，避免超过任一输入长度。
-          - 是否保留原视频流不重编码，由 `keep_video` 决定。
-        """
 
         await Requires.connect_ffmpeg()
 
@@ -775,38 +772,26 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
             overrides=None
         )
 
-    @mcp.tool(meta={"hidden": False, "domain": "media", "class": "ffmpeg"})
+    @mcp.tool(
+        description=(
+            "把输入媒体转换为目标音频文件。"
+            "输入可以是音频或视频，但输出始终是音频，不保留视频画面。"
+            "采样率、声道数、码率和编码器由参数控制，未指定时由 ffmpeg 或容器默认值决定。"
+        ),
+        meta={"hidden": False, "domain": "media", "class": "ffmpeg"}
+    )
     @task_middleware("ffmpeg_convert_audio")
     async def ffmpeg_convert_audio(
-        input_file: str,
-        output_dir: typing.Optional[str] = None,
+        input_file: MediaPathArg,
+        output_dir: OutputDirArg = None,
         *,
-        audio_codec: typing.Optional[str] = None,
-        sample_rate: typing.Optional[int] = None,
-        channels: typing.Optional[int] = None,
-        bitrate: typing.Optional[str] = None,
-        output_format: typing.Literal["mp3", "aac", "wav", "m4a", "ogg", "flac"] = "mp3",
-        overwrite: bool = True
+        audio_codec: OptionalAudioCodecArg = None,
+        sample_rate: SampleRateArg = None,
+        channels: ChannelsArg = None,
+        bitrate: BitrateArg = None,
+        output_format: AudioFormatArg = "mp3",
+        overwrite: OverwriteArg = True
     ) -> CallToolResult:
-        """
-        D: media
-        C: ffmpeg
-        A: ffmpeg_convert_audio
-        P:
-          input_file: str
-          output_dir: str?=None
-          audio_codec: str?=None
-          sample_rate: int?=None
-          channels: int?=None
-          bitrate: str?=None
-          output_format: oneof(mp3|aac|wav|m4a|ogg|flac)="mp3"
-          overwrite: bool=True
-        R: CTR
-        N:
-          - 把输入媒体转换为目标音频文件。
-          - 输入可以是音频或视频，但输出始终是音频，不保留视频画面。
-          - 采样率、声道数、码率和编码器由参数控制，未指定时由 ffmpeg 或容器默认值决定。
-        """
 
         await Requires.connect_ffmpeg()
 

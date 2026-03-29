@@ -9,9 +9,7 @@ from mcp import (
     ClientSession, ListToolsResult
 )
 from engine.animation import AsyncAnimManager
-from engine.tinker import (
-    MindError, Tooling
-)
+from engine.tinker import MindError
 from mind_core.design import Design
 from mind_core.prompting import PromptToolkitBox
 from mind_core.preference import Preferences
@@ -132,7 +130,7 @@ class Mind(object):
                     "function": {
                         "name"        : tool.name,
                         "description" : tool.description,
-                        "parameters"  : Tooling.normalize_openai_schema(tool.inputSchema)
+                        "parameters"  : tool.inputSchema
                     }
                 }
             )

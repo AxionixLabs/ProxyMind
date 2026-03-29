@@ -83,12 +83,15 @@ device / bench / common / media
 - 只要改了 `README.md`、`docs/*.md` 或 `LICENSE.md`，都应判断是否需要同步到 SoftwareCenter
 
 ### 工具文档约定
-`backend/mcp_tools/automator/` 这类对模型直接暴露的工具，doc block 必须按“模型可读”标准维护，不能把实现注释直接暴露成工具说明。
+`backend/mcp_tools/` 下对模型直接暴露的工具，说明文本必须按“模型可读”和“MCP 客户端可消费”标准维护，不能把实现注释直接暴露成工具说明。
 
 维护要求：
 - 文档必须按真实能力写，不要承诺代码没有实现的行为
 - 优先写“做什么 / 不做什么 / 前置条件或限制”，避免堆实现细节
 - 工具说明应帮助模型判断是否该调用该工具，而不是解释内部实现过程
+- 工具对外描述优先写在 `@mcp.tool(description=...)`，不要依赖函数 docstring
+- 不要在 description 中重复 `domain / class / action / return` 这类内部标签；这些信息应由工具名、`meta` 和返回结构承担
+- 不要在 description 中罗列完整参数清单；字段级说明应落到 `inputSchema`，优先用 `Annotated[..., Field(description=...)]` 或 Pydantic 输入模型
 - 能力边界要写清：
   - 是否只下发命令
   - 是否会等待最终状态
@@ -106,8 +109,11 @@ device / bench / common / media
 - 第 1 句：这个工具实际执行什么动作
 - 第 2 句：它不负责什么，或它的边界在哪里
 - 第 3 句：它依赖什么条件，或在哪些情况下可能无效果/失败
+- 句子里只点名真正影响选工具的关键参数，例如 `kind`、`saved`、`activity`
+- 复杂参数多到一段 description 说不清时，优先补字段 description，不要把工具 description 写成参数手册
 
 避免这样写：
+- `D: / C: / A: / P: / R: / N:` 这类内部标签块
 - “万能入口”“智能处理”“自动完成页面操作” 这类泛化表述
 - 只写底层 adb 命令，不写实际能力边界
 - 把内部增强层、helper、临时实现细节写成用户契约

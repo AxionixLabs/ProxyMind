@@ -1,9 +1,4 @@
-#  ____
-# |  _ \ ___  __ _ ___  ___  _ __
-# | |_) / _ \/ _` / __|/ _ \| '_ \
-# |  _ <  __/ (_| \__ \ (_) | | | |
-# |_| \_\___|\__,_|___/\___/|_| |_|
-#
+# -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 INVALID_ARGUMENT  = "invalid_argument"

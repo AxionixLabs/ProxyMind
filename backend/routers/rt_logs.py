@@ -1,10 +1,4 @@
-#  _                    ____             _
-# | |    ___   __ _    |  _ \ ___  _   _| |_ ___ _ __
-# | |   / _ \ / _` |   | |_) / _ \| | | | __/ _ \ '__|
-# | |__| (_) | (_| |   |  _ < (_) | |_| | ||  __/ |
-# |_____\___/ \__, |   |_| \_\___/ \__,_|\__\___|_|
-#             |___/
-#
+# -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 from pathlib import Path

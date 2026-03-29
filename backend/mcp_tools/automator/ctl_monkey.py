@@ -1,15 +1,10 @@
-#   ____ _____ _       __  __             _
-#  / ___|_   _| |     |  \/  | ___  _ __ | | _____ _   _
-# | |     | | | |     | |\/| |/ _ \| '_ \| |/ / _ \ | | |
-# | |___  | | | |___  | |  | | (_) | | | |   <  __/ |_| |
-#  \____| |_| |_____| |_|  |_|\___/|_| |_|_|\_\___|\__, |
-#                                                  |___/
-#
+# -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
+from pydantic import Field
 from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.mcp_hub.hub_monkey import Monkey
@@ -18,40 +13,61 @@ from backend.utilities.pipeline import Idle
 from backend.utilities.toolbox import broadcast
 
 
+MatrixArg = typing.Annotated[
+    typing.Optional[dict[str, dict[str, typing.Any]]],
+    Field(description="多设备覆盖参数映射。键通常是设备标识，值是该设备专属参数。"),
+]
+PackageArg = typing.Annotated[
+    str,
+    Field(description="要执行 monkey 事件注入的目标应用包名。"),
+]
+SeedArg = typing.Annotated[
+    int,
+    Field(description="monkey 随机种子；相同参数下有助于复现实验。"),
+]
+ThrottleArg = typing.Annotated[
+    int,
+    Field(description="两次事件之间的间隔，单位毫秒。"),
+]
+TouchPctArg = typing.Annotated[
+    int,
+    Field(description="touch 事件占比。"),
+]
+MotionPctArg = typing.Annotated[
+    int,
+    Field(description="motion 事件占比。"),
+]
+NavPctArg = typing.Annotated[
+    int,
+    Field(description="导航类事件占比。"),
+]
+EventsArg = typing.Annotated[
+    int,
+    Field(description="总事件数。"),
+]
+
+
 def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
-    @mcp.tool(meta={"hidden": False, "domain": "device", "class": "monkey"})
+    @mcp.tool(
+        description=(
+            "对指定应用执行一次 `adb shell monkey` 事件注入。"
+            " 该工具只注入 touch、motion 和 nav 三类事件，并在执行期间采集异常证据。"
+            " 包名不存在、设备不可用或系统策略拦截时会失败。"
+        ),
+        meta={"hidden": False, "domain": "device", "class": "monkey"}
+    )
     @task_middleware("injection")
     async def injection(
-        package: str,
-        seed: int = 42,
-        throttle_ms: int = 150,
-        touch: int = 65,
-        motion: int = 20,
-        nav: int = 10,
-        events: int = 10000,
-        matrix: typing.Optional[dict[str, dict[str, typing.Any]]] = None
+        package: PackageArg,
+        seed: SeedArg = 42,
+        throttle_ms: ThrottleArg = 150,
+        touch: TouchPctArg = 65,
+        motion: MotionPctArg = 20,
+        nav: NavPctArg = 10,
+        events: EventsArg = 10000,
+        matrix: MatrixArg = None
     ) -> CallToolResult:
-        """
-        D: device
-        C: monkey
-        A: monkey_injection
-        P:
-          package: str
-          seed: int=42
-          throttle_ms: int=150
-          touch: int=65
-          motion: int=20
-          nav: int=10
-          events: int=10000
-          matrix: overrides? (serial->args)
-        R: CTR
-        N:
-          - 对指定应用执行一次 `adb shell monkey` 事件注入。
-          - 只注入 touch、motion、nav 三类事件，并固定关闭 appswitch 与 syskeys 百分比。
-          - 执行前会清空 logcat，执行期间持续抓取命中的异常证据 tail，用于回传 crash/anr 等线索。
-        """
-
         args = {
             "package"     : package,
             "seed"        : seed,
