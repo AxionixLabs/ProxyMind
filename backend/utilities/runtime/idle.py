@@ -58,7 +58,7 @@ class Idle(object):
             "name"   : str(name),
             "args"   : dict(args or {}),
             "ts"     : time.monotonic(),
-            "handle" : handle,
+            "handle" : handle
         }
 
     async def session_begin(
@@ -183,9 +183,10 @@ class Idle(object):
     async def snapshot(self) -> dict:
         """生成当前运行时任务、会话和实例状态快照。"""
         async with self.lock:
-            now = time.monotonic()
-            jobs = []
-            sessions = {}
+            now: float = time.monotonic()
+            jobs: list = []
+
+            sessions: dict[str, typing.Any] = {}
 
             for run_key, meta in self.runs.items():
                 age_sec = max(0.0, now - float(meta.get("ts", now)))
@@ -232,9 +233,11 @@ class Idle(object):
         try:
             while True:
                 await asyncio.sleep(1.0)
+
                 async with self.lock:
-                    idle = time.monotonic() - self.last_touch
+                    idle   = time.monotonic() - self.last_touch
                     active = len(self.runs)
+
                     runs_copy = [
                         (run_key, meta.get("name"))
                         for run_key, meta in self.runs.items()
