@@ -7,6 +7,7 @@ import uuid
 import signal
 import typing
 import asyncio
+import inspect
 import contextlib
 from loguru import logger
 
@@ -18,7 +19,10 @@ class Idle(object):
         self,
         *,
         ttl_sec: float = 300.0,
-        snapshot_provider: typing.Callable[[], dict[str, typing.Any]] | None = None
+        snapshot_provider: typing.Callable[
+            [],
+            typing.Awaitable[dict[str, typing.Any]] | dict[str, typing.Any]
+        ] | None = None
     ):
         """初始化空闲管理器及统一运行态注册表。"""
         self.agent_id = "idle"
@@ -205,6 +209,9 @@ class Idle(object):
                     }
 
             active_total = len(self.runs)
+            provider_data = self.snapshot_provider()
+            if inspect.isawaitable(provider_data):
+                provider_data = await provider_data
 
             return {
                 "ttl_sec"            : self.ttl_sec,
@@ -214,7 +221,7 @@ class Idle(object):
                 "idle_sec"           : max(0.0, now - self.last_touch),
                 "jobs"               : jobs,
                 "sessions"           : sessions,
-                **self.snapshot_provider()
+                **provider_data
             }
 
     async def looper(self) -> None:

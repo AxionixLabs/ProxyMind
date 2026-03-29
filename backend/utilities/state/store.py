@@ -83,22 +83,27 @@ class PathSessionStore(object):
         """初始化一个基于路径值的会话仓库。"""
         self.name = name
         self.items: dict[str, str] = {}
+        self.lock = asyncio.Lock()
 
-    def get(self, key: str) -> typing.Optional[str]:
+    async def get(self, key: str) -> typing.Optional[str]:
         """读取指定会话键对应的路径值。"""
-        return self.items.get(key)
+        async with self.lock:
+            return self.items.get(key)
 
-    def set(self, key: str, path: str) -> None:
+    async def set(self, key: str, path: str) -> None:
         """写入指定会话键对应的路径值。"""
-        self.items[str(key)] = str(path)
+        async with self.lock:
+            self.items[str(key)] = str(path)
 
-    def pop(self, key: str) -> typing.Optional[str]:
+    async def pop(self, key: str) -> typing.Optional[str]:
         """删除并返回指定会话键对应的路径值。"""
-        return self.items.pop(key, None)
+        async with self.lock:
+            return self.items.pop(key, None)
 
-    def snapshot(self, session_id: typing.Optional[str] = None, head_n: int = 5, tail_n: int = 5) -> dict[str, typing.Any]:
+    async def snapshot(self, session_id: typing.Optional[str] = None, head_n: int = 5, tail_n: int = 5) -> dict[str, typing.Any]:
         """生成路径会话仓库的详情或摘要快照。"""
-        items = dict(self.items)
+        async with self.lock:
+            items = dict(self.items)
 
         if session_id:
             path = items.get(session_id)
@@ -140,22 +145,27 @@ class ItemSessionStore(object):
         """初始化一个可存放任意对象的会话仓库。"""
         self.name = name
         self.items: dict[str, typing.Any] = {}
+        self.lock = asyncio.Lock()
 
-    def get(self, key: str) -> typing.Any:
+    async def get(self, key: str) -> typing.Any:
         """读取指定会话键对应的对象值。"""
-        return self.items.get(key)
+        async with self.lock:
+            return self.items.get(key)
 
-    def set(self, key: str, value: typing.Any) -> None:
+    async def set(self, key: str, value: typing.Any) -> None:
         """写入指定会话键对应的对象值。"""
-        self.items[str(key)] = value
+        async with self.lock:
+            self.items[str(key)] = value
 
-    def pop(self, key: str) -> typing.Any:
+    async def pop(self, key: str) -> typing.Any:
         """删除并返回指定会话键对应的对象值。"""
-        return self.items.pop(key, None)
+        async with self.lock:
+            return self.items.pop(key, None)
 
-    def snapshot(self, session_id: typing.Optional[str] = None, head_n: int = 5, tail_n: int = 5) -> dict[str, typing.Any]:
+    async def snapshot(self, session_id: typing.Optional[str] = None, head_n: int = 5, tail_n: int = 5) -> dict[str, typing.Any]:
         """生成对象会话仓库的详情或摘要快照。"""
-        items = dict(self.items)
+        async with self.lock:
+            items = dict(self.items)
 
         if session_id:
             item   = kw_summary(items.get(session_id))
@@ -206,13 +216,14 @@ class VideoQueue(object):
             self.items.clear()
         return items
 
-    def items_copy(self) -> list[str]:
+    async def items_copy(self) -> list[str]:
         """返回视频队列的当前副本。"""
-        return list(self.items)
+        async with self.lock:
+            return list(self.items)
 
-    def snapshot(self, head_n: int = 5, tail_n: int = 5) -> dict[str, typing.Any]:
+    async def snapshot(self, head_n: int = 5, tail_n: int = 5) -> dict[str, typing.Any]:
         """生成视频队列的摘要快照。"""
-        items = self.items_copy()
+        items = await self.items_copy()
         count = len(items)
 
         head_keys, tail_keys = head_tail(items, head_n=head_n, tail_n=tail_n)

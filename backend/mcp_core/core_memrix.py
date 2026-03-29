@@ -248,7 +248,7 @@ class Memrix(object):
 
         await self.__transports.wait()
 
-        self.mx_report_store.set(
+        await self.mx_report_store.set(
             f"mx_{self.scene}",
             self.scene + "_" + self.style.capitalize()
         )
@@ -278,7 +278,7 @@ class Memrix(object):
 
         await self.__transports.wait()
 
-        self.mx_report_store.pop(f"mx_{final_scene}")
+        await self.mx_report_store.pop(f"mx_{final_scene}")
         self.scene = time.strftime("%Y%m%d%H%M%S")
 
         return {
@@ -305,7 +305,7 @@ class Memrix(object):
 
         await self.__transports.wait()
 
-        self.mx_report_store.pop(f"mx_{final_scene}")
+        await self.mx_report_store.pop(f"mx_{final_scene}")
         self.scene = time.strftime("%Y%m%d%H%M%S")
 
         return {

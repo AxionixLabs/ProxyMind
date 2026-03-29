@@ -2,6 +2,7 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
+import asyncio
 from backend.mcp_core.core_framix import Framix
 from backend.mcp_core.core_memrix import Memrix
 from backend.mcp_core.core_nexus import Nexus
@@ -35,13 +36,18 @@ class AppContext(object):
         self.ffmpeg: FFmpeg = FFmpeg()
         self.player: Player = Player()
 
-    def instance_snapshots(self) -> dict[str, dict[str, typing.Any]]:
+    async def instance_snapshots(self) -> dict[str, dict[str, typing.Any]]:
         """汇总当前运行上下文中的各类实例快照。"""
+        video_list, fx_report, mx_report = await asyncio.gather(
+            self.video_list_snapshot(),
+            self.fx_report_snapshot(),
+            self.mx_report_snapshot()
+        )
         return {
             "instance": {
-                **self.video_list_snapshot(),
-                **self.fx_report_snapshot(),
-                **self.mx_report_snapshot()
+                **video_list,
+                **fx_report,
+                **mx_report
             }
         }
 
@@ -53,27 +59,31 @@ class AppContext(object):
         """原子取出当前视频队列中的全部文件，并清空队列。"""
         return await self.video_queue.take_all()
 
-    def fx_report_snapshot(
+    async def fx_report_snapshot(
         self,
         session_id: typing.Optional[str] = None,
         head_n: int = 5,
         tail_n: int = 5
     ) -> dict[str, typing.Any]:
         """生成 Framix 报告会话状态快照。"""
-        return self.fx_reports.snapshot(session_id=session_id, head_n=head_n, tail_n=tail_n)
+        return await self.fx_reports.snapshot(session_id=session_id, head_n=head_n, tail_n=tail_n)
 
-    def mx_report_snapshot(
+    async def mx_report_snapshot(
         self,
         session_id: typing.Optional[str] = None,
         head_n: int = 5,
         tail_n: int = 5
     ) -> dict[str, typing.Any]:
         """生成 Memrix 报告会话状态快照。"""
-        return self.mx_reports.snapshot(session_id=session_id, head_n=head_n, tail_n=tail_n)
+        return await self.mx_reports.snapshot(session_id=session_id, head_n=head_n, tail_n=tail_n)
 
-    def video_list_snapshot(self) -> dict[str, typing.Any]:
+    async def video_list_snapshot(self) -> dict[str, typing.Any]:
         """生成视频队列当前状态的摘要快照。"""
-        return self.video_queue.snapshot()
+        return await self.video_queue.snapshot()
 
 
 app_ctx = AppContext()
+
+
+if __name__ == '__main__':
+    pass

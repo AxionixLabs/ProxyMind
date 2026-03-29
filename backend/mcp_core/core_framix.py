@@ -221,7 +221,7 @@ class Framix(object):
 
         resp = await self.__engine(*cmd)
 
-        self.fx_report_store.set(
+        await self.fx_report_store.set(
             f"fx_frame_{self.label}",
             os.path.join(self.total, "FX" + "_" + self.label)
         )
@@ -240,7 +240,7 @@ class Framix(object):
 
         resp = await self.__engine(*cmd)
 
-        self.fx_report_store.pop("fx_frame_" + self.label)
+        await self.fx_report_store.pop("fx_frame_" + self.label)
         self.label = time.strftime("%Y%m%d%H%M%S")
 
         return resp
