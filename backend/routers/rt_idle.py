@@ -31,7 +31,14 @@ async def api_idle(request: Request) -> Response:
 
 @idle_router.get(path="/api/keepalive", include_in_schema=False)
 async def api_keepalive(request: Request) -> dict:
+    """
+    返回 keepalive 状态。
+
+    续命动作由全局 HTTP middleware 统一执行，这里只负责回传状态与周期，
+    不再额外调用 `idle.touch()`，避免形成重复语义。
+    """
     data = await request.app.state.idle.snapshot()
+
     return {
         "ok"            : True,
         "service"       : f"{const.APP_NAME} keepalive",
@@ -40,3 +47,7 @@ async def api_keepalive(request: Request) -> dict:
         "keepalive_sec" : const.KEEPALIVE_SEC,
         "active_total"  : data.get("active_total")
     }
+
+
+if __name__ == '__main__':
+    pass

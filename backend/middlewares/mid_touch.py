@@ -7,6 +7,7 @@ from backend.utilities.runtime import Idle
 
 
 async def touch_middleware(request: Request, call_next: typing.Callable) -> typing.Any:
+    """统一刷新 HTTP 请求的最近活动时间。"""
     idle: Idle = request.app.state.idle
 
     await idle.touch()
