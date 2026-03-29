@@ -9,7 +9,7 @@ from collections import deque
 from loguru import logger
 from backend.mcp_hub.hub_device import Device
 from backend.utilities import const
-from backend.utilities.flux import Flux
+from backend.utilities.process import Flux
 
 
 class Monkey(object):

@@ -8,7 +8,7 @@ import typing
 import asyncio
 from backend.mcp_hub.hub_device import Device
 from backend.models.model_device import SemanticResult
-from backend.utilities.flux import Flux
+from backend.utilities.process import Flux
 
 
 class DeviceManage(object):

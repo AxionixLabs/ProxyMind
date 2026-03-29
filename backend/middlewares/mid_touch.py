@@ -3,7 +3,7 @@
 
 import typing
 from fastapi import Request
-from backend.utilities.pipeline import Idle
+from backend.utilities.runtime import Idle
 
 
 async def touch_middleware(request: Request, call_next: typing.Callable) -> typing.Any:

@@ -9,8 +9,8 @@ from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.mcp_tools.shared import MatrixArg
 from backend.middlewares.mid_task import task_middleware
-from backend.utilities.pipeline import Idle
-from backend.utilities.toolbox import broadcast
+from backend.utilities.runtime import AppContext, Idle
+from backend.utilities.broadcast import broadcast
 
 
 ScrollDirectionArg = typing.Annotated[
@@ -79,7 +79,7 @@ WaitStateArg = typing.Annotated[
 ]
 
 
-def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
+def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(

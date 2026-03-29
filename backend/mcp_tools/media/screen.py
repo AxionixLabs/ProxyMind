@@ -12,9 +12,8 @@ from backend.mcp_hub.hub_manage import (
 from backend.mcp_tools.shared import MatrixArg
 from backend.mcp_hub.hub_record import Record
 from backend.middlewares.mid_task import task_middleware
-from backend.utilities.instance import Ins
-from backend.utilities.pipeline import Idle
-from backend.utilities.toolbox import broadcast
+from backend.utilities.runtime import AppContext, Idle
+from backend.utilities.broadcast import broadcast
 
 
 RecordDirectoryArg = typing.Annotated[
@@ -31,7 +30,7 @@ SilenceArg = typing.Annotated[
 ]
 
 
-def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
+def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
@@ -49,14 +48,10 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         version = await Requires.connect_scrcpy()
 
         async def call(device: Device, *_) -> typing.Any:
-            _, on_begin, on_final = idle.hooks(
-                "scrcpy.scrcpy_mirror",
-                args={},
-                args_fn=lambda: {"serial": device.serial, "brand": device.device_props.get("brand")}
-            )
             record: Record = Record(
-                device, version, Ins.station, Ins.sessions, Ins.sessions_lock,
-                on_begin=on_begin, on_final=on_final
+                device=device,
+                idle=idle,
+                version=version,
             )
             return await record.scrcpy_mirror()
 
@@ -93,19 +88,14 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
-            _, on_begin, on_final = idle.hooks(
-                "scrcpy.scrcpy_record",
-                args=a,
-                args_fn=lambda: {"serial": device.serial, "brand": device.device_props.get("brand")}
-            )
             record: Record = Record(
-                device, version, Ins.station, Ins.sessions, Ins.sessions_lock,
-                on_begin=on_begin, on_final=on_final
+                device=device,
+                idle=idle,
+                version=version,
             )
             mm_resp = await record.scrcpy_record(**a)
             if video_temp := mm_resp.get("data", {}).get("path"):
-                async with Ins.video_lock:
-                    Ins.video_list.append(video_temp)
+                await ctx.video_list_append(video_temp)
             return mm_resp
 
         return await broadcast(
@@ -130,18 +120,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
     ) -> CallToolResult:
 
         async def call(device: Device, *_) -> typing.Any:
-            async with Ins.sessions_lock:
-                if not (sess := Ins.sessions.get(device.serial)):
-                    return {
-                        "text"        : "未找到活跃的 scrcpy 会话，无需关闭。",
-                        "attachments" : [],
-                        "data": {
-                            "ok"     : True,
-                            "serial" : device.serial,
-                            "reason" : "no_active_session",
-                        },
-                        "logs": []
-                    }
+            if not (sess := await idle.session_get_handle(f"scrcpy:{device.serial}")):
+                return {
+                    "text"        : "未找到活跃的 scrcpy 会话，无需关闭。",
+                    "attachments" : [],
+                    "data": {
+                        "ok"     : True,
+                        "serial" : device.serial,
+                        "reason" : "no_active_session",
+                    },
+                    "logs": []
+                }
             return await sess.scrcpy_close()
 
         return await broadcast(

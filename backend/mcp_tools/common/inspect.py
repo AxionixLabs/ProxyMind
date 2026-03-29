@@ -6,8 +6,8 @@ from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from pydantic import Field
 from backend.middlewares.mid_task import task_middleware
-from backend.utilities.pipeline import Idle
-from backend.utilities.toolbox import broadcast
+from backend.utilities.runtime import AppContext, Idle
+from backend.utilities.broadcast import broadcast
 
 
 FreeRuleMessageArg = typing.Annotated[
@@ -20,7 +20,7 @@ FreeRuleContextArg = typing.Annotated[
 ]
 
 
-def bind(mcp: FastMCP, idle: Idle) -> None:
+def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(

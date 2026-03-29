@@ -16,8 +16,10 @@ from middlewares.mid_auth import HelixTokenVerifier
 from middlewares import register_middlewares
 from routers import register_routers
 from utilities import const
-from utilities.pipeline import (
-    Active, Idle
+from utilities.runtime import (
+    app_ctx,
+    Active,
+    Idle
 )
 from register import register_all_tools
 
@@ -41,7 +43,10 @@ mcp: FastMCP = FastMCP(
     )
 )
 
-idle: Idle = Idle(ttl_sec=const.IDLE_TTL_SEC)
+idle: Idle = Idle(
+    ttl_sec=const.IDLE_TTL_SEC,
+    snapshot_provider=app_ctx.instance_snapshots
+)
 
 
 @contextlib.asynccontextmanager
@@ -55,6 +60,7 @@ async def lifespan(web_app: FastAPI) -> typing.AsyncGenerator[None, None]:
     )
 
     web_app.state.idle = idle
+    web_app.state.ctx = app_ctx
 
     async with mcp.session_manager.run():
         await idle.start_idle()
@@ -67,7 +73,7 @@ async def lifespan(web_app: FastAPI) -> typing.AsyncGenerator[None, None]:
 def main() -> None:
     Active.active(log_level)
 
-    register_all_tools(mcp, DeviceManage(), idle)
+    register_all_tools(mcp, DeviceManage(), idle, app_ctx)
 
     app: FastAPI = FastAPI(lifespan=lifespan)
     register_middlewares(app)

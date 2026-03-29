@@ -7,9 +7,8 @@ from mcp.types import CallToolResult
 from pydantic import Field
 from backend.mcp_hub.hub_manage import Requires
 from backend.middlewares.mid_task import task_middleware
-from backend.utilities.instance import Ins
-from backend.utilities.pipeline import Idle
-from backend.utilities.toolbox import broadcast
+from backend.utilities.runtime import AppContext, Idle
+from backend.utilities.broadcast import broadcast
 
 
 FocusArg = typing.Annotated[
@@ -38,7 +37,7 @@ LayerArg = typing.Annotated[
 ]
 
 
-def bind(mcp: FastMCP, idle: Idle) -> None:
+def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
@@ -65,32 +64,32 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
         async def call(*_) -> typing.Any:
             await idle.session_begin(
-                key=Ins.memrix.agent_id,
-                name=f"{Ins.memrix.agent_id}.mx_sample_mem",
+                key=ctx.memrix.agent_id,
+                name=f"{ctx.memrix.agent_id}.mx_sample_mem",
                 args=args
             )
             try:
-                resp = await Ins.memrix.mx_task_begin("--storm", focus, imply, title)
+                resp = await ctx.memrix.mx_task_begin("--storm", focus, imply, title)
                 resp = resp or {}
 
                 token = resp.get("data", {}).get("token")
                 if token:
-                    await idle.session_patch_args(Ins.memrix.agent_id, {"token": token})
+                    await idle.session_patch_args(ctx.memrix.agent_id, {"token": token})
 
                 ok = resp.get("data", {}).get("ok")
                 if not ok:
-                    await idle.session_final(Ins.memrix.agent_id)
+                    await idle.session_final(ctx.memrix.agent_id)
 
                 return resp
 
             except Exception as e:
-                await idle.session_final(Ins.memrix.agent_id)
+                await idle.session_final(ctx.memrix.agent_id)
                 raise e
 
         return await broadcast(
             tool="mx_sample_mem",
             args=args,
-            target_list=[Ins.memrix],
+            target_list=[ctx.memrix],
             call=call,
             overrides=None
         )
@@ -120,32 +119,32 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
         async def call(*_) -> typing.Any:
             await idle.session_begin(
-                key=Ins.memrix.agent_id,
-                name=f"{Ins.memrix.agent_id}.sample_gfx",
+                key=ctx.memrix.agent_id,
+                name=f"{ctx.memrix.agent_id}.sample_gfx",
                 args=args
             )
             try:
-                resp = await Ins.memrix.mx_task_begin("--sleek", focus, imply, title)
+                resp = await ctx.memrix.mx_task_begin("--sleek", focus, imply, title)
                 resp = resp or {}
 
                 token = resp.get("data", {}).get("token")
                 if token:
-                    await idle.session_patch_args(Ins.memrix.agent_id, {"token": token})
+                    await idle.session_patch_args(ctx.memrix.agent_id, {"token": token})
 
                 ok = resp.get("data", {}).get("ok")
                 if not ok:
-                    await idle.session_final(Ins.memrix.agent_id)
+                    await idle.session_final(ctx.memrix.agent_id)
 
                 return resp
 
             except Exception as e:
-                await idle.session_final(Ins.memrix.agent_id)
+                await idle.session_final(ctx.memrix.agent_id)
                 raise e
 
         return await broadcast(
             tool="sample_gfx",
             args=args,
-            target_list=[Ins.memrix],
+            target_list=[ctx.memrix],
             call=call,
             overrides=None
         )
@@ -167,14 +166,14 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
         async def call(*_) -> typing.Any:
             try:
-                return await Ins.memrix.mx_task_final(token)
+                return await ctx.memrix.mx_task_final(token)
             finally:
-                await idle.session_final(Ins.memrix.agent_id)
+                await idle.session_final(ctx.memrix.agent_id)
 
         return await broadcast(
             tool="mx_task_final",
             args={},
-            target_list=[Ins.memrix],
+            target_list=[ctx.memrix],
             call=call,
             overrides=None
         )
@@ -201,16 +200,16 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.memrix.agent_id}.mx_mem_reporter", args=args)
+            job_id = await idle.job_begin(f"{ctx.memrix.agent_id}.mx_mem_reporter", args=args)
             try:
-                return await Ins.memrix.mx_mem_reporter(scene, layer)
+                return await ctx.memrix.mx_mem_reporter(scene, layer)
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
             tool="mx_mem_reporter",
             args=args,
-            target_list=[Ins.memrix],
+            target_list=[ctx.memrix],
             call=call,
             overrides=None
         )
@@ -235,16 +234,16 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.memrix.agent_id}.mx_gfx_reporter", args=args)
+            job_id = await idle.job_begin(f"{ctx.memrix.agent_id}.mx_gfx_reporter", args=args)
             try:
-                return await Ins.memrix.mx_gfx_reporter(scene)
+                return await ctx.memrix.mx_gfx_reporter(scene)
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
             tool="mx_gfx_reporter",
             args=args,
-            target_list=[Ins.memrix],
+            target_list=[ctx.memrix],
             call=call,
             overrides=None
         )

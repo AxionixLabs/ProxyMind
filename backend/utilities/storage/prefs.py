@@ -42,6 +42,7 @@ DEFAULT_MODEL_TYPE     = "Text"
 
 
 def _default_slot() -> Slot:
+    """返回单个模型槽位的默认配置。"""
     return {
         "api"      : DEFAULT_PROVIDER,
         "base_url" : "",
@@ -54,6 +55,7 @@ def _default_slot() -> Slot:
 
 
 def _default_prefs() -> dict[str, typing.Any]:
+    """返回整份偏好配置的默认结构。"""
     return {
         "schema_version" : DEFAULT_SCHEMA_VERSION,
         "profile_key"    : DEFAULT_PROFILE_KEY,
@@ -63,6 +65,7 @@ def _default_prefs() -> dict[str, typing.Any]:
 
 
 def _normalize_route(value: typing.Any, *, allow_chat_completions: bool = False) -> str:
+    """把路由值收敛到受支持的接口类型。"""
     route = str(value or "").strip()
     if route == DEFAULT_ROUTE:
         return route
@@ -105,6 +108,7 @@ SCHEMA_SQL = SCHEMA_SQL.replace("pref_profiles", TABLE_PROFILES).replace("pref_m
 
 
 def _app_root() -> Path:
+    """推断当前应用入口所在根目录。"""
     software = Path(sys.argv[0]).name.strip().lower()
 
     if software in APP_ENTRY_NAMES:
@@ -117,6 +121,7 @@ def _app_root() -> Path:
 
 
 def _data_root() -> Path:
+    """根据当前平台推断偏好数据目录。"""
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / APP_DATA_DIR_NAME
 
@@ -129,10 +134,12 @@ def _data_root() -> Path:
 
 
 def pref_path() -> Path:
+    """返回偏好数据库文件的标准路径。"""
     return _data_root() / DATA_STORAGE_DIR / DATA_FILENAME
 
 
 def _connect() -> sqlite3.Connection:
+    """建立并返回偏好数据库连接。"""
     target = pref_path()
     os.makedirs(target.parent, exist_ok=True)
     conn = sqlite3.connect(target)
@@ -142,11 +149,13 @@ def _connect() -> sqlite3.Connection:
 
 
 def _init_schema(conn: sqlite3.Connection) -> None:
+    """初始化偏好数据库结构，并补齐增量字段。"""
     conn.executescript(SCHEMA_SQL)
     _ensure_slot_columns(conn)
 
 
 def _ensure_slot_columns(conn: sqlite3.Connection) -> None:
+    """确保模型槽位表中存在当前版本需要的列。"""
     columns = {
         str(row["name"]) for row in conn.execute(
             f"PRAGMA table_info({TABLE_SLOTS})"
@@ -160,10 +169,12 @@ def _ensure_slot_columns(conn: sqlite3.Connection) -> None:
 
 
 def _now_ms() -> int:
+    """返回当前时间的毫秒时间戳。"""
     return int(time.time() * 1000)
 
 
 def _ensure_profile(conn: sqlite3.Connection, profile_key: str = DEFAULT_PROFILE_KEY) -> int:
+    """确保默认配置档和必需槽位存在，并返回 profile_id。"""
     now = _now_ms()
     conn.execute(
         f"""
@@ -201,6 +212,7 @@ def _ensure_profile(conn: sqlite3.Connection, profile_key: str = DEFAULT_PROFILE
 
 
 def _slot_record(slot: Slot) -> tuple[str, str, str, str, str, str, str]:
+    """把槽位字典转换成数据库写入元组。"""
     return (
         slot["api"],
         slot["base_url"],
@@ -213,6 +225,7 @@ def _slot_record(slot: Slot) -> tuple[str, str, str, str, str, str, str]:
 
 
 def _row_to_slot(row: sqlite3.Row | None) -> Slot:
+    """把数据库行对象转换成标准槽位字典。"""
     slot = _default_slot()
     if row is None:
         return slot
@@ -227,6 +240,7 @@ def _row_to_slot(row: sqlite3.Row | None) -> Slot:
 
 
 def _merge_slot(base: Slot, incoming: typing.Any, *, allow_chat_completions: bool = False) -> Slot:
+    """把传入槽位配置合并到基准槽位上。"""
     merged = dict(base)
     if not isinstance(incoming, dict):
         return merged
@@ -242,6 +256,7 @@ def _merge_slot(base: Slot, incoming: typing.Any, *, allow_chat_completions: boo
 
 
 def _is_slot_configured(slot: typing.Any) -> bool:
+    """判断槽位是否已经具备可视为已配置的关键信息。"""
     if not isinstance(slot, dict):
         return False
 
@@ -250,6 +265,7 @@ def _is_slot_configured(slot: typing.Any) -> bool:
 
 
 def normalize_pref(raw: typing.Any) -> dict[str, typing.Any]:
+    """把任意输入归一化为标准偏好配置结构。"""
     prefs = _default_prefs()
     if not isinstance(raw, dict):
         return prefs
@@ -267,6 +283,7 @@ def normalize_pref(raw: typing.Any) -> dict[str, typing.Any]:
 
 
 def load_pref() -> dict[str, typing.Any]:
+    """从数据库加载当前偏好配置。"""
     with _connect() as conn:
         _init_schema(conn)
         profile_id = _ensure_profile(conn)
@@ -290,6 +307,7 @@ def load_pref() -> dict[str, typing.Any]:
 
 
 def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
+    """把偏好配置归一化后写入数据库并返回最终结果。"""
     prefs = normalize_pref(raw)
     now = _now_ms()
 

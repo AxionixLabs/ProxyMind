@@ -9,10 +9,12 @@ import typing
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from backend.mcp_hub.hub_manage import DeviceManage
-from backend.utilities.pipeline import Idle
+from backend.utilities.runtime import (
+    AppContext, Idle
+)
 
 
-def register_automator_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
+def register_automator_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> None:
     from backend.mcp_tools.automator import ctl_app
     from backend.mcp_tools.automator import ctl_file
     from backend.mcp_tools.automator import ctl_info
@@ -22,44 +24,44 @@ def register_automator_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> 
     from backend.mcp_tools.automator import ctl_ui
     from backend.mcp_tools.automator import ctl_zest
 
-    ctl_app.bind(mcp, manage)
-    ctl_file.bind(mcp, manage)
-    ctl_info.bind(mcp, manage)
-    ctl_keyevent.bind(mcp, manage)
-    ctl_monkey.bind(mcp, manage, idle)
-    ctl_system.bind(mcp, manage)
-    ctl_ui.bind(mcp, manage, idle)
-    ctl_zest.bind(mcp, manage)
+    ctl_app.bind(mcp, manage, ctx)
+    ctl_file.bind(mcp, manage, ctx)
+    ctl_info.bind(mcp, manage, ctx)
+    ctl_keyevent.bind(mcp, manage, ctx)
+    ctl_monkey.bind(mcp, manage, idle, ctx)
+    ctl_system.bind(mcp, manage, ctx)
+    ctl_ui.bind(mcp, manage, idle, ctx)
+    ctl_zest.bind(mcp, manage, ctx)
 
 
-def register_bench_tools(mcp: FastMCP, idle: Idle) -> None:
+def register_bench_tools(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     from backend.mcp_tools.bench import bench_framix
     from backend.mcp_tools.bench import bench_memrix
     from backend.mcp_tools.bench import bench_nexus
 
-    bench_framix.bind(mcp, idle)
-    bench_memrix.bind(mcp, idle)
-    bench_nexus.bind(mcp, idle)
+    bench_framix.bind(mcp, idle, ctx)
+    bench_memrix.bind(mcp, idle, ctx)
+    bench_nexus.bind(mcp, idle, ctx)
 
 
-def register_common_tools(mcp: FastMCP, idle: Idle) -> None:
+def register_common_tools(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     from backend.mcp_tools.common import inspect
     from backend.mcp_tools.common import runtime
     from backend.mcp_tools.common import security
 
-    inspect.bind(mcp, idle)
-    runtime.bind(mcp, idle)
-    security.bind(mcp)
+    inspect.bind(mcp, idle, ctx)
+    runtime.bind(mcp, idle, ctx)
+    security.bind(mcp, ctx)
 
 
-def register_media_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
+def register_media_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> None:
     from backend.mcp_tools.media import audio
     from backend.mcp_tools.media import ffmpeg
     from backend.mcp_tools.media import screen
 
-    audio.bind(mcp, idle)
-    ffmpeg.bind(mcp, idle)
-    screen.bind(mcp, manage, idle)
+    audio.bind(mcp, idle, ctx)
+    ffmpeg.bind(mcp, idle, ctx)
+    screen.bind(mcp, manage, idle, ctx)
 
 
 def initialize(tools: typing.Iterable[str] = ("adb", "ffmpeg")) -> dict[str, typing.Any]:
@@ -160,12 +162,12 @@ def initialize(tools: typing.Iterable[str] = ("adb", "ffmpeg")) -> dict[str, typ
     }
 
 
-def register_all_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
+def register_all_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> None:
     initialize()
-    register_automator_tools(mcp, manage, idle)
-    register_bench_tools(mcp, idle)
-    register_common_tools(mcp, idle)
-    register_media_tools(mcp, manage, idle)
+    register_automator_tools(mcp, manage, idle, ctx)
+    register_bench_tools(mcp, idle, ctx)
+    register_common_tools(mcp, idle, ctx)
+    register_media_tools(mcp, manage, idle, ctx)
 
 
 if __name__ == '__main__':

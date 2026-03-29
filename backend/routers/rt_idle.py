@@ -38,9 +38,5 @@ async def api_keepalive(request: Request) -> dict:
         "ttl_sec"       : data.get("ttl_sec"),
         "idle_sec"      : data.get("idle_sec"),
         "keepalive_sec" : const.KEEPALIVE_SEC,
-        "active_jobs"   : data.get("active_jobs")
+        "active_total"  : data.get("active_total")
     }
-
-
-if __name__ == '__main__':
-    pass

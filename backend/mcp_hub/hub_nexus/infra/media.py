@@ -3,8 +3,6 @@
 
 import re
 import json
-import time
-import uuid
 import httpx
 import base64
 import typing
@@ -13,6 +11,7 @@ from pathlib import Path
 from backend.mcp_hub.hub_nexus.domain.extract import ExtractService
 from backend.mcp_hub.hub_nexus.infra.core import UrlService
 from backend.utilities import const
+from backend.utilities.storage.output import mk_out_dir
 
 
 class MediaService(object):
@@ -51,16 +50,6 @@ class MediaService(object):
         if fallback_kind == "video":
             return ".mp4"
         return ".bin"
-
-    @staticmethod
-    def mk_out_dir(output_dir: str, tool: str) -> Path:
-        """创建按工具名和时间戳隔离的媒体输出目录。"""
-        base_dir = Path(output_dir or ".").expanduser().resolve()
-        base_dir.mkdir(parents=True, exist_ok=True)
-        tag = f"{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
-        out_dir = base_dir / "nexus" / tool / tag
-        out_dir.mkdir(parents=True, exist_ok=True)
-        return out_dir
 
     @staticmethod
     def mk_artifact_media_dir(artifact_dir: str) -> Path:
@@ -270,7 +259,7 @@ class MediaService(object):
         out_dir = (
             MediaService.mk_artifact_media_dir(step_artifact_dir)
             if step_artifact_dir else
-            MediaService.mk_out_dir(".", tool)
+            mk_out_dir(".", engine="nexus", tool=tool)
         )
         ext = MediaService.media_suffix(mime_type or "", fallback_kind=kind)
         filename = f"{default_name}{ext}"

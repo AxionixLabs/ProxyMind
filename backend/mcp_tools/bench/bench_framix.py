@@ -7,9 +7,8 @@ from mcp.types import CallToolResult
 from pydantic import Field
 from backend.mcp_hub.hub_manage import Requires
 from backend.middlewares.mid_task import task_middleware
-from backend.utilities.instance import Ins
-from backend.utilities.pipeline import Idle
-from backend.utilities.toolbox import broadcast
+from backend.utilities.runtime import AppContext, Idle
+from backend.utilities.broadcast import broadcast
 
 
 VideoListArg = typing.Annotated[
@@ -30,7 +29,7 @@ TitleArg = typing.Annotated[
 ]
 
 
-def bind(mcp: FastMCP, idle: Idle) -> None:
+def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
@@ -56,16 +55,16 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.framix.agent_id}.fx_frame_analysis", args=args)
+            job_id = await idle.job_begin(f"{ctx.framix.agent_id}.fx_frame_analysis", args=args)
             try:
-                return await Ins.framix.fx_frame_analysis(video, total, scale)
+                return await ctx.framix.fx_frame_analysis(video, total, scale)
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
             tool="fx_frame_analysis",
             args=args,
-            target_list=[Ins.framix],
+            target_list=[ctx.framix],
             call=call,
             overrides=None
         )
@@ -73,7 +72,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
     @mcp.tool(
         description=(
             "对当前视频队列执行一次 Framix 帧分析。"
-            "输入视频来自 `Ins.video_list`，适合接在录制或视频入队链路之后，不需要再手动传视频路径。"
+            "输入视频来自当前内部视频队列，适合接在录制或视频入队链路之后，不需要再手动传视频路径。"
             "执行完成后会清空视频队列；若要复用同一批视频，需要重新入队。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "framix"}
@@ -87,25 +86,26 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
 
         await Requires.connect_framix()
 
+        videos = await ctx.video_list_take_all()
+
         args = {
-            "video" : Ins.video_list,
+            "video" : videos,
             "title" : title,
             "total" : total,
             "scale" : scale
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.framix.agent_id}.fx_frame_analyzer", args=args)
+            job_id = await idle.job_begin(f"{ctx.framix.agent_id}.fx_frame_analyzer", args=args)
             try:
-                return await Ins.framix.fx_frame_analyzer(**args)
+                return await ctx.framix.fx_frame_analyzer(**args)
             finally:
-                Ins.video_list.clear()
                 await idle.job_final(job_id)
 
         return await broadcast(
             tool="fx_frame_analyzer",
             args=args,
-            target_list=[Ins.framix],
+            target_list=[ctx.framix],
             call=call,
             overrides=None
         )
@@ -128,16 +128,16 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.framix.agent_id}.fx_frame_reporter", args=args)
+            job_id = await idle.job_begin(f"{ctx.framix.agent_id}.fx_frame_reporter", args=args)
             try:
-                return await Ins.framix.fx_frame_reporter()
+                return await ctx.framix.fx_frame_reporter()
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
             tool="fx_frame_reporter",
             args=args,
-            target_list=[Ins.framix],
+            target_list=[ctx.framix],
             call=call,
             overrides=None
         )

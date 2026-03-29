@@ -8,7 +8,7 @@ import contextlib
 import xml.etree.ElementTree as Et
 from backend.mcp_hub.hub_device.widget import Widget
 from backend.utilities import const
-from backend.utilities.flux import Flux
+from backend.utilities.process import Flux
 
 
 class Phone(object):

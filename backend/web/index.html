@@ -722,11 +722,16 @@
             : typeof payload.total === "number"
               ? payload.total
               : 0;
+      const sessionCount = payload.sessions && typeof payload.sessions === "object"
+        ? Object.keys(payload.sessions).length
+        : typeof payload.active_sessions === "number"
+          ? payload.active_sessions
+          : 0;
       const runningCount = Array.isArray(payload.running)
         ? payload.running.length
         : typeof payload.running_total === "number"
           ? payload.running_total
-          : 0;
+          : sessionCount;
       const total = pendingCount + runningCount;
 
       let meta = "queue is clear";

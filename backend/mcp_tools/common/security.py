@@ -8,6 +8,7 @@ from mcp.types import (
 )
 from pydantic import Field
 from backend.mcp_hub.hub_nexus import SecurityService
+from backend.utilities.runtime import AppContext
 
 
 OutputKeyArg = typing.Annotated[
@@ -237,7 +238,7 @@ def _tool_result(agent_id: str, result: dict[str, typing.Any]) -> CallToolResult
     )
 
 
-def bind(mcp: FastMCP) -> None:
+def bind(mcp: FastMCP, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(

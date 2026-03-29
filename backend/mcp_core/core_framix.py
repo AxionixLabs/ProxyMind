@@ -12,10 +12,12 @@ from loguru import logger
 from backend.mcp_core.core_buffer import (
     LineBuffer, GateMachine, FX_SPEC
 )
-from backend.utilities import (
-    const, marked
-)
-from backend.utilities.flux import Flux
+from backend.utilities import const
+from backend.utilities.process import Flux
+from backend.utilities.validation import marked
+
+if typing.TYPE_CHECKING:
+    from backend.utilities.state import PathSessionStore
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
@@ -31,10 +33,10 @@ class Framix(object):
             cls.__instance = super(Framix, cls).__new__(cls)
         return cls.__instance
 
-    def __init__(self, *, fx_report_session: dict[str, typing.Any]):
+    def __init__(self, *, fx_report_store: "PathSessionStore"):
         if not self.__initialized:
             self.__transports: typing.Optional[asyncio.subprocess.Process] = None
-            self.fx_report_session = fx_report_session
+            self.fx_report_store = fx_report_store
 
             self.__prefix: str = "framix"
 
@@ -219,9 +221,10 @@ class Framix(object):
 
         resp = await self.__engine(*cmd)
 
-        self.fx_report_session.update({
-            f"fx_frame_{self.label}": os.path.join(self.total, "FX" + "_" + self.label)
-        })
+        self.fx_report_store.set(
+            f"fx_frame_{self.label}",
+            os.path.join(self.total, "FX" + "_" + self.label)
+        )
 
         return resp
 
@@ -237,7 +240,7 @@ class Framix(object):
 
         resp = await self.__engine(*cmd)
 
-        self.fx_report_session.pop("fx_frame_" + self.label, None)
+        self.fx_report_store.pop("fx_frame_" + self.label)
         self.label = time.strftime("%Y%m%d%H%M%S")
 
         return resp

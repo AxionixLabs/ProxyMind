@@ -12,9 +12,8 @@ from backend.models.model_nexus import (
     NexusKind,
     NexusRequest
 )
-from backend.utilities.instance import Ins
-from backend.utilities.pipeline import Idle
-from backend.utilities.toolbox import broadcast
+from backend.utilities.runtime import AppContext, Idle
+from backend.utilities.broadcast import broadcast
 
 
 NexusKindArg = typing.Annotated[
@@ -104,7 +103,7 @@ def _batch_model(
     )
 
 
-def bind(mcp: FastMCP, idle: Idle) -> None:
+def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
@@ -135,9 +134,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.render_request", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.render_request", args=args)
             try:
-                return Ins.nexus.render_request(
+                return ctx.nexus.render_request(
                     kind=kind,
                     request=_request_model(
                         request=request,
@@ -154,7 +153,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_render_request",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call, overrides=None
         )
 
@@ -187,9 +186,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.validate_request", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.validate_request", args=args)
             try:
-                return Ins.nexus.validate_request(
+                return ctx.nexus.validate_request(
                     kind=kind,
                     request=_request_model(
                         request=request,
@@ -206,7 +205,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_validate_request",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -238,9 +237,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.render_batch", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.render_batch", args=args)
             try:
-                return Ins.nexus.render_batch(
+                return ctx.nexus.render_batch(
                     kind=kind,
                     batch=_batch_model(
                         items=items,
@@ -256,7 +255,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_render_batch",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -288,9 +287,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.validate_batch", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.validate_batch", args=args)
             try:
-                return Ins.nexus.validate_batch(
+                return ctx.nexus.validate_batch(
                     kind=kind,
                     batch=_batch_model(
                         items=items,
@@ -306,7 +305,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_validate_batch",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -336,9 +335,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
             try:
-                return await Ins.nexus.execute_request(
+                return await ctx.nexus.execute_request(
                     kind="http",
                     request=_request_model(
                         request=request,
@@ -354,7 +353,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_http_request",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -384,9 +383,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
-                return await Ins.nexus.execute_batch(
+                return await ctx.nexus.execute_batch(
                     kind="http",
                     batch=_batch_model(
                         items=items,
@@ -402,7 +401,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_http_batch",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -432,9 +431,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
             try:
-                return await Ins.nexus.execute_request(
+                return await ctx.nexus.execute_request(
                     kind="sse",
                     request=_request_model(
                         request=request,
@@ -450,7 +449,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_sse_request",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -480,9 +479,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
-                return await Ins.nexus.execute_batch(
+                return await ctx.nexus.execute_batch(
                     kind="sse",
                     batch=_batch_model(
                         items=items,
@@ -498,7 +497,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_sse_batch",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -528,9 +527,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
             try:
-                return await Ins.nexus.execute_request(
+                return await ctx.nexus.execute_request(
                     kind="ws",
                     request=_request_model(
                         request=request,
@@ -546,7 +545,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_ws_request",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -576,9 +575,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
-                return await Ins.nexus.execute_batch(
+                return await ctx.nexus.execute_batch(
                     kind="ws",
                     batch=_batch_model(
                         items=items,
@@ -594,7 +593,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_ws_batch",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -624,9 +623,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
             try:
-                return await Ins.nexus.execute_request(
+                return await ctx.nexus.execute_request(
                     kind="graphql",
                     request=_request_model(
                         request=request,
@@ -642,7 +641,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_graphql_request",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -672,9 +671,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
-                return await Ins.nexus.execute_batch(
+                return await ctx.nexus.execute_batch(
                     kind="graphql",
                     batch=_batch_model(
                         items=items,
@@ -690,7 +689,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_graphql_batch",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -720,9 +719,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
             try:
-                return await Ins.nexus.execute_request(
+                return await ctx.nexus.execute_request(
                     kind="tcp",
                     request=_request_model(
                         request=request,
@@ -738,7 +737,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_tcp_request",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -768,9 +767,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
-                return await Ins.nexus.execute_batch(
+                return await ctx.nexus.execute_batch(
                     kind="tcp",
                     batch=_batch_model(
                         items=items,
@@ -786,7 +785,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_tcp_batch",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -816,9 +815,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
             try:
-                return await Ins.nexus.execute_request(
+                return await ctx.nexus.execute_request(
                     kind="udp",
                     request=_request_model(
                         request=request,
@@ -834,7 +833,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_udp_request",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -864,9 +863,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
-                return await Ins.nexus.execute_batch(
+                return await ctx.nexus.execute_batch(
                     kind="udp",
                     batch=_batch_model(
                         items=items,
@@ -882,7 +881,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_udp_batch",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -912,9 +911,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
             try:
-                return await Ins.nexus.execute_request(
+                return await ctx.nexus.execute_request(
                     kind="smtp",
                     request=_request_model(
                         request=request,
@@ -930,7 +929,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_smtp_request",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -960,9 +959,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
-                return await Ins.nexus.execute_batch(
+                return await ctx.nexus.execute_batch(
                     kind="smtp",
                     batch=_batch_model(
                         items=items,
@@ -978,7 +977,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_smtp_batch",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -1008,9 +1007,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
             try:
-                return await Ins.nexus.execute_request(
+                return await ctx.nexus.execute_request(
                     kind="imap",
                     request=_request_model(
                         request=request,
@@ -1026,7 +1025,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_imap_request",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -1056,9 +1055,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
-                return await Ins.nexus.execute_batch(
+                return await ctx.nexus.execute_batch(
                     kind="imap",
                     batch=_batch_model(
                         items=items,
@@ -1074,7 +1073,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_imap_batch",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -1104,9 +1103,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_request", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
             try:
-                return await Ins.nexus.execute_request(
+                return await ctx.nexus.execute_request(
                     kind="ftp",
                     request=_request_model(
                         request=request,
@@ -1122,7 +1121,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_ftp_request",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )
@@ -1152,9 +1151,9 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{Ins.nexus.agent_id}.execute_batch", args=args)
+            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
-                return await Ins.nexus.execute_batch(
+                return await ctx.nexus.execute_batch(
                     kind="ftp",
                     batch=_batch_model(
                         items=items,
@@ -1170,7 +1169,7 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         return await broadcast(
             tool="nexus_ftp_batch",
             args=args,
-            target_list=[Ins.nexus],
+            target_list=[ctx.nexus],
             call=call,
             overrides=None
         )

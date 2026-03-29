@@ -7,7 +7,8 @@ from mcp.types import CallToolResult
 from pydantic import Field
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.middlewares.mid_task import task_middleware
-from backend.utilities.toolbox import broadcast
+from backend.utilities.runtime import AppContext
+from backend.utilities.broadcast import broadcast
 
 
 RefreshTtlArg = typing.Annotated[
@@ -16,7 +17,7 @@ RefreshTtlArg = typing.Annotated[
 ]
 
 
-def bind(mcp: FastMCP, manage: DeviceManage) -> None:
+def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(

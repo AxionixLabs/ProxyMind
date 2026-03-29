@@ -11,10 +11,9 @@ from pathlib import Path
 from collections import deque
 from loguru import logger
 from backend.models.model_base import Attachment
-from backend.utilities import (
-    marked, toolbox
-)
-from backend.utilities.flux import Flux
+from backend.utilities.storage.output import mk_out_dir
+from backend.utilities.process import Flux
+from backend.utilities.validation import marked
 
 try:
     os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
@@ -169,7 +168,7 @@ class FFmpeg(object):
         """
         marked.ensure_f(input_video, "input_video")
 
-        out_dir = toolbox.mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_extract_snapshot")
+        out_dir = mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_extract_snapshot")
 
         suf = "." + str(image_format).lower()
         out_p = self.mk_out_file(out_dir, input_video, op="snap", suffix=suf)
@@ -231,7 +230,7 @@ class FFmpeg(object):
         """
         marked.ensure_f(input_video, "input_video")
 
-        out_dir = toolbox.mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_extract_frames")
+        out_dir = mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_extract_frames")
 
         # 统一输出扩展名（防止 pattern 没写对）
         pat = (pattern or "frame_%06d").strip()
@@ -322,7 +321,7 @@ class FFmpeg(object):
         max_frames = max(1, int(max_frames))
         uniform_n  = max(0, int(uniform_n))
 
-        out_dir = toolbox.mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_extract_keyframes")
+        out_dir = mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_extract_keyframes")
 
         logs: list[str] = []
         picked: list[Path] = []
@@ -429,7 +428,7 @@ class FFmpeg(object):
         max_frames = max(0, int(max_frames))
         fmt        = str(image_format).lower()
 
-        out_dir = toolbox.mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_extract_scene")
+        out_dir = mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_extract_scene")
 
         # 输出模板：<out_dir>/<pattern>.<fmt>
         out_tpl = str((out_dir / f"{pattern}.{fmt}").resolve())
@@ -529,7 +528,7 @@ class FFmpeg(object):
         """
         marked.ensure_f(input_video, "input_video")
 
-        out_dir = toolbox.mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_trim_video")
+        out_dir = mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_trim_video")
 
         # 决定输出后缀：优先 output_format，否则沿用输入容器
         in_suf = Path(input_video).suffix.lower()
@@ -623,7 +622,7 @@ class FFmpeg(object):
         """
         marked.ensure_f(input_video, "input_video")
 
-        out_dir = toolbox.mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_scale_video")
+        out_dir = mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_scale_video")
 
         in_suf = Path(input_video).suffix.lower()
         if output_format:
@@ -709,7 +708,7 @@ class FFmpeg(object):
         """
         marked.ensure_f(input_video, "input_video")
 
-        out_dir = toolbox.mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_convert_video")
+        out_dir = mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_convert_video")
 
         # 决定输出后缀：优先 output_format，否则沿用输入容器
         in_suf = Path(input_video).suffix.lower()
@@ -794,7 +793,7 @@ class FFmpeg(object):
         """
         marked.ensure_f(list_file, "list_file")
 
-        out_dir = toolbox.mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_concat_video")
+        out_dir = mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_concat_video")
 
         # 输出后缀（这里推荐固定 mp4；如你要“智能”，也可以从 list_file 内容推断第一个片段后缀）
         suf = "." + str(output_format or "mp4").lower().lstrip(".")
@@ -875,7 +874,7 @@ class FFmpeg(object):
             else:
                 out_suffix = ".mp4"  # 兜底（也可改成 .mkv）
 
-        out_dir = toolbox.mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_remux_video")
+        out_dir = mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_remux_video")
         out_p = self.mk_out_file(out_dir, input_video, op="remux", suffix=out_suffix)
 
         cmd: list[str] = ["-y"] if overwrite else []
@@ -933,7 +932,7 @@ class FFmpeg(object):
         else:
             out_suffix = (in_suf if in_suf else ".mp4")
 
-        out_dir = toolbox.mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_mute_video")
+        out_dir = mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_mute_video")
         out_p = self.mk_out_file(out_dir, input_video, op="mute", suffix=out_suffix)
 
         cmd: list[str] = ["-y"] if overwrite else []
@@ -1054,7 +1053,7 @@ class FFmpeg(object):
         """
         marked.ensure_f(input_video, "input_video")
 
-        out_dir = toolbox.mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_extract_audio")
+        out_dir = mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_extract_audio")
 
         # 输出文件：由内部生成（后缀由 audio_format 决定）
         suf = "." + str(audio_format).lower()
@@ -1120,7 +1119,7 @@ class FFmpeg(object):
         marked.ensure_f(input_video, "input_video")
         marked.ensure_f(input_audio, "input_audio")
 
-        out_dir = toolbox.mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_replace_audio")
+        out_dir = mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_replace_audio")
 
         # 输出文件：内部生成（后缀由 output_format 决定）
         suf = "." + str(output_format).lower()
@@ -1194,7 +1193,7 @@ class FFmpeg(object):
         """
         marked.ensure_f(input_file, "input_file")
 
-        out_dir = toolbox.mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_convert_audio")
+        out_dir = mk_out_dir(output_dir, engine="ffmpeg", tool="ffmpeg_convert_audio")
 
         # 输出文件：内部生成（后缀由 output_format 决定）
         suf = "." + str(output_format).lower()

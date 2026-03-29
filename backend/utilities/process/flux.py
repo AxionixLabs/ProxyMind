@@ -13,6 +13,7 @@ class Flux(object):
 
     @staticmethod
     async def cmd_line(cmd: list[str]) -> typing.Any:
+        """以参数数组方式执行子进程，并返回标准输出或错误输出文本。"""
         transports = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -27,6 +28,7 @@ class Flux(object):
 
     @staticmethod
     async def cmd_link(cmd: list[str]) -> asyncio.subprocess.Process:
+        """以参数数组方式启动长生命周期子进程，并返回进程句柄。"""
         transports = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -36,6 +38,7 @@ class Flux(object):
 
     @staticmethod
     async def cmd_link_pty(cmd: list[str]) -> typing.Optional[asyncio.subprocess.Process]:
+        """在类 Unix 环境下通过 PTY 启动子进程，便于消费合并后的交互输出。"""
         if (os.name == "nt") or sys.platform.startswith("win"):
             return None
 
@@ -67,6 +70,7 @@ class Flux(object):
 
     @staticmethod
     async def cmd_line_shell(cmd: str) -> typing.Any:
+        """以 shell 字符串方式执行命令，并返回标准输出或错误输出文本。"""
         transports = await asyncio.create_subprocess_shell(
             cmd,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -81,6 +85,7 @@ class Flux(object):
 
     @staticmethod
     async def cmd_link_shell(cmd: str) -> "asyncio.subprocess.Process":
+        """以 shell 字符串方式启动长生命周期子进程，并返回进程句柄。"""
         transports = await asyncio.create_subprocess_shell(
             cmd,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE

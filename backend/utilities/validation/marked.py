@@ -94,6 +94,7 @@ def ensure_o(
     overwrite: bool = True
 ) -> str:
     """
+    确认输出文件路径可用，并在需要时按输入文件推导默认输出名。
     确认输出路径可用（文件路径），支持 output_file 自动推导：
       - output_file 为空：输出到 input_file 同目录，文件名 <stem>_out<suffix>
       - output_file 为“已存在目录”：输出到该目录下，文件名 <stem>_out<suffix>

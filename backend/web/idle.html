@@ -644,7 +644,7 @@
       <div class="pad">
         <div class="eyebrow">Helix</div>
         <h1><span class="signal-title" data-text="Runtime Board">Runtime Board</span></h1>
-        <p class="sub">卡片式展示当前空闲队列、session 和 Instance 快照。数据直接来自 /api/idle。</p>
+        <p class="sub">卡片式展示当前空闲队列、session 和 App Context 快照。数据直接来自 /api/idle。</p>
         <div id="page-nav"></div>
         <div class="hero-tools">
           <button class="refresh-btn" type="button" id="refresh-idle">Refresh</button>
@@ -698,7 +698,7 @@
         <div class="pad">
           <div class="section-head">
             <div class="section-title-wrap">
-              <h2>Session Map</h2>
+              <h2>Runtime Sessions</h2>
             </div>
             <div class="section-tools">
               <input class="search" id="sessions-search" type="search" placeholder="Search sessions" />
@@ -712,7 +712,7 @@
                 <option value="with-args">With args</option>
                 <option value="no-args">No args</option>
               </select>
-              <div class="chip">session links</div>
+              <div class="chip">stable handles</div>
             </div>
           </div>
           <div class="filter-row" id="sessions-chips"></div>
@@ -722,7 +722,7 @@
 
       <section class="card">
         <div class="bar">
-          <div class="chip">instance videos</div>
+          <div class="chip">app context videos</div>
           <div class="chip">snapshot</div>
         </div>
         <div class="pad">
@@ -741,13 +741,13 @@
 
       <section class="card">
         <div class="bar">
-          <div class="chip">instance reports</div>
+          <div class="chip">app context reports</div>
           <div class="chip">snapshot</div>
         </div>
         <div class="pad">
           <div class="section-head">
             <div class="section-title-wrap">
-              <h2>Report Sessions</h2>
+              <h2>Report Snapshots</h2>
             </div>
             <div class="section-tools">
               <input class="search" id="reports-search" type="search" placeholder="Search reports" />
@@ -839,16 +839,18 @@
     let sessionsScope = qs.get("sessions_scope") || "all";
     const expandedCards = new Set();
     const previewIdleData = {
-      active_jobs : 1,
-      idle_sec    : 18.4,
-      ttl_sec     : 1800.0,
-      jobs        : [
+      active_runtime_jobs : 1,
+      active_sessions     : 1,
+      active_total        : 2,
+      idle_sec            : 18.4,
+      ttl_sec             : 1800.0,
+      jobs                : [
         {id: "job-preview-01", name: "nexus.plan", age_sec: 18.4, args: {mode: "preview", lane: "primary"}}
       ],
-      sessions    : {
+      sessions            : {
         "sess-preview-01": {job_id: "job-preview-01", name: "runtime.preview", age_sec: 12.1, args: {source: "file-preview"}}
       },
-      instance    : {
+      instance            : {
         video_list        : {fp: "preview", count: 2, head: [{parent: "shots", name: "frame_001.png"}], parent_stats: [{parent: "shots", count: 2}]},
         fx_report_session : {fp: "preview", count: 1, head: [{id: "fx-01", parent: "reports", name: "fx_head.json"}], parent_stats: [{parent: "reports", count: 1}], tail: []},
         mx_report_session : {fp: "preview", count: 1, head: [{id: "mx-01", item: {type: "scene", n: 1, scene: ["preview lane"], repr: "preview summary"}}], tail: []}
@@ -879,11 +881,13 @@
     function renderOverview(data){
       const jobs = Array.isArray(data.jobs) ? data.jobs : [];
       const sessions = data.sessions && typeof data.sessions === "object" ? Object.keys(data.sessions) : [];
+      const runtimeJobs = typeof data.active_runtime_jobs === "number" ? data.active_runtime_jobs : jobs.length;
+      const activeTotal = typeof data.active_total === "number" ? data.active_total : runtimeJobs + sessions.length;
       overviewHost.innerHTML = `
         <div class="metric">
           <b>Active Jobs</b>
-          <div class="value">${data.active_jobs ?? 0}</div>
-          <div class="meta">${jobs.length} cards rendered</div>
+          <div class="value">${runtimeJobs}</div>
+          <div class="meta">${jobs.length} cards rendered · total ${activeTotal}</div>
         </div>
         <div class="metric">
           <b>Idle Time</b>
@@ -893,10 +897,10 @@
         <div class="metric">
           <b>Sessions</b>
           <div class="value">${sessions.length}</div>
-          <div class="meta">mapped runtime handles</div>
+          <div class="meta">stable runtime handles</div>
         </div>
         <div class="metric">
-          <b>Instance</b>
+          <b>App Context</b>
           <div class="value">${Object.keys(data.instance || {}).length}</div>
           <div class="meta">snapshot groups</div>
         </div>
@@ -1261,7 +1265,7 @@
         `);
         }
       }
-      reportsHost.innerHTML = cards.length ? cards.join("") : `<div class="empty">${query ? "No report items match current search." : "No instance reports yet."}</div>`;
+      reportsHost.innerHTML = cards.length ? cards.join("") : `<div class="empty">${query ? "No report items match current search." : "No app context reports yet."}</div>`;
     }
 
     async function loadIdle(options = {}){

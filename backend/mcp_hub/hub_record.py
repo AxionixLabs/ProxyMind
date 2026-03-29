@@ -3,6 +3,7 @@
 
 import os
 import re
+import sys
 import time
 import uuid
 import random
@@ -13,7 +14,10 @@ from collections import deque
 from loguru import logger
 from backend.mcp_hub.hub_device import Device
 from backend.utilities import const
-from backend.utilities.flux import Flux
+from backend.utilities.process import Flux
+
+if typing.TYPE_CHECKING:
+    from backend.utilities.runtime import Idle
 
 
 class Record(object):
@@ -22,13 +26,8 @@ class Record(object):
     def __init__(
         self,
         device: Device,
+        idle: "Idle",
         version: str,
-        station: str,
-        sessions: dict[str, "Record"],
-        sessions_lock: asyncio.Lock,
-        *,
-        on_begin: typing.Callable[[], typing.Awaitable[typing.Any]] | None = None,
-        on_final: typing.Callable[[], typing.Awaitable[typing.Any]] | None = None
     ) -> None:
 
         self.__prefix: str = "scrcpy"
@@ -38,12 +37,9 @@ class Record(object):
         self.device = device
 
         self.version = version
-        self.station = station
+        self.is_windows = sys.platform == "win32"
 
-        self.sessions      = sessions
-        self.sessions_lock = sessions_lock
-        self.on_begin      = on_begin
-        self.on_final      = on_final
+        self.idle = idle
 
         self.start_event: asyncio.Event = asyncio.Event()
         self.close_event: asyncio.Event = asyncio.Event()
@@ -62,6 +58,10 @@ class Record(object):
     def prefix(self) -> str:
         return self.__prefix
 
+    @property
+    def session_key(self) -> str:
+        return f"{self.prefix}:{self.device.serial}"
+
     @staticmethod
     def as_token(s: str, *, max_len: int = 32) -> str:
         s = (s or "unknown").strip()
@@ -78,15 +78,26 @@ class Record(object):
         token = f"{ts}_{sn}_{uid}_{rnd}.{video_suffix}"
         return os.path.join(day, self.agent_id, self.device.serial, token)
 
-    async def acquire(self) -> None:
-        async with self.sessions_lock:
-            if self.device.serial in self.sessions:
-                raise RuntimeError(
-                    f"device busy: {self.device.serial} already has an active scrcpy session"
-                )
-            self.sessions[self.device.serial] = self
+    def session_args(self, extra: typing.Mapping[str, typing.Any] | None = None) -> dict[str, typing.Any]:
+        return {
+            "serial" : self.device.serial,
+            "brand"  : self.device.device_props.get("brand"),
+            **dict(extra or {})
+        }
 
-        if self.on_begin: await self.on_begin()
+    async def acquire(
+        self,
+        session_name: str,
+        *,
+        session_args: typing.Mapping[str, typing.Any] | None = None
+    ) -> None:
+        await self.idle.session_begin(
+            key=self.session_key,
+            name=session_name,
+            args=self.session_args(session_args),
+            replace=False,
+            handle=self
+        )
 
     async def release(self) -> None:
         async with self.release_lock:
@@ -94,12 +105,7 @@ class Record(object):
                 return None
             self.released = True
 
-        try:
-            if self.on_final: await self.on_final()
-        finally:
-            async with self.sessions_lock:
-                if self.sessions.get(self.device.serial) is self:
-                    self.sessions.pop(self.device.serial, None)
+        await self.idle.session_final(self.session_key)
 
     async def input_stream(self) -> None:
         try:
@@ -182,7 +188,7 @@ class Record(object):
                 return None
 
     async def launcher(self, cmd: list[str]) -> None:
-        if self.station == "win32":
+        if self.is_windows:
             self.transports = await Flux.cmd_link(cmd)
             asyncio.create_task(self.input_stream())
             asyncio.create_task(self.error_stream())
@@ -192,7 +198,7 @@ class Record(object):
 
     # workflow: ==== MCP Tool ====
     async def scrcpy_mirror(self) -> dict[str, typing.Any]:
-        await self.acquire()
+        await self.acquire("scrcpy.scrcpy_mirror")
         try:
             cmd = [
                 self.prefix, "-s", self.device.serial, "--no-audio", "-b", "8M"
@@ -226,7 +232,14 @@ class Record(object):
 
     # workflow: ==== MCP Tool ====
     async def scrcpy_record(self, directory: str, fps: int = 60, silence: bool = False) -> dict[str, typing.Any]:
-        await self.acquire()
+        await self.acquire(
+            "scrcpy.scrcpy_record",
+            session_args={
+                "directory" : directory,
+                "fps"       : fps,
+                "silence"   : silence
+            }
+        )
         try:
             cmd = [
                 self.prefix, "-s", self.device.serial, "--no-audio", "-b", "8M", f"--max-fps={fps}"
@@ -303,7 +316,7 @@ class Record(object):
         desc = f"{self.device.serial} PPID={(ppid := self.transports.pid)}"
 
         try:
-            if self.station == "win32":
+            if self.is_windows:
                 pwsh = shutil.which("pwsh") or shutil.which("powershell")
                 line = [
                     pwsh, "-Command", "Get-CimInstance", "Win32_Process", "|", "Where-Object",

@@ -6,9 +6,8 @@ from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from pydantic import Field
 from backend.middlewares.mid_task import task_middleware
-from backend.utilities.instance import Ins
-from backend.utilities.pipeline import Idle
-from backend.utilities.toolbox import broadcast
+from backend.utilities.runtime import AppContext, Idle
+from backend.utilities.broadcast import broadcast
 
 
 AudioFileArg = typing.Annotated[
@@ -21,7 +20,7 @@ VolumeArg = typing.Annotated[
 ]
 
 
-def bind(mcp: FastMCP, idle: Idle) -> None:
+def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
@@ -40,16 +39,16 @@ def bind(mcp: FastMCP, idle: Idle) -> None:
         }
 
         async def call(*_) -> None:
-            job_id = await idle.job_begin(f"{Ins.player.agent_id}.audio_play", args=args)
+            job_id = await idle.job_begin(f"{ctx.player.agent_id}.audio_play", args=args)
             try:
-                return await Ins.player.audio_play(**args)
+                return await ctx.player.audio_play(**args)
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
             tool="audio_play",
             args=args,
-            target_list=[Ins.player],
+            target_list=[ctx.player],
             call=call,
             overrides=None
         )

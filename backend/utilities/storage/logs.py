@@ -16,6 +16,7 @@ TAIL_CHUNK_SIZE    = 8192
 
 
 def _app_root() -> Path:
+    """推断当前应用入口所在根目录。"""
     software = Path(sys.argv[0]).name.strip().lower()
 
     if software in APP_ENTRY_NAMES:
@@ -28,6 +29,7 @@ def _app_root() -> Path:
 
 
 def _data_root() -> Path:
+    """根据当前平台推断应用数据目录。"""
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / APP_DATA_DIR_NAME
 
@@ -40,16 +42,19 @@ def _data_root() -> Path:
 
 
 def log_path() -> Path:
+    """返回日志文件的标准存储路径。"""
     return _data_root() / DATA_STORAGE_DIR / LOG_FILENAME
 
 
 def ensure_log_path() -> Path:
+    """确保日志目录存在，并返回日志文件路径。"""
     target = log_path()
     os.makedirs(target.parent, exist_ok=True)
     return target
 
 
 def _count_lines(target: Path) -> int:
+    """统计目标日志文件中的总行数。"""
     total = 0
     with target.open("rb") as file:
         while chunk:=file.read(TAIL_CHUNK_SIZE):
@@ -65,6 +70,7 @@ def _count_lines(target: Path) -> int:
 
 
 def _tail_lines(target: Path, max_lines: int) -> list[str]:
+    """从日志文件尾部读取指定数量的行。"""
     wanted = max(1, int(max_lines))
     collected = bytearray()
     newlines = 0
@@ -86,6 +92,7 @@ def _tail_lines(target: Path, max_lines: int) -> list[str]:
 
 
 def read_log_lines(max_lines: int = 400) -> dict[str, typing.Any]:
+    """读取日志文件的尾部内容及基础统计信息。"""
     target = ensure_log_path()
     if not target.exists():
         return {
