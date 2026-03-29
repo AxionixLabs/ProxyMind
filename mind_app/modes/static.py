@@ -12,11 +12,11 @@ from mind_nova.events import EventReport
 from mind_nova import (
     craft, request
 )
-from .stream_ui import StreamUI
-from .stream_events.finish import finish_stream
+from ..stream_ui import StreamUI
+from ..stream_events.finish import finish_stream
 
 if typing.TYPE_CHECKING:
-    from .mind_core import Mind
+    from ..mind_core import Mind
 
 
 async def static_looper(

@@ -15,10 +15,10 @@ from engine.scaling import (
 from engine.tinker import MindError
 from mind_nova.events import EventReport
 from mind_nova import const
-from .mind_runtime import resolve_mode_runner
+from ..runtime.calling import resolve_mode_runner
 
 if typing.TYPE_CHECKING:
-    from .mind_core import Mind
+    from ..mind_core import Mind
 
 
 @dataclass(slots=True)

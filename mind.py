@@ -20,11 +20,11 @@ if __name__ == "__main__":
         main_loop.run_until_complete(main())
     except MindError as _error:
         Design.Doc.err(_error)
-        Design.show_fail()
+        Design.show_outro()
         sys.exit(1)
     except KeyboardInterrupt:
-        sys.exit(Design.show_exit())
+        sys.exit(Design.show_outro())
     except asyncio.CancelledError:
-        sys.exit(Design.show_done())
+        sys.exit(Design.show_outro())
     else:
-        sys.exit(Design.show_done())
+        sys.exit(Design.show_outro())

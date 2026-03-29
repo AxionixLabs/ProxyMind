@@ -7,19 +7,19 @@ from engine.enhancer import Enhancer
 from engine.tinker import Tooling
 from mind_nova.events import EventReport
 from mind_nova import request
-from .stream_ui import StreamUI
-from .stream_events.finish import finish_stream
-from .stream_events.responses_builtin import (
+from ..stream_ui import StreamUI
+from ..stream_events.finish import finish_stream
+from ..stream_events.responses_builtin import (
     resolve_builtin_name,
     consume_builtin_done,
 )
-from .stream_state.segment import (
+from ..stream_state.segment import (
     SegmentTracker,
     build_sources_text
 )
 
 if typing.TYPE_CHECKING:
-    from .mind_core import Mind
+    from ..mind_core import Mind
 
 
 async def stream_looper(

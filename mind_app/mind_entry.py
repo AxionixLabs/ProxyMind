@@ -50,7 +50,7 @@ async def main(entry_file: typing.Optional[str] = None) -> None:
 
     # Notes: ========== Start from here ==========
     # await Design.particle_aggregate()
-    Design.startup_cursor_intro()
+    Design.show_intro()
 
     # 解析命令行参数
     parser = Parser()

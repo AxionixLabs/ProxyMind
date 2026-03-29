@@ -168,11 +168,7 @@ class StatusState(object):
 
         _, family, _, animated, _, _ = state
         if self.active and animated:
-            if family == self.FAMILY_TOOL:
-                return int(Design.tool_status_refresh_per_second())
-            if family == self.FAMILY_WAIT:
-                return int(Design.thinking_status_refresh_per_second())
-            return int(Design.builtin_status_refresh_per_second())
+            return int(Design.status_refresh_per_second(family))
         return self.EXIT_REFRESH_PER_SECOND
 
     def interval(self) -> float:
@@ -182,30 +178,18 @@ class StatusState(object):
 
         _, family, _, animated, _, _ = state
         if self.active and animated:
-            if family == self.FAMILY_TOOL:
-                return float(Design.tool_status_interval())
-            if family == self.FAMILY_WAIT:
-                return float(Design.thinking_status_interval())
-            return float(Design.builtin_status_interval())
+            return float(Design.status_interval(family))
         return 1 / self.EXIT_REFRESH_PER_SECOND
 
     def step(self) -> float:
         if not self.active:
             return 0.0
-        if self.family == self.FAMILY_TOOL:
-            return float(Design.tool_status_step())
-        if self.family == self.FAMILY_WAIT:
-            return float(Design.thinking_status_step())
-        return float(Design.builtin_status_step())
+        return float(Design.status_step(self.family))
 
     def phase_rate(self) -> float:
         if not self.active:
             return 0.0
-        if self.family == self.FAMILY_TOOL:
-            return float(Design.tool_status_phase_rate())
-        if self.family == self.FAMILY_WAIT:
-            return float(Design.thinking_status_phase_rate())
-        return float(Design.builtin_status_phase_rate())
+        return float(Design.status_phase_rate(self.family))
 
     def _current_state(
         self

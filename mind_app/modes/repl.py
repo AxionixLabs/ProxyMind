@@ -9,10 +9,10 @@ from mind_core.design import Design
 from mind_core import authorize
 from mind_nova.events import EventReport
 from mind_nova import const
-from .mind_runtime import resolve_mode_runner
+from ..runtime.calling import resolve_mode_runner
 
 if typing.TYPE_CHECKING:
-    from .mind_core import Mind
+    from ..mind_core import Mind
 
 
 RUN_MODE = typing.Literal["chat", "fast", "plan"]

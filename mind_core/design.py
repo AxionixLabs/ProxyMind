@@ -67,53 +67,6 @@ class Design(object):
     """Design class."""
 
     console: typing.Optional["Console"] = Console()
-    STATUS_SHELL_MOTION_SCALE: typing.Final[float] = 0.76
-    STATUS_INNER_SOLID_THRESHOLD: typing.Final[float] = 0.87
-    STATUS_INNER_SOFT_THRESHOLD: typing.Final[float] = 0.70
-    STATUS_OUTER_SOLID_THRESHOLD: typing.Final[float] = 0.92
-    STATUS_OUTER_SOFT_THRESHOLD: typing.Final[float] = 0.77
-    STATUS_EDGE_THRESHOLD: typing.Final[float] = 0.83
-    TOOL_STATUS_SPEC: typing.Final[SweepStatusSpec] = SweepStatusSpec(
-        refresh_per_second=40,
-        phase_rate=14.4,
-        text_limit=48,
-        shell_freq=0.52,
-        lead_span=3.1,
-        tail_span=6.8,
-        peak_radius=0.74,
-        near_ratio=0.56,
-        mid_ratio=0.90,
-        scan_speed=0.2,
-        scan_pad=2.6
-    )
-    BUILTIN_STATUS_SPEC: typing.Final[SweepStatusSpec] = SweepStatusSpec(
-        refresh_per_second=40,
-        phase_rate=15.8,
-        text_limit=48,
-        shell_freq=0.55,
-        lead_span=3.4,
-        tail_span=6.6,
-        peak_radius=0.78,
-        near_ratio=0.46,
-        mid_ratio=0.88,
-        drift_wobble_amp=0.0,
-        drift_wobble_freq=0.0,
-        drift_offset=0.0,
-        entry_pad=6.0,
-        exit_pad=8.4
-    )
-    THINKING_STATUS_SPEC: typing.Final[ProgressiveStatusSpec] = ProgressiveStatusSpec(
-        refresh_per_second=24,
-        phase_rate=19.2,
-        text_limit=48,
-        shell_freq=0.48,
-        head_speed=0.78,
-        cycle_padding=4.0,
-        head_offset=-1.2,
-        tail_reset=-1.6,
-        lead_glow=0.36,
-        tail_glow=1.0
-    )
 
     def __init__(self, design_level: str = const.SHOW_LEVEL):
         self.design_level = design_level
@@ -197,26 +150,78 @@ class Design(object):
         Design.console.print(const.DECLARE)
 
     @staticmethod
-    def startup_cursor_intro() -> None:
-        title = const.APP_DESC
-        boot_line   = f"{title} :: boot"
-        ready_line  = f"{title} :: ready"
-        title_idle  = "#42515A"
-        title_live  = "#DCEBF1"
-        cursor_live = "#F2FBFF"
-        status_live = "#C6DAE2"
-        status_fade = "#5B6972"
-        ready_live  = "#B6CBD4"
-        version_dim = "#6E7D86"
-        sep_dim     = "#55636B"
+    def show_intro() -> None:
+        title     = const.APP_DESC
+        boot_line = "Starting"
+
+        theme = random.choice([
+            {
+                "title_idle"  : "#43515A",
+                "title_live"  : "#E4EFF4",
+                "cursor_live" : "#F4FBFF",
+                "status_live" : "#C7D9E1",
+                "status_fade" : "#5B6972",
+                "ready_live"  : "#C3D6DE",
+                "version_dim" : "#7B8991",
+                "sep_dim"     : "#56646C",
+            },
+            {
+                "title_idle"  : "#4A4F58",
+                "title_live"  : "#F0EADF",
+                "cursor_live" : "#FFF7EC",
+                "status_live" : "#D5C8B7",
+                "status_fade" : "#6A645C",
+                "ready_live"  : "#CDBEAB",
+                "version_dim" : "#918577",
+                "sep_dim"     : "#70675E",
+            },
+            {
+                "title_idle"  : "#3E5253",
+                "title_live"  : "#DEF4F1",
+                "cursor_live" : "#F2FFFC",
+                "status_live" : "#B9DED7",
+                "status_fade" : "#587071",
+                "ready_live"  : "#A9D4CC",
+                "version_dim" : "#728E8B",
+                "sep_dim"     : "#526A68",
+            },
+        ])
+        title_idle  = theme["title_idle"]
+        title_live  = theme["title_live"]
+        cursor_live = theme["cursor_live"]
+        status_live = theme["status_live"]
+        status_fade = theme["status_fade"]
+        ready_live  = theme["ready_live"]
+        version_dim = theme["version_dim"]
+        sep_dim     = theme["sep_dim"]
+
+        def blend(start: str, end: str, ratio: float) -> str:
+            return mix_hex_color(start, end, Design._smoothstep(ratio))
+
+        def boot_status_frame(ratio: float) -> Text:
+            line = Text()
+            line.append(boot_line, style=f"bold {blend(status_fade, status_live, ratio)}")
+            return line
+
+        def ready_status_frame(ratio: float) -> Text:
+            line = Text()
+            ready_ratio = max(0.0, min(1.0, float(ratio)))
+            version_ratio = max(0.0, min(1.0, (ready_ratio - 0.24) / 0.76))
+            sep_ratio = max(0.0, min(1.0, (ready_ratio - 0.10) / 0.90))
+
+            line.append("Ready", style=f"bold {blend(status_fade, ready_live, ready_ratio)}")
+            line.append(" · ", style=f"bold {blend(status_fade, sep_dim, sep_ratio)}")
+            line.append(
+                f"v{const.APP_VERSION}",
+                style=f"bold {blend(status_fade, version_dim, version_ratio)}"
+            )
+            return line
 
         def frame(
             visible: int,
             *,
             cursor_on: bool,
-            line2_text: str = "",
-            line2_ratio: float = 0.0,
-            line2_peak: str | None = None
+            line: typing.Optional[Text] = None
         ) -> Text:
             out = Text()
             clamped = max(0, min(len(title), int(visible)))
@@ -224,18 +229,15 @@ class Design(object):
             padding = " " * max(0, len(title) - clamped)
 
             if shown:
-                title_color = Design._mix_hex_color(title_idle, title_live, 0.92)
+                title_color = mix_hex_color(title_idle, title_live, 0.92)
                 out.append(shown, style=f"bold {title_color}")
             if padding:
                 out.append(padding, style=f"bold {title_idle}")
             out.append("_" if cursor_on else " ", style=f"bold {cursor_live if cursor_on else title_idle}")
 
-            if line2_text:
-                ratio = max(0.0, min(1.0, float(line2_ratio)))
-                peak = line2_peak or status_live
-                line2_color = Design._mix_hex_color(status_fade, peak, Design._smoothstep(ratio))
+            if line is not None:
                 out.append("\n")
-                out.append(line2_text, style=f"bold {line2_color}")
+                out.append_text(line)
 
             return out
 
@@ -247,71 +249,596 @@ class Design(object):
         ) as live:
             for index in range(1, len(title) + 1):
                 live.update(frame(index, cursor_on=True))
-                time.sleep(0.032)
+                if index == 1:
+                    time.sleep(0.052)
+                elif index == len(title):
+                    time.sleep(0.048)
+                else:
+                    time.sleep(0.036)
 
-            for cursor_visible in (False, True, False):
+            for cursor_visible, pause in (
+                (False, 0.050),
+                (True, 0.045),
+                (False, 0.040),
+                (True, 0.038),
+                (False, 0.052),
+            ):
                 live.update(frame(len(title), cursor_on=cursor_visible))
-                time.sleep(0.055)
+                time.sleep(pause)
 
-            for boot_ratio in (0.46, 0.82, 1.0):
+            for boot_ratio in (0.22, 0.54, 0.86, 1.0):
                 live.update(
                     frame(
                         len(title),
                         cursor_on=False,
-                        line2_text=boot_line,
-                        line2_ratio=boot_ratio
+                        line=boot_status_frame(boot_ratio)
                     )
                 )
-                time.sleep(0.038)
+                time.sleep(0.036)
 
-            time.sleep(0.045)
+            time.sleep(0.060)
 
-            for fade_ratio in (0.58, 0.18):
+            for fade_ratio in (0.62, 0.28, 0.0):
                 live.update(
                     frame(
                         len(title),
                         cursor_on=False,
-                        line2_text=boot_line,
-                        line2_ratio=fade_ratio
+                        line=boot_status_frame(fade_ratio)
                     )
                 )
-                time.sleep(0.028)
+                time.sleep(0.026)
 
-            live.update(
-                frame(
-                    len(title),
-                    cursor_on=False,
-                    line2_text=f"{title} :: re*dy",
-                    line2_ratio=0.74,
-                    line2_peak="#D9EAF1"
-                )
-            )
-            time.sleep(0.035)
-
-            for ready_ratio in (0.34, 0.72, 1.0):
+            for ready_phase in (0.18, 0.42, 0.74, 1.0):
                 live.update(
                     frame(
                         len(title),
                         cursor_on=False,
-                        line2_text=ready_line,
-                        line2_ratio=ready_ratio,
-                        line2_peak=ready_live
+                        line=ready_status_frame(ready_phase)
                     )
                 )
-                time.sleep(0.045)
+                time.sleep(0.044)
 
-            time.sleep(0.28)
+            time.sleep(0.22)
 
         final = Text()
         final.append(title, style=f"bold {title_live}")
-        final.append(" :: ", style=f"bold {sep_dim}")
-        final.append("ready", style=f"bold {ready_live}")
-        final.append(" ")
-        final.append("·", style=f"bold {sep_dim}")
-        final.append(" ")
+        final.append(" · ", style=f"bold {sep_dim}")
+        final.append("Ready", style=f"bold {ready_live}")
+        final.append(" · ", style=f"bold {sep_dim}")
         final.append(f"v{const.APP_VERSION}", style=f"bold {version_dim}")
         Design.console.print(final)
         Design.console.print()
+
+    @staticmethod
+    def show_outro() -> None:
+        """退场动画：系统解体风格，打字与 glitch 组合后定格。"""
+        title = const.APP_DESC
+        theme = random.choice([
+            {
+                "title_dim"  : "#7A868E",
+                "title_live" : "#F3F7FA",
+                "noise_dim"  : "#4D5B63",
+                "noise_live" : "#9AB0BE",
+                "glitch_a"   : "#D5E1E8",
+                "glitch_b"   : "#FBFEFF"
+            },
+            {
+                "title_dim"  : "#857667",
+                "title_live" : "#FAF1E6",
+                "noise_dim"  : "#65594F",
+                "noise_live" : "#B89C83",
+                "glitch_a"   : "#E4D0BB",
+                "glitch_b"   : "#FFF8EE"
+            },
+            {
+                "title_dim"  : "#70857F",
+                "title_live" : "#F1FBF7",
+                "noise_dim"  : "#506660",
+                "noise_live" : "#8FBBAF",
+                "glitch_a"   : "#D0E9E0",
+                "glitch_b"   : "#F8FFFC"
+            },
+            {
+                "title_dim"  : "#6F7482",
+                "title_live" : "#F1F2F8",
+                "noise_dim"  : "#4D5160",
+                "noise_live" : "#8C94AE",
+                "glitch_a"   : "#CDD3E6",
+                "glitch_b"   : "#FBFCFF"
+            },
+            {
+                "title_dim"  : "#786D64",
+                "title_live" : "#F6EFE8",
+                "noise_dim"  : "#5A4F49",
+                "noise_live" : "#A98F80",
+                "glitch_a"   : "#DBCABF",
+                "glitch_b"   : "#FFF9F4"
+            }
+        ])
+        glitch_chars = tuple("|/\\=+-:*#%")
+
+        width = max(38, cell_len(title) + 18)
+        core_width = cell_len(title) + 4
+        side_width = max(6, (width - core_width) // 2)
+        aperture_offsets = {
+            "upper" : random.choice((-3, -2, -1)),
+            "lower" : random.choice((1, 2, 3)),
+        }
+
+        def sample_chars(pool: tuple[str, ...], count: int) -> tuple[str, ...]:
+            return tuple(random.sample(pool, k=count))
+
+        def weighted_pick(weighted: tuple[tuple[str, int], ...]) -> str:
+            chars   = [char for char, _ in weighted]
+            weights = [weight for _, weight in weighted]
+            return random.choices(chars, weights=weights, k=1)[0]
+
+        def make_side_profile(*, upper: bool, near_core: bool) -> dict[str, typing.Any]:
+            if upper:
+                role      = "scan" if near_core else "echo"
+                char_pool = ("·", "•", ":", "¦", "=", "-", ".", "˙")
+                dust_pool = ("·", ".", ":", "•", "˙")
+                primary   = sample_chars(char_pool, 5)
+                trail     = sample_chars(char_pool, 3)
+
+                profile = {
+                    "role": role,
+                    "char_cycle": primary,
+                    "dust_chars": dust_pool,
+                    "core_guard": random.randint(1, 2),
+                    "path_mode": random.choice(("slide", "bounce")) if role == "scan" else random.choice(("slide", "breath")),
+                    "path_span": random.randint(1, 2) if role == "scan" else random.randint(1, 3),
+                    "path_phase": random.randint(0, 7),
+                    "seed_shift": random.randint(0, 7),
+                    "anchor": random.uniform(0.64, 0.94) if near_core else random.uniform(0.04, 0.34),
+                    "wobble": random.randint(-1, 1),
+                    "memory_decay": random.uniform(0.74, 0.84) if role == "scan" else random.uniform(0.64, 0.76),
+                    "spawn_gain": random.uniform(0.74, 0.92) if role == "scan" else random.uniform(0.54, 0.72),
+                    "dust_rate": random.uniform(0.04, 0.10) if role == "scan" else random.uniform(0.12, 0.20),
+                    "rare_rate": random.uniform(0.08, 0.14) if role == "scan" else random.uniform(0.12, 0.20),
+                    "sweep_mode": random.choice(("forward", "pingpong")) if role == "scan" else random.choice(("reverse", "pingpong")),
+                    "sweep_speed": random.randint(2, 4) if role == "scan" else random.randint(1, 3),
+                    "sweep_width": random.randint(4, 6) if role == "scan" else random.randint(2, 4),
+                    "sweep_phase": random.randint(0, 8),
+                    "glow_bias": random.uniform(0.94, 1.10) if role == "scan" else random.uniform(0.82, 0.98),
+                    "near_core_bias": random.uniform(1.18, 1.34) if role == "scan" else random.uniform(1.02, 1.18),
+                    "outer_falloff": random.uniform(0.42, 0.58) if role == "scan" else random.uniform(0.24, 0.42),
+                    "fade_bias": random.uniform(0.00, 0.03) if role == "scan" else random.uniform(0.02, 0.06),
+                    "weighted_chars": (
+                        (primary[0], 7), (primary[1], 6), (primary[2], 5), (primary[3], 4), (primary[4], 3),
+                        (trail[0], 2), (trail[1], 2), (trail[2], 1),
+                    ),
+                    "rare_event": random.choice(("spark", "reverse")) if role == "scan" else random.choice(("spark", "collapse")),
+                }
+                if role == "echo":
+                    profile["weighted_chars"] = (
+                        (trail[0], 4), (primary[0], 4), (trail[1], 3), (primary[1], 3),
+                        (trail[2], 2), (primary[2], 2), (primary[3], 1), (primary[4], 1),
+                    )
+                return profile
+
+            role      = "fracture" if near_core else "debris"
+            char_pool = ("·", "•", ":", "¦", "-", ".", "_", "˙", "⋅")
+            dust_pool = ("·", ".", ":", "¦", "-", "•", "˙", "⋅")
+            primary   = sample_chars(char_pool, 5)
+            trail     = sample_chars(char_pool, 4)
+
+            profile = {
+                "role": role,
+                "char_cycle": primary,
+                "dust_chars": dust_pool,
+                "core_guard": random.randint(1, 2),
+                "path_mode": random.choice(("bounce", "stutter", "breath")) if role == "fracture" else random.choice(("slide", "stutter", "breath")),
+                "path_span": random.randint(2, 3) if role == "fracture" else random.randint(1, 3),
+                "path_phase": random.randint(0, 9),
+                "seed_shift": random.randint(1, 9),
+                "anchor": random.uniform(0.60, 0.92) if near_core else random.uniform(0.08, 0.38),
+                "wobble": random.randint(-1, 1),
+                "memory_decay": random.uniform(0.54, 0.70) if role == "fracture" else random.uniform(0.60, 0.76),
+                "spawn_gain": random.uniform(0.82, 1.02) if role == "fracture" else random.uniform(0.64, 0.86),
+                "dust_rate": random.uniform(0.20, 0.32) if role == "fracture" else random.uniform(0.24, 0.38),
+                "rare_rate": random.uniform(0.18, 0.30) if role == "fracture" else random.uniform(0.16, 0.26),
+                "flash_mode": random.choice(("jump", "pulse")) if role == "fracture" else random.choice(("crawl", "jump", "pulse")),
+                "flash_span": random.randint(1, 2) if role == "fracture" else random.randint(1, 3),
+                "flash_phase": random.randint(0, 8),
+                "glow_bias": random.uniform(0.98, 1.18) if role == "fracture" else random.uniform(0.88, 1.08),
+                "near_core_bias": random.uniform(1.20, 1.36) if role == "fracture" else random.uniform(1.08, 1.24),
+                "outer_falloff": random.uniform(0.24, 0.40) if role == "fracture" else random.uniform(0.30, 0.48),
+                "fade_bias": random.uniform(0.04, 0.08) if role == "fracture" else random.uniform(0.02, 0.06),
+                "weighted_chars": (
+                    (primary[0], 7), (primary[1], 6), (primary[2], 5), (primary[3], 4), (primary[4], 3),
+                    (trail[0], 3), (trail[1], 2), (trail[2], 2), (trail[3], 1),
+                ),
+                "rare_event": random.choice(("collapse", "pulse_cut")) if role == "fracture" else random.choice(("spark", "collapse", "pulse_cut"))
+            }
+            if role == "debris":
+                profile["weighted_chars"] = (
+                    (trail[0], 5), (trail[1], 4), (primary[0], 4), (trail[2], 3), (primary[1], 3),
+                    (trail[3], 2), (primary[2], 2), (primary[3], 1), (primary[4], 1)
+                )
+            return profile
+
+        side_profiles = {
+            "upper_left"  : make_side_profile(upper=True, near_core=True),
+            "upper_right" : make_side_profile(upper=True, near_core=False),
+            "lower_left"  : make_side_profile(upper=False, near_core=True),
+            "lower_right" : make_side_profile(upper=False, near_core=False)
+        }
+        noise_fields: dict[str, dict[str, typing.Any]] = {
+            name: {
+                "energy"      : [0.0] * side_width,
+                "glyph"       : [" "] * side_width,
+                "last_tick"   : None,
+                "rare_timer"  : 0,
+                "rare_window" : None
+            }
+            for name in side_profiles
+        }
+
+        def center_text(inner: Text, *, pad_style: str = "") -> Text:
+            used_width = cell_len(inner.plain)
+
+            pad   = max(0, width - used_width)
+            left  = pad // 2
+            right = pad - left
+
+            line = Text()
+            if left:
+                line.append(" " * left, style=pad_style)
+            line.append_text(inner)
+            if right:
+                line.append(" " * right, style=pad_style)
+            return line
+
+        def trajectory_offset(*, frame_tick: int, phase_shift: int, span: int, mode: str) -> int:
+            if span <= 0:
+                return 0
+            phase_tick = frame_tick + phase_shift
+            if mode == "slide":
+                period = (span * 2) + 1
+                return (phase_tick % period) - span
+            if mode == "bounce":
+                period   = max(2, span * 4)
+                step     = phase_tick % period
+                mirrored = step if step <= period // 2 else period - step
+                return int(round((mirrored / max(1, period // 2) * span) - span))
+            if mode == "stutter":
+                return random.choice((-span, 0, span)) if phase_tick % 2 == 0 else random.randint(-span, span)
+
+            period = max(3, (span * 3) + 1)
+            wave   = (phase_tick % period) / max(1, period - 1)
+            return int(round((0.5 - abs(wave - 0.5)) * 2 * span)) - (span // 2)
+
+        def sweep_position(*, frame_tick: int, sweep_phase: int, sweep_speed: int, sweep_mode: str) -> int:
+            if sweep_mode == "reverse":
+                return side_width - 1 - ((frame_tick * sweep_speed + sweep_phase) % max(1, side_width))
+            if sweep_mode == "pingpong":
+                period = max(2, (side_width * 2) - 2)
+                step = (frame_tick * sweep_speed + sweep_phase) % period
+                mirrored = step if step < side_width else period - step
+                return int(mirrored)
+            return (frame_tick * sweep_speed + sweep_phase) % max(1, side_width)
+
+        def flash_window(
+            *,
+            frame_tick: int,
+            flash_phase: int,
+            flash_mode: str,
+            start_pos: int,
+            end_pos: int,
+            flash_span: int
+        ) -> tuple[int, int]:
+            width_span = max(1, end_pos - start_pos)
+            if flash_mode == "jump":
+                base = random.randint(start_pos, max(start_pos, end_pos - 1))
+            elif flash_mode == "pulse":
+                phase_tick = (frame_tick + flash_phase) % width_span
+                base = start_pos + max(0, phase_tick - (flash_span // 2))
+            else:
+                base = start_pos + max(0, ((frame_tick + flash_phase) % width_span) - flash_span)
+            return base, min(end_pos, base + flash_span)
+
+        def refresh_field(
+            field_key: str,
+            *,
+            frame_tick: int,
+            activity: float,
+            upper: bool
+        ) -> tuple[list[float], list[str]]:
+            field = noise_fields[field_key]
+            if field["last_tick"] == frame_tick:
+                return field["energy"], field["glyph"]
+
+            profile = side_profiles[field_key]
+            energy: list[float] = field["energy"]
+            glyph: list[str] = field["glyph"]
+            for cell_index, cell_level in enumerate(energy):
+                fade = profile["memory_decay"] - profile["fade_bias"] - (
+                    0.03 if cell_index < side_width // 2 else 0.0
+                )
+                energy[cell_index] = max(0.0, cell_level * fade)
+                if energy[cell_index] < 0.09:
+                    glyph[cell_index] = " "
+
+            drift = trajectory_offset(
+                frame_tick=frame_tick + profile["seed_shift"],
+                phase_shift=profile["path_phase"],
+                span=profile["path_span"],
+                mode=profile["path_mode"],
+            )
+            active_width = max(
+                2, min(side_width, int(
+                    round(side_width * max(0.16 if upper else 0.24, activity * profile["spawn_gain"]))
+                ))
+            )
+
+            slack = max(0, side_width - active_width)
+
+            anchor_start = int(round(slack * profile["anchor"]))
+
+            start = max(0, min(slack, anchor_start + profile["wobble"] + drift))
+            end   = min(side_width, start + active_width)
+
+            rare_window = field["rare_window"]
+            if field["rare_timer"] <= 0 and random.random() < profile["rare_rate"]:
+                rare_size = random.randint(1, min(3, active_width))
+                rare_from = random.randint(start, max(start, end - rare_size))
+                rare_window = (rare_from, min(end, rare_from + rare_size))
+                field["rare_window"] = rare_window
+                field["rare_timer"] = random.randint(1, 3)
+            elif field["rare_timer"] > 0:
+                field["rare_timer"] -= 1
+                rare_window = field["rare_window"]
+            else:
+                field["rare_window"] = None
+
+            scan_peak = None
+            flash_from, flash_to = start, start
+            if upper:
+                scan_peak = sweep_position(
+                    frame_tick=frame_tick,
+                    sweep_phase=profile["sweep_phase"],
+                    sweep_speed=profile["sweep_speed"],
+                    sweep_mode=profile["sweep_mode"],
+                )
+            else:
+                flash_from, flash_to = flash_window(
+                    frame_tick=frame_tick,
+                    flash_phase=profile["flash_phase"],
+                    flash_mode=profile["flash_mode"],
+                    start_pos=start,
+                    end_pos=end,
+                    flash_span=profile["flash_span"]
+                )
+
+            near_core_indices = range(
+                max(0, side_width - 4), side_width
+            ) if profile["anchor"] >= 0.5 else range(0, min(4, side_width))
+
+            for cell_index in range(side_width):
+                core_distance = (side_width - 1 - cell_index) if profile["anchor"] >= 0.5 else cell_index
+                core_ratio = 1.0 - (core_distance / max(1, side_width - 1))
+                in_core_guard = core_distance < profile["core_guard"]
+
+                if start <= cell_index < end:
+                    inject = activity * profile["spawn_gain"] * (0.54 + (core_ratio * profile["near_core_bias"]))
+                    if in_core_guard:
+                        inject *= 0.16 if upper else 0.12
+                    if upper and scan_peak is not None:
+                        sweep_ratio = max(
+                            0.0, 1.0 - (abs(cell_index - scan_peak) / max(1, profile["sweep_width"]))
+                        )
+                        inject += sweep_ratio * (0.42 if in_core_guard else 0.65)
+                    if not upper and flash_from <= cell_index < flash_to:
+                        inject *= 0.18
+                    if rare_window and rare_window[0] <= cell_index < rare_window[1]:
+                        if profile["rare_event"] == "collapse":
+                            inject *= 0.08
+                        elif profile["rare_event"] == "reverse":
+                            inject += 0.36
+                        else:
+                            inject += 0.28
+                    energy[cell_index] = min(1.0, max(energy[cell_index], inject))
+                    glyph[cell_index]  = weighted_pick(profile["weighted_chars"])
+
+                else:
+                    dust_bias = profile["dust_rate"] * (
+                        profile["near_core_bias"] if cell_index in near_core_indices else profile["outer_falloff"]
+                    )
+                    if in_core_guard:
+                        dust_bias *= 0.10
+                    if random.random() < dust_bias:
+                        energy[cell_index] = max(energy[cell_index], 0.16 + (core_ratio * 0.22))
+                        glyph[cell_index]  = random.choice(profile["dust_chars"])
+
+                if not in_core_guard and energy[cell_index] < 0.14 and random.random() < (0.08 if upper else 0.14):
+                    glyph[cell_index]  = random.choice(profile["dust_chars"])
+                    energy[cell_index] = max(energy[cell_index], 0.12)
+
+            field["last_tick"] = frame_tick
+            return energy, glyph
+
+        def build_side(field_key: str, *, frame_tick: int, upper: bool, activity: float) -> Text:
+            profile = side_profiles[field_key]
+            energy, glyph = refresh_field(
+                field_key, frame_tick=frame_tick, activity=activity, upper=upper
+            )
+
+            part = Text()
+            for cell_index, cell_level in enumerate(energy):
+                core_distance = (side_width - 1 - cell_index) if profile["anchor"] >= 0.5 else cell_index
+                in_core_guard = core_distance < profile["core_guard"]
+
+                if in_core_guard and cell_level < (0.34 if upper else 0.28):
+                    part.append(" ", style=f"bold {theme['noise_dim']}")
+                    continue
+                if cell_level < 0.10:
+                    part.append(" ", style=f"bold {theme['noise_dim']}")
+                    continue
+                core_ratio = 1.0 - (core_distance / max(1, side_width - 1))
+                glow_level = max(0.0, min(1.0, cell_level * (profile["glow_bias"] + (core_ratio * 0.12))))
+
+                char  = glyph[cell_index] if glyph[cell_index] != " " else random.choice(profile["dust_chars"])
+                color = mix_hex_color(theme["noise_dim"], theme["noise_live"], glow_level)
+                part.append(char, style=f"bold {color}")
+            return part
+
+        def build_scanline(activity: float, *, frame_tick: int, upper: bool) -> Text:
+            left_name  = "upper_left" if upper else "lower_left"
+            right_name = "upper_right" if upper else "lower_right"
+
+            left  = build_side(left_name, frame_tick=frame_tick, upper=upper, activity=activity)
+            right = build_side(right_name, frame_tick=frame_tick + 1, upper=upper, activity=activity)
+
+            line = Text()
+            line.append_text(left)
+            aperture_width = max(
+                0, core_width + (aperture_offsets["upper"] if upper else aperture_offsets["lower"])
+            )
+            line.append(" " * aperture_width, style=f"bold {theme['noise_dim']}")
+            line.append_text(right)
+            return center_text(line, pad_style=f"bold {theme['noise_dim']}")
+
+        def build_title_line(
+            visible: int,
+            *,
+            glow: float,
+            glitch_map: dict[int, str] | None = None
+        ) -> Text:
+            title_color = mix_hex_color(theme["title_dim"], theme["title_live"], max(0.0, min(1.0, glow)))
+            chars: list[tuple[str, str]] = []
+
+            glitch_map = glitch_map or {}
+            for char_index, char_value in enumerate(title):
+                if char_index < visible:
+                    rendered = char_value
+                    color    = title_color
+
+                    glitch_char = glitch_map.get(char_index, "")
+                    if glitch_char:
+                        rendered = glitch_char
+                        color    = theme["glitch_b"] if char_index == max(glitch_map) else theme["glitch_a"]
+                    chars.append((rendered, color))
+                else:
+                    chars.append((" ", theme["title_dim"]))
+
+            inner = Text()
+            for rendered, color in chars:
+                inner.append(rendered, style=f"bold {color}")
+            return center_text(inner)
+
+        def block(top: Text, middle: Text, bottom: Text) -> Text:
+            out = Text("\n")
+            out.append_text(top)
+            out.append("\n")
+            out.append_text(middle)
+            out.append("\n")
+            out.append_text(bottom)
+            out.append("\n")
+            return out
+
+        def build_frame(
+            *,
+            upper_band: float,
+            lower_band: float,
+            title_visible: int,
+            title_glow: float,
+            tick_cursor: int,
+            title_glitch: dict[int, str] | None = None,
+        ) -> Text:
+            return block(
+                build_scanline(upper_band, frame_tick=tick_cursor, upper=True),
+                build_title_line(title_visible, glow=title_glow, glitch_map=title_glitch),
+                build_scanline(lower_band, frame_tick=tick_cursor + 2, upper=False),
+            )
+
+        last_frame = block(
+            build_scanline(0.16, frame_tick=0, upper=True),
+            build_title_line(0, glow=0.0),
+            build_scanline(0.12, frame_tick=3, upper=False),
+        )
+
+        with Live(last_frame, console=Design.console, refresh_per_second=30, transient=True) as live:
+            current_tick = 0
+
+            for top_intensity, bottom_intensity, pause in (
+                (0.22, 0.16, 0.022),
+                (0.36, 0.24, 0.026),
+                (0.54, 0.34, 0.028),
+            ):
+                last_frame = build_frame(
+                    upper_band=top_intensity,
+                    lower_band=bottom_intensity,
+                    title_visible=0,
+                    title_glow=top_intensity * 0.35,
+                    tick_cursor=current_tick,
+                )
+                live.update(last_frame)
+                time.sleep(pause)
+                current_tick += 1
+
+            title_length = len(title)
+
+            for typed_count in range(1, title_length + 1):
+                glitch_overrides = {typed_count - 1: random.choice(glitch_chars)}
+                if typed_count >= 2:
+                    glitch_overrides[typed_count - 2] = random.choice((".", ":", "¦"))
+                last_frame = build_frame(
+                    upper_band=0.62,
+                    lower_band=0.52,
+                    title_visible=typed_count,
+                    title_glow=0.28 + (typed_count / max(1, title_length)) * 0.58,
+                    tick_cursor=current_tick,
+                    title_glitch=glitch_overrides,
+                )
+                live.update(last_frame)
+                time.sleep(0.018)
+                current_tick += 1
+
+                last_frame = build_frame(
+                    upper_band=0.54,
+                    lower_band=0.44,
+                    title_visible=typed_count,
+                    title_glow=0.34 + (typed_count / max(1, title_length)) * 0.66,
+                    tick_cursor=current_tick,
+                )
+                live.update(last_frame)
+                time.sleep(0.024)
+                current_tick += 1
+
+            for glitch_overrides, top_intensity, bottom_intensity, pause in (
+                ({title_length - 1: random.choice(glitch_chars)}, 0.46, 0.36, 0.030),
+                ({max(0, title_length - 2): random.choice(glitch_chars)}, 0.34, 0.24, 0.038),
+                ({}, 0.18, 0.12, 0.050),
+            ):
+                last_frame = build_frame(
+                    upper_band=top_intensity,
+                    lower_band=bottom_intensity,
+                    title_visible=title_length,
+                    title_glow=1.0,
+                    tick_cursor=current_tick,
+                    title_glitch=glitch_overrides,
+                )
+                live.update(last_frame)
+                time.sleep(pause)
+                current_tick += 1
+
+            for top_intensity, bottom_intensity, glow_ratio, pause in (
+                (0.12, 0.08, 0.62, 0.050),
+                (0.05, 0.03, 0.28, 0.078),
+            ):
+                last_frame = build_frame(
+                    upper_band=top_intensity,
+                    lower_band=bottom_intensity,
+                    title_visible=title_length,
+                    title_glow=glow_ratio,
+                    tick_cursor=current_tick,
+                )
+                live.update(last_frame)
+                time.sleep(pause)
+                current_tick += 1
+
+        Design.console.print(last_frame)
 
     @staticmethod
     def show_done() -> None:
@@ -1443,8 +1970,8 @@ class Design(object):
     @classmethod
     async def preview_tool_status_live(cls, duration: float = 15.0) -> None:
         text     = "function calling"
-        fps      = cls.tool_status_refresh_per_second()
-        interval = cls.tool_status_interval()
+        fps      = cls.status_refresh_per_second("tool")
+        interval = cls.status_interval("tool")
         loop     = asyncio.get_running_loop()
         started_at = loop.time()
         deadline = started_at + max(0.0, float(duration))
@@ -1457,14 +1984,14 @@ class Design(object):
         ) as live:
             while loop.time() < deadline:
                 await asyncio.sleep(interval)
-                phase = (loop.time() - started_at) * cls.tool_status_phase_rate()
+                phase = (loop.time() - started_at) * cls.status_phase_rate("tool")
                 live.update(cls.tool_status_renderable(phase, text))
 
     @classmethod
     async def preview_builtin_status_live(cls, duration: float = 15.0) -> None:
         text     = "working"
-        fps      = cls.builtin_status_refresh_per_second()
-        interval = cls.builtin_status_interval()
+        fps      = cls.status_refresh_per_second("builtin")
+        interval = cls.status_interval("builtin")
         loop     = asyncio.get_running_loop()
         started_at = loop.time()
         deadline = started_at + max(0.0, float(duration))
@@ -1477,12 +2004,12 @@ class Design(object):
         ) as live:
             while loop.time() < deadline:
                 await asyncio.sleep(interval)
-                phase = (loop.time() - started_at) * cls.builtin_status_phase_rate()
+                phase = (loop.time() - started_at) * cls.status_phase_rate("builtin")
                 live.update(cls.builtin_status_renderable(phase, text))
 
     @classmethod
     def tool_status_renderable(cls, phase: float, text: str) -> Text:
-        spec = cls.tool_status_spec()
+        spec = cls.status_spec("tool")
         colors = {
             "edge"      : "bold #6A6256",
             "shell"     : "bold #B9AB96",
@@ -1537,7 +2064,13 @@ class Design(object):
 
     @classmethod
     def builtin_status_renderable(cls, phase: float, text: str) -> Text:
-        spec = cls.builtin_status_spec()
+        spec = cls.status_spec("builtin")
+        status_shell_motion_scale = 0.76
+        status_inner_solid_threshold = 0.87
+        status_inner_soft_threshold = 0.70
+        status_outer_solid_threshold = 0.92
+        status_outer_soft_threshold = 0.77
+        status_edge_threshold = 0.83
         stable_colors = {
             "edge"     : "bold #40515D",
             "core"     : "bold #DCE9ED",
@@ -1554,7 +2087,7 @@ class Design(object):
 
         text = cls.fit_status_text(text, kind="builtin", fallback="working")
         colors  = stable_colors
-        shell_motion = phase * (spec.shell_freq * cls.STATUS_SHELL_MOTION_SCALE)
+        shell_motion = phase * (spec.shell_freq * status_shell_motion_scale)
         breathe = 0.5 + (0.5 * math.sin(shell_motion))
         left_outer_phase = 0.5 + (0.5 * math.sin(shell_motion - 1.45))
         left_inner_phase = 0.5 + (0.5 * math.sin(shell_motion - 0.75))
@@ -1578,25 +2111,25 @@ class Design(object):
         )
         left_inner = cls._status_shell_char(
             left_inner_phase,
-            solid_threshold=cls.STATUS_INNER_SOLID_THRESHOLD,
-            soft_threshold=cls.STATUS_INNER_SOFT_THRESHOLD
+            solid_threshold=status_inner_solid_threshold,
+            soft_threshold=status_inner_soft_threshold
         )
         right_inner = cls._status_shell_char(
             right_inner_phase,
-            solid_threshold=cls.STATUS_INNER_SOLID_THRESHOLD,
-            soft_threshold=cls.STATUS_INNER_SOFT_THRESHOLD
+            solid_threshold=status_inner_solid_threshold,
+            soft_threshold=status_inner_soft_threshold
         )
         left_outer = cls._status_shell_char(
             left_outer_phase,
-            solid_threshold=cls.STATUS_OUTER_SOLID_THRESHOLD,
-            soft_threshold=cls.STATUS_OUTER_SOFT_THRESHOLD
+            solid_threshold=status_outer_solid_threshold,
+            soft_threshold=status_outer_soft_threshold
         )
         right_outer = cls._status_shell_char(
             right_outer_phase,
-            solid_threshold=cls.STATUS_OUTER_SOLID_THRESHOLD,
-            soft_threshold=cls.STATUS_OUTER_SOFT_THRESHOLD
+            solid_threshold=status_outer_solid_threshold,
+            soft_threshold=status_outer_soft_threshold
         )
-        edge_left, edge_right = cls._status_edge_pair(shell_phase, threshold=cls.STATUS_EDGE_THRESHOLD)
+        edge_left, edge_right = cls._status_edge_pair(shell_phase, threshold=status_edge_threshold)
 
         out = cls._build_status_shell(
             edge_left=edge_left,
@@ -1630,7 +2163,13 @@ class Design(object):
 
     @classmethod
     def thinking_status_renderable(cls, phase: float, text: str) -> Text:
-        spec = cls.thinking_status_spec()
+        spec = cls.status_spec("wait")
+        status_shell_motion_scale = 0.76
+        status_inner_solid_threshold = 0.87
+        status_inner_soft_threshold = 0.70
+        status_outer_solid_threshold = 0.92
+        status_outer_soft_threshold = 0.77
+        status_edge_threshold = 0.83
         colors = {
             "edge"     : "bold #445856",
             "dot"      : "bold #D7E6E1",
@@ -1643,7 +2182,7 @@ class Design(object):
         }
 
         text = cls.fit_status_text(text, kind="wait", fallback="thinking")
-        shell_motion = phase * (spec.shell_freq * cls.STATUS_SHELL_MOTION_SCALE)
+        shell_motion = phase * (spec.shell_freq * status_shell_motion_scale)
         breathe = 0.5 + (0.5 * math.sin(shell_motion))
         left_outer_phase = 0.5 + (0.5 * math.sin(shell_motion - 1.7))
         left_inner_phase = 0.5 + (0.5 * math.sin(shell_motion - 0.9))
@@ -1653,23 +2192,23 @@ class Design(object):
 
         left_outer = cls._status_shell_char(
             left_outer_phase,
-            solid_threshold=cls.STATUS_OUTER_SOLID_THRESHOLD,
-            soft_threshold=cls.STATUS_OUTER_SOFT_THRESHOLD
+            solid_threshold=status_outer_solid_threshold,
+            soft_threshold=status_outer_soft_threshold
         )
         left_inner = cls._status_shell_char(
             left_inner_phase,
-            solid_threshold=cls.STATUS_INNER_SOLID_THRESHOLD,
-            soft_threshold=cls.STATUS_INNER_SOFT_THRESHOLD
+            solid_threshold=status_inner_solid_threshold,
+            soft_threshold=status_inner_soft_threshold
         )
         right_inner = cls._status_shell_char(
             right_inner_phase,
-            solid_threshold=cls.STATUS_INNER_SOLID_THRESHOLD,
-            soft_threshold=cls.STATUS_INNER_SOFT_THRESHOLD
+            solid_threshold=status_inner_solid_threshold,
+            soft_threshold=status_inner_soft_threshold
         )
         right_outer = cls._status_shell_char(
             right_outer_phase,
-            solid_threshold=cls.STATUS_OUTER_SOLID_THRESHOLD,
-            soft_threshold=cls.STATUS_OUTER_SOFT_THRESHOLD
+            solid_threshold=status_outer_solid_threshold,
+            soft_threshold=status_outer_soft_threshold
         )
         core = cls._status_core_char(
             breathe,
@@ -1678,7 +2217,7 @@ class Design(object):
             mid="o",
             low="."
         )
-        edge_left, edge_right = cls._status_edge_pair(shell_phase, threshold=cls.STATUS_EDGE_THRESHOLD)
+        edge_left, edge_right = cls._status_edge_pair(shell_phase, threshold=status_edge_threshold)
 
         out = cls._build_status_shell(
             edge_left=edge_left,
@@ -1718,16 +2257,53 @@ class Design(object):
         return out
 
     @classmethod
-    def tool_status_spec(cls) -> SweepStatusSpec:
-        return cls.TOOL_STATUS_SPEC
-
-    @classmethod
-    def builtin_status_spec(cls) -> SweepStatusSpec:
-        return cls.BUILTIN_STATUS_SPEC
-
-    @classmethod
-    def thinking_status_spec(cls) -> ProgressiveStatusSpec:
-        return cls.THINKING_STATUS_SPEC
+    def status_spec(cls, kind: str) -> SweepStatusSpec | ProgressiveStatusSpec:
+        tool_status_spec = SweepStatusSpec(
+            refresh_per_second=40,
+            phase_rate=14.4,
+            text_limit=48,
+            shell_freq=0.52,
+            lead_span=3.1,
+            tail_span=6.8,
+            peak_radius=0.74,
+            near_ratio=0.56,
+            mid_ratio=0.90,
+            scan_speed=0.2,
+            scan_pad=2.6
+        )
+        builtin_status_spec = SweepStatusSpec(
+            refresh_per_second=40,
+            phase_rate=15.8,
+            text_limit=48,
+            shell_freq=0.55,
+            lead_span=3.4,
+            tail_span=6.6,
+            peak_radius=0.78,
+            near_ratio=0.46,
+            mid_ratio=0.88,
+            drift_wobble_amp=0.0,
+            drift_wobble_freq=0.0,
+            drift_offset=0.0,
+            entry_pad=6.0,
+            exit_pad=8.4
+        )
+        thinking_status_spec = ProgressiveStatusSpec(
+            refresh_per_second=24,
+            phase_rate=19.2,
+            text_limit=48,
+            shell_freq=0.48,
+            head_speed=0.78,
+            cycle_padding=4.0,
+            head_offset=-1.2,
+            tail_reset=-1.6,
+            lead_glow=0.36,
+            tail_glow=1.0
+        )
+        if kind == "tool":
+            return tool_status_spec
+        if kind == "wait":
+            return thinking_status_spec
+        return builtin_status_spec
 
     @classmethod
     def status_text_limit(cls, kind: str) -> int:
@@ -1735,14 +2311,12 @@ class Design(object):
         if cls.console is not None:
             console_width = max(24, int(cls.console.width))
 
+        spec = cls.status_spec(kind)
         if kind == "tool":
-            spec = cls.tool_status_spec()
             chrome_width = 18
         elif kind == "wait":
-            spec = cls.thinking_status_spec()
             chrome_width = 17
         else:
-            spec = cls.builtin_status_spec()
             chrome_width = 17
 
         visible_limit = max(12, console_width - chrome_width)
@@ -1923,18 +2497,10 @@ class Design(object):
                 span = max(0.0001, end_level - start_level)
                 local = (level - start_level) / span
                 eased = cls._smoothstep(local)
-                color = cls._mix_hex_color(start_color, end_color, eased)
+                color = mix_hex_color(start_color, end_color, eased)
                 return f"bold {color}"
 
         return f"bold {stops[-1][1]}"
-
-    @classmethod
-    def mix_hex_color(cls, start: str, end: str, ratio: float) -> str:
-        return mix_hex_color(start, end, ratio)
-
-    @staticmethod
-    def _mix_hex_color(start: str, end: str, ratio: float) -> str:
-        return mix_hex_color(start, end, ratio)
 
     @staticmethod
     def _smoothstep(value: float) -> float:
@@ -2095,55 +2661,20 @@ class Design(object):
             out.append(char, style=peak_style)
 
     @classmethod
-    def tool_status_refresh_per_second(cls) -> int:
-        return cls.tool_status_spec().refresh_per_second
+    def status_refresh_per_second(cls, kind: str) -> int:
+        return int(cls.status_spec(kind).refresh_per_second)
 
     @classmethod
-    def tool_status_interval(cls) -> float:
-        interval = 1 / cls.tool_status_refresh_per_second()
-        return interval
+    def status_interval(cls, kind: str) -> float:
+        return 1 / cls.status_refresh_per_second(kind)
 
     @classmethod
-    def tool_status_phase_rate(cls) -> float:
-        return cls.tool_status_spec().phase_rate
+    def status_phase_rate(cls, kind: str) -> float:
+        return float(cls.status_spec(kind).phase_rate)
 
     @classmethod
-    def tool_status_step(cls) -> float:
-        return cls.tool_status_phase_rate()
-
-    @classmethod
-    def builtin_status_refresh_per_second(cls) -> int:
-        return cls.builtin_status_spec().refresh_per_second
-
-    @classmethod
-    def builtin_status_interval(cls) -> float:
-        interval = 1 / cls.builtin_status_refresh_per_second()
-        return interval
-
-    @classmethod
-    def builtin_status_phase_rate(cls) -> float:
-        return cls.builtin_status_spec().phase_rate
-
-    @classmethod
-    def builtin_status_step(cls) -> float:
-        return cls.builtin_status_phase_rate()
-
-    @classmethod
-    def thinking_status_refresh_per_second(cls) -> int:
-        return cls.thinking_status_spec().refresh_per_second
-
-    @classmethod
-    def thinking_status_interval(cls) -> float:
-        interval = 1 / cls.thinking_status_refresh_per_second()
-        return interval
-
-    @classmethod
-    def thinking_status_phase_rate(cls) -> float:
-        return cls.thinking_status_spec().phase_rate
-
-    @classmethod
-    def thinking_status_step(cls) -> float:
-        return cls.thinking_status_phase_rate()
+    def status_step(cls, kind: str) -> float:
+        return cls.status_phase_rate(kind)
 
     @classmethod
     def _tool_status_indicator(

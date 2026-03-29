@@ -16,16 +16,16 @@ from mind_core.preference import Preferences
 from mind_nova.report import Report
 from mind_nova import craft
 from .stream_ui import StreamUI
-from .mind_repl import mind_loop as run_mind_loop
-from .mind_static import static_looper as run_static_looper
-from .mind_stream import stream_looper as run_stream_looper
-from .mind_batch import mind_pack as run_mind_pack
-from .mind_runtime import (
+from .modes.repl import mind_loop as run_mind_loop
+from .modes.static import static_looper as run_static_looper
+from .modes.stream import stream_looper as run_stream_looper
+from .modes.batch import mind_pack as run_mind_pack
+from .runtime.calling import (
     calling as run_calling,
     wakeup as run_wakeup,
     with_mcp_guard as run_with_mcp_guard,
-    with_mcp_session as run_with_mcp_session
 )
+from .runtime.session import with_mcp_session as run_with_mcp_session
 
 
 class Mind(object):
@@ -76,7 +76,7 @@ class Mind(object):
         """处理终止信号，并执行统一退出流程。"""
         self.task_event.set()
         Design.console.print()
-        Design.show_exit()
+        Design.show_outro()
         sys.exit(130)
 
     async def stop_anim(self) -> None:
