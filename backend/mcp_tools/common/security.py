@@ -227,9 +227,9 @@ def _tool_result(agent_id: str, result: dict[str, typing.Any]) -> CallToolResult
     output = str(result["output"])
     text   = f"agent_id={agent_id} ok=True kind={kind} output={output}"
 
-    structured: typing.Any = {
-        "text": text,
-        "data": result
+    structured: dict[str, typing.Any] | None = {
+        "text" : text,
+        "data" : result
     }
 
     return CallToolResult(
