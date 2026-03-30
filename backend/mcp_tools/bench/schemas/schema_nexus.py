@@ -13,13 +13,41 @@ from pydantic import (
 from backend.models.model_nexus import NexusKind
 
 
+def _request_arg_desc(protocol: str, fields_hint: str) -> str:
+    return (
+        f"单次 {protocol} 请求定义。必须传结构化对象；协议字段直接放在 `request` 中，例如 {fields_hint}。"
+        "不要传字符串化 JSON。"
+    )
+
+
+def _batch_items_arg_desc(protocol: str) -> str:
+    return (
+        f"{protocol} 批量请求项列表。每项直接包含 {protocol} 协议字段以及可选 `name`、`extract`、`asserts`；"
+        "无需再包一层 `request`。必须传原生数组对象，不要传字符串化 JSON。"
+    )
+
+
+def _batch_env_arg_desc(protocol: str) -> str:
+    return (
+        f"{protocol} 批量共享默认值。执行时会先把这里的字段与当前项物化成最终请求。"
+        "`headers`、`json/json_body`、`params`、`form`、`variables` 会做对象合并，其余字段通常由当前项覆盖。"
+        "必须传原生对象，不要传字符串化 JSON。"
+    )
+
+
 class NexusToolSchemaModel(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
 class BatchItemBase(NexusToolSchemaModel):
-    name: typing.Optional[str] = Field(default=None, description="可选用例名，便于在结果、日志和批量输出中识别当前请求。")
-    extract: typing.Optional[dict[str, str]] = Field(default=None, description="结果提取规则，键为输出名，值为提取表达式或路径。")
+    name: typing.Optional[str] = Field(
+        default=None,
+        description="可选用例名，便于在结果、日志和批量输出中识别当前请求。"
+    )
+    extract: typing.Optional[dict[str, str]] = Field(
+        default=None,
+        description="结果提取规则，键为输出名，值为提取表达式或路径。"
+    )
     asserts: typing.Optional[list[dict[str, typing.Any]]] = Field(
         default=None,
         description="断言列表。每项通常描述比较目标、操作符和期望值。"
@@ -273,93 +301,187 @@ class FtpFlatBatchItem(FlatBatchItemBase, FtpSharedEnv):
     pass
 
 
-def _request_arg_desc(protocol: str, fields_hint: str) -> str:
-    return (
-        f"单次 {protocol} 请求定义。必须传结构化对象；协议字段直接放在 `request` 中，例如 {fields_hint}。"
-        "不要传字符串化 JSON。"
-    )
-
-
-def _batch_items_arg_desc(protocol: str) -> str:
-    return (
-        f"{protocol} 批量请求项列表。每项直接包含 {protocol} 协议字段以及可选 `name`、`extract`、`asserts`；"
-        "无需再包一层 `request`。必须传原生数组对象，不要传字符串化 JSON。"
-    )
-
-
-def _batch_env_arg_desc(protocol: str) -> str:
-    return (
-        f"{protocol} 批量共享默认值。执行时会先把这里的字段与当前项物化成最终请求。"
-        "`headers`、`json/json_body`、`params`、`form`、`variables` 会做对象合并，其余字段通常由当前项覆盖。"
-        "必须传原生对象，不要传字符串化 JSON。"
-    )
-
-
 NexusKindArg = typing.Annotated[
     NexusKind,
-    Field(description="Nexus 协议类型，如 http、sse、ws、graphql、tcp、udp、smtp、imap 或 ftp。"),
+    Field(
+        description="Nexus 协议类型，如 http、sse、ws、graphql、tcp、udp、smtp、imap 或 ftp。"
+    )
 ]
 NexusRequestArg = typing.Annotated[
     GenericSharedEnv,
-    Field(description="单次标准化请求定义。协议相关字段都放在这里，例如 url、method、headers、json/json_body、body/body_text、sends 或 action。必须传结构化对象，不要传字符串化 JSON。"),
+    Field(
+        description="单次标准化请求定义。协议相关字段都放在这里，例如 url、method、headers、json/json_body、body/body_text、sends 或 action。必须传结构化对象，不要传字符串化 JSON。"
+    )
 ]
 NexusEnvArg = typing.Annotated[
     typing.Optional[GenericSharedEnv],
-    Field(description="批量或预执行阶段的共享默认值。执行或校验时会先把这里的字段与当前 `request` 物化成最终请求；`headers`、`json/json_body`、`params`、`form`、`variables` 会做对象合并，其余字段通常由当前请求覆盖。必须传结构化对象，不要传字符串化 JSON。"),
+    Field(
+        description="批量或预执行阶段的共享默认值。执行或校验时会先把这里的字段与当前 `request` 物化成最终请求；`headers`、`json/json_body`、`params`、`form`、`variables` 会做对象合并，其余字段通常由当前请求覆盖。必须传结构化对象，不要传字符串化 JSON。"
+    )
 ]
 NexusTemplateVarsArg = typing.Annotated[
     typing.Optional[dict[str, typing.Any]],
-    Field(description="模板变量字典，用于渲染请求中的占位符。"),
+    Field(
+        description="模板变量字典，用于渲染请求中的占位符。"
+    )
 ]
 NexusExtractArg = typing.Annotated[
     typing.Optional[dict[str, str]],
-    Field(description="结果提取规则，键为输出名，值为提取表达式或路径。"),
+    Field(
+        description="结果提取规则，键为输出名，值为提取表达式或路径。"
+    )
 ]
 NexusAssertsArg = typing.Annotated[
     typing.Optional[list[dict[str, typing.Any]]],
-    Field(description="断言列表。每项通常描述比较目标、操作符和期望值。"),
+    Field(
+        description="断言列表。每项通常描述比较目标、操作符和期望值。"
+    )
 ]
 NexusNameArg = typing.Annotated[
     typing.Optional[str],
-    Field(description="可选用例名，便于在结果、日志和批量输出中识别当前请求。"),
+    Field(
+        description="可选用例名，便于在结果、日志和批量输出中识别当前请求。"
+    )
 ]
 GenericBatchItemsArg = typing.Annotated[
     list[GenericBatchItem],
-    Field(description="批量请求项列表。每项直接包含协议字段以及可选 `name`、`extract` 和 `asserts`；无需再包一层 `request`。必须传原生数组对象，不要传字符串化 JSON。"),
+    Field(
+        description="批量请求项列表。每项直接包含协议字段以及可选 `name`、`extract` 和 `asserts`；无需再包一层 `request`。必须传原生数组对象，不要传字符串化 JSON。"
+    )
 ]
 GenericBatchEnvArg = typing.Annotated[
     typing.Optional[GenericSharedEnv],
-    Field(description="批量或预执行阶段的共享默认值。执行或校验时会先把这里的字段与当前项物化成最终请求；`headers`、`json/json_body`、`params`、`form`、`variables` 会做对象合并，其余字段通常由当前项覆盖。必须传原生对象，不要传字符串化 JSON。"),
+    Field(
+        description="批量或预执行阶段的共享默认值。执行或校验时会先把这里的字段与当前项物化成最终请求；`headers`、`json/json_body`、`params`、`form`、`variables` 会做对象合并，其余字段通常由当前项覆盖。必须传原生对象，不要传字符串化 JSON。"
+    )
 ]
-HttpBatchItemsArg = typing.Annotated[list[HttpFlatBatchItem], Field(description=_batch_items_arg_desc("HTTP"))]
-HttpBatchEnvArg = typing.Annotated[typing.Optional[HttpSharedEnv], Field(description=_batch_env_arg_desc("HTTP"))]
-SseBatchItemsArg = typing.Annotated[list[SseFlatBatchItem], Field(description=_batch_items_arg_desc("SSE"))]
-SseBatchEnvArg = typing.Annotated[typing.Optional[SseSharedEnv], Field(description=_batch_env_arg_desc("SSE"))]
-GraphqlBatchItemsArg = typing.Annotated[list[GraphqlFlatBatchItem], Field(description=_batch_items_arg_desc("GraphQL"))]
-GraphqlBatchEnvArg = typing.Annotated[typing.Optional[GraphqlSharedEnv], Field(description=_batch_env_arg_desc("GraphQL"))]
-WsBatchItemsArg = typing.Annotated[list[WsFlatBatchItem], Field(description=_batch_items_arg_desc("WebSocket"))]
-WsBatchEnvArg = typing.Annotated[typing.Optional[WsSharedEnv], Field(description=_batch_env_arg_desc("WebSocket"))]
-TcpBatchItemsArg = typing.Annotated[list[TcpFlatBatchItem], Field(description=_batch_items_arg_desc("TCP"))]
-TcpBatchEnvArg = typing.Annotated[typing.Optional[TcpSharedEnv], Field(description=_batch_env_arg_desc("TCP"))]
-UdpBatchItemsArg = typing.Annotated[list[UdpFlatBatchItem], Field(description=_batch_items_arg_desc("UDP"))]
-UdpBatchEnvArg = typing.Annotated[typing.Optional[UdpSharedEnv], Field(description=_batch_env_arg_desc("UDP"))]
-SmtpBatchItemsArg = typing.Annotated[list[SmtpFlatBatchItem], Field(description=_batch_items_arg_desc("SMTP"))]
-SmtpBatchEnvArg = typing.Annotated[typing.Optional[SmtpSharedEnv], Field(description=_batch_env_arg_desc("SMTP"))]
-ImapBatchItemsArg = typing.Annotated[list[ImapFlatBatchItem], Field(description=_batch_items_arg_desc("IMAP"))]
-ImapBatchEnvArg = typing.Annotated[typing.Optional[ImapSharedEnv], Field(description=_batch_env_arg_desc("IMAP"))]
-FtpBatchItemsArg = typing.Annotated[list[FtpFlatBatchItem], Field(description=_batch_items_arg_desc("FTP"))]
-FtpBatchEnvArg = typing.Annotated[typing.Optional[FtpSharedEnv], Field(description=_batch_env_arg_desc("FTP"))]
-HttpRequestArg = typing.Annotated[HttpSharedEnv, Field(description=_request_arg_desc("HTTP", "`url`、`method`、`headers`、`json`/`json_body`、`body`/`body_text`"))]
-SseRequestArg = typing.Annotated[SseSharedEnv, Field(description=_request_arg_desc("SSE", "`url`、`method`、`headers`、`max_events`、`media_index`、`media_path`"))]
-GraphqlRequestArg = typing.Annotated[GraphqlSharedEnv, Field(description=_request_arg_desc("GraphQL", "`url`、`query`、`variables`、`operation_name`"))]
-WsRequestArg = typing.Annotated[WsSharedEnv, Field(description=_request_arg_desc("WebSocket", "`url`、`headers`、`sends`、`max_messages`"))]
-TcpRequestArg = typing.Annotated[TcpSharedEnv, Field(description=_request_arg_desc("TCP", "`host`、`port`、`body_text`、`sends`、`read_until`"))]
-UdpRequestArg = typing.Annotated[UdpSharedEnv, Field(description=_request_arg_desc("UDP", "`host`、`port`、`body_text`、`encoding`、`read_size`"))]
-SmtpRequestArg = typing.Annotated[SmtpSharedEnv, Field(description=_request_arg_desc("SMTP", "`host`、`port`、`action`、`from_addr`、`to_addrs`、`body_text`"))]
-ImapRequestArg = typing.Annotated[ImapSharedEnv, Field(description=_request_arg_desc("IMAP", "`host`、`port`、`username`、`password`、`action`、`message_set`"))]
-FtpRequestArg = typing.Annotated[FtpSharedEnv, Field(description=_request_arg_desc("FTP", "`host`、`port`、`action`、`path`、`payload_text`、`payload_base64`"))]
-NexusConcurrencyArg = typing.Annotated[StrictInt, Field(description="批量执行的最大并发数。")]
-NexusFailFastArg = typing.Annotated[StrictBool, Field(description="批量执行时遇到首个失败是否立即停止剩余请求。")]
+HttpBatchItemsArg = typing.Annotated[
+    list[HttpFlatBatchItem], Field(description=_batch_items_arg_desc("HTTP"))
+]
+HttpBatchEnvArg = typing.Annotated[
+    typing.Optional[HttpSharedEnv], Field(description=_batch_env_arg_desc("HTTP"))
+]
+SseBatchItemsArg = typing.Annotated[
+    list[SseFlatBatchItem], Field(description=_batch_items_arg_desc("SSE"))
+]
+SseBatchEnvArg = typing.Annotated[
+    typing.Optional[SseSharedEnv], Field(description=_batch_env_arg_desc("SSE"))
+]
+GraphqlBatchItemsArg = typing.Annotated[
+    list[GraphqlFlatBatchItem], Field(description=_batch_items_arg_desc("GraphQL"))
+]
+GraphqlBatchEnvArg = typing.Annotated[
+    typing.Optional[GraphqlSharedEnv], Field(description=_batch_env_arg_desc("GraphQL"))
+]
+WsBatchItemsArg = typing.Annotated[
+    list[WsFlatBatchItem], Field(description=_batch_items_arg_desc("WebSocket"))
+]
+WsBatchEnvArg = typing.Annotated[
+    typing.Optional[WsSharedEnv], Field(description=_batch_env_arg_desc("WebSocket"))
+]
+TcpBatchItemsArg = typing.Annotated[
+    list[TcpFlatBatchItem], Field(description=_batch_items_arg_desc("TCP"))
+]
+TcpBatchEnvArg = typing.Annotated[
+    typing.Optional[TcpSharedEnv], Field(description=_batch_env_arg_desc("TCP"))
+]
+UdpBatchItemsArg = typing.Annotated[
+    list[UdpFlatBatchItem], Field(description=_batch_items_arg_desc("UDP"))
+]
+UdpBatchEnvArg = typing.Annotated[
+    typing.Optional[UdpSharedEnv], Field(description=_batch_env_arg_desc("UDP"))
+]
+SmtpBatchItemsArg = typing.Annotated[
+    list[SmtpFlatBatchItem], Field(description=_batch_items_arg_desc("SMTP"))
+]
+SmtpBatchEnvArg = typing.Annotated[
+    typing.Optional[SmtpSharedEnv], Field(description=_batch_env_arg_desc("SMTP"))
+]
+ImapBatchItemsArg = typing.Annotated[
+    list[ImapFlatBatchItem], Field(description=_batch_items_arg_desc("IMAP"))
+]
+ImapBatchEnvArg = typing.Annotated[
+    typing.Optional[ImapSharedEnv], Field(description=_batch_env_arg_desc("IMAP"))
+]
+FtpBatchItemsArg = typing.Annotated[
+    list[FtpFlatBatchItem], Field(description=_batch_items_arg_desc("FTP"))
+]
+FtpBatchEnvArg = typing.Annotated[
+    typing.Optional[FtpSharedEnv], Field(description=_batch_env_arg_desc("FTP"))
+]
+HttpRequestArg = typing.Annotated[
+    HttpSharedEnv, Field(
+        description=_request_arg_desc(
+            "HTTP", "`url`、`method`、`headers`、`json`/`json_body`、`body`/`body_text`"
+        )
+    )
+]
+SseRequestArg = typing.Annotated[
+    SseSharedEnv, Field(
+        description=_request_arg_desc(
+            "SSE", "`url`、`method`、`headers`、`max_events`、`media_index`、`media_path`"
+        )
+    )
+]
+GraphqlRequestArg = typing.Annotated[
+    GraphqlSharedEnv, Field(
+        description=_request_arg_desc(
+            "GraphQL", "`url`、`query`、`variables`、`operation_name`"
+        )
+    )
+]
+WsRequestArg = typing.Annotated[
+    WsSharedEnv, Field(
+        description=_request_arg_desc(
+            "WebSocket", "`url`、`headers`、`sends`、`max_messages`"
+        )
+    )
+]
+TcpRequestArg = typing.Annotated[
+    TcpSharedEnv, Field(
+        description=_request_arg_desc(
+            "TCP", "`host`、`port`、`body_text`、`sends`、`read_until`"
+        )
+    )
+]
+UdpRequestArg = typing.Annotated[
+    UdpSharedEnv, Field(
+        description=_request_arg_desc(
+            "UDP", "`host`、`port`、`body_text`、`encoding`、`read_size`"
+        )
+    )
+]
+SmtpRequestArg = typing.Annotated[
+    SmtpSharedEnv, Field(
+        description=_request_arg_desc(
+            "SMTP", "`host`、`port`、`action`、`from_addr`、`to_addrs`、`body_text`"
+        )
+    )
+]
+ImapRequestArg = typing.Annotated[
+    ImapSharedEnv, Field(
+        description=_request_arg_desc(
+            "IMAP", "`host`、`port`、`username`、`password`、`action`、`message_set`"
+        )
+    )
+]
+FtpRequestArg = typing.Annotated[
+    FtpSharedEnv, Field(
+        description=_request_arg_desc(
+            "FTP", "`host`、`port`、`action`、`path`、`payload_text`、`payload_base64`"
+        )
+    )
+]
+NexusConcurrencyArg = typing.Annotated[
+    StrictInt, Field(
+        description="批量执行的最大并发数。"
+    )
+]
+NexusFailFastArg = typing.Annotated[
+    StrictBool, Field(
+        description="批量执行时遇到首个失败是否立即停止剩余请求。"
+    )
+]
 
 
 if __name__ == '__main__':

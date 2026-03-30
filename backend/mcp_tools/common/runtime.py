@@ -5,28 +5,17 @@ import typing
 import asyncio
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
-from pydantic import Field
 from backend.middlewares.mid_task import task_middleware
-from backend.utilities.runtime import AppContext, Idle
+from backend.mcp_tools.common.schemas.schema_runtime import (
+    DelayArg,
+    LoopCountArg,
+    LoopStepsArg,
+    StopOnFailArg
+)
+from backend.utilities.runtime import (
+    AppContext, Idle
+)
 from backend.utilities.broadcast import broadcast
-
-
-DelayArg = typing.Annotated[
-    float,
-    Field(description="固定等待的秒数，支持小数秒。"),
-]
-LoopCountArg = typing.Annotated[
-    int,
-    Field(description="循环次数声明；工具内部会把值限制在 1 到 50 之间。"),
-]
-LoopStepsArg = typing.Annotated[
-    list[dict[str, typing.Any]],
-    Field(description="步骤声明列表。每项都应包含 `tool` 和 `args`，且不允许嵌套 `loop_steps`。"),
-]
-StopOnFailArg = typing.Annotated[
-    bool,
-    Field(description="供执行器读取的失败策略。为 true 时，后续真正执行时应在首个失败步骤后停止。"),
-]
 
 
 def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:

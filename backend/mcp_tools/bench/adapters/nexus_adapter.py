@@ -19,7 +19,7 @@ def request_model(
     asserts: typing.Optional[list[dict[str, typing.Any]]] = None,
     name: typing.Optional[str] = None
 ) -> NexusRequest:
-    """Build normalized single-request model from MCP tool arguments."""
+    """根据 MCP 工具参数构建标准化的单请求模型。"""
     request_data = dump_model(request, field_name="request")
     return NexusRequest(
         name=name,
@@ -31,7 +31,7 @@ def request_model(
 
 
 def dump_model(value: typing.Any, *, field_name: str = "value") -> dict[str, typing.Any]:
-    """Normalize nested Pydantic/dict payloads into plain dictionaries."""
+    """将嵌套的 Pydantic/dict 负载标准化为普通字典。"""
     if value is None:
         return {}
     if isinstance(value, BaseModel):
@@ -49,7 +49,7 @@ def batch_model(
     concurrency: int = 1,
     fail_fast: bool = True
 ) -> NexusBatchRequest:
-    """Build normalized batch model from MCP tool arguments."""
+    """根据 MCP 工具参数构建标准化的批量请求模型。"""
     normalized_items: list[NexusBatchItem] = []
 
     for item in items:
@@ -82,7 +82,7 @@ def flat_batch_model(
     concurrency: int = 1,
     fail_fast: bool = True
 ) -> NexusBatchRequest:
-    """Build normalized batch model from flat item payloads."""
+    """根据扁平条目负载构建标准化的批量请求模型。"""
     normalized_items: list[NexusBatchItem] = []
 
     for item in items:
@@ -116,7 +116,7 @@ def batch_args_payload(
     *,
     kind: typing.Optional[NexusKind] = None
 ) -> dict[str, typing.Any]:
-    """Normalize validated batch arguments for logging and broadcast payloads."""
+    """将已校验的批量参数标准化，用于日志和广播负载。"""
     args = batch_args.model_dump(exclude_none=True, by_alias=True)
     if kind is not None:
         args = {"kind": kind, **args}
@@ -131,7 +131,7 @@ def flat_batch_args_payload(
     concurrency: int = 1,
     fail_fast: bool = True
 ) -> dict[str, typing.Any]:
-    """Normalize flat batch tool arguments for logging and broadcast payloads."""
+    """将扁平批量工具参数标准化，用于日志和广播负载。"""
     return {
         "items"         : [dump_model(item, field_name="items[]") for item in items],
         "env"           : dump_model(env, field_name="env") if env is not None else None,
@@ -150,7 +150,7 @@ def generic_batch_args_payload(
     concurrency: int = 1,
     fail_fast: bool = True
 ) -> dict[str, typing.Any]:
-    """Normalize generic batch tool arguments for logging and broadcast payloads."""
+    """将通用批量工具参数标准化，用于日志和广播负载。"""
     return {
         "kind"          : kind,
         "items"         : [dump_model(item, field_name="items[]") for item in items],

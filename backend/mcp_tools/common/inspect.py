@@ -4,20 +4,15 @@
 import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
-from pydantic import Field
 from backend.middlewares.mid_task import task_middleware
-from backend.utilities.runtime import AppContext, Idle
+from backend.mcp_tools.common.schemas.schema_inspect import (
+    FreeRuleMessageArg,
+    FreeRuleContextArg
+)
+from backend.utilities.runtime import (
+    AppContext, Idle
+)
 from backend.utilities.broadcast import broadcast
-
-
-FreeRuleMessageArg = typing.Annotated[
-    str,
-    Field(description="要交给上层规则链处理的自然语言请求。"),
-]
-FreeRuleContextArg = typing.Annotated[
-    typing.Optional[dict[str, typing.Any]],
-    Field(description="补充上下文信息字典，供上层规则链参考。"),
-]
 
 
 def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:

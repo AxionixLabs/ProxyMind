@@ -1,20 +1,13 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
-from pydantic import Field
 from backend.mcp_hub.hub_manage import DeviceManage
+from backend.mcp_tools.automator.schemas.schema_zest import RefreshTtlArg
 from backend.middlewares.mid_task import task_middleware
 from backend.utilities.runtime import AppContext
 from backend.utilities.broadcast import broadcast
-
-
-RefreshTtlArg = typing.Annotated[
-    float,
-    Field(description="设备列表缓存复用窗口，单位秒。"),
-]
 
 
 def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:

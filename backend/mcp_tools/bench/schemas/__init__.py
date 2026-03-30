@@ -1,7 +1,21 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-from backend.mcp_tools.bench.schemas.nexus_schema import (
+from backend.mcp_tools.bench.schemas.schema_framix import (
+    VideoListArg,
+    ReportDirArg,
+    ScaleArg,
+    TitleArg,
+)
+from backend.mcp_tools.bench.schemas.schema_memrix import (
+    FocusArg,
+    ImplyArg,
+    TaskTitleArg,
+    TokenArg,
+    SceneArg,
+    LayerArg,
+)
+from backend.mcp_tools.bench.schemas.schema_nexus import (
     GenericSharedEnv,
     GenericBatchItem,
     HttpSharedEnv,
@@ -63,6 +77,16 @@ from backend.mcp_tools.bench.schemas.nexus_schema import (
 )
 
 __all__ = [
+    "VideoListArg",
+    "ReportDirArg",
+    "ScaleArg",
+    "TitleArg",
+    "FocusArg",
+    "ImplyArg",
+    "TaskTitleArg",
+    "TokenArg",
+    "SceneArg",
+    "LayerArg",
     "GenericSharedEnv",
     "GenericBatchItem",
     "HttpSharedEnv",

@@ -6,7 +6,7 @@ import typing
 
 
 class MergeService(object):
-    """Materialize the final protocol request from env defaults and per-item overrides."""
+    """根据环境默认值与单项覆盖项生成最终协议请求。"""
 
     _DICT_MERGE_KEYS = {"headers", "json", "json_body", "params", "form", "variables"}
 
@@ -23,7 +23,7 @@ class MergeService(object):
         env: typing.Optional[dict[str, typing.Any]] = None,
         request: typing.Optional[dict[str, typing.Any]] = None,
     ) -> dict[str, typing.Any]:
-        """Merge env defaults and request overrides into a single executor-ready request."""
+        """将环境默认值与请求覆盖项合并为可直接交给执行器的请求。"""
         env_dict = dict(env or {})
         request_dict = dict(request or {})
         merged = cls._merge_mapping(env_dict, request_dict)

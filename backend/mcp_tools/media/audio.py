@@ -1,23 +1,17 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
-from pydantic import Field
 from backend.middlewares.mid_task import task_middleware
-from backend.utilities.runtime import AppContext, Idle
+from backend.mcp_tools.media.schemas.schema_audio import (
+    AudioFileArg,
+    VolumeArg
+)
+from backend.utilities.runtime import (
+    AppContext, Idle
+)
 from backend.utilities.broadcast import broadcast
-
-
-AudioFileArg = typing.Annotated[
-    str,
-    Field(description="要在当前运行环境本机播放的音频文件路径。"),
-]
-VolumeArg = typing.Annotated[
-    float,
-    Field(description="播放音量倍率，`1.0` 表示原始音量。"),
-]
 
 
 def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:

@@ -10,9 +10,9 @@ from backend.mcp_tools.bench.adapters.nexus_adapter import (
     dump_model,
     flat_batch_model,
     flat_batch_args_payload,
-    generic_batch_args_payload,
+    generic_batch_args_payload
 )
-from backend.mcp_tools.bench.schemas.nexus_schema import (
+from backend.mcp_tools.bench.schemas.schema_nexus import (
     NexusKindArg,
     NexusRequestArg,
     NexusEnvArg,

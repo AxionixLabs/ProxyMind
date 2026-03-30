@@ -10,7 +10,7 @@ from backend.mcp_hub.hub_nexus.domain.template import TemplateService
 
 
 class InspectionService(object):
-    """Render and validate normalized nexus requests before execution."""
+    """在执行前渲染并校验标准化后的 Nexus 请求。"""
 
     @staticmethod
     def render_request(

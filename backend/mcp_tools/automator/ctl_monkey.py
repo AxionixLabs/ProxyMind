@@ -4,40 +4,26 @@
 import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
-from pydantic import Field
 from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.mcp_hub.hub_monkey import Monkey
-from backend.mcp_tools.shared import MatrixArg, PackageArg
+from backend.mcp_tools.automator.schemas.schema_monkey import (
+    EventsArg,
+    MotionPctArg,
+    NavPctArg,
+    SeedArg,
+    ThrottleArg,
+    TouchPctArg
+)
+from backend.mcp_tools.shared import (
+    MatrixArg,
+    PackageArg
+)
 from backend.middlewares.mid_task import task_middleware
-from backend.utilities.runtime import AppContext, Idle
+from backend.utilities.runtime import (
+    AppContext, Idle
+)
 from backend.utilities.broadcast import broadcast
-
-
-SeedArg = typing.Annotated[
-    int,
-    Field(description="monkey 随机种子；相同参数下有助于复现实验。"),
-]
-ThrottleArg = typing.Annotated[
-    int,
-    Field(description="两次事件之间的间隔，单位毫秒。"),
-]
-TouchPctArg = typing.Annotated[
-    int,
-    Field(description="touch 事件占比。"),
-]
-MotionPctArg = typing.Annotated[
-    int,
-    Field(description="motion 事件占比。"),
-]
-NavPctArg = typing.Annotated[
-    int,
-    Field(description="导航类事件占比。"),
-]
-EventsArg = typing.Annotated[
-    int,
-    Field(description="总事件数。"),
-]
 
 
 def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> None:

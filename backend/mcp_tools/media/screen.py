@@ -4,30 +4,22 @@
 import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
-from pydantic import Field
 from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import (
     DeviceManage, Requires
 )
-from backend.mcp_tools.shared import MatrixArg
 from backend.mcp_hub.hub_record import Record
+from backend.mcp_tools.media.schemas.schema_screen import (
+    RecordDirectoryArg,
+    RecordFpsArg,
+    SilenceArg
+)
+from backend.mcp_tools.shared import MatrixArg
 from backend.middlewares.mid_task import task_middleware
-from backend.utilities.runtime import AppContext, Idle
+from backend.utilities.runtime import (
+    AppContext, Idle
+)
 from backend.utilities.broadcast import broadcast
-
-
-RecordDirectoryArg = typing.Annotated[
-    typing.Optional[str],
-    Field(description="录屏文件保存目录或输出基准路径；多设备时每台设备会生成独立文件。"),
-]
-RecordFpsArg = typing.Annotated[
-    int,
-    Field(description="scrcpy 录屏目标帧率。"),
-]
-SilenceArg = typing.Annotated[
-    bool,
-    Field(description="是否以静默方式启动录制。"),
-]
 
 
 def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> None:
