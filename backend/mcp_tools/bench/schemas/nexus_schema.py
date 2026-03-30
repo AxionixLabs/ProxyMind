@@ -289,7 +289,8 @@ def _batch_items_arg_desc(protocol: str) -> str:
 
 def _batch_env_arg_desc(protocol: str) -> str:
     return (
-        f"{protocol} 批量共享默认值。执行时会先应用这里的字段，再由当前项覆盖同名字段。"
+        f"{protocol} 批量共享默认值。执行时会先把这里的字段与当前项物化成最终请求。"
+        "`headers`、`json/json_body`、`params`、`form`、`variables` 会做对象合并，其余字段通常由当前项覆盖。"
         "必须传原生对象，不要传字符串化 JSON。"
     )
 
@@ -304,7 +305,7 @@ NexusRequestArg = typing.Annotated[
 ]
 NexusEnvArg = typing.Annotated[
     typing.Optional[GenericSharedEnv],
-    Field(description="批量或预执行阶段的共享默认值。执行或校验时会先应用这里的字段，再由当前 `request` 覆盖同名字段。必须传结构化对象，不要传字符串化 JSON。"),
+    Field(description="批量或预执行阶段的共享默认值。执行或校验时会先把这里的字段与当前 `request` 物化成最终请求；`headers`、`json/json_body`、`params`、`form`、`variables` 会做对象合并，其余字段通常由当前请求覆盖。必须传结构化对象，不要传字符串化 JSON。"),
 ]
 NexusTemplateVarsArg = typing.Annotated[
     typing.Optional[dict[str, typing.Any]],
@@ -328,7 +329,7 @@ GenericBatchItemsArg = typing.Annotated[
 ]
 GenericBatchEnvArg = typing.Annotated[
     typing.Optional[GenericSharedEnv],
-    Field(description="批量或预执行阶段的共享默认值。执行或校验时会先应用这里的字段，再由当前项覆盖同名字段。必须传原生对象，不要传字符串化 JSON。"),
+    Field(description="批量或预执行阶段的共享默认值。执行或校验时会先把这里的字段与当前项物化成最终请求；`headers`、`json/json_body`、`params`、`form`、`variables` 会做对象合并，其余字段通常由当前项覆盖。必须传原生对象，不要传字符串化 JSON。"),
 ]
 HttpBatchItemsArg = typing.Annotated[list[HttpFlatBatchItem], Field(description=_batch_items_arg_desc("HTTP"))]
 HttpBatchEnvArg = typing.Annotated[typing.Optional[HttpSharedEnv], Field(description=_batch_env_arg_desc("HTTP"))]

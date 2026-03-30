@@ -5,10 +5,11 @@ import typing
 from backend.models.model_nexus import (
     NexusKind, NexusRequest, NexusBatchRequest
 )
+from backend.mcp_hub.hub_nexus.domain.merge import MergeService
 from backend.mcp_hub.hub_nexus.domain.template import TemplateService
 
 
-class NexusInspectionService(object):
+class InspectionService(object):
     """Render and validate normalized nexus requests before execution."""
 
     @staticmethod
@@ -19,17 +20,18 @@ class NexusInspectionService(object):
         env: typing.Optional[dict[str, typing.Any]] = None
     ) -> dict[str, typing.Any]:
         """渲染单请求中的模板变量与共享默认值。"""
-        ctx       = dict(request.template_vars or {})
-        env_r     = TemplateService.render(dict(env or {}), ctx) if env else {}
-        request_r = TemplateService.render(dict(request.request or {}), ctx)
-        extract_r = TemplateService.render(request.extract, ctx) if request.extract else None
-        asserts_r = TemplateService.render(request.asserts, ctx) if request.asserts else None
+        ctx           = dict(request.template_vars or {})
+        env_r         = TemplateService.render(dict(env or {}), ctx) if env else {}
+        request_r     = TemplateService.render(dict(request.request or {}), ctx)
+        final_request = MergeService.materialize(env=env_r, request=request_r)
+        extract_r     = TemplateService.render(request.extract, ctx) if request.extract else None
+        asserts_r     = TemplateService.render(request.asserts, ctx) if request.asserts else None
 
         return {
             "kind"          : kind,
             "name"          : request.name,
             "env"           : env_r,
-            "request"       : request_r,
+            "request"       : final_request,
             "extract"       : extract_r,
             "asserts"       : asserts_r,
             "template_vars" : ctx
@@ -47,13 +49,15 @@ class NexusInspectionService(object):
         items = []
 
         for item in batch.items:
-            request_r = TemplateService.render(dict(item.request or {}), ctx)
-            extract_r = TemplateService.render(item.extract, ctx) if item.extract else None
-            asserts_r = TemplateService.render(item.asserts, ctx) if item.asserts else None
+            request_r     = TemplateService.render(dict(item.request or {}), ctx)
+            final_request = MergeService.materialize(env=env_r, request=request_r)
+            extract_r     = TemplateService.render(item.extract, ctx) if item.extract else None
+            asserts_r     = TemplateService.render(item.asserts, ctx) if item.asserts else None
+
             items.append(
                 {
                     "name"    : item.name,
-                    "request" : request_r,
+                    "request" : final_request,
                     "extract" : extract_r,
                     "asserts" : asserts_r
                 }
@@ -75,8 +79,8 @@ class NexusInspectionService(object):
         env: typing.Optional[dict[str, typing.Any]] = None
     ) -> dict[str, typing.Any]:
         """校验单请求的必填字段与基础结构。"""
-        rendered = NexusInspectionService.render_request(kind=kind, request=request, env=env)
-        errors   = NexusInspectionService._validate_rendered_request(kind, rendered["request"], rendered["env"])
+        rendered = InspectionService.render_request(kind=kind, request=request, env=env)
+        errors   = InspectionService._validate_rendered_request(kind, rendered["request"], {})
 
         return {
             "ok"       : not errors,
@@ -92,13 +96,14 @@ class NexusInspectionService(object):
         batch: NexusBatchRequest
     ) -> dict[str, typing.Any]:
         """逐项校验批量请求的必填字段与基础结构。"""
-        rendered = NexusInspectionService.render_batch(kind=kind, batch=batch)
+        rendered = InspectionService.render_batch(kind=kind, batch=batch)
 
         errors: list[dict[str, typing.Any]] = []
         for index, item in enumerate(rendered["items"]):
-            item_errors = NexusInspectionService._validate_rendered_request(kind, item["request"], rendered["env"])
+            item_errors = InspectionService._validate_rendered_request(kind, item["request"], {})
             if item_errors:
                 errors.append({"index": index, "name": item.get("name"), "errors": item_errors})
+
         return {
             "ok"       : not errors,
             "kind"     : kind,

@@ -5,6 +5,7 @@ import time
 import typing
 import asyncio
 from backend.mcp_hub.hub_nexus.domain.context import ContextMergeService
+from backend.mcp_hub.hub_nexus.domain.merge import MergeService
 from backend.models.model_nexus import (
     ArtifactRecord,
     NexusBatchItem,
@@ -22,7 +23,7 @@ from backend.mcp_hub.hub_nexus.infra.serialize import StepSerializer
 from backend.mcp_hub.hub_nexus.repository import MemoryRunRepository
 
 
-class NexusMissionService(object):
+class MissionService(object):
     """负责编排 nexus 单请求与批量请求的应用服务。"""
 
     def __init__(
@@ -105,7 +106,8 @@ class NexusMissionService(object):
             mission_id=mission_id,
             kind=kind,
             batch=batch,
-            ctx=ctx
+            ctx=ctx,
+            env=env_r
         )
 
         sem = asyncio.Semaphore(concurrency)
@@ -114,6 +116,7 @@ class NexusMissionService(object):
             async with sem:
                 name = str(item.name or f"{kind}_{i + 1:03d}")
                 req_r = TemplateService.render(dict(item.request or {}), ctx)
+                final_request = MergeService.materialize(env=env_r, request=req_r)
                 extract_r = TemplateService.render(item.extract, ctx) if item.extract else None
                 asserts_r = TemplateService.render(item.asserts, ctx) if item.asserts else None
                 t0 = time.perf_counter()
@@ -122,14 +125,14 @@ class NexusMissionService(object):
                     kind=kind,
                     index=i,
                     name=name,
-                    request=req_r,
+                    request=final_request,
                     mission_artifact=mission_artifact
                 )
 
                 pack = await self.executor_registry.execute(
                     kind=kind,
-                    request=req_r,
-                    env=dict(env_r or {}),
+                    request=final_request,
+                    env={},
                     extract=extract_r,
                     asserts=asserts_r,
                     step_artifact_dir=step_artifact.path if step_artifact else None,
@@ -138,6 +141,7 @@ class NexusMissionService(object):
                     name=name,
                     kind=kind,
                     pack=pack,
+                    executed_request=final_request,
                     ctx=ctx,
                     allow_ctx_merge=allow_ctx_merge,
                     started_at=t0,
@@ -180,11 +184,11 @@ class NexusMissionService(object):
             "items": [
                 {
                     "name"    : item.name,
-                    "request" : dict(item.request or {}),
+                    "request" : (step_results[index].detail or {}).get("request") or {},
                     "extract" : item.extract,
                     "asserts" : item.asserts
                 }
-                for item in batch.items
+                for index, item in enumerate(batch.items)
             ]
         }
 
@@ -220,11 +224,11 @@ class NexusMissionService(object):
                     "items": [
                         {
                             "name"    : item.name,
-                            "request" : dict(item.request or {}),
+                            "request" : (step_results[index].detail or {}).get("request") or {},
                             "extract" : item.extract,
                             "asserts" : item.asserts
                         }
-                        for item in batch.items
+                        for index, item in enumerate(batch.items)
                     ]
                 },
                 final_ctx=ctx,
@@ -255,11 +259,11 @@ class NexusMissionService(object):
                     "items": [
                         {
                             "name"    : item.name,
-                            "request" : dict(item.request or {}),
+                            "request" : (step_results[index].detail or {}).get("request") or {},
                             "extract" : item.extract,
                             "asserts" : item.asserts
                         }
-                        for item in batch.items
+                        for index, item in enumerate(batch.items)
                     ]
                 },
                 "evidence": {
@@ -276,16 +280,18 @@ class NexusMissionService(object):
         mission_id: str,
         kind: str,
         batch: NexusBatchRequest,
-        ctx: dict[str, typing.Any]
+        ctx: dict[str, typing.Any],
+        env: dict[str, typing.Any]
     ) -> typing.Optional[ArtifactRecord]:
         """当启用落盘的 step 最终收敛到同一个 artifact_dir 时，创建共享 mission artifact。"""
         artifact_dirs: set[str] = set()
 
         for item in batch.items:
             request_r = TemplateService.render(dict(item.request or {}), ctx)
-            if not ArtifactService.artifact_enabled(request_r):
+            final_request = MergeService.materialize(env=env, request=request_r)
+            if not ArtifactService.artifact_enabled(final_request):
                 continue
-            artifact_dir = str(request_r.get("artifact_dir") or "").strip()
+            artifact_dir = str(final_request.get("artifact_dir") or "").strip()
             if not artifact_dir:
                 continue
             artifact_dirs.add(artifact_dir)
@@ -332,6 +338,7 @@ class NexusMissionService(object):
         name: str,
         kind: str,
         pack: dict[str, typing.Any],
+        executed_request: dict[str, typing.Any],
         ctx: dict[str, typing.Any],
         allow_ctx_merge: bool,
         started_at: float,
@@ -357,7 +364,7 @@ class NexusMissionService(object):
             ok=bool(data.get("ok")),
             elapsed_ms=elapsed_ms,
             detail={
-                "request"        : data.get("request") or {},
+                "request"        : dict(executed_request or {}),
                 "response"       : data.get("response") or {},
                 "extract"        : data.get("extract"),
                 "asserts"        : data.get("asserts"),
@@ -368,6 +375,7 @@ class NexusMissionService(object):
             },
             artifact=ArtifactService.to_dict(artifact)
         )
+
 
 if __name__ == '__main__':
     pass

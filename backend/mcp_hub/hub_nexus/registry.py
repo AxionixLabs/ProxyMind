@@ -3,6 +3,7 @@
 
 import typing
 from backend.models.model_nexus import NexusKind
+from backend.mcp_hub.hub_nexus.domain.merge import MergeService
 from backend.mcp_hub.hub_nexus.executors.ftp_executor import FtpExecutor
 from backend.mcp_hub.hub_nexus.executors.graphql_executor import GraphqlExecutor
 from backend.mcp_hub.hub_nexus.executors.http_executor import HttpExecutor
@@ -66,7 +67,17 @@ class NexusExecutorRegistry(object):
         """安全布尔化。"""
         if value is None:
             return default
-        return bool(value)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in {"true", "1", "yes", "y", "on"}:
+                return True
+            if text in {"false", "0", "no", "n", "off", ""}:
+                return False
+        raise ValueError(f"invalid boolean value: {value!r}")
 
     @staticmethod
     def _as_dict(value: typing.Any) -> dict[str, typing.Any]:
@@ -155,8 +166,8 @@ class NexusExecutorRegistry(object):
         step_artifact_dir: typing.Optional[str] = None,
     ) -> dict[str, typing.Any]:
         """根据 kind 把标准化请求路由到对应协议执行器。"""
-        request = dict(request or {})
-        env     = dict(env or {})
+        request = MergeService.materialize(env=env, request=request)
+        env     = {}
 
         base_headers = NexusExecutorRegistry._as_dict(env.get("headers"))
         base_timeout = NexusExecutorRegistry._as_float(env.get("timeout"), 30.0)

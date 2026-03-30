@@ -5,8 +5,8 @@ import typing
 from backend.models.model_nexus import (
     NexusKind, NexusRequest, NexusBatchRequest
 )
-from backend.mcp_hub.hub_nexus import NexusInspectionService
-from backend.mcp_hub.hub_nexus import NexusMissionService
+from backend.mcp_hub.hub_nexus import InspectionService
+from backend.mcp_hub.hub_nexus import MissionService
 from backend.mcp_hub.hub_nexus import NexusExecutorRegistry
 from backend.mcp_hub.hub_nexus import MemoryRunRepository
 
@@ -20,8 +20,8 @@ class Nexus(object):
         """初始化运行仓储、协议分发器与任务编排服务。"""
         self.run_repository = MemoryRunRepository()
         self.executor_registry = NexusExecutorRegistry()
-        self.mission_service = NexusMissionService(self.executor_registry, self.run_repository)
-        self.inspection_service = NexusInspectionService()
+        self.mission_service = MissionService(self.executor_registry, self.run_repository)
+        self.inspection_service = InspectionService()
 
     @property
     def runs(self) -> dict[str, typing.Any]:
