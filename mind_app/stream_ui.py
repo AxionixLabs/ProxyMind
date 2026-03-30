@@ -69,18 +69,18 @@ class StreamUI(object):
         self,
         text: typing.Optional[str],
         *,
-        delay_sec: float = 0.18
+        delay_sec: float = 0.0
     ) -> None:
-        """显示 Responses builtin 名称，先静态露出，再切到动画。"""
+        """显示 Responses builtin 名称，立即露出并至少保留一段可见动画时间。"""
         if self._has_stream_output:
             return None
         await self._schedule_status_task(
             self._delayed_status_flow(
                 text,
                 show_delay_sec=delay_sec,
-                animate_after_sec=0.72,
+                animate_after_sec=0.0,
                 family="builtin",
-                min_visible_sec=0.0
+                min_visible_sec=0.85
             ),
             force_reveal=True
         )
@@ -203,6 +203,8 @@ class StreamUI(object):
             animate_delay = animate_after_sec - show_delay_sec
             if animate_delay > 0:
                 await asyncio.sleep(animate_delay)
+                await self.coordinator.set_status(text, family=family, animated=True)
+            elif animate_after_sec <= show_delay_sec:
                 await self.coordinator.set_status(text, family=family, animated=True)
 
             self._clear_pending_status_task_ref(task)

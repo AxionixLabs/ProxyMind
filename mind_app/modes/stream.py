@@ -8,6 +8,7 @@ from engine.enhancer import Enhancer
 from engine.tinker import Tooling
 from mind_nova.events import EventReport
 from mind_nova import request
+from .tool_result import tool_result_text
 from ..stream_ui import StreamUI
 from ..stream_events.finish import finish_stream
 from ..stream_events.responses_builtin import (
@@ -50,10 +51,10 @@ async def stream_looper(
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
     slog: StreamUI = StreamUI(mind.report.log_papers)
-    await slog.open()
     interrupted = False
 
     try:
+        await slog.open()
         first_frame = True
         tracker = SegmentTracker()
 
@@ -134,7 +135,7 @@ async def stream_looper(
                 finally:
                     await slog.end_status()
 
-                await slog.feed(chunk=f"{fields.get('text')}", display=StreamUI.BLOCK)
+                await slog.feed(chunk=tool_result_text(fields), display=StreamUI.BLOCK)
 
                 await request.post_tool_result(
                     event["cid"], event["sid"], event["call_id"], name, ok, fields

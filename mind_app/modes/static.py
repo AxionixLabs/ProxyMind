@@ -13,6 +13,7 @@ from mind_nova.events import EventReport
 from mind_nova import (
     craft, request
 )
+from .tool_result import tool_result_data, tool_result_text
 from ..stream_ui import StreamUI
 from ..stream_events.finish import finish_stream
 
@@ -48,6 +49,7 @@ async def static_looper(
 
     slog: StreamUI = StreamUI(mind.report.log_papers)
     interrupted = False
+
     try:
         await slog.open()
         result = await session.call_tool("refresh", {"ttl_sec": mind.ttl_sec})
@@ -223,8 +225,8 @@ async def static_looper(
                         await slog.end_status()
 
                     step_context["ok"]      = ok
-                    step_context["text"]    = fields.get("text") if isinstance(fields, dict) else ""
-                    step_context["data"]    = fields.get("data") if isinstance(fields, dict) else None
+                    step_context["text"]    = tool_result_text(fields)
+                    step_context["data"]    = tool_result_data(fields)
                     step_context["cost_ms"] = int((time.time() - started_at) * 1000)
 
                     context["steps"].append(step_context)
@@ -240,12 +242,12 @@ async def static_looper(
                         "ts"      : time.time()
                     })
 
-                    data    = fields.get("data") if isinstance(fields, dict) else None
+                    data    = tool_result_data(fields)
                     data_ok = bool(data.get("ok")) if isinstance(data, dict) else False
 
                     if not ok or not data_ok:
                         step_context["data_ok"] = data_ok
-                        brief_err = fields.get("text") if isinstance(fields, dict) else "step failed"
+                        brief_err = tool_result_text(fields) or "step failed"
                         await finish_stream(
                             ev_report,
                             phase="exec.failed",
@@ -256,7 +258,7 @@ async def static_looper(
                         )
                         return logger.error(f"{fields}\n")
 
-                    logger.info(fields.get("text") if isinstance(fields, dict) else "")
+                    logger.info(tool_result_text(fields))
                     emit_event({
                         "type"    : "exec.step.done",
                         "run"     : index,
