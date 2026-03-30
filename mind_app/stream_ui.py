@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import time
 import typing
 import asyncio
-import time
 from loguru import logger
 from mind_app.stream_render.coordinator import RenderCoord
 from mind_app.stream_state.status import StatusFamily
