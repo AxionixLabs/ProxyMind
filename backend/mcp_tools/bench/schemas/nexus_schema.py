@@ -65,6 +65,10 @@ class BodyTextAliasMixin(NexusToolSchemaModel):
     )
 
 
+class ArtifactDirMixin(NexusToolSchemaModel):
+    artifact_dir: typing.Optional[str] = None
+
+
 class GraphqlAliasMixin(NexusToolSchemaModel):
     operation_name: typing.Optional[str] = Field(
         default=None,
@@ -72,7 +76,7 @@ class GraphqlAliasMixin(NexusToolSchemaModel):
     )
 
 
-class GenericSharedEnv(HttpLikeBodyMixin, GraphqlAliasMixin):
+class GenericSharedEnv(ArtifactDirMixin, HttpLikeBodyMixin, GraphqlAliasMixin):
     method: typing.Optional[str] = None
     url: typing.Optional[str] = None
     base_url: typing.Optional[str] = None
@@ -121,7 +125,7 @@ class GenericBatchItem(FlatBatchItemBase, GenericSharedEnv):
     pass
 
 
-class HttpSharedEnv(HttpLikeBodyMixin):
+class HttpSharedEnv(ArtifactDirMixin, HttpLikeBodyMixin):
     method: typing.Optional[str] = None
     url: typing.Optional[str] = None
     base_url: typing.Optional[str] = None
@@ -148,7 +152,7 @@ class SseFlatBatchItem(FlatBatchItemBase, SseSharedEnv):
     pass
 
 
-class GraphqlSharedEnv(GraphqlAliasMixin):
+class GraphqlSharedEnv(ArtifactDirMixin, GraphqlAliasMixin):
     url: typing.Optional[str] = None
     base_url: typing.Optional[str] = None
     headers: typing.Optional[dict[str, typing.Any]] = None
@@ -165,7 +169,7 @@ class GraphqlFlatBatchItem(FlatBatchItemBase, GraphqlSharedEnv):
     pass
 
 
-class WsSharedEnv(NexusToolSchemaModel):
+class WsSharedEnv(ArtifactDirMixin):
     url: typing.Optional[str] = None
     headers: typing.Optional[dict[str, typing.Any]] = None
     sends: typing.Optional[list[str] | str] = None
@@ -179,7 +183,7 @@ class WsFlatBatchItem(FlatBatchItemBase, WsSharedEnv):
     pass
 
 
-class TcpSharedEnv(BodyTextAliasMixin):
+class TcpSharedEnv(ArtifactDirMixin, BodyTextAliasMixin):
     host: typing.Optional[str] = None
     port: typing.Optional[int] = None
     sends: typing.Optional[list[str] | str] = None
@@ -195,7 +199,7 @@ class TcpFlatBatchItem(FlatBatchItemBase, TcpSharedEnv):
     pass
 
 
-class UdpSharedEnv(BodyTextAliasMixin):
+class UdpSharedEnv(ArtifactDirMixin, BodyTextAliasMixin):
     host: typing.Optional[str] = None
     port: typing.Optional[int] = None
     encoding: typing.Optional[str] = None
@@ -207,7 +211,7 @@ class UdpFlatBatchItem(FlatBatchItemBase, UdpSharedEnv):
     pass
 
 
-class SmtpSharedEnv(BodyTextAliasMixin):
+class SmtpSharedEnv(ArtifactDirMixin, BodyTextAliasMixin):
     host: typing.Optional[str] = None
     port: typing.Optional[int] = None
     action: typing.Optional[str] = None
@@ -227,7 +231,7 @@ class SmtpFlatBatchItem(FlatBatchItemBase, SmtpSharedEnv):
     pass
 
 
-class ImapSharedEnv(NexusToolSchemaModel):
+class ImapSharedEnv(ArtifactDirMixin):
     host: typing.Optional[str] = None
     port: typing.Optional[int] = None
     username: typing.Optional[str] = None
@@ -247,7 +251,7 @@ class ImapFlatBatchItem(FlatBatchItemBase, ImapSharedEnv):
     pass
 
 
-class FtpSharedEnv(NexusToolSchemaModel):
+class FtpSharedEnv(ArtifactDirMixin):
     host: typing.Optional[str] = None
     port: typing.Optional[int] = None
     username: typing.Optional[str] = None

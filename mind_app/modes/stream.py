@@ -13,7 +13,7 @@ from ..stream_ui import StreamUI
 from ..stream_events.finish import finish_stream
 from ..stream_events.responses_builtin import (
     resolve_builtin_name,
-    consume_builtin_done,
+    consume_builtin_done
 )
 from ..stream_state.segment import (
     SegmentTracker,
