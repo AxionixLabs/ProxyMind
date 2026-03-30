@@ -148,6 +148,9 @@ class NexusInspectionService(object):
             if kind == "imap":
                 _required_str("username", request.get("username") or env.get("username"))
                 _required_str("password", request.get("password") or env.get("password"))
+                imap_action = str(request.get("action", env.get("action", "search"))).strip().lower()
+                if imap_action not in {"search", "fetch", "noop"}:
+                    errors.append(f"unsupported imap action: {imap_action}")
 
             if kind == "smtp":
                 smtp_action = str(request.get("action", env.get("action", "noop"))).strip().lower()
@@ -160,15 +163,22 @@ class NexusInspectionService(object):
                     if not to_addrs:
                         errors.append("missing required field: to_addrs")
 
-            if kind == "ftp" and str(
-                request.get("action", env.get("action", "list"))
-            ).lower() in {"upload_text", "download_text", "delete", "mkdir"}:
-                _required_str("path", request.get("path") or env.get("path"))
-
-            if kind == "ftp" and str(
-                request.get("action", env.get("action", "list"))
-            ).lower() in {"upload_binary", "download_binary"}:
-                _required_str("path", request.get("path") or env.get("path"))
+            if kind == "ftp":
+                ftp_action = str(request.get("action", env.get("action", "list"))).strip().lower()
+                if ftp_action not in {
+                    "list", "download_text", "download_binary", "upload_text",
+                    "upload_binary", "delete", "mkdir"
+                }:
+                    errors.append(f"unsupported ftp action: {ftp_action}")
+                if ftp_action in {
+                    "upload_text", "download_text", "delete", "mkdir",
+                    "upload_binary", "download_binary"
+                }:
+                    _required_str("path", request.get("path") or env.get("path"))
+                if ftp_action == "upload_text":
+                    _required_str("payload_text", request.get("payload_text") or env.get("payload_text"))
+                if ftp_action == "upload_binary":
+                    _required_str("payload_base64", request.get("payload_base64") or env.get("payload_base64"))
 
         return errors
 
