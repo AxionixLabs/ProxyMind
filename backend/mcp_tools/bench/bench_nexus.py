@@ -26,7 +26,7 @@ NexusRequestArg = typing.Annotated[
 ]
 NexusEnvArg = typing.Annotated[
     typing.Optional[dict[str, typing.Any]],
-    Field(description="批量或渲染阶段的共享默认值。执行时会先应用这里的字段，再由每项 `request` 覆盖同名字段。"),
+    Field(description="批量或预执行阶段的共享默认值。执行或校验时会先应用这里的字段，再由当前 `request` 覆盖同名字段。"),
 ]
 NexusTemplateVarsArg = typing.Annotated[
     typing.Optional[dict[str, typing.Any]],

@@ -136,7 +136,7 @@ class NexusInspectionService(object):
             pass
 
         elif kind == "graphql":
-            _required_str("query", request.get("query"))
+            _required_str("query", request.get("query") or env.get("query"))
 
         elif kind == "ws":
             pass

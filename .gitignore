@@ -48,6 +48,7 @@ test/
 */test/
 test_*.py
 *_test.py
+!backend/mcp_hub/hub_nexus/test_nexus_registry.py
 !tests/
 tests/*
 !tests/test_ctrl_c_shutdown.py
