@@ -110,6 +110,17 @@ class Parser(object):
             ''')
         )
 
+        major_group.add_argument(
+            "--agent", action="store_true",
+            help=textwrap.dedent(f'''\
+                \033[1;34m^* 驻留协议 *^\033[0m
+                -------------------------
+                - 启动驻留 Agent 订阅模式，连接 /agents/open 与 /agents/ws。
+                - 适合常驻联调、心跳保活与工具下发回环验证。
+
+            ''')
+        )
+
         # Workflow: ======================== 参数兼容 ========================
 
         minor_group = self.__parse_engine.add_argument_group(

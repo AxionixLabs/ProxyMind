@@ -199,7 +199,9 @@ async def main(entry_file: typing.Optional[str] = None) -> int:
 
     signal.signal(signal.SIGINT, mind.signal_processor)
 
-    if chat := cmd_lines.chat:
+    if cmd_lines.agent:
+        await mind.agent_loop()
+    elif chat := cmd_lines.chat:
         await mind.calling(message=chat, mode="chat")
     elif fast := cmd_lines.fast:
         await mind.calling(message=fast, mode="fast")
