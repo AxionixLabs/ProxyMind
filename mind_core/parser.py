@@ -115,7 +115,7 @@ class Parser(object):
             help=textwrap.dedent(f'''\
                 \033[1;34m^* 折跃协议 *^\033[0m
                 -------------------------
-                - 启动驻留订阅模式，连接 /agents/open 与 /agents/ws。
+                - 启动订阅模式，连接 /agents/open 与 /agents/ws。
 
             ''')
         )

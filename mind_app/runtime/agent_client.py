@@ -37,6 +37,13 @@ class AgentClient(object):
         params: dict[str, typing.Any] | None = None
     ) -> dict[str, typing.Any]:
         """用指定身份令牌发起 HTTP 请求，并统一返回 JSON 响应。"""
+        timeout = httpx.Timeout(
+            connect=self.timeout_sec,
+            read=max(30.0, self.timeout_sec),
+            write=self.timeout_sec,
+            pool=self.timeout_sec,
+        )
+
         if token_kind == "client":
             header_name = "X-Agent-Token"
             token_value = const.AGENT_CLIENT_SECRET
@@ -44,7 +51,7 @@ class AgentClient(object):
             header_name = "X-Agent-Admin-Token"
             token_value = const.AGENT_ADMIN_SECRET
 
-        async with httpx.AsyncClient(timeout=self.timeout_sec) as http:
+        async with httpx.AsyncClient(timeout=timeout) as http:
             response = await http.request(
                 method=method,
                 url=f"{self.base_url}{path}",

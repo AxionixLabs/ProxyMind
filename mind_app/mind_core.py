@@ -300,7 +300,7 @@ class Mind(object):
         return await run_mind_pack(self, code, mode, **kwargs)
 
     async def agent_loop(self) -> None:
-        """驻留模式入口：委托给驻留模式模块。"""
+        """订阅模式入口：委托给订阅模式模块。"""
         return await run_agent_loop(self)
 
 

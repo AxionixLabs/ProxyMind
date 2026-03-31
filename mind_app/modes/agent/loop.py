@@ -1,0 +1,165 @@
+# -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
+
+import httpx
+import typing
+import asyncio
+import platform
+from loguru import logger
+from websockets.exceptions import ConnectionClosed
+from ...runtime.agent_client import AgentClient
+from .models import (
+    AgentConfig, AgentSessionRuntime, AgentLiveStatus
+)
+from .ui import (
+    start_connect_animation,
+    start_status_animation,
+    log_external_access,
+)
+from .opening import (
+    build_device_id,
+    normalize_open_payload,
+    open_runtime,
+)
+from .ws import (
+    cancel_runtime_tasks,
+    sleep_or_stop,
+    connect_once,
+)
+from mind_nova import const
+
+if typing.TYPE_CHECKING:
+    from ...mind_core import Mind
+
+
+async def resume_or_reopen(
+    client: AgentClient,
+    runtime: AgentSessionRuntime,
+    config: AgentConfig,
+    live_status: AgentLiveStatus,
+) -> AgentSessionRuntime:
+    """优先尝试 resume；如果服务端判定不可恢复，则重新打开新会话。"""
+    if not runtime.resume_token:
+        raise RuntimeError("resume_token missing")
+
+    live_status.update("Attempting Resume", f"session={runtime.session_id}")
+    resume_resp = await client.resume_session(
+        session_id=runtime.session_id,
+        resume_token=runtime.resume_token,
+        last_acked_seq=runtime.last_acked_seq,
+        device_id=runtime.device_id,
+        agent_id=config.agent_id,
+    )
+    resume_data = client.unwrap_data(resume_resp)
+    resumable = bool(resume_data.get("resumable"))
+    logger.debug(f"[Agent] resume status resumable={resumable} last_acked_seq={runtime.last_acked_seq}")
+
+    if resumable:
+        live_status.update("Resume Succeeded", "Reusing existing subscription session")
+        return runtime
+
+    live_status.update("Resume Expired", "Opening a fresh subscription session")
+    opened, device_id = await open_runtime(client, config)
+    session_id, ws_token, ws_url, resume_token, access_token = normalize_open_payload(client, opened)
+    reopened = AgentSessionRuntime(
+        session_id=session_id,
+        ws_token=ws_token,
+        resume_token=resume_token,
+        access_token=access_token,
+        ws_url=ws_url,
+        device_id=device_id,
+        client_version=config.client_version,
+        forwarded_message_ids=runtime.forwarded_message_ids,
+        pending_tasks=runtime.pending_tasks,
+    )
+    logger.debug(f"[Agent] reopened session_id={session_id} device_id={device_id}")
+    log_external_access(reopened, config.base_url)
+    return reopened
+
+
+async def agent_loop(mind: "Mind") -> None:
+    """订阅模式主循环：创建会话、建立 WS，并持续处理协议消息。"""
+    config = AgentConfig(
+        base_url=const.DOMAIN,
+        device_id=build_device_id(),
+        agent_id=const.APP_NAME,
+        client_version=const.APP_VERSION,
+        platform=(platform.system().lower() or "windows").strip(),
+        arch=(platform.machine().lower() or "amd64").strip(),
+    )
+
+    client = AgentClient(base_url=config.base_url)
+    live_status = AgentLiveStatus()
+
+    await start_connect_animation(mind, live_status)
+
+    live_status.update("Opening Session", "Requesting /agents/open")
+    opened, device_id = await open_runtime(client, config)
+    session_id, ws_token, ws_url, resume_token, access_token = normalize_open_payload(client, opened)
+    runtime = AgentSessionRuntime(
+        session_id=session_id,
+        ws_token=ws_token,
+        resume_token=resume_token,
+        access_token=access_token,
+        ws_url=ws_url,
+        device_id=device_id,
+        client_version=config.client_version
+    )
+
+    logger.debug(f"[Agent] {config.base_url}")
+    logger.debug(f"[Agent] session_id={session_id} agent_id={config.agent_id} device_id={device_id}")
+    live_status.update("Subscription Ready", "Rendering external call example")
+    await mind.await_cleanup(mind.stop_anim())
+    log_external_access(runtime, config.base_url)
+    if not mind.task_event.is_set():
+        await start_status_animation(mind, live_status)
+        live_status.update("Waiting for Server Tasks", "Long link established and listening")
+
+    try:
+        while not mind.task_event.is_set():
+            try:
+                await connect_once(mind, client, runtime, live_status)
+                return None
+            except asyncio.CancelledError:
+                live_status.update("Exiting Subscription", "Interrupting network wait")
+                raise
+            except (ConnectionClosed, OSError, httpx.HTTPError, asyncio.TimeoutError) as exc:
+                logger.debug(f"[Agent] disconnected: {type(exc).__name__}: {exc}")
+                live_status.update("Link Interrupted", f"{type(exc).__name__} · preparing reconnect")
+
+                if not runtime.resume_token:
+                    logger.debug("[Agent] resume skipped: resume_token missing")
+                    live_status.update("Resume Token Missing", "Retrying session open in 2s")
+                    await sleep_or_stop(2.0, mind.task_event)
+                    continue
+
+                try:
+                    runtime = await resume_or_reopen(client, runtime, config, live_status)
+                except asyncio.CancelledError:
+                    live_status.update("Exiting Subscription", "Canceling resume flow")
+                    raise
+                except (OSError, httpx.HTTPError, asyncio.TimeoutError) as resume_exc:
+                    logger.debug(f"[Agent] resume failed: {type(resume_exc).__name__}: {resume_exc}")
+                    live_status.update("Resume Failed", f"{type(resume_exc).__name__} · retrying in 2s")
+                    await sleep_or_stop(2.0, mind.task_event)
+                    continue
+                except Exception as resume_exc:
+                    logger.debug(f"[Agent] resume crashed: {type(resume_exc).__name__}: {resume_exc}")
+                    live_status.update("Resume Crashed", f"{type(resume_exc).__name__} · retrying in 2s")
+                    await sleep_or_stop(2.0, mind.task_event)
+                    continue
+
+                live_status.update("Resumed and Waiting", "Returning to listening state in 1s")
+                await sleep_or_stop(1.0, mind.task_event)
+    finally:
+        live_status.update("Exiting Subscription", "Cleaning tasks and stopping animation")
+        await cancel_runtime_tasks(runtime)
+        await mind.await_cleanup(mind.stop_anim())
+
+
+async def run_agent_loop(mind: "Mind") -> None:
+    return await agent_loop(mind)
+
+
+if __name__ == '__main__':
+    pass

@@ -1494,6 +1494,145 @@ class Design(object):
             async for frame in agen:
                 live.update(frame)
 
+    async def agent_wait_live(
+        self,
+        stop_event: asyncio.Event,
+        snapshot: typing.Callable[[], tuple[str, str]]
+    ) -> None:
+        """订阅模式呼吸等待动画。"""
+        if self.design_level != const.SHOW_LEVEL:
+            return None
+
+        fps = 24
+        width = min(38, max(24, self.console.width - 18))
+        glyphs = ["·", "•", "◦", "◎", "◉", "◌"]
+        colors = {
+            "halo_dim" : "#2D3748",
+            "halo_mid" : "#4FD1C5",
+            "halo_hot" : "#D6FFFA",
+            "title"    : "#9AE6B4",
+            "detail"   : "#94A3B8",
+            "pulse"    : "#67E8F9",
+        }
+
+        def fit(text: str) -> str:
+            raw = (text or "").strip()
+            if cell_len(raw) <= width:
+                return raw
+            trimmed = raw
+            while trimmed and cell_len(trimmed + "…") > width:
+                trimmed = trimmed[:-1]
+            return trimmed + "…"
+
+        def render(tick: int) -> Text:
+            title, detail = snapshot()
+            phase = tick / fps
+            breathe = 0.5 + 0.5 * math.sin(phase * 2.2)
+            halo_a = 1 + int(breathe * 2)
+            halo_b = 4 + int((1.0 - breathe) * 3)
+            spin = glyphs[tick % len(glyphs)]
+            pulse = "◜◠◝◞◡◟"[tick % 6]
+
+            line1 = Text()
+            line1.append(" " * halo_a)
+            line1.append("◌", style=f"bold {mix_hex_color(colors['halo_dim'], colors['halo_mid'], breathe)}")
+            line1.append(" " * halo_b)
+            line1.append("◎", style=f"bold {mix_hex_color(colors['halo_mid'], colors['halo_hot'], breathe)}")
+            line1.append(" " * halo_b)
+            line1.append("◌", style=f"bold {mix_hex_color(colors['halo_dim'], colors['halo_mid'], 1.0 - breathe)}")
+
+            line2 = Text()
+            line2.append(f"{pulse} ", style=f"bold {colors['pulse']}")
+            line2.append(fit(title or "Subscription Idle"), style=f"bold {colors['title']}")
+
+            line3 = Text()
+            line3.append(f"{spin} ", style=f"bold {colors['pulse']}")
+            line3.append(fit(detail or "Waiting for link state"), style=f"bold {colors['detail']}")
+
+            out = Text(no_wrap=True, overflow="crop")
+            out.append_text(line1)
+            out.append("\n")
+            out.append_text(line2)
+            out.append("\n")
+            out.append_text(line3)
+            return out
+
+        tick = 0
+        with Live(render(0), console=Design.console, refresh_per_second=fps, transient=True) as live:
+            while not stop_event.is_set():
+                tick += 1
+                live.update(render(tick))
+                await asyncio.sleep(1 / fps)
+
+    async def agent_connect_live(
+        self,
+        stop_event: asyncio.Event,
+        snapshot: typing.Callable[[], tuple[str, str]]
+    ) -> None:
+        """订阅模式建连等待动画。"""
+        if self.design_level != const.SHOW_LEVEL:
+            return None
+
+        fps = 24
+        width = min(38, max(24, self.console.width - 18))
+        colors = {
+            "pulse"  : "#7DD3FC",
+            "title"  : "#E2E8F0",
+            "detail" : "#94A3B8",
+            "ring_a" : "#1E293B",
+            "ring_b" : "#38BDF8",
+            "ring_c" : "#E0F2FE",
+        }
+        orbit = "◜◠◝◞◡◟"
+
+        def fit(text: str) -> str:
+            raw = (text or "").strip()
+            if cell_len(raw) <= width:
+                return raw
+            trimmed = raw
+            while trimmed and cell_len(trimmed + "…") > width:
+                trimmed = trimmed[:-1]
+            return trimmed + "…"
+
+        def render(tick: int) -> Text:
+            title, detail = snapshot()
+            phase = tick / fps
+            breathe = 0.5 + 0.5 * math.sin(phase * 1.9)
+            ring_l = 2 + int(breathe * 2)
+            ring_r = 5 + int((1.0 - breathe) * 3)
+            core = orbit[tick % len(orbit)]
+
+            line1 = Text()
+            line1.append(" " * ring_l)
+            line1.append("◌", style=f"bold {mix_hex_color(colors['ring_a'], colors['ring_b'], breathe)}")
+            line1.append(" " * ring_r)
+            line1.append(core, style=f"bold {mix_hex_color(colors['ring_b'], colors['ring_c'], breathe)}")
+            line1.append(" " * ring_r)
+            line1.append("◌", style=f"bold {mix_hex_color(colors['ring_a'], colors['ring_b'], 1.0 - breathe)}")
+
+            line2 = Text()
+            line2.append("↺ ", style=f"bold {colors['pulse']}")
+            line2.append(fit(title or "Opening Fold Link"), style=f"bold {colors['title']}")
+
+            line3 = Text()
+            line3.append("· ", style=f"bold {colors['pulse']}")
+            line3.append(fit(detail or "Waiting for subscription handshake"), style=f"bold {colors['detail']}")
+
+            out = Text(no_wrap=True, overflow="crop")
+            out.append_text(line1)
+            out.append("\n")
+            out.append_text(line2)
+            out.append("\n")
+            out.append_text(line3)
+            return out
+
+        tick = 0
+        with Live(render(0), console=Design.console, refresh_per_second=fps, transient=True) as live:
+            while not stop_event.is_set():
+                tick += 1
+                live.update(render(tick))
+                await asyncio.sleep(1 / fps)
+
     async def stream_wait_live(
         self,
         stop_event: asyncio.Event,
