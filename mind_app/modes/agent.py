@@ -2,16 +2,18 @@
 # Notes: ==== Mind™ ====
 
 import json
-import asyncio
+import uuid
 import httpx
 import socket
 import typing
+import asyncio
+import hashlib
 import platform
+import contextlib
 from dataclasses import dataclass
 from loguru import logger
-from mcp import ClientSession
 from websockets.exceptions import ConnectionClosed
-
+from mind_core.design import Design
 from ..runtime.agent_client import AgentClient
 from mind_nova import const
 
@@ -28,9 +30,6 @@ class AgentResidentConfig:
     client_version: str
     platform: str
     arch: str
-    auto_event: bool = False
-    event_mode: str = "chat"
-    event: dict[str, typing.Any] | None = None
 
 
 @dataclass(slots=True)
@@ -44,30 +43,75 @@ class AgentSessionRuntime:
     device_id: str
     client_version: str
     hello_sent: bool = False
-    auto_event_sent: bool = False
     last_acked_seq: int = 0
+    forwarded_message_ids: set[str] | None = None
+    pending_tasks: set[asyncio.Task[None]] | None = None
 
 
-def _serialize_tool_result(result: typing.Any) -> dict[str, typing.Any]:
-    """把 MCP ToolResult 压缩成可回传的 JSON 结构。"""
-    content: list[dict[str, typing.Any]] = []
+def _build_device_id() -> str:
+    """为当前设备生成稳定的驻留设备标识。"""
+    raw = "|".join(
+        [
+            socket.gethostname().strip().lower(),
+            hex(uuid.getnode()),
+            platform.system().strip().lower(),
+            platform.machine().strip().lower(),
+        ]
+    )
+    digest = hashlib.sha1(raw.encode(const.CHARSET, errors="ignore")).hexdigest()[:16]
+    return f"dev_{digest}"
 
-    for item in list(getattr(result, "content", []) or []):
-        record: dict[str, typing.Any] = {
-            "type": getattr(item, "type", item.__class__.__name__.lower())
-        }
 
-        for field in ("text", "mimeType", "data"):
-            value = getattr(item, field, None)
-            if value is not None:
-                record["mime_type" if field == "mimeType" else field] = value
-
-        content.append(record)
-
-    return {
-        "is_error": bool(getattr(result, "isError", False)),
-        "content": content,
+def _build_external_api_examples(base_url: str, access_token: str) -> list[str]:
+    """构造外部调用示例，便于直接调试服务端下发的访问令牌。"""
+    chat_request_id = str(uuid.uuid4())
+    code_request_id = str(uuid.uuid4())
+    mind_chat_payload = {
+        "mode"        : "chat",
+        "profile"     : "",
+        "subject"     : "",
+        "message"     : "帮我整理今天的会议纪要",
+        "timeout_sec" : 300,
+        "metadata"    : {"biz_id": "biz_002"},
     }
+    mind_code_payload = {
+        "mode"        : "plan",
+        "profile"     : "code",
+        "subject"     : "order_reconcile",
+        "message"     : "",
+        "timeout_sec" : 300,
+        "metadata"    : {"biz_id": "biz_003"},
+    }
+
+    mind_chat_body = json.dumps(mind_chat_payload, ensure_ascii=False, indent=2)
+    mind_code_body = json.dumps(mind_code_payload, ensure_ascii=False, indent=2)
+
+    return [
+        (
+            f"curl -X POST {base_url.rstrip('/')}/mind \\\n"
+            f"  -H 'Authorization: Bearer {access_token}' \\\n"
+            f"  -H 'Content-Type: application/json' \\\n"
+            f"  -H 'Idempotency-Key: {chat_request_id}' \\\n"
+            f"  -d '{mind_chat_body}'"
+        ),
+        (
+            f"curl -X POST {base_url.rstrip('/')}/mind \\\n"
+            f"  -H 'Authorization: Bearer {access_token}' \\\n"
+            f"  -H 'Content-Type: application/json' \\\n"
+            f"  -H 'Idempotency-Key: {code_request_id}' \\\n"
+            f"  -d '{mind_code_body}'"
+        ),
+    ]
+
+
+def _log_external_access(runtime: AgentSessionRuntime, base_url: str) -> None:
+    """打印服务端下发的外部访问令牌和接口调用示例。"""
+    if not runtime.access_token:
+        logger.warning("[Agent] access token missing")
+        return None
+
+    examples = "\n\n".join(_build_external_api_examples(base_url, runtime.access_token))
+    Design.console.print(f"\n{examples}\n")
 
 
 def _normalize_open_payload(
@@ -75,20 +119,23 @@ def _normalize_open_payload(
     opened: dict[str, typing.Any],
 ) -> tuple[str, str, str | None, str | None, str | None]:
     """从 `/agents/open` 响应中提取会话与握手信息。"""
-    data = client.unwrap_data(opened)
+    data        = client.unwrap_data(opened)
     session_raw = data.get("session")
-    session = session_raw if isinstance(session_raw, dict) else {}
+    session     = session_raw if isinstance(session_raw, dict) else {}
 
     session_id = data.get("session_id") or session.get("session_id")
-    ws_token = data.get("ws_token")
+
+    ws_token   = data.get("ws_token")
     ws_url_raw = data.get("ws_url")
-    ws_url = ws_url_raw if isinstance(ws_url_raw, str) else None
+    ws_url     = ws_url_raw if isinstance(ws_url_raw, str) else None
+
     resume_token_raw = data.get("resume_token")
-    resume_token = resume_token_raw if isinstance(resume_token_raw, str) else None
-    access_token_raw = data.get("access_token")
-    access_token_data = access_token_raw if isinstance(access_token_raw, dict) else {}
+    resume_token     = resume_token_raw if isinstance(resume_token_raw, str) else None
+
+    access_token_raw   = data.get("access_token")
+    access_token_data  = access_token_raw if isinstance(access_token_raw, dict) else {}
     access_token_token = access_token_data.get("token")
-    access_token = access_token_token if isinstance(access_token_token, str) else None
+    access_token       = access_token_token if isinstance(access_token_token, str) else None
 
     if not isinstance(session_id, str) or not session_id:
         raise RuntimeError("agent open response missing session_id or ws_token")
@@ -109,7 +156,7 @@ async def _open_with_fallback(
             agent_id=config.agent_id,
             client_version=config.client_version,
             platform=config.platform,
-            arch=config.arch,
+            arch=config.arch
         )
         return opened, config.device_id
     except httpx.HTTPStatusError as exc:
@@ -123,9 +170,9 @@ async def _open_with_fallback(
 
 async def _open_runtime(
     client: AgentClient,
-    config: AgentResidentConfig,
-) -> tuple[dict[str, typing.Any], str]:
-    """Keep retrying open until a session can be created."""
+    config: AgentResidentConfig
+) -> tuple[dict[str, typing.Any], str] | None:
+    """持续重试 open，直到成功创建会话。"""
     while True:
         try:
             return await _open_with_fallback(client, config)
@@ -144,95 +191,11 @@ async def _open_runtime(
             continue
 
 
-async def _run_mind_mode(
-    mind: "Mind",
-    *,
-    tool_name: str,
-    tool_args: dict[str, typing.Any],
-    cid: str | None,
-    sid: str | None,
-) -> dict[str, typing.Any]:
-    """桥接驻留端特殊指令到本地 mind 模式。"""
-    metadata = mind.begin_session(cid=cid, sid=sid)
-
-    if tool_name == "mind.chat":
-        message = str(tool_args.get("message") or "").strip()
-        if not message:
-            raise ValueError("mind.chat requires arguments.message")
-        await mind.calling(message=message, mode="chat", metadata=metadata)
-        mode = "chat"
-    elif tool_name == "mind.fast":
-        message = str(tool_args.get("message") or "").strip()
-        if not message:
-            raise ValueError("mind.fast requires arguments.message")
-        await mind.calling(message=message, mode="fast", metadata=metadata)
-        mode = "fast"
-    elif tool_name == "mind.plan":
-        message = str(tool_args.get("message") or "").strip()
-        if not message:
-            raise ValueError("mind.plan requires arguments.message")
-        await mind.calling(message=message, mode="plan", metadata=metadata)
-        mode = "plan"
-    elif tool_name == "mind.batch":
-        code = tool_args.get("code")
-        if isinstance(code, str):
-            code_list = [code]
-        elif isinstance(code, list):
-            code_list = [str(item) for item in code if str(item).strip()]
-        else:
-            code_list = []
-
-        if not code_list:
-            raise ValueError("mind.batch requires arguments.code")
-
-        mode = _resolve_batch_mode(tool_args.get("mode"))
-        await mind.mind_pack(code_list, mode, metadata=metadata)
-    else:
-        raise ValueError(f"unsupported mind mode tool: {tool_name}")
-
-    atlas = f"{const.ATLAS_URL}?mode={mode}&cid={metadata['cid']}&sid={metadata['sid']}"
-    return {
-        "mode": mode,
-        "cid": metadata["cid"],
-        "sid": metadata["sid"],
-        "atlas_url": atlas,
-        "ok": True,
-    }
-
-
-def _resolve_batch_mode(value: typing.Any) -> typing.Literal["chat", "fast", "plan"]:
-    """Normalize batch mode values to the supported literal set."""
-    mode = str(value or "plan").strip().lower()
-    if mode not in {"chat", "fast", "plan"}:
-        raise ValueError("mind.batch arguments.mode must be chat, fast, or plan")
-    return mode
-
-
-def _build_tool_call_schema(config: AgentResidentConfig, device_id: str) -> dict[str, typing.Any]:
-    """Build a ready-to-use remote tool-call schema for the current resident agent."""
-    return {
-        "selector": {
-            "agent_id": config.agent_id,
-            "device_id": device_id,
-            "session_strategy": "latest_seen",
-            "online_only": True,
-        },
-        "cid": "cid_demo",
-        "sid": "sid_demo",
-        "call_id": "call_refresh_001",
-        "name": "refresh",
-        "arguments": {
-            "ttl_sec": 1,
-        },
-        "timeout_sec": 60,
-    }
-
-
 def _extract_http_error_detail(exc: httpx.HTTPStatusError) -> dict[str, typing.Any]:
-    """Extract structured business error detail from an HTTP error response."""
+    """从 HTTP 错误响应中提取结构化业务错误信息。"""
     try:
         payload = exc.response.json()
-    except Exception:
+    except (TypeError, ValueError, json.JSONDecodeError):
         return {}
 
     if not isinstance(payload, dict):
@@ -247,11 +210,11 @@ def _extract_http_error_detail(exc: httpx.HTTPStatusError) -> dict[str, typing.A
 
 
 def _log_http_error_detail(prefix: str, exc: httpx.HTTPStatusError) -> None:
-    """Log detail.code / detail.message / detail.extra for diagnosis."""
-    detail = _extract_http_error_detail(exc)
-    code = detail.get("code") if isinstance(detail, dict) else None
-    message = detail.get("message") if isinstance(detail, dict) else None
-    extra = detail.get("extra") if isinstance(detail, dict) else None
+    """记录 detail.code / detail.message / detail.extra 以便排查问题。"""
+    detail     = _extract_http_error_detail(exc)
+    code       = detail.get("code") if isinstance(detail, dict) else None
+    message    = detail.get("message") if isinstance(detail, dict) else None
+    extra      = detail.get("extra") if isinstance(detail, dict) else None
     extra_text = json.dumps(extra, ensure_ascii=False) if extra is not None else ""
 
     logger.warning(
@@ -261,121 +224,273 @@ def _log_http_error_detail(prefix: str, exc: httpx.HTTPStatusError) -> None:
 
 
 def _update_last_acked_seq(runtime: AgentSessionRuntime, message: dict[str, typing.Any]) -> None:
-    """Track the latest outbound sequence observed from the server."""
+    """记录当前已观测到的服务端最新序号。"""
     seq = message.get("seq")
     if isinstance(seq, int) and seq > runtime.last_acked_seq:
         runtime.last_acked_seq = seq
 
 
-async def _execute_tool_call(
-    mind: "Mind",
-    session: ClientSession,
-    client: AgentClient,
-    connection: typing.Any,
-    runtime: AgentSessionRuntime,
-    message: dict[str, typing.Any],
-) -> None:
-    """Execute one tool.call message and return tool.result."""
-    payload_raw = message.get("payload")
-    payload = payload_raw if isinstance(payload_raw, dict) else {}
-    tool_name_raw = payload.get("name")
-    tool_name = tool_name_raw if isinstance(tool_name_raw, str) else ""
-    tool_args_raw = payload.get("arguments")
-    tool_args = tool_args_raw if isinstance(tool_args_raw, dict) else {}
-    cid_raw = message.get("cid")
-    cid = cid_raw if isinstance(cid_raw, str) else None
-    sid_raw = message.get("sid")
-    sid = sid_raw if isinstance(sid_raw, str) else None
-    message_id_raw = message.get("message_id")
-    message_id = message_id_raw if isinstance(message_id_raw, str) else ""
-    call_id_raw = payload.get("call_id")
-    call_id = call_id_raw if isinstance(call_id_raw, str) else ""
+def _get_runtime_message_cache(runtime: AgentSessionRuntime) -> set[str]:
+    """返回驻留运行态中的转发消息去重集合。"""
+    if runtime.forwarded_message_ids is None:
+        runtime.forwarded_message_ids = set()
+    return runtime.forwarded_message_ids
 
-    await client.send_ack(
-        connection,
-        session_id=runtime.session_id,
-        acked_message_id=message_id,
-    )
-    logger.info(f"[Agent] ack sent tool={tool_name}")
+
+def _get_runtime_tasks(runtime: AgentSessionRuntime) -> set[asyncio.Task[None]]:
+    """返回驻留运行态中的后台执行任务集合。"""
+    if runtime.pending_tasks is None:
+        runtime.pending_tasks = set()
+    return runtime.pending_tasks
+
+
+def _normalize_forward_target(
+    payload: dict[str, typing.Any]
+) -> tuple[typing.Literal["chat", "fast", "plan"], str, str, str]:
+    """解析 `mind.forward` 载荷，映射到本地可执行的模式与参数。"""
+    mode = str(payload.get("mode") or "").strip().lower()
+    if mode not in {"chat", "fast", "plan"}:
+        raise ValueError("mind.forward payload.mode must be chat, fast, or plan")
+
+    profile = str(payload.get("profile") or "").strip().lower()
+    if profile not in {"", "code"}:
+        raise ValueError("mind.forward payload.profile must be empty or code")
+
+    subject = str(payload.get("subject") or "").strip()
+    message = str(payload.get("message") or "").strip()
+
+    if profile == "code":
+        if not subject:
+            raise ValueError("mind.forward payload.subject is required when profile=code")
+        return typing.cast(typing.Literal["chat", "fast", "plan"], mode), profile, subject, message
+
+    if not message:
+        raise ValueError("mind.forward payload.message is required")
+
+    return typing.cast(typing.Literal["chat", "fast", "plan"], mode), profile, subject, message
+
+
+def _resolve_forward_timeout_sec(payload: dict[str, typing.Any]) -> float | None:
+    """解析 `mind.forward` 的超时设置。"""
+    raw = payload.get("timeout_sec")
+    if raw in (None, ""):
+        return None
 
     try:
-        if tool_name in {"mind.chat", "mind.fast", "mind.plan", "mind.batch"}:
-            result_payload = await _run_mind_mode(
+        timeout_sec = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("mind.forward payload.timeout_sec must be numeric") from exc
+
+    if timeout_sec <= 0:
+        raise ValueError("mind.forward payload.timeout_sec must be greater than 0")
+
+    return timeout_sec
+
+
+async def _execute_forward(
+    mind: "Mind",
+    *,
+    call_id: str,
+    cid: str | None,
+    sid: str | None,
+    payload: dict[str, typing.Any]
+) -> None:
+    """执行一条 `mind.forward` 下发的本地任务。"""
+    mode, profile, subject, message = _normalize_forward_target(payload)
+
+    timeout_sec      = _resolve_forward_timeout_sec(payload)
+    metadata_raw     = payload.get("metadata")
+    forward_metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
+
+    metadata = {"cid": cid, "sid": sid}
+
+    logger.info(
+        f"[Agent] forward start call_id={call_id} mode={mode} profile={profile or '-'} "
+        f"subject={subject or '-'} timeout_sec={timeout_sec or 0} "
+        f"metadata={json.dumps(forward_metadata, ensure_ascii=False)}"
+    )
+
+    if profile == "code":
+        runner = mind.mind_pack([subject], mode, metadata=metadata)
+    else:
+        runner = mind.calling(message=message, mode=mode, metadata=metadata)
+
+    if timeout_sec is not None:
+        await asyncio.wait_for(runner, timeout=timeout_sec)
+    else:
+        await runner
+
+    logger.info(f"[Agent] forward done call_id={call_id} mode={mode} profile={profile or '-'}")
+
+
+def _spawn_forward_task(
+    mind: "Mind",
+    runtime: AgentSessionRuntime,
+    *,
+    call_id: str,
+    cid: str | None,
+    sid: str | None,
+    payload: dict[str, typing.Any]
+) -> None:
+    """以后台任务方式执行 `mind.forward`，避免阻塞 WS 心跳处理。"""
+    tasks = _get_runtime_tasks(runtime)
+
+    async def runner() -> None:
+        try:
+            await _execute_forward(
                 mind,
-                tool_name=tool_name,
-                tool_args=tool_args,
+                call_id=call_id,
                 cid=cid,
                 sid=sid,
+                payload=payload,
             )
-            ok = True
-            encoded = result_payload
-        else:
-            tool_result = await session.call_tool(tool_name, tool_args)
-            ok = not tool_result.isError
-            encoded = _serialize_tool_result(tool_result)
+        except asyncio.CancelledError:
+            logger.warning(f"[Agent] forward cancelled call_id={call_id}")
+            raise
+        except Exception as exc:
+            logger.error(f"[Agent] forward failed call_id={call_id}: {type(exc).__name__}: {exc}")
 
-        await client.send_tool_result(
-            connection,
-            session_id=runtime.session_id,
-            cid=cid or "cid_agent",
-            sid=sid or "sid_agent",
-            call_id=call_id,
-            name=tool_name,
-            ok=ok,
-            result=encoded if ok else None,
-            error=encoded if not ok else None,
+    task = asyncio.create_task(runner(), name=f"agent-forward-{call_id or 'unknown'}")
+    tasks.add(task)
+    task.add_done_callback(tasks.discard)
+
+
+async def _cancel_runtime_tasks(runtime: AgentSessionRuntime) -> None:
+    """取消并回收当前驻留会话中的后台任务。"""
+    tasks = runtime.pending_tasks
+    if not tasks:
+        return None
+
+    for task in list(tasks):
+        task.cancel()
+
+    for task in list(tasks):
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    tasks.clear()
+
+
+async def _recv_json_or_stop(
+    client: AgentClient,
+    connection: typing.Any,
+    stop_event: asyncio.Event,
+) -> dict[str, typing.Any]:
+    """在等待 WS 消息时同时响应退出信号。"""
+    recv_task = asyncio.create_task(client.recv_json(connection))
+    stop_task = asyncio.create_task(stop_event.wait())
+
+    try:
+        done, pending = await asyncio.wait(
+            {recv_task, stop_task},
+            return_when=asyncio.FIRST_COMPLETED,
         )
-        logger.info(f"[Agent] tool.result sent tool={tool_name} ok={ok}")
-    except Exception as exc:
-        await client.send_tool_result(
-            connection,
-            session_id=runtime.session_id,
-            cid=cid or "cid_agent",
-            sid=sid or "sid_agent",
-            call_id=call_id,
-            name=tool_name,
-            ok=False,
-            error={"type": type(exc).__name__, "message": str(exc)},
+
+        if stop_task in done:
+            recv_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await recv_task
+            raise asyncio.CancelledError
+
+        return await recv_task
+    finally:
+        for task in (recv_task, stop_task):
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+
+
+async def _sleep_or_stop(delay_sec: float, stop_event: asyncio.Event) -> None:
+    """在退避等待期间同时响应退出信号。"""
+    sleep_task = asyncio.create_task(asyncio.sleep(delay_sec))
+    stop_task = asyncio.create_task(stop_event.wait())
+
+    try:
+        done, pending = await asyncio.wait(
+            {sleep_task, stop_task},
+            return_when=asyncio.FIRST_COMPLETED,
         )
-        logger.error(f"[Agent] tool call failed tool={tool_name}: {type(exc).__name__}: {exc}")
+
+        if stop_task in done:
+            sleep_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await sleep_task
+            raise asyncio.CancelledError
+
+        await sleep_task
+    finally:
+        for task in (sleep_task, stop_task):
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+
+
+def _summarize_ws_message(message: dict[str, typing.Any]) -> str:
+    """把 WS 消息压缩成简短摘要，避免日志刷出整包 JSON。"""
+    message_type = str(message.get("type") or "")
+    parts = [f"type={message_type or '-'}"]
+
+    seq = message.get("seq")
+    if isinstance(seq, int):
+        parts.append(f"seq={seq}")
+
+    message_id = message.get("message_id")
+    if isinstance(message_id, str) and message_id:
+        parts.append(f"message_id={message_id}")
+
+    cid = message.get("cid")
+    if isinstance(cid, str) and cid:
+        parts.append(f"cid={cid}")
+
+    sid = message.get("sid")
+    if isinstance(sid, str) and sid:
+        parts.append(f"sid={sid}")
+
+    payload_raw = message.get("payload")
+    payload = payload_raw if isinstance(payload_raw, dict) else {}
+
+    call_id = payload.get("call_id")
+    if isinstance(call_id, str) and call_id:
+        parts.append(f"call_id={call_id}")
+
+    mode = payload.get("mode")
+    if isinstance(mode, str) and mode:
+        parts.append(f"mode={mode}")
+
+    status = payload.get("status")
+    if isinstance(status, str) and status:
+        parts.append(f"status={status}")
+
+    code = payload.get("code")
+    if isinstance(code, str) and code:
+        parts.append(f"code={code}")
+
+    return " ".join(parts)
 
 
 async def _handle_server_message(
     mind: "Mind",
-    session: ClientSession,
     client: AgentClient,
     connection: typing.Any,
     runtime: AgentSessionRuntime,
-    config: AgentResidentConfig,
-    message: dict[str, typing.Any],
+    message: dict[str, typing.Any]
 ) -> None:
-    """Handle one server message according to the resident protocol."""
+    """按驻留协议处理一条服务端消息。"""
     _update_last_acked_seq(runtime, message)
 
     message_type = str(message.get("type") or "")
 
     if message_type == "ready":
-        if not runtime.hello_sent:
-            await client.send_hello(
-                connection,
-                session_id=runtime.session_id,
-                device_id=runtime.device_id,
-                client_version=runtime.client_version,
-            )
-            runtime.hello_sent = True
-            logger.info("[Agent] hello sent")
-
-            if config.auto_event and not runtime.auto_event_sent:
-                await client.send_event(
-                    connection,
-                    session_id=runtime.session_id,
-                    cid="cid_agent",
-                    sid="sid_agent",
-                    mode=config.event_mode,
-                    event=config.event or {"type": "text.delta", "text": "hello from resident mode"},
-                )
-                runtime.auto_event_sent = True
-                logger.info("[Agent] event.push sent")
+        payload_raw = message.get("payload")
+        payload = payload_raw if isinstance(payload_raw, dict) else {}
+        logger.info(
+            "[Agent] ready "
+            f"heartbeat_interval_sec={payload.get('heartbeat_interval_sec')} "
+            f"heartbeat_timeout_sec={payload.get('heartbeat_timeout_sec')} "
+            f"resume_timeout_sec={payload.get('resume_timeout_sec')}"
+        )
         return None
 
     if message_type == "ping":
@@ -393,17 +508,70 @@ async def _handle_server_message(
             if isinstance(replay_message, dict):
                 await _handle_server_message(
                     mind,
-                    session,
                     client,
                     connection,
                     runtime,
-                    config,
                     replay_message,
                 )
         return None
 
-    if message_type == "tool.call":
-        await _execute_tool_call(mind, session, client, connection, runtime, message)
+    if message_type == "mind.forward":
+        payload_raw = message.get("payload")
+        payload     = payload_raw if isinstance(payload_raw, dict) else {}
+
+        message_id_raw = message.get("message_id")
+        message_id     = message_id_raw if isinstance(message_id_raw, str) else ""
+
+        call_id_raw = payload.get("call_id")
+        call_id     = call_id_raw if isinstance(call_id_raw, str) else ""
+
+        cid_raw = message.get("cid")
+        cid     = cid_raw if isinstance(cid_raw, str) else None
+        sid_raw = message.get("sid")
+        sid     = sid_raw if isinstance(sid_raw, str) else None
+
+        if not message_id:
+            logger.warning(
+                "[Agent] mind.forward ignored: message_id missing"
+            )
+            return None
+        if not call_id:
+            logger.warning(
+                f"[Agent] mind.forward ignored: call_id missing message_id={message_id}"
+            )
+            return None
+        if not cid or not sid:
+            logger.warning(
+                f"[Agent] mind.forward ignored: cid/sid missing call_id={call_id} message_id={message_id}"
+            )
+            return None
+
+        await client.send_mind_received(
+            connection,
+            session_id=runtime.session_id,
+            cid=cid,
+            sid=sid,
+            call_id=call_id,
+            acked_message_id=message_id
+        )
+        logger.info(
+            f"[Agent] mind.received sent call_id={call_id} message_id={message_id}"
+        )
+
+        seen = _get_runtime_message_cache(runtime)
+        if message_id in seen:
+            logger.info(f"[Agent] mind.forward replay skipped message_id={message_id}")
+            return None
+
+        seen.add(message_id)
+        _spawn_forward_task(
+            mind,
+            runtime,
+            call_id=call_id,
+            cid=cid,
+            sid=sid,
+            payload=payload
+        )
         return None
 
     if message_type == "ack":
@@ -411,47 +579,61 @@ async def _handle_server_message(
 
     if message_type == "error":
         payload_raw = message.get("payload")
-        payload = payload_raw if isinstance(payload_raw, dict) else {}
-        logger.warning(f"[Agent] server error: {json.dumps(payload, ensure_ascii=False)}")
+        payload     = payload_raw if isinstance(payload_raw, dict) else {}
+        logger.warning(
+            f"[Agent] server error code={payload.get('code') or ''} message={payload.get('message') or ''}"
+        )
         return None
 
     if message_type == "pong":
         return None
 
+    logger.warning(
+        f"[Agent] unsupported ws message type={message_type}"
+    )
+
 
 async def _connect_once(
     mind: "Mind",
-    session: ClientSession,
     client: AgentClient,
-    runtime: AgentSessionRuntime,
-    config: AgentResidentConfig,
+    runtime: AgentSessionRuntime
 ) -> None:
-    """Establish one WS connection lifecycle and process messages until disconnect."""
+    """建立一次 WS 连接生命周期，并持续处理消息直到断开。"""
     async with await client.connect_ws(
         session_id=runtime.session_id,
         ws_token=runtime.ws_token,
-        ws_base_url=runtime.ws_url,
+        ws_base_url=runtime.ws_url
     ) as connection:
+        if not runtime.hello_sent:
+            await client.send_hello(
+                connection,
+                session_id=runtime.session_id,
+                device_id=runtime.device_id,
+                client_version=runtime.client_version,
+            )
+            runtime.hello_sent = True
+            logger.info("[Agent] hello sent")
+
         if runtime.last_acked_seq > 0:
             await client.send_resume(
                 connection,
                 session_id=runtime.session_id,
-                last_acked_seq=runtime.last_acked_seq,
+                last_acked_seq=runtime.last_acked_seq
             )
             logger.info(f"[Agent] resume sent last_acked_seq={runtime.last_acked_seq}")
 
         while True:
-            message = await client.recv_json(connection)
-            logger.info(f"[Agent] recv={json.dumps(message, ensure_ascii=False)}")
-            await _handle_server_message(mind, session, client, connection, runtime, config, message)
+            message = await _recv_json_or_stop(client, connection, mind.task_event)
+            logger.info(f"[Agent] recv {_summarize_ws_message(message)}")
+            await _handle_server_message(mind, client, connection, runtime, message)
 
 
 async def _resume_or_reopen(
     client: AgentClient,
     runtime: AgentSessionRuntime,
-    config: AgentResidentConfig,
+    config: AgentResidentConfig
 ) -> AgentSessionRuntime:
-    """Try resume first; if the server says not resumable, reopen a fresh session."""
+    """优先尝试 resume；如果服务端判定不可恢复，则重新打开新会话。"""
     if not runtime.resume_token:
         raise RuntimeError("resume_token missing")
 
@@ -479,18 +661,25 @@ async def _resume_or_reopen(
         ws_url=ws_url,
         device_id=device_id,
         client_version=config.client_version,
+        forwarded_message_ids=runtime.forwarded_message_ids,
+        pending_tasks=runtime.pending_tasks,
     )
     logger.info(f"[Agent] reopened session_id={session_id} device_id={device_id}")
-    logger.info(f"[Agent] mind token={access_token or ''}")
+    _log_external_access(reopened, config.base_url)
     return reopened
 
 
-async def agent_loop(
-    mind: "Mind",
-    session: ClientSession,
-    config: AgentResidentConfig,
-) -> None:
-    """驻留模式主循环：创建会话、建立 WS，并持续处理心跳和工具调用。"""
+async def agent_loop(mind: "Mind") -> None:
+    """驻留模式主循环：创建会话、建立 WS，并持续处理协议消息。"""
+    config = AgentResidentConfig(
+        base_url=const.DOMAIN,
+        device_id=_build_device_id(),
+        agent_id=const.APP_NAME,
+        client_version=const.APP_VERSION,
+        platform=(platform.system().lower() or "windows").strip(),
+        arch=(platform.machine().lower() or "amd64").strip(),
+    )
+
     client = AgentClient(base_url=config.base_url)
 
     opened, device_id = await _open_runtime(client, config)
@@ -502,69 +691,48 @@ async def agent_loop(
         access_token=access_token,
         ws_url=ws_url,
         device_id=device_id,
-        client_version=config.client_version,
+        client_version=config.client_version
     )
 
-    logger.info(f"[Agent] connected target={config.base_url}")
+    logger.info(f"[Agent] {config.base_url}")
     logger.info(f"[Agent] session_id={session_id} agent_id={config.agent_id} device_id={device_id}")
-    logger.info(f"[Agent] mind token={access_token or ''}")
-    logger.info("[Agent] tool-call schema:")
-    logger.info(json.dumps(_build_tool_call_schema(config, device_id), ensure_ascii=False, indent=2))
+    _log_external_access(runtime, config.base_url)
 
-    while not mind.task_event.is_set():
-        try:
-            await _connect_once(mind, session, client, runtime, config)
-            return None
-        except (ConnectionClosed, OSError, httpx.HTTPError, asyncio.TimeoutError) as exc:
-            logger.warning(f"[Agent] disconnected: {type(exc).__name__}: {exc}")
-
-            if not runtime.resume_token:
-                logger.warning("[Agent] resume skipped: resume_token missing")
-                await asyncio.sleep(2.0)
-                continue
-
+    try:
+        while not mind.task_event.is_set():
             try:
-                runtime = await _resume_or_reopen(client, runtime, config)
-            except (OSError, httpx.HTTPError, asyncio.TimeoutError) as resume_exc:
-                logger.warning(f"[Agent] resume failed: {type(resume_exc).__name__}: {resume_exc}")
-                await asyncio.sleep(2.0)
-                continue
-            except Exception as resume_exc:
-                logger.error(f"[Agent] resume crashed: {type(resume_exc).__name__}: {resume_exc}")
-                await asyncio.sleep(2.0)
-                continue
+                await _connect_once(mind, client, runtime)
+                return None
+            except asyncio.CancelledError:
+                raise
+            except (ConnectionClosed, OSError, httpx.HTTPError, asyncio.TimeoutError) as exc:
+                logger.warning(f"[Agent] disconnected: {type(exc).__name__}: {exc}")
 
-            await asyncio.sleep(1.0)
+                if not runtime.resume_token:
+                    logger.warning("[Agent] resume skipped: resume_token missing")
+                    await _sleep_or_stop(2.0, mind.task_event)
+                    continue
+
+                try:
+                    runtime = await _resume_or_reopen(client, runtime, config)
+                except asyncio.CancelledError:
+                    raise
+                except (OSError, httpx.HTTPError, asyncio.TimeoutError) as resume_exc:
+                    logger.warning(f"[Agent] resume failed: {type(resume_exc).__name__}: {resume_exc}")
+                    await _sleep_or_stop(2.0, mind.task_event)
+                    continue
+                except Exception as resume_exc:
+                    logger.error(f"[Agent] resume crashed: {type(resume_exc).__name__}: {resume_exc}")
+                    await _sleep_or_stop(2.0, mind.task_event)
+                    continue
+
+                await _sleep_or_stop(1.0, mind.task_event)
+    finally:
+        await _cancel_runtime_tasks(runtime)
 
 
-def build_agent_config() -> AgentResidentConfig:
-    """从命令行解析结果构建驻留模式配置。"""
-    return AgentResidentConfig(
-        base_url=const.DOMAIN.strip(),
-        device_id="dev_win_001",
-        agent_id="helix",
-        client_version="1.2.3",
-        platform=(platform.system().lower() or "windows").strip(),
-        arch=(platform.machine().lower() or "amd64").strip(),
-        auto_event=False,
-        event_mode="chat",
-        event=None,
-    )
-
-
-async def run_agent_mode(mind: "Mind") -> None:
-    """命令行驻留模式入口。"""
-    config = build_agent_config()
-    model_api = mind.pref.to_config()
-
-    async def function(
-        session: ClientSession,
-        _openai_tools: list[dict[str, typing.Any]],
-        _tool_meta: dict[str, dict[str, typing.Any]],
-    ) -> None:
-        await agent_loop(mind, session, config)
-
-    await mind.with_mcp_session(model_api, function)
+async def run_agent_loop(mind: "Mind") -> None:
+    return await agent_loop(mind)
 
 
 if __name__ == "__main__":

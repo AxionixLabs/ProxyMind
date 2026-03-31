@@ -64,6 +64,10 @@ BASE_URL = r"http://127.0.0.1:3333"
 MCP_ED   = r"/helix/mcp"
 
 # ========【域名管理】========
+AGENT_CLIENT_SECRET = "177P81LAw5fdeUp2IRX9q-i6hW9gCPTiBHKzkpSC9tE"
+AGENT_ADMIN_SECRET  = "U2d73xNcBFU8Gewr9DKk_-8-048tfosxfFvqiu0v_Wo"
+
+# ========【域名管理】========
 DOMAIN = f"https://api.appserverx.com"
 
 # ========【专有服务】========

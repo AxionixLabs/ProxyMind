@@ -20,7 +20,7 @@ from .modes.repl import mind_loop as run_mind_loop
 from .modes.static import static_looper as run_static_looper
 from .modes.stream import stream_looper as run_stream_looper
 from .modes.batch import mind_pack as run_mind_pack
-from .modes.agent import run_agent_mode as run_agent_mode_loop
+from .modes.agent import run_agent_loop
 from .runtime.calling import (
     calling as run_calling,
     wakeup as run_wakeup,
@@ -301,7 +301,7 @@ class Mind(object):
 
     async def agent_loop(self) -> None:
         """驻留模式入口：委托给驻留模式模块。"""
-        return await run_agent_mode_loop(self)
+        return await run_agent_loop(self)
 
 
 if __name__ == '__main__':

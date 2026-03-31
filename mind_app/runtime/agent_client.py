@@ -2,29 +2,29 @@
 # Notes: ==== Mind™ ====
 
 import json
+import httpx
 import socket
 import typing
-import httpx
 import websockets
 from urllib.parse import urlencode
 from websockets.asyncio.client import ClientConnection
-from .agent_protocol import DEFAULT_SHARED_SECRET, build_envelope, ensure_ws_base
+from .agent_protocol import (
+    build_envelope, ensure_ws_base
+)
+from mind_nova import const
 
 
 class AgentClient(object):
-    """HTTP + WS resident client for the /agents protocol."""
+    """`/agents` 协议使用的 HTTP + WS 驻留客户端。"""
 
     def __init__(
         self,
         *,
         base_url: str,
-        client_token: str = DEFAULT_SHARED_SECRET,
-        admin_token: str = DEFAULT_SHARED_SECRET,
-        timeout_sec: float = 15.0,
+        timeout_sec: float = 15.0
     ) -> None:
+        """初始化驻留客户端的基础地址和超时时间。"""
         self.base_url = base_url.rstrip("/")
-        self.client_token = client_token
-        self.admin_token = admin_token
         self.timeout_sec = timeout_sec
 
     async def _request(
@@ -34,21 +34,26 @@ class AgentClient(object):
         *,
         token_kind: typing.Literal["client", "admin"],
         json_body: typing.Any = None,
-        params: dict[str, typing.Any] | None = None,
+        params: dict[str, typing.Any] | None = None
     ) -> dict[str, typing.Any]:
-        header_name = "X-Agent-Token" if token_kind == "client" else "X-Agent-Admin-Token"
-        token_value = self.client_token if token_kind == "client" else self.admin_token
+        """用指定身份令牌发起 HTTP 请求，并统一返回 JSON 响应。"""
+        if token_kind == "client":
+            header_name = "X-Agent-Token"
+            token_value = const.AGENT_CLIENT_SECRET
+        else:
+            header_name = "X-Agent-Admin-Token"
+            token_value = const.AGENT_ADMIN_SECRET
 
         async with httpx.AsyncClient(timeout=self.timeout_sec) as http:
             response = await http.request(
-                method,
-                f"{self.base_url}{path}",
+                method=method,
+                url=f"{self.base_url}{path}",
                 headers={
                     header_name: token_value,
                     "Content-Type": "application/json",
                 },
                 json=json_body,
-                params=params,
+                params=params
             )
 
         response.raise_for_status()
@@ -67,21 +72,19 @@ class AgentClient(object):
         platform: str,
         arch: str,
         hostname: str | None = None,
-        capabilities: dict[str, typing.Any] | None = None,
     ) -> dict[str, typing.Any]:
+        """调用 `/agents/open` 创建新的驻留会话。"""
         payload = {
-            "device_id": device_id,
-            "agent_id": agent_id,
-            "client_version": client_version,
-            "platform": platform,
-            "arch": arch,
-            "hostname": hostname or socket.gethostname(),
-            "capabilities": capabilities or {
-                "tool_call": True,
-                "event_push": True,
-            },
+            "device_id"      : device_id,
+            "agent_id"       : agent_id,
+            "client_version" : client_version,
+            "platform"       : platform,
+            "arch"           : arch,
+            "hostname"       : hostname or socket.gethostname(),
         }
-        return await self._request("POST", "/agents/open", token_kind="client", json_body=payload)
+        return await self._request(
+            method="POST", path="/agents/open", token_kind="client", json_body=payload
+        )
 
     async def resume_session(
         self,
@@ -92,27 +95,32 @@ class AgentClient(object):
         device_id: str | None = None,
         agent_id: str | None = None,
     ) -> dict[str, typing.Any]:
+        """调用 `/agents/resume` 恢复已存在的驻留会话。"""
         payload: dict[str, typing.Any] = {
-            "session_id": session_id,
-            "resume_token": resume_token,
-            "last_acked_seq": last_acked_seq,
+            "session_id"     : session_id,
+            "resume_token"   : resume_token,
+            "last_acked_seq" : last_acked_seq
         }
         if device_id:
             payload["device_id"] = device_id
         if agent_id:
             payload["agent_id"] = agent_id
-        return await self._request("POST", "/agents/resume", token_kind="client", json_body=payload)
+
+        return await self._request(
+            method="POST", path="/agents/resume", token_kind="client", json_body=payload
+        )
 
     @staticmethod
     def unwrap_data(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        """Return the protocol body when the server wraps fields in a top-level data object."""
+        """当服务端把协议体包在顶层 `data` 字段时，取出真实内容。"""
         data = payload.get("data")
         if isinstance(data, dict):
             return data
         return payload
 
     def build_ws_url(self, *, session_id: str, ws_token: str, ws_base_url: str | None = None) -> str:
-        query = urlencode({"session_id": session_id, "ws_token": ws_token})
+        """拼出 `/agents/ws` 连接地址，并处理 HTTP/WS 协议前缀转换。"""
+        query  = urlencode({"session_id": session_id, "ws_token": ws_token})
         source = (ws_base_url or self.base_url).rstrip("/")
 
         if source.startswith("ws://") or source.startswith("wss://"):
@@ -131,24 +139,27 @@ class AgentClient(object):
         *,
         session_id: str,
         ws_token: str,
-        ws_base_url: str | None = None,
+        ws_base_url: str | None = None
     ) -> ClientConnection:
+        """建立驻留协议的 WebSocket 连接。"""
         return await websockets.connect(
             self.build_ws_url(session_id=session_id, ws_token=ws_token, ws_base_url=ws_base_url),
             open_timeout=self.timeout_sec,
-            close_timeout=self.timeout_sec,
-            ping_interval=None,
+            close_timeout=1.0,
+            ping_interval=None
         )
 
     @staticmethod
     async def send_json(connection: ClientConnection, envelope: dict[str, typing.Any]) -> None:
+        """把协议信封编码成 JSON 并发送到当前连接。"""
         await connection.send(json.dumps(envelope, ensure_ascii=False))
 
     @staticmethod
     async def recv_json(connection: ClientConnection) -> dict[str, typing.Any]:
+        """从当前连接接收一条 JSON 消息，并按项目字符集解码。"""
         raw = await connection.recv()
         if isinstance(raw, bytes):
-            raw = raw.decode("utf-8")
+            raw = raw.decode(const.CHARSET)
         return typing.cast(dict[str, typing.Any], json.loads(raw))
 
     async def send_hello(
@@ -157,18 +168,19 @@ class AgentClient(object):
         *,
         session_id: str,
         device_id: str,
-        client_version: str,
+        client_version: str
     ) -> None:
+        """发送首次握手用的 `hello` 消息。"""
         await self.send_json(
             connection,
             build_envelope(
-                "hello",
-                session_id,
+                message_type="hello",
+                session_id=session_id,
                 payload={
-                    "client_version": client_version,
-                    "device_id": device_id,
-                },
-            ),
+                    "client_version" : client_version,
+                    "device_id"      : device_id
+                }
+            )
         )
 
     async def send_resume(
@@ -176,41 +188,23 @@ class AgentClient(object):
         connection: ClientConnection,
         *,
         session_id: str,
-        last_acked_seq: int,
+        last_acked_seq: int
     ) -> None:
+        """发送 `resume` 消息，告知服务端本地已确认到的序号。"""
         await self.send_json(
             connection,
             build_envelope(
-                "resume",
-                session_id,
-                payload={"last_acked_seq": last_acked_seq},
-            ),
+                message_type="resume",
+                session_id=session_id,
+                payload={"last_acked_seq": last_acked_seq}
+            )
         )
 
     async def send_pong(self, connection: ClientConnection, *, session_id: str) -> None:
+        """回复服务端 `ping`，维持连接心跳。"""
         await self.send_json(connection, build_envelope("pong", session_id))
 
-    async def send_ack(
-        self,
-        connection: ClientConnection,
-        *,
-        session_id: str,
-        acked_message_id: str,
-        status: str = "received",
-    ) -> None:
-        await self.send_json(
-            connection,
-            build_envelope(
-                "ack",
-                session_id,
-                payload={
-                    "acked_message_id": acked_message_id,
-                    "status": status,
-                },
-            ),
-        )
-
-    async def send_tool_result(
+    async def send_mind_received(
         self,
         connection: ClientConnection,
         *,
@@ -218,52 +212,23 @@ class AgentClient(object):
         cid: str,
         sid: str,
         call_id: str,
-        name: str,
-        ok: bool = True,
-        result: dict[str, typing.Any] | None = None,
-        error: dict[str, typing.Any] | None = None,
+        acked_message_id: str,
     ) -> None:
-        payload: dict[str, typing.Any] = {
-            "call_id": call_id,
-            "name": name,
-            "ok": ok,
-        }
-        if ok:
-            payload["result"] = result or {"debug": True}
-        else:
-            payload["error"] = error or {"message": "resident tool call failed"}
-
+        """发送 `mind.received`，确认已收到指定 `mind.forward`。"""
         await self.send_json(
             connection,
             build_envelope(
-                "tool.result",
-                session_id,
-                cid=cid,
-                sid=sid,
-                payload=payload,
-            ),
-        )
-
-    async def send_event(
-        self,
-        connection: ClientConnection,
-        *,
-        session_id: str,
-        cid: str,
-        sid: str,
-        mode: str,
-        event: dict[str, typing.Any],
-    ) -> None:
-        await self.send_json(
-            connection,
-            build_envelope(
-                "event.push",
-                session_id,
+                message_type="mind.received",
+                session_id=session_id,
                 cid=cid,
                 sid=sid,
                 payload={
-                    "mode": mode,
-                    "event": event,
-                },
-            ),
+                    "call_id"           : call_id,
+                    "acked_message_id"  : acked_message_id,
+                }
+            )
         )
+
+
+if __name__ == '__main__':
+    pass
