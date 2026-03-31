@@ -1968,46 +1968,6 @@ class Design(object):
             await settle(tick)
 
     @classmethod
-    async def preview_tool_status_live(cls, duration: float = 15.0) -> None:
-        text     = "function calling"
-        fps      = cls.status_refresh_per_second("tool")
-        interval = cls.status_interval("tool")
-        loop     = asyncio.get_running_loop()
-        started_at = loop.time()
-        deadline = started_at + max(0.0, float(duration))
-
-        with Live(
-            cls.tool_status_renderable(0.0, text),
-            console=cls.console,
-            refresh_per_second=fps,
-            transient=True
-        ) as live:
-            while loop.time() < deadline:
-                await asyncio.sleep(interval)
-                phase = (loop.time() - started_at) * cls.status_phase_rate("tool")
-                live.update(cls.tool_status_renderable(phase, text))
-
-    @classmethod
-    async def preview_builtin_status_live(cls, duration: float = 15.0) -> None:
-        text     = "working"
-        fps      = cls.status_refresh_per_second("builtin")
-        interval = cls.status_interval("builtin")
-        loop     = asyncio.get_running_loop()
-        started_at = loop.time()
-        deadline = started_at + max(0.0, float(duration))
-
-        with Live(
-            cls.builtin_status_renderable(0.0, text),
-            console=cls.console,
-            refresh_per_second=fps,
-            transient=True
-        ) as live:
-            while loop.time() < deadline:
-                await asyncio.sleep(interval)
-                phase = (loop.time() - started_at) * cls.status_phase_rate("builtin")
-                live.update(cls.builtin_status_renderable(phase, text))
-
-    @classmethod
     def tool_status_renderable(cls, phase: float, text: str) -> Text:
         spec = cls.status_spec("tool")
         colors = {
