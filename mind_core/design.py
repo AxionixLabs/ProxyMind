@@ -29,6 +29,11 @@ def mix_hex_color(start: str, end: str, ratio: float) -> str:
     return f"#{mixed[0]:02X}{mixed[1]:02X}{mixed[2]:02X}"
 
 
+def ease_in_out_sine(ratio: float) -> float:
+    clamped = max(0.0, min(1.0, float(ratio)))
+    return 0.5 - 0.5 * math.cos(math.pi * clamped)
+
+
 @dataclass(frozen=True)
 class SweepStatusSpec(object):
     refresh_per_second: int
@@ -1503,51 +1508,119 @@ class Design(object):
         if self.design_level != const.SHOW_LEVEL:
             return None
 
-        fps = 24
-        width = min(38, max(24, self.console.width - 18))
-        glyphs = ["·", "•", "◦", "◎", "◉", "◌"]
+        fps = 30
+        width = min(34, max(24, self.console.width - 22))
+        text_width = min(56, max(28, self.console.width - 10))
+        base_pad = "  "
         colors = {
-            "halo_dim" : "#2D3748",
-            "halo_mid" : "#4FD1C5",
-            "halo_hot" : "#D6FFFA",
-            "title"    : "#9AE6B4",
-            "detail"   : "#94A3B8",
-            "pulse"    : "#67E8F9",
+            "shell"      : "#223444",
+            "shell_dim"  : "#13202C",
+            "core"       : "#F2FFFD",
+            "near"       : "#8EDAE0",
+            "beam"       : "#73C7D4",
+            "beam_dim"   : "#35586A",
+            "title"      : "#E6FBF3",
+            "detail"     : "#94A6BA",
+            "detail_dim" : "#60758C",
+            "pulse"      : "#9BDCF2",
+            "pulse_dim"  : "#4B6B86",
         }
 
         def fit(text: str) -> str:
             raw = (text or "").strip()
-            if cell_len(raw) <= width:
+            if cell_len(raw) <= text_width:
                 return raw
             trimmed = raw
-            while trimmed and cell_len(trimmed + "…") > width:
+            while trimmed and cell_len(trimmed + "…") > text_width:
                 trimmed = trimmed[:-1]
             return trimmed + "…"
 
-        def render(tick: int) -> Text:
+        def prefix_text(symbol: str, style: str) -> Text:
+            out = Text()
+            out.append(symbol, style=style)
+            out.append(" " * max(1, 3 - cell_len(symbol)))
+            return out
+
+        def render(frame_idx: int) -> Text:
             title, detail = snapshot()
-            phase = tick / fps
-            breathe = 0.5 + 0.5 * math.sin(phase * 2.2)
-            halo_a = 1 + int(breathe * 2)
-            halo_b = 4 + int((1.0 - breathe) * 3)
-            spin = glyphs[tick % len(glyphs)]
-            pulse = "◜◠◝◞◡◟"[tick % 6]
+            phase = frame_idx / fps
+            breathe = 0.5 + 0.5 * math.sin(phase * 1.85)
+            left_breathe = 0.5 + 0.5 * math.sin(phase * 1.85 - 0.9)
+            right_breathe = 0.5 + 0.5 * math.sin(phase * 1.85 + 0.9)
+            sweep = 0.5 + 0.5 * (
+                0.58 * math.sin(phase * 2.1)
+                + 0.28 * math.sin(phase * 1.17 + 1.1)
+                + 0.14 * math.cos(phase * 0.63 + 2.0)
+            )
+            title_glow = 0.48 + breathe * 0.24
+            detail_glow = 0.18 + breathe * 0.18
+            pulse_glow = 0.30 + breathe * 0.30
+            title_tone = ease_in_out_sine(title_glow)
+            detail_tone = ease_in_out_sine(detail_glow)
+            pulse_tone = ease_in_out_sine(pulse_glow)
+            pulse = "◦" if math.sin(phase * 2.0) > 0 else "◌"
+            spin = "•" if math.sin(phase * 2.6) > 0 else "·"
+
+            chars = [" "] * width
+            styles: dict[int, str] = {}
+            left = 2
+            center = width // 2
+            right = width - 3
+            trail_left = left + 2
+            trail_right = right - 2
+            head = trail_left + int((trail_right - trail_left) * sweep)
+
+            chars[left] = "◌"
+            styles[left] = f"bold {mix_hex_color(colors['shell_dim'], colors['near'], 0.18 + left_breathe * 0.42)}"
+            chars[center] = "◎" if breathe > 0.55 else "◉"
+            styles[center] = f"bold {mix_hex_color(colors['near'], colors['core'], 0.55 + breathe * 0.45)}"
+            chars[right] = "◌"
+            styles[right] = f"bold {mix_hex_color(colors['shell_dim'], colors['near'], 0.18 + right_breathe * 0.42)}"
+
+            for pos in range(left + 2, right - 1):
+                if abs(pos - head) == 0:
+                    chars[pos] = "•"
+                    styles[pos] = f"bold {colors['core']}"
+                elif 0 < head - pos <= 3 or 0 < pos - head <= 3:
+                    chars[pos] = "·"
+                    styles[pos] = f"bold {colors['beam']}"
+                elif abs(pos - head) <= 6 and (pos + frame_idx) % 2 == 0:
+                    chars[pos] = "·"
+                    styles[pos] = f"bold {colors['beam_dim']}"
+                elif (pos + frame_idx) % 9 == 0 and trail_left <= pos <= trail_right:
+                    chars[pos] = "·"
+                    styles[pos] = f"bold {colors['beam_dim']}"
 
             line1 = Text()
-            line1.append(" " * halo_a)
-            line1.append("◌", style=f"bold {mix_hex_color(colors['halo_dim'], colors['halo_mid'], breathe)}")
-            line1.append(" " * halo_b)
-            line1.append("◎", style=f"bold {mix_hex_color(colors['halo_mid'], colors['halo_hot'], breathe)}")
-            line1.append(" " * halo_b)
-            line1.append("◌", style=f"bold {mix_hex_color(colors['halo_dim'], colors['halo_mid'], 1.0 - breathe)}")
+            line1.append(base_pad)
+            for idx, char in enumerate(chars):
+                line1.append(char, style=styles.get(idx, ""))
 
             line2 = Text()
-            line2.append(f"{pulse} ", style=f"bold {colors['pulse']}")
-            line2.append(fit(title or "Subscription Idle"), style=f"bold {colors['title']}")
+            line2.append(base_pad)
+            line2.append_text(
+                prefix_text(
+                    pulse,
+                    f"bold {mix_hex_color(colors['pulse_dim'], colors['pulse'], pulse_tone)}"
+                )
+            )
+            line2.append(
+                fit(title or "Subscription Idle"),
+                style=f"bold {mix_hex_color(colors['detail'], colors['title'], title_tone)}"
+            )
 
             line3 = Text()
-            line3.append(f"{spin} ", style=f"bold {colors['pulse']}")
-            line3.append(fit(detail or "Waiting for link state"), style=f"bold {colors['detail']}")
+            line3.append(base_pad)
+            line3.append_text(
+                prefix_text(
+                    spin,
+                    f"bold {mix_hex_color(colors['shell_dim'], colors['pulse_dim'], detail_tone)}"
+                )
+            )
+            line3.append(
+                fit(detail or "Waiting for link state"),
+                style=f"{mix_hex_color(colors['detail_dim'], colors['detail'], detail_tone)}"
+            )
 
             out = Text(no_wrap=True, overflow="crop")
             out.append_text(line1)
@@ -1574,49 +1647,108 @@ class Design(object):
             return None
 
         fps = 24
-        width = min(38, max(24, self.console.width - 18))
+        width = min(34, max(24, self.console.width - 22))
+        text_width = min(56, max(28, self.console.width - 10))
+        base_pad = "  "
         colors = {
-            "pulse"  : "#7DD3FC",
-            "title"  : "#E2E8F0",
-            "detail" : "#94A3B8",
-            "ring_a" : "#1E293B",
-            "ring_b" : "#38BDF8",
-            "ring_c" : "#E0F2FE",
+            "pulse"      : "#C3E8FF",
+            "pulse_dim"  : "#6B89A3",
+            "title"      : "#F7FBFF",
+            "detail"     : "#A8B6C8",
+            "detail_dim" : "#6E8095",
+            "node"       : "#7DD3FC",
+            "node_hot"   : "#F0FBFF",
+            "rail_dim"   : "#284055",
+            "rail_mid"   : "#4FA9D4",
+            "rail_hot"   : "#D9F7FF",
         }
-        orbit = "◜◠◝◞◡◟"
 
         def fit(text: str) -> str:
             raw = (text or "").strip()
-            if cell_len(raw) <= width:
+            if cell_len(raw) <= text_width:
                 return raw
             trimmed = raw
-            while trimmed and cell_len(trimmed + "…") > width:
+            while trimmed and cell_len(trimmed + "…") > text_width:
                 trimmed = trimmed[:-1]
             return trimmed + "…"
 
-        def render(tick: int) -> Text:
+        def prefix_text(symbol: str, style: str) -> Text:
+            out = Text()
+            out.append(symbol, style=style)
+            out.append(" " * max(1, 3 - cell_len(symbol)))
+            return out
+
+        def render(frame_idx: int) -> Text:
             title, detail = snapshot()
-            phase = tick / fps
-            breathe = 0.5 + 0.5 * math.sin(phase * 1.9)
-            ring_l = 2 + int(breathe * 2)
-            ring_r = 5 + int((1.0 - breathe) * 3)
-            core = orbit[tick % len(orbit)]
+            phase = frame_idx / fps
+            breathe = 0.5 + 0.5 * math.sin(phase * 2.2)
+            scan = 0.5 + 0.5 * math.sin(phase * 4.2)
+            title_glow = 0.58 + breathe * 0.18
+            detail_glow = 0.24 + breathe * 0.12
+            pulse_glow = 0.42 + breathe * 0.20
+            title_tone = ease_in_out_sine(title_glow)
+            detail_tone = ease_in_out_sine(detail_glow)
+            pulse_tone = ease_in_out_sine(pulse_glow)
+
+            chars = [" "] * width
+            styles: dict[int, str] = {}
+            left = 1
+            center = width // 2
+            right = width - 2
+            left_lane = list(range(left + 1, center))
+            right_lane = list(range(center + 1, right))
+            head = min(len(left_lane) - 1, max(0, round(scan * (len(left_lane) - 1))))
+
+            chars[left] = "◉"
+            styles[left] = f"bold {mix_hex_color(colors['node'], colors['node_hot'], 0.35 + (0.5 + 0.5 * math.sin(phase * 2.2 - 0.8)) * 0.55)}"
+            chars[center] = "◆" if breathe > 0.5 else "◈"
+            styles[center] = f"bold {mix_hex_color(colors['node'], colors['node_hot'], 0.65 + breathe * 0.35)}"
+            chars[right] = "◉"
+            styles[right] = f"bold {mix_hex_color(colors['node'], colors['node_hot'], 0.35 + (0.5 + 0.5 * math.sin(phase * 2.2 + 0.8)) * 0.55)}"
+
+            for idx, pos in enumerate(left_lane):
+                distance = abs(idx - head)
+                ratio = 0.22 if distance > 1 else (0.58 if distance == 1 else 1.0)
+                chars[pos] = "═" if distance == 0 else "─"
+                styles[pos] = f"bold {mix_hex_color(colors['rail_dim'], colors['rail_hot'], ratio)}"
+
+            mirrored_head = len(right_lane) - 1 - head
+            for idx, pos in enumerate(right_lane):
+                distance = abs(idx - mirrored_head)
+                ratio = 0.22 if distance > 1 else (0.58 if distance == 1 else 1.0)
+                chars[pos] = "═" if distance == 0 else "─"
+                styles[pos] = f"bold {mix_hex_color(colors['rail_dim'], colors['rail_hot'], ratio)}"
 
             line1 = Text()
-            line1.append(" " * ring_l)
-            line1.append("◌", style=f"bold {mix_hex_color(colors['ring_a'], colors['ring_b'], breathe)}")
-            line1.append(" " * ring_r)
-            line1.append(core, style=f"bold {mix_hex_color(colors['ring_b'], colors['ring_c'], breathe)}")
-            line1.append(" " * ring_r)
-            line1.append("◌", style=f"bold {mix_hex_color(colors['ring_a'], colors['ring_b'], 1.0 - breathe)}")
+            line1.append(base_pad)
+            for idx, char in enumerate(chars):
+                line1.append(char, style=styles.get(idx, ""))
 
             line2 = Text()
-            line2.append("↺ ", style=f"bold {colors['pulse']}")
-            line2.append(fit(title or "Opening Fold Link"), style=f"bold {colors['title']}")
+            line2.append(base_pad)
+            line2.append_text(
+                prefix_text(
+                    "↺" if math.sin(phase * 2.8) > 0 else "↻",
+                    f"bold {mix_hex_color(colors['pulse_dim'], colors['pulse'], pulse_tone)}"
+                )
+            )
+            line2.append(
+                fit(title or "Opening Fold Link"),
+                style=f"bold {mix_hex_color(colors['detail'], colors['title'], title_tone)}"
+            )
 
             line3 = Text()
-            line3.append("· ", style=f"bold {colors['pulse']}")
-            line3.append(fit(detail or "Waiting for subscription handshake"), style=f"bold {colors['detail']}")
+            line3.append(base_pad)
+            line3.append_text(
+                prefix_text(
+                    "·",
+                    f"bold {mix_hex_color(colors['detail_dim'], colors['pulse_dim'], detail_tone)}"
+                )
+            )
+            line3.append(
+                fit(detail or "Waiting for subscription handshake"),
+                style=f"{mix_hex_color(colors['detail_dim'], colors['detail'], detail_tone)}"
+            )
 
             out = Text(no_wrap=True, overflow="crop")
             out.append_text(line1)
