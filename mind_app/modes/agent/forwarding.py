@@ -68,9 +68,11 @@ async def execute_forward(
 ) -> None:
     """执行一条 `mind.forward` 下发的本地任务。"""
     mode, profile, subject, message = normalize_forward_target(payload)
-    timeout_sec = resolve_forward_timeout_sec(payload)
-    metadata_raw = payload.get("metadata")
+
+    timeout_sec      = resolve_forward_timeout_sec(payload)
+    metadata_raw     = payload.get("metadata")
     forward_metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
+
     metadata = {"cid": cid, "sid": sid}
 
     logger.debug(
@@ -79,7 +81,9 @@ async def execute_forward(
         f"metadata={json.dumps(forward_metadata, ensure_ascii=False)}"
     )
     if live_status is not None:
-        live_status.update("Server Task Received", f"{mode}/{profile or 'default'} · {call_id}")
+        live_status.update(
+            "Server Task Received", f"{mode}/{profile or 'default'} · {call_id}"
+        )
 
     if profile == "code":
         runner = mind.mind_pack([subject], mode, metadata=metadata)
@@ -91,9 +95,9 @@ async def execute_forward(
     else:
         await runner
 
-    logger.debug(f"[Agent] forward done call_id={call_id} mode={mode} profile={profile or '-'}")
-    if live_status is not None:
-        live_status.update("Subscription Online", "Waiting for next server task")
+    logger.debug(
+        f"[Agent] forward done call_id={call_id} mode={mode} profile={profile or '-'}"
+    )
 
 
 def spawn_forward_task(
@@ -121,17 +125,27 @@ def spawn_forward_task(
                 live_status=live_status
             )
         except asyncio.CancelledError:
-            logger.debug(f"[Agent] forward cancelled call_id={call_id}")
+            logger.debug(
+                f"[Agent] forward cancelled call_id={call_id}"
+            )
             if live_status is not None:
-                live_status.update("Exiting Subscription", "Canceled in-flight local task")
+                live_status.update(
+                    "Exiting Subscription", "Canceled in-flight local task"
+                )
             raise
         except Exception as exc:
-            logger.debug(f"[Agent] forward failed call_id={call_id}: {type(exc).__name__}: {exc}")
+            logger.debug(
+                f"[Agent] forward failed call_id={call_id}: {type(exc).__name__}: {exc}"
+            )
             if live_status is not None:
-                live_status.update("Task Execution Failed", f"{call_id} · {type(exc).__name__}")
+                live_status.update(
+                    "Task Execution Failed", f"{call_id} · {type(exc).__name__}"
+                )
         finally:
             if live_status is not None and not mind.task_event.is_set():
-                live_status.update("Waiting for Server Tasks", "Long link established and listening")
+                live_status.update(
+                    "Waiting for Server Tasks", "Long link established and listening"
+                )
                 await start_status_animation(mind, live_status)
 
     task = asyncio.create_task(runner(), name=f"agent-forward-{call_id or 'unknown'}")

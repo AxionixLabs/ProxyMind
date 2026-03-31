@@ -100,7 +100,9 @@ async def open_runtime(
                 continue
             raise
         except (OSError, httpx.HTTPError, asyncio.TimeoutError) as exc:
-            logger.debug(f"[Agent] open failed: {type(exc).__name__}: {exc}. retrying in 5s")
+            logger.debug(
+                f"[Agent] open failed: {type(exc).__name__}: {exc}. retrying in 5s"
+            )
             await asyncio.sleep(5.0)
             continue
 

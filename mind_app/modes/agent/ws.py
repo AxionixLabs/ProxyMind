@@ -230,6 +230,9 @@ async def handle_server_message(
             )
             return None
 
+        logger.debug(
+            f"[Agent] mind.forward accepted call_id={call_id} message_id={message_id} cid={cid} sid={sid}"
+        )
         live_status.update(
             "Task Accepted", f"Validated {call_id}, stopping live status"
         )

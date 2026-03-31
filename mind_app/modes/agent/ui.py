@@ -9,6 +9,7 @@ from mind_core.design import Design
 from .models import (
     AgentLiveStatus, AgentSessionRuntime
 )
+from mind_nova import const
 
 if typing.TYPE_CHECKING:
     from ...mind_core import Mind
@@ -42,7 +43,7 @@ def build_external_api_example(base_url: str, access_token: str) -> list[str]:
 
     return [
         (
-            f"curl -X POST {base_url.rstrip('/')}/mind \\\n"
+            f"curl -X POST {base_url.rstrip('/')}/{const.APP_NAME} \\\n"
             f"  -H 'Authorization: Bearer {access_token}' \\\n"
             f"  -H 'Content-Type: application/json' \\\n"
             f"  -H 'Idempotency-Key: {chat_request_id}' \\\n"
@@ -58,7 +59,7 @@ def log_external_access(runtime: AgentSessionRuntime, base_url: str) -> None:
         return None
 
     example = "\n\n".join(build_external_api_example(base_url, runtime.access_token))
-    Design.console.print(f"\n{example}\n")
+    Design.console.print(f"{example}\n")
 
 
 if __name__ == '__main__':
