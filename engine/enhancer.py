@@ -483,7 +483,7 @@ class Enhancer(object):
 
         if slog and isinstance(fields, dict):
             await slog.feed(
-                json.dumps(fields, ensure_ascii=False, indent=2) + "\n", echo=False
+                json.dumps(fields, ensure_ascii=False, indent=2) + "\n", echo=False, display=slog.BLOCK
             )
 
         return fields

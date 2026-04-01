@@ -64,13 +64,10 @@ def _default_prefs() -> dict[str, typing.Any]:
     }
 
 
-def _normalize_route(value: typing.Any, *, allow_chat_completions: bool = False) -> str:
+def _normalize_route(value: typing.Any) -> str:
     """把路由值收敛到受支持的接口类型。"""
     route = str(value or "").strip()
-    if route == DEFAULT_ROUTE:
-        return route
-
-    if allow_chat_completions and route in ALLOWED_ROUTES:
+    if route in ALLOWED_ROUTES:
         return route
 
     return DEFAULT_ROUTE
@@ -234,12 +231,11 @@ def _row_to_slot(row: sqlite3.Row | None) -> Slot:
         fallback = slot.get(slot_key, "")
         slot[slot_key] = str(row[column_name] or fallback)
 
-    allow_chat_completions = str(row["slot_key"] or "") == "secondary"
-    slot["route"] = _normalize_route(slot.get("route"), allow_chat_completions=allow_chat_completions)
+    slot["route"] = _normalize_route(slot.get("route"))
     return slot
 
 
-def _merge_slot(base: Slot, incoming: typing.Any, *, allow_chat_completions: bool = False) -> Slot:
+def _merge_slot(base: Slot, incoming: typing.Any) -> Slot:
     """把传入槽位配置合并到基准槽位上。"""
     merged = dict(base)
     if not isinstance(incoming, dict):
@@ -248,7 +244,7 @@ def _merge_slot(base: Slot, incoming: typing.Any, *, allow_chat_completions: boo
     for key in merged:
         if key in incoming and incoming[key] is not None:
             merged[key] = (
-                _normalize_route(incoming[key], allow_chat_completions=allow_chat_completions)
+                _normalize_route(incoming[key])
                 if key == "route" else str(incoming[key])
             )
 
@@ -274,9 +270,9 @@ def normalize_pref(raw: typing.Any) -> dict[str, typing.Any]:
     prefs["primary"]["type"] = prefs["primary"]["type"] or DEFAULT_MODEL_TYPE
     prefs["primary"]["route"] = _normalize_route(prefs["primary"].get("route"))
 
-    secondary = _merge_slot(_default_slot(), raw.get("secondary"), allow_chat_completions=True)
+    secondary = _merge_slot(_default_slot(), raw.get("secondary"))
     secondary["type"] = secondary["type"] or DEFAULT_MODEL_TYPE
-    secondary["route"] = _normalize_route(secondary.get("route"), allow_chat_completions=True)
+    secondary["route"] = _normalize_route(secondary.get("route"))
     prefs["secondary"] = secondary if _is_slot_configured(secondary) else None
 
     return prefs
