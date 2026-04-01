@@ -59,8 +59,8 @@ class Enhancer(object):
                     continue
 
                 merged_item = dict(item)
-                if not has_dir(merged_item.get("artifact_dir")):
-                    merged_item["artifact_dir"] = default
+                if isinstance(merged_item.get("request"), dict):
+                    merged_item["request"] = patch_request(merged_item.get("request"))
                 patched_items.append(merged_item)
 
             merged_src["items"] = patched_items
