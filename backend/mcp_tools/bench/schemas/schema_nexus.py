@@ -22,8 +22,8 @@ def _request_arg_desc(protocol: str, fields_hint: str) -> str:
 
 def _batch_items_arg_desc(protocol: str) -> str:
     return (
-        f"{protocol} 批量请求项列表。每项直接包含 {protocol} 协议字段以及可选 `name`、`extract`、`asserts`；"
-        "无需再包一层 `request`。必须传原生数组对象，不要传字符串化 JSON。"
+        f"{protocol} 批量请求项列表。每项使用统一结构：`request` 承载 {protocol} 协议字段，"
+        "并可选附带 `name`、`extract`、`asserts`。必须传原生数组对象，不要传字符串化 JSON。"
     )
 
 
@@ -70,8 +70,10 @@ class BatchArgsBase(NexusToolSchemaModel):
     )
 
 
-class FlatBatchItemBase(BatchItemBase):
-    pass
+class RequestBatchItemBase(BatchItemBase):
+    request: dict[str, typing.Any] = Field(
+        description="当前批量项的协议请求定义。协议字段统一写在 `request` 下。"
+    )
 
 
 class HttpLikeBodyMixin(NexusToolSchemaModel):
@@ -149,8 +151,8 @@ class GenericSharedEnv(ArtifactDirMixin, HttpLikeBodyMixin, GraphqlAliasMixin):
     max_messages: typing.Optional[int] = None
 
 
-class GenericBatchItem(FlatBatchItemBase, GenericSharedEnv):
-    pass
+class GenericBatchItem(RequestBatchItemBase):
+    request: GenericSharedEnv
 
 
 class HttpSharedEnv(ArtifactDirMixin, HttpLikeBodyMixin):
@@ -166,8 +168,8 @@ class HttpSharedEnv(ArtifactDirMixin, HttpLikeBodyMixin):
     follow_redirects: typing.Optional[bool] = None
 
 
-class HttpFlatBatchItem(FlatBatchItemBase, HttpSharedEnv):
-    pass
+class HttpBatchItem(RequestBatchItemBase):
+    request: HttpSharedEnv
 
 
 class SseSharedEnv(HttpSharedEnv):
@@ -176,8 +178,8 @@ class SseSharedEnv(HttpSharedEnv):
     media_path: typing.Optional[str] = None
 
 
-class SseFlatBatchItem(FlatBatchItemBase, SseSharedEnv):
-    pass
+class SseBatchItem(RequestBatchItemBase):
+    request: SseSharedEnv
 
 
 class GraphqlSharedEnv(ArtifactDirMixin, GraphqlAliasMixin):
@@ -193,8 +195,8 @@ class GraphqlSharedEnv(ArtifactDirMixin, GraphqlAliasMixin):
     media_path: typing.Optional[str] = None
 
 
-class GraphqlFlatBatchItem(FlatBatchItemBase, GraphqlSharedEnv):
-    pass
+class GraphqlBatchItem(RequestBatchItemBase):
+    request: GraphqlSharedEnv
 
 
 class WsSharedEnv(ArtifactDirMixin):
@@ -207,8 +209,8 @@ class WsSharedEnv(ArtifactDirMixin):
     media_path: typing.Optional[str] = None
 
 
-class WsFlatBatchItem(FlatBatchItemBase, WsSharedEnv):
-    pass
+class WsBatchItem(RequestBatchItemBase):
+    request: WsSharedEnv
 
 
 class TcpSharedEnv(ArtifactDirMixin, BodyTextAliasMixin):
@@ -223,8 +225,8 @@ class TcpSharedEnv(ArtifactDirMixin, BodyTextAliasMixin):
     read_until: typing.Optional[str] = None
 
 
-class TcpFlatBatchItem(FlatBatchItemBase, TcpSharedEnv):
-    pass
+class TcpBatchItem(RequestBatchItemBase):
+    request: TcpSharedEnv
 
 
 class UdpSharedEnv(ArtifactDirMixin, BodyTextAliasMixin):
@@ -235,8 +237,8 @@ class UdpSharedEnv(ArtifactDirMixin, BodyTextAliasMixin):
     read_size: typing.Optional[int] = None
 
 
-class UdpFlatBatchItem(FlatBatchItemBase, UdpSharedEnv):
-    pass
+class UdpBatchItem(RequestBatchItemBase):
+    request: UdpSharedEnv
 
 
 class SmtpSharedEnv(ArtifactDirMixin, BodyTextAliasMixin):
@@ -255,8 +257,8 @@ class SmtpSharedEnv(ArtifactDirMixin, BodyTextAliasMixin):
     timeout: typing.Optional[float | int] = None
 
 
-class SmtpFlatBatchItem(FlatBatchItemBase, SmtpSharedEnv):
-    pass
+class SmtpBatchItem(RequestBatchItemBase):
+    request: SmtpSharedEnv
 
 
 class ImapSharedEnv(ArtifactDirMixin):
@@ -275,8 +277,8 @@ class ImapSharedEnv(ArtifactDirMixin):
     media_path: typing.Optional[str] = None
 
 
-class ImapFlatBatchItem(FlatBatchItemBase, ImapSharedEnv):
-    pass
+class ImapBatchItem(RequestBatchItemBase):
+    request: ImapSharedEnv
 
 
 class FtpSharedEnv(ArtifactDirMixin):
@@ -297,8 +299,8 @@ class FtpSharedEnv(ArtifactDirMixin):
     media_path: typing.Optional[str] = None
 
 
-class FtpFlatBatchItem(FlatBatchItemBase, FtpSharedEnv):
-    pass
+class FtpBatchItem(RequestBatchItemBase):
+    request: FtpSharedEnv
 
 
 NexusKindArg = typing.Annotated[
@@ -346,7 +348,7 @@ NexusNameArg = typing.Annotated[
 GenericBatchItemsArg = typing.Annotated[
     list[GenericBatchItem],
     Field(
-        description="批量请求项列表。每项直接包含协议字段以及可选 `name`、`extract` 和 `asserts`；无需再包一层 `request`。必须传原生数组对象，不要传字符串化 JSON。"
+        description="批量请求项列表。每项使用统一结构：`request` 承载协议字段，并可选附带 `name`、`extract` 和 `asserts`。必须传原生数组对象，不要传字符串化 JSON。"
     )
 ]
 GenericBatchEnvArg = typing.Annotated[
@@ -356,55 +358,55 @@ GenericBatchEnvArg = typing.Annotated[
     )
 ]
 HttpBatchItemsArg = typing.Annotated[
-    list[HttpFlatBatchItem], Field(description=_batch_items_arg_desc("HTTP"))
+    list[HttpBatchItem], Field(description=_batch_items_arg_desc("HTTP"))
 ]
 HttpBatchEnvArg = typing.Annotated[
     typing.Optional[HttpSharedEnv], Field(description=_batch_env_arg_desc("HTTP"))
 ]
 SseBatchItemsArg = typing.Annotated[
-    list[SseFlatBatchItem], Field(description=_batch_items_arg_desc("SSE"))
+    list[SseBatchItem], Field(description=_batch_items_arg_desc("SSE"))
 ]
 SseBatchEnvArg = typing.Annotated[
     typing.Optional[SseSharedEnv], Field(description=_batch_env_arg_desc("SSE"))
 ]
 GraphqlBatchItemsArg = typing.Annotated[
-    list[GraphqlFlatBatchItem], Field(description=_batch_items_arg_desc("GraphQL"))
+    list[GraphqlBatchItem], Field(description=_batch_items_arg_desc("GraphQL"))
 ]
 GraphqlBatchEnvArg = typing.Annotated[
     typing.Optional[GraphqlSharedEnv], Field(description=_batch_env_arg_desc("GraphQL"))
 ]
 WsBatchItemsArg = typing.Annotated[
-    list[WsFlatBatchItem], Field(description=_batch_items_arg_desc("WebSocket"))
+    list[WsBatchItem], Field(description=_batch_items_arg_desc("WebSocket"))
 ]
 WsBatchEnvArg = typing.Annotated[
     typing.Optional[WsSharedEnv], Field(description=_batch_env_arg_desc("WebSocket"))
 ]
 TcpBatchItemsArg = typing.Annotated[
-    list[TcpFlatBatchItem], Field(description=_batch_items_arg_desc("TCP"))
+    list[TcpBatchItem], Field(description=_batch_items_arg_desc("TCP"))
 ]
 TcpBatchEnvArg = typing.Annotated[
     typing.Optional[TcpSharedEnv], Field(description=_batch_env_arg_desc("TCP"))
 ]
 UdpBatchItemsArg = typing.Annotated[
-    list[UdpFlatBatchItem], Field(description=_batch_items_arg_desc("UDP"))
+    list[UdpBatchItem], Field(description=_batch_items_arg_desc("UDP"))
 ]
 UdpBatchEnvArg = typing.Annotated[
     typing.Optional[UdpSharedEnv], Field(description=_batch_env_arg_desc("UDP"))
 ]
 SmtpBatchItemsArg = typing.Annotated[
-    list[SmtpFlatBatchItem], Field(description=_batch_items_arg_desc("SMTP"))
+    list[SmtpBatchItem], Field(description=_batch_items_arg_desc("SMTP"))
 ]
 SmtpBatchEnvArg = typing.Annotated[
     typing.Optional[SmtpSharedEnv], Field(description=_batch_env_arg_desc("SMTP"))
 ]
 ImapBatchItemsArg = typing.Annotated[
-    list[ImapFlatBatchItem], Field(description=_batch_items_arg_desc("IMAP"))
+    list[ImapBatchItem], Field(description=_batch_items_arg_desc("IMAP"))
 ]
 ImapBatchEnvArg = typing.Annotated[
     typing.Optional[ImapSharedEnv], Field(description=_batch_env_arg_desc("IMAP"))
 ]
 FtpBatchItemsArg = typing.Annotated[
-    list[FtpFlatBatchItem], Field(description=_batch_items_arg_desc("FTP"))
+    list[FtpBatchItem], Field(description=_batch_items_arg_desc("FTP"))
 ]
 FtpBatchEnvArg = typing.Annotated[
     typing.Optional[FtpSharedEnv], Field(description=_batch_env_arg_desc("FTP"))

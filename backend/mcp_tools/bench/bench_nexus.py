@@ -8,8 +8,7 @@ from backend.middlewares.mid_task import task_middleware
 from backend.mcp_tools.bench.adapters.nexus_adapter import (
     request_model,
     dump_model,
-    flat_batch_model,
-    flat_batch_args_payload,
+    batch_model,
     generic_batch_args_payload
 )
 from backend.mcp_tools.bench.schemas.schema_nexus import (
@@ -169,7 +168,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         description=(
             "渲染批量请求中的共享默认值和各项模板变量，并展示物化后的最终请求。"
             "该工具只返回渲染结果，不执行协议请求。"
-            "`env` 作为批量共享默认值，`items[]` 直接包含协议字段；执行前会先把两者物化成最终请求。"
+            "`env` 作为批量共享默认值，`items[]` 使用统一的 `request` 包裹协议字段；执行前会先把两者物化成最终请求。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "nexus"}
     )
@@ -196,7 +195,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             try:
                 return ctx.nexus.render_batch(
                     kind=kind,
-                    batch=flat_batch_model(
+                    batch=batch_model(
                         items=items,
                         env=env,
                         template_vars=template_vars,
@@ -219,7 +218,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         description=(
             "校验批量请求的基础结构，并返回渲染后的批量结果。"
             "该工具只做字段校验和模板渲染，不执行协议请求。"
-            "适合在批跑前先检查 flat `items` 结构、共享 `env` 和并发参数是否合理。"
+            "适合在批跑前先检查 `items[].request` 结构、共享 `env` 和并发参数是否合理。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "nexus"}
     )
@@ -246,7 +245,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             try:
                 return ctx.nexus.validate_batch(
                     kind=kind,
-                    batch=flat_batch_model(
+                    batch=batch_model(
                         items=items,
                         env=env,
                         template_vars=template_vars,
@@ -316,7 +315,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "批量执行 HTTP 请求。"
-            "`env` 提供共享默认值，`items[]` 提供逐项差异；执行前会先物化成最终请求。"
+            "`env` 提供共享默认值，`items[]` 通过 `request` 提供逐项差异；执行前会先物化成最终请求。"
             "支持并发执行与 fail-fast；一旦某项失败是否立即停止，取决于 `fail_fast`。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "nexus"}
@@ -329,7 +328,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = flat_batch_args_payload(
+        args = generic_batch_args_payload(
+            kind="http",
             items=items,
             env=env,
             template_vars=template_vars,
@@ -342,7 +342,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             try:
                 return await ctx.nexus.execute_batch(
                     kind="http",
-                    batch=flat_batch_model(
+                    batch=batch_model(
                         items=items,
                         env=env,
                         template_vars=template_vars,
@@ -412,7 +412,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "批量执行 SSE 请求。"
-            "`env` 提供共享默认值，`items[]` 提供逐项差异；执行前会先物化成最终请求。"
+            "`env` 提供共享默认值，`items[]` 通过 `request` 提供逐项差异；执行前会先物化成最终请求。"
             "支持并发执行与 fail-fast，适合多条流式用例的统一回放。"
             "若预期非默认行为，必须显式传入 `concurrency` 和 `fail_fast`，不要通过省略字段回退到默认 `1/true`。"
             "`env` 与 `items` 必须传结构化对象，不要传字符串化 JSON。"
@@ -427,14 +427,14 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = flat_batch_args_payload(items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
+        args = generic_batch_args_payload(kind="sse", items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
 
         async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
                 return await ctx.nexus.execute_batch(
                     kind="sse",
-                    batch=flat_batch_model(
+                    batch=batch_model(
                         items=items,
                         env=env,
                         template_vars=template_vars,
@@ -504,7 +504,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "批量执行 WebSocket 请求。"
-            "`env` 提供共享默认值，`items[]` 提供逐项差异；执行前会先物化成最终请求。"
+            "`env` 提供共享默认值，`items[]` 通过 `request` 提供逐项差异；执行前会先物化成最终请求。"
             "支持并发执行与 fail-fast，适合多条 WebSocket 用例的统一回放。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "nexus"}
@@ -517,14 +517,14 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = flat_batch_args_payload(items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
+        args = generic_batch_args_payload(kind="ws", items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
 
         async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
                 return await ctx.nexus.execute_batch(
                     kind="ws",
-                    batch=flat_batch_model(
+                    batch=batch_model(
                         items=items,
                         env=env,
                         template_vars=template_vars,
@@ -594,7 +594,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "批量执行 GraphQL 请求。"
-            "`env` 提供共享默认值，`items[]` 提供逐项差异；执行前会先物化成最终请求。"
+            "`env` 提供共享默认值，`items[]` 通过 `request` 提供逐项差异；执行前会先物化成最终请求。"
             "支持并发执行与 fail-fast，适合多条 GraphQL 用例的统一回放。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "nexus"}
@@ -607,14 +607,14 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = flat_batch_args_payload(items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
+        args = generic_batch_args_payload(kind="graphql", items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
 
         async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
                 return await ctx.nexus.execute_batch(
                     kind="graphql",
-                    batch=flat_batch_model(
+                    batch=batch_model(
                         items=items,
                         env=env,
                         template_vars=template_vars,
@@ -684,7 +684,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "批量执行 TCP 请求。"
-            "`env` 提供共享默认值，`items[]` 提供逐项差异；执行前会先物化成最终请求。"
+            "`env` 提供共享默认值，`items[]` 通过 `request` 提供逐项差异；执行前会先物化成最终请求。"
             "支持并发执行与 fail-fast，适合多条端口探测或原始报文用例的统一回放。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "nexus"}
@@ -697,14 +697,14 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = flat_batch_args_payload(items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
+        args = generic_batch_args_payload(kind="tcp", items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
 
         async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
                 return await ctx.nexus.execute_batch(
                     kind="tcp",
-                    batch=flat_batch_model(
+                    batch=batch_model(
                         items=items,
                         env=env,
                         template_vars=template_vars,
@@ -774,7 +774,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "批量执行 UDP 请求。"
-            "`env` 提供共享默认值，`items[]` 提供逐项差异；执行前会先物化成最终请求。"
+            "`env` 提供共享默认值，`items[]` 通过 `request` 提供逐项差异；执行前会先物化成最终请求。"
             "支持并发执行与 fail-fast，适合多条 UDP 探测用例的统一回放。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "nexus"}
@@ -787,14 +787,14 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = flat_batch_args_payload(items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
+        args = generic_batch_args_payload(kind="udp", items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
 
         async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
                 return await ctx.nexus.execute_batch(
                     kind="udp",
-                    batch=flat_batch_model(
+                    batch=batch_model(
                         items=items,
                         env=env,
                         template_vars=template_vars,
@@ -864,7 +864,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "批量执行 SMTP 请求。"
-            "`env` 提供共享默认值，`items[]` 提供逐项差异；执行前会先物化成最终请求。"
+            "`env` 提供共享默认值，`items[]` 通过 `request` 提供逐项差异；执行前会先物化成最终请求。"
             "支持并发执行与 fail-fast，适合多条 SMTP 校验或发信用例的统一回放。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "nexus"}
@@ -877,14 +877,14 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = flat_batch_args_payload(items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
+        args = generic_batch_args_payload(kind="smtp", items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
 
         async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
                 return await ctx.nexus.execute_batch(
                     kind="smtp",
-                    batch=flat_batch_model(
+                    batch=batch_model(
                         items=items,
                         env=env,
                         template_vars=template_vars,
@@ -954,7 +954,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "批量执行 IMAP 请求。"
-            "`env` 提供共享默认值，`items[]` 提供逐项差异；执行前会先物化成最终请求。"
+            "`env` 提供共享默认值，`items[]` 通过 `request` 提供逐项差异；执行前会先物化成最终请求。"
             "支持并发执行与 fail-fast，适合多条邮箱用例的统一回放。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "nexus"}
@@ -967,14 +967,14 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = flat_batch_args_payload(items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
+        args = generic_batch_args_payload(kind="imap", items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
 
         async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
                 return await ctx.nexus.execute_batch(
                     kind="imap",
-                    batch=flat_batch_model(
+                    batch=batch_model(
                         items=items,
                         env=env,
                         template_vars=template_vars,
@@ -1044,7 +1044,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "批量执行 FTP 请求。"
-            "`env` 提供共享默认值，`items[]` 提供逐项差异；执行前会先物化成最终请求。"
+            "`env` 提供共享默认值，`items[]` 通过 `request` 提供逐项差异；执行前会先物化成最终请求。"
             "支持并发执行与 fail-fast，适合多条 FTP 用例的统一回放。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "nexus"}
@@ -1057,14 +1057,14 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = flat_batch_args_payload(items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
+        args = generic_batch_args_payload(kind="ftp", items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
 
         async def call(*_) -> typing.Any:
             job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
             try:
                 return await ctx.nexus.execute_batch(
                     kind="ftp",
-                    batch=flat_batch_model(
+                    batch=batch_model(
                         items=items,
                         env=env,
                         template_vars=template_vars,

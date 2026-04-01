@@ -74,43 +74,6 @@ def batch_model(
     )
 
 
-def flat_batch_model(
-    *,
-    items: list[typing.Any],
-    env: typing.Optional[typing.Any] = None,
-    template_vars: typing.Optional[dict[str, typing.Any]] = None,
-    concurrency: int = 1,
-    fail_fast: bool = True
-) -> NexusBatchRequest:
-    """根据扁平条目负载构建标准化的批量请求模型。"""
-    normalized_items: list[NexusBatchItem] = []
-
-    for item in items:
-        item_dict = dump_model(item, field_name="items[]")
-        if not item_dict:
-            continue
-        normalized_items.append(
-            NexusBatchItem(
-                name=item_dict.get("name"),
-                request={
-                    key: value
-                    for key, value in item_dict.items()
-                    if key not in {"name", "extract", "asserts"}
-                },
-                extract=item_dict.get("extract") if isinstance(item_dict.get("extract"), dict) else None,
-                asserts=item_dict.get("asserts") if isinstance(item_dict.get("asserts"), list) else None,
-            )
-        )
-
-    return NexusBatchRequest(
-        items=normalized_items,
-        env=dump_model(env, field_name="env"),
-        template_vars=dict(template_vars or {}),
-        concurrency=concurrency,
-        fail_fast=fail_fast
-    )
-
-
 def batch_args_payload(
     batch_args: BaseModel,
     *,
@@ -121,24 +84,6 @@ def batch_args_payload(
     if kind is not None:
         args = {"kind": kind, **args}
     return args
-
-
-def flat_batch_args_payload(
-    *,
-    items: list[typing.Any],
-    env: typing.Optional[typing.Any] = None,
-    template_vars: typing.Optional[dict[str, typing.Any]] = None,
-    concurrency: int = 1,
-    fail_fast: bool = True
-) -> dict[str, typing.Any]:
-    """将扁平批量工具参数标准化，用于日志和广播负载。"""
-    return {
-        "items"         : [dump_model(item, field_name="items[]") for item in items],
-        "env"           : dump_model(env, field_name="env") if env is not None else None,
-        "template_vars" : dict(template_vars or {}) if template_vars is not None else None,
-        "concurrency"   : concurrency,
-        "fail_fast"     : fail_fast
-    }
 
 
 def generic_batch_args_payload(
