@@ -49,6 +49,16 @@ def normalize_forward_target(
     if metadata_raw is not None and not isinstance(metadata_raw, dict):
         raise ValueError("mind.forward payload.metadata must be an object")
 
+    if profile == "code":
+        message = message_raw.strip()
+        if message == "-":
+            raise ValueError("mind.forward payload.message '-' is not allowed when profile=code")
+        if message.startswith("inline:") or message.startswith("http://") or message.startswith("https://"):
+            return typing.cast(typing.Literal["chat", "fast", "plan"], mode), profile, message_raw
+        raise ValueError(
+            "mind.forward payload.message must be inline:... or http(s)://... when profile=code"
+        )
+
     return typing.cast(typing.Literal["chat", "fast", "plan"], mode), profile, message_raw
 
 
