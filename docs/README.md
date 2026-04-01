@@ -19,6 +19,8 @@
   适合看覆盖优先级、执行顺序、批跑控制语义和常见误写。
 - [星图样例](code-blueprints.md)  
   适合看跨域 --code 编排的高层自然语言样例，以及什么时候该写星图。
+- [星图源抽象设计](cli-code-source-design.md)  
+  适合在把 --code 从本机文件入口升级为 source 抽象时阅读。
 - [接口实战](playbook.api.md)  
   适合看协议能力的字段边界、提取、断言和批量请求。
 - [模板能力](playbook.template.md)  

@@ -12,7 +12,7 @@ def now_ts() -> int:
 
 
 def new_message_id(prefix: str) -> str:
-    """为驻留客户端生成可追踪的消息 ID。"""
+    """为订阅客户端生成可追踪的消息 ID。"""
     return f"msg_{prefix}_{uuid.uuid4().hex[:12]}"
 
 

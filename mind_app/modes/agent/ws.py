@@ -15,9 +15,48 @@ if typing.TYPE_CHECKING:
     from ...mind_core import Mind
 
 
-def update_last_acked_seq(runtime: AgentSessionRuntime, message: dict[str, typing.Any]) -> None:
-    """记录当前已观测到的服务端最新序号。"""
+class AgentWsProtocolError(RuntimeError):
+    """服务端通过 WS `error` 帧显式拒绝当前会话时抛出的异常。"""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        action: typing.Literal["reconnect", "reopen", "abort"] = "reconnect"
+    ) -> None:
+        super().__init__(f"{code}: {message}")
+        self.code = code
+        self.message_text = message
+        self.action = action
+
+
+_REOPEN_ERROR_CODES: typing.Final[set[str]] = {
+    "AGENT_TOKEN_INVALID",
+    "AGENT_CLIENT_UNAUTHORIZED",
+    "AGENT_WS_SCOPE_INVALID",
+    "AGENT_WS_SESSION_MISMATCH",
+    "AGENT_WS_DEVICE_MISMATCH",
+    "AGENT_SESSION_NOT_FOUND",
+    "AGENT_SESSION_OFFLINE",
+    "AGENT_SESSION_NOT_CONNECTED",
+    "AGENT_SESSION_UNRESOLVED",
+    "AGENT_SESSION_AMBIGUOUS",
+}
+
+_ABORT_ERROR_CODES: typing.Final[set[str]] = {
+    "AGENT_WS_PAYLOAD_INVALID",
+}
+
+
+def extract_message_seq(message: dict[str, typing.Any]) -> int | None:
+    """读取服务端消息序号。"""
     seq = message.get("seq")
+    return seq if isinstance(seq, int) else None
+
+
+def update_last_acked_seq(runtime: AgentSessionRuntime, seq: int | None) -> None:
+    """仅在消息被成功处理后推进恢复水位。"""
     if isinstance(seq, int) and seq > runtime.last_acked_seq:
         runtime.last_acked_seq = seq
 
@@ -151,10 +190,9 @@ async def handle_server_message(
     runtime: AgentSessionRuntime,
     message: dict[str, typing.Any],
     live_status: AgentLiveStatus,
-) -> None:
+) -> int | None:
     """按订阅协议处理一条服务端消息。"""
-    update_last_acked_seq(runtime, message)
-
+    current_seq = extract_message_seq(message)
     message_type = str(message.get("type") or "")
 
     if message_type == "ready":
@@ -167,13 +205,13 @@ async def handle_server_message(
             f"heartbeat_timeout_sec={payload.get('heartbeat_timeout_sec')} "
             f"resume_timeout_sec={payload.get('resume_timeout_sec')}"
         )
-        return None
+        return current_seq
 
     if message_type == "ping":
         live_status.update("Link Heartbeat", "Ping received, replying with pong")
         await client.send_pong(connection, session_id=runtime.session_id)
         logger.debug("[Agent] pong sent")
-        return None
+        return current_seq
 
     if message_type == "replay.batch":
         payload_raw  = message.get("payload")
@@ -187,9 +225,10 @@ async def handle_server_message(
         logger.debug(
             f"[Agent] replay.batch count={len(replayed)}"
         )
+        handled_seq = current_seq
         for replay_message in replayed:
             if isinstance(replay_message, dict):
-                await handle_server_message(
+                replay_seq = await handle_server_message(
                     mind,
                     client,
                     connection,
@@ -197,11 +236,15 @@ async def handle_server_message(
                     replay_message,
                     live_status
                 )
-        return None
+                if isinstance(replay_seq, int):
+                    handled_seq = replay_seq if handled_seq is None else max(handled_seq, replay_seq)
+        return handled_seq
 
     if message_type == "mind.forward":
         payload_raw = message.get("payload")
         payload     = payload_raw if isinstance(payload_raw, dict) else {}
+        session_id_raw = message.get("session_id")
+        session_id     = session_id_raw if isinstance(session_id_raw, str) else ""
 
         message_id_raw = message.get("message_id")
         message_id     = message_id_raw if isinstance(message_id_raw, str) else ""
@@ -218,17 +261,23 @@ async def handle_server_message(
             logger.debug(
                 "[Agent] mind.forward ignored: message_id missing"
             )
-            return None
+            return current_seq
+        if not session_id or session_id != runtime.session_id:
+            raise AgentWsProtocolError(
+                "AGENT_WS_SESSION_MISMATCH",
+                f"mind.forward session_id mismatch expected={runtime.session_id} actual={session_id or '-'}",
+                action="reopen"
+            )
         if not call_id:
             logger.debug(
                 f"[Agent] mind.forward ignored: call_id missing message_id={message_id}"
             )
-            return None
+            return current_seq
         if not cid or not sid:
             logger.debug(
                 f"[Agent] mind.forward ignored: cid/sid missing call_id={call_id} message_id={message_id}"
             )
-            return None
+            return current_seq
 
         logger.debug(
             f"[Agent] mind.forward accepted call_id={call_id} message_id={message_id} cid={cid} sid={sid}"
@@ -255,7 +304,7 @@ async def handle_server_message(
             logger.warning(
                 f"[Agent] mind.forward replay skipped message_id={message_id}"
             )
-            return None
+            return current_seq
 
         seen.add(message_id)
         spawn_forward_task(
@@ -267,25 +316,32 @@ async def handle_server_message(
             payload=payload,
             live_status=live_status
         )
-        return None
+        return current_seq
 
     if message_type == "ack":
-        return None
+        return current_seq
 
     if message_type == "error":
         payload_raw = message.get("payload")
         payload     = payload_raw if isinstance(payload_raw, dict) else {}
+        code = str(payload.get("code") or "").strip()
+        message_text = str(payload.get("message") or "").strip()
         logger.error(
-            f"[Agent] server error code={payload.get('code') or ''} message={payload.get('message') or ''}"
+            f"[Agent] server error code={code} message={message_text}"
         )
-        return None
+        if code in _ABORT_ERROR_CODES:
+            raise AgentWsProtocolError(code, message_text, action="abort")
+        if code in _REOPEN_ERROR_CODES:
+            raise AgentWsProtocolError(code, message_text, action="reopen")
+        return current_seq
 
     if message_type == "pong":
-        return None
+        return current_seq
 
     logger.debug(
         f"[Agent] unsupported ws message type={message_type}"
     )
+    return current_seq
 
 
 async def connect_once(
@@ -331,7 +387,10 @@ async def connect_once(
             logger.debug(
                 f"[Agent] recv {summarize_ws_message(message)}"
             )
-            await handle_server_message(mind, client, connection, runtime, message, live_status)
+            handled_seq = await handle_server_message(
+                mind, client, connection, runtime, message, live_status
+            )
+            update_last_acked_seq(runtime, handled_seq)
 
 
 if __name__ == '__main__':

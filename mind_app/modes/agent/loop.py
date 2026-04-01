@@ -24,6 +24,7 @@ from .opening import (
     open_runtime
 )
 from .ws import (
+    AgentWsProtocolError,
     cancel_runtime_tasks,
     sleep_or_stop,
     connect_once
@@ -72,10 +73,25 @@ async def resume_or_reopen(
         "Resume Expired", "Opening a fresh subscription session"
     )
 
+    reopened = await open_new_runtime(client, config, previous=runtime)
+    logger.debug(
+        f"[Agent] reopened session_id={reopened.session_id} device_id={reopened.device_id}"
+    )
+    log_external_access(reopened, config.base_url)
+    return reopened
+
+
+async def open_new_runtime(
+    client: AgentClient,
+    config: AgentConfig,
+    *,
+    previous: AgentSessionRuntime | None = None,
+) -> AgentSessionRuntime:
+    """打开一个全新的订阅会话，并尽量复用本地去重与任务状态。"""
     opened, device_id = await open_runtime(client, config)
     session_id, ws_token, ws_url, resume_token, access_token = normalize_open_payload(client, opened)
 
-    reopened = AgentSessionRuntime(
+    runtime = AgentSessionRuntime(
         session_id=session_id,
         ws_token=ws_token,
         resume_token=resume_token,
@@ -83,14 +99,13 @@ async def resume_or_reopen(
         ws_url=ws_url,
         device_id=device_id,
         client_version=config.client_version,
-        forwarded_message_ids=runtime.forwarded_message_ids,
-        pending_tasks=runtime.pending_tasks,
+        forwarded_message_ids=None if previous is None else previous.forwarded_message_ids,
+        pending_tasks=None if previous is None else previous.pending_tasks,
     )
     logger.debug(
-        f"[Agent] reopened session_id={session_id} device_id={device_id}"
+        f"[Agent] opened session_id={session_id} agent_id={config.agent_id} device_id={device_id}"
     )
-    log_external_access(reopened, config.base_url)
-    return reopened
+    return runtime
 
 
 async def agent_loop(mind: "Mind") -> None:
@@ -100,8 +115,8 @@ async def agent_loop(mind: "Mind") -> None:
         device_id=build_device_id(),
         agent_id=const.APP_NAME,
         client_version=const.APP_VERSION,
-        platform=(platform.system().lower() or "windows").strip(),
-        arch=(platform.machine().lower() or "amd64").strip()
+        platform=(platform.system().strip().lower() or "unknown"),
+        arch=(platform.machine().strip().lower() or "unknown")
     )
 
     client = AgentClient(base_url=config.base_url)
@@ -116,24 +131,10 @@ async def agent_loop(mind: "Mind") -> None:
             "Opening Session", "Requesting /agents/open"
         )
 
-        opened, device_id = await open_runtime(client, config)
-        session_id, ws_token, ws_url, resume_token, access_token = normalize_open_payload(client, opened)
-
-        runtime = AgentSessionRuntime(
-            session_id=session_id,
-            ws_token=ws_token,
-            resume_token=resume_token,
-            access_token=access_token,
-            ws_url=ws_url,
-            device_id=device_id,
-            client_version=config.client_version
-        )
+        runtime = await open_new_runtime(client, config)
 
         logger.debug(
             f"[Agent] {config.base_url}"
-        )
-        logger.debug(
-            f"[Agent] session_id={session_id} agent_id={config.agent_id} device_id={device_id}"
         )
         live_status.update(
             "Subscription Ready", "Rendering external call example"
@@ -157,6 +158,58 @@ async def agent_loop(mind: "Mind") -> None:
                     "Exiting Subscription", "Interrupting network wait"
                 )
                 raise
+            except AgentWsProtocolError as exc:
+                logger.debug(
+                    f"[Agent] ws protocol error code={exc.code} action={exc.action} message={exc.message_text}"
+                )
+                if exc.action == "abort":
+                    live_status.update(
+                        "Protocol Rejected", f"{exc.code} · stopping subscription"
+                    )
+                    raise
+
+                if exc.action == "reopen":
+                    live_status.update(
+                        "Server Rejected Session", f"{exc.code} · opening fresh session"
+                    )
+                    try:
+                        runtime = await open_new_runtime(client, config, previous=runtime)
+                    except asyncio.CancelledError:
+                        live_status.update(
+                            "Exiting Subscription", "Canceling reopen flow"
+                        )
+                        raise
+                    except (OSError, httpx.HTTPError, asyncio.TimeoutError) as reopen_exc:
+                        logger.debug(
+                            f"[Agent] reopen failed: {type(reopen_exc).__name__}: {reopen_exc}"
+                        )
+                        live_status.update(
+                            "Reopen Failed", f"{type(reopen_exc).__name__} · retrying in 2s"
+                        )
+                        await sleep_or_stop(2.0, mind.task_event)
+                        continue
+                    except Exception as reopen_exc:
+                        logger.debug(
+                            f"[Agent] reopen crashed: {type(reopen_exc).__name__}: {reopen_exc}"
+                        )
+                        live_status.update(
+                            "Reopen Crashed", f"{type(reopen_exc).__name__} · retrying in 2s"
+                        )
+                        await sleep_or_stop(2.0, mind.task_event)
+                        continue
+
+                    log_external_access(runtime, config.base_url)
+                    live_status.update(
+                        "Reopened and Waiting", "Returning to listening state in 1s"
+                    )
+                    await sleep_or_stop(1.0, mind.task_event)
+                    continue
+
+                live_status.update(
+                    "Reconnecting", f"{exc.code} · reconnecting in 1s"
+                )
+                await sleep_or_stop(1.0, mind.task_event)
+                continue
             except (ConnectionClosed, OSError, httpx.HTTPError, asyncio.TimeoutError) as exc:
                 logger.debug(
                     f"[Agent] disconnected: {type(exc).__name__}: {exc}"

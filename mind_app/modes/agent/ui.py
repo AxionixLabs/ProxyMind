@@ -35,7 +35,6 @@ def build_external_api_example(base_url: str, access_token: str) -> list[str]:
     mind_chat_payload = {
         "mode"        : "fast",
         "profile"     : "",
-        "subject"     : "",
         "message"     : "",
         "timeout_sec" : 300
     }

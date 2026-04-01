@@ -24,7 +24,7 @@ from .modes.agent import run_agent_loop
 from .runtime.calling import (
     calling as run_calling,
     wakeup as run_wakeup,
-    with_mcp_guard as run_with_mcp_guard,
+    with_mcp_guard as run_with_mcp_guard
 )
 from .runtime.session import with_mcp_session as run_with_mcp_session
 
@@ -291,7 +291,7 @@ class Mind(object):
 
     async def mind_pack(
         self,
-        code: list[str],
+        code: list[typing.Any],
         mode: typing.Literal["chat", "fast", "plan"],
         *_,
         **kwargs

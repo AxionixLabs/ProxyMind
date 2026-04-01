@@ -16,28 +16,40 @@ if typing.TYPE_CHECKING:
 
 def normalize_forward_target(
     payload: dict[str, typing.Any]
-) -> tuple[typing.Literal["chat", "fast", "plan"], str, str, str]:
+) -> tuple[typing.Literal["chat", "fast", "plan"], str, str]:
     """解析 `mind.forward` 载荷，映射到本地可执行的模式与参数。"""
-    mode = str(payload.get("mode") or "").strip().lower()
+    allowed = {
+        "call_id", "mode", "profile", "message", "metadata", "timeout_sec"
+    }
+    extra = set(payload) - allowed
+    if extra:
+        raise ValueError(f"Unsupported mind.forward payload field(s): {', '.join(sorted(extra))}")
+
+    mode_raw = payload.get("mode")
+    if not isinstance(mode_raw, str):
+        raise ValueError("mind.forward payload.mode must be a string")
+    mode = mode_raw.strip().lower()
     if mode not in {"chat", "fast", "plan"}:
         raise ValueError("mind.forward payload.mode must be chat, fast, or plan")
 
-    profile = str(payload.get("profile") or "").strip().lower()
+    profile_raw = payload.get("profile")
+    if not isinstance(profile_raw, str):
+        raise ValueError("mind.forward payload.profile must be a string")
+    profile = profile_raw.strip().lower()
     if profile not in {"", "code"}:
         raise ValueError("mind.forward payload.profile must be empty or code")
 
-    subject = str(payload.get("subject") or "").strip()
-    message = str(payload.get("message") or "").strip()
-
-    if profile == "code":
-        if not subject:
-            raise ValueError("mind.forward payload.subject is required when profile=code")
-        return typing.cast(typing.Literal["chat", "fast", "plan"], mode), profile, subject, message
-
-    if not message:
+    message_raw = payload.get("message")
+    if not isinstance(message_raw, str):
+        raise ValueError("mind.forward payload.message must be a string")
+    if not message_raw.strip():
         raise ValueError("mind.forward payload.message is required")
 
-    return typing.cast(typing.Literal["chat", "fast", "plan"], mode), profile, subject, message
+    metadata_raw = payload.get("metadata")
+    if metadata_raw is not None and not isinstance(metadata_raw, dict):
+        raise ValueError("mind.forward payload.metadata must be an object")
+
+    return typing.cast(typing.Literal["chat", "fast", "plan"], mode), profile, message_raw
 
 
 def resolve_forward_timeout_sec(payload: dict[str, typing.Any]) -> float | None:
@@ -67,17 +79,21 @@ async def execute_forward(
     live_status: AgentLiveStatus | None = None,
 ) -> None:
     """执行一条 `mind.forward` 下发的本地任务。"""
-    mode, profile, subject, message = normalize_forward_target(payload)
+    mode, profile, message = normalize_forward_target(payload)
 
     timeout_sec      = resolve_forward_timeout_sec(payload)
     metadata_raw     = payload.get("metadata")
     forward_metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
 
-    metadata = {"cid": cid, "sid": sid}
+    metadata = dict(forward_metadata)
+    if cid is not None:
+        metadata["cid"] = cid
+    if sid is not None:
+        metadata["sid"] = sid
 
     logger.debug(
         f"[Agent] forward start call_id={call_id} mode={mode} profile={profile or '-'} "
-        f"subject={subject or '-'} timeout_sec={timeout_sec or 0} "
+        f"message={json.dumps(message, ensure_ascii=False)} timeout_sec={timeout_sec or 0} "
         f"metadata={json.dumps(forward_metadata, ensure_ascii=False)}"
     )
     if live_status is not None:
@@ -86,7 +102,7 @@ async def execute_forward(
         )
 
     if profile == "code":
-        runner = mind.mind_pack([subject], mode, metadata=metadata)
+        runner = mind.mind_pack([message], mode, metadata=metadata)
     else:
         runner = mind.calling(message=message, mode=mode, metadata=metadata)
 

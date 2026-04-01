@@ -5,16 +5,17 @@ import re
 import time
 import typing
 import asyncio
-from pathlib import Path
 from dataclasses import dataclass
 from loguru import logger
 from mcp import ClientSession
 from engine.scaling import (
     PackItem, Pack
 )
-from engine.tinker import MindError
 from mind_nova.events import EventReport
 from mind_nova import const
+from .code_sources import (
+    CodeSourceResolved, resolve_code_sources
+)
 from ..runtime.calling import resolve_mode_runner
 
 if typing.TYPE_CHECKING:
@@ -48,20 +49,6 @@ class PackRuntime:
     runner: typing.Callable[..., typing.Awaitable[None]]
 
 
-def _resolve_code_paths(code: list[str]) -> list[Path]:
-    """解析批处理输入文件，并校验文件是否存在。"""
-    code_path = [Path(x).expanduser() for x in (code or [])]
-
-    if not code_path:
-        raise MindError("Code list is empty")
-
-    for code_p in code_path:
-        if not code_p.exists():
-            raise MindError(f"File not found: {code_p}")
-
-    return code_path
-
-
 def _build_pack_config(cfg: dict[str, typing.Any]) -> PackConfig:
     """把 pack 配置字典标准化为结构化配置。"""
     try:
@@ -71,7 +58,7 @@ def _build_pack_config(cfg: dict[str, typing.Any]) -> PackConfig:
     if repeat < 1:
         repeat = 1
 
-    pattern = (cfg.get("pattern") or "").strip()
+    pattern      = (cfg.get("pattern") or "").strip()
     name_pattern = re.compile(pattern) if pattern else None
 
     try:
@@ -82,7 +69,7 @@ def _build_pack_config(cfg: dict[str, typing.Any]) -> PackConfig:
         attempts = 1
 
     stop_on_fail = str(cfg.get("stop_on_fail") or "").strip().lower() in {
-        "1", "true", "yes", "on",
+        "1", "true", "yes", "on"
     }
 
     return PackConfig(
@@ -131,7 +118,7 @@ def _build_task_message(item: PackItem, config: PackConfig) -> str:
 async def _run_virtual_message(
     mind: "Mind",
     runtime: PackRuntime,
-    file_path: Path,
+    source: CodeSourceResolved,
     item_count: int,
     session: ClientSession,
     openai_tools: list[dict[str, typing.Any]],
@@ -147,10 +134,10 @@ async def _run_virtual_message(
         return None
 
     logger.info(
-        f"🧩 [Batch] {name} file={file_path}"
+        f"🧩 [Batch] {name} source={source.display_origin}"
     )
     _emit_diagnostic(
-        runtime.event_report, event_type="virtual.start", file=str(file_path), name=name, run=run
+        runtime.event_report, event_type="virtual.start", file=source.display_origin, name=name, run=run
     )
 
     await mind.start_anim(runtime.mode)
@@ -172,21 +159,22 @@ async def _run_virtual_message(
         _emit_diagnostic(
             runtime.event_report,
             event_type="virtual.failed",
-            file=str(file_path),
+            file=source.display_origin,
+            source=source.display_origin,
             total=item_count,
             error=error,
             name=name,
             run=run
         )
         logger.error(
-            f"❌ [Batch] virtual failed: {name} file={file_path} err={error}\n"
+            f"❌ [Batch] virtual failed: {name} source={source.display_origin} err={error}\n"
         )
 
     finally:
         await mind.await_cleanup(mind.stop_anim())
 
     _emit_diagnostic(
-        runtime.event_report, event_type="virtual.done", file=str(file_path), name=name, run=run
+        runtime.event_report, event_type="virtual.done", file=source.display_origin, name=name, run=run
     )
 
 
@@ -194,7 +182,7 @@ async def _run_pack_item(
     mind: "Mind",
     runtime: PackRuntime,
     config: PackConfig,
-    file_path: Path,
+    source: CodeSourceResolved,
     item: PackItem,
     *,
     run: int,
@@ -210,7 +198,7 @@ async def _run_pack_item(
         _emit_diagnostic(
             runtime.event_report,
             event_type="task.start",
-            file=str(file_path),
+            file=source.display_origin,
             run=run,
             index=index,
             total=total,
@@ -221,7 +209,7 @@ async def _run_pack_item(
 
         logger.info(
             f"▶️  [Batch] [{index}/{total}] {item.name} "
-            f"item_run={item_run}/{item.loop} file={file_path}"
+            f"item_run={item_run}/{item.loop} source={source.display_origin}"
         )
 
         last_error: typing.Optional[str] = None
@@ -232,7 +220,7 @@ async def _run_pack_item(
             _emit_diagnostic(
                 runtime.event_report,
                 event_type="task.attempt",
-                file=str(file_path),
+                file=source.display_origin,
                 run=run,
                 index=index,
                 total=total,
@@ -261,7 +249,7 @@ async def _run_pack_item(
                 _emit_diagnostic(
                     runtime.event_report,
                     event_type="task.done",
-                    file=str(file_path),
+                    file=source.display_origin,
                     run=run,
                     index=index,
                     total=total,
@@ -281,7 +269,7 @@ async def _run_pack_item(
                 _emit_diagnostic(
                     runtime.event_report,
                     event_type="task.failed",
-                    file=str(file_path),
+                    file=source.display_origin,
                     run=run,
                     index=index,
                     total=total,
@@ -304,7 +292,7 @@ async def _run_pack_item(
                     _emit_diagnostic(
                         runtime.event_report,
                         event_type="task.retry_wait",
-                        file=str(file_path),
+                        file=source.display_origin,
                         run=run,
                         index=index,
                         total=total,
@@ -322,7 +310,7 @@ async def _run_pack_item(
             _emit_diagnostic(
                 runtime.event_report,
                 event_type="task.give_up",
-                file=str(file_path),
+                file=source.display_origin,
                 run=run,
                 index=index,
                 total=total,
@@ -344,40 +332,35 @@ async def _run_pack_item(
     return True
 
 
-async def _run_pack_file(
+async def _run_pack_source(
     mind: "Mind",
     runtime: PackRuntime,
-    file_path: Path,
+    source: CodeSourceResolved,
     session: ClientSession,
     openai_tools: list[dict[str, typing.Any]],
     tool_meta: dict[str, dict[str, typing.Any]],
     **kwargs
 ) -> None:
-    """执行单个 pack 文件，负责 round/item/hook 的整体编排。"""
-    try:
-        text = file_path.read_text(encoding=const.CHARSET, errors="replace")
-    except Exception as e:
-        raise MindError(e)
-
-    items, raw_cfg = Pack.pack_parse(text)
+    """执行单个 pack 源，负责 round/item/hook 的整体编排。"""
+    items, raw_cfg = Pack.pack_parse(source.content)
 
     config = _build_pack_config(raw_cfg)
 
     if not items:
         logger.warning(
-            f"[Batch] no executable items in pack; running hooks only. file={file_path}"
+            f"[Batch] no executable items in pack; running hooks only. source={source.display_origin}"
         )
 
     item_total = len(items)
 
     _emit_diagnostic(
-        runtime.event_report, event_type="batch.start", file=str(file_path), items=item_total, repeat=config.repeat
+        runtime.event_report, event_type="batch.start", file=source.display_origin, items=item_total, repeat=config.repeat
     )
 
     await _run_virtual_message(
         mind,
         runtime,
-        file_path,
+        source,
         item_total,
         session,
         openai_tools,
@@ -392,7 +375,7 @@ async def _run_pack_file(
             _emit_diagnostic(
                 runtime.event_report,
                 event_type="round.start",
-                file=str(file_path),
+                file=source.display_origin,
                 run=run,
                 total=config.repeat,
                 items=item_total
@@ -401,7 +384,7 @@ async def _run_pack_file(
             await _run_virtual_message(
                 mind,
                 runtime,
-                file_path,
+                source,
                 item_total,
                 session,
                 openai_tools,
@@ -413,7 +396,7 @@ async def _run_pack_file(
             )
 
             logger.info(
-                f"🧪 [Batch] run {run}/{config.repeat} items={item_total} file={file_path}"
+                f"🧪 [Batch] run {run}/{config.repeat} items={item_total} source={source.display_origin}"
             )
 
             for index, item in enumerate(items, start=1):
@@ -421,7 +404,7 @@ async def _run_pack_file(
                     _emit_diagnostic(
                         runtime.event_report,
                         event_type="task.skip",
-                        file=str(file_path),
+                        file=source.display_origin,
                         run=run,
                         index=index,
                         total=item_total,
@@ -436,10 +419,10 @@ async def _run_pack_file(
 
                 # 每个 item 在真实任务前后都保留 hook，方便统一注入上下文。
                 _emit_diagnostic(
-                    runtime.event_report,
-                    event_type="item_hook.start",
-                    hook="item_prefix",
-                    file=str(file_path),
+                        runtime.event_report,
+                        event_type="item_hook.start",
+                        hook="item_prefix",
+                        file=source.display_origin,
                     run=run,
                     index=index,
                     total=item_total,
@@ -448,7 +431,7 @@ async def _run_pack_file(
                 await _run_virtual_message(
                     mind,
                     runtime,
-                    file_path,
+                    source,
                     item_total,
                     session,
                     openai_tools,
@@ -459,10 +442,10 @@ async def _run_pack_file(
                     **kwargs
                 )
                 _emit_diagnostic(
-                    runtime.event_report,
-                    event_type="item_hook.done",
-                    hook="item_prefix",
-                    file=str(file_path),
+                        runtime.event_report,
+                        event_type="item_hook.done",
+                        hook="item_prefix",
+                        file=source.display_origin,
                     run=run,
                     index=index,
                     total=item_total,
@@ -474,7 +457,7 @@ async def _run_pack_file(
                         mind,
                         runtime,
                         config,
-                        file_path,
+                        source,
                         item,
                         run=run,
                         index=index,
@@ -492,7 +475,7 @@ async def _run_pack_file(
                         runtime.event_report,
                         event_type="item_hook.start",
                         hook="item_suffix",
-                        file=str(file_path),
+                        file=source.display_origin,
                         run=run,
                         index=index,
                         total=item_total,
@@ -501,7 +484,7 @@ async def _run_pack_file(
                     await _run_virtual_message(
                         mind,
                         runtime,
-                        file_path,
+                        source,
                         item_total,
                         session,
                         openai_tools,
@@ -515,7 +498,7 @@ async def _run_pack_file(
                         runtime.event_report,
                         event_type="item_hook.done",
                         hook="item_suffix",
-                        file=str(file_path),
+                        file=source.display_origin,
                         run=run,
                         index=index,
                         total=item_total,
@@ -525,7 +508,7 @@ async def _run_pack_file(
             await _run_virtual_message(
                 mind,
                 runtime,
-                file_path,
+                source,
                 item_total,
                 session,
                 openai_tools,
@@ -538,7 +521,7 @@ async def _run_pack_file(
             _emit_diagnostic(
                 runtime.event_report,
                 event_type="round.done",
-                file=str(file_path),
+                file=source.display_origin,
                 run=run,
                 total=config.repeat,
                 items=item_total
@@ -547,7 +530,7 @@ async def _run_pack_file(
         await _run_virtual_message(
             mind,
             runtime,
-            file_path,
+            source,
             item_total,
             session,
             openai_tools,
@@ -558,27 +541,29 @@ async def _run_pack_file(
         )
     finally:
         _emit_diagnostic(
-            runtime.event_report, event_type="batch.done", file=str(file_path), items=item_total, repeat=config.repeat
+            runtime.event_report, event_type="batch.done", file=source.display_origin, items=item_total, repeat=config.repeat
         )
 
 
 async def mind_pack(
     mind: "Mind",
-    code: list[str],
+    code: list[typing.Any],
     mode: typing.Literal["chat", "fast", "plan"],
     *_,
     **kwargs
 ) -> None:
-    """批处理入口：绑定会话、事件流和 pack 文件执行流程。"""
-    code_path = _resolve_code_paths(code)
-    model_api = mind.pref.to_config()
+    """批处理入口：绑定会话、事件流和 pack 源执行流程。"""
+    code_sources = await resolve_code_sources(code)
+    model_api    = mind.pref.to_config()
+    runner       = resolve_mode_runner(mind, mode)
 
-    runner = resolve_mode_runner(mind, mode)
-
-    meta_in = kwargs.get("metadata") or {}
+    meta_in = kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {}
     cid = meta_in.get("cid") if isinstance(meta_in, dict) else None
     sid = meta_in.get("sid") if isinstance(meta_in, dict) else None
-    kwargs["metadata"] = meta = mind.begin_session(cid=cid, sid=sid)
+    kwargs["metadata"] = meta = {
+        **meta_in,
+        **mind.begin_session(cid=cid, sid=sid)
+    }
 
     atlas = f"{const.ATLAS_URL}?mode={mode}&cid={meta['cid']}&sid={meta['sid']}"
     logger.info(f"🌐 Atlas: {atlas}")
@@ -598,9 +583,9 @@ async def mind_pack(
         """在共享 MCP 会话中顺序执行多个 pack 文件。"""
 
         try:
-            for path in code_path:
-                await _run_pack_file(
-                    mind, runtime, path, session, openai_tools, tool_meta, **kwargs
+            for source in code_sources:
+                await _run_pack_source(
+                    mind, runtime, source, session, openai_tools, tool_meta, **kwargs
                 )
         finally:
             await mind.await_cleanup(event_report.flush())

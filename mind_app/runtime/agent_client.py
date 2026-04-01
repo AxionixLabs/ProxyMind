@@ -15,7 +15,7 @@ from mind_nova import const
 
 
 class AgentClient(object):
-    """`/agents` 协议使用的 HTTP + WS 驻留客户端。"""
+    """`/agents` 协议使用的 HTTP + WS 订阅客户端。"""
 
     def __init__(
         self,
@@ -23,7 +23,7 @@ class AgentClient(object):
         base_url: str,
         timeout_sec: float = 15.0
     ) -> None:
-        """初始化驻留客户端的基础地址和超时时间。"""
+        """初始化订阅客户端的基础地址和超时时间。"""
         self.base_url = base_url.rstrip("/")
         self.timeout_sec = timeout_sec
 
@@ -80,7 +80,7 @@ class AgentClient(object):
         arch: str,
         hostname: str | None = None,
     ) -> dict[str, typing.Any]:
-        """调用 `/agents/open` 创建新的驻留会话。"""
+        """调用 `/agents/open` 创建新的订阅会话。"""
         payload = {
             "device_id"      : device_id,
             "agent_id"       : agent_id,
@@ -102,7 +102,7 @@ class AgentClient(object):
         device_id: str | None = None,
         agent_id: str | None = None,
     ) -> dict[str, typing.Any]:
-        """调用 `/agents/resume` 恢复已存在的驻留会话。"""
+        """调用 `/agents/resume` 恢复已存在的订阅会话。"""
         payload: dict[str, typing.Any] = {
             "session_id"     : session_id,
             "resume_token"   : resume_token,
@@ -124,6 +124,46 @@ class AgentClient(object):
         if isinstance(data, dict):
             return data
         return payload
+
+    @staticmethod
+    def build_selector(
+        selector: dict[str, typing.Any] | None = None,
+        *,
+        session_id: str | None = None,
+        agent_session_id: str | None = None,
+        agent_id: str | None = None,
+        device_id: str | None = None,
+        session_strategy: str | None = None,
+    ) -> dict[str, typing.Any]:
+        """构造管理面使用的 `selector` 负载。"""
+        merged = dict(selector or {})
+
+        if session_id:
+            merged["session_id"] = session_id
+        if agent_session_id:
+            merged["agent_session_id"] = agent_session_id
+        if agent_id:
+            merged["agent_id"] = agent_id
+        if device_id:
+            merged["device_id"] = device_id
+        if session_strategy:
+            merged["session_strategy"] = session_strategy
+
+        return merged
+
+    @classmethod
+    def build_selector_params(
+        cls,
+        selector: dict[str, typing.Any] | None = None,
+        **kwargs: typing.Any
+    ) -> dict[str, typing.Any]:
+        """把 `selector` 编码成 GET 查询参数。"""
+        merged = cls.build_selector(selector, **kwargs)
+        return {
+            f"selector.{key}" : value
+            for key, value in merged.items()
+            if value not in (None, "")
+        }
 
     def build_ws_url(self, *, session_id: str, ws_token: str, ws_base_url: str | None = None) -> str:
         """拼出 `/agents/ws` 连接地址，并处理 HTTP/WS 协议前缀转换。"""
@@ -148,7 +188,7 @@ class AgentClient(object):
         ws_token: str,
         ws_base_url: str | None = None
     ) -> ClientConnection:
-        """建立驻留协议的 WebSocket 连接。"""
+        """建立订阅协议的 WebSocket 连接。"""
         return await websockets.connect(
             self.build_ws_url(session_id=session_id, ws_token=ws_token, ws_base_url=ws_base_url),
             open_timeout=self.timeout_sec,
@@ -234,6 +274,92 @@ class AgentClient(object):
                     "acked_message_id"  : acked_message_id,
                 }
             )
+        )
+
+    async def get_status(
+        self,
+        *,
+        selector: dict[str, typing.Any] | None = None,
+        session_id: str | None = None,
+        agent_session_id: str | None = None,
+        agent_id: str | None = None,
+        device_id: str | None = None,
+        session_strategy: str | None = None,
+    ) -> dict[str, typing.Any]:
+        """调用 `/agents/status` 查询指定会话状态。"""
+        return await self._request(
+            method="GET",
+            path="/agents/status",
+            token_kind="admin",
+            params=self.build_selector_params(
+                selector,
+                session_id=session_id,
+                agent_session_id=agent_session_id,
+                agent_id=agent_id,
+                device_id=device_id,
+                session_strategy=session_strategy,
+            )
+        )
+
+    async def list_sessions(
+        self,
+        *,
+        selector: dict[str, typing.Any] | None = None,
+        session_id: str | None = None,
+        agent_session_id: str | None = None,
+        agent_id: str | None = None,
+        device_id: str | None = None,
+        session_strategy: str | None = None,
+    ) -> dict[str, typing.Any]:
+        """调用 `/agents/sessions` 查询会话列表。"""
+        return await self._request(
+            method="GET",
+            path="/agents/sessions",
+            token_kind="admin",
+            params=self.build_selector_params(
+                selector,
+                session_id=session_id,
+                agent_session_id=agent_session_id,
+                agent_id=agent_id,
+                device_id=device_id,
+                session_strategy=session_strategy,
+            )
+        )
+
+    async def close_session(
+        self,
+        *,
+        selector: dict[str, typing.Any] | None = None,
+        session_id: str | None = None,
+        agent_session_id: str | None = None,
+        agent_id: str | None = None,
+        device_id: str | None = None,
+        session_strategy: str | None = None,
+        reason: str | None = None,
+        force: bool | None = None,
+    ) -> dict[str, typing.Any]:
+        """调用 `/agents/close` 关闭指定会话。"""
+        payload: dict[str, typing.Any] = {
+            "selector" : self.build_selector(
+                selector,
+                session_id=session_id,
+                agent_session_id=agent_session_id,
+                agent_id=agent_id,
+                device_id=device_id,
+                session_strategy=session_strategy,
+            )
+        }
+
+        if reason:
+            payload["reason"] = reason
+        if force is not None:
+            payload["force"] = force
+
+        return await self._request(
+            method="POST",
+            path="/agents/close",
+            token_kind="admin",
+            json_body=payload
         )
 
 
