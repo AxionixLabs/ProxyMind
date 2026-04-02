@@ -165,7 +165,7 @@ async def execute_forward(
     )
     if live_status is not None:
         live_status.update(
-            "Server Task Received", f"{mode}/{profile or 'default'} · {call_id}"
+            "Server Task Received", f"{mode} · {call_id}"
         )
 
     if cid and sid:
