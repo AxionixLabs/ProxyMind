@@ -166,8 +166,9 @@ async def execute_forward(
     if intent_summary is not None:
         metadata["intent_summary"] = intent_summary
 
+    profile_text = json.dumps(profile, ensure_ascii=False)
     logger.debug(
-        f"[Agent] forward start call_id={call_id} mode={mode} profile={profile or '-'} "
+        f"[Agent] forward start call_id={call_id} mode={mode} profile={profile_text} "
         f"message={json.dumps(message, ensure_ascii=False)} source={json.dumps(source, ensure_ascii=False)} "
         f"timeout_sec={timeout_sec or 0} "
         f"metadata={json.dumps(forward_metadata, ensure_ascii=False)}"
@@ -210,7 +211,7 @@ async def execute_forward(
         )
 
     logger.debug(
-        f"[Agent] forward done call_id={call_id} mode={mode} profile={profile or '-'}"
+        f"[Agent] forward done call_id={call_id} mode={mode} profile={profile_text}"
     )
 
 

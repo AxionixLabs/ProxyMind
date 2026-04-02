@@ -258,6 +258,23 @@ async def handle_server_message(
                     handled_seq = replay_seq if handled_seq is None else max(handled_seq, replay_seq)
         return handled_seq
 
+    if message_type == "resume.result":
+        live_status.update(
+            "Resume Confirmed", "Server accepted resume, waiting for replay"
+        )
+        logger.debug("[Agent] resume.result accepted")
+        return current_seq
+
+    if message_type == "resume.rejected":
+        payload_raw  = message.get("payload")
+        payload      = payload_raw if isinstance(payload_raw, dict) else {}
+        code         = str(payload.get("code") or "AGENT_RESUME_REJECTED").strip()
+        message_text = str(payload.get("message") or "resume rejected").strip()
+        logger.debug(
+            f"[Agent] resume.rejected code={code} message={message_text}"
+        )
+        raise AgentWsProtocolError(code, message_text, action="reopen")
+
     if message_type == "mind.forward":
         payload_raw = message.get("payload")
         payload     = payload_raw if isinstance(payload_raw, dict) else {}
@@ -319,7 +336,7 @@ async def handle_server_message(
 
         seen = get_runtime_message_cache(runtime)
         if message_id in seen:
-            logger.warning(
+            logger.debug(
                 f"[Agent] mind.forward replay skipped message_id={message_id}"
             )
             return current_seq
@@ -348,7 +365,7 @@ async def handle_server_message(
 
         code = str(payload.get("code") or "").strip()
 
-        logger.error(
+        logger.debug(
             f"[Agent] server error code={code} message={message_text}"
         )
         if code in _ABORT_ERROR_CODES:

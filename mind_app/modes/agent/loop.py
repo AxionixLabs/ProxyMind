@@ -94,10 +94,25 @@ async def resume_or_reopen(
     )
 
     if resumable:
-        live_status.update(
-            "Resume Succeeded", "Reusing existing subscription session"
+        session_id, ws_token, ws_url, resume_token, access_token, mind_call_example = normalize_open_payload(
+            client, resume_resp
         )
-        return runtime
+        live_status.update(
+            "Resume Succeeded", "Refreshing handshake and reusing session"
+        )
+        return AgentSessionRuntime(
+            session_id=session_id,
+            ws_token=ws_token,
+            resume_token=resume_token,
+            access_token=access_token or runtime.access_token,
+            mind_call_example=mind_call_example or runtime.mind_call_example,
+            ws_url=ws_url,
+            device_id=runtime.device_id,
+            client_version=runtime.client_version,
+            last_acked_seq=runtime.last_acked_seq,
+            forwarded_message_ids=runtime.forwarded_message_ids,
+            pending_tasks=runtime.pending_tasks
+        )
 
     live_status.update(
         "Resume Expired", "Opening a fresh subscription session"
