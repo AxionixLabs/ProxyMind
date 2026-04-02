@@ -6,7 +6,7 @@ import typing
 import asyncio
 import platform
 from loguru import logger
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, InvalidStatus, WebSocketException
 from ...runtime.agent_client import AgentClient
 from .models import (
     AgentConfig,
@@ -33,6 +33,36 @@ from mind_nova import const
 
 if typing.TYPE_CHECKING:
     from ...mind_core import Mind
+
+
+def summarize_ws_disconnect(exc: BaseException) -> tuple[str, str]:
+    """把 WS 断链异常映射成更可读的状态标题和细节。"""
+    if isinstance(exc, InvalidStatus):
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        if isinstance(status_code, int):
+            if status_code in {502, 503, 504}:
+                return "Server Unavailable", f"HTTP {status_code} · retrying session"
+            if status_code in {401, 403}:
+                return "Handshake Rejected", f"HTTP {status_code} · checking auth or session"
+            return "Handshake Rejected", f"HTTP {status_code} · preparing reconnect"
+        return "Handshake Rejected", "WS upgrade failed · preparing reconnect"
+
+    if isinstance(exc, ConnectionClosed):
+        return "Link Interrupted", f"{type(exc).__name__} · preparing reconnect"
+
+    if isinstance(exc, WebSocketException):
+        return "WebSocket Error", f"{type(exc).__name__} · preparing reconnect"
+
+    if isinstance(exc, asyncio.TimeoutError):
+        return "Connection Timeout", "Timed out · preparing reconnect"
+
+    if isinstance(exc, httpx.HTTPError):
+        return "HTTP Error", f"{type(exc).__name__} · preparing reconnect"
+
+    if isinstance(exc, OSError):
+        return "Network Error", f"{type(exc).__name__} · preparing reconnect"
+
+    return "Link Interrupted", f"{type(exc).__name__} · preparing reconnect"
 
 
 async def resume_or_reopen(
@@ -212,13 +242,12 @@ async def agent_loop(mind: "Mind") -> None:
                 )
                 await sleep_or_stop(1.0, mind.task_event)
                 continue
-            except (ConnectionClosed, OSError, httpx.HTTPError, asyncio.TimeoutError) as exc:
+            except (ConnectionClosed, InvalidStatus, WebSocketException, OSError, httpx.HTTPError, asyncio.TimeoutError) as exc:
                 logger.debug(
                     f"[Agent] disconnected: {type(exc).__name__}: {exc}"
                 )
-                live_status.update(
-                    "Link Interrupted", f"{type(exc).__name__} · preparing reconnect"
-                )
+                title, detail = summarize_ws_disconnect(exc)
+                live_status.update(title, detail)
 
                 if not runtime.resume_token:
                     logger.debug(
