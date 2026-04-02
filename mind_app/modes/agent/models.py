@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import asyncio
+import typing
 from dataclasses import dataclass
 
 
@@ -16,23 +17,23 @@ class AgentConfig:
     arch: str
 
 
-@dataclass(slots=True)
+@dataclass
 class AgentSessionRuntime:
     """订阅会话运行态：保存断线恢复所需的动态状态。"""
     session_id: str
     ws_token: str
     resume_token: str | None
     access_token: str | None
+    mind_call_example: dict[str, typing.Any] | None
     ws_url: str | None
     device_id: str
     client_version: str
-    hello_sent: bool = False
     last_acked_seq: int = 0
     forwarded_message_ids: set[str] | None = None
     pending_tasks: set[asyncio.Task[None]] | None = None
 
 
-@dataclass(slots=True)
+@dataclass
 class AgentLiveStatus:
     """订阅模式等待动画的共享状态。"""
     title: str = "Entering Fold Mode"

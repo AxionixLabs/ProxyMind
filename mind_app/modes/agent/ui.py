@@ -1,15 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import json
-import uuid
 import typing
 from loguru import logger
 from mind_core.design import Design
 from .models import (
     AgentLiveStatus, AgentSessionRuntime
 )
-from mind_nova import const
 
 if typing.TYPE_CHECKING:
     from ...mind_core import Mind
@@ -29,36 +26,19 @@ async def start_status_animation(mind: "Mind", live_status: AgentLiveStatus) -> 
     )
 
 
-def build_external_api_example(base_url: str, access_token: str) -> list[str]:
-    """构造外部调用示例，便于直接调试服务端下发的访问令牌。"""
-    chat_request_id = str(uuid.uuid4())
-    mind_chat_payload = {
-        "mode"        : "fast",
-        "profile"     : "",
-        "message"     : "",
-        "timeout_sec" : 300
-    }
-    mind_chat_body = json.dumps(mind_chat_payload, ensure_ascii=False, indent=2)
-
-    return [
-        (
-            f"curl -X POST {base_url.rstrip('/')}/{const.APP_NAME} \\\n"
-            f"  -H 'Authorization: Bearer {access_token}' \\\n"
-            f"  -H 'Content-Type: application/json' \\\n"
-            f"  -H 'Idempotency-Key: {chat_request_id}' \\\n"
-            f"  -d '{mind_chat_body}'"
-        )
-    ]
-
-
-def log_external_access(runtime: AgentSessionRuntime, base_url: str) -> None:
+def log_external_access(runtime: AgentSessionRuntime) -> None:
     """打印服务端下发的外部访问令牌和接口调用示例。"""
     if not runtime.access_token:
         logger.debug("[Agent] access token missing")
         return None
 
-    example = "\n\n".join(build_external_api_example(base_url, runtime.access_token))
-    Design.console.print(f"{example}\n")
+    mind_call_example = runtime.mind_call_example or {}
+    curl_raw = mind_call_example.get("curl") if isinstance(mind_call_example, dict) else None
+    if isinstance(curl_raw, str) and curl_raw.strip():
+        Design.console.print(f"{curl_raw}\n")
+        return None
+
+    logger.debug("[Agent] mind_call example missing")
 
 
 if __name__ == '__main__':

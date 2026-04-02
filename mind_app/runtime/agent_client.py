@@ -230,6 +230,23 @@ class AgentClient(object):
             )
         )
 
+    async def send_runtime_bind(
+        self,
+        connection: ClientConnection,
+        *,
+        session_id: str,
+        llm_conf: dict[str, typing.Any]
+    ) -> None:
+        """发送 `runtime.bind`，上报当前会话默认模型配置。"""
+        await self.send_json(
+            connection,
+            build_envelope(
+                message_type="runtime.bind",
+                session_id=session_id,
+                payload={"llm_conf": llm_conf}
+            )
+        )
+
     async def send_resume(
         self,
         connection: ClientConnection,
@@ -259,7 +276,7 @@ class AgentClient(object):
         cid: str,
         sid: str,
         call_id: str,
-        acked_message_id: str,
+        acked_message_id: str
     ) -> None:
         """发送 `mind.received`，确认已收到指定 `mind.forward`。"""
         await self.send_json(
@@ -272,6 +289,77 @@ class AgentClient(object):
                 payload={
                     "call_id"           : call_id,
                     "acked_message_id"  : acked_message_id,
+                }
+            )
+        )
+
+    async def send_mind_started(
+        self,
+        connection: ClientConnection,
+        *,
+        session_id: str,
+        cid: str,
+        sid: str,
+        call_id: str
+    ) -> None:
+        """发送 `mind.started`，告知服务端本地已开始执行任务。"""
+        await self.send_json(
+            connection,
+            build_envelope(
+                message_type="mind.started",
+                session_id=session_id,
+                cid=cid,
+                sid=sid,
+                payload={"call_id": call_id}
+            )
+        )
+
+    async def send_mind_completed(
+        self,
+        connection: ClientConnection,
+        *,
+        session_id: str,
+        cid: str,
+        sid: str,
+        call_id: str
+    ) -> None:
+        """发送 `mind.completed`，告知服务端本地已完成任务。"""
+        await self.send_json(
+            connection,
+            build_envelope(
+                message_type="mind.completed",
+                session_id=session_id,
+                cid=cid,
+                sid=sid,
+                payload={"call_id": call_id}
+            )
+        )
+
+    async def send_mind_failed(
+        self,
+        connection: ClientConnection,
+        *,
+        session_id: str,
+        cid: str,
+        sid: str,
+        call_id: str,
+        error_type: str,
+        error_message: str,
+    ) -> None:
+        """发送 `mind.failed`，告知服务端本地任务失败。"""
+        await self.send_json(
+            connection,
+            build_envelope(
+                message_type="mind.failed",
+                session_id=session_id,
+                cid=cid,
+                sid=sid,
+                payload={
+                    "call_id": call_id,
+                    "error": {
+                        "type"    : error_type,
+                        "message" : error_message
+                    }
                 }
             )
         )

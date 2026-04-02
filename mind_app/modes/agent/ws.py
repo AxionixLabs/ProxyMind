@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 from loguru import logger
 from ...runtime.agent_client import AgentClient
+from mind_core.preference import DEFAULT_SCHEMA_VERSION
 from .models import (
     AgentSessionRuntime, AgentLiveStatus
 )
@@ -183,6 +184,23 @@ def summarize_ws_message(message: dict[str, typing.Any]) -> str:
     return " ".join(parts)
 
 
+def build_runtime_llm_conf(mind: "Mind") -> dict[str, typing.Any]:
+    """基于当前偏好配置生成 `runtime.bind` 所需的 llm_conf。"""
+    payload     = mind.pref.to_config()
+    primary_raw = payload.get("primary")
+    primary     = primary_raw if isinstance(primary_raw, dict) else {}
+
+    return {
+        "schema_version" : int(payload.get("schema_version", DEFAULT_SCHEMA_VERSION) or DEFAULT_SCHEMA_VERSION),
+        "primary": {
+            "model": str(primary.get("model", "") or ""),
+            "apikey": str(primary.get("apikey", "") or ""),
+            "base_url": str(primary.get("base_url", "") or ""),
+            "route": str(primary.get("route", "responses") or "responses"),
+        }
+    }
+
+
 async def handle_server_message(
     mind: "Mind",
     client: AgentClient,
@@ -309,6 +327,8 @@ async def handle_server_message(
         seen.add(message_id)
         spawn_forward_task(
             mind,
+            client,
+            connection,
             runtime,
             call_id=call_id,
             cid=cid,
@@ -322,10 +342,12 @@ async def handle_server_message(
         return current_seq
 
     if message_type == "error":
-        payload_raw = message.get("payload")
-        payload     = payload_raw if isinstance(payload_raw, dict) else {}
-        code = str(payload.get("code") or "").strip()
+        payload_raw  = message.get("payload")
+        payload      = payload_raw if isinstance(payload_raw, dict) else {}
         message_text = str(payload.get("message") or "").strip()
+
+        code = str(payload.get("code") or "").strip()
+
         logger.error(
             f"[Agent] server error code={code} message={message_text}"
         )
@@ -359,15 +381,20 @@ async def connect_once(
         live_status.update(
             "Opening Long Link", "WebSocket connected, sending hello"
         )
-        if not runtime.hello_sent:
-            await client.send_hello(
-                connection,
-                session_id=runtime.session_id,
-                device_id=runtime.device_id,
-                client_version=runtime.client_version,
-            )
-            runtime.hello_sent = True
-            logger.debug("[Agent] hello sent")
+        await client.send_hello(
+            connection,
+            session_id=runtime.session_id,
+            device_id=runtime.device_id,
+            client_version=runtime.client_version,
+        )
+        logger.debug("[Agent] hello sent")
+
+        await client.send_runtime_bind(
+            connection,
+            session_id=runtime.session_id,
+            llm_conf=build_runtime_llm_conf(mind)
+        )
+        logger.debug("[Agent] runtime.bind sent")
 
         if runtime.last_acked_seq > 0:
             live_status.update(

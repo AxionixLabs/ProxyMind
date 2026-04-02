@@ -77,7 +77,7 @@ async def resume_or_reopen(
     logger.debug(
         f"[Agent] reopened session_id={reopened.session_id} device_id={reopened.device_id}"
     )
-    log_external_access(reopened, config.base_url)
+    log_external_access(reopened)
     return reopened
 
 
@@ -85,22 +85,24 @@ async def open_new_runtime(
     client: AgentClient,
     config: AgentConfig,
     *,
-    previous: AgentSessionRuntime | None = None,
+    previous: AgentSessionRuntime | None = None
 ) -> AgentSessionRuntime:
     """打开一个全新的订阅会话，并尽量复用本地去重与任务状态。"""
     opened, device_id = await open_runtime(client, config)
-    session_id, ws_token, ws_url, resume_token, access_token = normalize_open_payload(client, opened)
+
+    session_id, ws_token, ws_url, resume_token, access_token, mind_call_example = normalize_open_payload(client, opened)
 
     runtime = AgentSessionRuntime(
         session_id=session_id,
         ws_token=ws_token,
         resume_token=resume_token,
         access_token=access_token,
+        mind_call_example=mind_call_example,
         ws_url=ws_url,
         device_id=device_id,
         client_version=config.client_version,
         forwarded_message_ids=None if previous is None else previous.forwarded_message_ids,
-        pending_tasks=None if previous is None else previous.pending_tasks,
+        pending_tasks=None if previous is None else previous.pending_tasks
     )
     logger.debug(
         f"[Agent] opened session_id={session_id} agent_id={config.agent_id} device_id={device_id}"
@@ -119,7 +121,7 @@ async def agent_loop(mind: "Mind") -> None:
         arch=(platform.machine().strip().lower() or "unknown")
     )
 
-    client = AgentClient(base_url=config.base_url)
+    client      = AgentClient(base_url=config.base_url)
     live_status = AgentLiveStatus()
 
     runtime: AgentSessionRuntime | None = None
@@ -141,7 +143,7 @@ async def agent_loop(mind: "Mind") -> None:
         )
 
         await mind.await_cleanup(mind.stop_anim())
-        log_external_access(runtime, config.base_url)
+        log_external_access(runtime)
 
         if not mind.task_event.is_set():
             await start_status_animation(mind, live_status)
@@ -198,7 +200,7 @@ async def agent_loop(mind: "Mind") -> None:
                         await sleep_or_stop(2.0, mind.task_event)
                         continue
 
-                    log_external_access(runtime, config.base_url)
+                    log_external_access(runtime)
                     live_status.update(
                         "Reopened and Waiting", "Returning to listening state in 1s"
                     )
