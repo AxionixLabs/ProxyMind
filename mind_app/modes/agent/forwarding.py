@@ -68,17 +68,7 @@ def resolve_intent_summary(payload: dict[str, typing.Any]) -> str | None:
 
 def normalize_forward_target(
     payload: dict[str, typing.Any]
-) -> tuple[
-    typing.Literal[
-        "chat",
-        "fast",
-        "plan"
-    ],
-    str,
-    str | None,
-    dict[str, typing.Any] | None,
-    str | None
-]:
+) -> tuple[str, str, str | None, dict[str, typing.Any] | None, str | None]:
     """解析 `mind.forward` 载荷，映射到本地可执行的模式与参数。"""
     mode_raw = payload.get("mode")
     if not isinstance(mode_raw, str):
