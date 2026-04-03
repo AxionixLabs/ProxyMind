@@ -63,7 +63,6 @@ def render_mind_call_example(example: dict[str, typing.Any]) -> str | None:
     """把单条调用示例渲染成可直接阅读的文本块。"""
     title_raw = example.get("title")
     id_raw    = example.get("id")
-    curl_raw  = example.get("curl")
 
     title = str(title_raw).strip() if isinstance(title_raw, str) else ""
     example_id = str(id_raw).strip() if isinstance(id_raw, str) else ""
@@ -74,11 +73,7 @@ def render_mind_call_example(example: dict[str, typing.Any]) -> str | None:
     if example_id:
         header_parts.append(f"id={example_id}")
 
-    curl_text = None
-    if isinstance(curl_raw, str) and curl_raw.strip():
-        curl_text = curl_raw.strip()
-    else:
-        curl_text = render_mind_call_curl(example)
+    curl_text = render_mind_call_curl(example)
 
     if not curl_text:
         return None
