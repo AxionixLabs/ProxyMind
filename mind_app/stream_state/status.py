@@ -5,7 +5,8 @@ import time
 import re
 import typing
 from rich.text import Text, Span
-from mind_core.design import Design, mix_hex_color
+from mind_core.design import Design
+from mind_core.design.utils import mix_hex_color
 from .format_time import (
     format_elapsed,
     elapsed_format_key,
