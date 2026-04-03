@@ -57,7 +57,12 @@ def resolve_intent_summary(payload: dict[str, typing.Any]) -> str | None:
 
 def normalize_forward_target(
     payload: dict[str, typing.Any]
-) -> tuple[str, str | None, list[typing.Any] | None, str | None]:
+) -> tuple[
+    typing.Literal[
+        "chat",
+        "fast",
+        "plan"], str | None, list[typing.Any] | None, str | None
+]:
     """解析 `mind.forward` 载荷，映射到本地可执行的模式与参数。"""
     mode_raw = payload.get("mode")
     if not isinstance(mode_raw, str):
@@ -79,7 +84,7 @@ def normalize_forward_target(
         raise ValueError("mind.forward payload.metadata must be an object")
 
     profile_entries = normalize_forward_profiles(payload)
-    intent_summary = resolve_intent_summary(payload)
+    intent_summary  = resolve_intent_summary(payload)
 
     if str(message or "").strip():
         return mode, message, None, intent_summary
@@ -119,7 +124,7 @@ async def execute_forward(
     live_status: AgentLiveStatus | None = None
 ) -> None:
     """执行一条 `mind.forward` 下发的本地任务。"""
-    mode, message, profile_inputs, intent_summary = normalize_forward_target(payload)
+    mode, message, profile, intent_summary = normalize_forward_target(payload)
 
     timeout_sec      = resolve_forward_timeout_sec(payload)
     metadata_raw     = payload.get("metadata")
@@ -136,7 +141,7 @@ async def execute_forward(
     logger.debug(
         f"[Agent] forward start call_id={call_id} mode={mode} "
         f"message={json.dumps(message, ensure_ascii=False)} "
-        f"profile_inputs={json.dumps(profile_inputs, ensure_ascii=False)} "
+        f"profile={json.dumps(profile, ensure_ascii=False)} "
         f"timeout_sec={timeout_sec or 0} "
         f"metadata={json.dumps(forward_metadata, ensure_ascii=False)}"
     )
@@ -154,8 +159,8 @@ async def execute_forward(
             call_id=call_id
         )
 
-    if profile_inputs is not None:
-        runner = mind.mind_pack(profile_inputs, mode, metadata=metadata)
+    if profile is not None:
+        runner = mind.mind_pack(profile, mode, metadata=metadata)
     else:
         if message is None:
             raise MindError("mind.forward resolved empty message")
