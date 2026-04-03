@@ -28,7 +28,7 @@ async def start_status_animation(mind: "Mind", live_status: AgentLiveStatus) -> 
 
 
 def render_mind_call_curl(example: dict[str, typing.Any]) -> str | None:
-    """把服务端下发的结构化 `mind_call` 示例渲染成多行 curl。"""
+    """把服务端下发的结构化调用示例渲染成多行 curl。"""
     method_raw  = example.get("method")
     url_raw     = example.get("url")
     headers_raw = example.get("headers")
@@ -59,24 +59,54 @@ def render_mind_call_curl(example: dict[str, typing.Any]) -> str | None:
     return " \\\n".join(lines)
 
 
+def render_mind_call_example(example: dict[str, typing.Any]) -> str | None:
+    """把单条调用示例渲染成可直接阅读的文本块。"""
+    title_raw = example.get("title")
+    id_raw    = example.get("id")
+    curl_raw  = example.get("curl")
+
+    title = str(title_raw).strip() if isinstance(title_raw, str) else ""
+    example_id = str(id_raw).strip() if isinstance(id_raw, str) else ""
+
+    header_parts: list[str] = []
+    if title:
+        header_parts.append(title)
+    if example_id:
+        header_parts.append(f"id={example_id}")
+
+    curl_text = None
+    if isinstance(curl_raw, str) and curl_raw.strip():
+        curl_text = curl_raw.strip()
+    else:
+        curl_text = render_mind_call_curl(example)
+
+    if not curl_text:
+        return None
+
+    if header_parts:
+        return f"{' | '.join(header_parts)}\n{curl_text}"
+    return curl_text
+
+
 def log_external_access(runtime: AgentSessionRuntime) -> None:
     """打印服务端下发的外部访问令牌和接口调用示例。"""
     if not runtime.access_token:
         logger.debug("[Agent] access token missing")
         return None
 
-    mind_call_example = runtime.mind_call_example or {}
-    curl_text = render_mind_call_curl(mind_call_example) if isinstance(mind_call_example, dict) else None
-    if isinstance(curl_text, str) and curl_text.strip():
-        Design.console.print(f"{curl_text}\n")
+    examples = runtime.mind_call_examples or []
+    rendered_blocks: list[str] = []
+    for example in examples:
+        if isinstance(example, dict):
+            rendered = render_mind_call_example(example)
+            if rendered:
+                rendered_blocks.append(rendered)
+
+    if rendered_blocks:
+        Design.console.print("\n\n".join(rendered_blocks) + "\n")
         return None
 
-    curl_raw = mind_call_example.get("curl") if isinstance(mind_call_example, dict) else None
-    if isinstance(curl_raw, str) and curl_raw.strip():
-        Design.console.print(f"{curl_raw}\n")
-        return None
-
-    logger.debug("[Agent] mind_call example missing")
+    logger.debug("[Agent] mind_call examples missing")
 
 
 if __name__ == '__main__':

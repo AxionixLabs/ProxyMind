@@ -32,7 +32,7 @@ def build_device_id() -> str:
 def normalize_open_payload(
     client: AgentClient,
     opened: dict[str, typing.Any]
-) -> tuple[str, str, str | None, str | None, str | None, dict[str, typing.Any] | None]:
+) -> tuple[str, str, str | None, str | None, str | None, list[dict[str, typing.Any]] | None]:
     """从 `/agents/open` 响应中提取会话与握手信息。"""
     data = client.unwrap_data(opened)
 
@@ -53,17 +53,23 @@ def normalize_open_payload(
     access_token_token = access_token_data.get("token")
     access_token       = access_token_token if isinstance(access_token_token, str) else None
 
-    examples_raw       = data.get("examples")
-    examples           = examples_raw if isinstance(examples_raw, dict) else {}
-    mind_call_raw      = examples.get("mind_call")
-    mind_call_example  = mind_call_raw if isinstance(mind_call_raw, dict) else None
+    examples_raw        = data.get("examples")
+    examples            = examples_raw if isinstance(examples_raw, dict) else {}
+    mind_call_list_raw  = examples.get("mind_call_examples")
+    mind_call_examples  = None
+    if isinstance(mind_call_list_raw, list):
+        normalized_examples: list[dict[str, typing.Any]] = []
+        for item in mind_call_list_raw:
+            if isinstance(item, dict):
+                normalized_examples.append(item)
+        mind_call_examples = normalized_examples or None
 
     if not isinstance(session_id, str) or not session_id:
         raise RuntimeError("agent open response missing session_id or ws_token")
     if not isinstance(ws_token, str) or not ws_token:
         raise RuntimeError("agent open response missing session_id or ws_token")
 
-    return session_id, ws_token, ws_url, resume_token, access_token, mind_call_example
+    return session_id, ws_token, ws_url, resume_token, access_token, mind_call_examples
 
 
 async def open_with_fallback(

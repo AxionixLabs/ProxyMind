@@ -173,6 +173,14 @@ def summarize_ws_message(message: dict[str, typing.Any]) -> str:
     if isinstance(mode, str) and mode:
         parts.append(f"mode={mode}")
 
+    profile = payload.get("profile")
+    if isinstance(profile, list):
+        parts.append(f"profile_count={len(profile)}")
+
+    message = payload.get("message")
+    if isinstance(message, str) and message.strip():
+        parts.append("message=yes")
+
     status = payload.get("status")
     if isinstance(status, str) and status:
         parts.append(f"status={status}")

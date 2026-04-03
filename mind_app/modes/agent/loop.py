@@ -94,7 +94,7 @@ async def resume_or_reopen(
     )
 
     if resumable:
-        session_id, ws_token, ws_url, resume_token, access_token, mind_call_example = normalize_open_payload(
+        session_id, ws_token, ws_url, resume_token, access_token, mind_call_examples = normalize_open_payload(
             client, resume_resp
         )
         live_status.update(
@@ -105,7 +105,7 @@ async def resume_or_reopen(
             ws_token=ws_token,
             resume_token=resume_token,
             access_token=access_token or runtime.access_token,
-            mind_call_example=mind_call_example or runtime.mind_call_example,
+            mind_call_examples=mind_call_examples or runtime.mind_call_examples,
             ws_url=ws_url,
             device_id=runtime.device_id,
             client_version=runtime.client_version,
@@ -135,14 +135,14 @@ async def open_new_runtime(
     """打开一个全新的订阅会话，并尽量复用本地去重与任务状态。"""
     opened, device_id = await open_runtime(client, config)
 
-    session_id, ws_token, ws_url, resume_token, access_token, mind_call_example = normalize_open_payload(client, opened)
+    session_id, ws_token, ws_url, resume_token, access_token, mind_call_examples = normalize_open_payload(client, opened)
 
     runtime = AgentSessionRuntime(
         session_id=session_id,
         ws_token=ws_token,
         resume_token=resume_token,
         access_token=access_token,
-        mind_call_example=mind_call_example,
+        mind_call_examples=mind_call_examples,
         ws_url=ws_url,
         device_id=device_id,
         client_version=config.client_version,

@@ -16,36 +16,25 @@ if typing.TYPE_CHECKING:
     from ...mind_core import Mind
 
 
-def normalize_forward_source(payload: dict[str, typing.Any]) -> dict[str, typing.Any] | None:
-    """把服务端 `mind.forward.payload.source` 归一化为本地 code source 结构。"""
-    source_raw = payload.get("source")
-    if source_raw in (None, ""):
+def normalize_forward_profiles(payload: dict[str, typing.Any]) -> list[str] | None:
+    """把服务端 `mind.forward.payload.profile` 归一化为输入入口列表。"""
+    profile_raw = payload.get("profile")
+    if profile_raw in (None, ""):
         return None
-    if not isinstance(source_raw, dict):
-        raise ValueError("mind.forward payload.source must be an object")
+    if not isinstance(profile_raw, list):
+        raise ValueError("mind.forward payload.profile must be a list when provided")
 
-    source_type_raw = source_raw.get("type")
-    if not isinstance(source_type_raw, str):
-        raise ValueError("mind.forward payload.source.type must be a string")
-    source_type = source_type_raw.strip().lower()
+    normalized: list[str] = []
+    for index, item in enumerate(profile_raw):
+        if not isinstance(item, str):
+            raise ValueError(f"mind.forward payload.profile[{index}] must be a string")
 
-    value_raw = source_raw.get("value")
-    if source_type == "stdin":
-        return {"kind": "stdin"}
-    if not isinstance(value_raw, str) or not value_raw.strip():
-        raise ValueError("mind.forward payload.source.value must be a non-empty string")
+        entry = item.strip()
+        if not entry:
+            raise ValueError(f"mind.forward payload.profile[{index}] must be a non-empty string")
+        normalized.append(entry)
 
-    name_raw = source_raw.get("name")
-    name = None if name_raw in (None, "") else str(name_raw)
-
-    if source_type == "url":
-        return {"kind": "url", "url": value_raw, "name": name}
-    if source_type == "inline":
-        return {"kind": "inline", "content": value_raw, "name": name or "inline"}
-    if source_type == "file":
-        return {"kind": "file", "path": value_raw, "name": name}
-
-    raise ValueError("mind.forward payload.source.type must be file, inline, url, or stdin")
+    return normalized or None
 
 
 def resolve_intent_summary(payload: dict[str, typing.Any]) -> str | None:
@@ -68,7 +57,7 @@ def resolve_intent_summary(payload: dict[str, typing.Any]) -> str | None:
 
 def normalize_forward_target(
     payload: dict[str, typing.Any]
-) -> tuple[str, str, str | None, dict[str, typing.Any] | None, str | None]:
+) -> tuple[str, str | None, list[typing.Any] | None, str | None]:
     """解析 `mind.forward` 载荷，映射到本地可执行的模式与参数。"""
     mode_raw = payload.get("mode")
     if not isinstance(mode_raw, str):
@@ -76,16 +65,6 @@ def normalize_forward_target(
     mode = mode_raw.strip().lower()
     if mode not in {"chat", "fast", "plan"}:
         raise ValueError("mind.forward payload.mode must be chat, fast, or plan")
-
-    profile_raw = payload.get("profile")
-    if profile_raw in (None, ""):
-        profile = ""
-    elif isinstance(profile_raw, str):
-        profile = profile_raw.strip().lower()
-    else:
-        raise ValueError("mind.forward payload.profile must be a string when provided")
-    if profile not in {"", "code"}:
-        raise ValueError("mind.forward payload.profile must be empty or code")
 
     message_raw = payload.get("message")
     if message_raw in (None, ""):
@@ -99,18 +78,16 @@ def normalize_forward_target(
     if metadata_raw is not None and not isinstance(metadata_raw, dict):
         raise ValueError("mind.forward payload.metadata must be an object")
 
-    source = normalize_forward_source(payload)
+    profile_entries = normalize_forward_profiles(payload)
     intent_summary = resolve_intent_summary(payload)
 
-    if profile == "code":
-        if source is None:
-            raise ValueError("mind.forward payload.source is required when profile=code")
-        return mode, "code", message, source, intent_summary
+    if str(message or "").strip():
+        return mode, message, None, intent_summary
 
-    if not str(message or "").strip():
-        raise ValueError("mind.forward payload.message is required when profile is not code")
+    if profile_entries:
+        return mode, None, profile_entries, intent_summary
 
-    return mode, profile, message, None, intent_summary
+    raise ValueError("mind.forward requires non-empty message or payload.profile")
 
 
 def resolve_forward_timeout_sec(payload: dict[str, typing.Any]) -> float | None:
@@ -142,7 +119,7 @@ async def execute_forward(
     live_status: AgentLiveStatus | None = None
 ) -> None:
     """执行一条 `mind.forward` 下发的本地任务。"""
-    mode, profile, message, source, intent_summary = normalize_forward_target(payload)
+    mode, message, profile_inputs, intent_summary = normalize_forward_target(payload)
 
     timeout_sec      = resolve_forward_timeout_sec(payload)
     metadata_raw     = payload.get("metadata")
@@ -156,10 +133,10 @@ async def execute_forward(
     if intent_summary is not None:
         metadata["intent_summary"] = intent_summary
 
-    profile_text = json.dumps(profile, ensure_ascii=False)
     logger.debug(
-        f"[Agent] forward start call_id={call_id} mode={mode} profile={profile_text} "
-        f"message={json.dumps(message, ensure_ascii=False)} source={json.dumps(source, ensure_ascii=False)} "
+        f"[Agent] forward start call_id={call_id} mode={mode} "
+        f"message={json.dumps(message, ensure_ascii=False)} "
+        f"profile_inputs={json.dumps(profile_inputs, ensure_ascii=False)} "
         f"timeout_sec={timeout_sec or 0} "
         f"metadata={json.dumps(forward_metadata, ensure_ascii=False)}"
     )
@@ -177,10 +154,8 @@ async def execute_forward(
             call_id=call_id
         )
 
-    if source is not None:
-        runner = mind.mind_pack([source], mode, metadata=metadata)
-    elif profile == "code":
-        runner = mind.mind_pack([message], mode, metadata=metadata)
+    if profile_inputs is not None:
+        runner = mind.mind_pack(profile_inputs, mode, metadata=metadata)
     else:
         if message is None:
             raise MindError("mind.forward resolved empty message")
@@ -201,7 +176,7 @@ async def execute_forward(
         )
 
     logger.debug(
-        f"[Agent] forward done call_id={call_id} mode={mode} profile={profile_text}"
+        f"[Agent] forward done call_id={call_id} mode={mode}"
     )
 
 

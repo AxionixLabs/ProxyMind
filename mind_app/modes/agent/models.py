@@ -24,7 +24,7 @@ class AgentSessionRuntime:
     ws_token: str
     resume_token: str | None
     access_token: str | None
-    mind_call_example: dict[str, typing.Any] | None
+    mind_call_examples: list[dict[str, typing.Any]] | None
     ws_url: str | None
     device_id: str
     client_version: str
