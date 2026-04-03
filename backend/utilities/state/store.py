@@ -20,7 +20,11 @@ def stable_json(obj: typing.Any) -> str:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def head_tail(items: list[typing.Any], head_n: int = 5, tail_n: int = 5) -> tuple[list[typing.Any], list[typing.Any]]:
+def head_tail(
+    items: list[typing.Any],
+    head_n: int = 5,
+    tail_n: int = 5
+) -> tuple[list[typing.Any], list[typing.Any]]:
     """截取列表头尾两段摘要数据。"""
     head = items[:head_n]
     tail = items[-tail_n:] if len(items) > head_n else []
@@ -100,7 +104,11 @@ class PathSessionStore(object):
         async with self.lock:
             return self.items.pop(key, None)
 
-    async def snapshot(self, session_id: typing.Optional[str] = None, head_n: int = 5, tail_n: int = 5) -> dict[str, typing.Any]:
+    async def snapshot(
+        self, session_id: typing.Optional[str] = None,
+        head_n: int = 5,
+        tail_n: int = 5
+    ) -> dict[str, typing.Any]:
         """生成路径会话仓库的详情或摘要快照。"""
         async with self.lock:
             items = dict(self.items)
@@ -162,7 +170,12 @@ class ItemSessionStore(object):
         async with self.lock:
             return self.items.pop(key, None)
 
-    async def snapshot(self, session_id: typing.Optional[str] = None, head_n: int = 5, tail_n: int = 5) -> dict[str, typing.Any]:
+    async def snapshot(
+        self,
+        session_id: typing.Optional[str] = None,
+        head_n: int = 5,
+        tail_n: int = 5
+    ) -> dict[str, typing.Any]:
         """生成对象会话仓库的详情或摘要快照。"""
         async with self.lock:
             items = dict(self.items)

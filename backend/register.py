@@ -64,7 +64,11 @@ def register_media_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: Ap
     screen.bind(mcp, manage, idle, ctx)
 
 
-def initialize(tools: typing.Iterable[str] = ("adb", "ffmpeg")) -> dict[str, typing.Any]:
+def initialize(
+    tools: typing.Iterable[str] = (
+        "adb", "ffmpeg", "k6"
+    )
+) -> dict[str, typing.Any]:
     """
     初始化 backend/requires 下的工具目录。
 
@@ -75,23 +79,27 @@ def initialize(tools: typing.Iterable[str] = ("adb", "ffmpeg")) -> dict[str, typ
     """
     requires_layout: dict[str, dict[str, list[str]]] = {
         "windows": {
-            "adb": ["platform-tools"],
-            "ffmpeg": ["ffmpeg", "bin"]
+            "adb"    : ["platform-tools"],
+            "ffmpeg" : ["ffmpeg", "bin"],
+            "k6"     : ["k6"]
         },
         "macos": {
-            "adb": ["platform-tools"],
-            "ffmpeg": ["ffmpeg", "bin"]
+            "adb"    : ["platform-tools"],
+            "ffmpeg" : ["ffmpeg", "bin"],
+            "k6"     : ["k6"]
         }
     }
 
     executable_names: dict[str, dict[str, str]] = {
         "windows": {
-            "adb": "adb.exe",
-            "ffmpeg": "ffmpeg.exe"
+            "adb"    : "adb.exe",
+            "ffmpeg" : "ffmpeg.exe",
+            "k6"     : "k6.exe"
         },
         "macos": {
-            "adb": "adb",
-            "ffmpeg": "ffmpeg"
+            "adb"    : "adb",
+            "ffmpeg" : "ffmpeg",
+            "k6"     : "k6"
         }
     }
 
@@ -154,11 +162,11 @@ def initialize(tools: typing.Iterable[str] = ("adb", "ffmpeg")) -> dict[str, typ
     }
 
     return {
-        "ok"       : True,
-        "platform" : _platform_key(),
-        "root"     : str(_root),
-        "routed"   : _routed,
-        "available": _available
+        "ok"        : True,
+        "platform"  : _platform_key(),
+        "root"      : str(_root),
+        "routed"    : _routed,
+        "available" : _available
     }
 
 
