@@ -7,11 +7,11 @@ from pydantic import Field
 
 ScriptTextArg = typing.Annotated[
     typing.Optional[str],
-    Field(description="k6 脚本文本。"),
+    Field(description="脚本文本。"),
 ]
 ScriptFileArg = typing.Annotated[
     typing.Optional[str],
-    Field(description="本地 k6 脚本文件路径。"),
+    Field(description="本地脚本文件路径。"),
 ]
 ScriptNameArg = typing.Annotated[
     typing.Optional[str],
@@ -27,7 +27,7 @@ VusArg = typing.Annotated[
 ]
 DurationArg = typing.Annotated[
     typing.Optional[str],
-    Field(description="压测持续时间，如 30s、5m；为空时沿用脚本内配置。"),
+    Field(description="持续时间，如 30s、5m；为空时沿用脚本内配置。"),
 ]
 IterationsArg = typing.Annotated[
     typing.Optional[int],
@@ -35,19 +35,19 @@ IterationsArg = typing.Annotated[
 ]
 EnvArg = typing.Annotated[
     typing.Optional[dict[str, str]],
-    Field(description="以 `-e KEY=VALUE` 方式注入给 k6 脚本的环境变量。"),
+    Field(description="以 `-e KEY=VALUE` 方式注入给脚本的环境变量。"),
 ]
 TagsArg = typing.Annotated[
     typing.Optional[dict[str, str]],
-    Field(description="附加到本次压测结果的 k6 标签。"),
+    Field(description="附加到本次执行结果的标签。"),
 ]
 SummaryExportArg = typing.Annotated[
     typing.Optional[str],
-    Field(description="summary JSON 输出路径；为空时不导出。"),
+    Field(description="汇总 JSON 输出路径；为空时自动生成。"),
 ]
 ExtraArgsArg = typing.Annotated[
     typing.Optional[list[str]],
-    Field(description="附加透传给 `k6 run` 的额外参数；每项都应是单独的 CLI token。"),
+    Field(description="附加透传给执行命令的额外参数；每项都应是单独的 CLI token。"),
 ]
 
 

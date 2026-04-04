@@ -31,7 +31,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "执行一次 k6 压测。"
+            "执行一次压测。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "k6"}
     )
