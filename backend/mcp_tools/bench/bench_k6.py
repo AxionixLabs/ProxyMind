@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
+import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.mcp_hub.hub_manage import Requires
 from backend.middlewares.mid_task import task_middleware
 from backend.mcp_tools.bench.schemas.schema_k6 import (
-    ScenarioArg,
+    ScriptTextArg,
     ScriptFileArg,
+    ScriptNameArg,
     WorkDirArg,
     VusArg,
     DurationArg,
@@ -21,19 +23,23 @@ from backend.utilities.runtime import (
     AppContext, Idle
 )
 from backend.utilities.broadcast import broadcast
+from backend.utilities.validation import marked
+from backend.utilities import const
 
 
 def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "执行一次本地 k6 脚本压测。"
+            "执行一次 k6 压测。"
         ),
-        meta={"hidden": True, "domain": "bench", "class": "k6"}
+        meta={"hidden": False, "domain": "bench", "class": "k6"}
     )
-    @task_middleware("k6_run_script")
-    async def k6_run_script(
-        script_file: ScriptFileArg,
+    @task_middleware("k6_run_local")
+    async def k6_run_local(
+        script_text: ScriptTextArg = None,
+        script_file: ScriptFileArg = None,
+        script_name: ScriptNameArg = None,
         workdir: WorkDirArg = None,
         vus: VusArg = None,
         duration: DurationArg = None,
@@ -43,10 +49,10 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         summary_export: SummaryExportArg = None,
         extra_args: ExtraArgsArg = None
     ) -> CallToolResult:
-        await Requires.connect_k6()
-
         args = {
+            "script_text"    : script_text,
             "script_file"    : script_file,
+            "script_name"    : script_name,
             "workdir"        : workdir,
             "vus"            : vus,
             "duration"       : duration,
@@ -57,57 +63,51 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "extra_args"     : extra_args
         }
 
-        async def call(*_) -> dict:
-            job_id = await idle.job_begin(f"{ctx.k6.agent_id}.k6_run_script", args=args)
-            try:
-                return await ctx.k6.run_script(**args)
-            finally:
-                await idle.job_final(job_id)
+        execution_inputs = [
+            ("script_text", bool(str(script_text or "").strip())),
+            ("script_file", bool(str(script_file or "").strip()))
+        ]
+        selected = [name for name, ok in execution_inputs if ok]
 
-        return await broadcast(
-            tool="k6_run_script",
-            args=args,
-            target_list=[ctx.k6],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
-            "根据结构化压测场景自动生成临时 k6 脚本，并在本地执行压测。"
-            "该工具适合直接提供 `scenario` 作为输入，不要求外部先准备脚本文件。"
-            "若未传 `vus`、`duration`、`iterations`，则沿用 `scenario.options` 内的配置。"
-        ),
-        meta={"hidden": False, "domain": "bench", "class": "k6"}
-    )
-    @task_middleware("k6_run_local")
-    async def k6_run_local(
-        scenario: ScenarioArg,
-        vus: VusArg = None,
-        duration: DurationArg = None,
-        iterations: IterationsArg = None,
-        env: EnvArg = None,
-        tags: TagsArg = None,
-        summary_export: SummaryExportArg = None,
-        extra_args: ExtraArgsArg = None
-    ) -> CallToolResult:
-        await Requires.connect_k6()
-
-        args = {
-            "scenario"       : scenario,
-            "vus"            : vus,
-            "duration"       : duration,
-            "iterations"     : iterations,
-            "env"            : env,
-            "tags"           : tags,
-            "summary_export" : summary_export,
-            "extra_args"     : extra_args
-        }
+        if len(selected) != 1:
+            raise marked.fail_tip(
+                "script_text 和 script_file 必须且只能提供一个。",
+                code=const.CODE_EXC,
+                hint=const.HINT_HLT,
+                field="script_text|script_file",
+                expect="exactly_one",
+                got=",".join(selected) if selected else "none"
+            )
 
         async def call(*_) -> dict:
             job_id = await idle.job_begin(f"{ctx.k6.agent_id}.k6_run_local", args=args)
             try:
-                return await ctx.k6.run_local(**args)
+                if typing.cast(str, script_file or "").strip():
+                    await Requires.connect_k6()
+                    return await ctx.k6.run_script(
+                        script_file=typing.cast(str, script_file),
+                        workdir=workdir,
+                        vus=vus,
+                        duration=duration,
+                        iterations=iterations,
+                        env=env,
+                        tags=tags,
+                        summary_export=summary_export,
+                        extra_args=extra_args
+                    )
+
+                await Requires.connect_k6()
+                return await ctx.k6.run_local(
+                    script_text=typing.cast(str, script_text),
+                    script_name=script_name,
+                    vus=vus,
+                    duration=duration,
+                    iterations=iterations,
+                    env=env,
+                    tags=tags,
+                    summary_export=summary_export,
+                    extra_args=extra_args
+                )
             finally:
                 await idle.job_final(job_id)
 

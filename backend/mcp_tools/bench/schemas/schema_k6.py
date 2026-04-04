@@ -5,19 +5,17 @@ import typing
 from pydantic import Field
 
 
-ScenarioArg = typing.Annotated[
-    dict[str, typing.Any],
-    Field(
-        description=(
-            "结构化压测场景。"
-            "建议包含 `name`、`base_url`、`steps`；"
-            "`steps[]` 里的常用字段有 `name`、`method`、`path`、`params`、`headers`、`body`、`checks`、`sleep_sec`。"
-        )
-    ),
+ScriptTextArg = typing.Annotated[
+    typing.Optional[str],
+    Field(description="k6 脚本文本。"),
 ]
 ScriptFileArg = typing.Annotated[
-    str,
-    Field(description="k6 脚本文件路径，通常是 .js 或 .ts 文件。"),
+    typing.Optional[str],
+    Field(description="本地 k6 脚本文件路径。"),
+]
+ScriptNameArg = typing.Annotated[
+    typing.Optional[str],
+    Field(description="脚本文件名；为空时自动使用默认名。"),
 ]
 WorkDirArg = typing.Annotated[
     typing.Optional[str],
@@ -25,15 +23,15 @@ WorkDirArg = typing.Annotated[
 ]
 VusArg = typing.Annotated[
     typing.Optional[int],
-    Field(description="虚拟用户数；为空时沿用 `scenario.options` 或脚本内配置。"),
+    Field(description="虚拟用户数；为空时沿用脚本内配置。"),
 ]
 DurationArg = typing.Annotated[
     typing.Optional[str],
-    Field(description="压测持续时间，如 30s、5m；为空时沿用 `scenario.options` 或脚本内配置。"),
+    Field(description="压测持续时间，如 30s、5m；为空时沿用脚本内配置。"),
 ]
 IterationsArg = typing.Annotated[
     typing.Optional[int],
-    Field(description="总迭代次数；为空时沿用 `scenario.options` 或脚本内配置。"),
+    Field(description="总迭代次数；为空时沿用脚本内配置。"),
 ]
 EnvArg = typing.Annotated[
     typing.Optional[dict[str, str]],

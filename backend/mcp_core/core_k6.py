@@ -2,7 +2,6 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import os
-import json
 import typing
 import tempfile
 import asyncio
@@ -23,11 +22,6 @@ class K6Base(object):
     @property
     def prefix(self) -> str:
         return self.__prefix
-
-    @staticmethod
-    def _is_absolute_url(value: typing.Any) -> bool:
-        text = str(value or "").strip().lower()
-        return text.startswith("http://") or text.startswith("https://")
 
     @staticmethod
     def _decode(payload: typing.Optional[bytes]) -> str:
@@ -77,15 +71,7 @@ class K6Base(object):
         return args
 
     @staticmethod
-    def _normalized_headers(values: typing.Optional[dict[str, typing.Any]]) -> dict[str, str]:
-        return {
-            str(k): str(v)
-            for k, v in sorted((values or {}).items(), key=lambda item: str(item[0]))
-            if str(k).strip() and v is not None
-        }
-
-    @staticmethod
-    def _scenario_fail(message: str, **meta: typing.Any) -> RuntimeError:
+    def _inline_script_fail(message: str, **meta: typing.Any) -> RuntimeError:
         return marked.fail_tip(
             message,
             code=const.CODE_EXC,
@@ -93,263 +79,33 @@ class K6Base(object):
             **meta
         )
 
-    def normalize_scenario(self, scenario: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        if not isinstance(scenario, dict):
-            raise self._scenario_fail(
-                "scenario 类型错误（需要对象）。",
-                field="scenario",
-                expect="dict",
-                got=type(scenario).__name__
+    def ensure_script_text(self, script_text: str) -> str:
+        if not isinstance(script_text, str):
+            raise self._inline_script_fail(
+                "script_text 类型错误（需要字符串）。",
+                field="script_text",
+                expect="str",
+                got=type(script_text).__name__
             )
 
-        base_url = str(
-            scenario.get("base_url")
-            or scenario.get("url")
-            or ""
-        ).strip()
-
-        raw_steps = (
-            scenario.get("steps")
-            or scenario.get("requests")
-            or scenario.get("items")
-        )
-        if not isinstance(raw_steps, list) or not raw_steps:
-            raise self._scenario_fail(
-                "scenario.steps 为空（至少需要一个请求步骤）。",
-                field="scenario.steps",
-                expect="non_empty_list",
-                got=repr(raw_steps)
+        if not script_text.strip():
+            raise self._inline_script_fail(
+                "script_text 为空。",
+                field="script_text",
+                expect="non_empty",
+                got=script_text
             )
 
-        steps: list[dict[str, typing.Any]] = []
-        absolute_step_count = 0
-        for index, item in enumerate(raw_steps):
-            if not isinstance(item, dict):
-                raise self._scenario_fail(
-                    "scenario.steps[*] 类型错误（需要对象）。",
-                    field=f"scenario.steps[{index}]",
-                    expect="dict",
-                    got=type(item).__name__
-                )
-
-            path = str(
-                item.get("path")
-                or item.get("url")
-                or item.get("endpoint")
-                or ""
-            ).strip()
-            if not path:
-                raise self._scenario_fail(
-                    "scenario.steps[*].path 为空（也可使用 url 或 endpoint）。",
-                    field=f"scenario.steps[{index}].path",
-                    expect="non_empty",
-                    got=path
-                )
-            if self._is_absolute_url(path):
-                absolute_step_count += 1
-
-            raw_checks = item.get("checks")
-            if raw_checks is None:
-                if item.get("status") is not None or item.get("status_code") is not None:
-                    raw_checks = [
-                        {
-                            "name"  : str(item.get("check_name") or f"step_{index + 1}_status"),
-                            "kind"  : "status_eq",
-                            "value" : item.get("status", item.get("status_code"))
-                        }
-                    ]
-                elif item.get("body_contains") is not None:
-                    raw_checks = [
-                        {
-                            "name"  : str(item.get("check_name") or f"step_{index + 1}_body_contains"),
-                            "kind"  : "body_contains",
-                            "value" : item.get("body_contains")
-                        }
-                    ]
-                elif item.get("json_has") is not None:
-                    raw_checks = [
-                        {
-                            "name"  : str(item.get("check_name") or f"step_{index + 1}_json_has"),
-                            "kind"  : "json_has",
-                            "value" : item.get("json_has")
-                        }
-                    ]
-            checks: list[dict[str, typing.Any]] = []
-            if raw_checks is not None:
-                if not isinstance(raw_checks, list):
-                    raise self._scenario_fail(
-                        "scenario.steps[*].checks 类型错误（需要列表）。",
-                        field=f"scenario.steps[{index}].checks",
-                        expect="list",
-                        got=type(raw_checks).__name__
-                    )
-                for c_index, check_item in enumerate(raw_checks):
-                    if not isinstance(check_item, dict):
-                        raise self._scenario_fail(
-                            "scenario.steps[*].checks[*] 类型错误（需要对象）。",
-                            field=f"scenario.steps[{index}].checks[{c_index}]",
-                            expect="dict",
-                            got=type(check_item).__name__
-                        )
-                    checks.append(
-                        {
-                            "name"  : str(check_item.get("name") or f"step_{index + 1}_check_{c_index + 1}"),
-                            "kind"  : str(check_item.get("kind") or "status_eq").strip().lower(),
-                            "value" : check_item.get("value")
-                        }
-                    )
-
-            steps.append(
-                {
-                    "name"      : str(item.get("name") or item.get("title") or f"step_{index + 1}"),
-                    "method"    : str(item.get("method") or item.get("verb") or "GET").upper(),
-                    "path"      : path,
-                    "params"    : dict(item.get("params") or item.get("query") or {}),
-                    "headers"   : self._normalized_headers(item.get("headers") or item.get("request_headers")),
-                    "tags"      : self._normalized_headers(item.get("tags")),
-                    "body"      : item.get("body") if item.get("body") is not None else item.get("json"),
-                    "checks"    : checks,
-                    "sleep_sec" : float(item.get("sleep_sec") or item.get("sleep") or 0)
-                }
-            )
-
-        if not base_url and absolute_step_count != len(steps):
-            raise self._scenario_fail(
-                "scenario.base_url 为空时，所有 steps 都必须提供绝对 URL。",
-                field="scenario.base_url",
-                expect="non_empty_or_all_absolute_step_urls",
-                got=base_url
-            )
-
-        options = dict(scenario.get("options") or scenario.get("load") or {})
-        thresholds = dict(scenario.get("thresholds") or {})
-
-        return {
-            "name"       : str(scenario.get("name") or scenario.get("title") or "k6_scenario"),
-            "base_url"   : base_url.rstrip("/"),
-            "headers"    : self._normalized_headers(scenario.get("headers") or scenario.get("default_headers")),
-            "tags"       : self._normalized_headers(scenario.get("tags") or scenario.get("labels")),
-            "steps"      : steps,
-            "options"    : options,
-            "thresholds" : thresholds
-        }
+        return script_text
 
     @staticmethod
-    def _scenario_options(
-        normalized: dict[str, typing.Any],
-        *,
-        vus: typing.Optional[int] = None,
-        duration: typing.Optional[str] = None,
-        iterations: typing.Optional[int] = None
-    ) -> dict[str, typing.Any]:
-        options = dict(normalized.get("options") or {})
-        thresholds = dict(normalized.get("thresholds") or {})
-        if thresholds:
-            options["thresholds"] = thresholds
-
-        duration_text = str(duration or "").strip()
-        if vus is not None:
-            options["vus"] = max(1, int(vus))
-        if duration_text:
-            options["duration"] = duration_text
-        if iterations is not None:
-            options["iterations"] = max(1, int(iterations))
-
-        return options
-
-    @staticmethod
-    def render_script(
-        normalized: dict[str, typing.Any],
-        *,
-        vus: typing.Optional[int] = None,
-        duration: typing.Optional[str] = None,
-        iterations: typing.Optional[int] = None
-    ) -> str:
-        scenario_json = json.dumps(normalized, ensure_ascii=False, indent=2)
-        options_json = json.dumps(
-            K6Base._scenario_options(
-                normalized,
-                vus=vus,
-                duration=duration,
-                iterations=iterations
-            ),
-            ensure_ascii=False,
-            indent=2
-        )
-
-        return (
-            "import http from 'k6/http';\n"
-            "import { check, sleep } from 'k6';\n\n"
-            f"export const options = {options_json};\n\n"
-            f"const SCENARIO = {scenario_json};\n\n"
-            "function buildUrl(baseUrl, path, params) {\n"
-            "  const raw = String(path || '').trim();\n"
-            "  const isAbsolute = /^https?:\\/\\//i.test(raw);\n"
-            "  const direct = isAbsolute ? raw : null;\n"
-            "  const root = String(baseUrl || '').replace(/\\/+$/, '');\n"
-            "  const tail = raw.replace(/^\\/+/, '');\n"
-            "  const url = direct || (tail ? `${root}/${tail}` : root);\n"
-            "  if (!params || Object.keys(params).length === 0) return url;\n"
-            "  const qs = new URLSearchParams();\n"
-            "  Object.entries(params).forEach(([k, v]) => {\n"
-            "    if (v === undefined || v === null) return;\n"
-            "    qs.append(k, String(v));\n"
-            "  });\n"
-            "  const text = qs.toString();\n"
-            "  if (!text) return url;\n"
-            "  return `${url}${url.includes('?') ? '&' : '?'}${text}`;\n"
-            "}\n\n"
-            "function getByPath(data, path) {\n"
-            "  if (!path) return data;\n"
-            "  return String(path).split('.').reduce((acc, key) => {\n"
-            "    if (acc === null || acc === undefined) return undefined;\n"
-            "    return acc[key];\n"
-            "  }, data);\n"
-            "}\n\n"
-            "function bodyOf(step) {\n"
-            "  if (step.body === undefined || step.body === null) return null;\n"
-            "  if (typeof step.body === 'string') return step.body;\n"
-            "  return JSON.stringify(step.body);\n"
-            "}\n\n"
-            "function makeChecks(step) {\n"
-            "  const suite = {};\n"
-            "  (step.checks || []).forEach((item, idx) => {\n"
-            "    const name = String(item.name || `${step.name || 'step'}_${idx + 1}`);\n"
-            "    suite[name] = (res) => {\n"
-            "      const kind = String(item.kind || 'status_eq');\n"
-            "      if (kind === 'status_eq') return res.status === Number(item.value ?? 200);\n"
-            "      if (kind === 'status_in') return Array.isArray(item.value) && item.value.map(Number).includes(res.status);\n"
-            "      if (kind === 'body_contains') return String(res.body || '').includes(String(item.value || ''));\n"
-            "      if (kind === 'body_not_empty') return String(res.body || '').length > 0;\n"
-            "      if (kind === 'json_has') {\n"
-            "        try {\n"
-            "          return getByPath(res.json(), item.value) !== undefined;\n"
-            "        } catch (_) {\n"
-            "          return false;\n"
-            "        }\n"
-            "      }\n"
-            "      return true;\n"
-            "    };\n"
-            "  });\n"
-            "  return suite;\n"
-            "}\n\n"
-            "export default function () {\n"
-            "  const globalHeaders = SCENARIO.headers || {};\n"
-            "  const globalTags = SCENARIO.tags || {};\n"
-            "  for (const step of (SCENARIO.steps || [])) {\n"
-            "    const url = buildUrl(SCENARIO.base_url, step.path, step.params || {});\n"
-            "    const params = {\n"
-            "      headers: { ...globalHeaders, ...(step.headers || {}) },\n"
-            "      tags: { ...globalTags, ...(step.tags || {}) }\n"
-            "    };\n"
-            "    const res = http.request(String(step.method || 'GET').toUpperCase(), url, bodyOf(step), params);\n"
-            "    const suite = makeChecks(step);\n"
-            "    if (Object.keys(suite).length > 0) check(res, suite);\n"
-            "    const delay = Number(step.sleep_sec || 0);\n"
-            "    if (delay > 0) sleep(delay);\n"
-            "  }\n"
-            "}\n"
-        )
+    def normalize_script_name(script_name: typing.Optional[str]) -> str:
+        filename = Path(str(script_name or "").strip()).name
+        if not filename:
+            return "script.generated.js"
+        if not Path(filename).suffix:
+            return filename + ".js"
+        return filename
 
     async def exec_cli(
         self,
@@ -467,7 +223,8 @@ class K6(K6Base):
     async def run_local(
         self,
         *,
-        scenario: dict[str, typing.Any],
+        script_text: str,
+        script_name: typing.Optional[str] = None,
         vus: typing.Optional[int] = None,
         duration: typing.Optional[str] = None,
         iterations: typing.Optional[int] = None,
@@ -476,38 +233,27 @@ class K6(K6Base):
         summary_export: typing.Optional[str] = None,
         extra_args: typing.Optional[list[str]] = None
     ) -> dict[str, typing.Any]:
-        normalized = self.normalize_scenario(scenario)
-        if tags:
-            normalized["tags"] = {
-                **normalized.get("tags", {}),
-                **self._normalized_headers(tags)
-            }
+        final_script_text = self.ensure_script_text(script_text)
+        final_script_name = self.normalize_script_name(script_name)
 
-        script_text = self.render_script(
-            normalized,
-            vus=vus,
-            duration=duration,
-            iterations=iterations
-        )
-
-        with tempfile.TemporaryDirectory(prefix="k6_scene_") as tmp_dir:
-            script_path = Path(tmp_dir) / "scenario.generated.js"
-            script_path.write_text(script_text, encoding=const.CHARSET)
+        with tempfile.TemporaryDirectory(prefix="k6_script_") as tmp_dir:
+            script_path = Path(tmp_dir) / final_script_name
+            script_path.write_text(final_script_text, encoding=const.CHARSET)
 
             result = await self.run_script(
                 script_file=str(script_path),
                 workdir=tmp_dir,
-                vus=None,
-                duration=None,
-                iterations=None,
+                vus=vus,
+                duration=duration,
+                iterations=iterations,
                 env=env,
-                tags=None,
+                tags=tags,
                 summary_export=summary_export,
                 extra_args=extra_args
             )
-            result.setdefault("data", {})["scenario"] = normalized
-            result["data"]["generated_script_name"] = script_path.name
-            result["data"]["generated_script_size"] = len(script_text.encode(const.CHARSET, const.IGNORE))
+            result.setdefault("data", {})["script_name"] = script_path.name
+            result["data"]["script_origin"] = "inline"
+            result["data"]["script_size"] = len(final_script_text.encode(const.CHARSET, const.IGNORE))
             return result
 
     async def run_script(

@@ -8,8 +8,9 @@ from backend.mcp_tools.bench.schemas.schema_framix import (
     TitleArg,
 )
 from backend.mcp_tools.bench.schemas.schema_k6 import (
-    ScenarioArg,
+    ScriptTextArg,
     ScriptFileArg,
+    ScriptNameArg,
     WorkDirArg,
     VusArg,
     DurationArg,
@@ -93,8 +94,9 @@ __all__ = [
     "ReportDirArg",
     "ScaleArg",
     "TitleArg",
-    "ScenarioArg",
+    "ScriptTextArg",
     "ScriptFileArg",
+    "ScriptNameArg",
     "WorkDirArg",
     "VusArg",
     "DurationArg",
