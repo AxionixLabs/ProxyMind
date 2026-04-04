@@ -219,7 +219,7 @@ class Tooling(object):
         """判断某工具是否需要“连接/设备准备”等前置动作。"""
         cls = str((meta_map.get(name) or {}).get("class") or "")
         return cls not in {
-            "tool", "framix", "nexus", "inspect", "security", "runtime", "audio", "ffmpeg"
+            "tool", "framix", "nexus", "inspect", "security", "runtime", "audio", "ffmpeg", "k6"
         }
 
     @staticmethod
