@@ -8,6 +8,7 @@ import asyncio
 from pathlib import Path
 from backend.models.model_base import Attachment
 from backend.models.model_device import SemanticResult
+from backend.utilities.storage.output import mk_out_dir
 from backend.utilities import const
 from backend.utilities.validation import marked
 
@@ -107,6 +108,15 @@ class K6Base(object):
             return filename + ".js"
         return filename
 
+    @staticmethod
+    def default_summary_export(
+        base_dir: str,
+        *,
+        tool: str = "k6_run_local"
+    ) -> str:
+        out_dir = mk_out_dir(base_dir or ".", engine="k6", tool=tool)
+        return str(out_dir / "summary.json")
+
     async def exec_cli(
         self,
         args: list[str],
@@ -168,7 +178,8 @@ class K6Base(object):
         env: typing.Optional[dict[str, typing.Any]] = None,
         tags: typing.Optional[dict[str, typing.Any]] = None,
         summary_export: typing.Optional[str] = None,
-        extra_args: typing.Optional[list[str]] = None
+        extra_args: typing.Optional[list[str]] = None,
+        tool: str = "k6_run_script"
     ) -> dict[str, typing.Any]:
         script_path = Path(marked.ensure_f(script_file, "script_file"))
 
@@ -192,15 +203,23 @@ class K6Base(object):
         for key, value in self._normalized_pairs(tags):
             cmd += ["--tag", f"{key}={value}"]
 
-        final_summary = None
         if summary_export:
-            final_summary = marked.ensure_o(
-                script_path,
-                summary_export,
-                "summary_export",
-                suffix="json"
+            candidate = Path(str(summary_export)).expanduser()
+            if candidate.exists() and candidate.is_dir():
+                final_summary = self.default_summary_export(str(candidate), tool=tool)
+            else:
+                final_summary = marked.ensure_o(
+                    script_path,
+                    summary_export,
+                    "summary_export",
+                    suffix="json"
+                )
+        else:
+            final_summary = self.default_summary_export(
+                final_workdir,
+                tool=tool
             )
-            cmd += ["--summary-export", final_summary]
+        cmd += ["--summary-export", final_summary]
 
         cmd += self._normalized_args(extra_args)
         cmd.append(str(script_path))
@@ -235,7 +254,6 @@ class K6(K6Base):
         with tempfile.TemporaryDirectory(prefix="k6_script_") as tmp_dir:
             script_path = Path(tmp_dir) / final_script_name
             script_path.write_text(final_script_text, encoding=const.CHARSET)
-
             result = await self.run_script(
                 script_file=str(script_path),
                 workdir=tmp_dir,
@@ -245,7 +263,8 @@ class K6(K6Base):
                 env=env,
                 tags=tags,
                 summary_export=summary_export,
-                extra_args=extra_args
+                extra_args=extra_args,
+                tool="k6_run_local"
             )
             result.setdefault("data", {})["script_name"] = script_path.name
             result["data"]["script_origin"] = "inline"
@@ -263,7 +282,8 @@ class K6(K6Base):
         env: typing.Optional[dict[str, typing.Any]] = None,
         tags: typing.Optional[dict[str, typing.Any]] = None,
         summary_export: typing.Optional[str] = None,
-        extra_args: typing.Optional[list[str]] = None
+        extra_args: typing.Optional[list[str]] = None,
+        tool: str = "k6_run_script"
     ) -> dict[str, typing.Any]:
         plan = self.build_run_plan(
             script_file=script_file,
@@ -274,7 +294,8 @@ class K6(K6Base):
             env=env,
             tags=tags,
             summary_export=summary_export,
-            extra_args=extra_args
+            extra_args=extra_args,
+            tool=tool
         )
 
         result = await self.exec_cli(
