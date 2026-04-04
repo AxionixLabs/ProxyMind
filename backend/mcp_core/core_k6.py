@@ -137,10 +137,6 @@ class K6Base(object):
         ok = (exit_code == 0)
 
         text = f"{self.agent_id.upper()} {action}{'完成' if ok else '失败'}。exit_code={exit_code}"
-        if stdout_text:
-            text += f"\n{self._clip(stdout_text, limit=800)}"
-        if stderr_text:
-            text += f"\n{self._clip(stderr_text, limit=800)}"
 
         payload = {
             "ok"        : ok,
