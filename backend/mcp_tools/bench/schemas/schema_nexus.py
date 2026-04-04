@@ -75,6 +75,20 @@ class RequestBatchItemBase(BatchItemBase):
         description="当前批量项的协议请求定义。协议字段统一写在 `request` 下。"
     )
 
+    def __init__(self, **data: typing.Any):
+        if data.get("request") is None:
+            request_data = {
+                key: item for key, item in data.items()
+                if key not in {"name", "extract", "asserts", "request"}
+            }
+            if request_data:
+                data = {
+                    key: item for key, item in data.items()
+                    if key in {"name", "extract", "asserts"}
+                }
+                data["request"] = request_data
+        super().__init__(**data)
+
 
 class HttpLikeBodyMixin(NexusToolSchemaModel):
     json_body: typing.Optional[typing.Any] = Field(

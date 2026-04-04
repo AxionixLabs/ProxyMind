@@ -32,6 +32,7 @@ class Enhancer(object):
 
     @staticmethod
     def nexus_artifact(src: dict[str, typing.Any], default: str) -> dict[str, typing.Any]:
+        item_reserved = {"name", "extract", "asserts", "request"}
 
         def has_dir(x: typing.Any) -> bool:
             return isinstance(x, str) and bool(x.strip())
@@ -41,6 +42,26 @@ class Enhancer(object):
             if not has_dir(merged.get("artifact_dir")):
                 merged["artifact_dir"] = default
             return merged
+
+        def patch_item(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
+            merged_item = dict(item)
+            if isinstance(merged_item.get("request"), dict):
+                merged_item["request"] = patch_request(merged_item.get("request"))
+                return merged_item
+
+            flat_request = {
+                key: value for key, value in merged_item.items()
+                if key not in item_reserved
+            }
+            if not flat_request:
+                return merged_item
+
+            preserved = {
+                key: value for key, value in merged_item.items()
+                if key in item_reserved - {"request"}
+            }
+            preserved["request"] = patch_request(flat_request)
+            return preserved
 
         # 单请求边界：request
         if isinstance(src.get("request"), dict):
@@ -57,11 +78,7 @@ class Enhancer(object):
                 if not isinstance(item, dict):
                     patched_items.append(item)
                     continue
-
-                merged_item = dict(item)
-                if isinstance(merged_item.get("request"), dict):
-                    merged_item["request"] = patch_request(merged_item.get("request"))
-                patched_items.append(merged_item)
+                patched_items.append(patch_item(item))
 
             merged_src["items"] = patched_items
             return merged_src
