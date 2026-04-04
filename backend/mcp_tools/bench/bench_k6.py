@@ -35,8 +35,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         ),
         meta={"hidden": False, "domain": "bench", "class": "k6"}
     )
-    @task_middleware("k6_run_local")
-    async def k6_run_local(
+    @task_middleware("perf_run")
+    async def perf_run(
         script_text: ScriptTextArg = None,
         script_file: ScriptFileArg = None,
         script_name: ScriptNameArg = None,
@@ -80,7 +80,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             )
 
         async def call(*_) -> dict:
-            job_id = await idle.job_begin(f"{ctx.k6.agent_id}.k6_run_local", args=args)
+            job_id = await idle.job_begin(f"{ctx.k6.agent_id}.perf_run", args=args)
             try:
                 if typing.cast(str, script_file or "").strip():
                     await Requires.connect_k6()
@@ -112,7 +112,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="k6_run_local",
+            tool="perf_run",
             args=args,
             target_list=[ctx.k6],
             call=call,

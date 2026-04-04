@@ -112,7 +112,7 @@ class K6Base(object):
     def default_summary_export(
         base_dir: str,
         *,
-        tool: str = "k6_run_local"
+        tool: str = "perf_run"
     ) -> str:
         out_dir = mk_out_dir(base_dir or ".", engine="k6", tool=tool)
         return str(out_dir / "summary.json")
@@ -264,7 +264,7 @@ class K6(K6Base):
                 tags=tags,
                 summary_export=summary_export,
                 extra_args=extra_args,
-                tool="k6_run_local"
+                tool="perf_run"
             )
             result.setdefault("data", {})["script_name"] = script_path.name
             result["data"]["script_origin"] = "inline"
