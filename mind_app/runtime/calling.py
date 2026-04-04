@@ -43,30 +43,40 @@ async def with_mcp_guard(
     **kwargs
 ) -> None:
     """为模式执行增加动画、网络异常和 HTTP 异常保护层。"""
+    network_errors: list[BaseException] = []
+    http_errors: list[BaseException] = []
+    runtime_errors: list[BaseException] = []
+
     await mind.start_anim(mode)
 
     try:
         await runner(mode=mode, **kwargs)
 
     except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as error_group:
-        for error_item in _flatten_exceptions(error_group):
-            logger.error(f"❌ [Network Error] {error_item!r}")
+        network_errors.extend(_flatten_exceptions(error_group))
 
     except* httpx.HTTPStatusError as error_group:
-        for error_item in _flatten_exceptions(error_group):
-            if isinstance(error_item, httpx.HTTPStatusError):
-                body = error_item.response.extensions.get("error_body", b"")
-                text = body.decode(const.CHARSET, errors="replace")
-                logger.error(f"❌ [HTTP Error] {error_item.response.status_code} {text}")
-            else:
-                logger.error(f"❌ [HTTP Error] unexpected: {error_item!r}")
+        http_errors.extend(_flatten_exceptions(error_group))
 
     except* Exception as error_group:
-        for error_item in _flatten_exceptions(error_group):
-            logger.error(f"❌ [Runtime Error] {error_item!r}")
+        runtime_errors.extend(_flatten_exceptions(error_group))
 
     finally:
         await mind.await_cleanup(mind.stop_anim())
+
+    for error_item in network_errors:
+        logger.error(f"❌ [Network Error] {error_item!r}")
+
+    for error_item in http_errors:
+        if isinstance(error_item, httpx.HTTPStatusError):
+            body = error_item.response.extensions.get("error_body", b"")
+            text = body.decode(const.CHARSET, errors="replace")
+            logger.error(f"❌ [HTTP Error] {error_item.response.status_code} {text}")
+        else:
+            logger.error(f"❌ [HTTP Error] unexpected: {error_item!r}")
+
+    for error_item in runtime_errors:
+        logger.error(f"❌ [Runtime Error] {error_item!r}")
 
 
 async def wakeup(
