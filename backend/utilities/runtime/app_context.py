@@ -3,6 +3,7 @@
 
 import typing
 import asyncio
+from backend.mcp_core.core_k6 import K6
 from backend.mcp_core.core_framix import Framix
 from backend.mcp_core.core_memrix import Memrix
 from backend.mcp_core.core_nexus import Nexus
@@ -32,6 +33,7 @@ class AppContext(object):
         )
 
         self.nexus: Nexus = Nexus()
+        self.k6: K6 = K6()
 
         self.ffmpeg: FFmpeg = FFmpeg()
         self.player: Player = Player()

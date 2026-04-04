@@ -37,7 +37,8 @@ async def static_looper(
     exclude = [
         {"domain": "common", "class": "security"},
         {"domain": "common", "class": "runtime", "name": "loop_steps"},
-        {"domain": "bench", "class": "nexus"}
+        {"domain": "bench", "class": "nexus"},
+        {"domain": "bench", "class": "k6"}
     ]
     filtered_tools = Tooling.filter_tools(openai_tools, tool_meta, exclude=exclude)
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
