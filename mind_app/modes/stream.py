@@ -152,9 +152,8 @@ async def stream_looper(
         raise
 
     except Exception as e:
-        await slog.feed(chunk=str(e), display=StreamUI.BLOCK)
         await finish_stream(ev_report, phase="turn.failed", error=f"{type(e).__name__}: {e}")
-        return None
+        raise
 
     else:
         await slog.end_status()

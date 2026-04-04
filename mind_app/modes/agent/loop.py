@@ -122,7 +122,6 @@ async def resume_or_reopen(
     logger.debug(
         f"[Agent] reopened session_id={reopened.session_id} device_id={reopened.device_id}"
     )
-    log_external_access(reopened)
     return reopened
 
 
@@ -245,10 +244,13 @@ async def agent_loop(mind: "Mind") -> None:
                         await sleep_or_stop(2.0, mind.task_event)
                         continue
 
+                    await mind.await_cleanup(mind.stop_anim())
                     log_external_access(runtime)
-                    live_status.update(
-                        "Reopened and Waiting", "Returning to listening state in 1s"
-                    )
+                    if not mind.task_event.is_set():
+                        await start_status_animation(mind, live_status)
+                        live_status.update(
+                            "Reopened and Waiting", "Returning to listening state in 1s"
+                        )
                     await sleep_or_stop(1.0, mind.task_event)
                     continue
 

@@ -65,18 +65,21 @@ async def with_mcp_guard(
         await mind.await_cleanup(mind.stop_anim())
 
     for error_item in network_errors:
-        logger.error(f"❌ [Network Error] {error_item!r}")
+        logger.error(f"❌ [Network Error] {error_item!r}\n")
 
     for error_item in http_errors:
         if isinstance(error_item, httpx.HTTPStatusError):
             body = error_item.response.extensions.get("error_body", b"")
-            text = body.decode(const.CHARSET, errors="replace")
-            logger.error(f"❌ [HTTP Error] {error_item.response.status_code} {text}")
+            text = body.decode(const.CHARSET, errors="replace").strip()
+            if text:
+                logger.error(f"❌ [HTTP Error] {error_item.response.status_code} {text}\n")
+            else:
+                logger.error(f"❌ [HTTP Error] {error_item.response.status_code}\n")
         else:
-            logger.error(f"❌ [HTTP Error] unexpected: {error_item!r}")
+            logger.error(f"❌ [HTTP Error] unexpected: {error_item!r}\n")
 
     for error_item in runtime_errors:
-        logger.error(f"❌ [Runtime Error] {error_item!r}")
+        logger.error(f"❌ [Runtime Error] {error_item!r}\n")
 
 
 async def wakeup(

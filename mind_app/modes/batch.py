@@ -141,6 +141,7 @@ async def _run_virtual_message(
     )
 
     await mind.start_anim(runtime.mode)
+    failure_error: typing.Optional[str] = None
 
     try:
         await runtime.runner(
@@ -155,23 +156,25 @@ async def _run_virtual_message(
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except BaseException as exc:
-        error = Pack.brief_err(exc)
+        failure_error = Pack.brief_err(exc)
         _emit_diagnostic(
             runtime.event_report,
             event_type="virtual.failed",
             file=source.display_origin,
             source=source.display_origin,
             total=item_count,
-            error=error,
+            error=failure_error,
             name=name,
             run=run
-        )
-        logger.error(
-            f"❌ [Batch] virtual failed: {name} source={source.display_origin} err={error}\n"
         )
 
     finally:
         await mind.await_cleanup(mind.stop_anim())
+
+    if failure_error:
+        logger.error(
+            f"❌ [Batch] virtual failed: {name} source={source.display_origin} err={failure_error}\n"
+        )
 
     _emit_diagnostic(
         runtime.event_report, event_type="virtual.done", file=source.display_origin, name=name, run=run
@@ -216,6 +219,8 @@ async def _run_pack_item(
 
         for attempt in range(1, config.attempts + 1):
             started_at = time.time()
+            attempt_error: typing.Optional[str] = None
+            retry_backoff: typing.Optional[float] = None
 
             _emit_diagnostic(
                 runtime.event_report,
@@ -263,8 +268,8 @@ async def _run_pack_item(
             except (asyncio.CancelledError, KeyboardInterrupt):
                 raise
             except BaseException as exc:
-                error = Pack.brief_err(exc)
-                last_error = error
+                attempt_error = Pack.brief_err(exc)
+                last_error = attempt_error
 
                 _emit_diagnostic(
                     runtime.event_report,
@@ -278,17 +283,11 @@ async def _run_pack_item(
                     item_total=item.loop,
                     attempt=attempt,
                     max_attempts=config.attempts,
-                    error=error
-                )
-
-                logger.error(
-                    f"❌ [Batch] item failed: {item.name} "
-                    f"item_run={item_run}/{item.loop} "
-                    f"attempt={attempt}/{config.attempts} err={error}\n"
+                    error=attempt_error
                 )
 
                 if attempt < config.attempts:
-                    backoff = 0.5 * (2 ** (attempt - 1))
+                    retry_backoff = 0.5 * (2 ** (attempt - 1))
                     _emit_diagnostic(
                         runtime.event_report,
                         event_type="task.retry_wait",
@@ -300,11 +299,20 @@ async def _run_pack_item(
                         item_run=item_run,
                         item_total=item.loop,
                         attempt=attempt,
-                        wait_s=backoff
+                        wait_s=retry_backoff
                     )
-                    await asyncio.sleep(backoff)
             finally:
                 await mind.await_cleanup(mind.stop_anim())
+
+            if attempt_error:
+                logger.error(
+                    f"❌ [Batch] item failed: {item.name} "
+                    f"item_run={item_run}/{item.loop} "
+                    f"attempt={attempt}/{config.attempts} err={attempt_error}\n"
+                )
+
+            if retry_backoff is not None:
+                await asyncio.sleep(retry_backoff)
 
         else:
             _emit_diagnostic(
