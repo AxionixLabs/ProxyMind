@@ -15,6 +15,7 @@ from mind_nova import (
 )
 from .tool_result import tool_result_data, tool_result_text
 from ..stream_ui import StreamUI
+from ..runtime.tool_router import execute_tool
 from ..stream_events.finish import finish_stream
 
 if typing.TYPE_CHECKING:
@@ -223,7 +224,13 @@ async def static_looper(
 
                     await slog.begin_tool_status()
                     try:
-                        result = await session.call_tool(name, arguments)
+                        result = await execute_tool(
+                            session,
+                            tool_meta=tool_meta,
+                            name=name,
+                            arguments=arguments,
+                            meta=action_meta
+                        )
                         ok = not result.isError
 
                         enhancer: Enhancer = Enhancer(session, mode, model_api, kwargs.get("metadata"))

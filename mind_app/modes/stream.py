@@ -10,6 +10,7 @@ from mind_nova.events import EventReport
 from mind_nova import request
 from .tool_result import tool_result_text
 from ..stream_ui import StreamUI
+from ..runtime.tool_router import execute_tool
 from ..stream_events.finish import finish_stream
 from ..stream_events.responses_builtin import (
     resolve_builtin_name,
@@ -130,7 +131,13 @@ async def stream_looper(
                 arguments = Enhancer.exchange(name, arguments, mind.report)
                 await slog.begin_tool_status()
                 try:
-                    result = await session.call_tool(name, arguments)
+                    result = await execute_tool(
+                        session,
+                        tool_meta=tool_meta,
+                        name=name,
+                        arguments=arguments,
+                        meta=event_meta
+                    )
                     ok = not result.isError
 
                     enhancer: Enhancer = Enhancer(session, mode, model_api, kwargs.get("metadata"))
