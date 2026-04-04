@@ -88,7 +88,8 @@ async def static_looper(
             if event_type == "plan.failed":
                 error = str(plan.get("error") or "plan request failed")
                 await finish_stream(ev_report, phase="plan.failed", error=error)
-                raise RuntimeError(error)
+                logger.error(f"{error}\n")
+                return None
 
             if event_type != "plan.result":
                 continue
@@ -97,24 +98,28 @@ async def static_looper(
 
             if not isinstance(result := plan.get("result"), dict):
                 await finish_stream(ev_report, phase="plan.failed", error="plan.result missing result payload")
-                raise RuntimeError(plan)
+                logger.error(f"{plan}\n")
+                return None
 
             result_type = str(result.get("type") or "")
             if result_type == "error":
                 error = str(result.get("reasoning") or result.get("goal") or "plan unavailable")
                 await finish_stream(ev_report, phase="plan.failed", error=error)
-                raise RuntimeError(error)
+                logger.error(f"{error}\n")
+                return None
 
             steps = result.get("steps")
             if not isinstance(steps, list):
                 logger.warning(plan)
                 await finish_stream(ev_report, phase="plan.failed", error="plan.result missing executable steps")
-                raise RuntimeError(plan)
+                logger.error(f"{plan}\n")
+                return None
 
             loop_count = result.get("loop_count")
             if not isinstance(loop_count, int):
                 await finish_stream(ev_report, phase="plan.failed", error="plan.result invalid loop_count")
-                raise RuntimeError(plan)
+                logger.error(f"{plan}\n")
+                return None
 
             logger.debug(f"Loop Count -> {loop_count}")
             for step in steps:
@@ -180,7 +185,8 @@ async def static_looper(
                                 index=step_idx,
                                 name=name
                             )
-                            raise RuntimeError(str(error))
+                            logger.error(f"{error}\n")
+                            return None
 
                     logger.info(summary)
 
@@ -256,7 +262,8 @@ async def static_looper(
                             name=name,
                             error=brief_err
                         )
-                        raise RuntimeError(brief_err)
+                        logger.error(f"{brief_err}\n")
+                        return None
 
                     logger.info(tool_result_text(fields))
                     emit_event({

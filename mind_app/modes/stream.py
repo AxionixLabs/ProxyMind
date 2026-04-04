@@ -51,11 +51,12 @@ async def stream_looper(
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
     slog: StreamUI = StreamUI(mind.report.log_papers)
+
     interrupted = False
+    first_frame = True
 
     try:
         await slog.open()
-        first_frame = True
         tracker = SegmentTracker()
 
         async for event in request.stream_chat(mode, model_api, message, filtered_tools, **kwargs):
@@ -77,7 +78,8 @@ async def stream_looper(
 
             if event_type == "turn.failed":
                 error = str(event.get("error") or "unknown error")
-                await slog.feed(chunk=error, display=StreamUI.BLOCK)
+                await finish_stream(ev_report, phase="turn.failed", error=error)
+                await slog.feed(chunk=f"{error}\n", display=StreamUI.BLOCK)
                 return None
 
             if event_type == "text.delta":
@@ -114,8 +116,8 @@ async def stream_looper(
 
                 if Tooling.needs_wakeup(tool_meta, name):
                     if error := await mind.wakeup(session, slog):
-                        await slog.feed(error, display=StreamUI.BLOCK)
                         await finish_stream(ev_report, phase="turn.failed", error=str(error))
+                        await slog.feed(chunk=f"{error}\n", display=StreamUI.BLOCK)
                         return None
 
                 await slog.feed(
@@ -152,8 +154,11 @@ async def stream_looper(
         raise
 
     except Exception as e:
-        await finish_stream(ev_report, phase="turn.failed", error=f"{type(e).__name__}: {e}")
-        raise
+        error = f"{type(e).__name__}: {e}"
+        await mind.await_cleanup(mind.stop_anim())
+        await finish_stream(ev_report, phase="turn.failed", error=error)
+        await slog.feed(chunk=f"{error}\n", display=StreamUI.BLOCK)
+        return None
 
     else:
         await slog.end_status()

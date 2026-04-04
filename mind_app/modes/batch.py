@@ -137,7 +137,11 @@ async def _run_virtual_message(
         f"🧩 [Batch] {name} source={source.display_origin}"
     )
     _emit_diagnostic(
-        runtime.event_report, event_type="virtual.start", file=source.display_origin, name=name, run=run
+        runtime.event_report,
+        event_type="virtual.start",
+        file=source.display_origin,
+        name=name,
+        run=run
     )
 
     await mind.start_anim(runtime.mode)
@@ -177,7 +181,11 @@ async def _run_virtual_message(
         )
 
     _emit_diagnostic(
-        runtime.event_report, event_type="virtual.done", file=source.display_origin, name=name, run=run
+        runtime.event_report,
+        event_type="virtual.done",
+        file=source.display_origin,
+        name=name,
+        run=run
     )
 
 
@@ -362,7 +370,11 @@ async def _run_pack_source(
     item_total = len(items)
 
     _emit_diagnostic(
-        runtime.event_report, event_type="batch.start", file=source.display_origin, items=item_total, repeat=config.repeat
+        runtime.event_report,
+        event_type="batch.start",
+        file=source.display_origin,
+        items=item_total,
+        repeat=config.repeat
     )
 
     await _run_virtual_message(
@@ -549,7 +561,11 @@ async def _run_pack_source(
         )
     finally:
         _emit_diagnostic(
-            runtime.event_report, event_type="batch.done", file=source.display_origin, items=item_total, repeat=config.repeat
+            runtime.event_report,
+            event_type="batch.done",
+            file=source.display_origin,
+            items=item_total,
+            repeat=config.repeat
         )
 
 
