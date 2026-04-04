@@ -214,10 +214,12 @@ class Tooling(object):
     @staticmethod
     def needs_wakeup(
         meta_map: dict[str, dict[str, typing.Any]],
-        name: str
+        name: str,
+        meta: typing.Optional[dict[str, typing.Any]] = None
     ) -> bool:
         """判断某工具是否需要“连接/设备准备”等前置动作。"""
-        cls = str((meta_map.get(name) or {}).get("class") or "")
+        effective_meta = meta if isinstance(meta, dict) else (meta_map.get(name) or {})
+        cls = str(effective_meta.get("class") or "")
         return cls not in {
             "tool", "framix", "nexus", "inspect", "security", "runtime", "audio", "ffmpeg", "k6"
         }

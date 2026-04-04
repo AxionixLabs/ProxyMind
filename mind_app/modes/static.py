@@ -150,6 +150,7 @@ async def static_looper(
                     action = step["action"]
 
                     name, arguments = action["action"], action["args"]
+                    action_meta = action.get("meta") if isinstance(action.get("meta"), dict) else None
                     summary = Tooling.summarize_tool_arguments(name, arguments)
 
                     step_context: dict[str, typing.Any] = {
@@ -175,7 +176,7 @@ async def static_looper(
                         "ts"    : time.time()
                     })
 
-                    if Tooling.needs_wakeup(tool_meta, name):
+                    if Tooling.needs_wakeup(tool_meta, name, meta=action_meta):
                         if error := await mind.wakeup(session):
                             await finish_stream(
                                 ev_report,

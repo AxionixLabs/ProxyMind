@@ -112,9 +112,10 @@ async def stream_looper(
 
             if event_type == "tool.call":
                 name, arguments = event["name"], event.get("arguments", {})
+                event_meta = event.get("meta") if isinstance(event.get("meta"), dict) else None
                 summary = Tooling.summarize_tool_arguments(name, arguments)
 
-                if Tooling.needs_wakeup(tool_meta, name):
+                if Tooling.needs_wakeup(tool_meta, name, meta=event_meta):
                     if error := await mind.wakeup(session, slog):
                         await finish_stream(ev_report, phase="turn.failed", error=str(error))
                         await slog.feed(chunk=f"{error}\n", display=StreamUI.BLOCK)
