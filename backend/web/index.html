@@ -572,6 +572,7 @@
               <div class="status-list">
                 <span class="status-pill" id="status-pill"><span class="led"></span><span id="ready-text">checking</span></span>
                 <span class="status-pill"><code>/mcp</code></span>
+                <span class="status-pill"><code>/code</code></span>
                 <span class="status-pill"><code>/idle</code></span>
                 <span class="status-pill"><code>/pref</code></span>
                 <span class="status-pill"><code>/logs</code></span>
@@ -599,6 +600,7 @@
     const entryConfig = {
       nav: [
         {title: "Preferences", href: "/pref", tag: "config", primary: true},
+        {title: "Code Studio", href: "/code", tag: "batch"},
         {title: "Logs", href: "/logs", tag: "logs"},
         {title: "OpenAPI", href: "/docs", tag: "schema"},
         {title: "Health", href: "/ready", tag: "health"},
@@ -617,6 +619,12 @@
         tag: "PRIMARY"
       },
       secondary: [
+        {
+          title: "Code Studio",
+          description: "Compose a batch blueprint with a visual shell.",
+          href: "/code",
+          tag: "UI"
+        },
         {
           title: "Logs",
           description: "Inspect local server logs.",
@@ -643,7 +651,7 @@
         }
       ],
       tipLines: [
-        "Keyboard: <code>R</code> refresh status, <code>I</code> idle, <code>P</code> preferences, <code>L</code> logs."
+        "Keyboard: <code>R</code> refresh status, <code>C</code> code, <code>I</code> idle, <code>P</code> preferences, <code>L</code> logs."
       ]
     };
 
@@ -900,6 +908,7 @@
             showToast(title, detail, "err");
           });
       }
+      if (k === "c") location.href = "/code";
       if (k === "i") location.href = "/idle";
       if (k === "p") location.href = "/pref";
       if (k === "l") location.href = "/logs";
