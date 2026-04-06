@@ -22,7 +22,7 @@ class Monkey(object):
 
     def __init__(self, device: Device, idle: "Idle"):
         self.device = device
-        self.idle = idle
+        self.idle   = idle
 
         self.agent_id: str = "monkey"
 
@@ -74,7 +74,10 @@ class Monkey(object):
     def session_key(self) -> str:
         return f"{self.agent_id}:{self.device.serial}"
 
-    def session_args(self, extra: typing.Mapping[str, typing.Any] | None = None) -> dict[str, typing.Any]:
+    def session_args(
+        self,
+        extra: typing.Mapping[str, typing.Any] | None = None
+    ) -> dict[str, typing.Any]:
         return {
             "serial" : self.device.serial,
             "brand"  : self.device.device_props.get("brand"),
@@ -115,6 +118,102 @@ class Monkey(object):
     def clear_recent(cls, serial: str) -> bool:
         return cls.recent_runs.pop(serial, None) is not None
 
+    def reset(self) -> None:
+        self.tail.clear()
+        self.done_event.clear()
+
+        self.proc_logcat    = None
+        self.proc_monkey    = None
+        self.task_logcat    = None
+        self.task_monkey    = None
+        self.task_runner    = None
+        self.status_text    = "starting"
+        self.stop_requested = False
+        self.finalized      = False
+        self.start_ms       = int(time.time() * 1000)
+        self.end_ms         = None
+        self.return_code    = None
+        self.error          = None
+        self.remote_stop    = None
+        self.cmd_monkey     = []
+
+        for key in self.stats:
+            self.stats[key] = 0
+            self.evidence[key].clear()
+
+    def matcher(self, text: str) -> typing.Optional[str]:
+        for key, kws in self.patterns.items():
+            for kw in kws:
+                if kw in text:
+                    self.stats[key] += 1
+                    self.evidence[key].append(text)
+                    return key
+        return None
+
+    def snapshot_data(self) -> dict[str, typing.Any]:
+        now_ms      = int(time.time() * 1000)
+        end_ms      = self.end_ms or now_ms
+        duration_ms = max(0, end_ms - self.start_ms) if self.start_ms else 0
+        running     = self.status_text in {"starting", "running", "stopping"}
+
+        ok = (
+            False if self.status_text == "failed" else
+            True if self.status_text in {"finished", "stopped", "starting", "running", "stopping"} else
+            False
+        )
+
+        data = {
+            "ok"          : ok,
+            "active"      : running,
+            "done"        : bool(self.finalized),
+            "status"      : self.status_text,
+            "serial"      : self.device.serial,
+            "package"     : self.config.get("package"),
+            "seed"        : self.config.get("seed"),
+            "throttle_ms" : self.config.get("throttle_ms"),
+            "pct": {
+                "touch"  : self.config.get("touch"),
+                "motion" : self.config.get("motion"),
+                "nav"    : self.config.get("nav")
+            },
+            "events"             : self.config.get("events"),
+            "job_id"             : self.session_id,
+            "session_key"        : self.session_key,
+            "monkey_cmd"         : self.cmd_monkey,
+            "monkey_return_code" : self.return_code,
+            "stop_requested"     : self.stop_requested,
+            "start_ms"           : self.start_ms,
+            "end_ms"             : self.end_ms,
+            "duration_ms"        : duration_ms,
+            "tail"               : list(self.tail),
+            "stats"              : dict(self.stats),
+            "evidence"           : {key: list(values) for key, values in self.evidence.items()}
+        }
+        if self.error:
+            data["error"] = self.error
+        if self.remote_stop is not None:
+            data["remote_stop"] = self.remote_stop
+        return data
+
+    def build_pack(
+        self,
+        text: str,
+        *,
+        reason: typing.Optional[str] = None
+    ) -> dict[str, typing.Any]:
+        data = self.snapshot_data()
+        if reason:
+            data["reason"] = reason
+        return {
+            "text"        : text,
+            "attachments" : [],
+            "data"        : data,
+            "logs"        : []
+        }
+
+    def remember_recent(self, text: str) -> None:
+        self.recent_runs[self.device.serial] = self.build_pack(text)
+
     async def acquire(self, session_name: str) -> str:
         self.session_id = await self.idle.session_begin(
             key=self.session_key,
@@ -134,36 +233,6 @@ class Monkey(object):
 
     async def patch_session(self) -> None:
         await self.idle.session_patch_args(self.session_key, self.snapshot_data())
-
-    def reset(self) -> None:
-        self.tail.clear()
-        self.done_event.clear()
-        self.proc_logcat = None
-        self.proc_monkey = None
-        self.task_logcat = None
-        self.task_monkey = None
-        self.task_runner = None
-        self.status_text = "starting"
-        self.stop_requested = False
-        self.finalized = False
-        self.start_ms = int(time.time() * 1000)
-        self.end_ms = None
-        self.return_code = None
-        self.error = None
-        self.remote_stop = None
-        self.cmd_monkey = []
-        for key in self.stats:
-            self.stats[key] = 0
-            self.evidence[key].clear()
-
-    def matcher(self, text: str) -> typing.Optional[str]:
-        for key, kws in self.patterns.items():
-            for kw in kws:
-                if kw in text:
-                    self.stats[key] += 1
-                    self.evidence[key].append(text)
-                    return key
-        return None
 
     async def reader(self, proc: asyncio.subprocess.Process, name: str) -> None:
 
@@ -235,70 +304,12 @@ class Monkey(object):
         )
         return result
 
-    def snapshot_data(self) -> dict[str, typing.Any]:
-        now_ms = int(time.time() * 1000)
-        end_ms = self.end_ms or now_ms
-        duration_ms = max(0, end_ms - self.start_ms) if self.start_ms else 0
-        running = self.status_text in {"starting", "running", "stopping"}
-        ok = (
-            False if self.status_text == "failed" else
-            True if self.status_text in {"finished", "stopped", "starting", "running", "stopping"} else
-            False
-        )
-
-        data = {
-            "ok"                 : ok,
-            "active"             : running,
-            "done"               : bool(self.finalized),
-            "status"             : self.status_text,
-            "serial"             : self.device.serial,
-            "package"            : self.config.get("package"),
-            "seed"               : self.config.get("seed"),
-            "throttle_ms"        : self.config.get("throttle_ms"),
-            "pct": {
-                "touch"  : self.config.get("touch"),
-                "motion" : self.config.get("motion"),
-                "nav"    : self.config.get("nav")
-            },
-            "events"             : self.config.get("events"),
-            "job_id"             : self.session_id,
-            "session_key"        : self.session_key,
-            "monkey_cmd"         : self.cmd_monkey,
-            "monkey_return_code" : self.return_code,
-            "stop_requested"     : self.stop_requested,
-            "start_ms"           : self.start_ms,
-            "end_ms"             : self.end_ms,
-            "duration_ms"        : duration_ms,
-            "tail"               : list(self.tail),
-            "stats"              : dict(self.stats),
-            "evidence"           : {key: list(values) for key, values in self.evidence.items()}
-        }
-        if self.error:
-            data["error"] = self.error
-        if self.remote_stop is not None:
-            data["remote_stop"] = self.remote_stop
-        return data
-
-    def build_pack(
+    async def finalize(
         self,
-        text: str,
         *,
-        reason: typing.Optional[str] = None
-    ) -> dict[str, typing.Any]:
-        data = self.snapshot_data()
-        if reason:
-            data["reason"] = reason
-        return {
-            "text"        : text,
-            "attachments" : [],
-            "data"        : data,
-            "logs"        : []
-        }
-
-    def remember_recent(self, text: str) -> None:
-        self.recent_runs[self.device.serial] = self.build_pack(text)
-
-    async def finalize(self, *, rc: typing.Optional[int] = None, err: typing.Optional[str] = None) -> None:
+        rc: typing.Optional[int] = None,
+        err: typing.Optional[str] = None
+    ) -> None:
         if self.finalized:
             return None
         self.finalized = True
@@ -408,7 +419,8 @@ class Monkey(object):
             return await self.status(reason="already_finished")
 
         self.stop_requested = True
-        self.status_text = "stopping"
+        self.status_text    = "stopping"
+
         await self.patch_session()
         await self.shutdown_proc(self.proc_monkey, term_timeout=2.0, kill_timeout=3.0)
 
@@ -421,6 +433,7 @@ class Monkey(object):
     async def wait(self) -> dict[str, typing.Any]:
         await self.done_event.wait()
         return self.recent_pack(self.device.serial)
+
 
 if __name__ == '__main__':
     pass
