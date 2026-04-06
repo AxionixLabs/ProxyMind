@@ -72,6 +72,8 @@ def normalize_forward_target(
     if mode not in {"chat", "fast", "plan"}:
         raise ValueError("mind.forward payload.mode must be chat, fast, or plan")
 
+    mode = typing.cast(typing.Literal["chat", "fast", "plan"], mode)
+
     message_raw = payload.get("message")
     if message_raw in (None, ""):
         message = None
