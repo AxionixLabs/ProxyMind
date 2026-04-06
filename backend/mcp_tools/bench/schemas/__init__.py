@@ -19,6 +19,9 @@ from backend.mcp_tools.bench.schemas.schema_k6 import (
     TagsArg,
     SummaryExportArg,
     ExtraArgsArg,
+    ExecutionModeArg,
+    ResponseCaptureArg,
+    ResponseExportArg,
 )
 from backend.mcp_tools.bench.schemas.schema_memrix import (
     FocusArg,
@@ -105,6 +108,9 @@ __all__ = [
     "TagsArg",
     "SummaryExportArg",
     "ExtraArgsArg",
+    "ExecutionModeArg",
+    "ResponseCaptureArg",
+    "ResponseExportArg",
     "FocusArg",
     "ImplyArg",
     "TaskTitleArg",

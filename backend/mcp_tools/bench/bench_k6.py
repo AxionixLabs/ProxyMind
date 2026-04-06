@@ -17,14 +17,15 @@ from backend.mcp_tools.bench.schemas.schema_k6 import (
     EnvArg,
     TagsArg,
     SummaryExportArg,
-    ExtraArgsArg
+    ExtraArgsArg,
+    ExecutionModeArg,
+    ResponseCaptureArg,
+    ResponseExportArg
 )
 from backend.utilities.runtime import (
     AppContext, Idle
 )
 from backend.utilities.broadcast import broadcast
-from backend.utilities.validation import marked
-from backend.utilities import const
 
 
 def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
@@ -32,17 +33,72 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "执行一次通用接口测试、协议探测或压力执行。"
-            " 可用于 HTTP、GraphQL、SSE、WebSocket 等协议场景，"
-            " 也支持在脚本内编写快速断言与结果校验。"
+            "执行一次压力测试。默认按压测工具理解。"
+            " 只有当你明确要把它用于接口测试时，才按接口测试语义使用。"
+            " `env` 只用于运行时模板变量，不承载核心执行配置。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "k6"}
     )
     @task_middleware("perf_run")
     async def perf_run(
-        script_text: ScriptTextArg = None,
-        script_file: ScriptFileArg = None,
+        script_text: ScriptTextArg,
         script_name: ScriptNameArg = None,
+        env: EnvArg = None,
+        summary_export: SummaryExportArg = None,
+        extra_args: ExtraArgsArg = None,
+        execution_mode: ExecutionModeArg = "auto",
+        response_capture: ResponseCaptureArg = "auto",
+        response_export: ResponseExportArg = None
+    ) -> CallToolResult:
+        """执行一次压力测试。默认按压测语义使用。"""
+        await Requires.connect_k6()
+
+        args = {
+            "script_text"      : script_text,
+            "script_name"      : script_name,
+            "env"              : env,
+            "summary_export"   : summary_export,
+            "extra_args"       : extra_args,
+            "execution_mode"   : execution_mode,
+            "response_capture" : response_capture,
+            "response_export"  : response_export
+        }
+
+        async def call(*_) -> dict:
+            job_id = await idle.job_begin(f"{ctx.k6.agent_id}.perf_run", args=args)
+            try:
+                return await ctx.k6.run_inline(
+                    script_text=typing.cast(str, script_text),
+                    script_name=script_name,
+                    env=env,
+                    summary_export=summary_export,
+                    extra_args=extra_args,
+                    execution_mode=execution_mode,
+                    response_capture=response_capture,
+                    response_export=response_export
+                )
+            finally:
+                await idle.job_final(job_id)
+
+        return await broadcast(
+            tool="perf_run",
+            args=args,
+            target_list=[ctx.k6],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(
+        description=(
+            "执行一个本地已有的 JS/k6 脚本文件。"
+            " 仅用于现成脚本文件；如果你拿到的是脚本文本，请使用 `perf_run`。"
+            " `env` 只用于运行时模板变量，不承载核心执行配置。"
+        ),
+        meta={"hidden": False, "domain": "bench", "class": "k6"}
+    )
+    @task_middleware("perf_run_file")
+    async def perf_run_file(
+        script_file: ScriptFileArg,
         workdir: WorkDirArg = None,
         vus: VusArg = None,
         duration: DurationArg = None,
@@ -52,13 +108,11 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         summary_export: SummaryExportArg = None,
         extra_args: ExtraArgsArg = None
     ) -> CallToolResult:
-        """执行一次脚本驱动的接口测试、探测或压力任务。"""
+        """执行本地脚本文件。"""
         await Requires.connect_k6()
 
         args = {
-            "script_text"    : script_text,
             "script_file"    : script_file,
-            "script_name"    : script_name,
             "workdir"        : workdir,
             "vus"            : vus,
             "duration"       : duration,
@@ -69,55 +123,26 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "extra_args"     : extra_args
         }
 
-        execution_inputs = [
-            ("script_text", bool(str(script_text or "").strip())),
-            ("script_file", bool(str(script_file or "").strip()))
-        ]
-        selected = [name for name, ok in execution_inputs if ok]
-
-        if len(selected) != 1:
-            raise marked.fail_tip(
-                "script_text 和 script_file 必须且只能提供一个。",
-                code=const.CODE_EXC,
-                hint=const.HINT_HLT,
-                field="script_text|script_file",
-                expect="exactly_one",
-                got=",".join(selected) if selected else "none"
-            )
-
         async def call(*_) -> dict:
-            job_id = await idle.job_begin(f"{ctx.k6.agent_id}.perf_run", args=args)
+            job_id = await idle.job_begin(f"{ctx.k6.agent_id}.perf_run_file", args=args)
             try:
-                if typing.cast(str, script_file or "").strip():
-
-                    return await ctx.k6.run_script(
-                        script_file=typing.cast(str, script_file),
-                        workdir=workdir,
-                        vus=vus,
-                        duration=duration,
-                        iterations=iterations,
-                        env=env,
-                        tags=tags,
-                        summary_export=summary_export,
-                        extra_args=extra_args
-                    )
-
                 return await ctx.k6.run_file(
-                    script_text=typing.cast(str, script_text),
-                    script_name=script_name,
+                    script_file=typing.cast(str, script_file),
+                    workdir=workdir,
                     vus=vus,
                     duration=duration,
                     iterations=iterations,
                     env=env,
                     tags=tags,
                     summary_export=summary_export,
-                    extra_args=extra_args
+                    extra_args=extra_args,
+                    tool="perf_run_file"
                 )
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="perf_run",
+            tool="perf_run_file",
             args=args,
             target_list=[ctx.k6],
             call=call,

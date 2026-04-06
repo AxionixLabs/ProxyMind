@@ -97,7 +97,7 @@ class Enhancer(object):
                 return src_arguments
             return src_arguments | {"output_dir": report.toolkit_path}
 
-        elif name == "perf_run":
+        elif name in {"perf_run", "perf_run_file"}:
             if src_arguments.get("summary_export"):
                 return src_arguments
             return src_arguments | {"summary_export": report.toolkit_path}
