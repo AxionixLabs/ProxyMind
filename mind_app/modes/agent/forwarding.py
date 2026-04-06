@@ -61,7 +61,8 @@ def normalize_forward_target(
     typing.Literal[
         "chat",
         "fast",
-        "plan"], str | None, list[typing.Any] | None, str | None
+        "plan"
+    ], str | None, list[typing.Any] | None, str | None
 ]:
     """解析 `mind.forward` 载荷，映射到本地可执行的模式与参数。"""
     mode_raw = payload.get("mode")
