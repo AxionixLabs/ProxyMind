@@ -28,10 +28,13 @@ from backend.utilities import const
 
 
 def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
+    """注册通用接口执行工具。"""
 
     @mcp.tool(
         description=(
-            "执行一次压测。"
+            "执行一次通用接口测试、协议探测或压力执行。"
+            " 可用于 HTTP、GraphQL、SSE、WebSocket 等协议场景，"
+            " 也支持在脚本内编写快速断言与结果校验。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "k6"}
     )
@@ -49,6 +52,9 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         summary_export: SummaryExportArg = None,
         extra_args: ExtraArgsArg = None
     ) -> CallToolResult:
+        """执行一次脚本驱动的接口测试、探测或压力任务。"""
+        await Requires.connect_k6()
+
         args = {
             "script_text"    : script_text,
             "script_file"    : script_file,
@@ -83,7 +89,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             job_id = await idle.job_begin(f"{ctx.k6.agent_id}.perf_run", args=args)
             try:
                 if typing.cast(str, script_file or "").strip():
-                    await Requires.connect_k6()
+
                     return await ctx.k6.run_script(
                         script_file=typing.cast(str, script_file),
                         workdir=workdir,
@@ -96,8 +102,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
                         extra_args=extra_args
                     )
 
-                await Requires.connect_k6()
-                return await ctx.k6.run_local(
+                return await ctx.k6.run_file(
                     script_text=typing.cast(str, script_text),
                     script_name=script_name,
                     vus=vus,

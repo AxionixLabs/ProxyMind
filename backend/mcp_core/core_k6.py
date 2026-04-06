@@ -17,27 +17,32 @@ class K6Base(object):
     """k6 基类，负责命令组装与路径规范化。"""
 
     def __init__(self):
+        """初始化执行器前缀与对外标识。"""
         self.__prefix: str = "k6"
         self.agent_id: str = self.__prefix
 
     @property
     def prefix(self) -> str:
+        """返回底层命令前缀。"""
         return self.__prefix
 
     @staticmethod
     def _decode(payload: typing.Optional[bytes]) -> str:
+        """将命令输出字节解码为文本。"""
         if not payload:
             return ""
         return payload.decode(const.CHARSET, const.IGNORE).strip()
 
     @staticmethod
     def _clip(text: str, limit: int = 8000) -> str:
+        """裁剪过长文本，避免结果体积失控。"""
         if len(text or "") <= limit:
             return text or ""
         return (text or "")[:limit] + "\n...[truncated]..."
 
     @staticmethod
     def _env_patch(env: typing.Optional[dict[str, typing.Any]]) -> typing.Optional[dict[str, str]]:
+        """合并并规范化子进程环境变量。"""
         if not env:
             return None
 
@@ -50,6 +55,7 @@ class K6Base(object):
 
     @staticmethod
     def _normalized_pairs(values: typing.Optional[dict[str, typing.Any]]) -> list[tuple[str, str]]:
+        """将键值映射清洗为稳定排序的字符串对列表。"""
         if not values:
             return []
 
@@ -64,6 +70,7 @@ class K6Base(object):
 
     @staticmethod
     def _normalized_args(values: typing.Optional[list[str]]) -> list[str]:
+        """清洗附加参数列表，移除空白项。"""
         args: list[str] = []
         for item in values or []:
             token = str(item or "").strip()
@@ -73,6 +80,7 @@ class K6Base(object):
 
     @staticmethod
     def _inline_script_fail(message: str, **meta: typing.Any) -> RuntimeError:
+        """构造统一格式的内联脚本校验异常。"""
         return marked.fail_tip(
             message,
             code=const.CODE_EXC,
@@ -81,6 +89,7 @@ class K6Base(object):
         )
 
     def ensure_script_text(self, script_text: str) -> str:
+        """校验内联脚本文本，并返回可执行内容。"""
         if not isinstance(script_text, str):
             raise self._inline_script_fail(
                 "script_text 类型错误（需要字符串）。",
@@ -101,6 +110,7 @@ class K6Base(object):
 
     @staticmethod
     def normalize_script_name(script_name: typing.Optional[str]) -> str:
+        """规范化脚本文件名，并补齐默认扩展名。"""
         filename = Path(str(script_name or "").strip()).name
         if not filename:
             return "script.generated.js"
@@ -114,6 +124,7 @@ class K6Base(object):
         *,
         tool: str = "perf_run"
     ) -> str:
+        """生成汇总结果文件的默认输出路径。"""
         out_dir = mk_out_dir(base_dir or ".", engine="k6", tool=tool)
         return str(out_dir / "summary.json")
 
@@ -127,6 +138,7 @@ class K6Base(object):
         attachments: typing.Optional[list[Attachment]] = None,
         data: typing.Optional[dict[str, typing.Any]] = None
     ) -> dict[str, typing.Any]:
+        """执行底层命令，并统一封装标准结果结构。"""
         cmd = [self.prefix] + list(args or [])
 
         transports = await asyncio.create_subprocess_exec(
@@ -181,6 +193,7 @@ class K6Base(object):
         extra_args: typing.Optional[list[str]] = None,
         tool: str = "k6_run_script"
     ) -> dict[str, typing.Any]:
+        """根据输入参数组装最终执行计划与输出路径。"""
         script_path = Path(marked.ensure_f(script_file, "script_file"))
 
         final_workdir = marked.ensure_d(workdir, "workdir") if workdir else str(script_path.parent)
@@ -235,7 +248,7 @@ class K6Base(object):
 class K6(K6Base):
     """k6 工具封装。"""
 
-    async def run_local(
+    async def run_file(
         self,
         *,
         script_text: str,
@@ -248,6 +261,7 @@ class K6(K6Base):
         summary_export: typing.Optional[str] = None,
         extra_args: typing.Optional[list[str]] = None
     ) -> dict[str, typing.Any]:
+        """执行内联脚本内容，并返回本次结果。"""
         final_script_text = self.ensure_script_text(script_text)
         final_script_name = self.normalize_script_name(script_name)
 
@@ -285,6 +299,7 @@ class K6(K6Base):
         extra_args: typing.Optional[list[str]] = None,
         tool: str = "k6_run_script"
     ) -> dict[str, typing.Any]:
+        """执行本地脚本文件，并补充汇总产物信息。"""
         plan = self.build_run_plan(
             script_file=script_file,
             workdir=workdir,

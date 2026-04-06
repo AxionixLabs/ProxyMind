@@ -23,31 +23,31 @@ WorkDirArg = typing.Annotated[
 ]
 VusArg = typing.Annotated[
     typing.Optional[int],
-    Field(description="虚拟用户数；为空时沿用脚本内配置。"),
+    Field(description="并发执行规模；为空时沿用脚本内配置。"),
 ]
 DurationArg = typing.Annotated[
     typing.Optional[str],
-    Field(description="持续时间，如 30s、5m；为空时沿用脚本内配置。"),
+    Field(description="执行时长，如 30s、5m；为空时沿用脚本内配置。"),
 ]
 IterationsArg = typing.Annotated[
     typing.Optional[int],
-    Field(description="总迭代次数；为空时沿用脚本内配置。"),
+    Field(description="总执行次数；为空时沿用脚本内配置。"),
 ]
 EnvArg = typing.Annotated[
     typing.Optional[dict[str, str]],
-    Field(description="以 `-e KEY=VALUE` 方式注入给脚本的环境变量。"),
+    Field(description="注入给脚本的环境变量。"),
 ]
 TagsArg = typing.Annotated[
     typing.Optional[dict[str, str]],
-    Field(description="附加到本次执行结果的标签。"),
+    Field(description="附加到本次结果的标签。"),
 ]
 SummaryExportArg = typing.Annotated[
     typing.Optional[str],
-    Field(description="汇总 JSON 输出路径；为空时自动生成。"),
+    Field(description="汇总结果 JSON 输出路径；为空时自动生成。"),
 ]
 ExtraArgsArg = typing.Annotated[
     typing.Optional[list[str]],
-    Field(description="附加透传给执行命令的额外参数；每项都应是单独的 CLI token。"),
+    Field(description="附加透传的额外执行参数；每项都应是单独的 CLI token。"),
 ]
 
 
