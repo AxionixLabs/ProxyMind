@@ -316,6 +316,13 @@ class Phone(object):
         ]
         return await Flux.cmd_line(cmd)
 
+    async def shell_script(self, script: str) -> str | None:
+        """执行一段设备侧 shell 脚本。"""
+        cmd = self.prefix + [
+            "shell", "sh", "-c", str(script or "")
+        ]
+        return await Flux.cmd_line(cmd)
+
     async def app_deep_link(self, url: str) -> str | None:
         """执行深度链接启动命令。"""
         cmd = self.prefix + [

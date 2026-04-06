@@ -34,6 +34,10 @@ class Device(object):
     def device_props(self) -> dict[str, typing.Any]:
         return self.phone.device_props
 
+    @staticmethod
+    def _sh_quote_single(text: str) -> str:
+        return "'" + str(text or "").replace("'", r"'\''") + "'"
+
     def __str__(self):
         """返回调试展示文本。"""
         props = self.device_props
@@ -766,6 +770,24 @@ class Device(object):
     async def scroll_to_edge(self, edge: typing.Literal["top", "bottom"]) -> dict[str, typing.Any]:
         """滚动到边界。"""
         return await self.combo.scroll_to_edge(edge)
+
+    # workflow: ==== Monkey ====
+    async def monkey_stop(self) -> dict[str, typing.Any]:
+        """向设备发送 monkey 停止命令，不等待确认结果。"""
+        script = """
+ps -A | grep com.android.commands.monkey | while read -r _ pid _; do
+  kill -9 "$pid" 2>/dev/null || true
+done
+printf 'stop_sent=1\\n'
+""".strip()
+        await self.phone.shell_script(script)
+        return SemanticResult(
+            text="停止命令已发送。",
+            data={
+                "ok": True,
+                "reason": "stop_command_sent"
+            }
+        ).to_dict()
 
 
 if __name__ == '__main__':
