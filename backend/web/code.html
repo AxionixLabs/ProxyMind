@@ -2287,7 +2287,10 @@
         const inlineLoop = parseInlineMeta(trimmed, "loop");
         if(inlineLoop !== null){
           const ln = inlineLoop.trim();
-          item.loop = /^\d+$/.test(ln) && Number.parseInt(ln, 10) >= 1 ? ln : "";
+          if(!/^\d+$/.test(ln) || Number.parseInt(ln, 10) < 1){
+            throw new Error(`Item 块 #${fallbackIndex + 1}：# loop: 须为正整数。`);
+          }
+          item.loop = ln;
           index += 1;
           continue;
         }
@@ -2344,7 +2347,10 @@
         index += 1;
       }
 
-      item.name = item.name || `case_${String(fallbackIndex + 1).padStart(3, "0")}`;
+      item.name = String(item.name || "").trim();
+      if(!item.name){
+        throw new Error(`Item 块 #${fallbackIndex + 1}：缺少必填的 # name:。`);
+      }
       item.body = bodyLines.join("\n").trim();
       return item;
     }
@@ -2431,6 +2437,7 @@
     function validateBlueprintItemChunk(chunk, blockIndex){
       const lines = String(chunk || "").replace(/\r\n/g, "\n").split("\n");
       let inRuleFence = false;
+      let hasName = false;
       for(let i = 0; i < lines.length; i += 1){
         const trimmed = lines[i].trim();
         if(inRuleFence){
@@ -2449,10 +2456,26 @@
           if(!BLUEPRINT_ITEM_DIRECTIVE_KEYS.has(key)){
             throw new Error(`Item 块 #${blockIndex} 第 ${i + 1} 行：不支持的 “# ${key}:” 标记，仅允许 name、loop、prefix、suffix、rule。`);
           }
+          if(key === "name"){
+            const nameValue = trimmed.slice(7).trim();
+            if(!nameValue){
+              throw new Error(`Item 块 #${blockIndex} 第 ${i + 1} 行：# name: 不能为空。`);
+            }
+            hasName = true;
+          }
+          if(key === "loop"){
+            const loopValue = parseInlineMeta(trimmed, "loop");
+            if(loopValue === null || !/^\d+$/.test(loopValue.trim()) || Number.parseInt(loopValue.trim(), 10) < 1){
+              throw new Error(`Item 块 #${blockIndex} 第 ${i + 1} 行：# loop: 须为正整数。`);
+            }
+          }
         }
       }
       if(inRuleFence){
         throw new Error(`Item 块 #${blockIndex}：“# rule: <<<” 未以 “# >>>” 闭合。`);
+      }
+      if(!hasName){
+        throw new Error(`Item 块 #${blockIndex}：缺少必填的 # name:。`);
       }
     }
 
@@ -2469,7 +2492,10 @@
       validateBlueprintCfgBlock(cfgMatch[1]);
       const cfg = parseCfgBlock(cfgMatch[1]);
       const body = raw.slice(cfgMatch.index + cfgMatch[0].length).trim();
-      const chunks = body.split(/\n---\s*\n/g).map((chunk) => chunk.trim()).filter(Boolean);
+      if(body && !/(?:^|\n)---\s*$/.test(body)){
+        throw new Error("Item 区块须以独立一行的 --- 结尾（与页面导出格式一致）。");
+      }
+      const chunks = body.split(/\n---(?:\s*\n|$)/g).map((chunk) => chunk.trim()).filter(Boolean);
       chunks.forEach((chunk, idx) => validateBlueprintItemChunk(chunk, idx + 1));
       const itemBlocksTotal = chunks.length;
       const items = chunks.length
@@ -3067,12 +3093,12 @@
     function importBlueprintFromText(text){
       try{
         const nextState = parseBlueprintText(text);
+        const total = Math.max(0, nextState.itemBlocksTotal || 0);
+        if(total > 1){
+          throw new Error(`当前编辑器仅支持导入单个 Item。检测到 ${total} 个 Item 块，请拆分后再导入。`);
+        }
         applyState(nextState);
-        const extra = Math.max(0, (nextState.itemBlocksTotal || 0) - 1);
-        const detail = extra
-          ? `Imported the first item block. ${extra} additional block(s) were ignored (single-item editor).`
-          : "Imported blueprint into the editor.";
-        showToast("Imported", detail, "");
+        showToast("Imported", "Imported blueprint into the editor.", "");
       }catch(error){
         showToast("Import Failed", error.message || "Unable to parse the current draft.", "err");
       }
