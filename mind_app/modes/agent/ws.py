@@ -16,6 +16,24 @@ if typing.TYPE_CHECKING:
     from ...mind_core import Mind
 
 
+_REOPEN_ERROR_CODES: typing.Final[set[str]] = {
+    "AGENT_TOKEN_INVALID",
+    "AGENT_CLIENT_UNAUTHORIZED",
+    "AGENT_WS_SCOPE_INVALID",
+    "AGENT_WS_SESSION_MISMATCH",
+    "AGENT_WS_DEVICE_MISMATCH",
+    "AGENT_SESSION_NOT_FOUND",
+    "AGENT_SESSION_OFFLINE",
+    "AGENT_SESSION_NOT_CONNECTED",
+    "AGENT_SESSION_UNRESOLVED",
+    "AGENT_SESSION_AMBIGUOUS"
+}
+
+_ABORT_ERROR_CODES: typing.Final[set[str]] = {
+    "AGENT_WS_PAYLOAD_INVALID"
+}
+
+
 class AgentWsProtocolError(RuntimeError):
     """服务端通过 WS `error` 帧显式拒绝当前会话时抛出的异常。"""
 
@@ -30,24 +48,6 @@ class AgentWsProtocolError(RuntimeError):
         self.code = code
         self.message_text = message
         self.action = action
-
-
-_REOPEN_ERROR_CODES: typing.Final[set[str]] = {
-    "AGENT_TOKEN_INVALID",
-    "AGENT_CLIENT_UNAUTHORIZED",
-    "AGENT_WS_SCOPE_INVALID",
-    "AGENT_WS_SESSION_MISMATCH",
-    "AGENT_WS_DEVICE_MISMATCH",
-    "AGENT_SESSION_NOT_FOUND",
-    "AGENT_SESSION_OFFLINE",
-    "AGENT_SESSION_NOT_CONNECTED",
-    "AGENT_SESSION_UNRESOLVED",
-    "AGENT_SESSION_AMBIGUOUS",
-}
-
-_ABORT_ERROR_CODES: typing.Final[set[str]] = {
-    "AGENT_WS_PAYLOAD_INVALID",
-}
 
 
 def extract_message_seq(message: dict[str, typing.Any]) -> int | None:
@@ -88,7 +88,7 @@ async def cancel_runtime_tasks(runtime: AgentSessionRuntime) -> None:
 async def recv_json_or_stop(
     client: AgentClient,
     connection: typing.Any,
-    stop_event: asyncio.Event,
+    stop_event: asyncio.Event
 ) -> dict[str, typing.Any]:
     """在等待 WS 消息时同时响应退出信号。"""
     recv_task = asyncio.create_task(client.recv_json(connection))
@@ -201,10 +201,10 @@ def build_runtime_llm_conf(mind: "Mind") -> dict[str, typing.Any]:
     return {
         "schema_version" : int(payload.get("schema_version", DEFAULT_SCHEMA_VERSION) or DEFAULT_SCHEMA_VERSION),
         "primary": {
-            "model": str(primary.get("model", "") or ""),
-            "apikey": str(primary.get("apikey", "") or ""),
-            "base_url": str(primary.get("base_url", "") or ""),
-            "route": str(primary.get("route", "responses") or "responses"),
+            "model"    : str(primary.get("model", "") or ""),
+            "apikey"   : str(primary.get("apikey", "") or ""),
+            "base_url" : str(primary.get("base_url", "") or ""),
+            "route"    : str(primary.get("route", "responses") or "responses")
         }
     }
 
@@ -215,10 +215,10 @@ async def handle_server_message(
     connection: typing.Any,
     runtime: AgentSessionRuntime,
     message: dict[str, typing.Any],
-    live_status: AgentLiveStatus,
+    live_status: AgentLiveStatus
 ) -> int | None:
     """按订阅协议处理一条服务端消息。"""
-    current_seq = extract_message_seq(message)
+    current_seq  = extract_message_seq(message)
     message_type = str(message.get("type") or "")
 
     if message_type == "ready":
