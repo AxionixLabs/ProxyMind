@@ -1783,6 +1783,17 @@
       "global_rule"
     ]);
     const BLUEPRINT_ITEM_DIRECTIVE_KEYS = new Set(["name", "loop", "prefix", "suffix", "rule"]);
+    const CFG_BLOCK_FIELDS = [
+      ["loop_prefix", "pipe"],
+      ["loop_suffix", "pipe"],
+      ["round_prefix", "pipe"],
+      ["round_suffix", "pipe"],
+      ["item_prefix", "pipe"],
+      ["item_suffix", "pipe"],
+      ["global_prefix", "pipe"],
+      ["global_suffix", "pipe"],
+      ["global_rule", "fence"]
+    ];
 
     const ITEM_BODY_PLACEHOLDER = "For example: validate the auth path, token refresh, and the availability of key protected endpoints.";
 
@@ -1821,21 +1832,7 @@
 
     function createDefaultState(){
       return {
-        cfg: {
-          repeat: "1",
-          attempts: "1",
-          stop_on_fail: "true",
-          pattern: "",
-          loop_prefix: "",
-          loop_suffix: "",
-          round_prefix: "",
-          round_suffix: "",
-          item_prefix: "",
-          item_suffix: "",
-          global_prefix: "",
-          global_suffix: "",
-          global_rule: ""
-        },
+        cfg: createDefaultCfg(),
         items: [
           {
             id: `${Date.now()}-r1`,
@@ -1847,6 +1844,24 @@
             rule: ""
           }
         ]
+      };
+    }
+
+    function createDefaultCfg(){
+      return {
+        repeat: "1",
+        attempts: "1",
+        stop_on_fail: "true",
+        pattern: "",
+        loop_prefix: "",
+        loop_suffix: "",
+        round_prefix: "",
+        round_suffix: "",
+        item_prefix: "",
+        item_suffix: "",
+        global_prefix: "",
+        global_suffix: "",
+        global_rule: ""
       };
     }
 
@@ -1912,6 +1927,10 @@
       return Boolean(String(value || "").trim());
     }
 
+    function getPrimaryItem(){
+      return state.items[0] || null;
+    }
+
     function itemHasName(item){
       return Boolean(item && hasText(item.name));
     }
@@ -1962,7 +1981,7 @@
     }
 
     function itemGlobalOverrideFlags(){
-      const item = state.items[0];
+      const item = getPrimaryItem();
       if(!itemHasName(item)){
         return {prefix: false, suffix: false, rule: false};
       }
@@ -2025,10 +2044,6 @@
       into.push(">>>");
     }
 
-    function pushCfgBlock(lines, key, value, mode){
-      pushCfgBlockLines(lines, key, value, mode);
-    }
-
     function collectCfgPreviewGroups(){
       const flags = itemGlobalOverrideFlags();
       const keySuperseded = (k) =>
@@ -2053,17 +2068,8 @@
           groups.push({sup: false, lines: [""]});
         }
       };
-      [
-        ["loop_prefix", state.cfg.loop_prefix, "pipe"],
-        ["loop_suffix", state.cfg.loop_suffix, "pipe"],
-        ["round_prefix", state.cfg.round_prefix, "pipe"],
-        ["round_suffix", state.cfg.round_suffix, "pipe"],
-        ["item_prefix", state.cfg.item_prefix, "pipe"],
-        ["item_suffix", state.cfg.item_suffix, "pipe"],
-        ["global_prefix", state.cfg.global_prefix, "pipe"],
-        ["global_suffix", state.cfg.global_suffix, "pipe"],
-        ["global_rule", state.cfg.global_rule, "fence"]
-      ].forEach(([key, value, mode]) => {
+      CFG_BLOCK_FIELDS.forEach(([key, mode]) => {
+        const value = state.cfg[key];
         const text = String(value || "").trim();
         if(!text) return;
         maybeSpacer();
@@ -2088,7 +2094,7 @@
     }
 
     function buildItemPreviewLines(){
-      const item = state.items[0];
+      const item = getPrimaryItem();
       if(!item || !itemHasName(item)){
         return null;
       }
@@ -2105,7 +2111,6 @@
       appendItemRuleLines(il, item.rule);
       const body = String(item.body || "").trim();
       if(body){
-        if(il.length) il.push("");
         il.push(body);
       }
       if(!il.length){
@@ -2138,20 +2143,11 @@
       if(String(state.cfg.pattern || "").trim()){
         lines.push(`pattern: ${state.cfg.pattern.trim()}`);
       }
-      [
-        ["loop_prefix", state.cfg.loop_prefix, "pipe"],
-        ["loop_suffix", state.cfg.loop_suffix, "pipe"],
-        ["round_prefix", state.cfg.round_prefix, "pipe"],
-        ["round_suffix", state.cfg.round_suffix, "pipe"],
-        ["item_prefix", state.cfg.item_prefix, "pipe"],
-        ["item_suffix", state.cfg.item_suffix, "pipe"],
-        ["global_prefix", state.cfg.global_prefix, "pipe"],
-        ["global_suffix", state.cfg.global_suffix, "pipe"],
-        ["global_rule", state.cfg.global_rule, "fence"]
-      ].forEach(([key, value, mode]) => {
+      CFG_BLOCK_FIELDS.forEach(([key, mode]) => {
+        const value = state.cfg[key];
         if(String(value || "").trim()){
           pushSpacer();
-          pushCfgBlock(lines, key, value, mode);
+          pushCfgBlockLines(lines, key, value, mode);
         }
       });
       lines.push("```");
@@ -2223,21 +2219,7 @@
     }
 
     function parseCfgBlock(block){
-      const cfg = {
-        repeat: "1",
-        attempts: "1",
-        stop_on_fail: "true",
-        pattern: "",
-        loop_prefix: "",
-        loop_suffix: "",
-        round_prefix: "",
-        round_suffix: "",
-        item_prefix: "",
-        item_suffix: "",
-        global_prefix: "",
-        global_suffix: "",
-        global_rule: ""
-      };
+      const cfg = createDefaultCfg();
       const lines = String(block || "").replace(/\r\n/g, "\n").split("\n");
       let index = 0;
       while(index < lines.length){
@@ -2284,10 +2266,7 @@
 
         index += 1;
       }
-      cfg.repeat = safePositiveInt(cfg.repeat, 1);
-      cfg.attempts = safePositiveInt(cfg.attempts, 1);
-      cfg.stop_on_fail = String(cfg.stop_on_fail || "true").trim() === "false" ? "false" : "true";
-      return cfg;
+      return normalizeCfgState(cfg);
     }
 
     function parseItemBlock(block, fallbackIndex){
@@ -2505,21 +2484,7 @@
     }
 
     function applyState(nextState){
-      state.cfg = {
-        repeat: safePositiveInt(nextState.cfg.repeat, 1),
-        attempts: safePositiveInt(nextState.cfg.attempts, 1),
-        stop_on_fail: String(nextState.cfg.stop_on_fail || "true").trim() === "false" ? "false" : "true",
-        pattern: String(nextState.cfg.pattern || ""),
-        loop_prefix: String(nextState.cfg.loop_prefix || ""),
-        loop_suffix: String(nextState.cfg.loop_suffix || ""),
-        round_prefix: String(nextState.cfg.round_prefix || ""),
-        round_suffix: String(nextState.cfg.round_suffix || ""),
-        item_prefix: String(nextState.cfg.item_prefix || ""),
-        item_suffix: String(nextState.cfg.item_suffix || ""),
-        global_prefix: String(nextState.cfg.global_prefix || ""),
-        global_suffix: String(nextState.cfg.global_suffix || ""),
-        global_rule: String(nextState.cfg.global_rule || "")
-      };
+      state.cfg = normalizeCfgState(nextState.cfg);
       const mapped = Array.isArray(nextState.items) && nextState.items.length ? nextState.items.map((item) => ({
         id: item.id || nextItem().id,
         name: String(item.name || ""),
@@ -2530,7 +2495,6 @@
         rule: String(item.rule || "")
       })) : [];
       state.items = coerceSingleItemList(mapped);
-      activeItemId = state.items[0]?.id || null;
       state.items.forEach(normalizeItemBodyStorage);
 
       syncCfgInputsFromState();
@@ -2544,10 +2508,25 @@
       if(!state.items.length){
         state.items = coerceSingleItemList([]);
       }
-      if(state.items.some((item) => item.id === activeItemId)){
-        return;
-      }
-      activeItemId = state.items[0]?.id || null;
+    }
+
+    function normalizeCfgState(cfg){
+      return {
+        ...createDefaultCfg(),
+        repeat: safePositiveInt(cfg?.repeat, 1),
+        attempts: safePositiveInt(cfg?.attempts, 1),
+        stop_on_fail: String(cfg?.stop_on_fail || "true").trim() === "false" ? "false" : "true",
+        pattern: String(cfg?.pattern || ""),
+        loop_prefix: String(cfg?.loop_prefix || ""),
+        loop_suffix: String(cfg?.loop_suffix || ""),
+        round_prefix: String(cfg?.round_prefix || ""),
+        round_suffix: String(cfg?.round_suffix || ""),
+        item_prefix: String(cfg?.item_prefix || ""),
+        item_suffix: String(cfg?.item_suffix || ""),
+        global_prefix: String(cfg?.global_prefix || ""),
+        global_suffix: String(cfg?.global_suffix || ""),
+        global_rule: String(cfg?.global_rule || "")
+      };
     }
 
     function renderHookCards(){
@@ -2563,7 +2542,7 @@
           </button>
         `);
         if(field.key === "global_prefix"){
-          const item = state.items[0];
+          const item = getPrimaryItem();
           const named = itemHasName(item);
           const itemReady = Boolean(item && named && itemIsConfigured(item));
           rows.push(`
@@ -2665,7 +2644,7 @@
     }
 
     function renderItemsSummary(){
-      const item = state.items[0];
+      const item = getPrimaryItem();
       const named = itemHasName(item);
       const configured = Boolean(item && named && itemIsConfigured(item));
       const bundle = document.getElementById("hook-item-bundle");
@@ -2722,7 +2701,7 @@
       const host = document.getElementById("items-host");
       const head = document.getElementById("items-modal-head");
       const accent = document.getElementById("items-modal-accent");
-      const item = state.items.find((entry) => entry.id === activeItemId) || state.items[0] || null;
+      const item = getPrimaryItem();
 
       if(!item){
         host.innerHTML = "";
@@ -2862,21 +2841,20 @@
     }
 
     function downloadPreview(){
-      const blob = new Blob([buildPreview()], {type: "text/plain;charset=utf-8"});
+      const blob = new Blob([buildLivePreviewText()], {type: "text/markdown;charset=utf-8"});
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `mind_cfg_${new Date().toISOString().slice(0, 19).replace(/[T:]/g, "")}.cfg`;
+      anchor.download = `mind_blueprint_${new Date().toISOString().slice(0, 19).replace(/[T:]/g, "")}.md`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
-      showToast("Downloaded", "CFG block saved to local file.", "");
+      showToast("Downloaded", "Blueprint saved to local markdown file.", "");
     }
 
     const state = loadState();
     let activeHookKey = HOOK_FIELDS[0].key;
-    let activeItemId = state.items[0]?.id || null;
     let activeItemPanel = "main";
 
     makeNav([
@@ -2899,7 +2877,7 @@
       showToast("Cleared", `${field.label} cleared.`, "");
     });
     document.getElementById("clear-items-field").addEventListener("click", async () => {
-      const item = state.items[0];
+      const item = getPrimaryItem();
       if(!item) return;
       if(activeItemPanel === "main"){
         const ok = await requestItemClearConfirm();
@@ -2941,7 +2919,7 @@
       const loopNudge = event.target.closest("[data-item-loop-step]");
       if(loopNudge && loopNudge.closest("#hook-item-bundle")){
         if(loopNudge.disabled) return;
-        const item = state.items[0];
+        const item = getPrimaryItem();
         if(!item) return;
         const step = Number.parseInt(loopNudge.getAttribute("data-item-loop-step"), 10);
         let n = Number.parseInt(String(item.loop || "").trim(), 10);
@@ -2953,7 +2931,6 @@
         }
         renderItemsSummary();
         syncPreview();
-        saveState();
         return;
       }
       const itemHit = event.target.closest("[data-item-panel]");
@@ -3102,7 +3079,7 @@
     }
 
     function finalizeItemDraftOnItemsModalClose(){
-      const item = state.items[0];
+      const item = getPrimaryItem();
       if(!item) return;
       const host = document.getElementById("items-host");
       if(host){
