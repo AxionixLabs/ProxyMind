@@ -6,7 +6,11 @@ import typing
 import asyncio
 import platform
 from loguru import logger
-from websockets.exceptions import ConnectionClosed, InvalidStatus, WebSocketException
+from websockets.exceptions import (
+    ConnectionClosed,
+    InvalidStatus,
+    WebSocketException
+)
 from ...runtime.agent_client import AgentClient
 from .models import (
     AgentConfig,
