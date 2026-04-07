@@ -422,6 +422,13 @@ async def connect_once(
             llm_conf=build_runtime_llm_conf(mind)
         )
         logger.debug("[Agent] runtime.bind sent")
+        logger.debug(
+            "[Agent] connect_once state "
+            f"session_id={runtime.session_id} "
+            f"ready_received={runtime.ready_received} "
+            f"last_acked_seq={runtime.last_acked_seq} "
+            f"resume_token={'yes' if runtime.resume_token else 'no'}"
+        )
 
         if runtime.last_acked_seq > 0:
             live_status.update(
@@ -434,6 +441,12 @@ async def connect_once(
             )
             logger.debug(
                 f"[Agent] resume sent last_acked_seq={runtime.last_acked_seq}"
+            )
+        else:
+            logger.debug(
+                "[Agent] resume not sent "
+                f"session_id={runtime.session_id} "
+                "reason=last_acked_seq<=0"
             )
 
         while True:

@@ -69,6 +69,16 @@ def summarize_ws_disconnect(exc: BaseException) -> tuple[str, str]:
     return "Link Interrupted", f"{type(exc).__name__} · preparing reconnect"
 
 
+def get_disconnect_status_code(exc: BaseException) -> int | None:
+    """提取断链异常里的 HTTP 状态码，便于恢复链路定位。"""
+    if not isinstance(exc, InvalidStatus):
+        return None
+
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    return status_code if isinstance(status_code, int) else None
+
+
 def should_retry_ws_before_resume(runtime: AgentSessionRuntime, exc: BaseException) -> bool:
     """首轮握手尚未 ready 时，优先做有限次 WS 重连，避免无意义 resume 风暴。"""
     if runtime.last_acked_seq > 0 or runtime.ready_received:
@@ -278,14 +288,38 @@ async def agent_loop(mind: "Mind") -> None:
                 )
                 await sleep_or_stop(1.0, mind.task_event)
                 continue
-            except (ConnectionClosed, InvalidStatus, WebSocketException, OSError, httpx.HTTPError, asyncio.TimeoutError) as exc:
+            except (
+                    ConnectionClosed,
+                    InvalidStatus,
+                    WebSocketException,
+                    OSError,
+                    httpx.HTTPError,
+                    asyncio.TimeoutError
+            ) as exc:
                 logger.debug(
                     f"[Agent] disconnected: {type(exc).__name__}: {exc}"
                 )
                 title, detail = summarize_ws_disconnect(exc)
                 live_status.update(title, detail)
+                status_code = get_disconnect_status_code(exc)
+                logger.debug(
+                    "[Agent] recovery state "
+                    f"session_id={runtime.session_id} "
+                    f"ready_received={runtime.ready_received} "
+                    f"last_acked_seq={runtime.last_acked_seq} "
+                    f"pre_ready_connect_failures={runtime.pre_ready_connect_failures} "
+                    f"resume_token={'yes' if runtime.resume_token else 'no'} "
+                    f"status_code={status_code if status_code is not None else '-'}"
+                )
 
-                if should_retry_ws_before_resume(runtime, exc):
+                retry_ws_before_resume = should_retry_ws_before_resume(runtime, exc)
+                logger.debug(
+                    "[Agent] recovery decision "
+                    f"action={'ws_retry' if retry_ws_before_resume else 'resume_or_reopen'} "
+                    f"reason={'pre-ready' if retry_ws_before_resume else 'ready-or-acked'}"
+                )
+
+                if retry_ws_before_resume:
                     runtime.pre_ready_connect_failures += 1
                     logger.debug(
                         "[Agent] pre-ready ws reconnect "
@@ -341,7 +375,10 @@ async def agent_loop(mind: "Mind") -> None:
 
                 if not runtime.resume_token:
                     logger.debug(
-                        "[Agent] resume skipped: resume_token missing"
+                        "[Agent] resume skipped: resume_token missing "
+                        f"session_id={runtime.session_id} "
+                        f"ready_received={runtime.ready_received} "
+                        f"last_acked_seq={runtime.last_acked_seq}"
                     )
                     live_status.update(
                         "Resume Token Missing", "Retrying session open in 2s"
@@ -350,7 +387,20 @@ async def agent_loop(mind: "Mind") -> None:
                     continue
 
                 try:
+                    logger.debug(
+                        "[Agent] resume_or_reopen start "
+                        f"session_id={runtime.session_id} "
+                        f"last_acked_seq={runtime.last_acked_seq} "
+                        f"ready_received={runtime.ready_received}"
+                    )
                     runtime = await resume_or_reopen(client, runtime, config, live_status)
+                    logger.debug(
+                        "[Agent] resume_or_reopen done "
+                        f"session_id={runtime.session_id} "
+                        f"last_acked_seq={runtime.last_acked_seq} "
+                        f"ready_received={runtime.ready_received} "
+                        f"resume_token={'yes' if runtime.resume_token else 'no'}"
+                    )
                 except asyncio.CancelledError:
                     live_status.update(
                         "Exiting Subscription", "Canceling resume flow"
@@ -379,6 +429,7 @@ async def agent_loop(mind: "Mind") -> None:
                     "Resumed and Waiting", "Returning to listening state in 1s"
                 )
                 await sleep_or_stop(1.0, mind.task_event)
+
     finally:
         live_status.update(
             "Exiting Subscription", "Cleaning tasks and stopping animation"
