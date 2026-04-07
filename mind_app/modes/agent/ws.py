@@ -224,6 +224,8 @@ async def handle_server_message(
     if message_type == "ready":
         payload_raw = message.get("payload")
         payload = payload_raw if isinstance(payload_raw, dict) else {}
+        runtime.ready_received = True
+        runtime.pre_ready_connect_failures = 0
         live_status.update("Subscription Online", "Handshake complete, waiting for tasks")
         logger.debug(
             "[Agent] ready "

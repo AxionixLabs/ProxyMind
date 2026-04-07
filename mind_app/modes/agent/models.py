@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import asyncio
 import typing
+import asyncio
 from dataclasses import dataclass
 
 
@@ -29,6 +29,8 @@ class AgentSessionRuntime:
     device_id: str
     client_version: str
     last_acked_seq: int = 0
+    ready_received: bool = False
+    pre_ready_connect_failures: int = 0
     forwarded_message_ids: set[str] | None = None
     pending_tasks: set[asyncio.Task[None]] | None = None
 

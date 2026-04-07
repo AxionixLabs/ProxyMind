@@ -69,6 +69,19 @@ def summarize_ws_disconnect(exc: BaseException) -> tuple[str, str]:
     return "Link Interrupted", f"{type(exc).__name__} · preparing reconnect"
 
 
+def should_retry_ws_before_resume(runtime: AgentSessionRuntime, exc: BaseException) -> bool:
+    """首轮握手尚未 ready 时，优先做有限次 WS 重连，避免无意义 resume 风暴。"""
+    if runtime.last_acked_seq > 0 or runtime.ready_received:
+        return False
+
+    if isinstance(exc, InvalidStatus):
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        if isinstance(status_code, int) and status_code in {401, 403}:
+            return False
+
+    return True
+
+
 async def resume_or_reopen(
     client: AgentClient,
     runtime: AgentSessionRuntime,
@@ -114,6 +127,8 @@ async def resume_or_reopen(
             device_id=runtime.device_id,
             client_version=runtime.client_version,
             last_acked_seq=runtime.last_acked_seq,
+            ready_received=runtime.ready_received,
+            pre_ready_connect_failures=runtime.pre_ready_connect_failures,
             forwarded_message_ids=runtime.forwarded_message_ids,
             pending_tasks=runtime.pending_tasks
         )
@@ -269,6 +284,60 @@ async def agent_loop(mind: "Mind") -> None:
                 )
                 title, detail = summarize_ws_disconnect(exc)
                 live_status.update(title, detail)
+
+                if should_retry_ws_before_resume(runtime, exc):
+                    runtime.pre_ready_connect_failures += 1
+                    logger.debug(
+                        "[Agent] pre-ready ws reconnect "
+                        f"session_id={runtime.session_id} "
+                        f"attempt={runtime.pre_ready_connect_failures}"
+                    )
+
+                    if runtime.pre_ready_connect_failures < 3:
+                        live_status.update(
+                            "Retrying Link", "Handshake not ready yet · retrying WS in 2s"
+                        )
+                        await sleep_or_stop(2.0, mind.task_event)
+                        continue
+
+                    live_status.update(
+                        "Opening Fresh Session", "Handshake never became ready · reopening in 2s"
+                    )
+                    try:
+                        runtime = await open_new_runtime(client, config, previous=runtime)
+                    except asyncio.CancelledError:
+                        live_status.update(
+                            "Exiting Subscription", "Canceling session reopen"
+                        )
+                        raise
+                    except (OSError, httpx.HTTPError, asyncio.TimeoutError) as reopen_exc:
+                        logger.debug(
+                            f"[Agent] pre-ready reopen failed: {type(reopen_exc).__name__}: {reopen_exc}"
+                        )
+                        live_status.update(
+                            "Reopen Failed", f"{type(reopen_exc).__name__} · retrying in 2s"
+                        )
+                        await sleep_or_stop(2.0, mind.task_event)
+                        continue
+                    except Exception as reopen_exc:
+                        logger.debug(
+                            f"[Agent] pre-ready reopen crashed: {type(reopen_exc).__name__}: {reopen_exc}"
+                        )
+                        live_status.update(
+                            "Reopen Crashed", f"{type(reopen_exc).__name__} · retrying in 2s"
+                        )
+                        await sleep_or_stop(2.0, mind.task_event)
+                        continue
+
+                    await mind.await_cleanup(mind.stop_anim())
+                    log_external_access(runtime)
+                    if not mind.task_event.is_set():
+                        await start_status_animation(mind, live_status)
+                        live_status.update(
+                            "Reopened and Waiting", "Returning to listening state in 1s"
+                        )
+                    await sleep_or_stop(1.0, mind.task_event)
+                    continue
 
                 if not runtime.resume_token:
                     logger.debug(
