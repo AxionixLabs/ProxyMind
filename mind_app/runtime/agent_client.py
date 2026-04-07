@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import ssl
 import json
 import httpx
 import socket
 import typing
 import websockets
 from urllib.parse import urlencode
+from loguru import logger
 from websockets.asyncio.client import ClientConnection
 from .agent_protocol import (
     build_envelope, ensure_ws_base
@@ -189,12 +191,32 @@ class AgentClient(object):
         ws_base_url: str | None = None
     ) -> ClientConnection:
         """建立订阅协议的 WebSocket 连接。"""
-        return await websockets.connect(
-            self.build_ws_url(session_id=session_id, ws_token=ws_token, ws_base_url=ws_base_url),
-            open_timeout=self.timeout_sec,
-            close_timeout=1.0,
-            ping_interval=None
+        url = self.build_ws_url(
+            session_id=session_id,
+            ws_token=ws_token,
+            ws_base_url=ws_base_url
         )
+
+        ssl_context = ssl.create_default_context() if url.startswith("wss://") else None
+
+        try:
+            return await websockets.connect(
+                url,
+                open_timeout=self.timeout_sec,
+                close_timeout=1.0,
+                ping_interval=None,
+                ssl=ssl_context
+            )
+        except Exception as exc:
+            logger.debug(
+                "[Agent] ws connect failed "
+                f"session_id={session_id} "
+                f"ws_base_url={ws_base_url or self.base_url} "
+                f"url_scheme={'wss' if url.startswith('wss://') else 'ws'} "
+                f"error_type={type(exc).__name__} "
+                f"error={exc}"
+            )
+            raise
 
     @staticmethod
     async def send_json(connection: ClientConnection, envelope: dict[str, typing.Any]) -> None:
