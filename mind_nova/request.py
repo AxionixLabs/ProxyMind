@@ -99,6 +99,41 @@ async def post_stream_event(
         r.raise_for_status()
 
 
+async def open_report_session(
+    mode: typing.Literal["chat", "fast", "plan"],
+    cid: str,
+    sid: str,
+    *,
+    proto: str | None = None,
+    timeout: float = 10.0
+) -> dict[str, typing.Any]:
+    """打开服务端报告会话，返回 report_url / report_id / stream_url / replay_url。"""
+    headers = Channel.make_headers()
+    payload: dict[str, typing.Any] = {
+        "mode" : mode,
+        "cid"  : cid,
+        "sid"  : sid
+    }
+    if isinstance(proto, str) and proto.strip():
+        payload["proto"] = proto.strip()
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(const.REPORT_OPEN_URL, headers=headers, json=payload)
+        r.raise_for_status()
+        body = r.json()
+
+    if not isinstance(body, dict):
+        raise RuntimeError("reports/open returned non-object payload")
+    if not body.get("ok"):
+        raise RuntimeError(f"reports/open rejected payload: {body}")
+
+    data = body.get("data")
+    if not isinstance(data, dict):
+        raise RuntimeError("reports/open missing data object")
+
+    return typing.cast(dict[str, typing.Any], data)
+
+
 async def upload_file_stream(
     path: str,
     agent_id: str,

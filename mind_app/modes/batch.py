@@ -12,11 +12,12 @@ from engine.scaling import (
     PackItem, Pack
 )
 from mind_nova.events import EventReport
-from mind_nova import const
+from mind_nova.request import open_report_session
 from .code_sources import (
     CodeSourceResolved, resolve_code_sources
 )
 from ..runtime.calling import resolve_mode_runner
+from mind_nova import const
 
 if typing.TYPE_CHECKING:
     from ..mind_core import Mind
@@ -589,8 +590,30 @@ async def mind_pack(
         **mind.begin_session(cid=cid, sid=sid)
     }
 
-    atlas = f"{const.ATLAS_URL}?mode={mode}&cid={meta['cid']}&sid={meta['sid']}"
-    logger.info(f"🌐 Atlas: {atlas}")
+    try:
+        report_data = await open_report_session(
+            mode,
+            meta["cid"],
+            meta["sid"],
+            proto=f"{const.APP_NAME}.batch"
+        )
+        report_url_raw = report_data.get("report_url")
+        report_url     = report_url_raw.strip() if isinstance(report_url_raw, str) else None
+        report_id      = str(report_data.get("report_id") or "").strip()
+
+        if report_url:
+            logger.info(f"🌐 Atlas: {report_url}")
+        else:
+            logger.warning(
+                "[Batch] reports/open succeeded but report_url missing "
+                f"cid={meta['cid']} sid={meta['sid']} report_id={report_id or '-'}"
+            )
+    except Exception as exc:
+        logger.warning(
+            "[Batch] reports/open failed "
+            f"cid={meta['cid']} sid={meta['sid']} "
+            f"error_type={type(exc).__name__} error={exc}"
+        )
 
     event_report = EventReport(mode, meta["cid"], meta["sid"], proto="mind.batch")
     kwargs["ev_report"] = event_report

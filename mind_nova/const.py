@@ -72,6 +72,7 @@ DOMAIN = f"https://api.appserverx.com"
 
 # ========【专有服务】========
 ATLAS_URL        = f"{DOMAIN}/mind-atlas"
+REPORT_OPEN_URL  = f"{DOMAIN}/reports/open"
 HEAL_LIC_URL     = f"{DOMAIN}/mind-heal-license"
 MANIFEST_URL     = f"{DOMAIN}/mind-manifest"
 STREAM_EVENT_URL = f"{DOMAIN}/events-ingest"
