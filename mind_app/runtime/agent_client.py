@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import json
 import ssl
-import certifi
+import json
 import httpx
 import socket
 import typing
+import certifi
 import websockets
 from urllib.parse import urlencode
 from websockets.asyncio.client import ClientConnection
@@ -399,7 +399,7 @@ class AgentClient(object):
         agent_session_id: str | None = None,
         agent_id: str | None = None,
         device_id: str | None = None,
-        session_strategy: str | None = None,
+        session_strategy: str | None = None
     ) -> dict[str, typing.Any]:
         """调用 `/agents/status` 查询指定会话状态。"""
         return await self._request(

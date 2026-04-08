@@ -24,7 +24,7 @@ def build_envelope(
     cid: str | None = None,
     sid: str | None = None,
     message_id: str | None = None,
-    seq: int | None = None,
+    seq: int | None = None
 ) -> dict[str, typing.Any]:
     """构造包含通用顶层字段的协议信封。"""
     envelope: dict[str, typing.Any] = {

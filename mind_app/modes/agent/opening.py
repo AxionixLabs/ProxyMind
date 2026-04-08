@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import ssl
 import json
 import uuid
-import ssl
 import httpx
 import socket
 import typing
