@@ -9,6 +9,7 @@ from backend.mcp_hub.hub_manage import DeviceManage
 from backend.mcp_hub.hub_monkey import Monkey
 from backend.mcp_tools.automator.schemas.schema_monkey import (
     EventsArg,
+    MonkeySavedPathArg,
     MotionPctArg,
     NavPctArg,
     SeedArg,
@@ -31,6 +32,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
     @mcp.tool(
         description=(
             "为目标设备启动一次后台 monkey 会话，并立即返回会话信息。"
+            " `saved` 非空时，会在会话结束后把本轮 logcat 导出到该根目录下的独立子目录。"
             " 启动后默认应先用 `monkey_status` 轮询进度，用 `monkey_stop` 主动收束。"
             " 除非用户明确要求等待最终结果，否则不要在 `monkey_start` 后立刻调用 `monkey_wait`。"
             " 若同一设备已存在活跃 monkey，会直接返回当前会话状态而不会重复启动。"
@@ -46,6 +48,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         motion: MotionPctArg = 20,
         nav: NavPctArg = 10,
         events: EventsArg = 10000,
+        saved: MonkeySavedPathArg = None,
         matrix: MatrixArg = None
     ) -> CallToolResult:
         args = {
@@ -55,7 +58,8 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
             "touch"       : touch,
             "motion"      : motion,
             "nav"         : nav,
-            "events"      : events
+            "events"      : events,
+            "saved"       : saved
         }
 
         async def call(device: Device, a: dict) -> typing.Any:

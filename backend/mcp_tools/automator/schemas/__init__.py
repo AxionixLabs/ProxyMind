@@ -28,6 +28,7 @@ from .schema_info import (
 from .schema_keyevent import LongPressArg
 from .schema_monkey import (
     EventsArg,
+    MonkeySavedPathArg,
     MotionPctArg,
     NavPctArg,
     SeedArg,

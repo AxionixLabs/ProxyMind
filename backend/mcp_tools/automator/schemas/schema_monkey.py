@@ -29,6 +29,10 @@ EventsArg = typing.Annotated[
     int,
     Field(description="总事件数。")
 ]
+MonkeySavedPathArg = typing.Annotated[
+    typing.Optional[str],
+    Field(description="monkey 结束后导出 logcat 的落盘根目录或目标路径；为空时不自动落盘。")
+]
 
 
 if __name__ == '__main__':

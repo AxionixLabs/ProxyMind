@@ -5,11 +5,14 @@ import time
 import typing
 import asyncio
 import contextlib
+from pathlib import Path
 from collections import deque
 from loguru import logger
+from backend.models.model_base import Attachment
 from backend.mcp_hub.hub_device import Device
 from backend.utilities.process import Flux
 from backend.utilities import const
+from backend.utilities.storage.output import mk_out_dir
 
 if typing.TYPE_CHECKING:
     from backend.utilities.runtime import Idle
@@ -46,9 +49,13 @@ class Monkey(object):
         self.return_code: typing.Optional[int] = None
         self.error: typing.Optional[str] = None
         self.remote_stop: typing.Optional[dict[str, typing.Any]] = None
+        self.logcat_saved: typing.Optional[str] = None
+        self.logcat_summary: int = 0
+        self.logcat_count: int = 0
 
         self.config: dict[str, typing.Any] = {}
         self.cmd_monkey: list[str] = []
+        self.attachments: list[dict[str, typing.Any]] = []
 
         self.tail: deque[str] = deque(maxlen=500)
         self.patterns: dict[str, list[str]] = {
@@ -97,9 +104,9 @@ class Monkey(object):
                 data["reason"] = reason
             return {
                 "text"        : item.get("text") or "Monkey 最近一次结果已返回。",
-                "attachments" : [],
+                "attachments" : list(item.get("attachments") or []),
                 "data"        : data,
-                "logs"        : []
+                "logs"        : list(item.get("logs") or [])
             }
 
         return {
@@ -135,7 +142,11 @@ class Monkey(object):
         self.return_code    = None
         self.error          = None
         self.remote_stop    = None
+        self.logcat_saved   = None
+        self.logcat_summary = 0
+        self.logcat_count   = 0
         self.cmd_monkey     = []
+        self.attachments    = []
 
         for key in self.stats:
             self.stats[key] = 0
@@ -193,6 +204,10 @@ class Monkey(object):
             data["error"] = self.error
         if self.remote_stop is not None:
             data["remote_stop"] = self.remote_stop
+        if self.logcat_saved:
+            data["logcat_saved"] = self.logcat_saved
+            data["logcat_summary"] = self.logcat_summary
+            data["logcat_count"] = self.logcat_count
         return data
 
     def build_pack(
@@ -206,7 +221,7 @@ class Monkey(object):
             data["reason"] = reason
         return {
             "text"        : text,
-            "attachments" : [],
+            "attachments" : list(self.attachments),
             "data"        : data,
             "logs"        : []
         }
@@ -304,6 +319,38 @@ class Monkey(object):
         )
         return result
 
+    async def capture_logcat(self) -> None:
+        saved_root = str(self.config.get("saved") or "").strip()
+        if not saved_root:
+            return None
+
+        try:
+            out_dir = mk_out_dir(saved_root, engine="perf", tool="monkey_logcat")
+            result  = await self.device.file_logcat_dump(level="W", saved=str(out_dir))
+            data    = dict(result.get("data") or {})
+
+            saved_path = str(data.get("saved") or "").strip()
+            if not saved_path:
+                return None
+
+            self.logcat_saved   = saved_path
+            self.logcat_summary = int(data.get("summary") or 0)
+            self.logcat_count   = int(data.get("count") or 0)
+
+            self.attachments.append(
+                Attachment(
+                    kind="file",
+                    local=saved_path,
+                    filename=Path(saved_path).name,
+                    mime_type="text/plain"
+                ).to_dict()
+            )
+            self.tail.append(
+                f"[logcat.saved] lines={self.logcat_count} summary={self.logcat_summary} path={saved_path}"
+            )
+        except Exception as e:
+            self.tail.append(f"[logcat.save.failed] {type(e).__name__}: {e}")
+
     async def finalize(
         self,
         *,
@@ -332,15 +379,31 @@ class Monkey(object):
             with contextlib.suppress(Exception):
                 self.remote_stop = await self.stop_remote_monkey()
 
+        await self.shutdown()
+        await self.capture_logcat()
         await self.patch_session()
         self.remember_recent(
             (
-                f"Monkey 已结束：status={self.status_text} rc={self.return_code} duration={self.snapshot_data().get('duration_ms')}ms"
+                (
+                    "Monkey 已结束："
+                    f"status={self.status_text} rc={self.return_code} duration={self.snapshot_data().get('duration_ms')}ms"
+                    + (
+                        f" logcat={self.logcat_saved}"
+                        if self.logcat_saved else
+                        ""
+                    )
+                )
                 if not self.error else
-                f"Monkey 运行失败：{self.error}"
+                (
+                    f"Monkey 运行失败：{self.error}"
+                    + (
+                        f" logcat={self.logcat_saved}"
+                        if self.logcat_saved else
+                        ""
+                    )
+                )
             )
         )
-        await self.shutdown()
         self.done_event.set()
         await self.release()
 
@@ -366,7 +429,8 @@ class Monkey(object):
         touch: int = 65,
         motion: int = 20,
         nav: int = 10,
-        events: int = 10000
+        events: int = 10000,
+        saved: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
         self.reset()
         self.config = {
@@ -376,7 +440,8 @@ class Monkey(object):
             "touch"       : touch,
             "motion"      : motion,
             "nav"         : nav,
-            "events"      : events
+            "events"      : events,
+            "saved"       : saved
         }
 
         self.cmd_monkey = [

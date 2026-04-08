@@ -43,8 +43,8 @@ class Enhancer(object):
                 merged["artifact_dir"] = default
             return merged
 
-        def patch_item(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
-            merged_item = dict(item)
+        def patch_item(item_data: dict[str, typing.Any]) -> dict[str, typing.Any]:
+            merged_item = dict(item_data)
             if isinstance(merged_item.get("request"), dict):
                 merged_item["request"] = patch_request(merged_item.get("request"))
                 return merged_item
@@ -74,11 +74,11 @@ class Enhancer(object):
             merged_src = dict(src)
             patched_items: list[dict[str, typing.Any]] = []
 
-            for item in src["items"]:
-                if not isinstance(item, dict):
-                    patched_items.append(item)
+            for raw_item in src["items"]:
+                if not isinstance(raw_item, dict):
+                    patched_items.append(raw_item)
                     continue
-                patched_items.append(patch_item(item))
+                patched_items.append(patch_item(raw_item))
 
             merged_src["items"] = patched_items
             return merged_src
@@ -106,6 +106,11 @@ class Enhancer(object):
             return Enhancer.nexus_artifact(src_arguments, report.toolkit_path)
 
         elif name.startswith("file_logcat_dump"):
+            if src_arguments.get("saved"):
+                return src_arguments
+            return src_arguments | {"saved": report.log_path}
+
+        elif name.startswith("monkey_start"):
             if src_arguments.get("saved"):
                 return src_arguments
             return src_arguments | {"saved": report.log_path}
