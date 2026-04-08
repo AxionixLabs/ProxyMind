@@ -2,6 +2,8 @@
 # Notes: ==== Mind™ ====
 
 import json
+import ssl
+import certifi
 import httpx
 import socket
 import typing
@@ -27,6 +29,16 @@ class AgentClient(object):
         self.base_url = base_url.rstrip("/")
         self.timeout_sec = timeout_sec
 
+    @staticmethod
+    def _certifi_path() -> str:
+        """返回当前运行时 `certifi` 解析出的 CA bundle 路径。"""
+        return certifi.where()
+
+    @staticmethod
+    def _build_ssl_context(cafile: str) -> ssl.SSLContext:
+        """构建显式绑定 `certifi` 证书包的 SSL context。"""
+        return ssl.create_default_context(cafile=cafile)
+
     async def _request(
         self,
         method: str,
@@ -51,7 +63,12 @@ class AgentClient(object):
             header_name = "X-Agent-Admin-Token"
             token_value = const.AGENT_ADMIN_SECRET
 
-        async with httpx.AsyncClient(timeout=timeout) as http:
+        verify: str | bool = True
+        if self.base_url.startswith("https://"):
+            cafile = self._certifi_path()
+            verify = cafile
+
+        async with httpx.AsyncClient(timeout=timeout, verify=verify) as http:
             response = await http.request(
                 method=method,
                 url=f"{self.base_url}{path}",
@@ -194,12 +211,17 @@ class AgentClient(object):
             ws_token=ws_token,
             ws_base_url=ws_base_url
         )
-        return await websockets.connect(
-            url,
-            open_timeout=self.timeout_sec,
-            close_timeout=1.0,
-            ping_interval=None
-        )
+        connect_kwargs: dict[str, typing.Any] = {
+            "open_timeout"  : self.timeout_sec,
+            "close_timeout" : 1.0,
+            "ping_interval" : None
+        }
+
+        if url.startswith("wss://"):
+            cafile = self._certifi_path()
+            connect_kwargs["ssl"] = self._build_ssl_context(cafile)
+
+        return await websockets.connect(url, **connect_kwargs)
 
     @staticmethod
     async def send_json(connection: ClientConnection, envelope: dict[str, typing.Any]) -> None:

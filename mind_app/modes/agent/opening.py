@@ -3,6 +3,7 @@
 
 import json
 import uuid
+import ssl
 import httpx
 import socket
 import typing
@@ -13,6 +14,65 @@ from loguru import logger
 from ...runtime.agent_client import AgentClient
 from .models import AgentConfig
 from mind_nova import const
+
+
+def iter_exception_chain(exc: BaseException) -> typing.Iterator[BaseException]:
+    """按因果链展开异常，便于识别被包装过的 TLS 错误。"""
+    stack = [exc]
+    seen: set[int] = set()
+
+    while stack:
+        current = stack.pop()
+        marker = id(current)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        yield current
+
+        for nested in (getattr(current, "__cause__", None), getattr(current, "__context__", None)):
+            if isinstance(nested, BaseException):
+                stack.append(nested)
+
+
+def is_tls_certificate_error(exc: BaseException) -> bool:
+    """识别证书校验失败，避免把不可恢复问题当成普通网络抖动重试。"""
+    patterns = (
+        "certificate verify failed",
+        "certificate_verify_failed",
+        "self-signed certificate",
+        "self signed certificate",
+        "unable to get local issuer certificate",
+    )
+
+    for current in iter_exception_chain(exc):
+        if isinstance(current, ssl.SSLCertVerificationError):
+            return True
+
+        message = f"{type(current).__name__}: {current}".lower()
+        if isinstance(current, ssl.SSLError) and any(pattern in message for pattern in patterns):
+            return True
+        if any(pattern in message for pattern in patterns):
+            return True
+
+    return False
+
+
+def summarize_tls_certificate_error(exc: BaseException) -> str:
+    """返回证书校验失败链路中最有用的一段摘要。"""
+    for current in iter_exception_chain(exc):
+        message = f"{type(current).__name__}: {current}".strip()
+        lowered = message.lower()
+        if (
+            isinstance(current, ssl.SSLCertVerificationError)
+            or "certificate verify failed" in lowered
+            or "certificate_verify_failed" in lowered
+            or "self-signed certificate" in lowered
+            or "self signed certificate" in lowered
+            or "unable to get local issuer certificate" in lowered
+        ):
+            return message
+
+    return f"{type(exc).__name__}: {exc}"
 
 
 def build_device_id() -> str:
@@ -111,6 +171,12 @@ async def open_runtime(
                 continue
             raise
         except (OSError, httpx.HTTPError, asyncio.TimeoutError) as exc:
+            if is_tls_certificate_error(exc):
+                logger.debug(
+                    "[Agent] open failed: non-retriable tls error "
+                    f"{summarize_tls_certificate_error(exc)}"
+                )
+                raise
             logger.debug(
                 f"[Agent] open failed: {type(exc).__name__}: {exc}. retrying in 5s"
             )

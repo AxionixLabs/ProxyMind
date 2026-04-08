@@ -25,7 +25,9 @@ from .ui import (
 from .opening import (
     build_device_id,
     normalize_open_payload,
-    open_runtime
+    open_runtime,
+    is_tls_certificate_error,
+    summarize_tls_certificate_error
 )
 from .ws import (
     AgentWsProtocolError,
@@ -41,6 +43,9 @@ if typing.TYPE_CHECKING:
 
 def summarize_ws_disconnect(exc: BaseException) -> tuple[str, str]:
     """把 WS 断链异常映射成更可读的状态标题和细节。"""
+    if is_tls_certificate_error(exc):
+        return "TLS Verification Failed", summarize_tls_certificate_error(exc)
+
     if isinstance(exc, InvalidStatus):
         status_code = getattr(getattr(exc, "response", None), "status_code", None)
         if isinstance(status_code, int):
@@ -255,6 +260,13 @@ async def agent_loop(mind: "Mind") -> None:
                         )
                         raise
                     except (OSError, httpx.HTTPError, asyncio.TimeoutError) as reopen_exc:
+                        if is_tls_certificate_error(reopen_exc):
+                            detail = summarize_tls_certificate_error(reopen_exc)
+                            logger.debug(
+                                f"[Agent] reopen failed: non-retriable tls error {detail}"
+                            )
+                            live_status.update("TLS Verification Failed", detail)
+                            raise
                         logger.debug(
                             f"[Agent] reopen failed: {type(reopen_exc).__name__}: {reopen_exc}"
                         )
@@ -296,6 +308,14 @@ async def agent_loop(mind: "Mind") -> None:
                     httpx.HTTPError,
                     asyncio.TimeoutError
             ) as exc:
+                if is_tls_certificate_error(exc):
+                    detail = summarize_tls_certificate_error(exc)
+                    logger.debug(
+                        f"[Agent] disconnected: non-retriable tls error {detail}"
+                    )
+                    live_status.update("TLS Verification Failed", detail)
+                    raise
+
                 logger.debug(
                     f"[Agent] disconnected: {type(exc).__name__}: {exc}"
                 )
@@ -345,6 +365,13 @@ async def agent_loop(mind: "Mind") -> None:
                         )
                         raise
                     except (OSError, httpx.HTTPError, asyncio.TimeoutError) as reopen_exc:
+                        if is_tls_certificate_error(reopen_exc):
+                            detail = summarize_tls_certificate_error(reopen_exc)
+                            logger.debug(
+                                f"[Agent] pre-ready reopen failed: non-retriable tls error {detail}"
+                            )
+                            live_status.update("TLS Verification Failed", detail)
+                            raise
                         logger.debug(
                             f"[Agent] pre-ready reopen failed: {type(reopen_exc).__name__}: {reopen_exc}"
                         )
@@ -407,6 +434,13 @@ async def agent_loop(mind: "Mind") -> None:
                     )
                     raise
                 except (OSError, httpx.HTTPError, asyncio.TimeoutError) as resume_exc:
+                    if is_tls_certificate_error(resume_exc):
+                        detail = summarize_tls_certificate_error(resume_exc)
+                        logger.debug(
+                            f"[Agent] resume failed: non-retriable tls error {detail}"
+                        )
+                        live_status.update("TLS Verification Failed", detail)
+                        raise
                     logger.debug(
                         f"[Agent] resume failed: {type(resume_exc).__name__}: {resume_exc}"
                     )
