@@ -28,12 +28,11 @@ from backend.utilities.broadcast import broadcast
 
 def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> None:
 
-    _ = ctx
-
     @mcp.tool(
         description=(
             "为目标设备启动一次后台 monkey 会话，并立即返回会话信息。"
-            " 启动后可用 `monkey_status` 轮询进度，用 `monkey_stop` 主动收束。"
+            " 启动后默认应先用 `monkey_status` 轮询进度，用 `monkey_stop` 主动收束。"
+            " 除非用户明确要求等待最终结果，否则不要在 `monkey_start` 后立刻调用 `monkey_wait`。"
             " 若同一设备已存在活跃 monkey，会直接返回当前会话状态而不会重复启动。"
         ),
         meta={"hidden": False, "domain": "device", "class": "monkey"}
@@ -102,6 +101,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         description=(
             "等待目标设备当前 monkey 会话结束，并返回最终结果。"
             " 若会话仍在运行，会阻塞直到结束；若当前没有活跃会话，则返回最近一次结果或 idle 状态。"
+            " 该工具只适合用户明确要求等待最终结果的场景，默认不要作为 `monkey_start` 后的下一步。"
         ),
         meta={"hidden": False, "domain": "device", "class": "monkey"}
     )

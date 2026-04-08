@@ -8,8 +8,8 @@ import contextlib
 from collections import deque
 from loguru import logger
 from backend.mcp_hub.hub_device import Device
-from backend.utilities import const
 from backend.utilities.process import Flux
+from backend.utilities import const
 
 if typing.TYPE_CHECKING:
     from backend.utilities.runtime import Idle
@@ -401,7 +401,10 @@ class Monkey(object):
 
             self.status_text = "running"
             await self.patch_session()
-            return self.build_pack("Monkey 已启动，可通过 monkey_status 查询进度，或用 monkey_stop 主动停止。")
+            return self.build_pack(
+                "Monkey 已启动。默认请先用 monkey_status 查询进度，或用 monkey_stop 主动停止；"
+                "除非用户明确要求等待最终结果，否则不要立刻调用 monkey_wait。"
+            )
         except Exception as e:
             await self.finalize(err=f"{type(e).__name__}: {e}")
             return self.build_pack("Monkey 启动失败。")
