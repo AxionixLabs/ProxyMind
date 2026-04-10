@@ -81,7 +81,6 @@ class Idle(object):
                     raise RuntimeError(f"session already active: {key}")
 
                 self.runs.pop(key, None)
-
             job_id = self.short_uuid(job_id_len)
             self.runs[key] = self._run_meta(
                 run_kind="session",

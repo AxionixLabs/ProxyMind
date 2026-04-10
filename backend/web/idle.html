@@ -189,7 +189,7 @@
     }
     .sub{
       margin:12px 0 0;
-      max-width:62ch;
+      max-width:80ch;
       color:var(--muted);
     }
     .shell-nav{
@@ -396,37 +396,18 @@
       line-height:1.4;
       font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
     }
-    .item-body{
-      display:grid;
-      gap:10px;
-    }
-    .kv{
-      display:flex;
-      flex-wrap:wrap;
-      gap:10px;
-    }
     .pill{
       display:inline-flex;
       align-items:center;
       gap:6px;
-      padding:7px 11px;
+      max-width:100%;
+      padding:6px 10px;
       border-radius:999px;
       background:rgba(255,255,255,.04);
       border:1px solid rgba(255,255,255,.08);
       font-size:12px;
       line-height:1.35;
       color:var(--muted);
-    }
-    .more-btn{
-      appearance:none;
-      border:1px solid rgba(255,255,255,.08);
-      background:rgba(255,255,255,.03);
-      color:var(--accent);
-      border-radius:999px;
-      padding:6px 10px;
-      font-size:12px;
-      cursor:pointer;
-      width:max-content;
     }
     mark{
       padding:1px 4px;
@@ -677,11 +658,6 @@
                 <option value="age-asc">Newest first</option>
                 <option value="name-asc">Name A-Z</option>
               </select>
-              <select class="select" id="jobs-filter">
-                <option value="all">All jobs</option>
-                <option value="with-args">With args</option>
-                <option value="no-args">No args</option>
-              </select>
               <div class="chip" id="idle-age">idle</div>
             </div>
           </div>
@@ -706,11 +682,6 @@
                 <option value="age-desc">Oldest first</option>
                 <option value="age-asc">Newest first</option>
                 <option value="key-asc">Key A-Z</option>
-              </select>
-              <select class="select" id="sessions-filter">
-                <option value="all">All sessions</option>
-                <option value="with-args">With args</option>
-                <option value="no-args">No args</option>
               </select>
               <div class="chip">stable handles</div>
             </div>
@@ -829,16 +800,13 @@
     const jobsChips = document.getElementById("jobs-chips");
     const sessionsChips = document.getElementById("sessions-chips");
     const jobsSort = document.getElementById("jobs-sort");
-    const jobsFilter = document.getElementById("jobs-filter");
     const sessionsSort = document.getElementById("sessions-sort");
-    const sessionsFilter = document.getElementById("sessions-filter");
     const previewMode = location.protocol === "file:";
     let idleData = null;
     let refreshTimer = null;
     const qs = new URLSearchParams(location.search);
     let jobsScope = qs.get("jobs_scope") || "all";
     let sessionsScope = qs.get("sessions_scope") || "all";
-    const expandedCards = new Set();
     const previewIdleData = {
       active_runtime_jobs : 1,
       active_sessions     : 1,
@@ -846,10 +814,10 @@
       idle_sec            : 18.4,
       ttl_sec             : 1800.0,
       jobs                : [
-        {id: "job-preview-01", name: "nexus.plan", age_sec: 18.4, args: {mode: "preview", lane: "primary"}}
+        {id: "job-preview-01", name: "nexus.plan", age_sec: 18.4}
       ],
       sessions            : {
-        "sess-preview-01": {job_id: "job-preview-01", name: "runtime.preview", age_sec: 12.1, args: {source: "file-preview"}}
+        "sess-preview-01": {job_id: "job-preview-01", name: "runtime.preview", age_sec: 12.1}
       },
       instance            : {
         video_list        : {fp: "preview", count: 2, head: [{parent: "shots", name: "frame_001.png"}], parent_stats: [{parent: "shots", count: 2}]},
@@ -857,7 +825,6 @@
         mx_report_session : {fp: "preview", count: 1, head: [{id: "mx-01", item: {type: "scene", n: 1, scene: ["preview lane"], repr: "preview summary"}}], tail: []}
       }
     };
-
     function fmtSec(v){
       const n = Number(v || 0);
       if (!Number.isFinite(n)) return "0.0s";
@@ -908,24 +875,6 @@
       `;
     }
 
-    function renderArgsBlock(args, query, cardKey){
-      const entries = Object.entries(args || {});
-      if(!entries.length){
-        return `<div class="kv"><div class="pill">args: empty</div></div>`;
-      }
-      const expanded = expandedCards.has(cardKey);
-      const visible = expanded ? entries : entries.slice(0, 6);
-      const hiddenCount = Math.max(0, entries.length - visible.length);
-      return `
-        <div class="item-body">
-          <div class="kv">
-            ${visible.map(([k, v]) => `<div class="pill">${highlightText(k, query)}: ${highlightText(String(v), query)}</div>`).join("")}
-          </div>
-          ${entries.length > 6 ? `<button class="more-btn" type="button" data-expand="${cardKey}">${expanded ? "Show Less" : `Show ${hiddenCount} More`}</button>` : ""}
-        </div>
-      `;
-    }
-
     function sortByAge(items){
       return [...items].sort((a, b) => Number(b.age_sec || 0) - Number(a.age_sec || 0));
     }
@@ -965,20 +914,6 @@
     function matchesQuery(parts, query){
       if(!query) return true;
       return parts.some((part) => searchText(part).includes(query));
-    }
-
-    function hasArgs(args){
-      return !!(args && typeof args === "object" && Object.keys(args).length);
-    }
-
-    function applyFilter(items, mode){
-      if(mode === "with-args"){
-        return items.filter((item) => hasArgs(item.args));
-      }
-      if(mode === "no-args"){
-        return items.filter((item) => !hasArgs(item.args));
-      }
-      return items;
     }
 
     function applySort(items, mode, nameKey){
@@ -1037,8 +972,6 @@
       if (sessionsSearch.value.trim()) next.set("sessions_q", sessionsSearch.value.trim());
       if (jobsSort.value !== "age-desc") next.set("jobs_sort", jobsSort.value);
       if (sessionsSort.value !== "age-desc") next.set("sessions_sort", sessionsSort.value);
-      if (jobsFilter.value !== "all") next.set("jobs_filter", jobsFilter.value);
-      if (sessionsFilter.value !== "all") next.set("sessions_filter", sessionsFilter.value);
       const query = next.toString();
       history.replaceState(null, "", query ? `${location.pathname}?${query}` : location.pathname);
     }
@@ -1054,12 +987,10 @@
         jobsScope = scope;
         rerenderFilters();
       }, "name");
-      const filteredBase = applyScope(applyFilter(baseJobs, jobsFilter.value), jobsScope, "name");
-      const allJobs = applySort(filteredBase, jobsSort.value, "name");
+      const allJobs = applySort(applyScope(baseJobs, jobsScope, "name"), jobsSort.value, "name");
       const jobs = allJobs.filter((job) => matchesQuery([
         job.id,
-        job.name,
-        JSON.stringify(job.args || {})
+        job.name
       ], query));
       document.getElementById("jobs-count").textContent = `${jobs.length}/${allJobs.length}`;
       document.getElementById("idle-age").textContent = `idle ${fmtSec(data.idle_sec)}`;
@@ -1072,7 +1003,6 @@
             </div>
             <div class="pill">${fmtSec(job.age_sec)}</div>
           </div>
-          ${renderArgsBlock(job.args || {}, query, `job:${job.id || job.name || "unknown"}`)}
         </div>
       `).join("") : `<div class="empty">${allJobs.length ? "No jobs match current search." : "No active jobs."}</div>`;
     }
@@ -1087,15 +1017,14 @@
         rerenderFilters();
       }, "name");
       const allSessions = applySort(
-        applyScope(applyFilter(allSessionsBase, sessionsFilter.value), sessionsScope, "name"),
+        applyScope(allSessionsBase, sessionsScope, "name"),
         sessionsSort.value,
         "key"
       );
       const sessions = allSessions.filter((value) => matchesQuery([
         value.key,
         value.job_id,
-        value.name,
-        JSON.stringify(value.args || {})
+        value.name
       ], query));
       document.getElementById("sessions-count").textContent = `${sessions.length}/${allSessions.length}`;
       sessionsHost.innerHTML = sessions.length ? sessions.map((value) => `
@@ -1108,7 +1037,6 @@
             <div class="pill">${fmtSec(value.age_sec)}</div>
           </div>
           <div class="pill">${highlightText(value.name || "unknown session", query)}</div>
-          ${renderArgsBlock(value.args || {}, query, `session:${value.key || value.job_id || "unknown"}`)}
         </div>
       `).join("") : `<div class="empty">${allSessions.length ? "No sessions match current search." : "No mapped sessions."}</div>`;
     }
@@ -1327,15 +1255,11 @@
     if (qs.get("sessions_q")) sessionsSearch.value = qs.get("sessions_q");
     if (qs.get("jobs_sort")) jobsSort.value = qs.get("jobs_sort");
     if (qs.get("sessions_sort")) sessionsSort.value = qs.get("sessions_sort");
-    if (qs.get("jobs_filter")) jobsFilter.value = qs.get("jobs_filter");
-    if (qs.get("sessions_filter")) sessionsFilter.value = qs.get("sessions_filter");
 
     jobsSearch.addEventListener("input", rerenderFilters);
     sessionsSearch.addEventListener("input", rerenderFilters);
     jobsSort.addEventListener("change", rerenderFilters);
-    jobsFilter.addEventListener("change", rerenderFilters);
     sessionsSort.addEventListener("change", rerenderFilters);
-    sessionsFilter.addEventListener("change", rerenderFilters);
     videoSearch.addEventListener("input", () => {
       if(!idleData) return;
       renderVideo(idleData.instance || {});
@@ -1352,16 +1276,6 @@
       });
     });
     autoRefresh.addEventListener("change", scheduleRefresh);
-    document.addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-expand]");
-      if(!button) return;
-      const key = button.getAttribute("data-expand");
-      if(!key) return;
-      if(expandedCards.has(key)) expandedCards.delete(key);
-      else expandedCards.add(key);
-      rerenderFilters();
-    });
-
     loadIdle().catch(() => {
       setRefreshStamp("sync failed");
       const [title] = shellMessage("load_failed");

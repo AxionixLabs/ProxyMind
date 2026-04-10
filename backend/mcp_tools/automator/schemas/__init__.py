@@ -8,7 +8,7 @@ from .schema_app import (
     KeepDataArg,
     ReplaceArg,
     TestOnlyArg,
-    UrlArg,
+    UrlArg
 )
 from .schema_file import (
     DevicePathArg,
@@ -28,6 +28,11 @@ from .schema_info import (
 from .schema_keyevent import LongPressArg
 from .schema_monkey import (
     EventsArg,
+    GuardActionArg,
+    GuardForegroundArg,
+    GuardIntervalArg,
+    GuardMissThresholdArg,
+    GuardStartupGraceArg,
     MonkeySavedPathArg,
     MotionPctArg,
     NavPctArg,

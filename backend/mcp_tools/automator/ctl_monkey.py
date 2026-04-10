@@ -7,8 +7,14 @@ from mcp.types import CallToolResult
 from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.mcp_hub.hub_monkey import Monkey
+from backend.mcp_tools.automator.schemas.schema_app import ActivityArg
 from backend.mcp_tools.automator.schemas.schema_monkey import (
     EventsArg,
+    GuardActionArg,
+    GuardForegroundArg,
+    GuardIntervalArg,
+    GuardMissThresholdArg,
+    GuardStartupGraceArg,
     MonkeySavedPathArg,
     MotionPctArg,
     NavPctArg,
@@ -32,9 +38,11 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
     @mcp.tool(
         description=(
             "为目标设备启动一次后台 monkey 会话，并立即返回会话信息。"
+            " 默认由 monkey 自己拉起目标应用；运行中默认守护前台，但只记录失焦，不自动接管会话。"
+            " 为避免冷启动误判，前台守护默认带启动宽限期。"
             " `saved` 非空时，会在会话结束后把本轮 logcat 导出到该根目录下的独立子目录。"
-            " 启动后默认应先用 `monkey_status` 轮询进度，用 `monkey_stop` 主动收束。"
-            " 除非用户明确要求等待最终结果，否则不要在 `monkey_start` 后立刻调用 `monkey_wait`。"
+            " 启动后默认先用 `monkey_status` 看进度，用 `monkey_stop` 主动收束。"
+            " 除非用户明确要求等待最终结果，否则不要紧接着调用 `monkey_wait`。"
             " 若同一设备已存在活跃 monkey，会直接返回当前会话状态而不会重复启动。"
         ),
         meta={"hidden": False, "domain": "device", "class": "monkey"}
@@ -48,23 +56,35 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         motion: MotionPctArg = 20,
         nav: NavPctArg = 10,
         events: EventsArg = 10000,
+        activity: ActivityArg = None,
+        guard_foreground: GuardForegroundArg = True,
+        guard_interval_s: GuardIntervalArg = 10.0,
+        guard_startup_grace_s: GuardStartupGraceArg = 3.0,
+        guard_miss_threshold: GuardMissThresholdArg = 1,
+        guard_action: GuardActionArg = "observe",
         saved: MonkeySavedPathArg = None,
         matrix: MatrixArg = None
     ) -> CallToolResult:
         args = {
-            "package"     : package,
-            "seed"        : seed,
-            "throttle_ms" : throttle_ms,
-            "touch"       : touch,
-            "motion"      : motion,
-            "nav"         : nav,
-            "events"      : events,
-            "saved"       : saved
+            "package"               : package,
+            "seed"                  : seed,
+            "throttle_ms"           : throttle_ms,
+            "touch"                 : touch,
+            "motion"                : motion,
+            "nav"                   : nav,
+            "events"                : events,
+            "activity"              : activity,
+            "guard_foreground"      : guard_foreground,
+            "guard_interval_s"      : guard_interval_s,
+            "guard_startup_grace_s" : guard_startup_grace_s,
+            "guard_miss_threshold"  : guard_miss_threshold,
+            "guard_action"          : guard_action,
+            "saved"                 : saved
         }
 
         async def call(device: Device, a: dict) -> typing.Any:
             if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
-                return await sess.status(reason="already_running")
+                return await sess.status(query_reason="already_running")
             monkey = Monkey(device=device, idle=idle)
             return await monkey.start(**a)
 
@@ -117,7 +137,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         async def call(device: Device, *_) -> typing.Any:
             if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
                 return await sess.wait()
-            return Monkey.recent_pack(device.serial, reason="no_active_session")
+            return Monkey.recent_pack(device.serial, query_reason="no_active_session")
 
         return await broadcast(
             tool="monkey_wait",
@@ -142,7 +162,18 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         async def call(device: Device, *_) -> typing.Any:
             if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
                 return await sess.stop()
-            return Monkey.recent_pack(device.serial, reason="no_active_session")
+
+            remote_pack = await device.monkey_stop()
+            remote_data = dict(remote_pack.get("data") or {})
+            recent_pack = Monkey.recent_pack(device.serial, query_reason="no_active_session")
+            recent_data = dict(recent_pack.get("data") or {})
+            recent_data["remote_stop"] = remote_data
+            recent_pack["data"] = recent_data
+            recent_pack["text"] = (
+                f"{recent_pack.get('text') or '未找到活跃或最近一次 monkey 会话。'}"
+                " 已额外向设备发送 monkey 停止命令。"
+            )
+            return recent_pack
 
         return await broadcast(
             tool="monkey_stop",
@@ -166,7 +197,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
 
         async def call(device: Device, *_) -> typing.Any:
             if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
-                return await sess.status(reason="session_active_clear_blocked")
+                return await sess.status(query_reason="session_active_clear_blocked")
 
             cleared = Monkey.clear_recent(device.serial)
             return {

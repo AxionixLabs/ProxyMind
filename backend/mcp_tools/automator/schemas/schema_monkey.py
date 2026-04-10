@@ -7,11 +7,11 @@ from pydantic import Field
 
 SeedArg = typing.Annotated[
     int,
-    Field(description="monkey 随机种子；相同参数下有助于复现实验。")
+    Field(description="monkey 随机种子，用于复现同类运行。")
 ]
 ThrottleArg = typing.Annotated[
     int,
-    Field(description="两次事件之间的间隔，单位毫秒。")
+    Field(description="事件间隔，单位毫秒。")
 ]
 TouchPctArg = typing.Annotated[
     int,
@@ -23,7 +23,7 @@ MotionPctArg = typing.Annotated[
 ]
 NavPctArg = typing.Annotated[
     int,
-    Field(description="导航类事件占比。")
+    Field(description="导航事件占比。")
 ]
 EventsArg = typing.Annotated[
     int,
@@ -31,7 +31,27 @@ EventsArg = typing.Annotated[
 ]
 MonkeySavedPathArg = typing.Annotated[
     typing.Optional[str],
-    Field(description="monkey 结束后导出 logcat 的落盘根目录或目标路径；为空时不自动落盘。")
+    Field(description="会话结束后导出 logcat 的根目录；为空则不落盘。")
+]
+GuardForegroundArg = typing.Annotated[
+    bool,
+    Field(description="运行中是否守护目标应用前台；默认开启。")
+]
+GuardIntervalArg = typing.Annotated[
+    float,
+    Field(description="前台守护轮询间隔，单位秒。")
+]
+GuardStartupGraceArg = typing.Annotated[
+    float,
+    Field(description="冷启动宽限期，单位秒；默认 3。")
+]
+GuardMissThresholdArg = typing.Annotated[
+    int,
+    Field(description="连续失焦多少次后触发守护动作；默认 1。")
+]
+GuardActionArg = typing.Annotated[
+    typing.Literal["observe", "stop", "fail"],
+    Field(description="失焦后的动作：仅观察、停止，或失败；默认仅观察。")
 ]
 
 

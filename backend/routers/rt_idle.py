@@ -17,7 +17,15 @@ async def api_idle_page() -> Response:
     html = Path(__file__).resolve().parent.parent / "web" / "idle.html"
     html = html.read_text(encoding=const.CHARSET, errors="replace")
     html = html.replace("__APP_VERSION__", const.APP_VERSION)
-    return Response(html, media_type="text/html; charset=utf-8")
+    return Response(
+        html,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Cache-Control" : "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma"        : "no-cache",
+            "Expires"       : "0"
+        }
+    )
 
 
 @idle_router.get(path="/api/idle", include_in_schema=False)
