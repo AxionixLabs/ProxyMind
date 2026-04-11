@@ -19,14 +19,70 @@
       --line:rgba(255,255,255,.08);
       --accent:#5cffd6;
       --accent2:#7aa7ff;
+      --ok:#5cff7a;
+      --warn:#ffd27a;
+      --danger:#ff5c9a;
+      --shadow:0 30px 90px rgba(0,0,0,.65);
+      --surface-top:rgba(255,255,255,.06);
+      --surface-bottom:rgba(255,255,255,.03);
+      --surface-hero-top:rgba(255,255,255,.05);
+      --surface-hero-bottom:rgba(255,255,255,.02);
+      --surface-inset:rgba(92,255,214,.06);
+      --surface-inset-soft:rgba(92,255,214,.04);
+      --surface-border-soft:rgba(255,255,255,.10);
+      --surface-border-faint:rgba(255,255,255,.08);
+      --surface-fill:rgba(0,0,0,.16);
+      --surface-fill-soft:rgba(0,0,0,.14);
+      --surface-fill-strong:rgba(0,0,0,.18);
+      --surface-hover:rgba(255,255,255,.04);
+      --accent-fill:rgba(92,255,214,.08);
+      --accent-fill-strong:rgba(92,255,214,.10);
+      --accent-fill-solid:rgba(92,255,214,.9);
+      --accent-border:rgba(92,255,214,.32);
+      --accent-border-soft:rgba(92,255,214,.18);
+      --accent-ink:rgba(0,0,0,.85);
+      --accent-shadow:rgba(92,255,214,.25);
+      --accent2-fill:rgba(122,167,255,.10);
+      --accent2-fill-strong:rgba(122,167,255,.14);
+      --danger-fill:rgba(255,92,154,.10);
+      --danger-fill-strong:rgba(255,92,154,.16);
+      --title-text:rgba(215,247,255,.96);
+      --title-sheen:rgba(255,255,255,.92);
+      --title-glow:rgba(92,255,214,.22);
+      --title-beam-soft:rgba(122,167,255,.18);
+      --title-beam-strong:rgba(92,255,214,.88);
+      --grid-line:rgba(255,255,255,.04);
+      --dot-danger:#ff6f98;
+      --dot-warn:#ffc86f;
+      --dot-ok:#6fffd1;
+      --footer-fg:rgba(137,163,173,.85);
     }
     *{box-sizing:border-box}
+    html{
+      min-height:100%;
+      overflow-y:scroll;
+      scrollbar-gutter:stable;
+      scrollbar-width:thin;
+      scrollbar-color:rgba(255,255,255,.14) transparent;
+    }
+    html::-webkit-scrollbar{
+      width:8px;
+      height:8px;
+    }
+    html::-webkit-scrollbar-thumb{
+      background:rgba(255,255,255,.14);
+      border-radius:999px;
+    }
+    html::-webkit-scrollbar-track{
+      background:transparent;
+    }
+    body{min-height:100%}
     body{
       margin:0;
       color:var(--fg);
       background:
-        radial-gradient(900px 540px at 18% 8%, rgba(122,167,255,.10), transparent 58%),
-        radial-gradient(760px 480px at 82% 14%, rgba(92,255,214,.08), transparent 60%),
+        radial-gradient(900px 540px at 18% 8%, var(--accent2-fill), transparent 58%),
+        radial-gradient(760px 480px at 82% 14%, var(--accent-fill), transparent 60%),
         #05060a;
       font:14px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
     }
@@ -36,13 +92,13 @@
       pointer-events:none;
       opacity:.22;
       background-image:
-        linear-gradient(to right, rgba(255,255,255,.04) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(255,255,255,.04) 1px, transparent 1px);
+        linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
       background-size:44px 44px;
       mask-image:radial-gradient(800px 520px at 50% 15%, #000 42%, transparent 82%);
     }
     .wrap{
-      width:min(1180px, calc(100% - 32px));
+      width:90%;
       margin:28px auto 40px;
       display:grid;
       gap:16px;
@@ -50,13 +106,22 @@
     .card{
       border:1px solid var(--line);
       border-radius:18px;
-      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      background:linear-gradient(180deg, var(--surface-top), var(--surface-bottom));
       box-shadow:
-        0 30px 90px rgba(0,0,0,.65),
-        0 0 0 1px rgba(92,255,214,.06) inset;
+        var(--shadow),
+        0 0 0 1px var(--surface-inset) inset;
       overflow:hidden;
       position:relative;
       backdrop-filter:blur(10px);
+    }
+    .main-panel-card{
+      min-height:320px;
+      display:flex;
+      flex-direction:column;
+    }
+    .main-panel-card > .pad,
+    .main-panel-card > .section{
+      flex:1 1 auto;
     }
     .card::before{
       content:"";
@@ -64,8 +129,8 @@
       inset:0;
       pointer-events:none;
       background:
-        radial-gradient(700px 260px at 20% 0%, rgba(92,255,214,.08), transparent 56%),
-        radial-gradient(700px 240px at 100% 0%, rgba(122,167,255,.08), transparent 58%);
+        radial-gradient(700px 260px at 20% 0%, var(--accent-fill), transparent 56%),
+        radial-gradient(700px 240px at 100% 0%, var(--accent2-fill), transparent 58%);
     }
     .bar{
       position:relative;
@@ -75,14 +140,29 @@
       justify-content:space-between;
       gap:12px;
       padding:14px 18px;
-      border-bottom:1px solid rgba(255,255,255,.06);
-      background:rgba(0,0,0,.16);
+      min-height:52px;
+      border-bottom:1px solid var(--surface-border-faint);
+      background:var(--surface-fill);
+      box-sizing:border-box;
+    }
+    .bar-start,
+    .bar-end{
+      display:flex;
+      align-items:center;
+      gap:12px;
+      min-width:0;
+    }
+    .bar-start{flex-wrap:nowrap}
+    .bar-end{
+      flex:0 0 auto;
+      justify-content:flex-end;
+      flex-wrap:wrap;
     }
     .dots{display:flex; gap:8px}
     .dots i{display:block; width:10px; height:10px; border-radius:999px}
-    .dots i:nth-child(1){background:#ff6f98}
-    .dots i:nth-child(2){background:#ffc86f}
-    .dots i:nth-child(3){background:#6fffd1}
+    .dots i:nth-child(1){background:var(--dot-danger)}
+    .dots i:nth-child(2){background:var(--dot-warn)}
+    .dots i:nth-child(3){background:var(--dot-ok)}
     .chip{
       display:inline-flex;
       align-items:center;
@@ -91,10 +171,12 @@
       border-radius:999px;
       font-size:12px;
       color:var(--muted);
-      border:1px solid rgba(255,255,255,.10);
-      background:rgba(0,0,0,.16);
+      border:1px solid var(--surface-border-soft);
+      background:var(--surface-fill);
+      white-space:nowrap;
     }
-    .pad{
+    .pad,
+    .section{
       position:relative;
       z-index:1;
       padding:22px 18px;
@@ -110,13 +192,17 @@
       font-size:34px;
       letter-spacing:.10em;
       text-transform:uppercase;
-      text-shadow: 0 0 18px rgba(92,255,214,.22);
+      text-shadow:0 0 18px var(--title-glow);
+    }
+    .hero-title{
+      position:relative;
+      display:inline-block;
     }
     .signal-title{
       position:relative;
       display:inline-block;
       padding:0 0 10px;
-      color:rgba(215,247,255,.96);
+      color:var(--title-text);
       overflow:hidden;
     }
     .signal-title::before{
@@ -129,8 +215,8 @@
         115deg,
         transparent 0%,
         transparent 36%,
-        rgba(255,255,255,.92) 48%,
-        rgba(92,255,214,.92) 52%,
+        var(--title-sheen) 48%,
+        var(--title-beam-strong) 52%,
         transparent 64%,
         transparent 100%
       );
@@ -149,10 +235,10 @@
       height:2px;
       border-radius:999px;
       background:
-        linear-gradient(90deg, rgba(122,167,255,.18), rgba(92,255,214,.88) 50%, rgba(122,167,255,.18));
+        linear-gradient(90deg, var(--title-beam-soft), var(--title-beam-strong) 50%, var(--title-beam-soft));
       box-shadow:
-        0 0 0 1px rgba(92,255,214,.06),
-        0 0 16px rgba(92,255,214,.22);
+        0 0 0 1px var(--surface-inset),
+        0 0 16px var(--title-glow);
       transform-origin:left center;
       animation:titleBeam 3.8s ease-in-out infinite;
     }
@@ -191,51 +277,152 @@
       margin:12px 0 0;
       max-width:80ch;
       color:var(--muted);
+      line-height:1.55;
     }
     .shell-nav{
       display:flex;
       flex-wrap:wrap;
       gap:10px;
       margin-top:18px;
+      align-items:flex-start;
     }
     .shell-nav-link{
       display:inline-flex;
       align-items:center;
+      justify-content:center;
       gap:8px;
+      width:148px;
       padding:10px 14px;
       border-radius:999px;
-      border:1px solid rgba(255,255,255,.08);
-      background:rgba(0,0,0,.16);
+      border:1px solid var(--surface-border-faint);
+      background:var(--surface-fill);
       color:var(--fg);
       text-decoration:none;
       font-size:12px;
-      transition:border-color .12s ease, transform .12s ease, background .12s ease;
+      white-space:nowrap;
+      text-align:center;
+      transition:border-color .12s ease, background .12s ease;
     }
     .shell-nav-link:hover{
-      transform:translateY(-1px);
-      border-color:rgba(92,255,214,.32);
-      background:rgba(255,255,255,.04);
+      border-color:var(--accent-border);
+      background:var(--surface-hover);
     }
     .shell-nav-link.active{
-      border-color:rgba(92,255,214,.18);
-      background:rgba(92,255,214,.08);
+      border-color:var(--accent-border-soft);
+      background:var(--accent-fill);
       color:var(--accent);
     }
-    .shell-nav-link code{
-      color:var(--accent2);
-      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-    }
-    .hero-tools{
+    .hero-tools-section{
+      position:relative;
       display:flex;
       align-items:center;
+      min-height:60px;
+      padding:10px 18px;
+      border:1px solid var(--surface-border-faint);
+      border-radius:18px;
+      background:linear-gradient(180deg, var(--surface-hero-top), var(--surface-hero-bottom));
+      box-shadow:
+        0 24px 60px rgba(0,0,0,.28),
+        0 0 0 1px var(--surface-inset-soft) inset;
+    }
+    .tool-strip{
+      display:flex;
+      align-items:center;
+      justify-content:flex-start;
       gap:8px;
       flex-wrap:wrap;
-      margin-top:14px;
+      width:100%;
+      min-width:0;
     }
-    .overview{
+    .hero-tools{margin-top:0}
+    .hero-tools a,
+    .hero-tools button,
+    .hero-tools label[for]{
+      cursor:pointer;
+    }
+    .hero-head-pad{
+      min-height:156px;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+    }
+    .hero-tools .hero-tool-mark{
+      appearance:none;
+      position:relative;
+      isolation:isolate;
+      overflow:hidden;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:144px;
+      min-height:32px;
+      padding:0 14px;
+      border:1px solid rgba(255,255,255,.10);
+      border-radius:999px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.04) 42%, rgba(255,255,255,0) 100%),
+        linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,0) 48%),
+        var(--accent-fill-solid);
+      color:var(--accent-ink);
+      text-decoration:none;
+      cursor:pointer;
+      font-size:11px;
+      font-weight:600;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      line-height:1.2;
+      white-space:nowrap;
+      text-align:center;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.05) inset,
+        0 12px 28px rgba(0,0,0,.18),
+        0 0 18px var(--accent-shadow);
+      transition:border-color .14s ease, transform .14s ease, box-shadow .14s ease, filter .14s ease, opacity .14s ease;
+    }
+    .hero-tools .hero-tool-mark::before{
+      content:"";
+      position:absolute;
+      inset:1px;
+      border-radius:inherit;
+      background:linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,0));
+      opacity:.28;
+      pointer-events:none;
+    }
+    .hero-tools .hero-tool-mark:hover{
+      transform:translateY(-1px);
+      border-color:rgba(255,255,255,.16);
+      filter:brightness(1.03) saturate(1.04);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.06) inset,
+        0 16px 32px rgba(0,0,0,.2),
+        0 0 22px var(--accent-shadow);
+    }
+    .hero-tools .hero-tool-mark:active{
+      transform:translateY(0);
+      filter:brightness(.99);
+    }
+    .hero-tools .hero-tool-mark:focus-visible{
+      outline:none;
+      border-color:rgba(255,255,255,.22);
+      box-shadow:
+        0 0 0 3px rgba(255,255,255,.08),
+        0 0 0 1px rgba(255,255,255,.06) inset,
+        0 16px 32px rgba(0,0,0,.2),
+        0 0 22px var(--accent-shadow);
+    }
+    .hero-tools .hero-tool-mark:disabled,
+    .hero-tools .hero-tool-mark[disabled],
+    .hero-tools .hero-tool-mark[aria-disabled="true"]{
+      opacity:.45;
+      cursor:not-allowed;
+      transform:none;
+    }
+    .page-summary-grid{
       display:grid;
       grid-template-columns:repeat(4, minmax(0, 1fr));
       gap:14px;
+      align-items:start;
+      align-content:start;
     }
     .metric{
       padding:16px;
@@ -259,10 +446,19 @@
       font-size:12px;
       color:var(--muted);
     }
-    .section-grid{
+    .page-content-grid{
+      display:grid;
+      gap:16px;
+      align-items:start;
+      align-content:start;
+    }
+    .page-content-grid--equal{
       display:grid;
       grid-template-columns:repeat(2, minmax(0, 1fr));
-      gap:18px;
+      align-items:stretch;
+    }
+    .page-content-grid--equal > .card{
+      height:100%;
     }
     .section-head{
       display:flex;
@@ -272,24 +468,21 @@
       margin-bottom:18px;
     }
     .section-title-wrap{
-      flex:0 1 auto;
-      min-width:0;
-      padding-top:2px;
-    }
-    .section-tools{
       flex:1 1 auto;
       min-width:0;
-      display:flex;
-      align-items:flex-start;
-      justify-content:flex-end;
-      gap:8px;
-      flex-wrap:wrap;
     }
-    .section-head h2{
+    .section-title{
       margin:0;
-      font-size:16px;
-      letter-spacing:.02em;
-      white-space:nowrap;
+      font-size:18px;
+      letter-spacing:.03em;
+      font-weight:600;
+    }
+    .section-tools{
+      min-width:0;
+      flex:0 0 auto;
+    }
+    .section-head .tool-strip{
+      width:auto;
     }
     .search{
       min-width:180px;
@@ -325,21 +518,28 @@
       appearance:none;
       -webkit-appearance:none;
       -moz-appearance:none;
+      transition:border-color .12s ease, background .12s ease, box-shadow .12s ease, transform .12s ease;
     }
-    .refresh-btn{
-      appearance:none;
-      border:1px solid rgba(92,255,214,.18);
-      background:rgba(92,255,214,.08);
-      color:var(--accent);
-      border-radius:12px;
-      padding:8px 12px;
-      font-size:11px;
-      letter-spacing:.06em;
-      text-transform:uppercase;
-      cursor:pointer;
+    .select:hover{
+      border-color:rgba(122,167,255,.24);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)),
+        rgba(6,14,22,.88);
     }
-    .section-tools .chip{
-      white-space:nowrap;
+    .select:focus{
+      border-color:rgba(111,255,209,.42);
+      box-shadow:
+        0 0 0 3px rgba(111,255,209,.10),
+        0 0 0 1px rgba(111,255,209,.08) inset,
+        0 10px 24px rgba(0,0,0,.18);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)),
+        rgba(5,12,18,.94);
+      transform:translateY(-1px);
+    }
+    .select option{
+      color:#d7f7ff;
+      background:#0b1118;
     }
     .filter-row{
       display:flex;
@@ -370,6 +570,7 @@
     .stack{
       display:grid;
       gap:12px;
+      align-content:start;
     }
     .item{
       padding:16px;
@@ -578,23 +779,23 @@
         transform:translate(-50%, -50%) scale(16);
       }
     }
+    .page-footer-slot{
+      padding:20px 0 24px;
+    }
     .shell-footer{
-      margin-top:8px;
+      margin:0;
       text-align:center;
-      color:rgba(137,163,173,.85);
+      color:var(--footer-fg);
       font-size:12px;
     }
     @media (max-width: 980px){
-      .overview,
-      .section-grid{
+      .page-summary-grid,
+      .page-content-grid--equal{
         grid-template-columns:1fr;
       }
       .section-head{
         flex-direction:column;
         align-items:stretch;
-      }
-      .section-tools{
-        justify-content:flex-start;
       }
       .search,
       .select{
@@ -619,46 +820,57 @@
   <main class="wrap">
     <section class="card">
       <div class="bar">
-        <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
-        <div class="chip">runtime snapshots</div>
-      </div>
-      <div class="pad">
-        <div class="eyebrow">Helix</div>
-        <h1><span class="signal-title" data-text="Runtime Board">Runtime Board</span></h1>
-        <p class="sub">卡片式展示当前空闲队列、session 和 App Context 快照。数据直接来自 /api/idle。</p>
-        <div id="page-nav"></div>
-        <div class="hero-tools">
-          <button class="refresh-btn" type="button" id="refresh-idle">Refresh</button>
-          <div class="chip" id="refresh-time">sync pending</div>
-          <label class="chip" for="auto-refresh">
-            <input id="auto-refresh" type="checkbox" checked />
-            <span>auto sync</span>
-          </label>
+        <div class="bar-start">
+          <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
         </div>
+        <div class="bar-end">
+          <div class="chip">workspace</div>
+        </div>
+      </div>
+      <div class="pad hero-head-pad">
+        <div class="eyebrow">Helix</div>
+        <h1><span class="hero-title signal-title" data-text="Runtime Board">Runtime Board</span></h1>
+        <p class="sub">查看当前任务、会话和结果概览。</p>
+        <div id="page-nav"></div>
       </div>
     </section>
 
-    <section class="overview" id="overview"></section>
+    <section class="hero-tools-section">
+      <div class="hero-tools tool-strip">
+        <button class="hero-tool-mark" type="button" id="refresh-idle">Refresh</button>
+        <div class="chip" id="refresh-time">sync pending</div>
+        <label class="chip" for="auto-refresh">
+          <input id="auto-refresh" type="checkbox" checked />
+          <span>auto sync</span>
+        </label>
+      </div>
+    </section>
 
-    <section class="section-grid">
-      <section class="card">
+    <section class="page-summary-grid" id="overview"></section>
+
+    <section class="page-content-grid page-content-grid--equal">
+      <section class="card main-panel-card">
         <div class="bar">
-          <div class="chip">runtime jobs</div>
-          <div class="chip" id="jobs-count">0/0</div>
+          <div class="bar-start">
+            <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="chip">runtime jobs</div>
+          </div>
+          <div class="bar-end">
+            <div class="chip" id="jobs-count">0/0</div>
+          </div>
         </div>
-        <div class="pad">
+        <div class="section">
           <div class="section-head">
             <div class="section-title-wrap">
-              <h2>Active Jobs</h2>
+              <h2 class="section-title">Active Jobs</h2>
             </div>
-            <div class="section-tools">
+            <div class="section-tools tool-strip">
               <input class="search" id="jobs-search" type="search" placeholder="Search jobs" />
               <select class="select" id="jobs-sort">
                 <option value="age-desc">Oldest first</option>
                 <option value="age-asc">Newest first</option>
                 <option value="name-asc">Name A-Z</option>
               </select>
-              <div class="chip" id="idle-age">idle</div>
             </div>
           </div>
           <div class="filter-row" id="jobs-chips"></div>
@@ -666,24 +878,28 @@
         </div>
       </section>
 
-      <section class="card">
+      <section class="card main-panel-card">
         <div class="bar">
-          <div class="chip">runtime sessions</div>
-          <div class="chip" id="sessions-count">0/0</div>
+          <div class="bar-start">
+            <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="chip">runtime sessions</div>
+          </div>
+          <div class="bar-end">
+            <div class="chip" id="sessions-count">0/0</div>
+          </div>
         </div>
-        <div class="pad">
+        <div class="section">
           <div class="section-head">
             <div class="section-title-wrap">
-              <h2>Runtime Sessions</h2>
+              <h2 class="section-title">Runtime Sessions</h2>
             </div>
-            <div class="section-tools">
+            <div class="section-tools tool-strip">
               <input class="search" id="sessions-search" type="search" placeholder="Search sessions" />
               <select class="select" id="sessions-sort">
                 <option value="age-desc">Oldest first</option>
                 <option value="age-asc">Newest first</option>
                 <option value="key-asc">Key A-Z</option>
               </select>
-              <div class="chip">stable handles</div>
             </div>
           </div>
           <div class="filter-row" id="sessions-chips"></div>
@@ -691,38 +907,46 @@
         </div>
       </section>
 
-      <section class="card">
+      <section class="card main-panel-card">
         <div class="bar">
-          <div class="chip">app context videos</div>
-          <div class="chip">snapshot</div>
+          <div class="bar-start">
+            <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="chip">app context videos</div>
+          </div>
+          <div class="bar-end">
+            <div class="chip">snapshot</div>
+          </div>
         </div>
-        <div class="pad">
+        <div class="section">
           <div class="section-head">
             <div class="section-title-wrap">
-              <h2>Video Snapshot</h2>
+              <h2 class="section-title">Video Snapshot</h2>
             </div>
-            <div class="section-tools">
+            <div class="section-tools tool-strip">
               <input class="search" id="video-search" type="search" placeholder="Search videos" />
-              <div class="chip" id="video-fp">fp</div>
             </div>
           </div>
           <div class="stack" id="video-list"></div>
         </div>
       </section>
 
-      <section class="card">
+      <section class="card main-panel-card">
         <div class="bar">
-          <div class="chip">app context reports</div>
-          <div class="chip">snapshot</div>
+          <div class="bar-start">
+            <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="chip">app context reports</div>
+          </div>
+          <div class="bar-end">
+            <div class="chip">snapshot</div>
+          </div>
         </div>
-        <div class="pad">
+        <div class="section">
           <div class="section-head">
             <div class="section-title-wrap">
-              <h2>Report Snapshots</h2>
+              <h2 class="section-title">Report Snapshots</h2>
             </div>
-            <div class="section-tools">
+            <div class="section-tools tool-strip">
               <input class="search" id="reports-search" type="search" placeholder="Search reports" />
-              <div class="chip" id="report-meta">mx / fx</div>
             </div>
           </div>
           <div class="stack" id="reports-list"></div>
@@ -730,7 +954,7 @@
       </section>
     </section>
 
-    <div id="page-footer"></div>
+    <div class="page-footer-slot" id="page-footer"></div>
   </main>
 
   <script>
@@ -751,7 +975,6 @@
           ${nav.map((item) => `
             <a class="shell-nav-link${item.href === activeHref ? " active" : ""}" href="${item.href}">
               <span>${escapeHtml(item.title)}</span>
-              <code>${escapeHtml(item.tag)}</code>
             </a>
           `).join("")}
         </nav>
@@ -778,11 +1001,9 @@
       {title: "Preferences", href: "/pref", tag: "config"},
       {title: "Code Studio", href: "/code", tag: "batch"},
       {title: "Logs", href: "/logs", tag: "logs"},
-      {title: "OpenAPI", href: "/docs", tag: "schema"},
-      {title: "Health", href: "/ready", tag: "health"},
       {title: "Runtime", href: "/idle", tag: "runtime"}
     ], "/idle");
-    mountFooter("page-footer", "HELIX · runtime workspace · v__APP_VERSION__");
+    mountFooter("page-footer", "HELIX · workspace · v__APP_VERSION__");
 
     const overviewHost = document.getElementById("overview");
     const jobsHost = document.getElementById("jobs-list");
@@ -993,7 +1214,6 @@
         job.name
       ], query));
       document.getElementById("jobs-count").textContent = `${jobs.length}/${allJobs.length}`;
-      document.getElementById("idle-age").textContent = `idle ${fmtSec(data.idle_sec)}`;
       jobsHost.innerHTML = jobs.length ? jobs.map((job) => `
         <div class="item">
           <div class="item-head">
@@ -1070,7 +1290,6 @@
     function renderVideo(instance){
       const query = searchText(videoSearch.value).trim();
       const video = (instance || {}).video_list || {};
-      document.getElementById("video-fp").textContent = video.fp || "fp";
       const rows = [];
       if (Array.isArray(video.head) && video.head.length){
         const headItems = video.head.map((item) => `${item.parent}/${item.name}`).filter((item) => matchesQuery([item], query));
@@ -1107,8 +1326,6 @@
       const query = searchText(reportsSearch.value).trim();
       const fx = (instance || {}).fx_report_session || {};
       const mx = (instance || {}).mx_report_session || {};
-      document.getElementById("report-meta").textContent = `fx ${fx.count || 0} · mx ${mx.count || 0}`;
-
       const cards = [];
       if (Array.isArray(fx.head) && fx.head.length){
         const fxHead = fx.head.map((item) => `${item.id}:${item.parent}/${item.name}`).filter((item) => matchesQuery([item], query));
@@ -1221,7 +1438,7 @@
       setRefreshStamp(`updated ${fmtClock(new Date())}`);
       if(!silent){
         const [title] = shellMessage("synced");
-        showBanner(title, "Runtime snapshot updated.", "");
+        showBanner(title, "Runtime updated.", "");
       }
     }
 
@@ -1246,7 +1463,7 @@
         loadIdle({silent: true}).catch(() => {
           setRefreshStamp("sync failed");
           const [title] = shellMessage("sync_failed");
-          showBanner(title, "Unable to update runtime snapshot.", "err");
+          showBanner(title, "Unable to update runtime.", "err");
         });
       }, 12000);
     }
@@ -1272,17 +1489,17 @@
       loadIdle().catch(() => {
         setRefreshStamp("sync failed");
         const [title] = shellMessage("sync_failed");
-        showBanner(title, "Unable to update runtime snapshot.", "err");
+        showBanner(title, "Unable to update runtime.", "err");
       });
     });
     autoRefresh.addEventListener("change", scheduleRefresh);
     loadIdle().catch(() => {
       setRefreshStamp("sync failed");
       const [title] = shellMessage("load_failed");
-      showBanner(title, "Unable to load runtime snapshot.", "err");
-      overviewHost.innerHTML = `<div class="metric"><b>Status</b><div class="value">N/A</div><div class="meta">idle snapshot unavailable</div></div>`;
-      jobsHost.innerHTML = `<div class="empty">Unable to load idle snapshot.</div>`;
-      sessionsHost.innerHTML = `<div class="empty">Unable to load session map.</div>`;
+      showBanner(title, "Unable to load runtime data.", "err");
+      overviewHost.innerHTML = `<div class="metric"><b>Status</b><div class="value">N/A</div><div class="meta">runtime unavailable</div></div>`;
+      jobsHost.innerHTML = `<div class="empty">Unable to load jobs.</div>`;
+      sessionsHost.innerHTML = `<div class="empty">Unable to load sessions.</div>`;
       videoHost.innerHTML = `<div class="empty">Unable to load video snapshot.</div>`;
       reportsHost.innerHTML = `<div class="empty">Unable to load report snapshots.</div>`;
     });

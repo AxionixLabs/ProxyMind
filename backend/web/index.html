@@ -20,148 +20,121 @@
       --accent:#5cffd6;
       --accent2:#7aa7ff;
       --ok:#5cff7a;
+      --warn:#ffd27a;
       --danger:#ff5c9a;
+      --shadow:0 30px 90px rgba(0,0,0,.65);
+      --surface-top:rgba(255,255,255,.06);
+      --surface-bottom:rgba(255,255,255,.03);
+      --surface-hero-top:rgba(255,255,255,.05);
+      --surface-hero-bottom:rgba(255,255,255,.02);
+      --surface-inset:rgba(92,255,214,.06);
+      --surface-inset-soft:rgba(92,255,214,.04);
+      --surface-border-soft:rgba(255,255,255,.10);
+      --surface-border-faint:rgba(255,255,255,.08);
+      --surface-fill:rgba(0,0,0,.16);
+      --surface-fill-soft:rgba(0,0,0,.14);
+      --surface-fill-strong:rgba(0,0,0,.18);
+      --surface-hover:rgba(255,255,255,.04);
+      --accent-fill:rgba(92,255,214,.08);
+      --accent-fill-strong:rgba(92,255,214,.10);
+      --accent-fill-solid:rgba(92,255,214,.9);
+      --accent-border:rgba(92,255,214,.32);
+      --accent-border-soft:rgba(92,255,214,.18);
+      --accent-ink:rgba(0,0,0,.85);
+      --accent-shadow:rgba(92,255,214,.25);
+      --accent2-fill:rgba(122,167,255,.12);
+      --accent2-fill-strong:rgba(122,167,255,.14);
+      --danger-fill:rgba(255,92,154,.08);
+      --danger-fill-strong:rgba(255,92,154,.16);
+      --overlay-backdrop:rgba(3,7,12,.74);
+      --surface-elevated:rgba(6,12,18,.96);
+      --title-text:rgba(215,247,255,.96);
+      --title-sheen:rgba(255,255,255,.92);
+      --title-glow:rgba(92,255,214,.22);
+      --title-beam-soft:rgba(122,167,255,.18);
+      --title-beam-strong:rgba(92,255,214,.88);
+      --grid-line:rgba(255,255,255,.04);
+      --dot-danger:#ff6f98;
+      --dot-warn:#ffc86f;
+      --dot-ok:#6fffd1;
+      --footer-fg:rgba(137,163,173,.85);
     }
     *{box-sizing:border-box}
-    html,body{min-height:100%}
+    html{
+      min-height:100%;
+      overflow-y:scroll;
+      scrollbar-gutter:stable;
+      scrollbar-width:thin;
+      scrollbar-color:rgba(255,255,255,.14) transparent;
+    }
+    html::-webkit-scrollbar{
+      width:8px;
+      height:8px;
+    }
+    html::-webkit-scrollbar-thumb{
+      background:rgba(255,255,255,.14);
+      border-radius:999px;
+    }
+    html::-webkit-scrollbar-track{
+      background:transparent;
+    }
+    body{min-height:100%}
     body{
       margin:0;
       color:var(--fg);
       background:
-        radial-gradient(1200px 700px at 20% 10%, rgba(122,167,255,.12), transparent 55%),
-        radial-gradient(900px 600px at 80% 30%, rgba(92,255,214,.12), transparent 60%),
-        radial-gradient(700px 500px at 55% 80%, rgba(255,92,154,.10), transparent 60%),
+        radial-gradient(1000px 620px at 18% 8%, var(--accent2-fill), transparent 58%),
+        radial-gradient(900px 540px at 82% 16%, var(--accent-fill-strong), transparent 60%),
+        radial-gradient(720px 420px at 52% 88%, var(--danger-fill), transparent 60%),
         var(--bg);
-      font:14px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
-    }
-    .aurora{
-      position:fixed;
-      inset:-20% -10% auto -10%;
-      height:72vh;
-      background:
-        radial-gradient(40% 55% at 18% 24%, rgba(92,255,214,.16), transparent 68%),
-        radial-gradient(36% 48% at 76% 18%, rgba(122,167,255,.14), transparent 70%),
-        radial-gradient(28% 38% at 52% 10%, rgba(255,92,154,.10), transparent 72%);
-      filter:blur(24px);
-      opacity:.9;
-      pointer-events:none;
-      animation: auroraShift 16s ease-in-out infinite alternate;
-    }
-    @keyframes auroraShift{
-      0%{transform:translate3d(0, 0, 0) scale(1)}
-      50%{transform:translate3d(1.5%, 2%, 0) scale(1.04)}
-      100%{transform:translate3d(-2%, 4%, 0) scale(1.08)}
+      font:14px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
     }
     .grid{
       position:fixed;
       inset:0;
       background-image:
-        linear-gradient(to right, rgba(255,255,255,.04) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(255,255,255,.04) 1px, transparent 1px);
+        linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
       background-size:44px 44px;
-      mask-image: radial-gradient(680px 540px at 50% 18%, black 40%, transparent 82%);
+      mask-image:radial-gradient(760px 580px at 50% 14%, #000 40%, transparent 82%);
       opacity:.5;
       pointer-events:none;
     }
-    .scan{
-      position:fixed;
-      inset:-60px 0;
-      background: repeating-linear-gradient(
-        to bottom,
-        rgba(255,255,255,.035),
-        rgba(255,255,255,.035) 1px,
-        transparent 2px,
-        transparent 6px
-      );
-      opacity:.22;
-      mix-blend-mode:overlay;
-      animation: scan 8s linear infinite;
-      pointer-events:none;
-    }
-    @keyframes scan{
-      0%{transform:translateY(-40px)}
-      100%{transform:translateY(40px)}
-    }
-    .rays{
-      position:fixed;
-      inset:-20% 0 auto 0;
-      height:56vh;
-      background:
-        linear-gradient(120deg, transparent 0%, rgba(92,255,214,.06) 34%, transparent 58%),
-        linear-gradient(70deg, transparent 8%, rgba(122,167,255,.06) 40%, transparent 64%);
-      mix-blend-mode:screen;
-      opacity:.56;
-      transform-origin:50% 0%;
-      animation: rayDrift 18s linear infinite;
-      pointer-events:none;
-    }
-    @keyframes rayDrift{
-      0%{transform:translateX(-6%) skewY(-4deg)}
-      50%{transform:translateX(4%) skewY(-2deg)}
-      100%{transform:translateX(-6%) skewY(-4deg)}
-    }
-    .particles{
-      position:fixed;
-      inset:0;
-      pointer-events:none;
-      opacity:.72;
-      filter: drop-shadow(0 0 10px rgba(92,255,214,.25));
-    }
-    .dot{
-      position:absolute;
-      width:2px;
-      height:2px;
-      background:rgba(215,247,255,.85);
-      border-radius:999px;
-      animation: float var(--t) linear infinite;
-      transform:translateY(120vh);
-    }
-    @keyframes float{
-      0%{transform:translateY(120vh) translateX(0)}
-      100%{transform:translateY(-20vh) translateX(var(--dx))}
-    }
     .wrap{
       position:relative;
-      width:min(1120px, calc(100% - 32px));
-      margin:28px auto 32px;
-    }
-    .stack{
+      width:90%;
+      margin:28px auto 40px;
       display:grid;
       gap:16px;
     }
     .card{
       border:1px solid var(--line);
       border-radius:18px;
-      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      background:linear-gradient(180deg, var(--surface-top), var(--surface-bottom));
       box-shadow:
-        0 30px 90px rgba(0,0,0,.65),
-        0 0 0 1px rgba(92,255,214,.06) inset;
+        var(--shadow),
+        0 0 0 1px var(--surface-inset) inset;
       backdrop-filter:blur(10px);
       overflow:hidden;
       position:relative;
+    }
+    .main-panel-card{
+      display:flex;
+      flex-direction:column;
+    }
+    .main-panel-card > .pad,
+    .main-panel-card > .section{
+      flex:1 1 auto;
     }
     .card::before{
       content:"";
       position:absolute;
       inset:0;
       background:
-        radial-gradient(700px 300px at 20% 0%, rgba(92,255,214,.12), transparent 55%),
-        radial-gradient(600px 260px at 100% 10%, rgba(122,167,255,.10), transparent 60%);
+        radial-gradient(700px 260px at 20% 0%, var(--accent-fill), transparent 56%),
+        radial-gradient(700px 240px at 100% 0%, var(--accent2-fill), transparent 58%);
       pointer-events:none;
     }
-    .beam{
-      position:absolute;
-      left:-20%;
-      top:-40%;
-      width:140%;
-      height:140%;
-      background: conic-gradient(from 90deg, transparent, rgba(92,255,214,.12), transparent, rgba(122,167,255,.10), transparent);
-      filter: blur(24px);
-      opacity:.35;
-      animation: spin 14s linear infinite;
-      pointer-events:none;
-    }
-    @keyframes spin{to{transform:rotate(360deg)}}
     .bar{
       position:relative;
       z-index:1;
@@ -170,142 +143,183 @@
       justify-content:space-between;
       gap:12px;
       padding:14px 18px;
-      border-bottom:1px solid rgba(255,255,255,.06);
-      background:rgba(0,0,0,.18);
+      min-height:52px;
+      border-bottom:1px solid var(--surface-border-faint);
+      background:var(--surface-fill);
+      box-sizing:border-box;
+    }
+    .bar-start,
+    .bar-end{
+      display:flex;
+      align-items:center;
+      gap:12px;
+      min-width:0;
+    }
+    .bar-start{flex-wrap:nowrap}
+    .bar-end{
+      flex:0 0 auto;
+      justify-content:flex-end;
+      flex-wrap:wrap;
     }
     .dots{display:flex; gap:8px}
     .dots i{width:10px; height:10px; border-radius:999px; display:block}
-    .dots i:nth-child(1){background:rgba(255,92,154,.9)}
-    .dots i:nth-child(2){background:rgba(255,210,122,.9)}
-    .dots i:nth-child(3){background:rgba(92,255,122,.9)}
+    .dots i:nth-child(1){background:var(--dot-danger)}
+    .dots i:nth-child(2){background:var(--dot-warn)}
+    .dots i:nth-child(3){background:var(--dot-ok)}
     .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
       font-size:12px;
       color:var(--muted);
-      border:1px solid rgba(255,255,255,.09);
+      border:1px solid var(--surface-border-soft);
       border-radius:999px;
       padding:6px 10px;
-      background:rgba(0,0,0,.16);
+      background:var(--surface-fill);
+      white-space:nowrap;
     }
-    .pad{
+    .pad,
+    .section{
       position:relative;
       z-index:1;
-      padding:20px 18px 18px;
+      padding:22px 18px;
     }
-    .hero{
-      display:block;
-    }
-    .hero-main{
-      width:min(760px, 100%);
-    }
-    .title{
-      margin:0;
-      font-size:clamp(28px, 4.4vw, 36px);
+    h1{
+      margin:8px 0 0;
+      font-size:34px;
       letter-spacing:.10em;
       text-transform:uppercase;
-      text-shadow:0 0 12px rgba(92,255,214,.12);
+      text-shadow:0 0 18px var(--title-glow);
     }
-    .glitch{
+    .hero-title{
       position:relative;
       display:inline-block;
     }
-    .glitch::before,
-    .glitch::after{
+    .signal-title{
+      position:relative;
+      display:inline-block;
+      padding:0 0 10px;
+      color:var(--title-text);
+      overflow:hidden;
+    }
+    .signal-title::before{
       content:attr(data-text);
       position:absolute;
       inset:0;
       pointer-events:none;
-      opacity:.72;
-      mix-blend-mode:screen;
+      color:transparent;
+      background:linear-gradient(
+        115deg,
+        transparent 0%,
+        transparent 36%,
+        var(--title-sheen) 48%,
+        var(--title-beam-strong) 52%,
+        transparent 64%,
+        transparent 100%
+      );
+      background-size:220% 100%;
+      -webkit-background-clip:text;
+      background-clip:text;
+      animation:titleSweep 4.8s ease-in-out infinite;
+      opacity:.95;
     }
-    .glitch::before{
-      color:rgba(122,167,255,.92);
-      transform:translateX(-1px);
-      clip-path:inset(0 0 0 0);
-      animation: glitchA 2.4s infinite steps(10, end);
+    .signal-title::after{
+      content:"";
+      position:absolute;
+      left:0;
+      right:0;
+      bottom:0;
+      height:2px;
+      border-radius:999px;
+      background:linear-gradient(90deg, var(--title-beam-soft), var(--title-beam-strong) 50%, var(--title-beam-soft));
+      box-shadow:0 0 0 1px var(--surface-inset), 0 0 16px var(--title-glow);
+      transform-origin:left center;
+      animation:titleBeam 3.8s ease-in-out infinite;
     }
-    .glitch::after{
-      color:rgba(92,255,214,.92);
-      transform:translateX(1px);
-      clip-path:inset(0 0 0 0);
-      animation: glitchB 2s infinite steps(11, end);
+    @keyframes titleSweep{
+      0%, 16%{background-position:160% 0; opacity:0}
+      28%{opacity:.98}
+      52%{background-position:30% 0; opacity:.9}
+      72%, 100%{background-position:-80% 0; opacity:0}
     }
-    @keyframes glitchA{
-      0%{clip-path: inset(0 0 85% 0)}
-      10%{clip-path: inset(0 0 10% 0)}
-      20%{clip-path: inset(30% 0 55% 0)}
-      30%{clip-path: inset(65% 0 15% 0)}
-      40%{clip-path: inset(5% 0 75% 0)}
-      50%{clip-path: inset(55% 0 35% 0)}
-      60%{clip-path: inset(10% 0 60% 0)}
-      70%{clip-path: inset(75% 0 5% 0)}
-      80%{clip-path: inset(25% 0 50% 0)}
-      90%{clip-path: inset(45% 0 35% 0)}
-      100%{clip-path: inset(0 0 85% 0)}
-    }
-    @keyframes glitchB{
-      0%{clip-path: inset(80% 0 0 0)}
-      12%{clip-path: inset(20% 0 55% 0)}
-      24%{clip-path: inset(45% 0 35% 0)}
-      36%{clip-path: inset(10% 0 70% 0)}
-      48%{clip-path: inset(60% 0 15% 0)}
-      60%{clip-path: inset(30% 0 50% 0)}
-      72%{clip-path: inset(75% 0 5% 0)}
-      84%{clip-path: inset(5% 0 78% 0)}
-      100%{clip-path: inset(80% 0 0 0)}
+    @keyframes titleBeam{
+      0%, 100%{transform:scaleX(.22); opacity:.45}
+      45%{transform:scaleX(1); opacity:1}
+      70%{transform:scaleX(.72); opacity:.7}
     }
     .sub{
-      margin:10px 0 0;
-      max-width:none;
+      margin:12px 0 0;
+      max-width:80ch;
       color:var(--muted);
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
+      line-height:1.55;
     }
     .eyebrow{
       color:var(--accent);
       letter-spacing:.16em;
       text-transform:uppercase;
       font-size:12px;
-      margin-bottom:6px;
     }
     .shell-nav{
       display:flex;
       flex-wrap:wrap;
       gap:10px;
       margin-top:18px;
+      align-items:flex-start;
     }
     .shell-nav-link{
       display:inline-flex;
       align-items:center;
+      justify-content:center;
       gap:8px;
+      width:148px;
       padding:10px 14px;
       border-radius:999px;
-      border:1px solid rgba(255,255,255,.08);
-      background:rgba(0,0,0,.16);
+      border:1px solid var(--surface-border-faint);
+      background:var(--surface-fill);
       color:var(--fg);
       text-decoration:none;
       font-size:12px;
-      transition:border-color .12s ease, transform .12s ease, background .12s ease;
+      white-space:nowrap;
+      text-align:center;
+      transition:border-color .12s ease, background .12s ease;
     }
     .shell-nav-link:hover{
-      transform:translateY(-1px);
-      border-color:rgba(92,255,214,.32);
-      background:rgba(255,255,255,.04);
+      border-color:var(--accent-border);
+      background:var(--surface-hover);
     }
     .shell-nav-link.active{
-      border-color:rgba(92,255,214,.18);
-      background:rgba(92,255,214,.08);
+      border-color:var(--accent-border-soft);
+      background:var(--accent-fill);
       color:var(--accent);
     }
-    .shell-nav-link code{
-      color:var(--accent2);
-      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    .hero-tools-section{
+      position:relative;
+      display:flex;
+      align-items:center;
+      min-height:60px;
+      padding:10px 18px;
+      border:1px solid var(--surface-border-faint);
+      border-radius:18px;
+      background:linear-gradient(180deg, var(--surface-hero-top), var(--surface-hero-bottom));
+      box-shadow:
+        0 24px 60px rgba(0,0,0,.28),
+        0 0 0 1px var(--surface-inset-soft) inset;
     }
-    .overview{
+    .tool-strip{
+      display:flex;
+      align-items:center;
+      justify-content:flex-start;
+      gap:8px;
+      flex-wrap:wrap;
+      width:100%;
+      min-width:0;
+    }
+    .page-summary-grid{
       display:grid;
       grid-template-columns:repeat(4, minmax(0, 1fr));
-      gap:12px;
-      margin-top:20px;
+      gap:14px;
+      align-items:start;
+      align-content:start;
     }
     .status-card{
       padding:14px;
@@ -331,117 +345,144 @@
       font-size:12px;
       color:var(--muted);
     }
-    .primary-action{
+    .hero-tools{margin-top:0}
+    .hero-tools a,
+    .hero-tools button,
+    .hero-tools label[for]{
+      cursor:pointer;
+    }
+    .section-head{
       display:flex;
       align-items:flex-start;
       justify-content:space-between;
-      gap:14px;
-      margin-top:18px;
-      padding:16px;
-      min-height:92px;
-      border:1px solid rgba(92,255,214,.18);
-      border-radius:16px;
-      background:linear-gradient(135deg, rgba(0,0,0,.24), rgba(9,20,28,.44));
-      color:var(--fg);
-      text-decoration:none;
-      box-shadow:
-        0 0 0 1px rgba(92,255,214,.06) inset,
-        0 12px 32px rgba(0,0,0,.24);
-      transition:transform .12s ease, border-color .12s ease;
+      gap:16px;
+      margin-bottom:18px;
     }
-    .primary-action > div{
+    .section-title-wrap{
       flex:1 1 auto;
       min-width:0;
     }
-    .primary-action:hover{
-      transform:translateY(-1px);
-      border-color:rgba(92,255,214,.34);
-    }
-    .primary-action strong{
-      display:block;
-      font-size:15px;
-      font-weight:600;
-      letter-spacing:.02em;
-    }
-    .primary-action span{
-      display:block;
-      margin-top:6px;
-      color:rgba(215,247,255,.8);
-      font-size:12px;
-      line-height:1.45;
-    }
-    .primary-mark{
-      flex:0 0 auto;
-      font-size:11px;
-      color:var(--accent);
-      padding:4px 10px;
-      border-radius:999px;
-      background:rgba(92,255,214,.10);
-      border:1px solid rgba(92,255,214,.18);
-      box-shadow:0 0 14px rgba(92,255,214,.12);
-    }
-    .actions{
-      display:grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap:10px;
-      margin-top:12px;
-    }
-    @media (max-width: 760px){
-      .actions{grid-template-columns:1fr}
-    }
-    @media (max-width: 620px){
-      .actions{grid-template-columns:1fr}
-    }
-    .action{
-      display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      gap:12px;
-      padding:14px;
-      min-height:92px;
-      border:1px solid rgba(255,255,255,.08);
-      border-radius:14px;
-      background:rgba(0,0,0,.14);
-      color:var(--fg);
-      text-decoration:none;
-      transition:transform .12s ease, border-color .12s ease;
-      box-shadow:0 0 0 1px rgba(92,255,214,.05) inset;
-    }
-    .action > div{
-      flex:1 1 auto;
-      min-width:0;
-    }
-    .action:hover{
-      transform:translateY(-1px);
-      border-color:rgba(92,255,214,.35);
-    }
-    .action strong{
-      display:block;
-      font-size:15px;
+    .section-title{
+      margin:0;
+      font-size:18px;
+      letter-spacing:.03em;
       font-weight:600;
     }
-    .action span{
-      display:block;
-      margin-top:4px;
-      font-size:12px;
-      line-height:1.45;
+    .section-desc{
+      margin:6px 0 0;
       color:var(--muted);
+      font-size:13px;
+      line-height:1.55;
     }
-    .tag{
+    .section-tools{
+      min-width:0;
       flex:0 0 auto;
-      font-size:11px;
-      color:rgba(0,0,0,.85);
-      padding:2px 8px;
+    }
+    .section-head .tool-strip{
+      width:auto;
+    }
+    .hero-head-pad{
+      min-height:156px;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+    }
+    .hero-tools .hero-tool-mark{
+      appearance:none;
+      position:relative;
+      isolation:isolate;
+      overflow:hidden;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:144px;
+      min-height:32px;
+      padding:0 14px;
+      border:1px solid rgba(255,255,255,.10);
       border-radius:999px;
-      background:rgba(92,255,214,.9);
-      box-shadow:0 0 14px rgba(92,255,214,.25);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.04) 42%, rgba(255,255,255,0) 100%),
+        linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,0) 48%),
+        var(--accent-fill-solid);
+      color:var(--accent-ink);
+      text-decoration:none;
+      cursor:pointer;
+      font-size:11px;
+      font-weight:600;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      line-height:1.2;
+      white-space:nowrap;
+      text-align:center;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.05) inset,
+        0 12px 28px rgba(0,0,0,.18),
+        0 0 18px var(--accent-shadow);
+      transition:border-color .14s ease, transform .14s ease, box-shadow .14s ease, filter .14s ease, opacity .14s ease;
+    }
+    .hero-tools .hero-tool-mark::before{
+      content:"";
+      position:absolute;
+      inset:1px;
+      border-radius:inherit;
+      background:linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,0));
+      opacity:.28;
+      pointer-events:none;
+    }
+    .hero-tools .hero-tool-mark:hover{
+      transform:translateY(-1px);
+      border-color:rgba(255,255,255,.16);
+      filter:brightness(1.03) saturate(1.04);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.06) inset,
+        0 16px 32px rgba(0,0,0,.2),
+        0 0 22px var(--accent-shadow);
+    }
+    .hero-tools .hero-tool-mark:active{
+      transform:translateY(0);
+      filter:brightness(.99);
+    }
+    .hero-tools .hero-tool-mark:focus-visible{
+      outline:none;
+      border-color:rgba(255,255,255,.22);
+      box-shadow:
+        0 0 0 3px rgba(255,255,255,.08),
+        0 0 0 1px rgba(255,255,255,.06) inset,
+        0 16px 32px rgba(0,0,0,.2),
+        0 0 22px var(--accent-shadow);
+    }
+    .hero-tools .hero-tool-mark:disabled,
+    .hero-tools .hero-tool-mark[disabled],
+    .hero-tools .hero-tool-mark[aria-disabled="true"]{
+      opacity:.45;
+      cursor:not-allowed;
+      transform:none;
+    }
+    .page-content-grid{
+      display:grid;
+      gap:16px;
+      align-items:start;
+      align-content:start;
+    }
+    .page-content-grid--dashboard{
+      display:grid;
+      grid-template-columns:minmax(0, 1fr);
+      align-items:stretch;
+      gap:18px;
+    }
+    .page-content-grid--dashboard > .card{
+      height:100%;
+    }
+    .status-stack{
+      display:grid;
+      gap:14px;
+      align-content:start;
     }
     .status-list{
       display:flex;
       align-items:center;
       flex-wrap:wrap;
       gap:10px;
-      margin-top:18px;
     }
     .led{
       width:8px;
@@ -466,10 +507,10 @@
       font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     }
     .tip{
-      margin-top:16px;
       max-width:72ch;
       color:var(--muted);
       font-size:12px;
+      line-height:1.55;
     }
     .tip code{color:var(--accent2)}
     .toast-stage{
@@ -515,143 +556,160 @@
       color:var(--muted);
       font-size:13px;
     }
+    .page-footer-slot{
+      padding:20px 0 24px;
+    }
     .shell-footer{
-      margin-top:8px;
+      margin:0;
       text-align:center;
-      color:rgba(137,163,173,.85);
+      color:var(--footer-fg);
       font-size:12px;
     }
     @media (max-width: 920px){
-      .overview{grid-template-columns:repeat(2, minmax(0, 1fr))}
+      .page-summary-grid{grid-template-columns:repeat(2, minmax(0, 1fr))}
+      .page-content-grid--dashboard{grid-template-columns:1fr}
     }
     @media (max-width: 720px){
-      .overview{grid-template-columns:1fr}
+      .page-summary-grid{grid-template-columns:1fr}
+      .page-content-grid--dashboard{grid-template-columns:1fr}
+      .section-head{flex-direction:column; align-items:stretch}
     }
     @media (prefers-reduced-motion: reduce){
-      .aurora,
-      .scan,
-      .rays,
-      .dot,
-      .beam,
-      .glitch::before,
-      .glitch::after{
+      .signal-title::before,
+      .signal-title::after{
         animation:none !important;
       }
+      .signal-title::before{opacity:0}
     }
   </style>
 </head>
 <body>
-  <div class="aurora"></div>
   <div class="grid"></div>
-  <div class="scan"></div>
-  <div class="rays"></div>
-  <div class="particles" aria-hidden="true" id="particles"></div>
   <div class="toast-stage" id="toast-stage" aria-live="polite" aria-atomic="true"></div>
 
   <main class="wrap">
-    <section class="stack">
-      <div class="card">
-        <div class="beam"></div>
-        <div class="bar">
+    <section class="card">
+      <div class="bar">
+        <div class="bar-start">
           <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
-          <div class="chip">transport: streamable-http</div>
         </div>
-        <div class="pad hero">
-          <div class="hero-main">
-              <div class="eyebrow">Helix</div>
-              <h1 class="title"><span class="glitch" data-text="HELIX">HELIX</span></h1>
-              <p class="sub">Local workspace for preferences, diagnostics, and runtime inspection.</p>
-              <div id="page-nav"></div>
-
-              <div class="overview" id="overview-cards"></div>
-
-              <div id="primary-entry"></div>
-
-              <div class="actions" id="secondary-entries"></div>
-
-              <div class="status-list">
-                <span class="status-pill" id="status-pill"><span class="led"></span><span id="ready-text">checking</span></span>
-                <span class="status-pill"><code>/mcp</code></span>
-                <span class="status-pill"><code>/code</code></span>
-                <span class="status-pill"><code>/idle</code></span>
-                <span class="status-pill"><code>/pref</code></span>
-                <span class="status-pill"><code>/logs</code></span>
-                <span class="status-pill" id="version-pill">v__APP_VERSION__</span>
-                <span class="status-pill" id="refresh-pill">syncing</span>
-              </div>
-
-              <div class="tip" id="entry-tip"></div>
-          </div>
+        <div class="bar-end">
+          <div class="chip">workspace</div>
         </div>
+      </div>
+      <div class="pad hero-head-pad">
+        <div class="eyebrow">Helix</div>
+        <h1><span class="hero-title signal-title" data-text="HELIX FOR MIND">HELIX FOR MIND</span></h1>
+        <p class="sub">统一查看常用内容、工作进度与当前状态。</p>
+        <div id="page-nav"></div>
       </div>
     </section>
 
-    <div id="page-footer"></div>
+    <section class="hero-tools-section">
+      <div class="hero-tools tool-strip" id="hero-tools"></div>
+    </section>
+
+    <section class="page-content-grid page-content-grid--dashboard">
+      <section class="card main-panel-card">
+        <div class="bar">
+          <div class="bar-start">
+            <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="chip">overview</div>
+          </div>
+          <div class="bar-end">
+            <div class="chip">status</div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-head">
+            <div class="section-title-wrap">
+              <h2 class="section-title">Workspace Overview</h2>
+              <p class="section-desc">See the main entry points and current focus.</p>
+            </div>
+          </div>
+          <div class="page-summary-grid" id="overview-cards"></div>
+        </div>
+      </section>
+
+      <section class="card main-panel-card">
+        <div class="bar">
+          <div class="bar-start">
+            <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="chip">runtime status</div>
+          </div>
+          <div class="bar-end">
+            <div class="chip" id="refresh-pill">sync pending</div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-head">
+            <div class="section-title-wrap">
+              <h2 class="section-title">Runtime Status</h2>
+              <p class="section-desc">See current state, recent changes, and sync time.</p>
+            </div>
+          </div>
+          <div class="status-stack">
+            <div class="status-list">
+              <span class="status-pill" id="status-pill"><span class="led"></span><span id="ready-text">checking</span></span>
+              <span class="status-pill">Workspace</span>
+              <span class="status-pill">Preferences</span>
+              <span class="status-pill">Code Studio</span>
+              <span class="status-pill">Logs</span>
+              <span class="status-pill">Runtime</span>
+              <span class="status-pill" id="version-pill">v__APP_VERSION__</span>
+            </div>
+            <div class="tip" id="entry-tip"></div>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <div class="page-footer-slot" id="page-footer"></div>
   </main>
 
   <script>
-    const host = document.getElementById("particles");
-    const width = () => window.innerWidth;
+    const heroToolsHost = document.getElementById("hero-tools");
     const overviewHost = document.getElementById("overview-cards");
-    const primaryEntryHost = document.getElementById("primary-entry");
-    const secondaryEntriesHost = document.getElementById("secondary-entries");
     const entryTipHost = document.getElementById("entry-tip");
     const toastStage = document.getElementById("toast-stage");
     const entryConfig = {
       nav: [
-        {title: "Preferences", href: "/pref", tag: "config", primary: true},
-        {title: "Code Studio", href: "/code", tag: "batch"},
-        {title: "Logs", href: "/logs", tag: "logs"},
-        {title: "OpenAPI", href: "/docs", tag: "schema"},
-        {title: "Health", href: "/ready", tag: "health"},
-        {title: "Runtime", href: "/idle", tag: "runtime"}
+        {title: "Workspace", href: "/"},
+        {title: "Preferences", href: "/pref"},
+        {title: "Code Studio", href: "/code"},
+        {title: "Logs", href: "/logs"},
+        {title: "Runtime", href: "/idle"}
       ],
       overview: [
-        {key: "ready", title: "Ready", value: "Checking", meta: "/ready"},
-        {key: "version", title: "Version", value: "Loading", meta: "/version"},
-        {key: "idle", title: "Idle Queue", value: "Loading", meta: "/idle"},
-        {key: "transport", title: "Transport", value: "HTTP", meta: "/mcp"}
+        {key: "ready", title: "Ready", value: "Checking", meta: "warming up"},
+        {key: "version", title: "Version", value: "Loading", meta: "waiting for update"},
+        {key: "idle", title: "Idle Queue", value: "Loading", meta: "waiting for update"},
+        {key: "transport", title: "Transport", value: "HTTP", meta: "streamable transport"}
       ],
-      primary: {
-        title: "Preferences",
-        description: "Open local model slots and provider configuration.",
-        href: "/pref",
-        tag: "PRIMARY"
-      },
-      secondary: [
+      heroTools: [
+        {
+          title: "Preferences",
+          description: "Adjust common options.",
+          href: "/pref"
+        },
         {
           title: "Code Studio",
-          description: "Compose a batch blueprint with a visual shell.",
-          href: "/code",
-          tag: "UI"
+          description: "Compose and refine content.",
+          href: "/code"
         },
         {
           title: "Logs",
-          description: "Inspect local server logs.",
-          href: "/logs",
-          tag: "UI"
-        },
-        {
-          title: "OpenAPI",
-          description: "Browse local schema and routes.",
-          href: "/docs",
-          tag: "UI"
-        },
-        {
-          title: "Health",
-          description: "Inspect current health response.",
-          href: "/ready",
-          tag: "GET"
+          description: "Inspect recent records.",
+          href: "/logs"
         },
         {
           title: "Runtime",
-          description: "Inspect current queue snapshot.",
-          href: "/idle",
-          tag: "GET"
+          description: "Inspect current activity.",
+          href: "/idle"
         }
       ],
       tipLines: [
-        "Keyboard: <code>R</code> refresh status, <code>C</code> code, <code>I</code> idle, <code>P</code> preferences, <code>L</code> logs."
+        "Keyboard: <code>R</code> refresh, <code>P</code> preferences, <code>C</code> code, <code>L</code> logs, <code>I</code> runtime."
       ]
     };
 
@@ -688,7 +746,6 @@
           ${nav.map((item) => `
             <a class="shell-nav-link${item.href === activeHref ? " active" : ""}" href="${item.href}">
               <span>${escapeHtml(item.title)}</span>
-              <code>${escapeHtml(item.tag)}</code>
             </a>
           `).join("")}
         </nav>
@@ -712,7 +769,7 @@
 
     function renderOverview(cards){
       overviewHost.innerHTML = cards.map((card) => `
-        <div class="status-card" data-card="${card.key}">
+        <div class="status-card">
           <b>${card.title}</b>
           <div class="status-value" data-value="${card.key}">${card.value}</div>
           <div class="status-meta" data-meta="${card.key}">${card.meta}</div>
@@ -754,27 +811,9 @@
       return {value: String(total), meta};
     }
 
-    function renderPrimaryEntry(entry){
-      primaryEntryHost.innerHTML = `
-        <a class="primary-action" href="${entry.href}">
-          <div>
-            <strong>${entry.title}</strong>
-            <span>${entry.description}</span>
-          </div>
-          <span class="primary-mark">${entry.tag}</span>
-        </a>
-      `;
-    }
-
-    function renderSecondaryEntries(entries){
-      secondaryEntriesHost.innerHTML = entries.map((entry) => `
-        <a class="action" href="${entry.href}">
-          <div>
-            <strong>${entry.title}</strong>
-            <span>${entry.description}</span>
-          </div>
-          <span class="tag">${entry.tag}</span>
-        </a>
+    function renderHeroTools(entries){
+      heroToolsHost.innerHTML = entries.map((entry) => `
+        <a class="hero-tool-mark" href="${entry.href}" title="${escapeHtml(entry.description)}">${entry.title}</a>
       `).join("");
     }
 
@@ -782,51 +821,29 @@
       entryTipHost.innerHTML = lines.map((line) => `<div>${line}</div>`).join("");
     }
 
-    function spawn(n){
-      host.innerHTML = "";
-      for(let i = 0; i < n; i += 1){
-        const d = document.createElement("div");
-        d.className = "dot";
-        const x = Math.random() * width();
-        const t = 6 + Math.random() * 10;
-        const dx = (Math.random() * 2 - 1) * 60;
-        const delay = -Math.random() * t;
-        d.style.left = x + "px";
-        d.style.top = (Math.random() * window.innerHeight) + "px";
-        d.style.setProperty("--t", t + "s");
-        d.style.setProperty("--dx", dx + "px");
-        d.style.animationDelay = delay + "s";
-        host.appendChild(d);
-      }
-    }
-
-    renderPrimaryEntry(entryConfig.primary);
-    renderSecondaryEntries(entryConfig.secondary);
+    renderHeroTools(entryConfig.heroTools);
     renderTip(entryConfig.tipLines);
     mountNav("page-nav", entryConfig.nav, "/");
-    mountFooter("page-footer", "HELIX · local workspace · v__APP_VERSION__");
+    mountFooter("page-footer", "HELIX · workspace · v__APP_VERSION__");
     renderOverview(entryConfig.overview);
-    spawn(Math.min(110, Math.floor(window.innerWidth / 10)));
-    window.addEventListener("resize", () => {
-      spawn(Math.min(110, Math.floor(window.innerWidth / 10)));
-    });
 
     async function loadStatus(){
-      const readyText = document.getElementById("ready-text");
-      const versionPill = document.getElementById("version-pill");
-      const refreshPill = document.getElementById("refresh-pill");
-      const readyValue = document.querySelector('[data-value="ready"]');
-      const readyMeta = document.querySelector('[data-meta="ready"]');
-      const versionValue = document.querySelector('[data-value="version"]');
-      const versionMeta = document.querySelector('[data-meta="version"]');
-      const idleValue = document.querySelector('[data-value="idle"]');
-      const idleMeta = document.querySelector('[data-meta="idle"]');
+      const readyText      = document.getElementById("ready-text");
+      const versionPill    = document.getElementById("version-pill");
+      const refreshPill    = document.getElementById("refresh-pill");
+      const readyValue     = document.querySelector('[data-value="ready"]');
+      const readyMeta      = document.querySelector('[data-meta="ready"]');
+      const versionValue   = document.querySelector('[data-value="version"]');
+      const versionMeta    = document.querySelector('[data-meta="version"]');
+      const idleValue      = document.querySelector('[data-value="idle"]');
+      const idleMeta       = document.querySelector('[data-meta="idle"]');
       const transportValue = document.querySelector('[data-value="transport"]');
-      const transportMeta = document.querySelector('[data-meta="transport"]');
+      const transportMeta  = document.querySelector('[data-meta="transport"]');
 
-      refreshPill.textContent = "syncing";
+      refreshPill.textContent    = "syncing";
       transportValue.textContent = "HTTP";
-      transportMeta.textContent = "streamable transport";
+      transportMeta.textContent  = "streamable transport";
+
       try{
         const readyResp = await fetch("/ready", {cache: "no-store"});
         const readyOk = readyResp.ok;
@@ -846,7 +863,7 @@
           if(payload.version){
             versionPill.textContent = "v" + payload.version;
             versionValue.textContent = payload.version;
-            versionMeta.textContent = payload.service || "/version";
+            versionMeta.textContent = "version confirmed";
           }
         }
       }catch(_err){
@@ -883,16 +900,11 @@
       showToast(title, `Open ${link.getAttribute("href")}`, "");
     });
 
-    secondaryEntriesHost.addEventListener("click", (event) => {
+    heroToolsHost.addEventListener("click", (event) => {
       const link = event.target.closest("a");
       if(!link) return;
       const [title] = shellMessage("module_open");
       showToast(title, `Open ${link.getAttribute("href")}`, "");
-    });
-
-    primaryEntryHost.addEventListener("click", () => {
-      const [title] = shellMessage("module_open");
-      showToast(title, "Open /pref", "");
     });
 
     window.addEventListener("keydown", (e) => {
@@ -908,10 +920,10 @@
             showToast(title, detail, "err");
           });
       }
-      if (k === "c") location.href = "/code";
-      if (k === "i") location.href = "/idle";
       if (k === "p") location.href = "/pref";
+      if (k === "c") location.href = "/code";
       if (k === "l") location.href = "/logs";
+      if (k === "i") location.href = "/idle";
     });
   </script>
 </body>
