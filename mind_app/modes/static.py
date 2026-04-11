@@ -235,7 +235,7 @@ async def static_looper(
                         ok = not result.isError
 
                         enhancer: Enhancer = Enhancer(session, mode, model_api, kwargs.get("metadata"))
-                        fields = await enhancer.enhance(name, arguments, result, ok, slog)
+                        fields = await enhancer.enhance(name, result, ok, slog)
                     finally:
                         await slog.end_status()
 

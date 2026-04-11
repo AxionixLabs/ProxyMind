@@ -3,7 +3,6 @@
 
 import json
 import typing
-import asyncio
 from pathlib import Path
 from loguru import logger
 from mcp import ClientSession
@@ -466,7 +465,6 @@ class Enhancer(object):
     async def enhance(
         self,
         name: str,
-        arguments: dict[str, typing.Any],
         result: CallToolResult,
         ok: bool,
         slog: typing.Optional[StreamUI] = None
