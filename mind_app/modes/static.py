@@ -38,6 +38,7 @@ async def static_looper(
     exclude = [
         {"domain": "common", "class": "security"},
         {"domain": "common", "class": "runtime", "name": "loop_steps"},
+        {"domain": "device", "class": "ui", "name": "heal_element"},
         {"domain": "bench", "class": "nexus"},
         {"domain": "bench", "class": "k6"}
     ]

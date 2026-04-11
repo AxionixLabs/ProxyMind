@@ -20,7 +20,6 @@ from backend.mcp_tools.automator.schemas.schema_ui import (
     ScrollDirectionArg,
     ShouldClickArg,
     TimeoutArg,
-    WaitArg,
     WaitStateArg,
     WidgetViewArg
 )
@@ -346,21 +345,16 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         description=(
             "对给定 locator 执行一次定位诊断，并返回排障所需的诊断结果。"
             " 结果可能包含截图、页面层级、候选节点和命中情况。"
-            " `should_click` 为 true 时命中后会尝试点击，`wait` 大于 0 时会在点击前额外等待。"
         ),
         meta={"hidden": False, "domain": "device", "class": "ui"}
     )
     @task_middleware("heal_element")
     async def heal_element(
         locator: LocatorArg,
-        should_click: ShouldClickArg = False,
-        wait: WaitArg = 0.0,
         matrix: MatrixArg = None
     ) -> CallToolResult:
         args = {
-            "locator"      : locator,
-            "should_click" : should_click,
-            "wait"         : wait
+            "locator" : locator
         }
 
         async def call(device: Device, a: dict) -> typing.Any:

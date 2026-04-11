@@ -493,7 +493,7 @@ class Enhancer(object):
             return await self.__artifact_upload(name, result)
 
         if name == "heal_element":
-            return await self.__heal_element(arguments, result, slog)
+            return await self.__heal_element(result, slog)
 
         if name == "loop_steps":
             return await self.__loop_steps(result, slog)
@@ -632,7 +632,6 @@ class Enhancer(object):
 
     async def __heal_element(
         self,
-        arguments: dict[str, typing.Any],
         result: CallToolResult,
         slog: typing.Optional[StreamUI] = None
     ) -> typing.Optional[dict[str, typing.Any]]:
@@ -708,32 +707,11 @@ class Enhancer(object):
                 "data"        : {"ok": False, "per_agent": per_agent}
             }
 
-        if not arguments.get("should_click"):
-            ok = all(v.get("ok") for v in per_agent.values()) if per_agent else False
-            return {
-                "text"        : "元素定位成功" if ok else "元素定位完成（存在失败）",
-                "attachments" : attachments,
-                "data"        : {"ok": ok, "per_agent": per_agent}
-            }
-
-        wait_s = float(arguments.get("wait") or 0)
-        if wait_s > 0: await asyncio.sleep(wait_s)
-
-        r = await self.session.call_tool("click", {"matrix": matrix})
-        f = self.fields(r)
-
-        if r.isError:
-            return {
-                "text"        : "点击失败",
-                "attachments" : attachments,
-                "data"        : {"ok": False, "per_agent": per_agent, "fields": f}
-            }
-
         ok = all(v.get("ok") for v in per_agent.values()) if per_agent else False
         return {
-            "text"        : "元素定位成功，并已点击" if ok else "元素定位完成并已点击（存在失败）",
+            "text"        : "元素定位成功" if ok else "元素定位完成（存在失败）",
             "attachments" : attachments,
-            "data"        : {"ok": ok, "per_agent": per_agent, "fields": f}
+            "data"        : {"ok": ok, "per_agent": per_agent}
         }
 
     async def __loop_steps(
