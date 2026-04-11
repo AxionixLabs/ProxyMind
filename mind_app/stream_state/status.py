@@ -19,6 +19,7 @@ StatusFamily = typing.Literal[
     "builtin",
     "tool",
     "wait",
+    "heal",
 ]
 
 
@@ -28,6 +29,7 @@ class StatusState(object):
     FAMILY_BUILTIN: typing.Final[StatusFamily] = "builtin"
     FAMILY_TOOL: typing.Final[StatusFamily] = "tool"
     FAMILY_WAIT: typing.Final[StatusFamily] = "wait"
+    FAMILY_HEAL: typing.Final[StatusFamily] = "heal"
 
     ENTER_DURATION_SEC: typing.Final[float] = 0.14
     EXIT_DURATION_SEC: typing.Final[float] = 0.18
@@ -82,7 +84,8 @@ class StatusState(object):
         text: typing.Optional[str],
         *,
         family: StatusFamily = FAMILY_BUILTIN,
-        animated: bool = True
+        animated: bool = True,
+        reset_phase_on_text_change: bool = True
     ) -> bool:
         status = Design.truncate_status_text(
             text,
@@ -93,10 +96,14 @@ class StatusState(object):
 
         next_family = family
         next_animated = bool(animated)
-        reset_phase = (
-            status != self.text
-            or next_family != self.family
+        text_changed = status != self.text
+        config_changed = (
+            next_family != self.family
             or next_animated != self.animated
+        )
+        reset_phase = (
+            config_changed
+            or (text_changed and reset_phase_on_text_change)
         )
         if reset_phase:
             self.phase = 0.0
@@ -155,10 +162,14 @@ class StatusState(object):
 
         if not animated and family == self.FAMILY_TOOL:
             out = Design.tool_status_static_renderable(text)
+        elif not animated and family == self.FAMILY_HEAL:
+            out = Design.heal_status_renderable(0.0, text)
         elif not animated:
             out = Text(text, style="bold #8FA4B8")
         elif family == self.FAMILY_TOOL:
             out = Design.tool_status_renderable(phase, text)
+        elif family == self.FAMILY_HEAL:
+            out = Design.heal_status_renderable(phase, text)
         elif family == self.FAMILY_WAIT:
             out = Design.thinking_status_renderable(phase, text)
         else:

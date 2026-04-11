@@ -1179,6 +1179,56 @@ class DesignStatusLiveDriver(object):
         return out
 
     @classmethod
+    def heal_status_renderable(cls, phase: float, text: str) -> Text:
+        spec = cls.status_spec("heal")
+
+        colors = {
+            "edge"      : "bold #3C535B",
+            "shell"     : "bold #58C2CF",
+            "pulse"     : "bold #8CEAF4",
+            "core"      : "bold #E2FCFF",
+            "dust"      : "bold #486A71",
+            "text_peak" : "bold #EEFCFF",
+            "text_soft" : "bold #D7F7FB",
+            "text_near" : "bold #B4E6ED",
+            "text_mid"  : "bold #81B1B9",
+            "text_fade" : "bold #5B7C83",
+            "text_dim"  : "bold #455C62"
+        }
+
+        out = cls._heal_status_indicator(
+            phase,
+            pulse_freq=0.84,
+            frame_rate=0.38
+        )
+        text = cls.fit_status_text(text, kind="heal", fallback="restoring signal")
+        span = max(1, len(text))
+        travel = max(1.0, float(span - 1) + (spec.scan_pad * 2.0))
+        progress = 0.5 - (0.5 * math.cos(phase * spec.scan_speed))
+        lock_progress = cls._smoothstep(progress)
+        focus = (lock_progress * travel) - spec.scan_pad
+        mirror_focus = max(0.0, float(span - 1) - focus)
+
+        out.append(cls.status_content_gap(), style=colors["edge"])
+        cls._append_repair_text(
+            out,
+            text,
+            left_focus=focus,
+            right_focus=mirror_focus,
+            peak_style=colors["text_peak"],
+            soft_style=colors["text_soft"],
+            near_style=colors["text_near"],
+            mid_style=colors["text_mid"],
+            fade_style=colors["text_fade"],
+            dim_style=colors["text_dim"],
+            near_span=spec.lead_span,
+            fade_span=spec.tail_span,
+            peak_radius=spec.peak_radius,
+            lock_radius=1.35
+        )
+        return out
+
+    @classmethod
     def status_spec(cls, kind: str) -> SweepStatusSpec | ProgressiveStatusSpec:
         tool_status_spec = SweepStatusSpec(
             refresh_per_second=40,
@@ -1209,6 +1259,19 @@ class DesignStatusLiveDriver(object):
             entry_pad=6.0,
             exit_pad=8.4
         )
+        heal_status_spec = SweepStatusSpec(
+            refresh_per_second=34,
+            phase_rate=16.8,
+            text_limit=56,
+            shell_freq=0.68,
+            lead_span=3.0,
+            tail_span=5.8,
+            peak_radius=0.72,
+            near_ratio=0.50,
+            mid_ratio=0.86,
+            scan_speed=0.28,
+            scan_pad=2.2
+        )
         thinking_status_spec = ProgressiveStatusSpec(
             refresh_per_second=24,
             phase_rate=19.2,
@@ -1223,6 +1286,8 @@ class DesignStatusLiveDriver(object):
         )
         if kind == "tool":
             return tool_status_spec
+        if kind == "heal":
+            return heal_status_spec
         if kind == "wait":
             return thinking_status_spec
         return builtin_status_spec
@@ -1236,6 +1301,8 @@ class DesignStatusLiveDriver(object):
         spec = cls.status_spec(kind)
         if kind == "tool":
             chrome_width = 18
+        elif kind == "heal":
+            chrome_width = 18
         elif kind == "wait":
             chrome_width = 17
         else:
@@ -1248,6 +1315,8 @@ class DesignStatusLiveDriver(object):
     def status_text_floor(kind: str) -> int:
         if kind == "tool":
             return 16
+        if kind == "heal":
+            return 18
         if kind == "wait":
             return 12
         return 12
@@ -1584,6 +1653,51 @@ class DesignStatusLiveDriver(object):
             out.append(char, style=peak_style)
 
     @classmethod
+    def _append_repair_text(
+        cls,
+        out: Text,
+        text: str,
+        *,
+        left_focus: float,
+        right_focus: float,
+        peak_style: str,
+        soft_style: str,
+        near_style: str,
+        mid_style: str,
+        fade_style: str,
+        dim_style: str,
+        near_span: float,
+        fade_span: float,
+        peak_radius: float,
+        lock_radius: float
+    ) -> None:
+        center = (max(0, len(text) - 1)) / 2.0
+        focus_gap = abs(right_focus - left_focus)
+
+        for pos, char in enumerate(text):
+            left_distance = abs(pos - left_focus)
+            right_distance = abs(pos - right_focus)
+            distance = min(left_distance, right_distance)
+            center_distance = abs(pos - center)
+
+            if distance <= peak_radius:
+                style = peak_style
+            elif focus_gap <= lock_radius and center_distance <= max(1.0, peak_radius + 0.4):
+                style = soft_style
+            elif distance <= peak_radius + max(0.8, near_span * 0.22):
+                style = soft_style
+            elif distance <= peak_radius + max(1.4, near_span * 0.56):
+                style = near_style
+            elif distance <= peak_radius + max(2.1, fade_span * 0.58):
+                style = mid_style
+            elif distance <= peak_radius + max(3.0, fade_span):
+                style = fade_style
+            else:
+                style = dim_style
+
+            out.append(char, style=style)
+
+    @classmethod
     def status_refresh_per_second(cls, kind: str) -> int:
         return int(cls.status_spec(kind).refresh_per_second)
 
@@ -1684,6 +1798,83 @@ class DesignStatusLiveDriver(object):
         out.append(core, style=colors["core"] if breathe > 0.64 else colors["pulse"])
         out.append(shell_right, style=colors["shell"] if breathe < 0.84 else colors["pulse"])
         out.append(chamber_right, style=colors["dust"])
+        out.append(echo_right, style=colors["dust"] if echo_right.strip() else colors["edge"])
+        out.append("]", style=colors["edge"])
+        return out
+
+    @classmethod
+    def _heal_status_indicator(
+        cls,
+        phase: float,
+        *,
+        pulse_freq: float = 0.84,
+        frame_rate: float = 0.38
+    ) -> Text:
+        colors = {
+            "edge": "bold #3C535B",
+            "shell": "bold #58C2CF",
+            "pulse": "bold #8CEAF4",
+            "core": "bold #E2FCFF",
+            "core_lock": "bold #F4FFFF",
+            "dust": "bold #486A71"
+        }
+        repair = 0.5 + (0.5 * math.sin(phase * pulse_freq))
+        lock = cls._smoothstep(repair)
+        shell_phase = phase * frame_rate
+
+        shell_frames = (
+            ("╱", "╲"),
+            ("╱", "╲"),
+            ("⟋", "⟍"),
+            ("(", ")"),
+            ("{", "}"),
+            ("(", ")"),
+            ("⟋", "⟍"),
+        )
+        shell_left, shell_right = shell_frames[int(shell_phase) % len(shell_frames)]
+
+        if lock > 0.86:
+            inner_left = "─"
+            inner_right = "─"
+            center = "◉"
+        elif lock > 0.72:
+            inner_left = "╲"
+            inner_right = "╱"
+            center = "·"
+        elif lock > 0.56:
+            inner_left = "╲"
+            inner_right = "╱"
+            center = "╳"
+        elif lock > 0.38:
+            inner_left = "."
+            inner_right = "."
+            center = "·"
+        else:
+            inner_left = " "
+            inner_right = " "
+            center = " "
+
+        if lock > 0.90:
+            echo_left = "·"
+            echo_right = "·"
+        elif lock > 0.68:
+            echo_left = "."
+            echo_right = "."
+        else:
+            echo_left = " "
+            echo_right = " "
+
+        out = Text()
+        out.append("[", style=colors["edge"])
+        out.append(echo_left, style=colors["dust"] if echo_left.strip() else colors["edge"])
+        out.append(shell_left, style=colors["pulse"] if lock > 0.80 else colors["shell"])
+        out.append(inner_left, style=colors["shell"] if inner_left.strip() else colors["edge"])
+        out.append(
+            center,
+            style=colors["core_lock"] if lock > 0.88 else (colors["core"] if lock > 0.74 else colors["pulse"])
+        )
+        out.append(inner_right, style=colors["shell"] if inner_right.strip() else colors["edge"])
+        out.append(shell_right, style=colors["pulse"] if lock > 0.80 else colors["shell"])
         out.append(echo_right, style=colors["dust"] if echo_right.strip() else colors["edge"])
         out.append("]", style=colors["edge"])
         return out

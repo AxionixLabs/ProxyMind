@@ -72,9 +72,15 @@ class RenderCoord(object):
         text: typing.Optional[str],
         *,
         family: StatusFamily = StatusState.FAMILY_BUILTIN,
-        animated: bool = True
+        animated: bool = True,
+        reset_phase_on_text_change: bool = True
     ) -> None:
-        reset_phase = self.status_state.set_status(text, family=family, animated=animated)
+        reset_phase = self.status_state.set_status(
+            text,
+            family=family,
+            animated=animated,
+            reset_phase_on_text_change=reset_phase_on_text_change
+        )
 
         if not self.status_state.animating:
             await self.status_driver.stop(reset_phase=True)

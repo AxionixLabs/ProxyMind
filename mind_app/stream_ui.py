@@ -14,10 +14,8 @@ from mind_app.stream_io.output_record import StreamRecordWriter
 class StreamUI(object):
     """流式终端 UI façade：统一封装 record、正文渲染与轻状态显示。"""
 
-    STREAM = TextState.STREAM
     BLOCK  = TextState.BLOCK
-
-    DEFAULT_REFRESH_PER_SECOND = 16
+    STREAM = TextState.STREAM
 
     def __init__(self, log_file: str) -> None:
         self.log_file = log_file
@@ -28,6 +26,10 @@ class StreamUI(object):
         self._pending_status_revealed: typing.Optional[asyncio.Event] = None
         self._active_status_visible_at: typing.Optional[float] = None
         self._active_status_min_visible_sec = 0.0
+        self._heal_status_text: str = ""
+        self._heal_status_pending_text: str = ""
+        self._heal_status_last_flush_at: float = 0.0
+        self._heal_status_flush_task: typing.Optional[asyncio.Task[None]] = None
         self.record_writer: StreamRecordWriter
         self._reset_components()
 
@@ -35,6 +37,7 @@ class StreamUI(object):
         await self.record_writer.open()
 
     async def stop(self, *, blink: bool = True) -> None:
+        await self._cancel_heal_status_flush_task()
         await self._cancel_pending_status_task()
         await self.coordinator.stop(blink=blink)
         await self.record_writer.close()
@@ -113,12 +116,64 @@ class StreamUI(object):
             )
         )
 
+    async def begin_heal_status(
+        self,
+        summary: typing.Optional[str] = None,
+        *,
+        delay_sec: float = 0.0
+    ) -> None:
+        self.coordinator.hold_status_slot()
+        await self._cancel_pending_status_task()
+        await self._cancel_heal_status_flush_task()
+        text = self._compose_heal_status_text(summary)
+        self._heal_status_text = text
+        self._heal_status_pending_text = ""
+        self._heal_status_last_flush_at = time.perf_counter()
+        if delay_sec > 0:
+            await self._schedule_status_task(
+                self._delayed_status_flow(
+                    text,
+                    show_delay_sec=delay_sec,
+                    animate_after_sec=delay_sec,
+                    family="heal",
+                )
+            )
+            return None
+
+        await self.coordinator.set_status(text, family="heal", animated=True)
+        self._mark_status_visible(0.0)
+
+    async def update_heal_status_summary(
+        self,
+        summary: typing.Optional[str]
+    ) -> None:
+        text = self._compose_heal_status_text(summary)
+        if not text or text == self._heal_status_text:
+            return None
+
+        throttle  = 0.28
+        now       = time.perf_counter()
+        remaining = throttle - (now - self._heal_status_last_flush_at)
+
+        self._heal_status_pending_text = text
+
+        if remaining <= 0:
+            await self._flush_heal_status_text(text)
+            return None
+
+        if self._heal_status_flush_task is None:
+            self._heal_status_flush_task = asyncio.create_task(
+                self._flush_heal_status_after(remaining)
+            )
+
     async def end_status(self) -> None:
         await self._wait_status_visibility_if_needed()
+        await self._cancel_heal_status_flush_task()
         await self._cancel_pending_status_task()
         await self.coordinator.clear_status()
         self._active_status_visible_at = None
         self._active_status_min_visible_sec = 0.0
+        self._reset_heal_status_state()
 
     async def settle_stream(self) -> None:
         await self.coordinator.settle_stream()
@@ -133,9 +188,86 @@ class StreamUI(object):
         self._pending_status_revealed = None
         self._active_status_visible_at = None
         self._active_status_min_visible_sec = 0.0
+        self._reset_heal_status_state()
+
+        refresh_per_second = 16
+
         self.record_writer = StreamRecordWriter(self.log_file)
         self.coordinator = RenderCoord(
-            refresh_per_second=self.DEFAULT_REFRESH_PER_SECOND
+            refresh_per_second=refresh_per_second
+        )
+
+    def _clear_pending_status_task_ref(self, task: asyncio.Task[None]) -> None:
+        if self._pending_status_task is task:
+            self._pending_status_task = None
+            self._pending_status_force_reveal = False
+            self._pending_status_revealed = None
+
+    def _mark_status_visible(self, min_visible_sec: float) -> None:
+        self._active_status_visible_at = time.perf_counter()
+        self._active_status_min_visible_sec = max(0.0, float(min_visible_sec))
+
+    @staticmethod
+    def _on_status_task_done(task: asyncio.Task[None]) -> None:
+        if task.cancelled():
+            return None
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return None
+        except Exception as e:
+            logger.debug(f"[StreamUI] status task failed: {type(e).__name__}: {e}")
+
+    def _reset_heal_status_state(self) -> None:
+        self._heal_status_text = ""
+        self._heal_status_pending_text = ""
+        self._heal_status_last_flush_at = 0.0
+        self._heal_status_flush_task = None
+
+    @classmethod
+    def _compose_heal_status_text(cls, summary: typing.Optional[str]) -> str:
+        base_title = "restoring signal"
+        normalized = " ".join(str(summary or "").split())
+        if not normalized:
+            return base_title
+        lower = normalized.lower()
+        base_lower = base_title.lower()
+        if lower.startswith(f"{base_lower} · "):
+            return normalized
+        if lower == base_lower:
+            return base_title
+        return f"{base_title} · {normalized}"
+
+    async def _cancel_heal_status_flush_task(self) -> None:
+        task = self._heal_status_flush_task
+        if task is None:
+            return None
+        self._heal_status_flush_task = None
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            return None
+
+    async def _flush_heal_status_after(self, delay_sec: float) -> None:
+        try:
+            await asyncio.sleep(max(0.0, float(delay_sec)))
+            if self._heal_status_pending_text:
+                await self._flush_heal_status_text(self._heal_status_pending_text)
+        except asyncio.CancelledError:
+            return None
+        finally:
+            self._heal_status_flush_task = None
+
+    async def _flush_heal_status_text(self, text: str) -> None:
+        self._heal_status_pending_text = ""
+        self._heal_status_text = text
+        self._heal_status_last_flush_at = time.perf_counter()
+        await self.coordinator.set_status(
+            text,
+            family="heal",
+            animated=True,
+            reset_phase_on_text_change=False
         )
 
     async def _schedule_status_task(
@@ -165,23 +297,6 @@ class StreamUI(object):
         except asyncio.CancelledError:
             pass
 
-    def _clear_pending_status_task_ref(self, task: asyncio.Task[None]) -> None:
-        if self._pending_status_task is task:
-            self._pending_status_task = None
-            self._pending_status_force_reveal = False
-            self._pending_status_revealed = None
-
-    @staticmethod
-    def _on_status_task_done(task: asyncio.Task[None]) -> None:
-        if task.cancelled():
-            return None
-        try:
-            task.result()
-        except asyncio.CancelledError:
-            return None
-        except Exception as e:
-            logger.debug(f"[StreamUI] status task failed: {type(e).__name__}: {e}")
-
     async def _delayed_status_flow(
         self,
         text: typing.Optional[str],
@@ -210,10 +325,6 @@ class StreamUI(object):
             self._clear_pending_status_task_ref(task)
         except asyncio.CancelledError:
             return None
-
-    def _mark_status_visible(self, min_visible_sec: float) -> None:
-        self._active_status_visible_at = time.perf_counter()
-        self._active_status_min_visible_sec = max(0.0, float(min_visible_sec))
 
     async def _wait_status_visibility_if_needed(self) -> None:
         task = self._pending_status_task

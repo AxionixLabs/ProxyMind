@@ -656,36 +656,50 @@ class Enhancer(object):
 
         per_agent: dict[str, dict[str, typing.Any]] = {}
 
-        for element in results:
-            data   = element["data"]
-            serial = data.pop("serial", "unknown")
+        async def collect_heal_matrix() -> dict[str, dict[str, typing.Any]]:
+            for element in results:
+                data   = element["data"]
+                serial = data.pop("serial", "unknown")
 
-            async for heal_event in request.stream_heal(self.model_api, **data, slog=slog):
-                if heal_event.get("type") == "heal.failed":
-                    per_agent[serial] = {"ok": False, "error": heal_event.get("error")}
-                    continue
+                async for heal_event in request.stream_heal(self.model_api, **data, slog=slog):
+                    if heal_event.get("type") == "heal.failed":
+                        per_agent[serial] = {"ok": False, "error": heal_event.get("error")}
+                        continue
 
-                if heal_event.get("type") != "heal.result":
-                    continue
+                    if heal_event.get("type") != "heal.result":
+                        continue
 
-                heal_result = heal_event.get("result")
-                if not isinstance(heal_result, dict):
-                    continue
+                    heal_result = heal_event.get("result")
+                    if not isinstance(heal_result, dict):
+                        continue
 
-                reason = (heal_result.get("details") or {}).get("reason", "unknown")
+                    reason = (heal_result.get("details") or {}).get("reason", "unknown")
 
-                if serial not in per_agent:
-                    selector = ((heal_result.get("new_selector") or {}).get("primary") or {})
-                    locator = {
-                        "by": selector.get("by"),
-                        "value": selector.get("value")
-                    }
-                    per_agent[serial] = {"ok": True, "locator": locator, "reason": reason}
+                    if serial not in per_agent:
+                        selector = ((heal_result.get("new_selector") or {}).get("primary") or {})
+                        locator = {
+                            "by": selector.get("by"),
+                            "value": selector.get("value")
+                        }
+                        per_agent[serial] = {"ok": True, "locator": locator, "reason": reason}
 
-                if slog: await slog.feed(reason, display=StreamUI.BLOCK)
-                else: logger.debug(reason)
+                    if slog:
+                        await slog.update_heal_status_summary(reason)
+                        await slog.feed(reason, display=StreamUI.BLOCK)
+                    else:
+                        logger.debug(reason)
 
-        matrix = {k: v["locator"] for k, v in per_agent.items() if v.get("locator")}
+            return {k: v["locator"] for k, v in per_agent.items() if v.get("locator")}
+
+        if slog:
+            await slog.begin_heal_status()
+
+        try:
+            matrix = await collect_heal_matrix()
+
+        finally:
+            if slog:
+                await slog.end_status()
 
         if not matrix:
             return {

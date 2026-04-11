@@ -290,6 +290,7 @@ async def stream_heal(
                 if not message:
                     continue
                 if slog:
+                    await slog.update_heal_status_summary(message)
                     await slog.feed(message, display=StreamUI.BLOCK)
                 else:
                     logger.debug(message)
@@ -298,6 +299,7 @@ async def stream_heal(
             case "heal.failed":
                 error = str(event.get("error") or "unknown heal error")
                 if slog:
+                    await slog.update_heal_status_summary(error)
                     await slog.feed(error, display=StreamUI.BLOCK)
                 else:
                     logger.debug(error)

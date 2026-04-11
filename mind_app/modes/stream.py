@@ -129,21 +129,26 @@ async def stream_looper(
                 )
 
                 arguments = Enhancer.exchange(name, arguments, mind.report)
-                await slog.begin_tool_status()
+                result = None
                 try:
-                    result = await execute_tool(
-                        session,
-                        tool_meta=tool_meta,
-                        name=name,
-                        arguments=arguments,
-                        meta=event_meta
-                    )
-                    ok = not result.isError
+                    await slog.begin_tool_status()
+                    try:
+                        result = await execute_tool(
+                            session,
+                            tool_meta=tool_meta,
+                            name=name,
+                            arguments=arguments,
+                            meta=event_meta
+                        )
+                    finally:
+                        await slog.end_status()
 
+                    ok = not result.isError
                     enhancer: Enhancer = Enhancer(session, mode, model_api, kwargs.get("metadata"))
                     fields = await enhancer.enhance(name, arguments, result, ok, slog)
                 finally:
-                    await slog.end_status()
+                    if result is None:
+                        await slog.end_status()
 
                 await slog.feed(chunk=tool_result_text(fields), display=StreamUI.BLOCK)
 
