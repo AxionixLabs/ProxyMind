@@ -12,7 +12,6 @@ from rich.console import Console
 from mind_nova import const
 
 
-# 独立动画层：承接编译、聚合、下载等可单独调用的视觉效果。
 @dataclass(slots=True)
 class Particle:
     x: float

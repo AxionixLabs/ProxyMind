@@ -10,7 +10,7 @@ from rich.cells import cell_len
 from rich.live import Live
 from rich.text import Text
 from rich.console import Console
-from .status import DesignStatusMixin
+from .status import DesignStatusLiveDriver
 from .utils import (
     DESIGN_CONSOLE,
     DesignDoc,
@@ -27,7 +27,7 @@ from .fx import (
 from mind_nova import const
 
 
-class Design(DesignStatusMixin):
+class Design(DesignStatusLiveDriver):
     """对外保留的设计门面。"""
 
     console: Console = DESIGN_CONSOLE

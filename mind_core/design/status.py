@@ -9,13 +9,12 @@ from rich.cells import cell_len
 from rich.live import Live
 from rich.text import Text
 from rich.console import Console
-from mind_nova import const
 from .utils import (
     mix_hex_color, ease_in_out_sine
 )
+from mind_nova import const
 
 
-# 扫描类状态的动画参数。
 @dataclass(frozen=True)
 class SweepStatusSpec(object):
     refresh_per_second: int
@@ -50,8 +49,319 @@ class ProgressiveStatusSpec(object):
     tail_glow: float
 
 
-class DesignStatusMixin(object):
-    # 由 Design 门面提供的宿主属性，供状态动画在 mixin 内使用。
+@dataclass(frozen=True)
+class AgentLiveTheme(object):
+    refresh_per_second: int
+    text_width: int
+    base_pad: str
+    colors: dict[str, str]
+    default_title: str
+    default_detail: str
+
+
+def _fit_status_text(text: str, text_width: int) -> str:
+    raw = (text or "").strip()
+    if cell_len(raw) <= text_width:
+        return raw
+    trimmed = raw
+    while trimmed and cell_len(trimmed + "…") > text_width:
+        trimmed = trimmed[:-1]
+    return trimmed + "…"
+
+
+def _prefix_text(symbol: str, style: str) -> Text:
+    out = Text()
+    out.append(symbol, style=style)
+    out.append(" " * max(1, 3 - cell_len(symbol)))
+    return out
+
+
+def render_agent_wait_frame(
+    frame_idx: int,
+    snapshot: tuple[str, str],
+    width: int,
+    theme: AgentLiveTheme
+) -> Text:
+    title, detail = snapshot
+
+    fps           = theme.refresh_per_second
+    colors        = theme.colors
+    phase         = frame_idx / fps
+    breathe       = 0.5 + 0.5 * math.sin(phase * 1.85)
+    left_breathe  = 0.5 + 0.5 * math.sin(phase * 1.85 - 0.9)
+    right_breathe = 0.5 + 0.5 * math.sin(phase * 1.85 + 0.9)
+
+    sweep_primary = 0.5 + 0.5 * (
+        0.58 * math.sin(phase * 2.1)
+        + 0.28 * math.sin(phase * 1.17 + 1.1)
+        + 0.14 * math.cos(phase * 0.63 + 2.0)
+    )
+    sweep_echo = 0.5 + 0.5 * math.sin(phase * 1.72 + 2.1)
+    title_glow = 0.48 + breathe * 0.24
+    detail_glow = 0.18 + breathe * 0.18
+    pulse_glow = 0.30 + breathe * 0.30
+    title_tone = ease_in_out_sine(title_glow)
+    detail_tone = ease_in_out_sine(detail_glow)
+    pulse_tone = ease_in_out_sine(pulse_glow)
+    pulse_frames = ("⠈", "⠐", "⠠", "⢀", "⡀", "⠄", "⠂", "⠁", "⠂", "⠄", "⡀", "⢀", "⠠", "⠐")
+    detail_frames = ("·", "∙", "•", "∙", "·", "◦")
+
+    pulse_phase = (
+        (phase * 13.6)
+        + (ease_in_out_sine(0.5 + 0.5 * math.sin(phase * 4.2 - 0.35)) * 2.2)
+        + (0.12 * math.sin(phase * 5.8))
+    )
+    spin_phase = (
+        (phase * 9.4)
+        + (ease_in_out_sine(0.5 + 0.5 * math.sin(phase * 2.8 + 0.45)) * 0.9)
+    )
+
+    pulse = pulse_frames[int(pulse_phase) % len(pulse_frames)]
+    spin  = detail_frames[int(spin_phase) % len(detail_frames)]
+    chars = [" "] * width
+
+    styles: dict[int, str] = {}
+
+    left   = 2
+    center = width // 2
+    right  = width - 3
+
+    trail_left  = left + 2
+    trail_right = right - 2
+
+    head_primary        = trail_left + int((trail_right - trail_left) * sweep_primary)
+    head_echo           = trail_left + int((trail_right - trail_left) * sweep_echo)
+    ambient_radius      = 3 + round(breathe * 2.0)
+    center_quiet_radius = 1 + round((1.0 - breathe) * 1.4)
+
+    chars[left]   = "◍" if left_breathe > 0.72 else "◌"
+    styles[left]  = f"bold {mix_hex_color(colors['shell_dim'], colors['near'], 0.18 + left_breathe * 0.42)}"
+    chars[right]  = "◍" if right_breathe > 0.72 else "◌"
+    styles[right] = f"bold {mix_hex_color(colors['shell_dim'], colors['near'], 0.18 + right_breathe * 0.42)}"
+
+    for pos in range(left + 2, right - 1):
+        primary_distance = abs(pos - head_primary)
+        echo_distance = abs(pos - head_echo)
+        ambient_ratio = max(
+            0.0,
+            1.0 - (abs(pos - center) / max(1, ambient_radius + 1))
+        )
+        center_distance = abs(pos - center)
+        if primary_distance == 0:
+            chars[pos] = "•"
+            styles[pos] = f"bold {colors['core']}"
+        elif echo_distance == 0:
+            chars[pos] = "∙"
+            styles[pos] = f"bold {mix_hex_color(colors['beam_dim'], colors['beam'], 0.82)}"
+        elif 0 < primary_distance <= 3:
+            chars[pos] = "·"
+            styles[pos] = f"bold {colors['beam']}"
+        elif echo_distance in (1, 2) and (pos + frame_idx) % 2 == 0:
+            chars[pos] = "·"
+            styles[pos] = f"bold {mix_hex_color(colors['beam_dim'], colors['beam'], 0.56)}"
+        elif primary_distance <= 6 and (pos + frame_idx) % 2 == 0:
+            chars[pos] = "·"
+            styles[pos] = f"bold {colors['beam_dim']}"
+        elif (
+            ambient_ratio > 0.54
+            and center_distance > center_quiet_radius
+            and (pos + frame_idx) % 5 in (0, 2)
+        ):
+            chars[pos] = "∙" if ambient_ratio > 0.66 else "·"
+            styles[pos] = (
+                f"bold {mix_hex_color(colors['beam_dim'], colors['pulse'], 0.10 + ambient_ratio * 0.28)}"
+            )
+        elif (pos + frame_idx) % 11 == 0 and trail_left <= pos <= trail_right:
+            chars[pos] = "·"
+            styles[pos] = f"bold {colors['beam_dim']}"
+
+    chars[center]  = "◎" if breathe > 0.55 else "◉"
+    styles[center] = f"bold {mix_hex_color(colors['near'], colors['core'], 0.55 + breathe * 0.45)}"
+
+    line1 = Text()
+    line1.append(theme.base_pad)
+    for cell_idx, glyph in enumerate(chars):
+        line1.append(glyph, style=styles.get(cell_idx, ""))
+
+    line2 = Text()
+    line2.append(theme.base_pad)
+    line2.append_text(
+        _prefix_text(
+            pulse,
+            f"bold {mix_hex_color(colors['pulse_dim'], colors['pulse'], pulse_tone)}"
+        )
+    )
+    line2.append(
+        _fit_status_text(title or theme.default_title, theme.text_width),
+        style=f"bold {mix_hex_color(colors['detail'], colors['title'], title_tone)}"
+    )
+
+    line3 = Text()
+    line3.append(theme.base_pad)
+    line3.append_text(
+        _prefix_text(
+            spin,
+            f"bold {mix_hex_color(colors['shell_dim'], colors['pulse_dim'], detail_tone)}"
+        )
+    )
+    line3.append(
+        _fit_status_text(detail or theme.default_detail, theme.text_width),
+        style=f"{mix_hex_color(colors['detail_dim'], colors['detail'], detail_tone)}"
+    )
+
+    out = Text(no_wrap=True, overflow="crop")
+    out.append_text(line1)
+    out.append("\n")
+    out.append_text(line2)
+    out.append("\n")
+    out.append_text(line3)
+    return out
+
+
+def render_agent_connect_frame(
+    frame_idx: int,
+    snapshot: tuple[str, str],
+    width: int,
+    theme: AgentLiveTheme
+) -> Text:
+    title, detail = snapshot
+
+    fps           = theme.refresh_per_second
+    colors        = theme.colors
+    phase         = frame_idx / fps
+    breathe       = 0.5 + 0.5 * math.sin(phase * 2.2)
+    scan          = ease_in_out_sine(0.5 + 0.5 * math.sin(phase * 3.8))
+    echo_scan     = ease_in_out_sine(0.5 + 0.5 * math.sin(phase * 3.8 + 1.55))
+    bridge_focus  = ease_in_out_sine(scan)
+    title_glow    = 0.58 + breathe * 0.18
+    detail_glow   = 0.24 + breathe * 0.12
+    pulse_glow    = 0.42 + breathe * 0.20
+    title_tone    = ease_in_out_sine(title_glow)
+    detail_tone   = ease_in_out_sine(detail_glow)
+    pulse_tone    = ease_in_out_sine(pulse_glow)
+    spin_frames   = ("⠋", "⠙", "⠚", "⠒", "⠂", "⠆", "⠖", "⠶", "⠴", "⠦", "⠇", "⠏")
+    detail_frames = ("·", "∙", "•", "∙", "·", "◦")
+
+    spin_phase = (
+        (phase * 14.2)
+        + (ease_in_out_sine(0.5 + 0.5 * math.sin(phase * 4.0)) * 2.4)
+        + (0.16 * math.sin(phase * 6.0 + 0.2))
+    )
+    detail_phase = (
+        (phase * 9.6)
+        + (ease_in_out_sine(0.5 + 0.5 * math.sin(phase * 2.9 + 1.0)) * 0.8)
+    )
+
+    chars = [" "] * width
+
+    styles: dict[int, str] = {}
+
+    left   = 1
+    center = width // 2
+    right  = width - 2
+
+    left_lane         = list(range(left + 1, center))
+    right_lane        = list(range(center + 1, right))
+    head              = min(len(left_lane) - 1, max(0, round(scan * (len(left_lane) - 1))))
+    echo_head         = min(len(left_lane) - 1, max(0, round(echo_scan * (len(left_lane) - 1))))
+    prev_phase        = max(0.0, phase - (1 / fps))
+    prev_scan         = ease_in_out_sine(0.5 + 0.5 * math.sin(prev_phase * 3.8))
+    prev_bridge_focus = ease_in_out_sine(prev_scan)
+    focus_rising      = bridge_focus >= prev_bridge_focus
+    hot_threshold     = 0.82 if focus_rising else 0.70
+    warm_threshold    = 0.62 if focus_rising else 0.48
+
+    center_char = "◆" if bridge_focus >= hot_threshold else ("◈" if bridge_focus >= warm_threshold else "◇")
+    center_tone = (
+        0.50
+        + (bridge_focus * 0.24)
+        + (breathe * 0.16)
+        + (0.08 if center_char == "◆" else (0.03 if center_char == "◈" else 0.0))
+    )
+
+    chars[left]    = "◉" if breathe > 0.48 else "◎"
+    styles[left]   = f"bold {mix_hex_color(colors['node'], colors['node_hot'], 0.35 + (0.5 + 0.5 * math.sin(phase * 2.2 - 0.8)) * 0.55)}"
+    chars[center]  = center_char
+    styles[center] = f"bold {mix_hex_color(colors['node'], colors['node_hot'], center_tone)}"
+    chars[right]   = "◉" if breathe > 0.48 else "◎"
+    styles[right]  = f"bold {mix_hex_color(colors['node'], colors['node_hot'], 0.35 + (0.5 + 0.5 * math.sin(phase * 2.2 + 0.8)) * 0.55)}"
+
+    def paint_lane(
+        lane: list[int],
+        active_head: int,
+        echo_head_idx: int
+    ) -> None:
+        for lane_idx, pos in enumerate(lane):
+            primary_ratio = max(0.0, 1.0 - (abs(lane_idx - active_head) / 4.0))
+            echo_ratio    = max(0.0, 1.0 - (abs(lane_idx - echo_head_idx) / 3.0))
+            bridge_ratio  = max(0.0, 1.0 - (abs(pos - center) / 4.0)) * bridge_focus
+            lane_glyph    = "─"
+            ratio         = 0.16 + (bridge_ratio * 0.18)
+
+            if primary_ratio >= 0.76:
+                lane_glyph = "═"
+                ratio = 1.0
+            elif primary_ratio >= 0.38:
+                lane_glyph = "─"
+                ratio = max(ratio, 0.34 + (primary_ratio * 0.42))
+            elif echo_ratio >= 0.58 and (lane_idx + frame_idx) % 2 == 0:
+                lane_glyph = "╌"
+                ratio = max(ratio, 0.26 + (echo_ratio * 0.34))
+            elif bridge_ratio > 0.42 and (pos + frame_idx) % 3 != 1:
+                lane_glyph = "·"
+                ratio = max(ratio, 0.20 + (bridge_ratio * 0.28))
+
+            chars[pos]  = lane_glyph
+            styles[pos] = f"bold {mix_hex_color(colors['rail_dim'], colors['rail_hot'], ratio)}"
+
+    mirrored_head      = len(right_lane) - 1 - head
+    mirrored_echo_head = len(right_lane) - 1 - echo_head
+
+    paint_lane(left_lane, head, echo_head)
+    paint_lane(right_lane, mirrored_head, mirrored_echo_head)
+
+    line1 = Text()
+    line1.append(theme.base_pad)
+    for cell_idx, glyph in enumerate(chars):
+        line1.append(glyph, style=styles.get(cell_idx, ""))
+
+    line2 = Text()
+    line2.append(theme.base_pad)
+    line2.append_text(
+        _prefix_text(
+            spin_frames[int(spin_phase) % len(spin_frames)],
+            f"bold {mix_hex_color(colors['pulse_dim'], colors['pulse'], pulse_tone)}"
+        )
+    )
+    line2.append(
+        _fit_status_text(title or theme.default_title, theme.text_width),
+        style=f"bold {mix_hex_color(colors['detail'], colors['title'], title_tone)}"
+    )
+
+    line3 = Text()
+    line3.append(theme.base_pad)
+    line3.append_text(
+        _prefix_text(
+            detail_frames[int(detail_phase) % len(detail_frames)],
+            f"bold {mix_hex_color(colors['detail_dim'], colors['pulse_dim'], detail_tone)}"
+        )
+    )
+    line3.append(
+        _fit_status_text(detail or theme.default_detail, theme.text_width),
+        style=f"{mix_hex_color(colors['detail_dim'], colors['detail'], detail_tone)}"
+    )
+
+    out = Text(no_wrap=True, overflow="crop")
+    out.append_text(line1)
+    out.append("\n")
+    out.append_text(line2)
+    out.append("\n")
+    out.append_text(line3)
+    return out
+
+
+class DesignStatusLiveDriver(object):
+
     design_level: str
     console: Console | None = None
 
@@ -64,134 +374,38 @@ class DesignStatusMixin(object):
         if self.design_level != const.SHOW_LEVEL:
             return None
 
-        fps = 30
         width = min(34, max(24, self.console.width - 22))
-        text_width = min(56, max(28, self.console.width - 10))
-        base_pad = "  "
-        colors = {
-            "shell": "#223444",
-            "shell_dim": "#13202C",
-            "core": "#F2FFFD",
-            "near": "#8EDAE0",
-            "beam": "#73C7D4",
-            "beam_dim": "#35586A",
-            "title": "#E6FBF3",
-            "detail": "#94A6BA",
-            "detail_dim": "#60758C",
-            "pulse": "#9BDCF2",
-            "pulse_dim": "#4B6B86",
-        }
-
-        def fit(text: str) -> str:
-            raw = (text or "").strip()
-            if cell_len(raw) <= text_width:
-                return raw
-            trimmed = raw
-            while trimmed and cell_len(trimmed + "…") > text_width:
-                trimmed = trimmed[:-1]
-            return trimmed + "…"
-
-        def prefix_text(symbol: str, style: str) -> Text:
-            out = Text()
-            out.append(symbol, style=style)
-            out.append(" " * max(1, 3 - cell_len(symbol)))
-            return out
-
-        def render(frame_idx: int) -> Text:
-            title, detail = snapshot()
-            phase = frame_idx / fps
-            breathe = 0.5 + 0.5 * math.sin(phase * 1.85)
-            left_breathe = 0.5 + 0.5 * math.sin(phase * 1.85 - 0.9)
-            right_breathe = 0.5 + 0.5 * math.sin(phase * 1.85 + 0.9)
-            sweep = 0.5 + 0.5 * (
-                0.58 * math.sin(phase * 2.1)
-                + 0.28 * math.sin(phase * 1.17 + 1.1)
-                + 0.14 * math.cos(phase * 0.63 + 2.0)
-            )
-            title_glow = 0.48 + breathe * 0.24
-            detail_glow = 0.18 + breathe * 0.18
-            pulse_glow = 0.30 + breathe * 0.30
-            title_tone = ease_in_out_sine(title_glow)
-            detail_tone = ease_in_out_sine(detail_glow)
-            pulse_tone = ease_in_out_sine(pulse_glow)
-            pulse = "◦" if math.sin(phase * 2.0) > 0 else "◌"
-            spin = "•" if math.sin(phase * 2.6) > 0 else "·"
-
-            chars = [" "] * width
-            styles: dict[int, str] = {}
-            left = 2
-            center = width // 2
-            right = width - 3
-            trail_left = left + 2
-            trail_right = right - 2
-            head = trail_left + int((trail_right - trail_left) * sweep)
-
-            chars[left] = "◌"
-            styles[left] = f"bold {mix_hex_color(colors['shell_dim'], colors['near'], 0.18 + left_breathe * 0.42)}"
-            chars[center] = "◎" if breathe > 0.55 else "◉"
-            styles[center] = f"bold {mix_hex_color(colors['near'], colors['core'], 0.55 + breathe * 0.45)}"
-            chars[right] = "◌"
-            styles[right] = f"bold {mix_hex_color(colors['shell_dim'], colors['near'], 0.18 + right_breathe * 0.42)}"
-
-            for pos in range(left + 2, right - 1):
-                if abs(pos - head) == 0:
-                    chars[pos] = "•"
-                    styles[pos] = f"bold {colors['core']}"
-                elif 0 < head - pos <= 3 or 0 < pos - head <= 3:
-                    chars[pos] = "·"
-                    styles[pos] = f"bold {colors['beam']}"
-                elif abs(pos - head) <= 6 and (pos + frame_idx) % 2 == 0:
-                    chars[pos] = "·"
-                    styles[pos] = f"bold {colors['beam_dim']}"
-                elif (pos + frame_idx) % 9 == 0 and trail_left <= pos <= trail_right:
-                    chars[pos] = "·"
-                    styles[pos] = f"bold {colors['beam_dim']}"
-
-            line1 = Text()
-            line1.append(base_pad)
-            for idx, char in enumerate(chars):
-                line1.append(char, style=styles.get(idx, ""))
-
-            line2 = Text()
-            line2.append(base_pad)
-            line2.append_text(
-                prefix_text(
-                    pulse,
-                    f"bold {mix_hex_color(colors['pulse_dim'], colors['pulse'], pulse_tone)}"
-                )
-            )
-            line2.append(
-                fit(title or "Subscription Idle"),
-                style=f"bold {mix_hex_color(colors['detail'], colors['title'], title_tone)}"
-            )
-
-            line3 = Text()
-            line3.append(base_pad)
-            line3.append_text(
-                prefix_text(
-                    spin,
-                    f"bold {mix_hex_color(colors['shell_dim'], colors['pulse_dim'], detail_tone)}"
-                )
-            )
-            line3.append(
-                fit(detail or "Waiting for link state"),
-                style=f"{mix_hex_color(colors['detail_dim'], colors['detail'], detail_tone)}"
-            )
-
-            out = Text(no_wrap=True, overflow="crop")
-            out.append_text(line1)
-            out.append("\n")
-            out.append_text(line2)
-            out.append("\n")
-            out.append_text(line3)
-            return out
-
+        theme = AgentLiveTheme(
+            refresh_per_second=32,
+            text_width=min(56, max(28, self.console.width - 10)),
+            base_pad="  ",
+            colors={
+                "shell"      : "#223444",
+                "shell_dim"  : "#13202C",
+                "core"       : "#D9FCFF",
+                "near"       : "#56D8E8",
+                "beam"       : "#35C2DB",
+                "beam_dim"   : "#35586A",
+                "title"      : "#DDFBFF",
+                "detail"     : "#94A6BA",
+                "detail_dim" : "#60758C",
+                "pulse"      : "#6BE2FF",
+                "pulse_dim"  : "#3E6F8E"
+            },
+            default_title="Subscription Idle",
+            default_detail="Waiting for link state"
+        )
         tick = 0
-        with Live(render(0), console=self.console, refresh_per_second=fps, transient=True) as live:
+        with Live(
+            render_agent_wait_frame(0, snapshot(), width, theme),
+            console=self.console,
+            refresh_per_second=theme.refresh_per_second,
+            transient=True
+        ) as live:
             while not stop_event.is_set():
                 tick += 1
-                live.update(render(tick))
-                await asyncio.sleep(1 / fps)
+                live.update(render_agent_wait_frame(tick, snapshot(), width, theme))
+                await asyncio.sleep(1 / theme.refresh_per_second)
 
     async def agent_connect_live(
         self,
@@ -202,123 +416,36 @@ class DesignStatusMixin(object):
         if self.design_level != const.SHOW_LEVEL:
             return None
 
-        fps = 24
         width = min(34, max(24, self.console.width - 22))
-        text_width = min(56, max(28, self.console.width - 10))
-        base_pad = "  "
-        colors = {
-            "pulse": "#C3E8FF",
-            "pulse_dim": "#6B89A3",
-            "title": "#F7FBFF",
-            "detail": "#A8B6C8",
-            "detail_dim": "#6E8095",
-            "node": "#7DD3FC",
-            "node_hot": "#F0FBFF",
-            "rail_dim": "#284055",
-            "rail_hot": "#D9F7FF",
-        }
-
-        def fit(text: str) -> str:
-            raw = (text or "").strip()
-            if cell_len(raw) <= text_width:
-                return raw
-            trimmed = raw
-            while trimmed and cell_len(trimmed + "…") > text_width:
-                trimmed = trimmed[:-1]
-            return trimmed + "…"
-
-        def prefix_text(symbol: str, style: str) -> Text:
-            out = Text()
-            out.append(symbol, style=style)
-            out.append(" " * max(1, 3 - cell_len(symbol)))
-            return out
-
-        def render(frame_idx: int) -> Text:
-            title, detail = snapshot()
-            phase = frame_idx / fps
-            breathe = 0.5 + 0.5 * math.sin(phase * 2.2)
-            scan = 0.5 + 0.5 * math.sin(phase * 4.2)
-            title_glow = 0.58 + breathe * 0.18
-            detail_glow = 0.24 + breathe * 0.12
-            pulse_glow = 0.42 + breathe * 0.20
-            title_tone = ease_in_out_sine(title_glow)
-            detail_tone = ease_in_out_sine(detail_glow)
-            pulse_tone = ease_in_out_sine(pulse_glow)
-
-            chars = [" "] * width
-            styles: dict[int, str] = {}
-            left = 1
-            center = width // 2
-            right = width - 2
-            left_lane = list(range(left + 1, center))
-            right_lane = list(range(center + 1, right))
-            head = min(len(left_lane) - 1, max(0, round(scan * (len(left_lane) - 1))))
-
-            chars[left] = "◉"
-            styles[left] = f"bold {mix_hex_color(colors['node'], colors['node_hot'], 0.35 + (0.5 + 0.5 * math.sin(phase * 2.2 - 0.8)) * 0.55)}"
-            chars[center] = "◆" if breathe > 0.5 else "◈"
-            styles[center] = f"bold {mix_hex_color(colors['node'], colors['node_hot'], 0.65 + breathe * 0.35)}"
-            chars[right] = "◉"
-            styles[right] = f"bold {mix_hex_color(colors['node'], colors['node_hot'], 0.35 + (0.5 + 0.5 * math.sin(phase * 2.2 + 0.8)) * 0.55)}"
-
-            for idx, pos in enumerate(left_lane):
-                distance = abs(idx - head)
-                ratio = 0.22 if distance > 1 else (0.58 if distance == 1 else 1.0)
-                chars[pos] = "═" if distance == 0 else "─"
-                styles[pos] = f"bold {mix_hex_color(colors['rail_dim'], colors['rail_hot'], ratio)}"
-
-            mirrored_head = len(right_lane) - 1 - head
-            for idx, pos in enumerate(right_lane):
-                distance = abs(idx - mirrored_head)
-                ratio = 0.22 if distance > 1 else (0.58 if distance == 1 else 1.0)
-                chars[pos] = "═" if distance == 0 else "─"
-                styles[pos] = f"bold {mix_hex_color(colors['rail_dim'], colors['rail_hot'], ratio)}"
-
-            line1 = Text()
-            line1.append(base_pad)
-            for idx, char in enumerate(chars):
-                line1.append(char, style=styles.get(idx, ""))
-
-            line2 = Text()
-            line2.append(base_pad)
-            line2.append_text(
-                prefix_text(
-                    "↺" if math.sin(phase * 2.8) > 0 else "↻",
-                    f"bold {mix_hex_color(colors['pulse_dim'], colors['pulse'], pulse_tone)}"
-                )
-            )
-            line2.append(
-                fit(title or "Opening Fold Link"),
-                style=f"bold {mix_hex_color(colors['detail'], colors['title'], title_tone)}"
-            )
-
-            line3 = Text()
-            line3.append(base_pad)
-            line3.append_text(
-                prefix_text(
-                    "·",
-                    f"bold {mix_hex_color(colors['detail_dim'], colors['pulse_dim'], detail_tone)}"
-                )
-            )
-            line3.append(
-                fit(detail or "Waiting for subscription handshake"),
-                style=f"{mix_hex_color(colors['detail_dim'], colors['detail'], detail_tone)}"
-            )
-
-            out = Text(no_wrap=True, overflow="crop")
-            out.append_text(line1)
-            out.append("\n")
-            out.append_text(line2)
-            out.append("\n")
-            out.append_text(line3)
-            return out
-
+        theme = AgentLiveTheme(
+            refresh_per_second=30,
+            text_width=min(56, max(28, self.console.width - 10)),
+            base_pad="  ",
+            colors={
+                "pulse"      : "#7EDCFF",
+                "pulse_dim"  : "#4E7A9D",
+                "title"      : "#E8F9FF",
+                "detail"     : "#A8B6C8",
+                "detail_dim" : "#6E8095",
+                "node"       : "#48C8FF",
+                "node_hot"   : "#BDF4FF",
+                "rail_dim"   : "#284055",
+                "rail_hot"   : "#63D7F4"
+            },
+            default_title="Opening Fold Link",
+            default_detail="Waiting for subscription handshake"
+        )
         tick = 0
-        with Live(render(0), console=self.console, refresh_per_second=fps, transient=True) as live:
+        with Live(
+            render_agent_connect_frame(0, snapshot(), width, theme),
+            console=self.console,
+            refresh_per_second=theme.refresh_per_second,
+            transient=True
+        ) as live:
             while not stop_event.is_set():
                 tick += 1
-                live.update(render(tick))
-                await asyncio.sleep(1 / fps)
+                live.update(render_agent_connect_frame(tick, snapshot(), width, theme))
+                await asyncio.sleep(1 / theme.refresh_per_second)
 
     async def stream_wait_live(
         self,
@@ -466,44 +593,44 @@ class DesignStatusMixin(object):
         def build_chat(i: int) -> tuple[list[str], dict[int, str]]:
             phase = i / motion["phase_div"]
             cycle = max(12, int(motion["chat_cycle"]))
-            beat = i % cycle
+            beat  = i % cycle
 
-            sender_talk = beat in {1, 2, 3, 4, 5, 6, 7}
-            sender_release = beat in {8, 9}
+            sender_talk     = beat in {1, 2, 3, 4, 5, 6, 7}
+            sender_release  = beat in {8, 9}
             receiver_listen = beat in {10, 11, 12, 13}
-            receiver_ack = beat in {14, 15, 16, 17}
+            receiver_ack    = beat in {14, 15, 16, 17}
 
-            left_rest = 2
-            right_rest = width - 3
-            sender_shift = -1 if sender_talk else 0
+            left_rest      = 2
+            right_rest     = width - 3
+            sender_shift   = -1 if sender_talk else 0
             receiver_shift = 1 if receiver_ack else 0
 
-            left = clamp(left_rest + sender_shift)
-            right = clamp(right_rest + receiver_shift)
+            left       = clamp(left_rest + sender_shift)
+            right      = clamp(right_rest + receiver_shift)
             lane_start = left + 2
-            lane_end = right - 2
-            lane_span = max(1, lane_end - lane_start)
-            lead = 0.5 + 0.5 * math.sin(phase * motion["lead_freq"])
+            lane_end   = right - 2
+            lane_span  = max(1, lane_end - lane_start)
+            lead       = 0.5 + 0.5 * math.sin(phase * motion["lead_freq"])
             head_ratio = 0.10 + 0.78 * lead
 
             if sender_talk:
                 head_ratio = min(0.96, head_ratio + 0.06)
 
-            head = clamp(lane_start + int(lane_span * head_ratio))
-            tail_len = min(8, max(4, width // 4))
+            head       = clamp(lane_start + int(lane_span * head_ratio))
+            tail_len   = min(8, max(4, width // 4))
             reply_gate = 0.5 + 0.5 * math.sin((phase * motion["reply_freq"]) + motion["reply_phase"])
             reply_head = clamp(lane_end - int((lane_span * 0.22) * reply_gate))
-            chars = [" "] * width
+            chars      = [" "] * width
 
             styles: dict[int, str] = {}
 
-            left_shell = glyphs["bubble_left"][1 if sender_talk else (2 if sender_release else 0)]
-            right_shell = glyphs["bubble_right"][1 if receiver_ack else (2 if receiver_listen else 0)]
-            left_dot_idle = glyphs["bubble_dot"][0]
-            left_dot_talk = glyphs["speak"][0] if (i % 4) < 2 else glyphs["speak"][1]
-            right_dot_idle = glyphs["listen"][0]
+            left_shell       = glyphs["bubble_left"][1 if sender_talk else (2 if sender_release else 0)]
+            right_shell      = glyphs["bubble_right"][1 if receiver_ack else (2 if receiver_listen else 0)]
+            left_dot_idle    = glyphs["bubble_dot"][0]
+            left_dot_talk    = glyphs["speak"][0] if (i % 4) < 2 else glyphs["speak"][1]
+            right_dot_idle   = glyphs["listen"][0]
             right_dot_listen = glyphs["listen"][1] if (i % 4) < 2 else glyphs["pulse"]
-            reply_glyph = glyphs["reply"][1] if (i % 4) < 2 else glyphs["reply"][0]
+            reply_glyph      = glyphs["reply"][1] if (i % 4) < 2 else glyphs["reply"][0]
 
             chars[left] = left_shell
             styles[left] = (
@@ -796,22 +923,24 @@ class DesignStatusMixin(object):
     @classmethod
     def tool_status_renderable(cls, phase: float, text: str) -> Text:
         spec = cls.status_spec("tool")
+
         colors = {
-            "edge": "bold #6A6256",
-            "shell": "bold #B9AB96",
-            "core": "bold #EDE2CE",
-            "pulse": "bold #DCC8AB",
-            "dust": "bold #857866",
-            "text_peak": "bold #E6D7BF",
-            "text_soft": "bold #DFD0B8",
-            "text_near": "bold #D7C7AF",
-            "text_mid": "bold #C5B094",
-            "text_fade": "bold #AB967F",
-            "text_dim": "bold #8C7B6A"
+            "edge"      : "bold #6A6256",
+            "shell"     : "bold #B9AB96",
+            "core"      : "bold #EDE2CE",
+            "pulse"     : "bold #DCC8AB",
+            "dust"      : "bold #857866",
+            "text_peak" : "bold #E6D7BF",
+            "text_soft" : "bold #DFD0B8",
+            "text_near" : "bold #D7C7AF",
+            "text_mid"  : "bold #C5B094",
+            "text_fade" : "bold #AB967F",
+            "text_dim"  : "bold #8C7B6A"
         }
 
         text = cls.fit_status_text(text, kind="tool", fallback="function calling")
         span = max(1, len(text))
+
         sweep = cls._sway_focus(
             phase,
             span,
@@ -851,36 +980,40 @@ class DesignStatusMixin(object):
     @classmethod
     def builtin_status_renderable(cls, phase: float, text: str) -> Text:
         spec = cls.status_spec("builtin")
-        status_shell_motion_scale = 0.76
+
+        status_shell_motion_scale    = 0.76
         status_inner_solid_threshold = 0.87
-        status_inner_soft_threshold = 0.70
+        status_inner_soft_threshold  = 0.70
         status_outer_solid_threshold = 0.92
-        status_outer_soft_threshold = 0.77
-        status_edge_threshold = 0.83
+        status_outer_soft_threshold  = 0.77
+        status_edge_threshold        = 0.83
+
         stable_colors = {
-            "edge": "bold #40515D",
-            "core": "bold #DCE9ED",
-            "near": "bold #B3CAD3",
-            "trail": "bold #78949F",
-            "dust": "bold #4C606B",
-            "text": "bold #DCEAF0",
-            "text_soft": "bold #D2E3E9",
-            "text_near": "bold #C2D7DE",
-            "text_mid": "bold #9DB8C2",
-            "text_fade": "bold #697F89",
-            "text_dim": "bold #53656E"
+            "edge"      : "bold #40515D",
+            "core"      : "bold #DCE9ED",
+            "near"      : "bold #B3CAD3",
+            "trail"     : "bold #78949F",
+            "dust"      : "bold #4C606B",
+            "text"      : "bold #DCEAF0",
+            "text_soft" : "bold #D2E3E9",
+            "text_near" : "bold #C2D7DE",
+            "text_mid"  : "bold #9DB8C2",
+            "text_fade" : "bold #697F89",
+            "text_dim"  : "bold #53656E"
         }
 
-        text = cls.fit_status_text(text, kind="builtin", fallback="working")
-        colors = stable_colors
-        shell_motion = phase * (spec.shell_freq * status_shell_motion_scale)
-        breathe = 0.5 + (0.5 * math.sin(shell_motion))
-        left_outer_phase = 0.5 + (0.5 * math.sin(shell_motion - 1.45))
-        left_inner_phase = 0.5 + (0.5 * math.sin(shell_motion - 0.75))
+        text   = cls.fit_status_text(text, kind="builtin", fallback="working")
+
+        colors            = stable_colors
+        shell_motion      = phase * (spec.shell_freq * status_shell_motion_scale)
+        breathe           = 0.5 + (0.5 * math.sin(shell_motion))
+        left_outer_phase  = 0.5 + (0.5 * math.sin(shell_motion - 1.45))
+        left_inner_phase  = 0.5 + (0.5 * math.sin(shell_motion - 0.75))
         right_inner_phase = 0.5 + (0.5 * math.sin(shell_motion + 0.75))
         right_outer_phase = 0.5 + (0.5 * math.sin(shell_motion + 1.45))
-        shell_phase = 0.5 + (0.5 * math.sin(shell_motion + 2.1))
-        span = max(1, len(text))
+        shell_phase       = 0.5 + (0.5 * math.sin(shell_motion + 2.1))
+        span              = max(1, len(text))
+
         drift = cls._drift_focus(
             phase,
             span,
@@ -950,31 +1083,34 @@ class DesignStatusMixin(object):
     @classmethod
     def thinking_status_renderable(cls, phase: float, text: str) -> Text:
         spec = cls.status_spec("wait")
-        status_shell_motion_scale = 0.76
+
+        status_shell_motion_scale    = 0.76
         status_inner_solid_threshold = 0.87
-        status_inner_soft_threshold = 0.70
+        status_inner_soft_threshold  = 0.70
         status_outer_solid_threshold = 0.92
-        status_outer_soft_threshold = 0.77
-        status_edge_threshold = 0.83
+        status_outer_soft_threshold  = 0.77
+        status_edge_threshold        = 0.83
+
         colors = {
-            "edge": "bold #445856",
-            "dot": "bold #D7E6E1",
-            "dot_soft": "bold #B5CAC4",
-            "dot_dim": "bold #748A85",
-            "text": "bold #DDE7E3",
-            "text_near": "bold #A4B5B0",
-            "text_tail": "bold #667873",
-            "text_dim": "bold #465652"
+            "edge"      : "bold #445856",
+            "dot"       : "bold #D7E6E1",
+            "dot_soft"  : "bold #B5CAC4",
+            "dot_dim"   : "bold #748A85",
+            "text"      : "bold #DDE7E3",
+            "text_near" : "bold #A4B5B0",
+            "text_tail" : "bold #667873",
+            "text_dim"  : "bold #465652"
         }
 
         text = cls.fit_status_text(text, kind="wait", fallback="thinking")
-        shell_motion = phase * (spec.shell_freq * status_shell_motion_scale)
-        breathe = 0.5 + (0.5 * math.sin(shell_motion))
-        left_outer_phase = 0.5 + (0.5 * math.sin(shell_motion - 1.7))
-        left_inner_phase = 0.5 + (0.5 * math.sin(shell_motion - 0.9))
+
+        shell_motion      = phase * (spec.shell_freq * status_shell_motion_scale)
+        breathe           = 0.5 + (0.5 * math.sin(shell_motion))
+        left_outer_phase  = 0.5 + (0.5 * math.sin(shell_motion - 1.7))
+        left_inner_phase  = 0.5 + (0.5 * math.sin(shell_motion - 0.9))
         right_inner_phase = 0.5 + (0.5 * math.sin(shell_motion + 0.9))
         right_outer_phase = 0.5 + (0.5 * math.sin(shell_motion + 1.7))
-        shell_phase = 0.5 + (0.5 * math.sin(shell_motion + 2.2))
+        shell_phase       = 0.5 + (0.5 * math.sin(shell_motion + 2.2))
 
         left_outer = cls._status_shell_char(
             left_outer_phase,
@@ -1186,16 +1322,16 @@ class DesignStatusMixin(object):
     ) -> None:
         soft_style = soft_style or peak_style
         near_style = near_style or peak_style
-        mid_style = mid_style or dim_style
+        mid_style  = mid_style or dim_style
         fade_style = fade_style or dim_style
 
         for pos, char in enumerate(text):
-            delta = pos - focus
-            span = lead_span if delta >= 0 else tail_span
-            distance = abs(delta)
+            delta      = pos - focus
+            span       = lead_span if delta >= 0 else tail_span
+            distance   = abs(delta)
             soft_limit = peak_radius + (span * max(0.0, soft_ratio))
             near_limit = peak_radius + (span * max(0.0, near_ratio))
-            mid_limit = peak_radius + (span * max(0.0, mid_ratio))
+            mid_limit  = peak_radius + (span * max(0.0, mid_ratio))
 
             if distance <= peak_radius:
                 style = peak_style
@@ -1261,9 +1397,10 @@ class DesignStatusMixin(object):
         entry_pad: float,
         exit_pad: float
     ) -> float:
-        left_pad = max(0.0, float(entry_pad))
+        left_pad  = max(0.0, float(entry_pad))
         right_pad = max(0.0, float(exit_pad))
-        travel = max(1.0, float(max(0, span - 1)) + left_pad + right_pad)
+        travel    = max(1.0, float(max(0, span - 1)) + left_pad + right_pad)
+
         return (phase % travel) - left_pad
 
     @classmethod
@@ -1550,3 +1687,7 @@ class DesignStatusMixin(object):
         out.append(echo_right, style=colors["dust"] if echo_right.strip() else colors["edge"])
         out.append("]", style=colors["edge"])
         return out
+
+
+if __name__ == '__main__':
+    pass
