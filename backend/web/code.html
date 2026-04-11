@@ -315,7 +315,23 @@
       width:100%;
       min-width:0;
     }
-    .hero-tools{margin-top:0}
+    .hero-tools{
+      margin-top:0;
+      width:100%;
+      display:grid;
+      grid-template-columns:minmax(0, 1fr) auto;
+      gap:12px;
+      align-items:center;
+    }
+    .hero-tools-group{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+      min-width:0;
+    }
+    .hero-tools-group--actions{justify-content:flex-start}
+    .hero-tools-group--status{justify-content:flex-end}
     .hero-tools a,
     .hero-tools button,
     .hero-tools label[for]{
@@ -656,7 +672,10 @@
       display:inline-flex;
       align-items:center;
       justify-content:center;
-      min-width:120px;
+      min-width:132px;
+      width:132px;
+      max-width:132px;
+      font-variant-numeric:tabular-nums;
     }
     .confirm-cancel-btn{
       border:1px solid rgba(255,255,255,.12);
@@ -1363,11 +1382,31 @@
         linear-gradient(180deg, rgba(92,255,214,.24), rgba(92,255,214,.10)),
         rgba(8,20,26,.9);
     }
+    .tool-strip .primary-btn:active{
+      transform:translateY(1px);
+      border-color:rgba(92,255,214,.52);
+      background:
+        linear-gradient(180deg, rgba(92,255,214,.14), rgba(92,255,214,.06)),
+        rgba(6,16,22,.94);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.04) inset,
+        0 6px 14px rgba(0,0,0,.14);
+    }
     .tool-strip .ghost-btn:hover{
       border-color:rgba(122,167,255,.28);
       background:
         linear-gradient(180deg, rgba(122,167,255,.08), rgba(255,255,255,.03)),
         rgba(9,14,22,.92);
+    }
+    .tool-strip .ghost-btn:active{
+      transform:translateY(1px);
+      border-color:rgba(122,167,255,.38);
+      background:
+        linear-gradient(180deg, rgba(122,167,255,.05), rgba(255,255,255,.02)),
+        rgba(7,12,20,.96);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.04) inset,
+        0 6px 14px rgba(0,0,0,.14);
     }
     .config-grid{
       display:grid;
@@ -1672,6 +1711,8 @@
       font-size:12px;
     }
     @media (max-width: 1040px){
+      .hero-tools{grid-template-columns:1fr}
+      .hero-tools-group--status{justify-content:flex-start}
       .page-content-grid--sidebar{grid-template-columns:minmax(0, 1fr)}
       .page-column--side{position:static}
       .page-column--rail{position:static}
@@ -1716,9 +1757,11 @@
     </section>
 
     <section class="hero-tools-section">
-      <div class="hero-tools tool-strip">
-        <button class="hero-tool-mark" type="button" id="open-structure">Structure</button>
-        <button class="hero-tool-mark" type="button" id="reset-top">Reset</button>
+      <div class="hero-tools">
+        <div class="hero-tools-group hero-tools-group--actions">
+          <button class="hero-tool-mark" type="button" id="open-structure">Structure</button>
+          <button class="hero-tool-mark" type="button" id="reset-top">Reset</button>
+        </div>
       </div>
     </section>
 

@@ -15,12 +15,10 @@ from mcp_hub.hub_manage import DeviceManage
 from middlewares.mid_auth import HelixTokenVerifier
 from middlewares import register_middlewares
 from routers import register_routers
-from utilities import const
 from utilities.runtime import (
-    app_ctx,
-    Active,
-    Idle
+    app_ctx, Active, Idle
 )
+from utilities import const
 from register import register_all_tools
 
 
@@ -61,6 +59,7 @@ async def lifespan(web_app: FastAPI) -> typing.AsyncGenerator[None, None]:
 
     web_app.state.idle = idle
     web_app.state.ctx = app_ctx
+    web_app.state.agent_example = None
 
     async with mcp.session_manager.run():
         await idle.start_idle()

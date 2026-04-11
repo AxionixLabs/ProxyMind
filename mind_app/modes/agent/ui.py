@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import json
+import httpx
 import typing
+import asyncio
 from loguru import logger
 from mind_core.design import Design
+from ...runtime.keepalive import run_keepalive
 from .models import (
     AgentLiveStatus, AgentSessionRuntime
 )
+from mind_nova import const
 
 if typing.TYPE_CHECKING:
     from ...mind_core import Mind
@@ -27,81 +30,62 @@ async def start_status_animation(mind: "Mind", live_status: AgentLiveStatus) -> 
     )
 
 
-def render_mind_call_curl(example: dict[str, typing.Any]) -> str | None:
-    """把服务端下发的结构化调用示例渲染成多行 curl。"""
-    method_raw  = example.get("method")
-    url_raw     = example.get("url")
-    headers_raw = example.get("headers")
-    body_raw    = example.get("body")
+def ensure_agent_keepalive(
+    runtime: AgentSessionRuntime,
+    stop_event: asyncio.Event
+) -> None:
+    """确保 agent 模式在后台维持 keepalive。"""
+    tasks = runtime.pending_tasks if runtime.pending_tasks is not None else set()
+    runtime.pending_tasks = tasks
 
-    if not isinstance(method_raw, str) or not method_raw.strip():
-        return None
-    if not isinstance(url_raw, str) or not url_raw.strip():
-        return None
-    if not isinstance(headers_raw, dict):
-        return None
-    if body_raw is not None and not isinstance(body_raw, dict):
-        return None
+    for task in list(tasks):
+        if task.get_name() == "agent keepalive" and not task.done():
+            return None
 
-    method = method_raw.strip().upper()
-    url    = url_raw.strip()
-    lines  = [f'curl -X {method} "{url}"']
+    async def runner() -> None:
+        try:
+            await run_keepalive(stop_event)
+        except asyncio.CancelledError:
+            logger.debug("[Agent] keepalive cancelled")
+            raise
 
-    for key, value in headers_raw.items():
-        if key in (None, "") or value in (None, ""):
-            continue
-        lines.append(f'  -H "{str(key)}: {str(value)}"')
-
-    if body_raw:
-        body_text = json.dumps(body_raw, ensure_ascii=False, indent=2)
-        lines.append(f"  -d '{body_text}'")
-
-    return " \\\n".join(lines)
+    task = asyncio.create_task(runner(), name="agent keepalive")
+    tasks.add(task)
+    task.add_done_callback(tasks.discard)
 
 
-def render_mind_call_example(example: dict[str, typing.Any]) -> str | None:
-    """把单条调用示例渲染成可直接阅读的文本块。"""
-    title_raw = example.get("title")
-    id_raw    = example.get("id")
-
-    title = str(title_raw).strip() if isinstance(title_raw, str) else ""
-    example_id = str(id_raw).strip() if isinstance(id_raw, str) else ""
-
-    header_parts: list[str] = []
-    if title:
-        header_parts.append(title)
-    if example_id:
-        header_parts.append(f"id={example_id}")
-
-    curl_text = render_mind_call_curl(example)
-
-    if not curl_text:
+async def publish_external_access(runtime: AgentSessionRuntime) -> None:
+    """把当前会话示例推送到本地页面。"""
+    example = runtime.mind_call_example
+    if not isinstance(example, dict):
+        logger.debug("[Agent] mind_call example missing")
         return None
 
-    if header_parts:
-        return f"{' | '.join(header_parts)}\n{curl_text}"
-    return curl_text
+    if not runtime.credential:
+        logger.debug("[Agent] credential missing")
 
-
-def log_external_access(runtime: AgentSessionRuntime) -> None:
-    """打印服务端下发的外部访问令牌和接口调用示例。"""
-    if not runtime.access_token:
-        logger.debug("[Agent] access token missing")
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(3.0, connect=1.5)) as http:
+            response = await http.put(
+                f"{const.BASE_URL}/api/agent",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "session_id" : runtime.session_id,
+                    "credential" : runtime.credential,
+                    "mind_call"  : example
+                }
+            )
+        response.raise_for_status()
+    except (OSError, httpx.HTTPError, ValueError) as exc:
+        logger.debug(
+            f"[Agent] agent page sync failed: {type(exc).__name__}: {exc}"
+        )
         return None
 
-    examples = runtime.mind_call_examples or []
-    rendered_blocks: list[str] = []
-    for example in examples:
-        if isinstance(example, dict):
-            rendered = render_mind_call_example(example)
-            if rendered:
-                rendered_blocks.append(rendered)
 
-    if rendered_blocks:
-        Design.console.print("\n\n".join(rendered_blocks) + "\n")
-        return None
-
-    logger.debug("[Agent] mind_call examples missing")
+def show_external_access_link() -> None:
+    """输出本地 agent 示例页面链接。"""
+    Design.console.print(f"🌐 Agent: {const.BASE_URL}/agent\n")
 
 
 if __name__ == '__main__':

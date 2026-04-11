@@ -175,6 +175,26 @@
       background:var(--surface-fill);
       white-space:nowrap;
     }
+    .status-chip{
+      flex:0 0 18ch;
+      width:18ch;
+      min-width:18ch;
+      max-width:18ch;
+      justify-content:center;
+      text-align:center;
+      font-variant-numeric:tabular-nums;
+      overflow:hidden;
+    }
+    .count-chip{
+      flex:0 0 7ch;
+      width:7ch;
+      min-width:7ch;
+      max-width:7ch;
+      justify-content:center;
+      text-align:center;
+      font-variant-numeric:tabular-nums;
+      overflow:hidden;
+    }
     .pad,
     .section{
       position:relative;
@@ -334,7 +354,23 @@
       width:100%;
       min-width:0;
     }
-    .hero-tools{margin-top:0}
+    .hero-tools{
+      margin-top:0;
+      width:100%;
+      display:grid;
+      grid-template-columns:minmax(0, 1fr) auto;
+      gap:12px;
+      align-items:center;
+    }
+    .hero-tools-group{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+      min-width:0;
+    }
+    .hero-tools-group--actions{justify-content:flex-start}
+    .hero-tools-group--status{justify-content:flex-end}
     .hero-tools a,
     .hero-tools button,
     .hero-tools label[for]{
@@ -423,6 +459,9 @@
       gap:14px;
       align-items:start;
       align-content:start;
+    }
+    .page-summary-grid:empty{
+      display:none;
     }
     .metric{
       padding:16px;
@@ -549,14 +588,25 @@
     }
     .filter-chip{
       appearance:none;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:14ch;
+      min-width:14ch;
+      max-width:14ch;
+      min-height:34px;
+      box-sizing:border-box;
       border:1px solid rgba(255,255,255,.08);
       background:rgba(0,0,0,.14);
       color:var(--muted);
       border-radius:999px;
-      padding:7px 10px;
+      padding:7px 12px;
       font-size:12px;
       cursor:pointer;
       transition:border-color .12s ease, color .12s ease, background .12s ease;
+      text-align:center;
+      white-space:nowrap;
+      overflow:hidden;
     }
     .filter-chip.active{
       border-color:rgba(92,255,214,.22);
@@ -789,6 +839,8 @@
       font-size:12px;
     }
     @media (max-width: 980px){
+      .hero-tools{grid-template-columns:1fr}
+      .hero-tools-group--status{justify-content:flex-start}
       .page-summary-grid,
       .page-content-grid--equal{
         grid-template-columns:1fr;
@@ -836,13 +888,17 @@
     </section>
 
     <section class="hero-tools-section">
-      <div class="hero-tools tool-strip">
-        <button class="hero-tool-mark" type="button" id="refresh-idle">Refresh</button>
-        <div class="chip" id="refresh-time">sync pending</div>
-        <label class="chip" for="auto-refresh">
-          <input id="auto-refresh" type="checkbox" checked />
-          <span>auto sync</span>
-        </label>
+      <div class="hero-tools">
+        <div class="hero-tools-group hero-tools-group--actions">
+          <button class="hero-tool-mark" type="button" id="refresh-idle">Refresh</button>
+        </div>
+        <div class="hero-tools-group hero-tools-group--status">
+          <div class="chip status-chip" id="refresh-time">sync pending</div>
+          <label class="chip" for="auto-refresh">
+            <input id="auto-refresh" type="checkbox" checked />
+            <span>auto sync</span>
+          </label>
+        </div>
       </div>
     </section>
 
@@ -856,7 +912,7 @@
             <div class="chip">runtime jobs</div>
           </div>
           <div class="bar-end">
-            <div class="chip" id="jobs-count">0/0</div>
+            <div class="chip count-chip" id="jobs-count">0/0</div>
           </div>
         </div>
         <div class="section">
@@ -885,7 +941,7 @@
             <div class="chip">runtime sessions</div>
           </div>
           <div class="bar-end">
-            <div class="chip" id="sessions-count">0/0</div>
+            <div class="chip count-chip" id="sessions-count">0/0</div>
           </div>
         </div>
         <div class="section">
@@ -1025,6 +1081,7 @@
     const previewMode = location.protocol === "file:";
     let idleData = null;
     let refreshTimer = null;
+    let refreshTask = null;
     const qs = new URLSearchParams(location.search);
     let jobsScope = qs.get("jobs_scope") || "all";
     let sessionsScope = qs.get("sessions_scope") || "all";
@@ -1199,6 +1256,11 @@
 
     function setRefreshStamp(text){
       refreshTime.textContent = text;
+    }
+
+    function setRefreshPending(pending){
+      refreshButton.disabled = pending;
+      refreshButton.setAttribute("aria-busy", pending ? "true" : "false");
     }
 
     function renderJobs(data){
@@ -1416,30 +1478,43 @@
 
     async function loadIdle(options = {}){
       const {silent = false} = options;
-      if(previewMode){
-        idleData = previewIdleData;
-        renderOverview(idleData);
-        renderJobs(idleData);
-        renderSessions(idleData);
-        renderVideo(idleData.instance || {});
-        renderReports(idleData.instance || {});
-        setRefreshStamp("preview mode");
-        return;
-      }
-      setRefreshStamp("syncing");
-      const resp = await fetch("/api/idle", {cache: "no-store"});
-      if(!resp.ok) throw new Error("idle load failed");
-      idleData = await resp.json();
-      renderOverview(idleData);
-      renderJobs(idleData);
-      renderSessions(idleData);
-      renderVideo(idleData.instance || {});
-      renderReports(idleData.instance || {});
-      setRefreshStamp(`updated ${fmtClock(new Date())}`);
-      if(!silent){
-        const [title] = shellMessage("synced");
-        showBanner(title, "Runtime updated.", "");
-      }
+      if(refreshTask) return refreshTask;
+      refreshTask = (async () => {
+        if(previewMode){
+          idleData = previewIdleData;
+          renderOverview(idleData);
+          renderJobs(idleData);
+          renderSessions(idleData);
+          renderVideo(idleData.instance || {});
+          renderReports(idleData.instance || {});
+          setRefreshStamp("preview mode");
+          return;
+        }
+        setRefreshPending(true);
+        setRefreshStamp("syncing");
+        try{
+          const resp = await fetch("/api/idle", {cache: "no-store"});
+          if(!resp.ok) throw new Error("idle load failed");
+          idleData = await resp.json();
+          renderOverview(idleData);
+          renderJobs(idleData);
+          renderSessions(idleData);
+          renderVideo(idleData.instance || {});
+          renderReports(idleData.instance || {});
+          setRefreshStamp(`updated ${fmtClock(new Date())}`);
+          if(!silent){
+            const [title] = shellMessage("synced");
+            showBanner(title, "Runtime updated.", "");
+          }
+        }catch(err){
+          setRefreshStamp("sync failed");
+          throw err;
+        }finally{
+          setRefreshPending(false);
+          refreshTask = null;
+        }
+      })();
+      return refreshTask;
     }
 
     function rerenderFilters(){
@@ -1461,7 +1536,6 @@
       if(!autoRefresh.checked) return;
       refreshTimer = setInterval(() => {
         loadIdle({silent: true}).catch(() => {
-          setRefreshStamp("sync failed");
           const [title] = shellMessage("sync_failed");
           showBanner(title, "Unable to update runtime.", "err");
         });
@@ -1487,17 +1561,15 @@
     });
     refreshButton.addEventListener("click", () => {
       loadIdle().catch(() => {
-        setRefreshStamp("sync failed");
         const [title] = shellMessage("sync_failed");
         showBanner(title, "Unable to update runtime.", "err");
       });
     });
     autoRefresh.addEventListener("change", scheduleRefresh);
     loadIdle().catch(() => {
-      setRefreshStamp("sync failed");
       const [title] = shellMessage("load_failed");
       showBanner(title, "Unable to load runtime data.", "err");
-      overviewHost.innerHTML = `<div class="metric"><b>Status</b><div class="value">N/A</div><div class="meta">runtime unavailable</div></div>`;
+      overviewHost.innerHTML = "";
       jobsHost.innerHTML = `<div class="empty">Unable to load jobs.</div>`;
       sessionsHost.innerHTML = `<div class="empty">Unable to load sessions.</div>`;
       videoHost.innerHTML = `<div class="empty">Unable to load video snapshot.</div>`;

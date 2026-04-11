@@ -178,6 +178,16 @@
       background:var(--surface-fill);
       white-space:nowrap;
     }
+    .status-chip{
+      flex:0 0 18ch;
+      width:18ch;
+      min-width:18ch;
+      max-width:18ch;
+      justify-content:center;
+      text-align:center;
+      font-variant-numeric:tabular-nums;
+      overflow:hidden;
+    }
     .pad,
     .section{
       position:relative;
@@ -345,7 +355,23 @@
       font-size:12px;
       color:var(--muted);
     }
-    .hero-tools{margin-top:0}
+    .hero-tools{
+      margin-top:0;
+      width:100%;
+      display:grid;
+      grid-template-columns:minmax(0, 1fr) auto;
+      gap:12px;
+      align-items:center;
+    }
+    .hero-tools-group{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+      min-width:0;
+    }
+    .hero-tools-group--actions{justify-content:flex-start}
+    .hero-tools-group--status{justify-content:flex-end}
     .hero-tools a,
     .hero-tools button,
     .hero-tools label[for]{
@@ -479,6 +505,11 @@
       align-content:start;
     }
     .status-list{
+      display:grid;
+      gap:10px;
+      align-content:start;
+    }
+    .status-list-row{
       display:flex;
       align-items:center;
       flex-wrap:wrap;
@@ -494,13 +525,22 @@
     .status-pill{
       display:inline-flex;
       align-items:center;
+      justify-content:center;
       gap:8px;
+      width:14ch;
+      min-width:14ch;
+      max-width:14ch;
+      min-height:34px;
       padding:8px 12px;
+      box-sizing:border-box;
       border:1px solid rgba(255,255,255,.08);
       border-radius:999px;
       background:rgba(0,0,0,.14);
       font-size:12px;
       color:var(--fg);
+      text-align:center;
+      font-variant-numeric:tabular-nums;
+      overflow:hidden;
     }
     .status-pill code{
       color:var(--accent);
@@ -570,6 +610,8 @@
       .page-content-grid--dashboard{grid-template-columns:1fr}
     }
     @media (max-width: 720px){
+      .hero-tools{grid-template-columns:1fr}
+      .hero-tools-group--status{justify-content:flex-start}
       .page-summary-grid{grid-template-columns:1fr}
       .page-content-grid--dashboard{grid-template-columns:1fr}
       .section-head{flex-direction:column; align-items:stretch}
@@ -606,7 +648,7 @@
     </section>
 
     <section class="hero-tools-section">
-      <div class="hero-tools tool-strip" id="hero-tools"></div>
+      <div class="hero-tools" id="hero-tools"></div>
     </section>
 
     <section class="page-content-grid page-content-grid--dashboard">
@@ -638,7 +680,7 @@
             <div class="chip">runtime status</div>
           </div>
           <div class="bar-end">
-            <div class="chip" id="refresh-pill">sync pending</div>
+            <div class="chip status-chip" id="refresh-pill">sync pending</div>
           </div>
         </div>
         <div class="section">
@@ -650,13 +692,16 @@
           </div>
           <div class="status-stack">
             <div class="status-list">
-              <span class="status-pill" id="status-pill"><span class="led"></span><span id="ready-text">checking</span></span>
-              <span class="status-pill">Workspace</span>
-              <span class="status-pill">Preferences</span>
-              <span class="status-pill">Code Studio</span>
-              <span class="status-pill">Logs</span>
-              <span class="status-pill">Runtime</span>
-              <span class="status-pill" id="version-pill">v__APP_VERSION__</span>
+              <div class="status-list-row">
+                <span class="status-pill" id="status-pill"><span class="led"></span><span id="ready-text">checking</span></span>
+              </div>
+              <div class="status-list-row">
+                <span class="status-pill">Workspace</span>
+                <span class="status-pill">Preferences</span>
+                <span class="status-pill">Code Studio</span>
+                <span class="status-pill">Logs</span>
+                <span class="status-pill">Runtime</span>
+              </div>
             </div>
             <div class="tip" id="entry-tip"></div>
           </div>
@@ -812,9 +857,13 @@
     }
 
     function renderHeroTools(entries){
-      heroToolsHost.innerHTML = entries.map((entry) => `
-        <a class="hero-tool-mark" href="${entry.href}" title="${escapeHtml(entry.description)}">${entry.title}</a>
-      `).join("");
+      heroToolsHost.innerHTML = `
+        <div class="hero-tools-group hero-tools-group--actions">
+          ${entries.map((entry) => `
+            <a class="hero-tool-mark" href="${entry.href}" title="${escapeHtml(entry.description)}">${entry.title}</a>
+          `).join("")}
+        </div>
+      `;
     }
 
     function renderTip(lines){
@@ -827,9 +876,12 @@
     mountFooter("page-footer", "HELIX · workspace · v__APP_VERSION__");
     renderOverview(entryConfig.overview);
 
+    let statusLoadTask = null;
+
     async function loadStatus(){
+      if(statusLoadTask) return statusLoadTask;
+      statusLoadTask = (async () => {
       const readyText      = document.getElementById("ready-text");
-      const versionPill    = document.getElementById("version-pill");
       const refreshPill    = document.getElementById("refresh-pill");
       const readyValue     = document.querySelector('[data-value="ready"]');
       const readyMeta      = document.querySelector('[data-meta="ready"]');
@@ -861,13 +913,11 @@
         if(versionResp.ok){
           const payload = await versionResp.json();
           if(payload.version){
-            versionPill.textContent = "v" + payload.version;
             versionValue.textContent = payload.version;
             versionMeta.textContent = "version confirmed";
           }
         }
       }catch(_err){
-        versionPill.textContent = "version n/a";
         versionValue.textContent = "N/A";
         versionMeta.textContent = "version unavailable";
       }
@@ -889,6 +939,12 @@
       }
 
       refreshPill.textContent = new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+      })();
+      try{
+        return await statusLoadTask;
+      }finally{
+        statusLoadTask = null;
+      }
     }
 
     loadStatus();

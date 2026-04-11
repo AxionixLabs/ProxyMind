@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Helix Logs</title>
+  <title>Helix Agent</title>
   <meta name="color-scheme" content="dark" />
   <link rel="icon" type="image/png" href="/static/favicon-96x96.png" sizes="96x96" />
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
@@ -185,16 +185,6 @@
       font-variant-numeric:tabular-nums;
       overflow:hidden;
     }
-    .count-chip{
-      flex:0 0 7ch;
-      width:7ch;
-      min-width:7ch;
-      max-width:7ch;
-      justify-content:center;
-      text-align:center;
-      font-variant-numeric:tabular-nums;
-      overflow:hidden;
-    }
     .pad,
     .section{
       position:relative;
@@ -359,6 +349,22 @@
       flex-direction:column;
       justify-content:flex-start;
     }
+    .ghost-btn,
+    .primary-btn{
+      appearance:none;
+      border-radius:12px;
+      padding:10px 14px;
+      font-size:12px;
+      letter-spacing:.04em;
+      min-height:40px;
+      line-height:1.2;
+      font-weight:500;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      transition:border-color .12s ease, transform .12s ease, background .12s ease;
+    }
     .hero-tools .hero-tool-mark{
       appearance:none;
       position:relative;
@@ -401,17 +407,6 @@
       opacity:.28;
       pointer-events:none;
     }
-    .search{
-      min-width:220px;
-      max-width:320px;
-      padding:9px 12px;
-      border-radius:12px;
-      border:1px solid var(--surface-border-soft);
-      background:var(--surface-fill-soft);
-      color:var(--fg);
-      outline:none;
-    }
-    .search::placeholder{color:var(--muted)}
     .hero-tools .hero-tool-mark:hover{
       transform:translateY(-1px);
       border-color:rgba(255,255,255,.16);
@@ -441,41 +436,11 @@
       cursor:not-allowed;
       transform:none;
     }
-    .page-summary-grid{
-      display:grid;
-      grid-template-columns:repeat(4, minmax(0, 1fr));
-      gap:14px;
-      align-items:start;
-      align-content:start;
-    }
     .page-content-grid{
       display:grid;
       gap:16px;
       align-items:start;
       align-content:start;
-    }
-    .metric{
-      padding:16px;
-      border:1px solid var(--surface-border-faint);
-      border-radius:16px;
-      background:var(--surface-fill-soft);
-      display:grid;
-      gap:8px;
-    }
-    .metric b{
-      font-size:12px;
-      letter-spacing:.08em;
-      text-transform:uppercase;
-      color:var(--muted);
-    }
-    .metric .value{
-      font-size:26px;
-      line-height:1;
-    }
-    .metric .meta{
-      font-size:12px;
-      color:var(--muted);
-      word-break:break-all;
     }
     .section-head{
       display:flex;
@@ -501,6 +466,75 @@
     .section-head .tool-strip{
       width:auto;
     }
+    .tool-strip .primary-btn,
+    .tool-strip .ghost-btn{
+      min-height:34px;
+      padding:0 12px;
+      border-radius:999px;
+      font-size:11px;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      white-space:nowrap;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.04) inset,
+        0 10px 24px rgba(0,0,0,.16);
+    }
+    .tool-strip .primary-btn{
+      border:1px solid rgba(92,255,214,.28);
+      background:
+        linear-gradient(180deg, rgba(92,255,214,.18), rgba(92,255,214,.08)),
+        rgba(7,18,24,.86);
+      color:#dcfff5;
+    }
+    .tool-strip .ghost-btn{
+      border:1px solid rgba(255,255,255,.12);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)),
+        rgba(7,12,18,.88);
+      color:rgba(215,247,255,.92);
+    }
+    .tool-strip .primary-btn:hover{
+      border-color:rgba(92,255,214,.42);
+      background:
+        linear-gradient(180deg, rgba(92,255,214,.24), rgba(92,255,214,.10)),
+        rgba(8,20,26,.9);
+    }
+    .tool-strip .ghost-btn:hover{
+      border-color:rgba(122,167,255,.28);
+      background:
+        linear-gradient(180deg, rgba(122,167,255,.08), rgba(255,255,255,.03)),
+        rgba(9,14,22,.92);
+    }
+    .tool-strip .primary-btn:active{
+      transform:translateY(1px);
+      border-color:rgba(92,255,214,.52);
+      background:
+        linear-gradient(180deg, rgba(92,255,214,.14), rgba(92,255,214,.06)),
+        rgba(6,16,22,.94);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.04) inset,
+        0 6px 14px rgba(0,0,0,.14);
+    }
+    .tool-strip .ghost-btn:active{
+      transform:translateY(1px);
+      border-color:rgba(122,167,255,.38);
+      background:
+        linear-gradient(180deg, rgba(122,167,255,.05), rgba(255,255,255,.02)),
+        rgba(7,12,20,.96);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.04) inset,
+        0 6px 14px rgba(0,0,0,.14);
+    }
+    .tool-strip .primary-btn:disabled,
+    .tool-strip .ghost-btn:disabled{
+      opacity:.45;
+      cursor:not-allowed;
+      transform:none;
+      filter:none;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.04) inset,
+        0 6px 14px rgba(0,0,0,.10);
+    }
     .filter-row{
       display:flex;
       flex-wrap:wrap;
@@ -525,6 +559,7 @@
       font-size:12px;
       cursor:pointer;
       transition:border-color .12s ease, color .12s ease, background .12s ease;
+      font:inherit;
       text-align:center;
       white-space:nowrap;
       overflow:hidden;
@@ -778,19 +813,68 @@
       0%{opacity:.4; transform:translate(-50%, -50%) scale(.24)}
       100%{opacity:0; transform:translate(-50%, -50%) scale(16)}
     }
+    .snippet-tabs{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-bottom:16px;
+    }
+    .snippet-output{
+      min-height:220px;
+      white-space:pre-wrap;
+    }
+    .json-output{
+      min-height:0;
+      white-space:pre-wrap;
+    }
+    .json-output.is-collapsed{
+      max-height:240px;
+      overflow:auto;
+    }
+    .detail-grid{
+      display:grid;
+      grid-template-columns:1fr;
+      gap:16px;
+      align-items:start;
+    }
+    #summary-grid{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:16px;
+      align-items:start;
+      align-content:start;
+    }
+    .mini-card{
+      padding:16px;
+      border:1px solid var(--surface-border-faint);
+      border-radius:16px;
+      background:var(--surface-fill-soft);
+      display:grid;
+      gap:8px;
+    }
+    .mini-card b{
+      font-size:12px;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:var(--muted);
+    }
+    .mini-card .value{
+      font-size:15px;
+      line-height:1.45;
+      word-break:break-all;
+    }
+    .mini-card .meta{
+      font-size:12px;
+      color:var(--muted);
+      word-break:break-all;
+    }
     @media (max-width: 980px){
-      .page-summary-grid{grid-template-columns:1fr 1fr}
+      .hero-tools{grid-template-columns:1fr}
+      .hero-tools-group--status{justify-content:flex-start}
       .section-head{flex-direction:column; align-items:stretch}
     }
     @media (max-width: 720px){
-      .hero-tools{grid-template-columns:1fr}
-      .hero-tools-group--status{justify-content:flex-start}
-      .page-summary-grid{grid-template-columns:1fr}
-      .search{max-width:none}
-      .entry-head{grid-template-columns:1fr 44px}
-      .entry-time,.entry-level,.entry-lines{grid-column:1}
-      .entry-no{grid-column:2; grid-row:1; align-self:start}
-      .entry-lines{justify-self:start}
+      #summary-grid{grid-template-columns:1fr}
     }
     @media (prefers-reduced-motion: reduce){
       .signal-title::before,
@@ -820,8 +904,8 @@
       </div>
       <div class="pad hero-head-pad">
         <div class="eyebrow">Helix</div>
-        <h1><span class="hero-title signal-title" data-text="Server Logs">Server Logs</span></h1>
-        <p class="sub">集中查看近期记录，并按需要筛选。</p>
+        <h1><span class="hero-title signal-title" data-text="Agent Nexus">Agent Nexus</span></h1>
+        <p class="sub">查看当前 agent 会话下发的外部调用示例，并在多种运行时之间快速切换。</p>
         <div id="page-nav"></div>
       </div>
     </section>
@@ -829,8 +913,7 @@
     <section class="hero-tools-section">
       <div class="hero-tools">
         <div class="hero-tools-group hero-tools-group--actions">
-          <button class="hero-tool-mark" type="button" id="refresh-logs">Refresh</button>
-          <button class="hero-tool-mark" type="button" id="copy-log-path">Copy Path</button>
+          <button class="hero-tool-mark" type="button" id="refresh-agent">Refresh</button>
         </div>
         <div class="hero-tools-group hero-tools-group--status">
           <div class="chip status-chip" id="refresh-time">sync pending</div>
@@ -842,32 +925,88 @@
       </div>
     </section>
 
-    <section class="page-summary-grid" id="metrics"></section>
-
     <section class="page-content-grid">
       <section class="card main-panel-card">
         <div class="bar">
           <div class="bar-start">
             <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
-            <div class="chip">log stream</div>
-          </div>
-          <div class="bar-end">
-            <div class="chip count-chip" id="log-count">0/0</div>
+            <div class="chip">runtime snippets</div>
           </div>
         </div>
         <div class="section">
           <div class="section-head">
             <div class="section-title-wrap">
-              <h2 class="section-title">Server Output</h2>
+              <h2 class="section-title">Invocation Samples</h2>
             </div>
             <div class="section-tools tool-strip">
-              <input class="search" id="log-search" type="search" placeholder="Search logs" />
+              <button class="primary-btn" type="button" id="copy-snippet">Copy</button>
             </div>
           </div>
-          <div class="filter-row" id="level-filters"></div>
-          <div class="console" id="log-console"></div>
+          <div class="snippet-tabs" id="snippet-tabs"></div>
+          <div class="console snippet-output" id="snippet-output">Waiting for agent example.</div>
         </div>
       </section>
+
+      <div class="detail-grid">
+        <section class="card">
+          <div class="bar">
+            <div class="bar-start">
+              <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+              <div class="chip">request profile</div>
+            </div>
+          </div>
+          <div class="section">
+            <div class="section-head">
+              <div class="section-title-wrap">
+                <h2 class="section-title">Session Surface</h2>
+              </div>
+            </div>
+            <div class="page-content-grid" id="summary-grid"></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="bar">
+            <div class="bar-start">
+              <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+              <div class="chip">request headers</div>
+            </div>
+          </div>
+          <div class="section">
+            <div class="section-head">
+              <div class="section-title-wrap">
+                <h2 class="section-title">Headers</h2>
+              </div>
+              <div class="section-tools tool-strip">
+                <button class="primary-btn" type="button" id="copy-headers">Copy</button>
+                <button class="ghost-btn" type="button" id="toggle-headers">▾</button>
+              </div>
+            </div>
+            <div class="console json-output" id="headers-json">{}</div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="bar">
+            <div class="bar-start">
+              <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+              <div class="chip">request body</div>
+            </div>
+          </div>
+          <div class="section">
+            <div class="section-head">
+              <div class="section-title-wrap">
+                <h2 class="section-title">Body</h2>
+              </div>
+              <div class="section-tools tool-strip">
+                <button class="primary-btn" type="button" id="copy-body">Copy</button>
+                <button class="ghost-btn" type="button" id="toggle-body">▾</button>
+              </div>
+            </div>
+            <div class="console json-output" id="body-json">{}</div>
+          </div>
+        </section>
+      </div>
     </section>
 
     <div class="page-footer-slot" id="page-footer"></div>
@@ -881,10 +1020,6 @@
         .replaceAll(">", "&gt;")
         .replaceAll("\"", "&quot;")
         .replaceAll("'", "&#39;");
-    }
-
-    function escapeRegExp(value){
-      return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
 
     function mountNav(targetId, nav, activeHref){
@@ -909,53 +1044,72 @@
 
     function shellMessage(kind){
       const dict = {
-        synced: ["Synced", "Logs updated."],
-        sync_failed: ["Sync Failed", "Unable to update logs."],
-        load_failed: ["Load Failed", "Unable to load logs."]
+        synced: ["Synced", "Agent example updated."],
+        sync_failed: ["Sync Failed", "Unable to update agent example."],
+        load_failed: ["Load Failed", "Agent example is not available yet."],
+        copied: ["Copied", "Snippet copied to clipboard."],
+        copied_headers: ["Copied", "Headers copied to clipboard."],
+        copied_body: ["Copied", "Body copied to clipboard."]
       };
       return dict[kind] || ["Notice", ""];
     }
 
     mountNav("page-nav", [
-      {title:"Workspace", href:"/", tag:"home"},
-      {title:"Preferences", href:"/pref", tag:"config"},
-      {title:"Code Studio", href:"/code", tag:"batch"},
-      {title:"Logs", href:"/logs", tag:"logs"},
-      {title:"Runtime", href:"/idle", tag:"runtime"}
-    ], "/logs");
+      {title:"Workspace", href:"/"},
+      {title:"Preferences", href:"/pref"},
+      {title:"Code Studio", href:"/code"},
+      {title:"Logs", href:"/logs"},
+      {title:"Runtime", href:"/idle"},
+      {title:"Agent", href:"/agent"}
+    ], "/agent");
     mountFooter("page-footer", "HELIX · workspace · v__APP_VERSION__");
 
     const banner = document.getElementById("banner");
-    const metricsHost = document.getElementById("metrics");
-    const filtersHost = document.getElementById("level-filters");
-    const consoleHost = document.getElementById("log-console");
+    const summaryHost = document.getElementById("summary-grid");
+    const tabsHost = document.getElementById("snippet-tabs");
+    const snippetOutput = document.getElementById("snippet-output");
+    const headersJson = document.getElementById("headers-json");
+    const bodyJson = document.getElementById("body-json");
     const refreshTime = document.getElementById("refresh-time");
-    const refreshButton = document.getElementById("refresh-logs");
+    const refreshButton = document.getElementById("refresh-agent");
+    const copySnippetButton = document.getElementById("copy-snippet");
+    const copyHeadersButton = document.getElementById("copy-headers");
+    const copyBodyButton = document.getElementById("copy-body");
+    const toggleHeadersButton = document.getElementById("toggle-headers");
+    const toggleBodyButton = document.getElementById("toggle-body");
     const autoRefresh = document.getElementById("auto-refresh");
-    const searchInput = document.getElementById("log-search");
-    const countChip = document.getElementById("log-count");
-    const copyPathButton = document.getElementById("copy-log-path");
     const previewMode = location.protocol === "file:";
     const previewPayload = {
-      exists: true,
-      path: "/preview/data/storage/helix.log",
-      line_count: 7,
-      truncated: false,
-      size: 248,
-      lines: [
-        "2026-03-22 10:08:11.102 | INFO     | helix boot",
-        "2026-03-22 10:08:12.328 | DEBUG    | idle watcher ready",
-        "2026-03-22 10:08:14.884 | WARNING  | runtime queue delayed",
-        "2026-03-22 10:08:18.015 | ERROR    | probe failed: preview",
-        "Traceback (most recent call last):",
-        "  File \"preview.py\", line 18, in <module>",
-        "RuntimeError: preview failure"
-      ]
+      session_id: "agent_session_preview",
+      credential: "preview_credential_token_xyz_12345678",
+      credential_tail: "12345678",
+      has_credential: true,
+      updated_at_ms: Date.now(),
+      mind_call: {
+        method: "POST",
+        url: "https://xxx/mind",
+        headers: {
+          "Authorization": "Bearer preview_credential_token_xyz_12345678",
+          "Content-Type": "application/json"
+        },
+        body: {
+          message: "使用fast模式云端压测 https://files.appserverx.com/common/example.md"
+        }
+      }
     };
-    let logData = previewPayload;
+    const snippetKinds = [
+      {key: "mac_curl", label: "Mac Curl"},
+      {key: "windows_curl", label: "Windows Curl"},
+      {key: "javascript", label: "JavaScript"},
+      {key: "python", label: "Python"},
+      {key: "java", label: "Java"}
+    ];
+    let agentData = previewPayload;
+    let activeSnippet = detectDefaultSnippetKind();
+    let headersCollapsed = true;
+    let bodyCollapsed = true;
     let refreshTimer = null;
     let refreshTask = null;
-    let levelScope = "all";
 
     function showBanner(title, detail, kind = ""){
       banner.className = kind ? `banner show ${kind}` : "banner show";
@@ -968,6 +1122,320 @@
       return date.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"});
     }
 
+    function fmtTime(ms){
+      if(!ms) return "waiting";
+      try{
+        return new Date(ms).toLocaleString();
+      }catch(_err){
+        return "waiting";
+      }
+    }
+
+    function fmtAgo(ms){
+      if(!ms) return "pending";
+      const delta = Math.max(0, Date.now() - ms);
+      if(delta < 15000) return "just now";
+      if(delta < 3600000) return `${Math.max(1, Math.floor(delta / 60000))}m ago`;
+      if(delta < 86400000) return `${Math.max(1, Math.floor(delta / 3600000))}h ago`;
+      return `${Math.max(1, Math.floor(delta / 86400000))}d ago`;
+    }
+
+    function syncState(updatedAtMs){
+      if(!updatedAtMs) return {label: "pending", detail: "No local snapshot yet."};
+      const delta = Math.max(0, Date.now() - updatedAtMs);
+      if(delta < 120000) return {label: "fresh", detail: `Synced ${fmtAgo(updatedAtMs)}.`};
+      if(delta < 600000) return {label: "aging", detail: `Synced ${fmtAgo(updatedAtMs)}.`};
+      return {label: "stale", detail: `Synced ${fmtAgo(updatedAtMs)}.`};
+    }
+
+    function detectDefaultSnippetKind(){
+      const fingerprint = `${navigator.platform || ""} ${navigator.userAgent || ""}`.toLowerCase();
+      if(fingerprint.includes("win")) return "windows_curl";
+      return "mac_curl";
+    }
+
+    function safeHeaders(value){
+      if(!value || typeof value !== "object" || Array.isArray(value)) return {};
+      return value;
+    }
+
+    function safeBody(value){
+      if(value === null || value === undefined) return null;
+      if(typeof value !== "object" || Array.isArray(value)) return null;
+      return value;
+    }
+
+    function maskSecret(value){
+      const raw = String(value || "");
+      if(!raw) return "";
+      if(raw.length <= 8) return "••••";
+      return `${raw.slice(0, 3)}••••${raw.slice(-4)}`;
+    }
+
+    function maskAuthorization(value){
+      const raw = String(value || "");
+      const match = raw.match(/^(\S+\s+)(.+)$/);
+      if(!match) return maskSecret(raw);
+      return `${match[1]}${maskSecret(match[2])}`;
+    }
+
+    function maskHeaders(headers){
+      return Object.fromEntries(Object.entries(headers || {}).map(([key, value]) => {
+        if(String(key).toLowerCase() === "authorization") {
+          return [key, maskAuthorization(value)];
+        }
+        return [key, value];
+      }));
+    }
+
+    function maskCall(call){
+      if(!call) return null;
+      return {
+        ...call,
+        headers: maskHeaders(call.headers || {})
+      };
+    }
+
+    function normalizeData(raw){
+      const data = raw && typeof raw === "object" ? raw : {};
+      const mindCallRaw = data.mind_call;
+      const mindCall = mindCallRaw && typeof mindCallRaw === "object" && !Array.isArray(mindCallRaw)
+        ? mindCallRaw
+        : null;
+      return {
+        session_id: typeof data.session_id === "string" ? data.session_id : "",
+        credential_tail: typeof data.credential_tail === "string" ? data.credential_tail : "",
+        has_credential: Boolean(data.has_credential),
+        updated_at_ms: Number.isFinite(Number(data.updated_at_ms)) ? Number(data.updated_at_ms) : 0,
+        mind_call: mindCall ? {
+          method: typeof mindCall.method === "string" ? mindCall.method.toUpperCase() : "",
+          url: typeof mindCall.url === "string" ? mindCall.url : "",
+          headers: safeHeaders(mindCall.headers),
+          body: safeBody(mindCall.body)
+        } : null
+      };
+    }
+
+    function jsonPretty(value, fallback = "{}"){
+      if(value === null) return "null";
+      try{
+        return JSON.stringify(value, null, 2);
+      }catch(_err){
+        return fallback;
+      }
+    }
+
+    function jsonCompact(value, fallback = "{}"){
+      if(value === null) return "null";
+      try{
+        return JSON.stringify(value);
+      }catch(_err){
+        return fallback;
+      }
+    }
+
+    function escapeShellSingle(text){
+      return String(text || "").replaceAll("'", "'\"'\"'");
+    }
+
+    function escapeCmdDouble(text){
+      return String(text || "")
+        .replaceAll("^", "^^")
+        .replaceAll("%", "%%")
+        .replaceAll("\"", "\\\"");
+    }
+
+    function escapeJava(text){
+      return String(text || "")
+        .replaceAll("\\", "\\\\")
+        .replaceAll("\"", "\\\"")
+        .replaceAll("\n", "\\n");
+    }
+
+    function buildMacCurl(call){
+      const lines = [`curl -X ${call.method} "${call.url}"`];
+      Object.entries(call.headers).forEach(([key, value]) => {
+        if(!key || value === undefined || value === null || value === "") return;
+        if(call.body && String(key).toLowerCase() === "content-type") return;
+        lines.push(`  -H "${String(key)}: ${String(value)}"`);
+      });
+      if(call.body){
+        lines.push(`  --json '${escapeShellSingle(jsonPretty(call.body, "{}"))}'`);
+      }
+      return lines.join(" \\\n");
+    }
+
+    function buildWindowsCurl(call){
+      const lines = [`curl.exe -X ${call.method} "${call.url}"`];
+      Object.entries(call.headers).forEach(([key, value]) => {
+        if(!key || value === undefined || value === null || value === "") return;
+        if(call.body && String(key).toLowerCase() === "content-type") return;
+        lines.push(`  -H "${escapeCmdDouble(String(key))}: ${escapeCmdDouble(String(value))}"`);
+      });
+      if(call.body){
+        lines.push(`  --json "${escapeCmdDouble(jsonCompact(call.body, "{}"))}"`);
+      }
+      return lines.join(" ^\n");
+    }
+
+    function buildJavaScript(call){
+      const bodyBlock = call.body
+        ? `  body: JSON.stringify(${jsonPretty(call.body, "{}")})\n`
+        : "";
+      return `const response = await fetch(${JSON.stringify(call.url)}, {\n` +
+        `  method: ${JSON.stringify(call.method)},\n` +
+        `  headers: ${jsonPretty(call.headers, "{}")},\n` +
+        bodyBlock +
+        `});\n\n` +
+        `const text = await response.text();\n` +
+        `console.log(response.status, text);`;
+    }
+
+    function buildPython(call){
+      const bodyBlock = call.body
+        ? `payload = json.loads(r'''${jsonPretty(call.body, "{}")}''')\n\nresponse = requests.request(${JSON.stringify(call.method)}, url, headers=headers, json=payload, timeout=30)`
+        : `response = requests.request(${JSON.stringify(call.method)}, url, headers=headers, timeout=30)`;
+      return `import json\nimport requests\n\n` +
+        `url = ${JSON.stringify(call.url)}\n` +
+        `headers = json.loads(r'''${jsonPretty(call.headers, "{}")}''')\n\n` +
+        `${bodyBlock}\n` +
+        `print(response.status_code)\n` +
+        `print(response.text)`;
+    }
+
+    function buildJava(call){
+      const headerLines = Object.entries(call.headers).map(([key, value]) => {
+        return `    .header("${escapeJava(String(key))}", "${escapeJava(String(value))}")`;
+      }).join("\n");
+      const bodyText = call.body ? jsonCompact(call.body, "{}") : "";
+      const publisher = call.body
+        ? `HttpRequest.BodyPublishers.ofString(body)`
+        : `HttpRequest.BodyPublishers.noBody()`;
+      const bodyDecl = call.body
+        ? `String body = "${escapeJava(bodyText)}";\n\n`
+        : "";
+      return `import java.net.URI;\n` +
+        `import java.net.http.HttpClient;\n` +
+        `import java.net.http.HttpRequest;\n` +
+        `import java.net.http.HttpResponse;\n\n` +
+        `HttpClient client = HttpClient.newHttpClient();\n` +
+        `${bodyDecl}` +
+        `HttpRequest request = HttpRequest.newBuilder()\n` +
+        `    .uri(URI.create("${escapeJava(call.url)}"))\n` +
+        `${headerLines ? headerLines + "\n" : ""}` +
+        `    .method("${escapeJava(call.method)}", ${publisher})\n` +
+        `    .build();\n\n` +
+        `HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());\n` +
+        `System.out.println(response.statusCode());\n` +
+        `System.out.println(response.body());`;
+    }
+
+    function snippetTextByKind(kind, call){
+      if(!call) return "Waiting for agent example.";
+      if(kind === "windows_curl") return buildWindowsCurl(call);
+      if(kind === "javascript") return buildJavaScript(call);
+      if(kind === "python") return buildPython(call);
+      if(kind === "java") return buildJava(call);
+      return buildMacCurl(call);
+    }
+
+    function renderSummary(data){
+      const call = data.mind_call;
+      if(!call){
+        summaryHost.innerHTML = `<div class="empty">Open agent mode once, then this page will receive the latest external call example.</div>`;
+        return;
+      }
+      const sync = syncState(data.updated_at_ms);
+
+      summaryHost.innerHTML = `
+        <div class="mini-card">
+          <b>Request URL</b>
+          <div class="value">${escapeHtml(call.url)}</div>
+          <div class="meta">Current external entry for this agent session.</div>
+        </div>
+        <div class="mini-card">
+          <b>Updated</b>
+          <div class="value">${escapeHtml(fmtTime(data.updated_at_ms))}</div>
+          <div class="meta">${escapeHtml(sync.detail)} State: ${escapeHtml(sync.label)}.</div>
+        </div>
+        <div class="mini-card">
+          <b>Method</b>
+          <div class="value">${escapeHtml(call.method || "--")}</div>
+          <div class="meta">Request method used by the current external entry.</div>
+        </div>
+        <div class="mini-card">
+          <b>Session ID</b>
+          <div class="value">${escapeHtml(data.session_id || "pending")}</div>
+          <div class="meta">Current agent session bound to this local page snapshot.</div>
+        </div>
+      `;
+    }
+
+    function renderSnippetTabs(){
+      tabsHost.innerHTML = snippetKinds.map((item) => `
+        <button class="filter-chip${item.key === activeSnippet ? " active" : ""}" type="button" data-kind="${item.key}">
+          ${escapeHtml(item.label)}
+        </button>
+      `).join("");
+    }
+
+    function renderSnippet(){
+      renderSnippetTabs();
+      snippetOutput.textContent = snippetTextByKind(activeSnippet, maskCall(agentData.mind_call));
+    }
+
+    function setButtonEnabled(button, enabled){
+      button.disabled = !enabled;
+      button.setAttribute("aria-disabled", enabled ? "false" : "true");
+    }
+
+    function isFoldableText(text){
+      const raw = String(text || "");
+      return raw.length > 900 || raw.split("\n").length > 18;
+    }
+
+    function syncJsonPanel(panel, button, text, collapsed){
+      const foldable = isFoldableText(text);
+      panel.classList.toggle("is-collapsed", foldable && collapsed);
+      button.hidden = !foldable;
+      button.disabled = !foldable;
+      button.textContent = foldable ? (collapsed ? "▾" : "▴") : "▾";
+    }
+
+    function syncCopyButtons(data){
+      const call = data.mind_call;
+      const headers = call ? (call.headers || {}) : {};
+      setButtonEnabled(copySnippetButton, Boolean(call));
+      setButtonEnabled(copyHeadersButton, Boolean(call) && Object.keys(headers).length > 0);
+      setButtonEnabled(copyBodyButton, Boolean(call && call.body));
+    }
+
+    function renderRawRequest(data){
+      const call = data.mind_call;
+      if(!call){
+        headersJson.textContent = "{}";
+        bodyJson.textContent = "{}";
+        syncJsonPanel(headersJson, toggleHeadersButton, "{}", true);
+        syncJsonPanel(bodyJson, toggleBodyButton, "{}", true);
+        return;
+      }
+      const headers = call.headers || {};
+      const body = call.body;
+      const headersDisplayText = jsonPretty(maskHeaders(headers), "{}");
+      const bodyDisplayText = body ? jsonPretty(body, "{}") : "null";
+      headersJson.textContent = headersDisplayText;
+      bodyJson.textContent = bodyDisplayText;
+      syncJsonPanel(headersJson, toggleHeadersButton, headersDisplayText, headersCollapsed);
+      syncJsonPanel(bodyJson, toggleBodyButton, bodyDisplayText, bodyCollapsed);
+    }
+
+    function renderPage(){
+      renderSummary(agentData);
+      renderSnippet();
+      renderRawRequest(agentData);
+      syncCopyButtons(agentData);
+    }
+
     function setRefreshStamp(text){
       refreshTime.textContent = text;
     }
@@ -977,151 +1445,24 @@
       refreshButton.setAttribute("aria-busy", pending ? "true" : "false");
     }
 
-    function levelOf(line){
-      const hit = String(line || "").match(/\|\s([A-Z]+)\s+\|/);
-      return hit ? hit[1] : "INFO";
-    }
-
-    function parseLogLine(line){
-      const raw = String(line || "");
-      const match = raw.match(/^(.+?)\s+\|\s+([A-Z]+)\s+\|\s+(.*)$/);
-      if(!match){
-        return {time:"", level:levelOf(raw), message:raw, structured:false};
-      }
-      return {
-        time: match[1],
-        level: match[2],
-        message: match[3],
-        structured: true
-      };
-    }
-
-    function buildLogEntries(lines){
-      return lines.reduce((entries, line, index) => {
-        const parsed = parseLogLine(line);
-        const current = entries[entries.length - 1];
-        if(parsed.structured || !current){
-          entries.push({
-            startLine: index + 1,
-            lineCount: 1,
-            time: parsed.time,
-            level: parsed.level,
-            message: parsed.message,
-            raw: String(line || "")
-          });
-          return entries;
-        }
-        current.lineCount += 1;
-        current.message = `${current.message}\n${parsed.message}`;
-        current.raw = `${current.raw}\n${String(line || "")}`;
-        return entries;
-      }, []);
-    }
-
-    function highlightText(value, query){
-      const raw = String(value || "");
-      if(!query) return escapeHtml(raw);
-      const re = new RegExp(`(${escapeRegExp(query)})`, "ig");
-      return escapeHtml(raw).replace(re, "<mark>$1</mark>");
-    }
-
-    function renderMetrics(data){
-      const lines = Array.isArray(data.lines) ? data.lines : [];
-      const entries = buildLogEntries(lines);
-      const levels = entries.reduce((acc, entry) => {
-        const level = entry.level;
-        acc[level] = (acc[level] || 0) + 1;
-        return acc;
-      }, {});
-      metricsHost.innerHTML = `
-        <div class="metric">
-          <b>Log Entries</b>
-          <div class="value">${entries.length}</div>
-          <div class="meta">${data.line_count || 0} lines · ${data.truncated ? "tail view" : "full view"}</div>
-        </div>
-        <div class="metric">
-          <b>Errors</b>
-          <div class="value">${levels.ERROR || 0}</div>
-          <div class="meta">${levels.CRITICAL || 0} critical</div>
-        </div>
-        <div class="metric">
-          <b>Warnings</b>
-          <div class="value">${levels.WARNING || 0}</div>
-          <div class="meta">${levels.INFO || 0} info</div>
-        </div>
-        <div class="metric">
-          <b>Source</b>
-          <div class="value">${previewMode ? "Preview" : "Local"}</div>
-          <div class="meta">${escapeHtml(data.path || "log path")}</div>
-        </div>
-      `;
-    }
-
-    function renderLevelFilters(entries){
-      const counts = entries.reduce((acc, entry) => {
-        const level = entry.level;
-        acc[level] = (acc[level] || 0) + 1;
-        return acc;
-      }, {});
-      const levels = ["all", "INFO", "DEBUG", "WARNING", "ERROR", "CRITICAL"]
-        .filter((key) => key === "all" || counts[key]);
-      filtersHost.innerHTML = levels.map((level) => `
-        <button class="filter-chip${levelScope === level ? " active" : ""}" type="button" data-level="${level}">
-          ${level} ${level === "all" ? entries.length : counts[level]}
-        </button>
-      `).join("");
-      filtersHost.onclick = (event) => {
-        const button = event.target.closest("button[data-level]");
-        if(!button) return;
-        levelScope = button.getAttribute("data-level") || "all";
-        renderConsole(logData);
-      };
-    }
-
-    function renderConsole(data){
-      const lines = Array.isArray(data.lines) ? data.lines : [];
-      const entries = buildLogEntries(lines);
-      const query = String(searchInput.value || "").trim().toLowerCase();
-      const filtered = entries.filter((entry) => {
-        if(levelScope !== "all" && entry.level !== levelScope) return false;
-        if(query && !entry.raw.toLowerCase().includes(query)) return false;
-        return true;
-      });
-      countChip.textContent = `${filtered.length}/${entries.length}`;
-      consoleHost.innerHTML = filtered.length
-        ? filtered.map((entry, index) => `<div class="entry" data-level="${entry.level}">
-              <div class="entry-head">
-                <span class="entry-time">${highlightText(entry.time || "--", query)}</span>
-                <span class="entry-level">${highlightText(entry.level, query)}</span>
-                <span class="entry-lines">${entry.lineCount} ${entry.lineCount === 1 ? "line" : "lines"}</span>
-                <span class="entry-no">${index + 1}</span>
-              </div>
-              <pre class="entry-text">${highlightText(entry.message, query)}</pre>
-            </div>`).join("")
-        : `<div class="empty">No log entries match current filters.</div>`;
-      renderLevelFilters(entries);
-    }
-
-    async function loadLogs(options = {}){
+    async function loadAgent(options = {}){
       const {silent = false} = options;
       if(refreshTask) return refreshTask;
       refreshTask = (async () => {
         if(previewMode){
-          logData = previewPayload;
-          renderMetrics(logData);
-          renderConsole(logData);
+          agentData = normalizeData(previewPayload);
+          renderPage();
           setRefreshStamp("preview mode");
           return;
         }
         setRefreshPending(true);
         setRefreshStamp("syncing");
         try{
-          const resp = await fetch("/api/logs", {cache:"no-store"});
-          if(!resp.ok) throw new Error("logs load failed");
+          const resp = await fetch("/api/agent", {cache: "no-store"});
+          if(!resp.ok) throw new Error("agent load failed");
           const payload = await resp.json();
-          logData = payload.data || {lines:[]};
-          renderMetrics(logData);
-          renderConsole(logData);
+          agentData = normalizeData(payload.data || {});
+          renderPage();
           setRefreshStamp(`updated ${fmtClock(new Date())}`);
           if(!silent){
             const [title, detail] = shellMessage("synced");
@@ -1145,38 +1486,77 @@
       }
       if(previewMode || !autoRefresh.checked) return;
       refreshTimer = setInterval(() => {
-        loadLogs({silent:true}).catch(() => {
+        loadAgent({silent:true}).catch(() => {
           const [title, detail] = shellMessage("sync_failed");
           showBanner(title, detail, "err");
         });
       }, 12000);
     }
 
+    tabsHost.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-kind]");
+      if(!button) return;
+      activeSnippet = button.getAttribute("data-kind") || "mac_curl";
+      renderSnippet();
+    });
+
     refreshButton.addEventListener("click", () => {
-      loadLogs().catch(() => {
+      loadAgent().catch(() => {
         const [title, detail] = shellMessage("sync_failed");
         showBanner(title, detail, "err");
       });
     });
-    copyPathButton.addEventListener("click", async () => {
-      const target = (logData && logData.path) || "";
-      if(!target) return;
+    autoRefresh.addEventListener("change", scheduleRefresh);
+
+    copySnippetButton.addEventListener("click", async () => {
       try{
-        await navigator.clipboard.writeText(target);
-        showBanner("Copied", "Log path copied.", "");
+        await navigator.clipboard.writeText(snippetTextByKind(activeSnippet, agentData.mind_call));
+        const [title, detail] = shellMessage("copied");
+        showBanner(title, detail, "");
       }catch(_err){
-        showBanner("Copy Failed", "Unable to copy the log path.", "err");
+        showBanner("Copy Failed", "Unable to copy the current snippet.", "err");
       }
     });
-    autoRefresh.addEventListener("change", scheduleRefresh);
-    searchInput.addEventListener("input", () => renderConsole(logData));
+    copyHeadersButton.addEventListener("click", async () => {
+      try{
+        const call = agentData.mind_call;
+        await navigator.clipboard.writeText(jsonPretty(call ? (call.headers || {}) : {}, "{}"));
+        const [title, detail] = shellMessage("copied_headers");
+        showBanner(title, detail, "");
+      }catch(_err){
+        showBanner("Copy Failed", "Unable to copy headers.", "err");
+      }
+    });
+    copyBodyButton.addEventListener("click", async () => {
+      try{
+        const call = agentData.mind_call;
+        await navigator.clipboard.writeText(call && call.body ? jsonPretty(call.body, "{}") : "null");
+        const [title, detail] = shellMessage("copied_body");
+        showBanner(title, detail, "");
+      }catch(_err){
+        showBanner("Copy Failed", "Unable to copy body.", "err");
+      }
+    });
+    toggleHeadersButton.addEventListener("click", () => {
+      headersCollapsed = !headersCollapsed;
+      renderRawRequest(agentData);
+    });
+    toggleBodyButton.addEventListener("click", () => {
+      bodyCollapsed = !bodyCollapsed;
+      renderRawRequest(agentData);
+    });
 
-    loadLogs().catch(() => {
+    setButtonEnabled(copySnippetButton, false);
+    setButtonEnabled(copyHeadersButton, false);
+    setButtonEnabled(copyBodyButton, false);
+    toggleHeadersButton.hidden = true;
+    toggleBodyButton.hidden = true;
+
+    loadAgent().catch(() => {
+      agentData = normalizeData({});
+      renderPage();
       const [title, detail] = shellMessage("load_failed");
       showBanner(title, detail, "err");
-      renderMetrics({lines:[], line_count:0, path:"log path", truncated:false, exists:false});
-      consoleHost.innerHTML = `<div class="empty">Unable to load current logs.</div>`;
-      pathChip.textContent = "unavailable";
     });
     scheduleRefresh();
   </script>

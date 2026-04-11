@@ -337,7 +337,23 @@
       width:100%;
       min-width:0;
     }
-    .hero-tools{margin-top:0}
+    .hero-tools{
+      margin-top:0;
+      width:100%;
+      display:grid;
+      grid-template-columns:minmax(0, 1fr) auto;
+      gap:12px;
+      align-items:center;
+    }
+    .hero-tools-group{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+      min-width:0;
+    }
+    .hero-tools-group--actions{justify-content:flex-start}
+    .hero-tools-group--status{justify-content:flex-end}
     .hero-tools a,
     .hero-tools button,
     .hero-tools label[for]{
@@ -986,6 +1002,8 @@
       box-shadow:0 0 0 3px rgba(111,255,209,.12), 0 0 16px rgba(111,255,209,.44);
     }
     @media (max-width: 980px){
+      .hero-tools{grid-template-columns:1fr}
+      .hero-tools-group--status{justify-content:flex-start}
       .nav{
         display:grid;
       }
@@ -1044,9 +1062,11 @@
     </section>
 
     <section class="hero-tools-section">
-      <div class="hero-tools tool-strip" id="pref-actions">
-        <button class="hero-tool-mark" type="button" id="save-pref">Save</button>
-        <button class="hero-tool-mark" type="button" id="reload-pref">Reload</button>
+      <div class="hero-tools" id="pref-actions">
+        <div class="hero-tools-group hero-tools-group--actions">
+          <button class="hero-tool-mark" type="button" id="save-pref">Save</button>
+          <button class="hero-tool-mark" type="button" id="reload-pref">Reload</button>
+        </div>
       </div>
     </section>
 

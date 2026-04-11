@@ -20,7 +20,9 @@ from .models import (
 from .ui import (
     start_connect_animation,
     start_status_animation,
-    log_external_access
+    ensure_agent_keepalive,
+    publish_external_access,
+    show_external_access_link
 )
 from .opening import (
     build_device_id,
@@ -126,7 +128,7 @@ async def resume_or_reopen(
     )
 
     if resumable:
-        session_id, ws_token, ws_url, resume_token, access_token, mind_call_examples = normalize_open_payload(
+        session_id, ws_token, ws_url, resume_token, credential, mind_call_example = normalize_open_payload(
             client, resume_resp
         )
         live_status.update(
@@ -136,8 +138,8 @@ async def resume_or_reopen(
             session_id=session_id,
             ws_token=ws_token,
             resume_token=resume_token,
-            access_token=access_token or runtime.access_token,
-            mind_call_examples=mind_call_examples or runtime.mind_call_examples,
+            credential=credential or runtime.credential,
+            mind_call_example=mind_call_example or runtime.mind_call_example,
             ws_url=ws_url,
             device_id=runtime.device_id,
             client_version=runtime.client_version,
@@ -168,14 +170,14 @@ async def open_new_runtime(
     """打开一个全新的订阅会话，并尽量复用本地去重与任务状态。"""
     opened, device_id = await open_runtime(client, config)
 
-    session_id, ws_token, ws_url, resume_token, access_token, mind_call_examples = normalize_open_payload(client, opened)
+    session_id, ws_token, ws_url, resume_token, credential, mind_call_example = normalize_open_payload(client, opened)
 
     runtime = AgentSessionRuntime(
         session_id=session_id,
         ws_token=ws_token,
         resume_token=resume_token,
-        access_token=access_token,
-        mind_call_examples=mind_call_examples,
+        credential=credential,
+        mind_call_example=mind_call_example,
         ws_url=ws_url,
         device_id=device_id,
         client_version=config.client_version,
@@ -221,7 +223,9 @@ async def agent_loop(mind: "Mind") -> None:
         )
 
         await mind.await_cleanup(mind.stop_anim())
-        log_external_access(runtime)
+        ensure_agent_keepalive(runtime, mind.task_event)
+        await publish_external_access(runtime)
+        show_external_access_link()
 
         if not mind.task_event.is_set():
             await start_status_animation(mind, live_status)
@@ -286,7 +290,9 @@ async def agent_loop(mind: "Mind") -> None:
                         continue
 
                     await mind.await_cleanup(mind.stop_anim())
-                    log_external_access(runtime)
+                    ensure_agent_keepalive(runtime, mind.task_event)
+                    await publish_external_access(runtime)
+                    show_external_access_link()
                     if not mind.task_event.is_set():
                         await start_status_animation(mind, live_status)
                         live_status.update(
@@ -391,7 +397,9 @@ async def agent_loop(mind: "Mind") -> None:
                         continue
 
                     await mind.await_cleanup(mind.stop_anim())
-                    log_external_access(runtime)
+                    ensure_agent_keepalive(runtime, mind.task_event)
+                    await publish_external_access(runtime)
+                    show_external_access_link()
                     if not mind.task_event.is_set():
                         await start_status_animation(mind, live_status)
                         live_status.update(
@@ -462,6 +470,8 @@ async def agent_loop(mind: "Mind") -> None:
                 live_status.update(
                     "Resumed and Waiting", "Returning to listening state in 1s"
                 )
+                ensure_agent_keepalive(runtime, mind.task_event)
+                await publish_external_access(runtime)
                 await sleep_or_stop(1.0, mind.task_event)
 
     finally:
