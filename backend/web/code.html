@@ -867,10 +867,54 @@
       cursor:not-allowed;
     }
     .hook-item-loop-readout{
+      appearance:none;
       text-align:center;
       font-variant-numeric:tabular-nums;
       min-width:3.2ch;
       color:rgba(162,188,202,.9);
+      border:1px solid rgba(255,255,255,.10);
+      border-radius:10px;
+      background:rgba(0,0,0,.18);
+      padding:4px 8px;
+    }
+    .hook-item-loop-input{
+      flex:0 0 58px;
+      width:58px;
+      min-width:58px;
+      min-height:0;
+      height:22px;
+      font-size:12px;
+      line-height:20px;
+      box-sizing:border-box;
+      padding:0 6px;
+      border-radius:8px;
+      align-self:center;
+      box-shadow:none;
+      transform:none;
+      outline:none;
+      transition:border-color .12s ease, background .12s ease, color .12s ease, opacity .12s ease;
+    }
+    .hook-item-loop-input:hover:not(:disabled),
+    .hook-item-loop-input:focus-visible{
+      border-color:rgba(111,255,209,.28);
+      background:rgba(255,255,255,.05);
+      color:rgba(220,244,252,.98);
+      transform:none;
+    }
+    .hook-item-loop-input:disabled{
+      opacity:.6;
+      cursor:not-allowed;
+    }
+    .hook-item-loop-input::placeholder{
+      color:rgba(137,163,173,.52);
+    }
+    .hook-item-loop-input::-webkit-outer-spin-button,
+    .hook-item-loop-input::-webkit-inner-spin-button{
+      -webkit-appearance:none;
+      margin:0;
+    }
+    .hook-item-loop-input[type="number"]{
+      -moz-appearance:textfield;
     }
     .hook-item-bundle.ready .hook-item-row-label{
       color:rgba(215,247,255,.78);
@@ -1305,6 +1349,11 @@
       flex-direction:column;
       align-self:stretch;
       height:100%;
+      min-height:0;
+    }
+    .page-column--rail > .rail-card{
+      height:100%;
+      max-height:100%;
     }
     .rail-card{
       display:flex;
@@ -1312,6 +1361,7 @@
       width:100%;
       flex:1 1 auto;
       min-height:0;
+      overflow:hidden;
     }
     .rail-card > .section{
       display:flex;
@@ -1319,12 +1369,13 @@
       flex-direction:column;
       gap:0;
       min-height:0;
+      overflow:hidden;
     }
     .terminal{
       flex:1 1 auto;
       margin:0;
       padding:16px 18px;
-      min-height:12rem;
+      min-height:0;
       overflow:auto;
       scrollbar-gutter:stable;
       border-radius:14px;
@@ -1716,6 +1767,10 @@
       .page-content-grid--sidebar{grid-template-columns:minmax(0, 1fr)}
       .page-column--side{position:static}
       .page-column--rail{position:static}
+      .page-column--rail > .rail-card{
+        height:auto;
+        max-height:none;
+      }
       .rail-card{flex:0 0 auto}
       .rail-card > .section{display:block}
       .terminal{flex:0 0 auto}
@@ -2259,6 +2314,14 @@
       if(!/^\d+$/.test(s)) return null;
       const n = Number.parseInt(s, 10);
       return Number.isFinite(n) && n >= 1 ? String(n) : null;
+    }
+
+    function normalizeItemLoopValue(value){
+      const digits = String(value ?? "").replace(/[^\d]/g, "");
+      if(!digits) return "";
+      const n = Number.parseInt(digits, 10);
+      if(!Number.isFinite(n) || n < 1) return "";
+      return String(Math.min(n, 9999));
     }
 
     function safePositiveInt(value, fallback){
@@ -2929,7 +2992,7 @@
                   <span class="hook-item-row-label">Loop</span>
                   <div class="hook-item-loop-ctrl">
                     <button type="button" class="hook-item-loop-nudge" data-item-loop-step="1" aria-label="Increase loop"${named ? "" : " disabled"}>▲</button>
-                    <span class="hook-item-row-value hook-item-loop-readout" id="items-summary-loop">N/A</span>
+                    <input class="hook-item-row-value hook-item-loop-readout hook-item-loop-input" id="items-summary-loop" data-item-loop-input type="number" min="1" inputmode="numeric" placeholder="N/A" value=""${named ? "" : " disabled"} />
                     <button type="button" class="hook-item-loop-nudge" data-item-loop-step="-1" aria-label="Decrease loop"${named ? "" : " disabled"}>▼</button>
                   </div>
                 </div>
@@ -3030,7 +3093,10 @@
       if(!item){
         if(elItem) elItem.textContent = "—";
         if(elPrefix) elPrefix.textContent = "—";
-        if(elLoop) elLoop.textContent = "—";
+        if(elLoop){
+          elLoop.value = "";
+          elLoop.disabled = true;
+        }
         if(elSuffix) elSuffix.textContent = "—";
         if(elRule) elRule.textContent = "—";
         bundle.querySelectorAll(".hook-item-loop-nudge").forEach((btn) => {
@@ -3054,7 +3120,10 @@
       const loopNum = itemLoopNumeric(item);
       if(elItem) elItem.textContent = itemLine;
       if(elPrefix) elPrefix.textContent = named ? itemPreviewSnippet(item.prefix, 40) : "—";
-      if(elLoop) elLoop.textContent = named ? (loopNum || "N/A") : "—";
+      if(elLoop){
+        elLoop.disabled = !named;
+        elLoop.value = named ? (loopNum || "") : "";
+      }
       if(elSuffix) elSuffix.textContent = named ? itemPreviewSnippet(item.suffix, 40) : "—";
       if(elRule) elRule.textContent = named ? itemPreviewSnippet(item.rule, 40) : "—";
       bundle.querySelectorAll(".hook-item-loop-nudge").forEach((btn) => {
@@ -3159,6 +3228,55 @@
       if(!el) return;
       el.innerHTML = buildLivePreviewDisplayHtml();
       updateItemGlobalOverrideChrome();
+      requestAnimationFrame(syncPreviewRailHeight);
+    }
+
+    function syncPreviewRailHeight(){
+      const sideColumn = document.querySelector(".page-column--side");
+      const railColumn = document.querySelector(".page-column--rail");
+      const railCard = railColumn?.querySelector(".rail-card");
+      const railSection = railCard?.querySelector(".section");
+      const railPreview = document.getElementById("code-preview");
+      if(!sideColumn || !railColumn || !railCard || !railSection || !railPreview) return;
+
+      if(window.innerWidth <= 1040){
+        railColumn.style.height = "";
+        railCard.style.height = "";
+        railCard.style.maxHeight = "";
+        railSection.style.height = "";
+        railSection.style.maxHeight = "";
+        railPreview.style.height = "";
+        railPreview.style.maxHeight = "";
+        return;
+      }
+
+      const sideHeight = Math.ceil(sideColumn.getBoundingClientRect().height);
+      if(!sideHeight) return;
+
+      const bar = railCard.querySelector(".bar");
+      const sectionHead = railSection.querySelector(".section-head");
+      const sectionHeadStyle = sectionHead ? getComputedStyle(sectionHead) : null;
+      const previewStyle = getComputedStyle(railPreview);
+      const barHeight = bar ? Math.ceil(bar.getBoundingClientRect().height) : 0;
+      const railSectionHeight = Math.max(0, sideHeight - barHeight);
+      const sectionHeadHeight = sectionHead ? Math.ceil(sectionHead.getBoundingClientRect().height) : 0;
+      const sectionHeadMargins = sectionHeadStyle
+        ? parseFloat(sectionHeadStyle.marginTop || "0") + parseFloat(sectionHeadStyle.marginBottom || "0")
+        : 0;
+      const verticalChrome =
+        sectionHeadHeight +
+        sectionHeadMargins +
+        parseFloat(previewStyle.marginTop || "0") +
+        parseFloat(previewStyle.marginBottom || "0");
+      const previewHeight = Math.max(160, Math.floor(railSectionHeight - verticalChrome));
+
+      railColumn.style.height = `${sideHeight}px`;
+      railCard.style.height = `${sideHeight}px`;
+      railCard.style.maxHeight = `${sideHeight}px`;
+      railSection.style.height = `${railSectionHeight}px`;
+      railSection.style.maxHeight = `${railSectionHeight}px`;
+      railPreview.style.height = `${previewHeight}px`;
+      railPreview.style.maxHeight = `${previewHeight}px`;
     }
 
     function renderAll(){
@@ -3293,6 +3411,45 @@
       renderHookCards();
       renderHookEditor();
       setModalOpen("hooks-modal", true);
+    });
+    document.getElementById("hooks-host").addEventListener("input", (event) => {
+      const loopInput = event.target.closest("[data-item-loop-input]");
+      if(!loopInput || !loopInput.closest("#hook-item-bundle")){
+        return;
+      }
+      const item = getPrimaryItem();
+      if(!item || !itemHasName(item)){
+        loopInput.value = "";
+        return;
+      }
+      const normalized = normalizeItemLoopValue(loopInput.value);
+      item.loop = normalized;
+      loopInput.value = normalized;
+      syncPreview();
+    });
+    document.getElementById("hooks-host").addEventListener("blur", (event) => {
+      const loopInput = event.target.closest("[data-item-loop-input]");
+      if(!loopInput || !loopInput.closest("#hook-item-bundle")){
+        return;
+      }
+      const item = getPrimaryItem();
+      const normalized = normalizeItemLoopValue(loopInput.value);
+      if(item && itemHasName(item)){
+        item.loop = normalized;
+      }
+      loopInput.value = normalized;
+      renderItemsSummary();
+      syncPreview();
+    }, true);
+    document.getElementById("hooks-host").addEventListener("keydown", (event) => {
+      const loopInput = event.target.closest("[data-item-loop-input]");
+      if(!loopInput || !loopInput.closest("#hook-item-bundle")){
+        return;
+      }
+      if(event.key === "Enter"){
+        event.preventDefault();
+        loopInput.blur();
+      }
     });
     document.getElementById("hooks-editor").addEventListener("input", (event) => {
       const field = getHookMeta(activeHookKey);
@@ -3557,7 +3714,17 @@
       }
     });
 
+    const previewRailResizeObserver = typeof ResizeObserver === "function"
+      ? new ResizeObserver(() => requestAnimationFrame(syncPreviewRailHeight))
+      : null;
+    if(previewRailResizeObserver){
+      const sideColumn = document.querySelector(".page-column--side");
+      if(sideColumn) previewRailResizeObserver.observe(sideColumn);
+    }
+    window.addEventListener("resize", () => requestAnimationFrame(syncPreviewRailHeight));
+
     renderAll();
+    requestAnimationFrame(syncPreviewRailHeight);
   </script>
 </body>
 </html>
