@@ -138,7 +138,12 @@ async def stream_looper(
                             tool_meta=tool_meta,
                             name=name,
                             arguments=arguments,
-                            meta=event_meta
+                            meta=event_meta,
+                            enable_progress_notify=True,
+                            stream_callback=lambda text: slog.feed(
+                                chunk=f"{text}\n",
+                                display=StreamUI.BLOCK
+                            )
                         )
                     finally:
                         await slog.end_status()

@@ -58,6 +58,25 @@ class Flux(object):
         return transports
 
     @staticmethod
+    async def cmd_link_exec(
+        cmd: list[str],
+        *,
+        cwd: typing.Optional[str] = None,
+        env: typing.Optional[dict[str, str]] = None
+    ) -> asyncio.subprocess.Process:
+        """以参数数组方式启动长生命周期子进程，并返回进程句柄。"""
+        transports = await asyncio.create_subprocess_exec(
+            *cmd, cwd=cwd or None, env=env,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        logger.debug(
+            f"process link mode=exec pid={transports.pid} cwd={clip_text(cwd or '', 120)} "
+            f"cmd={summarize_command(cmd)}"
+        )
+
+        return transports
+
+    @staticmethod
     async def cmd_link_pty(cmd: list[str]) -> typing.Optional[asyncio.subprocess.Process]:
         """在类 Unix 环境下通过 PTY 启动子进程，便于消费合并后的交互输出。"""
         if (os.name == "nt") or sys.platform.startswith("win"):

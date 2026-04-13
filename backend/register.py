@@ -56,6 +56,12 @@ def register_common_tools(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     security.bind(mcp, ctx)
 
 
+def register_coding_tools(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
+    from backend.mcp_tools.coding import coding
+
+    coding.bind(mcp, idle, ctx)
+
+
 def register_media_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> None:
     from backend.mcp_tools.media import audio
     from backend.mcp_tools.media import ffmpeg
@@ -177,6 +183,7 @@ def register_all_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppC
     register_automator_tools(mcp, manage, idle, ctx)
     register_bench_tools(mcp, idle, ctx)
     register_common_tools(mcp, idle, ctx)
+    register_coding_tools(mcp, idle, ctx)
     register_media_tools(mcp, manage, idle, ctx)
 
 

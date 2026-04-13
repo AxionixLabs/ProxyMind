@@ -221,11 +221,13 @@ class Tooling(object):
         effective_meta = meta if isinstance(meta, dict) else (meta_map.get(name) or {})
         cls = str(effective_meta.get("class") or "")
         return cls not in {
-            "tool", "framix", "nexus", "inspect", "security", "runtime", "audio", "ffmpeg", "k6"
+            "tool", "framix", "nexus", "inspect", "security", "runtime",
+            "audio", "ffmpeg", "k6", "provider"
         }
 
     @staticmethod
     def summarize_tool_arguments(tool_name: str, tool_args: typing.Any) -> str:
+
         def short_text(raw_value: typing.Any, limit: int = 48) -> str:
             text = str(raw_value).replace("\n", " ").strip()
             return text if len(text) <= limit else f"{text[:limit - 3]}..."

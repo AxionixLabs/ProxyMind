@@ -135,6 +135,14 @@ class Requires(object):
 
         return (await Flux.cmd_line([application, "--version"]) or "").strip()
 
+    @staticmethod
+    async def connect_codex() -> typing.Optional[str]:
+        if not shutil.which(application := "codex"):
+            navigator = "https://developers.openai.com/codex"
+            raise RuntimeError(f"Requires {application}. install it first, {navigator}.")
+
+        return (await Flux.cmd_line([application, "--version"]) or "").strip()
+
 
 if __name__ == '__main__':
     pass

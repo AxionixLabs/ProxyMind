@@ -3,6 +3,7 @@
 
 import typing
 import asyncio
+from backend.mcp_core.core_coding import Coding
 from backend.mcp_core.core_k6 import K6
 from backend.mcp_core.core_framix import Framix
 from backend.mcp_core.core_memrix import Memrix
@@ -34,6 +35,7 @@ class AppContext(object):
 
         self.nexus: Nexus = Nexus()
         self.k6: K6 = K6()
+        self.coding: Coding = Coding()
 
         self.ffmpeg: FFmpeg = FFmpeg()
         self.player: Player = Player()
@@ -45,11 +47,13 @@ class AppContext(object):
             self.fx_report_snapshot(),
             self.mx_report_snapshot()
         )
+        coding = await self.coding.snapshot()
         return {
             "instance": {
                 **video_list,
                 **fx_report,
-                **mx_report
+                **mx_report,
+                **coding
             }
         }
 
