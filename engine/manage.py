@@ -8,11 +8,14 @@ import httpx
 import typing
 import asyncio
 import subprocess
+import contextlib
+from urllib.parse import urlparse
 from loguru import logger
-from mind_core.design import Design
+from mcp import types as mcp_types
 from engine.tinker import MindError
+from mind_core.design import Design
 from mind_nova import (
-    const, request
+    authentic, const, request, craft
 )
 
 
@@ -27,6 +30,8 @@ class ServerManage(object):
             timeout=timeout,
             trust_env=False
         )
+        parsed = urlparse(self.base_url)
+        self.port = int(parsed.port or 80)
 
     @staticmethod
     def has_new(local: dict[str, typing.Any], remote: dict[str, typing.Any]) -> bool:
@@ -121,22 +126,158 @@ class ServerManage(object):
 
         return bool(data.get("ok")) and (data.get("service") == "helix mcp")
 
+    async def probe_mcp_bootstrap(self) -> bool:
+        """用最小 MCP 握手验证执行面是否真的可用。"""
+        protocol_version = str(mcp_types.LATEST_PROTOCOL_VERSION)
+        session_id: typing.Optional[str] = None
+
+        headers = {
+            "accept"        : "application/json",
+            "content-type"  : "application/json",
+            "authorization" : f"Bearer {authentic.manufacture_token()}"
+        }
+        initialize_payload = {
+            "jsonrpc" : "2.0",
+            "id"      : "bootstrap-init",
+            "method"  : "initialize",
+            "params"  : {
+                "protocolVersion" : protocol_version,
+                "capabilities"    : {},
+                "clientInfo"      : {
+                    "name"    : const.APP_DESC.lower(),
+                    "version" : const.APP_VERSION
+                }
+            }
+        }
+        list_tools_payload = {
+            "jsonrpc" : "2.0",
+            "id"      : "bootstrap-tools",
+            "method"  : "tools/list",
+            "params"  : {}
+        }
+
+        try:
+            init_resp = await self.__client.request(
+                "POST",
+                const.MCP_ED,
+                headers=headers,
+                json=initialize_payload,
+                timeout=3.0
+            )
+            init_body = init_resp.text
+
+            if init_resp.status_code >= 400:
+                logger.debug(
+                    f"[MCP Probe] initialize bad status={init_resp.status_code} body={init_body[:240]!r}"
+                )
+                return False
+
+            session_id = str(init_resp.headers.get("mcp-session-id") or "").strip() or None
+            if not session_id:
+                logger.debug("[MCP Probe] initialize missing session id")
+                return False
+
+            list_resp = await self.__client.request(
+                "POST",
+                const.MCP_ED,
+                headers={
+                    **headers,
+                    "mcp-session-id"       : session_id,
+                    "mcp-protocol-version" : protocol_version
+                },
+                json=list_tools_payload,
+                timeout=3.0
+            )
+            list_body = list_resp.text
+
+            if list_resp.status_code >= 400:
+                logger.debug(
+                    f"[MCP Probe] tools/list bad status={list_resp.status_code} body={list_body[:240]!r}"
+                )
+                return False
+
+            try:
+                payload = list_resp.json()
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.debug(f"[MCP Probe] tools/list json decode failed: {type(e).__name__}: {e}")
+                return False
+
+            result = payload.get("result") if isinstance(payload, dict) else None
+            tools = result.get("tools") if isinstance(result, dict) else None
+            ok = isinstance(tools, list)
+            logger.debug(
+                f"[MCP Probe] ok={ok} session_id={'set' if session_id else 'missing'} "
+                f"tool_count={len(tools) if isinstance(tools, list) else '-'}"
+            )
+            return ok
+
+        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout) as e:
+            logger.debug(f"[MCP Probe] net timeout: {type(e).__name__}: {e}")
+            return False
+        except httpx.ConnectError as e:
+            logger.debug(f"[MCP Probe] net connect: {type(e).__name__}: {e}")
+            return False
+        except httpx.RemoteProtocolError as e:
+            logger.debug(f"[MCP Probe] remote protocol error: {e}")
+            return False
+        except httpx.HTTPError as e:
+            logger.debug(f"[MCP Probe] httpx error: {type(e).__name__}: {e}")
+            return False
+        finally:
+            if session_id:
+                with contextlib.suppress(Exception):
+                    await self.__client.request(
+                        "DELETE",
+                        const.MCP_ED,
+                        headers={
+                            "accept"               : "application/json",
+                            "authorization"        : f"Bearer {authentic.manufacture_token()}",
+                            "mcp-session-id"       : session_id,
+                            "mcp-protocol-version" : str(mcp_types.LATEST_PROTOCOL_VERSION)
+                        },
+                        timeout=1.5
+                    )
+
+    async def wait_until_ready(self, wait_sec: float, interval: float) -> bool:
+        deadline = time.monotonic() + max(0.5, wait_sec)
+        while time.monotonic() < deadline:
+            await asyncio.sleep(interval)
+
+            if not await self.probe_healthz():
+                continue
+            if not await self.probe_mcp_bootstrap():
+                continue
+
+            logger.debug(
+                f"SYNC ▸ {const.APP_DESC} MCP neural core online."
+            )
+            return True
+
+        return False
+
+    async def restart(self) -> None:
+        logger.debug(f"[Server] restarting helix on port {self.port}")
+        with contextlib.suppress(Exception):
+            await craft.kill_port(self.port)
+        await asyncio.sleep(0.2)
+        await self.spawn()
+
     async def ensure_running(self, wait_sec: float = 10.0, interval: float = 0.3) -> None:
-        if await self.probe_healthz():
+        if await self.probe_healthz() and await self.probe_mcp_bootstrap():
             return None
 
         await self.spawn()
 
-        deadline = time.monotonic() + max(0.5, wait_sec)
-        while time.monotonic() < deadline:
-            await asyncio.sleep(interval)
-            if await self.probe_healthz():
-                logger.debug(
-                    f"SYNC ▸ {const.APP_DESC} MCP neural core online."
-                )
-                return await self.check_update()
+        if await self.wait_until_ready(wait_sec, interval):
+            return await self.check_update()
 
-        raise MindError(f"MCP not ready (healthz timeout)")
+        logger.debug("[Server] initial start did not pass MCP bootstrap probe, forcing restart")
+        await self.restart()
+
+        if await self.wait_until_ready(wait_sec, interval):
+            return await self.check_update()
+
+        raise MindError("MCP not ready (bootstrap timeout)")
 
     async def spawn(self) -> None:
         kwargs: dict[str, typing.Any] = {
