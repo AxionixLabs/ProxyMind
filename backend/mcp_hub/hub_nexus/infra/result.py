@@ -2,9 +2,13 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
+from loguru import logger
 from backend.mcp_hub.hub_nexus.check import CheckService
 from backend.mcp_hub.hub_nexus.infra.media import MediaService
 from backend.mcp_hub.hub_nexus.infra.pack_builder import PackBuilder
+from backend.utilities.trace import (
+    summarize_request_target, summarize_result_failure
+)
 
 
 class ExecutorResultService(object):
@@ -59,7 +63,20 @@ class ExecutorResultService(object):
             error=error,
             extra_data=extra_data
         )
-        return CheckService.finalize_pack(pack, extract=extract, asserts=asserts)
+        checked = CheckService.finalize_pack(pack, extract=extract, asserts=asserts)
+        data = checked.get("data") or {}
+        request_target = summarize_request_target(data.get("request"))
+        failure = summarize_result_failure(data)
+        level = logger.debug if bool(data.get("ok")) else logger.warning
+        level(
+            f"result finalize ok={data.get('ok')} target={request_target} "
+            f"status={(data.get('response') or {}).get('status')} "
+            f"extract={len(data.get('extract') or {})} "
+            f"assert_fail={(data.get('assert_summary') or {}).get('fail', 0)} "
+            f"attachments={len(checked.get('attachments') or [])} logs={len(checked.get('logs') or [])} "
+            f"failure={failure}"
+        )
+        return checked
 
     @staticmethod
     def finalize_http_like(

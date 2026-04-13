@@ -107,5 +107,62 @@ def summarize_command(cmd: list[str] | str) -> typing.Any:
     return sanitize_value(list(cmd), max_depth=1, max_items=12)
 
 
+def summarize_request_target(request: typing.Mapping[str, typing.Any] | None) -> str:
+    """提取请求目标摘要，便于在收口日志里快速定位失败对象。"""
+    data = dict(request or {})
+
+    url = str(data.get("url") or "").strip()
+    if url:
+        return clip_text(url, limit=180)
+
+    host = str(data.get("host") or "").strip()
+    port = data.get("port")
+    path = str(data.get("path") or "").strip()
+    action = str(data.get("action") or "").strip()
+
+    parts: list[str] = []
+    if host:
+        target = host
+        if port not in (None, ""):
+            target = f"{target}:{port}"
+        if path:
+            target = f"{target}/{path.lstrip('/')}"
+        parts.append(target)
+    elif path:
+        parts.append(path)
+
+    if action:
+        parts.append(f"action={action}")
+
+    if parts:
+        return clip_text(" ".join(parts), limit=180)
+    return "<unknown>"
+
+
+def summarize_result_failure(data: typing.Mapping[str, typing.Any] | None) -> str:
+    """提取结果包的主要失败原因，用于 step/result 收口日志。"""
+    payload        = dict(data or {})
+    response       = payload.get("response") or {}
+    error          = payload.get("error")
+    assert_summary = payload.get("assert_summary") or {}
+    extract        = payload.get("extract") or {}
+
+    if error:
+        return clip_text(f"error={error}", limit=180)
+
+    assert_fail = int(assert_summary.get("fail", 0) or 0)
+    if assert_fail > 0:
+        return f"assert_fail={assert_fail}"
+
+    status = response.get("status")
+    if status is not None:
+        return f"status={status}"
+
+    if extract:
+        return f"extract={len(extract)}"
+
+    return "unknown"
+
+
 if __name__ == '__main__':
     pass

@@ -5,12 +5,14 @@ import json
 import time
 import httpx
 import typing
+from loguru import logger
 from backend.mcp_hub.hub_nexus.infra.pack_builder import PackBuilder
 from backend.mcp_hub.hub_nexus.infra.media import MediaService
 from backend.mcp_hub.hub_nexus.infra.result import ExecutorResultService
 from backend.mcp_hub.hub_nexus.infra.core import (
     ClockService, UrlService
 )
+from backend.utilities.trace import summarize_args
 
 
 class GraphqlExecutor(object):
@@ -75,6 +77,10 @@ class GraphqlExecutor(object):
             form=None,
             files=None
         )
+        logger.debug(
+            f"graphql exec begin url={gql_url} timeout={timeout} retries={retries} "
+            f"follow_redirects={follow_redirects} request={summarize_args(request_data)}"
+        )
 
         async with httpx.AsyncClient(
             **UrlService.httpx_client_kwargs(
@@ -83,8 +89,9 @@ class GraphqlExecutor(object):
                 follow_redirects=follow_redirects
             )
         ) as client:
-            for _ in range(max(0, int(retries)) + 1):
+            for attempt in range(max(0, int(retries)) + 1):
                 try:
+                    logger.debug(f"graphql attempt url={gql_url} attempt={attempt + 1}")
                     resp = await client.request(
                         gql_method,
                         gql_url,
@@ -125,6 +132,11 @@ class GraphqlExecutor(object):
                     http_ok = 200 <= int(status) < 400
                     gql_errors = body_json.get("errors") if isinstance(body_json, dict) else None
                     ok = bool(http_ok) and not bool(gql_errors)
+                    level = logger.debug if ok else logger.warning
+                    level(
+                        f"graphql exec end url={gql_url} status={status} elapsed_ms={elapsed_ms} "
+                        f"gql_errors={0 if not gql_errors else len(gql_errors)} media={len(media_list)}"
+                    )
 
                     return ExecutorResultService.finalize_http_like(
                         text=(
@@ -156,8 +168,12 @@ class GraphqlExecutor(object):
                     )
                 except (httpx.TimeoutException, httpx.RequestError, OSError) as e:
                     last_err = f"{type(e).__name__}: {e}"
+                    logger.warning(
+                        f"graphql attempt error url={gql_url} attempt={attempt + 1} error={last_err}"
+                    )
 
         elapsed_ms = ClockService.ms_since(t0)
+        logger.error(f"graphql exec failed url={gql_url} elapsed_ms={elapsed_ms} error={last_err}")
         return ExecutorResultService.finalize_http_like(
             text=f"GQL POST {gql_url} -> ERROR ({elapsed_ms}ms) {last_err}",
             ok=ok,

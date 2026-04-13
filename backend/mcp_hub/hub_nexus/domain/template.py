@@ -13,6 +13,7 @@ import string
 import typing
 import secrets
 import operator
+from loguru import logger
 from datetime import (
     datetime, timedelta, timezone
 )
@@ -23,6 +24,7 @@ from collections.abc import (
     Callable, Mapping
 )
 from backend.mcp_hub.hub_nexus.domain.extract import ExtractService
+from backend.utilities.trace import clip_text
 
 
 class TemplateEvaluation(object):
@@ -478,25 +480,92 @@ class TemplateEvaluation(object):
 class TemplateService(object):
 
     @staticmethod
-    def render(value: typing.Any, ctx: dict[str, typing.Any]) -> typing.Any:
+    def _ctx_keys_view(ctx: dict[str, typing.Any]) -> str:
+        """输出上下文 key 摘要，便于定位未命中的模板变量。"""
+        keys = [str(key) for key in sorted(ctx.keys(), key=lambda item: str(item))]
+        return clip_text(str(keys), limit=220)
+
+    @staticmethod
+    def _child_path(parent: str, segment: typing.Any) -> str:
+        """拼接嵌套渲染路径，便于日志直接定位字段位置。"""
+        if isinstance(segment, int):
+            return f"{parent}[{segment}]"
+        text = str(segment)
+        if text.isidentifier():
+            return f"{parent}.{text}"
+        return f"{parent}[{text!r}]"
+
+    @staticmethod
+    def _rendered_view(value: typing.Any) -> str:
+        """把渲染值压成适合日志展示的短文本。"""
+        if value is None:
+            return "None"
+        if value == "":
+            return "<empty>"
+        return clip_text(value, limit=160)
+
+    @staticmethod
+    def _log_expr_error(path: str, expr: str, ctx: dict[str, typing.Any], error: Exception) -> None:
+        """记录模板表达式未命中或求值失败。"""
+        if isinstance(error, KeyError):
+            logger.warning(
+                f"template render miss path={path} expr={clip_text(expr, limit=180)} "
+                f"missing={clip_text(error.args[0] if error.args else error, limit=80)} "
+                f"ctx_keys={TemplateService._ctx_keys_view(ctx)}"
+            )
+            return
+        logger.warning(
+            f"template render error path={path} expr={clip_text(expr, limit=180)} "
+            f"error={clip_text(f'{type(error).__name__}: {error}', limit=220)}"
+        )
+
+    @staticmethod
+    def render(value: typing.Any, ctx: dict[str, typing.Any], path: str = "template") -> typing.Any:
         """递归渲染字符串、列表与字典中的模板表达式。"""
         if isinstance(value, str):
             stripped = value.strip()
             match = TemplateEvaluation.EXPR_RE.fullmatch(stripped)
             if match:
-                return TemplateEvaluation.safe_eval_expr(match.group(1), ctx)
+                expr = match.group(1)
+                try:
+                    rendered = TemplateEvaluation.safe_eval_expr(expr, ctx)
+                except (KeyError, ValueError, TypeError, IndexError) as e:
+                    TemplateService._log_expr_error(path, expr, ctx, e)
+                    raise
+                if rendered in (None, ""):
+                    logger.debug(
+                        f"template render empty path={path} mode=fullmatch "
+                        f"expr={clip_text(expr, limit=180)} result={TemplateService._rendered_view(rendered)}"
+                    )
+                return rendered
 
             def repl(found: re.Match[str]) -> str:
-                rendered = TemplateEvaluation.safe_eval_expr(found.group(1), ctx)
+                expr = found.group(1)
+                try:
+                    rendered = TemplateEvaluation.safe_eval_expr(expr, ctx)
+                except (KeyError, ValueError, TypeError, IndexError) as e:
+                    TemplateService._log_expr_error(path, expr, ctx, e)
+                    raise
+                if rendered in (None, ""):
+                    logger.debug(
+                        f"template render empty path={path} mode=placeholder "
+                        f"expr={clip_text(expr, limit=180)} result={TemplateService._rendered_view(rendered)}"
+                    )
                 return "" if rendered is None else str(rendered)
 
             return TemplateEvaluation.EXPR_RE.sub(repl, value)
 
         if isinstance(value, list):
-            return [TemplateService.render(item, ctx) for item in value]
+            return [
+                TemplateService.render(item, ctx, path=TemplateService._child_path(path, index))
+                for index, item in enumerate(value)
+            ]
 
         if isinstance(value, dict):
-            return {k: TemplateService.render(v, ctx) for k, v in value.items()}
+            return {
+                k: TemplateService.render(v, ctx, path=TemplateService._child_path(path, k))
+                for k, v in value.items()
+            }
 
         return value
 

@@ -8,9 +8,11 @@ import ftplib
 import typing
 import asyncio
 import mimetypes
+from loguru import logger
 from backend.mcp_hub.hub_nexus.infra.core import ClockService
 from backend.mcp_hub.hub_nexus.infra.result import ExecutorResultService
 from backend.mcp_hub.hub_nexus.infra.pack_builder import PackBuilder
+from backend.utilities.trace import summarize_args
 
 
 class FtpExecutor(object):
@@ -52,6 +54,10 @@ class FtpExecutor(object):
             use_tls=use_tls,
             timeout=timeout,
             media_path=media_path
+        )
+        logger.debug(
+            f"ftp exec begin action={action} host={host} port={port} path={path} timeout={timeout} "
+            f"request={summarize_args(request_data)}"
         )
 
         def _ftp_call() -> dict[str, typing.Any]:
@@ -111,6 +117,9 @@ class FtpExecutor(object):
             ok = True
         except Exception as e:
             last_err = f"{type(e).__name__}: {e}"
+            logger.warning(
+                f"ftp exec error action={action} host={host} port={port} path={path} error={last_err}"
+            )
 
         elapsed_ms = ClockService.ms_since(t0)
         media_list: list[dict[str, typing.Any]] = []
@@ -125,6 +134,11 @@ class FtpExecutor(object):
                 step_artifact_dir=step_artifact_dir,
                 timeout=timeout
             )
+        level = logger.debug if ok else logger.warning
+        level(
+            f"ftp exec end action={action} host={host} port={port} path={path} ok={ok} "
+            f"elapsed_ms={elapsed_ms} media={len(media_list)} result={summarize_args(result_data)}"
+        )
         return ExecutorResultService.finalize_pack(
             text=f"FTP {action} {host}:{port} {path} ({elapsed_ms}ms)",
             ok=ok,

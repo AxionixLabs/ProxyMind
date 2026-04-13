@@ -4,6 +4,7 @@
 import time
 import httpx
 import typing
+from loguru import logger
 from backend.mcp_hub.hub_nexus.infra.pack_builder import PackBuilder
 from backend.mcp_hub.hub_nexus.infra.result import ExecutorResultService
 from backend.mcp_hub.hub_nexus.infra.core import (
@@ -11,6 +12,7 @@ from backend.mcp_hub.hub_nexus.infra.core import (
 )
 from backend.mcp_hub.hub_nexus.infra.file_payload import FilePayloadService
 from backend.mcp_hub.hub_nexus.infra.sse_parser import SseParser
+from backend.utilities.trace import summarize_args
 
 
 class SseExecutor(object):
@@ -67,6 +69,10 @@ class SseExecutor(object):
             form=form,
             files=files
         )
+        logger.debug(
+            f"sse exec begin method={method} url={url} timeout={timeout} retries={retries} "
+            f"max_events={max_events} request={summarize_args(request_data)}"
+        )
 
         async with httpx.AsyncClient(
             **UrlService.httpx_client_kwargs(
@@ -75,8 +81,9 @@ class SseExecutor(object):
                 follow_redirects=follow_redirects
             )
         ) as client:
-            for _ in range(max(0, int(retries)) + 1):
+            for attempt in range(max(0, int(retries)) + 1):
                 try:
+                    logger.debug(f"sse attempt method={method} url={url} attempt={attempt + 1}")
                     files_payload = FilePayloadService.files_payload(files)
                     events = []
                     status = None
@@ -97,6 +104,9 @@ class SseExecutor(object):
                         elapsed_ms   = ClockService.ms_since(t0)
 
                         if status != 200:
+                            logger.warning(
+                                f"sse bad status method={method} url={url} status={status} elapsed_ms={elapsed_ms}"
+                            )
                             return ExecutorResultService.finalize_sse(
                                 text=f"SSE {method} {url} -> {status} ({elapsed_ms}ms)",
                                 ok=ok,
@@ -129,6 +139,10 @@ class SseExecutor(object):
                                 if max_events and 0 < int(max_events) <= len(events):
                                     elapsed_ms = ClockService.ms_since(t0)
                                     ok = status == 200 and len(events) > 0
+                                    logger.debug(
+                                        f"sse max-events reached method={method} url={url} "
+                                        f"events={len(events)} elapsed_ms={elapsed_ms}"
+                                    )
                                     media_list, attachments, media_logs = await ExecutorResultService.collect_media(
                                         source_kind="sse_events",
                                         source=events,
@@ -171,6 +185,11 @@ class SseExecutor(object):
                         step_artifact_dir=step_artifact_dir,
                         timeout=timeout
                     )
+                    level = logger.debug if ok else logger.warning
+                    level(
+                        f"sse exec end method={method} url={url} status={status} "
+                        f"events={len(events)} elapsed_ms={elapsed_ms} media={len(media_list)}"
+                    )
                     return ExecutorResultService.finalize_sse(
                         text=f"SSE {method} {url} events={len(events)} ({elapsed_ms}ms)",
                         ok=ok,
@@ -190,8 +209,12 @@ class SseExecutor(object):
                     )
                 except (httpx.TimeoutException, httpx.RequestError, OSError) as e:
                     last_err = f"{type(e).__name__}: {e}"
+                    logger.warning(
+                        f"sse attempt error method={method} url={url} attempt={attempt + 1} error={last_err}"
+                    )
 
         elapsed_ms = ClockService.ms_since(t0)
+        logger.error(f"sse exec failed method={method} url={url} elapsed_ms={elapsed_ms} error={last_err}")
         return ExecutorResultService.finalize_sse(
             text=f"SSE {method} {url} -> ERROR ({elapsed_ms}ms) {last_err}",
             ok=ok,

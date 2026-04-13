@@ -6,11 +6,13 @@ import time
 import typing
 import asyncio
 import websockets
+from loguru import logger
 from backend.mcp_hub.hub_nexus.infra.pack_builder import PackBuilder
 from backend.mcp_hub.hub_nexus.infra.result import ExecutorResultService
 from backend.mcp_hub.hub_nexus.infra.core import (
     ClockService, UrlService
 )
+from backend.utilities.trace import summarize_args
 from backend.utilities import const
 
 
@@ -37,6 +39,10 @@ class WsExecutor(object):
         sends = sends or []
         recv: list[str] = []
         last_err: typing.Optional[str] = None
+        logger.debug(
+            f"ws exec begin url={url} timeout={timeout} max_messages={max_messages} "
+            f"headers={summarize_args(headers)} sends={summarize_args({'items': sends})}"
+        )
 
         try:
             connect_kwargs: dict[str, typing.Any] = {
@@ -47,6 +53,7 @@ class WsExecutor(object):
                 connect_kwargs["proxy"] = None
 
             async with websockets.connect(url, **connect_kwargs) as ws:
+                logger.debug(f"ws connected url={url}")
                 for item in sends:
                     await ws.send(item)
 
@@ -82,6 +89,11 @@ class WsExecutor(object):
             tool="ws_media",
             step_artifact_dir=step_artifact_dir,
             timeout=timeout
+        )
+        level = logger.debug if ok else logger.warning
+        level(
+            f"ws exec end url={url} ok={ok} messages={len(recv)} elapsed_ms={elapsed_ms} "
+            f"media={len(media_list)} error={last_err}"
         )
 
         request_data = PackBuilder.build_request_ws(

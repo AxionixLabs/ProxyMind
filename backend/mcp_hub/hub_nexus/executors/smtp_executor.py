@@ -6,10 +6,12 @@ import base64
 import typing
 import asyncio
 import smtplib
+from loguru import logger
 from email.message import EmailMessage
 from backend.mcp_hub.hub_nexus.infra.core import ClockService
 from backend.mcp_hub.hub_nexus.infra.result import ExecutorResultService
 from backend.mcp_hub.hub_nexus.infra.pack_builder import PackBuilder
+from backend.utilities.trace import summarize_args
 
 
 class SmtpExecutor(object):
@@ -58,6 +60,10 @@ class SmtpExecutor(object):
             html_body=html_body,
             attachments=attachments,
             timeout=timeout
+        )
+        logger.debug(
+            f"smtp exec begin action={action} host={host} port={port} timeout={timeout} "
+            f"request={summarize_args(request_data)}"
         )
 
         def _attachment_payload(item: dict[str, typing.Any]) -> tuple[bytes, str, str]:
@@ -152,8 +158,16 @@ class SmtpExecutor(object):
             ok = True
         except Exception as e:
             last_err = f"{type(e).__name__}: {e}"
+            logger.warning(
+                f"smtp exec error action={action} host={host} port={port} error={last_err}"
+            )
 
         elapsed_ms = ClockService.ms_since(t0)
+        level = logger.debug if ok else logger.warning
+        level(
+            f"smtp exec end action={action} host={host} port={port} ok={ok} "
+            f"elapsed_ms={elapsed_ms} result={summarize_args(result_data)}"
+        )
         return ExecutorResultService.finalize_pack(
             text=f"SMTP {action} {host}:{port} ({elapsed_ms}ms)",
             ok=ok,

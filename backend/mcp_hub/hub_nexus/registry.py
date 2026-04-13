@@ -2,6 +2,7 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
+from loguru import logger
 from backend.models.model_nexus import NexusKind
 from backend.mcp_hub.hub_nexus.domain.merge import MergeService
 from backend.mcp_hub.hub_nexus.executors.ftp_executor import FtpExecutor
@@ -13,6 +14,7 @@ from backend.mcp_hub.hub_nexus.executors.smtp_executor import SmtpExecutor
 from backend.mcp_hub.hub_nexus.executors.tcp_executor import TcpExecutor
 from backend.mcp_hub.hub_nexus.executors.udp_executor import UdpExecutor
 from backend.mcp_hub.hub_nexus.executors.ws_executor import WsExecutor
+from backend.utilities.trace import summarize_args
 
 
 class NexusExecutorRegistry(object):
@@ -167,6 +169,10 @@ class NexusExecutorRegistry(object):
     ) -> dict[str, typing.Any]:
         """根据 kind 把标准化请求路由到对应协议执行器。"""
         request = MergeService.materialize(env=env, request=request)
+        logger.debug(
+            f"registry dispatch kind={kind} request={summarize_args(request)} "
+            f"extract={summarize_args(extract or {})} asserts_count={len(asserts or [])}"
+        )
         env     = {}
 
         base_headers = NexusExecutorRegistry._as_dict(env.get("headers"))

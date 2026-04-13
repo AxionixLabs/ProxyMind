@@ -5,6 +5,7 @@ import json
 import time
 import httpx
 import typing
+from loguru import logger
 from backend.mcp_hub.hub_nexus.infra.pack_builder import PackBuilder
 from backend.mcp_hub.hub_nexus.infra.media import MediaService
 from backend.mcp_hub.hub_nexus.infra.result import ExecutorResultService
@@ -12,6 +13,7 @@ from backend.mcp_hub.hub_nexus.infra.core import (
     ClockService, UrlService
 )
 from backend.mcp_hub.hub_nexus.infra.file_payload import FilePayloadService
+from backend.utilities.trace import summarize_args
 
 
 class HttpExecutor(object):
@@ -68,6 +70,10 @@ class HttpExecutor(object):
             form=form,
             files=files
         )
+        logger.debug(
+            f"http exec begin method={method} url={url} timeout={timeout} retries={retries} "
+            f"follow_redirects={follow_redirects} request={summarize_args(request_data)}"
+        )
 
         async with httpx.AsyncClient(
             **UrlService.httpx_client_kwargs(
@@ -76,8 +82,12 @@ class HttpExecutor(object):
                 follow_redirects=follow_redirects
             )
         ) as client:
-            for _ in range(max(0, int(retries)) + 1):
+            total_attempts = max(0, int(retries)) + 1
+            for attempt in range(total_attempts):
                 try:
+                    logger.debug(
+                        f"http attempt method={method} url={url} attempt={attempt + 1}/{total_attempts}"
+                    )
                     files_payload = FilePayloadService.files_payload(files)
 
                     resp = await client.request(
@@ -121,6 +131,11 @@ class HttpExecutor(object):
                     )
 
                     ok = 200 <= int(resp.status_code) < 400
+                    level = logger.debug if ok else logger.warning
+                    level(
+                        f"http exec end method={method} url={url} status={status} elapsed_ms={elapsed_ms} "
+                        f"content_type={resp_ct} content_length={len(body_bytes)} media={len(media_list)}"
+                    )
                     return ExecutorResultService.finalize_http_like(
                         text=f"{method} {url} -> {resp.status_code} ({elapsed_ms}ms)",
                         ok=ok,
@@ -141,8 +156,15 @@ class HttpExecutor(object):
                     )
                 except (httpx.TimeoutException, httpx.RequestError, OSError) as e:
                     last_err = f"{type(e).__name__}: {e}"
+                    elapsed_ms = ClockService.ms_since(t0)
+                    logger.warning(
+                        f"http attempt error method={method} url={url} attempt={attempt + 1}/{total_attempts} "
+                        f"timeout={timeout} elapsed_ms={elapsed_ms} will_retry={attempt + 1 < total_attempts} "
+                        f"error={last_err}"
+                    )
 
         elapsed_ms = ClockService.ms_since(t0)
+        logger.error(f"http exec failed method={method} url={url} elapsed_ms={elapsed_ms} error={last_err}")
         return ExecutorResultService.finalize_http_like(
             text=f"{method} {url} -> ERROR ({elapsed_ms}ms) {last_err}",
             ok=ok,

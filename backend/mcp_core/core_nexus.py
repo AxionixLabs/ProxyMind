@@ -2,6 +2,7 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
+from loguru import logger
 from backend.models.model_nexus import (
     NexusKind, NexusRequest, NexusBatchRequest
 )
@@ -9,6 +10,7 @@ from backend.mcp_hub.hub_nexus import InspectionService
 from backend.mcp_hub.hub_nexus import MissionService
 from backend.mcp_hub.hub_nexus import NexusExecutorRegistry
 from backend.mcp_hub.hub_nexus import MemoryRunRepository
+from backend.utilities.trace import summarize_args
 
 
 class Nexus(object):
@@ -35,6 +37,10 @@ class Nexus(object):
         request: NexusRequest,
     ) -> dict[str, typing.Any]:
         """执行单个标准化请求。"""
+        logger.debug(
+            f"nexus facade execute request kind={kind} name={request.name} "
+            f"request={summarize_args(request.request or {})}"
+        )
         return await self.mission_service.execute_request(kind=kind, request=request)
 
     async def execute_batch(
@@ -44,6 +50,10 @@ class Nexus(object):
         batch: NexusBatchRequest,
     ) -> dict[str, typing.Any]:
         """执行批量标准化请求。"""
+        logger.debug(
+            f"nexus facade execute batch kind={kind} items={len(batch.items)} "
+            f"concurrency={batch.concurrency} fail_fast={batch.fail_fast}"
+        )
         return await self.mission_service.execute_batch(kind=kind, batch=batch)
 
     def render_request(
@@ -54,6 +64,7 @@ class Nexus(object):
         env: typing.Optional[dict[str, typing.Any]] = None,
     ) -> dict[str, typing.Any]:
         """渲染单请求的模板与共享默认值，不触发实际执行。"""
+        logger.debug(f"nexus facade render request kind={kind} name={request.name}")
         return self.inspection_service.render_request(kind=kind, request=request, env=env)
 
     def render_batch(
@@ -63,6 +74,7 @@ class Nexus(object):
         batch: NexusBatchRequest,
     ) -> dict[str, typing.Any]:
         """渲染批量请求的模板与共享默认值，不触发实际执行。"""
+        logger.debug(f"nexus facade render batch kind={kind} items={len(batch.items)}")
         return self.inspection_service.render_batch(kind=kind, batch=batch)
 
     def validate_request(
@@ -73,6 +85,7 @@ class Nexus(object):
         env: typing.Optional[dict[str, typing.Any]] = None,
     ) -> dict[str, typing.Any]:
         """校验单请求结构并返回渲染后的结果。"""
+        logger.debug(f"nexus facade validate request kind={kind} name={request.name}")
         return self.inspection_service.validate_request(kind=kind, request=request, env=env)
 
     def validate_batch(
@@ -82,6 +95,7 @@ class Nexus(object):
         batch: NexusBatchRequest,
     ) -> dict[str, typing.Any]:
         """校验批量请求结构并返回渲染后的结果。"""
+        logger.debug(f"nexus facade validate batch kind={kind} items={len(batch.items)}")
         return self.inspection_service.validate_batch(kind=kind, batch=batch)
 
 

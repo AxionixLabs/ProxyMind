@@ -5,9 +5,11 @@ import time
 import socket
 import typing
 import asyncio
+from loguru import logger
 from backend.mcp_hub.hub_nexus.infra.core import ClockService
 from backend.mcp_hub.hub_nexus.infra.result import ExecutorResultService
 from backend.mcp_hub.hub_nexus.infra.pack_builder import PackBuilder
+from backend.utilities.trace import summarize_args
 
 
 class UdpExecutor(object):
@@ -55,6 +57,9 @@ class UdpExecutor(object):
             timeout=timeout,
             read_size=read_size
         )
+        logger.debug(
+            f"udp exec begin host={host} port={port} timeout={timeout} request={summarize_args(request_data)}"
+        )
 
         try:
             response_bytes, addr = await asyncio.to_thread(_exchange)
@@ -63,8 +68,14 @@ class UdpExecutor(object):
             ok = True
         except Exception as e:
             last_err = f"{type(e).__name__}: {e}"
+            logger.warning(f"udp exec error host={host} port={port} error={last_err}")
 
         elapsed_ms = ClockService.ms_since(t0)
+        level = logger.debug if ok else logger.warning
+        level(
+            f"udp exec end host={host} port={port} ok={ok} elapsed_ms={elapsed_ms} "
+            f"content_length={len(response_bytes)} remote={remote}"
+        )
         return ExecutorResultService.finalize_pack(
             text=f"UDP {host}:{port} ({elapsed_ms}ms)",
             ok=ok,

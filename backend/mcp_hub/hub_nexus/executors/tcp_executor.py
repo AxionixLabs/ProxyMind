@@ -5,9 +5,11 @@ import time
 import typing
 import asyncio
 import contextlib
+from loguru import logger
 from backend.mcp_hub.hub_nexus.infra.core import ClockService
 from backend.mcp_hub.hub_nexus.infra.result import ExecutorResultService
 from backend.mcp_hub.hub_nexus.infra.pack_builder import PackBuilder
+from backend.utilities.trace import summarize_args
 
 
 class TcpExecutor(object):
@@ -56,6 +58,9 @@ class TcpExecutor(object):
             max_reads=max_reads,
             read_until=read_until
         )
+        logger.debug(
+            f"tcp exec begin host={host} port={port} timeout={timeout} request={summarize_args(request_data)}"
+        )
 
         writer = None
         try:
@@ -87,6 +92,7 @@ class TcpExecutor(object):
             ok = True
         except Exception as e:
             last_err = f"{type(e).__name__}: {e}"
+            logger.warning(f"tcp exec error host={host} port={port} error={last_err}")
         finally:
             if writer is not None:
                 writer.close()
@@ -94,6 +100,11 @@ class TcpExecutor(object):
                     await writer.wait_closed()
 
         elapsed_ms = ClockService.ms_since(t0)
+        level = logger.debug if ok else logger.warning
+        level(
+            f"tcp exec end host={host} port={port} ok={ok} reads={len(response_messages)} "
+            f"elapsed_ms={elapsed_ms} content_length={len(response_bytes)}"
+        )
         return ExecutorResultService.finalize_pack(
             text=f"TCP {host}:{port} ({elapsed_ms}ms)",
             ok=ok,

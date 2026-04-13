@@ -22,7 +22,9 @@ from backend.mcp_hub.hub_nexus.infra.artifact import ArtifactService
 from backend.mcp_hub.hub_nexus.infra.core import ClockService
 from backend.mcp_hub.hub_nexus.infra.serialize import StepSerializer
 from backend.mcp_hub.hub_nexus.repository import MemoryRunRepository
-from backend.utilities.trace import summarize_args
+from backend.utilities.trace import (
+    summarize_args, summarize_request_target, summarize_result_failure
+)
 
 
 class MissionService(object):
@@ -98,7 +100,7 @@ class MissionService(object):
         mission_id = f"nexus_{started_ms}"
 
         ctx   = dict(batch.template_vars or {})
-        env_r = TemplateService.render(dict(batch.env or {}), ctx) if batch.env else {}
+        env_r = TemplateService.render(dict(batch.env or {}), ctx, path="mission.env") if batch.env else {}
 
         concurrency     = max(1, int(batch.concurrency or 1))
         fail_fast       = bool(batch.fail_fast)
@@ -122,10 +124,14 @@ class MissionService(object):
         async def mission_once(i: int, item: NexusBatchItem) -> tuple[int, StepResult]:
             async with sem:
                 name = str(item.name or f"{kind}_{i + 1:03d}")
-                req_r = TemplateService.render(dict(item.request or {}), ctx)
+                req_r = TemplateService.render(dict(item.request or {}), ctx, path=f"mission.items[{i}].request")
                 final_request = MergeService.materialize(env=env_r, request=req_r)
-                extract_r = TemplateService.render(item.extract, ctx) if item.extract else None
-                asserts_r = TemplateService.render(item.asserts, ctx) if item.asserts else None
+                extract_r = TemplateService.render(
+                    item.extract, ctx, path=f"mission.items[{i}].extract"
+                ) if item.extract else None
+                asserts_r = TemplateService.render(
+                    item.asserts, ctx, path=f"mission.items[{i}].asserts"
+                ) if item.asserts else None
                 t0 = time.perf_counter()
                 logger.debug(
                     f"step begin mission_id={mission_id} index={i} name={name} "
@@ -148,7 +154,7 @@ class MissionService(object):
                     asserts=asserts_r,
                     step_artifact_dir=step_artifact.path if step_artifact else None,
                 )
-                step_result = self._build_step_result(
+                step_outcome = self._build_step_result(
                     name=name,
                     kind=kind,
                     pack=pack,
@@ -158,11 +164,15 @@ class MissionService(object):
                     started_at=t0,
                     artifact=step_artifact
                 )
+                result_data = pack.get("data") or {}
                 logger.debug(
                     f"step end mission_id={mission_id} index={i} name={name} "
-                    f"ok={step_result.ok} elapsed_ms={step_result.elapsed_ms}"
+                    f"ok={step_outcome.ok} elapsed_ms={step_outcome.elapsed_ms} "
+                    f"target={summarize_request_target(final_request)} "
+                    f"status={(result_data.get('response') or {}).get('status')} "
+                    f"failure={summarize_result_failure(result_data)}"
                 )
-                return i, step_result
+                return i, step_outcome
 
         tasks = [asyncio.create_task(mission_once(i, item)) for i, item in enumerate(batch.items)]
 
@@ -172,11 +182,11 @@ class MissionService(object):
             while pending:
                 done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
                 for task in done:
-                    idx, step_result = await task
-                    done_ordered.append((idx, step_result))
-                    if not step_result.ok:
+                    idx, completed_step = await task
+                    done_ordered.append((idx, completed_step))
+                    if not completed_step.ok:
                         logger.warning(
-                            f"fail-fast stop mission_id={mission_id} stop_at={step_result.name} "
+                            f"fail-fast stop mission_id={mission_id} stop_at={completed_step.name} "
                             f"pending={len(pending)}"
                         )
                         for future in pending:
@@ -312,7 +322,7 @@ class MissionService(object):
         artifact_dirs: set[str] = set()
 
         for item in batch.items:
-            request_r = TemplateService.render(dict(item.request or {}), ctx)
+            request_r = TemplateService.render(dict(item.request or {}), ctx, path="mission.artifact.request")
             final_request = MergeService.materialize(env=env, request=request_r)
             if not ArtifactService.artifact_enabled(final_request):
                 continue

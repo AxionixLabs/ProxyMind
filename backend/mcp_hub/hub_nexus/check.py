@@ -2,8 +2,10 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
+from loguru import logger
 from backend.mcp_hub.hub_nexus.domain.assertion import AssertionService
 from backend.mcp_hub.hub_nexus.domain.extract import ExtractService
+from backend.utilities.trace import clip_text, summarize_args
 
 
 class CheckService(object):
@@ -89,6 +91,28 @@ class CheckService(object):
             results.append(result)
 
         total = len(results)
+        if logs:
+            logger.warning(f"check extract miss logs={summarize_args({'items': logs})}")
+        if fail_count > 0:
+            failed = [item for item in results if not item.get("ok")]
+            failed_view = [
+                {
+                    "path": item.get("path"),
+                    "op": item.get("op"),
+                    "expected": item.get("expected"),
+                    "actual": item.get("actual"),
+                    "error": clip_text(str(item.get("error")), limit=120) if item.get("error") else None
+                }
+                for item in failed[:3]
+            ]
+            logger.warning(
+                f"check assert fail total={total} fail={fail_count} "
+                f"failed={clip_text(str(failed_view), limit=360)}"
+            )
+        elif extract or asserts:
+            logger.debug(
+                f"check assert ok extract={len(extracted)} asserts={total} fail={fail_count}"
+            )
         return {
             "ok": fail_count == 0,
             "extract": extracted,

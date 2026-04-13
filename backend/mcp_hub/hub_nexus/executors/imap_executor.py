@@ -8,10 +8,12 @@ import typing
 import asyncio
 import imaplib
 import contextlib
+from loguru import logger
 from email import policy
 from backend.mcp_hub.hub_nexus.infra.core import ClockService
 from backend.mcp_hub.hub_nexus.infra.result import ExecutorResultService
 from backend.mcp_hub.hub_nexus.infra.pack_builder import PackBuilder
+from backend.utilities.trace import summarize_args
 from backend.utilities import const
 
 
@@ -56,6 +58,10 @@ class ImapExecutor(object):
             use_ssl=use_ssl,
             timeout=timeout,
             media_path=media_path
+        )
+        logger.debug(
+            f"imap exec begin action={action} host={host} port={port} mailbox={mailbox} timeout={timeout} "
+            f"request={summarize_args(request_data)}"
         )
 
         def _decode_part_bytes(part: email.message.Message, payload: bytes) -> str:
@@ -294,6 +300,9 @@ class ImapExecutor(object):
             ok = True
         except Exception as e:
             last_err = f"{type(e).__name__}: {e}"
+            logger.warning(
+                f"imap exec error action={action} host={host} port={port} mailbox={mailbox} error={last_err}"
+            )
 
         elapsed_ms = ClockService.ms_since(t0)
         media_list: list[dict[str, typing.Any]] = []
@@ -308,6 +317,11 @@ class ImapExecutor(object):
                 step_artifact_dir=step_artifact_dir,
                 timeout=timeout
             )
+        level = logger.debug if ok else logger.warning
+        level(
+            f"imap exec end action={action} host={host} port={port} mailbox={mailbox} ok={ok} "
+            f"elapsed_ms={elapsed_ms} media={len(media_list)} result={summarize_args(result_data)}"
+        )
         return ExecutorResultService.finalize_pack(
             text=f"IMAP {action} {host}:{port}/{mailbox} ({elapsed_ms}ms)",
             ok=ok,
