@@ -4,9 +4,12 @@
 import time
 import typing
 import asyncio
+from loguru import logger
 from mcp.types import (
     CallToolResult, TextContent
 )
+from backend.utilities.trace import summarize_args
+
 
 def normalize_tool_output(raw_data: typing.Any) -> dict[str, typing.Any]:
     """把任意工具返回值归一化成统一结果结构。"""
@@ -111,6 +114,11 @@ async def broadcast(
         {**bases, **(overrides.get(k) or {})} for k in keys
     ]
 
+    logger.debug(
+        f"broadcast begin tool={tool} targets={keys} base_args={summarize_args(bases)} "
+        f"override_keys={list(overrides.keys())}"
+    )
+
     raw_list = await asyncio.gather(
         *(call(target, arg) for target, arg in zip(targets, resolved_args)),
         return_exceptions=True
@@ -136,6 +144,10 @@ async def broadcast(
             call_item["ok"] = False
             call_item["text"] = f"{type(raw).__name__}: {raw}"
             fail += 1
+            logger.error(
+                f"broadcast item tool={tool} agent_id={agent_id} ok=False "
+                f"args={summarize_args(resolved)} error={call_item['text']}"
+            )
         else:
             pack = normalize_tool_output(raw)
             data = pack.get("data")
@@ -155,6 +167,12 @@ async def broadcast(
                 done += 1
             else:
                 fail += 1
+
+            level = logger.debug if ok_this else logger.warning
+            level(
+                f"broadcast item tool={tool} agent_id={agent_id} ok={ok_this} "
+                f"args={summarize_args(resolved)}"
+            )
 
         for attach in call_item["attachments"]:
             if isinstance(attach, dict):
@@ -184,6 +202,9 @@ async def broadcast(
         "summary" : {"total": total, "done": done, "fail": fail},
         "results" : results
     }
+
+    end_level = logger.debug if fail == 0 else logger.warning
+    end_level(f"broadcast end tool={tool} total={total} ok={done} fail={fail} elapsed_ms={cost_ms}")
 
     return build_call_tool_result(
         text=text,

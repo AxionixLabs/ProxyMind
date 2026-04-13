@@ -5,6 +5,7 @@ import typing
 import uvicorn
 import contextlib
 from pathlib import Path
+from loguru import logger
 from pydantic import AnyHttpUrl
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -49,6 +50,7 @@ idle: Idle = Idle(
 
 @contextlib.asynccontextmanager
 async def lifespan(web_app: FastAPI) -> typing.AsyncGenerator[None, None]:
+    logger.debug("mounting MCP and static assets")
     web_app.mount(
         path=f"/{const.APP_NAME}", app=mcp.streamable_http_app()
     )
@@ -61,18 +63,23 @@ async def lifespan(web_app: FastAPI) -> typing.AsyncGenerator[None, None]:
     web_app.state.ctx = app_ctx
     web_app.state.agent_example = None
 
+    logger.debug("session manager and idle loop starting")
     async with mcp.session_manager.run():
         await idle.start_idle()
         try:
+            logger.info("runtime ready")
             yield
         finally:
+            logger.info("runtime shutting down")
             await idle.close_idle()
 
 
 def main() -> None:
     Active.active(log_level)
+    logger.info(f"boot begin level={log_level} host=127.0.0.1 port=3333")
 
     register_all_tools(mcp, DeviceManage(), idle, app_ctx)
+    logger.info("tools registered, web app starting")
 
     app: FastAPI = FastAPI(lifespan=lifespan)
     register_middlewares(app)

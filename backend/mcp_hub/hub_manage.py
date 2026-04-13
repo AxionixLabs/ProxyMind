@@ -6,6 +6,7 @@ import time
 import shutil
 import typing
 import asyncio
+from loguru import logger
 from backend.mcp_hub.hub_device import Device
 from backend.models.model_device import SemanticResult
 from backend.utilities.process import Flux
@@ -30,6 +31,7 @@ class DeviceManage(object):
         if not shutil.which("adb"):
             raise RuntimeError("ADB not found in PATH")
 
+        logger.debug("adb devices probing")
         resp = await Flux.cmd_line(["adb", "devices"])
 
         if not resp or not (lines := [line.strip() for line in resp.splitlines() if line.strip()]):
@@ -48,10 +50,18 @@ class DeviceManage(object):
             *(device.refresh_device_props() for device in self.device_list)
         )
 
+        logger.info(
+            f"device refresh ok count={len(self.device_list)} "
+            f"serials={[device.serial for device in self.device_list]}"
+        )
+
         return self.snapshot
 
     async def refresh(self, ttl_sec: float = 1.0) -> list[Device]:
         if self.device_list and (time.time() - self.last_refresh_ts) < ttl_sec:
+            logger.debug(
+                f"device refresh cache-hit ttl_sec={ttl_sec} count={len(self.device_list)}"
+            )
             return self.snapshot
 
         async with self.lock:

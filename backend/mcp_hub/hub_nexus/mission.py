@@ -4,6 +4,7 @@
 import time
 import typing
 import asyncio
+from loguru import logger
 from backend.mcp_hub.hub_nexus.domain.context import ContextMergeService
 from backend.mcp_hub.hub_nexus.domain.merge import MergeService
 from backend.models.model_nexus import (
@@ -21,6 +22,7 @@ from backend.mcp_hub.hub_nexus.infra.artifact import ArtifactService
 from backend.mcp_hub.hub_nexus.infra.core import ClockService
 from backend.mcp_hub.hub_nexus.infra.serialize import StepSerializer
 from backend.mcp_hub.hub_nexus.repository import MemoryRunRepository
+from backend.utilities.trace import summarize_args
 
 
 class MissionService(object):
@@ -101,6 +103,11 @@ class MissionService(object):
         concurrency     = max(1, int(batch.concurrency or 1))
         fail_fast       = bool(batch.fail_fast)
         allow_ctx_merge = concurrency == 1
+        logger.debug(
+            f"mission begin mission_id={mission_id} kind={kind} items={len(batch.items)} "
+            f"concurrency={concurrency} fail_fast={fail_fast} env={summarize_args(batch.env or {})} "
+            f"template_vars={summarize_args(batch.template_vars or {})}"
+        )
 
         mission_artifact = self._prepare_mission_artifact(
             mission_id=mission_id,
@@ -120,6 +127,10 @@ class MissionService(object):
                 extract_r = TemplateService.render(item.extract, ctx) if item.extract else None
                 asserts_r = TemplateService.render(item.asserts, ctx) if item.asserts else None
                 t0 = time.perf_counter()
+                logger.debug(
+                    f"step begin mission_id={mission_id} index={i} name={name} "
+                    f"request={summarize_args(final_request)}"
+                )
                 step_artifact = self._prepare_step_artifact(
                     mission_id=mission_id,
                     kind=kind,
@@ -137,7 +148,7 @@ class MissionService(object):
                     asserts=asserts_r,
                     step_artifact_dir=step_artifact.path if step_artifact else None,
                 )
-                return i, self._build_step_result(
+                step_result = self._build_step_result(
                     name=name,
                     kind=kind,
                     pack=pack,
@@ -147,6 +158,11 @@ class MissionService(object):
                     started_at=t0,
                     artifact=step_artifact
                 )
+                logger.debug(
+                    f"step end mission_id={mission_id} index={i} name={name} "
+                    f"ok={step_result.ok} elapsed_ms={step_result.elapsed_ms}"
+                )
+                return i, step_result
 
         tasks = [asyncio.create_task(mission_once(i, item)) for i, item in enumerate(batch.items)]
 
@@ -159,6 +175,10 @@ class MissionService(object):
                     idx, step_result = await task
                     done_ordered.append((idx, step_result))
                     if not step_result.ok:
+                        logger.warning(
+                            f"fail-fast stop mission_id={mission_id} stop_at={step_result.name} "
+                            f"pending={len(pending)}"
+                        )
                         for future in pending:
                             future.cancel()
                         pending = set()
@@ -203,6 +223,11 @@ class MissionService(object):
                 steps=step_results,
                 artifact=ArtifactService.to_dict(mission_artifact)
             )
+        )
+        logger.debug(
+            f"mission end mission_id={mission_id} kind={kind} ok={ok_run} "
+            f"total={len(step_results)} pass={sum(1 for step in step_results if step.ok)} "
+            f"fail={sum(1 for step in step_results if not step.ok)} cost_ms={finished_ms - started_ms}"
         )
 
         attachments: list[dict[str, typing.Any]] = []

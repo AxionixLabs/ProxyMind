@@ -10,6 +10,7 @@ import asyncio
 import inspect
 import contextlib
 from loguru import logger
+from backend.utilities.trace import summarize_args
 
 
 class Idle(object):
@@ -90,6 +91,9 @@ class Idle(object):
                 handle=handle
             )
             self.last_touch = time.monotonic()
+            logger.debug(
+                f"session begin key={key} job_id={job_id} name={name} args={summarize_args(args)}"
+            )
         return job_id
 
     async def session_final(self, key: str) -> None:
@@ -99,6 +103,10 @@ class Idle(object):
             if meta and meta.get("kind") == "session":
                 self.runs.pop(key, None)
                 self.last_touch = time.monotonic()
+                logger.debug(
+                    f"session end key={key} job_id={meta.get('id')} "
+                    f"name={meta.get('name')} age_sec={max(0.0, time.monotonic() - meta.get('ts', 0.0)):.1f}"
+                )
 
     async def session_get_handle(self, key: str) -> typing.Any:
         """读取指定会话关联的真实运行句柄。"""
@@ -168,6 +176,7 @@ class Idle(object):
                 args=args
             )
             self.last_touch = time.monotonic()
+            logger.debug(f"job begin job_id={jid} name={name} args={summarize_args(args)}")
 
         return jid
 
@@ -177,6 +186,10 @@ class Idle(object):
             meta = self.runs.get(job_id)
             if meta and meta.get("kind") == "job":
                 self.runs.pop(job_id, None)
+                logger.debug(
+                    f"job end job_id={job_id} name={meta.get('name')} "
+                    f"age_sec={max(0.0, time.monotonic() - meta.get('ts', 0.0)):.1f}"
+                )
             self.last_touch = time.monotonic()
 
     async def snapshot(self) -> dict:
@@ -244,13 +257,13 @@ class Idle(object):
 
                 if active == 0 and idle >= self.ttl_sec:
                     logger.warning(
-                        f"[IDLE-KILL] ttl={self.ttl_sec}s idle={idle:.1f}s active_total=0 -> exit"
+                        f"idle timeout ttl={self.ttl_sec}s idle={idle:.1f}s active_total=0 -> exit"
                     )
                     return os.kill(os.getpid(), signal.SIGINT)
 
                 if active > 0 and idle >= self.ttl_sec:
                     top = ", ".join([f"{run_key}:{name}" for run_key, name in runs_copy[:5]])
-                    logger.warning(f"[IDLE-BLOCKED] idle={idle:.1f}s active_total={active} jobs={top}")
+                    logger.warning(f"idle blocked idle={idle:.1f}s active_total={active} jobs={top}")
 
         except asyncio.CancelledError:
             raise

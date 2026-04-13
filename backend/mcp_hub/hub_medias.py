@@ -13,6 +13,7 @@ from loguru import logger
 from backend.models.model_base import Attachment
 from backend.utilities.storage.output import mk_out_dir
 from backend.utilities.process import Flux
+from backend.utilities.trace import clip_text
 from backend.utilities.validation import marked
 
 try:
@@ -93,10 +94,9 @@ class FFmpeg(object):
         self.out_ring = deque(maxlen=10)
 
         cmd = [self.prefix] + cmd
-        logger.info(f"[FFMPEG] {' '.join(cmd)}")
+        logger.info(f"ffmpeg cmd {' '.join(cmd)}")
 
         switch_resp = await Flux.cmd_line(cmd)
-        logger.info(f"[FFMPEG] \n{switch_resp}")
 
         frame_re = re.compile(r"frame.*fps.*speed.*", re.IGNORECASE)
         error_re = re.compile(r"error", re.IGNORECASE)
@@ -107,6 +107,8 @@ class FFmpeg(object):
         # 统一清洗行（去空行）
         line = [ln for ln in (switch_resp or "").splitlines() if ln.strip()]
         tail = "\n".join(line[-tail_n:]) if line else ""
+        tail_summary = clip_text((tail or "<empty>").replace("\n", " | "), limit=320)
+        logger.debug(f"ffmpeg output summary lines={len(line)} tail={tail_summary}")
 
         last_frame_msg: str | None = None
 
@@ -116,7 +118,7 @@ class FFmpeg(object):
 
             # 命中 error：立即上报 out_ring + tail
             if error_re.search(string=message):
-                logger.error(f"[FFMPEG] \n{self.out_ring}")
+                logger.error(f"ffmpeg error output\n{tail or message}")
 
                 raise marked.subproc_fail(
                     source=f"{self.prefix}.stream",
@@ -131,12 +133,12 @@ class FFmpeg(object):
 
         # 循环结束：优先返回最后一次 frame 状态（通常就是最终进度）
         if last_frame_msg:
-            logger.info(f"[FFMPEG] {last_frame_msg}")
+            logger.info(f"ffmpeg progress {last_frame_msg}")
             return last_frame_msg
 
         # ===== 兜底：既没解析到 frame，也没命中 error =====
         fallback = tail or (switch_resp or "").strip() or "ffmpeg finished, but no parsable output"
-        logger.info(f"[FFMPEG] \n{fallback}")
+        logger.warning(f"ffmpeg fallback {fallback}")
         return fallback
 
     # workflow: ==== MCP Tool ====
