@@ -7,11 +7,17 @@ import httpx
 import typing
 import platform
 import mimetypes
+import time
+import uuid
 from pathlib import Path
 from loguru import logger
 from engine.channel import Channel
 from mind_app.stream_ui import StreamUI
 from mind_nova import const
+
+
+UploadProgressCallback = typing.Callable[[dict[str, typing.Any]], typing.Awaitable[None]]
+DEFAULT_UPLOAD_CHUNK_SIZE: int = 64 * 1024
 
 
 async def cap_request(req: httpx.Request) -> None:
@@ -138,7 +144,9 @@ async def upload_file_stream(
     path: str,
     agent_id: str,
     prefix: str = "uploads",
-    timeout: float = 60.0
+    timeout: float = 60.0,
+    progress_callback: typing.Optional[UploadProgressCallback] = None,
+    chunk_size: int = DEFAULT_UPLOAD_CHUNK_SIZE,
 ) -> dict[str, typing.Any]:
     """流式上传本地文件到服务端 /upload（服务端再流式转发到 R2）。"""
     if not (p := Path(path).expanduser()).exists() or not p.is_file():
@@ -148,16 +156,97 @@ async def upload_file_stream(
     headers.pop("Content-Type", None)
 
     ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
+    boundary = f"----mind-upload-{uuid.uuid4().hex}"
+    field_agent = _multipart_field(boundary, "agent_id", agent_id)
+    field_prefix = _multipart_field(boundary, "prefix", prefix)
+    field_file = _multipart_file_header(boundary, "file", p.name, ctype)
+    closing = _multipart_closing(boundary)
+    file_size = int(p.stat().st_size)
 
-    with p.open("rb") as f:
-        data = {
-            "agent_id": agent_id, "prefix": prefix
-        }
-        files = {"file": (p.name, f, ctype)}
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.post(const.FILE_STREAM_URL, headers=headers, data=data, files=files)
-            r.raise_for_status()
-            return r.json()
+    headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+    headers["Content-Length"] = str(
+        len(field_agent) + len(field_prefix) + len(field_file) + file_size + len(closing)
+    )
+
+    started_at = time.monotonic()
+    uploaded_bytes = 0
+
+    if progress_callback is not None:
+        await progress_callback(_upload_progress_payload(uploaded_bytes, file_size, started_at, done=False))
+
+    async def body() -> typing.AsyncGenerator[bytes, None]:
+        nonlocal uploaded_bytes
+
+        yield field_agent
+        yield field_prefix
+        yield field_file
+
+        with p.open("rb") as f:
+            while True:
+                chunk = f.read(max(1, int(chunk_size)))
+                if not chunk:
+                    break
+
+                yield chunk
+                uploaded_bytes += len(chunk)
+
+                if progress_callback is not None:
+                    await progress_callback(
+                        _upload_progress_payload(uploaded_bytes, file_size, started_at, done=False)
+                    )
+
+        yield closing
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(const.FILE_STREAM_URL, headers=headers, content=body())
+        r.raise_for_status()
+
+        if progress_callback is not None:
+            await progress_callback(_upload_progress_payload(file_size, file_size, started_at, done=True))
+
+        return r.json()
+
+
+def _multipart_field(boundary: str, name: str, value: str) -> bytes:
+    return (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+        f"{value}\r\n"
+    ).encode("utf-8")
+
+
+def _multipart_file_header(boundary: str, name: str, filename: str, content_type: str) -> bytes:
+    return (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode("utf-8")
+
+
+def _multipart_closing(boundary: str) -> bytes:
+    return f"\r\n--{boundary}--\r\n".encode("utf-8")
+
+
+def _upload_progress_payload(
+    uploaded_bytes: int,
+    total_bytes: int,
+    started_at: float,
+    *,
+    done: bool
+) -> dict[str, typing.Any]:
+    elapsed_sec = max(0.0, time.monotonic() - started_at)
+    speed = (float(uploaded_bytes) / elapsed_sec) if elapsed_sec > 0 else 0.0
+    percent = 1.0 if total_bytes <= 0 and done else (
+        min(1.0, float(uploaded_bytes) / float(total_bytes)) if total_bytes > 0 else 0.0
+    )
+    return {
+        "uploaded_bytes": int(uploaded_bytes),
+        "total_bytes": int(total_bytes),
+        "percent": percent,
+        "elapsed_sec": elapsed_sec,
+        "speed_bytes_per_sec": speed,
+        "done": done,
+    }
 
 
 async def post_tool_result(

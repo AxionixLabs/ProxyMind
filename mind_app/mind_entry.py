@@ -19,10 +19,67 @@ from engine.upgrade import Upgrade
 # from mind_core import authorize
 # from mind_core.api import Api
 from mind_core.design import Design
+from mind_core.design.upload import UploadProgressLiveReporter
 from mind_core.parser import Parser
 from mind_core.preference import Preferences
 from mind_nova import const
 from .mind_core import Mind
+
+
+async def resolve_cli_attachments(
+    mind: Mind,
+    cmd_lines: typing.Any
+) -> typing.Optional[list[dict[str, typing.Any]]]:
+    raw_attachments = cmd_lines.attach or []
+    if not raw_attachments:
+        return None
+
+    if cmd_lines.code:
+        raise MindError("--attach is not supported together with --code yet")
+
+    if cmd_lines.plan is not None:
+        raise MindError("--attach is not supported with --plan")
+
+    if cmd_lines.chat is None and cmd_lines.fast is None:
+        raise MindError("--attach requires --chat or --fast")
+
+    for raw_path in raw_attachments:
+        mind.attach.add_pending_attachments(raw_path)
+
+    pending = mind.attach.pending_attachments_snapshot()
+    reporter = UploadProgressLiveReporter(Design.console)
+    upload_state: dict[str, typing.Any] = {
+        "event": None,
+        "item_total": len(pending),
+        "total_bytes": sum(int(item.get("size") or 0) for item in pending),
+    }
+
+    async def capture_progress(event: dict[str, typing.Any]) -> None:
+        reporter.last_event = dict(event)
+        upload_state["event"] = dict(event)
+
+    try:
+        await mind.start_upload_anim(lambda: dict(upload_state))
+        uploaded = await mind.attach.upload_pending_attachments(progress_callback=capture_progress)
+    except MindError as error:
+        Design.console.print(reporter.render_failure(message=str(error), event=reporter.last_event))
+        raise
+    finally:
+        await mind.await_cleanup(mind.stop_anim())
+    mind.attach.clear_pending_attachments()
+    if reporter.last_event is not None:
+        Design.console.print(reporter.render_summary(reporter.last_event))
+    return uploaded
+
+
+def resolve_code_mode(cmd_lines: typing.Any) -> typing.Literal["chat", "fast", "plan"]:
+    if cmd_lines.chat is not None:
+        return "chat"
+    if cmd_lines.fast is not None:
+        return "fast"
+    if cmd_lines.plan is not None:
+        return "plan"
+    raise MindError("--code requires --chat, --fast, or --plan")
 
 
 async def main(entry_file: typing.Optional[str] = None) -> int:
@@ -199,22 +256,18 @@ async def main(entry_file: typing.Optional[str] = None) -> int:
 
     signal.signal(signal.SIGINT, mind.signal_processor)
 
+    cli_attachments = await resolve_cli_attachments(mind, cmd_lines)
+
     if cmd_lines.agent:
         await mind.agent_loop()
     elif chat := cmd_lines.chat:
-        await mind.calling(message=chat, mode="chat")
+        await mind.calling(message=chat, mode="chat", attachments=cli_attachments)
     elif fast := cmd_lines.fast:
-        await mind.calling(message=fast, mode="fast")
+        await mind.calling(message=fast, mode="fast", attachments=cli_attachments)
     elif plan := cmd_lines.plan:
         await mind.calling(message=plan, mode="plan")
     elif code := cmd_lines.code:
-        if cmd_lines.chat is not None:
-            mode: typing.Literal["chat"] = "chat"
-        elif cmd_lines.fast is not None:
-            mode: typing.Literal["fast"] = "fast"
-        else:
-            mode: typing.Literal["plan"] = "plan"
-
+        mode = resolve_code_mode(cmd_lines)
         await mind.mind_pack(code, mode)
 
     else:

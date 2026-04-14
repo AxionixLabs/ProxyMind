@@ -24,6 +24,7 @@ from .fx import (
     particle_aggregate as design_particle_aggregate,
     download_animation as design_download_animation
 )
+from .upload import upload_progress_live as design_upload_progress_live
 from mind_nova import const
 
 
@@ -880,6 +881,17 @@ class Design(DesignStatusLiveDriver):
             console=Design.console,
             state=state,
             stop_event=stop_event
+        )
+
+    @staticmethod
+    async def upload_progress_live(
+        stop_event: asyncio.Event,
+        snapshot: typing.Callable[[], dict[str, typing.Any]]
+    ) -> None:
+        return await design_upload_progress_live(
+            console=Design.console,
+            stop_event=stop_event,
+            snapshot=snapshot
         )
 
 

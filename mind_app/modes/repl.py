@@ -5,7 +5,9 @@ import re
 import typing
 from pathlib import Path
 from mcp import ClientSession
+from engine.tinker import MindError
 from mind_core.design import Design
+from mind_core.design.upload import UploadProgressLiveReporter
 from mind_core import authorize
 from mind_nova.events import EventReport
 from mind_nova import const
@@ -45,7 +47,9 @@ async def mind_loop(mind: "Mind") -> None:
 
         for s in styles:
             Design.console.print(f"[bold #AFC7D8]  • {s}[/]")
-        return Design.console.print(f"[bold #FF5F5F]\n {types} invalid: /{types} {const.ERR}{pref_name}")
+        Design.console.print(f"[bold #FF5F5F]\n {types} invalid: /{types} {const.ERR}{pref_name}")
+        Design.console.print()
+        return None
 
     async def function(
         session: ClientSession,
@@ -53,6 +57,27 @@ async def mind_loop(mind: "Mind") -> None:
         tool_meta: dict[str, dict[str, typing.Any]],
     ) -> None:
         """在共享 MCP 会话中运行交互循环。"""
+        def print_attach_gap() -> None:
+            Design.console.print()
+
+        def print_pending_attachments() -> None:
+            items = mind.attach.pending_attachments_snapshot()
+            if not items:
+                Design.console.print("[bold #7F8C9A]No pending attachments.[/]")
+                print_attach_gap()
+                return None
+
+            Design.console.print(f"[bold #AFC7D8]Pending attachments ({len(items)}):[/]")
+            for index, item in enumerate(items, start=1):
+                size = int(item.get("size") or 0)
+                Design.console.print(
+                    f"[bold #AFC7D8]  {index}.[/] "
+                    f"[bold #F4F7FA]{item.get('filename') or '-'}[/] "
+                    f"[#7F8C9A]({item.get('kind') or 'file'} · {size} bytes)[/]"
+                )
+                Design.console.print(f"[#7F8C9A]     {item.get('local') or '-'}[/]")
+            print_attach_gap()
+
         pref_cfg = mind.pref.to_config()
         primary  = pref_cfg.get("primary") or {}
         model    = primary.get("model", "")
@@ -64,6 +89,8 @@ async def mind_loop(mind: "Mind") -> None:
         help_set: set[str] = {"/help", "/h"}
         seal_set: set[str] = {"/license", "/lic"}
         subs_set: set[str] = {"/subscription", "/sub"}
+        attachments_set: set[str] = {"/attachments"}
+        attach_clear_set: set[str] = {"/attach-clear"}
 
         doc = """\
             [bold]
@@ -71,15 +98,21 @@ async def mind_loop(mind: "Mind") -> None:
             [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
             [bold #5FD7AF]/subscription, /sub[/]       订阅信息（授权状态/到期）
             [bold #FF5F5F]/quit, /q, quit, exit[/]     断开会话（安全退出）
-            [bold #AFD7FF]/model <name>[/]             引擎切换（选择推理内核）
-            [bold #AFD7FF]/apikey <key>[/]             凭证更新（替换访问密钥）
+            [bold #AFD7FF]/attach <path|dir|glob>[/]   添加本轮待发送附件（任意文件）
+            [bold #AFD7FF]/attachments[/]              查看当前待发送附件
+            [bold #AFD7FF]/detach <index|path>[/]      移除一个待发送附件
+            [bold #AFD7FF]/attach-clear[/]             清空当前待发送附件
             [bold #FFD75F]/chat[/]                     对话模式（全域能力接入/自然语言交互）
             [bold #FFD75F]/fast[/]                     高速模式（高吞吐任务流/数据媒体直达）
             [bold #FFD75F]/plan[/]                     编排模式（结构任务拆解/确定路径执行）
+            [#7F8C9A]/model <name>[/]                  引擎切换（选择推理内核）
+            [#7F8C9A]/apikey <key>[/]                  凭证更新（替换访问密钥）
             [/]"""
 
         re_model  = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
         re_apikey = re.compile(r"^\s*/apikey(?:\s+(.*))?\s*$", re.IGNORECASE)
+        re_attach = re.compile(r"^\s*/attach(?:\s+(.*))?\s*$", re.IGNORECASE)
+        re_detach = re.compile(r"^\s*/detach(?:\s+(.*))?\s*$", re.IGNORECASE)
 
         mode: RUN_MODE = "chat"
 
@@ -93,7 +126,7 @@ async def mind_loop(mind: "Mind") -> None:
             except (EOFError, UnicodeDecodeError):
                 continue
 
-            command = raw.lower()
+            command = raw.strip().lower()
 
             if command in quit_set:
                 mind.task_event.set()
@@ -112,6 +145,16 @@ async def mind_loop(mind: "Mind") -> None:
                 await authorize.verify_license(lic_file)
                 continue
 
+            if command in attachments_set:
+                print_pending_attachments()
+                continue
+
+            if command in attach_clear_set:
+                count = mind.attach.clear_pending_attachments()
+                Design.console.print(f"[bold #AFC7D8]Cleared {count} pending attachment(s).[/]")
+                print_attach_gap()
+                continue
+
             if command in MODE_BY_COMMAND:
                 Design.console.print()
                 mode = MODE_BY_COMMAND[command]
@@ -125,9 +168,106 @@ async def mind_loop(mind: "Mind") -> None:
                 apikey = await exchange(m, types="apikey") or apikey
                 continue
 
+            if m := re_attach.match(raw):
+                value = m.group(1).strip() if m.group(1) else ""
+                if not value:
+                    Design.console.print("[bold #FF5F5F]attach invalid: /attach <path|dir|glob>[/]")
+                    print_attach_gap()
+                    continue
+                try:
+                    result = mind.attach.add_pending_attachments(value)
+                except MindError as error:
+                    Design.console.print(f"[bold #FF5F5F]{error}[/]")
+                    print_attach_gap()
+                    continue
+
+                added = result.get("added") or []
+                existing = result.get("existing") or []
+                skipped = result.get("skipped") or []
+
+                Design.console.print(
+                    f"[bold #5FD7AF]Attach summary[/] "
+                    f"[bold #F4F7FA]{len(added)} added[/] "
+                    f"[#7F8C9A]· {len(existing)} existing · {len(skipped)} skipped[/]"
+                )
+                for item in added[:5]:
+                    Design.console.print(
+                        f"[bold #AFC7D8]  +[/] "
+                        f"[bold #F4F7FA]{item.get('filename') or '-'}[/] "
+                        f"[#7F8C9A]({item.get('kind') or 'file'})[/]"
+                    )
+                if len(added) > 5:
+                    Design.console.print(f"[#7F8C9A]  ... and {len(added) - 5} more added[/]")
+                if skipped:
+                    Design.console.print(
+                        f"[#FFB86B]Skipped[/] "
+                        f"{', '.join(str(item.get('filename') or '-') for item in skipped[:3])}"
+                    )
+                print_attach_gap()
+                continue
+
+            if m := re_detach.match(raw):
+                value = m.group(1).strip() if m.group(1) else ""
+                if not value:
+                    Design.console.print("[bold #FF5F5F]detach invalid: /detach <index|path>[/]")
+                    print_attach_gap()
+                    continue
+                try:
+                    item = mind.attach.remove_pending_attachment(value)
+                except MindError as error:
+                    Design.console.print(f"[bold #FF5F5F]{error}[/]")
+                    print_attach_gap()
+                    continue
+
+                Design.console.print(
+                    f"[bold #AFC7D8]Detached[/] "
+                    f"[bold #F4F7FA]{item.get('filename') or '-'}[/]"
+                )
+                print_attach_gap()
+                continue
+
             async def guarded_with_report(run_mode: RUN_MODE) -> None:
                 """为单轮交互附加事件上报和统一保护层。"""
                 runner = resolve_mode_runner(mind, run_mode)
+                uploaded_attachments: typing.Optional[list[dict[str, typing.Any]]] = None
+
+                if run_mode == "plan" and mind.attach.has_pending_attachments():
+                    Design.console.print(
+                        "[bold #FF5F5F]Pending attachments are not supported in /plan. "
+                        "Switch to /chat or /fast, or run /attach-clear.[/]"
+                    )
+                    print_attach_gap()
+                    return None
+
+                if mind.attach.has_pending_attachments():
+                    items = mind.attach.pending_attachments_snapshot()
+                    reporter = UploadProgressLiveReporter(Design.console)
+                    upload_state: dict[str, typing.Any] = {
+                        "event": None,
+                        "item_total": len(items),
+                        "total_bytes": sum(int(item.get("size") or 0) for item in items),
+                    }
+
+                    async def capture_progress(event: dict[str, typing.Any]) -> None:
+                        reporter.last_event = dict(event)
+                        upload_state["event"] = dict(event)
+
+                    try:
+                        await mind.start_upload_anim(lambda: dict(upload_state))
+                        uploaded_attachments = await mind.attach.upload_pending_attachments(
+                            progress_callback=capture_progress
+                        )
+                    except MindError as error:
+                        Design.console.print(
+                            reporter.render_failure(message=str(error), event=reporter.last_event)
+                        )
+                        print_attach_gap()
+                        return None
+                    finally:
+                        await mind.await_cleanup(mind.stop_anim())
+                    if reporter.last_event is not None:
+                        Design.console.print(reporter.render_summary(reporter.last_event))
+                        print_attach_gap()
 
                 ev_report = EventReport(run_mode, metadata["cid"], metadata["sid"])
                 await ev_report.open()
@@ -141,12 +281,15 @@ async def mind_loop(mind: "Mind") -> None:
                         message=raw,
                         openai_tools=openai_tools,
                         tool_meta=tool_meta,
+                        attachments=uploaded_attachments,
                         metadata=metadata,
                         ev_report=ev_report
                     )
                 finally:
                     await ev_report.flush()
                     await ev_report.close()
+                    if uploaded_attachments:
+                        mind.attach.clear_pending_attachments()
 
             await guarded_with_report(mode)
 

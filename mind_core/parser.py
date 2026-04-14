@@ -156,7 +156,19 @@ class Parser(object):
                 -------------------------
                 - 装载批量执行蓝本（.md/.txt）
                 - 支持 cfg、case、前后置、循环、规则后置等编排结构
-                - 可与 --chat/--fast/--plan 叠加：选择批跑协议
+                - 必须与 --chat/--fast/--plan 叠加：选择批跑协议
+
+            ''')
+        )
+
+        minor_group.add_argument(
+            "--attach", action="append", default=None, metavar="PATH",
+            help=textwrap.dedent(f'''\
+                \033[1;36m^* 共振协议 *^\033[0m
+                -------------------------
+                - 为本次命令行请求挂载本地附件
+                - 可重复传入：--attach a.png --attach "./docs/**/*.md"
+                - 当前仅用于单次 `--chat` / `--fast` 请求
 
             ''')
         )

@@ -46,9 +46,14 @@ class SlashCommandCompleter(Completer):
         {"text": "/q", "display": "/q", "meta": "退出会话"},
         {"text": "/model ", "display": "/model", "meta": "输入模型名"},
         {"text": "/apikey ", "display": "/apikey", "meta": "输入 API Key"},
+        {"text": "/attach ", "display": "/attach", "meta": "添加本轮待发送附件"},
+        {"text": "/attachments", "display": "/attachments", "meta": "查看待发送附件"},
+        {"text": "/detach ", "display": "/detach", "meta": "移除待发送附件"},
+        {"text": "/attach-clear", "display": "/attach-clear", "meta": "清空待发送附件"},
     )
     TOP_LEVEL: tuple[str, ...] = (
-        "/chat", "/fast", "/plan", "/help", "/quit", "/model", "/apikey"
+        "/chat", "/fast", "/plan", "/help", "/quit",
+        "/attach", "/attachments", "/detach", "/attach-clear"
     )
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
@@ -58,20 +63,22 @@ class SlashCommandCompleter(Completer):
             return
 
         token = stripped.splitlines()[-1]
-        if " " in token and not token.startswith(("/model", "/apikey")):
+        if " " in token and not token.startswith(("/model", "/apikey", "/attach", "/detach")):
             return
 
         if token == "/":
             candidates = [
                 item for item in self.COMMANDS if item["display"] in self.TOP_LEVEL
             ]
+            visible_limit = len(self.TOP_LEVEL)
         else:
             candidates = [
                 item for item in self.COMMANDS
                 if item["display"].startswith(token) or item["text"].startswith(token)
             ]
+            visible_limit = 7
 
-        for item in candidates[:7]:
+        for item in candidates[:visible_limit]:
             yield Completion(
                 item["text"],
                 start_position=-len(token),
@@ -318,7 +325,7 @@ class CommandAutoSuggest(AutoSuggest):
 class PromptToolkitBox(object):
     """Async prompt_toolkit wrapper for the CLI loop."""
 
-    PARAMETERIZED_COMMANDS: tuple[str, ...] = ("/model ", "/apikey ")
+    PARAMETERIZED_COMMANDS: tuple[str, ...] = ("/model ", "/apikey ", "/attach ", "/detach ")
     MODEL_DISPLAY_MAX: int = 24
 
     def __init__(self) -> None:

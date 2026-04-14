@@ -15,6 +15,7 @@ from mind_core.prompting import PromptToolkitBox
 from mind_core.preference import Preferences
 from mind_nova.report import Report
 from mind_nova import craft
+from .attach import Attach
 from .stream_ui import StreamUI
 from .modes.repl import mind_loop as run_mind_loop
 from .modes.static import static_looper as run_static_looper
@@ -62,6 +63,7 @@ class Mind(object):
 
         self.report: Report = Report(self.src_total_place, self.gravity)
         self.prompt_box: PromptToolkitBox = PromptToolkitBox()
+        self.attach: Attach = Attach()
 
         self.runtime_loop: typing.Optional[asyncio.AbstractEventLoop] = None
         self.root_task: typing.Optional[asyncio.Task[typing.Any]] = None
@@ -128,6 +130,15 @@ class Mind(object):
         """启动指定模式的等待动画。"""
         await self.anim_manager.start(
             lambda stop_event: self.design.stream_wait_live(stop_event, mode)
+        )
+
+    async def start_upload_anim(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]]
+    ) -> None:
+        """启动附件上传动画，并复用统一动画管理器避免冲突。"""
+        await self.anim_manager.start(
+            lambda stop_event: self.design.upload_progress_live(stop_event, snapshot)
         )
 
     @staticmethod
