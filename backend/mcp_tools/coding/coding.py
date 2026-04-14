@@ -35,7 +35,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             " 当前仅支持 `codex exec` 非交互模式，会持续消费并打印 CLI 输出。"
             " 该工具只负责拉起 provider 并立即返回；最终结果请用 `coding_wait` 收束。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "provider"}
+        meta={"hidden": False, "domain": "coding", "class": "session"}
     )
     @task_middleware("coding_start")
     async def coding_start(
@@ -103,7 +103,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "查询当前编码 provider 任务状态。"
             " 若存在运行中的会话，返回 provider、pid、工作目录和最近输出摘要。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "provider"}
+        meta={"hidden": False, "domain": "coding", "class": "session"}
     )
     @task_middleware("coding_status")
     async def coding_status() -> CallToolResult:
@@ -134,7 +134,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "停止当前运行中的编码 provider 任务。"
             " 若当前没有活跃会话，则返回最近一次状态摘要，不会报错。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "provider"}
+        meta={"hidden": False, "domain": "coding", "class": "session"}
     )
     @task_middleware("coding_stop")
     async def coding_stop() -> CallToolResult:
