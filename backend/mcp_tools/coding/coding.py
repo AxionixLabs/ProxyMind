@@ -159,7 +159,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "等待当前运行中的编码 provider 会话结束并返回最终结果。"
             " 若当前没有活跃会话，则返回当前状态摘要。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "provider"}
+        meta={"hidden": False, "domain": "coding", "class": "session"}
     )
     @task_middleware("coding_wait")
     async def coding_wait(
