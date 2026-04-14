@@ -18,12 +18,12 @@ from backend.mcp_tools.coding.schemas import (
     CodingEphemeralArg,
     CodingJsonOutputArg,
     CodingTimeoutSecArg,
-    CodingExtraArgsArg,
+    CodingExtraArgsArg
 )
 from backend.utilities.broadcast import broadcast
 from backend.utilities.runtime import (
     AppContext,
-    Idle,
+    Idle
 )
 
 
@@ -31,9 +31,9 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "启动一次编码 provider 的命令行执行任务。"
+            "启动一次 provider 驱动的工作区任务会话。"
             " 当前仅支持 `codex exec` 非交互模式，会持续消费并打印 CLI 输出。"
-            " 该工具只负责拉起 provider 并立即返回；最终结果请用 `coding_wait` 收束。"
+            " 该工具只负责拉起任务并立即返回；最终结果请用 `coding_wait` 收束。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "session"}
     )
@@ -100,8 +100,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "查询当前编码 provider 任务状态。"
-            " 若存在运行中的会话，返回 provider、pid、工作目录和最近输出摘要。"
+            "查询当前 provider 任务会话状态。"
+            " 若存在运行中的会话，返回 provider、进程信息、工作目录和最近输出摘要。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "session"}
     )
@@ -131,8 +131,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "停止当前运行中的编码 provider 任务。"
-            " 若当前没有活跃会话，则返回最近一次状态摘要，不会报错。"
+            "等待当前运行中的 provider 任务会话结束并返回最终结果。"
+            " 若当前没有活跃会话，则返回当前状态摘要。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "session"}
     )
