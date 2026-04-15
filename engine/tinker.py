@@ -222,7 +222,7 @@ class Tooling(object):
         cls = str(effective_meta.get("class") or "")
         return cls not in {
             "tool", "framix", "nexus", "inspect", "security", "runtime",
-            "audio", "ffmpeg", "k6", "provider"
+            "audio", "ffmpeg", "k6", "session"
         }
 
     @staticmethod
