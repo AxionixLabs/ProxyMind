@@ -191,7 +191,7 @@ async def main(entry_file: typing.Optional[str] = None) -> int:
     if not software.endswith(".py"):
         launch_cmd = [helix, "--level", level]
     else:
-        launch_cmd = [sys.executable, str(Path(__file__).parents[1] / "backend" / "helix.py"), "--level", level]
+        launch_cmd = [sys.executable, "-m", "backend.helix", "--level", level]
 
     # if cmd_lines.pref:
     if cmd_lines.hello:

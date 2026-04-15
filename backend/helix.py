@@ -11,16 +11,16 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from mcp.server.fastmcp import FastMCP
 from mcp.server.auth.settings import AuthSettings
-from mcp_core.core_cli import Cli
-from mcp_hub.hub_manage import DeviceManage
-from middlewares.mid_auth import HelixTokenVerifier
-from middlewares import register_middlewares
-from routers import register_routers
-from utilities.runtime import (
+from backend.mcp_core.core_cli import Cli
+from backend.mcp_hub.hub_manage import DeviceManage
+from backend.middlewares.mid_auth import HelixTokenVerifier
+from backend.middlewares import register_middlewares
+from backend.routers import register_routers
+from backend.utilities.runtime import (
     app_ctx, Active, Idle
 )
-from utilities import const
-from register import register_all_tools
+from backend.utilities import const
+from backend.register import register_all_tools
 
 
 cli = Cli()
