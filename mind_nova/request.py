@@ -137,7 +137,7 @@ async def open_report_session(
     if not isinstance(data, dict):
         raise RuntimeError("reports/open missing data object")
 
-    return typing.cast(dict[str, typing.Any], data)
+    return data
 
 
 async def upload_file_stream(
@@ -146,9 +146,59 @@ async def upload_file_stream(
     prefix: str = "uploads",
     timeout: float = 60.0,
     progress_callback: typing.Optional[UploadProgressCallback] = None,
-    chunk_size: int = DEFAULT_UPLOAD_CHUNK_SIZE,
+    chunk_size: int = DEFAULT_UPLOAD_CHUNK_SIZE
 ) -> dict[str, typing.Any]:
-    """流式上传本地文件到服务端 /upload（服务端再流式转发到 R2）。"""
+    """流式上传本地文件到服务端。"""
+
+    def upload_progress_payload(
+        current_uploaded_bytes: int,
+        current_total_bytes: int,
+        progress_started_at: float,
+        *,
+        done: bool
+    ) -> dict[str, typing.Any]:
+        elapsed_sec = max(0.0, time.monotonic() - progress_started_at)
+        speed = (float(current_uploaded_bytes) / elapsed_sec) if elapsed_sec > 0 else 0.0
+        percent = 1.0 if current_total_bytes <= 0 and done else (
+            min(1.0, float(current_uploaded_bytes) / float(current_total_bytes)) if current_total_bytes > 0 else 0.0
+        )
+        return {
+            "uploaded_bytes": int(current_uploaded_bytes),
+            "total_bytes": int(current_total_bytes),
+            "percent": percent,
+            "elapsed_sec": elapsed_sec,
+            "speed_bytes_per_sec": speed,
+            "done": done,
+        }
+
+    def multipart_field(
+        part_boundary: str,
+        name: str,
+        value: str
+    ) -> bytes:
+        return (
+            f"--{part_boundary}\r\n"
+            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+            f"{value}\r\n"
+        ).encode(const.CHARSET)
+
+    def multipart_file_header(
+        part_boundary: str,
+        name: str,
+        filename: str,
+        content_type: str
+    ) -> bytes:
+        return (
+            f"--{part_boundary}\r\n"
+            f'Content-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
+            f"Content-Type: {content_type}\r\n\r\n"
+        ).encode(const.CHARSET)
+
+    def multipart_closing(
+        part_boundary: str
+    ) -> bytes:
+        return f"\r\n--{part_boundary}--\r\n".encode("utf-8")
+
     if not (p := Path(path).expanduser()).exists() or not p.is_file():
         raise RuntimeError(f"upload_file_stream: file not exists: {p}")
 
@@ -156,11 +206,13 @@ async def upload_file_stream(
     headers.pop("Content-Type", None)
 
     ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
-    boundary = f"----mind-upload-{uuid.uuid4().hex}"
-    field_agent = _multipart_field(boundary, "agent_id", agent_id)
-    field_prefix = _multipart_field(boundary, "prefix", prefix)
-    field_file = _multipart_file_header(boundary, "file", p.name, ctype)
-    closing = _multipart_closing(boundary)
+
+    boundary     = uuid.uuid4().hex
+    field_agent  = multipart_field(boundary, "agent_id", agent_id)
+    field_prefix = multipart_field(boundary, "prefix", prefix)
+    field_file   = multipart_file_header(boundary, "file", p.name, ctype)
+    closing      = multipart_closing(boundary)
+
     file_size = int(p.stat().st_size)
 
     headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
@@ -172,7 +224,7 @@ async def upload_file_stream(
     uploaded_bytes = 0
 
     if progress_callback is not None:
-        await progress_callback(_upload_progress_payload(uploaded_bytes, file_size, started_at, done=False))
+        await progress_callback(upload_progress_payload(uploaded_bytes, file_size, started_at, done=False))
 
     async def body() -> typing.AsyncGenerator[bytes, None]:
         nonlocal uploaded_bytes
@@ -192,7 +244,7 @@ async def upload_file_stream(
 
                 if progress_callback is not None:
                     await progress_callback(
-                        _upload_progress_payload(uploaded_bytes, file_size, started_at, done=False)
+                        upload_progress_payload(uploaded_bytes, file_size, started_at, done=False)
                     )
 
         yield closing
@@ -202,51 +254,9 @@ async def upload_file_stream(
         r.raise_for_status()
 
         if progress_callback is not None:
-            await progress_callback(_upload_progress_payload(file_size, file_size, started_at, done=True))
+            await progress_callback(upload_progress_payload(file_size, file_size, started_at, done=True))
 
         return r.json()
-
-
-def _multipart_field(boundary: str, name: str, value: str) -> bytes:
-    return (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
-        f"{value}\r\n"
-    ).encode("utf-8")
-
-
-def _multipart_file_header(boundary: str, name: str, filename: str, content_type: str) -> bytes:
-    return (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
-        f"Content-Type: {content_type}\r\n\r\n"
-    ).encode("utf-8")
-
-
-def _multipart_closing(boundary: str) -> bytes:
-    return f"\r\n--{boundary}--\r\n".encode("utf-8")
-
-
-def _upload_progress_payload(
-    uploaded_bytes: int,
-    total_bytes: int,
-    started_at: float,
-    *,
-    done: bool
-) -> dict[str, typing.Any]:
-    elapsed_sec = max(0.0, time.monotonic() - started_at)
-    speed = (float(uploaded_bytes) / elapsed_sec) if elapsed_sec > 0 else 0.0
-    percent = 1.0 if total_bytes <= 0 and done else (
-        min(1.0, float(uploaded_bytes) / float(total_bytes)) if total_bytes > 0 else 0.0
-    )
-    return {
-        "uploaded_bytes": int(uploaded_bytes),
-        "total_bytes": int(total_bytes),
-        "percent": percent,
-        "elapsed_sec": elapsed_sec,
-        "speed_bytes_per_sec": speed,
-        "done": done,
-    }
 
 
 async def post_tool_result(
