@@ -503,6 +503,9 @@
     .page-content-grid--equal > .card{
       height:100%;
     }
+    .model-stack{
+      grid-template-columns:minmax(0, 1fr);
+    }
     .model-card{
       min-width:0;
     }
@@ -1072,7 +1075,7 @@
 
     <section class="page-content-grid">
       <form class="fields" id="pref-form">
-        <div class="page-content-grid page-content-grid--equal">
+        <div class="page-content-grid page-content-grid--equal model-stack">
           <section class="card model-card main-panel-card">
             <div class="bar">
               <div class="bar-start">
