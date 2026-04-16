@@ -30,7 +30,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "启动一次工作区任务会话。"
+            "启动一次 codex 工作区任务会话。"
             " 当前固定使用 `codex exec` 非交互模式启动任务，并持续消费打印 CLI 输出。"
             " 该工具只负责拉起任务并立即返回；最终结果请用 `coding_wait` 收束。"
         ),
@@ -97,8 +97,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "查询当前任务会话状态。"
-            " 若存在运行中的会话，返回进程信息、工作目录和最近输出摘要。"
+            "查询当前 codex 任务会话状态。"
+            " 若存在运行中的 codex 会话，返回进程信息、工作目录和最近输出摘要。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "session"}
     )
@@ -128,8 +128,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "等待当前运行中的任务会话结束并返回最终结果。"
-            " 若当前没有活跃会话，则返回当前状态摘要。"
+            "等待当前 codex 运行中的任务会话结束并返回最终结果。"
+            " 若当前没有 codex 活跃会话，则返回当前状态摘要。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "session"}
     )
@@ -153,8 +153,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "等待当前运行中的编码会话结束并返回最终结果。"
-            " 若当前没有活跃会话，则返回当前状态摘要。"
+            "等待当前运行中的 codex 会话结束并返回最终结果。"
+            " 若当前没有活跃的 codex 会话，则返回当前状态摘要。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "session"}
     )
