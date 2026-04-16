@@ -2,7 +2,6 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 from backend.mcp_tools.coding.schemas.schema_coding import (
-    CodingProviderArg,
     CodingPromptArg,
     CodingWorkDirArg,
     CodingProfileArg,
@@ -17,7 +16,6 @@ from backend.mcp_tools.coding.schemas.schema_coding import (
 )
 
 __all__ = [
-    "CodingProviderArg",
     "CodingPromptArg",
     "CodingWorkDirArg",
     "CodingProfileArg",

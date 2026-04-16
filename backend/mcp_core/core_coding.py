@@ -43,7 +43,6 @@ class Coding(object):
             self.wait_task: typing.Optional[asyncio.Task[dict[str, typing.Any]]] = None
             self.wait_result: typing.Optional[dict[str, typing.Any]] = None
 
-            self.provider: typing.Optional[str] = None
             self.session_id: typing.Optional[str] = None
             self.prompt_preview: str = ""
             self.cwd: typing.Optional[str] = None
@@ -113,7 +112,7 @@ class Coding(object):
         return cmd
 
     @staticmethod
-    def _build_provider_env(*, provider: str, workdir: str) -> dict[str, str]:
+    def _build_codex_env(*, workdir: str) -> dict[str, str]:
         env = os.environ.copy()
 
         env["PWD"] = str(workdir)
@@ -125,7 +124,6 @@ class Coding(object):
         return {
             "ok"             : True,
             "active"         : active,
-            "provider"       : self.provider,
             "session_id"     : self.session_id,
             "pid"            : getattr(proc, "pid", None),
             "cwd"            : self.cwd,
@@ -242,7 +240,6 @@ class Coding(object):
     async def start(
         self,
         *,
-        provider: str,
         prompt: str,
         workdir: typing.Optional[str] = None,
         profile: typing.Optional[str] = None,
@@ -258,15 +255,6 @@ class Coding(object):
             typing.Callable[[str, str, int], typing.Awaitable[None]]
         ] = None
     ) -> dict[str, typing.Any]:
-        provider_name = str(provider or "").strip().lower()
-        if provider_name != "codex":
-            raise marked.fail_tip(
-                "provider 当前只支持 codex。",
-                code=const.CODE_EXC,
-                hint=const.HINT_HLT,
-                provider=provider
-            )
-
         prompt_text = str(prompt or "").strip()
         if not prompt_text:
             raise marked.fail_tip(
@@ -291,10 +279,7 @@ class Coding(object):
             json_output=json_output,
             extra_args=extra_args
         )
-        env = self._build_provider_env(
-            provider=provider_name,
-            workdir=final_workdir
-        )
+        env = self._build_codex_env(workdir=final_workdir)
 
         async with self.lock:
             if self._active():
@@ -302,23 +287,21 @@ class Coding(object):
                     "已有编码会话在运行，不能重复启动。",
                     code=const.CODE_EXC,
                     hint=const.HINT_HLT,
-                    provider=self.provider,
                     session_id=self.session_id
                 )
 
             self.out_ring.clear()
-            self.provider = provider_name
-            self.session_id = f"{provider_name}_{time.strftime('%Y%m%d%H%M%S')}"
-            self.prompt_preview = self._prompt_preview(prompt_text)
-            self.cwd = final_workdir
-            self.codex_home = env.get("CODEX_HOME")
+            self.session_id      = f"codex_{time.strftime('%Y%m%d%H%M%S')}"
+            self.prompt_preview  = self._prompt_preview(prompt_text)
+            self.cwd             = final_workdir
+            self.codex_home      = env.get("CODEX_HOME")
             self.command_preview = summarize_command(cmd)
-            self.started_at = time.time()
-            self.finished_at = None
-            self.exit_code = None
-            self.stop_reason = None
-            self.stream_index = 0
-            self.wait_result = None
+            self.started_at      = time.time()
+            self.finished_at     = None
+            self.exit_code       = None
+            self.stop_reason     = None
+            self.stream_index    = 0
+            self.wait_result     = None
 
             self.__transports = await Flux.cmd_link_exec(
                 cmd,
@@ -328,28 +311,28 @@ class Coding(object):
             proc = self.__transports
             self.stdout_task = asyncio.create_task(
                 self.streaming(
-                    f"{provider_name}.stdout",
+                    "codex.stdout",
                     proc.stdout,
                     output_callback=output_callback
                 )
             )
             self.stderr_task = asyncio.create_task(
                 self.streaming(
-                    f"{provider_name}.stderr",
+                    "codex.stderr",
                     proc.stderr,
                     output_callback=output_callback
                 )
             )
 
         logger.info(
-            f"coding begin provider={provider_name} session_id={self.session_id} "
+            f"coding begin cli=codex session_id={self.session_id} "
             f"pid={proc.pid} cmd={self.command_preview}"
         )
 
         self.wait_task = asyncio.create_task(self._wait_impl(timeout_sec=timeout_sec))
 
         return {
-            "text"        : f"{provider_name} 启动成功。pid={proc.pid}",
+            "text"        : f"codex 启动成功。pid={proc.pid}",
             "attachments" : [],
             "data"        : self._snapshot_unlocked(),
             "logs"        : []
@@ -393,15 +376,15 @@ class Coding(object):
         ok = (snapshot["exit_code"] == 0) and (not timed_out) and (not stopped)
         snapshot["ok"] = ok
         text = (
-            f"{self.provider} 执行完成。exit_code={snapshot['exit_code']}"
+            f"codex 执行完成。exit_code={snapshot['exit_code']}"
             if ok else
-            f"{self.provider} 执行失败。exit_code={snapshot['exit_code']}"
+            f"codex 执行失败。exit_code={snapshot['exit_code']}"
         )
         if timed_out:
-            text = f"{self.provider} 执行超时并已停止。exit_code={snapshot['exit_code']}"
+            text = f"codex 执行超时并已停止。exit_code={snapshot['exit_code']}"
         elif stopped:
             text = (
-                f"{self.provider} 执行已停止。"
+                f"codex 执行已停止。"
                 f"exit_code={snapshot['exit_code']} reason={snapshot['stop_reason']}"
             )
 

@@ -7,7 +7,6 @@ from mcp.types import CallToolResult
 from backend.middlewares.mid_task import task_middleware
 from backend.mcp_hub.hub_manage import Requires
 from backend.mcp_tools.coding.schemas import (
-    CodingProviderArg,
     CodingPromptArg,
     CodingWorkDirArg,
     CodingProfileArg,
@@ -31,8 +30,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "启动一次 provider 驱动的工作区任务会话。"
-            " 当前仅支持 `codex exec` 非交互模式，会持续消费并打印 CLI 输出。"
+            "启动一次工作区任务会话。"
+            " 当前固定使用 `codex exec` 非交互模式启动任务，并持续消费打印 CLI 输出。"
             " 该工具只负责拉起任务并立即返回；最终结果请用 `coding_wait` 收束。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "session"}
@@ -40,7 +39,6 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @task_middleware("coding_start")
     async def coding_start(
         prompt: CodingPromptArg,
-        provider: CodingProviderArg = "codex",
         workdir: CodingWorkDirArg = None,
         profile: CodingProfileArg = None,
         model: CodingModelArg = None,
@@ -57,7 +55,6 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         await Requires.connect_codex()
 
         args = {
-            "provider"            : provider,
             "prompt"              : prompt,
             "workdir"             : workdir,
             "profile"             : profile,
@@ -100,8 +97,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "查询当前 provider 任务会话状态。"
-            " 若存在运行中的会话，返回 provider、进程信息、工作目录和最近输出摘要。"
+            "查询当前任务会话状态。"
+            " 若存在运行中的会话，返回进程信息、工作目录和最近输出摘要。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "session"}
     )
@@ -113,7 +110,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             try:
                 snapshot = await ctx.coding.snapshot()
                 return {
-                    "text"        : "Coding 状态已返回。",
+                    "text"        : "编码会话状态已返回。",
                     "attachments" : [],
                     "data"        : snapshot.get(ctx.coding.agent_id, {}),
                     "logs"        : []
@@ -131,7 +128,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "等待当前运行中的 provider 任务会话结束并返回最终结果。"
+            "等待当前运行中的任务会话结束并返回最终结果。"
             " 若当前没有活跃会话，则返回当前状态摘要。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "session"}
@@ -156,7 +153,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "等待当前运行中的编码 provider 会话结束并返回最终结果。"
+            "等待当前运行中的编码会话结束并返回最终结果。"
             " 若当前没有活跃会话，则返回当前状态摘要。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "session"}

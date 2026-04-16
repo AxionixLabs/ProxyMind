@@ -4,14 +4,9 @@
 import typing
 from pydantic import Field
 
-
-CodingProviderArg = typing.Annotated[
-    typing.Literal["codex"],
-    Field(description="编码 provider；当前仅支持 `codex`。"),
-]
 CodingPromptArg = typing.Annotated[
     str,
-    Field(description="要交给编码 provider 的原始提示词。"),
+    Field(description="要交给 codex CLI 的原始提示词。"),
 ]
 CodingWorkDirArg = typing.Annotated[
     typing.Optional[str],
@@ -23,7 +18,7 @@ CodingProfileArg = typing.Annotated[
 ]
 CodingModelArg = typing.Annotated[
     typing.Optional[str],
-    Field(description="目标模型名；为空时沿用 provider 默认模型。"),
+    Field(description="目标模型名；为空时沿用 codex 默认模型。"),
 ]
 CodingSandboxArg = typing.Annotated[
     typing.Optional[typing.Literal["read-only", "workspace-write", "danger-full-access"]],
