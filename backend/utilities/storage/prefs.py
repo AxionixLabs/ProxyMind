@@ -7,8 +7,8 @@ import time
 import typing
 import sqlite3
 from pathlib import Path
-from backend.utilities import const
 from backend.utilities.paths import app_root
+from backend.utilities import const
 
 Slot = dict[str, typing.Any]
 

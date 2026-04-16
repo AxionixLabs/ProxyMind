@@ -5,8 +5,8 @@ import os
 import sys
 import typing
 from pathlib import Path
-from backend.utilities import const
 from backend.utilities.paths import app_root
+from backend.utilities import const
 
 APP_DATA_DIR_NAME  = f"{const.APP_DESC}"
 DATA_STORAGE_DIR   = f"storage"
