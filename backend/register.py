@@ -9,6 +9,7 @@ import typing
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from backend.mcp_hub.hub_manage import DeviceManage
+from backend.utilities.paths import resource_path
 from backend.utilities.runtime import (
     AppContext, Idle
 )
@@ -78,10 +79,10 @@ def initialize(
     )
 ) -> dict[str, typing.Any]:
     """
-    初始化 backend/requires 下的工具目录。
+    初始化运行时工具目录。
 
     行为：
-    - 按系统自动路由到 backend/requires/windows 或 backend/requires/macos
+    - 按系统自动路由到 requires/windows 或 requires/macos
     - 将命中的工具目录 prepend 到 PATH
     - 不对缺失工具报错；具体工具调用时再由各域检查
     """
@@ -119,7 +120,7 @@ def initialize(
         raise RuntimeError(f"Unsupported platform: {sys.platform}")
 
     def _requires_root() -> Path:
-        return Path(__file__).resolve().parent / "requires" / _platform_key()
+        return resource_path("requires", _platform_key())
 
     def _prepend_path(folder: Path) -> None:
         current = os.environ.get("PATH", "")

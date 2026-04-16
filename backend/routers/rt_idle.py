@@ -2,23 +2,21 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import json
-from pathlib import Path
 from fastapi import (
     APIRouter, Request
 )
 from fastapi.responses import Response
 from backend.utilities import const
+from .page import render_page
 
 idle_router = APIRouter(tags=["Idle"])
 
 
 @idle_router.get(path="/idle", include_in_schema=False)
 async def api_idle_page() -> Response:
-    html = Path(__file__).resolve().parent.parent / "web" / "idle.html"
-    html = html.read_text(encoding=const.CHARSET, errors="replace")
-    html = html.replace("__APP_VERSION__", const.APP_VERSION)
+    page = render_page("idle.html")
     return Response(
-        html,
+        page.body,
         media_type="text/html; charset=utf-8",
         headers={
             "Cache-Control" : "no-store, no-cache, must-revalidate, max-age=0",

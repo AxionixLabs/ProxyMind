@@ -1,20 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import Response
-from backend.utilities import const
+from .page import render_page
 
 basic_router = APIRouter(tags=["Basic"])
 
 
 @basic_router.get(path="/", include_in_schema=False)
 async def api_root() -> Response:
-    html = Path(__file__).resolve().parent.parent / "web" / "index.html"
-    html = html.read_text(encoding=const.CHARSET, errors="replace")
-    html = html.replace("__APP_VERSION__", const.APP_VERSION)
-    return Response(html, media_type="text/html; charset=utf-8")
+    return render_page("index.html")
 
 
 @basic_router.get(path="/ready", include_in_schema=False)

@@ -6,26 +6,12 @@ import sys
 import typing
 from pathlib import Path
 from backend.utilities import const
+from backend.utilities.paths import app_root
 
-APP_ENTRY_NAMES    = {const.APP_NAME, f"{const.APP_NAME}.exe"}
-SCRIPT_ENTRY_NAMES = {f"{const.APP_NAME}.py"}
 APP_DATA_DIR_NAME  = f"{const.APP_DESC}"
 DATA_STORAGE_DIR   = f"storage"
 LOG_FILENAME       = f"{const.APP_NAME}.log"
 TAIL_CHUNK_SIZE    = 8192
-
-
-def _app_root() -> Path:
-    """推断当前应用入口所在根目录。"""
-    software = Path(sys.argv[0]).name.strip().lower()
-
-    if software in APP_ENTRY_NAMES:
-        return Path(sys.argv[0]).resolve().parent
-
-    if software in SCRIPT_ENTRY_NAMES:
-        return Path(__file__).resolve().parents[3]
-
-    return Path.cwd()
 
 
 def _data_root() -> Path:
@@ -38,7 +24,7 @@ def _data_root() -> Path:
         if base:
             return Path(base) / APP_DATA_DIR_NAME
 
-    return _app_root() / APP_DATA_DIR_NAME
+    return app_root() / APP_DATA_DIR_NAME
 
 
 def log_path() -> Path:

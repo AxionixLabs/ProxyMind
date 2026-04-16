@@ -4,7 +4,6 @@
 import typing
 import uvicorn
 import contextlib
-from pathlib import Path
 from loguru import logger
 from pydantic import AnyHttpUrl
 from fastapi import FastAPI
@@ -16,6 +15,7 @@ from backend.mcp_hub.hub_manage import DeviceManage
 from backend.middlewares.mid_auth import HelixTokenVerifier
 from backend.middlewares import register_middlewares
 from backend.routers import register_routers
+from backend.utilities.paths import resource_path
 from backend.utilities.runtime import (
     app_ctx, Active, Idle
 )
@@ -54,7 +54,7 @@ async def lifespan(web_app: FastAPI) -> typing.AsyncGenerator[None, None]:
     web_app.mount(
         path=f"/{const.APP_NAME}", app=mcp.streamable_http_app()
     )
-    directory = Path(__file__).resolve().parent / "web" / "static"
+    directory = resource_path("web", "static")
     web_app.mount(
         path=f"/static", app=StaticFiles(directory=directory)
     )

@@ -8,11 +8,10 @@ import typing
 import sqlite3
 from pathlib import Path
 from backend.utilities import const
+from backend.utilities.paths import app_root
 
 Slot = dict[str, typing.Any]
 
-APP_ENTRY_NAMES    = {const.APP_NAME, f"{const.APP_NAME}.exe"}
-SCRIPT_ENTRY_NAMES = {f"{const.APP_NAME}.py"}
 PROFILE_TITLE      = f"Default"
 SLOT_KEYS          = ("primary", "secondary")
 REQUIRED_SLOT_KEYS = ("primary",)
@@ -104,19 +103,6 @@ CREATE TABLE IF NOT EXISTS pref_model_slots (
 SCHEMA_SQL = SCHEMA_SQL.replace("pref_profiles", TABLE_PROFILES).replace("pref_model_slots", TABLE_SLOTS)
 
 
-def _app_root() -> Path:
-    """推断当前应用入口所在根目录。"""
-    software = Path(sys.argv[0]).name.strip().lower()
-
-    if software in APP_ENTRY_NAMES:
-        return Path(sys.argv[0]).resolve().parent
-
-    if software in SCRIPT_ENTRY_NAMES:
-        return Path(__file__).resolve().parents[3]
-
-    return Path.cwd()
-
-
 def _data_root() -> Path:
     """根据当前平台推断偏好数据目录。"""
     if sys.platform == "darwin":
@@ -127,7 +113,7 @@ def _data_root() -> Path:
         if base:
             return Path(base) / APP_DATA_DIR_NAME
 
-    return _app_root() / APP_DATA_DIR_NAME
+    return app_root() / APP_DATA_DIR_NAME
 
 
 def pref_path() -> Path:

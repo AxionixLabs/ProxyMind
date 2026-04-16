@@ -3,22 +3,18 @@
 
 import time
 import typing
-from pathlib import Path
 from fastapi import (
     APIRouter, Request
 )
 from fastapi.responses import Response
-from backend.utilities import const
+from .page import render_page
 
 agent_router = APIRouter(tags=["Agent"])
 
 
 @agent_router.get(path="/agent", include_in_schema=False)
 async def api_agent_page() -> Response:
-    html = Path(__file__).resolve().parent.parent / "web" / "agent.html"
-    html = html.read_text(encoding=const.CHARSET, errors="replace")
-    html = html.replace("__APP_VERSION__", const.APP_VERSION)
-    return Response(html, media_type="text/html; charset=utf-8")
+    return render_page("agent.html")
 
 
 @agent_router.get(path="/api/agent", include_in_schema=False)

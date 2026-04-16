@@ -1,21 +1,17 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import Response
-from backend.utilities import const
 from backend.utilities.storage.logs import read_log_lines
+from .page import render_page
 
 logs_router = APIRouter(tags=["Logs"])
 
 
 @logs_router.get(path="/logs", include_in_schema=False)
 async def api_logs_page() -> Response:
-    html = Path(__file__).resolve().parent.parent / "web" / "logs.html"
-    html = html.read_text(encoding=const.CHARSET, errors="replace")
-    html = html.replace("__APP_VERSION__", const.APP_VERSION)
-    return Response(html, media_type="text/html; charset=utf-8")
+    return render_page("logs.html")
 
 
 @logs_router.get(path="/api/logs", include_in_schema=False)
