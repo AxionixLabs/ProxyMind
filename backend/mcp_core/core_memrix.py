@@ -12,7 +12,7 @@ from backend.mcp_core.core_buffer import (
     LineBuffer, GateMachine, MX_SPEC
 )
 from backend.utilities import const
-from backend.utilities.process import Flux, port_listen
+from backend.utilities.process import Flux, port_listen, spawn_env
 from backend.utilities.validation import marked
 
 if typing.TYPE_CHECKING:
@@ -149,8 +149,15 @@ class Memrix(object):
         self.out_ring = deque(maxlen=20)
 
         cmd = [self.prefix] + list(args)
+        env = spawn_env()
         logger.info(f"[{self.prefix}] engine spawn cmd={cmd}")
-        self.__transports = await Flux.cmd_link(cmd)
+        logger.info(
+            f"[{self.prefix}] engine spawn env="
+            f"PYTHONUTF8={env.get('PYTHONUTF8')} "
+            f"PYTHONIOENCODING={env.get('PYTHONIOENCODING')} "
+            f"TERM={env.get('TERM')} NO_COLOR={env.get('NO_COLOR')}"
+        )
+        self.__transports = await Flux.cmd_link_exec(cmd, env=env)
         logger.info(
             f"[{self.prefix}] engine linked pid={self.__transports.pid} "
             f"scene={self.scene} style={self.style}"
@@ -187,6 +194,23 @@ class Memrix(object):
                 await self.shutdown()
                 logger.error("\n".join(self.out_ring))
                 raise marked.subproc_fail(source=f"{self.prefix}.stream", out_ring=self.out_ring)
+
+            if self.__transports.returncode is not None:
+                logger.error(
+                    f"[{self.prefix}] process exited before startup marker "
+                    f"rc={self.__transports.returncode} recent_logs={list(self.out_ring)}"
+                )
+                return {
+                    "text"        : f"{self.agent_id.capitalize()}启动失败：进程提前退出。",
+                    "attachments" : [],
+                    "data": {
+                        "ok"         : False,
+                        "result"     : "\n".join(map(str, list(self.out_ring))),
+                        "events"     : self.tool_events.get(self.agent_id, {}),
+                        "returncode" : self.__transports.returncode
+                    },
+                    "logs": []
+                }
 
         await self.shutdown()
         logger.error(

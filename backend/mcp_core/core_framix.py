@@ -13,7 +13,7 @@ from backend.mcp_core.core_buffer import (
     LineBuffer, GateMachine, FX_SPEC
 )
 from backend.utilities import const
-from backend.utilities.process import Flux
+from backend.utilities.process import Flux, spawn_env
 from backend.utilities.validation import marked
 
 if typing.TYPE_CHECKING:
@@ -130,8 +130,15 @@ class Framix(object):
         self.out_ring = deque(maxlen=20)
 
         cmd = [self.prefix] + list(args)
+        env = spawn_env()
         logger.info(f"[{self.prefix}] engine spawn cmd={cmd}")
-        self.__transports = await Flux.cmd_link(cmd)
+        logger.info(
+            f"[{self.prefix}] engine spawn env="
+            f"PYTHONUTF8={env.get('PYTHONUTF8')} "
+            f"PYTHONIOENCODING={env.get('PYTHONIOENCODING')} "
+            f"TERM={env.get('TERM')} NO_COLOR={env.get('NO_COLOR')}"
+        )
+        self.__transports = await Flux.cmd_link_exec(cmd, env=env)
         logger.info(
             f"[{self.prefix}] engine linked pid={self.__transports.pid} "
             f"label={self.label} total={self.total}"
