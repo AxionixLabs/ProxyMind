@@ -83,6 +83,7 @@ class Memrix(object):
         self.lb_stderr.reset()
 
         lb = self.lb_stdout if source.endswith(".stdout") else self.lb_stderr
+        logger.debug(f"[{self.prefix}] stream open source={source}")
 
         async for chunk in stream:
             text = chunk.decode(const.CHARSET, const.IGNORE)
@@ -93,12 +94,15 @@ class Memrix(object):
             for ln in lb.feed(text):
                 ln = ln.strip()
                 if not ln: continue
+                logger.debug(f"[{self.prefix}] {source} line={ln}")
 
                 if "Engine Start" in ln or "Report Start" in ln:
+                    logger.info(f"[{self.prefix}] startup marker hit source={source} line={ln}")
                     self.is_start.set()
 
                 if "Token:" in ln:
                     self.token = ln.split("Token:", 1)[1].strip()
+                    logger.debug(f"[{self.prefix}] token captured source={source} token={self.token}")
 
                 if "MemrixError" in ln or "检测连接设备" in ln:
                     self.out_fail.set()
@@ -114,12 +118,15 @@ class Memrix(object):
         for ln in lb.flush():
             ln = ln.strip()
             if not ln: continue
+            logger.debug(f"[{self.prefix}] {source} flush={ln}")
 
             if "Engine Start" in ln or "Report Start" in ln:
+                logger.info(f"[{self.prefix}] startup marker hit source={source} line={ln}")
                 self.is_start.set()
 
             if "Token:" in ln:
                 self.token = ln.split("Token:", 1)[1].strip()
+                logger.debug(f"[{self.prefix}] token captured source={source} token={self.token}")
 
             if "MemrixError" in ln or "检测连接设备" in ln:
                 self.out_fail.set()
@@ -142,17 +149,29 @@ class Memrix(object):
         self.out_ring = deque(maxlen=20)
 
         cmd = [self.prefix] + list(args)
+        logger.info(f"[{self.prefix}] engine spawn cmd={cmd}")
         self.__transports = await Flux.cmd_link(cmd)
+        logger.info(
+            f"[{self.prefix}] engine linked pid={self.__transports.pid} "
+            f"scene={self.scene} style={self.style}"
+        )
 
         gates = [GateMachine(MX_SPEC)]
 
         asyncio.create_task(self.streaming(f"{self.prefix}.stdout", self.__transports.stdout, gates))
         asyncio.create_task(self.streaming(f"{self.prefix}.stderr", self.__transports.stderr, gates))
 
-        for _ in range(60):
+        for sec in range(60):
             await asyncio.sleep(1.0)
+            logger.debug(
+                f"[{self.prefix}] startup wait sec={sec + 1}/60 "
+                f"is_start={self.is_start.is_set()} out_fail={self.out_fail.is_set()} "
+                f"returncode={self.__transports.returncode} token={bool(self.token)} "
+                f"ring_size={len(self.out_ring)}"
+            )
 
             if self.is_start.is_set():
+                logger.info(f"[{self.prefix}] engine startup ok pid={self.__transports.pid}")
                 return {
                     "text"        : f"{self.agent_id.capitalize()}启动成功。",
                     "attachments" : [],
@@ -170,6 +189,10 @@ class Memrix(object):
                 raise marked.subproc_fail(source=f"{self.prefix}.stream", out_ring=self.out_ring)
 
         await self.shutdown()
+        logger.error(
+            f"[{self.prefix}] startup timeout after 60s "
+            f"returncode={self.__transports.returncode} recent_logs={list(self.out_ring)}"
+        )
 
         return {
             "text"        : f"{self.agent_id.capitalize()}启动超时。",

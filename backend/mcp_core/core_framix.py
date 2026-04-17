@@ -78,21 +78,26 @@ class Framix(object):
         self.lb_stderr.reset()
 
         lb = self.lb_stdout if source.endswith(".stdout") else self.lb_stderr
+        logger.debug(f"[{self.prefix}] stream open source={source}")
 
         async for chunk in stream:
             text = chunk.decode(const.CHARSET, const.IGNORE)
             text = ANSI_RE.sub("", text)
 
             self.push(source, text)
+            logger.debug(f"[{self.prefix}] {source} chunk={text.strip()}")
 
             if "FramixError" in text or "检测连接设备" in text:
+                logger.error(f"[{self.prefix}] failfast hit source={source} text={text.strip()}")
                 return self.out_fail.set()
 
             for ln in lb.feed(text):
                 ln = ln.strip()
                 if not ln: continue
+                logger.debug(f"[{self.prefix}] {source} line={ln}")
 
                 if "FramixError" in ln or "检测连接设备" in ln:
+                    logger.error(f"[{self.prefix}] failfast hit source={source} line={ln}")
                     return self.out_fail.set()
 
                 for gate in gates:
@@ -105,8 +110,10 @@ class Framix(object):
         for ln in lb.flush():
             ln = ln.strip()
             if not ln: continue
+            logger.debug(f"[{self.prefix}] {source} flush={ln}")
 
             if "FramixError" in ln or "检测连接设备" in ln:
+                logger.error(f"[{self.prefix}] failfast hit source={source} flush={ln}")
                 return self.out_fail.set()
 
             for gate in gates:
@@ -123,7 +130,12 @@ class Framix(object):
         self.out_ring = deque(maxlen=20)
 
         cmd = [self.prefix] + list(args)
+        logger.info(f"[{self.prefix}] engine spawn cmd={cmd}")
         self.__transports = await Flux.cmd_link(cmd)
+        logger.info(
+            f"[{self.prefix}] engine linked pid={self.__transports.pid} "
+            f"label={self.label} total={self.total}"
+        )
 
         gates = [GateMachine(FX_SPEC)]
 
@@ -131,6 +143,10 @@ class Framix(object):
         asyncio.create_task(self.streaming(f"{self.prefix}.stderr", self.__transports.stderr, gates))
 
         await self.__transports.wait()
+        logger.info(
+            f"[{self.prefix}] engine exit rc={self.__transports.returncode} "
+            f"recent_logs={list(self.out_ring)}"
+        )
 
         if self.out_fail.is_set():
             logger.error("\n".join(self.out_ring))
