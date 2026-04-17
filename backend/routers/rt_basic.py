@@ -3,6 +3,7 @@
 
 from fastapi import APIRouter
 from fastapi.responses import Response
+from backend.utilities import const
 from .page import render_page
 
 basic_router = APIRouter(tags=["Basic"])
