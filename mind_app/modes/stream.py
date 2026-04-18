@@ -8,10 +8,9 @@ from engine.enhancer import Enhancer
 from engine.tinker import Tooling
 from mind_nova.events import EventReport
 from mind_nova import request
-from .tool_result import tool_result_text
 from ..stream_ui import StreamUI
-from ..runtime.tool_router import execute_tool
-from ..stream_events.finish import finish_stream
+from ..runtime.loop_support import ensure_wakeup, finish_failure
+from ..runtime.tool_run import run_tool_step
 from ..stream_events.responses_builtin import (
     resolve_builtin_name,
     consume_builtin_done
@@ -79,14 +78,13 @@ async def stream_looper(
 
             if event_type == "turn.failed":
                 error = str(event.get("error") or "unknown error")
-                await finish_stream(ev_report, phase="turn.failed", error=error)
-                await slog.feed(chunk=f"{error}\n", display=StreamUI.BLOCK)
-                return None
+                await finish_failure(slog, ev_report, phase="turn.failed", error=error)
+                continue
 
             if event_type == "text.delta":
                 text = str(event.get("text") or "")
                 tracker.on_text_delta(event)
-                await slog.feed(chunk=text, display=StreamUI.STREAM)
+                await slog.feed(text, display=StreamUI.STREAM)
                 continue
 
             if event_type == "text.done":
@@ -116,46 +114,43 @@ async def stream_looper(
                 event_meta = event.get("meta") if isinstance(event.get("meta"), dict) else None
                 summary = Tooling.summarize_tool_arguments(name, arguments)
 
-                if Tooling.needs_wakeup(tool_meta, name, meta=event_meta):
-                    if error := await mind.wakeup(session, slog):
-                        await finish_stream(ev_report, phase="turn.failed", error=str(error))
-                        await slog.feed(chunk=f"{error}\n", display=StreamUI.BLOCK)
-                        return None
+                if error := await ensure_wakeup(
+                    mind,
+                    session,
+                    slog,
+                    tool_meta=tool_meta,
+                    name=name,
+                    meta=event_meta
+                ):
+                    await finish_failure(slog, ev_report, phase="turn.failed", error=error)
+                    continue
 
                 await slog.feed(
-                    chunk=f"{name} {arguments}",
+                    f"{name} {arguments}",
                     display=StreamUI.BLOCK,
                     display_chunk=summary
                 )
 
                 arguments = Enhancer.exchange(name, arguments, mind.report)
-                result = None
-                try:
-                    await slog.begin_tool_status()
-                    try:
-                        result = await execute_tool(
-                            session,
-                            tool_meta=tool_meta,
-                            name=name,
-                            arguments=arguments,
-                            meta=event_meta,
-                            enable_progress_notify=True,
-                            stream_callback=lambda x: slog.feed(
-                                chunk=f"{text}\n",
-                                display=StreamUI.BLOCK
-                            )
-                        )
-                    finally:
-                        await slog.end_status()
+                tool_run = await run_tool_step(
+                    session,
+                    stream_ui=slog,
+                    tool_meta=tool_meta,
+                    name=name,
+                    arguments=arguments,
+                    meta=event_meta,
+                    mode=mode,
+                    model_api=model_api,
+                    metadata=kwargs.get("metadata") or {},
+                    enable_progress_notify=True,
+                    stream_callback=lambda x: slog.feed(
+                        f"{x}\n", display=StreamUI.BLOCK
+                    )
+                )
 
-                    ok = not result.isError
-                    enhancer: Enhancer = Enhancer(session, mode, model_api, kwargs.get("metadata"))
-                    fields = await enhancer.enhance(name, result, ok, slog)
-                finally:
-                    if result is None:
-                        await slog.end_status()
-
-                await slog.feed(chunk=tool_result_text(fields), display=StreamUI.BLOCK)
+                ok = tool_run.ok
+                fields = tool_run.fields
+                await slog.feed(f"{tool_run.text}\n", display=StreamUI.BLOCK)
 
                 await request.post_tool_result(
                     event["cid"], event["sid"], event["call_id"], name, ok, fields
@@ -174,13 +169,11 @@ async def stream_looper(
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
         await mind.await_cleanup(mind.stop_anim())
-        await finish_stream(ev_report, phase="turn.failed", error=error)
-        await slog.feed(chunk=f"{error}\n", display=StreamUI.BLOCK)
-        return None
+        await finish_failure(slog, ev_report, phase="turn.failed", error=error)
 
     else:
         await slog.end_status()
-        await slog.feed(chunk=build_sources_text(tracker), display=StreamUI.BLOCK)
+        await slog.feed(f"{build_sources_text(tracker)}\n", display=StreamUI.BLOCK)
 
     finally:
         await mind.await_cleanup(slog.stop(blink=not interrupted))

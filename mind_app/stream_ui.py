@@ -72,20 +72,19 @@ class StreamUI(object):
         self,
         text: typing.Optional[str],
         *,
-        delay_sec: float = 0.0
+        delay_sec: float = 0.12
     ) -> None:
-        """显示 Responses builtin 名称，立即露出并至少保留一段可见动画时间。"""
+        """显示 Responses builtin 名称，短延迟后露出，避免极短 builtin 闪屏。"""
         if self._has_stream_output:
             return None
         await self._schedule_status_task(
             self._delayed_status_flow(
                 text,
                 show_delay_sec=delay_sec,
-                animate_after_sec=0.0,
+                animate_after_sec=delay_sec,
                 family="builtin",
-                min_visible_sec=0.85
-            ),
-            force_reveal=True
+                min_visible_sec=0.0
+            )
         )
 
     async def begin_tool_status(self) -> None:
@@ -141,6 +140,30 @@ class StreamUI(object):
             return None
 
         await self.coordinator.set_status(text, family="heal", animated=True)
+        self._mark_status_visible(0.0)
+
+    async def begin_loop_status(
+        self,
+        summary: typing.Optional[str] = None
+    ) -> None:
+        self.coordinator.hold_status_slot()
+        await self._cancel_pending_status_task()
+        text = self._compose_loop_status_text(summary)
+        await self.coordinator.set_status(text, family="loop", animated=True)
+        self._mark_status_visible(0.0)
+
+    async def update_loop_status_summary(
+        self,
+        summary: typing.Optional[str]
+    ) -> None:
+        self.coordinator.hold_status_slot()
+        await self._cancel_pending_status_task()
+        await self.coordinator.set_status(
+            self._compose_loop_status_text(summary),
+            family="loop",
+            animated=True,
+            reset_phase_on_text_change=False
+        )
         self._mark_status_visible(0.0)
 
     async def update_heal_status_summary(
@@ -228,6 +251,20 @@ class StreamUI(object):
     @classmethod
     def _compose_heal_status_text(cls, summary: typing.Optional[str]) -> str:
         base_title = "restoring signal"
+        normalized = " ".join(str(summary or "").split())
+        if not normalized:
+            return base_title
+        lower = normalized.lower()
+        base_lower = base_title.lower()
+        if lower.startswith(f"{base_lower} · "):
+            return normalized
+        if lower == base_lower:
+            return base_title
+        return f"{base_title} · {normalized}"
+
+    @classmethod
+    def _compose_loop_status_text(cls, summary: typing.Optional[str]) -> str:
+        base_title = "running loop steps"
         normalized = " ".join(str(summary or "").split())
         if not normalized:
             return base_title

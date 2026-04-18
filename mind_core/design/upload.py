@@ -240,7 +240,7 @@ class UploadProgressLiveReporter(object):
         return text
 
     async def __call__(self, event: dict[str, typing.Any]) -> None:
-        self.last_event = dict(event)
+        self.last_event = event
         if self.live is not None:
             self.live.update(self.render_progress(event), refresh=True)
         return None
@@ -268,9 +268,10 @@ async def upload_progress_live(
     refresh_per_second: int = 12,
 ) -> None:
     state = snapshot()
+    event = state.get("event")
     with Live(
         render_upload_frame(
-            event=typing.cast(typing.Optional[dict[str, typing.Any]], state.get("event")),
+            event=event if isinstance(event, dict) else None,
             item_total=int(state.get("item_total") or 0),
             total_bytes=int(state.get("total_bytes") or 0)
         ),
@@ -280,9 +281,10 @@ async def upload_progress_live(
     ) as live:
         while not stop_event.is_set():
             state = snapshot()
+            event = state.get("event")
             live.update(
                 render_upload_frame(
-                    event=typing.cast(typing.Optional[dict[str, typing.Any]], state.get("event")),
+                    event=event if isinstance(event, dict) else None,
                     item_total=int(state.get("item_total") or 0),
                     total_bytes=int(state.get("total_bytes") or 0)
                 ),

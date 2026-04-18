@@ -13,8 +13,6 @@ from rich.tree import Tree
 from rich.console import Console
 from mind_nova import const
 
-
-# 纯工具层：共享 console、颜色/缓动、打字机和文件树等无状态能力。
 DESIGN_CONSOLE: Console = Console()
 
 

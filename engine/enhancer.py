@@ -4,7 +4,6 @@
 import json
 import typing
 from pathlib import Path
-from loguru import logger
 from mcp import ClientSession
 from mcp.types import CallToolResult
 from mind_core.api import Api
@@ -508,7 +507,9 @@ class Enhancer(object):
 
         if slog and isinstance(fields, dict):
             await slog.feed(
-                json.dumps(fields, ensure_ascii=False, indent=2) + "\n", echo=False, display=slog.BLOCK
+                json.dumps(fields, ensure_ascii=False, indent=2) + "\n",
+                echo=False,
+                display=StreamUI.BLOCK
             )
 
         return fields
@@ -557,7 +558,7 @@ class Enhancer(object):
                         continue
                     chunks.append(chunk)
                     if slog:
-                        await slog.feed(chunk)
+                        await slog.feed(chunk, display_chunk=StreamUI.STREAM)
 
                 per_agent[agent_id] = {"ok": True, "message": message, "chunks": chunks}
 
@@ -658,7 +659,11 @@ class Enhancer(object):
                 data   = element["data"]
                 serial = data.pop("serial", "unknown")
 
-                async for heal_event in request.stream_heal(self.model_api, **data, slog=slog):
+                async for heal_event in request.stream_heal(
+                    self.model_api,
+                    **data,
+                    slog=slog
+                ):
                     if heal_event.get("type") == "heal.failed":
                         per_agent[serial] = {"ok": False, "error": heal_event.get("error")}
                         continue
@@ -683,8 +688,6 @@ class Enhancer(object):
                     if slog:
                         await slog.update_heal_status_summary(reason)
                         await slog.feed(reason, display=StreamUI.BLOCK)
-                    else:
-                        logger.debug(reason)
 
             return {k: v["locator"] for k, v in per_agent.items() if v.get("locator")}
 
@@ -787,11 +790,16 @@ class Enhancer(object):
         attachments: list[dict[str, typing.Any]] = []
         runs: list[dict[str, typing.Any]] = []
 
+        if slog:
+            await slog.end_status()
+            await slog.begin_loop_status()
         await say(
             f"loop_steps: begin loops={loops} steps={len(steps)} stop_on_fail={stop_on_fail}"
         )
 
         for r in range(loops):
+            if slog:
+                await slog.update_loop_status_summary(f"round {r + 1}/{loops}")
             await say(f"loop_steps: round {r + 1}/{loops}")
             round_ok = True
             round_steps: list[dict[str, typing.Any]] = []
@@ -800,6 +808,10 @@ class Enhancer(object):
                 tool = (st.get("tool") or "").strip()
                 args = st.get("args") if isinstance(st.get("args"), dict) else {}
 
+                if slog:
+                    await slog.update_loop_status_summary(
+                        f"round {r + 1}/{loops} step {i + 1}/{len(steps)}"
+                    )
                 await say(f"loop_steps:  step {i + 1}/{len(steps)} tool={tool}")
 
                 tool_res = await self.session.call_tool(tool, args)
@@ -827,6 +839,10 @@ class Enhancer(object):
                 )
 
             runs.append({"round": r + 1, "ok": round_ok, "steps": round_steps})
+            if slog:
+                await slog.update_loop_status_summary(
+                    f"round {r + 1}/{loops} {'done' if round_ok else 'failed'}"
+                )
             if stop_on_fail and not round_ok:
                 await say(f"loop_steps: stop (round {r + 1} failed)")
                 break
@@ -844,19 +860,23 @@ class Enhancer(object):
                         f"fail round={run['round']} tool={step.get('tool')}"
                     )
 
-        return {
-            "text"        : "\n".join(brief),
-            "attachments" : attachments,
-            "data": {
-                "ok"           : final_ok,
-                "executed"     : True,
-                "loops"        : loops,
-                "steps"        : steps,
-                "stop_on_fail" : stop_on_fail,
-                "runs"         : runs
-            },
-            "logs": []
-        }
+        try:
+            return {
+                "text"        : "\n".join(brief),
+                "attachments" : attachments,
+                "data": {
+                    "ok"           : final_ok,
+                    "executed"     : True,
+                    "loops"        : loops,
+                    "steps"        : steps,
+                    "stop_on_fail" : stop_on_fail,
+                    "runs"         : runs
+                },
+                "logs": []
+            }
+        finally:
+            if slog:
+                await slog.end_status()
 
 
 if __name__ == '__main__':

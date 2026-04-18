@@ -20,6 +20,7 @@ StatusFamily = typing.Literal[
     "tool",
     "wait",
     "heal",
+    "loop",
 ]
 
 
@@ -30,6 +31,7 @@ class StatusState(object):
     FAMILY_TOOL: typing.Final[StatusFamily] = "tool"
     FAMILY_WAIT: typing.Final[StatusFamily] = "wait"
     FAMILY_HEAL: typing.Final[StatusFamily] = "heal"
+    FAMILY_LOOP: typing.Final[StatusFamily] = "loop"
 
     ENTER_DURATION_SEC: typing.Final[float] = 0.14
     EXIT_DURATION_SEC: typing.Final[float] = 0.18
@@ -162,12 +164,16 @@ class StatusState(object):
 
         if not animated and family == self.FAMILY_TOOL:
             out = Design.tool_status_static_renderable(text)
+        elif not animated and family == self.FAMILY_LOOP:
+            out = Design.loop_status_static_renderable(text)
         elif not animated and family == self.FAMILY_HEAL:
             out = Design.heal_status_renderable(0.0, text)
         elif not animated:
             out = Text(text, style="bold #8FA4B8")
         elif family == self.FAMILY_TOOL:
             out = Design.tool_status_renderable(phase, text)
+        elif family == self.FAMILY_LOOP:
+            out = Design.loop_status_renderable(phase, text)
         elif family == self.FAMILY_HEAL:
             out = Design.heal_status_renderable(phase, text)
         elif family == self.FAMILY_WAIT:

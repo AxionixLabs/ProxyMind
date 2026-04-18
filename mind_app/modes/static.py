@@ -4,18 +4,18 @@
 import time
 import typing
 import asyncio
-from loguru import logger
 from mcp import ClientSession
-from mind_core.design import Design
 from engine.enhancer import Enhancer
 from engine.tinker import Tooling
 from mind_nova.events import EventReport
 from mind_nova import (
     craft, request
 )
-from .tool_result import tool_result_data, tool_result_text
 from ..stream_ui import StreamUI
-from ..runtime.tool_router import execute_tool
+from ..runtime.loop_support import (
+    ensure_wakeup, finish_failure
+)
+from ..runtime.tool_run import run_tool_step
 from ..stream_events.finish import finish_stream
 
 if typing.TYPE_CHECKING:
@@ -45,11 +45,6 @@ async def static_looper(
     ]
     filtered_tools = Tooling.filter_tools(openai_tools, tool_meta, exclude=exclude)
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
-
-    def emit_event(event: dict[str, typing.Any]) -> None:
-        """发送 plan 运行事件，缺省时自动降级为空操作。"""
-        if ev_report:
-            ev_report.emit(event)
 
     slog: StreamUI = StreamUI(mind.report.log_papers)
     interrupted = False
@@ -90,9 +85,8 @@ async def static_looper(
 
             if event_type == "plan.failed":
                 error = str(plan.get("error") or "plan request failed")
-                await finish_stream(ev_report, phase="plan.failed", error=error)
-                logger.error(f"{error}\n")
-                return None
+                await finish_failure(slog, ev_report, phase="plan.failed", error=error)
+                continue
 
             if event_type != "plan.result":
                 continue
@@ -100,41 +94,47 @@ async def static_looper(
             await slog.end_status()
 
             if not isinstance(result := plan.get("result"), dict):
-                await finish_stream(ev_report, phase="plan.failed", error="plan.result missing result payload")
-                logger.error(f"{plan}\n")
-                return None
+                await finish_failure(
+                    slog,
+                    ev_report,
+                    phase="plan.failed",
+                    error="plan.result missing result payload"
+                )
+                continue
 
             result_type = str(result.get("type") or "")
             if result_type == "error":
                 error = str(result.get("reasoning") or result.get("goal") or "plan unavailable")
-                await finish_stream(ev_report, phase="plan.failed", error=error)
-                logger.error(f"{error}\n")
-                return None
+                await finish_failure(slog, ev_report, phase="plan.failed", error=error)
+                continue
 
             steps = result.get("steps")
             if not isinstance(steps, list):
-                logger.warning(plan)
-                await finish_stream(ev_report, phase="plan.failed", error="plan.result missing executable steps")
-                logger.error(f"{plan}\n")
-                return None
+                await finish_failure(
+                    slog,
+                    ev_report,
+                    phase="plan.failed",
+                    error="plan.result missing executable steps"
+                )
+                continue
 
             loop_count = result.get("loop_count")
             if not isinstance(loop_count, int):
-                await finish_stream(ev_report, phase="plan.failed", error="plan.result invalid loop_count")
-                logger.error(f"{plan}\n")
-                return None
-
-            logger.debug(f"Loop Count -> {loop_count}")
-            for step in steps:
-                logger.debug(step["action"])
+                await finish_failure(
+                    slog,
+                    ev_report,
+                    phase="plan.failed",
+                    error="plan.result invalid loop_count"
+                )
+                continue
 
             reasoning = result.get("reasoning") or ""
 
             context["reasoning"]  = reasoning
             context["loop_count"] = loop_count
 
-            logger.info(reasoning)
-            emit_event({
+            await slog.feed(f"{reasoning}\n", display=StreamUI.BLOCK)
+            if ev_report: ev_report.emit({
                 "type"       : "exec.start",
                 "loop_count" : loop_count,
                 "ts"         : time.time()
@@ -142,7 +142,7 @@ async def static_looper(
 
             for index, _ in enumerate(range(loop_count), start=1):
                 if ev_report: ev_report.set_round(index)
-                emit_event({
+                if ev_report: ev_report.emit({
                     "type"  : "exec.loop.start",
                     "run"   : index,
                     "total" : loop_count,
@@ -169,7 +169,7 @@ async def static_looper(
                     }
                     context["current"] = step_context
 
-                    emit_event({
+                    if ev_report: ev_report.emit({
                         "type"  : "exec.step.start",
                         "run"   : index,
                         "index" : step_idx,
@@ -179,24 +179,29 @@ async def static_looper(
                         "ts"    : time.time()
                     })
 
-                    if Tooling.needs_wakeup(tool_meta, name, meta=action_meta):
-                        if error := await mind.wakeup(session):
-                            await finish_stream(
-                                ev_report,
-                                phase="exec.failed",
-                                error=str(error),
-                                run=index,
-                                index=step_idx,
-                                name=name
-                            )
-                            logger.error(f"{error}\n")
-                            return None
+                    if error := await ensure_wakeup(
+                        mind,
+                        session,
+                        slog,
+                        tool_meta=tool_meta,
+                        name=name,
+                        meta=action_meta
+                    ):
+                        await finish_failure(
+                            slog,
+                            ev_report,
+                            phase="exec.failed",
+                            error=str(error),
+                            run=index,
+                            index=step_idx,
+                            name=name
+                        )
+                        continue
 
-                    logger.info(summary)
+                    await slog.feed(f"{summary}\n", display=StreamUI.BLOCK)
 
                     arguments = Enhancer.exchange(name, arguments, mind.report)
                     if name == "free_rule":
-                        Design.console.print()
                         arguments = {
                             **arguments,
                             "context": {
@@ -214,7 +219,7 @@ async def static_looper(
                         }
 
                     call_id = craft.short_uid()
-                    emit_event({
+                    if ev_report: ev_report.emit({
                         "type"      : "exec.tool.call",
                         "call_id"   : call_id,
                         "name"      : name,
@@ -222,77 +227,72 @@ async def static_looper(
                         "ts"        : time.time()
                     })
 
-                    started_at = time.time()
+                    tool_run = await run_tool_step(
+                        session,
+                        stream_ui=slog,
+                        tool_meta=tool_meta,
+                        name=name,
+                        arguments=arguments,
+                        meta=action_meta,
+                        mode=mode,
+                        model_api=model_api,
+                        metadata=kwargs.get("metadata") or {}
+                    )
 
-                    await slog.begin_tool_status()
-                    try:
-                        result = await execute_tool(
-                            session,
-                            tool_meta=tool_meta,
-                            name=name,
-                            arguments=arguments,
-                            meta=action_meta
-                        )
-                        ok = not result.isError
-
-                        enhancer: Enhancer = Enhancer(session, mode, model_api, kwargs.get("metadata"))
-                        fields = await enhancer.enhance(name, result, ok, slog)
-                    finally:
-                        await slog.end_status()
+                    ok = tool_run.ok
+                    fields = tool_run.fields
 
                     step_context["ok"]      = ok
-                    step_context["text"]    = tool_result_text(fields)
-                    step_context["data"]    = tool_result_data(fields)
-                    step_context["cost_ms"] = int((time.time() - started_at) * 1000)
+                    step_context["text"]    = tool_run.text
+                    step_context["data"]    = tool_run.data
+                    step_context["cost_ms"] = tool_run.cost_ms
 
                     context["steps"].append(step_context)
                     context["current"] = step_context
 
-                    emit_event({
+                    if ev_report: ev_report.emit({
                         "type"    : "exec.tool.output",
                         "call_id" : call_id,
                         "name"    : name,
                         "ok"      : ok,
                         "result"  : fields,
-                        "cost_ms" : int((time.time() - started_at) * 1000),
+                        "cost_ms" : tool_run.cost_ms,
                         "ts"      : time.time()
                     })
 
-                    data    = tool_result_data(fields)
+                    data    = tool_run.data
                     data_ok = bool(data.get("ok")) if isinstance(data, dict) else False
 
                     if not ok or not data_ok:
                         step_context["data_ok"] = data_ok
-                        brief_err = tool_result_text(fields) or "step failed"
-                        await finish_stream(
+                        await finish_failure(
+                            slog,
                             ev_report,
                             phase="exec.failed",
                             run=index,
                             index=step_idx,
                             name=name,
-                            error=brief_err
+                            error=tool_run.text or "step failed"
                         )
-                        logger.error(f"{brief_err}\n")
-                        return None
+                        continue
 
-                    logger.info(tool_result_text(fields))
-                    emit_event({
+                    await slog.feed(f"{tool_run.text}\n", display=StreamUI.BLOCK)
+                    if ev_report: ev_report.emit({
                         "type"    : "exec.step.done",
                         "run"     : index,
                         "index"   : step_idx,
                         "total"   : len(steps),
                         "name"    : name,
-                        "cost_ms" : int((time.time() - started_at) * 1000),
+                        "cost_ms" : tool_run.cost_ms,
                         "ts"      : time.time()
                     })
 
-                emit_event({
+                if ev_report: ev_report.emit({
                     "type"  : "exec.loop.done",
                     "run"   : index,
                     "total" : loop_count,
                     "ts"    : time.time()
                 })
-
         await finish_stream(
             ev_report, phase="exec.done", status="completed", loop_count=context["loop_count"]
         )
