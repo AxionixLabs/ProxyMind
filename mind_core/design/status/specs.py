@@ -85,7 +85,7 @@ STATUS_SPECS: dict[str, SweepStatusSpec | ProgressiveStatusSpec] = {
 STATUS_TEXT_CHROME_WIDTH: dict[str, int] = {
     "tool"    : 18,
     "heal"    : 18,
-    "loop"    : 20,
+    "loop"    : 18,
     "wait"    : 17,
     "builtin" : 17
 }

@@ -131,7 +131,7 @@ class StatusRenderer(StatusSpec):
             (0.44, mid_color),
             (0.72, near_color),
             (0.90, soft_color),
-            (1.00, peak_color),
+            (1.00, peak_color)
         )
 
         for pos, char in enumerate(text):
@@ -485,12 +485,12 @@ class StatusRenderer(StatusSpec):
         frame_rate: float = 0.38
     ) -> Text:
         colors = {
-            "edge": "bold #3C535B",
-            "shell": "bold #58C2CF",
-            "pulse": "bold #8CEAF4",
-            "core": "bold #E2FCFF",
-            "core_lock": "bold #F4FFFF",
-            "dust": "bold #486A71"
+            "edge"      : "bold #3C535B",
+            "shell"     : "bold #58C2CF",
+            "pulse"     : "bold #8CEAF4",
+            "core"      : "bold #E2FCFF",
+            "core_lock" : "bold #F4FFFF",
+            "dust"      : "bold #486A71"
         }
         repair = 0.5 + (0.5 * math.sin(phase * pulse_freq))
         lock = cls._smoothstep(repair)
@@ -503,7 +503,7 @@ class StatusRenderer(StatusSpec):
             ("(", ")"),
             ("{", "}"),
             ("(", ")"),
-            ("⟋", "⟍"),
+            ("⟋", "⟍")
         )
         shell_left, shell_right = shell_frames[int(shell_phase) % len(shell_frames)]
 
@@ -555,34 +555,87 @@ class StatusRenderer(StatusSpec):
 
     @classmethod
     def _loop_status_indicator(cls, phase: float) -> Text:
-        colors = {
-            "edge": "bold #465661",
-            "rail": "bold #607884",
-            "cell_dim": "bold #34444C",
-            "cell_tail": "bold #587E8C",
-            "cell_near": "bold #7CB8C5",
-            "cell_peak": "bold #C6FBFF",
-        }
+        profile = cls._loop_motion_profile(phase)
 
-        cycle = 5
-        index = int(phase * 1.08) % cycle
-        tail = (index - 1) % cycle
-        near = (index + 1) % cycle
-        far = (index + 2) % cycle
+        pulse = 0.0
+        if profile["stage"] == "linger":
+            pulse = 0.5 + (0.5 * math.sin(float(profile["stage_progress"]) * math.tau * 1.15))
+        elif profile["stage"] == "idle":
+            pulse = 0.5 + (0.5 * math.sin(float(profile["stage_progress"]) * math.tau))
+
+        colors = {
+            "edge"      : "bold #465661",
+            "rail"      : "bold #607884",
+            "cell_dim"  : "bold #34444C",
+            "cell_tail" : "bold #587E8C",
+            "cell_near" : "bold #7CB8C5",
+            "cell_peak" : "bold #C6FBFF"
+        }
+        if pulse > 0.0:
+            cell_pulse = pulse * 0.82
+            colors["cell_tail"] = f"bold {mix_hex_color('#587E8C', '#66C4D4', cell_pulse)}"
+            colors["cell_near"] = f"bold {mix_hex_color('#7CB8C5', '#7FD9E6', cell_pulse)}"
+            colors["cell_peak"] = f"bold {mix_hex_color('#C6FBFF', '#9FE8F2', cell_pulse)}"
+        cycle = 7
+        stage = profile["stage"]
+        progress = float(profile["motion"])
+        elapsed_sec = float(profile["elapsed_sec"])
+
+        if stage == "converge":
+            left_wave = progress
+            right_wave = 1.0 - progress
+        elif stage == "linger":
+            breath = math.sin(float(profile["stage_progress"]) * math.tau * 1.15)
+            center = 0.5 + (0.04 * breath)
+            left_wave = center
+            right_wave = center
+        elif stage == "release":
+            release_progress = max(0.0, min(1.0, (progress - 0.5) / 0.5))
+            spread = cls._smoothstep(release_progress)
+            left_wave = 0.5 - (0.5 * spread)
+            right_wave = 0.5 + (0.5 * spread)
+        else:
+            left_wave = (
+                0.08
+                + (0.18 * (0.5 + 0.5 * math.sin((elapsed_sec * 1.27) + 0.35)))
+                + (0.05 * math.sin((elapsed_sec * 2.73) + 1.10))
+            )
+            right_wave = (
+                0.92
+                - (0.18 * (0.5 + 0.5 * math.sin((elapsed_sec * 1.03) + 2.25)))
+                + (0.05 * math.sin((elapsed_sec * 2.11) + 0.40))
+            )
+        left_wave = max(0.0, min(1.0, left_wave))
+        right_wave = max(0.0, min(1.0, right_wave))
+        left_pos = left_wave * (cycle - 1)
+        right_pos = right_wave * (cycle - 1)
 
         out = Text()
         out.append("⟦", style=colors["edge"])
         for pos in range(cycle):
-            if pos == index:
+            left_distance = abs(pos - left_pos)
+            right_distance = abs(pos - right_pos)
+            distance = min(left_distance, right_distance)
+            overlap = abs(left_pos - right_pos)
+            center_emphasis = (
+                stage == "linger"
+                and overlap <= 0.55
+                and abs(pos - ((cycle - 1) / 2.0)) <= 1.0
+            )
+
+            if overlap <= 0.28 and distance <= 0.42:
                 style = colors["cell_peak"]
                 char = "■"
-            elif pos == tail:
-                style = colors["cell_tail"]
-                char = "■"
-            elif pos == near:
+            elif center_emphasis and distance <= 0.95:
                 style = colors["cell_near"]
                 char = "▪"
-            elif pos == far:
+            elif distance <= 0.42:
+                style = colors["cell_peak"]
+                char = "■"
+            elif distance <= 1.05:
+                style = colors["cell_near"]
+                char = "▪"
+            elif distance <= 1.8:
                 style = colors["cell_tail"]
                 char = "·"
             else:
@@ -590,11 +643,51 @@ class StatusRenderer(StatusSpec):
                 char = "·"
 
             out.append(char, style=style)
-            if pos < cycle - 1:
-                out.append(" ", style=colors["rail"])
-
         out.append("⟧", style=colors["edge"])
         return out
+
+    @classmethod
+    def _loop_motion_profile(cls, phase: float) -> dict[str, float | str]:
+        spec             = cls.status_spec("loop")
+        elapsed_sec      = phase / max(0.001, spec.phase_rate)
+        sweep_period_sec = 3.0
+        cycle_sec        = elapsed_sec % sweep_period_sec
+
+        converge_sec = 0.42
+        linger_sec   = 0.68
+        release_sec  = 0.82
+        idle_sec     = max(0.1, sweep_period_sec - converge_sec - linger_sec - release_sec)
+
+        if cycle_sec < converge_sec:
+            stage = "converge"
+            stage_progress = cycle_sec / converge_sec
+            motion = 0.5 * cls._smoothstep(stage_progress)
+        elif cycle_sec < converge_sec + linger_sec:
+            stage = "linger"
+            stage_progress = (cycle_sec - converge_sec) / linger_sec
+            breath = math.sin(stage_progress * math.tau * 1.15)
+            motion = 0.5 + (0.045 * breath)
+        elif cycle_sec < converge_sec + linger_sec + release_sec:
+            stage = "release"
+            stage_progress = (
+                (cycle_sec - converge_sec - linger_sec) / release_sec
+            )
+            motion = 0.5 + (0.5 * cls._smoothstep(stage_progress))
+        else:
+            stage = "idle"
+            stage_progress = (
+                (cycle_sec - converge_sec - linger_sec - release_sec) / idle_sec
+            )
+            drift = 0.012 * math.sin(stage_progress * math.tau)
+            motion = 0.988 + drift
+
+        return {
+            "elapsed_sec"    : elapsed_sec,
+            "cycle_sec"      : cycle_sec,
+            "stage"          : stage,
+            "stage_progress" : max(0.0, min(1.0, stage_progress)),
+            "motion"         : max(0.0, min(1.0, motion))
+        }
 
     @classmethod
     def tool_status_renderable(cls, phase: float, text: str) -> Text:
@@ -659,7 +752,6 @@ class StatusRenderer(StatusSpec):
 
         colors = {
             "edge"      : "bold #465661",
-            "rail"      : "bold #607884",
             "text_peak" : "bold #E4FBFD",
             "text_soft" : "bold #D2F0F4",
             "text_near" : "bold #B0D6DE",
@@ -668,33 +760,57 @@ class StatusRenderer(StatusSpec):
             "text_dim"  : "bold #4B5D65"
         }
 
-        text = cls.fit_status_text(text, kind="loop", fallback="running loop steps")
-        span = max(1, len(text))
-        sweep = cls._sway_focus(
-            phase,
-            span,
-            speed=spec.scan_speed,
-            pad=spec.scan_pad
-        )
-
-        out = cls._loop_status_indicator(phase)
+        text = cls.fit_status_text(text, kind="loop", fallback="loop steps")
+        out  = cls._loop_status_indicator(phase)
         out.append(cls.status_content_gap(), style=colors["edge"])
-        cls._append_sweep_text(
+
+        span    = max(1, len(text))
+        travel  = max(1.0, float(span - 1) + (spec.scan_pad * 2.0))
+        profile = cls._loop_motion_profile(phase)
+
+        lock_progress = float(profile["motion"])
+        focus = (lock_progress * travel) - spec.scan_pad
+
+        mirror_focus = max(0.0, float(span - 1) - focus)
+        peak_radius  = spec.peak_radius
+        near_span    = spec.lead_span
+        fade_span    = spec.tail_span
+        lock_radius  = 1.25
+        pulse        = 0.0
+
+        if profile["stage"] == "linger":
+            pulse = 0.5 + (0.5 * math.sin(float(profile["stage_progress"]) * math.tau * 1.15))
+        elif profile["stage"] == "idle":
+            pulse = 0.5 + (0.5 * math.sin(float(profile["stage_progress"]) * math.tau))
+
+        if pulse > 0.0:
+            peak_radius += 0.10 * pulse
+            near_span += 0.24 * pulse
+            fade_span += 0.36 * pulse
+            lock_radius += 0.22 * pulse
+            if profile["stage"] == "idle":
+                colors["text_peak"] = f"bold {mix_hex_color('#E4FBFD', '#7FE7F4', pulse)}"
+                colors["text_soft"] = f"bold {mix_hex_color('#D2F0F4', '#D2F0F4', pulse)}"
+                colors["text_near"] = f"bold {mix_hex_color('#B0D6DE', '#B0D6DE', pulse)}"
+            else:
+                colors["text_peak"] = f"bold {mix_hex_color('#E4FBFD', '#9FE8F2', pulse)}"
+                colors["text_soft"] = f"bold {mix_hex_color('#D2F0F4', '#7FD9E6', pulse)}"
+                colors["text_near"] = f"bold {mix_hex_color('#B0D6DE', '#66C4D4', pulse)}"
+        cls._append_repair_text(
             out,
             text,
-            focus=sweep,
+            left_focus=focus,
+            right_focus=mirror_focus,
             peak_style=colors["text_peak"],
             soft_style=colors["text_soft"],
             near_style=colors["text_near"],
             mid_style=colors["text_mid"],
             fade_style=colors["text_fade"],
             dim_style=colors["text_dim"],
-            lead_span=spec.lead_span,
-            tail_span=spec.tail_span,
-            peak_radius=spec.peak_radius,
-            soft_ratio=0.14,
-            near_ratio=spec.near_ratio,
-            mid_ratio=spec.mid_ratio
+            near_span=near_span,
+            fade_span=fade_span,
+            peak_radius=peak_radius,
+            lock_radius=lock_radius
         )
         return out
 

@@ -264,7 +264,7 @@ class StreamUI(object):
 
     @classmethod
     def _compose_loop_status_text(cls, summary: typing.Optional[str]) -> str:
-        base_title = "running loop steps"
+        base_title = "loop steps"
         normalized = " ".join(str(summary or "").split())
         if not normalized:
             return base_title
