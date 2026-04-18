@@ -170,6 +170,7 @@ class StreamUI(object):
         await self._wait_status_visibility_if_needed()
         await self._cancel_heal_status_flush_task()
         await self._cancel_pending_status_task()
+        self.coordinator.release_status_slot()
         await self.coordinator.clear_status()
         self._active_status_visible_at = None
         self._active_status_min_visible_sec = 0.0
