@@ -141,7 +141,7 @@ class Requires(object):
             navigator = "https://developers.openai.com/codex"
             raise RuntimeError(f"Requires {application}. install it first, {navigator}.")
 
-        return (await Flux.cmd_line([application, "--version"]) or "").strip()
+        return (await Flux.cmd_line_exec([application, "--version"]) or "").strip()
 
 
 if __name__ == '__main__':

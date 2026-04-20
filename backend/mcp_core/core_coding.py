@@ -280,6 +280,7 @@ class Coding(object):
             }
 
         final_workdir = str(os.getcwd())
+
         cmd = self._build_codex_exec_cmd(
             prompt=prompt_text,
             workdir=final_workdir,
@@ -332,7 +333,7 @@ class Coding(object):
             self.wait_result     = None
 
             try:
-                self.__transports = await Flux.cmd_link_exec(
+                self.__transports = await Flux.cmd_link_exec_resolved(
                     cmd,
                     cwd=final_workdir,
                     env=env
