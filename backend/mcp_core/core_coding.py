@@ -13,10 +13,8 @@ from backend.models.model_device import SemanticResult
 from backend.utilities import const
 from backend.utilities.process import Flux
 from backend.utilities.trace import (
-    clip_text,
-    summarize_command,
+    clip_text, summarize_command
 )
-from backend.utilities.validation import marked
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
@@ -28,11 +26,13 @@ class Coding(object):
     __initialized: bool = False
 
     def __new__(cls, *args, **kwargs):
+        """实现单例分配，确保整个进程只维护一个编码会话对象。"""
         if not cls.__instance:
             cls.__instance = super(Coding, cls).__new__(cls)
         return cls.__instance
 
     def __init__(self):
+        """初始化会话状态、输出缓冲区与并发控制对象。"""
         if not self.__initialized:
             self.__prefix: str = "coding"
             self.agent_id: str = self.__prefix
@@ -64,13 +64,24 @@ class Coding(object):
 
     @property
     def prefix(self) -> str:
+        """返回底层 CLI 前缀名，供统一命令构造复用。"""
         return self.__prefix
 
+    def push(self, source: str, text: str) -> None:
+        """把一行输出写入环形缓冲，并同步打印到日志。"""
+        line = str(text or "").strip()
+        if not line:
+            return None
+        self.out_ring.append(f"{source}: {line}")
+        logger.info(f"{source} | {clip_text(line, limit=1000)}")
+
     def _active(self) -> bool:
+        """判断当前是否存在仍在运行的 codex 子进程。"""
         return bool(self.__transports and self.__transports.returncode is None)
 
     @staticmethod
     def _prompt_preview(prompt: str, limit: int = 280) -> str:
+        """生成适合日志与状态展示的提示词摘要。"""
         return clip_text(" ".join(str(prompt or "").split()), limit=limit)
 
     @staticmethod
@@ -87,6 +98,7 @@ class Coding(object):
         json_output: bool = False,
         extra_args: typing.Optional[list[str]] = None
     ) -> list[str]:
+        """把启动参数组装成最终的 `codex exec` 命令数组。"""
         cmd = ["codex", "exec", prompt, "-C", workdir, "--color", "never"]
 
         if profile:
@@ -113,12 +125,14 @@ class Coding(object):
 
     @staticmethod
     def _build_codex_env(*, workdir: str) -> dict[str, str]:
+        """复制当前环境变量，并补齐与执行目录相关的上下文。"""
         env = os.environ.copy()
 
         env["PWD"] = str(workdir)
         return env
 
     def _snapshot_unlocked(self) -> dict[str, typing.Any]:
+        """在调用方已持锁时，读取当前会话的完整状态快照。"""
         proc = self.__transports
         active = bool(proc and proc.returncode is None)
         return {
@@ -138,17 +152,11 @@ class Coding(object):
         }
 
     async def snapshot(self) -> dict[str, typing.Any]:
+        """返回对外可见的编码会话快照。"""
         async with self.lock:
             return {
                 self.agent_id: self._snapshot_unlocked()
             }
-
-    def push(self, source: str, text: str) -> None:
-        line = str(text or "").strip()
-        if not line:
-            return None
-        self.out_ring.append(f"{source}: {line}")
-        logger.info(f"{source} | {clip_text(line, limit=1000)}")
 
     async def emit_output(
         self,
@@ -158,6 +166,7 @@ class Coding(object):
             typing.Callable[[str, str, int], typing.Awaitable[None]]
         ] = None
     ) -> None:
+        """将单行输出按递增序号回推给上层进度回调。"""
         if output_callback is None:
             return None
 
@@ -175,6 +184,7 @@ class Coding(object):
             typing.Callable[[str, str, int], typing.Awaitable[None]]
         ] = None
     ) -> None:
+        """持续消费 stdout/stderr 流，拆行为日志并转发进度。"""
         if stream is None:
             return None
 
@@ -194,6 +204,7 @@ class Coding(object):
             await self.emit_output(source, line, output_callback=output_callback)
 
     async def shutdown(self, reason: str = "user_stop") -> dict[str, typing.Any]:
+        """停止当前会话并等待输出消费完成，返回停机后的状态。"""
         async with self.lock:
             proc = self.__transports
             active = self._active()
@@ -241,7 +252,6 @@ class Coding(object):
         self,
         *,
         prompt: str,
-        workdir: typing.Optional[str] = None,
         profile: typing.Optional[str] = None,
         model: typing.Optional[str] = None,
         sandbox: typing.Optional[str] = "workspace-write",
@@ -255,18 +265,21 @@ class Coding(object):
             typing.Callable[[str, str, int], typing.Awaitable[None]]
         ] = None
     ) -> dict[str, typing.Any]:
+        """启动一次新的 codex 会话，并返回最小启动结果。"""
         prompt_text = str(prompt or "").strip()
         if not prompt_text:
-            raise marked.fail_tip(
-                "prompt 为空。",
-                code=const.CODE_EXC,
-                hint=const.HINT_HLT,
-                field="prompt",
-                expect="non_empty",
-                got=prompt
-            )
+            return {
+                "text"        : "codex 启动失败：prompt 为空。",
+                "attachments" : [],
+                "data": {
+                    "ok"     : False,
+                    "active" : False,
+                    "reason" : "prompt_empty"
+                },
+                "logs": []
+            }
 
-        final_workdir = marked.ensure_d(workdir, "workdir") if workdir else str(os.getcwd())
+        final_workdir = str(os.getcwd())
         cmd = self._build_codex_exec_cmd(
             prompt=prompt_text,
             workdir=final_workdir,
@@ -283,14 +296,20 @@ class Coding(object):
 
         async with self.lock:
             if self._active():
-                raise marked.fail_tip(
-                    "已有编码会话在运行，不能重复启动。",
-                    code=const.CODE_EXC,
-                    hint=const.HINT_HLT,
-                    session_id=self.session_id
-                )
+                return {
+                    "text"        : "codex 启动失败：已有编码会话在运行，不能重复启动。",
+                    "attachments" : [],
+                    "data": {
+                        "ok"         : False,
+                        "active"     : True,
+                        "reason"     : "session_active",
+                        "session_id" : self.session_id
+                    },
+                    "logs": []
+                }
 
             self.out_ring.clear()
+
             self.session_id      = f"codex_{time.strftime('%Y%m%d%H%M%S')}"
             self.prompt_preview  = self._prompt_preview(prompt_text)
             self.cwd             = final_workdir
@@ -311,16 +330,12 @@ class Coding(object):
             proc = self.__transports
             self.stdout_task = asyncio.create_task(
                 self.streaming(
-                    "codex.stdout",
-                    proc.stdout,
-                    output_callback=output_callback
+                    "codex.stdout", proc.stdout, output_callback=output_callback
                 )
             )
             self.stderr_task = asyncio.create_task(
                 self.streaming(
-                    "codex.stderr",
-                    proc.stderr,
-                    output_callback=output_callback
+                    "codex.stderr", proc.stderr, output_callback=output_callback
                 )
             )
 
@@ -334,21 +349,31 @@ class Coding(object):
         return {
             "text"        : f"codex 启动成功。pid={proc.pid}",
             "attachments" : [],
-            "data"        : self._snapshot_unlocked(),
-            "logs"        : []
+            "data": {
+                "ok"         : True,
+                "active"     : True,
+                "session_id" : self.session_id,
+                "pid"        : proc.pid,
+                "cwd"        : self.cwd
+            },
+            "logs": []
         }
 
     async def _wait_impl(
         self,
         timeout_sec: typing.Optional[int] = None
     ) -> dict[str, typing.Any]:
+        """等待底层进程结束，汇总最终状态、退出码与日志。"""
         proc = self.__transports
         if not proc:
             return {
-                "text"        : f"{self.agent_id.capitalize()}当前没有运行中的编码会话。",
+                "text"        : f"{self.agent_id} 当前没有运行中的编码会话。",
                 "attachments" : [],
-                "data"        : {"ok": False, "active": False},
-                "logs"        : []
+                "data": {
+                    "ok"     : False,
+                    "active" : False
+                },
+                "logs": []
             }
 
         timed_out = False
@@ -375,11 +400,13 @@ class Coding(object):
         stopped = bool(snapshot.get("stop_reason")) and (not timed_out)
         ok = (snapshot["exit_code"] == 0) and (not timed_out) and (not stopped)
         snapshot["ok"] = ok
+
         text = (
             f"codex 执行完成。exit_code={snapshot['exit_code']}"
             if ok else
             f"codex 执行失败。exit_code={snapshot['exit_code']}"
         )
+
         if timed_out:
             text = f"codex 执行超时并已停止。exit_code={snapshot['exit_code']}"
         elif stopped:
@@ -405,6 +432,7 @@ class Coding(object):
         self,
         timeout_sec: typing.Optional[int] = None
     ) -> dict[str, typing.Any]:
+        """等待当前会话完成；若已有缓存结果则直接复用。"""
         async with self.lock:
             if self.wait_result is not None and not self._active():
                 return self.wait_result
@@ -414,10 +442,13 @@ class Coding(object):
                 proc = self.__transports
                 if not proc:
                     return {
-                        "text"        : f"{self.agent_id.capitalize()}当前没有运行中的编码会话。",
+                        "text"        : f"{self.agent_id} 当前没有运行中的编码会话。",
                         "attachments" : [],
-                        "data"        : {"ok": False, "active": False},
-                        "logs"        : []
+                        "data": {
+                            "ok"     : False,
+                            "active" : False
+                        },
+                        "logs": []
                     }
                 task = asyncio.create_task(self._wait_impl(timeout_sec=timeout_sec))
                 self.wait_task = task

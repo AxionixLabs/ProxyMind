@@ -8,7 +8,6 @@ from backend.middlewares.mid_task import task_middleware
 from backend.mcp_hub.hub_manage import Requires
 from backend.mcp_tools.coding.schemas import (
     CodingPromptArg,
-    CodingWorkDirArg,
     CodingProfileArg,
     CodingModelArg,
     CodingSandboxArg,
@@ -21,8 +20,7 @@ from backend.mcp_tools.coding.schemas import (
 )
 from backend.utilities.broadcast import broadcast
 from backend.utilities.runtime import (
-    AppContext,
-    Idle
+    AppContext, Idle
 )
 
 
@@ -39,7 +37,6 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @task_middleware("coding_start")
     async def coding_start(
         prompt: CodingPromptArg,
-        workdir: CodingWorkDirArg = None,
         profile: CodingProfileArg = None,
         model: CodingModelArg = None,
         sandbox: CodingSandboxArg = "workspace-write",
@@ -56,7 +53,6 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
         args = {
             "prompt"              : prompt,
-            "workdir"             : workdir,
             "profile"             : profile,
             "model"               : model,
             "sandbox"             : sandbox,
@@ -65,7 +61,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "ephemeral"           : ephemeral,
             "json_output"         : json_output,
             "timeout_sec"         : timeout_sec,
-            "extra_args"          : extra_args,
+            "extra_args"          : extra_args
         }
 
         async def call(*_) -> dict:
@@ -75,14 +71,11 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
                     if context is None:
                         return None
                     await context.report_progress(
-                        float(seq),
-                        None,
-                        f"{source}: {text}"
+                        float(seq), None, f"{source}: {text}"
                     )
 
                 return await ctx.coding.start(
-                    **args,
-                    output_callback=output_callback
+                    **args, output_callback=output_callback
                 )
             finally:
                 await idle.job_final(job_id)
@@ -163,10 +156,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         timeout_sec: CodingTimeoutSecArg = None
     ) -> CallToolResult:
 
+        args = {
+            "timeout_sec" : timeout_sec
+        }
+
         async def call(*_) -> dict:
             job_id = await idle.job_begin(
-                f"{ctx.coding.agent_id}.wait",
-                args={"timeout_sec": timeout_sec}
+                f"{ctx.coding.agent_id}.wait", args=args
             )
             try:
                 return await ctx.coding.wait(timeout_sec=timeout_sec)
@@ -175,7 +171,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
         return await broadcast(
             tool="coding_wait",
-            args={"timeout_sec": timeout_sec},
+            args=args,
             target_list=[ctx.coding],
             call=call,
             overrides=None

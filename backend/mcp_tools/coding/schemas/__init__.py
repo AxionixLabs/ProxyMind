@@ -3,7 +3,6 @@
 
 from backend.mcp_tools.coding.schemas.schema_coding import (
     CodingPromptArg,
-    CodingWorkDirArg,
     CodingProfileArg,
     CodingModelArg,
     CodingSandboxArg,
@@ -17,7 +16,6 @@ from backend.mcp_tools.coding.schemas.schema_coding import (
 
 __all__ = [
     "CodingPromptArg",
-    "CodingWorkDirArg",
     "CodingProfileArg",
     "CodingModelArg",
     "CodingSandboxArg",

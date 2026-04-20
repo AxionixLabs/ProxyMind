@@ -8,10 +8,6 @@ CodingPromptArg = typing.Annotated[
     str,
     Field(description="要交给 codex CLI 的原始提示词。"),
 ]
-CodingWorkDirArg = typing.Annotated[
-    typing.Optional[str],
-    Field(description="执行目录；为空时使用当前 Helix 工作目录。"),
-]
 CodingProfileArg = typing.Annotated[
     typing.Optional[str],
     Field(description="CLI profile 名称；为空时沿用默认配置。"),
