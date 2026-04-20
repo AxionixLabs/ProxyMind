@@ -293,6 +293,15 @@ class Coding(object):
             extra_args=extra_args
         )
         env = self._build_codex_env(workdir=final_workdir)
+        logger.debug(
+            "coding start prepare "
+            f"workdir={clip_text(final_workdir, 160)} "
+            f"prompt={clip_text(self._prompt_preview(prompt_text), 160)} "
+            f"codex_home={clip_text(str(env.get('CODEX_HOME', '')), 160)} "
+            f"pwd={clip_text(str(env.get('PWD', '')), 160)} "
+            f"path_head={clip_text(str(env.get('PATH', ''))[:240], 240)} "
+            f"cmd={summarize_command(cmd)}"
+        )
 
         async with self.lock:
             if self._active():
@@ -322,11 +331,21 @@ class Coding(object):
             self.stream_index    = 0
             self.wait_result     = None
 
-            self.__transports = await Flux.cmd_link_exec(
-                cmd,
-                cwd=final_workdir,
-                env=env
-            )
+            try:
+                self.__transports = await Flux.cmd_link_exec(
+                    cmd,
+                    cwd=final_workdir,
+                    env=env
+                )
+            except Exception as e:
+                logger.exception(
+                    "coding start spawn failed "
+                    f"session_id={self.session_id} "
+                    f"workdir={clip_text(final_workdir, 160)} "
+                    f"cmd={self.command_preview} "
+                    f"error={type(e).__name__}: {e}"
+                )
+                raise
             proc = self.__transports
             self.stdout_task = asyncio.create_task(
                 self.streaming(
