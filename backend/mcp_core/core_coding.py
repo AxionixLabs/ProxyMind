@@ -93,7 +93,7 @@ class Coding(object):
         model: typing.Optional[str] = None,
         sandbox: typing.Optional[str] = None,
         full_auto: bool = True,
-        skip_git_repo_check: bool = False,
+        skip_git_repo_check: bool = True,
         ephemeral: bool = False,
         json_output: bool = False,
         extra_args: typing.Optional[list[str]] = None
@@ -256,7 +256,7 @@ class Coding(object):
         model: typing.Optional[str] = None,
         sandbox: typing.Optional[str] = "workspace-write",
         full_auto: bool = True,
-        skip_git_repo_check: bool = False,
+        skip_git_repo_check: bool = True,
         ephemeral: bool = False,
         json_output: bool = False,
         timeout_sec: typing.Optional[int] = 300,
