@@ -3,12 +3,10 @@
 
 import re
 import typing
-from pathlib import Path
 from mcp import ClientSession
 from engine.tinker import MindError
 from mind_core.design import Design
 from mind_core.design.upload import UploadProgressLiveReporter
-from mind_core import authorize
 from mind_nova.events import EventReport
 from mind_nova import const
 from ..runtime.calling import resolve_mode_runner
@@ -88,7 +86,6 @@ async def mind_loop(mind: "Mind") -> None:
         quit_set: set[str] = {"/quit", "/q", "quit", "exit"}
         help_set: set[str] = {"/help", "/h"}
         seal_set: set[str] = {"/license", "/lic"}
-        subs_set: set[str] = {"/subscription", "/sub"}
         attachments_set: set[str] = {"/attachments"}
         attach_clear_set: set[str] = {"/attach-clear"}
 
@@ -96,7 +93,6 @@ async def mind_loop(mind: "Mind") -> None:
             [bold]
             [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
             [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
-            [bold #5FD7AF]/subscription, /sub[/]       订阅信息（授权状态/到期）
             [bold #FF5F5F]/quit, /q, quit, exit[/]     断开会话（安全退出）
             [bold #AFD7FF]/attach <path|dir|glob>[/]   添加本轮待发送附件（任意文件）
             [bold #AFD7FF]/attachments[/]              查看当前待发送附件
@@ -138,11 +134,6 @@ async def mind_loop(mind: "Mind") -> None:
 
             if command in seal_set:
                 Design.startup_logo()
-                continue
-
-            if command in subs_set:
-                lic_file = Path(mind.src_opera_place) / const.LIC_FILE
-                await authorize.verify_license(lic_file)
                 continue
 
             if command in attachments_set:

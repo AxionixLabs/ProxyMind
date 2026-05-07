@@ -9,15 +9,15 @@ from engine.tinker import Tooling
 from mind_nova.events import EventReport
 from mind_nova import request
 from ..stream_ui import StreamUI
-from ..runtime.loop_support import ensure_wakeup, finish_failure
+from ..runtime.loop_support import (
+    ensure_wakeup, finish_failure
+)
 from ..runtime.tool_run import run_tool_step
 from ..stream_events.responses_builtin import (
-    resolve_builtin_name,
-    consume_builtin_done
+    resolve_builtin_name, consume_builtin_done
 )
 from ..stream_state.segment import (
-    SegmentTracker,
-    build_sources_text
+    SegmentTracker, build_sources_text
 )
 
 if typing.TYPE_CHECKING:

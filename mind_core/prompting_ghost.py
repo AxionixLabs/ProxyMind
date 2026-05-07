@@ -29,8 +29,6 @@ COMMAND_TEMPLATES: dict[str, str] = {
     "/detach ": "<index-or-path>",
     "/attach-c": "lear",
     "/attach-clear": "",
-    "/su": "bscription",
-    "/sub": "scription",
     "/li": "cense",
     "/lic": "ense",
     "ex": "it",

@@ -1,75 +1,49 @@
-# ========================
-# Python 编译文件与缓存
-# ========================
+# Python 字节码与缓存
 __pycache__/
 *.py[cod]
 *$py.class
 
-# ========================
-# 虚拟环境目录
-# ========================
-env/
-venv/
+# 虚拟环境
 .venv/
+venv/
+env/
 
-# ========================
-# 构建产物
-# ========================
+# 打包与构建产物
 build/
 dist/
-*.build/
-*.dist/
-*.spec
-*.manifest
-*.rc
+*.egg-info/
+pip-wheel-metadata/
 *.onefile.exe
 
-# ========================
-# 日志与临时文件
-# ========================
+# 测试、覆盖率与分析缓存
+.coverage
+.coverage.*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+.tox/
+.nox/
+htmlcov/
+.cache/
+
+# 日志与本地临时文件
 *.log
 *.bak
 *.tmp
+*.temp
 
-# ========================
-# 覆盖率与类型检查缓存
-# ========================
-.coverage
-.pytest_cache/
-.mypy_cache/
-.cache/
-
-# ========================
-# 测试代码与测试资源
-# ========================
-tests/
-test/
-*/tests/
-*/test/
-test_*.py
-*_test.py
-!backend/mcp_hub/hub_nexus/test_nexus_registry.py
-!tests/
-tests/*
-!tests/test_ctrl_c_shutdown.py
-tests/__pycache__/
-
-# ========================
-# 编辑器配置文件
-# ========================
-.vscode/
+# 编辑器配置
 .idea/
+.vscode/
 *.iml
 
-# ========================
-# 系统生成的无用文件
-# ========================
+# 操作系统生成文件
 .DS_Store
 Thumbs.db
 
-# ========================
-# 项目自定义目录排除
-# ========================
+# 项目本地生成内容
 applications/
 backend/requires/
 backend/data/
@@ -78,4 +52,3 @@ schematic/supports/
 Structure/
 website/mind/site/
 website/mind/pages/generated/*.md
-!website/mind/pages/generated/.gitkeep

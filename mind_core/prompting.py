@@ -23,7 +23,7 @@ from mind_core.prompting_ghost import (
     COMMAND_TEMPLATES,
     MODE_ALIAS_TEMPLATES,
     VERB_DOMAIN_WEIGHTS,
-    build_intent_templates,
+    build_intent_templates
 )
 
 RUN_MODE = typing.Literal["chat", "fast", "plan"]
@@ -40,8 +40,6 @@ class SlashCommandCompleter(Completer):
         {"text": "/h", "display": "/h", "meta": "查看帮助"},
         {"text": "/license", "display": "/license", "meta": "查看授权"},
         {"text": "/lic", "display": "/lic", "meta": "查看授权"},
-        {"text": "/subscription", "display": "/subscription", "meta": "查看订阅"},
-        {"text": "/sub", "display": "/sub", "meta": "查看订阅"},
         {"text": "/quit", "display": "/quit", "meta": "退出会话"},
         {"text": "/q", "display": "/q", "meta": "退出会话"},
         {"text": "/model ", "display": "/model", "meta": "输入模型名"},
@@ -52,8 +50,9 @@ class SlashCommandCompleter(Completer):
         {"text": "/attach-clear", "display": "/attach-clear", "meta": "清空待发送附件"},
     )
     TOP_LEVEL: tuple[str, ...] = (
-        "/chat", "/fast", "/plan", "/help", "/quit",
-        "/attach", "/attachments", "/detach", "/attach-clear"
+        "/chat", "/fast", "/plan", "/help", "/license",
+        "/quit", "/model", "/apikey", "/attach", "/attachments",
+        "/detach", "/attach-clear"
     )
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
@@ -89,6 +88,24 @@ class SlashCommandCompleter(Completer):
 
 class CommandAutoSuggest(AutoSuggest):
     """Dim inline suggestions for parameterized slash commands."""
+
+    SLASH_HINTS: dict[str, str] = {
+        "/model": " <model-name>",
+        "/model ": "<model-name>",
+        "/apikey": " <api-key>",
+        "/apikey ": "<api-key>",
+        "/attach": " <path>",
+        "/attach ": "<path>",
+        "/detach": " <index-or-path>",
+        "/detach ": "<index-or-path>",
+    }
+
+    PARAMETER_HINT_LINES: frozenset[str] = frozenset({
+        "/model ",
+        "/apikey ",
+        "/attach ",
+        "/detach ",
+    })
 
     MODE_ALLOWED_DOMAINS: dict[RUN_MODE, frozenset[str]] = {
         "chat": frozenset({
@@ -260,9 +277,10 @@ class CommandAutoSuggest(AutoSuggest):
         if not current_line:
             return None
 
-        for prefix, suggestion in self.templates.items():
-            if current_line == prefix:
-                return Suggestion(suggestion)
+        if current_line.startswith("/"):
+            if current_line in self.SLASH_HINTS:
+                return Suggestion(self.SLASH_HINTS[current_line])
+            return None
 
         for prefix, suggestion in self.chat_templates:
             if current_line == prefix:
