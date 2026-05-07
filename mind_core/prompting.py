@@ -20,7 +20,6 @@ from prompt_toolkit.styles import Style
 from mind_nova import const
 from mind_core.prompting_ghost import (
     CHAT_TEMPLATES,
-    COMMAND_TEMPLATES,
     MODE_ALIAS_TEMPLATES,
     VERB_DOMAIN_WEIGHTS,
     build_intent_templates
@@ -100,13 +99,6 @@ class CommandAutoSuggest(AutoSuggest):
         "/detach ": "<index-or-path>",
     }
 
-    PARAMETER_HINT_LINES: frozenset[str] = frozenset({
-        "/model ",
-        "/apikey ",
-        "/attach ",
-        "/detach ",
-    })
-
     MODE_ALLOWED_DOMAINS: dict[RUN_MODE, frozenset[str]] = {
         "chat": frozenset({
             "device_connection",
@@ -118,17 +110,9 @@ class CommandAutoSuggest(AutoSuggest):
             "screen_capture",
             "package_info",
             "inspect_runtime",
-            "security",
-            "network_http",
-            "network_sse_ws",
-            "network_graphql",
-            "network_socket",
-            "network_mail_file",
             "performance_memrix",
             "performance_framix",
             "stability_monkey",
-            "media_video",
-            "media_audio",
             "report",
         }),
         "fast": frozenset({
@@ -163,11 +147,12 @@ class CommandAutoSuggest(AutoSuggest):
     }
     MODE_PREFERRED_PHRASES: dict[RUN_MODE, dict[str, tuple[str, ...]]] = {
         "chat": {
-            "查看": ("设备信息", "页面结构", "HTTP 响应", "内存趋势", "视频信息"),
-            "分析": ("接口响应", "视频帧", "内存趋势", "页面切换速度"),
-            "生成": ("内存报告", "阶段帧分析报告", "执行结果"),
-            "提取": ("关键帧", "场景帧", "音轨"),
+            "查看": ("设备信息", "页面结构", "内存趋势", "当前控件树"),
+            "分析": ("视频帧", "内存趋势", "流畅度趋势", "页面切换速度"),
+            "生成": ("内存报告", "流畅度报告", "阶段帧分析报告"),
             "打开": ("设置", "应用", "录屏"),
+            "执行": ("Monkey 测试",),
+            "跑": ("稳定性扰动",),
         },
         "fast": {
             "查看": ("HTTP 响应", "接口响应", "响应", "SSE 事件流", "WebSocket 消息", "视频信息"),
@@ -199,7 +184,6 @@ class CommandAutoSuggest(AutoSuggest):
 
     def __init__(self) -> None:
         self.mode: RUN_MODE = "chat"
-        self.templates: dict[str, str] = COMMAND_TEMPLATES
         self.chat_templates: tuple[tuple[str, str], ...] = CHAT_TEMPLATES
         self.intent_templates: tuple[dict[str, typing.Any], ...] = build_intent_templates()
 

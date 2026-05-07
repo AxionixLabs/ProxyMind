@@ -59,21 +59,21 @@ async def mind_loop(mind: "Mind") -> None:
             Design.console.print()
 
         def print_pending_attachments() -> None:
-            items = mind.attach.pending_attachments_snapshot()
-            if not items:
+            attachments = mind.attach.pending_attachments_snapshot()
+            if not attachments:
                 Design.console.print("[bold #7F8C9A]No pending attachments.[/]")
                 print_attach_gap()
                 return None
 
-            Design.console.print(f"[bold #AFC7D8]Pending attachments ({len(items)}):[/]")
-            for index, item in enumerate(items, start=1):
-                size = int(item.get("size") or 0)
+            Design.console.print(f"[bold #AFC7D8]Pending attachments ({len(attachments)}):[/]")
+            for index, attachment in enumerate(attachments, start=1):
+                size = int(attachment.get("size") or 0)
                 Design.console.print(
                     f"[bold #AFC7D8]  {index}.[/] "
-                    f"[bold #F4F7FA]{item.get('filename') or '-'}[/] "
-                    f"[#7F8C9A]({item.get('kind') or 'file'} · {size} bytes)[/]"
+                    f"[bold #F4F7FA]{attachment.get('filename') or '-'}[/] "
+                    f"[#7F8C9A]({attachment.get('kind') or 'file'} · {size} bytes)[/]"
                 )
-                Design.console.print(f"[#7F8C9A]     {item.get('local') or '-'}[/]")
+                Design.console.print(f"[#7F8C9A]     {attachment.get('local') or '-'}[/]")
             print_attach_gap()
 
         pref_cfg = mind.pref.to_config()
@@ -98,11 +98,11 @@ async def mind_loop(mind: "Mind") -> None:
             [bold #AFD7FF]/attachments[/]              查看当前待发送附件
             [bold #AFD7FF]/detach <index|path>[/]      移除一个待发送附件
             [bold #AFD7FF]/attach-clear[/]             清空当前待发送附件
-            [bold #FFD75F]/chat[/]                     对话模式（全域能力接入/自然语言交互）
+            [bold #FFD75F]/chat[/]                     对话模式（交互能力协作/自然语言交互）
             [bold #FFD75F]/fast[/]                     高速模式（高吞吐任务流/数据媒体直达）
             [bold #FFD75F]/plan[/]                     编排模式（结构任务拆解/确定路径执行）
-            [#7F8C9A]/model <name>[/]                  引擎切换（选择推理内核）
-            [#7F8C9A]/apikey <key>[/]                  凭证更新（替换访问密钥）
+            [bold #7F8C9A]/model <name>[/]             引擎切换（选择推理内核）
+            [bold #7F8C9A]/apikey <key>[/]             凭证更新（替换访问密钥）
             [/]"""
 
         re_model  = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
@@ -167,8 +167,8 @@ async def mind_loop(mind: "Mind") -> None:
                     continue
                 try:
                     result = mind.attach.add_pending_attachments(value)
-                except MindError as error:
-                    Design.console.print(f"[bold #FF5F5F]{error}[/]")
+                except MindError as attach_error:
+                    Design.console.print(f"[bold #FF5F5F]{attach_error}[/]")
                     print_attach_gap()
                     continue
 
@@ -181,18 +181,18 @@ async def mind_loop(mind: "Mind") -> None:
                     f"[bold #F4F7FA]{len(added)} added[/] "
                     f"[#7F8C9A]· {len(existing)} existing · {len(skipped)} skipped[/]"
                 )
-                for item in added[:5]:
+                for added_attachment in added[:5]:
                     Design.console.print(
                         f"[bold #AFC7D8]  +[/] "
-                        f"[bold #F4F7FA]{item.get('filename') or '-'}[/] "
-                        f"[#7F8C9A]({item.get('kind') or 'file'})[/]"
+                        f"[bold #F4F7FA]{added_attachment.get('filename') or '-'}[/] "
+                        f"[#7F8C9A]({added_attachment.get('kind') or 'file'})[/]"
                     )
                 if len(added) > 5:
                     Design.console.print(f"[#7F8C9A]  ... and {len(added) - 5} more added[/]")
                 if skipped:
                     Design.console.print(
                         f"[#FFB86B]Skipped[/] "
-                        f"{', '.join(str(item.get('filename') or '-') for item in skipped[:3])}"
+                        f"{', '.join(str(skipped_attachment.get('filename') or '-') for skipped_attachment in skipped[:3])}"
                     )
                 print_attach_gap()
                 continue
@@ -204,15 +204,15 @@ async def mind_loop(mind: "Mind") -> None:
                     print_attach_gap()
                     continue
                 try:
-                    item = mind.attach.remove_pending_attachment(value)
-                except MindError as error:
-                    Design.console.print(f"[bold #FF5F5F]{error}[/]")
+                    removed_attachment = mind.attach.remove_pending_attachment(value)
+                except MindError as detach_error:
+                    Design.console.print(f"[bold #FF5F5F]{detach_error}[/]")
                     print_attach_gap()
                     continue
 
                 Design.console.print(
                     f"[bold #AFC7D8]Detached[/] "
-                    f"[bold #F4F7FA]{item.get('filename') or '-'}[/]"
+                    f"[bold #F4F7FA]{removed_attachment.get('filename') or '-'}[/]"
                 )
                 print_attach_gap()
                 continue
@@ -231,12 +231,12 @@ async def mind_loop(mind: "Mind") -> None:
                     return None
 
                 if mind.attach.has_pending_attachments():
-                    items = mind.attach.pending_attachments_snapshot()
+                    attachments = mind.attach.pending_attachments_snapshot()
                     reporter = UploadProgressLiveReporter(Design.console)
                     upload_state: dict[str, typing.Any] = {
                         "event": None,
-                        "item_total": len(items),
-                        "total_bytes": sum(int(item.get("size") or 0) for item in items),
+                        "item_total": len(attachments),
+                        "total_bytes": sum(int(attachment.get("size") or 0) for attachment in attachments),
                     }
 
                     async def capture_progress(event: dict[str, typing.Any]) -> None:
@@ -248,14 +248,15 @@ async def mind_loop(mind: "Mind") -> None:
                         uploaded_attachments = await mind.attach.upload_pending_attachments(
                             progress_callback=capture_progress
                         )
-                    except MindError as error:
+                    except MindError as upload_error:
                         Design.console.print(
-                            reporter.render_failure(message=str(error), event=reporter.last_event)
+                            reporter.render_failure(message=str(upload_error), event=reporter.last_event)
                         )
                         print_attach_gap()
                         return None
                     finally:
                         await mind.await_cleanup(mind.stop_anim())
+
                     if reporter.last_event is not None:
                         Design.console.print(reporter.render_summary(reporter.last_event))
                         print_attach_gap()
