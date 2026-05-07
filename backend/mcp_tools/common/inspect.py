@@ -70,3 +70,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             call=call,
             overrides=None
         )
+
+
+if __name__ == '__main__':
+    pass

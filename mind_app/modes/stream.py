@@ -37,15 +37,28 @@ async def stream_looper(
 ) -> None:
     """流式模式执行器：处理 chat/fast 的事件流、工具调用和输出上报。"""
 
-    exclude = [{"domain": "common", "class": "inspect", "name": "free_rule"}]
-    if mode == "fast":
+    exclude = [
+        {"domain": "common", "class": "inspect", "name": "free_rule"}
+    ]
+
+    if mode == "chat":
         exclude = [
+            *exclude,
+            {"domain": "common", "class": "security"},
+            {"domain": "bench", "class": "k6"},
+            {"domain": "bench", "class": "nexus"},
+            {"domain": "media", "class": "ffmpeg"}
+        ]
+    elif mode == "fast":
+        exclude = [
+            *exclude,
             {"domain": "device"},
             {"domain": "bench", "class": "framix"},
             {"domain": "bench", "class": "memrix"},
-            {"domain": "common", "class": "inspect"},
             {"domain": "media", "class": "screen"}
         ]
+    else:
+        raise ValueError(f"Invalid mode: {mode}")
 
     filtered_tools = Tooling.filter_tools(openai_tools, tool_meta, exclude=exclude)
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
