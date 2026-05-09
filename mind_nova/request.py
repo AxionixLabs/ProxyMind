@@ -3,18 +3,17 @@
 
 import sys
 import json
+import time
+import uuid
 import httpx
 import typing
 import platform
 import mimetypes
-import time
-import uuid
 from pathlib import Path
 from loguru import logger
 from engine.channel import Channel
 from mind_app.stream_ui import StreamUI
 from mind_nova import const
-
 
 UploadProgressCallback = typing.Callable[[dict[str, typing.Any]], typing.Awaitable[None]]
 DEFAULT_UPLOAD_CHUNK_SIZE: int = 64 * 1024
@@ -157,18 +156,20 @@ async def upload_file_stream(
         *,
         done: bool
     ) -> dict[str, typing.Any]:
+
         elapsed_sec = max(0.0, time.monotonic() - progress_started_at)
         speed = (float(current_uploaded_bytes) / elapsed_sec) if elapsed_sec > 0 else 0.0
         percent = 1.0 if current_total_bytes <= 0 and done else (
             min(1.0, float(current_uploaded_bytes) / float(current_total_bytes)) if current_total_bytes > 0 else 0.0
         )
+
         return {
-            "uploaded_bytes": int(current_uploaded_bytes),
-            "total_bytes": int(current_total_bytes),
-            "percent": percent,
-            "elapsed_sec": elapsed_sec,
-            "speed_bytes_per_sec": speed,
-            "done": done,
+            "uploaded_bytes"      : int(current_uploaded_bytes),
+            "total_bytes"         : int(current_total_bytes),
+            "percent"             : percent,
+            "elapsed_sec"         : elapsed_sec,
+            "speed_bytes_per_sec" : speed,
+            "done"                : done
         }
 
     def multipart_field(
@@ -197,7 +198,30 @@ async def upload_file_stream(
     def multipart_closing(
         part_boundary: str
     ) -> bytes:
-        return f"\r\n--{part_boundary}--\r\n".encode("utf-8")
+        return f"\r\n--{part_boundary}--\r\n".encode(const.CHARSET)
+
+    async def body() -> typing.AsyncGenerator[bytes, None]:
+        yield field_agent
+        yield field_prefix
+        yield field_file
+
+        with p.open("rb") as f:
+            while True:
+                chunk = f.read(max(1, int(chunk_size)))
+                if not chunk:
+                    break
+
+                yield chunk
+                upload_state["uploaded_bytes"] += len(chunk)
+
+                if progress_callback is not None:
+                    await progress_callback(
+                        upload_progress_payload(
+                            upload_state["uploaded_bytes"], file_size, started_at, done=False
+                        )
+                    )
+
+        yield closing
 
     if not (p := Path(path).expanduser()).exists() or not p.is_file():
         raise RuntimeError(f"upload_file_stream: file not exists: {p}")
@@ -221,33 +245,12 @@ async def upload_file_stream(
     )
 
     started_at = time.monotonic()
-    uploaded_bytes = 0
+    upload_state = {"uploaded_bytes": 0}
 
     if progress_callback is not None:
-        await progress_callback(upload_progress_payload(uploaded_bytes, file_size, started_at, done=False))
-
-    async def body() -> typing.AsyncGenerator[bytes, None]:
-        nonlocal uploaded_bytes
-
-        yield field_agent
-        yield field_prefix
-        yield field_file
-
-        with p.open("rb") as f:
-            while True:
-                chunk = f.read(max(1, int(chunk_size)))
-                if not chunk:
-                    break
-
-                yield chunk
-                uploaded_bytes += len(chunk)
-
-                if progress_callback is not None:
-                    await progress_callback(
-                        upload_progress_payload(uploaded_bytes, file_size, started_at, done=False)
-                    )
-
-        yield closing
+        await progress_callback(
+            upload_progress_payload(upload_state["uploaded_bytes"], file_size, started_at, done=False)
+        )
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(const.FILE_STREAM_URL, headers=headers, content=body())

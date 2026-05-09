@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import asyncio
 import typing
-
+import asyncio
 
 AnimRunner: typing.TypeAlias = typing.Callable[[asyncio.Event], typing.Awaitable[None]]
 
