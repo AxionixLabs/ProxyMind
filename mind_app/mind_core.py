@@ -29,6 +29,7 @@ from .runtime.calling import (
     with_mcp_guard as run_with_mcp_guard
 )
 from .runtime.session import with_mcp_session as run_with_mcp_session
+from .mcp import McpSessionLike
 
 
 class Mind(object):
@@ -216,15 +217,21 @@ class Mind(object):
         model_api: dict[str, typing.Any],
         function: typing.Callable[
             [
-                ClientSession,
+                McpSessionLike,
                 list[dict[str, typing.Any]],
                 dict[str, dict[str, typing.Any]],
             ],
             typing.Awaitable[None],
         ],
+        before_user_flow: typing.Optional[typing.Callable[[], typing.Any]] = None,
     ) -> None:
         """MCP 会话入口：把共享连接与工具集构建委托给运行时模块。"""
-        return await run_with_mcp_session(self, model_api, function)
+        return await run_with_mcp_session(
+            self,
+            model_api,
+            function,
+            before_user_flow=before_user_flow
+        )
 
     async def with_mcp_guard(
         self,
@@ -238,7 +245,7 @@ class Mind(object):
 
     async def wakeup(
         self,
-        session: ClientSession,
+        session: McpSessionLike,
         slog: typing.Optional[StreamUI] = None
     ) -> typing.Optional[str]:
         """刷新入口：按 TTL 规则委托运行时模块执行 refresh。"""
@@ -263,7 +270,7 @@ class Mind(object):
 
     async def stream_looper(
         self,
-        session: ClientSession,
+        session: McpSessionLike,
         mode: typing.Literal["chat", "fast", "xtra"],
         model_api: dict[str, typing.Any],
         message: str,
@@ -286,7 +293,7 @@ class Mind(object):
 
     async def static_looper(
         self,
-        session: ClientSession,
+        session: McpSessionLike,
         mode: typing.Literal["plan"],
         model_api: dict[str, typing.Any],
         message: str,

@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mcp import ClientSession
+from mind_app.mcp import McpSessionLike
 from mind_nova.events import EventReport
 from engine.tinker import Tooling
 from ..stream_ui import StreamUI
@@ -14,7 +14,7 @@ if typing.TYPE_CHECKING:
 
 async def ensure_wakeup(
     mind: "Mind",
-    session: ClientSession,
+    session: McpSessionLike,
     stream_ui: StreamUI,
     *,
     tool_meta: dict[str, dict[str, typing.Any]],

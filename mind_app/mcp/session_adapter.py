@@ -106,5 +106,8 @@ class MultiMcpSession(object):
         )
 
 
+McpSessionLike = ClientSession | MultiMcpSession
+
+
 if __name__ == '__main__':
     pass

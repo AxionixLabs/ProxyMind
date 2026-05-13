@@ -4,7 +4,7 @@
 import time
 import typing
 from dataclasses import dataclass
-from mcp import ClientSession
+from mind_app.mcp import McpSessionLike
 from mcp.types import CallToolResult
 from engine.enhancer import Enhancer
 from ..stream_ui import StreamUI
@@ -38,7 +38,7 @@ def _tool_result_data(fields: typing.Union[str, dict[str, typing.Any], typing.An
 
 
 async def run_tool_step(
-    session: ClientSession,
+    session: McpSessionLike,
     *,
     stream_ui: StreamUI,
     tool_meta: dict[str, dict[str, typing.Any]],

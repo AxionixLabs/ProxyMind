@@ -7,12 +7,13 @@ from .config import (
 from .group import (
     ExternalMcpGroup, open_optional_external_mcp_group
 )
-from .session_adapter import MultiMcpSession
+from .session_adapter import McpSessionLike, MultiMcpSession
 from .status import ExternalMcpStatus
 
 __all__ = [
     "ExternalMcpGroup",
     "ExternalMcpStatus",
+    "McpSessionLike",
     "MultiMcpSession",
     "load_mcp_servers_file",
     "mcp_servers_path",

@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mcp import ClientSession
+from mind_app.mcp import McpSessionLike
 from mcp.types import CallToolResult
 from .mcp_notify import (
     emit_tool_progress,
@@ -22,7 +22,7 @@ def is_hosted_tool(
 
 
 async def execute_tool(
-    session: ClientSession,
+    session: McpSessionLike,
     *,
     tool_meta: dict[str, dict[str, typing.Any]],
     name: str,

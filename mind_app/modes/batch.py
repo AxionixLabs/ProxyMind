@@ -7,7 +7,7 @@ import typing
 import asyncio
 from dataclasses import dataclass
 from loguru import logger
-from mcp import ClientSession
+from mind_app.mcp import McpSessionLike
 from engine.scaling import (
     PackItem, Pack
 )
@@ -122,7 +122,7 @@ async def _run_virtual_message(
     runtime: PackRuntime,
     source: CodeSourceResolved,
     item_count: int,
-    session: ClientSession,
+    session: McpSessionLike,
     openai_tools: list[dict[str, typing.Any]],
     tool_meta: dict[str, dict[str, typing.Any]],
     *,
@@ -201,7 +201,7 @@ async def _run_pack_item(
     run: int,
     index: int,
     total: int,
-    session: ClientSession,
+    session: McpSessionLike,
     openai_tools: list[dict[str, typing.Any]],
     tool_meta: dict[str, dict[str, typing.Any]],
     **kwargs,
@@ -354,7 +354,7 @@ async def _run_pack_source(
     mind: "Mind",
     runtime: PackRuntime,
     source: CodeSourceResolved,
-    session: ClientSession,
+    session: McpSessionLike,
     openai_tools: list[dict[str, typing.Any]],
     tool_meta: dict[str, dict[str, typing.Any]],
     **kwargs
@@ -601,10 +601,7 @@ async def mind_pack(
         report_url_raw = report_data.get("report_url")
         report_url     = report_url_raw.strip() if isinstance(report_url_raw, str) else None
         report_id      = str(report_data.get("report_id") or "").strip()
-
-        if report_url:
-            logger.info(f"🌐 Atlas: {report_url}")
-        else:
+        if not report_url:
             logger.warning(
                 "[Batch] reports/open succeeded but report_url missing "
                 f"cid={meta['cid']} sid={meta['sid']} report_id={report_id or '-'}"
@@ -623,8 +620,12 @@ async def mind_pack(
 
     runtime = PackRuntime(mode=mode, model_api=model_api, event_report=event_report, runner=runner)
 
+    def before_user_flow() -> None:
+        if report_url:
+            logger.info(f"🌐 Atlas: {report_url}")
+
     async def function(
-        session: ClientSession,
+        session: McpSessionLike,
         openai_tools: list[dict[str, typing.Any]],
         tool_meta: dict[str, dict[str, typing.Any]]
     ) -> None:
@@ -639,7 +640,7 @@ async def mind_pack(
             await mind.await_cleanup(event_report.flush())
             await mind.await_cleanup(event_report.close())
 
-    return await mind.with_mcp_session(model_api, function)
+    return await mind.with_mcp_session(model_api, function, before_user_flow=before_user_flow)
 
 
 if __name__ == '__main__':

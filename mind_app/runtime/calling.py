@@ -6,6 +6,7 @@ import httpx
 import typing
 from loguru import logger
 from mcp import ClientSession
+from mind_app.mcp import McpSessionLike
 from mind_nova.events import EventReport
 from mind_nova.modes import RunMode
 from mind_nova import const
@@ -85,7 +86,7 @@ async def with_mcp_guard(
 
 async def wakeup(
     mind: "Mind",
-    session: ClientSession,
+    session: McpSessionLike,
     stream_ui: typing.Optional[StreamUI] = None
 ) -> typing.Optional[str]:
     """按 TTL 触发设备刷新，避免高频重复 refresh。"""
@@ -140,7 +141,7 @@ async def calling(
         owns_event_report = True
 
     async def function(
-        session: ClientSession,
+        session: McpSessionLike,
         openai_tools: list[dict[str, typing.Any]],
         tool_meta: dict[str, dict[str, typing.Any]],
     ) -> None:

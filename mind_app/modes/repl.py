@@ -3,7 +3,7 @@
 
 import re
 import typing
-from mcp import ClientSession
+from mind_app.mcp import McpSessionLike
 from engine.tinker import MindError
 from mind_core.design import Design
 from mind_core.design.upload import UploadProgressLiveReporter
@@ -50,7 +50,7 @@ async def mind_loop(mind: "Mind") -> None:
         return None
 
     async def function(
-        session: ClientSession,
+        session: McpSessionLike,
         openai_tools: list[dict[str, typing.Any]],
         tool_meta: dict[str, dict[str, typing.Any]],
     ) -> None:

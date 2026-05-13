@@ -4,7 +4,7 @@
 import time
 import typing
 import asyncio
-from mcp import ClientSession
+from mind_app.mcp import McpSessionLike
 from engine.enhancer import Enhancer
 from engine.tinker import Tooling
 from mind_nova.events import EventReport
@@ -24,7 +24,7 @@ if typing.TYPE_CHECKING:
 
 async def static_looper(
     mind: "Mind",
-    session: ClientSession,
+    session: McpSessionLike,
     mode: typing.Literal["plan"],
     model_api: dict[str, typing.Any],
     message: str,

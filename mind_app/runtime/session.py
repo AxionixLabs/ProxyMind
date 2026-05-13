@@ -6,6 +6,7 @@ import json
 import httpx
 import typing
 import asyncio
+import inspect
 import contextlib
 from loguru import logger
 from mcp import ClientSession
@@ -13,9 +14,10 @@ from mcp.client.streamable_http import streamable_http_client
 from engine.tinker import MindError
 from mind_app.mcp import (
     ExternalMcpStatus,
+    McpSessionLike,
     MultiMcpSession,
     load_mcp_servers_file,
-    open_optional_external_mcp_group,
+    open_optional_external_mcp_group
 )
 from mind_nova import (
     authentic, const, request
@@ -149,12 +151,13 @@ async def with_mcp_session(
     model_api: dict[str, typing.Any],
     function: typing.Callable[
         [
-            ClientSession,
+            McpSessionLike,
             list[dict[str, typing.Any]],
             dict[str, dict[str, typing.Any]],
         ],
         typing.Awaitable[None]
-    ]
+    ],
+    before_user_flow: typing.Optional[typing.Callable[[], typing.Any]] = None,
 ) -> None:
     """建立共享 MCP 会话，并把工具信息注入到调用流程。"""
     async def inject_auth(req: httpx.Request) -> None:
@@ -203,6 +206,10 @@ async def with_mcp_session(
                             active_session = MultiMcpSession(session, external_group)
                             list_tools = await active_session.list_tools()
                             openai_tools, tool_meta = mind.build_openai_tools(list_tools)
+                            if before_user_flow is not None:
+                                callback_result = before_user_flow()
+                                if inspect.isawaitable(callback_result):
+                                    await callback_result
 
                             keepalive_task = asyncio.create_task(
                                 run_keepalive(keepalive_stop, req_client=client)
