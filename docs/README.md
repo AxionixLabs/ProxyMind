@@ -5,6 +5,13 @@
 ### 入门与入口
 适合补齐交互入口、REPL 切换、Xtra 外接模式、订阅和输入约束。
 
+外接模式入口继续看：
+
+- [Playwright 外接工具实战](playbook.playwright.md)  
+  适合看命令行 `mind --xtra "..."` 和 REPL `/xtra` 下的浏览器协作。
+- [DBHub 外接工具实战](playbook.dbhub.md)  
+  适合看命令行 `mind --xtra "..."` 和 REPL `/xtra` 下的数据库协作。
+
 - [交互模式](interactive-mode.md)  
   适合看 REPL 指令、`CHAT / FAST / PLAN / XTRA` 状态切换和输入约束。
 - [订阅模式](agent-mode.md)  
