@@ -6,6 +6,7 @@ import typing
 import asyncio
 from loguru import logger
 from engine.tinker import MindError
+from mind_nova.modes import RUN_MODE_SET, RunMode
 from ...runtime.agent_client import AgentClient
 from .models import (
     AgentLiveStatus, AgentSessionRuntime
@@ -58,21 +59,17 @@ def resolve_intent_summary(payload: dict[str, typing.Any]) -> str | None:
 def normalize_forward_target(
     payload: dict[str, typing.Any]
 ) -> tuple[
-    typing.Literal[
-        "chat",
-        "fast",
-        "plan"
-    ], str | None, list[typing.Any] | None, str | None
+    RunMode, str | None, list[typing.Any] | None, str | None
 ]:
     """解析 `mind.forward` 载荷，映射到本地可执行的模式与参数。"""
     mode_raw = payload.get("mode")
     if not isinstance(mode_raw, str):
         raise ValueError("mind.forward payload.mode must be a string")
     mode = mode_raw.strip().lower()
-    if mode not in {"chat", "fast", "plan"}:
-        raise ValueError("mind.forward payload.mode must be chat, fast, or plan")
+    if mode not in RUN_MODE_SET:
+        raise ValueError("mind.forward payload.mode must be chat, fast, plan, or xtra")
 
-    mode = typing.cast(typing.Literal["chat", "fast", "plan"], mode)
+    mode = typing.cast(RunMode, mode)
 
     message_raw = payload.get("message")
     if message_raw in (None, ""):

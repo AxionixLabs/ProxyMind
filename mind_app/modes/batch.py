@@ -12,6 +12,7 @@ from engine.scaling import (
     PackItem, Pack
 )
 from mind_nova.events import EventReport
+from mind_nova.modes import RunMode
 from mind_nova.request import open_report_session
 from .code_sources import (
     CodeSourceResolved, resolve_code_sources
@@ -44,7 +45,7 @@ class PackConfig:
 @dataclass(slots=True)
 class PackRuntime:
     """批处理运行时：收敛会话、模型和事件上报依赖。"""
-    mode: typing.Literal["chat", "fast", "plan"]
+    mode: RunMode
     model_api: dict[str, typing.Any]
     event_report: EventReport
     runner: typing.Callable[..., typing.Awaitable[None]]
@@ -573,7 +574,7 @@ async def _run_pack_source(
 async def mind_pack(
     mind: "Mind",
     code: list[typing.Any],
-    mode: typing.Literal["chat", "fast", "plan"],
+    mode: RunMode,
     *_,
     **kwargs
 ) -> None:
@@ -615,7 +616,7 @@ async def mind_pack(
             f"error_type={type(exc).__name__} error={exc}"
         )
 
-    event_report = EventReport(mode, meta["cid"], meta["sid"], proto="mind.batch")
+    event_report = EventReport(mode, meta["cid"], meta["sid"], proto=f"{const.APP_NAME}.batch")
     kwargs["ev_report"] = event_report
     await event_report.open()
     event_report.begin_turn(round_no=1)

@@ -7,18 +7,301 @@ import asyncio
 from rich.live import Live
 from rich.text import Text
 from rich.console import Console
+from ..utils import mix_hex_color
 from .agent_frames import (
     render_agent_connect_frame, render_agent_wait_frame
 )
 from .renderers import StatusRenderer
 from .types import AgentLiveTheme
 from mind_nova import const
+from mind_nova.modes import RunMode
 
 
 class DesignStatusLiveDriver(StatusRenderer):
 
     design_level: str
     console: Console | None = None
+
+    @staticmethod
+    def _external_mcp_item_text(item: dict[str, typing.Any]) -> str:
+        name   = str(item.get("name") or "server").strip() or "server"
+        state  = str(item.get("state") or "queued").strip().lower()
+        detail = str(item.get("detail") or "").strip()
+
+        if state in {"failed", "cached"}:
+            return f"⚠ MCP startup incomplete (failed: {name})"
+
+        if detail:
+            return f"{name} {detail}"
+
+        if state == "ready":
+            try:
+                tool_count = int(item.get("tools") or 0)
+            except (TypeError, ValueError, OverflowError):
+                tool_count = 0
+            return f"{name} {tool_count} tools"
+
+        if state == "empty":
+            return f"{name} 0 tools"
+        if state == "linking":
+            return f"{name} linking"
+        if state == "queued":
+            return f"{name} queued"
+        if state == "cached":
+            return name
+
+        return name
+
+    @classmethod
+    def _external_mcp_link_focus(cls, phase: float, span: int) -> float:
+        entry_pad = 1.2
+        exit_pad  = 1.2
+
+        chars_per_sec = 46.0
+
+        return cls._drift_focus(
+            phase * chars_per_sec,
+            span,
+            entry_pad=entry_pad,
+            exit_pad=exit_pad
+        )
+
+    @classmethod
+    def _external_mcp_link_marker(cls, phase: float, colors: dict[str, str]) -> tuple[str, str]:
+        pulse  = 0.5 + (0.5 * math.sin((phase * 3.8) + 0.45))
+        glyphs = ("-", "\\", "|", "/")
+        glyph  = glyphs[int(max(0.0, phase) * 6.4) % len(glyphs)]
+        color  = mix_hex_color(colors["spin_dim"], colors["spin"], 0.22 + (pulse * 0.78))
+
+        return glyph, f"bold {color}"
+
+    @classmethod
+    def _external_mcp_status_parts(
+        cls,
+        snapshot: dict[str, typing.Any],
+    ) -> tuple[str, list[dict[str, str]]]:
+        items = [
+            item for item in list(snapshot.get("items") or [])
+            if isinstance(item, dict)
+        ]
+        if not items:
+            return "", []
+
+        done = bool(snapshot.get("done", False))
+        ready_count = 0
+        total_tools = 0
+        connected_count = 0
+        failed_names: list[str] = []
+        for item in items:
+            state = str(item.get("state") or "").lower()
+            if state in {"ready", "empty"}:
+                connected_count += 1
+            elif state in {"failed", "cached"}:
+                name = str(item.get("name") or "server").strip() or "server"
+                failed_names.append(name)
+            if state != "ready":
+                continue
+            try:
+                tool_count = int(item.get("tools") or 0)
+                if tool_count > 0:
+                    ready_count += 1
+                    total_tools += tool_count
+            except (TypeError, ValueError, OverflowError):
+                continue
+
+        if done:
+            if ready_count > 0:
+                prefix = "External MCP ready"
+            elif connected_count > 0:
+                prefix = "External MCP available"
+            else:
+                prefix = "External MCP failed"
+        else:
+            prefix = "External MCP linking"
+
+        parts = [prefix, f"{ready_count}/{len(items)} servers" if done else f"{len(items)} servers"]
+        if total_tools > 0:
+            parts.append(f"{total_tools} tools")
+
+        show_details = done and bool(failed_names)
+        if not show_details:
+            return " · ".join(parts), []
+
+        detail_items = [
+            item for item in items
+            if str(item.get("state") or "").strip().lower() in {"failed", "cached"}
+        ]
+        detail_limit = min(5, len(detail_items))
+        details = []
+        for item in detail_items[:detail_limit]:
+            details.append(
+                {
+                    "text": f"  {cls._external_mcp_item_text(item)}",
+                    "state": str(item.get("state") or "").strip().lower()
+                }
+            )
+        if len(detail_items) > detail_limit:
+            details.append(
+                {
+                    "text": f"  ... {len(detail_items) - detail_limit} more servers",
+                    "state": "more"
+                }
+            )
+
+        return " · ".join(parts), details
+
+    @classmethod
+    def _external_mcp_details(
+        cls,
+        out: Text,
+        details: list[dict[str, str]],
+        colors: dict[str, str],
+    ) -> None:
+        if not details:
+            return None
+
+        console_width = 80
+        if cls.console is not None:
+            console_width = max(24, int(cls.console.width))
+        limit = max(12, min(72, console_width - 3))
+
+        for detail in details:
+            fitted = cls.truncate_status_text(detail.get("text", ""), limit=limit)
+            out.append("\n", style=f"bold {colors['detail_dim']}")
+            style = cls._external_mcp_detail_color(detail.get("state", ""), fitted, colors)
+            out.append(fitted, style=f"bold {style}")
+        return None
+
+    @staticmethod
+    def _external_mcp_detail_color(state: str, detail: str, colors: dict[str, str]) -> str:
+        normalized_state = str(state or "").strip().lower()
+        text = str(detail or "").strip().lower()
+        if normalized_state == "more" or text.startswith("..."):
+            return colors["detail_dim"]
+        if normalized_state in {"linking", "queued"}:
+            return colors["detail_wait"]
+        if normalized_state == "ready":
+            return colors["detail_ready"]
+        if normalized_state == "empty":
+            return colors["detail_warn"]
+        if normalized_state in {"failed", "cached"}:
+            return colors["detail_warn"]
+        return colors["detail"]
+
+    @classmethod
+    def external_mcp_status_text(cls, snapshot: dict[str, typing.Any]) -> str:
+        summary, details = cls._external_mcp_status_parts(snapshot)
+        lines = [
+            str(detail.get("text") or "")
+            for detail in details
+            if str(detail.get("text") or "").strip()
+        ]
+        return "\n".join([summary, *lines]) if summary else ""
+
+    @classmethod
+    def external_mcp_renderable(cls, phase: float, snapshot: dict[str, typing.Any]) -> Text:
+        summary, details = cls._external_mcp_status_parts(snapshot)
+        done = bool(snapshot.get("done", False))
+
+        colors = {
+            "spin"        : "#7DD3FC",
+            "done"        : "#7EE787",
+            "spin_dim"    : "#425466",
+            "text_peak"   : "#F2F8FF",
+            "text_soft"   : "#D7E6F2",
+            "text_near"   : "#A9C7DC",
+            "text_mid"    : "#7893A6",
+            "text_dim"    : "#526575",
+            "detail"      : "#9FB3C3",
+            "detail_dim"  : "#617281",
+            "detail_ready": "#8BD49C",
+            "detail_wait" : "#8FC7EA",
+            "detail_warn" : "#D8B26E",
+            "detail_fail" : "#D88C8C",
+        }
+
+        out = Text()
+        if done:
+            out.append("◆", style=f"bold {colors['done']}")
+        else:
+            marker, marker_style = cls._external_mcp_link_marker(phase, colors)
+            out.append(marker, style=marker_style)
+        out.append(" ", style=f"bold {colors['spin_dim']}")
+
+        if not summary:
+            return out
+
+        console_width = 80
+        if cls.console is not None:
+            console_width = max(24, int(cls.console.width))
+        fitted = cls.truncate_status_text(
+            summary,
+            limit=max(12, min(72, console_width - 3))
+        )
+        span = max(1, len(fitted))
+
+        if done:
+            for char in fitted:
+                if char == "·":
+                    out.append(char, style=f"bold {colors['text_mid']}")
+                else:
+                    out.append(char, style=f"bold {colors['text_soft']}")
+            cls._external_mcp_details(out, details, colors)
+            return out
+
+        focus = cls._external_mcp_link_focus(phase, span)
+        cls._append_gradient_sweep_text(
+            out,
+            fitted,
+            focus=focus,
+            peak_color="#F6FBFF",
+            soft_color=colors["text_soft"],
+            near_color=colors["text_near"],
+            mid_color=colors["text_mid"],
+            fade_color="#60798B",
+            dim_color=colors["text_dim"],
+            lead_span=3.30,
+            tail_span=6.70,
+            peak_radius=0.84,
+        )
+        cls._external_mcp_details(out, details, colors)
+        return out
+
+    async def external_mcp_live(
+        self,
+        stop_event: asyncio.Event,
+        snapshot: typing.Callable[[], dict[str, typing.Any]]
+    ) -> None:
+        """外部 MCP 启动状态。"""
+        if self.design_level != const.SHOW_LEVEL:
+            return None
+
+        fps = 30
+        loop = asyncio.get_running_loop()
+        started_at = loop.time()
+        phase_bias = 0.08
+        last_snapshot = snapshot()
+
+        with Live(
+            self.external_mcp_renderable(0.0, last_snapshot),
+            console=self.console,
+            refresh_per_second=fps,
+            transient=False
+        ) as live:
+            while not stop_event.is_set():
+                last_snapshot = snapshot()
+                phase = max(0.0, loop.time() - started_at) + phase_bias
+                live.update(self.external_mcp_renderable(phase, last_snapshot))
+                await asyncio.sleep(1 / fps)
+
+            last_snapshot = snapshot()
+            phase = max(0.0, loop.time() - started_at) + phase_bias
+            live.update(self.external_mcp_renderable(phase, last_snapshot))
+            elapsed = loop.time() - started_at
+            await asyncio.sleep(max(0.18, 0.80 - elapsed))
+
+        if self.console is not None:
+            self.console.print()
 
     async def agent_wait_live(
         self,
@@ -105,7 +388,7 @@ class DesignStatusLiveDriver(StatusRenderer):
     async def stream_wait_live(
         self,
         stop_event: asyncio.Event,
-        theme: typing.Literal["chat", "fast", "plan"] = "chat"
+        theme: RunMode = "chat"
     ) -> None:
         """流式等待动画效果。"""
         if self.design_level != const.SHOW_LEVEL:
@@ -228,6 +511,50 @@ class DesignStatusLiveDriver(StatusRenderer):
                     "phase_div": 7.2,
                     "active_freq": 0.8,
                     "bridge_freq": 1.2
+                }
+            },
+            "xtra": {
+                "glyphs": {
+                    "spin": "⠁⠃⠇⠧⠷⠿⠷⠧⠇⠃",
+                    "hub": "◈",
+                    "hub_hot": "◆",
+                    "port": "◇",
+                    "port_hot": "◉",
+                    "node": "○",
+                    "node_hot": "●",
+                    "beam_a": "╍",
+                    "beam_b": "─",
+                    "bridge": "╼",
+                    "pulse": "•",
+                    "echo": "·",
+                    "dust": "˙",
+                    "probe": "⌁",
+                    "scan": "⌕",
+                    "gate_left": "‹",
+                    "gate_right": "›"
+                },
+                "colors": {
+                    "prefix": "#2DAA9E",
+                    "core": "#D6FFFA",
+                    "near": "#88F0E4",
+                    "beam": "#4DD6C9",
+                    "beam_dim": "#2C8F86",
+                    "dust": "#21413E",
+                    "sweep_core": "#7FFBF1",
+                    "sweep_tail": "#33C7B8",
+                    "shell": "#17403C",
+                    "shell_dim": "#13302D",
+                    "orbit_a": "#A7F3D0",
+                    "orbit_b": "#93C5FD",
+                    "orbit_c": "#C4B5FD"
+                },
+                "motion": {
+                    "phase_div": 4.8,
+                    "scan_freq": 1.12,
+                    "hub_freq": 1.7,
+                    "port_freq": 0.72,
+                    "bridge_freq": 1.36,
+                    "probe_freq": 1.9
                 }
             }
         }
@@ -541,8 +868,88 @@ class DesignStatusLiveDriver(StatusRenderer):
                 styles[pos] = f"bold {colors['orbit_b']}"
             return chars, styles
 
+        def build_xtra(i: int) -> tuple[list[str], dict[int, str]]:
+            phase = i / motion["phase_div"]
+            chars = [" "] * width
+            styles: dict[int, str] = {}
+
+            hub = width // 2
+            left_gate = 1
+            right_gate = width - 2
+            ports = [
+                clamp(width // 5),
+                clamp((2 * width) // 5),
+                clamp((3 * width) // 5),
+                clamp((4 * width) // 5),
+            ]
+            scan = 0.5 + 0.5 * math.sin(phase * motion["scan_freq"])
+            scan_pos = clamp(2 + int(scan * max(1, width - 5)))
+            reverse_scan_pos = clamp(width - 3 - int(scan * max(1, width - 5)))
+            active_port = int((0.5 + 0.5 * math.sin(phase * motion["port_freq"])) * (len(ports) - 1) + 0.5)
+            bridge = 0.5 + 0.5 * math.sin(phase * motion["bridge_freq"])
+            hub_hot = math.sin(phase * motion["hub_freq"]) > -0.15
+
+            chars[left_gate] = glyphs["gate_left"]
+            styles[left_gate] = f"bold {colors['beam_dim']}"
+            chars[right_gate] = glyphs["gate_right"]
+            styles[right_gate] = f"bold {colors['beam_dim']}"
+
+            chars[hub] = glyphs["hub_hot"] if hub_hot else glyphs["hub"]
+            styles[hub] = f"bold {colors['core'] if hub_hot else colors['near']}"
+
+            for idx, pos in enumerate(ports):
+                if pos == hub:
+                    continue
+                hot = idx == active_port
+                chars[pos] = glyphs["port_hot"] if hot else glyphs["port"]
+                styles[pos] = f"bold {colors['sweep_core'] if hot else colors['orbit_b']}"
+
+                a, b = sorted((pos, hub))
+                span = max(1, b - a - 1)
+                bridge_pos = clamp(a + 1 + int(span * bridge))
+                for lane in range(a + 1, b):
+                    if lane == bridge_pos and hot:
+                        chars[lane] = glyphs["bridge"]
+                        styles[lane] = f"bold {colors['sweep_tail']}"
+                    elif abs(lane - bridge_pos) <= 1 and hot:
+                        chars[lane] = glyphs["pulse"]
+                        styles[lane] = f"bold {colors['beam']}"
+                    elif (lane + i + idx) % 5 == 0:
+                        chars[lane] = glyphs["beam_a"] if (lane + idx) % 2 == 0 else glyphs["beam_b"]
+                        styles[lane] = f"bold {colors['beam_dim']}"
+
+            for pos, color in (
+                (scan_pos, "sweep_core"),
+                (reverse_scan_pos, "orbit_a"),
+                (clamp(hub - 2), "orbit_c"),
+                (clamp(hub + 2), "orbit_c"),
+            ):
+                if chars[pos].strip():
+                    continue
+                chars[pos] = glyphs["scan"] if color.startswith("sweep") else glyphs["echo"]
+                styles[pos] = f"bold {colors[color]}"
+
+            probe_span = max(1, width - 6)
+            probe_phase = int((0.5 + 0.5 * math.sin(phase * motion["probe_freq"])) * probe_span)
+            for offset, color in ((0, "orbit_a"), (7, "orbit_b"), (13, "orbit_c")):
+                pos = clamp(3 + ((probe_phase + offset + i // 3) % probe_span))
+                if chars[pos].strip():
+                    continue
+                chars[pos] = glyphs["probe"] if (i + offset) % 3 == 0 else glyphs["dust"]
+                styles[pos] = f"bold {colors[color]}"
+
+            for side in (-1, 1):
+                aura = clamp(hub + side * (3 + (i // 3) % 3))
+                if not chars[aura].strip():
+                    chars[aura] = glyphs["node_hot"] if hub_hot else glyphs["node"]
+                    styles[aura] = f"bold {colors['shell'] if hub_hot else colors['shell_dim']}"
+
+            return chars, styles
+
         def frame(i: int) -> Text:
-            if theme == "fast":
+            if theme == "xtra":
+                chars, styles = build_xtra(i)
+            elif theme == "fast":
                 chars, styles = build_fast(i)
             elif theme == "plan":
                 chars, styles = build_plan(i)

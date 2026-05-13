@@ -27,7 +27,7 @@ if typing.TYPE_CHECKING:
 async def stream_looper(
     mind: "Mind",
     session: ClientSession,
-    mode: typing.Literal["chat", "fast"],
+    mode: typing.Literal["chat", "fast", "xtra"],
     model_api: dict[str, typing.Any],
     message: str,
     openai_tools: list[dict[str, typing.Any]],
@@ -35,32 +35,35 @@ async def stream_looper(
     *_,
     **kwargs
 ) -> None:
-    """流式模式执行器：处理 chat/fast 的事件流、工具调用和输出上报。"""
+    """流式模式执行器：处理 chat/fast/xtra 的事件流、工具调用和输出上报。"""
 
-    exclude = [
+    common_exclude = [
         {"domain": "common", "class": "inspect", "name": "free_rule"}
     ]
 
     if mode == "chat":
         exclude = [
-            *exclude,
+            *common_exclude,
             {"domain": "common", "class": "security"},
             {"domain": "bench", "class": "k6"},
             {"domain": "bench", "class": "nexus"},
             {"domain": "media", "class": "ffmpeg"}
         ]
+        filtered_tools = Tooling.filter_tools(openai_tools, tool_meta, exclude=exclude)
     elif mode == "fast":
         exclude = [
-            *exclude,
+            *common_exclude,
             {"domain": "device"},
             {"domain": "bench", "class": "framix"},
             {"domain": "bench", "class": "memrix"},
             {"domain": "media", "class": "screen"}
         ]
+        filtered_tools = Tooling.filter_tools(openai_tools, tool_meta, exclude=exclude)
+    elif mode == "xtra":
+        filtered_tools = Tooling.filter_xtra_mode_tools(openai_tools, tool_meta)
     else:
         raise ValueError(f"Invalid mode: {mode}")
 
-    filtered_tools = Tooling.filter_tools(openai_tools, tool_meta, exclude=exclude)
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
     slog: StreamUI = StreamUI(mind.report.log_papers)

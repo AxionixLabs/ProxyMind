@@ -23,6 +23,8 @@ from mind_core.design.upload import UploadProgressLiveReporter
 from mind_core.parser import Parser
 from mind_core.preference import Preferences
 from mind_nova import const
+from mind_nova.modes import RunMode
+from .mcp import mcp_servers_path
 from .mind_core import Mind
 
 
@@ -40,18 +42,19 @@ async def resolve_cli_attachments(
     if cmd_lines.plan is not None:
         raise MindError("--attach is not supported with --plan")
 
-    if cmd_lines.chat is None and cmd_lines.fast is None:
-        raise MindError("--attach requires --chat or --fast")
+    if cmd_lines.chat is None and cmd_lines.fast is None and cmd_lines.xtra is None:
+        raise MindError("--attach requires --chat, --fast, or --xtra")
 
     for raw_path in raw_attachments:
         mind.attach.add_pending_attachments(raw_path)
 
-    pending = mind.attach.pending_attachments_snapshot()
+    pending  = mind.attach.pending_attachments_snapshot()
     reporter = UploadProgressLiveReporter(Design.console)
+
     upload_state: dict[str, typing.Any] = {
-        "event": None,
-        "item_total": len(pending),
-        "total_bytes": sum(int(item.get("size") or 0) for item in pending),
+        "event"       : None,
+        "item_total"  : len(pending),
+        "total_bytes" : sum(int(item.get("size") or 0) for item in pending)
     }
 
     async def capture_progress(event: dict[str, typing.Any]) -> None:
@@ -66,20 +69,26 @@ async def resolve_cli_attachments(
         raise
     finally:
         await mind.await_cleanup(mind.stop_anim())
+
     mind.attach.clear_pending_attachments()
+
     if reporter.last_event is not None:
         Design.console.print(reporter.render_summary(reporter.last_event))
+
     return uploaded
 
 
-def resolve_code_mode(cmd_lines: typing.Any) -> typing.Literal["chat", "fast", "plan"]:
+def resolve_code_mode(cmd_lines: typing.Any) -> RunMode:
     if cmd_lines.chat is not None:
         return "chat"
     if cmd_lines.fast is not None:
         return "fast"
     if cmd_lines.plan is not None:
         return "plan"
-    raise MindError("--code requires --chat, --fast, or --plan")
+    if cmd_lines.xtra is not None:
+        return "xtra"
+
+    raise MindError("--code requires --chat, --fast, --plan, or --xtra")
 
 
 async def main(entry_file: typing.Optional[str] = None) -> int:
@@ -152,6 +161,10 @@ async def main(entry_file: typing.Optional[str] = None) -> int:
         src_total_place := os.path.join(initial_source, const.SRC_TOTAL_PLACE).format()
     ):
         os.makedirs(src_total_place, exist_ok=True)
+
+    mcp_file = mcp_servers_path(src_opera_place)
+    if not mcp_file.exists():
+        mcp_file.write_text('{\n  "mcpServers": {}\n}\n', encoding="utf-8")
 
     # Notes: ========== 激活日志 ==========
     Active.active(level := "DEBUG" if cmd_lines.reflection else "INFO")
@@ -239,7 +252,7 @@ async def main(entry_file: typing.Optional[str] = None) -> int:
     # Design.Doc.log(f"[bold #0EA5E9]🌐 {const.BASE_URL}[/]\n")
 
     positions = (
-        cmd_lines.chat, cmd_lines.fast, cmd_lines.plan,
+        cmd_lines.chat, cmd_lines.fast, cmd_lines.plan, cmd_lines.xtra,
         cmd_lines.gravity, cmd_lines.reflection, cmd_lines.code
     )
     keywords = {
@@ -266,6 +279,8 @@ async def main(entry_file: typing.Optional[str] = None) -> int:
         await mind.calling(message=fast, mode="fast", attachments=cli_attachments)
     elif plan := cmd_lines.plan:
         await mind.calling(message=plan, mode="plan")
+    elif xtra := cmd_lines.xtra:
+        await mind.calling(message=xtra, mode="xtra", attachments=cli_attachments)
     elif code := cmd_lines.code:
         mode = resolve_code_mode(cmd_lines)
         await mind.mind_pack(code, mode)

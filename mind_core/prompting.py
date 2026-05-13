@@ -18,6 +18,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.shortcuts import CompleteStyle
 from prompt_toolkit.styles import Style
 from mind_nova import const
+from mind_nova.modes import RunMode
 from mind_core.prompting_ghost import (
     CHAT_TEMPLATES,
     MODE_ALIAS_TEMPLATES,
@@ -25,16 +26,15 @@ from mind_core.prompting_ghost import (
     build_intent_templates
 )
 
-RUN_MODE = typing.Literal["chat", "fast", "plan"]
-
 
 class SlashCommandCompleter(Completer):
-    """Slash command completer with templates for parameterized commands."""
+    """命令补全视图。"""
 
     COMMANDS: tuple[dict[str, str], ...] = (
         {"text": "/chat", "display": "/chat", "meta": "切换到 Chat 模式"},
         {"text": "/fast", "display": "/fast", "meta": "切换到 Fast 模式"},
         {"text": "/plan", "display": "/plan", "meta": "切换到 Plan 模式"},
+        {"text": "/xtra", "display": "/xtra", "meta": "切换到 Xtra 模式"},
         {"text": "/help", "display": "/help", "meta": "查看帮助"},
         {"text": "/h", "display": "/h", "meta": "查看帮助"},
         {"text": "/license", "display": "/license", "meta": "查看授权"},
@@ -49,10 +49,11 @@ class SlashCommandCompleter(Completer):
         {"text": "/attach-clear", "display": "/attach-clear", "meta": "清空待发送附件"},
     )
     TOP_LEVEL: tuple[str, ...] = (
-        "/chat", "/fast", "/plan", "/help", "/license",
+        "/chat", "/fast", "/plan", "/xtra", "/help", "/license",
         "/quit", "/model", "/apikey", "/attach", "/attachments",
         "/detach", "/attach-clear"
     )
+
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
         stripped = text.lstrip()
@@ -86,7 +87,7 @@ class SlashCommandCompleter(Completer):
 
 
 class CommandAutoSuggest(AutoSuggest):
-    """Dim inline suggestions for parameterized slash commands."""
+    """行内提示视图。"""
 
     SLASH_HINTS: dict[str, str] = {
         "/model": " <model-name>",
@@ -99,7 +100,7 @@ class CommandAutoSuggest(AutoSuggest):
         "/detach ": "<index-or-path>",
     }
 
-    MODE_ALLOWED_DOMAINS: dict[RUN_MODE, frozenset[str]] = {
+    MODE_ALLOWED_DOMAINS: dict[RunMode, frozenset[str]] = {
         "chat": frozenset({
             "device_connection",
             "app_lifecycle",
@@ -144,8 +145,18 @@ class CommandAutoSuggest(AutoSuggest):
             "media_audio",
             "report",
         }),
+        "xtra": frozenset({
+            "inspect_runtime",
+            "security",
+            "network_http",
+            "network_sse_ws",
+            "network_graphql",
+            "network_socket",
+            "network_mail_file",
+            "report",
+        }),
     }
-    MODE_PREFERRED_PHRASES: dict[RUN_MODE, dict[str, tuple[str, ...]]] = {
+    MODE_PREFERRED_PHRASES: dict[RunMode, dict[str, tuple[str, ...]]] = {
         "chat": {
             "查看": ("设备信息", "页面结构", "内存趋势", "当前控件树"),
             "分析": ("视频帧", "内存趋势", "流畅度趋势", "页面切换速度"),
@@ -175,19 +186,26 @@ class CommandAutoSuggest(AutoSuggest):
             "等待": ("元素出现", "元素消失", "3 秒"),
             "滚动": ("到目标元素", "到顶部", "到底部"),
         },
+        "xtra": {
+            "查看": ("数据库结构", "表结构", "接口响应", "页面快照"),
+            "查询": ("数据库", "用户表", "订单表"),
+            "执行": ("SQL", "查询语句"),
+            "打开": ("网页", "控制台"),
+        },
     }
-    MODE_BLOCKED_FULL_PHRASES: dict[RUN_MODE, frozenset[str]] = {
+    MODE_BLOCKED_FULL_PHRASES: dict[RunMode, frozenset[str]] = {
         "chat": frozenset(),
         "fast": frozenset(),
         "plan": frozenset({"循环执行步骤"}),
+        "xtra": frozenset(),
     }
 
     def __init__(self) -> None:
-        self.mode: RUN_MODE = "chat"
+        self.mode: RunMode = "chat"
         self.chat_templates: tuple[tuple[str, str], ...] = CHAT_TEMPLATES
         self.intent_templates: tuple[dict[str, typing.Any], ...] = build_intent_templates()
 
-    def set_mode(self, mode: RUN_MODE) -> None:
+    def set_mode(self, mode: RunMode) -> None:
         self.mode = mode
 
     def _mode_alias_suggestion(self, text: str) -> typing.Optional[Suggestion]:
@@ -196,9 +214,10 @@ class CommandAutoSuggest(AutoSuggest):
             return None
 
         candidates: list[tuple[int, str]] = []
-        for prefix, suffix in MODE_ALIAS_TEMPLATES[self.mode]:
+        blocked_phrases = self.MODE_BLOCKED_FULL_PHRASES.get(self.mode, frozenset())
+        for prefix, suffix in MODE_ALIAS_TEMPLATES.get(self.mode, ()):
             full = f"{prefix}{suffix}"
-            if full in self.MODE_BLOCKED_FULL_PHRASES[self.mode]:
+            if full in blocked_phrases:
                 continue
             if full == stripped:
                 continue
@@ -218,7 +237,7 @@ class CommandAutoSuggest(AutoSuggest):
         return Suggestion(candidates[0][1])
 
     def _phrase_priority(self, verb: str, suggestion: str) -> int:
-        preferred = self.MODE_PREFERRED_PHRASES[self.mode].get(verb, ())
+        preferred = self.MODE_PREFERRED_PHRASES.get(self.mode, {}).get(verb, ())
         for idx, phrase in enumerate(preferred):
             if suggestion == phrase:
                 return len(preferred) - idx
@@ -281,12 +300,14 @@ class CommandAutoSuggest(AutoSuggest):
 
         if not current_line.startswith("/"):
             stripped = current_line.strip()
+            allowed_domains = self.MODE_ALLOWED_DOMAINS.get(self.mode, frozenset())
+            blocked_phrases = self.MODE_BLOCKED_FULL_PHRASES.get(self.mode, frozenset())
             matched = [
                 item
                 for item in self.intent_templates
                 if stripped == item["verb"]
-                and item["domain"] in self.MODE_ALLOWED_DOMAINS[self.mode]
-                and f"{item['verb']}{item['suggestion']}" not in self.MODE_BLOCKED_FULL_PHRASES[self.mode]
+                and item["domain"] in allowed_domains
+                and f"{item['verb']}{item['suggestion']}" not in blocked_phrases
             ]
             if matched:
                 matched.sort(
@@ -302,10 +323,10 @@ class CommandAutoSuggest(AutoSuggest):
 
             prefix_intents = []
             for item in self.intent_templates:
-                if item["domain"] not in self.MODE_ALLOWED_DOMAINS[self.mode]:
+                if item["domain"] not in allowed_domains:
                     continue
                 full = f"{item['verb']}{item['suggestion']}"
-                if full in self.MODE_BLOCKED_FULL_PHRASES[self.mode]:
+                if full in blocked_phrases:
                     continue
                 if full.startswith(stripped) and full != stripped:
                     remain = full[len(stripped):]
@@ -325,7 +346,7 @@ class CommandAutoSuggest(AutoSuggest):
 
 
 class PromptToolkitBox(object):
-    """Async prompt_toolkit wrapper for the CLI loop."""
+    """交互输入视图。"""
 
     PARAMETERIZED_COMMANDS: tuple[str, ...] = ("/model ", "/apikey ", "/attach ", "/detach ")
     MODEL_DISPLAY_MAX: int = 24
@@ -353,7 +374,7 @@ class PromptToolkitBox(object):
         })
 
     def _sync_completion_suggestion(self, buf) -> None:
-        """Preview suggestion for the currently highlighted completion item."""
+        """同步当前补全项的预览提示。"""
         completion = buf.complete_state.current_completion if buf.complete_state else None
         if completion and completion.text in self.PARAMETERIZED_COMMANDS:
             text = completion.text.rstrip()
@@ -368,7 +389,7 @@ class PromptToolkitBox(object):
             buf.on_suggestion_set.fire()
 
     def _build_key_bindings(self) -> KeyBindings:
-        """Key bindings for copy and history navigation."""
+        """按键绑定集合。"""
         kb = KeyBindings()
 
         @kb.add("escape", "enter")
@@ -450,7 +471,7 @@ class PromptToolkitBox(object):
         return kb
 
     def _get_session(self) -> PromptSession[str]:
-        """Create prompt session lazily in a real terminal context."""
+        """延迟创建输入会话。"""
         if self.session is None:
             self.session = PromptSession(
                 history=self.history,
@@ -459,7 +480,7 @@ class PromptToolkitBox(object):
         return self.session
 
     @staticmethod
-    def _theme(mode: RUN_MODE) -> dict[str, str]:
+    def _theme(mode: RunMode) -> dict[str, str]:
         return {
             "chat": {
                 "brand": "#4F8FC8",
@@ -475,19 +496,24 @@ class PromptToolkitBox(object):
                 "brand": "#866FD1",
                 "soft": "#6B57B8",
                 "placeholder": "Plan 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
+            },
+            "xtra": {
+                "brand": "#2DAA9E",
+                "soft": "#1E7F78",
+                "placeholder": "Xtra 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
             }
         }[mode]
 
     @staticmethod
     def _clip_model_name(model: str, limit: int) -> str:
-        """Clip model name for display only."""
+        """展示名称裁剪。"""
         if len(model) <= limit:
             return model
         return model[: max(0, limit - 3)] + "..."
 
     @staticmethod
     def _render_message(model: str, th: dict[str, str]) -> HTML:
-        """Render the prompt header."""
+        """输入头部渲染。"""
         safe_model = html.escape(
             PromptToolkitBox._clip_model_name(model or "-", PromptToolkitBox.MODEL_DISPLAY_MAX)
         )
@@ -504,13 +530,13 @@ class PromptToolkitBox(object):
 
     @staticmethod
     def _render_continuation() -> HTML:
-        """Render the prompt continuation prefix."""
+        """续行前缀渲染。"""
         return HTML(
             f"<prompt.kicker>.</prompt.kicker> "
         )
 
-    async def prompt_async(self, *, mode: RUN_MODE, model: str) -> str:
-        """Render a themed async prompt."""
+    async def prompt_async(self, *, mode: RunMode, model: str) -> str:
+        """异步输入渲染入口。"""
         th = self._theme(mode)
         message = self._render_message(model, th)
         self.auto_suggest.set_mode(mode)

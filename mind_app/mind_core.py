@@ -13,6 +13,7 @@ from engine.tinker import MindError
 from mind_core.design import Design
 from mind_core.prompting import PromptToolkitBox
 from mind_core.preference import Preferences
+from mind_nova.modes import RunMode
 from mind_nova.report import Report
 from mind_nova import craft
 from .attach import Attach
@@ -126,7 +127,7 @@ class Mind(object):
         """停止等待动画。"""
         await self.anim_manager.stop()
 
-    async def start_anim(self, mode: typing.Literal["chat", "fast", "plan"] = "chat") -> None:
+    async def start_anim(self, mode: RunMode = "chat") -> None:
         """启动指定模式的等待动画。"""
         await self.anim_manager.start(
             lambda stop_event: self.design.stream_wait_live(stop_event, mode)
@@ -139,6 +140,15 @@ class Mind(object):
         """启动附件上传动画，并复用统一动画管理器避免冲突。"""
         await self.anim_manager.start(
             lambda stop_event: self.design.upload_progress_live(stop_event, snapshot)
+        )
+
+    async def start_external_mcp_anim(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]]
+    ) -> None:
+        """启动外部 MCP 启动状态动画。"""
+        await self.anim_manager.start(
+            lambda stop_event: self.design.external_mcp_live(stop_event, snapshot)
         )
 
     @staticmethod
@@ -171,7 +181,8 @@ class Mind(object):
         tool_meta: dict[str, dict[str, typing.Any]] = {}
 
         for tool in list_tools.tools:
-            if bool((meta := tool.meta).get("hidden", False)):
+            meta = dict(tool.meta or {})
+            if bool(meta.get("hidden", False)):
                 continue
             tool_meta[tool.name] = meta
 
@@ -219,7 +230,7 @@ class Mind(object):
         self,
         runner: typing.Callable[..., typing.Awaitable[None]],
         *,
-        mode: typing.Literal["chat", "fast", "plan"] = "chat",
+        mode: RunMode = "chat",
         **kwargs
     ) -> None:
         """执行保护入口：统一委托给运行时模块处理动画和异常。"""
@@ -238,7 +249,7 @@ class Mind(object):
         model_api: typing.Optional[dict[str, typing.Any]] = None,
         *,
         message: str,
-        mode: typing.Literal["chat", "fast", "plan"] = "chat",
+        mode: RunMode = "chat",
         **kwargs,
     ) -> None:
         """调用入口：统一委托运行时模块按 mode 执行单次请求。"""
@@ -253,7 +264,7 @@ class Mind(object):
     async def stream_looper(
         self,
         session: ClientSession,
-        mode: typing.Literal["chat", "fast"],
+        mode: typing.Literal["chat", "fast", "xtra"],
         model_api: dict[str, typing.Any],
         message: str,
         openai_tools: list[dict[str, typing.Any]],
@@ -303,7 +314,7 @@ class Mind(object):
     async def mind_pack(
         self,
         code: list[typing.Any],
-        mode: typing.Literal["chat", "fast", "plan"],
+        mode: RunMode,
         *_,
         **kwargs
     ) -> None:

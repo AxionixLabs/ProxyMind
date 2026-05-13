@@ -212,6 +212,26 @@ class Tooling(object):
         return out
 
     @staticmethod
+    def filter_xtra_mode_tools(
+        openai_tools: list[dict[str, typing.Any]],
+        tool_meta: dict[str, dict[str, typing.Any]],
+    ) -> list[dict[str, typing.Any]]:
+        """仅保留外接 MCP 工具与 Helix common 域工具。"""
+        filtered: list[dict[str, typing.Any]] = []
+
+        for item in openai_tools:
+            func = (item or {}).get("function") or {}
+            name = str(func.get("name") or "").strip()
+            if not name:
+                continue
+
+            meta = tool_meta.get(name) or {}
+            if bool(meta.get("external")) or meta.get("domain") == "common":
+                filtered.append(item)
+
+        return filtered
+
+    @staticmethod
     def needs_wakeup(
         meta_map: dict[str, dict[str, typing.Any]],
         name: str,
@@ -219,6 +239,8 @@ class Tooling(object):
     ) -> bool:
         """判断某工具是否需要“连接/设备准备”等前置动作。"""
         effective_meta = meta if isinstance(meta, dict) else (meta_map.get(name) or {})
+        if bool(effective_meta.get("external")):
+            return False
         cls = str(effective_meta.get("class") or "")
         return cls not in {
             "tool", "framix", "nexus", "inspect", "security", "runtime",

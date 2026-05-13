@@ -231,6 +231,12 @@ class StreamUI(object):
         self._active_status_visible_at = time.perf_counter()
         self._active_status_min_visible_sec = max(0.0, float(min_visible_sec))
 
+    def _reset_heal_status_state(self) -> None:
+        self._heal_status_text = ""
+        self._heal_status_pending_text = ""
+        self._heal_status_last_flush_at = 0.0
+        self._heal_status_flush_task = None
+
     @staticmethod
     def _on_status_task_done(task: asyncio.Task[None]) -> None:
         if task.cancelled():
@@ -241,12 +247,6 @@ class StreamUI(object):
             return None
         except Exception as e:
             logger.debug(f"[StreamUI] status task failed: {type(e).__name__}: {e}")
-
-    def _reset_heal_status_state(self) -> None:
-        self._heal_status_text = ""
-        self._heal_status_pending_text = ""
-        self._heal_status_last_flush_at = 0.0
-        self._heal_status_flush_task = None
 
     @classmethod
     def _compose_heal_status_text(cls, summary: typing.Optional[str]) -> str:
@@ -347,12 +347,15 @@ class StreamUI(object):
         task = asyncio.current_task()
         if task is None:
             return None
+
         try:
             await asyncio.sleep(show_delay_sec)
             await self.coordinator.set_status(text, family=family, animated=False)
+
             self._mark_status_visible(min_visible_sec)
             if self._pending_status_revealed is not None:
                 self._pending_status_revealed.set()
+
             animate_delay = animate_after_sec - show_delay_sec
             if animate_delay > 0:
                 await asyncio.sleep(animate_delay)
@@ -361,12 +364,14 @@ class StreamUI(object):
                 await self.coordinator.set_status(text, family=family, animated=True)
 
             self._clear_pending_status_task_ref(task)
+
         except asyncio.CancelledError:
             return None
 
     async def _wait_status_visibility_if_needed(self) -> None:
-        task = self._pending_status_task
+        task     = self._pending_status_task
         revealed = self._pending_status_revealed
+
         if task and self._pending_status_force_reveal and revealed is not None:
             try:
                 await revealed.wait()
@@ -376,8 +381,9 @@ class StreamUI(object):
         if not self._active_status_visible_at or self._active_status_min_visible_sec <= 0:
             return None
 
-        deadline = self._active_status_visible_at + self._active_status_min_visible_sec
+        deadline  = self._active_status_visible_at + self._active_status_min_visible_sec
         remaining = deadline - time.perf_counter()
+
         if remaining > 0:
             await asyncio.sleep(remaining)
 

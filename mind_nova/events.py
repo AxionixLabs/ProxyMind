@@ -5,39 +5,41 @@ import time
 import typing
 import asyncio
 from loguru import logger
-from mind_nova import craft
-from .request import post_stream_event
+from mind_nova import const, craft
+from mind_nova.modes import RunMode
+from mind_nova.request import post_stream_event
 
 
 class EventReport(object):
     """事件上报器，保证队列内事件按顺序发送。"""
 
-    PROTO_BY_MODE: dict[str, str] = {
-        "chat": "mind.chat",
-        "fast": "mind.chat",
-        "plan": "mind.plan",
-    }
+    @staticmethod
+    def default_proto(mode: str) -> str:
+        """按运行模式生成事件协议名。"""
+        mode_name = str(mode or "").strip().lower()
+        return f"{const.APP_NAME}.{mode_name or 'unknown'}"
 
     def __init__(
         self,
-        mode: typing.Literal["chat", "fast", "plan"],
+        mode: RunMode,
         cid: str,
         sid: str,
-        proto: typing.Optional[str] = None,
+        proto: typing.Optional[str] = None
     ):
         self.mode = mode
+        self.cid  = cid
+        self.sid  = sid
 
-        self.cid = cid
-        self.sid = sid
-        self.proto = proto or self.PROTO_BY_MODE.get(mode, f"mind.{mode}")
-        self.turn_id = craft.short_uid(12)
-        self.round = 1
+        self.proto = proto.strip() if isinstance(
+            proto, str
+        ) and proto.strip() else self.default_proto(mode)
 
+        self.turn_id: str   = craft.short_uid(12)
+        self.round: int     = 1
         self.timeout: float = 30.0
+        self.seq: int       = 0
 
-        self.seq = 0
         self.q: asyncio.Queue[dict[str, typing.Any]] = asyncio.Queue(maxsize=2000)
-
         self.stop = asyncio.Event()
         self.worker: typing.Optional[asyncio.Task] = None
 

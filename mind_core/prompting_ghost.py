@@ -125,6 +125,20 @@ MODE_ALIAS_TEMPLATES: dict[str, tuple[tuple[str, str], ...]] = {
         ("重复", "执行 3 次"),
         ("循环", "执行 3 次"),
     ),
+    "xtra": (
+        ("mcp", " 工具"),
+        ("db", " 数据库"),
+        ("database", " 数据库"),
+        ("dbhub", " 查询数据库"),
+        ("sql", " 查询"),
+        ("sqlite", " 数据库"),
+        ("mysql", " 数据库"),
+        ("postgres", " 数据库"),
+        ("postgresql", " 数据库"),
+        ("browser", " 打开网页"),
+        ("web", " 打开网页"),
+        ("url", " 打开网页"),
+    ),
 }
 
 

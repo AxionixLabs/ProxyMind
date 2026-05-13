@@ -3,10 +3,10 @@
 
 ## 按任务方向阅读
 ### 入门与入口
-适合补齐交互入口、REPL 切换、订阅和输入约束。
+适合补齐交互入口、REPL 切换、Xtra 外接模式、订阅和输入约束。
 
 - [交互模式](interactive-mode.md)  
-  适合看 REPL 指令、状态切换和输入约束。
+  适合看 REPL 指令、`CHAT / FAST / PLAN / XTRA` 状态切换和输入约束。
 - [订阅模式](agent-mode.md)  
   适合看 --agent 的会话、长链路监听、任务下发和恢复链路。
 
@@ -31,6 +31,10 @@
 
 - [设备与 UI 实战](playbook.device.md)  
   适合看设备能力分层、多设备广播模型和稳定执行建议。
+- [Playwright 外接工具实战](playbook.playwright.md)  
+  适合看 `--xtra` 下浏览器自动化、页面取证、标签页和网络诊断工具。
+- [DBHub 外接工具实战](playbook.dbhub.md)  
+  适合看 `--xtra` 下数据库搜索、只读 SQL、自定义工具和 SQL Server 场景建议。
 - [Monkey 扰动](playbook.monkey.md)  
   适合看随机扰动的全部参数、运行方式和返回结构。
 - [多媒体链路](playbook.media.md)  

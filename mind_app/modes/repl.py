@@ -8,6 +8,7 @@ from engine.tinker import MindError
 from mind_core.design import Design
 from mind_core.design.upload import UploadProgressLiveReporter
 from mind_nova.events import EventReport
+from mind_nova.modes import RunMode
 from mind_nova import const
 from ..runtime.calling import resolve_mode_runner
 
@@ -15,12 +16,11 @@ if typing.TYPE_CHECKING:
     from ..mind_core import Mind
 
 
-RUN_MODE = typing.Literal["chat", "fast", "plan"]
-
-MODE_BY_COMMAND: dict[str, RUN_MODE] = {
+MODE_BY_COMMAND: dict[str, RunMode] = {
     "/chat": "chat",
     "/fast": "fast",
     "/plan": "plan",
+    "/xtra": "xtra",
 }
 
 
@@ -101,6 +101,7 @@ async def mind_loop(mind: "Mind") -> None:
             [bold #FFD75F]/chat[/]                     对话模式（交互能力协作/自然语言交互）
             [bold #FFD75F]/fast[/]                     高速模式（高吞吐任务流/数据媒体直达）
             [bold #FFD75F]/plan[/]                     编排模式（结构任务拆解/确定路径执行）
+            [bold #FFD75F]/xtra[/]                     外接模式（外部 MCP 工具 + 通用工具）
             [bold #7F8C9A]/model <name>[/]             引擎切换（选择推理内核）
             [bold #7F8C9A]/apikey <key>[/]             凭证更新（替换访问密钥）
             [/]"""
@@ -110,7 +111,7 @@ async def mind_loop(mind: "Mind") -> None:
         re_attach = re.compile(r"^\s*/attach(?:\s+(.*))?\s*$", re.IGNORECASE)
         re_detach = re.compile(r"^\s*/detach(?:\s+(.*))?\s*$", re.IGNORECASE)
 
-        mode: RUN_MODE = "chat"
+        mode: RunMode = "chat"
 
         while not mind.task_event.is_set():
             try:
@@ -217,7 +218,7 @@ async def mind_loop(mind: "Mind") -> None:
                 print_attach_gap()
                 continue
 
-            async def guarded_with_report(run_mode: RUN_MODE) -> None:
+            async def guarded_with_report(run_mode: RunMode) -> None:
                 """为单轮交互附加事件上报和统一保护层。"""
                 runner = resolve_mode_runner(mind, run_mode)
                 uploaded_attachments: typing.Optional[list[dict[str, typing.Any]]] = None
@@ -225,7 +226,7 @@ async def mind_loop(mind: "Mind") -> None:
                 if run_mode == "plan" and mind.attach.has_pending_attachments():
                     Design.console.print(
                         "[bold #FF5F5F]Pending attachments are not supported in /plan. "
-                        "Switch to /chat or /fast, or run /attach-clear.[/]"
+                        "Switch to /chat, /fast, or /xtra, or run /attach-clear.[/]"
                     )
                     print_attach_gap()
                     return None

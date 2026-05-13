@@ -14,9 +14,12 @@ from loguru import logger
 from engine.channel import Channel
 from mind_app.stream_ui import StreamUI
 from mind_nova import const
+from mind_nova.modes import RunMode
 
-UploadProgressCallback = typing.Callable[[dict[str, typing.Any]], typing.Awaitable[None]]
-DEFAULT_UPLOAD_CHUNK_SIZE: int = 64 * 1024
+
+def resolve_transport_mode(mode: str) -> str:
+    """规范化传输模式，保持本地模式与服务端链路一一对应。"""
+    return str(mode or "").strip().lower()
 
 
 async def cap_request(req: httpx.Request) -> None:
@@ -84,7 +87,7 @@ async def streaming(
 
 
 async def post_stream_event(
-    mode: typing.Literal["chat", "fast", "plan"],
+    mode: RunMode,
     cid: str,
     sid: str,
     event: dict[str, typing.Any],
@@ -94,7 +97,7 @@ async def post_stream_event(
     """事件上报：把一条事件写入服务端缓存并广播给 SSE 订阅者。"""
     headers = Channel.make_headers()
     payload = {
-        "mode"  : mode,
+        "mode"  : resolve_transport_mode(mode),
         "cid"   : cid,
         "sid"   : sid,
         "event" : event
@@ -105,7 +108,7 @@ async def post_stream_event(
 
 
 async def open_report_session(
-    mode: typing.Literal["chat", "fast", "plan"],
+    mode: RunMode,
     cid: str,
     sid: str,
     *,
@@ -115,7 +118,7 @@ async def open_report_session(
     """打开服务端报告会话，返回 report_url / report_id / stream_url / replay_url。"""
     headers = Channel.make_headers()
     payload: dict[str, typing.Any] = {
-        "mode" : mode,
+        "mode" : resolve_transport_mode(mode),
         "cid"  : cid,
         "sid"  : sid
     }
@@ -144,8 +147,12 @@ async def upload_file_stream(
     agent_id: str,
     prefix: str = "uploads",
     timeout: float = 60.0,
-    progress_callback: typing.Optional[UploadProgressCallback] = None,
-    chunk_size: int = DEFAULT_UPLOAD_CHUNK_SIZE
+    progress_callback: typing.Optional[
+        typing.Callable[
+            [dict[str, typing.Any]], typing.Awaitable[None]
+        ]
+    ] = None,
+    chunk_size: int = 64 * 1024
 ) -> dict[str, typing.Any]:
     """流式上传本地文件到服务端。"""
 
@@ -304,10 +311,10 @@ async def stream_chat(
     *_,
     **kwargs
 ) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
-    """流式获取 chat/fast 模式事件。"""
+    """流式获取 chat/fast/xtra 模式事件。"""
     headers = Channel.make_headers()
     payload = {
-        "mode"     : mode,
+        "mode"     : resolve_transport_mode(mode),
         "llm_conf" : model_api,
         "message"  : message,
         "tools"    : openai_tools,

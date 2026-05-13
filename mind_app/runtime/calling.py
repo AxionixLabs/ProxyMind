@@ -7,6 +7,7 @@ import typing
 from loguru import logger
 from mcp import ClientSession
 from mind_nova.events import EventReport
+from mind_nova.modes import RunMode
 from mind_nova import const
 from ..stream_ui import StreamUI
 
@@ -16,10 +17,10 @@ if typing.TYPE_CHECKING:
 
 def resolve_mode_runner(
     mind: "Mind",
-    mode: typing.Literal["chat", "fast", "plan"],
+    mode: RunMode
 ) -> typing.Callable[..., typing.Awaitable[None]]:
     """根据单次调用模式选择底层执行器。"""
-    if mode in {"chat", "fast"}:
+    if mode in {"chat", "fast", "xtra"}:
         return mind.stream_looper
     if mode == "plan":
         return mind.static_looper
@@ -39,7 +40,7 @@ async def with_mcp_guard(
     mind: "Mind",
     runner: typing.Callable[..., typing.Awaitable[None]],
     *,
-    mode: typing.Literal["chat", "fast", "plan"] = "chat",
+    mode: RunMode = "chat",
     **kwargs
 ) -> None:
     """为模式执行增加动画、网络异常和 HTTP 异常保护层。"""
@@ -114,7 +115,7 @@ async def calling(
     model_api: typing.Optional[dict[str, typing.Any]] = None,
     *,
     message: str,
-    mode: typing.Literal["chat", "fast", "plan"] = "chat",
+    mode: RunMode = "chat",
     **kwargs
 ) -> None:
     """统一包装一次用户调用，并由 mode 决定底层执行器。"""
