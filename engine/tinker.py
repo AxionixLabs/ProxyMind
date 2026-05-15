@@ -224,6 +224,8 @@ class Tooling(object):
             name = str(func.get("name") or "").strip()
             if not name:
                 continue
+            if name == "free_rule":
+                continue
 
             meta = tool_meta.get(name) or {}
             if bool(meta.get("external")) or meta.get("domain") == "common":
