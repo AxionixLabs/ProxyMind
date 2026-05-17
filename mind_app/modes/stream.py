@@ -13,6 +13,7 @@ from ..runtime.loop_support import (
     ensure_wakeup, finish_failure
 )
 from ..runtime.tool_run import run_tool_step
+from ..runtime.cloud_sandbox import normalize_cloud_sandbox_handoff
 from ..stream_events.responses_builtin import (
     resolve_builtin_name, consume_builtin_done
 )
@@ -166,7 +167,17 @@ async def stream_looper(
 
                 ok = tool_run.ok
                 fields = tool_run.fields
-                await slog.feed(f"{tool_run.text}\n", display=StreamUI.BLOCK)
+                text = tool_run.text
+                if handoff := normalize_cloud_sandbox_handoff(
+                    tool_name=name,
+                    fields=fields,
+                    ok=ok
+                ):
+                    ok = True
+                    fields = handoff
+                    text = str(handoff.get("text") or "")
+
+                await slog.feed(f"{text}\n", display=StreamUI.BLOCK)
 
                 await request.post_tool_result(
                     event["cid"], event["sid"], event["call_id"], name, ok, fields

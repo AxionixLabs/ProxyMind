@@ -137,13 +137,15 @@ class Flux(object):
         cmd: list[str],
         *,
         cwd: typing.Optional[str] = None,
-        env: typing.Optional[dict[str, str]] = None
+        env: typing.Optional[dict[str, str]] = None,
+        stdin: typing.Any = None
     ) -> asyncio.subprocess.Process:
         """以参数数组方式启动长生命周期子进程，并兼容 Windows 的 shim 可执行入口。"""
         cmd = Flux._normalize_exec_cmd(cmd)
 
         transports = await asyncio.create_subprocess_exec(
             *cmd, cwd=cwd or None, env=env,
+            stdin=stdin,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
         logger.debug(

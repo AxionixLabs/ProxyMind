@@ -20,10 +20,6 @@ CodingSandboxArg = typing.Annotated[
     typing.Optional[typing.Literal["read-only", "workspace-write", "danger-full-access"]],
     Field(description="Codex CLI 沙箱模式。"),
 ]
-CodingFullAutoArg = typing.Annotated[
-    bool,
-    Field(description="是否追加 `--full-auto`；默认开启。"),
-]
 CodingSkipGitRepoCheckArg = typing.Annotated[
     bool,
     Field(description="是否跳过 git 仓库检查；默认开启。"),

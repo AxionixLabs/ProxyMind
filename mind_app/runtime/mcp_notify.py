@@ -7,7 +7,8 @@ from loguru import logger
 
 def supports_tool_progress(name: str) -> bool:
     """判断工具是否启用 MCP 进度通知展示。"""
-    return str(name or "").startswith("coding_")
+    tool_name = str(name or "")
+    return tool_name == "coding" or tool_name.startswith("coding_")
 
 
 async def emit_tool_progress(

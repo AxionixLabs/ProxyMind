@@ -92,7 +92,6 @@ class Coding(object):
         profile: typing.Optional[str] = None,
         model: typing.Optional[str] = None,
         sandbox: typing.Optional[str] = None,
-        full_auto: bool = True,
         skip_git_repo_check: bool = True,
         ephemeral: bool = False,
         json_output: bool = False,
@@ -107,8 +106,6 @@ class Coding(object):
             cmd += ["-m", model]
         if sandbox:
             cmd += ["-s", sandbox]
-        if full_auto:
-            cmd.append("--full-auto")
         if skip_git_repo_check:
             cmd.append("--skip-git-repo-check")
         if ephemeral:
@@ -255,7 +252,6 @@ class Coding(object):
         profile: typing.Optional[str] = None,
         model: typing.Optional[str] = None,
         sandbox: typing.Optional[str] = "workspace-write",
-        full_auto: bool = True,
         skip_git_repo_check: bool = True,
         ephemeral: bool = False,
         json_output: bool = False,
@@ -287,7 +283,6 @@ class Coding(object):
             profile=profile,
             model=model,
             sandbox=sandbox,
-            full_auto=full_auto,
             skip_git_repo_check=skip_git_repo_check,
             ephemeral=ephemeral,
             json_output=json_output,
@@ -336,7 +331,8 @@ class Coding(object):
                 self.__transports = await Flux.cmd_link_exec_resolved(
                     cmd,
                     cwd=final_workdir,
-                    env=env
+                    env=env,
+                    stdin=asyncio.subprocess.DEVNULL
                 )
             except Exception as e:
                 logger.exception(
