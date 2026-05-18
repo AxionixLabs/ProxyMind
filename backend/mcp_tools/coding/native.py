@@ -57,7 +57,9 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     SandboxFileChangesArg,
     SandboxVerifyArg
 )
-from backend.utilities.runtime import AppContext, Idle
+from backend.utilities.runtime import (
+    AppContext, Idle
+)
 from backend.utilities.broadcast import broadcast
 
 
@@ -68,7 +70,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "返回当前原生编码工作区根目录。"
             " 该工具用于确认后续 workspace、shell、git 工具的路径边界。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
     @task_middleware("workspace_root")
     async def workspace_root() -> CallToolResult:
@@ -89,7 +91,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "列出工作区内文件或目录。"
             " 默认递归列出，自动跳过 .git、venv、node_modules 等重型目录。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
     @task_middleware("workspace_list_files")
     async def workspace_list_files(
@@ -122,7 +124,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "读取工作区内文本文件。"
             " 支持按起始行和最大行数切片，大文件会按字节上限截断。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
     @task_middleware("workspace_read_file")
     async def workspace_read_file(
@@ -155,7 +157,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "在工作区文本文件中搜索字符串。"
             " 返回文件路径、行号和匹配行摘要，适合编码任务定位上下文。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
     @task_middleware("workspace_search_text")
     async def workspace_search_text(
@@ -191,7 +193,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             " 扫描 Python、TypeScript/JavaScript、Go、Rust 常见定义和 imports，"
             "用于跨文件定位和修改前理解代码结构。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
     @task_middleware("repo_map")
     async def repo_map(
@@ -224,7 +226,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "在轻量 repo map 中按名称查找符号定义。"
             " 返回匹配的函数、类、方法、类型等定义位置。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
     @task_middleware("repo_find_symbol")
     async def repo_find_symbol(
@@ -257,7 +259,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "写入工作区内文本文件。"
             " 默认允许覆盖并自动创建父目录，路径不能越过工作区。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
     @task_middleware("workspace_write_file")
     async def workspace_write_file(
@@ -294,7 +296,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "对工作区内文本文件执行精确文本替换。"
             " 只有实际匹配次数等于 expected_replacements 时才会写回，避免误改。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
     @task_middleware("workspace_apply_patch")
     async def workspace_apply_patch(
@@ -332,7 +334,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             " 支持多文件、多 hunk、新建/删除文件、上下文校验、"
             "唯一上下文自动迁移和按文件 SHA256 基线冲突保护。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
     @task_middleware("workspace_apply_unified_patch")
     async def workspace_apply_unified_patch(
@@ -363,7 +365,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "在工作区内执行一次本地命令。"
             " 命令必须使用参数数组；默认允许项目测试/只读命令，禁止 shell 控制符、常见写文件命令和危险命令；依赖安装、网络下载、git 写操作需要审批。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "shell", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "shell"}
     )
     @task_middleware("shell_exec")
     async def shell_exec(
@@ -399,7 +401,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description="返回当前工作区的 `git status --short`。",
-        meta={"hidden": False, "domain": "coding", "class": "git", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "git"}
     )
     @task_middleware("git_status")
     async def git_status() -> CallToolResult:
@@ -420,7 +422,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "返回当前工作区 git diff。"
             " 可选 path 用于限制到单个路径，输出会按 max_chars 截断。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "git", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "git"}
     )
     @task_middleware("git_diff")
     async def git_diff(
@@ -449,7 +451,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "生成提交前/最终回答前的变更摘要和质量闸。"
             " 汇总 git status、diff 统计、未跟踪文件、冲突、最近 native session 的 preflight/verify 状态。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "git", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "git"}
     )
     @task_middleware("change_summary")
     async def change_summary(
@@ -478,7 +480,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "按 native coding session/run 的文件快照回滚本轮改动。"
             " 只恢复工具记录过的文件快照，不执行 git reset。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "session", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "session"}
     )
     @task_middleware("rollback_run")
     async def rollback_run(
@@ -507,7 +509,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "读取或更新 native coding session 的计划状态。"
             " 可记录 todos、assumptions、next_steps 和 notes，辅助多轮编码任务管理。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "session", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "session"}
     )
     @task_middleware("native_plan")
     async def native_plan(
@@ -560,7 +562,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "auto_repair=true/plan 时会生成 repair_plan，供外层 chat/fast/xtra 继续生成 patch steps 并调用工具执行；"
             "传入已有 session_id 会追加新的 run，并保留完整修复轨迹。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "session", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "session"}
     )
     @task_middleware("native_coding_loop")
     async def native_coding_loop(
@@ -605,7 +607,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "把外层云端 sandbox 的命令执行结果回填到 native coding session。"
             " verify=true 时会作为验证结果触发 diagnostics/repair_plan，便于继续修复闭环。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "session", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "session"}
     )
     @task_middleware("record_sandbox_result")
     async def record_sandbox_result(
@@ -656,7 +658,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "查询原生编码会话摘要。"
             " session_id 为空时返回最近会话列表；非空时返回指定会话详情。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "session", "runtime": "native_coding"}
+        meta={"hidden": False, "domain": "coding", "class": "session"}
     )
     @task_middleware("native_coding_session")
     async def native_coding_session(

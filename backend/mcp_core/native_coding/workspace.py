@@ -175,7 +175,7 @@ class WorkspaceTools(NativeCodingComponent):
             return conflict
         if create_dirs:
             target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(payload, encoding=const.CHARSET)
+        target.write_text(payload, encoding=const.CHARSET, newline="")
         return self._ok(
             f"workspace write ok path={self._rel(target)} bytes={size}",
             path=self._rel(target),

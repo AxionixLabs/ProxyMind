@@ -471,6 +471,44 @@ class Coding(object):
 
         return await task
 
+    @staticmethod
+    def with_flow_details(
+        *,
+        start_result: dict,
+        final_result: dict
+    ) -> dict[str, typing.Any]:
+        """把 codex 启动结果与最终结果合并成包含流程摘要的返回结构。"""
+        start_data = start_result.get("data") if isinstance(start_result, dict) else {}
+        final_data = final_result.get("data") if isinstance(final_result, dict) else {}
+        logs = final_result.get("logs") if isinstance(final_result.get("logs"), list) else []
+        last_lines = final_data.get("last_lines") if isinstance(final_data.get("last_lines"), list) else []
+        flow = [
+            "1. codex exec 已启动",
+            f"2. session_id={start_data.get('session_id')} pid={start_data.get('pid')} cwd={start_data.get('cwd')}",
+            "3. 已持续消费 stdout/stderr 并等待进程结束",
+            f"4. exit_code={final_data.get('exit_code')} timed_out={bool(final_data.get('timed_out'))}"
+        ]
+        if final_data.get("stop_reason"):
+            flow.append(f"5. stop_reason={final_data.get('stop_reason')}")
+
+        merged = dict(final_result)
+        merged_data = dict(final_data) if isinstance(final_data, dict) else {}
+        merged_data["flow"] = flow
+        merged_data["start"] = start_data
+        merged_data["output_tail"] = last_lines or logs[-20:]
+        merged["data"] = merged_data
+        merged["logs"] = logs
+        merged["text"] = "\n".join([
+            str(final_result.get("text") or "codex 执行结束。"),
+            "",
+            "执行过程：",
+            *flow,
+            "",
+            "最近输出：",
+            *(merged_data["output_tail"][-20:] or ["<empty>"])
+        ])
+        return merged
+
 
 if __name__ == '__main__':
     pass

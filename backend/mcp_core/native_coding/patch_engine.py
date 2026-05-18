@@ -38,7 +38,7 @@ class PatchEngine(NativeCodingComponent):
         size = len(updated.encode(const.CHARSET, const.IGNORE))
         if size > self.max_write_bytes:
             return self._fail("content_too_large", size=size, max_bytes=self.max_write_bytes)
-        target.write_text(updated, encoding=const.CHARSET)
+        target.write_text(updated, encoding=const.CHARSET, newline="")
         return self._ok(
             f"workspace patch ok path={self._rel(target)} replacements={expected}",
             path=self._rel(target),
@@ -69,7 +69,7 @@ class PatchEngine(NativeCodingComponent):
                 item["target"].unlink()
                 continue
             item["target"].parent.mkdir(parents=True, exist_ok=True)
-            item["target"].write_text(item["content"], encoding=const.CHARSET)
+            item["target"].write_text(item["content"], encoding=const.CHARSET, newline="")
 
         return self._ok(
             f"workspace unified patch ok files={len(planned)} hunks={sum(item['hunks'] for item in planned)}",

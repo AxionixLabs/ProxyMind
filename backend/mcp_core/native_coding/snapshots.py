@@ -39,7 +39,7 @@ class SnapshotTools(NativeCodingComponent):
             existed = bool(item.get("existed"))
             if existed:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(str(item.get("content") or ""), encoding=const.CHARSET)
+                target.write_text(str(item.get("content") or ""), encoding=const.CHARSET, newline="")
                 restored.append({
                     "path": self._rel(target),
                     "action": "restored",
