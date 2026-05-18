@@ -104,18 +104,6 @@ class NativeCoding(NativeCodingBase):
     def apply_unified_patch(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._patch_engine.apply_unified_patch(*args, **kwargs)
 
-    async def shell_exec(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return await self._shell_git.shell_exec(*args, **kwargs)
-
-    async def git_status(self) -> dict[str, typing.Any]:
-        return await self._shell_git.git_status()
-
-    async def git_diff(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return await self._shell_git.git_diff(*args, **kwargs)
-
-    async def change_summary(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return await self._change_summary.change_summary(*args, **kwargs)
-
     def rollback_run(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._snapshots.rollback_run(*args, **kwargs)
 
@@ -128,17 +116,32 @@ class NativeCoding(NativeCodingBase):
     def record_sandbox_result(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._sandbox_result.record_sandbox_result(*args, **kwargs)
 
-    async def native_loop(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return await self._session.native_loop(*args, **kwargs)
-
     def session_snapshot(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._session.session_snapshot(*args, **kwargs)
 
-    async def run_native_step(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return await self._session.run_native_step(*args, **kwargs)
-
     def preflight_native_steps(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._session.preflight_native_steps(*args, **kwargs)
+
+    async def shell_exec(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+        return await self._shell_git.shell_exec(*args, **kwargs)
+
+    async def git_status(self) -> dict[str, typing.Any]:
+        return await self._shell_git.git_status()
+
+    async def git_diff(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+        return await self._shell_git.git_diff(*args, **kwargs)
+
+    async def change_summary(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+        return await self._change_summary.change_summary(*args, **kwargs)
+
+    async def native_loop(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+        return await self._session.native_loop(*args, **kwargs)
+
+    async def native_repair_loop(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+        return await self._session.native_repair_loop(*args, **kwargs)
+
+    async def run_native_step(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+        return await self._session.run_native_step(*args, **kwargs)
 
 
 if __name__ == '__main__':

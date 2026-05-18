@@ -7,6 +7,7 @@ from pathlib import Path
 from backend.mcp_core.native_coding.base import NativeCodingComponent
 from backend.utilities import const
 
+
 class PatchEngine(NativeCodingComponent):
 
     def apply_patch(
@@ -22,6 +23,8 @@ class PatchEngine(NativeCodingComponent):
         target = self._resolve(path)
         if not target.is_file():
             return self._fail("file_not_found", path=path)
+        if not str(old_text or ""):
+            return self._fail("old_text_empty", path=self._rel(target))
         if conflict := self._conflict_guard(target, expected_sha256=expected_sha256, force=force):
             return conflict
         current = target.read_text(encoding=const.CHARSET, errors=const.IGNORE)
@@ -75,11 +78,11 @@ class PatchEngine(NativeCodingComponent):
             f"workspace unified patch ok files={len(planned)} hunks={sum(item['hunks'] for item in planned)}",
             files=[
                 {
-                    "path": item["path"],
-                    "action": item["action"],
-                    "hunks": item["hunks"],
-                    "relocated_hunks": item["relocated_hunks"],
-                    "sha256": item["sha256"]
+                    "path"            : item["path"],
+                    "action"          : item["action"],
+                    "hunks"           : item["hunks"],
+                    "relocated_hunks" : item["relocated_hunks"],
+                    "sha256"          : item["sha256"]
                 }
                 for item in planned
             ],
@@ -113,14 +116,15 @@ class PatchEngine(NativeCodingComponent):
         *,
         patch: str,
         expected_sha256: dict[str, str] | None = None,
-        force: bool = False
+        force: bool = False,
+        virtual_files: dict[str, str | None] | None = None
     ) -> dict[str, typing.Any]:
         parsed = self._parse_unified_patch(patch)
         if not parsed.get("ok"):
             return {
-                "ok": False,
-                "reason": parsed["reason"],
-                "data": parsed.get("data") or {}
+                "ok"     : False,
+                "reason" : parsed["reason"],
+                "data"   : parsed.get("data") or {}
             }
 
         expected_map = {
@@ -129,24 +133,49 @@ class PatchEngine(NativeCodingComponent):
             if str(k).strip() and str(v).strip()
         }
         planned: list[dict[str, typing.Any]] = []
+        seen_paths: set[str] = set()
 
         for item in parsed["files"]:
             path = str(item["path"])
             action = str(item.get("action") or "modify")
             target = self._resolve(path)
-            if action == "create" and target.exists():
+            rel = self._rel(target)
+            if rel in seen_paths:
+                return {"ok": False, "reason": "unified_patch_duplicate_file", "data": {"path": rel}}
+            seen_paths.add(rel)
+            has_virtual = rel in (virtual_files or {})
+            virtual_content = (virtual_files or {}).get(rel)
+            virtual_exists = has_virtual and virtual_content is not None
+            disk_exists = target.is_file()
+            exists = virtual_exists if has_virtual else disk_exists
+
+            if action == "create" and exists:
                 return {"ok": False, "reason": "file_already_exists", "data": {"path": path}}
-            if action in {"modify", "delete"} and not target.is_file():
+            if action in {"modify", "delete"} and not exists:
                 return {"ok": False, "reason": "file_not_found", "data": {"path": path}}
             if action in {"modify", "delete"}:
-                expected = expected_map.get(path) or expected_map.get(self._rel(target))
-                if conflict := self._conflict_guard(target, expected_sha256=expected, force=force):
-                    return {
-                        "ok": False,
-                        "reason": (conflict.get("data") or {}).get("reason") or "file_changed_since_read",
-                        "data": conflict.get("data") or {}
-                    }
-                current = target.read_text(encoding=const.CHARSET, errors=const.IGNORE)
+                expected = expected_map.get(path) or expected_map.get(rel)
+                if has_virtual:
+                    current = str(virtual_content or "")
+                    current_sha256 = self._sha256(current.encode(const.CHARSET, const.IGNORE))
+                    if expected and not force and expected != current_sha256:
+                        return {
+                            "ok": False,
+                            "reason": "file_changed_since_read",
+                            "data": {
+                                "path": rel,
+                                "expected_sha256": expected,
+                                "current_sha256": current_sha256
+                            }
+                        }
+                else:
+                    if conflict := self._conflict_guard(target, expected_sha256=expected, force=force):
+                        return {
+                            "ok": False,
+                            "reason": (conflict.get("data") or {}).get("reason") or "file_changed_since_read",
+                            "data": conflict.get("data") or {}
+                        }
+                    current = target.read_text(encoding=const.CHARSET, errors=const.IGNORE)
             else:
                 current = ""
 
@@ -169,13 +198,13 @@ class PatchEngine(NativeCodingComponent):
                     "data": {"path": path, "size": size, "max_bytes": self.max_write_bytes}
                 }
             planned.append({
-                "path": path,
-                "action": action,
-                "target": target,
-                "content": content,
-                "hunks": len(item["hunks"]),
-                "relocated_hunks": list(applied.get("relocated_hunks") or []),
-                "sha256": self._sha256(content.encode(const.CHARSET, const.IGNORE))
+                "path"            : path,
+                "action"          : action,
+                "target"          : target,
+                "content"         : content,
+                "hunks"           : len(item["hunks"]),
+                "relocated_hunks" : list(applied.get("relocated_hunks") or []),
+                "sha256"          : self._sha256(content.encode(const.CHARSET, const.IGNORE))
             })
 
         return {"ok": True, "planned": planned}
@@ -265,11 +294,11 @@ class PatchEngine(NativeCodingComponent):
                         }
                     }
                 hunks.append({
-                    "old_start": old_start,
-                    "new_start": new_start,
-                    "old_count": old_count,
-                    "new_count": new_count,
-                    "lines": body
+                    "old_start" : old_start,
+                    "new_start" : new_start,
+                    "old_count" : old_count,
+                    "new_count" : new_count,
+                    "lines"     : body
                 })
 
             if not hunks:
@@ -304,9 +333,9 @@ class PatchEngine(NativeCodingComponent):
             target_index = self._hunk_target_index(old_start=old_start, old_count=old_count)
             if target_index < cursor:
                 return {
-                    "ok": False,
-                    "reason": "unified_patch_overlapping_hunk",
-                    "data": {"hunk": hunk_index}
+                    "ok"     : False,
+                    "reason" : "unified_patch_overlapping_hunk",
+                    "data"   : {"hunk": hunk_index}
                 }
 
             old_sequence = self._hunk_old_sequence(hunk)
@@ -316,14 +345,14 @@ class PatchEngine(NativeCodingComponent):
                     relocated_index = int(located["index"])
                     if relocated_index < cursor:
                         return {
-                            "ok": False,
-                            "reason": "unified_patch_overlapping_hunk",
-                            "data": {"hunk": hunk_index, "target_line": relocated_index + 1}
+                            "ok"     : False,
+                            "reason" : "unified_patch_overlapping_hunk",
+                            "data"   : {"hunk": hunk_index, "target_line": relocated_index + 1}
                         }
                     relocated_hunks.append({
-                        "hunk": hunk_index,
-                        "from_line": target_index + 1,
-                        "to_line": relocated_index + 1
+                        "hunk"      : hunk_index,
+                        "from_line" : target_index + 1,
+                        "to_line"   : relocated_index + 1
                     })
                     target_index = relocated_index
                 else:
@@ -337,9 +366,9 @@ class PatchEngine(NativeCodingComponent):
                         "nearby": self._nearby_lines(original, target_index)
                     })
                     return {
-                        "ok": False,
-                        "reason": located.get("reason") or "unified_patch_context_mismatch",
-                        "data": data
+                        "ok"     : False,
+                        "reason" : located.get("reason") or "unified_patch_context_mismatch",
+                        "data"   : data
                     }
 
             output.extend(original[cursor:target_index])
@@ -383,10 +412,11 @@ class PatchEngine(NativeCodingComponent):
                     output.append(expected_line)
 
         output.extend(original[cursor:])
+
         return {
-            "ok": True,
-            "content": "".join(output),
-            "relocated_hunks": relocated_hunks
+            "ok"              : True,
+            "content"         : "".join(output),
+            "relocated_hunks" : relocated_hunks
         }
 
     @staticmethod
@@ -434,13 +464,17 @@ class PatchEngine(NativeCodingComponent):
         cursor: int
     ) -> dict[str, typing.Any]:
         if not expected:
-            return {"ok": False, "reason": "unified_patch_context_empty", "data": {}}
+            return {
+                "ok"     : False,
+                "reason" : "unified_patch_context_empty",
+                "data"   : {}
+            }
         max_start = len(lines) - len(expected)
         if max_start < cursor:
             return {
-                "ok": False,
-                "reason": "unified_patch_context_out_of_range",
-                "data": {}
+                "ok"     : False,
+                "reason" : "unified_patch_context_out_of_range",
+                "data"   : {}
             }
         candidates: list[int] = []
         for index in range(max(0, cursor), max_start + 1):
@@ -450,9 +484,9 @@ class PatchEngine(NativeCodingComponent):
                     break
         if not candidates:
             return {
-                "ok": False,
-                "reason": "unified_patch_context_mismatch",
-                "data": {}
+                "ok"     : False,
+                "reason" : "unified_patch_context_mismatch",
+                "data"   : {}
             }
         if len(candidates) > 1:
             return {

@@ -26,6 +26,7 @@ class RepairSteps(NativeCodingComponent):
 
         modify_count = 0
         verify_count = 0
+        verify_indexes: list[int] = []
         for index, step in enumerate(steps, start=1):
             if not isinstance(step, dict):
                 errors.append(f"step_{index}:not_object")
@@ -40,18 +41,27 @@ class RepairSteps(NativeCodingComponent):
                 modify_count += 1
             if tool == "shell_exec":
                 verify_count += 1
+                verify_indexes.append(index)
+                command = args.get("command") if isinstance(args, dict) else None
+                if not isinstance(command, list) or not [item for item in command if str(item or "").strip()]:
+                    errors.append(f"step_{index}:verify_command_required")
 
         if modify_count < 1:
             errors.append("missing_patch_step")
         if verify_count < 1:
             errors.append("missing_verify_step")
+        if verify_count > 1:
+            errors.append("multiple_verify_steps")
+        if verify_indexes and verify_indexes[-1] != len(steps):
+            errors.append("verify_step_must_be_last")
 
         return {
             "ok"           : not errors,
             "errors"       : errors,
             "step_count"   : len(steps),
             "modify_count" : modify_count,
-            "verify_count" : verify_count
+            "verify_count" : verify_count,
+            "verify_index" : verify_indexes[-1] if verify_indexes else None
         }
 
 

@@ -2,8 +2,8 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import os
-import hashlib
 import typing
+import hashlib
 from pathlib import Path
 from backend.utilities import const
 
@@ -25,7 +25,8 @@ class NativeCodingBase(object):
     }
     DANGEROUS_COMMANDS = {
         "rm", "rmdir", "del", "erase", "format", "mkfs", "shutdown",
-        "reboot", "halt", "poweroff", "diskpart"
+        "reboot", "halt", "poweroff", "diskpart", "remove-item",
+        "ri", "rd"
     }
     REVIEW_COMMANDS = {
         "pip", "pip3", "npm", "pnpm", "yarn", "bun", "curl", "wget",
@@ -34,7 +35,8 @@ class NativeCodingBase(object):
     REVIEW_GIT_SUBCOMMANDS = {
         "add", "am", "apply", "bisect", "branch", "checkout", "cherry-pick",
         "clean", "commit", "fetch", "merge", "mv", "pull", "push", "rebase",
-        "reset", "restore", "revert", "rm", "stash", "switch", "tag"
+        "reset", "restore", "revert", "rm", "stash", "switch", "tag",
+        "update-index", "worktree"
     }
     CONTROL_OPERATORS = {
         ";", "&&", "||", "|", ">", ">>", "<", "$(", "`"
@@ -60,9 +62,11 @@ class NativeCodingBase(object):
 
     def __init__(self, root: str | None = None):
         self.root = Path(root or os.getcwd()).resolve()
-        self.max_read_bytes = 512_000
-        self.max_write_bytes = 1_000_000
+
+        self.max_read_bytes   = 512_000
+        self.max_write_bytes  = 1_000_000
         self.max_output_chars = 24_000
+
         self.sessions: dict[str, dict[str, typing.Any]] = {}
 
     def _rel(self, path: Path) -> str:
@@ -133,20 +137,20 @@ class NativeCodingBase(object):
     def _ok(text: str, **data: typing.Any) -> dict[str, typing.Any]:
         payload = {"ok": True, **data}
         return {
-            "text": text,
-            "attachments": [],
-            "data": payload,
-            "logs": []
+            "text"        : text,
+            "attachments" : [],
+            "data"        : payload,
+            "logs"        : []
         }
 
     @staticmethod
     def _fail(reason: str, **data: typing.Any) -> dict[str, typing.Any]:
         payload = {"ok": False, "reason": reason, **data}
         return {
-            "text": f"native coding failed: {reason}",
-            "attachments": [],
-            "data": payload,
-            "logs": []
+            "text"        : f"native coding failed: {reason}",
+            "attachments" : [],
+            "data"        : payload,
+            "logs"        : []
         }
 
 

@@ -44,6 +44,7 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     GitDiffMaxCharsArg,
     NativeLoopPromptArg,
     NativeLoopStepsArg,
+    NativeRepairStepsArg,
     NativeLoopVerifyCommandArg,
     NativeLoopStopOnFailArg,
     NativeLoopMaxStepsArg,
@@ -63,6 +64,7 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     SandboxTimedOutArg,
     SandboxProviderArg,
     SandboxFileChangesArg,
+    SandboxArtifactsArg,
     SandboxVerifyArg,
 )
 
@@ -107,6 +109,7 @@ __all__ = [
     "GitDiffMaxCharsArg",
     "NativeLoopPromptArg",
     "NativeLoopStepsArg",
+    "NativeRepairStepsArg",
     "NativeLoopVerifyCommandArg",
     "NativeLoopStopOnFailArg",
     "NativeLoopMaxStepsArg",
@@ -126,6 +129,7 @@ __all__ = [
     "SandboxTimedOutArg",
     "SandboxProviderArg",
     "SandboxFileChangesArg",
+    "SandboxArtifactsArg",
     "SandboxVerifyArg",
 ]
 

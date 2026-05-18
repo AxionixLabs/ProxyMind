@@ -26,8 +26,23 @@ class SnapshotTools(NativeCodingComponent):
             run = runs[-1]
         if not isinstance(run, dict):
             return self._fail("run_not_found", session_id=session_id, run_id=run_id)
-        snapshot = run.get("snapshot") if isinstance(run.get("snapshot"), dict) else {}
-        files = snapshot.get("files") if isinstance(snapshot, dict) else []
+        latest_run = runs[-1] if runs else None
+        if run_id and isinstance(latest_run, dict) and latest_run.get("run_id") != run.get("run_id"):
+            return self._fail(
+                "rollback_non_latest_run_forbidden",
+                session_id=session_id,
+                run_id=run.get("run_id"),
+                latest_run_id=latest_run.get("run_id")
+            )
+        if run.get("rolled_back"):
+            return self._fail(
+                "run_already_rolled_back",
+                session_id=session_id,
+                run_id=run.get("run_id"),
+                run_index=run.get("run_index"),
+                rollback_at=run.get("rollback_at")
+            )
+        files = self._rollback_snapshot_files(run)
         if not files:
             return self._fail("snapshot_not_found", session_id=session_id, run_id=run.get("run_id"))
 
@@ -73,6 +88,29 @@ class SnapshotTools(NativeCodingComponent):
             restored=restored,
             restored_count=len(restored)
         )
+
+    @staticmethod
+    def _rollback_snapshot_files(run: dict[str, typing.Any]) -> list[dict[str, typing.Any]]:
+        files: list[dict[str, typing.Any]] = []
+        seen: set[str] = set()
+        snapshots: list[dict[str, typing.Any]] = []
+        snapshot = run.get("snapshot") if isinstance(run.get("snapshot"), dict) else None
+        if isinstance(snapshot, dict):
+            snapshots.append(snapshot)
+        for item in run.get("artifact_snapshots") or []:
+            if isinstance(item, dict):
+                snapshots.append(item)
+
+        for snapshot_item in snapshots:
+            for file_item in snapshot_item.get("files") or []:
+                if not isinstance(file_item, dict) or not file_item.get("path"):
+                    continue
+                path = str(file_item.get("path"))
+                if path in seen:
+                    continue
+                seen.add(path)
+                files.append(file_item)
+        return files
 
     def _create_run_snapshot(self, preflight: dict[str, typing.Any]) -> dict[str, typing.Any]:
         files: list[dict[str, typing.Any]] = []

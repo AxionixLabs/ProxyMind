@@ -11,6 +11,124 @@ from backend.utilities import const
 
 
 class SessionTools(NativeCodingComponent):
+    async def native_repair_loop(
+        self,
+        *,
+        session_id: str,
+        steps: list[dict[str, typing.Any]],
+        source_run_id: str | None = None,
+        stop_on_fail: bool = True,
+        max_steps: int = 20,
+        auto_repair: bool | str = False,
+        auto_rollback: bool | str = "verify_failed"
+    ) -> dict[str, typing.Any]:
+        sid = str(session_id or "").strip()
+        session = self.sessions.get(sid)
+        if not isinstance(session, dict):
+            return self._fail("session_not_found", session_id=session_id)
+        if source_run_id and not self._session_has_run(session, source_run_id):
+            return self._fail("source_run_not_found", session_id=sid, source_run_id=source_run_id)
+        validation = self.validate_repair_steps(steps)
+        if not bool(validation.get("ok")):
+            return self._fail(
+                "repair_steps_invalid",
+                session_id=sid,
+                source_run_id=source_run_id,
+                validation=validation
+            )
+
+        executable_steps, verify_step = self._prepare_repair_steps(steps)
+        verify_args = verify_step.get("args") if isinstance(verify_step.get("args"), dict) else {}
+        verify_command = verify_args.get("command") if isinstance(verify_args.get("command"), list) else None
+        if not verify_command:
+            return self._fail(
+                "repair_verify_command_required",
+                session_id=sid,
+                source_run_id=source_run_id,
+                validation=validation
+            )
+
+        prompt = f"repair native coding session {sid}"
+        if source_run_id:
+            prompt = f"{prompt} source_run={source_run_id}"
+        result = await self.native_loop(
+            prompt=prompt,
+            steps=executable_steps,
+            verify_command=[str(item) for item in verify_command],
+            stop_on_fail=stop_on_fail,
+            max_steps=max_steps,
+            session_id=sid,
+            plan_update={
+                "note": f"native repair loop source_run={source_run_id or 'latest'}",
+                "next_steps": ["inspect repair verify result"]
+            },
+            auto_repair=auto_repair,
+            auto_rollback=auto_rollback
+        )
+        data = result.get("data") if isinstance(result, dict) else {}
+        if isinstance(data, dict):
+            data["repair_loop"] = True
+            data["repair_validation"] = validation
+            data["repair_source_run_id"] = source_run_id
+            data["repair_verify_step"] = verify_step
+            data["repair_executable_step_count"] = len(executable_steps)
+            data["repair_rollback_policy"] = self._normalize_auto_rollback(auto_rollback)
+            metadata = self._record_repair_loop_metadata(
+                session=session,
+                run_id=str(data.get("run_id") or ""),
+                source_run_id=source_run_id,
+                validation=validation,
+                verify_step=verify_step,
+                executable_step_count=len(executable_steps),
+                rollback_policy=self._normalize_auto_rollback(auto_rollback)
+            )
+            summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+            if isinstance(summary, dict):
+                summary["repair_loops"] = list(session.get("repair_loops") or [])
+                current_run = summary.get("current_run") if isinstance(summary.get("current_run"), dict) else {}
+                if isinstance(current_run, dict):
+                    current_run["repair_loop"] = metadata
+            run_payload = data.get("run") if isinstance(data.get("run"), dict) else {}
+            if isinstance(run_payload, dict):
+                run_payload["repair_loop"] = metadata
+        return result
+
+    @staticmethod
+    def _session_has_run(session: dict[str, typing.Any], run_id: str) -> bool:
+        return any(
+            isinstance(item, dict) and item.get("run_id") == run_id
+            for item in session.get("runs") or []
+        )
+
+    @staticmethod
+    def _record_repair_loop_metadata(
+        *,
+        session: dict[str, typing.Any],
+        run_id: str,
+        source_run_id: str | None,
+        validation: dict[str, typing.Any],
+        verify_step: dict[str, typing.Any],
+        executable_step_count: int,
+        rollback_policy: str
+    ) -> dict[str, typing.Any]:
+        metadata = {
+            "run_id"                : run_id,
+            "source_run_id"         : source_run_id,
+            "validation"            : validation,
+            "verify_step"           : verify_step,
+            "executable_step_count" : executable_step_count,
+            "rollback_policy"       : rollback_policy
+        }
+        session.setdefault("repair_loops", []).append(metadata)
+        for item in session.get("runs") or []:
+            if isinstance(item, dict) and item.get("run_id") == run_id:
+                item["repair_loop"] = metadata
+                summary = item.get("summary")
+                if isinstance(summary, dict):
+                    summary["repair_loop"] = metadata
+                break
+        return metadata
+
     async def native_loop(
         self,
         *,
@@ -21,17 +139,21 @@ class SessionTools(NativeCodingComponent):
         max_steps: int = 20,
         session_id: str | None = None,
         plan_update: dict[str, typing.Any] | None = None,
-        auto_repair: bool | str = False
+        auto_repair: bool | str = False,
+        auto_rollback: bool | str = False
     ) -> dict[str, typing.Any]:
         started = time.perf_counter()
         session = self._begin_session(prompt=prompt, session_id=session_id)
         if isinstance(plan_update, dict) and plan_update:
             self.update_plan(session_id=session["session_id"], **plan_update)
+
         run = self._begin_run(session, prompt=prompt)
         session["repair_plan"] = None
+
         requested_steps = steps if isinstance(steps, list) else []
-        step_limit = max(1, min(int(max_steps or 20), 50))
-        limited_steps = requested_steps[:step_limit]
+        step_limit      = max(1, min(int(max_steps or 20), 50))
+        limited_steps   = requested_steps[:step_limit]
+
         executed: list[dict[str, typing.Any]] = []
         preflight = self.preflight_native_steps(limited_steps)
         run["preflight"] = preflight
@@ -60,14 +182,14 @@ class SessionTools(NativeCodingComponent):
                 stopped_on_fail=True,
                 status="",
                 verify=None,
-            verify_diagnostics=None,
-            has_repair_plan=False,
-            next_action="stop",
-            repair_status="preflight_failed",
-            last_verify_ok=None,
-            diff="",
-            elapsed_ms=elapsed_ms,
-            truncated=len(requested_steps) > step_limit
+                verify_diagnostics=None,
+                has_repair_plan=False,
+                next_action="stop",
+                repair_status="preflight_failed",
+                last_verify_ok=None,
+                diff="",
+                elapsed_ms=elapsed_ms,
+                truncated=len(requested_steps) > step_limit
             )
             payload["data"]["ok"] = False
             return payload
@@ -124,10 +246,31 @@ class SessionTools(NativeCodingComponent):
             if isinstance(verify_data, dict):
                 verify_data["diagnostics"] = verify_diagnostics
             self._record_verify(session, verify, run=run)
-        diff = await self.git_diff()
-        failed = [item for item in executed if not item.get("ok")]
+
+        diff      = await self.git_diff()
+        failed    = [item for item in executed if not item.get("ok")]
         verify_ok = True if verify is None else bool((verify.get("data") or {}).get("ok"))
-        ok = (not failed) and verify_ok
+        ok        = (not failed) and verify_ok
+
+        rollback = None
+        rollback_policy = self._normalize_auto_rollback(auto_rollback)
+        rollback_reason = self._auto_rollback_reason(
+            policy=rollback_policy,
+            failed_steps=failed,
+            verify_ok=verify_ok,
+            verify=verify
+        )
+        if rollback_reason:
+            rollback = self.rollback_run(session_id=session["session_id"], run_id=run["run_id"])
+            run["auto_rollback"] = {
+                "enabled" : True,
+                "policy"  : rollback_policy,
+                "reason"  : rollback_reason,
+                "ok"      : bool((rollback.get("data") or {}).get("ok")) if isinstance(rollback, dict) else False,
+                "result"  : rollback.get("data") if isinstance(rollback, dict) else None
+            }
+            status = await self.git_status()
+            diff = await self.git_diff()
         repair_state = self._repair_state(
             ok=ok,
             failed_steps=failed,
@@ -165,6 +308,10 @@ class SessionTools(NativeCodingComponent):
             verify=(verify.get("data") if verify else None),
             verify_diagnostics=verify_diagnostics,
             repair_plan=(verify_diagnostics or {}).get("repair_plan") if isinstance(verify_diagnostics, dict) else None,
+            auto_rollback=bool(rollback_reason),
+            rollback=rollback.get("data") if isinstance(rollback, dict) else None,
+            rollback_policy=rollback_policy,
+            rollback_reason=rollback_reason,
             **repair_state,
             diff=(diff.get("data") or {}).get("stdout"),
             elapsed_ms=elapsed_ms,
@@ -172,6 +319,57 @@ class SessionTools(NativeCodingComponent):
         )
         payload["data"]["ok"] = ok
         return payload
+
+    @staticmethod
+    def _prepare_repair_steps(
+        steps: list[dict[str, typing.Any]]
+    ) -> tuple[list[dict[str, typing.Any]], dict[str, typing.Any]]:
+        shell_indexes = [
+            index
+            for index, step in enumerate(steps or [])
+            if isinstance(step, dict) and str(step.get("tool") or "") == "shell_exec"
+        ]
+        verify_index = shell_indexes[-1] if shell_indexes else -1
+        verify_step = dict(steps[verify_index]) if verify_index >= 0 else {}
+        executable_steps = [
+            step
+            for index, step in enumerate(steps or [])
+            if index != verify_index and isinstance(step, dict)
+        ]
+        return executable_steps, verify_step
+
+    @staticmethod
+    def _normalize_auto_rollback(value: typing.Any) -> str:
+        if value is True:
+            return "always"
+        if value is False or value is None:
+            return "off"
+        text = str(value or "").strip().lower()
+        if text in {"1", "true", "yes", "on"}:
+            return "always"
+        if text in {"always", "step_failed", "verify_failed", "off"}:
+            return text
+        return "off"
+
+    @staticmethod
+    def _auto_rollback_reason(
+        *,
+        policy: str,
+        failed_steps: list[dict[str, typing.Any]],
+        verify_ok: bool,
+        verify: dict[str, typing.Any] | None
+    ) -> str | None:
+        if policy == "off":
+            return None
+        has_failed_steps = bool(failed_steps)
+        has_verify_failure = verify is not None and not verify_ok
+        if policy == "always" and (has_failed_steps or has_verify_failure):
+            return "step_failed" if has_failed_steps else "verify_failed"
+        if policy == "step_failed" and has_failed_steps:
+            return "step_failed"
+        if policy == "verify_failed" and has_verify_failure:
+            return "verify_failed"
+        return None
 
     @staticmethod
     def _repair_state(
@@ -186,6 +384,9 @@ class SessionTools(NativeCodingComponent):
         if ok:
             status = "passed"
             next_action = "stop"
+        elif any(SessionTools._step_requires_cloud_sandbox(item) for item in failed_steps or []):
+            status = "awaiting_sandbox"
+            next_action = "record_sandbox_result"
         elif has_plan:
             status = "needs_model"
             next_action = "generate_repair_steps"
@@ -204,6 +405,19 @@ class SessionTools(NativeCodingComponent):
             "repair_status": status,
             "last_verify_ok": last_verify_ok
         }
+
+    @staticmethod
+    def _step_requires_cloud_sandbox(step: dict[str, typing.Any]) -> bool:
+        data = step.get("data") if isinstance(step.get("data"), dict) else {}
+        if step.get("tool") == "record_sandbox_result":
+            return False
+        if bool(data.get("requires_cloud_sandbox")):
+            return True
+        if data.get("sandbox_request"):
+            return True
+        if bool(step.get("requires_cloud_sandbox")):
+            return True
+        return bool(step.get("sandbox_request"))
 
     @staticmethod
     def _normalize_auto_repair(value: typing.Any) -> str:
@@ -233,12 +447,12 @@ class SessionTools(NativeCodingComponent):
             f"native coding sessions count={len(self.sessions)}",
             sessions=[
                 {
-                    "session_id": item.get("session_id"),
-                    "ok": item.get("ok"),
-                    "prompt": item.get("prompt"),
-                    "started_at": item.get("started_at"),
-                    "finished_at": item.get("finished_at"),
-                    "summary": item.get("summary")
+                    "session_id"  : item.get("session_id"),
+                    "ok"          : item.get("ok"),
+                    "prompt"      : item.get("prompt"),
+                    "started_at"  : item.get("started_at"),
+                    "finished_at" : item.get("finished_at"),
+                    "summary"     : item.get("summary")
                 }
                 for item in sessions
             ],
@@ -267,11 +481,11 @@ class SessionTools(NativeCodingComponent):
         """执行一个白名单内的原生编码步骤。"""
         if not isinstance(step, dict):
             return {
-                "index": index,
-                "tool": None,
-                "ok": False,
-                "reason": "step_not_dict",
-                "data": None
+                "index"  : index,
+                "tool"   : None,
+                "ok"     : False,
+                "reason" : "step_not_dict",
+                "data"   : None
             }
 
         tool = str(step.get("tool") or "").strip()
@@ -281,11 +495,11 @@ class SessionTools(NativeCodingComponent):
 
         if tool not in self.LOOP_TOOLS:
             return {
-                "index": index,
-                "tool": tool,
-                "ok": False,
-                "reason": "tool_not_allowed",
-                "data": None
+                "index"  : index,
+                "tool"   : tool,
+                "ok"     : False,
+                "reason" : "tool_not_allowed",
+                "data"   : None
             }
 
         try:
@@ -293,11 +507,11 @@ class SessionTools(NativeCodingComponent):
         except Exception as exc:
             logger.exception(f"native loop step failed tool={tool} index={index}")
             return {
-                "index": index,
-                "tool": tool,
-                "ok": False,
-                "reason": f"{type(exc).__name__}: {exc}",
-                "data": None
+                "index"  : index,
+                "tool"   : tool,
+                "ok"     : False,
+                "reason" : f"{type(exc).__name__}: {exc}",
+                "data"   : None
             }
 
         data = result.get("data") if isinstance(result, dict) else None
@@ -323,11 +537,12 @@ class SessionTools(NativeCodingComponent):
                 self._update_preflight_virtual_files(check, virtual_files)
             checks.append(self._sanitize_preflight_check(check))
         failures = [item for item in checks if not item.get("ok")]
+
         return {
-            "ok": not failures,
-            "check_count": len(checks),
-            "failure_count": len(failures),
-            "checks": checks
+            "ok"            : not failures,
+            "check_count"   : len(checks),
+            "failure_count" : len(failures),
+            "checks"        : checks
         }
 
     def _preflight_native_step(
@@ -380,7 +595,12 @@ class SessionTools(NativeCodingComponent):
             if tool == "workspace_apply_patch":
                 return self._preflight_apply_patch(index=index, tool=tool, args=args, virtual_files=virtual_files)
             if tool == "workspace_apply_unified_patch":
-                return self._preflight_apply_unified_patch(index=index, tool=tool, args=args)
+                return self._preflight_apply_unified_patch(
+                    index=index,
+                    tool=tool,
+                    args=args,
+                    virtual_files=virtual_files
+                )
             if tool == "shell_exec":
                 return self._preflight_shell_exec(index=index, tool=tool, args=args)
             if tool == "git_status":
@@ -504,12 +724,14 @@ class SessionTools(NativeCodingComponent):
         *,
         index: int,
         tool: str,
-        args: dict[str, typing.Any]
+        args: dict[str, typing.Any],
+        virtual_files: dict[str, str | None]
     ) -> dict[str, typing.Any]:
         planned = self._plan_unified_patch(
             patch=str(args.get("patch") or ""),
             expected_sha256=args.get("expected_sha256"),
-            force=bool(args.get("force", False))
+            force=bool(args.get("force", False)),
+            virtual_files=virtual_files
         )
         if not planned.get("ok"):
             data = dict(planned.get("data") or {})
@@ -524,9 +746,17 @@ class SessionTools(NativeCodingComponent):
             paths=[item.get("path") for item in items],
             files=[
                 {
-                    "path": item.get("path"),
-                    "action": item.get("action"),
-                    "sha256": item.get("sha256")
+                    "path"   : item.get("path"),
+                    "action" : item.get("action"),
+                    "sha256" : item.get("sha256")
+                }
+                for item in items
+            ],
+            projected_files=[
+                {
+                    "path"    : item.get("path"),
+                    "action"  : item.get("action"),
+                    "content" : item.get("content")
                 }
                 for item in items
             ]
@@ -603,22 +833,25 @@ class SessionTools(NativeCodingComponent):
     ) -> None:
         tool = str(check.get("tool") or "")
         path = check.get("path")
-        if not path:
-            return
         if tool in {"workspace_write_file", "workspace_apply_patch"}:
+            if not path:
+                return
             virtual_files[str(path)] = str(check.get("projected_content") or "")
         elif tool == "workspace_apply_unified_patch":
-            for item in check.get("files") or []:
+            for item in check.get("projected_files") or []:
                 if not isinstance(item, dict) or not item.get("path"):
                     continue
                 if item.get("action") == "delete":
                     virtual_files[str(item["path"])] = None
+                else:
+                    virtual_files[str(item["path"])] = str(item.get("content") or "")
 
     @staticmethod
 
     def _sanitize_preflight_check(check: dict[str, typing.Any]) -> dict[str, typing.Any]:
         sanitized = dict(check)
         sanitized.pop("projected_content", None)
+        sanitized.pop("projected_files", None)
         return sanitized
 
     @staticmethod
@@ -705,7 +938,9 @@ class SessionTools(NativeCodingComponent):
                 "verify": None,
                 "verify_diagnostics": None,
                 "repair_plan": None,
+                "repair_loops": [],
                 "sandbox_results": [],
+                "sandbox_artifacts": [],
                 "diagnostic_context": [],
                 "diagnostic_reads": [],
                 "runs": [],
@@ -727,7 +962,9 @@ class SessionTools(NativeCodingComponent):
             session.setdefault("shell_commands", [])
             session.setdefault("shell_file_changes", [])
             session.setdefault("repair_plan", None)
+            session.setdefault("repair_loops", [])
             session.setdefault("sandbox_results", [])
+            session.setdefault("sandbox_artifacts", [])
             session.setdefault("diagnostic_context", [])
             session.setdefault("diagnostic_reads", [])
             session.setdefault("runs", [])
@@ -760,6 +997,7 @@ class SessionTools(NativeCodingComponent):
             "verify_diagnostics": None,
             "repair_plan": None,
             "sandbox_results": [],
+            "sandbox_artifacts": [],
             "diagnostic_context": [],
             "diagnostic_reads": [],
             "status": "",
@@ -789,6 +1027,10 @@ class SessionTools(NativeCodingComponent):
             "ok": bool(step.get("ok")),
             "reason": step.get("reason")
         }
+        if data.get("execution_target"):
+            record["execution_target"] = data.get("execution_target")
+        if data.get("requires_cloud_sandbox") is not None:
+            record["requires_cloud_sandbox"] = bool(data.get("requires_cloud_sandbox"))
         session.setdefault("steps", []).append(record)
         if isinstance(run, dict):
             run.setdefault("steps", []).append(record)
@@ -912,7 +1154,11 @@ class SessionTools(NativeCodingComponent):
                 "shell_commands": list(run.get("shell_commands") or []),
                 "shell_file_changes": list(run.get("shell_file_changes") or []),
                 "sandbox_results": list(run.get("sandbox_results") or []),
+                "sandbox_artifacts": list(run.get("sandbox_artifacts") or []),
                 "diagnostic_reads": list(run.get("diagnostic_reads") or []),
+                "auto_rollback": run.get("auto_rollback"),
+                "rolled_back": bool(run.get("rolled_back")),
+                "rollback": run.get("rollback"),
                 "status": run["status"],
                 "diff": run["diff"]
             }
@@ -941,9 +1187,13 @@ class SessionTools(NativeCodingComponent):
             "shell_commands": list(session.get("shell_commands") or []),
             "shell_file_changes": list(session.get("shell_file_changes") or []),
             "sandbox_results": list(session.get("sandbox_results") or []),
+            "sandbox_artifacts": list(session.get("sandbox_artifacts") or []),
+            "auto_rollback": run.get("auto_rollback") if isinstance(run, dict) else None,
+            "rollbacks": list(session.get("rollbacks") or []),
             "verify": session.get("verify"),
             "verify_diagnostics": session.get("verify_diagnostics"),
             "repair_plan": session.get("repair_plan"),
+            "repair_loops": list(session.get("repair_loops") or []),
             **repair_state,
             "diagnostic_context": list(session.get("diagnostic_context") or []),
             "diagnostic_reads": list(session.get("diagnostic_reads") or []),

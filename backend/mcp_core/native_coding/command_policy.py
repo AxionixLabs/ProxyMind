@@ -27,10 +27,31 @@ class CommandPolicy(NativeCodingComponent):
     }
     WRITE_COMMANDS = {
         "touch", "tee", "cp", "mv", "mkdir", "install", "patch",
-        "truncate", "dd"
+        "truncate", "dd", "copy", "copy.exe", "xcopy", "xcopy.exe",
+        "robocopy", "robocopy.exe", "move", "move.exe",
+        "set-content", "add-content", "new-item", "copy-item",
+        "move-item", "rename-item"
     }
-    PACKAGE_COMMANDS = {"pip", "pip3", "npm", "pnpm", "yarn", "bun", "cargo", "go"}
-    NETWORK_COMMANDS = {"curl", "wget"}
+
+    PACKAGE_COMMANDS  = {"pip", "pip3", "npm", "pnpm", "yarn", "bun", "cargo", "go"}
+    NETWORK_COMMANDS  = {"curl", "wget"}
+    SHELL_WRAPPERS    = {"cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe", "sh", "bash", "zsh"}
+    INLINE_CODE_FLAGS = {"-c", "-command", "/c"}
+
+    PYTHON_HEADS = {"python", "python.exe", "python3", "python3.exe", "py", "py.exe"}
+    PIP_HEADS    = {"pip", "pip.exe", "pip3", "pip3.exe"}
+    NODE_HEADS   = {"node", "node.exe"}
+    NPM_HEADS    = {"npm", "npm.cmd", "npm.exe", "pnpm", "pnpm.cmd", "pnpm.exe"}
+    YARN_HEADS   = {"yarn", "yarn.cmd", "yarn.exe"}
+    BUN_HEADS    = {"bun", "bun.exe", "bun.cmd"}
+    GIT_HEADS    = {"git", "git.exe", "git.cmd"}
+    CARGO_HEADS  = {"cargo", "cargo.exe"}
+
+    GO_HEADS = {"go", "go.exe"}
+    NODE_RUNNERS = {
+        "npx", "npx.cmd", "npx.exe", "tsx", "tsx.cmd", "tsx.exe",
+        "deno", "deno.exe", "bunx", "bunx.exe", "bunx.cmd"
+    }
 
     def check_command_policy(
         self,
@@ -69,23 +90,135 @@ class CommandPolicy(NativeCodingComponent):
             )
 
         project_types = self.detect_project_types(workdir)
-        joined = " ".join(command)
-        if any(op in joined for op in self.CONTROL_OPERATORS):
+        control_reason = self._control_operator_reason(command)
+        if control_reason:
             return self._deny(
                 "shell_control_operator_forbidden",
                 risk="blocked",
-                reasons=["shell_control_operator"],
+                reasons=[control_reason],
                 execution_target="blocked"
             )
 
         head = Path(command[0]).name.lower()
+        if self._env_assignment_reason(command):
+            return self._deny(
+                "env_assignment_forbidden",
+                risk="blocked",
+                category="env_assignment",
+                reasons=["pass_environment_via_explicit_tool_option"],
+                execution_target="blocked"
+            )
+        wrapper_reason = self._shell_wrapper_reason(command)
+        if wrapper_reason:
+            if not allow_review:
+                return self._deny(
+                    "shell_wrapper_forbidden",
+                    risk="approval",
+                    category="shell_wrapper",
+                    reasons=[wrapper_reason, "approval_required_for_shell_wrapper"],
+                    approval_required=True,
+                    project_types=project_types,
+                    timeout_sec=timeout,
+                    output_limit=output_limit,
+                    long_task=long_task,
+                    execution_target="approval_required",
+                    requires_cloud_sandbox=True,
+                    sandbox_request=self._sandbox_request(
+                        command,
+                        cwd=workdir,
+                        timeout_sec=timeout,
+                        reasons=[wrapper_reason, "approval_required_for_shell_wrapper"],
+                        network_required=self._network_required(command, wrapper_reason),
+                        writable_paths=["."]
+                    )
+                )
+            return self._allow(
+                risk="approval",
+                category="shell_wrapper",
+                reasons=[wrapper_reason, "allow_review"],
+                approval_required=False,
+                project_types=project_types,
+                timeout_sec=timeout,
+                output_limit=output_limit,
+                long_task=long_task,
+                execution_target="cloud_sandbox",
+                requires_cloud_sandbox=True,
+                sandbox_request=self._sandbox_request(
+                    command,
+                    cwd=workdir,
+                    timeout_sec=timeout,
+                    reasons=[wrapper_reason, "allow_review"],
+                    network_required=self._network_required(command, wrapper_reason),
+                    writable_paths=["."]
+                )
+            )
+        inline_reason = self._inline_code_reason(command)
+        if inline_reason:
+            if not allow_review:
+                return self._deny(
+                    "inline_code_forbidden",
+                    risk="approval",
+                    category="inline_code",
+                    reasons=[inline_reason, "approval_required_for_inline_code"],
+                    approval_required=True,
+                    project_types=project_types,
+                    timeout_sec=timeout,
+                    output_limit=output_limit,
+                    long_task=long_task,
+                    execution_target="approval_required",
+                    requires_cloud_sandbox=True,
+                    sandbox_request=self._sandbox_request(
+                        command,
+                        cwd=workdir,
+                        timeout_sec=timeout,
+                        reasons=[inline_reason, "approval_required_for_inline_code"],
+                        network_required=self._network_required(command, inline_reason),
+                        writable_paths=["."]
+                    )
+                )
+            return self._allow(
+                risk="approval",
+                category="inline_code",
+                reasons=[inline_reason, "allow_review"],
+                approval_required=False,
+                project_types=project_types,
+                timeout_sec=timeout,
+                output_limit=output_limit,
+                long_task=long_task,
+                execution_target="cloud_sandbox",
+                requires_cloud_sandbox=True,
+                sandbox_request=self._sandbox_request(
+                    command,
+                    cwd=workdir,
+                    timeout_sec=timeout,
+                    reasons=[inline_reason, "allow_review"],
+                    network_required=self._network_required(command, inline_reason),
+                    writable_paths=["."]
+                )
+            )
+
         if head in self.DANGEROUS_COMMANDS:
             if not allow_dangerous:
                 return self._deny(
                     "dangerous_command_forbidden",
-                    risk="blocked",
-                    reasons=[f"dangerous_command:{head}"],
-                    execution_target="blocked"
+                    risk="approval",
+                    category="dangerous",
+                    reasons=[f"dangerous_command:{head}", "approval_required_for_dangerous_command"],
+                    approval_required=True,
+                    project_types=project_types,
+                    timeout_sec=timeout,
+                    output_limit=output_limit,
+                    long_task=long_task,
+                    execution_target="approval_required",
+                    requires_cloud_sandbox=True,
+                    sandbox_request=self._sandbox_request(
+                        command,
+                        cwd=workdir,
+                        timeout_sec=timeout,
+                        reasons=[f"dangerous_command:{head}", "approval_required_for_dangerous_command"],
+                        network_required=False,
+                        writable_paths=["."]
+                    )
                 )
             return self._allow(
                 risk="dangerous",
@@ -154,12 +287,47 @@ class CommandPolicy(NativeCodingComponent):
 
         write_reason = self._write_reason(command)
         if write_reason:
-            return self._deny(
-                "shell_write_forbidden",
-                risk="blocked",
+            if not allow_review:
+                return self._deny(
+                    "shell_write_forbidden",
+                    risk="approval",
+                    category="write",
+                    reasons=[write_reason, "approval_required_for_shell_write"],
+                    approval_required=True,
+                    project_types=project_types,
+                    timeout_sec=timeout,
+                    output_limit=output_limit,
+                    long_task=long_task,
+                    execution_target="approval_required",
+                    requires_cloud_sandbox=True,
+                    sandbox_request=self._sandbox_request(
+                        command,
+                        cwd=workdir,
+                        timeout_sec=timeout,
+                        reasons=[write_reason, "approval_required_for_shell_write"],
+                        network_required=False,
+                        writable_paths=["."]
+                    )
+                )
+            return self._allow(
+                risk="approval",
                 category="write",
-                reasons=[write_reason, "use_workspace_write_or_patch_tools"],
-                execution_target="blocked"
+                reasons=[write_reason, "allow_review"],
+                approval_required=False,
+                project_types=project_types,
+                timeout_sec=timeout,
+                output_limit=output_limit,
+                long_task=long_task,
+                execution_target="cloud_sandbox",
+                requires_cloud_sandbox=True,
+                sandbox_request=self._sandbox_request(
+                    command,
+                    cwd=workdir,
+                    timeout_sec=timeout,
+                    reasons=[write_reason, "allow_review"],
+                    network_required=False,
+                    writable_paths=["."]
+                )
             )
 
         if self._is_test_command(command, project_types):
@@ -222,26 +390,81 @@ class CommandPolicy(NativeCodingComponent):
     def _approval_reason(self, cmd: list[str]) -> str | None:
         head = Path(cmd[0]).name.lower()
         args = [str(item).lower() for item in cmd[1:]]
+        effective_args = self._effective_subcommand_args(head, args)
 
         if head in self.NETWORK_COMMANDS:
             return f"network_command:{head}"
 
-        if head in {"pip", "pip3"} and args[:1] in (["install"], ["uninstall"]):
-            return f"dependency_change:{head}:{args[0]}"
-        if head in {"python", "python3"} and len(args) >= 3 and args[0:2] == ["-m", "pip"] and args[2] in {"install", "uninstall"}:
+        if head in self.PIP_HEADS and effective_args[:1] in (["install"], ["uninstall"]):
+            return f"dependency_change:{head}:{effective_args[0]}"
+        if head in self.PYTHON_HEADS and len(args) >= 3 and args[0:2] == ["-m", "pip"] and args[2] in {"install", "uninstall"}:
             return f"dependency_change:python_m_pip:{args[2]}"
-        if head in {"npm", "pnpm"} and args and args[0] in {"install", "i", "add", "remove", "uninstall", "update"}:
-            return f"dependency_change:{head}:{args[0]}"
-        if head == "yarn" and (not args or args[0] in {"add", "remove", "install", "upgrade"}):
-            return f"dependency_change:yarn:{args[0] if args else 'install'}"
-        if head == "bun" and args and args[0] in {"add", "remove", "install", "update"}:
-            return f"dependency_change:bun:{args[0]}"
-        if head == "cargo" and args and args[0] in {"add", "remove", "update", "install"}:
-            return f"dependency_change:cargo:{args[0]}"
-        if head == "go" and args and args[0] in {"get", "install"}:
-            return f"dependency_change:go:{args[0]}"
-        if head == "git" and len(args) >= 1 and args[0] in self.REVIEW_GIT_SUBCOMMANDS:
-            return f"git_write_subcommand:{args[0]}"
+        if head in self.PYTHON_HEADS and len(args) >= 2 and args[0:2] == ["-m", "ensurepip"]:
+            return "dependency_change:python_m_ensurepip"
+        if head in self.PYTHON_HEADS and len(args) >= 2 and args[0] == "-m" and args[1] in {"pipenv", "poetry"}:
+            return f"script_runner:python_m_{args[1]}"
+        if head in self.NPM_HEADS and effective_args and effective_args[0] in {"install", "i", "add", "remove", "uninstall", "update"}:
+            return f"dependency_change:{head}:{effective_args[0]}"
+        if head in self.NPM_HEADS and effective_args and effective_args[0] in {"exec", "dlx", "create"}:
+            return f"script_runner:{head}:{effective_args[0]}"
+        if head in self.NPM_HEADS and effective_args and effective_args[0] == "run":
+            script = effective_args[1] if len(effective_args) > 1 else ""
+            if script not in {"test", "lint", "typecheck"}:
+                return f"package_script:{head}:{script or 'missing'}"
+        if head in self.YARN_HEADS and (not effective_args or effective_args[0] in {"add", "remove", "install", "upgrade"}):
+            return f"dependency_change:yarn:{effective_args[0] if effective_args else 'install'}"
+        if head in self.YARN_HEADS and effective_args and effective_args[0] in {"exec", "dlx", "create"}:
+            return f"script_runner:{head}:{effective_args[0]}"
+        if head in self.YARN_HEADS and effective_args and effective_args[0] == "run":
+            script = effective_args[1] if len(effective_args) > 1 else ""
+            if script not in {"test", "lint", "typecheck"}:
+                return f"package_script:yarn:{script or 'missing'}"
+        if head in self.BUN_HEADS and effective_args and effective_args[0] in {"add", "remove", "install", "update"}:
+            return f"dependency_change:bun:{effective_args[0]}"
+        if head in self.BUN_HEADS and effective_args and effective_args[0] in {"x", "create"}:
+            return f"script_runner:{head}:{effective_args[0]}"
+        if head in self.BUN_HEADS and effective_args and effective_args[0] == "run":
+            script = effective_args[1] if len(effective_args) > 1 else ""
+            if script not in {"test", "lint", "typecheck"}:
+                return f"package_script:bun:{script or 'missing'}"
+        if head in self.NODE_RUNNERS:
+            return f"script_runner:{head}"
+        if head in self.CARGO_HEADS and effective_args and effective_args[0] in {"add", "remove", "update", "install"}:
+            return f"dependency_change:cargo:{effective_args[0]}"
+        if head in self.GO_HEADS and effective_args and effective_args[0] in {"get", "install"}:
+            return f"dependency_change:go:{effective_args[0]}"
+        if head in self.GIT_HEADS and len(effective_args) >= 1 and effective_args[0] in self.REVIEW_GIT_SUBCOMMANDS:
+            return f"git_write_subcommand:{effective_args[0]}"
+        return None
+
+    def _shell_wrapper_reason(self, cmd: list[str]) -> str | None:
+        head = Path(cmd[0]).name.lower()
+        if head not in self.SHELL_WRAPPERS:
+            return None
+        args = [str(item).lower() for item in cmd[1:]]
+        if head in {"sh", "bash", "zsh"} and not any(item in {"-c", "-lc"} for item in args):
+            return None
+        return f"shell_wrapper:{head}"
+
+    def _inline_code_reason(self, cmd: list[str]) -> str | None:
+        head = Path(cmd[0]).name.lower()
+        args = [str(item).lower() for item in cmd[1:]]
+        if head in self.PYTHON_HEADS and any(item == "-c" for item in args):
+            return f"inline_code:{head}:-c"
+        if head in (self.NODE_HEADS | {"deno", "deno.exe"}) and any(item in {"-e", "--eval", "eval"} for item in args):
+            return f"inline_code:{head}:eval"
+        return None
+
+    @staticmethod
+    def _env_assignment_reason(cmd: list[str]) -> str | None:
+        head = str(cmd[0] or "")
+        if "=" not in head:
+            return None
+        name, value = head.split("=", 1)
+        if not name or not value:
+            return None
+        if all(ch.isalnum() or ch == "_" for ch in name):
+            return f"env_assignment:{name}"
         return None
 
     def _write_reason(self, cmd: list[str]) -> str | None:
@@ -249,6 +472,14 @@ class CommandPolicy(NativeCodingComponent):
         args = [str(item).lower() for item in cmd[1:]]
         if head in self.WRITE_COMMANDS:
             return f"write_command:{head}"
+        if head in {"rsync", "rsync.exe"}:
+            return f"write_command:{head}"
+        if head in {"tar", "tar.exe"} and any(self._tar_extract_flag(item) for item in args):
+            return "write_command:tar_extract"
+        if head in {"unzip", "unzip.exe"} and not any(item in {"-l", "-t", "-v", "-z"} for item in args):
+            return "write_command:unzip_extract"
+        if head in {"7z", "7z.exe", "7za", "7za.exe"} and args and args[0] in {"x", "e", "a", "d", "rn"}:
+            return f"write_command:7z_{args[0]}"
         if head == "sed" and any(item.startswith("-i") for item in args):
             return "write_command:sed_in_place"
         if head == "perl" and any(item.startswith("-pi") or item.startswith("-i") for item in args):
@@ -256,38 +487,149 @@ class CommandPolicy(NativeCodingComponent):
         return None
 
     @staticmethod
+    def _control_operator_reason(cmd: list[str]) -> str | None:
+        control_tokens = {";", "&&", "||", "|", ">", ">>", "<"}
+        for item in cmd:
+            text = str(item or "")
+            if text in control_tokens:
+                return f"shell_control_operator:{text}"
+            if text.startswith((">", ">>", "<", "1>", "2>", "&>")):
+                return f"shell_control_operator:{text}"
+            if "$(" in text:
+                return "shell_control_operator:$("
+            if "`" in text:
+                return "shell_control_operator:`"
+        return None
+
+    @staticmethod
+    def _tar_extract_flag(arg: str) -> bool:
+        if arg in {"--extract", "--get"}:
+            return True
+        if not arg.startswith("-") or arg.startswith("--"):
+            return False
+        return "x" in arg.lstrip("-")
+
+    @staticmethod
     def _is_test_command(cmd: list[str], project_types: list[str]) -> bool:
         head = Path(cmd[0]).name.lower()
         args = [str(item).lower() for item in cmd[1:]]
+        effective_args = CommandPolicy._effective_subcommand_args(head, args)
         projects = set(project_types)
-        if head == "pytest" or (head in {"python", "python3"} and args[:2] == ["-m", "pytest"]):
+        if head == "pytest" or (head in CommandPolicy.PYTHON_HEADS and args[:2] == ["-m", "pytest"]):
             return not projects or "python" in projects
-        if head in {"python", "python3"} and args[:2] == ["-m", "unittest"]:
+        if head in CommandPolicy.PYTHON_HEADS and args[:2] == ["-m", "unittest"]:
             return not projects or "python" in projects
         if head in {"ruff", "mypy"}:
             return not projects or "python" in projects
-        if head in {"npm", "pnpm", "yarn", "bun"} and args and args[0] in {"test", "run"}:
-            if args[0] == "run" and len(args) > 1 and args[1] not in {"test", "lint", "typecheck"}:
+        if head in (CommandPolicy.NPM_HEADS | CommandPolicy.YARN_HEADS | CommandPolicy.BUN_HEADS) and effective_args and effective_args[0] in {"test", "run"}:
+            if effective_args[0] == "run" and len(effective_args) > 1 and effective_args[1] not in {"test", "lint", "typecheck"}:
                 return False
             return not projects or "node" in projects
         if head in {"jest", "vitest"}:
             return not projects or "node" in projects
         if head == "tsc" and "--noemit" in args:
             return not projects or "node" in projects
-        if head == "go" and args[:1] == ["test"]:
+        if head in CommandPolicy.GO_HEADS and effective_args[:1] == ["test"]:
             return not projects or "go" in projects
-        if head == "cargo" and args[:1] in (["test"], ["check"]):
+        if head in CommandPolicy.CARGO_HEADS and effective_args[:1] in (["test"], ["check"]):
             return not projects or "rust" in projects
         return False
 
     def _is_read_command(self, cmd: list[str]) -> bool:
         head = Path(cmd[0]).name.lower()
         args = [str(item).lower() for item in cmd[1:]]
-        if head == "git":
-            return bool(args and args[0] in {"status", "diff", "log", "show", "rev-parse", "branch"})
-        if head in {"pip", "pip3", "npm", "pnpm", "yarn", "bun", "cargo", "go"}:
-            return bool(args and args[0] in {"--version", "-v", "version", "list", "info"})
+        effective_args = self._effective_subcommand_args(head, args)
+        if head in self.GIT_HEADS:
+            return bool(effective_args and effective_args[0] in {"status", "diff", "log", "show", "rev-parse", "branch"})
+        if head in (self.PIP_HEADS | self.NPM_HEADS | self.YARN_HEADS | self.BUN_HEADS | self.CARGO_HEADS | self.GO_HEADS):
+            return bool(effective_args and effective_args[0] in {"--version", "-v", "version", "list", "info"})
         return head in self.READ_COMMANDS
+
+    @staticmethod
+    def _effective_subcommand_args(head: str, args: list[str]) -> list[str]:
+        if head in CommandPolicy.GIT_HEADS:
+            return CommandPolicy._strip_leading_options(
+                args,
+                options_with_values={"-c", "--git-dir", "--work-tree", "--namespace", "--config-env"},
+                options_with_inline_values=("--git-dir=", "--work-tree=", "--namespace=", "--config-env="),
+                options_without_values={"--no-pager", "--paginate", "--bare", "--no-optional-locks"}
+            )
+        if head in CommandPolicy.YARN_HEADS:
+            stripped = CommandPolicy._strip_leading_options(
+                args,
+                options_with_values={"--cwd", "--workspace", "-w"},
+                options_with_inline_values=("--cwd=", "--workspace="),
+                options_without_values={"--silent", "--workspaces", "--include-workspace-root"}
+            )
+            return CommandPolicy._normalize_yarn_workspace_args(stripped)
+        if head in CommandPolicy.BUN_HEADS:
+            return CommandPolicy._strip_leading_options(
+                args,
+                options_with_values={"--cwd", "--filter", "-F"},
+                options_with_inline_values=("--cwd=", "--filter="),
+                options_without_values={"--silent"}
+            )
+        if head in {"pnpm", "pnpm.cmd", "pnpm.exe"}:
+            return CommandPolicy._strip_leading_options(
+                args,
+                options_with_values={"--dir", "-c", "--filter", "-f", "--workspace", "-w"},
+                options_with_inline_values=("--dir=", "--filter=", "--workspace="),
+                options_without_values={"--silent", "--workspace-root"}
+            )
+        if head in CommandPolicy.NPM_HEADS:
+            return CommandPolicy._strip_leading_options(
+                args,
+                options_with_values={"--prefix", "--workspace", "-w"},
+                options_with_inline_values=("--prefix=", "--workspace="),
+                options_without_values={"--silent", "--workspaces", "--include-workspace-root"}
+            )
+        return args
+
+    @staticmethod
+    def _normalize_yarn_workspace_args(args: list[str]) -> list[str]:
+        if len(args) >= 3 and args[0] == "workspace":
+            return args[2:]
+        if len(args) >= 4 and args[0] == "workspaces" and args[1] == "foreach":
+            index = 2
+            while index < len(args):
+                item = args[index]
+                if item == "--":
+                    return args[index + 1:]
+                if item in {"--from", "--include", "--exclude", "-a", "--all", "-r", "--recursive"}:
+                    index += 2 if item in {"--from", "--include", "--exclude"} else 1
+                    continue
+                if item.startswith("--from=") or item.startswith("--include=") or item.startswith("--exclude="):
+                    index += 1
+                    continue
+                break
+            if index < len(args) and args[index] == "run":
+                return args[index:]
+        return args
+
+    @staticmethod
+    def _strip_leading_options(
+        args: list[str],
+        *,
+        options_with_values: set[str],
+        options_with_inline_values: tuple[str, ...],
+        options_without_values: set[str]
+    ) -> list[str]:
+        index = 0
+        while index < len(args):
+            item = args[index]
+            if item == "--":
+                return args[index + 1:]
+            if item in options_with_values:
+                index += 2
+                continue
+            if any(item.startswith(prefix) for prefix in options_with_inline_values):
+                index += 1
+                continue
+            if item in options_without_values:
+                index += 1
+                continue
+            break
+        return args[index:]
 
     def _sandbox_request(
         self,
@@ -299,24 +641,25 @@ class CommandPolicy(NativeCodingComponent):
         network_required: bool,
         writable_paths: list[str]
     ) -> dict[str, typing.Any]:
-        cwd_rel = self._rel(cwd)
-        materialization = self._workspace_materialization(cwd)
-        inline = materialization.get("inline") or {}
+        cwd_rel           = self._rel(cwd)
+        materialization   = self._workspace_materialization(cwd)
+        inline            = materialization.get("inline") or {}
         workspace_archive = materialization.get("workspace_archive") or {}
-        repo_ref = materialization.get("repo_ref") or {}
+        repo_ref          = materialization.get("repo_ref") or {}
+
         return {
-            "protocol_version": 1,
-            "request_kind": "command",
-            "runtime": "native_coding",
-            "command": list(cmd),
-            "cwd": cwd_rel,
-            "timeout_sec": int(timeout_sec),
-            "network_required": bool(network_required),
-            "writable_paths": list(writable_paths),
+            "protocol_version" : 1,
+            "request_kind"     : "command",
+            "runtime"          : "native_coding",
+            "command"          : list(cmd),
+            "cwd"              : cwd_rel,
+            "timeout_sec"      : int(timeout_sec),
+            "network_required" : bool(network_required),
+            "writable_paths"   : list(writable_paths),
             "workspace": {
-                "kind": "local_workspace",
-                "root": str(self.root),
-                "cwd": cwd_rel,
+                "kind" : "local_workspace",
+                "root" : str(self.root),
+                "cwd"  : cwd_rel,
                 "materialization_required": True,
                 "materialization": {
                     "strategy": materialization.get("strategy") or "cloud_runtime_attach_workspace",
@@ -326,30 +669,34 @@ class CommandPolicy(NativeCodingComponent):
                         "repo_ref",
                         "inline_files"
                     ],
-                    "preferred_refs": materialization.get("preferred_refs") or [],
-                    "inline": inline,
-                    "manifest": materialization.get("manifest") or {},
-                    "workspace_archive": workspace_archive,
-                    "repo_ref": repo_ref,
-                    "note": "command/cwd is not enough; cloud must materialize the same workspace before execution"
+                    "preferred_refs"    : materialization.get("preferred_refs") or [],
+                    "inline"            : inline,
+                    "manifest"          : materialization.get("manifest") or {},
+                    "workspace_archive" : workspace_archive,
+                    "repo_ref"          : repo_ref,
+                    "note"              : "command/cwd is not enough; cloud must materialize the same workspace before execution"
                 }
             },
-            "project_types": self.detect_project_types(cwd),
-            "reasons": list(reasons)
+            "project_types" : self.detect_project_types(cwd),
+            "reasons"       : list(reasons)
         }
 
     def _workspace_materialization(self, cwd: Path) -> dict[str, typing.Any]:
         inline_files: list[dict[str, typing.Any]] = []
-        inline_total_bytes = 0
+
+        inline_total_bytes   = 0
         inline_omitted_count = 0
-        inline_truncated = False
+        inline_truncated     = False
+
         manifest_files: list[dict[str, typing.Any]] = []
-        manifest_total_bytes = 0
+        manifest_total_bytes   = 0
         manifest_omitted_count = 0
-        manifest_truncated = False
-        text_file_count = 0
-        binary_file_count = 0
+        manifest_truncated     = False
+        text_file_count        = 0
+        binary_file_count      = 0
+
         base = self.root
+
         for path in self._walk(base, recursive=True):
             if not path.is_file():
                 continue
@@ -372,9 +719,9 @@ class CommandPolicy(NativeCodingComponent):
                 manifest_truncated = True
             else:
                 item: dict[str, typing.Any] = {
-                    "path": rel,
-                    "bytes": size,
-                    "text": looks_text
+                    "path"  : rel,
+                    "bytes" : size,
+                    "text"  : looks_text
                 }
                 if size <= self.MATERIALIZATION_MANIFEST_HASH_MAX_BYTES:
                     try:
@@ -413,10 +760,10 @@ class CommandPolicy(NativeCodingComponent):
             encoded_size = len(content.encode("utf-8"))
             inline_total_bytes += encoded_size
             inline_files.append({
-                "path": rel,
-                "content": content,
-                "sha256": self._sha256(content.encode("utf-8")),
-                "bytes": encoded_size
+                "path"    : rel,
+                "content" : content,
+                "sha256"  : self._sha256(content.encode("utf-8")),
+                "bytes"   : encoded_size
             })
 
         inline_complete = not inline_truncated and inline_omitted_count == 0
@@ -429,46 +776,46 @@ class CommandPolicy(NativeCodingComponent):
             "inline_files"
         ]
         return {
-            "base": self._rel(cwd),
-            "strategy": "inline_files" if inline_complete else "workspace_archive_or_repo_ref",
-            "preferred_refs": preferred_refs,
+            "base"           : self._rel(cwd),
+            "strategy"       : "inline_files" if inline_complete else "workspace_archive_or_repo_ref",
+            "preferred_refs" : preferred_refs,
             "inline": {
-                "kind": "inline_files",
-                "files": inline_files,
-                "file_count": len(inline_files),
-                "total_bytes": inline_total_bytes,
-                "truncated": inline_truncated,
-                "omitted_count": inline_omitted_count,
-                "complete": inline_complete,
-                "max_files": self.MATERIALIZATION_MAX_FILES,
-                "max_bytes": self.MATERIALIZATION_MAX_BYTES,
-                "max_file_bytes": self.MATERIALIZATION_MAX_FILE_BYTES
+                "kind"          : "inline_files",
+                "files"         : inline_files,
+                "file_count"    : len(inline_files),
+                "total_bytes"   : inline_total_bytes,
+                "truncated"     : inline_truncated,
+                "omitted_count" : inline_omitted_count,
+                "complete"      : inline_complete,
+                "max_files"      : self.MATERIALIZATION_MAX_FILES,
+                "max_bytes"      : self.MATERIALIZATION_MAX_BYTES,
+                "max_file_bytes" : self.MATERIALIZATION_MAX_FILE_BYTES
             },
             "manifest": {
-                "kind": "workspace_manifest",
-                "base": self._rel(cwd),
-                "files": manifest_files,
-                "file_count": len(manifest_files),
-                "total_bytes": manifest_total_bytes,
-                "text_file_count": text_file_count,
-                "binary_file_count": binary_file_count,
-                "truncated": manifest_truncated,
-                "omitted_count": manifest_omitted_count,
-                "max_files": self.MATERIALIZATION_MANIFEST_MAX_FILES,
-                "fingerprint": self._manifest_fingerprint(manifest_files)
+                "kind"              : "workspace_manifest",
+                "base"              : self._rel(cwd),
+                "files"             : manifest_files,
+                "file_count"        : len(manifest_files),
+                "total_bytes"       : manifest_total_bytes,
+                "text_file_count"   : text_file_count,
+                "binary_file_count" : binary_file_count,
+                "truncated"         : manifest_truncated,
+                "omitted_count"     : manifest_omitted_count,
+                "max_files"         : self.MATERIALIZATION_MANIFEST_MAX_FILES,
+                "fingerprint"       : self._manifest_fingerprint(manifest_files)
             },
             "workspace_archive": {
-                "kind": "workspace_archive",
-                "required": archive_required,
-                "available": False,
-                "transport": "client_upload_required",
-                "format": "tar.gz",
-                "root": str(self.root),
-                "cwd": self._rel(cwd),
-                "exclude_dirs": sorted(self.DEFAULT_EXCLUDES),
-                "file_count": len(manifest_files),
-                "total_bytes": manifest_total_bytes,
-                "reason": "inline_materialization_incomplete" if archive_required else "inline_materialization_complete"
+                "kind"         : "workspace_archive",
+                "required"     : archive_required,
+                "available"    : False,
+                "transport"    : "client_upload_required",
+                "format"       : "tar.gz",
+                "root"         : str(self.root),
+                "cwd"          : self._rel(cwd),
+                "exclude_dirs" : sorted(self.DEFAULT_EXCLUDES),
+                "file_count"   : len(manifest_files),
+                "total_bytes"  : manifest_total_bytes,
+                "reason"       : "inline_materialization_incomplete" if archive_required else "inline_materialization_complete"
             },
             "repo_ref": repo_ref
         }
@@ -477,18 +824,18 @@ class CommandPolicy(NativeCodingComponent):
         git_dir = self.root / ".git"
         if not git_dir.exists():
             return {
-                "kind": "repo_ref",
-                "available": False,
-                "reason": "not_git_workspace"
+                "kind"      : "repo_ref",
+                "available" : False,
+                "reason"    : "not_git_workspace"
             }
         head_path = git_dir / "HEAD"
         try:
             head_text = head_path.read_text(encoding="utf-8").strip()
         except OSError:
             return {
-                "kind": "repo_ref",
-                "available": False,
-                "reason": "head_unreadable"
+                "kind"      : "repo_ref",
+                "available" : False,
+                "reason"    : "head_unreadable"
             }
         branch: str | None = None
         commit: str | None = None
@@ -503,13 +850,13 @@ class CommandPolicy(NativeCodingComponent):
         elif head_text:
             commit = head_text
         return {
-            "kind": "repo_ref",
-            "available": bool(commit),
-            "root": str(self.root),
-            "branch": branch,
-            "commit": commit,
-            "requires_server_repo_access": True,
-            "note": "repo_ref is usable only when cloud runtime can fetch or already has this repository"
+            "kind"                        : "repo_ref",
+            "available"                   : bool(commit),
+            "root"                        : str(self.root),
+            "branch"                      : branch,
+            "commit"                      : commit,
+            "requires_server_repo_access" : True,
+            "note"                        : "repo_ref is usable only when cloud runtime can fetch or already has this repository"
         }
 
     def _manifest_fingerprint(self, files: list[dict[str, typing.Any]]) -> str:
