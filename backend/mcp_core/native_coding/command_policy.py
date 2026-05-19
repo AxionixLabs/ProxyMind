@@ -646,6 +646,14 @@ class CommandPolicy(NativeCodingComponent):
         inline            = materialization.get("inline") or {}
         workspace_archive = materialization.get("workspace_archive") or {}
         repo_ref          = materialization.get("repo_ref") or {}
+        outside_sandbox_request = self._outside_sandbox_request(
+            cmd,
+            cwd=cwd,
+            timeout_sec=timeout_sec,
+            reasons=reasons,
+            network_required=network_required,
+            writable_paths=writable_paths
+        )
 
         return {
             "protocol_version" : 1,
@@ -677,8 +685,36 @@ class CommandPolicy(NativeCodingComponent):
                     "note"              : "command/cwd is not enough; cloud must materialize the same workspace before execution"
                 }
             },
-            "project_types" : self.detect_project_types(cwd),
-            "reasons"       : list(reasons)
+            "project_types"           : self.detect_project_types(cwd),
+            "reasons"                 : list(reasons),
+            "unavailable_next_action" : "request_outside_sandbox_execution",
+            "outside_sandbox_request" : outside_sandbox_request
+        }
+
+    def _outside_sandbox_request(
+        self,
+        cmd: list[str],
+        *,
+        cwd: Path,
+        timeout_sec: int,
+        reasons: list[str],
+        network_required: bool,
+        writable_paths: list[str]
+    ) -> dict[str, typing.Any]:
+        return {
+            "protocol_version"    : 1,
+            "request_kind"        : "outside_sandbox_execution",
+            "runtime"             : "native_coding",
+            "command"             : list(cmd),
+            "cwd"                 : self._rel(cwd),
+            "timeout_sec"         : int(timeout_sec),
+            "sandbox_permissions" : "require_escalated",
+            "approval_required"   : True,
+            "trigger"             : "cloud_sandbox_unavailable",
+            "network_required"    : bool(network_required),
+            "writable_paths"      : list(writable_paths),
+            "reasons"             : list(reasons),
+            "justification"       : "Cloud sandbox is unavailable; request user approval to run this command outside the sandbox."
         }
 
     def _workspace_materialization(self, cwd: Path) -> dict[str, typing.Any]:
@@ -884,6 +920,9 @@ class CommandPolicy(NativeCodingComponent):
         payload: dict[str, typing.Any] = {"ok": True, **data}
         payload.setdefault("execution_target", "local")
         payload.setdefault("requires_cloud_sandbox", False)
+        sandbox_request = payload.get("sandbox_request")
+        if isinstance(sandbox_request, dict) and "outside_sandbox_request" not in payload:
+            payload["outside_sandbox_request"] = sandbox_request.get("outside_sandbox_request")
         return payload
 
     @staticmethod
@@ -891,6 +930,9 @@ class CommandPolicy(NativeCodingComponent):
         payload: dict[str, typing.Any] = {"ok": False, "reason": reason, "risk": risk, **data}
         payload.setdefault("execution_target", "blocked")
         payload.setdefault("requires_cloud_sandbox", False)
+        sandbox_request = payload.get("sandbox_request")
+        if isinstance(sandbox_request, dict) and "outside_sandbox_request" not in payload:
+            payload["outside_sandbox_request"] = sandbox_request.get("outside_sandbox_request")
         return payload
 
 

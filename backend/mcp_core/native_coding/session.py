@@ -792,7 +792,8 @@ class SessionTools(NativeCodingComponent):
                 project_types=policy.get("project_types") or [],
                 execution_target=policy.get("execution_target"),
                 requires_cloud_sandbox=bool(policy.get("requires_cloud_sandbox")),
-                sandbox_request=policy.get("sandbox_request")
+                sandbox_request=policy.get("sandbox_request"),
+                outside_sandbox_request=policy.get("outside_sandbox_request")
             )
         cwd = self._preflight_resolve(args.get("cwd") or ".")
         if not cwd.is_dir():
@@ -808,6 +809,7 @@ class SessionTools(NativeCodingComponent):
             execution_target=policy.get("execution_target"),
             requires_cloud_sandbox=bool(policy.get("requires_cloud_sandbox")),
             sandbox_request=policy.get("sandbox_request"),
+            outside_sandbox_request=policy.get("outside_sandbox_request"),
             project_types=policy.get("project_types") or [],
             long_task=bool(policy.get("long_task")),
             timeout_sec=policy.get("timeout_sec"),

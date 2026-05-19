@@ -44,7 +44,8 @@ class ShellGitTools(NativeCodingComponent):
                 project_types=policy.get("project_types") or [],
                 execution_target=policy.get("execution_target"),
                 requires_cloud_sandbox=bool(policy.get("requires_cloud_sandbox")),
-                sandbox_request=policy.get("sandbox_request")
+                sandbox_request=policy.get("sandbox_request"),
+                outside_sandbox_request=policy.get("outside_sandbox_request")
             )
 
         workdir = self._resolve(cwd)
@@ -64,6 +65,7 @@ class ShellGitTools(NativeCodingComponent):
                 execution_target="cloud_sandbox",
                 requires_cloud_sandbox=True,
                 sandbox_request=policy.get("sandbox_request"),
+                outside_sandbox_request=policy.get("outside_sandbox_request"),
                 project_types=policy.get("project_types") or [],
                 long_task=bool(policy.get("long_task")),
                 timeout_sec=policy.get("timeout_sec"),
@@ -124,6 +126,7 @@ class ShellGitTools(NativeCodingComponent):
                 "execution_target": policy.get("execution_target"),
                 "requires_cloud_sandbox": bool(policy.get("requires_cloud_sandbox")),
                 "sandbox_request": policy.get("sandbox_request"),
+                "outside_sandbox_request": policy.get("outside_sandbox_request"),
                 "project_types": policy.get("project_types") or [],
                 "long_task": bool(policy.get("long_task")),
                 "timeout_sec": effective_timeout,
