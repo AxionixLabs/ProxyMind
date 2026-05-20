@@ -3,6 +3,7 @@
 
 import typing
 from dataclasses import dataclass
+from pathlib import Path
 
 MISSING = object()
 
@@ -102,6 +103,19 @@ def _result_payload(data: typing.Any) -> dict[str, typing.Any]:
 
 def _path_from_args(args: dict[str, typing.Any]) -> str:
     return str(args.get("path") or ".").strip() or "."
+
+
+def local_path_exists(arguments: dict[str, typing.Any]) -> typing.Any:
+    """Return whether the path argument exists, or MISSING when it cannot be checked."""
+    if not isinstance(arguments, dict):
+        return MISSING
+    raw_path = str(arguments.get("path") or "").strip()
+    if not raw_path:
+        return MISSING
+    try:
+        return Path(raw_path).expanduser().resolve().exists()
+    except OSError:
+        return MISSING
 
 
 def _command_text(command: typing.Any) -> str:

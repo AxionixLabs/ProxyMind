@@ -3,7 +3,6 @@
 
 import typing
 import asyncio
-from pathlib import Path
 from mind_app.mcp import McpSessionLike
 from engine.enhancer import Enhancer
 from engine.tinker import Tooling
@@ -15,12 +14,31 @@ from ..runtime.loop_support import (
 )
 from ..runtime.tool_run import run_tool_step
 from ..runtime.cloud_sandbox import normalize_cloud_sandbox_handoff
+from ..runtime.tool_approval import (
+    ApprovalStore,
+    approval_prompt_parts,
+    approval_prompt_text,
+    approval_id_from_event,
+    prompt_tool_approval,
+    validate_shell_approval
+)
 from ..stream_events.responses_builtin import (
-    resolve_builtin_name, consume_builtin_done
+    resolve_builtin_name,
+    consume_builtin_done
+)
+from ..stream_events.approval_trace import (
+    render_approval_approved_trace,
+    render_approval_denied_trace,
+    render_approval_trace_parts
 )
 from ..stream_events.tool_trace import (
-    MISSING, is_native_coding_trace_tool, render_tool_result_preview,
-    render_tool_start_trace, render_tool_trace, render_tool_trace_parts
+    MISSING,
+    is_native_coding_trace_tool,
+    local_path_exists,
+    render_tool_result_preview,
+    render_tool_start_trace,
+    render_tool_trace,
+    render_tool_trace_parts
 )
 from ..stream_state.segment import (
     SegmentTracker, build_sources_text
@@ -28,19 +46,6 @@ from ..stream_state.segment import (
 
 if typing.TYPE_CHECKING:
     from ..mind_core import Mind
-
-
-def _local_path_exists(arguments: dict[str, typing.Any]) -> typing.Any:
-    """Best-effort local existence check for Codex-style add/edit traces."""
-    if not isinstance(arguments, dict):
-        return MISSING
-    raw_path = str(arguments.get("path") or "").strip()
-    if not raw_path:
-        return MISSING
-    try:
-        return Path(raw_path).expanduser().resolve().exists()
-    except OSError:
-        return MISSING
 
 
 async def stream_looper(
@@ -84,11 +89,13 @@ async def stream_looper(
         raise ValueError(f"Invalid mode: {mode}")
 
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
+    approval_input_func = kwargs.pop("approval_input_func", None)
 
     slog: StreamUI = StreamUI(mind.report.log_papers)
 
     interrupted = False
     first_frame = True
+    approvals = ApprovalStore()
 
     try:
         await slog.open()
@@ -144,10 +151,79 @@ async def stream_looper(
                 await slog.end_status()
                 continue
 
+            if event_type == "tool.approval_required":
+                approval = event.get("approval") if isinstance(event.get("approval"), dict) else {}
+                await slog.end_status()
+                await slog.settle_stream()
+                await slog.feed(
+                    approval_prompt_text(approval),
+                    display=StreamUI.BLOCK,
+                    display_parts=approval_prompt_parts(approval)
+                )
+                await slog.settle_stream()
+                await slog.coordinator.text_renderer.suspend()
+
+                approved = await prompt_tool_approval(
+                    approval,
+                    input_func=approval_input_func,
+                    show_prompt=False
+                )
+                approval_id = approval_id_from_event(event)
+                reason = None if approved else "user denied"
+                approvals.mark_decision(
+                    call_id=str(event.get("call_id") or ""),
+                    approval=approval,
+                    approved=approved
+                )
+                await request.post_tool_approval(
+                    event["cid"],
+                    event["sid"],
+                    event["call_id"],
+                    approval_id,
+                    approved,
+                    reason=reason
+                )
+
+                done_title = (
+                    render_approval_approved_trace(approval)
+                    if approved else render_approval_denied_trace(approval)
+                )
+                await slog.feed(
+                    f"{done_title}\n",
+                    display=StreamUI.BLOCK,
+                    display_parts=render_approval_trace_parts(
+                        done_title,
+                        approval=approval,
+                        state="approved" if approved else "denied"
+                    )
+                )
+                await slog.begin_reply_wait_status("waiting execution result")
+                continue
+
             if event_type == "tool.call":
                 name, arguments = event["name"], event.get("arguments", {})
                 event_meta = event.get("meta") if isinstance(event.get("meta"), dict) else None
                 summary = Tooling.summarize_tool_arguments(name, arguments)
+                if not isinstance(arguments, dict):
+                    arguments = {}
+
+                approval_decision = validate_shell_approval(
+                    event=event,
+                    name=name,
+                    arguments=arguments,
+                    store=approvals
+                )
+                if approval_decision.action in {"request", "reject"}:
+                    await request.post_tool_result(
+                        event["cid"],
+                        event["sid"],
+                        event["call_id"],
+                        name,
+                        False,
+                        approval_decision.result or {}
+                    )
+                    await slog.begin_reply_wait_status()
+                    continue
 
                 if error := await ensure_wakeup(
                     mind,
@@ -161,7 +237,7 @@ async def stream_looper(
                     continue
 
                 before_exists = (
-                    _local_path_exists(arguments)
+                    local_path_exists(arguments)
                     if name in {"workspace_write_file", "workspace_apply_patch"}
                     else MISSING
                 )

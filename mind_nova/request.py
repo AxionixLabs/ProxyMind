@@ -13,8 +13,8 @@ from pathlib import Path
 from loguru import logger
 from engine.channel import Channel
 from mind_app.stream_ui import StreamUI
-from mind_nova import const
 from mind_nova.modes import RunMode
+from mind_nova import const
 
 
 def resolve_transport_mode(mode: str) -> str:
@@ -298,6 +298,32 @@ async def post_tool_result(
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         r = await client.post(const.TOOL_RESULT_URL, headers=headers, json=payload)
+        r.raise_for_status()
+
+
+async def post_tool_approval(
+    cid: str,
+    sid: str,
+    call_id: str,
+    approval_id: str,
+    approved: bool,
+    reason: str | None = None,
+    timeout: float = 60.0
+) -> None:
+    """把用户对服务端审批请求的决定回传给主循环。"""
+    headers = Channel.make_headers()
+    payload = {
+        "cid"         : cid,
+        "sid"         : sid,
+        "call_id"     : call_id,
+        "approval_id" : approval_id,
+        "approved"    : bool(approved)
+    }
+    if reason:
+        payload["reason"] = reason
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(const.TOOL_APPROVAL_URL, headers=headers, json=payload)
         r.raise_for_status()
 
 

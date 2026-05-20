@@ -112,11 +112,11 @@ ShellTimeoutArg = typing.Annotated[
 ]
 ShellAllowDangerousArg = typing.Annotated[
     bool,
-    Field(description="是否允许危险命令；默认应为 false。"),
+    Field(description="审批通过后由服务端设置，用于继续执行需要该标记的命令；默认 false。"),
 ]
 ShellAllowReviewArg = typing.Annotated[
     bool,
-    Field(description="是否允许需要审批的命令，如安装依赖、网络下载或 git 写操作。"),
+    Field(description="审批通过后由服务端设置，用于继续执行安装依赖、网络下载或 git 写操作等命令；默认 false。"),
 ]
 
 GitDiffMaxCharsArg = typing.Annotated[

@@ -366,7 +366,9 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "在工作区内执行一次本地命令。"
-            " 命令必须使用参数数组；默认允许项目测试/只读命令，禁止 shell 控制符、常见写文件命令和危险命令；依赖安装、网络下载、git 写操作需要审批。"
+            " 命令必须使用参数数组；项目测试/只读命令可直接执行。"
+            " shell 控制符、常见写文件命令、危险命令、依赖安装、网络下载和 git 写操作会进入审批流程；"
+            " 用户要求执行这类操作时仍应调用本工具，由客户端和服务端完成审批，不要改为让用户手动执行。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "shell"}
     )
