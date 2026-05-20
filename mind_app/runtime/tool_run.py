@@ -50,11 +50,15 @@ async def run_tool_step(
     metadata: dict[str, typing.Any],
     enable_progress_notify: bool = False,
     stream_callback: typing.Optional[typing.Callable[[str], typing.Awaitable[None]]] = None,
+    status_text: typing.Optional[str] = None,
 ) -> ToolRunResult:
     """统一执行工具、处理状态动画和结果增强。"""
     started_at = time.time()
 
-    await stream_ui.begin_tool_status()
+    if status_text:
+        await stream_ui.begin_custom_tool_status(status_text)
+    else:
+        await stream_ui.begin_tool_status()
     try:
         result = await execute_tool(
             session,

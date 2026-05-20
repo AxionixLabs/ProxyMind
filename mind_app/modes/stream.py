@@ -3,6 +3,7 @@
 
 import typing
 import asyncio
+from pathlib import Path
 from mind_app.mcp import McpSessionLike
 from engine.enhancer import Enhancer
 from engine.tinker import Tooling
@@ -17,12 +18,29 @@ from ..runtime.cloud_sandbox import normalize_cloud_sandbox_handoff
 from ..stream_events.responses_builtin import (
     resolve_builtin_name, consume_builtin_done
 )
+from ..stream_events.tool_trace import (
+    MISSING, is_native_coding_trace_tool, render_tool_result_preview,
+    render_tool_start_trace, render_tool_trace, render_tool_trace_parts
+)
 from ..stream_state.segment import (
     SegmentTracker, build_sources_text
 )
 
 if typing.TYPE_CHECKING:
     from ..mind_core import Mind
+
+
+def _local_path_exists(arguments: dict[str, typing.Any]) -> typing.Any:
+    """Best-effort local existence check for Codex-style add/edit traces."""
+    if not isinstance(arguments, dict):
+        return MISSING
+    raw_path = str(arguments.get("path") or "").strip()
+    if not raw_path:
+        return MISSING
+    try:
+        return Path(raw_path).expanduser().resolve().exists()
+    except OSError:
+        return MISSING
 
 
 async def stream_looper(
@@ -142,11 +160,23 @@ async def stream_looper(
                     await finish_failure(slog, ev_report, phase="turn.failed", error=error)
                     continue
 
-                await slog.feed(
-                    f"{name} {arguments}",
-                    display=StreamUI.BLOCK,
-                    display_chunk=summary
+                before_exists = (
+                    _local_path_exists(arguments)
+                    if name in {"workspace_write_file", "workspace_apply_patch"}
+                    else MISSING
                 )
+                use_coding_trace = is_native_coding_trace_tool(name)
+                trace_start = render_tool_start_trace(
+                    name,
+                    arguments,
+                    before_exists=before_exists
+                )
+                if not use_coding_trace:
+                    await slog.feed(
+                        f"{trace_start}\n",
+                        display=StreamUI.BLOCK,
+                        display_chunk=summary
+                    )
 
                 arguments = Enhancer.exchange(name, arguments, mind.report)
                 tool_run = await run_tool_step(
@@ -162,7 +192,8 @@ async def stream_looper(
                     enable_progress_notify=True,
                     stream_callback=lambda x: slog.feed(
                         f"{x}\n", display=StreamUI.BLOCK
-                    )
+                    ),
+                    status_text=trace_start if use_coding_trace else None
                 )
 
                 ok = tool_run.ok
@@ -177,7 +208,32 @@ async def stream_looper(
                     fields = handoff
                     text = str(handoff.get("text") or "")
 
-                await slog.feed(f"{text}\n", display=StreamUI.BLOCK)
+                if use_coding_trace:
+                    trace_title = render_tool_trace(
+                        name,
+                        arguments,
+                        ok=ok,
+                        data=tool_run.data,
+                        cost_ms=tool_run.cost_ms,
+                        before_exists=before_exists
+                    )
+                    trace_preview = render_tool_result_preview(name, tool_run.data)
+                    trace_parts = render_tool_trace_parts(
+                        trace_title,
+                        preview=trace_preview,
+                        ok=ok
+                    )
+                    trace_text = trace_title
+                    if trace_preview.full:
+                        indented_preview = trace_preview.full.replace("\n", "\n  ")
+                        trace_text = f"{trace_title}\n└ {indented_preview}"
+                    await slog.feed(
+                        f"{trace_text}\n",
+                        display=StreamUI.BLOCK,
+                        display_parts=trace_parts
+                    )
+                else:
+                    await slog.feed(text, display=StreamUI.BLOCK)
 
                 await request.post_tool_result(
                     event["cid"], event["sid"], event["call_id"], name, ok, fields

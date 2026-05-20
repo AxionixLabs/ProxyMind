@@ -49,7 +49,9 @@ class StreamUI(object):
         *,
         echo: bool = True,
         display: str = STREAM,
-        display_chunk: typing.Optional[str] = None
+        display_chunk: typing.Optional[str] = None,
+        display_style: typing.Optional[str] = None,
+        display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None
     ) -> None:
         if not chunk:
             return None
@@ -65,7 +67,9 @@ class StreamUI(object):
             chunk,
             echo=echo,
             display=display,
-            display_chunk=display_chunk
+            display_chunk=display_chunk,
+            display_style=display_style,
+            display_parts=display_parts
         )
 
     async def begin_builtin_status(
@@ -88,8 +92,10 @@ class StreamUI(object):
         )
 
     async def begin_tool_status(self) -> None:
+        await self.begin_custom_tool_status("function calling")
+
+    async def begin_custom_tool_status(self, text: typing.Optional[str]) -> None:
         self.coordinator.hold_status_slot()
-        text = "function calling"
         await self._schedule_status_task(
             self._delayed_status_flow(
                 text,

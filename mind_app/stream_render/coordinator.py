@@ -56,10 +56,17 @@ class RenderCoord(object):
         *,
         echo: bool = True,
         display: str = TextState.STREAM,
-        display_chunk: typing.Optional[str] = None
+        display_chunk: typing.Optional[str] = None,
+        display_style: typing.Optional[str] = None,
+        display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None
     ) -> None:
         animate = self.text_state.append(
-            chunk, echo=echo, display=display, display_chunk=display_chunk
+            chunk,
+            echo=echo,
+            display=display,
+            display_chunk=display_chunk,
+            display_style=display_style,
+            display_parts=display_parts
         )
         if not (echo and chunk):
             return None
@@ -128,9 +135,14 @@ class RenderCoord(object):
             return None
 
         if self.text_state.display_text:
+            renderable = None
+            if self.text_state.has_styles():
+                tail_text = self.text_renderer.tail_text(self.text_state.display_text)
+                renderable = self.text_state.renderable_for_text(tail_text)
             await self.text_renderer.show(
                 self.text_state.display_text,
                 animate=animate,
+                renderable=renderable,
                 refresh_per_second=self.refresh_per_second
             )
             return None
@@ -143,7 +155,10 @@ class RenderCoord(object):
                 self.text_state.display_text,
                 reserve_lines=1
             )
-            out = Text(base_text, style="bold")
+            if self.text_state.has_styles():
+                out = self.text_state.renderable_for_text(base_text)
+            else:
+                out = Text(base_text, style="bold")
         else:
             base_text = ""
             out = Text()
