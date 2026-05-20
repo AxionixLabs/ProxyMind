@@ -80,6 +80,26 @@ def _trace_preview_from_lines(lines: list[str]) -> TracePreview:
     return TracePreview(full=full, screen=screen, omitted_lines=omitted)
 
 
+def _result_payload(data: typing.Any) -> dict[str, typing.Any]:
+    if not isinstance(data, dict):
+        return {}
+
+    results = data.get("results")
+    if isinstance(results, list):
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            item_data = item.get("data")
+            if isinstance(item_data, dict):
+                return item_data
+
+    nested = data.get("data")
+    if isinstance(nested, dict):
+        return nested
+
+    return data
+
+
 def _path_from_args(args: dict[str, typing.Any]) -> str:
     return str(args.get("path") or ".").strip() or "."
 
@@ -114,6 +134,20 @@ def _format_delta(added: int, removed: int) -> str:
     if added <= 0 and removed <= 0:
         return ""
     return f" (+{max(0, added)} -{max(0, removed)})"
+
+
+def _short_sha(value: typing.Any) -> str:
+    text = str(value or "").strip()
+    return text[:12] if text else ""
+
+
+def _hunk_label(value: typing.Any) -> str:
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        return ""
+    suffix = "hunk" if count == 1 else "hunks"
+    return f"{count} {suffix}"
 
 
 def _file_action_from_args(args: dict[str, typing.Any], before_exists: typing.Any) -> str:
@@ -211,8 +245,13 @@ def render_tool_result_preview(
     name: str,
     data: typing.Any = None
 ) -> TracePreview:
-    if not isinstance(data, dict):
+    data = _result_payload(data)
+    if not data:
         return TracePreview()
+
+    if name == "workspace_root":
+        root = str(data.get("root") or "").strip()
+        return _trace_preview_from_lines([f"root={root}"] if root else [])
 
     if name == "workspace_read_file":
         return _trace_preview_from_lines(_normalize_preview_lines(data.get("content")))
@@ -244,6 +283,55 @@ def render_tool_result_preview(
                         lines.append(row)
             return _trace_preview_from_lines(lines)
 
+    if name == "workspace_write_file":
+        path = str(data.get("path") or "").strip()
+        size = data.get("bytes")
+        sha = _short_sha(data.get("sha256"))
+        parts = []
+        if path:
+            parts.append(f"path={path}")
+        if size is not None:
+            parts.append(f"bytes={size}")
+        if sha:
+            parts.append(f"sha256={sha}")
+        return _trace_preview_from_lines([" ".join(parts)] if parts else [])
+
+    if name == "workspace_apply_patch":
+        path = str(data.get("path") or "").strip()
+        replacements = data.get("replacements")
+        sha = _short_sha(data.get("sha256"))
+        parts = []
+        if path:
+            parts.append(f"path={path}")
+        if replacements is not None:
+            parts.append(f"replacements={replacements}")
+        if sha:
+            parts.append(f"sha256={sha}")
+        return _trace_preview_from_lines([" ".join(parts)] if parts else [])
+
+    if name == "workspace_apply_unified_patch":
+        files = data.get("files")
+        if isinstance(files, list):
+            lines = []
+            for item in files:
+                if not isinstance(item, dict):
+                    continue
+                action = str(item.get("action") or "modify").strip() or "modify"
+                path = str(item.get("path") or "").strip()
+                hunk_text = _hunk_label(item.get("hunks"))
+                sha = _short_sha(item.get("sha256"))
+                line = f"{action} {path}".strip()
+                details = []
+                if hunk_text:
+                    details.append(hunk_text)
+                if sha:
+                    details.append(f"sha256={sha}")
+                if details:
+                    line = f"{line} ({', '.join(details)})"
+                if line:
+                    lines.append(line)
+            return _trace_preview_from_lines(lines)
+
     if name in {"shell_exec", "git_status", "git_diff"}:
         lines = _normalize_preview_lines(data.get("stdout"))
         err_lines = _normalize_preview_lines(data.get("stderr"))
@@ -267,7 +355,7 @@ def render_tool_trace(
 ) -> str:
     """Render one Codex-style factual trace line for a completed tool call."""
     args = arguments if isinstance(arguments, dict) else {}
-    payload = data if isinstance(data, dict) else {}
+    payload = _result_payload(data)
     suffix = "" if ok else " failed"
 
     if name == "workspace_root":
