@@ -2,9 +2,11 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import os
+import shutil
 import time
 import typing
 import asyncio
+from pathlib import Path
 from loguru import logger
 from backend.mcp_core.native_coding.base import NativeCodingComponent
 from backend.utilities.process import Flux
@@ -12,6 +14,16 @@ from backend.utilities.trace import summarize_command
 
 
 class ShellGitTools(NativeCodingComponent):
+    LOCAL_DELETE_DIR_NAMES = {
+        "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+        "htmlcov", "dist", "build"
+    }
+    LOCAL_DELETE_FILE_NAMES = {
+        ".coverage"
+    }
+    LOCAL_DELETE_SUFFIXES = {
+        ".pyc"
+    }
 
     async def shell_exec(
         self,
@@ -71,6 +83,17 @@ class ShellGitTools(NativeCodingComponent):
                 timeout_sec=policy.get("timeout_sec"),
                 output_limit=policy.get("output_limit")
             )
+
+        if allow_dangerous:
+            local_delete = self._local_delete_request(cmd, workdir)
+            if isinstance(local_delete, dict):
+                return self._run_local_delete(
+                    request=local_delete,
+                    cmd=cmd,
+                    workdir=workdir,
+                    policy=policy,
+                    timeout_sec=timeout_sec
+                )
 
         effective_timeout = int(policy.get("timeout_sec") or timeout_sec or 60)
         output_limit = int(policy.get("output_limit") or self.max_output_chars)
@@ -141,6 +164,143 @@ class ShellGitTools(NativeCodingComponent):
                 "elapsed_ms": elapsed_ms,
                 "stdout": out_text,
                 "stderr": err_text
+            },
+            "logs": []
+        }
+
+    def _local_delete_request(
+        self,
+        cmd: list[str],
+        workdir: Path
+    ) -> dict[str, typing.Any] | None:
+        """识别已审批且可在工作区内处理的缓存/构建产物删除命令。"""
+        if not cmd:
+            return None
+        head = Path(str(cmd[0])).name.lower()
+        if head not in {"rm", "rmdir", "del", "erase", "remove-item", "ri", "rd"}:
+            return None
+
+        recursive = False
+        targets: list[Path] = []
+        for raw in cmd[1:]:
+            item = str(raw or "").strip()
+            if not item:
+                continue
+            lower = item.lower()
+            if lower in {"-r", "-rf", "-fr", "--recursive", "/s", "-recurse"}:
+                recursive = True
+                continue
+            if lower in {"-f", "--force", "/q", "-force"}:
+                continue
+            if lower.startswith("-") or "*" in item or "?" in item:
+                return None
+            target = Path(item)
+            if not target.is_absolute():
+                target = workdir / target
+            resolved = target.resolve()
+            if resolved != self.root and self.root not in resolved.parents:
+                return None
+            try:
+                rel_parts = resolved.relative_to(self.root).parts
+            except ValueError:
+                return None
+            if resolved == self.root or ".git" in rel_parts:
+                return None
+            if not self._local_delete_target_allowed(resolved):
+                return None
+            targets.append(resolved)
+
+        if not targets:
+            return None
+        return {
+            "targets": targets,
+            "recursive": recursive
+        }
+
+    def _local_delete_target_allowed(self, target: Path) -> bool:
+        name = target.name
+        lower_name = name.lower()
+        if lower_name in self.LOCAL_DELETE_DIR_NAMES:
+            return True
+        if name in self.LOCAL_DELETE_FILE_NAMES:
+            return True
+        if any(lower_name.endswith(suffix) for suffix in self.LOCAL_DELETE_SUFFIXES):
+            return True
+        return False
+
+    def _run_local_delete(
+        self,
+        *,
+        request: dict[str, typing.Any],
+        cmd: list[str],
+        workdir: Path,
+        policy: dict[str, typing.Any],
+        timeout_sec: int
+    ) -> dict[str, typing.Any]:
+        output_limit = int(policy.get("output_limit") or self.max_output_chars)
+        started = time.perf_counter()
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
+        exit_code = 0
+        audit_before = self.capture_file_fingerprints()
+
+        for target in request.get("targets") or []:
+            path = Path(target)
+            rel = self._rel(path)
+            try:
+                if not path.exists():
+                    stderr_lines.append(f"missing: {rel}")
+                    exit_code = 1
+                    continue
+                if path.is_dir():
+                    if not request.get("recursive"):
+                        stderr_lines.append(f"is a directory: {rel}")
+                        exit_code = 1
+                        continue
+                    shutil.rmtree(path)
+                    stdout_lines.append(f"deleted directory: {rel}")
+                    continue
+                path.unlink()
+                stdout_lines.append(f"deleted file: {rel}")
+            except OSError as exc:
+                stderr_lines.append(f"{rel}: {type(exc).__name__}: {exc}")
+                exit_code = 1
+
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        audit_after = self.capture_file_fingerprints()
+        shell_file_changes = self.diff_file_fingerprints(audit_before, audit_after)
+        raw_stdout = "\n".join(stdout_lines)
+        raw_stderr = "\n".join(stderr_lines)
+        ok = exit_code == 0
+        return {
+            "text": f"shell exec {'ok' if ok else 'failed'} exit_code={exit_code} elapsed_ms={elapsed_ms}",
+            "attachments": [],
+            "data": {
+                "ok": ok,
+                "command": cmd,
+                "cwd": self._rel(workdir),
+                "risk": policy.get("risk"),
+                "category": policy.get("category"),
+                "risk_reasons": policy.get("reasons") or [],
+                "approval_required": bool(policy.get("approval_required")),
+                "execution_target": policy.get("execution_target"),
+                "requires_cloud_sandbox": bool(policy.get("requires_cloud_sandbox")),
+                "sandbox_request": policy.get("sandbox_request"),
+                "outside_sandbox_request": policy.get("outside_sandbox_request"),
+                "project_types": policy.get("project_types") or [],
+                "long_task": bool(policy.get("long_task")),
+                "timeout_sec": int(policy.get("timeout_sec") or timeout_sec or 60),
+                "output_limit": output_limit,
+                "stdout_truncated": len(raw_stdout) > output_limit,
+                "stderr_truncated": len(raw_stderr) > output_limit,
+                "file_audit_enabled": True,
+                "shell_file_changes": shell_file_changes,
+                "shell_write_detected": bool(shell_file_changes.get("changed")),
+                "exit_code": exit_code,
+                "timed_out": False,
+                "elapsed_ms": elapsed_ms,
+                "stdout": self._clip_output(raw_stdout, max_chars=output_limit),
+                "stderr": self._clip_output(raw_stderr, max_chars=output_limit)
             },
             "logs": []
         }

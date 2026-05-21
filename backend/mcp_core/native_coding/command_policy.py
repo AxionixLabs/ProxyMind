@@ -37,6 +37,19 @@ class CommandPolicy(NativeCodingComponent):
     NETWORK_COMMANDS  = {"curl", "wget"}
     SHELL_WRAPPERS    = {"cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe", "sh", "bash", "zsh"}
     INLINE_CODE_FLAGS = {"-c", "-command", "/c"}
+    FILE_DELETE_COMMANDS = {
+        "rm", "rmdir", "del", "erase", "remove-item", "ri", "rd"
+    }
+    LOCAL_DELETE_DIR_NAMES = {
+        "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+        "htmlcov", "dist", "build"
+    }
+    LOCAL_DELETE_FILE_NAMES = {
+        ".coverage"
+    }
+    LOCAL_DELETE_SUFFIXES = {
+        ".pyc"
+    }
 
     PYTHON_HEADS = {"python", "python.exe", "python3", "python3.exe", "py", "py.exe"}
     PIP_HEADS    = {"pip", "pip.exe", "pip3", "pip3.exe"}
@@ -219,6 +232,18 @@ class CommandPolicy(NativeCodingComponent):
                         network_required=False,
                         writable_paths=["."]
                     )
+                )
+            if head in self.FILE_DELETE_COMMANDS and self._local_delete_allowed(command, workdir):
+                return self._allow(
+                    risk="dangerous",
+                    category="dangerous",
+                    reasons=[f"dangerous_command:{head}", "allow_dangerous", "local_file_delete"],
+                    project_types=project_types,
+                    timeout_sec=timeout,
+                    output_limit=output_limit,
+                    long_task=long_task,
+                    execution_target="local",
+                    requires_cloud_sandbox=False
                 )
             return self._allow(
                 risk="dangerous",
@@ -485,6 +510,56 @@ class CommandPolicy(NativeCodingComponent):
         if head == "perl" and any(item.startswith("-pi") or item.startswith("-i") for item in args):
             return "write_command:perl_in_place"
         return None
+
+    def _local_delete_allowed(self, cmd: list[str], workdir: Path) -> bool:
+        """判断删除命令是否只作用于可本地清理的工作区产物。"""
+        if not cmd:
+            return False
+        head = Path(str(cmd[0])).name.lower()
+        if head not in self.FILE_DELETE_COMMANDS:
+            return False
+
+        targets: list[Path] = []
+        for raw in cmd[1:]:
+            item = str(raw or "").strip()
+            if not item:
+                continue
+            lower = item.lower()
+            if lower in {"-r", "-rf", "-fr", "--recursive", "/s", "-recurse"}:
+                continue
+            if lower in {"-f", "--force", "/q", "-force"}:
+                continue
+            if lower.startswith("-") or "*" in item or "?" in item:
+                return False
+            target = Path(item)
+            if not target.is_absolute():
+                target = workdir / target
+            try:
+                resolved = target.resolve()
+            except OSError:
+                return False
+            if resolved == self.root or (resolved != self.root and self.root not in resolved.parents):
+                return False
+            try:
+                rel_parts = resolved.relative_to(self.root).parts
+            except ValueError:
+                return False
+            if ".git" in rel_parts:
+                return False
+            targets.append(resolved)
+
+        return bool(targets) and all(self._local_delete_target_allowed(target) for target in targets)
+
+    def _local_delete_target_allowed(self, target: Path) -> bool:
+        name = target.name
+        lower_name = name.lower()
+        if lower_name in self.LOCAL_DELETE_DIR_NAMES:
+            return True
+        if name in self.LOCAL_DELETE_FILE_NAMES:
+            return True
+        if any(lower_name.endswith(suffix) for suffix in self.LOCAL_DELETE_SUFFIXES):
+            return True
+        return False
 
     @staticmethod
     def _control_operator_reason(cmd: list[str]) -> str | None:
