@@ -19,7 +19,7 @@ from ..runtime.tool_approval import (
     approval_prompt_parts,
     approval_prompt_text,
     approval_id_from_event,
-    prompt_tool_approval,
+    prompt_tool_approval_decision,
     validate_shell_approval
 )
 from ..stream_events.responses_builtin import (
@@ -161,27 +161,20 @@ async def stream_looper(
                     display_parts=approval_prompt_parts(approval)
                 )
                 await slog.settle_stream()
-                await slog.coordinator.text_renderer.suspend()
+                await slog.commit_live()
 
-                approved = await prompt_tool_approval(
+                decision = await prompt_tool_approval_decision(
                     approval,
                     input_func=approval_input_func,
                     show_prompt=False
                 )
+                approved = decision in {"accept", "acceptForSession"}
                 approval_id = approval_id_from_event(event)
                 reason = None if approved else "user denied"
                 approvals.mark_decision(
                     call_id=str(event.get("call_id") or ""),
                     approval=approval,
-                    approved=approved
-                )
-                await request.post_tool_approval(
-                    event["cid"],
-                    event["sid"],
-                    event["call_id"],
-                    approval_id,
-                    approved,
-                    reason=reason
+                    decision=decision
                 )
 
                 done_title = (
@@ -198,6 +191,14 @@ async def stream_looper(
                     )
                 )
                 await slog.begin_reply_wait_status("waiting execution result")
+                await request.post_tool_approval(
+                    event["cid"],
+                    event["sid"],
+                    event["call_id"],
+                    approval_id,
+                    decision=decision,
+                    reason=reason
+                )
                 continue
 
             if event_type == "tool.call":
@@ -213,7 +214,7 @@ async def stream_looper(
                     arguments=arguments,
                     store=approvals
                 )
-                if approval_decision.action in {"request", "reject"}:
+                if approval_decision.action == "reject":
                     await request.post_tool_result(
                         event["cid"],
                         event["sid"],

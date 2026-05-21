@@ -5,6 +5,8 @@ import time
 import typing
 import asyncio
 from loguru import logger
+from rich.text import Text
+from mind_core.design import Design
 from mind_app.stream_render.coordinator import RenderCoord
 from mind_app.stream_state.status import StatusFamily
 from mind_app.stream_state.text import TextState
@@ -207,6 +209,18 @@ class StreamUI(object):
 
     async def settle_stream(self) -> None:
         await self.coordinator.settle_stream()
+
+    async def commit_live(self) -> None:
+        text = self.coordinator.text_state.display_text
+        renderable = (
+            self.coordinator.text_state.renderable()
+            if self.coordinator.text_state.has_styles()
+            else Text(text, style="bold")
+        ) if text else None
+        await self.coordinator.text_renderer.suspend()
+        if renderable is not None:
+            Design.console.print(renderable)
+            self.coordinator.text_state.clear()
 
     def flush(self) -> None:
         self.record_writer.flush()

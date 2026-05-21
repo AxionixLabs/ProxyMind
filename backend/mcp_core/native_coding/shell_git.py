@@ -2,8 +2,8 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import os
-import shutil
 import time
+import shutil
 import typing
 import asyncio
 from pathlib import Path
@@ -14,9 +14,15 @@ from backend.utilities.trace import summarize_command
 
 
 class ShellGitTools(NativeCodingComponent):
+
     LOCAL_DELETE_DIR_NAMES = {
-        "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
-        "htmlcov", "dist", "build"
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        "htmlcov",
+        "dist",
+        "build"
     }
     LOCAL_DELETE_FILE_NAMES = {
         ".coverage"
@@ -114,21 +120,23 @@ class ShellGitTools(NativeCodingComponent):
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         audit_after = self.capture_file_fingerprints() if audit_files else None
         shell_file_changes = self.diff_file_fingerprints(audit_before, audit_after) if audit_files else {
-            "changed": False,
-            "change_count": 0,
-            "created": [],
-            "modified": [],
-            "deleted": [],
-            "created_count": 0,
-            "modified_count": 0,
-            "deleted_count": 0,
-            "truncated": False
+            "changed"        : False,
+            "change_count"   : 0,
+            "created"        : [],
+            "modified"       : [],
+            "deleted"        : [],
+            "created_count"  : 0,
+            "modified_count" : 0,
+            "deleted_count"  : 0,
+            "truncated"      : False
         }
+
         raw_stdout = self._decode(stdout or b"")
         raw_stderr = self._decode(stderr or b"")
-        out_text = self._clip_output(raw_stdout, max_chars=output_limit)
-        err_text = self._clip_output(raw_stderr, max_chars=output_limit)
-        exit_code = int(proc.returncode or 0)
+        out_text   = self._clip_output(raw_stdout, max_chars=output_limit)
+        err_text   = self._clip_output(raw_stderr, max_chars=output_limit)
+        exit_code  = int(proc.returncode or 0)
+
         ok = (exit_code == 0) and not timed_out
 
         logger.debug(
@@ -173,7 +181,7 @@ class ShellGitTools(NativeCodingComponent):
         cmd: list[str],
         workdir: Path
     ) -> dict[str, typing.Any] | None:
-        """识别已审批且可在工作区内处理的缓存/构建产物删除命令。"""
+        """识别已审批且可在工作区内处理的删除命令。"""
         if not cmd:
             return None
         head = Path(str(cmd[0])).name.lower()
@@ -206,18 +214,19 @@ class ShellGitTools(NativeCodingComponent):
                 return None
             if resolved == self.root or ".git" in rel_parts:
                 return None
-            if not self._local_delete_target_allowed(resolved):
+            if not self._local_delete_target_allowed(resolved, recursive=recursive):
                 return None
             targets.append(resolved)
 
         if not targets:
             return None
+
         return {
-            "targets": targets,
-            "recursive": recursive
+            "targets"   : targets,
+            "recursive" : recursive
         }
 
-    def _local_delete_target_allowed(self, target: Path) -> bool:
+    def _local_delete_target_allowed(self, target: Path, *, recursive: bool = False) -> bool:
         name = target.name
         lower_name = name.lower()
         if lower_name in self.LOCAL_DELETE_DIR_NAMES:
@@ -225,6 +234,8 @@ class ShellGitTools(NativeCodingComponent):
         if name in self.LOCAL_DELETE_FILE_NAMES:
             return True
         if any(lower_name.endswith(suffix) for suffix in self.LOCAL_DELETE_SUFFIXES):
+            return True
+        if target.exists() and target.is_file() and not recursive:
             return True
         return False
 

@@ -100,6 +100,14 @@ class TextState(object):
             return ""
         return "\n"
 
+    def clear(self) -> None:
+        self.display_segments.clear()
+        self.visible_segments.clear()
+        self.display_text = ""
+        self.at_line_start = True
+        self.trailing_newlines = 0
+        self.last_display = None
+
     def _append_segment(self, display: str, delta: str, parts: list[TextPart]) -> None:
         if (
             display == self.STREAM
@@ -116,7 +124,6 @@ class TextState(object):
         return self._parts_text(self._compose_visible_segments())
 
     def _compose_visible_segments(self) -> list[TextPart]:
-        parts: list[str] = []
         styled_parts: list[TextPart] = []
         line_limit = self._line_limit()
         block_limit = self._block_limit(line_limit)

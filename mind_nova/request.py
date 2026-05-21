@@ -306,18 +306,19 @@ async def post_tool_approval(
     sid: str,
     call_id: str,
     approval_id: str,
-    approved: bool,
+    decision: str,
     reason: str | None = None,
     timeout: float = 60.0
 ) -> None:
     """把用户对服务端审批请求的决定回传给主循环。"""
+    clean_decision = str(decision or "").strip() or "decline"
     headers = Channel.make_headers()
     payload = {
         "cid"         : cid,
         "sid"         : sid,
         "call_id"     : call_id,
         "approval_id" : approval_id,
-        "approved"    : bool(approved)
+        "decision"    : clean_decision
     }
     if reason:
         payload["reason"] = reason

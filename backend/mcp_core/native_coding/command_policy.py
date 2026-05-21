@@ -512,13 +512,14 @@ class CommandPolicy(NativeCodingComponent):
         return None
 
     def _local_delete_allowed(self, cmd: list[str], workdir: Path) -> bool:
-        """判断删除命令是否只作用于可本地清理的工作区产物。"""
+        """判断删除命令是否只作用于已审批可本地处理的工作区路径。"""
         if not cmd:
             return False
         head = Path(str(cmd[0])).name.lower()
         if head not in self.FILE_DELETE_COMMANDS:
             return False
 
+        recursive = False
         targets: list[Path] = []
         for raw in cmd[1:]:
             item = str(raw or "").strip()
@@ -526,6 +527,7 @@ class CommandPolicy(NativeCodingComponent):
                 continue
             lower = item.lower()
             if lower in {"-r", "-rf", "-fr", "--recursive", "/s", "-recurse"}:
+                recursive = True
                 continue
             if lower in {"-f", "--force", "/q", "-force"}:
                 continue
@@ -548,9 +550,12 @@ class CommandPolicy(NativeCodingComponent):
                 return False
             targets.append(resolved)
 
-        return bool(targets) and all(self._local_delete_target_allowed(target) for target in targets)
+        return bool(targets) and all(
+            self._local_delete_target_allowed(target, recursive=recursive)
+            for target in targets
+        )
 
-    def _local_delete_target_allowed(self, target: Path) -> bool:
+    def _local_delete_target_allowed(self, target: Path, *, recursive: bool = False) -> bool:
         name = target.name
         lower_name = name.lower()
         if lower_name in self.LOCAL_DELETE_DIR_NAMES:
@@ -558,6 +563,8 @@ class CommandPolicy(NativeCodingComponent):
         if name in self.LOCAL_DELETE_FILE_NAMES:
             return True
         if any(lower_name.endswith(suffix) for suffix in self.LOCAL_DELETE_SUFFIXES):
+            return True
+        if target.exists() and target.is_file() and not recursive:
             return True
         return False
 
@@ -891,13 +898,13 @@ class CommandPolicy(NativeCodingComponent):
             "strategy"       : "inline_files" if inline_complete else "workspace_archive_or_repo_ref",
             "preferred_refs" : preferred_refs,
             "inline": {
-                "kind"          : "inline_files",
-                "files"         : inline_files,
-                "file_count"    : len(inline_files),
-                "total_bytes"   : inline_total_bytes,
-                "truncated"     : inline_truncated,
-                "omitted_count" : inline_omitted_count,
-                "complete"      : inline_complete,
+                "kind"           : "inline_files",
+                "files"          : inline_files,
+                "file_count"     : len(inline_files),
+                "total_bytes"    : inline_total_bytes,
+                "truncated"      : inline_truncated,
+                "omitted_count"  : inline_omitted_count,
+                "complete"       : inline_complete,
                 "max_files"      : self.MATERIALIZATION_MAX_FILES,
                 "max_bytes"      : self.MATERIALIZATION_MAX_BYTES,
                 "max_file_bytes" : self.MATERIALIZATION_MAX_FILE_BYTES
