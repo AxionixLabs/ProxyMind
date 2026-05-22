@@ -216,7 +216,7 @@ class Tooling(object):
         openai_tools: list[dict[str, typing.Any]],
         tool_meta: dict[str, dict[str, typing.Any]],
     ) -> list[dict[str, typing.Any]]:
-        """仅保留外接 MCP 工具、Helix common 域工具与原生 coding 工具。"""
+        """仅保留外接 MCP 工具与 Helix common 域工具。"""
         filtered: list[dict[str, typing.Any]] = []
 
         for item in openai_tools:
@@ -228,7 +228,7 @@ class Tooling(object):
                 continue
 
             meta = tool_meta.get(name) or {}
-            if bool(meta.get("external")) or meta.get("domain") in {"common", "coding"}:
+            if bool(meta.get("external")) or meta.get("domain") == "common":
                 filtered.append(item)
 
         return filtered

@@ -18,6 +18,7 @@ from .format_time import (
 StatusFamily = typing.Literal[
     "builtin",
     "tool",
+    "code",
     "wait",
     "heal",
     "loop",
@@ -29,6 +30,7 @@ class StatusState(object):
 
     FAMILY_BUILTIN: typing.Final[StatusFamily] = "builtin"
     FAMILY_TOOL: typing.Final[StatusFamily] = "tool"
+    FAMILY_CODE: typing.Final[StatusFamily] = "code"
     FAMILY_WAIT: typing.Final[StatusFamily] = "wait"
     FAMILY_HEAL: typing.Final[StatusFamily] = "heal"
     FAMILY_LOOP: typing.Final[StatusFamily] = "loop"
@@ -164,6 +166,8 @@ class StatusState(object):
 
         if not animated and family == self.FAMILY_TOOL:
             out = Design.tool_status_static_renderable(text)
+        elif not animated and family == self.FAMILY_CODE:
+            out = Design.code_status_static_renderable(text)
         elif not animated and family == self.FAMILY_LOOP:
             out = Design.loop_status_static_renderable(text)
         elif not animated and family == self.FAMILY_HEAL:
@@ -172,6 +176,8 @@ class StatusState(object):
             out = Text(text, style="bold #8FA4B8")
         elif family == self.FAMILY_TOOL:
             out = Design.tool_status_renderable(phase, text)
+        elif family == self.FAMILY_CODE:
+            out = Design.code_status_renderable(phase, text)
         elif family == self.FAMILY_LOOP:
             out = Design.loop_status_renderable(phase, text)
         elif family == self.FAMILY_HEAL:

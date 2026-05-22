@@ -397,164 +397,164 @@ class DesignStatusLiveDriver(StatusRenderer):
         palettes: dict[str, dict[str, typing.Any]] = {
             "chat": {
                 "glyphs": {
-                    "spin": "◜◠◝◞◡◟",
-                    "bubble_left": "〈《(",
-                    "bubble_right": ")》〉",
-                    "bubble_dot": "●◉",
-                    "focus": "◆",
-                    "pulse": "•",
-                    "echo": "·",
-                    "beam_a": "═",
-                    "beam_b": "─",
-                    "noise": "˙",
-                    "tail": "•",
-                    "trail": "⋅",
-                    "reply": "◦◎",
-                    "listen": "◌◍",
-                    "speak": "◉◍"
+                    "spin"         : "◜◠◝◞◡◟",
+                    "bubble_left"  : "〈《(",
+                    "bubble_right" : ")》〉",
+                    "bubble_dot"   : "●◉",
+                    "focus"        : "◆",
+                    "pulse"        : "•",
+                    "echo"         : "·",
+                    "beam_a"       : "═",
+                    "beam_b"       : "─",
+                    "noise"        : "˙",
+                    "tail"         : "•",
+                    "trail"        : "⋅",
+                    "reply"        : "◦◎",
+                    "listen"       : "◌◍",
+                    "speak"        : "◉◍"
                 },
                 "colors": {
-                    "prefix": "#A3E635",
-                    "core": "#C4FFF0",
-                    "near": "#9EF7E7",
-                    "beam": "#67E8F9",
-                    "beam_dim": "#3F9FB3",
-                    "dust": "#3F3F46",
-                    "sweep_core": "#93C5FD",
-                    "sweep_tail": "#60A5FA",
-                    "shell": "#244454",
-                    "shell_dim": "#22313A",
-                    "orbit_a": "#FDE68A",
-                    "orbit_b": "#8BE9FD",
-                    "orbit_c": "#5EEAD4"
+                    "prefix"     : "#A3E635",
+                    "core"       : "#C4FFF0",
+                    "near"       : "#9EF7E7",
+                    "beam"       : "#67E8F9",
+                    "beam_dim"   : "#3F9FB3",
+                    "dust"       : "#3F3F46",
+                    "sweep_core" : "#93C5FD",
+                    "sweep_tail" : "#60A5FA",
+                    "shell"      : "#244454",
+                    "shell_dim"  : "#22313A",
+                    "orbit_a"    : "#FDE68A",
+                    "orbit_b"    : "#8BE9FD",
+                    "orbit_c"    : "#5EEAD4"
                 },
                 "motion": {
-                    "phase_div": 4.2,
-                    "lead_freq": 1.08,
-                    "reply_freq": 0.72,
-                    "reply_phase": 1.45,
-                    "breathe_freq": 0.88,
-                    "sender_freq": 1.62,
-                    "receiver_freq": 1.28,
-                    "receiver_phase": 2.2,
-                    "chat_cycle": 16
+                    "phase_div"      : 4.2,
+                    "lead_freq"      : 1.08,
+                    "reply_freq"     : 0.72,
+                    "reply_phase"    : 1.45,
+                    "breathe_freq"   : 0.88,
+                    "sender_freq"    : 1.62,
+                    "receiver_freq"  : 1.28,
+                    "receiver_phase" : 2.2,
+                    "chat_cycle"     : 16
                 }
             },
             "fast": {
                 "glyphs": {
-                    "spin": "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏",
-                    "packet": "◈",
-                    "core": "◆",
-                    "near": "•",
-                    "beam_a": "=",
-                    "beam_b": "-",
-                    "trail": ":",
-                    "echo": "~",
-                    "gate": ">",
-                    "dust": "˙",
-                    "orbit": ".",
-                    "glitch": "·:~"
+                    "spin"   : "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏",
+                    "packet" : "◈",
+                    "core"   : "◆",
+                    "near"   : "•",
+                    "beam_a" : "=",
+                    "beam_b" : "-",
+                    "trail"  : ":",
+                    "echo"   : "~",
+                    "gate"   : ">",
+                    "dust"   : "˙",
+                    "orbit"  : ".",
+                    "glitch" : "·:~"
                 },
                 "colors": {
-                    "prefix": "#F59E0B",
-                    "core": "#FFF3C4",
-                    "near": "#FCD34D",
-                    "beam": "#FB7185",
-                    "beam_dim": "#BE5672",
-                    "dust": "#4A2D33",
-                    "sweep_core": "#F97316",
-                    "sweep_tail": "#FB7185",
-                    "shell": "#5B2C1A",
-                    "shell_dim": "#3A2320",
-                    "orbit_a": "#FDBA74",
-                    "orbit_b": "#F472B6",
-                    "orbit_c": "#FDE68A"
+                    "prefix"     : "#F59E0B",
+                    "core"       : "#FFF3C4",
+                    "near"       : "#FCD34D",
+                    "beam"       : "#FB7185",
+                    "beam_dim"   : "#BE5672",
+                    "dust"       : "#4A2D33",
+                    "sweep_core" : "#F97316",
+                    "sweep_tail" : "#FB7185",
+                    "shell"      : "#5B2C1A",
+                    "shell_dim"  : "#3A2320",
+                    "orbit_a"    : "#FDBA74",
+                    "orbit_b"    : "#F472B6",
+                    "orbit_c"    : "#FDE68A"
                 },
                 "motion": {
-                    "phase_div": 3.0,
-                    "lead_freq": 0.92,
-                    "echo_phase": 0.85,
-                    "pilot_freq": 1.8,
-                    "pilot_offset": 3.0,
-                    "pilot_amp": 1.5
+                    "phase_div"    : 3.0,
+                    "lead_freq"    : 0.92,
+                    "echo_phase"   : 0.85,
+                    "pilot_freq"   : 1.8,
+                    "pilot_offset" : 3.0,
+                    "pilot_amp"    : 1.5
                 }
             },
             "plan": {
                 "glyphs": {
-                    "spin": "◴◷◶◵",
-                    "done": "◆",
-                    "active": "◉",
-                    "next": "◇",
-                    "idle": "○",
-                    "beam_a": "═",
-                    "beam_b": "─",
-                    "progress": "▸",
-                    "pulse": "•",
-                    "echo": "·"
+                    "spin"     : "◴◷◶◵",
+                    "done"     : "◆",
+                    "active"   : "◉",
+                    "next"     : "◇",
+                    "idle"     : "○",
+                    "beam_a"   : "═",
+                    "beam_b"   : "─",
+                    "progress" : "▸",
+                    "pulse"    : "•",
+                    "echo"     : "·"
                 },
                 "colors": {
-                    "prefix": "#34D399",
-                    "core": "#D1FAE5",
-                    "near": "#6EE7B7",
-                    "beam": "#A7F3D0",
-                    "beam_dim": "#4E9F8A",
-                    "dust": "#31403D",
-                    "sweep_core": "#10B981",
-                    "sweep_tail": "#34D399",
-                    "shell": "#1F4D45",
-                    "shell_dim": "#203733",
-                    "orbit_a": "#A7F3D0",
-                    "orbit_b": "#93C5FD",
-                    "orbit_c": "#C4B5FD"
+                    "prefix"     : "#34D399",
+                    "core"       : "#D1FAE5",
+                    "near"       : "#6EE7B7",
+                    "beam"       : "#A7F3D0",
+                    "beam_dim"   : "#4E9F8A",
+                    "dust"       : "#31403D",
+                    "sweep_core" : "#10B981",
+                    "sweep_tail" : "#34D399",
+                    "shell"      : "#1F4D45",
+                    "shell_dim"  : "#203733",
+                    "orbit_a"    : "#A7F3D0",
+                    "orbit_b"    : "#93C5FD",
+                    "orbit_c"    : "#C4B5FD"
                 },
                 "motion": {
-                    "phase_div": 7.2,
-                    "active_freq": 0.8,
-                    "bridge_freq": 1.2
+                    "phase_div"   : 7.2,
+                    "active_freq" : 0.8,
+                    "bridge_freq" : 1.2
                 }
             },
             "xtra": {
                 "glyphs": {
-                    "spin": "⠁⠃⠇⠧⠷⠿⠷⠧⠇⠃",
-                    "hub": "◈",
-                    "hub_hot": "◆",
-                    "port": "◇",
-                    "port_hot": "◉",
-                    "node": "○",
-                    "node_hot": "●",
-                    "beam_a": "╍",
-                    "beam_b": "─",
-                    "bridge": "╼",
-                    "pulse": "•",
-                    "echo": "·",
-                    "dust": "˙",
-                    "probe": "⌁",
-                    "scan": "⌕",
-                    "gate_left": "‹",
-                    "gate_right": "›"
+                    "spin"       : "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏",
+                    "hub"        : "◈",
+                    "hub_hot"    : "◆",
+                    "port"       : "◇",
+                    "port_hot"   : "◉",
+                    "node"       : "○",
+                    "node_hot"   : "●",
+                    "beam_a"     : "╍",
+                    "beam_b"     : "─",
+                    "bridge"     : "╼",
+                    "pulse"      : "•",
+                    "echo"       : "·",
+                    "dust"       : "˙",
+                    "probe"      : "⌁",
+                    "scan"       : "⌕",
+                    "gate_left"  : "‹",
+                    "gate_right" : "›"
                 },
                 "colors": {
-                    "prefix": "#2DAA9E",
-                    "core": "#D6FFFA",
-                    "near": "#88F0E4",
-                    "beam": "#4DD6C9",
-                    "beam_dim": "#2C8F86",
-                    "dust": "#21413E",
-                    "sweep_core": "#7FFBF1",
-                    "sweep_tail": "#33C7B8",
-                    "shell": "#17403C",
-                    "shell_dim": "#13302D",
-                    "orbit_a": "#A7F3D0",
-                    "orbit_b": "#93C5FD",
-                    "orbit_c": "#C4B5FD"
+                    "prefix"     : "#2DAA9E",
+                    "core"       : "#D6FFFA",
+                    "near"       : "#88F0E4",
+                    "beam"       : "#4DD6C9",
+                    "beam_dim"   : "#2C8F86",
+                    "dust"       : "#21413E",
+                    "sweep_core" : "#7FFBF1",
+                    "sweep_tail" : "#33C7B8",
+                    "shell"      : "#17403C",
+                    "shell_dim"  : "#13302D",
+                    "orbit_a"    : "#A7F3D0",
+                    "orbit_b"    : "#93C5FD",
+                    "orbit_c"    : "#C4B5FD"
                 },
                 "motion": {
-                    "phase_div": 4.8,
-                    "scan_freq": 1.12,
-                    "hub_freq": 1.7,
-                    "port_freq": 0.72,
-                    "bridge_freq": 1.36,
-                    "probe_freq": 1.9
+                    "phase_div"   : 4.8,
+                    "scan_freq"   : 1.12,
+                    "hub_freq"    : 1.7,
+                    "port_freq"   : 0.72,
+                    "bridge_freq" : 1.36,
+                    "probe_freq"  : 1.9
                 }
             }
         }
@@ -889,9 +889,9 @@ class DesignStatusLiveDriver(StatusRenderer):
             bridge = 0.5 + 0.5 * math.sin(phase * motion["bridge_freq"])
             hub_hot = math.sin(phase * motion["hub_freq"]) > -0.15
 
-            chars[left_gate] = glyphs["gate_left"]
-            styles[left_gate] = f"bold {colors['beam_dim']}"
-            chars[right_gate] = glyphs["gate_right"]
+            chars[left_gate]   = glyphs["gate_left"]
+            styles[left_gate]  = f"bold {colors['beam_dim']}"
+            chars[right_gate]  = glyphs["gate_right"]
             styles[right_gate] = f"bold {colors['beam_dim']}"
 
             chars[hub] = glyphs["hub_hot"] if hub_hot else glyphs["hub"]

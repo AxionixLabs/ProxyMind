@@ -190,7 +190,7 @@ async def stream_looper(
                         state="approved" if approved else "denied"
                     )
                 )
-                await slog.begin_reply_wait_status("waiting execution result")
+                await slog.begin_work_status("Running")
                 await request.post_tool_approval(
                     event["cid"],
                     event["sid"],
@@ -270,7 +270,8 @@ async def stream_looper(
                     stream_callback=lambda x: slog.feed(
                         f"{x}\n", display=StreamUI.BLOCK
                     ),
-                    status_text=trace_start if use_coding_trace else None
+                    status_text=trace_start if use_coding_trace else None,
+                    code_status=use_coding_trace
                 )
 
                 ok = tool_run.ok

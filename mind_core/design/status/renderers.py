@@ -747,6 +747,61 @@ class StatusRenderer(StatusSpec):
         return cls.tool_status_renderable(0.0, text)
 
     @classmethod
+    def code_status_renderable(cls, phase: float, text: str) -> Text:
+        spec = cls.status_spec("code")
+
+        colors = {
+            "edge"      : "bold #3F4A5A",
+            "spin"      : "bold #86A6C9",
+            "spin_hot"  : "bold #D6E6F7",
+            "text_peak" : "bold #DCE8F5",
+            "text_soft" : "bold #BECFE3",
+            "text_near" : "bold #9DB3CA",
+            "text_mid"  : "bold #748CA6",
+            "text_fade" : "bold #5B6F86",
+            "text_dim"  : "bold #455565"
+        }
+
+        frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        frame = frames[int(max(0.0, phase) * 0.95) % len(frames)]
+        pulse = 0.5 + (0.5 * math.sin(phase * spec.shell_freq))
+
+        out = Text()
+        out.append(frame, style=colors["spin_hot"] if pulse > 0.58 else colors["spin"])
+        out.append(cls.status_content_gap(), style=colors["edge"])
+
+        text = cls.fit_status_text(text, kind="code", fallback="Running")
+        span = max(1, len(text))
+        focus = cls._sway_focus(
+            phase,
+            span,
+            speed=spec.scan_speed,
+            pad=spec.scan_pad
+        )
+        cls._append_sweep_text(
+            out,
+            text,
+            focus=focus,
+            peak_style=colors["text_peak"],
+            soft_style=colors["text_soft"],
+            near_style=colors["text_near"],
+            mid_style=colors["text_mid"],
+            fade_style=colors["text_fade"],
+            dim_style=colors["text_dim"],
+            lead_span=spec.lead_span,
+            tail_span=spec.tail_span,
+            peak_radius=spec.peak_radius,
+            soft_ratio=0.20,
+            near_ratio=spec.near_ratio,
+            mid_ratio=spec.mid_ratio
+        )
+        return out
+
+    @classmethod
+    def code_status_static_renderable(cls, text: str) -> Text:
+        return cls.code_status_renderable(0.0, text)
+
+    @classmethod
     def loop_status_renderable(cls, phase: float, text: str) -> Text:
         spec = cls.status_spec("loop")
 

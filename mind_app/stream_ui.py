@@ -107,6 +107,38 @@ class StreamUI(object):
             )
         )
 
+    async def begin_work_status(
+        self,
+        text: typing.Optional[str] = "Running",
+        *,
+        delay_sec: float = 0.0
+    ) -> None:
+        self.coordinator.hold_status_slot()
+        await self._schedule_status_task(
+            self._delayed_status_flow(
+                text,
+                show_delay_sec=delay_sec,
+                animate_after_sec=delay_sec,
+                family="tool",
+            )
+        )
+
+    async def begin_code_status(
+        self,
+        text: typing.Optional[str] = "Running",
+        *,
+        delay_sec: float = 0.0
+    ) -> None:
+        self.coordinator.hold_status_slot()
+        await self._schedule_status_task(
+            self._delayed_status_flow(
+                text,
+                show_delay_sec=delay_sec,
+                animate_after_sec=delay_sec,
+                family="code",
+            )
+        )
+
     async def begin_reply_wait_status(
         self,
         text: typing.Optional[str] = "thinking",
