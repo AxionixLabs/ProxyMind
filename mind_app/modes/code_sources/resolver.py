@@ -36,6 +36,13 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def _prune_url_cache(now_ms: int) -> None:
+    """移除已过期的 URL 星图缓存，避免长生命周期进程中只增不减。"""
+    expired = [key for key, entry in _URL_CACHE.items() if entry.expires_at_ms <= now_ms]
+    for key in expired:
+        _URL_CACHE.pop(key, None)
+
+
 def _hash_content(content: str) -> str:
     """为星图内容生成稳定摘要。"""
     return hashlib.sha256(content.encode(const.CHARSET, errors="replace")).hexdigest()
@@ -179,6 +186,7 @@ async def _resolve_url(src: CodeSourcePayload) -> CodeSourceResolved:
     now         = _now_ms()
 
     if ttl_sec > 0:
+        _prune_url_cache(now)
         cached = _URL_CACHE.get(cache_key)
         if cached and cached.expires_at_ms > now:
             return CodeSourceResolved(

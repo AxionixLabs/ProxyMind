@@ -591,6 +591,7 @@ async def mind_pack(
         **mind.begin_session(cid=cid, sid=sid)
     }
 
+    report_url: typing.Optional[str] = None
     try:
         report_data = await open_report_session(
             mode,
@@ -631,16 +632,16 @@ async def mind_pack(
     ) -> None:
         """在共享 MCP 会话中顺序执行多个 pack 文件。"""
 
-        try:
-            for source in code_sources:
-                await _run_pack_source(
-                    mind, runtime, source, session, openai_tools, tool_meta, **kwargs
-                )
-        finally:
-            await mind.await_cleanup(event_report.flush())
-            await mind.await_cleanup(event_report.close())
+        for source in code_sources:
+            await _run_pack_source(
+                mind, runtime, source, session, openai_tools, tool_meta, **kwargs
+            )
 
-    return await mind.with_mcp_session(model_api, function, before_user_flow=before_user_flow)
+    try:
+        return await mind.with_mcp_session(model_api, function, before_user_flow=before_user_flow)
+    finally:
+        await mind.await_cleanup(event_report.flush())
+        await mind.await_cleanup(event_report.close())
 
 
 if __name__ == '__main__':
