@@ -7,7 +7,9 @@ from .config import (
 from .group import (
     ExternalMcpGroup, open_optional_external_mcp_group
 )
-from .session_adapter import McpSessionLike, MultiMcpSession
+from .session_adapter import (
+    McpSessionLike, MultiMcpSession
+)
 from .status import ExternalMcpStatus
 
 __all__ = [
