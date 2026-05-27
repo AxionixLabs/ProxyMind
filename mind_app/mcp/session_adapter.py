@@ -12,6 +12,24 @@ from .status import (
 )
 
 
+class McpSessionLike(typing.Protocol):
+
+    async def list_tools(self) -> mcp_types.ListToolsResult:
+        ...
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, typing.Any] | None = None,
+        read_timeout_seconds: typing.Any = None,
+        progress_callback: typing.Any = None,
+        *,
+        meta: dict[str, typing.Any] | None = None,
+        args: dict[str, typing.Any] | None = None
+    ) -> mcp_types.CallToolResult:
+        ...
+
+
 def tool_for_openai(
     tool: mcp_types.Tool,
     *,
@@ -72,7 +90,9 @@ class MultiMcpSession(object):
             except BaseException as exc:
                 if should_reraise_external(exc):
                     raise
-                logger.debug(f"[MCP] external tools skipped {summarize_exception(exc)}")
+                logger.debug(
+                    f"[MCP] external tools skipped {summarize_exception(exc)}"
+                )
 
         return mcp_types.ListToolsResult(tools=tools)
 
@@ -104,9 +124,6 @@ class MultiMcpSession(object):
             progress_callback=progress_callback,
             meta=meta
         )
-
-
-McpSessionLike = ClientSession | MultiMcpSession
 
 
 if __name__ == '__main__':
