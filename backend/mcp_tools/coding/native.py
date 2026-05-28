@@ -17,6 +17,7 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     WorkspaceMaxBytesArg,
     WorkspaceCaseSensitiveArg,
     WorkspaceMaxMatchesArg,
+    NativeParallelReadItemsArg,
     RepoMapMaxFilesArg,
     RepoMapMaxSymbolsArg,
     WorkspaceCreateDirsArg,
@@ -184,6 +185,34 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
         return await broadcast(
             tool="workspace_search_text",
+            args=args,
+            target_list=[ctx.native_coding],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(
+        description=(
+            "并行读取多段工作区上下文。"
+            " 只允许 workspace_root、workspace_list_files、workspace_read_file、workspace_search_text；"
+            " 不执行 shell、不写文件、不应用 patch。"
+        ),
+        meta={"hidden": False, "domain": "coding", "class": "workspace"}
+    )
+    @task_middleware("native_parallel_read")
+    async def native_parallel_read(
+        items: NativeParallelReadItemsArg
+    ) -> CallToolResult:
+
+        args = {
+            "items" : items
+        }
+
+        async def call(*_) -> dict:
+            return await ctx.native_coding.parallel_read(**args)
+
+        return await broadcast(
+            tool="native_parallel_read",
             args=args,
             target_list=[ctx.native_coding],
             call=call,

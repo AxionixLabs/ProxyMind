@@ -1,0 +1,112 @@
+# -*- coding: utf-8 -*-
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
+
+import typing
+import asyncio
+from backend.mcp_core.native_coding.base import NativeCodingComponent
+
+
+class ParallelReadCore(typing.Protocol):
+
+    def workspace_root(self) -> dict[str, typing.Any]:
+        ...
+
+    def list_files(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+        ...
+
+    def read_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+        ...
+
+    def search_text(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+        ...
+
+
+class ParallelReadTools(NativeCodingComponent):
+    """并行读取工作区上下文的只读组合工具。"""
+
+    ALLOWED_TOOLS = {
+        "workspace_root",
+        "workspace_list_files",
+        "workspace_read_file",
+        "workspace_search_text"
+    }
+    MAX_ITEMS = 12
+
+    def _normalize_items(
+        self,
+        items: list[dict[str, typing.Any]]
+    ) -> list[dict[str, typing.Any]]:
+        if not isinstance(items, list):
+            return []
+
+        normalized: list[dict[str, typing.Any]] = []
+        for item in items[:self.MAX_ITEMS]:
+            if not isinstance(item, dict):
+                normalized.append({"tool": "", "args": {}})
+                continue
+
+            tool = str(item.get("tool") or "").strip()
+            args = item.get("args") if isinstance(item.get("args"), dict) else {}
+            normalized.append({"tool": tool, "args": args})
+
+        return normalized
+
+    async def parallel_read(
+        self,
+        items: list[dict[str, typing.Any]]
+    ) -> dict[str, typing.Any]:
+        normalized = self._normalize_items(items)
+        core = typing.cast(ParallelReadCore, typing.cast(object, self.core))
+
+        async def run_item(index: int, item: dict[str, typing.Any]) -> dict[str, typing.Any]:
+            tool = str(item.get("tool") or "").strip()
+            args = item.get("args") if isinstance(item.get("args"), dict) else {}
+            try:
+                if tool == "workspace_root":
+                    result = await asyncio.to_thread(core.workspace_root)
+                elif tool == "workspace_list_files":
+                    result = await asyncio.to_thread(core.list_files, **args)
+                elif tool == "workspace_read_file":
+                    result = await asyncio.to_thread(core.read_file, **args)
+                elif tool == "workspace_search_text":
+                    result = await asyncio.to_thread(core.search_text, **args)
+                else:
+                    result = self._fail("tool_not_allowed", tool=tool)
+            except Exception as exc:
+                result = self._fail(
+                    "parallel_read_item_failed",
+                    tool=tool,
+                    error=f"{type(exc).__name__}: {exc}"
+                )
+
+            return {
+                "index"  : index,
+                "tool"   : tool,
+                "args"   : args,
+                "ok"     : bool((result.get("data") or {}).get("ok")) if isinstance(result, dict) else False,
+                "result" : result
+            }
+
+        results = await asyncio.gather(
+            *(run_item(index, item) for index, item in enumerate(normalized))
+        )
+
+        ok_count   = sum(1 for item in results if item.get("ok"))
+        fail_count = len(results) - ok_count
+        truncated  = len(items or []) > len(normalized)
+
+        return self._ok(
+            (
+                f"native parallel read ok total={len(results)} "
+                f"ok={ok_count} fail={fail_count} truncated={truncated}"
+            ),
+            total=len(results),
+            ok_count=ok_count,
+            fail_count=fail_count,
+            truncated=truncated,
+            results=results
+        )
+
+
+if __name__ == '__main__':
+    pass

@@ -53,6 +53,15 @@ WorkspaceMaxMatchesArg = typing.Annotated[
     int,
     Field(description="文本搜索最多返回的匹配条数。"),
 ]
+NativeParallelReadItemsArg = typing.Annotated[
+    list[dict[str, typing.Any]],
+    Field(
+        description=(
+            "并行读取上下文的只读步骤列表。每项包含 tool 和 args；"
+            "仅允许 workspace_root、workspace_list_files、workspace_read_file、workspace_search_text。"
+        )
+    ),
+]
 RepoMapMaxFilesArg = typing.Annotated[
     int,
     Field(description="repo map 最多扫描的文件数量。"),

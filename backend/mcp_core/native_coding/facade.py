@@ -4,6 +4,7 @@
 import typing
 from backend.mcp_core.native_coding.base import NativeCodingBase
 from backend.mcp_core.native_coding.workspace import WorkspaceTools
+from backend.mcp_core.native_coding.parallel_read import ParallelReadTools
 from backend.mcp_core.native_coding.repo_map import RepoMapTools
 from backend.mcp_core.native_coding.patch_engine import PatchEngine
 from backend.mcp_core.native_coding.shell_git import ShellGitTools
@@ -23,25 +24,28 @@ class NativeCoding(NativeCodingBase):
 
     def __init__(self, root: str | None = None):
         super().__init__(root=root)
-        self._workspace = WorkspaceTools(self)
-        self._repo_map = RepoMapTools(self)
-        self._patch_engine = PatchEngine(self)
-        self._command_policy = CommandPolicy(self)
-        self._file_audit = FileAudit(self)
-        self._repair_steps = RepairSteps(self)
-        self._shell_git = ShellGitTools(self)
-        self._change_summary = ChangeSummaryTools(self)
-        self._snapshots = SnapshotTools(self)
-        self._plan = PlanTools(self)
-        self._diagnostics = DiagnosticsTools(self)
-        self._sandbox_result = SandboxResultTools(self)
-        self._session = SessionTools(self)
+
+        self._workspace         = WorkspaceTools(self)
+        self._parallel_read     = ParallelReadTools(self)
+        self._repo_map          = RepoMapTools(self)
+        self._patch_engine      = PatchEngine(self)
+        self._command_policy    = CommandPolicy(self)
+        self._file_audit        = FileAudit(self)
+        self._repair_steps      = RepairSteps(self)
+        self._shell_git         = ShellGitTools(self)
+        self._change_summary    = ChangeSummaryTools(self)
+        self._snapshots         = SnapshotTools(self)
+        self._plan              = PlanTools(self)
+        self._diagnostics       = DiagnosticsTools(self)
+        self._sandbox_result    = SandboxResultTools(self)
+        self._session           = SessionTools(self)
         self._private_delegates = self._build_private_delegates()
 
     def _build_private_delegates(self) -> dict[str, typing.Any]:
         delegates: dict[str, typing.Any] = {}
         for component in (
             self._repo_map,
+            self._parallel_read,
             self._patch_engine,
             self._command_policy,
             self._file_audit,
@@ -88,6 +92,9 @@ class NativeCoding(NativeCodingBase):
 
     def search_text(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._workspace.search_text(*args, **kwargs)
+
+    async def parallel_read(self, items: list[dict[str, typing.Any]]) -> dict[str, typing.Any]:
+        return await self._parallel_read.parallel_read(items)
 
     def write_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._workspace.write_file(*args, **kwargs)
