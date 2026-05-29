@@ -11,6 +11,7 @@ from backend.utilities import const
 
 
 class SessionTools(NativeCodingComponent):
+
     async def native_repair_loop(
         self,
         *,
@@ -24,10 +25,12 @@ class SessionTools(NativeCodingComponent):
     ) -> dict[str, typing.Any]:
         sid = str(session_id or "").strip()
         session = self.sessions.get(sid)
+
         if not isinstance(session, dict):
             return self._fail("session_not_found", session_id=session_id)
         if source_run_id and not self._session_has_run(session, source_run_id):
             return self._fail("source_run_not_found", session_id=sid, source_run_id=source_run_id)
+
         validation = self.validate_repair_steps(steps)
         if not bool(validation.get("ok")):
             return self._fail(
@@ -38,8 +41,10 @@ class SessionTools(NativeCodingComponent):
             )
 
         executable_steps, verify_step = self._prepare_repair_steps(steps)
-        verify_args = verify_step.get("args") if isinstance(verify_step.get("args"), dict) else {}
+
+        verify_args    = verify_step.get("args") if isinstance(verify_step.get("args"), dict) else {}
         verify_command = verify_args.get("command") if isinstance(verify_args.get("command"), list) else None
+
         if not verify_command:
             return self._fail(
                 "repair_verify_command_required",
@@ -399,11 +404,12 @@ class SessionTools(NativeCodingComponent):
         else:
             status = "failed"
             next_action = "inspect_failure"
+
         return {
-            "has_repair_plan": has_plan,
-            "next_action": next_action,
-            "repair_status": status,
-            "last_verify_ok": last_verify_ok
+            "has_repair_plan" : has_plan,
+            "next_action"     : next_action,
+            "repair_status"   : status,
+            "last_verify_ok"  : last_verify_ok
         }
 
     @staticmethod
@@ -777,8 +783,10 @@ class SessionTools(NativeCodingComponent):
 
         if target.exists() and target.is_dir():
             return self._preflight_fail(index, tool, "target_is_directory", target_path=target_rel)
+
         virtual_target_exists = target_rel in virtual_files and virtual_files[target_rel] is not None
         real_target_exists = target.exists() and target_rel not in virtual_files
+
         if (virtual_target_exists or real_target_exists) and not overwrite:
             return self._preflight_fail(index, tool, "target_exists", target_path=target_rel)
         if not bool(args.get("create_dirs", True)) and not target.parent.exists():
@@ -1124,36 +1132,36 @@ class SessionTools(NativeCodingComponent):
         session = self.sessions.get(sid)
         if not isinstance(session, dict):
             session = {
-                "session_id": sid,
-                "prompt": str(prompt or ""),
-                "started_at": time.time(),
-                "finished_at": None,
-                "ok": None,
-                "steps": [],
-                "read_files": [],
-                "written_files": [],
-                "copied_files": [],
-                "moved_files": [],
-                "deleted_files": [],
-                "patched_files": [],
-                "searched": [],
-                "shell_commands": [],
-                "shell_file_changes": [],
-                "verify": None,
-                "verify_diagnostics": None,
-                "repair_plan": None,
-                "repair_loops": [],
-                "sandbox_results": [],
-                "sandbox_artifacts": [],
-                "diagnostic_context": [],
-                "diagnostic_reads": [],
-                "runs": [],
-                "run_count": 0,
-                "last_run_id": None,
-                "plan": self._empty_plan(),
-                "status": "",
-                "diff": "",
-                "summary": {}
+                "session_id"         : sid,
+                "prompt"             : str(prompt or ""),
+                "started_at"         : time.time(),
+                "finished_at"        : None,
+                "ok"                 : None,
+                "steps"              : [],
+                "read_files"         : [],
+                "written_files"      : [],
+                "copied_files"       : [],
+                "moved_files"        : [],
+                "deleted_files"      : [],
+                "patched_files"      : [],
+                "searched"           : [],
+                "shell_commands"     : [],
+                "shell_file_changes" : [],
+                "verify"             : None,
+                "verify_diagnostics" : None,
+                "repair_plan"        : None,
+                "repair_loops"       : [],
+                "sandbox_results"    : [],
+                "sandbox_artifacts"  : [],
+                "diagnostic_context" : [],
+                "diagnostic_reads"   : [],
+                "runs"               : [],
+                "run_count"          : 0,
+                "last_run_id"        : None,
+                "plan"               : self._empty_plan(),
+                "status"             : "",
+                "diff"               : "",
+                "summary"            : {}
             }
             self.sessions[sid] = session
         else:
@@ -1186,35 +1194,37 @@ class SessionTools(NativeCodingComponent):
         *,
         prompt: str
     ) -> dict[str, typing.Any]:
-        runs = session.setdefault("runs", [])
+        runs      = session.setdefault("runs", [])
         run_index = int(session.get("run_count") or len(runs)) + 1
-        run_id = f"{session['session_id']}_run_{run_index}"
+        run_id    = f"{session['session_id']}_run_{run_index}"
+
         run = {
-            "run_id": run_id,
-            "run_index": run_index,
-            "kind": "initial" if run_index == 1 else "repair",
-            "prompt": str(prompt or ""),
-            "started_at": time.time(),
-            "finished_at": None,
-            "ok": None,
-            "steps": [],
-            "shell_commands": [],
-            "shell_file_changes": [],
-            "copied_files": [],
-            "moved_files": [],
-            "deleted_files": [],
-            "verify": None,
-            "verify_diagnostics": None,
-            "repair_plan": None,
-            "sandbox_results": [],
-            "sandbox_artifacts": [],
-            "diagnostic_context": [],
-            "diagnostic_reads": [],
-            "status": "",
-            "diff": "",
-            "elapsed_ms": None,
-            "summary": {}
+            "run_id"             : run_id,
+            "run_index"          : run_index,
+            "kind"               : "initial" if run_index == 1 else "repair",
+            "prompt"             : str(prompt or ""),
+            "started_at"         : time.time(),
+            "finished_at"        : None,
+            "ok"                 : None,
+            "steps"              : [],
+            "shell_commands"     : [],
+            "shell_file_changes" : [],
+            "copied_files"       : [],
+            "moved_files"        : [],
+            "deleted_files"      : [],
+            "verify"             : None,
+            "verify_diagnostics" : None,
+            "repair_plan"        : None,
+            "sandbox_results"    : [],
+            "sandbox_artifacts"  : [],
+            "diagnostic_context" : [],
+            "diagnostic_reads"   : [],
+            "status"             : "",
+            "diff"               : "",
+            "elapsed_ms"         : None,
+            "summary"            : {}
         }
+
         runs.append(run)
         session["run_count"] = run_index
         session["last_run_id"] = run_id
@@ -1291,6 +1301,7 @@ class SessionTools(NativeCodingComponent):
                 if isinstance(item, dict) and item.get("path"):
                     self._append_unique(session, "patched_files", str(item.get("path")))
                     self._append_unique(session, "written_files", str(item.get("path")))
+            self._record_unified_patch_changes(session, data, run=run)
         elif tool == "workspace_search_text":
             query = data.get("query")
             if query:
@@ -1399,6 +1410,8 @@ class SessionTools(NativeCodingComponent):
                 "copied_files": list(run.get("copied_files") or []),
                 "moved_files": list(run.get("moved_files") or []),
                 "deleted_files": list(run.get("deleted_files") or []),
+                "created_files": list(run.get("created_files") or []),
+                "modified_files": list(run.get("modified_files") or []),
                 "shell_file_changes": list(run.get("shell_file_changes") or []),
                 "sandbox_results": list(run.get("sandbox_results") or []),
                 "sandbox_artifacts": list(run.get("sandbox_artifacts") or []),
@@ -1432,6 +1445,8 @@ class SessionTools(NativeCodingComponent):
             "copied_files": list(session.get("copied_files") or []),
             "moved_files": list(session.get("moved_files") or []),
             "deleted_files": list(session.get("deleted_files") or []),
+            "created_files": list(session.get("created_files") or []),
+            "modified_files": list(session.get("modified_files") or []),
             "patched_files": list(session.get("patched_files") or []),
             "searched": list(session.get("searched") or []),
             "shell_commands": list(session.get("shell_commands") or []),
@@ -1474,6 +1489,7 @@ class SessionTools(NativeCodingComponent):
             "status": session["status"],
             "diff": session["diff"]
         }
+        summary["final_summary_context"] = self._final_summary_context(summary)
         session["summary"] = summary
         return summary
 
@@ -1487,6 +1503,71 @@ class SessionTools(NativeCodingComponent):
         items = session.setdefault(key, [])
         if value not in items:
             items.append(value)
+
+    def _record_unified_patch_changes(
+        self,
+        session: dict[str, typing.Any],
+        data: dict[str, typing.Any],
+        *,
+        run: dict[str, typing.Any] | None = None
+    ) -> None:
+        for key, target_key in (
+            ("created_files", "created_files"),
+            ("updated_files", "modified_files"),
+            ("deleted_files", "deleted_files"),
+        ):
+            for item in data.get(key) or []:
+                if not isinstance(item, dict) or not item.get("path"):
+                    continue
+                record = self._patch_change_record(item)
+                session.setdefault(target_key, []).append(record)
+                if isinstance(run, dict):
+                    run.setdefault(target_key, []).append(record)
+
+    @staticmethod
+    def _patch_change_record(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        return {
+            "path"          : str(item.get("path")),
+            "action"        : item.get("action"),
+            "hunks"         : item.get("hunks"),
+            "added_lines"   : item.get("added_lines"),
+            "removed_lines" : item.get("removed_lines"),
+            "replacements"  : item.get("replacements"),
+            "sha256_before" : item.get("sha256_before"),
+            "sha256_after"  : item.get("sha256_after")
+        }
+
+    @staticmethod
+    def _final_summary_context(summary: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        verify = summary.get("verify") if isinstance(summary.get("verify"), dict) else None
+        return {
+            "ok": bool(summary.get("ok")),
+            "next_action": summary.get("next_action"),
+            "repair_status": summary.get("repair_status"),
+            "changed_files": {
+                "created": list(summary.get("created_files") or []),
+                "modified": list(summary.get("modified_files") or []),
+                "deleted": list(summary.get("deleted_files") or []),
+                "moved": list(summary.get("moved_files") or []),
+                "copied": list(summary.get("copied_files") or []),
+                "patched": list(summary.get("patched_files") or []),
+                "written": list(summary.get("written_files") or [])
+            },
+            "verification": {
+                "ran": verify is not None,
+                "ok": bool(verify.get("ok")) if verify else None,
+                "command": verify.get("command") if verify else None,
+                "exit_code": verify.get("exit_code") if verify else None
+            },
+            "rollback": {
+                "auto_rollback": summary.get("auto_rollback"),
+                "rollbacks": list(summary.get("rollbacks") or [])
+            },
+            "shell": {
+                "commands": list(summary.get("shell_commands") or []),
+                "file_changes": list(summary.get("shell_file_changes") or [])
+            }
+        }
 
 
 if __name__ == '__main__':

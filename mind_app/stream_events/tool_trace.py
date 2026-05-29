@@ -142,9 +142,21 @@ def _line_delta_from_patch_args(args: dict[str, typing.Any]) -> tuple[int, int]:
 
 
 def _line_delta_from_unified_files(data: dict[str, typing.Any]) -> tuple[int, int]:
-    # The current native tool returns file/hunk counts but not per-line diff stats.
-    # Keep the trace factual without inventing line counts.
-    return 0, 0
+    added = data.get("added_lines")
+    removed = data.get("removed_lines")
+    if isinstance(added, int) or isinstance(removed, int):
+        return int(added or 0), int(removed or 0)
+    files = data.get("files")
+    if not isinstance(files, list):
+        return 0, 0
+    total_added = 0
+    total_removed = 0
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        total_added += int(item.get("added_lines") or 0)
+        total_removed += int(item.get("removed_lines") or 0)
+    return total_added, total_removed
 
 
 def _format_delta(added: int, removed: int) -> str:
@@ -399,6 +411,12 @@ def render_tool_result_preview(
                 details = []
                 if hunk_text:
                     details.append(hunk_text)
+                added = item.get("added_lines")
+                removed = item.get("removed_lines")
+                if isinstance(added, int) or isinstance(removed, int):
+                    delta = _format_delta(int(added or 0), int(removed or 0)).strip()
+                    if delta:
+                        details.append(delta)
                 if sha:
                     details.append(f"sha256={sha}")
                 if details:
