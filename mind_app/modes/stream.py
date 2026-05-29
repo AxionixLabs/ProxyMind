@@ -120,7 +120,7 @@ async def stream_looper(
 
             if event_type == "turn.failed":
                 error = str(event.get("error") or "unknown error")
-                await finish_failure(slog, ev_report, phase="turn.failed", error=error)
+                await finish_failure(slog, None, phase="turn.failed", error=error)
                 continue
 
             if event_type == "text.delta":
