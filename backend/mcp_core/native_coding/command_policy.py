@@ -121,6 +121,17 @@ class CommandPolicy(NativeCodingComponent):
                 reasons=["pass_environment_via_explicit_tool_option"],
                 execution_target="blocked"
             )
+        workspace_tool = self._workspace_tool_hint(command)
+        if workspace_tool:
+            return self._deny(
+                "workspace_tool_required",
+                risk="blocked",
+                category="workspace_file_operation",
+                reasons=[workspace_tool["reason"], f"use_tool:{workspace_tool['tool']}"],
+                suggested_tool=workspace_tool["tool"],
+                suggested_args=workspace_tool.get("args") or {},
+                execution_target="blocked"
+            )
         wrapper_reason = self._shell_wrapper_reason(command)
         if wrapper_reason:
             if not allow_review:
@@ -510,6 +521,67 @@ class CommandPolicy(NativeCodingComponent):
         if head == "perl" and any(item.startswith("-pi") or item.startswith("-i") for item in args):
             return "write_command:perl_in_place"
         return None
+
+    @staticmethod
+    def _workspace_tool_hint(cmd: list[str]) -> dict[str, typing.Any] | None:
+        if not cmd:
+            return None
+        head = Path(str(cmd[0])).name.lower()
+        args = [str(item) for item in cmd[1:] if str(item or "").strip()]
+        lower_args = [item.lower() for item in args]
+
+        if head in {"mv", "move", "move.exe", "rename-item", "ren", "rename"}:
+            paths = [
+                item for item in args
+                if not item.startswith("-") and not item.startswith("/")
+            ]
+            suggested: dict[str, typing.Any] = {}
+            if len(paths) >= 2:
+                suggested = {"source_path": paths[-2], "target_path": paths[-1]}
+            return {
+                "reason": f"workspace_move_should_use_workspace_move_file:{head}",
+                "tool": "workspace_move_file",
+                "args": suggested
+            }
+
+        if head in {"cp", "copy", "copy.exe", "copy-item"}:
+            paths = [
+                item for item in args
+                if not item.startswith("-") and not item.startswith("/")
+            ]
+            suggested = {"source_path": paths[-2], "target_path": paths[-1]} if len(paths) >= 2 else {}
+            return {
+                "reason": f"workspace_copy_should_use_workspace_copy_file:{head}",
+                "tool": "workspace_copy_file",
+                "args": suggested
+            }
+
+        if head in {"rm", "del", "erase", "remove-item", "ri"}:
+            target = CommandPolicy._single_delete_target(args)
+            if target:
+                return {
+                    "reason": f"workspace_delete_should_use_workspace_delete_file:{head}",
+                    "tool": "workspace_delete_file",
+                    "args": {"path": target}
+                }
+
+        return None
+
+    @staticmethod
+    def _single_delete_target(args: list[str]) -> str | None:
+        targets: list[str] = []
+        for item in args:
+            lower = str(item or "").strip().lower()
+            if not lower:
+                continue
+            if lower in {"-f", "--force", "/q", "-force"}:
+                continue
+            if lower.startswith("-") or lower.startswith("/"):
+                return None
+            if "*" in item or "?" in item:
+                return None
+            targets.append(item)
+        return targets[0] if len(targets) == 1 else None
 
     def _local_delete_allowed(self, cmd: list[str], workdir: Path) -> bool:
         """判断删除命令是否只作用于已审批可本地处理的工作区路径。"""

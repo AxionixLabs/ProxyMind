@@ -122,6 +122,17 @@ class SnapshotTools(NativeCodingComponent):
             paths: list[str] = []
             if tool in {"workspace_write_file", "workspace_apply_patch"} and check.get("path"):
                 paths.append(str(check["path"]))
+            elif tool == "workspace_copy_file":
+                if check.get("target_path"):
+                    paths.append(str(check["target_path"]))
+            elif tool == "workspace_move_file":
+                if check.get("source_path"):
+                    paths.append(str(check["source_path"]))
+                if check.get("target_path"):
+                    paths.append(str(check["target_path"]))
+            elif tool == "workspace_delete_file":
+                if check.get("path"):
+                    paths.append(str(check["path"]))
             elif tool == "workspace_apply_unified_patch":
                 for item in check.get("files") or []:
                     if isinstance(item, dict) and item.get("path"):

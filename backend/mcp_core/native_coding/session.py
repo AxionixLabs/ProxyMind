@@ -592,6 +592,12 @@ class SessionTools(NativeCodingComponent):
                 return self._preflight_ok(index, tool)
             if tool == "workspace_write_file":
                 return self._preflight_write_file(index=index, tool=tool, args=args)
+            if tool == "workspace_copy_file":
+                return self._preflight_copy_file(index=index, tool=tool, args=args, virtual_files=virtual_files)
+            if tool == "workspace_move_file":
+                return self._preflight_move_file(index=index, tool=tool, args=args, virtual_files=virtual_files)
+            if tool == "workspace_delete_file":
+                return self._preflight_delete_file(index=index, tool=tool, args=args, virtual_files=virtual_files)
             if tool == "workspace_apply_patch":
                 return self._preflight_apply_patch(index=index, tool=tool, args=args, virtual_files=virtual_files)
             if tool == "workspace_apply_unified_patch":
@@ -665,6 +671,175 @@ class SessionTools(NativeCodingComponent):
             path=self._rel(target),
             bytes=size,
             projected_content=content
+        )
+
+    def _preflight_move_file(
+        self,
+        *,
+        index: int,
+        tool: str,
+        args: dict[str, typing.Any],
+        virtual_files: dict[str, str | None]
+    ) -> dict[str, typing.Any]:
+        source = self._preflight_resolve(args.get("source_path"))
+        target = self._preflight_resolve(args.get("target_path"))
+        source_rel = self._rel(source)
+        target_rel = self._rel(target)
+        overwrite = bool(args.get("overwrite", False))
+
+        if source_rel in virtual_files:
+            projected = virtual_files[source_rel]
+            if projected is None:
+                return self._preflight_fail(index, tool, "source_file_not_found", source_path=source_rel)
+            payload = str(projected or "")
+            sha = self._sha256(payload.encode(const.CHARSET, const.IGNORE))
+            if args.get("expected_sha256") and not bool(args.get("force", False)) and args.get("expected_sha256") != sha:
+                return self._preflight_fail(
+                    index,
+                    tool,
+                    "file_changed_since_read",
+                    source_path=source_rel,
+                    expected_sha256=args.get("expected_sha256"),
+                    actual_sha256=sha
+                )
+        else:
+            if not source.is_file():
+                return self._preflight_fail(index, tool, "source_file_not_found", source_path=source_rel)
+            if conflict := self._conflict_guard(
+                source,
+                expected_sha256=args.get("expected_sha256"),
+                force=bool(args.get("force", False))
+            ):
+                data = conflict.get("data") or {}
+                return self._preflight_fail(index, tool, data.get("reason") or "sha256_conflict", path=source_rel)
+            payload = source.read_text(encoding=const.CHARSET, errors=const.IGNORE)
+
+        if target.exists() and target.is_dir():
+            return self._preflight_fail(index, tool, "target_is_directory", target_path=target_rel)
+        virtual_target_exists = target_rel in virtual_files and virtual_files[target_rel] is not None
+        real_target_exists = target.exists() and target_rel not in virtual_files
+        if (virtual_target_exists or real_target_exists) and not overwrite:
+            return self._preflight_fail(index, tool, "target_exists", target_path=target_rel)
+        if not bool(args.get("create_dirs", True)) and not target.parent.exists():
+            return self._preflight_fail(index, tool, "target_parent_not_found", target_path=self._rel(target.parent))
+
+        return self._preflight_ok(
+            index,
+            tool,
+            source_path=source_rel,
+            target_path=target_rel,
+            bytes=len(payload.encode(const.CHARSET, const.IGNORE)),
+            overwritten=bool(virtual_target_exists or real_target_exists),
+            projected_source_content=None,
+            projected_target_content=payload
+        )
+
+    def _preflight_copy_file(
+        self,
+        *,
+        index: int,
+        tool: str,
+        args: dict[str, typing.Any],
+        virtual_files: dict[str, str | None]
+    ) -> dict[str, typing.Any]:
+        source = self._preflight_resolve(args.get("source_path"))
+        target = self._preflight_resolve(args.get("target_path"))
+        source_rel = self._rel(source)
+        target_rel = self._rel(target)
+        overwrite = bool(args.get("overwrite", False))
+
+        if source_rel in virtual_files:
+            projected = virtual_files[source_rel]
+            if projected is None:
+                return self._preflight_fail(index, tool, "source_file_not_found", source_path=source_rel)
+            payload = str(projected or "")
+            sha = self._sha256(payload.encode(const.CHARSET, const.IGNORE))
+            if args.get("expected_sha256") and not bool(args.get("force", False)) and args.get("expected_sha256") != sha:
+                return self._preflight_fail(
+                    index,
+                    tool,
+                    "file_changed_since_read",
+                    source_path=source_rel,
+                    expected_sha256=args.get("expected_sha256"),
+                    actual_sha256=sha
+                )
+        else:
+            if not source.is_file():
+                return self._preflight_fail(index, tool, "source_file_not_found", source_path=source_rel)
+            if conflict := self._conflict_guard(
+                source,
+                expected_sha256=args.get("expected_sha256"),
+                force=bool(args.get("force", False))
+            ):
+                data = conflict.get("data") or {}
+                return self._preflight_fail(index, tool, data.get("reason") or "sha256_conflict", path=source_rel)
+            payload = source.read_text(encoding=const.CHARSET, errors=const.IGNORE)
+
+        if target.exists() and target.is_dir():
+            return self._preflight_fail(index, tool, "target_is_directory", target_path=target_rel)
+        virtual_target_exists = target_rel in virtual_files and virtual_files[target_rel] is not None
+        real_target_exists = target.exists() and target_rel not in virtual_files
+        if (virtual_target_exists or real_target_exists) and not overwrite:
+            return self._preflight_fail(index, tool, "target_exists", target_path=target_rel)
+        if not bool(args.get("create_dirs", True)) and not target.parent.exists():
+            return self._preflight_fail(index, tool, "target_parent_not_found", target_path=self._rel(target.parent))
+
+        return self._preflight_ok(
+            index,
+            tool,
+            source_path=source_rel,
+            target_path=target_rel,
+            bytes=len(payload.encode(const.CHARSET, const.IGNORE)),
+            overwritten=bool(virtual_target_exists or real_target_exists),
+            projected_target_content=payload
+        )
+
+    def _preflight_delete_file(
+        self,
+        *,
+        index: int,
+        tool: str,
+        args: dict[str, typing.Any],
+        virtual_files: dict[str, str | None]
+    ) -> dict[str, typing.Any]:
+        target = self._preflight_resolve(args.get("path"))
+        rel = self._rel(target)
+
+        if rel in virtual_files:
+            projected = virtual_files[rel]
+            if projected is None:
+                return self._preflight_fail(index, tool, "file_not_found", path=rel)
+            payload = str(projected or "")
+            sha = self._sha256(payload.encode(const.CHARSET, const.IGNORE))
+            if args.get("expected_sha256") and not bool(args.get("force", False)) and args.get("expected_sha256") != sha:
+                return self._preflight_fail(
+                    index,
+                    tool,
+                    "file_changed_since_read",
+                    path=rel,
+                    expected_sha256=args.get("expected_sha256"),
+                    actual_sha256=sha
+                )
+        else:
+            if not target.exists():
+                return self._preflight_fail(index, tool, "file_not_found", path=rel)
+            if not target.is_file():
+                return self._preflight_fail(index, tool, "target_not_file", path=rel)
+            if conflict := self._conflict_guard(
+                target,
+                expected_sha256=args.get("expected_sha256"),
+                force=bool(args.get("force", False))
+            ):
+                data = conflict.get("data") or {}
+                return self._preflight_fail(index, tool, data.get("reason") or "sha256_conflict", path=rel)
+            payload = target.read_text(encoding=const.CHARSET, errors=const.IGNORE)
+
+        return self._preflight_ok(
+            index,
+            tool,
+            path=rel,
+            bytes=len(payload.encode(const.CHARSET, const.IGNORE)),
+            projected_content=None
         )
 
     def _preflight_apply_patch(
@@ -788,6 +963,8 @@ class SessionTools(NativeCodingComponent):
                 risk=policy.get("risk"),
                 category=policy.get("category"),
                 reasons=policy.get("reasons") or [],
+                suggested_tool=policy.get("suggested_tool"),
+                suggested_args=policy.get("suggested_args") or {},
                 approval_required=bool(policy.get("approval_required")),
                 project_types=policy.get("project_types") or [],
                 execution_target=policy.get("execution_target"),
@@ -839,6 +1016,20 @@ class SessionTools(NativeCodingComponent):
             if not path:
                 return
             virtual_files[str(path)] = str(check.get("projected_content") or "")
+        elif tool == "workspace_copy_file":
+            target_path = check.get("target_path")
+            if target_path:
+                virtual_files[str(target_path)] = str(check.get("projected_target_content") or "")
+        elif tool == "workspace_move_file":
+            source_path = check.get("source_path")
+            target_path = check.get("target_path")
+            if source_path:
+                virtual_files[str(source_path)] = None
+            if target_path:
+                virtual_files[str(target_path)] = str(check.get("projected_target_content") or "")
+        elif tool == "workspace_delete_file":
+            if path:
+                virtual_files[str(path)] = None
         elif tool == "workspace_apply_unified_patch":
             for item in check.get("projected_files") or []:
                 if not isinstance(item, dict) or not item.get("path"):
@@ -854,6 +1045,8 @@ class SessionTools(NativeCodingComponent):
         sanitized = dict(check)
         sanitized.pop("projected_content", None)
         sanitized.pop("projected_files", None)
+        sanitized.pop("projected_source_content", None)
+        sanitized.pop("projected_target_content", None)
         return sanitized
 
     @staticmethod
@@ -885,6 +1078,12 @@ class SessionTools(NativeCodingComponent):
             return self.find_symbol(**args)
         if tool == "workspace_write_file":
             return self.write_file(**args)
+        if tool == "workspace_copy_file":
+            return self.copy_file(**args)
+        if tool == "workspace_move_file":
+            return self.move_file(**args)
+        if tool == "workspace_delete_file":
+            return self.delete_file(**args)
         if tool == "workspace_apply_patch":
             return self.apply_patch(**args)
         if tool == "workspace_apply_unified_patch":
@@ -933,6 +1132,9 @@ class SessionTools(NativeCodingComponent):
                 "steps": [],
                 "read_files": [],
                 "written_files": [],
+                "copied_files": [],
+                "moved_files": [],
+                "deleted_files": [],
                 "patched_files": [],
                 "searched": [],
                 "shell_commands": [],
@@ -959,6 +1161,9 @@ class SessionTools(NativeCodingComponent):
             session.setdefault("steps", [])
             session.setdefault("read_files", [])
             session.setdefault("written_files", [])
+            session.setdefault("copied_files", [])
+            session.setdefault("moved_files", [])
+            session.setdefault("deleted_files", [])
             session.setdefault("patched_files", [])
             session.setdefault("searched", [])
             session.setdefault("shell_commands", [])
@@ -995,6 +1200,9 @@ class SessionTools(NativeCodingComponent):
             "steps": [],
             "shell_commands": [],
             "shell_file_changes": [],
+            "copied_files": [],
+            "moved_files": [],
+            "deleted_files": [],
             "verify": None,
             "verify_diagnostics": None,
             "repair_plan": None,
@@ -1041,6 +1249,40 @@ class SessionTools(NativeCodingComponent):
             self._append_unique(session, "read_files", str(data.get("path")))
         elif tool == "workspace_write_file" and data.get("path"):
             self._append_unique(session, "written_files", str(data.get("path")))
+        elif tool == "workspace_copy_file" and data.get("source_path") and data.get("target_path"):
+            copy_record = {
+                "source_path": str(data.get("source_path")),
+                "target_path": str(data.get("target_path")),
+                "overwritten": bool(data.get("overwritten")),
+                "bytes": data.get("bytes"),
+                "sha256": data.get("sha256")
+            }
+            session.setdefault("copied_files", []).append(copy_record)
+            if isinstance(run, dict):
+                run.setdefault("copied_files", []).append(copy_record)
+            self._append_unique(session, "read_files", str(data.get("source_path")))
+            self._append_unique(session, "written_files", str(data.get("target_path")))
+        elif tool == "workspace_move_file" and data.get("source_path") and data.get("target_path"):
+            move_record = {
+                "source_path": str(data.get("source_path")),
+                "target_path": str(data.get("target_path")),
+                "overwritten": bool(data.get("overwritten")),
+                "bytes": data.get("bytes"),
+                "sha256": data.get("sha256")
+            }
+            session.setdefault("moved_files", []).append(move_record)
+            if isinstance(run, dict):
+                run.setdefault("moved_files", []).append(move_record)
+            self._append_unique(session, "written_files", str(data.get("target_path")))
+        elif tool == "workspace_delete_file" and data.get("path"):
+            delete_record = {
+                "path": str(data.get("path")),
+                "bytes": data.get("bytes"),
+                "sha256": data.get("sha256")
+            }
+            session.setdefault("deleted_files", []).append(delete_record)
+            if isinstance(run, dict):
+                run.setdefault("deleted_files", []).append(delete_record)
         elif tool == "workspace_apply_patch" and data.get("path"):
             self._append_unique(session, "patched_files", str(data.get("path")))
             self._append_unique(session, "written_files", str(data.get("path")))
@@ -1154,6 +1396,9 @@ class SessionTools(NativeCodingComponent):
                     repair_plan=run.get("repair_plan")
                 ),
                 "shell_commands": list(run.get("shell_commands") or []),
+                "copied_files": list(run.get("copied_files") or []),
+                "moved_files": list(run.get("moved_files") or []),
+                "deleted_files": list(run.get("deleted_files") or []),
                 "shell_file_changes": list(run.get("shell_file_changes") or []),
                 "sandbox_results": list(run.get("sandbox_results") or []),
                 "sandbox_artifacts": list(run.get("sandbox_artifacts") or []),
@@ -1184,6 +1429,9 @@ class SessionTools(NativeCodingComponent):
             "failed_count": len(failed_steps),
             "read_files": list(session.get("read_files") or []),
             "written_files": list(session.get("written_files") or []),
+            "copied_files": list(session.get("copied_files") or []),
+            "moved_files": list(session.get("moved_files") or []),
+            "deleted_files": list(session.get("deleted_files") or []),
             "patched_files": list(session.get("patched_files") or []),
             "searched": list(session.get("searched") or []),
             "shell_commands": list(session.get("shell_commands") or []),

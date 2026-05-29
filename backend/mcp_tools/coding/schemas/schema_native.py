@@ -31,11 +31,11 @@ WorkspaceContentArg = typing.Annotated[
 ]
 WorkspaceSourcePathArg = typing.Annotated[
     str,
-    Field(description="工作区内要移动或重命名的源文件相对路径；不允许越过工作区根目录。"),
+    Field(description="工作区内要复制、移动或重命名的源文件相对路径；不允许越过工作区根目录。"),
 ]
 WorkspaceTargetPathArg = typing.Annotated[
     str,
-    Field(description="工作区内移动或重命名后的目标文件相对路径；不允许越过工作区根目录。"),
+    Field(description="工作区内复制、移动或重命名后的目标文件相对路径；不允许越过工作区根目录。"),
 ]
 WorkspaceQueryArg = typing.Annotated[
     str,

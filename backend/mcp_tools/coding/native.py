@@ -292,6 +292,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         description=(
             "写入工作区内文本文件。"
             " 默认允许覆盖并自动创建父目录，路径不能越过工作区。"
+            " 创建或整体覆盖文本文件时优先使用本工具，不要用 shell_exec 的 echo/tee/重定向。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
@@ -329,6 +330,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         description=(
             "移动或重命名工作区内的单个文件。"
             " 适合把根目录或子目录中的文件改名；不会执行 shell，路径不能越过工作区。"
+            " 用户要求改名/移动文件时必须优先使用本工具，不要用 shell_exec 执行 mv/move/rename-item。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
@@ -364,8 +366,79 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
+            "复制工作区内的单个文件到另一个工作区路径。"
+            " 路径不能越过工作区；目标存在时默认拒绝覆盖。"
+            " 用户要求复制文件时必须优先使用本工具，不要用 shell_exec 执行 cp/copy/copy-item。"
+        ),
+        meta={"hidden": False, "domain": "coding", "class": "workspace"}
+    )
+    @task_middleware("workspace_copy_file")
+    async def workspace_copy_file(
+        source_path: WorkspaceSourcePathArg,
+        target_path: WorkspaceTargetPathArg,
+        overwrite: WorkspaceOverwriteArg = False,
+        create_dirs: WorkspaceCreateDirsArg = True,
+        expected_sha256: WorkspaceExpectedSha256Arg = None,
+        force: WorkspaceForceArg = False
+    ) -> CallToolResult:
+
+        args = {
+            "source_path"     : source_path,
+            "target_path"     : target_path,
+            "overwrite"       : overwrite,
+            "create_dirs"     : create_dirs,
+            "expected_sha256" : expected_sha256,
+            "force"           : force
+        }
+
+        async def call(*_) -> dict:
+            return ctx.native_coding.copy_file(**args)
+
+        return await broadcast(
+            tool="workspace_copy_file",
+            args=args,
+            target_list=[ctx.native_coding],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(
+        description=(
+            "删除工作区内的单个文件。"
+            " 只删除文件，不删除目录；路径不能越过工作区。"
+            " 用户要求删除文件时必须优先使用本工具，不要用 shell_exec 执行 rm/del/remove-item。"
+        ),
+        meta={"hidden": False, "domain": "coding", "class": "workspace"}
+    )
+    @task_middleware("workspace_delete_file")
+    async def workspace_delete_file(
+        path: WorkspacePathArg,
+        expected_sha256: WorkspaceExpectedSha256Arg = None,
+        force: WorkspaceForceArg = False
+    ) -> CallToolResult:
+
+        args = {
+            "path"            : path,
+            "expected_sha256" : expected_sha256,
+            "force"           : force
+        }
+
+        async def call(*_) -> dict:
+            return ctx.native_coding.delete_file(**args)
+
+        return await broadcast(
+            tool="workspace_delete_file",
+            args=args,
+            target_list=[ctx.native_coding],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(
+        description=(
             "对工作区内文本文件执行精确文本替换。"
             " 只有实际匹配次数等于 expected_replacements 时才会写回，避免误改。"
+            " 局部修改文本文件时优先使用本工具，不要用 shell_exec 的 sed/perl/重定向改文件。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
@@ -434,7 +507,12 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "在工作区内执行一次本地命令。"
-            " 命令必须使用参数数组；项目测试/只读命令可直接执行。"
+            " 命令必须使用参数数组，表示真实可执行程序及其参数，不是 shell 字符串。"
+            " 适合运行测试、构建、脚本、版本查询和只读诊断命令。"
+            " 不要用本工具做工作区文件创建、覆盖、局部修改、删除、复制、移动或重命名；"
+            " 文件操作请使用 workspace_write_file、workspace_apply_patch、workspace_apply_unified_patch、"
+            "workspace_copy_file、workspace_move_file、workspace_delete_file。"
+            " 不要依赖 shell alias/内建命令或 shell 语法，例如 mv/cp/rm/del/copy/move/dir、管道、重定向、&&。"
             " shell 控制符、常见写文件命令、危险命令、依赖安装、网络下载和 git 写操作会进入审批流程；"
             " 用户要求执行这类操作时仍应调用本工具，由客户端和服务端完成审批，不要改为让用户手动执行。"
         ),

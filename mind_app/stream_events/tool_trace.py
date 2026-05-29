@@ -22,7 +22,9 @@ NATIVE_CODING_TRACE_TOOLS = {
     "workspace_list_files",
     "workspace_search_text",
     "workspace_write_file",
+    "workspace_copy_file",
     "workspace_move_file",
+    "workspace_delete_file",
     "workspace_apply_patch",
     "workspace_apply_unified_patch",
     "shell_exec",
@@ -215,10 +217,18 @@ def render_tool_start_trace(
         action = "Adding" if before_exists is False or args.get("overwrite") is False else "Editing"
         return f"• {action} {_path_from_args(args)}"
 
+    if name == "workspace_copy_file":
+        source = str(args.get("source_path") or "").strip()
+        target = str(args.get("target_path") or "").strip()
+        return f"• Copying {source} -> {target}".rstrip()
+
     if name == "workspace_move_file":
         source = str(args.get("source_path") or "").strip()
         target = str(args.get("target_path") or "").strip()
         return f"• Moving {source} -> {target}".rstrip()
+
+    if name == "workspace_delete_file":
+        return f"• Deleting {_path_from_args(args)}"
 
     if name == "workspace_apply_patch":
         return f"• Editing {_path_from_args(args)}"
@@ -316,6 +326,22 @@ def render_tool_result_preview(
             parts.append(f"sha256={sha}")
         return _trace_preview_from_lines([" ".join(parts)] if parts else [])
 
+    if name == "workspace_copy_file":
+        source = str(data.get("source_path") or "").strip()
+        target = str(data.get("target_path") or "").strip()
+        size = data.get("bytes")
+        sha = _short_sha(data.get("sha256"))
+        parts = []
+        if source:
+            parts.append(f"source={source}")
+        if target:
+            parts.append(f"target={target}")
+        if size is not None:
+            parts.append(f"bytes={size}")
+        if sha:
+            parts.append(f"sha256={sha}")
+        return _trace_preview_from_lines([" ".join(parts)] if parts else [])
+
     if name == "workspace_move_file":
         source = str(data.get("source_path") or "").strip()
         target = str(data.get("target_path") or "").strip()
@@ -326,6 +352,19 @@ def render_tool_result_preview(
             parts.append(f"source={source}")
         if target:
             parts.append(f"target={target}")
+        if size is not None:
+            parts.append(f"bytes={size}")
+        if sha:
+            parts.append(f"sha256={sha}")
+        return _trace_preview_from_lines([" ".join(parts)] if parts else [])
+
+    if name == "workspace_delete_file":
+        path = str(data.get("path") or "").strip()
+        size = data.get("bytes")
+        sha = _short_sha(data.get("sha256"))
+        parts = []
+        if path:
+            parts.append(f"path={path}")
         if size is not None:
             parts.append(f"bytes={size}")
         if sha:
@@ -422,10 +461,19 @@ def render_tool_trace(
         action = _file_action_from_args(args, before_exists)
         return f"• {action} {path}{_format_delta(added, removed)}{suffix}"
 
+    if name == "workspace_copy_file":
+        source = str(payload.get("source_path") or args.get("source_path") or "").strip()
+        target = str(payload.get("target_path") or args.get("target_path") or "").strip()
+        return f"• Copied {source} -> {target}{suffix}".rstrip()
+
     if name == "workspace_move_file":
         source = str(payload.get("source_path") or args.get("source_path") or "").strip()
         target = str(payload.get("target_path") or args.get("target_path") or "").strip()
         return f"• Moved {source} -> {target}{suffix}".rstrip()
+
+    if name == "workspace_delete_file":
+        path = str(payload.get("path") or _path_from_args(args))
+        return f"• Deleted {path}{suffix}"
 
     if name == "workspace_apply_patch":
         path = str(payload.get("path") or _path_from_args(args))

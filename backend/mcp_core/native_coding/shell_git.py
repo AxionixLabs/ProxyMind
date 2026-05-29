@@ -58,6 +58,8 @@ class ShellGitTools(NativeCodingComponent):
                 risk=policy.get("risk"),
                 category=policy.get("category"),
                 reasons=policy.get("reasons") or [],
+                suggested_tool=policy.get("suggested_tool"),
+                suggested_args=policy.get("suggested_args") or {},
                 approval_required=bool(policy.get("approval_required")),
                 project_types=policy.get("project_types") or [],
                 execution_target=policy.get("execution_target"),
