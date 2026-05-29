@@ -57,7 +57,14 @@ class WorkspaceTools(NativeCodingComponent):
             f"workspace list ok count={len(items)} root={self._rel(base)}",
             path=self._rel(base),
             items=items,
-            truncated=len(items) >= max_items
+            truncated=len(items) >= max_items,
+            recommended_next_steps=self._list_files_next_steps(
+                path=self._rel(base),
+                pattern=pattern,
+                recursive=recursive,
+                max_items=max_items,
+                truncated=len(items) >= max_items
+            )
         )
 
     def read_file(
@@ -78,27 +85,49 @@ class WorkspaceTools(NativeCodingComponent):
             raw = fh.read(limit + 1)
         full_raw = target.read_bytes()
         truncated = len(raw) > limit or size > limit
-        text = self._decode(raw[:limit])
-
-        lines = text.splitlines()
-        total_lines = len(lines)
+        full_text = self._decode(full_raw)
+        preview_text = self._decode(raw[:limit])
+        full_lines = full_text.splitlines()
+        total_lines = len(full_lines)
         if start_line is not None or max_lines is not None:
             start = max(1, int(start_line or 1))
             count = max(1, min(int(max_lines or 200), 2000))
-            sliced = lines[start - 1:start - 1 + count]
+            sliced = full_lines[start - 1:start - 1 + count]
             text = "\n".join(sliced)
         else:
             start = 1
+            count = None
+            text = preview_text
+
+        content_raw = text.encode(const.CHARSET, const.IGNORE)
+        output_truncated = len(content_raw) > limit
+        if output_truncated:
+            text = self._decode(content_raw[:limit])
+
+        end_line = start + len(text.splitlines()) - 1 if text else start
+        range_truncated = bool(count is not None and start - 1 + count < total_lines)
+        byte_truncated = truncated or output_truncated
 
         return self._ok(
-            f"workspace read ok path={self._rel(target)} bytes={min(size, limit)} truncated={truncated}",
+            f"workspace read ok path={self._rel(target)} bytes={min(size, limit)} truncated={byte_truncated}",
             path=self._rel(target),
             content=text,
             size=size,
             sha256=self._sha256(full_raw),
             start_line=start,
+            end_line=end_line,
             total_lines=total_lines,
-            truncated=truncated
+            truncated=byte_truncated or range_truncated,
+            byte_truncated=byte_truncated,
+            range_truncated=range_truncated,
+            recommended_next_steps=self._read_file_next_steps(
+                path=self._rel(target),
+                end_line=end_line,
+                total_lines=total_lines,
+                limit=limit,
+                byte_truncated=byte_truncated,
+                range_truncated=range_truncated
+            )
         )
 
     def search_text(
@@ -151,8 +180,106 @@ class WorkspaceTools(NativeCodingComponent):
             f"workspace search ok matches={len(matches)}",
             query=needle,
             matches=matches,
-            truncated=len(matches) >= max_matches
+            truncated=len(matches) >= max_matches,
+            recommended_next_steps=self._search_text_next_steps(
+                query=needle,
+                path=self._rel(base),
+                glob=glob,
+                case_sensitive=case_sensitive,
+                max_matches=max_matches,
+                truncated=len(matches) >= max_matches
+            )
         )
+
+    @staticmethod
+    def _list_files_next_steps(
+        *,
+        path: str,
+        pattern: str | None,
+        recursive: bool,
+        max_items: int,
+        truncated: bool
+    ) -> list[dict[str, typing.Any]]:
+        if not truncated:
+            return []
+        return [
+            {
+                "tool": "workspace_list_files",
+                "args": {
+                    "path": path,
+                    "pattern": pattern,
+                    "recursive": recursive,
+                    "max_items": min(max_items * 2, 2000)
+                },
+                "reason": "increase_limit"
+            },
+            {
+                "tool": "workspace_list_files",
+                "args": {
+                    "path": path,
+                    "pattern": pattern or "*",
+                    "recursive": False,
+                    "max_items": max_items
+                },
+                "reason": "narrow_scope"
+            }
+        ]
+
+    @staticmethod
+    def _read_file_next_steps(
+        *,
+        path: str,
+        end_line: int,
+        total_lines: int,
+        limit: int,
+        byte_truncated: bool,
+        range_truncated: bool
+    ) -> list[dict[str, typing.Any]]:
+        steps: list[dict[str, typing.Any]] = []
+        if (range_truncated or byte_truncated) and end_line < total_lines:
+            steps.append({
+                "tool": "workspace_read_file",
+                "args": {"path": path, "start_line": end_line + 1, "max_lines": 200},
+                "reason": "continue_from_next_line"
+            })
+        if byte_truncated:
+            steps.append({
+                "tool": "workspace_read_file",
+                "args": {"path": path, "max_bytes": limit},
+                "reason": "content_exceeds_max_bytes"
+            })
+        return steps
+
+    @staticmethod
+    def _search_text_next_steps(
+        *,
+        query: str,
+        path: str,
+        glob: str | None,
+        case_sensitive: bool,
+        max_matches: int,
+        truncated: bool
+    ) -> list[dict[str, typing.Any]]:
+        if not truncated:
+            return []
+        return [
+            {
+                "tool": "workspace_search_text",
+                "args": {
+                    "query": query,
+                    "path": path,
+                    "glob": glob,
+                    "case_sensitive": case_sensitive,
+                    "max_matches": min(max_matches * 2, 1000)
+                },
+                "reason": "increase_limit"
+            },
+            {
+                "tool": "workspace_list_files",
+                "args": {"path": path, "pattern": glob or "*", "recursive": True, "max_items": 200},
+                "reason": "narrow_search_scope"
+            }
+        ]
 
     def write_file(
         self,

@@ -87,13 +87,18 @@ class ParallelReadTools(NativeCodingComponent):
                 "result" : result
             }
 
-        results = await asyncio.gather(
+        results: list[dict[str, typing.Any]] = list(await asyncio.gather(
             *(run_item(index, item) for index, item in enumerate(normalized))
-        )
+        ))
 
         ok_count   = sum(1 for item in results if item.get("ok"))
         fail_count = len(results) - ok_count
         truncated  = len(items or []) > len(normalized)
+        recommended_next_steps = self._parallel_read_next_steps(
+            original_items=items or [],
+            results=results,
+            truncated=truncated
+        )
 
         return self._ok(
             (
@@ -104,8 +109,39 @@ class ParallelReadTools(NativeCodingComponent):
             ok_count=ok_count,
             fail_count=fail_count,
             truncated=truncated,
+            recommended_next_steps=recommended_next_steps,
             results=results
         )
+
+    def _parallel_read_next_steps(
+        self,
+        *,
+        original_items: list[dict[str, typing.Any]],
+        results: list[dict[str, typing.Any]],
+        truncated: bool
+    ) -> list[dict[str, typing.Any]]:
+        steps: list[dict[str, typing.Any]] = []
+        if truncated:
+            steps.append({
+                "tool"   : "native_parallel_read",
+                "args"   : {"items": original_items[self.MAX_ITEMS:self.MAX_ITEMS * 2]},
+                "reason" : "continue_remaining_items"
+            })
+
+        for item in results:
+            result = item.get("result") if isinstance(item, dict) else None
+            data = result.get("data") if isinstance(result, dict) else None
+            if not isinstance(data, dict):
+                continue
+            if not data.get("truncated") and not data.get("recommended_next_steps"):
+                continue
+            for step in data.get("recommended_next_steps") or []:
+                if isinstance(step, dict):
+                    steps.append({
+                        "source_index": item.get("index"),
+                        **step
+                    })
+        return steps
 
 
 if __name__ == '__main__':

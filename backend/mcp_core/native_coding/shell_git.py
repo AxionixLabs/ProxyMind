@@ -140,6 +140,8 @@ class ShellGitTools(NativeCodingComponent):
         exit_code  = int(proc.returncode or 0)
 
         ok = (exit_code == 0) and not timed_out
+        stdout_truncated = len(raw_stdout) > output_limit
+        stderr_truncated = len(raw_stderr) > output_limit
 
         logger.debug(
             f"native shell exit ok={ok} rc={exit_code} elapsed_ms={elapsed_ms} "
@@ -164,8 +166,17 @@ class ShellGitTools(NativeCodingComponent):
                 "long_task": bool(policy.get("long_task")),
                 "timeout_sec": effective_timeout,
                 "output_limit": output_limit,
-                "stdout_truncated": len(raw_stdout) > output_limit,
-                "stderr_truncated": len(raw_stderr) > output_limit,
+                "stdout_truncated": stdout_truncated,
+                "stderr_truncated": stderr_truncated,
+                "truncated": stdout_truncated or stderr_truncated,
+                "recommended_next_steps": self._shell_output_next_steps(
+                    cmd=cmd,
+                    cwd=self._rel(workdir),
+                    timeout_sec=effective_timeout,
+                    output_limit=output_limit,
+                    stdout_truncated=stdout_truncated,
+                    stderr_truncated=stderr_truncated
+                ),
                 "file_audit_enabled": bool(audit_files),
                 "shell_file_changes": shell_file_changes,
                 "shell_write_detected": bool(shell_file_changes.get("changed")),
@@ -285,6 +296,8 @@ class ShellGitTools(NativeCodingComponent):
         raw_stdout = "\n".join(stdout_lines)
         raw_stderr = "\n".join(stderr_lines)
         ok = exit_code == 0
+        stdout_truncated = len(raw_stdout) > output_limit
+        stderr_truncated = len(raw_stderr) > output_limit
         return {
             "text": f"shell exec {'ok' if ok else 'failed'} exit_code={exit_code} elapsed_ms={elapsed_ms}",
             "attachments": [],
@@ -304,8 +317,17 @@ class ShellGitTools(NativeCodingComponent):
                 "long_task": bool(policy.get("long_task")),
                 "timeout_sec": int(policy.get("timeout_sec") or timeout_sec or 60),
                 "output_limit": output_limit,
-                "stdout_truncated": len(raw_stdout) > output_limit,
-                "stderr_truncated": len(raw_stderr) > output_limit,
+                "stdout_truncated": stdout_truncated,
+                "stderr_truncated": stderr_truncated,
+                "truncated": stdout_truncated or stderr_truncated,
+                "recommended_next_steps": self._shell_output_next_steps(
+                    cmd=cmd,
+                    cwd=self._rel(workdir),
+                    timeout_sec=int(policy.get("timeout_sec") or timeout_sec or 60),
+                    output_limit=output_limit,
+                    stdout_truncated=stdout_truncated,
+                    stderr_truncated=stderr_truncated
+                ),
                 "file_audit_enabled": True,
                 "shell_file_changes": shell_file_changes,
                 "shell_write_detected": bool(shell_file_changes.get("changed")),
@@ -339,8 +361,44 @@ class ShellGitTools(NativeCodingComponent):
             cmd.append(self._rel(self._resolve(path)))
         result = await self._git(cmd)
         data = result.get("data") or {}
-        data["stdout"] = self._clip_output(str(data.get("stdout") or ""), max_chars=max_chars)
+        raw_stdout = str(data.get("stdout") or "")
+        data["stdout"] = self._clip_output(raw_stdout, max_chars=max_chars)
+        if len(raw_stdout) > max_chars:
+            data["stdout_truncated"] = True
+            data["truncated"] = True
+            data["recommended_next_steps"] = [
+                {
+                    "tool": "git_diff",
+                    "args": {"path": path, "max_chars": min(max_chars * 2, self.max_output_chars)},
+                    "reason": "increase_limit"
+                }
+            ]
         return result
+
+    @staticmethod
+    def _shell_output_next_steps(
+        *,
+        cmd: list[str],
+        cwd: str,
+        timeout_sec: int,
+        output_limit: int,
+        stdout_truncated: bool,
+        stderr_truncated: bool
+    ) -> list[dict[str, typing.Any]]:
+        if not stdout_truncated and not stderr_truncated:
+            return []
+        return [
+            {
+                "tool": "shell_exec",
+                "args": {
+                    "command": cmd,
+                    "cwd": cwd,
+                    "timeout_sec": timeout_sec,
+                    "allow_review": True
+                },
+                "reason": "rerun_with_narrower_or_larger_output"
+            }
+        ]
 
     async def _git(self, args: list[str]) -> dict[str, typing.Any]:
         return await self.shell_exec(
