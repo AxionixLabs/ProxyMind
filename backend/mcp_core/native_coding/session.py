@@ -1489,6 +1489,7 @@ class SessionTools(NativeCodingComponent):
             "status": session["status"],
             "diff": session["diff"]
         }
+        summary["repair_hints"] = self._repair_hints(summary)
         summary["final_summary_context"] = self._final_summary_context(summary)
         session["summary"] = summary
         return summary
@@ -1544,6 +1545,7 @@ class SessionTools(NativeCodingComponent):
             "ok": bool(summary.get("ok")),
             "next_action": summary.get("next_action"),
             "repair_status": summary.get("repair_status"),
+            "repair_hints": list(summary.get("repair_hints") or []),
             "changed_files": {
                 "created": list(summary.get("created_files") or []),
                 "modified": list(summary.get("modified_files") or []),
@@ -1568,6 +1570,88 @@ class SessionTools(NativeCodingComponent):
                 "file_changes": list(summary.get("shell_file_changes") or [])
             }
         }
+
+    @staticmethod
+    def _repair_hints(summary: dict[str, typing.Any]) -> list[dict[str, typing.Any]]:
+        hints: list[dict[str, typing.Any]] = []
+        preflight = summary.get("preflight") if isinstance(summary.get("preflight"), dict) else {}
+        for check in preflight.get("checks") or []:
+            if isinstance(check, dict) and not check.get("ok"):
+                hints.append(SessionTools._hint_from_failure(check, source="preflight"))
+
+        current_run = summary.get("current_run") if isinstance(summary.get("current_run"), dict) else {}
+        for step in current_run.get("steps") or []:
+            if isinstance(step, dict) and not step.get("ok"):
+                hints.append(SessionTools._hint_from_failure(step, source="step"))
+
+        diagnostics = summary.get("verify_diagnostics")
+        if isinstance(diagnostics, dict) and diagnostics and not diagnostics.get("ok"):
+            hints.append({
+                "source": "verify",
+                "reason": diagnostics.get("error_type") or "verification_failed",
+                "next_action": "inspect_diagnostics",
+                "message": "Verification failed; inspect recommended reads, patch the smallest affected area, then rerun verification.",
+                "recommended_reads": list(diagnostics.get("read_recommendations") or []),
+                "suggested_steps": list(diagnostics.get("suggested_steps") or []),
+                "repair_plan": diagnostics.get("repair_plan")
+            })
+        return [item for item in hints if isinstance(item, dict)]
+
+    @staticmethod
+    def _hint_from_failure(item: dict[str, typing.Any], *, source: str) -> dict[str, typing.Any]:
+        data = item.get("data") if isinstance(item.get("data"), dict) else item
+        reason = item.get("reason") or data.get("reason")
+        hint: dict[str, typing.Any] = {
+            "source": source,
+            "tool": item.get("tool"),
+            "reason": reason,
+            "next_action": "inspect_failure",
+            "message": "Inspect the failure payload and retry with the smallest safe native tool call."
+        }
+        if reason == "workspace_tool_required":
+            hint.update({
+                "next_action": "use_suggested_workspace_tool",
+                "message": "Use the suggested workspace tool instead of shell_exec for workspace file changes.",
+                "suggested_tool": data.get("suggested_tool") or item.get("suggested_tool"),
+                "suggested_args": data.get("suggested_args") or item.get("suggested_args") or {}
+            })
+        elif reason == "file_not_found":
+            path = data.get("path") or item.get("path")
+            hint.update({
+                "next_action": "locate_file",
+                "message": "Locate the intended file before editing.",
+                "suggested_steps": [
+                    {"tool": "workspace_list_files", "args": {"path": ".", "recursive": True, "max_items": 200}},
+                    {"tool": "workspace_search_text", "args": {"query": str(path or ""), "path": "."}}
+                ]
+            })
+        elif reason == "file_changed_since_read":
+            path = data.get("path") or data.get("source_path") or item.get("path")
+            hint.update({
+                "next_action": "refresh_file_snapshot",
+                "message": "The file changed since it was read; read it again and use the current sha256.",
+                "suggested_steps": [{"tool": "workspace_read_file", "args": {"path": path}}] if path else []
+            })
+        elif str(reason or "").startswith("unified_patch_context_"):
+            path = data.get("path") or item.get("path")
+            start_line = max(1, int(data.get("target_line") or 1) - 6)
+            hint.update({
+                "next_action": "regenerate_patch_with_context",
+                "message": "Regenerate the unified patch with current nearby context; ambiguous patches need more context lines.",
+                "path": path,
+                "hunk": data.get("hunk"),
+                "hunk_header": data.get("hunk_header"),
+                "expected_sequence": data.get("expected_sequence") or [],
+                "actual_sequence": data.get("actual_sequence") or [],
+                "nearby": data.get("nearby") or [],
+                "suggested_steps": [
+                    {
+                        "tool": "workspace_read_file",
+                        "args": {"path": path, "start_line": start_line, "max_lines": 18}
+                    }
+                ] if path else []
+            })
+        return hint
 
 
 if __name__ == '__main__':
