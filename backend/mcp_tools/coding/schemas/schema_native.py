@@ -29,6 +29,14 @@ WorkspaceContentArg = typing.Annotated[
     str,
     Field(description="要写入文件的完整文本内容。"),
 ]
+WorkspaceSourcePathArg = typing.Annotated[
+    str,
+    Field(description="工作区内要移动或重命名的源文件相对路径；不允许越过工作区根目录。"),
+]
+WorkspaceTargetPathArg = typing.Annotated[
+    str,
+    Field(description="工作区内移动或重命名后的目标文件相对路径；不允许越过工作区根目录。"),
+]
 WorkspaceQueryArg = typing.Annotated[
     str,
     Field(description="要在工作区文本文件中查找的字符串。"),

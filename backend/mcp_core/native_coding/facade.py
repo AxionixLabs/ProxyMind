@@ -99,6 +99,9 @@ class NativeCoding(NativeCodingBase):
     def write_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._workspace.write_file(*args, **kwargs)
 
+    def move_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+        return self._workspace.move_file(*args, **kwargs)
+
     def repo_map(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._repo_map.repo_map(*args, **kwargs)
 

@@ -11,6 +11,8 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     WorkspaceRecursiveArg,
     WorkspaceMaxItemsArg,
     WorkspaceContentArg,
+    WorkspaceSourcePathArg,
+    WorkspaceTargetPathArg,
     WorkspaceQueryArg,
     WorkspaceStartLineArg,
     WorkspaceMaxLinesArg,
@@ -317,6 +319,43 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
         return await broadcast(
             tool="workspace_write_file",
+            args=args,
+            target_list=[ctx.native_coding],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(
+        description=(
+            "移动或重命名工作区内的单个文件。"
+            " 适合把根目录或子目录中的文件改名；不会执行 shell，路径不能越过工作区。"
+        ),
+        meta={"hidden": False, "domain": "coding", "class": "workspace"}
+    )
+    @task_middleware("workspace_move_file")
+    async def workspace_move_file(
+        source_path: WorkspaceSourcePathArg,
+        target_path: WorkspaceTargetPathArg,
+        overwrite: WorkspaceOverwriteArg = False,
+        create_dirs: WorkspaceCreateDirsArg = True,
+        expected_sha256: WorkspaceExpectedSha256Arg = None,
+        force: WorkspaceForceArg = False
+    ) -> CallToolResult:
+
+        args = {
+            "source_path"     : source_path,
+            "target_path"     : target_path,
+            "overwrite"       : overwrite,
+            "create_dirs"     : create_dirs,
+            "expected_sha256" : expected_sha256,
+            "force"           : force
+        }
+
+        async def call(*_) -> dict:
+            return ctx.native_coding.move_file(**args)
+
+        return await broadcast(
+            tool="workspace_move_file",
             args=args,
             target_list=[ctx.native_coding],
             call=call,

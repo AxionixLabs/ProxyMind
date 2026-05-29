@@ -49,6 +49,7 @@ class NativeCodingBase(object):
         "repo_map",
         "repo_find_symbol",
         "workspace_write_file",
+        "workspace_move_file",
         "workspace_apply_patch",
         "workspace_apply_unified_patch",
         "shell_exec",
