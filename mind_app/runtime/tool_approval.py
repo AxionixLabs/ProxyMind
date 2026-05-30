@@ -43,7 +43,6 @@ APPROVAL_MENU_STYLE = Style.from_dict({
     "radio-number"   : "#7F8C9A"
 })
 
-
 @dataclass(slots=True)
 class ApprovalRecord(object):
     """保存审批请求元数据，用于校验后续工具调用。"""
@@ -148,13 +147,13 @@ def validate_shell_approval(
         and record is not None
         and store.approved_by_call_id.get(call_id) == approval_id
     ):
-        command = arguments.get("command")
-        cwd = str(arguments.get("cwd") or ".")
         if approval_id != record.approval_id:
             return ApprovalDecision(
                 action="reject",
                 result=_approval_reject_result("approval_id mismatch")
             )
+        command = arguments.get("command")
+        cwd = str(arguments.get("cwd") or ".")
         if not _same_command(command, record.command) or cwd != record.cwd:
             return ApprovalDecision(
                 action="reject",

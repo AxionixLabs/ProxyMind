@@ -13,39 +13,10 @@ def command_text(command: typing.Any) -> str:
     return str(command or "").strip()
 
 
-def _approval_arguments(approval: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    for key in ("arguments", "args", "input"):
-        value = approval.get(key)
-        if isinstance(value, dict):
-            return value
-    return {}
-
-
-def _tool_argument_summary(args: dict[str, typing.Any]) -> str:
-    values: list[str] = []
-    for key in (
-        "path",
-        "source_path",
-        "target_path",
-        "query",
-        "cwd",
-        "session_id",
-    ):
-        value = str(args.get(key) or "").strip()
-        if value:
-            values.append(value)
-    return " ".join(values)
-
-
 def approval_summary(approval: dict[str, typing.Any]) -> str:
     command = command_text(approval.get("command"))
     tool = str(approval.get("tool") or "").strip()
-    if command:
-        return command
-    if tool:
-        detail = _tool_argument_summary(_approval_arguments(approval))
-        return f"{tool} {detail}".rstrip()
-    return "tool call"
+    return command or tool or "tool call"
 
 
 def approval_preview_lines(approval: dict[str, typing.Any]) -> list[str]:
@@ -54,15 +25,9 @@ def approval_preview_lines(approval: dict[str, typing.Any]) -> list[str]:
     reason = str(approval.get("reason") or "").strip()
     risk = str(approval.get("risk") or "").strip()
     category = str(approval.get("category") or "").strip()
-    args = _approval_arguments(approval)
 
     if cwd:
         lines.append(f"cwd={cwd}")
-    if args:
-        for key in ("path", "source_path", "target_path", "query"):
-            value = str(args.get(key) or "").strip()
-            if value:
-                lines.append(f"{key}={value}")
     if reason:
         lines.append(f"reason={reason}")
     if risk or category:
