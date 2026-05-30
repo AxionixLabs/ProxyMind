@@ -171,13 +171,13 @@ async def stream_looper(
                     input_func=approval_input_func,
                     show_prompt=False
                 )
-                approved = decision in {"accept", "acceptForSession"}
+
+                approved    = decision in {"accept", "acceptForSession"}
                 approval_id = approval_id_from_event(event)
-                reason = None if approved else "user denied"
+                reason      = None if approved else "user denied"
+
                 approvals.mark_decision(
-                    call_id=str(event.get("call_id") or ""),
-                    approval=approval,
-                    decision=decision
+                    call_id=str(event.get("call_id") or ""), approval=approval, decision=decision
                 )
 
                 done_title = (
@@ -188,9 +188,7 @@ async def stream_looper(
                     f"{done_title}\n",
                     display=StreamUI.BLOCK,
                     display_parts=render_approval_trace_parts(
-                        done_title,
-                        approval=approval,
-                        state="approved" if approved else "denied"
+                        done_title, approval=approval, state="approved" if approved else "denied"
                     )
                 )
                 if approved:
@@ -207,8 +205,11 @@ async def stream_looper(
 
             if event_type == "tool.call":
                 name, arguments = event["name"], event.get("arguments", {})
+
                 event_meta = event.get("meta") if isinstance(event.get("meta"), dict) else None
+
                 summary = Tooling.summarize_tool_arguments(name, arguments)
+
                 if not isinstance(arguments, dict):
                     arguments = {}
 
@@ -218,6 +219,7 @@ async def stream_looper(
                     arguments=arguments,
                     store=approvals
                 )
+
                 if approval_decision.action == "reject":
                     await request.post_tool_result(
                         event["cid"],
@@ -246,20 +248,20 @@ async def stream_looper(
                     if name in {"workspace_write_file", "workspace_apply_patch"}
                     else MISSING
                 )
+
                 use_coding_trace = is_native_coding_trace_tool(name)
+
                 trace_start = render_tool_start_trace(
-                    name,
-                    arguments,
-                    before_exists=before_exists
+                    name, arguments, before_exists=before_exists
                 )
+
                 if not use_coding_trace:
                     await slog.feed(
-                        f"{trace_start}\n",
-                        display=StreamUI.BLOCK,
-                        display_chunk=summary
+                        f"{trace_start}\n", display=StreamUI.BLOCK, display_chunk=summary
                     )
 
                 arguments = Enhancer.exchange(name, arguments, mind.report)
+
                 tool_run = await run_tool_step(
                     session,
                     stream_ui=slog,
@@ -278,17 +280,14 @@ async def stream_looper(
                     code_status=use_coding_trace
                 )
 
-                ok = tool_run.ok
+                ok     = tool_run.ok
                 fields = tool_run.fields
-                text = tool_run.text
-                if handoff := normalize_cloud_sandbox_handoff(
-                    tool_name=name,
-                    fields=fields,
-                    ok=ok
-                ):
-                    ok = True
+                text   = tool_run.text
+
+                if handoff := normalize_cloud_sandbox_handoff(tool_name=name, fields=fields, ok=ok):
+                    ok     = True
                     fields = handoff
-                    text = str(handoff.get("text") or "")
+                    text   = str(handoff.get("text") or "")
 
                 if use_coding_trace:
                     await slog.end_status()
@@ -301,10 +300,9 @@ async def stream_looper(
                         before_exists=before_exists
                     )
                     trace_preview = render_tool_result_preview(name, tool_run.data)
+
                     trace_parts = render_tool_trace_parts(
-                        trace_title,
-                        preview=trace_preview,
-                        ok=ok
+                        trace_title, preview=trace_preview, ok=ok
                     )
                     trace_text = trace_title
                     if trace_preview.full:
