@@ -95,7 +95,10 @@ async def stream_looper(
 
     interrupted = False
     first_frame = True
+
     approvals = ApprovalStore()
+
+    completed_tool_call_ids: set[str] = set()
 
     try:
         await slog.open()
@@ -154,7 +157,12 @@ async def stream_looper(
 
             if event_type == "tool.approval_required":
                 approval = event.get("approval") if isinstance(event.get("approval"), dict) else {}
-                await slog.end_status()
+                call_id = str(event.get("call_id") or "")
+                if call_id and call_id in completed_tool_call_ids:
+                    await slog.end_status(immediate=True)
+                    continue
+
+                await slog.end_status(immediate=True)
                 await slog.settle_stream()
                 await slog.feed(
                     approval_prompt_text(approval),
@@ -224,6 +232,7 @@ async def stream_looper(
                         False,
                         approval_decision.result or {}
                     )
+                    completed_tool_call_ids.add(str(event.get("call_id") or ""))
                     await slog.begin_reply_wait_status()
                     continue
 
@@ -318,6 +327,7 @@ async def stream_looper(
                 await request.post_tool_result(
                     event["cid"], event["sid"], event["call_id"], name, ok, fields
                 )
+                completed_tool_call_ids.add(str(event.get("call_id") or ""))
                 await slog.begin_reply_wait_status()
                 continue
 
