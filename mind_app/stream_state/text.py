@@ -230,12 +230,15 @@ class TextState(object):
             body = raw_text.strip("\n")
             if not body:
                 return []
+            trailing = min(2, self._count_trailing_newlines(raw_text))
+            if trailing <= 0:
+                trailing = 1
             prefix = self._segment_prefix(for_display=self.BLOCK)
             out: list[TextPart] = []
             if prefix:
                 out.append({"text": prefix, "style": None})
             self._extend_parts(out, self._slice_parts(clean, raw_text.find(body), raw_text.find(body) + len(body)))
-            out.append({"text": "\n", "style": None})
+            out.append({"text": "\n" * trailing, "style": None})
             return out
 
         prefix = self._segment_prefix(for_display=self.STREAM, incoming_text=raw_text)

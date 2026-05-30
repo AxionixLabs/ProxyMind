@@ -133,6 +133,7 @@ async def stream_looper(
             if event_type == "text.done":
                 tracker.on_text_done(event)
                 await slog.settle_stream()
+                slog.mark_stream_boundary()
                 await slog.begin_reply_wait_status(delay_sec=0.45)
                 continue
 
@@ -192,7 +193,6 @@ async def stream_looper(
                         state="approved" if approved else "denied"
                     )
                 )
-                await slog.feed("\n", display=StreamUI.STREAM)
                 if approved:
                     await slog.begin_work_status("Running")
                 await request.post_tool_approval(

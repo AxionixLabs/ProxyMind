@@ -32,6 +32,7 @@ class StreamUI(object):
         self._heal_status_pending_text: str = ""
         self._heal_status_last_flush_at: float = 0.0
         self._heal_status_flush_task: typing.Optional[asyncio.Task[None]] = None
+        self._stream_boundary_pending = False
         self.record_writer: StreamRecordWriter
         self._reset_components()
 
@@ -58,21 +59,30 @@ class StreamUI(object):
         if not chunk:
             return None
 
+        text = str(chunk)
+        if display == self.STREAM and self._stream_boundary_pending:
+            self._stream_boundary_pending = False
+            if self.coordinator.text_state.display_text and not text.startswith("\n"):
+                text = f"\n{text}"
+
         if display == self.STREAM:
             if not self._has_stream_output:
                 self._has_stream_output = True
-            await self.end_status()
+            await self.end_status(immediate=True)
             self.coordinator.release_status_slot()
 
-        self.record_writer.write(chunk, block=(display == self.BLOCK))
+        self.record_writer.write(text, block=(display == self.BLOCK))
         await self.coordinator.append(
-            chunk,
+            text,
             echo=echo,
             display=display,
             display_chunk=display_chunk,
             display_style=display_style,
             display_parts=display_parts
         )
+
+    def mark_stream_boundary(self) -> None:
+        self._stream_boundary_pending = True
 
     async def begin_builtin_status(
         self,
@@ -268,6 +278,7 @@ class StreamUI(object):
 
     def _reset_components(self) -> None:
         self._has_stream_output = False
+        self._stream_boundary_pending = False
         self._pending_status_task = None
         self._pending_status_force_reveal = False
         self._pending_status_revealed = None
