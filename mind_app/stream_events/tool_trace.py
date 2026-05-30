@@ -21,6 +21,9 @@ NATIVE_CODING_TRACE_TOOLS = {
     "workspace_read_file",
     "workspace_list_files",
     "workspace_search_text",
+    "native_parallel_read",
+    "repo_map",
+    "repo_find_symbol",
     "workspace_write_file",
     "workspace_copy_file",
     "workspace_move_file",
@@ -30,7 +33,13 @@ NATIVE_CODING_TRACE_TOOLS = {
     "shell_exec",
     "git_status",
     "git_diff",
-    "change_summary"
+    "change_summary",
+    "rollback_run",
+    "native_plan",
+    "native_coding_loop",
+    "native_repair_loop",
+    "record_sandbox_result",
+    "native_coding_session"
 }
 
 
@@ -127,6 +136,29 @@ def _command_text(command: typing.Any) -> str:
     return str(command or "").strip()
 
 
+def _count_from_payload(payload: dict[str, typing.Any], key: str, count_key: str) -> typing.Optional[int]:
+    items = payload.get(key)
+    if isinstance(items, list):
+        return len(items)
+    value = payload.get(count_key)
+    return value if isinstance(value, int) else None
+
+
+def _session_id_from_payload(payload: dict[str, typing.Any], args: dict[str, typing.Any]) -> str:
+    return str(payload.get("session_id") or args.get("session_id") or "").strip()
+
+
+def _status_from_payload(payload: dict[str, typing.Any]) -> str:
+    status = str(payload.get("status") or payload.get("repair_status") or payload.get("next_action") or "").strip()
+    if status:
+        return status
+    if payload.get("ok") is True:
+        return "ok"
+    if payload.get("ok") is False:
+        return "failed"
+    return ""
+
+
 def _line_delta_from_content(content: typing.Any) -> tuple[int, int]:
     text = str(content or "")
     if not text:
@@ -168,6 +200,27 @@ def _format_delta(added: int, removed: int) -> str:
 def _short_sha(value: typing.Any) -> str:
     text = str(value or "").strip()
     return text[:12] if text else ""
+
+
+def _format_size(value: typing.Any) -> str:
+    try:
+        size = int(value)
+    except (TypeError, ValueError):
+        return ""
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    return f"{size / (1024 * 1024):.1f} MB"
+
+
+def _summary_lines(*items: tuple[str, typing.Any]) -> list[str]:
+    lines: list[str] = []
+    for label, value in items:
+        text = str(value or "").strip()
+        if text:
+            lines.append(f"{label}: {text}")
+    return lines
 
 
 def _hunk_label(value: typing.Any) -> str:
@@ -225,6 +278,18 @@ def render_tool_start_trace(
     if name == "workspace_search_text":
         return f"• Searching \"{_short_text(args.get('query'), 80)}\""
 
+    if name == "native_parallel_read":
+        items = args.get("items")
+        count = len(items) if isinstance(items, list) else 0
+        detail = f" ({count} items)" if count else ""
+        return f"• Reading context{detail}"
+
+    if name == "repo_map":
+        return f"• Mapping repo {_path_from_args(args)}"
+
+    if name == "repo_find_symbol":
+        return f"• Finding symbol \"{_short_text(args.get('query'), 80)}\""
+
     if name == "workspace_write_file":
         action = "Adding" if before_exists is False or args.get("overwrite") is False else "Editing"
         return f"• {action} {_path_from_args(args)}"
@@ -254,6 +319,30 @@ def render_tool_start_trace(
 
     if name in {"git_status", "git_diff", "change_summary"}:
         return f"• Running {name}"
+
+    if name == "rollback_run":
+        sid = str(args.get("session_id") or "").strip()
+        detail = f" {sid}" if sid else ""
+        return f"• Rolling back run{detail}"
+
+    if name == "native_plan":
+        action = str(args.get("action") or "get").strip() or "get"
+        return f"• Updating native plan" if action == "update" else "• Reading native plan"
+
+    if name == "native_coding_loop":
+        return "• Running native coding loop"
+
+    if name == "native_repair_loop":
+        return "• Running native repair loop"
+
+    if name == "record_sandbox_result":
+        command = _command_text(args.get("command"))
+        detail = f" {command}" if command else ""
+        return f"• Recording sandbox result{detail}"
+
+    if name == "native_coding_session":
+        sid = str(args.get("session_id") or "").strip()
+        return f"• Reading native session {sid}".rstrip()
 
     summary = _short_text(args, 100)
     detail = f" {summary}" if summary else ""
@@ -325,76 +414,140 @@ def render_tool_result_preview(
                         lines.append(row)
             return _trace_preview_from_lines(lines)
 
+    if name == "native_parallel_read":
+        results = data.get("results")
+        if isinstance(results, list):
+            lines = []
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                index = item.get("index")
+                tool = str(item.get("tool") or "").strip()
+                ok = "ok" if item.get("ok") else "failed"
+                result = item.get("result") if isinstance(item.get("result"), dict) else {}
+                result_data = _result_payload(result)
+                detail = ""
+                if tool == "workspace_read_file":
+                    detail = str(result_data.get("path") or "").strip()
+                elif tool == "workspace_list_files":
+                    count = _count_from_payload(result_data, "items", "count")
+                    detail = f"{count} items" if isinstance(count, int) else ""
+                elif tool == "workspace_search_text":
+                    count = _count_from_payload(result_data, "matches", "match_count")
+                    detail = f"{count} matches" if isinstance(count, int) else ""
+                elif tool == "workspace_root":
+                    detail = str(result_data.get("root") or "").strip()
+                prefix = f"{index}: " if index is not None else ""
+                suffix = f" {detail}" if detail else ""
+                lines.append(f"{prefix}{tool} {ok}{suffix}".strip())
+            return _trace_preview_from_lines(lines)
+
+    if name == "repo_map":
+        symbols = data.get("symbols")
+        files = data.get("files")
+        lines = []
+        if isinstance(symbols, list):
+            for item in symbols:
+                if not isinstance(item, dict):
+                    continue
+                path = str(item.get("path") or "").strip()
+                line = str(item.get("line") or "").strip()
+                kind = str(item.get("kind") or "").strip()
+                name_text = str(item.get("qualified_name") or item.get("name") or "").strip()
+                row = f"{path}:{line} {kind} {name_text}".strip()
+                if row:
+                    lines.append(row)
+        elif isinstance(files, list):
+            for item in files:
+                if isinstance(item, dict):
+                    path = str(item.get("path") or "").strip()
+                    lang = str(item.get("language") or "").strip()
+                    symbols_count = item.get("symbol_count")
+                    imports_count = item.get("import_count")
+                    parts = [path]
+                    if lang:
+                        parts.append(lang)
+                    if symbols_count is not None:
+                        parts.append(f"symbols={symbols_count}")
+                    if imports_count is not None:
+                        parts.append(f"imports={imports_count}")
+                    line = " ".join(str(part) for part in parts if str(part))
+                    if line:
+                        lines.append(line)
+        return _trace_preview_from_lines(lines)
+
+    if name == "repo_find_symbol":
+        matches = data.get("matches")
+        if isinstance(matches, list):
+            lines = []
+            for item in matches:
+                if not isinstance(item, dict):
+                    continue
+                path = str(item.get("path") or "").strip()
+                line = str(item.get("line") or "").strip()
+                kind = str(item.get("kind") or "").strip()
+                name_text = str(item.get("qualified_name") or item.get("name") or "").strip()
+                signature = _short_text(item.get("signature"), 80)
+                row = f"{path}:{line} {kind} {name_text}".strip()
+                if signature:
+                    row = f"{row} — {signature}"
+                if row:
+                    lines.append(row)
+            return _trace_preview_from_lines(lines)
+
     if name == "workspace_write_file":
         path = str(data.get("path") or "").strip()
-        size = data.get("bytes")
+        size = _format_size(data.get("bytes"))
         sha = _short_sha(data.get("sha256"))
-        parts = []
-        if path:
-            parts.append(f"path={path}")
-        if size is not None:
-            parts.append(f"bytes={size}")
-        if sha:
-            parts.append(f"sha256={sha}")
-        return _trace_preview_from_lines([" ".join(parts)] if parts else [])
+        return _trace_preview_from_lines(_summary_lines(
+            ("file", path),
+            ("size", size),
+            ("sha256", sha),
+        ))
 
     if name == "workspace_copy_file":
         source = str(data.get("source_path") or "").strip()
         target = str(data.get("target_path") or "").strip()
-        size = data.get("bytes")
+        size = _format_size(data.get("bytes"))
         sha = _short_sha(data.get("sha256"))
-        parts = []
-        if source:
-            parts.append(f"source={source}")
-        if target:
-            parts.append(f"target={target}")
-        if size is not None:
-            parts.append(f"bytes={size}")
-        if sha:
-            parts.append(f"sha256={sha}")
-        return _trace_preview_from_lines([" ".join(parts)] if parts else [])
+        return _trace_preview_from_lines(_summary_lines(
+            ("from", source),
+            ("to", target),
+            ("size", size),
+            ("sha256", sha),
+        ))
 
     if name == "workspace_move_file":
         source = str(data.get("source_path") or "").strip()
         target = str(data.get("target_path") or "").strip()
-        size = data.get("bytes")
+        size = _format_size(data.get("bytes"))
         sha = _short_sha(data.get("sha256"))
-        parts = []
-        if source:
-            parts.append(f"source={source}")
-        if target:
-            parts.append(f"target={target}")
-        if size is not None:
-            parts.append(f"bytes={size}")
-        if sha:
-            parts.append(f"sha256={sha}")
-        return _trace_preview_from_lines([" ".join(parts)] if parts else [])
+        return _trace_preview_from_lines(_summary_lines(
+            ("from", source),
+            ("to", target),
+            ("size", size),
+            ("sha256", sha),
+        ))
 
     if name == "workspace_delete_file":
         path = str(data.get("path") or "").strip()
-        size = data.get("bytes")
+        size = _format_size(data.get("bytes"))
         sha = _short_sha(data.get("sha256"))
-        parts = []
-        if path:
-            parts.append(f"path={path}")
-        if size is not None:
-            parts.append(f"bytes={size}")
-        if sha:
-            parts.append(f"sha256={sha}")
-        return _trace_preview_from_lines([" ".join(parts)] if parts else [])
+        return _trace_preview_from_lines(_summary_lines(
+            ("file", path),
+            ("removed", size),
+            ("sha256", sha),
+        ))
 
     if name == "workspace_apply_patch":
         path = str(data.get("path") or "").strip()
         replacements = data.get("replacements")
         sha = _short_sha(data.get("sha256"))
-        parts = []
-        if path:
-            parts.append(f"path={path}")
-        if replacements is not None:
-            parts.append(f"replacements={replacements}")
-        if sha:
-            parts.append(f"sha256={sha}")
-        return _trace_preview_from_lines([" ".join(parts)] if parts else [])
+        return _trace_preview_from_lines(_summary_lines(
+            ("file", path),
+            ("replacements", replacements),
+            ("sha256", sha),
+        ))
 
     if name == "workspace_apply_unified_patch":
         files = data.get("files")
@@ -432,6 +585,34 @@ def render_tool_result_preview(
             lines.extend(err_lines)
         elif err_lines:
             lines = err_lines
+        if not lines and name == "shell_exec" and data.get("exit_code") is not None:
+            lines = [f"exit_code={data.get('exit_code')}"]
+        return _trace_preview_from_lines(lines)
+
+    if name == "change_summary":
+        lines = _normalize_preview_lines(data.get("summary") or data.get("diff") or data.get("status"))
+        return _trace_preview_from_lines(lines)
+
+    if name in {
+        "rollback_run",
+        "native_plan",
+        "native_coding_loop",
+        "native_repair_loop",
+        "record_sandbox_result",
+        "native_coding_session"
+    }:
+        lines = []
+        sid = str(data.get("session_id") or "").strip()
+        run_id = str(data.get("run_id") or "").strip()
+        status = _status_from_payload(data)
+        if sid:
+            lines.append(f"session_id={sid}")
+        if run_id:
+            lines.append(f"run_id={run_id}")
+        if status:
+            lines.append(f"status={status}")
+        if data.get("elapsed_ms") is not None:
+            lines.append(f"elapsed_ms={data.get('elapsed_ms')}")
         return _trace_preview_from_lines(lines)
 
     return TracePreview()
@@ -472,6 +653,42 @@ def render_tool_trace(
         total = len(matches) if isinstance(matches, list) else None
         detail = f" ({total} matches)" if isinstance(total, int) else ""
         return f"• Searched \"{query}\"{detail}{suffix}"
+
+    if name == "native_parallel_read":
+        total = payload.get("total")
+        ok_count = payload.get("ok_count")
+        fail_count = payload.get("fail_count")
+        detail = ""
+        if isinstance(total, int):
+            detail = f" ({total} items"
+            if isinstance(ok_count, int):
+                detail += f", {ok_count} ok"
+            if isinstance(fail_count, int) and fail_count:
+                detail += f", {fail_count} failed"
+            detail += ")"
+        return f"• Read context{detail}{suffix}"
+
+    if name == "repo_map":
+        path = str(payload.get("path") or _path_from_args(args))
+        file_count = _count_from_payload(payload, "files", "file_count")
+        symbol_count = _count_from_payload(payload, "symbols", "symbol_count")
+        import_count = _count_from_payload(payload, "imports", "import_count")
+        details = []
+        if isinstance(file_count, int):
+            details.append(f"{file_count} files")
+        if isinstance(symbol_count, int):
+            details.append(f"{symbol_count} symbols")
+        if isinstance(import_count, int):
+            details.append(f"{import_count} imports")
+        detail = f" ({', '.join(details)})" if details else ""
+        return f"• Mapped repo {path}{detail}{suffix}"
+
+    if name == "repo_find_symbol":
+        query = _short_text(args.get("query") or payload.get("query"), 80)
+        matches = payload.get("matches")
+        total = len(matches) if isinstance(matches, list) else payload.get("match_count")
+        detail = f" ({total} matches)" if isinstance(total, int) else ""
+        return f"• Found symbol \"{query}\"{detail}{suffix}"
 
     if name == "workspace_write_file":
         path = str(payload.get("path") or _path_from_args(args))
@@ -523,6 +740,51 @@ def render_tool_trace(
 
     if name in {"git_status", "git_diff", "change_summary"}:
         return f"• Ran {name}{suffix}"
+
+    if name == "rollback_run":
+        sid = _session_id_from_payload(payload, args)
+        detail = f" {sid}" if sid else ""
+        return f"• Rolled back run{detail}{suffix}"
+
+    if name == "native_plan":
+        action = str(args.get("action") or "get").strip() or "get"
+        verb = "Updated" if action == "update" else "Read"
+        sid = _session_id_from_payload(payload, args)
+        detail = f" {sid}" if sid else ""
+        return f"• {verb} native plan{detail}{suffix}"
+
+    if name == "native_coding_loop":
+        sid = _session_id_from_payload(payload, args)
+        status = _status_from_payload(payload)
+        details = []
+        if sid:
+            details.append(f"session_id={sid}")
+        if status:
+            details.append(f"status={status}")
+        detail = f" ({', '.join(details)})" if details else ""
+        return f"• Ran native coding loop{detail}{suffix}"
+
+    if name == "native_repair_loop":
+        sid = _session_id_from_payload(payload, args)
+        status = _status_from_payload(payload)
+        details = []
+        if sid:
+            details.append(f"session_id={sid}")
+        if status:
+            details.append(f"status={status}")
+        detail = f" ({', '.join(details)})" if details else ""
+        return f"• Ran native repair loop{detail}{suffix}"
+
+    if name == "record_sandbox_result":
+        command = _command_text(payload.get("command") or args.get("command"))
+        rc = payload.get("exit_code", args.get("exit_code"))
+        status = f" exit_code={rc}" if rc is not None else ""
+        return f"• Recorded sandbox result {command}{status}{suffix}".rstrip()
+
+    if name == "native_coding_session":
+        sid = _session_id_from_payload(payload, args)
+        detail = f" {sid}" if sid else ""
+        return f"• Read native session{detail}{suffix}"
 
     summary = _short_text(args, 100)
     detail = f" {summary}" if summary else ""

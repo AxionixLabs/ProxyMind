@@ -127,15 +127,23 @@ class StreamUI(object):
         self,
         text: typing.Optional[str] = "Running",
         *,
-        delay_sec: float = 0.0
+        delay_sec: float = 0.0,
+        min_visible_sec: float = 0.32
     ) -> None:
         self.coordinator.hold_status_slot()
+        if delay_sec <= 0:
+            await self._cancel_pending_status_task()
+            await self.coordinator.set_status(text, family="code", animated=True)
+            self._mark_status_visible(min_visible_sec)
+            return None
+
         await self._schedule_status_task(
             self._delayed_status_flow(
                 text,
                 show_delay_sec=delay_sec,
                 animate_after_sec=delay_sec,
                 family="code",
+                min_visible_sec=min_visible_sec
             )
         )
 
@@ -229,12 +237,13 @@ class StreamUI(object):
                 self._flush_heal_status_after(remaining)
             )
 
-    async def end_status(self) -> None:
-        await self._wait_status_visibility_if_needed()
+    async def end_status(self, *, immediate: bool = False) -> None:
+        if not immediate:
+            await self._wait_status_visibility_if_needed()
         await self._cancel_heal_status_flush_task()
         await self._cancel_pending_status_task()
         self.coordinator.release_status_slot()
-        await self.coordinator.clear_status()
+        await self.coordinator.clear_status(immediate=immediate)
         self._active_status_visible_at = None
         self._active_status_min_visible_sec = 0.0
         self._reset_heal_status_state()

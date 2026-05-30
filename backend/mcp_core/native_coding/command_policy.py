@@ -3,6 +3,7 @@
 
 import typing
 from pathlib import Path
+from backend.utilities.command_heads import PYTHON_HEADS as COMMAND_PYTHON_HEADS
 from backend.mcp_core.native_coding.base import NativeCodingComponent
 
 
@@ -51,7 +52,7 @@ class CommandPolicy(NativeCodingComponent):
         ".pyc"
     }
 
-    PYTHON_HEADS = {"python", "python.exe", "python3", "python3.exe", "py", "py.exe"}
+    PYTHON_HEADS = COMMAND_PYTHON_HEADS
     PIP_HEADS    = {"pip", "pip.exe", "pip3", "pip3.exe"}
     NODE_HEADS   = {"node", "node.exe"}
     NPM_HEADS    = {"npm", "npm.cmd", "npm.exe", "pnpm", "pnpm.cmd", "pnpm.exe"}

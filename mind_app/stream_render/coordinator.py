@@ -97,7 +97,15 @@ class RenderCoord(object):
         await self.status_driver.start(reset_phase=reset_phase and self.status_state.active)
         await self._on_status_update()
 
-    async def clear_status(self) -> None:
+    async def clear_status(self, *, immediate: bool = False) -> None:
+        had_status = self.status_state.visible
+        if immediate:
+            self.status_state.reset()
+            await self.status_driver.stop(reset_phase=True)
+            if had_status:
+                await self._on_status_update()
+            return None
+
         had_status = self.status_state.clear_status()
         if self.status_state.animating:
             await self.status_driver.start(reset_phase=False)

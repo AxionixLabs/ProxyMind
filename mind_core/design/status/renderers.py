@@ -477,6 +477,41 @@ class StatusRenderer(StatusSpec):
         return out
 
     @classmethod
+    def _code_status_indicator(cls, phase: float) -> Text:
+        colors = {
+            "edge"  : "bold #3C4F46",
+            "rail"  : "bold #56A98A",
+            "core"  : "bold #D4FFE9",
+            "pulse" : "bold #83DAB2",
+            "dim"   : "bold #34594F"
+        }
+        breathe = 0.5 + (0.5 * math.sin(phase * 0.42))
+        left    = "." if breathe > 0.74 else " "
+        right   = "." if breathe < 0.26 else " "
+        core = cls._status_core_char(
+            breathe,
+            super_peak="#",
+            peak="*",
+            high="O",
+            mid="o",
+            low=".",
+            super_threshold=0.94,
+            peak_threshold=0.78,
+            high_threshold=0.60,
+            mid_threshold=0.42
+        )
+
+        out = Text()
+        out.append("[", style=colors["edge"])
+        out.append(left, style=colors["dim"] if left.strip() else colors["edge"])
+        out.append("{", style=colors["rail"])
+        out.append(core, style=colors["core"] if breathe > 0.60 else colors["pulse"])
+        out.append("}", style=colors["rail"])
+        out.append(right, style=colors["dim"] if right.strip() else colors["edge"])
+        out.append("]", style=colors["edge"])
+        return out
+
+    @classmethod
     def _heal_status_indicator(
         cls,
         phase: float,
@@ -751,23 +786,16 @@ class StatusRenderer(StatusSpec):
         spec = cls.status_spec("code")
 
         colors = {
-            "edge"      : "bold #3F4A5A",
-            "spin"      : "bold #86A6C9",
-            "spin_hot"  : "bold #D6E6F7",
-            "text_peak" : "bold #DCE8F5",
-            "text_soft" : "bold #BECFE3",
-            "text_near" : "bold #9DB3CA",
-            "text_mid"  : "bold #748CA6",
-            "text_fade" : "bold #5B6F86",
-            "text_dim"  : "bold #455565"
+            "edge"      : "bold #3C4F46",
+            "text_peak" : "bold #E3FFF1",
+            "text_soft" : "bold #B9F4D4",
+            "text_near" : "bold #83DAB2",
+            "text_mid"  : "bold #56A98A",
+            "text_fade" : "bold #3F776A",
+            "text_dim"  : "bold #34594F"
         }
 
-        frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-        frame = frames[int(max(0.0, phase) * 0.95) % len(frames)]
-        pulse = 0.5 + (0.5 * math.sin(phase * spec.shell_freq))
-
-        out = Text()
-        out.append(frame, style=colors["spin_hot"] if pulse > 0.58 else colors["spin"])
+        out = cls._code_status_indicator(phase)
         out.append(cls.status_content_gap(), style=colors["edge"])
 
         text = cls.fit_status_text(text, kind="code", fallback="Running")

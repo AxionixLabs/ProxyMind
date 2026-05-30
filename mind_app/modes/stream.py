@@ -132,6 +132,7 @@ async def stream_looper(
             if event_type == "text.done":
                 tracker.on_text_done(event)
                 await slog.settle_stream()
+                await slog.begin_reply_wait_status(delay_sec=0.45)
                 continue
 
             if event_type == "text.meta":
@@ -270,7 +271,7 @@ async def stream_looper(
                     stream_callback=lambda x: slog.feed(
                         f"{x}\n", display=StreamUI.BLOCK
                     ),
-                    status_text=trace_start if use_coding_trace else None,
+                    status_text="coding workspace" if use_coding_trace else None,
                     code_status=use_coding_trace
                 )
 
@@ -287,6 +288,7 @@ async def stream_looper(
                     text = str(handoff.get("text") or "")
 
                 if use_coding_trace:
+                    await slog.end_status()
                     trace_title = render_tool_trace(
                         name,
                         arguments,

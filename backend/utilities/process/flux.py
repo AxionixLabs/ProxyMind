@@ -9,6 +9,7 @@ import typing
 import asyncio
 from loguru import logger
 from backend.utilities import const
+from backend.utilities.command_heads import is_python_head
 from backend.utilities.trace import (
     clip_text, summarize_command
 )
@@ -29,6 +30,9 @@ class Flux(object):
         program = str(cmd[0] or "").strip()
         if not program:
             return cmd
+
+        if is_python_head(program):
+            return [sys.executable, *cmd[1:]]
 
         resolved = shutil.which(program) or program
         suffix = os.path.splitext(resolved)[1].lower()
