@@ -49,8 +49,7 @@ class ApprovalRecord(object):
     approval_id: str
     call_id: str
     tool: str
-    command: list[typing.Any]
-    cwd: str
+    arguments: dict[str, typing.Any]
 
 
 @dataclass(slots=True)
@@ -76,15 +75,12 @@ class ApprovalStore(object):
         approval_id = str(approval.get("id") or "").strip()
         if not approval_id:
             return None
-        command = approval.get("command")
-        if not isinstance(command, list):
-            command = []
+        tool = str(approval.get("tool") or "shell_exec").strip() or "shell_exec"
         self.by_call_id[call_id] = ApprovalRecord(
             approval_id=approval_id,
             call_id=call_id,
-            tool=str(approval.get("tool") or "shell_exec"),
-            command=list(command),
-            cwd=str(approval.get("cwd") or ".")
+            tool=tool,
+            arguments=_approval_arguments(approval)
         )
 
     def mark_decision(
@@ -111,32 +107,29 @@ def approval_id_from_event(
     return str(approval.get("id") or "").strip()
 
 
-def _same_command(
-    left: typing.Any,
-    right: typing.Any
-) -> bool:
-    """将命令数组元素转为字符串后进行比较。"""
-    if not isinstance(left, list) or not isinstance(right, list):
-        return False
-    return [str(item) for item in left] == [str(item) for item in right]
-
-
-def validate_shell_approval(
+def validate_tool_approval(
     *,
     event: dict[str, typing.Any],
     name: str,
     arguments: dict[str, typing.Any],
-    store: ApprovalStore
+    store: ApprovalStore,
+    meta: dict[str, typing.Any] | None = None
 ) -> ApprovalDecision:
-    """校验服务端已批准 shell 工具调用的审批元数据。"""
-    if name != "shell_exec":
+    """校验服务端已批准工具调用的审批元数据。"""
+    tool_name = str(name or "").strip()
+    if not tool_name:
         return ApprovalDecision(action="allow")
 
-    call_id = str(event.get("call_id") or "")
-    approval_id = str(event.get("approval_id") or "").strip()
+    call_id        = str(event.get("call_id") or "")
+    approval_id    = str(event.get("approval_id") or "").strip()
     event_approved = bool(event.get("approved"))
 
     if not event_approved and not approval_id:
+        if approval_required(event=event, meta=meta):
+            return ApprovalDecision(
+                action="reject",
+                result=_approval_reject_result(f"{tool_name} requires approval")
+            )
         return ApprovalDecision(action="allow")
 
     record = store.by_call_id.get(call_id)
@@ -152,19 +145,78 @@ def validate_shell_approval(
                 action="reject",
                 result=_approval_reject_result("approval_id mismatch")
             )
-        command = arguments.get("command")
-        cwd = str(arguments.get("cwd") or ".")
-        if not _same_command(command, record.command) or cwd != record.cwd:
+        if tool_name != record.tool:
             return ApprovalDecision(
                 action="reject",
-                result=_approval_reject_result("approved command/cwd mismatch")
+                result=_approval_reject_result("approved tool mismatch")
+            )
+        if _canonical_tool_arguments(arguments) != record.arguments:
+            return ApprovalDecision(
+                action="reject",
+                result=_approval_reject_result("approved tool arguments mismatch")
             )
         return ApprovalDecision(action="allow")
 
     return ApprovalDecision(
         action="reject",
-        result=_approval_reject_result("approved shell call missing matching approval")
+        result=_approval_reject_result("approved tool call missing matching approval")
     )
+
+
+def approval_required(
+    *,
+    event: dict[str, typing.Any] | None = None,
+    meta: dict[str, typing.Any] | None = None
+) -> bool:
+    """读取远端声明的工具审批策略。"""
+    event = event or {}
+    meta = meta or {}
+    return any(
+        _truthy_approval_required(value)
+        for value in (
+            meta.get("approvalRequired"),
+            meta.get("approval_required"),
+            event.get("approvalRequired"),
+            event.get("approval_required")
+        )
+    )
+
+
+def _truthy_approval_required(value: typing.Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "required"}
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return False
+
+
+def _approval_arguments(
+    approval: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+    raw = approval.get("arguments", approval.get("args"))
+    arguments = dict(raw) if isinstance(raw, dict) else {}
+    return _canonical_tool_arguments(arguments)
+
+
+def _canonical_tool_arguments(
+    arguments: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+    return typing.cast(dict[str, typing.Any], _normalize_value(arguments))
+
+
+def _normalize_value(value: typing.Any) -> typing.Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _normalize_value(value[key])
+            for key in sorted(value, key=lambda item: str(item))
+        }
+    if isinstance(value, list):
+        return [_normalize_value(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
 
 
 def _approval_reject_result(
@@ -181,8 +233,9 @@ def approval_prompt_text(
 ) -> str:
     """构造审批提示的纯文本内容。"""
     summary = approval_summary(approval)
+    noun = _approval_prompt_noun(approval)
     return (
-        "\nWould you like to run the following command?\n\n"
+        f"\nWould you like to approve the following {noun}?\n\n"
         f"$ {summary}\n"
     )
 
@@ -192,8 +245,9 @@ def approval_prompt_renderable(
 ) -> Group:
     """构造审批提示的终端渲染内容。"""
     summary = approval_summary(approval)
+    noun = _approval_prompt_noun(approval)
     return Group(
-        Text("Would you like to run the following command?\n", style="bold #E2E8F0"),
+        Text(f"Would you like to approve the following {noun}?\n", style="bold #E2E8F0"),
         Text(f"$ {summary}", style="bold #D7E7FF"),
     )
 
@@ -247,10 +301,18 @@ def approval_prompt_parts(
 ) -> list[dict[str, str | None]]:
     """构造审批提示的文本片段。"""
     summary = approval_summary(approval)
+    noun = _approval_prompt_noun(approval)
     return [
-        {"text": "Would you like to run the following command?\n\n", "style": "bold #E2E8F0"},
+        {"text": f"Would you like to approve the following {noun}?\n\n", "style": "bold #E2E8F0"},
         {"text": f"$ {summary}\n", "style": "bold #D7E7FF"}
     ]
+
+
+def _approval_prompt_noun(
+    approval: dict[str, typing.Any]
+) -> str:
+    tool = str(approval.get("tool") or "").strip()
+    return "command" if tool in {"", "shell_exec"} else "tool action"
 
 
 def _approval_choice_renderable(approval: dict[str, typing.Any]) -> Text:

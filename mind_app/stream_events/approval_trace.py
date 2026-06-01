@@ -14,8 +14,15 @@ def command_text(command: typing.Any) -> str:
 
 
 def approval_summary(approval: dict[str, typing.Any]) -> str:
-    command = command_text(approval.get("command"))
-    tool = str(approval.get("tool") or "").strip()
+    command   = command_text(approval.get("command"))
+    tool      = str(approval.get("tool") or "").strip()
+    arguments = approval.get("arguments", approval.get("args"))
+
+    if not command and tool == "workspace_delete_file" and isinstance(arguments, dict):
+        path = str(arguments.get("path") or "").strip()
+        if path:
+            return f"{tool} {path}"
+
     return command or tool or "tool call"
 
 

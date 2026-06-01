@@ -20,7 +20,7 @@ from ..runtime.tool_approval import (
     approval_prompt_text,
     approval_id_from_event,
     prompt_tool_approval_decision,
-    validate_shell_approval
+    validate_tool_approval
 )
 from ..stream_events.responses_builtin import (
     resolve_builtin_name,
@@ -191,8 +191,6 @@ async def stream_looper(
                         done_title, approval=approval, state="approved" if approved else "denied"
                     )
                 )
-                if approved:
-                    await slog.begin_work_status("Running")
                 await request.post_tool_approval(
                     event["cid"],
                     event["sid"],
@@ -213,11 +211,12 @@ async def stream_looper(
                 if not isinstance(arguments, dict):
                     arguments = {}
 
-                approval_decision = validate_shell_approval(
+                approval_decision = validate_tool_approval(
                     event=event,
                     name=name,
                     arguments=arguments,
-                    store=approvals
+                    store=approvals,
+                    meta=event_meta
                 )
 
                 if approval_decision.action == "reject":
