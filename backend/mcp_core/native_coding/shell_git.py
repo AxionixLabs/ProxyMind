@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
-"""原生编码中的 shell 与 git 工具实现。"""
 
 import os
 import time

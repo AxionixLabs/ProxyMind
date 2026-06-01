@@ -10,31 +10,36 @@ from backend.utilities.trace import clip_text
 
 class DiagnosticsTools(NativeCodingComponent):
 
-    def _diagnose_verify_failure(self, data: dict[str, typing.Any] | None) -> dict[str, typing.Any]:
-        payload = data if isinstance(data, dict) else {}
-        ok = bool(payload.get("ok"))
-        stdout = str(payload.get("stdout") or "")
-        stderr = str(payload.get("stderr") or "")
+    def _diagnose_verify_failure(
+        self,
+        data: dict[str, typing.Any] | None
+    ) -> dict[str, typing.Any]:
+        payload  = data if isinstance(data, dict) else {}
+        ok       = bool(payload.get("ok"))
+        stdout   = str(payload.get("stdout") or "")
+        stderr   = str(payload.get("stderr") or "")
         combined = "\n".join(item for item in [stdout, stderr] if item)
+
         if ok:
             return {
-                "ok": True,
-                "error_type": None,
-                "references": [],
-                "read_recommendations": [],
-                "suggested_steps": []
+                "ok"                   : True,
+                "error_type"           : None,
+                "references"           : [],
+                "read_recommendations" : [],
+                "suggested_steps"      : []
             }
 
-        framework = self._detect_verify_framework(payload, combined)
+        framework  = self._detect_verify_framework(payload, combined)
         references = self._extract_output_references(combined)
+
         read_recommendations = [
             {
-                "path": item["path"],
-                "line": item["line"],
-                "start_line": max(1, int(item["line"]) - 6),
-                "max_lines": 18,
-                "source": item.get("source"),
-                "framework": framework
+                "path"       : item["path"],
+                "line"       : item["line"],
+                "start_line" : max(1, int(item["line"]) - 6),
+                "max_lines"  : 18,
+                "source"     : item.get("source"),
+                "framework"  : framework
             }
             for item in references[:8]
         ]
@@ -42,24 +47,25 @@ class DiagnosticsTools(NativeCodingComponent):
             {
                 "tool": "workspace_read_file",
                 "args": {
-                    "path": item["path"],
-                    "start_line": item["start_line"],
-                    "max_lines": item["max_lines"]
+                    "path"       : item["path"],
+                    "start_line" : item["start_line"],
+                    "max_lines"  : item["max_lines"]
                 }
             }
             for item in read_recommendations
         ]
+
         return {
-            "ok": False,
-            "framework": framework,
-            "error_type": self._classify_verify_error(payload, combined, framework=framework),
-            "references": references,
-            "read_recommendations": read_recommendations,
-            "suggested_steps": suggested_steps,
-            "context": [],
-            "auto_read_count": 0,
-            "repair_prompt": "",
-            "output_tail": self._tail_output(combined, max_chars=4000)
+            "ok"                   : False,
+            "framework"            : framework,
+            "error_type"           : self._classify_verify_error(payload, combined, framework=framework),
+            "references"           : references,
+            "read_recommendations" : read_recommendations,
+            "suggested_steps"      : suggested_steps,
+            "context"              : [],
+            "auto_read_count"      : 0,
+            "repair_prompt"        : "",
+            "output_tail"          : self._tail_output(combined, max_chars=4000)
         }
 
     def _collect_verify_diagnostic_context(
@@ -68,7 +74,9 @@ class DiagnosticsTools(NativeCodingComponent):
     ) -> list[dict[str, typing.Any]]:
         context: list[dict[str, typing.Any]] = []
         seen: set[tuple[str, int, int]] = set()
+
         steps = diagnostics.get("suggested_steps") if isinstance(diagnostics, dict) else []
+
         for step in (steps or [])[:8]:
             if not isinstance(step, dict) or step.get("tool") != "workspace_read_file":
                 continue
@@ -76,12 +84,15 @@ class DiagnosticsTools(NativeCodingComponent):
             path = str(args.get("path") or "").strip()
             if not path:
                 continue
+
             start_line = max(1, int(args.get("start_line") or 1))
-            max_lines = max(1, min(int(args.get("max_lines") or 18), 80))
+            max_lines  = max(1, min(int(args.get("max_lines") or 18), 80))
+
             key = (path, start_line, max_lines)
             if key in seen:
                 continue
             seen.add(key)
+
             result = self.read_file(
                 path=path,
                 start_line=start_line,
@@ -90,21 +101,21 @@ class DiagnosticsTools(NativeCodingComponent):
             data = result.get("data") if isinstance(result, dict) else {}
             if bool(data.get("ok")):
                 context.append({
-                    "ok": True,
-                    "path": data.get("path"),
-                    "start_line": data.get("start_line"),
-                    "max_lines": max_lines,
-                    "total_lines": data.get("total_lines"),
-                    "sha256": data.get("sha256"),
-                    "content": data.get("content")
+                    "ok"          : True,
+                    "path"        : data.get("path"),
+                    "start_line"  : data.get("start_line"),
+                    "max_lines"   : max_lines,
+                    "total_lines" : data.get("total_lines"),
+                    "sha256"      : data.get("sha256"),
+                    "content"     : data.get("content")
                 })
             else:
                 context.append({
-                    "ok": False,
-                    "path": path,
-                    "start_line": start_line,
-                    "max_lines": max_lines,
-                    "reason": data.get("reason")
+                    "ok"         : False,
+                    "path"       : path,
+                    "start_line" : start_line,
+                    "max_lines"  : max_lines,
+                    "reason"     : data.get("reason")
                 })
         return context
 
@@ -114,7 +125,11 @@ class DiagnosticsTools(NativeCodingComponent):
         diagnostics: dict[str, typing.Any]
     ) -> str:
         command = verify_data.get("command")
-        command_text = " ".join(str(item) for item in command) if isinstance(command, list) else str(command or "")
+
+        command_text = " ".join(
+            str(item) for item in command
+        ) if isinstance(command, list) else str(command or "")
+
         lines = [
             "Repair the failing verification with the smallest safe code change.",
             "",
@@ -137,11 +152,13 @@ class DiagnosticsTools(NativeCodingComponent):
         ]
 
         context = diagnostics.get("context") if isinstance(diagnostics, dict) else []
+
         ok_context = [item for item in (context or []) if isinstance(item, dict) and item.get("ok")]
         if not ok_context:
             lines.extend([
                 "- No file context was auto-read. Use suggested_steps before patching."
             ])
+
         for item in ok_context[:6]:
             path = str(item.get("path") or "")
             start_line = int(item.get("start_line") or 1)
@@ -192,8 +209,9 @@ class DiagnosticsTools(NativeCodingComponent):
         session_id: str,
         run_id: str
     ) -> dict[str, typing.Any]:
-        context = diagnostics.get("context") if isinstance(diagnostics, dict) else []
+        context    = diagnostics.get("context") if isinstance(diagnostics, dict) else []
         ok_context = [item for item in (context or []) if isinstance(item, dict) and item.get("ok")]
+
         sha_map = {
             str(item.get("path")): str(item.get("sha256"))
             for item in ok_context
@@ -201,10 +219,10 @@ class DiagnosticsTools(NativeCodingComponent):
         }
         affected_files = [
             {
-                "path": item.get("path"),
-                "sha256": item.get("sha256"),
-                "start_line": item.get("start_line"),
-                "total_lines": item.get("total_lines")
+                "path"        : item.get("path"),
+                "sha256"      : item.get("sha256"),
+                "start_line"  : item.get("start_line"),
+                "total_lines" : item.get("total_lines")
             }
             for item in ok_context
             if item.get("path")
@@ -255,7 +273,10 @@ class DiagnosticsTools(NativeCodingComponent):
             }
         }
 
-    def _extract_output_references(self, output: str) -> list[dict[str, typing.Any]]:
+    def _extract_output_references(
+        self,
+        output: str
+    ) -> list[dict[str, typing.Any]]:
         references: list[dict[str, typing.Any]] = []
         seen: set[tuple[str, int]] = set()
         patterns = [
@@ -328,24 +349,32 @@ class DiagnosticsTools(NativeCodingComponent):
         ]
 
         for pattern in patterns:
-            regex = pattern["regex"]
+
+            regex  = pattern["regex"]
             source = str(pattern["source"])
+
             for match in regex.finditer(output or ""):
+
                 raw_path = match.group(int(pattern["path_group"]))
                 raw_line = match.group(int(pattern["line_group"]))
+
                 normalized = self._normalize_output_path(raw_path)
                 if not normalized:
                     continue
+
                 line = max(1, int(raw_line))
+
                 key = (normalized, line)
                 if key in seen:
                     continue
                 seen.add(key)
+
                 reference: dict[str, typing.Any] = {
-                    "path": normalized,
-                    "line": line,
-                    "source": source
+                    "path"   : normalized,
+                    "line"   : line,
+                    "source" : source
                 }
+
                 column_group = pattern.get("column_group")
                 if column_group and match.group(int(column_group)):
                     reference["column"] = max(1, int(match.group(int(column_group))))
@@ -363,7 +392,10 @@ class DiagnosticsTools(NativeCodingComponent):
                     return references
         return references
 
-    def _normalize_output_path(self, raw_path: str) -> str | None:
+    def _normalize_output_path(
+        self,
+        raw_path: str
+    ) -> str | None:
         raw = str(raw_path or "").strip()
         if raw.startswith("./"):
             raw = raw[2:]
@@ -439,14 +471,22 @@ class DiagnosticsTools(NativeCodingComponent):
         return "command_failed"
 
     @staticmethod
-    def _tail_output(output: str, *, max_chars: int) -> str:
+    def _tail_output(
+        output: str,
+        *,
+        max_chars: int
+    ) -> str:
         text = str(output or "")
         if len(text) <= max_chars:
             return text
         return f"...[truncated {len(text) - max_chars} chars]\n{text[-max_chars:]}"
 
     @staticmethod
-    def _numbered_content(content: str, *, start_line: int) -> str:
+    def _numbered_content(
+        content: str,
+        *,
+        start_line: int
+    ) -> str:
         lines = str(content or "").splitlines()
         width = max(4, len(str(start_line + len(lines))))
         return "\n".join(

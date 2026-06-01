@@ -23,25 +23,29 @@ class FileAudit(NativeCodingComponent):
             if len(files) >= limit:
                 truncated = True
                 continue
+
             try:
                 stat = item.stat()
-                rel = self._rel(item)
+                rel  = self._rel(item)
+
                 fingerprint: dict[str, typing.Any] = {
-                    "path": rel,
-                    "size": stat.st_size,
-                    "mtime_ns": stat.st_mtime_ns
+                    "path"     : rel,
+                    "size"     : stat.st_size,
+                    "mtime_ns" : stat.st_mtime_ns
                 }
+
                 if stat.st_size <= self.MAX_HASH_BYTES:
                     fingerprint["sha256"] = self._sha256(item.read_bytes())
                 files[rel] = fingerprint
             except OSError:
                 continue
+
         return {
-            "files": files,
-            "file_count": count,
-            "captured_count": len(files),
-            "truncated": truncated,
-            "max_files": limit
+            "files"          : files,
+            "file_count"     : count,
+            "captured_count" : len(files),
+            "truncated"      : truncated,
+            "max_files"      : limit
         }
 
     @staticmethod
@@ -52,9 +56,9 @@ class FileAudit(NativeCodingComponent):
         max_items: int = 100
     ) -> dict[str, typing.Any]:
         before_files = (before or {}).get("files") or {}
-        after_files = (after or {}).get("files") or {}
+        after_files  = (after or {}).get("files") or {}
         before_paths = set(before_files.keys())
-        after_paths = set(after_files.keys())
+        after_paths  = set(after_files.keys())
 
         created = sorted(after_paths - before_paths)
         deleted = sorted(before_paths - after_paths)

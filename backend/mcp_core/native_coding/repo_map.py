@@ -23,8 +23,9 @@ class RepoMapTools(NativeCodingComponent):
         if not base.exists():
             return self._fail("path_not_found", path=path)
 
-        max_files = max(1, min(int(max_files or 200), 2000))
+        max_files   = max(1, min(int(max_files or 200), 2000))
         max_symbols = max(1, min(int(max_symbols or 1000), 10000))
+
         files: list[dict[str, typing.Any]] = []
         symbols: list[dict[str, typing.Any]] = []
         imports: list[dict[str, typing.Any]] = []
@@ -34,12 +35,16 @@ class RepoMapTools(NativeCodingComponent):
                 break
             if not item.is_file() or self._is_excluded(item) or not self._looks_text(item):
                 continue
+
             rel = self._rel(item)
+
             if glob and not fnmatch.fnmatch(rel, glob) and not fnmatch.fnmatch(item.name, glob):
                 continue
-            raw = item.read_bytes()[:self.max_read_bytes]
+
+            raw     = item.read_bytes()[:self.max_read_bytes]
             content = self._decode(raw)
-            parsed = self._parse_symbol_file(rel, content)
+            parsed  = self._parse_symbol_file(rel, content)
+
             if not parsed["symbols"] and not parsed["imports"]:
                 continue
 
@@ -76,6 +81,7 @@ class RepoMapTools(NativeCodingComponent):
         max_matches: int = 50
     ) -> dict[str, typing.Any]:
         needle = str(query or "").strip()
+
         if not needle:
             return self._fail("query_empty")
 
@@ -85,7 +91,9 @@ class RepoMapTools(NativeCodingComponent):
             max_files=1000,
             max_symbols=max(50, int(max_matches or 50) * 20)
         )
+
         data = mapped.get("data") or {}
+
         if not data.get("ok"):
             return mapped
 
@@ -104,34 +112,63 @@ class RepoMapTools(NativeCodingComponent):
             truncated=len(matches) >= max_matches
         )
 
-    def _parse_symbol_file(self, path: str, content: str) -> dict[str, typing.Any]:
+    def _parse_symbol_file(
+        self,
+        path: str,
+        content: str
+    ) -> dict[str, typing.Any]:
         language = self._language_for_path(path)
+
         symbols: list[dict[str, typing.Any]] = []
         imports: list[dict[str, typing.Any]] = []
+
         scope_stack: list[tuple[int, str]] = []
 
         for lineno, line in enumerate(str(content or "").splitlines(), start=1):
             stripped = line.strip()
             if not stripped or stripped.startswith("#") or stripped.startswith("//"):
                 continue
+
             indent = len(line) - len(line.lstrip(" "))
+
             if language == "python":
                 while scope_stack and indent <= scope_stack[-1][0]:
                     scope_stack.pop()
                 import_match = re.match(r"^(?:from\s+([\w.]+)\s+import\s+(.+)|import\s+(.+))$", stripped)
                 if import_match:
-                    imports.append(self._symbol_import(path, lineno, import_match.group(1) or "", import_match.group(2) or import_match.group(3) or ""))
+                    imports.append(
+                        self._symbol_import(
+                            path,
+                            lineno,
+                            import_match.group(1) or "",
+                            import_match.group(2) or import_match.group(3) or ""
+                        )
+                    )
                     continue
+
                 match = re.match(r"^(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(", stripped)
-                kind = "function"
+                kind  = "function"
+
                 if not match:
                     match = re.match(r"^class\s+([A-Za-z_]\w*)\b", stripped)
                     kind = "class"
+
                 if match:
-                    name = match.group(1)
-                    parent = scope_stack[-1][1] if scope_stack else ""
+                    name      = match.group(1)
+                    parent    = scope_stack[-1][1] if scope_stack else ""
                     qualified = f"{parent}.{name}" if parent else name
-                    symbols.append(self._symbol_record(path, language, kind if not parent else "method", name, qualified, lineno, stripped))
+
+                    symbols.append(
+                        self._symbol_record(
+                            path,
+                            language,
+                            kind if not parent else "method",
+                            name,
+                            qualified,
+                            lineno,
+                            stripped
+                        )
+                    )
                     if kind == "class":
                         scope_stack.append((indent, qualified))
                     continue
@@ -141,7 +178,14 @@ class RepoMapTools(NativeCodingComponent):
                 if not import_match:
                     import_match = re.match(r"^import\s+['\"](.+?)['\"]", stripped)
                 if import_match:
-                    imports.append(self._symbol_import(path, lineno, import_match.group(2) if import_match.lastindex and import_match.lastindex >= 2 else import_match.group(1), import_match.group(1)))
+                    imports.append(
+                        self._symbol_import(
+                            path,
+                            lineno,
+                            import_match.group(2) if import_match.lastindex and import_match.lastindex >= 2 else import_match.group(1),
+                            import_match.group(1)
+                        )
+                    )
                     continue
                 patterns = [
                     ("class", r"^(?:export\s+)?(?:default\s+)?class\s+([A-Za-z_$][\w$]*)\b"),
@@ -153,32 +197,46 @@ class RepoMapTools(NativeCodingComponent):
                     match = re.match(pattern, stripped)
                     if match:
                         name = match.group(1)
-                        symbols.append(self._symbol_record(path, language, kind, name, name, lineno, stripped))
+                        symbols.append(
+                            self._symbol_record(path, language, kind, name, name, lineno, stripped)
+                        )
                         break
 
             elif language == "go":
                 import_match = re.match(r"^import\s+(?:\w+\s+)?\"(.+?)\"", stripped)
                 if import_match:
-                    imports.append(self._symbol_import(path, lineno, import_match.group(1), import_match.group(1)))
+                    imports.append(
+                        self._symbol_import(path, lineno, import_match.group(1), import_match.group(1))
+                    )
                     continue
+
                 match = re.match(r"^func\s+(?:\(([^)]+)\)\s*)?([A-Za-z_]\w*)\s*\(", stripped)
                 if match:
-                    receiver = (match.group(1) or "").strip()
-                    name = match.group(2)
-                    kind = "method" if receiver else "function"
+                    receiver  = (match.group(1) or "").strip()
+                    name      = match.group(2)
+                    kind      = "method" if receiver else "function"
                     qualified = f"{receiver}.{name}" if receiver else name
-                    symbols.append(self._symbol_record(path, language, kind, name, qualified, lineno, stripped))
+
+                    symbols.append(
+                        self._symbol_record(path, language, kind, name, qualified, lineno, stripped)
+                    )
                     continue
+
                 match = re.match(r"^type\s+([A-Za-z_]\w*)\s+(?:struct|interface)\b", stripped)
                 if match:
                     name = match.group(1)
-                    symbols.append(self._symbol_record(path, language, "type", name, name, lineno, stripped))
+                    symbols.append(
+                        self._symbol_record(path, language, "type", name, name, lineno, stripped)
+                    )
 
             elif language == "rust":
                 import_match = re.match(r"^use\s+(.+?);$", stripped)
                 if import_match:
-                    imports.append(self._symbol_import(path, lineno, import_match.group(1), import_match.group(1)))
+                    imports.append(
+                        self._symbol_import(path, lineno, import_match.group(1), import_match.group(1))
+                    )
                     continue
+
                 patterns = [
                     ("function", r"^(?:pub(?:\([^)]+\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)\s*\("),
                     ("struct", r"^(?:pub\s+)?struct\s+([A-Za-z_]\w*)\b"),
@@ -186,18 +244,26 @@ class RepoMapTools(NativeCodingComponent):
                     ("trait", r"^(?:pub\s+)?trait\s+([A-Za-z_]\w*)\b"),
                     ("impl", r"^impl(?:<[^>]+>)?\s+(.+?)\s*\{")
                 ]
+
                 for kind, pattern in patterns:
                     match = re.match(pattern, stripped)
                     if match:
                         name = match.group(1).strip()
-                        symbols.append(self._symbol_record(path, language, kind, name, name, lineno, stripped))
+                        symbols.append(
+                            self._symbol_record(path, language, kind, name, name, lineno, stripped)
+                        )
                         break
 
-        return {"language": language, "symbols": symbols, "imports": imports}
+        return {
+            "language" : language,
+            "symbols"  : symbols,
+            "imports"  : imports
+        }
 
     @staticmethod
-
-    def _language_for_path(path: str) -> str:
+    def _language_for_path(
+        path: str
+    ) -> str:
         suffix = Path(path).suffix.lower()
         if suffix in {".py", ".pyi"}:
             return "python"
@@ -209,10 +275,10 @@ class RepoMapTools(NativeCodingComponent):
             return "go"
         if suffix == ".rs":
             return "rust"
+
         return "text"
 
     @staticmethod
-
     def _symbol_record(
         path: str,
         language: str,
@@ -223,17 +289,16 @@ class RepoMapTools(NativeCodingComponent):
         signature: str
     ) -> dict[str, typing.Any]:
         return {
-            "path": path,
-            "language": language,
-            "kind": kind,
-            "name": name,
-            "qualified_name": qualified_name,
-            "line": line,
-            "signature": clip_text(signature, limit=300)
+            "path"           : path,
+            "language"       : language,
+            "kind"           : kind,
+            "name"           : name,
+            "qualified_name" : qualified_name,
+            "line"           : line,
+            "signature"      : clip_text(signature, limit=300)
         }
 
     @staticmethod
-
     def _symbol_import(
         path: str,
         line: int,
