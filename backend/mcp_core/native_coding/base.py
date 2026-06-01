@@ -14,33 +14,116 @@ class NativeCodingBase(object):
     agent_id: str = "native_coding"
 
     DEFAULT_EXCLUDES = {
-        ".git", ".venv", "venv", "__pycache__", ".mypy_cache", ".pytest_cache",
-        "node_modules", "dist", "build", ".idea", ".vscode"
+        ".git",
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".mypy_cache",
+        ".pytest_cache",
+        "node_modules",
+        "dist",
+        "build",
+        ".idea",
+        ".vscode"
     }
+
     TEXT_SUFFIXES = {
-        ".py", ".pyi", ".md", ".txt", ".json", ".toml", ".yaml", ".yml",
-        ".ini", ".cfg", ".html", ".css", ".js", ".ts", ".tsx", ".jsx",
-        ".sh", ".bat", ".ps1", ".sql", ".xml", ".svg", ".csv",
-        ".go", ".rs"
+        ".py",
+        ".pyi",
+        ".md",
+        ".txt",
+        ".json",
+        ".toml",
+        ".yaml",
+        ".yml",
+        ".ini",
+        ".cfg",
+        ".html",
+        ".css",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".jsx",
+        ".sh",
+        ".bat",
+        ".ps1",
+        ".sql",
+        ".xml",
+        ".svg",
+        ".csv",
+        ".go",
+        ".rs"
     }
+
     DANGEROUS_COMMANDS = {
-        "rm", "rmdir", "del", "erase", "format", "mkfs", "shutdown",
-        "reboot", "halt", "poweroff", "diskpart", "remove-item",
-        "ri", "rd"
+        "rm",
+        "rmdir",
+        "del",
+        "erase",
+        "format",
+        "mkfs",
+        "shutdown",
+        "reboot",
+        "halt",
+        "poweroff",
+        "diskpart",
+        "remove-item",
+        "ri",
+        "rd"
     }
+
     REVIEW_COMMANDS = {
-        "pip", "pip3", "npm", "pnpm", "yarn", "bun", "curl", "wget",
-        "chmod", "chown"
+        "pip",
+        "pip3",
+        "npm",
+        "pnpm",
+        "yarn",
+        "bun",
+        "curl",
+        "wget",
+        "chmod",
+        "chown"
     }
+
     REVIEW_GIT_SUBCOMMANDS = {
-        "add", "am", "apply", "bisect", "branch", "checkout", "cherry-pick",
-        "clean", "commit", "fetch", "merge", "mv", "pull", "push", "rebase",
-        "reset", "restore", "revert", "rm", "stash", "switch", "tag",
-        "update-index", "worktree"
+        "add",
+        "am",
+        "apply",
+        "bisect",
+        "branch",
+        "checkout",
+        "cherry-pick",
+        "clean",
+        "commit",
+        "fetch",
+        "merge",
+        "mv",
+        "pull",
+        "push",
+        "rebase",
+        "reset",
+        "restore",
+        "revert",
+        "rm",
+        "stash",
+        "switch",
+        "tag",
+        "update-index",
+        "worktree"
     }
+
     CONTROL_OPERATORS = {
-        ";", "&&", "||", "|", ">", ">>", "<", "$(", "`"
+        ";",
+        "&&",
+        "||",
+        "|",
+        ">",
+        ">>",
+        "<",
+        "$(",
+        "`"
     }
+
     LOOP_TOOLS = {
         "workspace_root",
         "workspace_list_files",
@@ -78,33 +161,6 @@ class NativeCodingBase(object):
         except ValueError:
             return str(path)
 
-    def _resolve(self, path: str | None = None) -> Path:
-        raw = str(path or ".").strip() or "."
-        candidate = Path(raw)
-        if not candidate.is_absolute():
-            candidate = self.root / candidate
-        resolved = candidate.resolve()
-        if resolved != self.root and self.root not in resolved.parents:
-            raise ValueError(f"path outside workspace: {raw}")
-        return resolved
-
-    @staticmethod
-    def _decode(data: bytes) -> str:
-        return data.decode(const.CHARSET, const.IGNORE)
-
-    @staticmethod
-    def _sha256(data: bytes) -> str:
-        return hashlib.sha256(data).hexdigest()
-
-    def _is_excluded(self, path: Path) -> bool:
-        parts = set(path.relative_to(self.root).parts) if path != self.root else set()
-        return bool(parts & self.DEFAULT_EXCLUDES)
-
-    def _looks_text(self, path: Path) -> bool:
-        return path.suffix.lower() in self.TEXT_SUFFIXES or path.name in {
-            "README", "LICENSE", "Dockerfile", "Makefile"
-        }
-
     def _walk(self, base: Path, *, recursive: bool = True) -> typing.Iterator[Path]:
         """遍历工作区路径，并跳过体积较大的排除目录。"""
         if base.is_file():
@@ -130,11 +186,38 @@ class NativeCodingBase(object):
                 if not self._is_excluded(item):
                     yield item
 
+    def _resolve(self, path: str | None = None) -> Path:
+        raw = str(path or ".").strip() or "."
+        candidate = Path(raw)
+        if not candidate.is_absolute():
+            candidate = self.root / candidate
+        resolved = candidate.resolve()
+        if resolved != self.root and self.root not in resolved.parents:
+            raise ValueError(f"path outside workspace: {raw}")
+        return resolved
+
+    def _looks_text(self, path: Path) -> bool:
+        return path.suffix.lower() in self.TEXT_SUFFIXES or path.name in {
+            "README", "LICENSE", "Dockerfile", "Makefile"
+        }
+
+    def _is_excluded(self, path: Path) -> bool:
+        parts = set(path.relative_to(self.root).parts) if path != self.root else set()
+        return bool(parts & self.DEFAULT_EXCLUDES)
+
     def _clip_output(self, text: str, *, max_chars: int | None = None) -> str:
         limit = max_chars or self.max_output_chars
         if len(text) <= limit:
             return text
         return text[:limit] + f"\n...[truncated {len(text) - limit} chars]"
+
+    @staticmethod
+    def _decode(data: bytes) -> str:
+        return data.decode(const.CHARSET, const.IGNORE)
+
+    @staticmethod
+    def _sha256(data: bytes) -> str:
+        return hashlib.sha256(data).hexdigest()
 
     @staticmethod
     def _ok(text: str, **data: typing.Any) -> dict[str, typing.Any]:

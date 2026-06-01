@@ -30,9 +30,17 @@ class ChangeSummaryTools(NativeCodingComponent):
         warnings: list[dict[str, typing.Any]] = []
 
         if not bool(status_data.get("available", True)):
-            warnings.append({"kind": "git_unavailable", "message": "workspace is not a git repository"})
+            warnings.append({
+                "kind"    : "git_unavailable",
+                "message" : "workspace is not a git repository"
+            })
+
         if any(item.get("conflict") for item in changed_files):
-            blockers.append({"kind": "merge_conflict", "message": "git status reports unresolved conflicts"})
+            blockers.append({
+                "kind"    : "merge_conflict",
+                "message" : "git status reports unresolved conflicts"
+            })
+
         untracked = [item for item in changed_files if item.get("untracked")]
         if untracked:
             warnings.append({
@@ -40,19 +48,38 @@ class ChangeSummaryTools(NativeCodingComponent):
                 "count" : len(untracked),
                 "paths" : [item["path"] for item in untracked[:20]]
             })
+
         if bool(diff_data.get("truncated")) or "...[truncated " in diff_text:
-            warnings.append({"kind": "diff_truncated", "message": "diff output was truncated"})
+            warnings.append({
+                "kind"    : "diff_truncated",
+                "message" : "diff output was truncated"
+            })
+
         if isinstance(latest_run, dict):
             preflight = latest_run.get("preflight") or {}
-            verify = latest_run.get("verify")
+            verify    = latest_run.get("verify")
+
             if preflight and not bool(preflight.get("ok")):
-                blockers.append({"kind": "preflight_failed", "run_id": latest_run.get("run_id")})
+                blockers.append({
+                    "kind"   : "preflight_failed",
+                    "run_id" : latest_run.get("run_id")
+                })
             if verify and not bool(verify.get("ok")):
-                blockers.append({"kind": "verification_failed", "run_id": latest_run.get("run_id")})
+                blockers.append({
+                    "kind"   : "verification_failed",
+                    "run_id" : latest_run.get("run_id")
+                })
             if verify is None:
-                warnings.append({"kind": "verification_missing", "run_id": latest_run.get("run_id")})
+                warnings.append({
+                    "kind"   : "verification_missing",
+                    "run_id" : latest_run.get("run_id")
+                })
+
         else:
-            warnings.append({"kind": "session_missing", "message": "no native coding session was found"})
+            warnings.append({
+                "kind"    : "session_missing",
+                "message" : "no native coding session was found"
+            })
 
         ready = not blockers
         return self._ok(
@@ -90,11 +117,14 @@ class ChangeSummaryTools(NativeCodingComponent):
                 continue
             if len(raw) < 4:
                 continue
-            xy = raw[:2]
+
+            xy        = raw[:2]
             path_text = raw[3:].strip()
-            original = None
+            original  = None
+
             if " -> " in path_text:
                 original, path_text = path_text.split(" -> ", 1)
+
             item = {
                 "path"            : path_text,
                 "status"          : xy,
@@ -112,8 +142,9 @@ class ChangeSummaryTools(NativeCodingComponent):
 
     @staticmethod
     def _summarize_diff_text(diff: str) -> dict[str, typing.Any]:
-        added = 0
+        added   = 0
         deleted = 0
+
         files: list[str] = []
 
         for line in str(diff or "").splitlines():
