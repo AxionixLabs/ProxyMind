@@ -23,15 +23,18 @@ class PatchEngine(NativeCodingComponent):
         force: bool = False
     ) -> dict[str, typing.Any]:
         target = self._resolve(path)
+
         if not target.is_file():
             return self._fail("file_not_found", path=path)
         if not str(old_text or ""):
             return self._fail("old_text_empty", path=self._rel(target))
         if conflict := self._conflict_guard(target, expected_sha256=expected_sha256, force=force):
             return conflict
-        current = target.read_text(encoding=const.CHARSET, errors=const.IGNORE)
-        count = current.count(old_text)
+
+        current  = target.read_text(encoding=const.CHARSET, errors=const.IGNORE)
+        count    = current.count(old_text)
         expected = max(1, int(expected_replacements or 1))
+
         if count != expected:
             return self._fail(
                 "replacement_count_mismatch",
@@ -39,11 +42,15 @@ class PatchEngine(NativeCodingComponent):
                 found=count,
                 expected=expected
             )
+
         updated = current.replace(old_text, new_text, expected)
-        size = len(updated.encode(const.CHARSET, const.IGNORE))
+        size    = len(updated.encode(const.CHARSET, const.IGNORE))
+
         if size > self.max_write_bytes:
             return self._fail("content_too_large", size=size, max_bytes=self.max_write_bytes)
+
         target.write_text(updated, encoding=const.CHARSET, newline="")
+
         return self._ok(
             f"workspace patch ok path={self._rel(target)} replacements={expected}",
             path=self._rel(target),
@@ -131,11 +138,13 @@ class PatchEngine(NativeCodingComponent):
         force: bool
     ) -> dict[str, typing.Any] | None:
         expected = str(expected_sha256 or "").strip().lower()
+
         if force or not expected or not target.exists():
             return None
         current = self._sha256(target.read_bytes())
         if current == expected:
             return None
+
         return self._fail(
             "file_changed_since_read",
             path=self._rel(target),
@@ -168,23 +177,38 @@ class PatchEngine(NativeCodingComponent):
         seen_paths: set[str] = set()
 
         for item in parsed["files"]:
-            path = str(item["path"])
+
+            path   = str(item["path"])
             action = str(item.get("action") or "modify")
             target = self._resolve(path)
-            rel = self._rel(target)
+            rel    = self._rel(target)
+
             if rel in seen_paths:
-                return {"ok": False, "reason": "unified_patch_duplicate_file", "data": {"path": rel}}
+                return {
+                    "ok"     : False,
+                    "reason" : "unified_patch_duplicate_file",
+                    "data"   : {"path": rel}
+                }
             seen_paths.add(rel)
-            has_virtual = rel in (virtual_files or {})
+
+            has_virtual     = rel in (virtual_files or {})
             virtual_content = (virtual_files or {}).get(rel)
-            virtual_exists = has_virtual and virtual_content is not None
-            disk_exists = target.is_file()
-            exists = virtual_exists if has_virtual else disk_exists
+            virtual_exists  = has_virtual and virtual_content is not None
+            disk_exists     = target.is_file()
+            exists          = virtual_exists if has_virtual else disk_exists
 
             if action == "create" and exists:
-                return {"ok": False, "reason": "file_already_exists", "data": {"path": path}}
+                return {
+                    "ok"     : False,
+                    "reason" : "file_already_exists",
+                    "data"   : {"path": path}
+                }
             if action in {"modify", "delete"} and not exists:
-                return {"ok": False, "reason": "file_not_found", "data": {"path": path}}
+                return {
+                    "ok"     : False,
+                    "reason" : "file_not_found",
+                    "data"   : {"path": path}
+                }
             if action in {"modify", "delete"}:
                 expected = expected_map.get(path) or expected_map.get(rel)
                 if has_virtual:
@@ -203,9 +227,9 @@ class PatchEngine(NativeCodingComponent):
                 else:
                     if conflict := self._conflict_guard(target, expected_sha256=expected, force=force):
                         return {
-                            "ok": False,
-                            "reason": (conflict.get("data") or {}).get("reason") or "file_changed_since_read",
-                            "data": conflict.get("data") or {}
+                            "ok"     : False,
+                            "reason" : (conflict.get("data") or {}).get("reason") or "file_changed_since_read",
+                            "data"   : conflict.get("data") or {}
                         }
                     current = self._read_text_preserve_newlines(target)
             else:
@@ -218,20 +242,24 @@ class PatchEngine(NativeCodingComponent):
             applied = self._apply_unified_hunks(current, item["hunks"])
             if not applied.get("ok"):
                 data = {"path": path, **(applied.get("data") or {})}
-                return {"ok": False, "reason": applied["reason"], "data": data}
+                return {
+                    "ok"     : False,
+                    "reason" : applied["reason"],
+                    "data"   : data
+                }
             content = str(applied["content"])
             if action == "delete" and content:
                 return {
-                    "ok": False,
-                    "reason": "unified_patch_delete_leaves_content",
-                    "data": {"path": path}
+                    "ok"     : False,
+                    "reason" : "unified_patch_delete_leaves_content",
+                    "data"   : {"path": path}
                 }
             size = len(content.encode(const.CHARSET, const.IGNORE))
             if size > self.max_write_bytes:
                 return {
-                    "ok": False,
-                        "reason": "content_too_large",
-                        "data": {"path": path, "size": size, "max_bytes": self.max_write_bytes}
+                    "ok"     : False,
+                    "reason" : "content_too_large",
+                    "data"   : {"path": path, "size": size, "max_bytes": self.max_write_bytes}
                 }
             line_stats = self._unified_patch_line_stats(item["hunks"])
             sha256_content = self._sha256(content.encode(const.CHARSET, const.IGNORE))
@@ -250,7 +278,10 @@ class PatchEngine(NativeCodingComponent):
 
         return {"ok": True, "planned": planned}
 
-    def _parse_unified_patch(self, patch: str) -> dict[str, typing.Any]:
+    def _parse_unified_patch(
+        self,
+        patch: str
+    ) -> dict[str, typing.Any]:
         lines = str(patch or "").splitlines()
         files: list[dict[str, typing.Any]] = []
         i = 0
@@ -287,10 +318,16 @@ class PatchEngine(NativeCodingComponent):
                 if not lines[i].startswith("@@ "):
                     i += 1
                     continue
+
                 header = lines[i]
-                match = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$", header)
+                match  = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$", header)
+
                 if not match:
-                    return {"ok": False, "reason": "unified_patch_bad_hunk_header", "data": {"header": header}}
+                    return {
+                        "ok"     : False,
+                        "reason" : "unified_patch_bad_hunk_header",
+                        "data"   : {"header": header}
+                    }
 
                 old_start = int(match.group(1))
                 old_count = int(match.group(2) if match.group(2) is not None else 1)
@@ -372,13 +409,6 @@ class PatchEngine(NativeCodingComponent):
             "files" : files
         }
 
-    @staticmethod
-    def _clean_diff_path(path: str) -> str:
-        raw = str(path or "").split("\t", 1)[0].strip()
-        if raw.startswith("a/") or raw.startswith("b/"):
-            raw = raw[2:]
-        return raw
-
     def _apply_unified_hunks(
         self,
         content: str,
@@ -391,9 +421,11 @@ class PatchEngine(NativeCodingComponent):
         newline = self._detect_newline(original)
 
         for hunk_index, hunk in enumerate(hunks, start=1):
-            old_start = int(hunk.get("old_start") if hunk.get("old_start") is not None else 1)
-            old_count = int(hunk.get("old_count") if hunk.get("old_count") is not None else 1)
+
+            old_start    = int(hunk.get("old_start") if hunk.get("old_start") is not None else 1)
+            old_count    = int(hunk.get("old_count") if hunk.get("old_count") is not None else 1)
             target_index = self._hunk_target_index(old_start=old_start, old_count=old_count)
+
             if target_index < cursor:
                 return {
                     "ok": False,
@@ -506,19 +538,11 @@ class PatchEngine(NativeCodingComponent):
             "relocated_hunks" : relocated_hunks
         }
 
-    @staticmethod
-    def _patch_line_content(text: str, *, no_newline: bool = False, newline: str = "\n") -> str:
-        return text if no_newline else f"{text}{newline}"
-
-    @staticmethod
-    def _hunk_target_index(*, old_start: int, old_count: int) -> int:
-        if old_start <= 0:
-            return 0
-        if old_count == 0:
-            return old_start
-        return old_start - 1
-
-    def _hunk_old_sequence(self, hunk: dict[str, typing.Any], *, newline: str = "\n") -> list[str]:
+    def _hunk_old_sequence(
+        self,
+        hunk: dict[str, typing.Any],
+        *, newline: str = "\n"
+    ) -> list[str]:
         sequence: list[str] = []
         for raw_line in hunk.get("lines") or []:
             if isinstance(raw_line, dict):
@@ -533,12 +557,6 @@ class PatchEngine(NativeCodingComponent):
             if marker in {" ", "-"}:
                 sequence.append(self._patch_line_content(text, no_newline=no_newline, newline=newline))
         return sequence
-
-    @staticmethod
-    def _lines_match_at(lines: list[str], index: int, expected: list[str]) -> bool:
-        if index < 0 or index + len(expected) > len(lines):
-            return False
-        return lines[index:index + len(expected)] == expected
 
     def _locate_hunk(
         self,
@@ -583,16 +601,42 @@ class PatchEngine(NativeCodingComponent):
         return {"ok": True, "index": candidates[0]}
 
     @staticmethod
+    def _clean_diff_path(path: str) -> str:
+        raw = str(path or "").split("\t", 1)[0].strip()
+        if raw.startswith("a/") or raw.startswith("b/"):
+            raw = raw[2:]
+        return raw
 
+    @staticmethod
+    def _patch_line_content(text: str, *, no_newline: bool = False, newline: str = "\n") -> str:
+        return text if no_newline else f"{text}{newline}"
+
+    @staticmethod
+    def _hunk_target_index(*, old_start: int, old_count: int) -> int:
+        if old_start <= 0:
+            return 0
+        if old_count == 0:
+            return old_start
+        return old_start - 1
+
+    @staticmethod
+    def _lines_match_at(lines: list[str], index: int, expected: list[str]) -> bool:
+        if index < 0 or index + len(expected) > len(lines):
+            return False
+        return lines[index:index + len(expected)] == expected
+
+    @staticmethod
     def _nearby_lines(lines: list[str], index: int, radius: int = 3) -> list[dict[str, typing.Any]]:
         if not lines:
             return []
+
         start = max(0, index - radius)
-        end = min(len(lines), index + radius + 1)
+        end   = min(len(lines), index + radius + 1)
+
         return [
             {
-                "line": item + 1,
-                "text": lines[item].rstrip("\r\n")
+                "line" : item + 1,
+                "text" : lines[item].rstrip("\r\n")
             }
             for item in range(start, end)
         ]
