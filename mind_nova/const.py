@@ -3,7 +3,8 @@
 
 APP_ITEM    = r"ProxyMind"
 APP_NAME    = r"mind"
-APP_DESC    = r"Mind"
+APP_DESC    = r"Mind ·"
+# APP_DESC    = r"Mind · "
 APP_CN      = r"代理思维"
 APP_VERSION = r"1.0.0"
 APP_YEAR    = r"2026"
