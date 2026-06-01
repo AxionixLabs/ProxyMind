@@ -69,8 +69,8 @@ class NativeCoding(NativeCodingBase):
                 return self._private_delegates[name]
         raise AttributeError(f"{self.__class__.__name__!s} object has no attribute {name!r}")
 
-    def check_command_policy(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return self._command_policy.check_command_policy(*args, **kwargs)
+    def execution_metadata_policy(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any] | None:
+        return self._command_policy.execution_metadata_policy(*args, **kwargs)
 
     def capture_file_fingerprints(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._file_audit.capture_file_fingerprints(*args, **kwargs)

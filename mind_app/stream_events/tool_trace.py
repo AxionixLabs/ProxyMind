@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
+"""原生编码工具调用轨迹的文本渲染辅助。"""
 
+import re
 import typing
-from dataclasses import dataclass
 from pathlib import Path
+from dataclasses import dataclass
 
 MISSING = object()
 
@@ -12,9 +14,10 @@ RUNNING_STYLE = "bold #8FB8FF"
 PREVIEW_STYLE = "dim #8FA4B8"
 ERROR_STYLE   = "bold #FF7A7A"
 
-MAX_PREVIEW_LINES = 8
-SCREEN_PREVIEW_LINES = 5
-MAX_PREVIEW_WIDTH = 120
+MAX_PREVIEW_LINES      = 8
+SCREEN_PREVIEW_LINES   = 5
+MAX_PREVIEW_WIDTH      = 120
+MAX_CODE_PREVIEW_LINES = 12
 
 NATIVE_CODING_TRACE_TOOLS = {
     "workspace_root",
@@ -45,12 +48,15 @@ NATIVE_CODING_TRACE_TOOLS = {
 
 @dataclass(frozen=True, slots=True)
 class TracePreview(object):
+    """保存完整预览、屏幕预览和省略行数。"""
+
     full: str = ""
     screen: str = ""
     omitted_lines: int = 0
 
 
 def _short_text(value: typing.Any, limit: int = 120) -> str:
+    """把任意值压缩为单行短文本。"""
     text = " ".join(str(value or "").split())
     if len(text) <= limit:
         return text
@@ -58,6 +64,7 @@ def _short_text(value: typing.Any, limit: int = 120) -> str:
 
 
 def _short_line(value: typing.Any, limit: int = 120) -> str:
+    """截断单行文本并保留原有空白结构。"""
     text = str(value or "").rstrip()
     if len(text) <= limit:
         return text
@@ -65,6 +72,7 @@ def _short_line(value: typing.Any, limit: int = 120) -> str:
 
 
 def _normalize_preview_lines(value: typing.Any) -> list[str]:
+    """把预览内容归一化为按行拆分的文本列表。"""
     text = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip("\n")
     if not text:
         return []
@@ -72,6 +80,7 @@ def _normalize_preview_lines(value: typing.Any) -> list[str]:
 
 
 def _format_preview_lines(lines: list[str], *, max_lines: int) -> tuple[str, int]:
+    """按行数和宽度限制格式化预览文本。"""
     clipped = [
         _short_line(line, MAX_PREVIEW_WIDTH)
         for line in lines[:max_lines]
@@ -83,17 +92,27 @@ def _format_preview_lines(lines: list[str], *, max_lines: int) -> tuple[str, int
 
 
 def _preview_text(value: typing.Any, *, max_lines: int = MAX_PREVIEW_LINES) -> str:
+    """生成普通文本预览。"""
     screen, _ = _format_preview_lines(_normalize_preview_lines(value), max_lines=max_lines)
     return screen
 
 
 def _trace_preview_from_lines(lines: list[str]) -> TracePreview:
+    """从文本行生成普通轨迹预览。"""
     full, _ = _format_preview_lines(lines, max_lines=MAX_PREVIEW_LINES)
     screen, omitted = _format_preview_lines(lines, max_lines=SCREEN_PREVIEW_LINES)
     return TracePreview(full=full, screen=screen, omitted_lines=omitted)
 
 
+def _trace_code_preview_from_lines(lines: list[str]) -> TracePreview:
+    """从代码行生成轨迹预览。"""
+    full, _ = _format_preview_lines(lines, max_lines=MAX_CODE_PREVIEW_LINES)
+    screen, omitted = _format_preview_lines(lines, max_lines=SCREEN_PREVIEW_LINES)
+    return TracePreview(full=full, screen=screen, omitted_lines=omitted)
+
+
 def _result_payload(data: typing.Any) -> dict[str, typing.Any]:
+    """从工具结果中提取可用于渲染的 data 载荷。"""
     if not isinstance(data, dict):
         return {}
 
@@ -114,11 +133,12 @@ def _result_payload(data: typing.Any) -> dict[str, typing.Any]:
 
 
 def _path_from_args(args: dict[str, typing.Any]) -> str:
+    """从工具参数中读取路径。"""
     return str(args.get("path") or ".").strip() or "."
 
 
 def local_path_exists(arguments: dict[str, typing.Any]) -> typing.Any:
-    """Return whether the path argument exists, or MISSING when it cannot be checked."""
+    """判断参数中的路径是否存在；无法判断时返回 MISSING。"""
     if not isinstance(arguments, dict):
         return MISSING
     raw_path = str(arguments.get("path") or "").strip()
@@ -131,12 +151,14 @@ def local_path_exists(arguments: dict[str, typing.Any]) -> typing.Any:
 
 
 def _command_text(command: typing.Any) -> str:
+    """把命令参数转换为单行文本。"""
     if isinstance(command, list):
         return " ".join(str(item) for item in command)
     return str(command or "").strip()
 
 
 def _count_from_payload(payload: dict[str, typing.Any], key: str, count_key: str) -> typing.Optional[int]:
+    """从结果载荷中读取列表长度或显式计数字段。"""
     items = payload.get(key)
     if isinstance(items, list):
         return len(items)
@@ -145,21 +167,30 @@ def _count_from_payload(payload: dict[str, typing.Any], key: str, count_key: str
 
 
 def _session_id_from_payload(payload: dict[str, typing.Any], args: dict[str, typing.Any]) -> str:
+    """从结果载荷或参数中读取会话 ID。"""
     return str(payload.get("session_id") or args.get("session_id") or "").strip()
 
 
 def _status_from_payload(payload: dict[str, typing.Any]) -> str:
-    status = str(payload.get("status") or payload.get("repair_status") or payload.get("next_action") or "").strip()
+    """从结果载荷中读取状态文本。"""
+    status = str(
+        payload.get("status")
+        or payload.get("repair_status")
+        or payload.get("next_action") or ""
+    ).strip()
+
     if status:
         return status
-    if payload.get("ok") is True:
+    if payload.get("ok"):
         return "ok"
     if payload.get("ok") is False:
         return "failed"
+
     return ""
 
 
 def _line_delta_from_content(content: typing.Any) -> tuple[int, int]:
+    """根据完整内容估算新增和删除行数。"""
     text = str(content or "")
     if not text:
         return 0, 0
@@ -167,42 +198,53 @@ def _line_delta_from_content(content: typing.Any) -> tuple[int, int]:
 
 
 def _line_delta_from_patch_args(args: dict[str, typing.Any]) -> tuple[int, int]:
-    old_lines = str(args.get("old_text") or "").splitlines()
-    new_lines = str(args.get("new_text") or "").splitlines()
+    """根据文本替换参数估算新增和删除行数。"""
+    old_lines    = str(args.get("old_text") or "").splitlines()
+    new_lines    = str(args.get("new_text") or "").splitlines()
     replacements = max(1, int(args.get("expected_replacements") or 1))
+
     return (len(new_lines) or 1) * replacements, (len(old_lines) or 1) * replacements
 
 
 def _line_delta_from_unified_files(data: dict[str, typing.Any]) -> tuple[int, int]:
-    added = data.get("added_lines")
+    """从 unified patch 结果中读取新增和删除行数。"""
+    added   = data.get("added_lines")
     removed = data.get("removed_lines")
+
     if isinstance(added, int) or isinstance(removed, int):
         return int(added or 0), int(removed or 0)
+
     files = data.get("files")
     if not isinstance(files, list):
         return 0, 0
-    total_added = 0
+
+    total_added   = 0
     total_removed = 0
+
     for item in files:
         if not isinstance(item, dict):
             continue
         total_added += int(item.get("added_lines") or 0)
         total_removed += int(item.get("removed_lines") or 0)
+
     return total_added, total_removed
 
 
 def _format_delta(added: int, removed: int) -> str:
+    """格式化新增和删除行数摘要。"""
     if added <= 0 and removed <= 0:
         return ""
     return f" (+{max(0, added)} -{max(0, removed)})"
 
 
 def _short_sha(value: typing.Any) -> str:
+    """生成短哈希文本。"""
     text = str(value or "").strip()
     return text[:12] if text else ""
 
 
 def _format_size(value: typing.Any) -> str:
+    """格式化字节大小。"""
     try:
         size = int(value)
     except (TypeError, ValueError):
@@ -215,6 +257,7 @@ def _format_size(value: typing.Any) -> str:
 
 
 def _summary_lines(*items: tuple[str, typing.Any]) -> list[str]:
+    """把键值对转换为摘要行。"""
     lines: list[str] = []
     for label, value in items:
         text = str(value or "").strip()
@@ -223,7 +266,65 @@ def _summary_lines(*items: tuple[str, typing.Any]) -> list[str]:
     return lines
 
 
+def _numbered_added_lines(content: typing.Any, *, start_line: int = 1) -> list[str]:
+    """把新增内容格式化为带行号的预览行。"""
+    lines = _normalize_preview_lines(content)
+    width = max(4, len(str(start_line + len(lines))))
+    return [
+        f"{line_no:>{width}} +{line}"
+        for line_no, line in enumerate(lines, start=start_line)
+    ]
+
+
+def _numbered_removed_lines(content: typing.Any, *, start_line: int = 1) -> list[str]:
+    """把删除内容格式化为带行号的预览行。"""
+    lines = _normalize_preview_lines(content)
+    width = max(4, len(str(start_line + len(lines))))
+    return [
+        f"{line_no:>{width}} -{line}"
+        for line_no, line in enumerate(lines, start=start_line)
+    ]
+
+
+def _patch_replacement_preview(args: dict[str, typing.Any]) -> list[str]:
+    """根据文本替换参数生成代码预览行。"""
+    old_lines = _numbered_removed_lines(args.get("old_text"))
+    new_lines = _numbered_added_lines(args.get("new_text"))
+    if old_lines and new_lines:
+        return [*old_lines, *new_lines]
+    return new_lines or old_lines
+
+
+def _unified_patch_preview_lines(patch: typing.Any) -> list[str]:
+    """从 unified diff 文本中提取可显示的代码预览行。"""
+    lines: list[str] = []
+    current_new_line = 1
+    for raw in _normalize_preview_lines(patch):
+        if raw.startswith("--- ") or raw.startswith("+++ "):
+            continue
+        if raw.startswith("@@ "):
+            match = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", raw)
+            if match:
+                current_new_line = int(match.group(1))
+            lines.append(raw)
+            continue
+        if not raw:
+            continue
+        marker = raw[0]
+        text = raw[1:] if marker in {" ", "+", "-"} else raw
+        if marker == "+":
+            lines.append(f"{current_new_line:>4} +{text}")
+            current_new_line += 1
+        elif marker == "-":
+            lines.append(f"{current_new_line:>4} -{text}")
+        elif marker == " ":
+            lines.append(f"{current_new_line:>4}  {text}")
+            current_new_line += 1
+    return lines
+
+
 def _hunk_label(value: typing.Any) -> str:
+    """格式化 hunk 数量。"""
     try:
         count = int(value)
     except (TypeError, ValueError):
@@ -233,16 +334,19 @@ def _hunk_label(value: typing.Any) -> str:
 
 
 def _file_action_from_args(args: dict[str, typing.Any], before_exists: typing.Any) -> str:
+    """根据参数和原路径状态判断文件动作。"""
     if before_exists is False:
         return "Added"
     if before_exists is True:
         return "Edited"
     if args.get("overwrite") is False:
         return "Added"
+
     return "Edited"
 
 
 def _unified_action(files: typing.Any) -> str:
+    """根据 unified patch 文件动作集合生成摘要动作。"""
     if not isinstance(files, list) or not files:
         return "Edited"
     actions = {
@@ -254,6 +358,7 @@ def _unified_action(files: typing.Any) -> str:
         return "Added"
     if actions == {"delete"}:
         return "Deleted"
+
     return "Edited"
 
 
@@ -261,9 +366,9 @@ def render_tool_start_trace(
     name: str,
     arguments: dict[str, typing.Any],
     *,
-    before_exists: typing.Any = MISSING,
+    before_exists: typing.Any = MISSING
 ) -> str:
-    """Render one Codex-style trace line before a tool starts."""
+    """渲染工具开始执行前的轨迹行。"""
     args = arguments if isinstance(arguments, dict) else {}
 
     if name == "workspace_root":
@@ -350,6 +455,7 @@ def render_tool_start_trace(
 
 
 def is_native_coding_trace_tool(name: str) -> bool:
+    """判断工具是否使用原生编码轨迹样式。"""
     return name in NATIVE_CODING_TRACE_TOOLS
 
 
@@ -359,6 +465,7 @@ def render_tool_trace_parts(
     preview: typing.Optional[typing.Union[str, TracePreview]] = None,
     ok: bool = True
 ) -> list[dict[str, typing.Optional[str]]]:
+    """把轨迹标题和预览内容转换为带样式的文本片段。"""
     parts: list[dict[str, typing.Optional[str]]] = [
         {"text": title, "style": TITLE_STYLE if ok else ERROR_STYLE}
     ]
@@ -374,9 +481,13 @@ def render_tool_trace_parts(
 
 def render_tool_result_preview(
     name: str,
-    data: typing.Any = None
+    data: typing.Any = None,
+    *,
+    arguments: dict[str, typing.Any] | None = None
 ) -> TracePreview:
+    """根据工具结果和参数生成执行结果预览。"""
     data = _result_payload(data)
+    args = arguments if isinstance(arguments, dict) else {}
     if not data:
         return TracePreview()
 
@@ -496,13 +607,13 @@ def render_tool_result_preview(
             return _trace_preview_from_lines(lines)
 
     if name == "workspace_write_file":
-        path = str(data.get("path") or "").strip()
-        size = _format_size(data.get("bytes"))
-        sha = _short_sha(data.get("sha256"))
+        content = args.get("content")
+        if content is not None:
+            return _trace_code_preview_from_lines(_numbered_added_lines(content))
         return _trace_preview_from_lines(_summary_lines(
-            ("file", path),
-            ("size", size),
-            ("sha256", sha),
+            ("file", str(data.get("path") or "").strip()),
+            ("size", _format_size(data.get("bytes"))),
+            ("sha256", _short_sha(data.get("sha256"))),
         ))
 
     if name == "workspace_copy_file":
@@ -540,16 +651,19 @@ def render_tool_result_preview(
         ))
 
     if name == "workspace_apply_patch":
-        path = str(data.get("path") or "").strip()
-        replacements = data.get("replacements")
-        sha = _short_sha(data.get("sha256"))
+        preview_lines = _patch_replacement_preview(args)
+        if preview_lines:
+            return _trace_code_preview_from_lines(preview_lines)
         return _trace_preview_from_lines(_summary_lines(
-            ("file", path),
-            ("replacements", replacements),
-            ("sha256", sha),
+            ("file", str(data.get("path") or "").strip()),
+            ("replacements", data.get("replacements")),
+            ("sha256", _short_sha(data.get("sha256"))),
         ))
 
     if name == "workspace_apply_unified_patch":
+        preview_lines = _unified_patch_preview_lines(args.get("patch"))
+        if preview_lines:
+            return _trace_code_preview_from_lines(preview_lines)
         files = data.get("files")
         if isinstance(files, list):
             lines = []
@@ -627,7 +741,7 @@ def render_tool_trace(
     cost_ms: int | None = None,
     before_exists: typing.Any = MISSING,
 ) -> str:
-    """Render one Codex-style factual trace line for a completed tool call."""
+    """渲染工具完成后的轨迹摘要行。"""
     args = arguments if isinstance(arguments, dict) else {}
     payload = _result_payload(data)
     suffix = "" if ok else " failed"

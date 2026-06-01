@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
+"""原生编码云端沙箱结果回填能力。"""
 
 import time
 import typing
@@ -29,6 +30,7 @@ class SandboxResultTools(NativeCodingComponent):
         run_id: str | None = None,
         record_step: bool = True
     ) -> dict[str, typing.Any]:
+        """记录云端沙箱执行结果，并按需接入验证诊断和修复计划。"""
         sid = str(session_id or "").strip()
         session = self.sessions.get(sid)
         if not isinstance(session, dict):
@@ -101,7 +103,7 @@ class SandboxResultTools(NativeCodingComponent):
                 diagnostics["repair_prompt"] = self._build_repair_prompt(data, diagnostics)
                 if self._normalize_auto_repair(auto_repair) == "plan":
                     diagnostics["repair_plan"] = self._build_repair_plan(
-                        prompt="repair cloud sandbox verification failure",
+                        prompt="修复云端沙箱验证失败",
                         verify_command=cmd,
                         verify_data=data,
                         diagnostics=diagnostics,
@@ -155,7 +157,7 @@ class SandboxResultTools(NativeCodingComponent):
             repair_plan=repair_plan
         )
         return self._ok(
-            f"sandbox result recorded ok={ok} verify={bool(verify)} provider={data['sandbox_provider']}",
+            f"沙箱结果已记录 ok={ok} verify={bool(verify)} provider={data['sandbox_provider']}",
             **data,
             repair_plan=repair_plan,
             **repair_state
@@ -168,6 +170,7 @@ class SandboxResultTools(NativeCodingComponent):
         session: dict[str, typing.Any],
         run: dict[str, typing.Any] | None
     ) -> dict[str, typing.Any]:
+        """校验并应用云端沙箱回传的文件产物。"""
         if not artifacts:
             return {"ok": True, "applied": False}
         files = artifacts.get("files") if isinstance(artifacts, dict) else None
@@ -273,7 +276,7 @@ class SandboxResultTools(NativeCodingComponent):
             run.setdefault("artifact_snapshots", []).append(snapshot)
 
         return self._ok(
-            f"sandbox artifacts applied files={len(applied)} bytes={total_bytes}",
+            f"沙箱产物已应用 files={len(applied)} bytes={total_bytes}",
             applied=True,
             file_count=len(applied),
             total_bytes=total_bytes,
@@ -285,6 +288,7 @@ class SandboxResultTools(NativeCodingComponent):
         self,
         planned: list[dict[str, typing.Any]]
     ) -> dict[str, typing.Any]:
+        """为即将应用的沙箱产物创建回滚快照。"""
         files: list[dict[str, typing.Any]] = []
         for item in planned:
             target = item["target"]
@@ -314,6 +318,7 @@ class SandboxResultTools(NativeCodingComponent):
         file_changes: dict[str, typing.Any] | None,
         applied_artifacts: dict[str, typing.Any]
     ) -> dict[str, typing.Any]:
+        """合并沙箱声明的文件变更和实际应用的产物变更。"""
         base = file_changes if isinstance(file_changes, dict) else {
             "changed"      : False,
             "change_count" : 0,
@@ -361,6 +366,7 @@ class SandboxResultTools(NativeCodingComponent):
         *,
         run_id: str | None
     ) -> dict[str, typing.Any] | None:
+        """按 run_id 选择运行记录，未指定时返回最新记录。"""
         runs = session.get("runs") if isinstance(session.get("runs"), list) else []
         if run_id:
             for item in runs:
@@ -374,6 +380,7 @@ class SandboxResultTools(NativeCodingComponent):
         session: dict[str, typing.Any],
         run: dict[str, typing.Any] | None
     ) -> bool:
+        """判断给定运行记录是否不是当前最新记录。"""
         if not isinstance(run, dict):
             return False
         runs = session.get("runs") if isinstance(session.get("runs"), list) else []

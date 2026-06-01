@@ -102,11 +102,12 @@ def _collect_from_value(
 
 
 def _is_cloud_sandbox_node(value: dict[str, typing.Any]) -> bool:
+    execution = value.get("execution") if isinstance(value.get("execution"), dict) else {}
+    if execution.get("target") == "cloud_sandbox":
+        return True
     if value.get("execution_target") == "cloud_sandbox":
         return True
-    if value.get("requires_cloud_sandbox") is True:
-        return True
-    return isinstance(value.get("sandbox_request"), dict)
+    return value.get("requires_cloud_sandbox") is True
 
 
 def _build_handoff_request(
@@ -115,14 +116,17 @@ def _build_handoff_request(
     *,
     context: dict[str, typing.Any]
 ) -> dict[str, typing.Any] | None:
-    sandbox_request = node.get("sandbox_request") if isinstance(node.get("sandbox_request"), dict) else {}
-    command = sandbox_request.get("command") or node.get("command")
+    execution = node.get("execution") if isinstance(node.get("execution"), dict) else {}
+    canonical = execution.get("canonicalArguments") or execution.get("canonical_arguments")
+    if not isinstance(canonical, dict):
+        canonical = {}
+    command = canonical.get("command") or node.get("command")
     if not isinstance(command, list) or not command:
         return None
 
     session_id = context.get("session_id")
     run_id = context.get("run_id")
-    cwd = sandbox_request.get("cwd") or node.get("cwd") or "."
+    cwd = canonical.get("cwd") or node.get("cwd") or "."
     verify = _should_record_as_verify(command=command, node=node)
     request = {
         "protocol_version": 1,
@@ -132,21 +136,17 @@ def _build_handoff_request(
         "run_id": run_id,
         "command": command,
         "cwd": cwd,
-        "timeout_sec": sandbox_request.get("timeout_sec") or node.get("timeout_sec"),
+        "timeout_sec": canonical.get("timeout_sec") or node.get("timeout_sec"),
         "reason": node.get("reason"),
         "risk": node.get("risk"),
         "category": node.get("category"),
-        "workspace": sandbox_request.get("workspace"),
+        "execution": execution or None,
+        "grant_id": execution.get("grantId") or execution.get("grant_id"),
+        "workspace": None,
         "cloud_schema": {
             "preferred": "command",
             "fallback": "python_project",
-            "requires_workspace_materialization": bool(
-                (sandbox_request.get("workspace") or {}).get("materialization_required", True)
-            )
-        },
-        "sandbox_request": sandbox_request or {
-            "command": command,
-            "cwd": cwd
+            "requires_workspace_materialization": True
         },
         "record_tool": "record_sandbox_result" if session_id else None,
         "record_strategy": "server_synthesized_tool_call" if session_id else None,
@@ -179,7 +179,7 @@ def _should_record_as_verify(
     node: dict[str, typing.Any]
 ) -> bool:
     """判断云端 command 结果是否应回填为验证结果。"""
-    if node.get("verify") is True:
+    if node.get("verify"):
         return True
     category = str(node.get("category") or "").strip().lower()
     risk = str(node.get("risk") or "").strip().lower()

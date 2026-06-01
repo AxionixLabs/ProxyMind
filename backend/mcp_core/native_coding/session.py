@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
+"""原生编码会话、预检与运行记录的辅助逻辑。"""
 
 import time
 import uuid
@@ -11,6 +12,435 @@ from backend.utilities import const
 
 
 class SessionTools(NativeCodingComponent):
+    """维护原生编码会话状态，并提供步骤预检、执行和摘要能力。"""
+
+    @staticmethod
+    def _session_has_run(
+        session: dict[str, typing.Any],
+        run_id: str
+    ) -> bool:
+        """判断会话中是否包含指定运行记录。"""
+        return any(
+            isinstance(item, dict) and item.get("run_id") == run_id
+            for item in session.get("runs") or []
+        )
+
+    @staticmethod
+    def _record_repair_loop_metadata(
+        *,
+        session: dict[str, typing.Any],
+        run_id: str,
+        source_run_id: str | None,
+        validation: dict[str, typing.Any],
+        verify_step: dict[str, typing.Any],
+        executable_step_count: int,
+        rollback_policy: str
+    ) -> dict[str, typing.Any]:
+        """把修复循环元数据写入会话和对应运行记录。"""
+        metadata = {
+            "run_id"                : run_id,
+            "source_run_id"         : source_run_id,
+            "validation"            : validation,
+            "verify_step"           : verify_step,
+            "executable_step_count" : executable_step_count,
+            "rollback_policy"       : rollback_policy
+        }
+        session.setdefault("repair_loops", []).append(metadata)
+        for item in session.get("runs") or []:
+            if isinstance(item, dict) and item.get("run_id") == run_id:
+                item["repair_loop"] = metadata
+                summary = item.get("summary")
+                if isinstance(summary, dict):
+                    summary["repair_loop"] = metadata
+                break
+        return metadata
+
+    @staticmethod
+    def _prepare_repair_steps(
+        steps: list[dict[str, typing.Any]]
+    ) -> tuple[list[dict[str, typing.Any]], dict[str, typing.Any]]:
+        """从修复步骤中拆分可执行步骤和最后一个验证步骤。"""
+        shell_indexes = [
+            index
+            for index, step in enumerate(steps or [])
+            if isinstance(step, dict) and str(step.get("tool") or "") == "shell_exec"
+        ]
+        verify_index = shell_indexes[-1] if shell_indexes else -1
+        verify_step = dict(steps[verify_index]) if verify_index >= 0 else {}
+        executable_steps = [
+            step
+            for index, step in enumerate(steps or [])
+            if index != verify_index and isinstance(step, dict)
+        ]
+        return executable_steps, verify_step
+
+    @staticmethod
+    def _normalize_auto_rollback(
+        value: typing.Any
+    ) -> str:
+        """把自动回滚配置归一化为内部策略值。"""
+        if value is True:
+            return "always"
+        if value is False or value is None:
+            return "off"
+        text = str(value or "").strip().lower()
+        if text in {"1", "true", "yes", "on"}:
+            return "always"
+        if text in {"always", "step_failed", "verify_failed", "off"}:
+            return text
+
+        return "off"
+
+    @staticmethod
+    def _auto_rollback_reason(
+        *,
+        policy: str,
+        failed_steps: list[dict[str, typing.Any]],
+        verify_ok: bool,
+        verify: dict[str, typing.Any] | None
+    ) -> str | None:
+        """根据步骤和验证结果判断是否需要触发自动回滚。"""
+        if policy == "off":
+            return None
+        has_failed_steps = bool(failed_steps)
+        has_verify_failure = verify is not None and not verify_ok
+        if policy == "always" and (has_failed_steps or has_verify_failure):
+            return "step_failed" if has_failed_steps else "verify_failed"
+        if policy == "step_failed" and has_failed_steps:
+            return "step_failed"
+        if policy == "verify_failed" and has_verify_failure:
+            return "verify_failed"
+        return None
+
+    @staticmethod
+    def _repair_state(
+        *,
+        ok: bool,
+        failed_steps: list[dict[str, typing.Any]] | None = None,
+        verify: dict[str, typing.Any] | None = None,
+        repair_plan: dict[str, typing.Any] | None = None
+    ) -> dict[str, typing.Any]:
+        """根据运行结果生成修复状态和下一步动作。"""
+        has_plan = isinstance(repair_plan, dict) and bool(repair_plan)
+        last_verify_ok = bool((verify.get("data") or {}).get("ok")) if isinstance(verify, dict) else None
+        if ok:
+            status = "passed"
+            next_action = "stop"
+        elif any(SessionTools._step_requires_cloud_sandbox(item) for item in failed_steps or []):
+            status = "awaiting_sandbox"
+            next_action = "record_sandbox_result"
+        elif has_plan:
+            status = "needs_model"
+            next_action = "generate_repair_steps"
+        elif failed_steps:
+            status = "step_failed"
+            next_action = "inspect_failure"
+        elif last_verify_ok is False:
+            status = "verify_failed"
+            next_action = "inspect_diagnostics"
+        else:
+            status = "failed"
+            next_action = "inspect_failure"
+
+        return {
+            "has_repair_plan" : has_plan,
+            "next_action"     : next_action,
+            "repair_status"   : status,
+            "last_verify_ok"  : last_verify_ok
+        }
+
+    @staticmethod
+    def _step_requires_cloud_sandbox(
+        step: dict[str, typing.Any]
+    ) -> bool:
+        """判断步骤结果是否需要等待云端沙盒回填。"""
+        data = step.get("data") if isinstance(step.get("data"), dict) else {}
+        if step.get("tool") == "record_sandbox_result":
+            return False
+        execution = data.get("execution") if isinstance(data.get("execution"), dict) else {}
+        if execution.get("target") == "cloud_sandbox":
+            return True
+        if data.get("execution_target") == "cloud_sandbox":
+            return True
+        return bool(data.get("requires_cloud_sandbox"))
+
+    @staticmethod
+    def _normalize_auto_repair(
+        value: typing.Any
+    ) -> str:
+        """把自动修复配置归一化为内部策略值。"""
+        if value is True:
+            return "plan"
+        if value is False or value is None:
+            return "off"
+        text = str(value or "").strip().lower()
+        if text in {"1", "true", "yes", "on"}:
+            return "plan"
+        if text in {"plan", "off"}:
+            return text
+
+        return "off"
+
+    @staticmethod
+    def _update_preflight_virtual_files(
+        check: dict[str, typing.Any],
+        virtual_files: dict[str, str | None]
+    ) -> None:
+        """根据预检结果更新后续步骤可见的虚拟文件状态。"""
+        tool = str(check.get("tool") or "")
+        path = check.get("path")
+        if tool in {"workspace_write_file", "workspace_apply_patch"}:
+            if not path:
+                return
+            virtual_files[str(path)] = str(check.get("projected_content") or "")
+        elif tool == "workspace_copy_file":
+            target_path = check.get("target_path")
+            if target_path:
+                virtual_files[str(target_path)] = str(check.get("projected_target_content") or "")
+        elif tool == "workspace_move_file":
+            source_path = check.get("source_path")
+            target_path = check.get("target_path")
+            if source_path:
+                virtual_files[str(source_path)] = None
+            if target_path:
+                virtual_files[str(target_path)] = str(check.get("projected_target_content") or "")
+        elif tool == "workspace_delete_file":
+            if path:
+                virtual_files[str(path)] = None
+        elif tool == "workspace_apply_unified_patch":
+            for item in check.get("projected_files") or []:
+                if not isinstance(item, dict) or not item.get("path"):
+                    continue
+                if item.get("action") == "delete":
+                    virtual_files[str(item["path"])] = None
+                else:
+                    virtual_files[str(item["path"])] = str(item.get("content") or "")
+
+    @staticmethod
+    def _sanitize_preflight_check(
+        check: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
+        """移除预检结果中的内部投影内容。"""
+        sanitized = dict(check)
+        sanitized.pop("projected_content", None)
+        sanitized.pop("projected_files", None)
+        sanitized.pop("projected_source_content", None)
+        sanitized.pop("projected_target_content", None)
+        return sanitized
+
+    @staticmethod
+    def _preflight_ok(
+        index: int,
+        tool: str,
+        **data: typing.Any
+    ) -> dict[str, typing.Any]:
+        """构造预检通过结果。"""
+        return {"index": index, "tool": tool, "ok": True, **data}
+
+    @staticmethod
+    def _preflight_fail(
+        index: int, tool: str | None,
+        reason: str,
+        **data: typing.Any
+    ) -> dict[str, typing.Any]:
+        """构造预检失败结果。"""
+        return {"index": index, "tool": tool, "ok": False, "reason": reason, **data}
+
+    @staticmethod
+    def _begin_run(
+        session: dict[str, typing.Any],
+        *,
+        prompt: str
+    ) -> dict[str, typing.Any]:
+        """在会话中创建新的运行记录。"""
+        runs      = session.setdefault("runs", [])
+        run_index = int(session.get("run_count") or len(runs)) + 1
+        run_id    = f"{session['session_id']}_run_{run_index}"
+
+        run = {
+            "run_id"             : run_id,
+            "run_index"          : run_index,
+            "kind"               : "initial" if run_index == 1 else "repair",
+            "prompt"             : str(prompt or ""),
+            "started_at"         : time.time(),
+            "finished_at"        : None,
+            "ok"                 : None,
+            "steps"              : [],
+            "shell_commands"     : [],
+            "shell_file_changes" : [],
+            "copied_files"       : [],
+            "moved_files"        : [],
+            "deleted_files"      : [],
+            "verify"             : None,
+            "verify_diagnostics" : None,
+            "repair_plan"        : None,
+            "sandbox_results"    : [],
+            "sandbox_artifacts"  : [],
+            "diagnostic_context" : [],
+            "diagnostic_reads"   : [],
+            "status"             : "",
+            "diff"               : "",
+            "elapsed_ms"         : None,
+            "summary"            : {}
+        }
+
+        runs.append(run)
+        session["run_count"] = run_index
+        session["last_run_id"] = run_id
+        return run
+
+    @staticmethod
+    def _append_unique(
+        session: dict[str, typing.Any],
+        key: str,
+        value: str
+    ) -> None:
+        """向会话列表字段追加不重复的字符串值。"""
+        items = session.setdefault(key, [])
+        if value not in items:
+            items.append(value)
+
+    @staticmethod
+    def _patch_change_record(
+        item: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
+        """把 patch 文件项转换为公开变更记录。"""
+        return {
+            "path"          : str(item.get("path")),
+            "action"        : item.get("action"),
+            "hunks"         : item.get("hunks"),
+            "added_lines"   : item.get("added_lines"),
+            "removed_lines" : item.get("removed_lines"),
+            "replacements"  : item.get("replacements"),
+            "sha256_before" : item.get("sha256_before"),
+            "sha256_after"  : item.get("sha256_after")
+        }
+
+    @staticmethod
+    def _final_summary_context(
+        summary: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
+        """生成用于最终摘要的精简上下文。"""
+        verify = summary.get("verify") if isinstance(summary.get("verify"), dict) else None
+        return {
+            "ok": bool(summary.get("ok")),
+            "next_action": summary.get("next_action"),
+            "repair_status": summary.get("repair_status"),
+            "repair_hints": list(summary.get("repair_hints") or []),
+            "changed_files": {
+                "created": list(summary.get("created_files") or []),
+                "modified": list(summary.get("modified_files") or []),
+                "deleted": list(summary.get("deleted_files") or []),
+                "moved": list(summary.get("moved_files") or []),
+                "copied": list(summary.get("copied_files") or []),
+                "patched": list(summary.get("patched_files") or []),
+                "written": list(summary.get("written_files") or [])
+            },
+            "verification": {
+                "ran": verify is not None,
+                "ok": bool(verify.get("ok")) if verify else None,
+                "command": verify.get("command") if verify else None,
+                "exit_code": verify.get("exit_code") if verify else None
+            },
+            "rollback": {
+                "auto_rollback": summary.get("auto_rollback"),
+                "rollbacks": list(summary.get("rollbacks") or [])
+            },
+            "shell": {
+                "commands": list(summary.get("shell_commands") or []),
+                "file_changes": list(summary.get("shell_file_changes") or [])
+            }
+        }
+
+    @staticmethod
+    def _repair_hints(
+        summary: dict[str, typing.Any]
+    ) -> list[dict[str, typing.Any]]:
+        """从预检、步骤和验证结果中提取修复提示。"""
+        hints: list[dict[str, typing.Any]] = []
+        preflight = summary.get("preflight") if isinstance(summary.get("preflight"), dict) else {}
+        for check in preflight.get("checks") or []:
+            if isinstance(check, dict) and not check.get("ok"):
+                hints.append(SessionTools._hint_from_failure(check, source="preflight"))
+
+        current_run = summary.get("current_run") if isinstance(summary.get("current_run"), dict) else {}
+        for step in current_run.get("steps") or []:
+            if isinstance(step, dict) and not step.get("ok"):
+                hints.append(SessionTools._hint_from_failure(step, source="step"))
+
+        diagnostics = summary.get("verify_diagnostics")
+        if isinstance(diagnostics, dict) and diagnostics and not diagnostics.get("ok"):
+            hints.append({
+                "source": "verify",
+                "reason": diagnostics.get("error_type") or "verification_failed",
+                "next_action": "inspect_diagnostics",
+                "message": "Verification failed; inspect recommended reads, patch the smallest affected area, then rerun verification.",
+                "recommended_reads": list(diagnostics.get("read_recommendations") or []),
+                "suggested_steps": list(diagnostics.get("suggested_steps") or []),
+                "repair_plan": diagnostics.get("repair_plan")
+            })
+        return [item for item in hints if isinstance(item, dict)]
+
+    @staticmethod
+    def _hint_from_failure(
+        item: dict[str, typing.Any],
+        *,
+        source: str
+    ) -> dict[str, typing.Any]:
+        """把单个失败项转换为可读的修复提示。"""
+        data = item.get("data") if isinstance(item.get("data"), dict) else item
+        reason = item.get("reason") or data.get("reason")
+        hint: dict[str, typing.Any] = {
+            "source": source,
+            "tool": item.get("tool"),
+            "reason": reason,
+            "next_action": "inspect_failure",
+            "message": "Inspect the failure payload and retry with the smallest safe native tool call."
+        }
+        if reason == "workspace_tool_required":
+            hint.update({
+                "next_action": "use_suggested_workspace_tool",
+                "message": "Use the suggested workspace tool instead of shell_exec for workspace file changes.",
+                "suggested_tool": data.get("suggested_tool") or item.get("suggested_tool"),
+                "suggested_args": data.get("suggested_args") or item.get("suggested_args") or {}
+            })
+        elif reason == "file_not_found":
+            path = data.get("path") or item.get("path")
+            hint.update({
+                "next_action": "locate_file",
+                "message": "Locate the intended file before editing.",
+                "suggested_steps": [
+                    {"tool": "workspace_list_files", "args": {"path": ".", "recursive": True, "max_items": 200}},
+                    {"tool": "workspace_search_text", "args": {"query": str(path or ""), "path": "."}}
+                ]
+            })
+        elif reason == "file_changed_since_read":
+            path = data.get("path") or data.get("source_path") or item.get("path")
+            hint.update({
+                "next_action": "refresh_file_snapshot",
+                "message": "The file changed since it was read; read it again and use the current sha256.",
+                "suggested_steps": [{"tool": "workspace_read_file", "args": {"path": path}}] if path else []
+            })
+        elif str(reason or "").startswith("unified_patch_context_"):
+            path = data.get("path") or item.get("path")
+            start_line = max(1, int(data.get("target_line") or 1) - 6)
+            hint.update({
+                "next_action": "regenerate_patch_with_context",
+                "message": "Regenerate the unified patch with current nearby context; ambiguous patches need more context lines.",
+                "path": path,
+                "hunk": data.get("hunk"),
+                "hunk_header": data.get("hunk_header"),
+                "expected_sequence": data.get("expected_sequence") or [],
+                "actual_sequence": data.get("actual_sequence") or [],
+                "nearby": data.get("nearby") or [],
+                "suggested_steps": [
+                    {
+                        "tool": "workspace_read_file",
+                        "args": {"path": path, "start_line": start_line, "max_lines": 18}
+                    }
+                ] if path else []
+            })
+        return hint
 
     async def native_repair_loop(
         self,
@@ -23,6 +453,7 @@ class SessionTools(NativeCodingComponent):
         auto_repair: bool | str = False,
         auto_rollback: bool | str = "verify_failed"
     ) -> dict[str, typing.Any]:
+        """执行一次基于既有会话的修复循环。"""
         sid = str(session_id or "").strip()
         session = self.sessions.get(sid)
 
@@ -98,42 +529,6 @@ class SessionTools(NativeCodingComponent):
                 run_payload["repair_loop"] = metadata
         return result
 
-    @staticmethod
-    def _session_has_run(session: dict[str, typing.Any], run_id: str) -> bool:
-        return any(
-            isinstance(item, dict) and item.get("run_id") == run_id
-            for item in session.get("runs") or []
-        )
-
-    @staticmethod
-    def _record_repair_loop_metadata(
-        *,
-        session: dict[str, typing.Any],
-        run_id: str,
-        source_run_id: str | None,
-        validation: dict[str, typing.Any],
-        verify_step: dict[str, typing.Any],
-        executable_step_count: int,
-        rollback_policy: str
-    ) -> dict[str, typing.Any]:
-        metadata = {
-            "run_id"                : run_id,
-            "source_run_id"         : source_run_id,
-            "validation"            : validation,
-            "verify_step"           : verify_step,
-            "executable_step_count" : executable_step_count,
-            "rollback_policy"       : rollback_policy
-        }
-        session.setdefault("repair_loops", []).append(metadata)
-        for item in session.get("runs") or []:
-            if isinstance(item, dict) and item.get("run_id") == run_id:
-                item["repair_loop"] = metadata
-                summary = item.get("summary")
-                if isinstance(summary, dict):
-                    summary["repair_loop"] = metadata
-                break
-        return metadata
-
     async def native_loop(
         self,
         *,
@@ -147,6 +542,7 @@ class SessionTools(NativeCodingComponent):
         auto_repair: bool | str = False,
         auto_rollback: bool | str = False
     ) -> dict[str, typing.Any]:
+        """执行一次原生编码步骤序列，并记录预检、验证和摘要。"""
         started = time.perf_counter()
         session = self._begin_session(prompt=prompt, session_id=session_id)
         if isinstance(plan_update, dict) and plan_update:
@@ -325,159 +721,6 @@ class SessionTools(NativeCodingComponent):
         payload["data"]["ok"] = ok
         return payload
 
-    @staticmethod
-    def _prepare_repair_steps(
-        steps: list[dict[str, typing.Any]]
-    ) -> tuple[list[dict[str, typing.Any]], dict[str, typing.Any]]:
-        shell_indexes = [
-            index
-            for index, step in enumerate(steps or [])
-            if isinstance(step, dict) and str(step.get("tool") or "") == "shell_exec"
-        ]
-        verify_index = shell_indexes[-1] if shell_indexes else -1
-        verify_step = dict(steps[verify_index]) if verify_index >= 0 else {}
-        executable_steps = [
-            step
-            for index, step in enumerate(steps or [])
-            if index != verify_index and isinstance(step, dict)
-        ]
-        return executable_steps, verify_step
-
-    @staticmethod
-    def _normalize_auto_rollback(value: typing.Any) -> str:
-        if value is True:
-            return "always"
-        if value is False or value is None:
-            return "off"
-        text = str(value or "").strip().lower()
-        if text in {"1", "true", "yes", "on"}:
-            return "always"
-        if text in {"always", "step_failed", "verify_failed", "off"}:
-            return text
-        return "off"
-
-    @staticmethod
-    def _auto_rollback_reason(
-        *,
-        policy: str,
-        failed_steps: list[dict[str, typing.Any]],
-        verify_ok: bool,
-        verify: dict[str, typing.Any] | None
-    ) -> str | None:
-        if policy == "off":
-            return None
-        has_failed_steps = bool(failed_steps)
-        has_verify_failure = verify is not None and not verify_ok
-        if policy == "always" and (has_failed_steps or has_verify_failure):
-            return "step_failed" if has_failed_steps else "verify_failed"
-        if policy == "step_failed" and has_failed_steps:
-            return "step_failed"
-        if policy == "verify_failed" and has_verify_failure:
-            return "verify_failed"
-        return None
-
-    @staticmethod
-    def _repair_state(
-        *,
-        ok: bool,
-        failed_steps: list[dict[str, typing.Any]] | None = None,
-        verify: dict[str, typing.Any] | None = None,
-        repair_plan: dict[str, typing.Any] | None = None
-    ) -> dict[str, typing.Any]:
-        has_plan = isinstance(repair_plan, dict) and bool(repair_plan)
-        last_verify_ok = bool((verify.get("data") or {}).get("ok")) if isinstance(verify, dict) else None
-        if ok:
-            status = "passed"
-            next_action = "stop"
-        elif any(SessionTools._step_requires_cloud_sandbox(item) for item in failed_steps or []):
-            status = "awaiting_sandbox"
-            next_action = "record_sandbox_result"
-        elif has_plan:
-            status = "needs_model"
-            next_action = "generate_repair_steps"
-        elif failed_steps:
-            status = "step_failed"
-            next_action = "inspect_failure"
-        elif last_verify_ok is False:
-            status = "verify_failed"
-            next_action = "inspect_diagnostics"
-        else:
-            status = "failed"
-            next_action = "inspect_failure"
-
-        return {
-            "has_repair_plan" : has_plan,
-            "next_action"     : next_action,
-            "repair_status"   : status,
-            "last_verify_ok"  : last_verify_ok
-        }
-
-    @staticmethod
-    def _step_requires_cloud_sandbox(step: dict[str, typing.Any]) -> bool:
-        data = step.get("data") if isinstance(step.get("data"), dict) else {}
-        if step.get("tool") == "record_sandbox_result":
-            return False
-        if bool(data.get("requires_cloud_sandbox")):
-            return True
-        if data.get("sandbox_request"):
-            return True
-        if bool(step.get("requires_cloud_sandbox")):
-            return True
-        return bool(step.get("sandbox_request"))
-
-    @staticmethod
-    def _normalize_auto_repair(value: typing.Any) -> str:
-        if value is True:
-            return "plan"
-        if value is False or value is None:
-            return "off"
-        text = str(value or "").strip().lower()
-        if text in {"1", "true", "yes", "on"}:
-            return "plan"
-        if text in {"plan", "off"}:
-            return text
-        return "off"
-
-    def session_snapshot(self, session_id: str | None = None) -> dict[str, typing.Any]:
-        if session_id:
-            item = self.sessions.get(session_id)
-            if not item:
-                return self._fail("session_not_found", session_id=session_id)
-            return self._ok(
-                f"native coding session returned session_id={session_id}",
-                session=self._public_session(item)
-            )
-
-        sessions = list(self.sessions.values())[-10:]
-        return self._ok(
-            f"native coding sessions count={len(self.sessions)}",
-            sessions=[
-                {
-                    "session_id"  : item.get("session_id"),
-                    "ok"          : item.get("ok"),
-                    "prompt"      : item.get("prompt"),
-                    "started_at"  : item.get("started_at"),
-                    "finished_at" : item.get("finished_at"),
-                    "summary"     : item.get("summary")
-                }
-                for item in sessions
-            ],
-            count=len(self.sessions)
-        )
-
-    def _public_session(self, session: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        public = dict(session)
-        runs: list[dict[str, typing.Any]] = []
-        for run in session.get("runs") or []:
-            if not isinstance(run, dict):
-                continue
-            item = dict(run)
-            if isinstance(item.get("snapshot"), dict):
-                item["snapshot"] = self._public_snapshot(item["snapshot"])
-            runs.append(item)
-        public["runs"] = runs
-        return public
-
     async def run_native_step(
         self,
         step: dict[str, typing.Any],
@@ -498,6 +741,8 @@ class SessionTools(NativeCodingComponent):
         args = step.get("args") or {}
         if not isinstance(args, dict):
             args = {}
+        if tool == "shell_exec" and isinstance(step.get("execution"), dict) and "execution" not in args:
+            args = {**args, "execution": step["execution"]}
 
         if tool not in self.LOOP_TOOLS:
             return {
@@ -531,10 +776,114 @@ class SessionTools(NativeCodingComponent):
             data=data
         )["data"]
 
+    async def _dispatch_native_tool(
+        self,
+        tool: str,
+        args: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
+        """按工具名分派到对应的原生编码实现。"""
+        if tool == "workspace_root":
+            return self.workspace_root()
+        if tool == "workspace_list_files":
+            return self.list_files(**args)
+        if tool == "workspace_read_file":
+            return self.read_file(**args)
+        if tool == "workspace_search_text":
+            return self.search_text(**args)
+        if tool == "repo_map":
+            return self.repo_map(**args)
+        if tool == "repo_find_symbol":
+            return self.find_symbol(**args)
+        if tool == "workspace_write_file":
+            return self.write_file(**args)
+        if tool == "workspace_copy_file":
+            return self.copy_file(**args)
+        if tool == "workspace_move_file":
+            return self.move_file(**args)
+        if tool == "workspace_delete_file":
+            return self.delete_file(**args)
+        if tool == "workspace_apply_patch":
+            return self.apply_patch(**args)
+        if tool == "workspace_apply_unified_patch":
+            return self.apply_unified_patch(**args)
+        if tool == "shell_exec":
+            return await self.shell_exec(**args)
+        if tool == "git_status":
+            return await self.git_status()
+        if tool == "git_diff":
+            return await self.git_diff(**args)
+        if tool == "change_summary":
+            return await self.change_summary(**args)
+        if tool == "rollback_run":
+            return self.rollback_run(**args)
+        if tool == "native_plan":
+            action = str(args.get("action") or "get").strip().lower()
+            if action == "update":
+                return self.update_plan(
+                    session_id=args.get("session_id"),
+                    todos=args.get("todos"),
+                    assumptions=args.get("assumptions"),
+                    next_steps=args.get("next_steps"),
+                    note=args.get("note"),
+                    mode=args.get("mode") or "merge"
+                )
+            return self.get_plan(session_id=args.get("session_id"))
+        if tool == "record_sandbox_result":
+            return self.record_sandbox_result(**args, record_step=False)
+        return self._fail("tool_not_allowed", tool=tool)
+
+    def session_snapshot(
+        self,
+        session_id: str | None = None
+    ) -> dict[str, typing.Any]:
+        """返回指定会话或最近会话的公开快照。"""
+        if session_id:
+            item = self.sessions.get(session_id)
+            if not item:
+                return self._fail("session_not_found", session_id=session_id)
+            return self._ok(
+                f"native coding session returned session_id={session_id}",
+                session=self._public_session(item)
+            )
+
+        sessions = list(self.sessions.values())[-10:]
+        return self._ok(
+            f"native coding sessions count={len(self.sessions)}",
+            sessions=[
+                {
+                    "session_id"  : item.get("session_id"),
+                    "ok"          : item.get("ok"),
+                    "prompt"      : item.get("prompt"),
+                    "started_at"  : item.get("started_at"),
+                    "finished_at" : item.get("finished_at"),
+                    "summary"     : item.get("summary")
+                }
+                for item in sessions
+            ],
+            count=len(self.sessions)
+        )
+
+    def _public_session(
+        self, session: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
+        """生成可对外返回的会话结构。"""
+        public = dict(session)
+        runs: list[dict[str, typing.Any]] = []
+        for run in session.get("runs") or []:
+            if not isinstance(run, dict):
+                continue
+            item = dict(run)
+            if isinstance(item.get("snapshot"), dict):
+                item["snapshot"] = self._public_snapshot(item["snapshot"])
+            runs.append(item)
+        public["runs"] = runs
+        return public
+
     def preflight_native_steps(
         self,
         steps: list[dict[str, typing.Any]]
     ) -> dict[str, typing.Any]:
+        """预检原生编码步骤序列，并维护步骤间的虚拟文件状态。"""
         checks: list[dict[str, typing.Any]] = []
         virtual_files: dict[str, str | None] = {}
         for index, step in enumerate(steps or [], start=1):
@@ -558,12 +907,15 @@ class SessionTools(NativeCodingComponent):
         index: int,
         virtual_files: dict[str, str | None]
     ) -> dict[str, typing.Any]:
+        """预检单个步骤的工具名、参数和路径约束。"""
         if not isinstance(step, dict):
             return self._preflight_fail(index, None, "step_not_dict")
         tool = str(step.get("tool") or "").strip()
         args = step.get("args") or {}
         if not isinstance(args, dict):
             return self._preflight_fail(index, tool, "args_not_dict")
+        if tool == "shell_exec" and isinstance(step.get("execution"), dict) and "execution" not in args:
+            args = {**args, "execution": step["execution"]}
         if tool not in self.LOOP_TOOLS:
             return self._preflight_fail(index, tool, "tool_not_allowed")
 
@@ -656,21 +1008,27 @@ class SessionTools(NativeCodingComponent):
         tool: str,
         args: dict[str, typing.Any]
     ) -> dict[str, typing.Any]:
-        target = self._preflight_resolve(args.get("path"))
+        """预检写文件步骤，并生成写入后的投影内容。"""
+        target  = self._preflight_resolve(args.get("path"))
         content = str(args.get("content") or "")
-        size = len(content.encode(const.CHARSET, const.IGNORE))
+        size    = len(content.encode(const.CHARSET, const.IGNORE))
+
         if size > self.max_write_bytes:
             return self._preflight_fail(index, tool, "content_too_large", size=size, max_bytes=self.max_write_bytes)
         if target.exists() and not bool(args.get("overwrite", True)):
             return self._preflight_fail(index, tool, "file_exists", path=self._rel(target))
         if not bool(args.get("create_dirs", True)) and not target.parent.exists():
             return self._preflight_fail(index, tool, "parent_directory_missing", path=self._rel(target.parent))
+
         if conflict := self._conflict_guard(
             target,
             expected_sha256=args.get("expected_sha256"),
             force=bool(args.get("force", False))
         ):
-            return self._preflight_fail(index, tool, (conflict.get("data") or {}).get("reason") or "sha256_conflict")
+            return self._preflight_fail(
+                index, tool, (conflict.get("data") or {}).get("reason") or "sha256_conflict"
+            )
+
         return self._preflight_ok(
             index,
             tool,
@@ -687,11 +1045,12 @@ class SessionTools(NativeCodingComponent):
         args: dict[str, typing.Any],
         virtual_files: dict[str, str | None]
     ) -> dict[str, typing.Any]:
-        source = self._preflight_resolve(args.get("source_path"))
-        target = self._preflight_resolve(args.get("target_path"))
+        """预检移动文件步骤，并更新源路径和目标路径的投影内容。"""
+        source     = self._preflight_resolve(args.get("source_path"))
+        target     = self._preflight_resolve(args.get("target_path"))
         source_rel = self._rel(source)
         target_rel = self._rel(target)
-        overwrite = bool(args.get("overwrite", False))
+        overwrite  = bool(args.get("overwrite", False))
 
         if source_rel in virtual_files:
             projected = virtual_files[source_rel]
@@ -748,11 +1107,12 @@ class SessionTools(NativeCodingComponent):
         args: dict[str, typing.Any],
         virtual_files: dict[str, str | None]
     ) -> dict[str, typing.Any]:
-        source = self._preflight_resolve(args.get("source_path"))
-        target = self._preflight_resolve(args.get("target_path"))
+        """预检复制文件步骤，并生成目标路径的投影内容。"""
+        source     = self._preflight_resolve(args.get("source_path"))
+        target     = self._preflight_resolve(args.get("target_path"))
         source_rel = self._rel(source)
         target_rel = self._rel(target)
-        overwrite = bool(args.get("overwrite", False))
+        overwrite  = bool(args.get("overwrite", False))
 
         if source_rel in virtual_files:
             projected = virtual_files[source_rel]
@@ -810,8 +1170,9 @@ class SessionTools(NativeCodingComponent):
         args: dict[str, typing.Any],
         virtual_files: dict[str, str | None]
     ) -> dict[str, typing.Any]:
+        """预检删除文件步骤，并将目标路径标记为删除投影。"""
         target = self._preflight_resolve(args.get("path"))
-        rel = self._rel(target)
+        rel    = self._rel(target)
 
         if rel in virtual_files:
             projected = virtual_files[rel]
@@ -858,8 +1219,10 @@ class SessionTools(NativeCodingComponent):
         args: dict[str, typing.Any],
         virtual_files: dict[str, str | None]
     ) -> dict[str, typing.Any]:
+        """预检文本替换 patch，并生成替换后的投影内容。"""
         target = self._preflight_resolve(args.get("path"))
-        rel = self._rel(target)
+        rel    = self._rel(target)
+
         if rel in virtual_files:
             if virtual_files[rel] is None:
                 return self._preflight_fail(index, tool, "file_not_found", path=rel)
@@ -910,6 +1273,7 @@ class SessionTools(NativeCodingComponent):
         args: dict[str, typing.Any],
         virtual_files: dict[str, str | None]
     ) -> dict[str, typing.Any]:
+        """预检 unified patch，并生成多文件投影结果。"""
         planned = self._plan_unified_patch(
             patch=str(args.get("patch") or ""),
             expected_sha256=args.get("expected_sha256"),
@@ -952,15 +1316,15 @@ class SessionTools(NativeCodingComponent):
         tool: str,
         args: dict[str, typing.Any]
     ) -> dict[str, typing.Any]:
+        """预检 shell 执行步骤的执行元数据和工作目录。"""
         cmd = [str(item) for item in (args.get("command") or []) if str(item or "").strip()]
         if not cmd:
             return self._preflight_fail(index, tool, "command_empty")
-        policy = self.check_command_policy(
-            cmd,
+        policy = self.execution_metadata_policy(
+            args.get("execution") if isinstance(args.get("execution"), dict) else None,
+            command=cmd,
             cwd=str(args.get("cwd") or "."),
-            timeout_sec=int(args.get("timeout_sec") or 60),
-            allow_review=bool(args.get("allow_review", False)),
-            allow_dangerous=bool(args.get("allow_dangerous", False))
+            timeout_sec=int(args.get("timeout_sec") or 60)
         )
         if not policy.get("ok"):
             return self._preflight_fail(
@@ -977,8 +1341,8 @@ class SessionTools(NativeCodingComponent):
                 project_types=policy.get("project_types") or [],
                 execution_target=policy.get("execution_target"),
                 requires_cloud_sandbox=bool(policy.get("requires_cloud_sandbox")),
-                sandbox_request=policy.get("sandbox_request"),
-                outside_sandbox_request=policy.get("outside_sandbox_request")
+                execution=policy.get("execution"),
+                grant_id=policy.get("grant_id")
             )
         cwd = self._preflight_resolve(args.get("cwd") or ".")
         if not cwd.is_dir():
@@ -993,18 +1357,26 @@ class SessionTools(NativeCodingComponent):
             reasons=policy.get("reasons") or [],
             execution_target=policy.get("execution_target"),
             requires_cloud_sandbox=bool(policy.get("requires_cloud_sandbox")),
-            sandbox_request=policy.get("sandbox_request"),
-            outside_sandbox_request=policy.get("outside_sandbox_request"),
+            execution=policy.get("execution"),
+            grant_id=policy.get("grant_id"),
             project_types=policy.get("project_types") or [],
             long_task=bool(policy.get("long_task")),
             timeout_sec=policy.get("timeout_sec"),
             output_limit=policy.get("output_limit")
         )
 
-    def _preflight_resolve(self, path: typing.Any) -> Path:
+    def _preflight_resolve(
+        self,
+        path: typing.Any
+    ) -> Path:
+        """解析预检路径，并复用工作区边界校验。"""
         return self._resolve(str(path or "."))
 
-    def _preflight_resolve_required_file(self, path: typing.Any) -> Path:
+    def _preflight_resolve_required_file(
+        self,
+        path: typing.Any
+    ) -> Path:
+        """解析预检路径，并要求目标是已存在文件。"""
         if not str(path or "").strip():
             raise ValueError("path_required")
         target = self._resolve(str(path))
@@ -1012,122 +1384,13 @@ class SessionTools(NativeCodingComponent):
             raise FileNotFoundError(str(path))
         return target
 
-    @staticmethod
-
-    def _update_preflight_virtual_files(
-        check: dict[str, typing.Any],
-        virtual_files: dict[str, str | None]
-    ) -> None:
-        tool = str(check.get("tool") or "")
-        path = check.get("path")
-        if tool in {"workspace_write_file", "workspace_apply_patch"}:
-            if not path:
-                return
-            virtual_files[str(path)] = str(check.get("projected_content") or "")
-        elif tool == "workspace_copy_file":
-            target_path = check.get("target_path")
-            if target_path:
-                virtual_files[str(target_path)] = str(check.get("projected_target_content") or "")
-        elif tool == "workspace_move_file":
-            source_path = check.get("source_path")
-            target_path = check.get("target_path")
-            if source_path:
-                virtual_files[str(source_path)] = None
-            if target_path:
-                virtual_files[str(target_path)] = str(check.get("projected_target_content") or "")
-        elif tool == "workspace_delete_file":
-            if path:
-                virtual_files[str(path)] = None
-        elif tool == "workspace_apply_unified_patch":
-            for item in check.get("projected_files") or []:
-                if not isinstance(item, dict) or not item.get("path"):
-                    continue
-                if item.get("action") == "delete":
-                    virtual_files[str(item["path"])] = None
-                else:
-                    virtual_files[str(item["path"])] = str(item.get("content") or "")
-
-    @staticmethod
-
-    def _sanitize_preflight_check(check: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        sanitized = dict(check)
-        sanitized.pop("projected_content", None)
-        sanitized.pop("projected_files", None)
-        sanitized.pop("projected_source_content", None)
-        sanitized.pop("projected_target_content", None)
-        return sanitized
-
-    @staticmethod
-
-    def _preflight_ok(index: int, tool: str, **data: typing.Any) -> dict[str, typing.Any]:
-        return {"index": index, "tool": tool, "ok": True, **data}
-
-    @staticmethod
-
-    def _preflight_fail(index: int, tool: str | None, reason: str, **data: typing.Any) -> dict[str, typing.Any]:
-        return {"index": index, "tool": tool, "ok": False, "reason": reason, **data}
-
-    async def _dispatch_native_tool(
-        self,
-        tool: str,
-        args: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
-        if tool == "workspace_root":
-            return self.workspace_root()
-        if tool == "workspace_list_files":
-            return self.list_files(**args)
-        if tool == "workspace_read_file":
-            return self.read_file(**args)
-        if tool == "workspace_search_text":
-            return self.search_text(**args)
-        if tool == "repo_map":
-            return self.repo_map(**args)
-        if tool == "repo_find_symbol":
-            return self.find_symbol(**args)
-        if tool == "workspace_write_file":
-            return self.write_file(**args)
-        if tool == "workspace_copy_file":
-            return self.copy_file(**args)
-        if tool == "workspace_move_file":
-            return self.move_file(**args)
-        if tool == "workspace_delete_file":
-            return self.delete_file(**args)
-        if tool == "workspace_apply_patch":
-            return self.apply_patch(**args)
-        if tool == "workspace_apply_unified_patch":
-            return self.apply_unified_patch(**args)
-        if tool == "shell_exec":
-            return await self.shell_exec(**args)
-        if tool == "git_status":
-            return await self.git_status()
-        if tool == "git_diff":
-            return await self.git_diff(**args)
-        if tool == "change_summary":
-            return await self.change_summary(**args)
-        if tool == "rollback_run":
-            return self.rollback_run(**args)
-        if tool == "native_plan":
-            action = str(args.get("action") or "get").strip().lower()
-            if action == "update":
-                return self.update_plan(
-                    session_id=args.get("session_id"),
-                    todos=args.get("todos"),
-                    assumptions=args.get("assumptions"),
-                    next_steps=args.get("next_steps"),
-                    note=args.get("note"),
-                    mode=args.get("mode") or "merge"
-                )
-            return self.get_plan(session_id=args.get("session_id"))
-        if tool == "record_sandbox_result":
-            return self.record_sandbox_result(**args, record_step=False)
-        return self._fail("tool_not_allowed", tool=tool)
-
     def _begin_session(
         self,
         *,
         prompt: str,
         session_id: str | None
     ) -> dict[str, typing.Any]:
+        """创建或复用原生编码会话。"""
         sid = str(session_id or "").strip() or f"native_{uuid.uuid4().hex[:10]}"
         session = self.sessions.get(sid)
         if not isinstance(session, dict):
@@ -1188,48 +1451,6 @@ class SessionTools(NativeCodingComponent):
             session.setdefault("plan", self._empty_plan())
         return session
 
-    @staticmethod
-    def _begin_run(
-        session: dict[str, typing.Any],
-        *,
-        prompt: str
-    ) -> dict[str, typing.Any]:
-        runs      = session.setdefault("runs", [])
-        run_index = int(session.get("run_count") or len(runs)) + 1
-        run_id    = f"{session['session_id']}_run_{run_index}"
-
-        run = {
-            "run_id"             : run_id,
-            "run_index"          : run_index,
-            "kind"               : "initial" if run_index == 1 else "repair",
-            "prompt"             : str(prompt or ""),
-            "started_at"         : time.time(),
-            "finished_at"        : None,
-            "ok"                 : None,
-            "steps"              : [],
-            "shell_commands"     : [],
-            "shell_file_changes" : [],
-            "copied_files"       : [],
-            "moved_files"        : [],
-            "deleted_files"      : [],
-            "verify"             : None,
-            "verify_diagnostics" : None,
-            "repair_plan"        : None,
-            "sandbox_results"    : [],
-            "sandbox_artifacts"  : [],
-            "diagnostic_context" : [],
-            "diagnostic_reads"   : [],
-            "status"             : "",
-            "diff"               : "",
-            "elapsed_ms"         : None,
-            "summary"            : {}
-        }
-
-        runs.append(run)
-        session["run_count"] = run_index
-        session["last_run_id"] = run_id
-        return run
-
     def _record_step(
         self,
         session: dict[str, typing.Any],
@@ -1237,16 +1458,19 @@ class SessionTools(NativeCodingComponent):
         *,
         run: dict[str, typing.Any] | None = None
     ) -> None:
+        """把步骤执行结果归档到会话和当前运行记录。"""
         tool = str(step.get("tool") or "")
         data = step.get("data") if isinstance(step.get("data"), dict) else {}
+
         record = {
-            "run_id": step.get("run_id"),
-            "run_index": step.get("run_index"),
-            "index": step.get("index"),
-            "tool": tool,
-            "ok": bool(step.get("ok")),
-            "reason": step.get("reason")
+            "run_id"    : step.get("run_id"),
+            "run_index" : step.get("run_index"),
+            "index"     : step.get("index"),
+            "tool"      : tool,
+            "ok"        : bool(step.get("ok")),
+            "reason"    : step.get("reason")
         }
+
         if data.get("execution_target"):
             record["execution_target"] = data.get("execution_target")
         if data.get("requires_cloud_sandbox") is not None:
@@ -1261,11 +1485,11 @@ class SessionTools(NativeCodingComponent):
             self._append_unique(session, "written_files", str(data.get("path")))
         elif tool == "workspace_copy_file" and data.get("source_path") and data.get("target_path"):
             copy_record = {
-                "source_path": str(data.get("source_path")),
-                "target_path": str(data.get("target_path")),
-                "overwritten": bool(data.get("overwritten")),
-                "bytes": data.get("bytes"),
-                "sha256": data.get("sha256")
+                "source_path" : str(data.get("source_path")),
+                "target_path" : str(data.get("target_path")),
+                "overwritten" : bool(data.get("overwritten")),
+                "bytes"       : data.get("bytes"),
+                "sha256"      : data.get("sha256")
             }
             session.setdefault("copied_files", []).append(copy_record)
             if isinstance(run, dict):
@@ -1274,11 +1498,11 @@ class SessionTools(NativeCodingComponent):
             self._append_unique(session, "written_files", str(data.get("target_path")))
         elif tool == "workspace_move_file" and data.get("source_path") and data.get("target_path"):
             move_record = {
-                "source_path": str(data.get("source_path")),
-                "target_path": str(data.get("target_path")),
-                "overwritten": bool(data.get("overwritten")),
-                "bytes": data.get("bytes"),
-                "sha256": data.get("sha256")
+                "source_path" : str(data.get("source_path")),
+                "target_path" : str(data.get("target_path")),
+                "overwritten" : bool(data.get("overwritten")),
+                "bytes"       : data.get("bytes"),
+                "sha256"      : data.get("sha256")
             }
             session.setdefault("moved_files", []).append(move_record)
             if isinstance(run, dict):
@@ -1286,9 +1510,9 @@ class SessionTools(NativeCodingComponent):
             self._append_unique(session, "written_files", str(data.get("target_path")))
         elif tool == "workspace_delete_file" and data.get("path"):
             delete_record = {
-                "path": str(data.get("path")),
-                "bytes": data.get("bytes"),
-                "sha256": data.get("sha256")
+                "path"   : str(data.get("path")),
+                "bytes"  : data.get("bytes"),
+                "sha256" : data.get("sha256")
             }
             session.setdefault("deleted_files", []).append(delete_record)
             if isinstance(run, dict):
@@ -1347,6 +1571,7 @@ class SessionTools(NativeCodingComponent):
         *,
         run: dict[str, typing.Any] | None = None
     ) -> None:
+        """记录验证命令结果及其诊断信息。"""
         data = verify.get("data") if isinstance(verify, dict) else {}
         verify_record = {
             "ok": bool(data.get("ok")),
@@ -1378,6 +1603,7 @@ class SessionTools(NativeCodingComponent):
         elapsed_ms: int,
         run: dict[str, typing.Any] | None = None
     ) -> dict[str, typing.Any]:
+        """收束会话状态，并生成本次运行和会话摘要。"""
         session["ok"] = ok
         session["finished_at"] = time.time()
         session["status"] = status or ""
@@ -1494,17 +1720,6 @@ class SessionTools(NativeCodingComponent):
         session["summary"] = summary
         return summary
 
-    @staticmethod
-
-    def _append_unique(
-        session: dict[str, typing.Any],
-        key: str,
-        value: str
-    ) -> None:
-        items = session.setdefault(key, [])
-        if value not in items:
-            items.append(value)
-
     def _record_unified_patch_changes(
         self,
         session: dict[str, typing.Any],
@@ -1512,6 +1727,7 @@ class SessionTools(NativeCodingComponent):
         *,
         run: dict[str, typing.Any] | None = None
     ) -> None:
+        """记录 unified patch 产生的创建、修改和删除文件。"""
         for key, target_key in (
             ("created_files", "created_files"),
             ("updated_files", "modified_files"),
@@ -1524,134 +1740,6 @@ class SessionTools(NativeCodingComponent):
                 session.setdefault(target_key, []).append(record)
                 if isinstance(run, dict):
                     run.setdefault(target_key, []).append(record)
-
-    @staticmethod
-    def _patch_change_record(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        return {
-            "path"          : str(item.get("path")),
-            "action"        : item.get("action"),
-            "hunks"         : item.get("hunks"),
-            "added_lines"   : item.get("added_lines"),
-            "removed_lines" : item.get("removed_lines"),
-            "replacements"  : item.get("replacements"),
-            "sha256_before" : item.get("sha256_before"),
-            "sha256_after"  : item.get("sha256_after")
-        }
-
-    @staticmethod
-    def _final_summary_context(summary: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        verify = summary.get("verify") if isinstance(summary.get("verify"), dict) else None
-        return {
-            "ok": bool(summary.get("ok")),
-            "next_action": summary.get("next_action"),
-            "repair_status": summary.get("repair_status"),
-            "repair_hints": list(summary.get("repair_hints") or []),
-            "changed_files": {
-                "created": list(summary.get("created_files") or []),
-                "modified": list(summary.get("modified_files") or []),
-                "deleted": list(summary.get("deleted_files") or []),
-                "moved": list(summary.get("moved_files") or []),
-                "copied": list(summary.get("copied_files") or []),
-                "patched": list(summary.get("patched_files") or []),
-                "written": list(summary.get("written_files") or [])
-            },
-            "verification": {
-                "ran": verify is not None,
-                "ok": bool(verify.get("ok")) if verify else None,
-                "command": verify.get("command") if verify else None,
-                "exit_code": verify.get("exit_code") if verify else None
-            },
-            "rollback": {
-                "auto_rollback": summary.get("auto_rollback"),
-                "rollbacks": list(summary.get("rollbacks") or [])
-            },
-            "shell": {
-                "commands": list(summary.get("shell_commands") or []),
-                "file_changes": list(summary.get("shell_file_changes") or [])
-            }
-        }
-
-    @staticmethod
-    def _repair_hints(summary: dict[str, typing.Any]) -> list[dict[str, typing.Any]]:
-        hints: list[dict[str, typing.Any]] = []
-        preflight = summary.get("preflight") if isinstance(summary.get("preflight"), dict) else {}
-        for check in preflight.get("checks") or []:
-            if isinstance(check, dict) and not check.get("ok"):
-                hints.append(SessionTools._hint_from_failure(check, source="preflight"))
-
-        current_run = summary.get("current_run") if isinstance(summary.get("current_run"), dict) else {}
-        for step in current_run.get("steps") or []:
-            if isinstance(step, dict) and not step.get("ok"):
-                hints.append(SessionTools._hint_from_failure(step, source="step"))
-
-        diagnostics = summary.get("verify_diagnostics")
-        if isinstance(diagnostics, dict) and diagnostics and not diagnostics.get("ok"):
-            hints.append({
-                "source": "verify",
-                "reason": diagnostics.get("error_type") or "verification_failed",
-                "next_action": "inspect_diagnostics",
-                "message": "Verification failed; inspect recommended reads, patch the smallest affected area, then rerun verification.",
-                "recommended_reads": list(diagnostics.get("read_recommendations") or []),
-                "suggested_steps": list(diagnostics.get("suggested_steps") or []),
-                "repair_plan": diagnostics.get("repair_plan")
-            })
-        return [item for item in hints if isinstance(item, dict)]
-
-    @staticmethod
-    def _hint_from_failure(item: dict[str, typing.Any], *, source: str) -> dict[str, typing.Any]:
-        data = item.get("data") if isinstance(item.get("data"), dict) else item
-        reason = item.get("reason") or data.get("reason")
-        hint: dict[str, typing.Any] = {
-            "source": source,
-            "tool": item.get("tool"),
-            "reason": reason,
-            "next_action": "inspect_failure",
-            "message": "Inspect the failure payload and retry with the smallest safe native tool call."
-        }
-        if reason == "workspace_tool_required":
-            hint.update({
-                "next_action": "use_suggested_workspace_tool",
-                "message": "Use the suggested workspace tool instead of shell_exec for workspace file changes.",
-                "suggested_tool": data.get("suggested_tool") or item.get("suggested_tool"),
-                "suggested_args": data.get("suggested_args") or item.get("suggested_args") or {}
-            })
-        elif reason == "file_not_found":
-            path = data.get("path") or item.get("path")
-            hint.update({
-                "next_action": "locate_file",
-                "message": "Locate the intended file before editing.",
-                "suggested_steps": [
-                    {"tool": "workspace_list_files", "args": {"path": ".", "recursive": True, "max_items": 200}},
-                    {"tool": "workspace_search_text", "args": {"query": str(path or ""), "path": "."}}
-                ]
-            })
-        elif reason == "file_changed_since_read":
-            path = data.get("path") or data.get("source_path") or item.get("path")
-            hint.update({
-                "next_action": "refresh_file_snapshot",
-                "message": "The file changed since it was read; read it again and use the current sha256.",
-                "suggested_steps": [{"tool": "workspace_read_file", "args": {"path": path}}] if path else []
-            })
-        elif str(reason or "").startswith("unified_patch_context_"):
-            path = data.get("path") or item.get("path")
-            start_line = max(1, int(data.get("target_line") or 1) - 6)
-            hint.update({
-                "next_action": "regenerate_patch_with_context",
-                "message": "Regenerate the unified patch with current nearby context; ambiguous patches need more context lines.",
-                "path": path,
-                "hunk": data.get("hunk"),
-                "hunk_header": data.get("hunk_header"),
-                "expected_sequence": data.get("expected_sequence") or [],
-                "actual_sequence": data.get("actual_sequence") or [],
-                "nearby": data.get("nearby") or [],
-                "suggested_steps": [
-                    {
-                        "tool": "workspace_read_file",
-                        "args": {"path": path, "start_line": start_line, "max_lines": 18}
-                    }
-                ] if path else []
-            })
-        return hint
 
 
 if __name__ == '__main__':

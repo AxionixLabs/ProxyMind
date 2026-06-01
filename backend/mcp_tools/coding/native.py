@@ -34,8 +34,7 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     ShellCommandArg,
     ShellCwdArg,
     ShellTimeoutArg,
-    ShellAllowDangerousArg,
-    ShellAllowReviewArg,
+    ExecutionMetadataArg,
     GitDiffMaxCharsArg,
     NativeLoopPromptArg,
     NativeLoopStepsArg,
@@ -513,8 +512,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             " 文件操作请使用 workspace_write_file、workspace_apply_patch、workspace_apply_unified_patch、"
             "workspace_copy_file、workspace_move_file、workspace_delete_file。"
             " 不要依赖 shell alias/内建命令或 shell 语法，例如 mv/cp/rm/del/copy/move/dir、管道、重定向、&&。"
-            " shell 控制符、常见写文件命令、危险命令、依赖安装、网络下载和 git 写操作会进入审批流程；"
-            " 用户要求执行这类操作时仍应调用本工具，由客户端和服务端完成审批，不要改为让用户手动执行。"
+            " 执行前必须携带 execution metadata，由执行元数据决定本地执行、云端沙盒或拒绝。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "shell"}
     )
@@ -523,16 +521,14 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         command: ShellCommandArg,
         cwd: ShellCwdArg = ".",
         timeout_sec: ShellTimeoutArg = 60,
-        allow_review: ShellAllowReviewArg = False,
-        allow_dangerous: ShellAllowDangerousArg = False
+        execution: ExecutionMetadataArg = None
     ) -> CallToolResult:
 
         args = {
             "command"         : command,
             "cwd"             : cwd,
             "timeout_sec"     : timeout_sec,
-            "allow_review"    : allow_review,
-            "allow_dangerous" : allow_dangerous
+            "execution"       : execution
         }
 
         async def call(*_) -> dict:
@@ -803,8 +799,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "把外层云端 sandbox 的命令执行结果回填到 native coding session。"
-            " verify=true 时会作为验证结果触发 diagnostics/repair_plan，便于继续修复闭环。"
+            "把外层云端沙箱的命令执行结果回填到原生编码会话。"
+            " verify=true 时会作为验证结果触发诊断和修复计划，便于继续修复闭环。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "session"}
     )
@@ -825,6 +821,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         auto_repair: NativeLoopAutoRepairArg = False,
         run_id: NativeRunIdArg = None
     ) -> CallToolResult:
+        """回填云端沙箱执行结果到原生编码会话。"""
 
         args = {
             "session_id"       : session_id,

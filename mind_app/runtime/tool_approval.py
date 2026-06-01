@@ -18,7 +18,6 @@ from prompt_toolkit.styles import Style
 from mind_core.design import Design
 from mind_app.stream_events.approval_trace import approval_summary
 
-InputFunc = typing.Callable[[str], str]
 ApprovalDecisionValue = typing.Literal[
     "accept",
     "acceptForSession",
@@ -55,7 +54,7 @@ class ApprovalRecord(object):
 @dataclass(slots=True)
 class ApprovalDecision(object):
     """表示工具调用审批校验后的处理动作。"""
-    action: typing.Literal["allow", "reject"]
+    action: typing.Literal["allow", "reject", "wait"]
     result: dict[str, typing.Any] | None = None
 
 
@@ -113,7 +112,8 @@ def validate_tool_approval(
     name: str,
     arguments: dict[str, typing.Any],
     store: ApprovalStore,
-    meta: dict[str, typing.Any] | None = None
+    meta: dict[str, typing.Any] | None = None,
+    tool_meta: dict[str, typing.Any] | None = None
 ) -> ApprovalDecision:
     """校验服务端已批准工具调用的审批元数据。"""
     tool_name = str(name or "").strip()
@@ -123,13 +123,17 @@ def validate_tool_approval(
     call_id        = str(event.get("call_id") or "")
     approval_id    = str(event.get("approval_id") or "").strip()
     event_approved = bool(event.get("approved"))
+    effective_meta = (
+        {**tool_meta, **meta}
+        if isinstance(tool_meta, dict) and isinstance(meta, dict)
+        else meta if isinstance(meta, dict)
+        else tool_meta if isinstance(tool_meta, dict)
+        else None
+    )
 
     if not event_approved and not approval_id:
-        if approval_required(event=event, meta=meta):
-            return ApprovalDecision(
-                action="reject",
-                result=_approval_reject_result(f"{tool_name} requires approval")
-            )
+        if approval_required(event=event, meta=effective_meta):
+            return ApprovalDecision(action="wait")
         return ApprovalDecision(action="allow")
 
     record = store.by_call_id.get(call_id)
@@ -370,7 +374,7 @@ def _set_terminal_cursor_visible(
 async def prompt_tool_approval_decision(
     approval: dict[str, typing.Any],
     *,
-    input_func: InputFunc | None = None,
+    input_func: typing.Callable[[str], str] = None,
     show_prompt: bool = True
 ) -> ApprovalDecisionValue:
     """读取审批请求的用户选择。"""

@@ -127,13 +127,9 @@ ShellTimeoutArg = typing.Annotated[
     int,
     Field(description="命令超时秒数。"),
 ]
-ShellAllowDangerousArg = typing.Annotated[
-    bool,
-    Field(description="审批通过后由服务端设置，用于继续执行需要该标记的命令；默认 false。"),
-]
-ShellAllowReviewArg = typing.Annotated[
-    bool,
-    Field(description="审批通过后由服务端设置，用于继续执行安装依赖、网络下载或 git 写操作等命令；默认 false。"),
+ExecutionMetadataArg = typing.Annotated[
+    typing.Optional[dict[str, typing.Any]],
+    Field(description="服务端执行裁决；可选，包含 target/state/grantId/canonicalArguments 等字段。"),
 ]
 
 GitDiffMaxCharsArg = typing.Annotated[
@@ -211,35 +207,35 @@ NativePlanUpdateArg = typing.Annotated[
 ]
 SandboxExitCodeArg = typing.Annotated[
     int,
-    Field(description="云端 sandbox 命令退出码。"),
+    Field(description="云端沙箱命令退出码。"),
 ]
 SandboxOutputArg = typing.Annotated[
     str,
-    Field(description="云端 sandbox 返回的 stdout 或 stderr 文本。"),
+    Field(description="云端沙箱返回的 stdout 或 stderr 文本。"),
 ]
 SandboxElapsedArg = typing.Annotated[
     typing.Optional[int],
-    Field(description="云端 sandbox 执行耗时，单位毫秒。"),
+    Field(description="云端沙箱执行耗时，单位毫秒。"),
 ]
 SandboxTimedOutArg = typing.Annotated[
     bool,
-    Field(description="云端 sandbox 命令是否超时。"),
+    Field(description="云端沙箱命令是否超时。"),
 ]
 SandboxProviderArg = typing.Annotated[
     str,
-    Field(description="云端 sandbox 提供方名称。"),
+    Field(description="云端沙箱提供方名称。"),
 ]
 SandboxFileChangesArg = typing.Annotated[
     typing.Optional[dict[str, typing.Any]],
-    Field(description="云端 sandbox 观察到的文件变更摘要，可为空。"),
+    Field(description="云端沙箱观察到的文件变更摘要，可为空。"),
 ]
 SandboxArtifactsArg = typing.Annotated[
     typing.Optional[dict[str, typing.Any]],
-    Field(description="云端 sandbox 回传的文件 artifact，可包含 files 列表；每项包含 path、action(create/modify/delete)、content、sha256、bytes。"),
+    Field(description="云端沙箱回传的文件产物，可包含 files 列表；每项包含 path、action(create/modify/delete)、content、sha256、bytes。"),
 ]
 SandboxVerifyArg = typing.Annotated[
     bool,
-    Field(description="是否将该 sandbox 结果作为验证结果写回 session，并触发 diagnostics/repair_plan。"),
+    Field(description="是否将该沙箱结果作为验证结果写回会话，并触发诊断和修复计划。"),
 ]
 
 

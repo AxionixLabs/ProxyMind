@@ -22,6 +22,10 @@ from ..runtime.tool_approval import (
     prompt_tool_approval_decision,
     validate_tool_approval
 )
+from ..runtime.execution_policy import (
+    should_pass_execution_to_tool,
+    validate_execution_policy
+)
 from ..stream_events.responses_builtin import (
     resolve_builtin_name,
     consume_builtin_done
@@ -205,6 +209,7 @@ async def stream_looper(
                 name, arguments = event["name"], event.get("arguments", {})
 
                 event_meta = event.get("meta") if isinstance(event.get("meta"), dict) else None
+                event_execution = event.get("execution") if isinstance(event.get("execution"), dict) else None
 
                 summary = Tooling.summarize_tool_arguments(name, arguments)
 
@@ -216,8 +221,13 @@ async def stream_looper(
                     name=name,
                     arguments=arguments,
                     store=approvals,
-                    meta=event_meta
+                    meta=event_meta,
+                    tool_meta=tool_meta.get(name) if isinstance(tool_meta, dict) else None
                 )
+
+                if approval_decision.action == "wait":
+                    await slog.begin_reply_wait_status()
+                    continue
 
                 if approval_decision.action == "reject":
                     await request.post_tool_result(
@@ -226,7 +236,25 @@ async def stream_looper(
                         event["call_id"],
                         name,
                         False,
-                        approval_decision.result or {}
+                        approval_decision.result or {},
+                        execution=event_execution
+                    )
+                    await slog.begin_reply_wait_status()
+                    continue
+
+                if execution_denied := validate_execution_policy(
+                    name=name,
+                    arguments=arguments,
+                    execution=event_execution
+                ):
+                    await request.post_tool_result(
+                        event["cid"],
+                        event["sid"],
+                        event["call_id"],
+                        name,
+                        False,
+                        execution_denied,
+                        execution=event_execution
                     )
                     await slog.begin_reply_wait_status()
                     continue
@@ -260,6 +288,8 @@ async def stream_looper(
                     )
 
                 arguments = Enhancer.exchange(name, arguments, mind.report)
+                if should_pass_execution_to_tool(name, event_execution):
+                    arguments = {**arguments, "execution": event_execution}
 
                 tool_run = await run_tool_step(
                     session,
@@ -298,7 +328,11 @@ async def stream_looper(
                         cost_ms=tool_run.cost_ms,
                         before_exists=before_exists
                     )
-                    trace_preview = render_tool_result_preview(name, tool_run.data)
+                    trace_preview = render_tool_result_preview(
+                        name,
+                        tool_run.data,
+                        arguments=arguments
+                    )
 
                     trace_parts = render_tool_trace_parts(
                         trace_title, preview=trace_preview, ok=ok
@@ -316,7 +350,13 @@ async def stream_looper(
                     await slog.feed(text, display=StreamUI.BLOCK)
 
                 await request.post_tool_result(
-                    event["cid"], event["sid"], event["call_id"], name, ok, fields
+                    event["cid"],
+                    event["sid"],
+                    event["call_id"],
+                    name,
+                    ok,
+                    fields,
+                    execution=event_execution
                 )
                 await slog.begin_reply_wait_status(delay_sec=0.75)
                 continue

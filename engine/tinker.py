@@ -240,16 +240,22 @@ class Tooling(object):
         meta: typing.Optional[dict[str, typing.Any]] = None
     ) -> bool:
         """判断某工具是否需要“连接/设备准备”等前置动作。"""
-        effective_meta = meta if isinstance(meta, dict) else (meta_map.get(name) or {})
-        if bool(effective_meta.get("external")):
-            return False
-        if effective_meta.get("domain") == "coding":
-            return False
-        cls = str(effective_meta.get("class") or "")
-        return cls not in {
-            "tool", "framix", "nexus", "inspect", "security", "runtime",
-            "audio", "ffmpeg", "k6", "session"
+        local_meta = meta_map.get(name) or {}
+        effective_meta = {
+            **local_meta,
+            **(meta if isinstance(meta, dict) else {})
         }
+        cls = str(effective_meta.get("class") or "")
+        skip_classes = {
+            "tool", "framix", "nexus", "inspect", "security", "runtime",
+            "audio", "ffmpeg", "k6"
+        }
+        return not (
+            local_meta.get("domain") == "coding"
+            or effective_meta.get("domain") == "coding"
+            or bool(effective_meta.get("external"))
+            or cls in skip_classes
+        )
 
     @staticmethod
     def summarize_tool_arguments(tool_name: str, tool_args: typing.Any) -> str:
