@@ -49,8 +49,7 @@ class PatchEngine(NativeCodingComponent):
                 "workspace_apply_patch", "replacement_count_mismatch", data
             )
             return self._fail(
-                "replacement_count_mismatch",
-                **data
+                "replacement_count_mismatch", **data
             )
 
         updated = current.replace(old_text, new_text, expected)
@@ -202,7 +201,18 @@ class PatchEngine(NativeCodingComponent):
 
             path   = str(item["path"])
             action = str(item.get("action") or "modify")
-            target = self._resolve(path)
+            try:
+                target = self._resolve(path)
+            except ValueError as exc:
+                return {
+                    "ok"     : False,
+                    "reason" : "path_outside_workspace",
+                    "data"   : {
+                        "path"                  : path,
+                        "error"                 : str(exc),
+                        "suggested_next_action" : "regenerate_patch_with_workspace_relative_paths"
+                    }
+                }
             rel    = self._rel(target)
 
             if rel in seen_paths:
@@ -271,16 +281,19 @@ class PatchEngine(NativeCodingComponent):
                 self._sha256(current.encode(const.CHARSET, const.IGNORE))
                 if action in {"modify", "delete"} else None
             )
+
             applied = self._apply_unified_hunks(current, item["hunks"])
             if not applied.get("ok"):
                 reason = str(applied["reason"])
-                data = {"path": path, **(applied.get("data") or {})}
-                data = self._with_unified_patch_diagnostics(reason=reason, data=data, patch=patch)
+                data   = {"path": path, **(applied.get("data") or {})}
+                data   = self._with_unified_patch_diagnostics(reason=reason, data=data, patch=patch)
+
                 return {
                     "ok"     : False,
                     "reason" : reason,
                     "data"   : data
                 }
+
             content = str(applied["content"])
             if action == "delete" and content:
                 return {
@@ -303,9 +316,11 @@ class PatchEngine(NativeCodingComponent):
                         "suggested_next_action": "split_change_or_reduce_generated_content"
                     }
                 }
-            line_stats = self._unified_patch_line_stats(item["hunks"])
+
+            line_stats      = self._unified_patch_line_stats(item["hunks"])
             corrected_hunks = self._unified_patch_count_corrections(item["hunks"])
-            sha256_content = self._sha256(content.encode(const.CHARSET, const.IGNORE))
+            sha256_content  = self._sha256(content.encode(const.CHARSET, const.IGNORE))
+
             planned.append({
                 "path"            : path,
                 "action"          : action,

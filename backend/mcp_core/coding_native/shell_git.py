@@ -125,12 +125,18 @@ class ShellGitTools(NativeCodingComponent):
 
         return "full"
 
-    async def _git(self, args: list[str]) -> dict[str, typing.Any]:
+    async def _git(
+        self,
+        args: list[str],
+        *,
+        output_limit: int | None = None
+    ) -> dict[str, typing.Any]:
         """在工作区根目录执行 git 子命令并返回统一结果。"""
-        cmd     = ["git", *args]
-        workdir = self._resolve(".")
-        env     = os.environ.copy()
-        started = time.perf_counter()
+        cmd       = ["git", *args]
+        workdir   = self._resolve(".")
+        env       = os.environ.copy()
+        limit     = max(1, min(int(output_limit or self.max_output_chars), self.max_output_chars))
+        started   = time.perf_counter()
 
         proc = await Flux.cmd_link_exec(
             NativeCommandRuntime.resolve_command(cmd, env=env),
@@ -151,25 +157,28 @@ class ShellGitTools(NativeCodingComponent):
         exit_code  = int(proc.returncode or 0)
         ok         = (exit_code == 0) and not timed_out
 
+        data = {
+                "ok"                     : ok,
+                "command"                : cmd,
+                "cwd"                    : self._rel(workdir),
+                "execution_target"       : "local",
+                "requires_cloud_sandbox" : False,
+                "exit_code"              : exit_code,
+                "timed_out"              : timed_out,
+                "elapsed_ms"             : elapsed_ms,
+                "output_limit"           : limit,
+                "stdout"                 : self._clip_output(raw_stdout, max_chars=limit),
+                "stderr"                 : self._clip_output(raw_stderr, max_chars=limit),
+                "stdout_truncated"       : len(raw_stdout) > limit,
+                "stderr_truncated"       : len(raw_stderr) > limit,
+                "truncated"              : len(raw_stdout) > limit or len(raw_stderr) > limit
+            }
+
         return {
-            "text": f"git {'ok' if ok else 'failed'} exit_code={exit_code} elapsed_ms={elapsed_ms}",
-            "attachments": [],
-            "data": {
-                "ok": ok,
-                "command": cmd,
-                "cwd": self._rel(workdir),
-                "execution_target": "local",
-                "requires_cloud_sandbox": False,
-                "exit_code": exit_code,
-                "timed_out": timed_out,
-                "elapsed_ms": elapsed_ms,
-                "stdout": self._clip_output(raw_stdout, max_chars=self.max_output_chars),
-                "stderr": self._clip_output(raw_stderr, max_chars=self.max_output_chars),
-                "stdout_truncated": len(raw_stdout) > self.max_output_chars,
-                "stderr_truncated": len(raw_stderr) > self.max_output_chars,
-                "truncated": len(raw_stdout) > self.max_output_chars or len(raw_stderr) > self.max_output_chars
-            },
-            "logs": []
+            "text"        : f"git {'ok' if ok else 'failed'} exit_code={exit_code} elapsed_ms={elapsed_ms}",
+            "attachments" : [],
+            "data"        : data,
+            "logs"        : []
         }
 
     async def git_status(self) -> dict[str, typing.Any]:
@@ -198,21 +207,17 @@ class ShellGitTools(NativeCodingComponent):
         if path:
             cmd.append(self._rel(self._resolve(path)))
 
-        result     = await self._git(cmd)
-        data       = result.get("data") or {}
-        raw_stdout = str(data.get("stdout") or "")
+        output_limit = max(1, min(int(max_chars or self.max_output_chars), self.max_output_chars))
+        result       = await self._git(cmd, output_limit=output_limit)
+        data         = result.get("data") or {}
 
-        data["stdout"] = self._clip_output(raw_stdout, max_chars=max_chars)
-
-        if len(raw_stdout) > max_chars:
-            data["stdout_truncated"] = True
-            data["truncated"] = True
+        if data.get("stdout_truncated") and output_limit < self.max_output_chars:
             data["recommended_next_steps"] = [
                 {
                     "tool": "git_diff",
                     "args": {
                         "path"      : path,
-                        "max_chars" : min(max_chars * 2, self.max_output_chars)
+                        "max_chars" : min(output_limit * 2, self.max_output_chars)
                     },
                     "reason": "increase_limit"
                 }
