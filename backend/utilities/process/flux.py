@@ -4,12 +4,10 @@
 import os
 import sys
 import time
-import shutil
 import typing
 import asyncio
 from loguru import logger
 from backend.utilities import const
-from backend.utilities.command_heads import is_python_head
 from backend.utilities.trace import (
     clip_text, summarize_command
 )
@@ -17,34 +15,6 @@ from backend.utilities.trace import (
 
 class Flux(object):
     """Flux class."""
-
-    @staticmethod
-    def _normalize_exec_cmd(cmd: list[str]) -> list[str]:
-        """规范化 Windows 下的 shim 可执行入口，便于直接以 exec 方式启动。"""
-        if not cmd:
-            return cmd
-
-        if (os.name != "nt") and (not sys.platform.startswith("win")):
-            return cmd
-
-        program = str(cmd[0] or "").strip()
-        if not program:
-            return cmd
-
-        if is_python_head(program):
-            return [sys.executable, *cmd[1:]]
-
-        resolved = shutil.which(program) or program
-        suffix = os.path.splitext(resolved)[1].lower()
-
-        if suffix in {".cmd", ".bat"}:
-            comspec = os.environ.get("COMSPEC") or "cmd.exe"
-            return [comspec, "/c", resolved, *cmd[1:]]
-
-        if resolved:
-            return [resolved, *cmd[1:]]
-
-        return cmd
 
     @staticmethod
     async def cmd_line(cmd: list[str]) -> typing.Any:
@@ -75,36 +45,6 @@ class Flux(object):
             return err_text
 
     @staticmethod
-    async def cmd_line_exec(cmd: list[str]) -> typing.Any:
-        """以参数数组方式执行一次命令，并兼容 Windows 的 shim 可执行入口。"""
-        cmd = Flux._normalize_exec_cmd(cmd)
-
-        t0 = time.perf_counter()
-        logger.debug(f"process begin mode=exec-shim cmd={summarize_command(cmd)}")
-        transports = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-
-        stdout, stderr = await transports.communicate()
-        elapsed_ms = int((time.perf_counter() - t0) * 1000)
-        rc = transports.returncode
-
-        out_text = stdout.decode(const.CHARSET, const.IGNORE).strip() if stdout else ""
-        err_text = stderr.decode(const.CHARSET, const.IGNORE).strip() if stderr else ""
-
-        level = logger.debug if rc == 0 else logger.warning
-        level(
-            f"process end mode=exec-shim rc={rc} elapsed_ms={elapsed_ms} cmd={summarize_command(cmd)} "
-            f"stdout={clip_text(out_text, 120)} stderr={clip_text(err_text, 120)}"
-        )
-
-        if stdout:
-            return out_text
-        if stderr:
-            return err_text
-
-    @staticmethod
     async def cmd_link(cmd: list[str]) -> asyncio.subprocess.Process:
         """以参数数组方式启动长生命周期子进程，并返回进程句柄。"""
         transports = await asyncio.create_subprocess_exec(
@@ -122,38 +62,16 @@ class Flux(object):
         cmd: list[str],
         *,
         cwd: typing.Optional[str] = None,
-        env: typing.Optional[dict[str, str]] = None
+        env: typing.Optional[dict[str, str]] = None,
+        stdin: typing.Any = None
     ) -> asyncio.subprocess.Process:
         """以参数数组方式启动长生命周期子进程，并返回进程句柄。"""
         transports = await asyncio.create_subprocess_exec(
-            *cmd, cwd=cwd or None, env=env,
+            *cmd, cwd=cwd or None, env=env, stdin=stdin,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
         logger.debug(
             f"process link mode=exec pid={transports.pid} cwd={clip_text(cwd or '', 120)} "
-            f"cmd={summarize_command(cmd)}"
-        )
-
-        return transports
-
-    @staticmethod
-    async def cmd_link_exec_resolved(
-        cmd: list[str],
-        *,
-        cwd: typing.Optional[str] = None,
-        env: typing.Optional[dict[str, str]] = None,
-        stdin: typing.Any = None
-    ) -> asyncio.subprocess.Process:
-        """以参数数组方式启动长生命周期子进程，并兼容 Windows 的 shim 可执行入口。"""
-        cmd = Flux._normalize_exec_cmd(cmd)
-
-        transports = await asyncio.create_subprocess_exec(
-            *cmd, cwd=cwd or None, env=env,
-            stdin=stdin,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        logger.debug(
-            f"process link mode=exec-shim pid={transports.pid} cwd={clip_text(cwd or '', 120)} "
             f"cmd={summarize_command(cmd)}"
         )
 

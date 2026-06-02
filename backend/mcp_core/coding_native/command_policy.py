@@ -3,7 +3,7 @@
 """原生编码命令的执行元数据校验辅助。"""
 
 import typing
-from backend.mcp_core.native_coding.base import NativeCodingComponent
+from backend.mcp_core.coding_native.base import NativeCodingComponent
 
 
 class CommandPolicy(NativeCodingComponent):

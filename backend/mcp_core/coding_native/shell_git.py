@@ -6,7 +6,9 @@ import time
 import typing
 import asyncio
 from loguru import logger
-from backend.mcp_core.native_coding.base import NativeCodingComponent
+from backend.mcp_core.coding_native.base import NativeCodingComponent
+from backend.mcp_core.coding_native.command_runtime import NativeCommandRuntime
+from backend.mcp_core.coding_native.python_runtime import PythonRuntimeResolver
 from backend.utilities.process import Flux
 from backend.utilities.trace import summarize_command
 
@@ -47,8 +49,13 @@ class ShellGitTools(NativeCodingComponent):
         """在工作区根目录执行 git 子命令并返回统一结果。"""
         cmd = ["git", *args]
         workdir = self._resolve(".")
+        env = os.environ.copy()
         started = time.perf_counter()
-        proc = await Flux.cmd_link_exec_resolved(cmd, cwd=str(workdir), env=os.environ.copy())
+        proc = await Flux.cmd_link_exec(
+            NativeCommandRuntime.resolve_command(cmd, env=env),
+            cwd=str(workdir),
+            env=env
+        )
         timed_out = False
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
@@ -191,9 +198,39 @@ class ShellGitTools(NativeCodingComponent):
 
         effective_timeout = int(policy.get("timeout_sec") or timeout_sec or 60)
         output_limit = int(policy.get("output_limit") or self.max_output_chars)
+        env = os.environ.copy()
+        python_runtime = PythonRuntimeResolver.resolve_shell_command(cmd, env=env)
+        if not python_runtime.get("ok"):
+            return self._ok(
+                "shell exec requires cloud sandbox",
+                ok=False,
+                command=cmd,
+                cwd=self._rel(workdir),
+                risk=policy.get("risk"),
+                category=policy.get("category"),
+                risk_reasons=[
+                    *(policy.get("reasons") or []),
+                    str(python_runtime.get("reason") or "local_python_unavailable")
+                ],
+                approval_required=bool(policy.get("approval_required")),
+                execution_target="cloud_sandbox",
+                requires_cloud_sandbox=True,
+                execution=policy.get("execution"),
+                grant_id=policy.get("grant_id"),
+                project_types=policy.get("project_types") or [],
+                long_task=bool(policy.get("long_task")),
+                timeout_sec=policy.get("timeout_sec"),
+                output_limit=policy.get("output_limit"),
+                reason=python_runtime.get("reason"),
+                python_runtime=python_runtime
+            )
+
+        exec_cmd = list(python_runtime.get("command") or cmd)
+        if not python_runtime.get("changed"):
+            exec_cmd = NativeCommandRuntime.resolve_command(exec_cmd, env=env)
         audit_before = self.capture_file_fingerprints() if audit_files else None
         started = time.perf_counter()
-        proc = await Flux.cmd_link_exec_resolved(cmd, cwd=str(workdir), env=os.environ.copy())
+        proc = await Flux.cmd_link_exec(exec_cmd, cwd=str(workdir), env=env)
         timed_out = False
         try:
             stdout, stderr = await asyncio.wait_for(
@@ -239,6 +276,7 @@ class ShellGitTools(NativeCodingComponent):
             "data": {
                 "ok": ok,
                 "command": cmd,
+                "resolved_command": exec_cmd,
                 "cwd": self._rel(workdir),
                 "risk": policy.get("risk"),
                 "category": policy.get("category"),
@@ -248,6 +286,7 @@ class ShellGitTools(NativeCodingComponent):
                 "requires_cloud_sandbox": bool(policy.get("requires_cloud_sandbox")),
                 "execution": policy.get("execution"),
                 "grant_id": policy.get("grant_id"),
+                "python_runtime": python_runtime if python_runtime.get("changed") else None,
                 "project_types": policy.get("project_types") or [],
                 "long_task": bool(policy.get("long_task")),
                 "timeout_sec": effective_timeout,

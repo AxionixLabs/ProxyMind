@@ -7,7 +7,7 @@ import time
 import typing
 from pathlib import Path
 from loguru import logger
-from backend.mcp_core.native_coding.base import NativeCodingComponent
+from backend.mcp_core.coding_native.base import NativeCodingComponent
 from backend.utilities import const
 
 

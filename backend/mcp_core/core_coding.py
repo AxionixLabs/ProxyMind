@@ -9,6 +9,7 @@ import asyncio
 from collections import deque
 from loguru import logger
 from backend.mcp_core.core_buffer import LineBuffer
+from backend.mcp_core.coding_runtime import CodexRuntimeResolver
 from backend.models.model_device import SemanticResult
 from backend.utilities import const
 from backend.utilities.process import Flux
@@ -97,8 +98,8 @@ class Coding(object):
         json_output: bool = False,
         extra_args: typing.Optional[list[str]] = None
     ) -> list[str]:
-        """把启动参数组装成最终的 `codex exec` 命令数组。"""
-        cmd = ["codex", "exec", prompt, "-C", workdir, "--color", "never"]
+        """把启动参数组装成 `codex exec` 的参数数组。"""
+        cmd = ["exec", prompt, "-C", workdir, "--color", "never"]
 
         if profile:
             cmd += ["-p", profile]
@@ -289,6 +290,7 @@ class Coding(object):
             extra_args=extra_args
         )
         env = self._build_codex_env(workdir=final_workdir)
+        launch_cmd = CodexRuntimeResolver.resolve_command(cmd, env=env)
         logger.debug(
             "coding start prepare "
             f"workdir={clip_text(final_workdir, 160)} "
@@ -296,7 +298,7 @@ class Coding(object):
             f"codex_home={clip_text(str(env.get('CODEX_HOME', '')), 160)} "
             f"pwd={clip_text(str(env.get('PWD', '')), 160)} "
             f"path_head={clip_text(str(env.get('PATH', ''))[:240], 240)} "
-            f"cmd={summarize_command(cmd)}"
+            f"cmd={summarize_command(launch_cmd)}"
         )
 
         async with self.lock:
@@ -319,7 +321,7 @@ class Coding(object):
             self.prompt_preview  = self._prompt_preview(prompt_text)
             self.cwd             = final_workdir
             self.codex_home      = env.get("CODEX_HOME")
-            self.command_preview = summarize_command(cmd)
+            self.command_preview = summarize_command(launch_cmd)
             self.started_at      = time.time()
             self.finished_at     = None
             self.exit_code       = None
@@ -328,8 +330,8 @@ class Coding(object):
             self.wait_result     = None
 
             try:
-                self.__transports = await Flux.cmd_link_exec_resolved(
-                    cmd,
+                self.__transports = await Flux.cmd_link_exec(
+                    launch_cmd,
                     cwd=final_workdir,
                     env=env,
                     stdin=asyncio.subprocess.DEVNULL

@@ -3,7 +3,7 @@
 
 import typing
 import asyncio
-from backend.mcp_core.native_coding.base import NativeCodingComponent
+from backend.mcp_core.coding_native.base import NativeCodingComponent
 
 
 class ParallelReadCore(typing.Protocol):

@@ -2,21 +2,21 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.mcp_core.native_coding.base import NativeCodingBase
-from backend.mcp_core.native_coding.workspace import WorkspaceTools
-from backend.mcp_core.native_coding.parallel_read import ParallelReadTools
-from backend.mcp_core.native_coding.repo_map import RepoMapTools
-from backend.mcp_core.native_coding.patch_engine import PatchEngine
-from backend.mcp_core.native_coding.shell_git import ShellGitTools
-from backend.mcp_core.native_coding.command_policy import CommandPolicy
-from backend.mcp_core.native_coding.file_audit import FileAudit
-from backend.mcp_core.native_coding.repair_steps import RepairSteps
-from backend.mcp_core.native_coding.change_summary import ChangeSummaryTools
-from backend.mcp_core.native_coding.snapshots import SnapshotTools
-from backend.mcp_core.native_coding.plan import PlanTools
-from backend.mcp_core.native_coding.diagnostics import DiagnosticsTools
-from backend.mcp_core.native_coding.sandbox_result import SandboxResultTools
-from backend.mcp_core.native_coding.session import SessionTools
+from backend.mcp_core.coding_native.base import NativeCodingBase
+from backend.mcp_core.coding_native.workspace import WorkspaceTools
+from backend.mcp_core.coding_native.parallel_read import ParallelReadTools
+from backend.mcp_core.coding_native.repo_map import RepoMapTools
+from backend.mcp_core.coding_native.patch_engine import PatchEngine
+from backend.mcp_core.coding_native.shell_git import ShellGitTools
+from backend.mcp_core.coding_native.command_policy import CommandPolicy
+from backend.mcp_core.coding_native.file_audit import FileAudit
+from backend.mcp_core.coding_native.repair_steps import RepairSteps
+from backend.mcp_core.coding_native.change_summary import ChangeSummaryTools
+from backend.mcp_core.coding_native.snapshots import SnapshotTools
+from backend.mcp_core.coding_native.plan import PlanTools
+from backend.mcp_core.coding_native.diagnostics import DiagnosticsTools
+from backend.mcp_core.coding_native.sandbox_result import SandboxResultTools
+from backend.mcp_core.coding_native.session import SessionTools
 
 
 class NativeCoding(NativeCodingBase):

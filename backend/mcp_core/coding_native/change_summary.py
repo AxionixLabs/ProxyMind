@@ -2,7 +2,7 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.mcp_core.native_coding.base import NativeCodingComponent
+from backend.mcp_core.coding_native.base import NativeCodingComponent
 
 
 class ChangeSummaryTools(NativeCodingComponent):
