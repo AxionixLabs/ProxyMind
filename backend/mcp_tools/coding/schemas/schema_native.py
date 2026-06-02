@@ -70,7 +70,7 @@ NativeParallelReadItemsArg = typing.Annotated[
     Field(
         description=(
             "并行读取上下文的只读步骤列表。每项包含 tool 和 args；"
-            "仅允许 workspace_root、workspace_read_file、workspace_search。"
+            "仅允许 workspace_read_file、workspace_search。"
         )
     ),
 ]
