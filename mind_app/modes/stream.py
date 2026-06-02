@@ -291,11 +291,8 @@ async def stream_looper(
 
                 use_coding_trace = is_native_coding_trace_tool(name)
 
-                trace_start = render_tool_start_trace(
-                    name, arguments, before_exists=before_exists
-                )
-
                 if not use_coding_trace:
+                    trace_start = render_tool_start_trace(name, arguments)
                     await slog.feed(
                         f"{trace_start}\n", display=StreamUI.BLOCK, display_chunk=summary
                     )

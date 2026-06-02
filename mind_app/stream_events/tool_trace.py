@@ -38,7 +38,6 @@ MAX_CODE_PREVIEW_LINES = 12
 NATIVE_CODING_TRACE_TOOLS = {
     "workspace_root",
     "workspace_read_file",
-    "workspace_list_files",
     "workspace_search",
     "native_parallel_read",
     "workspace_write_file",
@@ -185,20 +184,21 @@ def _status_from_payload(payload: dict[str, typing.Any]) -> str:
     """从结果载荷中读取状态文本。"""
     raw = str(payload.get("status") or "").strip().lower()
     aliases = {
-        "ok": "success",
-        "passed": "success",
-        "completed": "success",
-        "succeeded": "success",
-        "success": "success",
-        "fail": "failed",
-        "failed": "failed",
-        "error": "failed",
-        "blocked": "failed",
-        "cancelled": "cancelled",
-        "canceled": "cancelled",
-        "timeout": "timeout",
-        "timed_out": "timeout",
+        "ok"        : "success",
+        "passed"    : "success",
+        "completed" : "success",
+        "succeeded" : "success",
+        "success"   : "success",
+        "fail"      : "failed",
+        "failed"    : "failed",
+        "error"     : "failed",
+        "blocked"   : "failed",
+        "cancelled" : "cancelled",
+        "canceled"  : "cancelled",
+        "timeout"   : "timeout",
+        "timed_out" : "timeout"
     }
+
     if raw in aliases:
         return aliases[raw]
     if payload.get("ok"):
@@ -376,7 +376,7 @@ def _action_style_for_body(body: str, *, ok: bool) -> str | None:
 
     if first == "Git":
         return ACTION_GIT_STYLE
-    if first in {"Read", "Listed", "Searched", "Root", "Skipping", "Skipped"}:
+    if first in {"Read", "Searched", "Root", "Skipping", "Skipped"}:
         return ACTION_READ_STYLE
     if first in {"Edited", "Created", "Deleted", "Copied", "Moved", "Patch"}:
         return ACTION_EDIT_STYLE
@@ -553,79 +553,12 @@ def _unified_action(files: typing.Any) -> str:
 
 def render_tool_start_trace(
     name: str,
-    arguments: dict[str, typing.Any],
-    *,
-    before_exists: typing.Any = MISSING
+    arguments: dict[str, typing.Any]
 ) -> str:
-    """渲染工具开始执行前的轨迹行。"""
+    """渲染普通工具开始执行前的轨迹行。"""
     args = arguments if isinstance(arguments, dict) else {}
-
-    if name == "workspace_root":
-        return "• Checking workspace root"
-
-    if name == "workspace_read_file":
-        return f"• Reading {_path_from_args(args)}"
-
-    if name == "workspace_list_files":
-        return f"• Listing {_path_from_args(args)}"
-
-    if name == "workspace_search":
-        query = _short_text(args.get("query"), 80)
-        if not query:
-            return "• Skipping empty search"
-        return f"• Searching \"{query}\""
-
-    if name == "native_parallel_read":
-        items = args.get("items")
-        count = len(items) if isinstance(items, list) else 0
-        detail = f" ({count} items)" if count else ""
-        return f"• Reading context{detail}"
-
-    if name == "workspace_write_file":
-        action = "Adding" if before_exists is False or args.get("overwrite") is False else "Editing"
-        return f"• {action} {_path_from_args(args)}"
-
-    if name == "workspace_copy_file":
-        source = str(args.get("source_path") or "").strip()
-        target = str(args.get("target_path") or "").strip()
-        return f"• Copying {source} -> {target}".rstrip()
-
-    if name == "workspace_move_file":
-        source = str(args.get("source_path") or "").strip()
-        target = str(args.get("target_path") or "").strip()
-        return f"• Moving {source} -> {target}".rstrip()
-
-    if name == "workspace_delete_file":
-        return f"• Deleting {_path_from_args(args)}"
-
-    if name == "workspace_apply_patch":
-        return f"• Editing {_path_from_args(args)}"
-
-    if name == "workspace_apply_unified_patch":
-        return "• Applying patch"
-
-    if name == "shell_exec":
-        command = _command_text(args.get("command"))
-        return f"• Running {command}".rstrip()
-
-    if name in {"git_status", "git_diff", "change_summary"}:
-        return f"• Running {name}"
-
-    if name == "rollback_run":
-        sid = str(args.get("session_id") or "").strip()
-        detail = f" {sid}" if sid else ""
-        return f"• Rolling back run{detail}"
-
-    if name == "native_plan":
-        action = str(args.get("action") or "get").strip() or "get"
-        return f"• Updating native plan" if action == "update" else "• Reading native plan"
-
-    if name == "native_coding_session":
-        sid = str(args.get("session_id") or "").strip()
-        return f"• Reading native session {sid}".rstrip()
-
     summary = _short_text(args, 100)
-    detail = f" {summary}" if summary else ""
+    detail  = f" {summary}" if summary else ""
     return f"• Running {name}{detail}"
 
 
@@ -705,19 +638,6 @@ def render_tool_result_preview(
     if name == "workspace_read_file":
         return _trace_preview_from_lines(_normalize_preview_lines(data.get("content")))
 
-    if name == "workspace_list_files":
-        items = data.get("items")
-        if isinstance(items, list):
-            lines: list[str] = []
-            for item in items:
-                if isinstance(item, dict):
-                    kind = str(item.get("kind") or "")
-                    path = str(item.get("path") or "")
-                    line = f"{kind} {path}".strip()
-                    if line:
-                        lines.append(line)
-            return _trace_preview_from_lines(lines)
-
     if name == "workspace_search":
         matches = data.get("matches")
         if isinstance(matches, list):
@@ -752,9 +672,6 @@ def render_tool_result_preview(
 
                 if tool == "workspace_read_file":
                     detail = str(result_data.get("path") or "").strip()
-                elif tool == "workspace_list_files":
-                    count = _count_from_payload(result_data, "items", "count")
-                    detail = f"{count} items" if isinstance(count, int) else ""
                 elif tool == "workspace_search":
                     count = _count_from_payload(result_data, "matches", "match_count")
                     detail = f"{count} matches" if isinstance(count, int) else ""
@@ -940,15 +857,6 @@ def render_tool_trace(
     if name == "workspace_read_file":
         path = str(payload.get("path") or _path_from_args(args))
         return f"• Read {path}{suffix}"
-
-    if name == "workspace_list_files":
-
-        path   = str(payload.get("path") or _path_from_args(args))
-        count  = payload.get("items")
-        total  = len(count) if isinstance(count, list) else payload.get("count")
-        detail = f" ({total} items)" if isinstance(total, int) else ""
-
-        return f"• Listed {path}{detail}{suffix}"
 
     if name == "workspace_search":
         query = _short_text(args.get("query"), 80)
