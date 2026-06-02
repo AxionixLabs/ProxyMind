@@ -13,8 +13,15 @@ TITLE_STYLE        = "bold #D7E7FF"
 RUNNING_STYLE      = "bold #8FB8FF"
 PREVIEW_STYLE      = "dim #8FA4B8"
 ERROR_STYLE        = "bold #FF7A7A"
+SUCCESS_DOT_STYLE  = "bold #6EE7A8"
+ERROR_DOT_STYLE    = "bold #FF6B6B"
+RUNNING_DOT_STYLE  = "bold #8FB8FF"
 DELTA_ADD_STYLE    = "bold #6EE7A8"
 DELTA_REMOVE_STYLE = "bold #FF8A8A"
+ACTION_GIT_STYLE   = "bold #72D6FF"
+ACTION_READ_STYLE  = "bold #9CCBFF"
+ACTION_EDIT_STYLE  = "bold #6EE7A8"
+ACTION_RUN_STYLE   = "bold #B8C7D9"
 
 MAX_PREVIEW_LINES      = 8
 SCREEN_PREVIEW_LINES   = 5
@@ -241,15 +248,26 @@ def _format_delta(added: int, removed: int) -> str:
 def _title_parts(title: str, *, ok: bool) -> list[dict[str, typing.Optional[str]]]:
     """把标题里的行数增删摘要拆成可独立着色的片段。"""
     base_style = TITLE_STYLE if ok else ERROR_STYLE
+    dot_style = SUCCESS_DOT_STYLE if ok else ERROR_DOT_STYLE
+    body = title
+    parts: list[dict[str, typing.Optional[str]]] = []
+    if body.startswith("•"):
+        parts.append({"text": "•", "style": dot_style})
+        body = body[1:]
+
     match = re.search(r"\(\+(\d+) -(\d+)\)", title)
     if not match:
-        return [{"text": title, "style": base_style}]
+        if body:
+            parts.extend(_styled_action_body_parts(body, base_style=base_style, ok=ok))
+        return parts
 
-    parts: list[dict[str, typing.Optional[str]]] = []
     start, end = match.span()
+    if title.startswith("•"):
+        start = max(0, start - 1)
+    end = max(0, end - 1)
     add_count, remove_count = match.groups()
     if start:
-        parts.append({"text": title[:start], "style": base_style})
+        parts.extend(_styled_action_body_parts(body[:start], base_style=base_style, ok=ok))
     parts.extend([
         {"text": "(", "style": base_style},
         {"text": f"+{add_count}", "style": DELTA_ADD_STYLE},
@@ -257,9 +275,54 @@ def _title_parts(title: str, *, ok: bool) -> list[dict[str, typing.Optional[str]
         {"text": f"-{remove_count}", "style": DELTA_REMOVE_STYLE},
         {"text": ")", "style": base_style},
     ])
-    if end < len(title):
-        parts.append({"text": title[end:], "style": base_style})
+    if end < len(body):
+        parts.extend(_styled_action_body_parts(body[end:], base_style=base_style, ok=ok))
     return parts
+
+
+def _styled_action_body_parts(
+    body: str,
+    *,
+    base_style: str,
+    ok: bool
+) -> list[dict[str, typing.Optional[str]]]:
+    """把标题动作词拆出来，参数仍保留常规标题色。"""
+    if not body:
+        return []
+    action_style = _action_style_for_body(body, ok=ok)
+    if not action_style:
+        return [{"text": body, "style": base_style}]
+
+    leading_len = len(body) - len(body.lstrip(" "))
+    leading = body[:leading_len]
+    rest = body[leading_len:]
+    action, sep, tail = rest.partition(" ")
+
+    parts: list[dict[str, typing.Optional[str]]] = []
+    if leading:
+        parts.append({"text": leading, "style": base_style})
+    if action:
+        parts.append({"text": action, "style": action_style})
+    if sep or tail:
+        parts.append({"text": f"{sep}{tail}", "style": base_style})
+    return parts
+
+
+def _action_style_for_body(body: str, *, ok: bool) -> str | None:
+    """返回标题动作前缀的弱分类颜色。"""
+    if not ok:
+        return None
+    text = body.lstrip()
+    first = text.split(" ", 1)[0] if text else ""
+    if first == "Git":
+        return ACTION_GIT_STYLE
+    if first in {"Read", "Listed", "Searched", "Root", "Skipping", "Skipped"}:
+        return ACTION_READ_STYLE
+    if first in {"Edited", "Created", "Deleted", "Copied", "Moved", "Patch"}:
+        return ACTION_EDIT_STYLE
+    if first in {"Ran", "Recorded", "Rolled", "Updated"}:
+        return ACTION_RUN_STYLE
+    return None
 
 
 def _short_sha(value: typing.Any) -> str:
@@ -928,8 +991,14 @@ def render_tool_trace(
             status += f" elapsed_ms={elapsed}"
         return f"• Ran {command}{status}{suffix}".rstrip()
 
-    if name in {"git_status", "git_diff", "change_summary"}:
-        return f"• Ran {name}{suffix}"
+    if name == "git_status":
+        return f"• Git status{suffix}"
+
+    if name == "git_diff":
+        return f"• Git diff{suffix}"
+
+    if name == "change_summary":
+        return f"• Change summary{suffix}"
 
     if name == "rollback_run":
         sid = _session_id_from_payload(payload, args)
