@@ -48,6 +48,27 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
+            "返回当前原生编码工作区根目录。"
+            " 该工具用于确认后续 workspace、shell、git 工具的路径边界。"
+        ),
+        meta={"hidden": False, "domain": "coding", "class": "workspace"}
+    )
+    @task_middleware("workspace_root")
+    async def workspace_root() -> CallToolResult:
+
+        async def call(*_) -> dict:
+            return ctx.native_coding.workspace_root()
+
+        return await broadcast(
+            tool="workspace_root",
+            args={},
+            target_list=[ctx.native_coding],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(
+        description=(
             "读取工作区内文本文件。"
             " 支持按起始行和最大行数切片，大文件会按字节上限截断。"
         ),
@@ -128,7 +149,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "并行读取多段工作区上下文。"
-            " 只允许 workspace_read_file、workspace_search；"
+            " 只允许 workspace_root、workspace_read_file、workspace_search；"
             " 不执行 shell、不写文件、不应用 patch。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}

@@ -36,6 +36,7 @@ MAX_PREVIEW_WIDTH      = 120
 MAX_CODE_PREVIEW_LINES = 12
 
 NATIVE_CODING_TRACE_TOOLS = {
+    "workspace_root",
     "workspace_read_file",
     "workspace_search",
     "native_parallel_read",
@@ -628,6 +629,10 @@ def render_tool_result_preview(
         return TracePreview()
     failed = data.get("ok") is False
 
+    if name == "workspace_root":
+        root = str(data.get("root") or "").strip()
+        return _trace_preview_from_lines([f"root={root}"] if root else [])
+
     if name == "workspace_read_file":
         return _trace_preview_from_lines(_normalize_preview_lines(data.get("content")))
 
@@ -668,6 +673,8 @@ def render_tool_result_preview(
                 elif tool == "workspace_search":
                     count = _count_from_payload(result_data, "matches", "match_count")
                     detail = f"{count} matches" if isinstance(count, int) else ""
+                elif tool == "workspace_root":
+                    detail = str(result_data.get("root") or "").strip()
                 prefix = f"{index}: " if index is not None else ""
                 suffix = f" {detail}" if detail else ""
                 lines.append(f"{prefix}{tool} {ok}{suffix}".strip())
@@ -835,6 +842,10 @@ def render_tool_trace(
     args    = arguments if isinstance(arguments, dict) else {}
     payload = _result_payload(data)
     suffix  = "" if ok else " failed"
+
+    if name == "workspace_root":
+        root = str(payload.get("root") or "").strip()
+        return f"• Root {root}".rstrip()
 
     if name == "workspace_read_file":
         path = str(payload.get("path") or _path_from_args(args))

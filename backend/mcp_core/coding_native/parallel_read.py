@@ -8,6 +8,9 @@ from backend.mcp_core.coding_native.base import NativeCodingComponent
 
 class ParallelReadCore(typing.Protocol):
 
+    def workspace_root(self) -> dict[str, typing.Any]:
+        ...
+
     def read_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         ...
 
@@ -19,6 +22,7 @@ class ParallelReadTools(NativeCodingComponent):
     """并行读取工作区上下文的只读组合工具。"""
 
     ALLOWED_TOOLS = {
+        "workspace_root",
         "workspace_read_file",
         "workspace_search"
     }
@@ -54,7 +58,9 @@ class ParallelReadTools(NativeCodingComponent):
             tool = str(item.get("tool") or "").strip()
             args = item.get("args") if isinstance(item.get("args"), dict) else {}
             try:
-                if tool == "workspace_read_file":
+                if tool == "workspace_root":
+                    result = await asyncio.to_thread(core.workspace_root)
+                elif tool == "workspace_read_file":
                     result = await asyncio.to_thread(core.read_file, **args)
                 elif tool == "workspace_search":
                     result = await asyncio.to_thread(core.search, **args)
