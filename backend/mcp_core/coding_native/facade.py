@@ -10,12 +10,9 @@ from backend.mcp_core.coding_native.patch_engine import PatchEngine
 from backend.mcp_core.coding_native.shell_git import ShellGitTools
 from backend.mcp_core.coding_native.command_policy import CommandPolicy
 from backend.mcp_core.coding_native.file_audit import FileAudit
-from backend.mcp_core.coding_native.repair_steps import RepairSteps
 from backend.mcp_core.coding_native.change_summary import ChangeSummaryTools
 from backend.mcp_core.coding_native.snapshots import SnapshotTools
 from backend.mcp_core.coding_native.plan import PlanTools
-from backend.mcp_core.coding_native.diagnostics import DiagnosticsTools
-from backend.mcp_core.coding_native.sandbox_result import SandboxResultTools
 from backend.mcp_core.coding_native.session import SessionTools
 
 
@@ -31,13 +28,10 @@ class NativeCoding(NativeCodingBase):
         self._patch_engine      = PatchEngine(self)
         self._command_policy    = CommandPolicy(self)
         self._file_audit        = FileAudit(self)
-        self._repair_steps      = RepairSteps(self)
         self._shell_git         = ShellGitTools(self)
         self._change_summary    = ChangeSummaryTools(self)
         self._snapshots         = SnapshotTools(self)
         self._plan              = PlanTools(self)
-        self._diagnostics       = DiagnosticsTools(self)
-        self._sandbox_result    = SandboxResultTools(self)
         self._session           = SessionTools(self)
         self._private_delegates = self._build_private_delegates()
 
@@ -49,13 +43,10 @@ class NativeCoding(NativeCodingBase):
             self._patch_engine,
             self._command_policy,
             self._file_audit,
-            self._repair_steps,
             self._shell_git,
             self._change_summary,
             self._snapshots,
             self._plan,
-            self._diagnostics,
-            self._sandbox_result,
             self._session
         ):
             for name in dir(component.__class__):
@@ -77,9 +68,6 @@ class NativeCoding(NativeCodingBase):
 
     def diff_file_fingerprints(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._file_audit.diff_file_fingerprints(*args, **kwargs)
-
-    def validate_repair_steps(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return self._repair_steps.validate_repair_steps(*args, **kwargs)
 
     def workspace_root(self) -> dict[str, typing.Any]:
         return self._workspace.workspace_root()
@@ -129,14 +117,8 @@ class NativeCoding(NativeCodingBase):
     def get_plan(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._plan.get_plan(*args, **kwargs)
 
-    def record_sandbox_result(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return self._sandbox_result.record_sandbox_result(*args, **kwargs)
-
     def session_snapshot(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._session.session_snapshot(*args, **kwargs)
-
-    def preflight_native_steps(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return self._session.preflight_native_steps(*args, **kwargs)
 
     async def shell_exec(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return await self._shell_git.shell_exec(*args, **kwargs)
@@ -149,15 +131,6 @@ class NativeCoding(NativeCodingBase):
 
     async def change_summary(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return await self._change_summary.change_summary(*args, **kwargs)
-
-    async def native_loop(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return await self._session.native_loop(*args, **kwargs)
-
-    async def native_repair_loop(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return await self._session.native_repair_loop(*args, **kwargs)
-
-    async def run_native_step(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return await self._session.run_native_step(*args, **kwargs)
 
 
 if __name__ == '__main__':

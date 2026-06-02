@@ -55,9 +55,6 @@ NATIVE_CODING_TRACE_TOOLS = {
     "change_summary",
     "rollback_run",
     "native_plan",
-    "native_coding_loop",
-    "native_repair_loop",
-    "record_sandbox_result",
     "native_coding_session"
 }
 
@@ -188,16 +185,26 @@ def _session_id_from_payload(payload: dict[str, typing.Any], args: dict[str, typ
 
 def _status_from_payload(payload: dict[str, typing.Any]) -> str:
     """从结果载荷中读取状态文本。"""
-    status = str(
-        payload.get("status")
-        or payload.get("repair_status")
-        or payload.get("next_action") or ""
-    ).strip()
-
-    if status:
-        return status
+    raw = str(payload.get("status") or "").strip().lower()
+    aliases = {
+        "ok": "success",
+        "passed": "success",
+        "completed": "success",
+        "succeeded": "success",
+        "success": "success",
+        "fail": "failed",
+        "failed": "failed",
+        "error": "failed",
+        "blocked": "failed",
+        "cancelled": "cancelled",
+        "canceled": "cancelled",
+        "timeout": "timeout",
+        "timed_out": "timeout",
+    }
+    if raw in aliases:
+        return aliases[raw]
     if payload.get("ok"):
-        return "ok"
+        return "success"
     if payload.get("ok") is False:
         return "failed"
 
@@ -621,17 +628,6 @@ def render_tool_start_trace(
         action = str(args.get("action") or "get").strip() or "get"
         return f"• Updating native plan" if action == "update" else "• Reading native plan"
 
-    if name == "native_coding_loop":
-        return "• Running native coding loop"
-
-    if name == "native_repair_loop":
-        return "• Running native repair loop"
-
-    if name == "record_sandbox_result":
-        command = _command_text(args.get("command"))
-        detail = f" {command}" if command else ""
-        return f"• Recording sandbox result{detail}"
-
     if name == "native_coding_session":
         sid = str(args.get("session_id") or "").strip()
         return f"• Reading native session {sid}".rstrip()
@@ -949,7 +945,8 @@ def render_tool_result_preview(
 
     if name in {"shell_exec", "git_status", "git_diff"}:
 
-        lines     = _normalize_preview_lines(data.get("stdout"))
+        stdout_source = data.get("git_status") if name == "git_status" else data.get("stdout")
+        lines     = _normalize_preview_lines(stdout_source)
         err_lines = _normalize_preview_lines(data.get("stderr"))
 
         if lines and err_lines:
@@ -965,16 +962,13 @@ def render_tool_result_preview(
 
     if name == "change_summary":
         lines = _normalize_preview_lines(
-            data.get("summary") or data.get("diff") or data.get("status")
+            data.get("summary") or data.get("diff") or data.get("git_status")
         )
         return _trace_preview_from_lines(lines)
 
     if name in {
         "rollback_run",
         "native_plan",
-        "native_coding_loop",
-        "native_repair_loop",
-        "record_sandbox_result",
         "native_coding_session"
     }:
         lines  = []
@@ -1163,42 +1157,6 @@ def render_tool_trace(
         detail = f" {sid}" if sid else ""
 
         return f"• {verb} native plan{detail}{suffix}"
-
-    if name == "native_coding_loop":
-
-        sid     = _session_id_from_payload(payload, args)
-        status  = _status_from_payload(payload)
-        details = []
-
-        if sid:
-            details.append(f"session_id={sid}")
-        if status:
-            details.append(f"status={status}")
-        detail = f" ({', '.join(details)})" if details else ""
-
-        return f"• Ran native coding loop{detail}{suffix}"
-
-    if name == "native_repair_loop":
-
-        sid     = _session_id_from_payload(payload, args)
-        status  = _status_from_payload(payload)
-        details = []
-
-        if sid:
-            details.append(f"session_id={sid}")
-        if status:
-            details.append(f"status={status}")
-        detail = f" ({', '.join(details)})" if details else ""
-
-        return f"• Ran native repair loop{detail}{suffix}"
-
-    if name == "record_sandbox_result":
-
-        command = _command_text(payload.get("command") or args.get("command"))
-        rc      = payload.get("exit_code", args.get("exit_code"))
-        status  = f" exit_code={rc}" if rc is not None else ""
-
-        return f"• Recorded sandbox result {command}{status}{suffix}".rstrip()
 
     if name == "native_coding_session":
 

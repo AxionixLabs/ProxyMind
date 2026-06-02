@@ -37,6 +37,62 @@ def _tool_result_data(fields: typing.Union[str, dict[str, typing.Any], typing.An
     return None
 
 
+def _first_native_result_data(fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """从 broadcast 结果中取出第一个原生编码执行数据。"""
+    data = fields.get("data")
+    if not isinstance(data, dict):
+        return {}
+
+    direct = data if any(key in data for key in {"stdout", "stderr", "exit_code"}) else {}
+    results = data.get("results")
+    if isinstance(results, list):
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            item_data = item.get("data")
+            if isinstance(item_data, dict):
+                return item_data
+    return direct
+
+
+def normalize_tool_result_fields(
+    name: str,
+    fields: typing.Union[str, dict[str, typing.Any]]
+) -> typing.Union[str, dict[str, typing.Any]]:
+    """为 synthetic 原生工具调用补充稳定的顶层结果字段。"""
+    if not isinstance(fields, dict):
+        return fields
+
+    payload = _first_native_result_data(fields)
+    if not payload:
+        return fields
+
+    if name == "git_status":
+        stdout = str(payload.get("stdout") or "")
+        return {
+            **fields,
+            "git_status": stdout,
+            "stdout": stdout
+        }
+
+    if name == "shell_exec":
+        normalized = dict(fields)
+        for key in (
+            "exit_code",
+            "stdout",
+            "stderr",
+            "elapsed_ms",
+            "timed_out",
+            "command",
+            "cwd"
+        ):
+            if key in payload:
+                normalized[key] = payload[key]
+        return normalized
+
+    return fields
+
+
 async def run_tool_step(
     session: McpSessionLike,
     *,
@@ -76,6 +132,7 @@ async def run_tool_step(
 
         enhancer = Enhancer(session, mode, model_api, metadata)
         fields = await enhancer.enhance(name, result, ok, stream_ui)
+        fields = normalize_tool_result_fields(name, fields)
     finally:
         await stream_ui.end_status()
 

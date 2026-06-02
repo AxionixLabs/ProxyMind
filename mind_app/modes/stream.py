@@ -206,7 +206,20 @@ async def stream_looper(
                 continue
 
             if event_type == "tool.call":
-                name, arguments = event["name"], event.get("arguments", {})
+                name = str(event.get("name") or event.get("tool") or "").strip()
+                arguments = event.get("arguments", {})
+                if not name:
+                    await request.post_tool_result(
+                        event["cid"],
+                        event["sid"],
+                        event["call_id"],
+                        "",
+                        False,
+                        {"error": "tool.call missing name/tool"},
+                        execution=event.get("execution") if isinstance(event.get("execution"), dict) else None
+                    )
+                    await slog.begin_reply_wait_status()
+                    continue
 
                 event_meta = event.get("meta") if isinstance(event.get("meta"), dict) else None
                 event_execution = event.get("execution") if isinstance(event.get("execution"), dict) else None

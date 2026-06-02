@@ -31,8 +31,19 @@ class CommandPolicy(NativeCodingComponent):
                 execution_target="blocked"
             )
 
-        state   = str(execution.get("state") or "").strip().lower()
-        target  = str(execution.get("target") or "").strip().lower()
+        grant_id = execution.get("grantId") or execution.get("grant_id")
+        if not str(grant_id or "").strip():
+            return CommandPolicy._deny(
+                "execution_grant_id_missing",
+                risk=execution.get("risk") or "blocked",
+                category=execution.get("category") or "execution",
+                reasons=["missing_grant_id"],
+                execution_target="blocked",
+                execution=execution
+            )
+
+        state   = str(execution.get("state") or "approved").strip().lower()
+        target  = str(execution.get("target") or "local").strip().lower()
         timeout = max(1, int(timeout_sec or 60))
 
         if state not in {"allowed", "approved"}:
@@ -96,13 +107,15 @@ class CommandPolicy(NativeCodingComponent):
             timeout_sec=timeout,
             output_limit=CommandPolicy.LONG_TASK_OUTPUT_LIMIT if timeout >= CommandPolicy.LONG_TASK_TIMEOUT_SEC else CommandPolicy.DEFAULT_OUTPUT_LIMIT,
             long_task=timeout >= CommandPolicy.LONG_TASK_TIMEOUT_SEC,
-            grant_id=execution.get("grantId") or execution.get("grant_id"),
+            grant_id=grant_id,
             approval_id=execution.get("approvalId") or execution.get("approval_id"),
             policy_version=execution.get("policyVersion") or execution.get("policy_version")
         )
 
     @staticmethod
-    def _normalize_policy_value(value: typing.Any) -> typing.Any:
+    def _normalize_policy_value(
+        value: typing.Any
+    ) -> typing.Any:
         """把策略比较值归一化为稳定结构，便于参数一致性校验。"""
         if isinstance(value, dict):
             return {
@@ -116,7 +129,9 @@ class CommandPolicy(NativeCodingComponent):
         return str(value)
 
     @staticmethod
-    def _allow(**data: typing.Any) -> dict[str, typing.Any]:
+    def _allow(
+        **data: typing.Any
+    ) -> dict[str, typing.Any]:
         """构造允许执行的策略结果。"""
         payload: dict[str, typing.Any] = {"ok": True, **data}
         payload.setdefault("execution_target", "local")

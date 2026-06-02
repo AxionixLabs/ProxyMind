@@ -36,31 +36,14 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     ShellTimeoutArg,
     ExecutionMetadataArg,
     GitDiffMaxCharsArg,
-    NativeLoopPromptArg,
-    NativeLoopStepsArg,
-    NativeRepairStepsArg,
-    NativeLoopVerifyCommandArg,
-    NativeLoopStopOnFailArg,
-    NativeLoopMaxStepsArg,
-    NativeLoopAutoRepairArg,
-    NativeLoopAutoRollbackArg,
     NativeSessionIdArg,
-    NativeRequiredSessionIdArg,
-    NativeRunIdArg,
     NativePlanActionArg,
     NativePlanTodosArg,
     NativePlanStringsArg,
     NativePlanNoteArg,
     NativePlanModeArg,
-    NativePlanUpdateArg,
-    SandboxExitCodeArg,
-    SandboxOutputArg,
-    SandboxElapsedArg,
-    SandboxTimedOutArg,
-    SandboxProviderArg,
-    SandboxFileChangesArg,
-    SandboxArtifactsArg,
-    SandboxVerifyArg
+    NativeRequiredSessionIdArg,
+    NativeRunIdArg,
 )
 from backend.utilities.runtime import (
     AppContext, Idle
@@ -596,7 +579,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "生成提交前/最终回答前的变更摘要和质量闸。"
-            " 汇总 git status、diff 统计、未跟踪文件、冲突、最近 native session 的 preflight/verify 状态。"
+            " 汇总 git_status、diff 统计、未跟踪文件、冲突、最近 native session 的 preflight/validation 状态。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "git"}
     )
@@ -693,158 +676,6 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
         return await broadcast(
             tool="native_plan",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
-            "执行一次原生编码步骤循环。"
-            " 只允许调用 workspace、shell 和 git 白名单步骤，执行后返回步骤结果、"
-            "验证结果、验证失败诊断、自动读取的错误上下文、repair_prompt、建议读取步骤和 diff。"
-            " 执行前会预检 tool、参数、路径、sha256、patch 和命令风险；"
-            "验证失败诊断可识别 pytest、tsc、jest/vitest、ruff/mypy、go test、cargo test 常见输出；"
-            "auto_repair=true/plan 时会生成 repair_plan，供外层 chat/fast/xtra 继续生成 patch steps 并调用工具执行；"
-            "auto_rollback 可在步骤失败或验证失败后按 run 快照自动恢复文件；"
-            "传入已有 session_id 会追加新的 run，并保留完整修复轨迹。"
-        ),
-        meta={"hidden": False, "domain": "coding", "class": "session"}
-    )
-    @task_middleware("native_coding_loop")
-    async def native_coding_loop(
-        prompt: NativeLoopPromptArg,
-        steps: NativeLoopStepsArg = None,
-        verify_command: NativeLoopVerifyCommandArg = None,
-        stop_on_fail: NativeLoopStopOnFailArg = True,
-        max_steps: NativeLoopMaxStepsArg = 20,
-        session_id: NativeSessionIdArg = None,
-        plan_update: NativePlanUpdateArg = None,
-        auto_repair: NativeLoopAutoRepairArg = False,
-        auto_rollback: NativeLoopAutoRollbackArg = False
-    ) -> CallToolResult:
-
-        args = {
-            "prompt"         : prompt,
-            "steps"          : steps,
-            "verify_command" : verify_command,
-            "stop_on_fail"   : stop_on_fail,
-            "max_steps"      : max_steps,
-            "session_id"     : session_id,
-            "plan_update"    : plan_update,
-            "auto_repair"    : auto_repair,
-            "auto_rollback"  : auto_rollback
-        }
-
-        async def call(*_) -> dict:
-            job_id = await idle.job_begin("native_coding.loop", args=args)
-            try:
-                return await ctx.native_coding.native_loop(**args)
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="native_coding_loop",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
-            "执行一次原生修复闭环。"
-            " 输入外层模型生成的 repair steps，先校验修复步骤白名单，"
-            "再执行 read/patch 步骤，并把最后一个 shell_exec 作为验证命令运行；"
-            "验证失败时继续生成 diagnostics/repair_plan，可按 run 快照自动回滚。"
-        ),
-        meta={"hidden": False, "domain": "coding", "class": "session"}
-    )
-    @task_middleware("native_repair_loop")
-    async def native_repair_loop(
-        session_id: NativeRequiredSessionIdArg,
-        steps: NativeRepairStepsArg,
-        source_run_id: NativeRunIdArg = None,
-        stop_on_fail: NativeLoopStopOnFailArg = True,
-        max_steps: NativeLoopMaxStepsArg = 20,
-        auto_repair: NativeLoopAutoRepairArg = False,
-        auto_rollback: NativeLoopAutoRollbackArg = "verify_failed"
-    ) -> CallToolResult:
-
-        args = {
-            "session_id"     : session_id,
-            "steps"          : steps,
-            "source_run_id"  : source_run_id,
-            "stop_on_fail"   : stop_on_fail,
-            "max_steps"      : max_steps,
-            "auto_repair"    : auto_repair,
-            "auto_rollback"  : auto_rollback
-        }
-
-        async def call(*_) -> dict:
-            job_id = await idle.job_begin("native_coding.repair_loop", args=args)
-            try:
-                return await ctx.native_coding.native_repair_loop(**args)
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="native_repair_loop",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
-            "把外层云端沙箱的命令执行结果回填到原生编码会话。"
-            " verify=true 时会作为验证结果触发诊断和修复计划，便于继续修复闭环。"
-        ),
-        meta={"hidden": False, "domain": "coding", "class": "session"}
-    )
-    @task_middleware("record_sandbox_result")
-    async def record_sandbox_result(
-        session_id: NativeRequiredSessionIdArg,
-        command: ShellCommandArg,
-        cwd: ShellCwdArg = ".",
-        exit_code: SandboxExitCodeArg = 0,
-        stdout: SandboxOutputArg = "",
-        stderr: SandboxOutputArg = "",
-        elapsed_ms: SandboxElapsedArg = None,
-        timed_out: SandboxTimedOutArg = False,
-        sandbox_provider: SandboxProviderArg = "cloud_sandbox",
-        file_changes: SandboxFileChangesArg = None,
-        artifacts: SandboxArtifactsArg = None,
-        verify: SandboxVerifyArg = False,
-        auto_repair: NativeLoopAutoRepairArg = False,
-        run_id: NativeRunIdArg = None
-    ) -> CallToolResult:
-        """回填云端沙箱执行结果到原生编码会话。"""
-
-        args = {
-            "session_id"       : session_id,
-            "command"          : command,
-            "cwd"              : cwd,
-            "exit_code"        : exit_code,
-            "stdout"           : stdout,
-            "stderr"           : stderr,
-            "elapsed_ms"       : elapsed_ms,
-            "timed_out"        : timed_out,
-            "sandbox_provider" : sandbox_provider,
-            "file_changes"     : file_changes,
-            "artifacts"        : artifacts,
-            "verify"           : verify,
-            "auto_repair"      : auto_repair,
-            "run_id"           : run_id
-        }
-
-        async def call(*_) -> dict:
-            return ctx.native_coding.record_sandbox_result(**args)
-
-        return await broadcast(
-            tool="record_sandbox_result",
             args=args,
             target_list=[ctx.native_coding],
             call=call,

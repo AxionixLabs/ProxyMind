@@ -7,6 +7,7 @@ from backend.mcp_core.coding_native.base import NativeCodingComponent
 
 
 class PlanTools(NativeCodingComponent):
+    """维护原生编码会话中的计划数据。"""
 
     def update_plan(
         self,
@@ -20,7 +21,7 @@ class PlanTools(NativeCodingComponent):
     ) -> dict[str, typing.Any]:
         session = self.sessions.get(str(session_id or "")) if session_id else self._latest_session()
         if not isinstance(session, dict):
-            return self._fail("session_not_found", session_id=session_id)
+            session = self._begin_session(session_id=session_id)
         plan = session.setdefault("plan", self._empty_plan())
         mode_value = str(mode or "merge").strip().lower()
         if mode_value not in {"merge", "replace"}:
@@ -51,10 +52,13 @@ class PlanTools(NativeCodingComponent):
             plan=plan
         )
 
-    def get_plan(self, session_id: str | None = None) -> dict[str, typing.Any]:
+    def get_plan(
+        self,
+        session_id: str | None = None
+    ) -> dict[str, typing.Any]:
         session = self.sessions.get(str(session_id or "")) if session_id else self._latest_session()
         if not isinstance(session, dict):
-            return self._fail("session_not_found", session_id=session_id)
+            session = self._begin_session(session_id=session_id)
         plan = session.setdefault("plan", self._empty_plan())
         plan["summary"] = self._plan_summary(plan)
         return self._ok(
@@ -65,6 +69,7 @@ class PlanTools(NativeCodingComponent):
 
     @staticmethod
     def _empty_plan() -> dict[str, typing.Any]:
+        """创建空计划结构。"""
         return {
             "todos"       : [],
             "assumptions" : [],
@@ -87,6 +92,7 @@ class PlanTools(NativeCodingComponent):
         *,
         replace: bool
     ) -> list[dict[str, typing.Any]]:
+        """合并 TODO 项并规整状态字段。"""
         items = [] if replace else [dict(item) for item in current if isinstance(item, dict)]
         by_id = {str(item.get("id") or item.get("title") or ""): item for item in items}
         for raw in incoming or []:
@@ -122,8 +128,11 @@ class PlanTools(NativeCodingComponent):
         return items
 
     @staticmethod
-
-    def _merge_strings(current: list[str], incoming: list[str]) -> list[str]:
+    def _merge_strings(
+        current: list[str],
+        incoming: list[str]
+    ) -> list[str]:
+        """合并字符串列表并去除空项和重复项。"""
         items = [str(item) for item in (current or []) if str(item).strip()]
         for raw in incoming or []:
             value = str(raw or "").strip()
@@ -132,8 +141,10 @@ class PlanTools(NativeCodingComponent):
         return items
 
     @staticmethod
-
-    def _plan_summary(plan: dict[str, typing.Any]) -> dict[str, int]:
+    def _plan_summary(
+        plan: dict[str, typing.Any]
+    ) -> dict[str, int]:
+        """统计计划中各状态 TODO 的数量。"""
         todos = [item for item in (plan.get("todos") or []) if isinstance(item, dict)]
         return {
             "total"       : len(todos),

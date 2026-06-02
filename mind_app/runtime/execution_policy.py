@@ -14,25 +14,29 @@ def validate_execution_policy(
     arguments: dict[str, typing.Any],
     execution: dict[str, typing.Any] | None
 ) -> dict[str, typing.Any] | None:
-    """Validate execution metadata before dispatching a local tool call."""
+    """在分发本地工具调用前校验执行元数据。"""
     if not isinstance(execution, dict) or not execution:
         return None
 
     state  = str(execution.get("state") or "").strip().lower()
     target = str(execution.get("target") or "").strip().lower()
 
-    if state not in EXECUTION_ALLOWED_STATES:
-        return _reject(f"execution state not executable: {state or 'missing'}")
-    if target not in EXECUTION_TARGETS:
-        return _reject(f"execution target invalid: {target or 'missing'}")
+    canonical = execution.get("canonicalArguments") or execution.get("canonical_arguments")
+    if isinstance(canonical, dict) and _normalize_value(arguments) != _normalize_value(canonical):
+        return _reject("execution canonical arguments mismatch")
+
+    grant_id = execution.get("grantId") or execution.get("grant_id")
+    if not str(grant_id or "").strip():
+        return _reject("execution grantId missing")
+
+    if state and state not in EXECUTION_ALLOWED_STATES:
+        return _reject(f"execution state not executable: {state}")
+    if target and target not in EXECUTION_TARGETS:
+        return _reject(f"execution target invalid: {target}")
     if target == "blocked":
         return _reject("execution target blocked")
     if target == "cloud_sandbox" and name not in SUPPORTED_CLOUD_EXECUTION_TOOLS:
         return _reject(f"cloud sandbox execution unsupported for tool: {name}")
-
-    canonical = execution.get("canonicalArguments") or execution.get("canonical_arguments")
-    if isinstance(canonical, dict) and _normalize_value(arguments) != _normalize_value(canonical):
-        return _reject("execution canonical arguments mismatch")
 
     return None
 

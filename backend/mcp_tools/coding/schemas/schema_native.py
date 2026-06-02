@@ -137,38 +137,6 @@ GitDiffMaxCharsArg = typing.Annotated[
     Field(description="git diff 最多返回的字符数。"),
 ]
 
-NativeLoopPromptArg = typing.Annotated[
-    str,
-    Field(description="原生编码循环的任务描述。"),
-]
-NativeLoopStepsArg = typing.Annotated[
-    typing.Optional[list[dict[str, typing.Any]]],
-    Field(description="原生编码循环要顺序执行的步骤列表。每项包含 `tool` 和 `args`；执行前会进行预检。"),
-]
-NativeRepairStepsArg = typing.Annotated[
-    list[dict[str, typing.Any]],
-    Field(description="模型生成的修复步骤列表；必须包含至少一个 patch 步骤和一个 shell_exec 验证步骤。"),
-]
-NativeLoopVerifyCommandArg = typing.Annotated[
-    typing.Optional[list[str]],
-    Field(description="可选验证命令，以参数数组表达；失败时会返回 verify_diagnostics、自动读取的错误上下文、repair_prompt 和建议读取步骤，覆盖 pytest、tsc、jest/vitest、ruff/mypy、go test、cargo test 常见输出。"),
-]
-NativeLoopStopOnFailArg = typing.Annotated[
-    bool,
-    Field(description="步骤失败时是否立即停止后续步骤。"),
-]
-NativeLoopMaxStepsArg = typing.Annotated[
-    int,
-    Field(description="本次原生编码循环最多执行的步骤数。"),
-]
-NativeLoopAutoRepairArg = typing.Annotated[
-    typing.Union[bool, str],
-    Field(description="验证失败后是否生成 repair_plan：false/off 不启用，true/plan 生成模型可消费的修复计划。模型调用由 Mind 外层 chat/fast/xtra 继续完成。"),
-]
-NativeLoopAutoRollbackArg = typing.Annotated[
-    typing.Union[bool, str],
-    Field(description="失败后是否自动按本 run 快照回滚：false/off 不启用，true/always 任意失败回滚，step_failed 仅步骤失败回滚，verify_failed 仅验证失败回滚。"),
-]
 NativeSessionIdArg = typing.Annotated[
     typing.Optional[str],
     Field(description="原生编码会话 ID；为空时创建新会话，传入已有 ID 时追加新 run 并保留修复轨迹。"),
@@ -201,43 +169,5 @@ NativePlanModeArg = typing.Annotated[
     str,
     Field(description="计划更新模式：merge 或 replace。"),
 ]
-NativePlanUpdateArg = typing.Annotated[
-    typing.Optional[dict[str, typing.Any]],
-    Field(description="native_coding_loop 可选计划更新，支持 todos/assumptions/next_steps/note/mode。"),
-]
-SandboxExitCodeArg = typing.Annotated[
-    int,
-    Field(description="云端沙箱命令退出码。"),
-]
-SandboxOutputArg = typing.Annotated[
-    str,
-    Field(description="云端沙箱返回的 stdout 或 stderr 文本。"),
-]
-SandboxElapsedArg = typing.Annotated[
-    typing.Optional[int],
-    Field(description="云端沙箱执行耗时，单位毫秒。"),
-]
-SandboxTimedOutArg = typing.Annotated[
-    bool,
-    Field(description="云端沙箱命令是否超时。"),
-]
-SandboxProviderArg = typing.Annotated[
-    str,
-    Field(description="云端沙箱提供方名称。"),
-]
-SandboxFileChangesArg = typing.Annotated[
-    typing.Optional[dict[str, typing.Any]],
-    Field(description="云端沙箱观察到的文件变更摘要，可为空。"),
-]
-SandboxArtifactsArg = typing.Annotated[
-    typing.Optional[dict[str, typing.Any]],
-    Field(description="云端沙箱回传的文件产物，可包含 files 列表；每项包含 path、action(create/modify/delete)、content、sha256、bytes。"),
-]
-SandboxVerifyArg = typing.Annotated[
-    bool,
-    Field(description="是否将该沙箱结果作为验证结果写回会话，并触发诊断和修复计划。"),
-]
-
-
 if __name__ == '__main__':
     pass

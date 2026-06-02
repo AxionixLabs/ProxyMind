@@ -7,6 +7,13 @@ from backend.mcp_core.coding_native.base import NativeCodingComponent
 
 class ChangeSummaryTools(NativeCodingComponent):
 
+    def _latest_session(
+        self
+    ) -> dict[str, typing.Any] | None:
+        if not self.sessions:
+            return None
+        return list(self.sessions.values())[-1]
+
     async def change_summary(
         self,
         *,
@@ -57,19 +64,19 @@ class ChangeSummaryTools(NativeCodingComponent):
 
         if isinstance(latest_run, dict):
             preflight = latest_run.get("preflight") or {}
-            verify    = latest_run.get("verify")
+            validation = latest_run.get("validation")
 
             if preflight and not bool(preflight.get("ok")):
                 blockers.append({
                     "kind"   : "preflight_failed",
                     "run_id" : latest_run.get("run_id")
                 })
-            if verify and not bool(verify.get("ok")):
+            if validation and not bool(validation.get("ok")):
                 blockers.append({
                     "kind"   : "verification_failed",
                     "run_id" : latest_run.get("run_id")
                 })
-            if verify is None:
+            if validation is None:
                 warnings.append({
                     "kind"   : "verification_missing",
                     "run_id" : latest_run.get("run_id")
@@ -82,6 +89,7 @@ class ChangeSummaryTools(NativeCodingComponent):
             })
 
         ready = not blockers
+
         return self._ok(
             f"change summary ready={ready} files={len(changed_files)} blockers={len(blockers)} warnings={len(warnings)}",
             ready=ready,
@@ -90,28 +98,26 @@ class ChangeSummaryTools(NativeCodingComponent):
             changed_files=changed_files,
             file_count=len(changed_files),
             diff_stats=diff_stats,
-            status=status_text,
+            git_status=status_text,
+            stdout=status_text,
             diff=diff_text,
             session_id=session.get("session_id") if isinstance(session, dict) else None,
             latest_run={
-                "run_id"       : latest_run.get("run_id"),
-                "run_index"    : latest_run.get("run_index"),
-                "ok"           : latest_run.get("ok"),
-                "verify_ok"    : bool((latest_run.get("verify") or {}).get("ok")) if latest_run.get("verify") else None,
-                "preflight_ok" : bool((latest_run.get("preflight") or {}).get("ok")) if latest_run.get("preflight") else None
+                "run_id"        : latest_run.get("run_id"),
+                "run_index"     : latest_run.get("run_index"),
+                "ok"            : latest_run.get("ok"),
+                "validation_ok" : bool((latest_run.get("validation") or {}).get("ok")) if latest_run.get("validation") else None,
+                "preflight_ok"  : bool((latest_run.get("preflight") or {}).get("ok")) if latest_run.get("preflight") else None
             } if isinstance(latest_run, dict) else None,
             session_summary=session_summary
         )
 
-    def _latest_session(self) -> dict[str, typing.Any] | None:
-        if not self.sessions:
-            return None
-        return list(self.sessions.values())[-1]
-
     @staticmethod
     def _parse_git_status_short(status: str) -> list[dict[str, typing.Any]]:
         files: list[dict[str, typing.Any]] = []
+
         conflict_pairs = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
+
         for raw in str(status or "").splitlines():
             if not raw:
                 continue

@@ -124,28 +124,6 @@ class NativeCodingBase(object):
         "`"
     }
 
-    LOOP_TOOLS = {
-        "workspace_root",
-        "workspace_list_files",
-        "workspace_read_file",
-        "workspace_search_text",
-        "repo_map",
-        "repo_find_symbol",
-        "workspace_write_file",
-        "workspace_copy_file",
-        "workspace_move_file",
-        "workspace_delete_file",
-        "workspace_apply_patch",
-        "workspace_apply_unified_patch",
-        "shell_exec",
-        "git_status",
-        "git_diff",
-        "change_summary",
-        "rollback_run",
-        "native_plan",
-        "record_sandbox_result"
-    }
-
     def __init__(self, root: str | None = None):
         self.root = Path(root or os.getcwd()).resolve()
 
@@ -187,13 +165,16 @@ class NativeCodingBase(object):
                     yield item
 
     def _resolve(self, path: str | None = None) -> Path:
-        raw = str(path or ".").strip() or "."
+        raw       = str(path or ".").strip() or "."
         candidate = Path(raw)
+
         if not candidate.is_absolute():
             candidate = self.root / candidate
+
         resolved = candidate.resolve()
         if resolved != self.root and self.root not in resolved.parents:
             raise ValueError(f"path outside workspace: {raw}")
+
         return resolved
 
     def _looks_text(self, path: Path) -> bool:
