@@ -163,12 +163,11 @@ class StreamUI(object):
         *,
         delay_sec: float = 0.28
     ) -> None:
-        self.coordinator.hold_status_slot()
         await self._schedule_status_task(
             self._delayed_status_flow(
                 text,
                 show_delay_sec=delay_sec,
-                animate_after_sec=0.72,
+                animate_after_sec=delay_sec,
                 family="wait",
             )
         )

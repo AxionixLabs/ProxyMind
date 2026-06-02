@@ -138,7 +138,7 @@ async def stream_looper(
                 tracker.on_text_done(event)
                 await slog.settle_stream()
                 slog.mark_stream_boundary()
-                await slog.begin_reply_wait_status(delay_sec=0.45)
+                await slog.begin_reply_wait_status(delay_sec=0.0)
                 continue
 
             if event_type == "text.meta":

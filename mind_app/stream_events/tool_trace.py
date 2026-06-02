@@ -266,6 +266,46 @@ def _summary_lines(*items: tuple[str, typing.Any]) -> list[str]:
     return lines
 
 
+def _diagnostic_sequence_lines(label: str, value: typing.Any) -> list[str]:
+    """把失败诊断中的 expected/actual 序列压缩成单行显示。"""
+    if isinstance(value, list):
+        text = " | ".join(str(item) for item in value[:3])
+        if len(value) > 3:
+            text = f"{text} | ..."
+    else:
+        text = str(value or "")
+    text = _short_line(text, 100)
+    return [f"{label}: {text}"] if text else []
+
+
+def _patch_failure_diagnostic_lines(data: dict[str, typing.Any]) -> list[str]:
+    """生成 patch 失败时优先展示的诊断摘要。"""
+    lines = _summary_lines(
+        ("reason", data.get("reason")),
+        ("file", data.get("path")),
+        ("hunk", data.get("hunk_header") or data.get("header")),
+        ("line", data.get("target_line") or data.get("line")),
+        ("hint", data.get("patch_format_hint")),
+        ("next", data.get("suggested_next_action")),
+    )
+    lines.extend(_diagnostic_sequence_lines("expected", data.get("expected_sequence") or data.get("expected")))
+    lines.extend(_diagnostic_sequence_lines("actual", data.get("actual_sequence") or data.get("actual")))
+
+    nearby = data.get("nearby")
+    if isinstance(nearby, list) and nearby:
+        sample = []
+        for item in nearby[:3]:
+            if not isinstance(item, dict):
+                continue
+            line = item.get("line")
+            text = _short_line(item.get("text"), 80)
+            sample.append(f"{line}: {text}" if line is not None else text)
+        if sample:
+            lines.append(f"nearby: {' | '.join(sample)}")
+
+    return lines
+
+
 def _numbered_added_lines(content: typing.Any, *, start_line: int = 1) -> list[str]:
     """把新增内容格式化为带行号的预览行。"""
     lines = _normalize_preview_lines(content)
@@ -490,6 +530,7 @@ def render_tool_result_preview(
     args = arguments if isinstance(arguments, dict) else {}
     if not data:
         return TracePreview()
+    failed = data.get("ok") is False
 
     if name == "workspace_root":
         root = str(data.get("root") or "").strip()
@@ -662,6 +703,11 @@ def render_tool_result_preview(
 
     if name == "workspace_apply_unified_patch":
         preview_lines = _unified_patch_preview_lines(args.get("patch"))
+        if failed:
+            prefix = _patch_failure_diagnostic_lines(data)
+            if preview_lines:
+                return _trace_code_preview_from_lines([*prefix, *preview_lines])
+            return _trace_preview_from_lines(prefix)
         if preview_lines:
             return _trace_code_preview_from_lines(preview_lines)
         files = data.get("files")
@@ -830,6 +876,8 @@ def render_tool_trace(
         return f"• Edited {path}{_format_delta(added, removed)}{suffix}"
 
     if name == "workspace_apply_unified_patch":
+        if not ok:
+            return "• Patch failed"
         files = payload.get("files")
         if isinstance(files, list) and len(files) == 1 and isinstance(files[0], dict):
             target = str(files[0].get("path") or "patch")

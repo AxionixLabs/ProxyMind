@@ -6,6 +6,7 @@ import re
 import time
 import typing
 from pathlib import Path
+from loguru import logger
 from backend.mcp_core.native_coding.base import NativeCodingComponent
 from backend.utilities import const
 
@@ -36,18 +37,29 @@ class PatchEngine(NativeCodingComponent):
         expected = max(1, int(expected_replacements or 1))
 
         if count != expected:
+            data = {
+                "path"                  : self._rel(target),
+                "found"                 : count,
+                "expected"              : expected,
+                "old_text_preview"      : self._diagnostic_preview(old_text, limit=600),
+                "current_preview"       : self._diagnostic_preview(current, limit=1200),
+                "suggested_next_action" : "refresh_file_snapshot_or_use_write_file"
+            }
+            self._log_patch_failure(
+                "workspace_apply_patch", "replacement_count_mismatch", data
+            )
             return self._fail(
                 "replacement_count_mismatch",
-                path=self._rel(target),
-                found=count,
-                expected=expected
+                **data
             )
 
         updated = current.replace(old_text, new_text, expected)
         size    = len(updated.encode(const.CHARSET, const.IGNORE))
 
         if size > self.max_write_bytes:
-            return self._fail("content_too_large", size=size, max_bytes=self.max_write_bytes)
+            return self._fail(
+                "content_too_large", size=size, max_bytes=self.max_write_bytes
+            )
 
         target.write_text(updated, encoding=const.CHARSET, newline="")
 
@@ -73,6 +85,14 @@ class PatchEngine(NativeCodingComponent):
         if not planned_result.get("ok"):
             data = dict(planned_result.get("data") or {})
             data.pop("reason", None)
+            data = self._with_unified_patch_diagnostics(
+                reason=str(planned_result["reason"]),
+                data=data,
+                patch=patch
+            )
+            self._log_patch_failure(
+                "workspace_apply_unified_patch", str(planned_result["reason"]), data
+            )
             return self._fail(planned_result["reason"], **data)
         planned = planned_result["planned"]
 
@@ -109,6 +129,7 @@ class PatchEngine(NativeCodingComponent):
                     "action"          : item["action"],
                     "hunks"           : item["hunks"],
                     "relocated_hunks" : item["relocated_hunks"],
+                    "corrected_hunks" : item["corrected_hunks"],
                     "sha256"          : item["sha256"],
                     "sha256_before"   : item["sha256_before"],
                     "sha256_after"    : item["sha256_after"],
@@ -127,7 +148,8 @@ class PatchEngine(NativeCodingComponent):
             added_lines=sum(item["added_lines"] for item in planned),
             removed_lines=sum(item["removed_lines"] for item in planned),
             replacements=sum(item["replacements"] for item in planned),
-            relocated_hunk_count=sum(len(item["relocated_hunks"]) for item in planned)
+            relocated_hunk_count=sum(len(item["relocated_hunks"]) for item in planned),
+            corrected_hunk_count=sum(len(item["corrected_hunks"]) for item in planned)
         )
 
     def _conflict_guard(
@@ -187,7 +209,10 @@ class PatchEngine(NativeCodingComponent):
                 return {
                     "ok"     : False,
                     "reason" : "unified_patch_duplicate_file",
-                    "data"   : {"path": rel}
+                    "data"   : {
+                        "path": rel,
+                        "suggested_next_action": "merge_changes_into_single_file_diff"
+                    }
                 }
             seen_paths.add(rel)
 
@@ -201,13 +226,19 @@ class PatchEngine(NativeCodingComponent):
                 return {
                     "ok"     : False,
                     "reason" : "file_already_exists",
-                    "data"   : {"path": path}
+                    "data"   : {
+                        "path": path,
+                        "suggested_next_action": "use_modify_patch_or_choose_new_path"
+                    }
                 }
             if action in {"modify", "delete"} and not exists:
                 return {
                     "ok"     : False,
                     "reason" : "file_not_found",
-                    "data"   : {"path": path}
+                    "data"   : {
+                        "path": path,
+                        "suggested_next_action": "list_or_read_workspace_then_regenerate_patch"
+                    }
                 }
             if action in {"modify", "delete"}:
                 expected = expected_map.get(path) or expected_map.get(rel)
@@ -216,12 +247,13 @@ class PatchEngine(NativeCodingComponent):
                     current_sha256 = self._sha256(current.encode(const.CHARSET, const.IGNORE))
                     if expected and not force and expected != current_sha256:
                         return {
-                            "ok": False,
-                            "reason": "file_changed_since_read",
-                            "data": {
-                                "path": rel,
-                                "expected_sha256": expected,
-                                "current_sha256": current_sha256
+                            "ok"     : False,
+                            "reason" : "file_changed_since_read",
+                            "data"   : {
+                                "path"                  : rel,
+                                "expected_sha256"       : expected,
+                                "current_sha256"        : current_sha256,
+                                "suggested_next_action" : "refresh_file_snapshot_and_retry_with_current_sha256"
                             }
                         }
                 else:
@@ -241,10 +273,12 @@ class PatchEngine(NativeCodingComponent):
             )
             applied = self._apply_unified_hunks(current, item["hunks"])
             if not applied.get("ok"):
+                reason = str(applied["reason"])
                 data = {"path": path, **(applied.get("data") or {})}
+                data = self._with_unified_patch_diagnostics(reason=reason, data=data, patch=patch)
                 return {
                     "ok"     : False,
-                    "reason" : applied["reason"],
+                    "reason" : reason,
                     "data"   : data
                 }
             content = str(applied["content"])
@@ -252,16 +286,25 @@ class PatchEngine(NativeCodingComponent):
                 return {
                     "ok"     : False,
                     "reason" : "unified_patch_delete_leaves_content",
-                    "data"   : {"path": path}
+                    "data"   : {
+                        "path": path,
+                        "suggested_next_action": "regenerate_delete_patch_with_all_original_lines"
+                    }
                 }
             size = len(content.encode(const.CHARSET, const.IGNORE))
             if size > self.max_write_bytes:
                 return {
                     "ok"     : False,
                     "reason" : "content_too_large",
-                    "data"   : {"path": path, "size": size, "max_bytes": self.max_write_bytes}
+                    "data"   : {
+                        "path": path,
+                        "size": size,
+                        "max_bytes": self.max_write_bytes,
+                        "suggested_next_action": "split_change_or_reduce_generated_content"
+                    }
                 }
             line_stats = self._unified_patch_line_stats(item["hunks"])
+            corrected_hunks = self._unified_patch_count_corrections(item["hunks"])
             sha256_content = self._sha256(content.encode(const.CHARSET, const.IGNORE))
             planned.append({
                 "path"            : path,
@@ -270,6 +313,7 @@ class PatchEngine(NativeCodingComponent):
                 "content"         : content,
                 "hunks"           : len(item["hunks"]),
                 "relocated_hunks" : list(applied.get("relocated_hunks") or []),
+                "corrected_hunks" : corrected_hunks,
                 "sha256"          : sha256_content,
                 "sha256_before"   : sha256_before,
                 "sha256_after"    : None if action == "delete" else sha256_content,
@@ -368,25 +412,17 @@ class PatchEngine(NativeCodingComponent):
                     })
                     i += 1
 
-                if old_seen != old_count or new_seen != new_count:
-                    return {
-                        "ok": False,
-                        "reason": "unified_patch_hunk_count_mismatch",
-                        "data": {
-                            "header"       : header,
-                            "old_expected" : old_count,
-                            "old_found"    : old_seen,
-                            "new_expected" : new_count,
-                            "new_found"    : new_seen
-                        }
-                    }
+                count_corrected = old_seen != old_count or new_seen != new_count
                 hunks.append({
-                    "header"    : header,
-                    "old_start" : old_start,
-                    "new_start" : new_start,
-                    "old_count" : old_count,
-                    "new_count" : new_count,
-                    "lines"     : body
+                    "header"             : header,
+                    "old_start"          : old_start,
+                    "new_start"          : new_start,
+                    "old_count"          : old_seen,
+                    "new_count"          : new_seen,
+                    "declared_old_count" : old_count,
+                    "declared_new_count" : new_count,
+                    "count_corrected"    : count_corrected,
+                    "lines"              : body
                 })
 
             if not hunks:
@@ -463,6 +499,12 @@ class PatchEngine(NativeCodingComponent):
                         "hunk": hunk_index,
                         "hunk_header": hunk.get("header"),
                         "target_line": target_index + 1,
+                        "patch_format_hint": self._unified_patch_hint(
+                            str(located.get("reason") or "unified_patch_context_mismatch")
+                        ),
+                        "suggested_next_action": self._unified_patch_next_action(
+                            str(located.get("reason") or "unified_patch_context_mismatch")
+                        ),
                         "expected_sequence": [
                             self._strip_line_ending(item) for item in old_sequence[:12]
                         ],
@@ -502,7 +544,9 @@ class PatchEngine(NativeCodingComponent):
                                 "line": body_index,
                                 "target_line": cursor + 1,
                                 "expected": text,
-                                "nearby": self._nearby_lines(original, cursor)
+                                "nearby": self._nearby_lines(original, cursor),
+                                "patch_format_hint": self._unified_patch_hint("unified_patch_context_out_of_range"),
+                                "suggested_next_action": self._unified_patch_next_action("unified_patch_context_out_of_range")
                             }
                         }
                     current_line = original[cursor]
@@ -519,7 +563,9 @@ class PatchEngine(NativeCodingComponent):
                                 "actual": self._strip_line_ending(current_line),
                                 "expected_sequence": [self._strip_line_ending(expected_line)],
                                 "actual_sequence": [self._strip_line_ending(current_line)],
-                                "nearby": self._nearby_lines(original, cursor)
+                                "nearby": self._nearby_lines(original, cursor),
+                                "patch_format_hint": self._unified_patch_hint("unified_patch_context_mismatch"),
+                                "suggested_next_action": self._unified_patch_next_action("unified_patch_context_mismatch")
                             }
                         }
                     cursor += 1
@@ -600,6 +646,77 @@ class PatchEngine(NativeCodingComponent):
             }
         return {"ok": True, "index": candidates[0]}
 
+    def _with_unified_patch_diagnostics(
+        self,
+        *,
+        reason: str,
+        data: dict[str, typing.Any],
+        patch: str
+    ) -> dict[str, typing.Any]:
+        enriched = dict(data)
+        enriched.setdefault("patch_format_hint", self._unified_patch_hint(reason))
+        enriched.setdefault("suggested_next_action", self._unified_patch_next_action(reason))
+        enriched.setdefault("patch_preview", self._diagnostic_preview(patch, limit=1600))
+        return enriched
+
+    @staticmethod
+    def _diagnostic_preview(value: typing.Any, *, limit: int) -> str:
+        text = str(value or "")
+        if len(text) <= limit:
+            return text
+        return f"{text[:limit]}\n...[truncated {len(text) - limit} chars]"
+
+    @staticmethod
+    def _unified_patch_hint(reason: str) -> str:
+        if reason == "unified_patch_no_files":
+            return "patch must include --- and +++ file headers"
+        if reason == "unified_patch_missing_new_header":
+            return "each --- file header must be followed by a +++ file header"
+        if reason == "unified_patch_bad_hunk_header":
+            return "hunk header must look like @@ -old,count +new,count @@"
+        if reason == "unified_patch_no_hunks":
+            return "each file diff must include at least one @@ hunk"
+        if reason == "unified_patch_bad_line":
+            return "hunk body lines must start with exactly one of: space, +, -"
+        if reason == "unified_patch_context_mismatch":
+            return "patch context does not match the current file; read the file again and regenerate"
+        if reason == "unified_patch_context_ambiguous":
+            return "patch context matches multiple places; add more unique context lines"
+        if reason == "unified_patch_context_out_of_range":
+            return "hunk target is outside the current file; read the file again and regenerate"
+        if reason == "file_changed_since_read":
+            return "file sha256 changed; read the file again and retry with the current sha256"
+
+        return "inspect failure data and regenerate the smallest valid patch"
+
+    @staticmethod
+    def _unified_patch_next_action(reason: str) -> str:
+        if reason in {
+            "unified_patch_no_files",
+            "unified_patch_missing_new_header",
+            "unified_patch_bad_hunk_header",
+            "unified_patch_no_hunks",
+            "unified_patch_bad_line"
+        }:
+            return "regenerate_strict_unified_diff"
+        if reason.startswith("unified_patch_context_"):
+            return "read_current_context_and_regenerate_patch"
+        if reason == "file_changed_since_read":
+            return "refresh_file_snapshot_and_retry"
+        if reason == "file_not_found":
+            return "locate_file_before_editing"
+
+        return "inspect_failure_and_retry"
+
+    @staticmethod
+    def _log_patch_failure(tool: str, reason: str, data: dict[str, typing.Any]) -> None:
+        logger.warning(
+            "[PatchEngine] {} failed reason={} data={}",
+            tool,
+            reason,
+            data
+        )
+
     @staticmethod
     def _clean_diff_path(path: str) -> str:
         raw = str(path or "").split("\t", 1)[0].strip()
@@ -678,12 +795,29 @@ class PatchEngine(NativeCodingComponent):
         }
 
     @staticmethod
+    def _unified_patch_count_corrections(hunks: list[dict[str, typing.Any]]) -> list[dict[str, typing.Any]]:
+        corrections: list[dict[str, typing.Any]] = []
+        for index, hunk in enumerate(hunks, start=1):
+            if not bool(hunk.get("count_corrected")):
+                continue
+            corrections.append({
+                "hunk"               : index,
+                "header"             : hunk.get("header"),
+                "declared_old_count" : hunk.get("declared_old_count"),
+                "declared_new_count" : hunk.get("declared_new_count"),
+                "actual_old_count"   : hunk.get("old_count"),
+                "actual_new_count"   : hunk.get("new_count")
+            })
+        return corrections
+
+    @staticmethod
     def _public_unified_patch_file(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
         return {
             "path"            : item.get("path"),
             "action"          : item.get("action"),
             "hunks"           : item.get("hunks"),
             "relocated_hunks" : list(item.get("relocated_hunks") or []),
+            "corrected_hunks" : list(item.get("corrected_hunks") or []),
             "sha256_before"   : item.get("sha256_before"),
             "sha256_after"    : item.get("sha256_after"),
             "added_lines"     : item.get("added_lines"),

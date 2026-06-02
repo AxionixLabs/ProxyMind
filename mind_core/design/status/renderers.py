@@ -485,9 +485,13 @@ class StatusRenderer(StatusSpec):
             "pulse" : "bold #83DAB2",
             "dim"   : "bold #34594F"
         }
-        breathe = 0.5 + (0.5 * math.sin(phase * 0.42))
-        left    = "." if breathe > 0.74 else " "
-        right   = "." if breathe < 0.26 else " "
+
+        breathe    = 0.5 + (0.5 * math.sin(phase * 0.42))
+        left       = "." if breathe > 0.74 else " "
+        right      = "." if breathe < 0.26 else " "
+        echo_left  = "." if breathe > 0.91 else " "
+        echo_right = "." if breathe < 0.09 else " "
+
         core = cls._status_core_char(
             breathe,
             super_peak="#",
@@ -503,11 +507,13 @@ class StatusRenderer(StatusSpec):
 
         out = Text()
         out.append("[", style=colors["edge"])
+        out.append(echo_left, style=colors["dim"] if echo_left.strip() else colors["edge"])
         out.append(left, style=colors["dim"] if left.strip() else colors["edge"])
         out.append("{", style=colors["rail"])
         out.append(core, style=colors["core"] if breathe > 0.60 else colors["pulse"])
         out.append("}", style=colors["rail"])
         out.append(right, style=colors["dim"] if right.strip() else colors["edge"])
+        out.append(echo_right, style=colors["dim"] if echo_right.strip() else colors["edge"])
         out.append("]", style=colors["edge"])
         return out
 
