@@ -141,7 +141,14 @@ class WorkspaceTools(NativeCodingComponent):
     ) -> dict[str, typing.Any]:
         needle = str(query or "")
         if not needle:
-            return self._fail("query_empty")
+            return self._ok(
+                "workspace search skipped: query empty",
+                query=needle,
+                matches=[],
+                skipped=True,
+                reason="query_empty",
+                suggested_next_action="read_known_file_or_provide_search_query"
+            )
 
         base = self._resolve(path)
         if not base.exists():

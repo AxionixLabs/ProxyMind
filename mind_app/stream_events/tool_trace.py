@@ -9,10 +9,12 @@ from dataclasses import dataclass
 
 MISSING = object()
 
-TITLE_STYLE   = "bold #D7E7FF"
-RUNNING_STYLE = "bold #8FB8FF"
-PREVIEW_STYLE = "dim #8FA4B8"
-ERROR_STYLE   = "bold #FF7A7A"
+TITLE_STYLE        = "bold #D7E7FF"
+RUNNING_STYLE      = "bold #8FB8FF"
+PREVIEW_STYLE      = "dim #8FA4B8"
+ERROR_STYLE        = "bold #FF7A7A"
+DELTA_ADD_STYLE    = "bold #6EE7A8"
+DELTA_REMOVE_STYLE = "bold #FF8A8A"
 
 MAX_PREVIEW_LINES      = 8
 SCREEN_PREVIEW_LINES   = 5
@@ -49,7 +51,6 @@ NATIVE_CODING_TRACE_TOOLS = {
 @dataclass(frozen=True, slots=True)
 class TracePreview(object):
     """保存完整预览、屏幕预览和省略行数。"""
-
     full: str = ""
     screen: str = ""
     omitted_lines: int = 0
@@ -237,6 +238,30 @@ def _format_delta(added: int, removed: int) -> str:
     return f" (+{max(0, added)} -{max(0, removed)})"
 
 
+def _title_parts(title: str, *, ok: bool) -> list[dict[str, typing.Optional[str]]]:
+    """把标题里的行数增删摘要拆成可独立着色的片段。"""
+    base_style = TITLE_STYLE if ok else ERROR_STYLE
+    match = re.search(r"\(\+(\d+) -(\d+)\)", title)
+    if not match:
+        return [{"text": title, "style": base_style}]
+
+    parts: list[dict[str, typing.Optional[str]]] = []
+    start, end = match.span()
+    add_count, remove_count = match.groups()
+    if start:
+        parts.append({"text": title[:start], "style": base_style})
+    parts.extend([
+        {"text": "(", "style": base_style},
+        {"text": f"+{add_count}", "style": DELTA_ADD_STYLE},
+        {"text": " ", "style": base_style},
+        {"text": f"-{remove_count}", "style": DELTA_REMOVE_STYLE},
+        {"text": ")", "style": base_style},
+    ])
+    if end < len(title):
+        parts.append({"text": title[end:], "style": base_style})
+    return parts
+
+
 def _short_sha(value: typing.Any) -> str:
     """生成短哈希文本。"""
     text = str(value or "").strip()
@@ -421,7 +446,10 @@ def render_tool_start_trace(
         return f"• Listing {_path_from_args(args)}"
 
     if name == "workspace_search_text":
-        return f"• Searching \"{_short_text(args.get('query'), 80)}\""
+        query = _short_text(args.get("query"), 80)
+        if not query:
+            return "• Skipping empty search"
+        return f"• Searching \"{query}\""
 
     if name == "native_parallel_read":
         items = args.get("items")
@@ -506,9 +534,7 @@ def render_tool_trace_parts(
     ok: bool = True
 ) -> list[dict[str, typing.Optional[str]]]:
     """把轨迹标题和预览内容转换为带样式的文本片段。"""
-    parts: list[dict[str, typing.Optional[str]]] = [
-        {"text": title, "style": TITLE_STYLE if ok else ERROR_STYLE}
-    ]
+    parts = _title_parts(title, ok=ok)
     preview_text = preview.screen if isinstance(preview, TracePreview) else _preview_text(preview)
     if preview_text:
         parts.extend([
@@ -788,9 +814,9 @@ def render_tool_trace(
     before_exists: typing.Any = MISSING,
 ) -> str:
     """渲染工具完成后的轨迹摘要行。"""
-    args = arguments if isinstance(arguments, dict) else {}
+    args    = arguments if isinstance(arguments, dict) else {}
     payload = _result_payload(data)
-    suffix = "" if ok else " failed"
+    suffix  = "" if ok else " failed"
 
     if name == "workspace_root":
         root = str(payload.get("root") or "").strip()
@@ -809,6 +835,8 @@ def render_tool_trace(
 
     if name == "workspace_search_text":
         query = _short_text(args.get("query"), 80)
+        if payload.get("skipped") and payload.get("reason") == "query_empty":
+            return "• Skipped empty search"
         matches = payload.get("matches")
         total = len(matches) if isinstance(matches, list) else None
         detail = f" ({total} matches)" if isinstance(total, int) else ""
