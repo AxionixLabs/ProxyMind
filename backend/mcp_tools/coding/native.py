@@ -13,15 +13,15 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     WorkspaceContentArg,
     WorkspaceSourcePathArg,
     WorkspaceTargetPathArg,
-    WorkspaceQueryArg,
+    WorkspaceSearchQueryArg,
     WorkspaceStartLineArg,
     WorkspaceMaxLinesArg,
     WorkspaceMaxBytesArg,
     WorkspaceCaseSensitiveArg,
+    WorkspaceSearchModeArg,
+    WorkspaceSearchContextArg,
     WorkspaceMaxMatchesArg,
     NativeParallelReadItemsArg,
-    RepoMapMaxFilesArg,
-    RepoMapMaxSymbolsArg,
     WorkspaceCreateDirsArg,
     WorkspaceOverwriteArg,
     WorkspaceOldTextArg,
@@ -142,17 +142,25 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "在工作区文本文件中搜索字符串。"
-            " 返回文件路径、行号和匹配行摘要，适合编码任务定位上下文。"
+            "统一搜索工作区上下文。"
+            " mode=auto 会同时搜索文件路径、文本内容和符号；"
+            " mode=text/literal 搜字面量文本，mode=regex 搜正则，"
+            "mode=file 搜文件名/路径，mode=symbol 搜函数、类和类型定义。"
+            " query 可传字符串列表，用文件名、符号名、调用点、错误文本做多轮搜索。"
+            " 搜到候选后优先按 recommended_next_steps 调用 workspace_read_file 读取行窗口，"
+            "或用 native_parallel_read 并行读取多个候选窗口。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
-    @task_middleware("workspace_search_text")
-    async def workspace_search_text(
-        query: WorkspaceQueryArg,
+    @task_middleware("workspace_search")
+    async def workspace_search(
+        query: WorkspaceSearchQueryArg,
         path: WorkspaceOptionalPathArg = ".",
         glob: WorkspacePatternArg = None,
+        mode: WorkspaceSearchModeArg = "auto",
         case_sensitive: WorkspaceCaseSensitiveArg = False,
+        context_before: WorkspaceSearchContextArg = 0,
+        context_after: WorkspaceSearchContextArg = 0,
         max_matches: WorkspaceMaxMatchesArg = 100
     ) -> CallToolResult:
 
@@ -160,15 +168,18 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "query"          : query,
             "path"           : path or ".",
             "glob"           : glob,
+            "mode"           : mode,
             "case_sensitive" : case_sensitive,
+            "context_before" : context_before,
+            "context_after"  : context_after,
             "max_matches"    : max_matches
         }
 
         async def call(*_) -> dict:
-            return ctx.native_coding.search_text(**args)
+            return ctx.native_coding.search(**args)
 
         return await broadcast(
-            tool="workspace_search_text",
+            tool="workspace_search",
             args=args,
             target_list=[ctx.native_coding],
             call=call,
@@ -178,7 +189,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "并行读取多段工作区上下文。"
-            " 只允许 workspace_root、workspace_list_files、workspace_read_file、workspace_search_text；"
+            " 只允许 workspace_root、workspace_list_files、workspace_read_file、workspace_search；"
             " 不执行 shell、不写文件、不应用 patch。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}
@@ -197,73 +208,6 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
         return await broadcast(
             tool="native_parallel_read",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
-            "生成轻量 repo map / 符号索引。"
-            " 扫描 Python、TypeScript/JavaScript、Go、Rust 常见定义和 imports，"
-            "用于跨文件定位和修改前理解代码结构。"
-        ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace"}
-    )
-    @task_middleware("repo_map")
-    async def repo_map(
-        path: WorkspaceOptionalPathArg = ".",
-        glob: WorkspacePatternArg = None,
-        max_files: RepoMapMaxFilesArg = 200,
-        max_symbols: RepoMapMaxSymbolsArg = 1000
-    ) -> CallToolResult:
-
-        args = {
-            "path"        : path or ".",
-            "glob"        : glob,
-            "max_files"   : max_files,
-            "max_symbols" : max_symbols
-        }
-
-        async def call(*_) -> dict:
-            return ctx.native_coding.repo_map(**args)
-
-        return await broadcast(
-            tool="repo_map",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
-            "在轻量 repo map 中按名称查找符号定义。"
-            " 返回匹配的函数、类、方法、类型等定义位置。"
-        ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace"}
-    )
-    @task_middleware("repo_find_symbol")
-    async def repo_find_symbol(
-        query: WorkspaceQueryArg,
-        path: WorkspaceOptionalPathArg = ".",
-        glob: WorkspacePatternArg = None,
-        max_matches: WorkspaceMaxMatchesArg = 50
-    ) -> CallToolResult:
-
-        args = {
-            "query"       : query,
-            "path"        : path or ".",
-            "glob"        : glob,
-            "max_matches" : max_matches
-        }
-
-        async def call(*_) -> dict:
-            return ctx.native_coding.find_symbol(**args)
-
-        return await broadcast(
-            tool="repo_find_symbol",
             args=args,
             target_list=[ctx.native_coding],
             call=call,

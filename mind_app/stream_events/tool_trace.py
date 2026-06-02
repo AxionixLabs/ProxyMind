@@ -39,10 +39,8 @@ NATIVE_CODING_TRACE_TOOLS = {
     "workspace_root",
     "workspace_read_file",
     "workspace_list_files",
-    "workspace_search_text",
+    "workspace_search",
     "native_parallel_read",
-    "repo_map",
-    "repo_find_symbol",
     "workspace_write_file",
     "workspace_copy_file",
     "workspace_move_file",
@@ -571,7 +569,7 @@ def render_tool_start_trace(
     if name == "workspace_list_files":
         return f"• Listing {_path_from_args(args)}"
 
-    if name == "workspace_search_text":
+    if name == "workspace_search":
         query = _short_text(args.get("query"), 80)
         if not query:
             return "• Skipping empty search"
@@ -582,12 +580,6 @@ def render_tool_start_trace(
         count = len(items) if isinstance(items, list) else 0
         detail = f" ({count} items)" if count else ""
         return f"• Reading context{detail}"
-
-    if name == "repo_map":
-        return f"• Mapping repo {_path_from_args(args)}"
-
-    if name == "repo_find_symbol":
-        return f"• Finding symbol \"{_short_text(args.get('query'), 80)}\""
 
     if name == "workspace_write_file":
         action = "Adding" if before_exists is False or args.get("overwrite") is False else "Editing"
@@ -726,16 +718,19 @@ def render_tool_result_preview(
                         lines.append(line)
             return _trace_preview_from_lines(lines)
 
-    if name == "workspace_search_text":
+    if name == "workspace_search":
         matches = data.get("matches")
         if isinstance(matches, list):
             lines = []
             for item in matches:
                 if isinstance(item, dict):
+                    kind = str(item.get("kind") or "").strip()
                     path = str(item.get("path") or "")
                     line = str(item.get("line") or "")
                     text = _short_text(item.get("text"), MAX_PREVIEW_WIDTH)
-                    row = f"{path}:{line} {text}".strip()
+                    loc = f"{path}:{line}" if line else path
+                    prefix = f"{kind} " if kind else ""
+                    row = f"{prefix}{loc} {text}".strip()
                     if row:
                         lines.append(row)
             return _trace_preview_from_lines(lines)
@@ -760,7 +755,7 @@ def render_tool_result_preview(
                 elif tool == "workspace_list_files":
                     count = _count_from_payload(result_data, "items", "count")
                     detail = f"{count} items" if isinstance(count, int) else ""
-                elif tool == "workspace_search_text":
+                elif tool == "workspace_search":
                     count = _count_from_payload(result_data, "matches", "match_count")
                     detail = f"{count} matches" if isinstance(count, int) else ""
                 elif tool == "workspace_root":
@@ -769,72 +764,6 @@ def render_tool_result_preview(
                 prefix = f"{index}: " if index is not None else ""
                 suffix = f" {detail}" if detail else ""
                 lines.append(f"{prefix}{tool} {ok}{suffix}".strip())
-
-            return _trace_preview_from_lines(lines)
-
-    if name == "repo_map":
-
-        symbols = data.get("symbols")
-        files   = data.get("files")
-        lines   = []
-
-        if isinstance(symbols, list):
-            for item in symbols:
-                if not isinstance(item, dict):
-                    continue
-
-                path = str(item.get("path") or "").strip()
-                line = str(item.get("line") or "").strip()
-                kind = str(item.get("kind") or "").strip()
-
-                name_text = str(item.get("qualified_name") or item.get("name") or "").strip()
-
-                row = f"{path}:{line} {kind} {name_text}".strip()
-                if row:
-                    lines.append(row)
-        elif isinstance(files, list):
-            for item in files:
-                if isinstance(item, dict):
-                    path = str(item.get("path") or "").strip()
-                    lang = str(item.get("language") or "").strip()
-
-                    symbols_count = item.get("symbol_count")
-                    imports_count = item.get("import_count")
-
-                    parts = [path]
-                    if lang:
-                        parts.append(lang)
-                    if symbols_count is not None:
-                        parts.append(f"symbols={symbols_count}")
-                    if imports_count is not None:
-                        parts.append(f"imports={imports_count}")
-
-                    line = " ".join(str(part) for part in parts if str(part))
-                    if line:
-                        lines.append(line)
-
-        return _trace_preview_from_lines(lines)
-
-    if name == "repo_find_symbol":
-        matches = data.get("matches")
-        if isinstance(matches, list):
-            lines = []
-            for item in matches:
-                if not isinstance(item, dict):
-                    continue
-
-                path = str(item.get("path") or "").strip()
-                line = str(item.get("line") or "").strip()
-                kind = str(item.get("kind") or "").strip()
-
-                name_text = str(item.get("qualified_name") or item.get("name") or "").strip()
-                signature = _short_text(item.get("signature"), 80)
-
-                row = f"{path}:{line} {kind} {name_text}".strip()
-                if signature:
-                    row = f"{row} — {signature}"
-                if row:
-                    lines.append(row)
 
             return _trace_preview_from_lines(lines)
 
@@ -1021,7 +950,7 @@ def render_tool_trace(
 
         return f"• Listed {path}{detail}{suffix}"
 
-    if name == "workspace_search_text":
+    if name == "workspace_search":
         query = _short_text(args.get("query"), 80)
         if payload.get("skipped") and payload.get("reason") == "query_empty":
             return "• Skipped empty search"
@@ -1047,33 +976,6 @@ def render_tool_trace(
             detail += ")"
 
         return f"• Read context{detail}{suffix}"
-
-    if name == "repo_map":
-
-        path         = str(payload.get("path") or _path_from_args(args))
-        file_count   = _count_from_payload(payload, "files", "file_count")
-        symbol_count = _count_from_payload(payload, "symbols", "symbol_count")
-        import_count = _count_from_payload(payload, "imports", "import_count")
-        details      = []
-
-        if isinstance(file_count, int):
-            details.append(f"{file_count} files")
-        if isinstance(symbol_count, int):
-            details.append(f"{symbol_count} symbols")
-        if isinstance(import_count, int):
-            details.append(f"{import_count} imports")
-        detail = f" ({', '.join(details)})" if details else ""
-
-        return f"• Mapped repo {path}{detail}{suffix}"
-
-    if name == "repo_find_symbol":
-
-        query   = _short_text(args.get("query") or payload.get("query"), 80)
-        matches = payload.get("matches")
-        total   = len(matches) if isinstance(matches, list) else payload.get("match_count")
-        detail  = f" ({total} matches)" if isinstance(total, int) else ""
-
-        return f"• Found symbol \"{query}\"{detail}{suffix}"
 
     if name == "workspace_write_file":
         path = str(payload.get("path") or _path_from_args(args))

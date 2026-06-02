@@ -39,7 +39,11 @@ WorkspaceTargetPathArg = typing.Annotated[
 ]
 WorkspaceQueryArg = typing.Annotated[
     str,
-    Field(description="要在工作区文本文件中查找的字符串。"),
+    Field(description="要在工作区中查找的字符串。"),
+]
+WorkspaceSearchQueryArg = typing.Annotated[
+    typing.Union[str, list[str]],
+    Field(description="一个或多个搜索查询；可按文件名、符号名、调用点、错误文本组合多轮定位。"),
 ]
 WorkspaceStartLineArg = typing.Annotated[
     typing.Optional[int],
@@ -57,26 +61,26 @@ WorkspaceCaseSensitiveArg = typing.Annotated[
     bool,
     Field(description="文本搜索是否区分大小写。"),
 ]
+WorkspaceSearchModeArg = typing.Annotated[
+    str,
+    Field(description="统一搜索模式：auto、text、literal、regex、file 或 symbol。"),
+]
+WorkspaceSearchContextArg = typing.Annotated[
+    int,
+    Field(description="文本命中前后返回的上下文行数，工具内部会限制上限。"),
+]
 WorkspaceMaxMatchesArg = typing.Annotated[
     int,
-    Field(description="文本搜索最多返回的匹配条数。"),
+    Field(description="搜索最多返回的匹配条数。"),
 ]
 NativeParallelReadItemsArg = typing.Annotated[
     list[dict[str, typing.Any]],
     Field(
         description=(
             "并行读取上下文的只读步骤列表。每项包含 tool 和 args；"
-            "仅允许 workspace_root、workspace_list_files、workspace_read_file、workspace_search_text。"
+            "仅允许 workspace_root、workspace_list_files、workspace_read_file、workspace_search。"
         )
     ),
-]
-RepoMapMaxFilesArg = typing.Annotated[
-    int,
-    Field(description="repo map 最多扫描的文件数量。"),
-]
-RepoMapMaxSymbolsArg = typing.Annotated[
-    int,
-    Field(description="repo map 最多返回的符号数量。"),
 ]
 WorkspaceCreateDirsArg = typing.Annotated[
     bool,

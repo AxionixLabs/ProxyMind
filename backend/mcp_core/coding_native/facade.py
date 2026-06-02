@@ -78,8 +78,8 @@ class NativeCoding(NativeCodingBase):
     def read_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._workspace.read_file(*args, **kwargs)
 
-    def search_text(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return self._workspace.search_text(*args, **kwargs)
+    def search(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+        return self._workspace.search(*args, **kwargs)
 
     async def parallel_read(self, items: list[dict[str, typing.Any]]) -> dict[str, typing.Any]:
         return await self._parallel_read.parallel_read(items)

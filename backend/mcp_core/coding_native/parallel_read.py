@@ -17,7 +17,7 @@ class ParallelReadCore(typing.Protocol):
     def read_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         ...
 
-    def search_text(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+    def search(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         ...
 
 
@@ -28,7 +28,7 @@ class ParallelReadTools(NativeCodingComponent):
         "workspace_root",
         "workspace_list_files",
         "workspace_read_file",
-        "workspace_search_text"
+        "workspace_search"
     }
     MAX_ITEMS = 12
 
@@ -68,8 +68,8 @@ class ParallelReadTools(NativeCodingComponent):
                     result = await asyncio.to_thread(core.list_files, **args)
                 elif tool == "workspace_read_file":
                     result = await asyncio.to_thread(core.read_file, **args)
-                elif tool == "workspace_search_text":
-                    result = await asyncio.to_thread(core.search_text, **args)
+                elif tool == "workspace_search":
+                    result = await asyncio.to_thread(core.search, **args)
                 else:
                     result = self._fail("tool_not_allowed", tool=tool)
             except Exception as exc:
