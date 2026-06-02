@@ -145,25 +145,5 @@ NativeRunIdArg = typing.Annotated[
     typing.Optional[str],
     Field(description="可选 run ID；为空时使用指定 session 的最后一个 run。"),
 ]
-NativePlanActionArg = typing.Annotated[
-    str,
-    Field(description="计划工具动作：get 或 update。"),
-]
-NativePlanTodosArg = typing.Annotated[
-    typing.Optional[list[dict[str, typing.Any]]],
-    Field(description="TODO 列表；每项可包含 id/title/status/details/path。"),
-]
-NativePlanStringsArg = typing.Annotated[
-    typing.Optional[list[str]],
-    Field(description="计划中的字符串列表，例如 assumptions 或 next_steps。"),
-]
-NativePlanNoteArg = typing.Annotated[
-    typing.Optional[str],
-    Field(description="追加到计划 notes 的简短备注。"),
-]
-NativePlanModeArg = typing.Annotated[
-    str,
-    Field(description="计划更新模式：merge 或 replace。"),
-]
 if __name__ == '__main__':
     pass

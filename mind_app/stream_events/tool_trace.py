@@ -50,9 +50,7 @@ NATIVE_CODING_TRACE_TOOLS = {
     "git_status",
     "git_diff",
     "change_summary",
-    "rollback_run",
-    "native_plan",
-    "native_coding_session"
+    "rollback_run"
 }
 
 
@@ -812,11 +810,7 @@ def render_tool_result_preview(
         )
         return _trace_preview_from_lines(lines)
 
-    if name in {
-        "rollback_run",
-        "native_plan",
-        "native_coding_session"
-    }:
+    if name == "rollback_run":
         lines  = []
         sid    = str(data.get("session_id") or "").strip()
         run_id = str(data.get("run_id") or "").strip()
@@ -959,21 +953,6 @@ def render_tool_trace(
         detail = f" {sid}" if sid else ""
 
         return f"• Rolled back run{detail}{suffix}"
-
-    if name == "native_plan":
-        action = str(args.get("action") or "get").strip() or "get"
-        verb   = "Updated" if action == "update" else "Read"
-        sid    = _session_id_from_payload(payload, args)
-        detail = f" {sid}" if sid else ""
-
-        return f"• {verb} native plan{detail}{suffix}"
-
-    if name == "native_coding_session":
-
-        sid    = _session_id_from_payload(payload, args)
-        detail = f" {sid}" if sid else ""
-
-        return f"• Read native session{detail}{suffix}"
 
     summary = _short_text(args, 100)
     detail  = f" {summary}" if summary else ""

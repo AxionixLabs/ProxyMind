@@ -35,11 +35,6 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     ExecutionMetadataArg,
     GitDiffMaxCharsArg,
     NativeSessionIdArg,
-    NativePlanActionArg,
-    NativePlanTodosArg,
-    NativePlanStringsArg,
-    NativePlanNoteArg,
-    NativePlanModeArg,
     NativeRequiredSessionIdArg,
     NativeRunIdArg,
 )
@@ -537,81 +532,6 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
         return await broadcast(
             tool="rollback_run",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
-            "读取或更新 native coding session 的计划状态。"
-            " 可记录 todos、assumptions、next_steps 和 notes，辅助多轮编码任务管理。"
-        ),
-        meta={"hidden": False, "domain": "coding", "class": "session"}
-    )
-    @task_middleware("native_plan")
-    async def native_plan(
-        action: NativePlanActionArg = "get",
-        session_id: NativeSessionIdArg = None,
-        todos: NativePlanTodosArg = None,
-        assumptions: NativePlanStringsArg = None,
-        next_steps: NativePlanStringsArg = None,
-        note: NativePlanNoteArg = None,
-        mode: NativePlanModeArg = "merge"
-    ) -> CallToolResult:
-
-        args = {
-            "action"      : action,
-            "session_id"  : session_id,
-            "todos"       : todos,
-            "assumptions" : assumptions,
-            "next_steps"  : next_steps,
-            "note"        : note,
-            "mode"        : mode
-        }
-
-        async def call(*_) -> dict:
-            if str(action or "get").strip().lower() == "update":
-                return ctx.native_coding.update_plan(
-                    session_id=session_id,
-                    todos=todos,
-                    assumptions=assumptions,
-                    next_steps=next_steps,
-                    note=note,
-                    mode=mode
-                )
-            return ctx.native_coding.get_plan(session_id=session_id)
-
-        return await broadcast(
-            tool="native_plan",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
-            "查询原生编码会话摘要。"
-            " session_id 为空时返回最近会话列表；非空时返回指定会话详情。"
-        ),
-        meta={"hidden": False, "domain": "coding", "class": "session"}
-    )
-    @task_middleware("native_coding_session")
-    async def native_coding_session(
-        session_id: NativeSessionIdArg = None
-    ) -> CallToolResult:
-
-        args = {
-            "session_id" : session_id
-        }
-
-        async def call(*_) -> dict:
-            return ctx.native_coding.session_snapshot(session_id=session_id)
-
-        return await broadcast(
-            tool="native_coding_session",
             args=args,
             target_list=[ctx.native_coding],
             call=call,

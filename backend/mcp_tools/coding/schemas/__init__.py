@@ -43,11 +43,6 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     NativeSessionIdArg,
     NativeRequiredSessionIdArg,
     NativeRunIdArg,
-    NativePlanActionArg,
-    NativePlanTodosArg,
-    NativePlanStringsArg,
-    NativePlanNoteArg,
-    NativePlanModeArg,
 )
 
 __all__ = [
@@ -90,11 +85,6 @@ __all__ = [
     "NativeSessionIdArg",
     "NativeRequiredSessionIdArg",
     "NativeRunIdArg",
-    "NativePlanActionArg",
-    "NativePlanTodosArg",
-    "NativePlanStringsArg",
-    "NativePlanNoteArg",
-    "NativePlanModeArg",
 ]
 
 
