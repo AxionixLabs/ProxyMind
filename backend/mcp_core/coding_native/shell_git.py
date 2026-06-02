@@ -5,6 +5,7 @@ import os
 import time
 import typing
 import asyncio
+import subprocess
 from loguru import logger
 from backend.mcp_core.coding_native.base import NativeCodingComponent
 from backend.mcp_core.coding_native.command_runtime import NativeCommandRuntime
@@ -15,6 +16,40 @@ from backend.utilities.trace import summarize_command
 
 class ShellGitTools(NativeCodingComponent):
     """提供 shell 执行、git 状态和 git diff 能力。"""
+
+    READ_ONLY_COMMANDS = {
+        "cat",
+        "dir",
+        "echo",
+        "find",
+        "git",
+        "grep",
+        "head",
+        "ls",
+        "python",
+        "python3",
+        "py",
+        "rg",
+        "tail",
+        "type",
+        "where"
+    }
+
+    READ_ONLY_PYTHON_FLAGS = {
+        "-c",
+        "-m",
+        "--version",
+        "-V"
+    }
+
+    READ_ONLY_GIT_SUBCOMMANDS = {
+        "branch",
+        "diff",
+        "log",
+        "rev-parse",
+        "show",
+        "status"
+    }
 
     @staticmethod
     def _shell_output_next_steps(
@@ -43,14 +78,60 @@ class ShellGitTools(NativeCodingComponent):
 
     def _is_git_workspace(self) -> bool:
         """判断当前工作区是否包含 git 仓库。"""
-        return (self.root / ".git").exists()
+        git_marker = self.root / ".git"
+        if git_marker.exists():
+            return True
+
+        env = os.environ.copy()
+        try:
+            result = subprocess.run(
+                NativeCommandRuntime.resolve_command(["git", "rev-parse", "--is-inside-work-tree"], env=env),
+                cwd=str(self.root),
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=5,
+                check=False
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+
+        return result.returncode == 0 and (result.stdout or b"").decode(errors="ignore").strip().lower() == "true"
+
+    @classmethod
+    def _audit_mode_for_command(cls, cmd: list[str], *, audit_files: bool) -> str:
+        """根据命令类型选择审计强度。"""
+        if not audit_files:
+            return "off"
+        if not cmd:
+            return "full"
+
+        executable = os.path.basename(str(cmd[0])).lower()
+        if executable.endswith(".exe"):
+            executable = executable[:-4]
+
+        if executable == "git":
+            subcommand = next((str(item).lower() for item in cmd[1:] if not str(item).startswith("-")), "")
+            return "metadata" if subcommand in cls.READ_ONLY_GIT_SUBCOMMANDS else "full"
+
+        if executable in {"python", "python3", "py"}:
+            if len(cmd) >= 2 and str(cmd[1]) in cls.READ_ONLY_PYTHON_FLAGS:
+                return "metadata"
+            return "full"
+
+        if executable in cls.READ_ONLY_COMMANDS:
+            return "metadata"
+
+        return "full"
 
     async def _git(self, args: list[str]) -> dict[str, typing.Any]:
         """在工作区根目录执行 git 子命令并返回统一结果。"""
-        cmd = ["git", *args]
+        cmd     = ["git", *args]
         workdir = self._resolve(".")
-        env = os.environ.copy()
+        env     = os.environ.copy()
         started = time.perf_counter()
+
         proc = await Flux.cmd_link_exec(
             NativeCommandRuntime.resolve_command(cmd, env=env),
             cwd=str(workdir),
@@ -63,11 +144,13 @@ class ShellGitTools(NativeCodingComponent):
             timed_out = True
             proc.kill()
             stdout, stderr = await proc.communicate()
+
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         raw_stdout = self._decode(stdout or b"")
         raw_stderr = self._decode(stderr or b"")
-        exit_code = int(proc.returncode or 0)
-        ok = (exit_code == 0) and not timed_out
+        exit_code  = int(proc.returncode or 0)
+        ok         = (exit_code == 0) and not timed_out
+
         return {
             "text": f"git {'ok' if ok else 'failed'} exit_code={exit_code} elapsed_ms={elapsed_ms}",
             "attachments": [],
@@ -149,6 +232,7 @@ class ShellGitTools(NativeCodingComponent):
         cmd = [str(item) for item in (command or []) if str(item or "").strip()]
         if not cmd:
             return self._fail("command_empty")
+
         policy = self.execution_metadata_policy(
             execution,
             command=cmd,
@@ -197,8 +281,9 @@ class ShellGitTools(NativeCodingComponent):
             )
 
         effective_timeout = int(policy.get("timeout_sec") or timeout_sec or 60)
-        output_limit = int(policy.get("output_limit") or self.max_output_chars)
-        env = os.environ.copy()
+        output_limit      = int(policy.get("output_limit") or self.max_output_chars)
+        env               = os.environ.copy()
+
         python_runtime = PythonRuntimeResolver.resolve_shell_command(cmd, env=env)
         if not python_runtime.get("ok"):
             return self._ok(
@@ -228,10 +313,15 @@ class ShellGitTools(NativeCodingComponent):
         exec_cmd = list(python_runtime.get("command") or cmd)
         if not python_runtime.get("changed"):
             exec_cmd = NativeCommandRuntime.resolve_command(exec_cmd, env=env)
-        audit_before = self.capture_file_fingerprints() if audit_files else None
-        started = time.perf_counter()
+
+        audit_mode   = self._audit_mode_for_command(cmd, audit_files=audit_files)
+        audit_before = self._capture_shell_audit(audit_mode)
+        started      = time.perf_counter()
+
         proc = await Flux.cmd_link_exec(exec_cmd, cwd=str(workdir), env=env)
+
         timed_out = False
+
         try:
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(),
@@ -242,9 +332,10 @@ class ShellGitTools(NativeCodingComponent):
             proc.kill()
             stdout, stderr = await proc.communicate()
 
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
-        audit_after = self.capture_file_fingerprints() if audit_files else None
-        shell_file_changes = self.diff_file_fingerprints(audit_before, audit_after) if audit_files else {
+        elapsed_ms  = int((time.perf_counter() - started) * 1000)
+        audit_after = self._capture_shell_audit(audit_mode)
+
+        shell_file_changes = self.diff_file_fingerprints(audit_before, audit_after) if audit_mode != "off" else {
             "changed"        : False,
             "change_count"   : 0,
             "created"        : [],
@@ -263,6 +354,7 @@ class ShellGitTools(NativeCodingComponent):
         exit_code  = int(proc.returncode or 0)
 
         ok = (exit_code == 0) and not timed_out
+
         stdout_truncated = len(raw_stdout) > output_limit
         stderr_truncated = len(raw_stderr) > output_limit
 
@@ -301,7 +393,8 @@ class ShellGitTools(NativeCodingComponent):
                     stdout_truncated=stdout_truncated,
                     stderr_truncated=stderr_truncated
                 ),
-                "file_audit_enabled": bool(audit_files),
+                "file_audit_enabled": audit_mode != "off",
+                "file_audit_mode": audit_mode,
                 "shell_file_changes": shell_file_changes,
                 "shell_write_detected": bool(shell_file_changes.get("changed")),
                 "exit_code": exit_code,
@@ -312,6 +405,12 @@ class ShellGitTools(NativeCodingComponent):
             },
             "logs": []
         }
+
+    def _capture_shell_audit(self, mode: str) -> dict[str, typing.Any] | None:
+        """按审计模式采集文件指纹。"""
+        if mode == "off":
+            return None
+        return self.capture_file_fingerprints(hash_files=mode == "full")
 
 
 if __name__ == '__main__':
