@@ -17,14 +17,6 @@ WorkspacePatternArg = typing.Annotated[
     typing.Optional[str],
     Field(description="文件名或相对路径 glob 过滤表达式。"),
 ]
-WorkspaceRecursiveArg = typing.Annotated[
-    bool,
-    Field(description="是否递归列出子目录。"),
-]
-WorkspaceMaxItemsArg = typing.Annotated[
-    int,
-    Field(description="最多返回的文件项数量，工具内部会限制上限。"),
-]
 WorkspaceContentArg = typing.Annotated[
     str,
     Field(description="要写入文件的完整文本内容。"),
@@ -78,7 +70,7 @@ NativeParallelReadItemsArg = typing.Annotated[
     Field(
         description=(
             "并行读取上下文的只读步骤列表。每项包含 tool 和 args；"
-            "仅允许 workspace_root、workspace_list_files、workspace_read_file、workspace_search。"
+            "仅允许 workspace_root、workspace_read_file、workspace_search。"
         )
     ),
 ]

@@ -8,8 +8,6 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     WorkspacePathArg,
     WorkspaceOptionalPathArg,
     WorkspacePatternArg,
-    WorkspaceRecursiveArg,
-    WorkspaceMaxItemsArg,
     WorkspaceContentArg,
     WorkspaceSourcePathArg,
     WorkspaceTargetPathArg,
@@ -69,39 +67,6 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         return await broadcast(
             tool="workspace_root",
             args={},
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
-            "列出工作区内文件或目录。"
-            " 默认递归列出，自动跳过 .git、venv、node_modules 等重型目录。"
-        ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace"}
-    )
-    @task_middleware("workspace_list_files")
-    async def workspace_list_files(
-        path: WorkspaceOptionalPathArg = ".",
-        pattern: WorkspacePatternArg = None,
-        recursive: WorkspaceRecursiveArg = True,
-        max_items: WorkspaceMaxItemsArg = 200
-    ) -> CallToolResult:
-
-        args = {
-            "path"      : path or ".",
-            "pattern"   : pattern,
-            "recursive" : recursive,
-            "max_items" : max_items
-        }
-
-        async def call(*_) -> dict:
-            return ctx.native_coding.list_files(**args)
-
-        return await broadcast(
-            tool="workspace_list_files",
-            args=args,
             target_list=[ctx.native_coding],
             call=call,
             overrides=None
@@ -189,7 +154,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "并行读取多段工作区上下文。"
-            " 只允许 workspace_root、workspace_list_files、workspace_read_file、workspace_search；"
+            " 只允许 workspace_root、workspace_read_file、workspace_search；"
             " 不执行 shell、不写文件、不应用 patch。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}

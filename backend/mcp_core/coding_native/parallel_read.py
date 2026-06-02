@@ -11,9 +11,6 @@ class ParallelReadCore(typing.Protocol):
     def workspace_root(self) -> dict[str, typing.Any]:
         ...
 
-    def list_files(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        ...
-
     def read_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         ...
 
@@ -26,7 +23,6 @@ class ParallelReadTools(NativeCodingComponent):
 
     ALLOWED_TOOLS = {
         "workspace_root",
-        "workspace_list_files",
         "workspace_read_file",
         "workspace_search"
     }
@@ -64,8 +60,6 @@ class ParallelReadTools(NativeCodingComponent):
             try:
                 if tool == "workspace_root":
                     result = await asyncio.to_thread(core.workspace_root)
-                elif tool == "workspace_list_files":
-                    result = await asyncio.to_thread(core.list_files, **args)
                 elif tool == "workspace_read_file":
                     result = await asyncio.to_thread(core.read_file, **args)
                 elif tool == "workspace_search":

@@ -22,55 +22,6 @@ class WorkspaceTools(NativeCodingComponent):
             "logs"        : []
         }
 
-    def list_files(
-        self,
-        *,
-        path: str = ".",
-        pattern: str | None = None,
-        recursive: bool = True,
-        max_items: int = 200
-    ) -> dict[str, typing.Any]:
-        """列出工作区内文件和目录，并按排除规则、模式和数量上限过滤。"""
-        base = self._resolve(path)
-        if not base.exists():
-            return self._fail("path_not_found", path=path)
-
-        max_items = max(1, min(int(max_items or 200), 2000))
-        items: list[dict[str, typing.Any]] = []
-
-        for item in self._walk(base, recursive=recursive):
-            if self._is_excluded(item):
-                continue
-            rel = self._rel(item)
-            if pattern and not fnmatch.fnmatch(rel, pattern) and not fnmatch.fnmatch(item.name, pattern):
-                continue
-            try:
-                stat = item.stat()
-            except OSError:
-                continue
-            items.append({
-                "path"  : rel,
-                "kind"  : "dir" if item.is_dir() else "file",
-                "size"  : stat.st_size,
-                "mtime" : int(stat.st_mtime)
-            })
-            if len(items) >= max_items:
-                break
-
-        return self._ok(
-            f"workspace list ok count={len(items)} root={self._rel(base)}",
-            path=self._rel(base),
-            items=items,
-            truncated=len(items) >= max_items,
-            recommended_next_steps=self._list_files_next_steps(
-                path=self._rel(base),
-                pattern=pattern,
-                recursive=recursive,
-                max_items=max_items,
-                truncated=len(items) >= max_items
-            )
-        )
-
     def read_file(
         self,
         *,
@@ -484,42 +435,6 @@ class WorkspaceTools(NativeCodingComponent):
                 "match" : line_index == index
             }
             for line_index in range(start, stop)
-        ]
-
-    @staticmethod
-    def _list_files_next_steps(
-        *,
-        path: str,
-        pattern: str | None,
-        recursive: bool,
-        max_items: int,
-        truncated: bool
-    ) -> list[dict[str, typing.Any]]:
-        """为被截断的文件列表生成扩大上限或缩小范围的后续建议。"""
-        if not truncated:
-            return []
-
-        return [
-            {
-                "tool": "workspace_list_files",
-                "args": {
-                    "path"      : path,
-                    "pattern"   : pattern,
-                    "recursive" : recursive,
-                    "max_items" : min(max_items * 2, 2000)
-                },
-                "reason": "increase_limit"
-            },
-            {
-                "tool": "workspace_list_files",
-                "args": {
-                    "path"      : path,
-                    "pattern"   : pattern or "*",
-                    "recursive" : False,
-                    "max_items" : max_items
-                },
-                "reason": "narrow_scope"
-            }
         ]
 
     @staticmethod

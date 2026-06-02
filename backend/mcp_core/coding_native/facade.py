@@ -72,9 +72,6 @@ class NativeCoding(NativeCodingBase):
     def workspace_root(self) -> dict[str, typing.Any]:
         return self._workspace.workspace_root()
 
-    def list_files(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return self._workspace.list_files(*args, **kwargs)
-
     def read_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._workspace.read_file(*args, **kwargs)
 
