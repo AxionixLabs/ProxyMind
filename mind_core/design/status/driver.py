@@ -88,10 +88,13 @@ class DesignStatusLiveDriver(StatusRenderer):
             return "", []
 
         done = bool(snapshot.get("done", False))
-        ready_count = 0
-        total_tools = 0
-        connected_count = 0
+
+        ready_count: int     = 0
+        total_tools: int     = 0
+        connected_count: int = 0
+
         failed_names: list[str] = []
+
         for item in items:
             state = str(item.get("state") or "").lower()
             if state in {"ready", "empty"}:
@@ -136,15 +139,15 @@ class DesignStatusLiveDriver(StatusRenderer):
         for item in detail_items[:detail_limit]:
             details.append(
                 {
-                    "text": f"  {cls._external_mcp_item_text(item)}",
-                    "state": str(item.get("state") or "").strip().lower()
+                    "text"  : f"  {cls._external_mcp_item_text(item)}",
+                    "state" : str(item.get("state") or "").strip().lower()
                 }
             )
         if len(detail_items) > detail_limit:
             details.append(
                 {
-                    "text": f"  ... {len(detail_items) - detail_limit} more servers",
-                    "state": "more"
+                    "text"  : f"  ... {len(detail_items) - detail_limit} more servers",
+                    "state" : "more"
                 }
             )
 
@@ -201,6 +204,7 @@ class DesignStatusLiveDriver(StatusRenderer):
     @classmethod
     def external_mcp_renderable(cls, phase: float, snapshot: dict[str, typing.Any]) -> Text:
         summary, details = cls._external_mcp_status_parts(snapshot)
+
         done = bool(snapshot.get("done", False))
 
         colors = {
@@ -276,10 +280,10 @@ class DesignStatusLiveDriver(StatusRenderer):
         if self.design_level != const.SHOW_LEVEL:
             return None
 
-        fps = 30
-        loop = asyncio.get_running_loop()
-        started_at = loop.time()
-        phase_bias = 0.08
+        fps           = 30
+        loop          = asyncio.get_running_loop()
+        started_at    = loop.time()
+        phase_bias    = 0.08
         last_snapshot = snapshot()
 
         with Live(
@@ -384,6 +388,32 @@ class DesignStatusLiveDriver(StatusRenderer):
                 tick += 1
                 live.update(render_agent_connect_frame(tick, snapshot(), width, theme))
                 await asyncio.sleep(1 / theme.refresh_per_second)
+
+    async def stream_mode_live(
+        self,
+        stop_event: asyncio.Event,
+        mode: RunMode = "chat"
+    ) -> None:
+        """主请求模式等待动画。"""
+        if self.design_level != const.SHOW_LEVEL:
+            return None
+
+        kind = "mode"
+        label = self.mode_status_text(mode)
+        fps = self.status_refresh_per_second(kind)
+        interval = self.status_interval(kind)
+        phase = 0.0
+
+        with Live(
+            self.mode_status_renderable(phase, label),
+            console=self.console,
+            refresh_per_second=fps,
+            transient=True
+        ) as live:
+            while not stop_event.is_set():
+                phase += self.status_step(kind) * interval
+                live.update(self.mode_status_renderable(phase, label))
+                await asyncio.sleep(interval)
 
     async def stream_wait_live(
         self,
@@ -728,18 +758,22 @@ class DesignStatusLiveDriver(StatusRenderer):
 
         def build_fast(i: int) -> tuple[list[str], dict[int, str]]:
             phase = i / motion["phase_div"]
-            lead = 0.5 + 0.5 * math.sin(phase * motion["lead_freq"])
-            head = clamp(int(lead * (width - 1)))
+            lead  = 0.5 + 0.5 * math.sin(phase * motion["lead_freq"])
+            head  = clamp(int(lead * (width - 1)))
+
             echo = clamp(
                 int((0.5 + 0.5 * math.sin((phase * motion["lead_freq"]) + motion["echo_phase"])) * (width - 1))
             )
+
             pilot = clamp(min(
                 width - 1,
                 head + int(motion["pilot_offset"] + motion["pilot_amp"] * math.sin(phase * motion["pilot_freq"]))
             ))
-            chars = [" "] * width
-            styles: dict[int, str] = {}
+
+            chars  = [" "] * width
             glitch = glyphs["glitch"]
+
+            styles: dict[int, str] = {}
 
             for pos in range(width):
                 dist = abs(pos - head)
@@ -804,11 +838,13 @@ class DesignStatusLiveDriver(StatusRenderer):
 
         def build_plan(i: int) -> tuple[list[str], dict[int, str]]:
             phase = i / motion["phase_div"]
-            cols = [2, width // 3, (2 * width) // 3, width - 3]
+            cols  = [2, width // 3, (2 * width) // 3, width - 3]
             chars = [" "] * width
+
             styles: dict[int, str] = {}
-            active = int((0.5 + 0.5 * math.sin(phase * motion["active_freq"])) * (len(cols) - 1) + 0.5)
-            bridge = 0.5 + 0.5 * math.sin(phase * motion["bridge_freq"])
+
+            active   = int((0.5 + 0.5 * math.sin(phase * motion["active_freq"])) * (len(cols) - 1) + 0.5)
+            bridge   = 0.5 + 0.5 * math.sin(phase * motion["bridge_freq"])
             prev_idx = max(0, active - 1)
             next_idx = min(len(cols) - 1, active + 1)
 
@@ -871,41 +907,46 @@ class DesignStatusLiveDriver(StatusRenderer):
         def build_xtra(i: int) -> tuple[list[str], dict[int, str]]:
             phase = i / motion["phase_div"]
             chars = [" "] * width
+
             styles: dict[int, str] = {}
 
-            hub = width // 2
-            left_gate = 1
+            hub        = width // 2
+            left_gate  = 1
             right_gate = width - 2
+
             ports = [
                 clamp(width // 5),
                 clamp((2 * width) // 5),
                 clamp((3 * width) // 5),
                 clamp((4 * width) // 5),
             ]
-            scan = 0.5 + 0.5 * math.sin(phase * motion["scan_freq"])
-            scan_pos = clamp(2 + int(scan * max(1, width - 5)))
+
+            scan             = 0.5 + 0.5 * math.sin(phase * motion["scan_freq"])
+            scan_pos         = clamp(2 + int(scan * max(1, width - 5)))
             reverse_scan_pos = clamp(width - 3 - int(scan * max(1, width - 5)))
-            active_port = int((0.5 + 0.5 * math.sin(phase * motion["port_freq"])) * (len(ports) - 1) + 0.5)
-            bridge = 0.5 + 0.5 * math.sin(phase * motion["bridge_freq"])
-            hub_hot = math.sin(phase * motion["hub_freq"]) > -0.15
+            active_port      = int((0.5 + 0.5 * math.sin(phase * motion["port_freq"])) * (len(ports) - 1) + 0.5)
+            bridge           = 0.5 + 0.5 * math.sin(phase * motion["bridge_freq"])
+            hub_hot          = math.sin(phase * motion["hub_freq"]) > -0.15
 
             chars[left_gate]   = glyphs["gate_left"]
             styles[left_gate]  = f"bold {colors['beam_dim']}"
             chars[right_gate]  = glyphs["gate_right"]
             styles[right_gate] = f"bold {colors['beam_dim']}"
 
-            chars[hub] = glyphs["hub_hot"] if hub_hot else glyphs["hub"]
+            chars[hub]  = glyphs["hub_hot"] if hub_hot else glyphs["hub"]
             styles[hub] = f"bold {colors['core'] if hub_hot else colors['near']}"
 
             for idx, pos in enumerate(ports):
                 if pos == hub:
                     continue
                 hot = idx == active_port
-                chars[pos] = glyphs["port_hot"] if hot else glyphs["port"]
+
+                chars[pos]  = glyphs["port_hot"] if hot else glyphs["port"]
                 styles[pos] = f"bold {colors['sweep_core'] if hot else colors['orbit_b']}"
 
                 a, b = sorted((pos, hub))
                 span = max(1, b - a - 1)
+
                 bridge_pos = clamp(a + 1 + int(span * bridge))
                 for lane in range(a + 1, b):
                     if lane == bridge_pos and hot:
@@ -926,11 +967,12 @@ class DesignStatusLiveDriver(StatusRenderer):
             ):
                 if chars[pos].strip():
                     continue
-                chars[pos] = glyphs["scan"] if color.startswith("sweep") else glyphs["echo"]
+                chars[pos]  = glyphs["scan"] if color.startswith("sweep") else glyphs["echo"]
                 styles[pos] = f"bold {colors[color]}"
 
-            probe_span = max(1, width - 6)
+            probe_span  = max(1, width - 6)
             probe_phase = int((0.5 + 0.5 * math.sin(phase * motion["probe_freq"])) * probe_span)
+
             for offset, color in ((0, "orbit_a"), (7, "orbit_b"), (13, "orbit_c")):
                 pos = clamp(3 + ((probe_phase + offset + i // 3) % probe_span))
                 if chars[pos].strip():

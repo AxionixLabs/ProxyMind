@@ -184,23 +184,6 @@ class StatusRenderer(StatusSpec):
 
         return f"bold {stops[-1][1]}"
 
-    @staticmethod
-    def _smoothstep(value: float) -> float:
-        clamped = max(0.0, min(1.0, float(value)))
-        return clamped * clamped * (3.0 - (2.0 * clamped))
-
-    @staticmethod
-    def status_content_gap() -> str:
-        return "  "
-
-    @staticmethod
-    def status_line_prefix() -> str:
-        return " "
-
-    @staticmethod
-    def status_elapsed_separator() -> str:
-        return "  · "
-
     @classmethod
     def status_line_renderable(
         cls,
@@ -306,6 +289,23 @@ class StatusRenderer(StatusSpec):
             out.append(char, style=style)
 
     @staticmethod
+    def _smoothstep(value: float) -> float:
+        clamped = max(0.0, min(1.0, float(value)))
+        return clamped * clamped * (3.0 - (2.0 * clamped))
+
+    @staticmethod
+    def status_content_gap() -> str:
+        return "  "
+
+    @staticmethod
+    def status_line_prefix() -> str:
+        return " "
+
+    @staticmethod
+    def status_elapsed_separator() -> str:
+        return "  · "
+
+    @staticmethod
     def _status_shell_char(
         level: float,
         *,
@@ -358,6 +358,17 @@ class StatusRenderer(StatusSpec):
         if level > threshold:
             return active_left, active_right
         return idle_left, idle_right
+
+    @staticmethod
+    def mode_status_text(mode: typing.Any) -> str:
+        normalized = str(mode or "").strip().lower()
+        labels = {
+            "chat" : "Chat reply",
+            "fast" : "Fast reply",
+            "plan" : "Plan reply",
+            "xtra" : "Xtra reply",
+        }
+        return labels.get(normalized, "Mind reply")
 
     @classmethod
     def _build_status_shell(
@@ -512,6 +523,47 @@ class StatusRenderer(StatusSpec):
         out.append("{", style=colors["rail"])
         out.append(core, style=colors["core"] if breathe > 0.60 else colors["pulse"])
         out.append("}", style=colors["rail"])
+        out.append(right, style=colors["dim"] if right.strip() else colors["edge"])
+        out.append(echo_right, style=colors["dim"] if echo_right.strip() else colors["edge"])
+        out.append("]", style=colors["edge"])
+        return out
+
+    @classmethod
+    def _mode_status_indicator(cls, phase: float) -> Text:
+        colors = {
+            "edge"  : "bold #3F505C",
+            "rail"  : "bold #5BA8C7",
+            "core"  : "bold #E0F7FF",
+            "pulse" : "bold #91D7ED",
+            "dim"   : "bold #375B6A"
+        }
+
+        breathe    = 0.5 + (0.5 * math.sin(phase * 0.44))
+        left       = "." if breathe > 0.72 else " "
+        right      = "." if breathe < 0.28 else " "
+        echo_left  = "." if breathe > 0.90 else " "
+        echo_right = "." if breathe < 0.10 else " "
+
+        core = cls._status_core_char(
+            breathe,
+            super_peak="◆",
+            peak="*",
+            high="O",
+            mid="o",
+            low=".",
+            super_threshold=0.94,
+            peak_threshold=0.78,
+            high_threshold=0.60,
+            mid_threshold=0.42
+        )
+
+        out = Text()
+        out.append("[", style=colors["edge"])
+        out.append(echo_left, style=colors["dim"] if echo_left.strip() else colors["edge"])
+        out.append(left, style=colors["dim"] if left.strip() else colors["edge"])
+        out.append("<", style=colors["rail"])
+        out.append(core, style=colors["core"] if breathe > 0.60 else colors["pulse"])
+        out.append(">", style=colors["rail"])
         out.append(right, style=colors["dim"] if right.strip() else colors["edge"])
         out.append(echo_right, style=colors["dim"] if echo_right.strip() else colors["edge"])
         out.append("]", style=colors["edge"])
@@ -834,6 +886,54 @@ class StatusRenderer(StatusSpec):
     @classmethod
     def code_status_static_renderable(cls, text: str) -> Text:
         return cls.code_status_renderable(0.0, text)
+
+    @classmethod
+    def mode_status_renderable(cls, phase: float, text: str) -> Text:
+        spec = cls.status_spec("mode")
+
+        colors = {
+            "edge"      : "bold #3F505C",
+            "text_peak" : "bold #EAF9FF",
+            "text_soft" : "bold #C7EEF9",
+            "text_near" : "bold #91D7ED",
+            "text_mid"  : "bold #5BA8C7",
+            "text_fade" : "bold #407D95",
+            "text_dim"  : "bold #375B6A"
+        }
+
+        out = cls._mode_status_indicator(phase)
+        out.append(cls.status_content_gap(), style=colors["edge"])
+
+        text = cls.fit_status_text(text, kind="mode", fallback="Mind reply")
+        span = max(1, len(text))
+        focus = cls._sway_focus(
+            phase,
+            span,
+            speed=spec.scan_speed,
+            pad=spec.scan_pad
+        )
+        cls._append_sweep_text(
+            out,
+            text,
+            focus=focus,
+            peak_style=colors["text_peak"],
+            soft_style=colors["text_soft"],
+            near_style=colors["text_near"],
+            mid_style=colors["text_mid"],
+            fade_style=colors["text_fade"],
+            dim_style=colors["text_dim"],
+            lead_span=spec.lead_span,
+            tail_span=spec.tail_span,
+            peak_radius=spec.peak_radius,
+            soft_ratio=0.20,
+            near_ratio=spec.near_ratio,
+            mid_ratio=spec.mid_ratio
+        )
+        return out
+
+    @classmethod
+    def mode_status_static_renderable(cls, text: str) -> Text:
+        return cls.mode_status_renderable(0.0, text)
 
     @classmethod
     def loop_status_renderable(cls, phase: float, text: str) -> Text:

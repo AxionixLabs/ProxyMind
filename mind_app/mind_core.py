@@ -131,7 +131,7 @@ class Mind(object):
     async def start_anim(self, mode: RunMode = "chat") -> None:
         """启动指定模式的等待动画。"""
         await self.anim_manager.start(
-            lambda stop_event: self.design.stream_wait_live(stop_event, mode)
+            lambda stop_event: self.design.stream_mode_live(stop_event, mode)
         )
 
     async def start_upload_anim(

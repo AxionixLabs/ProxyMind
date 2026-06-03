@@ -32,6 +32,19 @@ CODE_STATUS_SPEC = SweepStatusSpec(
     scan_speed=0.24,
     scan_pad=2.0
 )
+MODE_STATUS_SPEC = SweepStatusSpec(
+    refresh_per_second=30,
+    phase_rate=13.2,
+    text_limit=56,
+    shell_freq=0.44,
+    lead_span=2.8,
+    tail_span=5.6,
+    peak_radius=0.70,
+    near_ratio=0.50,
+    mid_ratio=0.84,
+    scan_speed=0.22,
+    scan_pad=2.0
+)
 BUILTIN_STATUS_SPEC = SweepStatusSpec(
     refresh_per_second=40,
     phase_rate=15.8,
@@ -89,6 +102,7 @@ WAIT_STATUS_SPEC = ProgressiveStatusSpec(
 STATUS_SPECS: dict[str, SweepStatusSpec | ProgressiveStatusSpec] = {
     "tool"    : TOOL_STATUS_SPEC,
     "code"    : CODE_STATUS_SPEC,
+    "mode"    : MODE_STATUS_SPEC,
     "heal"    : HEAL_STATUS_SPEC,
     "loop"    : LOOP_STATUS_SPEC,
     "wait"    : WAIT_STATUS_SPEC,
@@ -98,6 +112,7 @@ STATUS_SPECS: dict[str, SweepStatusSpec | ProgressiveStatusSpec] = {
 STATUS_TEXT_CHROME_WIDTH: dict[str, int] = {
     "tool"    : 18,
     "code"    : 18,
+    "mode"    : 18,
     "heal"    : 18,
     "loop"    : 18,
     "wait"    : 17,
@@ -107,6 +122,7 @@ STATUS_TEXT_CHROME_WIDTH: dict[str, int] = {
 STATUS_TEXT_FLOOR: dict[str, int] = {
     "tool"    : 16,
     "code"    : 16,
+    "mode"    : 16,
     "heal"    : 18,
     "loop"    : 18,
     "wait"    : 12,

@@ -34,32 +34,37 @@ class UploadProgressReporter(object):
         min_percent_step: float = 0.05
     ) -> None:
         self.emit = emit
+
         self.min_interval_sec = min_interval_sec
         self.min_percent_step = min_percent_step
+
         self.last_key: typing.Optional[tuple[typing.Any, typing.Any]] = None
-        self.last_ts: float = 0.0
+
+        self.last_ts: float      = 0.0
         self.last_percent: float = -1.0
 
     @classmethod
     def format_progress(cls, event: dict[str, typing.Any]) -> str:
-        filename = str(event.get("filename") or "-")
+        filename   = str(event.get("filename") or "-")
         item_index = int(event.get("item_index") or 1)
         item_total = int(event.get("item_total") or 1)
-        percent = max(0.0, min(100.0, float(event.get("percent") or 0.0) * 100.0))
-        uploaded = format_bytes(float(event.get("uploaded_bytes") or 0.0))
-        total = format_bytes(float(event.get("total_bytes") or 0.0))
-        speed = format_bytes(float(event.get("speed_bytes_per_sec") or 0.0))
-        action = "Uploaded" if bool(event.get("done")) else "Uploading"
+        percent    = max(0.0, min(100.0, float(event.get("percent") or 0.0) * 100.0))
+        uploaded   = format_bytes(float(event.get("uploaded_bytes") or 0.0))
+        total      = format_bytes(float(event.get("total_bytes") or 0.0))
+        speed      = format_bytes(float(event.get("speed_bytes_per_sec") or 0.0))
+        action     = "Uploaded" if bool(event.get("done")) else "Uploading"
+
         return (
             f"{action} {item_index}/{item_total}: {filename} "
             f"{percent:5.1f}% · {uploaded}/{total} · {speed}/s"
         )
 
     async def __call__(self, event: dict[str, typing.Any]) -> None:
-        now = time.monotonic()
-        key = (event.get("item_index"), event.get("filename"))
+        now     = time.monotonic()
+        key     = (event.get("item_index"), event.get("filename"))
         percent = float(event.get("percent") or 0.0)
-        done = bool(event.get("done"))
+        done    = bool(event.get("done"))
+
         should_emit = (
             done
             or self.last_key != key
@@ -70,9 +75,10 @@ class UploadProgressReporter(object):
         if not should_emit:
             return None
 
-        self.last_key = key
-        self.last_ts = now
+        self.last_key     = key
+        self.last_ts      = now
         self.last_percent = percent
+
         self.emit(self.format_progress(event))
         return None
 
@@ -90,9 +96,11 @@ class UploadProgressLiveReporter(object):
         total_bytes: int = 0
     ) -> None:
         self.console = console
-        self.item_total = int(max(0, item_total))
+
+        self.item_total  = int(max(0, item_total))
         self.total_bytes = int(max(0, total_bytes))
         self.live: typing.Optional[Live] = None
+
         self.last_event: typing.Optional[dict[str, typing.Any]] = None
 
     def __enter__(self) -> "UploadProgressLiveReporter":
@@ -184,9 +192,10 @@ class UploadProgressLiveReporter(object):
     @classmethod
     def build_summary(cls, event: dict[str, typing.Any]) -> str:
         item_total = int(event.get("item_total") or 0)
-        total = format_bytes(float(event.get("aggregate_total_bytes", 0.0) or 0.0))
-        elapsed = float(event.get("aggregate_elapsed_sec") or 0.0)
-        speed = format_bytes(float(event.get("aggregate_speed_bytes_per_sec") or 0.0))
+        total      = format_bytes(float(event.get("aggregate_total_bytes", 0.0) or 0.0))
+        elapsed    = float(event.get("aggregate_elapsed_sec") or 0.0)
+        speed      = format_bytes(float(event.get("aggregate_speed_bytes_per_sec") or 0.0))
+
         return (
             f"Uploaded {item_total} attachment(s) · {total} · "
             f"{elapsed:.1f}s · {speed}/s"
@@ -195,10 +204,10 @@ class UploadProgressLiveReporter(object):
     @classmethod
     def render_summary(cls, event: dict[str, typing.Any]) -> Text:
         item_total = int(event.get("item_total") or 0)
-        total = format_bytes(float(event.get("aggregate_total_bytes", 0.0) or 0.0))
-        elapsed = float(event.get("aggregate_elapsed_sec") or 0.0)
-        speed = format_bytes(float(event.get("aggregate_speed_bytes_per_sec") or 0.0))
-        last_file = str(event.get("filename") or "-")
+        total      = format_bytes(float(event.get("aggregate_total_bytes", 0.0) or 0.0))
+        elapsed    = float(event.get("aggregate_elapsed_sec") or 0.0)
+        speed      = format_bytes(float(event.get("aggregate_speed_bytes_per_sec") or 0.0))
+        last_file  = str(event.get("filename") or "-")
 
         text = Text()
         text.append("Upload complete", style="bold #5FD7AF")
@@ -226,17 +235,25 @@ class UploadProgressLiveReporter(object):
         text.append("Upload failed", style="bold #FF6B6B")
         text.append("\n")
         text.append(str(message or "-"), style="bold #F4F7FA")
+
         if event is not None:
             item_index = int(event.get("item_index") or 1)
             item_total = int(event.get("item_total") or 1)
-            filename = str(event.get("filename") or "-")
-            aggregate_uploaded = format_bytes(float(event.get("aggregate_uploaded_bytes", 0.0) or 0.0))
-            aggregate_total = format_bytes(float(event.get("aggregate_total_bytes", 0.0) or 0.0))
+            filename   = str(event.get("filename") or "-")
+
+            aggregate_uploaded = format_bytes(
+                float(event.get("aggregate_uploaded_bytes", 0.0) or 0.0)
+            )
+            aggregate_total = format_bytes(
+                float(event.get("aggregate_total_bytes", 0.0) or 0.0)
+            )
+
             text.append("\n")
             text.append("During: ", style="bold #7F8C9A")
             text.append(f"{item_index}/{item_total} {filename}", style="bold #F4F7FA")
             text.append("  ·  ", style="bold #7F8C9A")
             text.append(f"{aggregate_uploaded}/{aggregate_total}", style="bold #AFC7D8")
+
         return text
 
     async def __call__(self, event: dict[str, typing.Any]) -> None:

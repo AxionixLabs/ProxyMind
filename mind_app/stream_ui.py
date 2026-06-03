@@ -93,12 +93,13 @@ class StreamUI(object):
         """显示 Responses builtin 名称，短延迟后露出，避免极短 builtin 闪屏。"""
         if self._has_stream_output:
             return None
+        status_text, family = self._compose_builtin_status(text)
         await self._schedule_status_task(
             self._delayed_status_flow(
-                text,
+                status_text,
                 show_delay_sec=delay_sec,
                 animate_after_sec=delay_sec,
-                family="builtin",
+                family=family,
                 min_visible_sec=0.0
             )
         )
@@ -330,6 +331,16 @@ class StreamUI(object):
         if lower == base_lower:
             return base_title
         return f"{base_title} · {normalized}"
+
+    @classmethod
+    def _compose_builtin_status(
+        cls,
+        text: typing.Optional[str]
+    ) -> tuple[typing.Optional[str], StatusFamily]:
+        normalized = " ".join(str(text or "").split())
+        if normalized.lower() in {"chat", "fast", "plan", "xtra"}:
+            return Design.mode_status_text(normalized), "mode"
+        return text, "builtin"
 
     async def _cancel_heal_status_flush_task(self) -> None:
         task = self._heal_status_flush_task
