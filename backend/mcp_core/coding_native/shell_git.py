@@ -42,6 +42,17 @@ class ShellGitTools(NativeCodingComponent):
         "-V"
     }
 
+    READ_ONLY_VERSION_COMMANDS = {
+        "go"     : {"version"},
+        "node"   : {"--version", "-v"},
+        "npm"    : {"--version", "-v", "version"},
+        "npx"    : {"--version", "-v"},
+        "java"   : {"-version", "--version"},
+        "javac"  : {"-version", "--version"},
+        "mvn"    : {"-version", "--version", "-v"},
+        "gradle" : {"-version", "--version", "-v"}
+    }
+
     READ_ONLY_GIT_SUBCOMMANDS = {
         "branch",
         "diff",
@@ -120,6 +131,13 @@ class ShellGitTools(NativeCodingComponent):
                 return "metadata"
             return "full"
 
+        version_flags = cls.READ_ONLY_VERSION_COMMANDS.get(executable)
+        if version_flags:
+            normalized_args = {str(item).lower() for item in cmd[1:]}
+            if normalized_args and normalized_args.issubset(version_flags):
+                return "metadata"
+            return "full"
+
         if executable in cls.READ_ONLY_COMMANDS:
             return "metadata"
 
@@ -132,11 +150,11 @@ class ShellGitTools(NativeCodingComponent):
         output_limit: int | None = None
     ) -> dict[str, typing.Any]:
         """在工作区根目录执行 git 子命令并返回统一结果。"""
-        cmd       = ["git", *args]
-        workdir   = self._resolve(".")
-        env       = os.environ.copy()
-        limit     = max(1, min(int(output_limit or self.max_output_chars), self.max_output_chars))
-        started   = time.perf_counter()
+        cmd     = ["git", *args]
+        workdir = self._resolve(".")
+        env     = os.environ.copy()
+        limit   = max(1, min(int(output_limit or self.max_output_chars), self.max_output_chars))
+        started = time.perf_counter()
 
         proc = await Flux.cmd_link_exec(
             NativeCommandRuntime.resolve_command(cmd, env=env),
@@ -314,6 +332,7 @@ class ShellGitTools(NativeCodingComponent):
                 timeout_sec=policy.get("timeout_sec"),
                 output_limit=policy.get("output_limit"),
                 reason=runtime.get("reason"),
+                suggested_next_action=runtime.get("suggested_next_action"),
                 runtime=runtime
             )
 
