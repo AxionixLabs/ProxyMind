@@ -79,6 +79,13 @@ class WorkspaceTools(NativeCodingComponent):
         target = self._resolve(path)
         if not target.is_file():
             return self._fail("file_not_found", path=path)
+        if not self._looks_text(target):
+            return self._fail(
+                "file_not_text",
+                path=self._rel(target),
+                size=target.stat().st_size,
+                suggested_next_action="use_shell_or_specialized_binary_tool"
+            )
 
         limit = max(1, min(int(max_bytes or self.max_read_bytes), self.max_read_bytes))
         size  = target.stat().st_size
@@ -103,11 +110,11 @@ class WorkspaceTools(NativeCodingComponent):
                 count           = max(1, min(int(max_lines or 200), 2000))
                 sliced          = full_lines[start - 1:start - 1 + count]
                 text            = "\n".join(sliced)
-                range_truncated = start - 1 + count < total_lines
+                line_truncated  = start - 1 + count < total_lines
             else:
                 start           = 1
                 text            = full_text
-                range_truncated = False
+                line_truncated  = False
 
             input_truncated = False
 
@@ -115,7 +122,7 @@ class WorkspaceTools(NativeCodingComponent):
             start = max(1, int(start_line or 1))
             count = max(1, min(int(max_lines or 200), 2000))
 
-            text, total_lines, range_truncated = self._read_line_window(
+            text, total_lines, line_truncated = self._read_line_window(
                 target,
                 start_line=start,
                 max_lines=count
@@ -129,7 +136,7 @@ class WorkspaceTools(NativeCodingComponent):
             start           = 1
             text            = self._decode(raw[:limit])
             total_lines     = None
-            range_truncated = False
+            line_truncated  = False
             input_truncated = len(raw) > limit or size > limit
 
         content_raw = text.encode(const.CHARSET, const.IGNORE)
@@ -142,6 +149,15 @@ class WorkspaceTools(NativeCodingComponent):
 
         byte_truncated = input_truncated or output_truncated
 
+        truncation_reasons = self._read_file_truncation_reasons(
+            byte_truncated=byte_truncated,
+            input_truncated=input_truncated,
+            output_truncated=output_truncated,
+            line_truncated=line_truncated,
+            line_window=line_window,
+            total_lines=total_lines
+        )
+
         return self._ok(
             f"workspace read ok path={self._rel(target)} bytes={min(size, limit)} truncated={byte_truncated}",
             path=self._rel(target),
@@ -149,18 +165,19 @@ class WorkspaceTools(NativeCodingComponent):
             size=size,
             sha256=sha256,
             sha256_available=sha256_available,
-            start_line=start,
-            end_line=end_line,
-            total_lines=total_lines,
-            truncated=byte_truncated or range_truncated,
+            window_start=start,
+            window_end=end_line,
+            total_lines_estimated=total_lines,
+            truncated=bool(truncation_reasons),
             byte_truncated=byte_truncated,
-            range_truncated=range_truncated,
+            line_truncated=line_truncated,
+            truncation_reasons=truncation_reasons,
             recommended_next_steps=self._read_file_next_steps(
                 path=self._rel(target),
                 end_line=end_line,
                 total_lines=total_lines,
                 byte_truncated=byte_truncated,
-                range_truncated=range_truncated
+                line_truncated=line_truncated
             )
         )
 
@@ -601,7 +618,7 @@ class WorkspaceTools(NativeCodingComponent):
 
         last_line       = 0
         stop_after      = start_line + max_lines - 1
-        range_truncated = False
+        line_truncated = False
 
         with target.open("r", encoding=const.CHARSET, errors=const.IGNORE, newline=None) as fh:
             for lineno, line in enumerate(fh, start=1):
@@ -609,12 +626,12 @@ class WorkspaceTools(NativeCodingComponent):
                 if lineno < start_line:
                     continue
                 if lineno > stop_after:
-                    range_truncated = True
+                    line_truncated = True
                     break
                 selected.append(line.rstrip("\r\n"))
 
-        total_lines = None if range_truncated else last_line
-        return "\n".join(selected), total_lines, range_truncated
+        total_lines = None if line_truncated else last_line
+        return "\n".join(selected), total_lines, line_truncated
 
     @staticmethod
     def _normalize_search_queries(
@@ -723,19 +740,14 @@ class WorkspaceTools(NativeCodingComponent):
         end_line: int,
         total_lines: int | None,
         byte_truncated: bool,
-        range_truncated: bool
+        line_truncated: bool
     ) -> list[dict[str, typing.Any]]:
         """为被截断的文件读取结果生成继续读取下一段的建议。"""
         steps: list[dict[str, typing.Any]] = []
 
-        if range_truncated or (byte_truncated and total_lines is None):
-            steps.append({
-                "tool"   : "workspace_read_file",
-                "args"   : {"path": path, "start_line": end_line + 1, "max_lines": 200},
-                "reason" : "continue_from_next_line"
-            })
-
-        elif byte_truncated and isinstance(total_lines, int) and end_line < total_lines:
+        has_known_next_line = isinstance(total_lines, int) and end_line < total_lines
+        has_possible_next_line = line_truncated or (byte_truncated and total_lines is None)
+        if has_known_next_line or has_possible_next_line:
             steps.append({
                 "tool"   : "workspace_read_file",
                 "args"   : {"path": path, "start_line": end_line + 1, "max_lines": 200},
@@ -743,6 +755,28 @@ class WorkspaceTools(NativeCodingComponent):
             })
 
         return steps
+
+    @staticmethod
+    def _read_file_truncation_reasons(
+        *,
+        byte_truncated: bool,
+        input_truncated: bool,
+        output_truncated: bool,
+        line_truncated: bool,
+        line_window: bool,
+        total_lines: int | None
+    ) -> list[str]:
+        """返回文件读取被截断的具体原因。"""
+        reasons: list[str] = []
+        if input_truncated and not line_window:
+            reasons.append("byte_limit")
+        elif input_truncated and line_window and total_lines is None:
+            reasons.append("large_file_window")
+        if output_truncated:
+            reasons.append("output_byte_limit")
+        if line_truncated:
+            reasons.append("line_window")
+        return reasons
 
     @staticmethod
     def _search_next_steps(
