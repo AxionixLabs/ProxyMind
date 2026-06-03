@@ -240,6 +240,14 @@ def _format_delta(added: int, removed: int) -> str:
     return f" (+{max(0, added)} -{max(0, removed)})"
 
 
+def _failure_suffix(payload: dict[str, typing.Any], *, ok: bool) -> str:
+    """生成失败标题后缀，并优先带上失败原因。"""
+    if ok:
+        return ""
+    reason = str(payload.get("reason") or "").strip()
+    return f" failed: {reason}" if reason else " failed"
+
+
 def _title_parts(title: str, *, ok: bool) -> list[dict[str, typing.Optional[str]]]:
     """把标题里的行数增删摘要拆成可独立着色的片段。"""
     base_style = TITLE_STYLE if ok else ERROR_STYLE
@@ -292,13 +300,13 @@ def _title_count_parts(
     ok: bool
 ) -> list[dict[str, typing.Optional[str]]]:
     """拆分标题里的计数摘要，如 (84 matches)。"""
-    match = re.search(r"\((\d+) (items|matches|files|symbols|results|sessions)\)", body)
+    match = re.search(r"\((\d+) (items|matches|files|symbols|results|sessions)([^)]*)\)", body)
     if not match:
         return []
 
     start, end = match.span()
 
-    count, unit = match.groups()
+    count, unit, tail = match.groups()
 
     parts: list[dict[str, typing.Optional[str]]] = []
 
@@ -310,6 +318,7 @@ def _title_count_parts(
         {"text": count, "style": COUNT_VALUE_STYLE if ok else base_style},
         {"text": " ", "style": base_style},
         {"text": unit, "style": COUNT_UNIT_STYLE if ok else base_style},
+        {"text": tail, "style": base_style},
         {"text": ")", "style": base_style},
     ])
 
@@ -357,11 +366,11 @@ def _action_style_for_body(body: str, *, ok: bool) -> str | None:
     text  = body.lstrip()
     first = text.split(" ", 1)[0] if text else ""
 
-    if first == "Git":
+    if first in {"Git", "Change"}:
         return ACTION_GIT_STYLE
     if first in {"Read", "Listed", "Searched", "Root", "Skipping", "Skipped"}:
         return ACTION_READ_STYLE
-    if first in {"Edited", "Created", "Deleted", "Copied", "Moved", "Patch"}:
+    if first in {"Added", "Edited", "Created", "Deleted", "Copied", "Moved", "Patch"}:
         return ACTION_EDIT_STYLE
     if first in {"Ran", "Recorded", "Rolled", "Updated"}:
         return ACTION_RUN_STYLE
@@ -392,7 +401,12 @@ def _summary_lines(*items: tuple[str, typing.Any]) -> list[str]:
     """把键值对转换为摘要行。"""
     lines: list[str] = []
     for label, value in items:
-        text = str(value or "").strip()
+        if value is None:
+            text = ""
+        elif isinstance(value, bool):
+            text = str(value)
+        else:
+            text = str(value or "").strip()
         if text:
             lines.append(f"{label}: {text}")
     return lines
@@ -808,9 +822,27 @@ def render_tool_result_preview(
         return _trace_preview_from_lines(lines)
 
     if name == "change_summary":
-        lines = _normalize_preview_lines(
-            data.get("summary") or data.get("diff") or data.get("git_status")
+        verification = data.get("verification") if isinstance(data.get("verification"), dict) else {}
+        blockers     = data.get("blockers") if isinstance(data.get("blockers"), list) else []
+        warnings     = data.get("warnings") if isinstance(data.get("warnings"), list) else []
+        diff_stats   = data.get("diff_stats") if isinstance(data.get("diff_stats"), dict) else {}
+
+        lines = _summary_lines(
+            ("ready", data.get("ready")),
+            ("verification", verification.get("reason")),
+            ("files", data.get("file_count")),
+            ("diff", f"+{diff_stats.get('added_lines', 0)} -{diff_stats.get('deleted_lines', 0)}" if diff_stats else ""),
         )
+        for item in blockers[:3]:
+            if isinstance(item, dict):
+                lines.append(f"blocker: {item.get('kind')}")
+        for item in warnings[:3]:
+            if isinstance(item, dict):
+                lines.append(f"warning: {item.get('kind')}")
+        if not lines:
+            lines = _normalize_preview_lines(
+                data.get("summary") or data.get("diff") or data.get("git_status")
+            )
         return _trace_preview_from_lines(lines)
 
     if name == "rollback_run":
@@ -846,7 +878,7 @@ def render_tool_trace(
     """渲染工具完成后的轨迹摘要行。"""
     args    = arguments if isinstance(arguments, dict) else {}
     payload = _result_payload(data)
-    suffix  = "" if ok else " failed"
+    suffix  = _failure_suffix(payload, ok=ok)
 
     if name == "workspace_root":
 
@@ -929,7 +961,9 @@ def render_tool_trace(
     if name == "workspace_apply_unified_patch":
 
         if not ok:
-            return "• Patch failed"
+            reason = str(payload.get("reason") or "").strip()
+            detail = f": {reason}" if reason else ""
+            return f"• Patch failed{detail}"
         files = payload.get("files")
         if isinstance(files, list) and len(files) == 1 and isinstance(files[0], dict):
             target = str(files[0].get("path") or "patch")

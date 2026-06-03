@@ -19,7 +19,7 @@ WorkspacePatternArg = typing.Annotated[
 ]
 WorkspaceContentArg = typing.Annotated[
     str,
-    Field(description="要写入文件的完整文本内容。"),
+    Field(description="要写入文件的完整文本内容；用于创建或整体覆盖文件。"),
 ]
 WorkspaceSourcePathArg = typing.Annotated[
     str,
@@ -51,7 +51,7 @@ WorkspaceCaseSensitiveArg = typing.Annotated[
 ]
 WorkspaceSearchModeArg = typing.Annotated[
     str,
-    Field(description="统一搜索模式：auto、text、literal、regex、file 或 symbol。"),
+    Field(description="统一搜索模式：auto、text、literal、regex、file 或 symbol；定位代码时优先使用 auto 或 symbol。"),
 ]
 WorkspaceSearchContextArg = typing.Annotated[
     int,
@@ -59,7 +59,7 @@ WorkspaceSearchContextArg = typing.Annotated[
 ]
 WorkspaceMaxMatchesArg = typing.Annotated[
     int,
-    Field(description="搜索最多返回的匹配条数。"),
+    Field(description="最多返回的匹配条数，工具内部会限制上限。"),
 ]
 WorkspaceRecursiveArg = typing.Annotated[
     bool,
@@ -104,7 +104,7 @@ WorkspaceForceArg = typing.Annotated[
 ]
 WorkspaceUnifiedPatchArg = typing.Annotated[
     str,
-    Field(description="标准 unified diff 文本，支持多文件、多 hunk、新建/删除文件和唯一上下文自动迁移。"),
+    Field(description="严格 unified diff 原文；必须包含 ---/+++ 文件头，禁止 UI 行号、Markdown 和解释文字。"),
 ]
 WorkspaceExpectedSha256MapArg = typing.Annotated[
     typing.Optional[dict[str, str]],
@@ -113,7 +113,7 @@ WorkspaceExpectedSha256MapArg = typing.Annotated[
 
 ShellCommandArg = typing.Annotated[
     list[str],
-    Field(description="以参数数组表达的命令；不接受 shell 控制符拼接。"),
+    Field(description="以参数数组表达的真实可执行程序及参数；不接受 shell 控制符、重定向、管道或内建命令拼接。"),
 ]
 ShellCwdArg = typing.Annotated[
     str,
@@ -125,7 +125,7 @@ ShellTimeoutArg = typing.Annotated[
 ]
 ExecutionMetadataArg = typing.Annotated[
     typing.Optional[dict[str, typing.Any]],
-    Field(description="服务端执行裁决；可选，包含 target/state/grantId/canonicalArguments 等字段。"),
+    Field(description="服务端执行裁决；shell_exec 必须包含 grantId 和 canonicalArguments 等执行元数据。"),
 ]
 
 GitDiffMaxCharsArg = typing.Annotated[

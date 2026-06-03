@@ -50,7 +50,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "返回当前原生编码工作区根目录。"
-            " 该工具用于确认后续 workspace、shell、git 工具的路径边界。"
+            " 仅用于确认路径边界；列文件请用 workspace_list_file，查找内容请用 workspace_search。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
@@ -71,7 +71,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "读取工作区内文本文件。"
-            " 支持按起始行和最大行数切片，大文件会按字节上限截断。"
+            " 支持按起始行和最大行数读取窗口；搜索后优先读取命中附近窗口，不要无条件读取大文件。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
@@ -104,7 +104,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "列出工作区内文件路径。"
-            " 用于查看当前目录有哪些文件，支持 glob 过滤、递归开关和数量上限。"
+            " 用于查看目录文件；按名称、符号、文本或错误信息定位时优先用 workspace_search。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
@@ -141,6 +141,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             " mode=text/literal 搜字面量文本，mode=regex 搜正则，"
             "mode=file 搜文件名/路径，mode=symbol 搜函数、类和类型定义。"
             " query 可传字符串列表，用文件名、符号名、调用点、错误文本做多轮搜索。"
+            " 这是查找文件、符号、调用点和错误文本的默认入口。"
             " 搜到候选后优先按 recommended_next_steps 调用 workspace_read_file 读取行窗口，"
             "或用 native_parallel_read 并行读取多个候选窗口。"
         ),
@@ -184,7 +185,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         description=(
             "并行读取多段工作区上下文。"
             " 只允许 workspace_root、workspace_list_file、workspace_read_file、workspace_search；"
-            " 不执行 shell、不写文件、不应用 patch。"
+            " 不执行 shell、不写文件、不应用 patch。适合一次读取多个搜索候选窗口。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
@@ -397,6 +398,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "应用 unified diff patch。"
             " 支持多文件、多 hunk、新建/删除文件、上下文校验、"
             "唯一上下文自动迁移和按文件 SHA256 基线冲突保护。"
+            " patch 必须是原始 unified diff，包含 ---/+++ 文件头；不要带 UI 行号、Markdown、解释文字或缩进前缀。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
@@ -432,7 +434,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             " 不要用本工具做工作区文件创建、覆盖、局部修改、删除、复制、移动或重命名；"
             " 文件操作请使用 workspace_write_file、workspace_apply_patch、workspace_apply_unified_patch、"
             "workspace_copy_file、workspace_move_file、workspace_delete_file。"
-            " 不要依赖 shell alias/内建命令或 shell 语法，例如 mv/cp/rm/del/copy/move/dir、管道、重定向、&&。"
+            " 不要依赖 shell alias/内建命令或 shell 语法，例如 pwd、mv/cp/rm/del/copy/move/dir、管道、重定向、&&。"
             " 执行前必须携带 execution metadata，由执行元数据决定本地执行、云端沙盒或拒绝。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "shell"}
@@ -517,7 +519,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "生成提交前/最终回答前的变更摘要和质量闸。"
-            " 汇总 git_status、diff 统计、未跟踪文件、冲突、最近 native session 的 preflight/validation 状态。"
+            " 汇总 git_status、diff 统计、未跟踪文件、冲突、最近 native session 的 preflight/validation 状态，"
+            "并返回 verification.sufficient 判断验证是否充分。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "git"}
     )
