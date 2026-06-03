@@ -93,8 +93,8 @@ class PatchEngine(NativeCodingComponent):
                 "workspace_apply_unified_patch", str(planned_result["reason"]), data
             )
             return self._fail(planned_result["reason"], **data)
-        planned = planned_result["planned"]
 
+        planned = planned_result["planned"]
         for item in planned:
             if item["action"] == "delete":
                 item["target"].unlink()
@@ -102,22 +102,20 @@ class PatchEngine(NativeCodingComponent):
             item["target"].parent.mkdir(parents=True, exist_ok=True)
             item["target"].write_text(item["content"], encoding=const.CHARSET, newline="")
             self._refresh_written_file_mtime(item["target"])
+            if item["action"] == "rename" and item.get("source_target"):
+                item["source_target"].unlink()
 
         changed_files = [
-            self._public_unified_patch_file(item)
-            for item in planned
+            self._public_unified_patch_file(item) for item in planned
         ]
         created_files = [
-            item for item in changed_files
-            if item.get("action") == "create"
+            item for item in changed_files if item.get("action") == "create"
         ]
         updated_files = [
-            item for item in changed_files
-            if item.get("action") == "modify"
+            item for item in changed_files if item.get("action") == "modify"
         ]
         deleted_files = [
-            item for item in changed_files
-            if item.get("action") == "delete"
+            item for item in changed_files if item.get("action") == "delete"
         ]
 
         return self._ok(
@@ -125,6 +123,7 @@ class PatchEngine(NativeCodingComponent):
             files=[
                 {
                     "path"            : item["path"],
+                    "source_path"     : item["source_path"],
                     "action"          : item["action"],
                     "hunks"           : item["hunks"],
                     "relocated_hunks" : item["relocated_hunks"],
@@ -195,36 +194,61 @@ class PatchEngine(NativeCodingComponent):
             if str(k).strip() and str(v).strip()
         }
         planned: list[dict[str, typing.Any]] = []
+
         seen_paths: set[str] = set()
 
         for item in parsed["files"]:
 
             path   = str(item["path"])
             action = str(item.get("action") or "modify")
+
             try:
                 target = self._resolve(path)
             except ValueError as exc:
                 return {
-                    "ok"     : False,
-                    "reason" : "path_outside_workspace",
-                    "data"   : {
-                        "path"                  : path,
-                        "error"                 : str(exc),
-                        "suggested_next_action" : "regenerate_patch_with_workspace_relative_paths"
+                    "ok": False,
+                    "reason": "path_outside_workspace",
+                    "data": {
+                        "path": path,
+                        "error": str(exc),
+                        "suggested_next_action": "regenerate_patch_with_workspace_relative_paths"
                     }
                 }
-            rel    = self._rel(target)
 
-            if rel in seen_paths:
+            rel           = self._rel(target)
+            source_target = target
+            source_rel    = rel
+
+            if action == "rename":
+                source_path = str(item.get("old_path") or "")
+                try:
+                    source_target = self._resolve(source_path)
+                except ValueError as exc:
+                    return {
+                        "ok": False,
+                        "reason": "path_outside_workspace",
+                        "data": {
+                            "path": source_path,
+                            "error": str(exc),
+                            "suggested_next_action": "regenerate_patch_with_workspace_relative_paths"
+                        }
+                    }
+                source_rel = self._rel(source_target)
+
+            duplicate_paths = [rel]
+            if action == "rename":
+                duplicate_paths.append(source_rel)
+            duplicate = next((item_path for item_path in duplicate_paths if item_path in seen_paths), "")
+            if duplicate:
                 return {
-                    "ok"     : False,
-                    "reason" : "unified_patch_duplicate_file",
-                    "data"   : {
-                        "path": rel,
+                    "ok": False,
+                    "reason": "unified_patch_duplicate_file",
+                    "data": {
+                        "path": duplicate,
                         "suggested_next_action": "merge_changes_into_single_file_diff"
                     }
                 }
-            seen_paths.add(rel)
+            seen_paths.update(duplicate_paths)
 
             has_virtual     = rel in (virtual_files or {})
             virtual_content = (virtual_files or {}).get(rel)
@@ -234,36 +258,64 @@ class PatchEngine(NativeCodingComponent):
 
             if action == "create" and exists:
                 return {
-                    "ok"     : False,
-                    "reason" : "file_already_exists",
-                    "data"   : {
+                    "ok": False,
+                    "reason": "file_already_exists",
+                    "data": {
                         "path": path,
                         "suggested_next_action": "use_modify_patch_or_choose_new_path"
                     }
                 }
+            if action == "rename":
+                if not source_target.is_file():
+                    return {
+                        "ok": False,
+                        "reason": "file_not_found",
+                        "data": {
+                            "path": source_rel,
+                            "suggested_next_action": "list_or_read_workspace_then_regenerate_patch"
+                        }
+                    }
+                if target.exists():
+                    return {
+                        "ok": False,
+                        "reason": "file_already_exists",
+                        "data": {
+                            "path": rel,
+                            "suggested_next_action": "use_modify_patch_or_choose_new_path"
+                        }
+                    }
             if action in {"modify", "delete"} and not exists:
                 return {
-                    "ok"     : False,
-                    "reason" : "file_not_found",
-                    "data"   : {
+                    "ok": False,
+                    "reason": "file_not_found",
+                    "data": {
                         "path": path,
                         "suggested_next_action": "list_or_read_workspace_then_regenerate_patch"
                     }
                 }
-            if action in {"modify", "delete"}:
+            if action in {"modify", "delete", "rename"}:
                 expected = expected_map.get(path) or expected_map.get(rel)
-                if has_virtual:
+                if action == "rename":
+                    expected = expected or expected_map.get(source_rel) or expected_map.get(str(item.get("old_path") or ""))
+                    if conflict := self._conflict_guard(source_target, expected_sha256=expected, force=force):
+                        return {
+                            "ok"     : False,
+                            "reason" : (conflict.get("data") or {}).get("reason") or "file_changed_since_read",
+                            "data"   : conflict.get("data") or {}
+                        }
+                    current = self._read_text_preserve_newlines(source_target)
+                elif has_virtual:
                     current = str(virtual_content or "")
                     current_sha256 = self._sha256(current.encode(const.CHARSET, const.IGNORE))
                     if expected and not force and expected != current_sha256:
                         return {
-                            "ok"     : False,
-                            "reason" : "file_changed_since_read",
-                            "data"   : {
-                                "path"                  : rel,
-                                "expected_sha256"       : expected,
-                                "current_sha256"        : current_sha256,
-                                "suggested_next_action" : "refresh_file_snapshot_and_retry_with_current_sha256"
+                            "ok": False,
+                            "reason": "file_changed_since_read",
+                            "data": {
+                                "path": rel,
+                                "expected_sha256": expected,
+                                "current_sha256": current_sha256,
+                                "suggested_next_action": "refresh_file_snapshot_and_retry_with_current_sha256"
                             }
                         }
                 else:
@@ -279,7 +331,7 @@ class PatchEngine(NativeCodingComponent):
 
             sha256_before = (
                 self._sha256(current.encode(const.CHARSET, const.IGNORE))
-                if action in {"modify", "delete"} else None
+                if action in {"modify", "delete", "rename"} else None
             )
 
             applied = self._apply_unified_hunks(current, item["hunks"])
@@ -297,9 +349,9 @@ class PatchEngine(NativeCodingComponent):
             content = str(applied["content"])
             if action == "delete" and content:
                 return {
-                    "ok"     : False,
-                    "reason" : "unified_patch_delete_leaves_content",
-                    "data"   : {
+                    "ok": False,
+                    "reason": "unified_patch_delete_leaves_content",
+                    "data": {
                         "path": path,
                         "suggested_next_action": "regenerate_delete_patch_with_all_original_lines"
                     }
@@ -307,9 +359,9 @@ class PatchEngine(NativeCodingComponent):
             size = len(content.encode(const.CHARSET, const.IGNORE))
             if size > self.max_write_bytes:
                 return {
-                    "ok"     : False,
-                    "reason" : "content_too_large",
-                    "data"   : {
+                    "ok": False,
+                    "reason": "content_too_large",
+                    "data": {
                         "path": path,
                         "size": size,
                         "max_bytes": self.max_write_bytes,
@@ -323,8 +375,10 @@ class PatchEngine(NativeCodingComponent):
 
             planned.append({
                 "path"            : path,
+                "source_path"     : source_rel if action == "rename" else None,
                 "action"          : action,
                 "target"          : target,
+                "source_target"   : source_target if action == "rename" else None,
                 "content"         : content,
                 "hunks"           : len(item["hunks"]),
                 "relocated_hunks" : list(applied.get("relocated_hunks") or []),
@@ -361,15 +415,20 @@ class PatchEngine(NativeCodingComponent):
                 }
 
             new_path = self._clean_diff_path(lines[i][4:].strip())
-            path = new_path if new_path != "/dev/null" else old_path
             if old_path == "/dev/null" and new_path == "/dev/null":
                 return {"ok": False, "reason": "unified_patch_bad_file_header", "data": {}}
             if old_path == "/dev/null":
                 action = "create"
+                path = new_path
             elif new_path == "/dev/null":
                 action = "delete"
+                path = old_path
+            elif old_path != new_path:
+                action = "rename"
+                path = new_path
             else:
                 action = "modify"
+                path = new_path
             i += 1
 
             hunks: list[dict[str, typing.Any]] = []
@@ -446,7 +505,14 @@ class PatchEngine(NativeCodingComponent):
                     "reason" : "unified_patch_no_hunks",
                     "data"   : {"path": path}
                 }
-            files.append({"path": path, "action": action, "hunks": hunks})
+
+            files.append({
+                "path"     : path,
+                "old_path" : old_path,
+                "new_path" : new_path,
+                "action"   : action,
+                "hunks"    : hunks
+            })
 
         if not files:
             return {
@@ -467,8 +533,9 @@ class PatchEngine(NativeCodingComponent):
     ) -> dict[str, typing.Any]:
         original = content.splitlines(keepends=True)
         output: list[str] = []
-        cursor = 0
+        cursor: int = 0
         relocated_hunks: list[dict[str, int]] = []
+
         newline = self._detect_newline(original)
 
         for hunk_index, hunk in enumerate(hunks, start=1):
@@ -829,6 +896,7 @@ class PatchEngine(NativeCodingComponent):
     def _public_unified_patch_file(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
         return {
             "path"            : item.get("path"),
+            "source_path"     : item.get("source_path"),
             "action"          : item.get("action"),
             "hunks"           : item.get("hunks"),
             "relocated_hunks" : list(item.get("relocated_hunks") or []),
