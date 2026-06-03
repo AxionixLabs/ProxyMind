@@ -85,7 +85,7 @@ class ChangeSummaryTools(NativeCodingComponent):
         else:
             warnings.append({
                 "kind"    : "session_missing",
-                "message" : "no native coding session was found"
+                "message" : "no coding change session was found"
             })
 
         ready = not blockers

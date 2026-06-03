@@ -9,7 +9,7 @@ import subprocess
 from loguru import logger
 from backend.mcp_core.coding_native.base import NativeCodingComponent
 from backend.mcp_core.coding_native.command_runtime import NativeCommandRuntime
-from backend.mcp_core.coding_native.python_runtime import PythonRuntimeResolver
+from backend.mcp_core.coding_native.runtime_resolution import RuntimeResolver
 from backend.utilities.process import Flux
 from backend.utilities.trace import summarize_command
 
@@ -289,10 +289,11 @@ class ShellGitTools(NativeCodingComponent):
         output_limit      = int(policy.get("output_limit") or self.max_output_chars)
         env               = os.environ.copy()
 
-        python_runtime = PythonRuntimeResolver.resolve_shell_command(cmd, env=env)
-        if not python_runtime.get("ok"):
+        runtime = RuntimeResolver.resolve_shell_command(cmd, env=env)
+        if not runtime.get("ok"):
+            cloud_supported = bool(runtime.get("cloud_sandbox_supported"))
             return self._ok(
-                "shell exec requires cloud sandbox",
+                "shell exec runtime unavailable",
                 ok=False,
                 command=cmd,
                 cwd=self._rel(workdir),
@@ -300,23 +301,24 @@ class ShellGitTools(NativeCodingComponent):
                 category=policy.get("category"),
                 risk_reasons=[
                     *(policy.get("reasons") or []),
-                    str(python_runtime.get("reason") or "local_python_unavailable")
+                    str(runtime.get("reason") or "local_runtime_unavailable")
                 ],
                 approval_required=bool(policy.get("approval_required")),
-                execution_target="cloud_sandbox",
-                requires_cloud_sandbox=True,
+                execution_target=runtime.get("execution_target") or "local",
+                requires_cloud_sandbox=bool(runtime.get("requires_cloud_sandbox")),
+                cloud_sandbox_supported=cloud_supported,
                 execution=policy.get("execution"),
                 grant_id=policy.get("grant_id"),
                 project_types=policy.get("project_types") or [],
                 long_task=bool(policy.get("long_task")),
                 timeout_sec=policy.get("timeout_sec"),
                 output_limit=policy.get("output_limit"),
-                reason=python_runtime.get("reason"),
-                python_runtime=python_runtime
+                reason=runtime.get("reason"),
+                runtime=runtime
             )
 
-        exec_cmd = list(python_runtime.get("command") or cmd)
-        if not python_runtime.get("changed"):
+        exec_cmd = list(runtime.get("command") or cmd)
+        if not runtime.get("changed"):
             exec_cmd = NativeCommandRuntime.resolve_command(exec_cmd, env=env)
 
         audit_mode   = self._audit_mode_for_command(cmd, audit_files=audit_files)
@@ -383,7 +385,7 @@ class ShellGitTools(NativeCodingComponent):
                 "requires_cloud_sandbox": bool(policy.get("requires_cloud_sandbox")),
                 "execution": policy.get("execution"),
                 "grant_id": policy.get("grant_id"),
-                "python_runtime": python_runtime if python_runtime.get("changed") else None,
+                "runtime": runtime.get("runtime") if runtime.get("changed") else None,
                 "project_types": policy.get("project_types") or [],
                 "long_task": bool(policy.get("long_task")),
                 "timeout_sec": effective_timeout,

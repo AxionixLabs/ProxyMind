@@ -7,7 +7,7 @@ from backend.mcp_core.coding_native.base import NativeCodingComponent
 
 
 class PlanTools(NativeCodingComponent):
-    """维护原生编码会话中的计划数据。"""
+    """维护变更会话中的计划数据。"""
 
     def update_plan(
         self,
@@ -47,7 +47,7 @@ class PlanTools(NativeCodingComponent):
         plan["updated_at"] = time.time()
         plan["summary"] = self._plan_summary(plan)
         return self._ok(
-            f"native plan updated session_id={session.get('session_id')} todos={len(plan.get('todos') or [])}",
+            f"coding plan updated session_id={session.get('session_id')} todos={len(plan.get('todos') or [])}",
             session_id=session.get("session_id"),
             plan=plan
         )
@@ -62,7 +62,7 @@ class PlanTools(NativeCodingComponent):
         plan = session.setdefault("plan", self._empty_plan())
         plan["summary"] = self._plan_summary(plan)
         return self._ok(
-            f"native plan returned session_id={session.get('session_id')}",
+            f"coding plan returned session_id={session.get('session_id')}",
             session_id=session.get("session_id"),
             plan=plan
         )

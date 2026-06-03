@@ -8,7 +8,7 @@ from backend.mcp_core.coding_native.base import NativeCodingComponent
 
 
 class SessionTools(NativeCodingComponent):
-    """维护原生编码会话状态，并提供会话查询和轻量创建能力。"""
+    """维护变更会话状态，并提供会话查询和轻量创建能力。"""
 
     @staticmethod
     def _session_has_run(
@@ -25,19 +25,19 @@ class SessionTools(NativeCodingComponent):
         self,
         session_id: str | None = None
     ) -> dict[str, typing.Any]:
-        """返回指定原生编码会话；未指定时返回最近会话列表。"""
+        """返回指定变更会话；未指定时返回最近会话列表。"""
         if session_id:
             item = self.sessions.get(str(session_id))
             if not isinstance(item, dict):
                 return self._fail("session_not_found", session_id=session_id)
             return self._ok(
-                f"native coding session returned session_id={session_id}",
+                f"coding session returned session_id={session_id}",
                 session=self._public_session(item)
             )
 
         sessions = list(self.sessions.values())[-10:]
         return self._ok(
-            f"native coding sessions count={len(self.sessions)}",
+            f"coding sessions count={len(self.sessions)}",
             sessions=[
                 {
                     "session_id"  : item.get("session_id"),
@@ -77,7 +77,7 @@ class SessionTools(NativeCodingComponent):
         prompt: str = "",
         session_id: str | None = None
     ) -> dict[str, typing.Any]:
-        """创建或复用一个不执行任务的原生编码会话。"""
+        """创建或复用一个不执行任务的变更会话。"""
         sid     = str(session_id or "").strip() or f"native_{uuid.uuid4().hex[:10]}"
         session = self.sessions.get(sid)
 

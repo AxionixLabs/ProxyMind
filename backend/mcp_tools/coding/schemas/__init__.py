@@ -17,7 +17,6 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     WorkspaceOptionalPathArg,
     WorkspacePatternArg,
     WorkspaceContentArg,
-    WorkspaceQueryArg,
     WorkspaceSearchQueryArg,
     WorkspaceStartLineArg,
     WorkspaceMaxLinesArg,
@@ -41,9 +40,9 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     ShellTimeoutArg,
     ExecutionMetadataArg,
     GitDiffMaxCharsArg,
-    NativeSessionIdArg,
-    NativeRequiredSessionIdArg,
-    NativeRunIdArg,
+    CodingSessionIdArg,
+    CodingRequiredSessionIdArg,
+    CodingRunIdArg,
 )
 
 __all__ = [
@@ -60,7 +59,6 @@ __all__ = [
     "WorkspaceOptionalPathArg",
     "WorkspacePatternArg",
     "WorkspaceContentArg",
-    "WorkspaceQueryArg",
     "WorkspaceSearchQueryArg",
     "WorkspaceStartLineArg",
     "WorkspaceMaxLinesArg",
@@ -84,9 +82,9 @@ __all__ = [
     "ShellTimeoutArg",
     "ExecutionMetadataArg",
     "GitDiffMaxCharsArg",
-    "NativeSessionIdArg",
-    "NativeRequiredSessionIdArg",
-    "NativeRunIdArg",
+    "CodingSessionIdArg",
+    "CodingRequiredSessionIdArg",
+    "CodingRunIdArg",
 ]
 
 

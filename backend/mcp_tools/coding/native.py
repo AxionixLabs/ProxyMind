@@ -35,9 +35,9 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     ShellTimeoutArg,
     ExecutionMetadataArg,
     GitDiffMaxCharsArg,
-    NativeSessionIdArg,
-    NativeRequiredSessionIdArg,
-    NativeRunIdArg,
+    CodingSessionIdArg,
+    CodingRequiredSessionIdArg,
+    CodingRunIdArg,
 )
 from backend.utilities.runtime import (
     AppContext, Idle
@@ -523,7 +523,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     )
     @task_middleware("change_summary")
     async def change_summary(
-        session_id: NativeSessionIdArg = None,
+        session_id: CodingSessionIdArg = None,
         max_diff_chars: GitDiffMaxCharsArg = 12000
     ) -> CallToolResult:
 
@@ -545,15 +545,15 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "按 native coding session/run 的文件快照回滚本轮改动。"
+            "按变更会话和运行记录的文件快照回滚本轮改动。"
             " 只恢复工具记录过的文件快照，不执行 git reset。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "session"}
     )
     @task_middleware("rollback_run")
     async def rollback_run(
-        session_id: NativeRequiredSessionIdArg,
-        run_id: NativeRunIdArg = None
+        session_id: CodingRequiredSessionIdArg,
+        run_id: CodingRunIdArg = None
     ) -> CallToolResult:
 
         args = {

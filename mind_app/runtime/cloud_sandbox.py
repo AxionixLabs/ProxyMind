@@ -17,20 +17,21 @@ def normalize_cloud_sandbox_handoff(
         return None
 
     fields_map = _fields_map(fields)
+
     requests = collect_cloud_sandbox_requests(tool_name=tool_name, fields=fields_map)
     if not requests:
         return None
 
     return {
-        "text": f"cloud sandbox handoff requested count={len(requests)}",
-        "attachments": fields_map.get("attachments") or [],
+        "text"        : f"cloud sandbox handoff requested count={len(requests)}",
+        "attachments" : fields_map.get("attachments") or [],
         "data": {
-            "ok": True,
-            "pending_cloud_sandbox": True,
-            "original_tool": tool_name,
-            "sandbox_requests": requests,
-            "original_result": fields_map.get("data"),
-            "handoff_at": time.time()
+            "ok"                    : True,
+            "pending_cloud_sandbox" : True,
+            "original_tool"         : tool_name,
+            "sandbox_requests"      : requests,
+            "original_result"       : fields_map.get("data"),
+            "handoff_at"            : time.time()
         }
     }
 
@@ -41,7 +42,7 @@ def collect_cloud_sandbox_requests(
     fields: dict[str, typing.Any]
 ) -> list[dict[str, typing.Any]]:
     """从工具结果中提取需要云端沙箱接管的命令请求。"""
-    data = fields.get("data") if isinstance(fields.get("data"), dict) else {}
+    data    = fields.get("data") if isinstance(fields.get("data"), dict) else {}
     results = data.get("results") if isinstance(data.get("results"), list) else []
 
     requests: list[dict[str, typing.Any]] = []
@@ -50,12 +51,14 @@ def collect_cloud_sandbox_requests(
             if not isinstance(result, dict):
                 continue
             item_data = result.get("data") if isinstance(result.get("data"), dict) else {}
+
             context = {
-                "agent_id": result.get("agent_id"),
-                "session_id": item_data.get("session_id"),
-                "run_id": item_data.get("run_id")
+                "agent_id"   : result.get("agent_id"),
+                "session_id" : item_data.get("session_id"),
+                "run_id"     : item_data.get("run_id")
             }
             requests.extend(_collect_from_value(tool_name, item_data, context=context))
+
     else:
         requests.extend(_collect_from_value(tool_name, data, context={}))
 
@@ -72,8 +75,18 @@ def _fields_map(fields: typing.Union[str, dict[str, typing.Any]]) -> dict[str, t
             parsed = None
         if isinstance(parsed, dict):
             return parsed
-        return {"text": fields, "attachments": [], "data": {}}
-    return {"text": str(fields), "attachments": [], "data": {}}
+
+        return {
+            "text"        : fields,
+            "attachments" : [],
+            "data"        : {}
+        }
+
+    return {
+        "text"        : str(fields),
+        "attachments" : [],
+        "data"        : {}
+    }
 
 
 def _collect_from_value(
@@ -98,6 +111,7 @@ def _collect_from_value(
     elif isinstance(value, list):
         for child in value:
             found.extend(_collect_from_value(tool_name, child, context=context))
+
     return found
 
 
@@ -118,15 +132,18 @@ def _build_handoff_request(
 ) -> dict[str, typing.Any] | None:
     execution = node.get("execution") if isinstance(node.get("execution"), dict) else {}
     canonical = execution.get("canonicalArguments") or execution.get("canonical_arguments")
+
     if not isinstance(canonical, dict):
         canonical = {}
+
     command = canonical.get("command") or node.get("command")
     if not isinstance(command, list) or not command:
         return None
 
     session_id = context.get("session_id")
-    run_id = context.get("run_id")
-    cwd = canonical.get("cwd") or node.get("cwd") or "."
+    run_id     = context.get("run_id")
+    cwd        = canonical.get("cwd") or node.get("cwd") or "."
+
     request = {
         "protocol_version": 1,
         "tool": tool_name,
@@ -144,7 +161,6 @@ def _build_handoff_request(
         "workspace": None,
         "cloud_schema": {
             "preferred": "command",
-            "fallback": "python_project",
             "requires_workspace_materialization": True
         },
         "record_tool": None,
@@ -161,10 +177,10 @@ def _dedupe_requests(items: list[dict[str, typing.Any]]) -> list[dict[str, typin
     for item in items:
         key = json.dumps(
             {
-                "session_id": item.get("session_id"),
-                "run_id": item.get("run_id"),
-                "command": item.get("command"),
-                "cwd": item.get("cwd")
+                "session_id" : item.get("session_id"),
+                "run_id"     : item.get("run_id"),
+                "command"    : item.get("command"),
+                "cwd"        : item.get("cwd")
             },
             ensure_ascii=False,
             sort_keys=True
@@ -173,6 +189,7 @@ def _dedupe_requests(items: list[dict[str, typing.Any]]) -> list[dict[str, typin
             continue
         seen.add(key)
         deduped.append(item)
+
     return deduped
 
 

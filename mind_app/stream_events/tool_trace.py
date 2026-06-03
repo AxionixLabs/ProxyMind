@@ -182,24 +182,8 @@ def _session_id_from_payload(payload: dict[str, typing.Any], args: dict[str, typ
 def _status_from_payload(payload: dict[str, typing.Any]) -> str:
     """从结果载荷中读取状态文本。"""
     raw = str(payload.get("status") or "").strip().lower()
-    aliases = {
-        "ok"        : "success",
-        "passed"    : "success",
-        "completed" : "success",
-        "succeeded" : "success",
-        "success"   : "success",
-        "fail"      : "failed",
-        "failed"    : "failed",
-        "error"     : "failed",
-        "blocked"   : "failed",
-        "cancelled" : "cancelled",
-        "canceled"  : "cancelled",
-        "timeout"   : "timeout",
-        "timed_out" : "timeout"
-    }
-
-    if raw in aliases:
-        return aliases[raw]
+    if raw in {"success", "failed", "cancelled", "timeout"}:
+        return raw
     if payload.get("ok"):
         return "success"
     if payload.get("ok") is False:

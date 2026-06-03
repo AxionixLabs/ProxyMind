@@ -29,10 +29,6 @@ WorkspaceTargetPathArg = typing.Annotated[
     str,
     Field(description="工作区内复制、移动或重命名后的目标文件相对路径；不允许越过工作区根目录。"),
 ]
-WorkspaceQueryArg = typing.Annotated[
-    str,
-    Field(description="要在工作区中查找的字符串。"),
-]
 WorkspaceSearchQueryArg = typing.Annotated[
     typing.Union[str, list[str]],
     Field(description="一个或多个搜索查询；可按文件名、符号名、调用点、错误文本组合多轮定位。"),
@@ -137,17 +133,19 @@ GitDiffMaxCharsArg = typing.Annotated[
     Field(description="git diff 最多返回的字符数。"),
 ]
 
-NativeSessionIdArg = typing.Annotated[
+CodingSessionIdArg = typing.Annotated[
     typing.Optional[str],
-    Field(description="原生编码会话 ID；为空时创建新会话，传入已有 ID 时追加新 run 并保留修复轨迹。"),
+    Field(description="变更会话 ID；为空时使用最近一次会话。"),
 ]
-NativeRequiredSessionIdArg = typing.Annotated[
+CodingRequiredSessionIdArg = typing.Annotated[
     str,
-    Field(description="必填原生编码会话 ID。"),
+    Field(description="必填变更会话 ID。"),
 ]
-NativeRunIdArg = typing.Annotated[
+CodingRunIdArg = typing.Annotated[
     typing.Optional[str],
-    Field(description="可选 run ID；为空时使用指定 session 的最后一个 run。"),
+    Field(description="可选运行记录 ID；为空时使用指定会话的最后一个运行记录。"),
 ]
+
+
 if __name__ == '__main__':
     pass
