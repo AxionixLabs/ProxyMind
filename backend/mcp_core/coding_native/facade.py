@@ -22,17 +22,18 @@ class NativeCoding(NativeCodingBase):
     def __init__(self, root: str | None = None):
         super().__init__(root=root)
 
-        self._workspace         = WorkspaceTools(self)
-        self._parallel_read     = ParallelReadTools(self)
-        self._repo_map          = RepoMapTools(self)
-        self._patch_engine      = PatchEngine(self)
-        self._command_policy    = CommandPolicy(self)
-        self._file_audit        = FileAudit(self)
-        self._shell_git         = ShellGitTools(self)
-        self._change_summary    = ChangeSummaryTools(self)
-        self._snapshots         = SnapshotTools(self)
-        self._plan              = PlanTools(self)
-        self._session           = SessionTools(self)
+        self._repo_map       = RepoMapTools(self)
+        self._workspace      = WorkspaceTools(self)
+        self._parallel_read  = ParallelReadTools(self)
+        self._patch_engine   = PatchEngine(self)
+        self._command_policy = CommandPolicy(self)
+        self._file_audit     = FileAudit(self)
+        self._shell_git      = ShellGitTools(self)
+        self._change_summary = ChangeSummaryTools(self)
+        self._snapshots      = SnapshotTools(self)
+        self._plan           = PlanTools(self)
+        self._session        = SessionTools(self)
+
         self._private_delegates = self._build_private_delegates()
 
     def _build_private_delegates(self) -> dict[str, typing.Any]:
@@ -95,12 +96,6 @@ class NativeCoding(NativeCodingBase):
 
     def delete_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._workspace.delete_file(*args, **kwargs)
-
-    def repo_map(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return self._repo_map.repo_map(*args, **kwargs)
-
-    def find_symbol(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return self._repo_map.find_symbol(*args, **kwargs)
 
     def apply_patch(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._patch_engine.apply_patch(*args, **kwargs)

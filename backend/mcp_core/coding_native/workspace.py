@@ -5,11 +5,12 @@ import re
 import typing
 import fnmatch
 from backend.mcp_core.coding_native.base import NativeCodingComponent
-from backend.utilities import const
 from backend.utilities.trace import clip_text
+from backend.utilities import const
 
 
 class WorkspaceTools(NativeCodingComponent):
+    """提供工作区文件读取、写入、搜索和路径列表能力。"""
 
     def workspace_root(
         self
@@ -150,7 +151,6 @@ class WorkspaceTools(NativeCodingComponent):
         byte_truncated = input_truncated or output_truncated
 
         truncation_reasons = self._read_file_truncation_reasons(
-            byte_truncated=byte_truncated,
             input_truncated=input_truncated,
             output_truncated=output_truncated,
             line_truncated=line_truncated,
@@ -571,11 +571,7 @@ class WorkspaceTools(NativeCodingComponent):
         matches: list[dict[str, typing.Any]]
     ) -> None:
         """通过 repo map 的符号索引补充符号搜索结果。"""
-        finder = getattr(self.core, "find_symbol", None)
-        if not callable(finder):
-            return
-
-        result = finder(
+        result = self._find_symbol(
             query=query,
             path=path,
             glob=glob,
@@ -745,8 +741,9 @@ class WorkspaceTools(NativeCodingComponent):
         """为被截断的文件读取结果生成继续读取下一段的建议。"""
         steps: list[dict[str, typing.Any]] = []
 
-        has_known_next_line = isinstance(total_lines, int) and end_line < total_lines
+        has_known_next_line    = isinstance(total_lines, int) and end_line < total_lines
         has_possible_next_line = line_truncated or (byte_truncated and total_lines is None)
+
         if has_known_next_line or has_possible_next_line:
             steps.append({
                 "tool"   : "workspace_read_file",
@@ -759,7 +756,6 @@ class WorkspaceTools(NativeCodingComponent):
     @staticmethod
     def _read_file_truncation_reasons(
         *,
-        byte_truncated: bool,
         input_truncated: bool,
         output_truncated: bool,
         line_truncated: bool,

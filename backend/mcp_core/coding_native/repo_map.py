@@ -112,6 +112,14 @@ class RepoMapTools(NativeCodingComponent):
             truncated=len(matches) >= max_matches
         )
 
+    def _find_symbol(
+        self,
+        *args: typing.Any,
+        **kwargs: typing.Any
+    ) -> dict[str, typing.Any]:
+        """为内部组件提供符号搜索能力。"""
+        return self.find_symbol(*args, **kwargs)
+
     def _parse_symbol_file(
         self,
         path: str,
@@ -265,6 +273,7 @@ class RepoMapTools(NativeCodingComponent):
         path: str
     ) -> str:
         suffix = Path(path).suffix.lower()
+
         if suffix in {".py", ".pyi"}:
             return "python"
         if suffix in {".ts", ".tsx"}:
