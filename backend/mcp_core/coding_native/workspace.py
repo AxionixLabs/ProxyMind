@@ -22,6 +22,51 @@ class WorkspaceTools(NativeCodingComponent):
             "logs"        : []
         }
 
+    def list_file(
+        self,
+        *,
+        path: str = ".",
+        glob: str | None = None,
+        recursive: bool = True,
+        max_matches: int = 100
+    ) -> dict[str, typing.Any]:
+        """列出工作区内的文件路径。"""
+        base = self._resolve(path)
+        if not base.exists():
+            return self._fail("path_not_found", path=path)
+        if not base.is_dir():
+            return self._fail("path_not_directory", path=path)
+
+        limit = max(1, min(int(max_matches or 100), 1000))
+        files: list[dict[str, typing.Any]] = []
+
+        for item in self._walk(base, recursive=bool(recursive)):
+            if len(files) >= limit:
+                break
+            if self._is_excluded(item):
+                continue
+
+            rel = self._rel(item)
+            if glob and not fnmatch.fnmatch(rel, glob) and not fnmatch.fnmatch(item.name, glob):
+                continue
+
+            files.append({
+                "path"      : rel,
+                "file_kind" : "dir" if item.is_dir() else "file",
+                "size"      : item.stat().st_size if item.is_file() else None,
+            })
+
+        return self._ok(
+            f"workspace list file ok path={self._rel(base)} files={len(files)}",
+            path=self._rel(base),
+            glob=glob,
+            recursive=bool(recursive),
+            files=files,
+            file_count=len(files),
+            truncated=len(files) >= limit,
+            max_matches=limit
+        )
+
     def read_file(
         self,
         *,

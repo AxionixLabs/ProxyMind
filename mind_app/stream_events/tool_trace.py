@@ -37,6 +37,7 @@ MAX_CODE_PREVIEW_LINES = 12
 
 NATIVE_CODING_TRACE_TOOLS = {
     "workspace_root",
+    "workspace_list_file",
     "workspace_read_file",
     "workspace_search",
     "native_parallel_read",
@@ -374,7 +375,7 @@ def _action_style_for_body(body: str, *, ok: bool) -> str | None:
 
     if first == "Git":
         return ACTION_GIT_STYLE
-    if first in {"Read", "Searched", "Root", "Skipping", "Skipped"}:
+    if first in {"Read", "Listed", "Searched", "Root", "Skipping", "Skipped"}:
         return ACTION_READ_STYLE
     if first in {"Edited", "Created", "Deleted", "Copied", "Moved", "Patch"}:
         return ACTION_EDIT_STYLE
@@ -633,6 +634,20 @@ def render_tool_result_preview(
         root = str(data.get("root") or "").strip()
         return _trace_preview_from_lines([f"root={root}"] if root else [])
 
+    if name == "workspace_list_file":
+        files = data.get("files")
+        if isinstance(files, list):
+            lines = []
+            for item in files:
+                if not isinstance(item, dict):
+                    continue
+                path = str(item.get("path") or "").strip()
+                kind = str(item.get("file_kind") or "").strip()
+                row = f"{kind} {path}".strip()
+                if row:
+                    lines.append(row)
+            return _trace_preview_from_lines(lines)
+
     if name == "workspace_read_file":
         return _trace_preview_from_lines(_normalize_preview_lines(data.get("content")))
 
@@ -670,6 +685,9 @@ def render_tool_result_preview(
 
                 if tool == "workspace_read_file":
                     detail = str(result_data.get("path") or "").strip()
+                elif tool == "workspace_list_file":
+                    count = _count_from_payload(result_data, "files", "file_count")
+                    detail = f"{count} files" if isinstance(count, int) else ""
                 elif tool == "workspace_search":
                     count = _count_from_payload(result_data, "matches", "match_count")
                     detail = f"{count} matches" if isinstance(count, int) else ""
@@ -847,6 +865,13 @@ def render_tool_trace(
         root = str(payload.get("root") or "").strip()
         return f"• Root {root}".rstrip()
 
+    if name == "workspace_list_file":
+        path   = str(payload.get("path") or _path_from_args(args))
+        count  = payload.get("file_count")
+        detail = f" ({count} files)" if isinstance(count, int) else ""
+
+        return f"• Listed {path}{detail}{suffix}"
+
     if name == "workspace_read_file":
         path = str(payload.get("path") or _path_from_args(args))
         return f"• Read {path}{suffix}"
@@ -863,6 +888,7 @@ def render_tool_trace(
         return f"• Searched \"{query}\"{detail}{suffix}"
 
     if name == "native_parallel_read":
+
         total      = payload.get("total")
         ok_count   = payload.get("ok_count")
         fail_count = payload.get("fail_count")
@@ -888,24 +914,20 @@ def render_tool_trace(
     if name == "workspace_copy_file":
         source = str(payload.get("source_path") or args.get("source_path") or "").strip()
         target = str(payload.get("target_path") or args.get("target_path") or "").strip()
-
         return f"• Copied {source} -> {target}{suffix}".rstrip()
 
     if name == "workspace_move_file":
         source = str(payload.get("source_path") or args.get("source_path") or "").strip()
         target = str(payload.get("target_path") or args.get("target_path") or "").strip()
-
         return f"• Moved {source} -> {target}{suffix}".rstrip()
 
     if name == "workspace_delete_file":
         path = str(payload.get("path") or _path_from_args(args))
-
         return f"• Deleted {path}{suffix}"
 
     if name == "workspace_apply_patch":
         path = str(payload.get("path") or _path_from_args(args))
         added, removed = _line_delta_from_patch_args(args)
-
         return f"• Edited {path}{_format_delta(added, removed)}{suffix}"
 
     if name == "workspace_apply_unified_patch":
@@ -925,7 +947,6 @@ def render_tool_trace(
         return f"• {action} {target}{_format_delta(added, removed)}{suffix}"
 
     if name == "shell_exec":
-
         command = _command_text(payload.get("command") or args.get("command"))
         rc      = payload.get("exit_code")
         elapsed = payload.get("elapsed_ms", cost_ms)
@@ -948,6 +969,7 @@ def render_tool_trace(
         return f"• Change summary{suffix}"
 
     if name == "rollback_run":
+
         sid    = _session_id_from_payload(payload, args)
         detail = f" {sid}" if sid else ""
 

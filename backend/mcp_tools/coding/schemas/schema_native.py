@@ -65,12 +65,16 @@ WorkspaceMaxMatchesArg = typing.Annotated[
     int,
     Field(description="搜索最多返回的匹配条数。"),
 ]
+WorkspaceRecursiveArg = typing.Annotated[
+    bool,
+    Field(description="列文件时是否递归进入子目录。"),
+]
 NativeParallelReadItemsArg = typing.Annotated[
     list[dict[str, typing.Any]],
     Field(
         description=(
             "并行读取上下文的只读步骤列表。每项包含 tool 和 args；"
-            "仅允许 workspace_root、workspace_read_file、workspace_search。"
+            "仅允许 workspace_root、workspace_list_file、workspace_read_file、workspace_search。"
         )
     ),
 ]

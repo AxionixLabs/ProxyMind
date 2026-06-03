@@ -19,6 +19,7 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     WorkspaceSearchModeArg,
     WorkspaceSearchContextArg,
     WorkspaceMaxMatchesArg,
+    WorkspaceRecursiveArg,
     NativeParallelReadItemsArg,
     WorkspaceCreateDirsArg,
     WorkspaceOverwriteArg,
@@ -102,6 +103,39 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
+            "列出工作区内文件路径。"
+            " 用于查看当前目录有哪些文件，支持 glob 过滤、递归开关和数量上限。"
+        ),
+        meta={"hidden": False, "domain": "coding", "class": "workspace"}
+    )
+    @task_middleware("workspace_list_file")
+    async def workspace_list_file(
+        path: WorkspaceOptionalPathArg = ".",
+        glob: WorkspacePatternArg = None,
+        recursive: WorkspaceRecursiveArg = True,
+        max_matches: WorkspaceMaxMatchesArg = 100
+    ) -> CallToolResult:
+
+        args = {
+            "path"        : path or ".",
+            "glob"        : glob,
+            "recursive"   : recursive,
+            "max_matches" : max_matches
+        }
+
+        async def call(*_) -> dict:
+            return ctx.native_coding.list_file(**args)
+
+        return await broadcast(
+            tool="workspace_list_file",
+            args=args,
+            target_list=[ctx.native_coding],
+            call=call,
+            overrides=None
+        )
+
+    @mcp.tool(
+        description=(
             "统一搜索工作区上下文。"
             " mode=auto 会同时搜索文件路径、文本内容和符号；"
             " mode=text/literal 搜字面量文本，mode=regex 搜正则，"
@@ -149,7 +183,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "并行读取多段工作区上下文。"
-            " 只允许 workspace_root、workspace_read_file、workspace_search；"
+            " 只允许 workspace_root、workspace_list_file、workspace_read_file、workspace_search；"
             " 不执行 shell、不写文件、不应用 patch。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}
