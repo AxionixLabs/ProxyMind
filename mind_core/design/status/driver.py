@@ -404,15 +404,23 @@ class DesignStatusLiveDriver(StatusRenderer):
         interval = self.status_interval(kind)
         phase = 0.0
 
+        def frame(elapsed_sec: float) -> Text:
+            renderable = self.mode_status_renderable(phase, label)
+            renderable.append_text(self.status_elapsed_renderable(elapsed_sec))
+            return renderable
+
+        loop = asyncio.get_running_loop()
+        started_at = loop.time()
         with Live(
-            self.mode_status_renderable(phase, label),
+            frame(0.0),
             console=self.console,
             refresh_per_second=fps,
             transient=True
         ) as live:
             while not stop_event.is_set():
                 phase += self.status_step(kind) * interval
-                live.update(self.mode_status_renderable(phase, label))
+                elapsed_sec = loop.time() - started_at
+                live.update(frame(elapsed_sec))
                 await asyncio.sleep(interval)
 
     async def stream_wait_live(

@@ -5,6 +5,12 @@ import math
 import typing
 from rich.text import Text
 from rich.cells import cell_len
+from .elapsed import (
+    elapsed_format_key,
+    format_elapsed,
+    max_elapsed_display_width,
+    pad_elapsed_label,
+)
 from .specs import StatusSpec
 from ..utils import mix_hex_color
 
@@ -103,6 +109,46 @@ class StatusRenderer(StatusSpec):
                 style = mid_style
             elif distance <= peak_radius + span:
                 style = fade_style
+            else:
+                style = dim_style
+
+            out.append(char, style=style)
+
+    @classmethod
+    def _append_forward_sweep_text(
+        cls,
+        out: Text,
+        text: str,
+        *,
+        focus: float,
+        peak_style: str,
+        dim_style: str,
+        soft_style: str,
+        near_style: str,
+        mid_style: str,
+        fade_style: str,
+        tail_span: float,
+        peak_radius: float
+    ) -> None:
+        tail_span = max(0.001, float(tail_span))
+        peak_radius = max(0.0, float(peak_radius))
+
+        for pos, char in enumerate(text):
+            delta = focus - pos
+            if 0.0 <= delta <= peak_radius:
+                style = peak_style
+            elif delta > peak_radius:
+                tail = (delta - peak_radius) / tail_span
+                if tail <= 0.14:
+                    style = soft_style
+                elif tail <= 0.34:
+                    style = near_style
+                elif tail <= 0.62:
+                    style = mid_style
+                elif tail <= 1.0:
+                    style = fade_style
+                else:
+                    style = dim_style
             else:
                 style = dim_style
 
@@ -305,6 +351,24 @@ class StatusRenderer(StatusSpec):
     def status_elapsed_separator() -> str:
         return "  · "
 
+    @classmethod
+    def status_elapsed_renderable(cls, elapsed_sec: float) -> Text:
+        elapsed = max(0.0, float(elapsed_sec or 0.0))
+        key = elapsed_format_key(elapsed)
+        label = pad_elapsed_label(
+            format_elapsed(elapsed),
+            key=key,
+            width=max_elapsed_display_width()
+        )
+
+        out = Text()
+        separator = cls.status_elapsed_separator()
+        out.append(separator[:2], style="bold #435057")
+        out.append(separator[2], style="bold #4C5A61")
+        out.append(separator[3:], style="bold #435057")
+        out.append(label, style="bold #5D696F")
+        return out
+
     @staticmethod
     def _status_shell_char(
         level: float,
@@ -363,12 +427,12 @@ class StatusRenderer(StatusSpec):
     def mode_status_text(mode: typing.Any) -> str:
         normalized = str(mode or "").strip().lower()
         labels = {
-            "chat" : "Chat reply",
-            "fast" : "Fast reply",
-            "plan" : "Plan reply",
-            "xtra" : "Xtra reply",
+            "chat" : "Chat Stream",
+            "fast" : "Fast Stream",
+            "plan" : "Plan Stream",
+            "xtra" : "Xtra Stream",
         }
-        return labels.get(normalized, "Mind reply")
+        return labels.get(normalized, "Mind Stream")
 
     @classmethod
     def _build_status_shell(
@@ -858,11 +922,11 @@ class StatusRenderer(StatusSpec):
 
         text = cls.fit_status_text(text, kind="code", fallback="Running")
         span = max(1, len(text))
-        focus = cls._sway_focus(
+        focus = cls._drift_focus(
             phase,
             span,
-            speed=spec.scan_speed,
-            pad=spec.scan_pad
+            entry_pad=spec.entry_pad,
+            exit_pad=spec.exit_pad
         )
         cls._append_sweep_text(
             out,
@@ -896,23 +960,23 @@ class StatusRenderer(StatusSpec):
             "text_peak" : "bold #EAF9FF",
             "text_soft" : "bold #C7EEF9",
             "text_near" : "bold #91D7ED",
-            "text_mid"  : "bold #5BA8C7",
-            "text_fade" : "bold #407D95",
-            "text_dim"  : "bold #375B6A"
+            "text_mid"  : "bold #4B8FA8",
+            "text_fade" : "bold #335F72",
+            "text_dim"  : "bold #2F4C5A"
         }
 
         out = cls._mode_status_indicator(phase)
         out.append(cls.status_content_gap(), style=colors["edge"])
 
-        text = cls.fit_status_text(text, kind="mode", fallback="Mind reply")
+        text = cls.fit_status_text(text, kind="mode", fallback="Mind Stream")
         span = max(1, len(text))
-        focus = cls._sway_focus(
+        focus = cls._drift_focus(
             phase,
             span,
-            speed=spec.scan_speed,
-            pad=spec.scan_pad
+            entry_pad=spec.entry_pad,
+            exit_pad=spec.exit_pad
         )
-        cls._append_sweep_text(
+        cls._append_forward_sweep_text(
             out,
             text,
             focus=focus,
@@ -922,12 +986,8 @@ class StatusRenderer(StatusSpec):
             mid_style=colors["text_mid"],
             fade_style=colors["text_fade"],
             dim_style=colors["text_dim"],
-            lead_span=spec.lead_span,
             tail_span=spec.tail_span,
-            peak_radius=spec.peak_radius,
-            soft_ratio=0.20,
-            near_ratio=spec.near_ratio,
-            mid_ratio=spec.mid_ratio
+            peak_radius=spec.peak_radius
         )
         return out
 

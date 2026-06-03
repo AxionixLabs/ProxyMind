@@ -34,16 +34,18 @@ CODE_STATUS_SPEC = SweepStatusSpec(
 )
 MODE_STATUS_SPEC = SweepStatusSpec(
     refresh_per_second=30,
-    phase_rate=13.2,
+    phase_rate=13.6,
     text_limit=56,
     shell_freq=0.44,
     lead_span=2.8,
-    tail_span=5.6,
-    peak_radius=0.70,
+    tail_span=4.6,
+    peak_radius=0.52,
     near_ratio=0.50,
     mid_ratio=0.84,
     scan_speed=0.22,
-    scan_pad=2.0
+    scan_pad=2.0,
+    entry_pad=1.0,
+    exit_pad=3.0
 )
 BUILTIN_STATUS_SPEC = SweepStatusSpec(
     refresh_per_second=40,
