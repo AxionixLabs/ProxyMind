@@ -7,31 +7,34 @@ from backend.mcp_core.coding_native.base import NativeCodingComponent
 
 class ChangeSummaryTools(NativeCodingComponent):
 
-    def _latest_session(
-        self
-    ) -> dict[str, typing.Any] | None:
-        if not self.sessions:
-            return None
-        return list(self.sessions.values())[-1]
-
     async def change_summary(
         self,
         *,
         session_id: str | None = None,
-        max_diff_chars: int = 12000
+        max_diff_chars: int = 12000,
+        include_untracked_preview: bool = True
     ) -> dict[str, typing.Any]:
+        """生成变更摘要、风险项和验证充分性判断。"""
         status = await self.git_status()
         diff   = await self.git_diff(max_chars=max_diff_chars)
 
-        status_data     = status.get("data") or {}
-        diff_data       = diff.get("data") or {}
-        status_text     = str(status_data.get("stdout") or "")
-        diff_text       = str(diff_data.get("stdout") or "")
-        changed_files   = self._parse_git_status_short(status_text)
-        diff_stats      = self._summarize_diff_text(diff_text)
-        session         = self.sessions.get(str(session_id or "")) if session_id else self._latest_session()
-        session_summary = session.get("summary") if isinstance(session, dict) else None
-        latest_run      = (session.get("runs") or [])[-1] if isinstance(session, dict) and session.get("runs") else None
+        status_data = status.get("data") or {}
+        diff_data   = diff.get("data") or {}
+
+        numstat = await self._git(
+            ["diff", "--numstat"], output_limit=max_diff_chars
+        ) if bool(status_data.get("available", True)) else {}
+
+        numstat_data       = (numstat.get("data") or {}) if isinstance(numstat, dict) else {}
+        status_text        = str(status_data.get("stdout") or "")
+        diff_text          = str(diff_data.get("stdout") or "")
+        numstat_text       = str(numstat_data.get("stdout") or "")
+        changed_files      = self._parse_git_status_short(status_text)
+        diff_stats         = self._summarize_diff_text(diff_text, numstat_text=numstat_text)
+        session            = self.sessions.get(str(session_id or "")) if session_id else self._latest_session()
+        session_summary    = session.get("summary") if isinstance(session, dict) else None
+        latest_run         = (session.get("runs") or [])[-1] if isinstance(session, dict) and session.get("runs") else None
+        untracked_previews = self._summarize_untracked_files(changed_files) if include_untracked_preview else []
 
         blockers: list[dict[str, typing.Any]] = []
         warnings: list[dict[str, typing.Any]] = []
@@ -68,13 +71,18 @@ class ChangeSummaryTools(NativeCodingComponent):
 
             if preflight and not bool(preflight.get("ok")):
                 blockers.append({
-                    "kind"   : "preflight_failed",
-                    "run_id" : latest_run.get("run_id")
+                    "kind"    : "preflight_failed",
+                    "run_id"  : latest_run.get("run_id"),
+                    "runtime" : self._runtime_failure_summary(preflight)
                 })
             if validation and not bool(validation.get("ok")):
                 blockers.append({
-                    "kind"   : "verification_failed",
-                    "run_id" : latest_run.get("run_id")
+                    "kind"       : "verification_failed",
+                    "run_id"     : latest_run.get("run_id"),
+                    "command"    : validation.get("command"),
+                    "reason"     : validation.get("reason"),
+                    "exit_code"  : validation.get("exit_code"),
+                    "runtime"    : self._runtime_failure_summary(validation)
                 })
             if validation is None:
                 warnings.append({
@@ -90,12 +98,21 @@ class ChangeSummaryTools(NativeCodingComponent):
 
         ready = not blockers
 
+        verification = self._verification_assessment(
+            latest_run=latest_run,
+            blockers=blockers,
+            warnings=warnings,
+            changed_files=changed_files
+        )
+
         return self._ok(
             f"change summary ready={ready} files={len(changed_files)} blockers={len(blockers)} warnings={len(warnings)}",
             ready=ready,
+            verification=verification,
             blockers=blockers,
             warnings=warnings,
             changed_files=changed_files,
+            untracked_previews=untracked_previews,
             file_count=len(changed_files),
             diff_stats=diff_stats,
             git_status=status_text,
@@ -103,17 +120,67 @@ class ChangeSummaryTools(NativeCodingComponent):
             diff=diff_text,
             session_id=session.get("session_id") if isinstance(session, dict) else None,
             latest_run={
-                "run_id"        : latest_run.get("run_id"),
-                "run_index"     : latest_run.get("run_index"),
-                "ok"            : latest_run.get("ok"),
-                "validation_ok" : bool((latest_run.get("validation") or {}).get("ok")) if latest_run.get("validation") else None,
-                "preflight_ok"  : bool((latest_run.get("preflight") or {}).get("ok")) if latest_run.get("preflight") else None
+                "run_id": latest_run.get("run_id"),
+                "run_index": latest_run.get("run_index"),
+                "ok": latest_run.get("ok"),
+                "validation_ok": bool((latest_run.get("validation") or {}).get("ok")) if latest_run.get("validation") else None,
+                "preflight_ok": bool((latest_run.get("preflight") or {}).get("ok")) if latest_run.get("preflight") else None
             } if isinstance(latest_run, dict) else None,
             session_summary=session_summary
         )
 
+    def _latest_session(
+        self
+    ) -> dict[str, typing.Any] | None:
+        """返回最近创建的变更会话。"""
+        if not self.sessions:
+            return None
+        return list(self.sessions.values())[-1]
+
+    def _summarize_untracked_files(
+        self,
+        changed_files: list[dict[str, typing.Any]]
+    ) -> list[dict[str, typing.Any]]:
+        """为未跟踪文本文件生成有限内容预览。"""
+        previews: list[dict[str, typing.Any]] = []
+
+        for item in changed_files:
+            if not item.get("untracked"):
+                continue
+
+            path = str(item.get("path") or "")
+            try:
+                target = self._resolve(path)
+            except ValueError:
+                previews.append({"path": path, "ok": False, "reason": "path_outside_workspace"})
+                continue
+            if not target.is_file():
+                previews.append({"path": path, "ok": False, "reason": "not_a_file"})
+                continue
+            if not self._looks_text(target):
+                previews.append({"path": path, "ok": False, "reason": "file_not_text"})
+                continue
+
+            size  = target.stat().st_size
+            limit = 1200
+
+            content = self._decode(target.read_bytes()[:limit])
+
+            previews.append({
+                "path"           : path,
+                "ok"             : True,
+                "size"           : size,
+                "byte_truncated" : size > limit,
+                "preview"        : content
+            })
+
+        return previews
+
     @staticmethod
-    def _parse_git_status_short(status: str) -> list[dict[str, typing.Any]]:
+    def _parse_git_status_short(
+        status: str
+    ) -> list[dict[str, typing.Any]]:
+        """解析 git status --short 输出为文件状态列表。"""
         files: list[dict[str, typing.Any]] = []
 
         conflict_pairs = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
@@ -144,14 +211,53 @@ class ChangeSummaryTools(NativeCodingComponent):
             if original:
                 item["original_path"] = original
             files.append(item)
+
         return files
 
     @staticmethod
-    def _summarize_diff_text(diff: str) -> dict[str, typing.Any]:
+    def _summarize_diff_text(
+        diff: str,
+        *,
+        numstat_text: str = ""
+    ) -> dict[str, typing.Any]:
+        """根据 git diff 文本或 numstat 输出统计变更规模。"""
         added   = 0
         deleted = 0
 
         files: list[str] = []
+        per_file: list[dict[str, typing.Any]] = []
+
+        for line in str(numstat_text or "").splitlines():
+            parts = line.split("\t")
+            if len(parts) < 3:
+                continue
+            added_text, deleted_text, path = parts[0], parts[1], parts[2]
+
+            file_added   = None if added_text == "-" else int(added_text) if added_text.isdigit() else None
+            file_deleted = None if deleted_text == "-" else int(deleted_text) if deleted_text.isdigit() else None
+
+            per_file.append({
+                "path"          : path,
+                "added_lines"   : file_added,
+                "deleted_lines" : file_deleted,
+                "binary"        : file_added is None or file_deleted is None
+            })
+
+        if per_file:
+            numeric_files = [item for item in per_file if not item.get("binary")]
+            return {
+                "files": [str(item.get("path") or "") for item in per_file],
+                "file_count": len(per_file),
+                "added_lines": sum(int(item.get("added_lines") or 0) for item in numeric_files),
+                "deleted_lines": sum(int(item.get("deleted_lines") or 0) for item in numeric_files),
+                "changed_lines": sum(
+                    int(item.get("added_lines") or 0) + int(item.get("deleted_lines") or 0)
+                    for item in numeric_files
+                ),
+                "binary_files": [str(item.get("path") or "") for item in per_file if item.get("binary")],
+                "per_file": per_file,
+                "source": "git_numstat"
+            }
 
         for line in str(diff or "").splitlines():
             if line.startswith("diff --git "):
@@ -172,7 +278,61 @@ class ChangeSummaryTools(NativeCodingComponent):
             "file_count"    : len(files),
             "added_lines"   : added,
             "deleted_lines" : deleted,
-            "changed_lines" : added + deleted
+            "changed_lines" : added + deleted,
+            "binary_files"  : [],
+            "per_file"      : [],
+            "source"        : "diff_text"
+        }
+
+    @staticmethod
+    def _runtime_failure_summary(
+        payload: dict[str, typing.Any]
+    ) -> dict[str, typing.Any] | None:
+        """提取运行时失败的关键诊断字段。"""
+        runtime = payload.get("runtime") if isinstance(payload, dict) else None
+        if not isinstance(runtime, dict):
+            return None
+        if bool(runtime.get("ok")):
+            return None
+
+        return {
+            "name"                    : runtime.get("name"),
+            "reason"                  : runtime.get("reason"),
+            "suggested_next_action"   : runtime.get("suggested_next_action"),
+            "cloud_sandbox_supported" : runtime.get("cloud_sandbox_supported")
+        }
+
+    @staticmethod
+    def _verification_assessment(
+        *,
+        latest_run: dict[str, typing.Any] | None,
+        blockers: list[dict[str, typing.Any]],
+        warnings: list[dict[str, typing.Any]],
+        changed_files: list[dict[str, typing.Any]]
+    ) -> dict[str, typing.Any]:
+        """判断当前变更是否已有充分验证。"""
+        validation    = latest_run.get("validation") if isinstance(latest_run, dict) else None
+        validation_ok = bool(validation.get("ok")) if isinstance(validation, dict) else False
+        has_changes   = bool(changed_files)
+        sufficient    = validation_ok and not blockers
+
+        reason = "validated" if sufficient else "validation_missing_or_failed"
+        if not has_changes:
+            reason = "no_changes_detected"
+        elif blockers:
+            reason = "blockers_present"
+        elif not validation_ok:
+            reason = "validation_missing_or_failed"
+        elif warnings:
+            reason = "validated_with_warnings"
+
+        return {
+            "sufficient"    : sufficient,
+            "validation_ok" : validation_ok if isinstance(validation, dict) else None,
+            "has_changes"   : has_changes,
+            "blocker_count" : len(blockers),
+            "warning_count" : len(warnings),
+            "reason"        : reason
         }
 
 
