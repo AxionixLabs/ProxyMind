@@ -85,8 +85,8 @@ class WorkspaceTools(NativeCodingComponent):
 
         line_window = start_line is not None or max_lines is not None
 
-        sha256: str | None = None
-        sha256_available = False
+        sha256: str | None     = None
+        sha256_available: bool = False
 
         if size <= limit:
 
@@ -104,7 +104,6 @@ class WorkspaceTools(NativeCodingComponent):
                 sliced          = full_lines[start - 1:start - 1 + count]
                 text            = "\n".join(sliced)
                 range_truncated = start - 1 + count < total_lines
-
             else:
                 start           = 1
                 text            = full_text
@@ -140,6 +139,7 @@ class WorkspaceTools(NativeCodingComponent):
             text = self._decode(content_raw[:limit])
 
         end_line = start + len(text.splitlines()) - 1 if text else start
+
         byte_truncated = input_truncated or output_truncated
 
         return self._ok(
@@ -164,33 +164,6 @@ class WorkspaceTools(NativeCodingComponent):
             )
         )
 
-    @staticmethod
-    def _read_line_window(
-        target: typing.Any,
-        *,
-        start_line: int,
-        max_lines: int
-    ) -> tuple[str, int | None, bool]:
-        """读取指定行窗口，避免大文件整文件进入内存。"""
-        selected: list[str] = []
-
-        last_line       = 0
-        stop_after      = start_line + max_lines - 1
-        range_truncated = False
-
-        with target.open("r", encoding=const.CHARSET, errors=const.IGNORE, newline=None) as fh:
-            for lineno, line in enumerate(fh, start=1):
-                last_line = lineno
-                if lineno < start_line:
-                    continue
-                if lineno > stop_after:
-                    range_truncated = True
-                    break
-                selected.append(line.rstrip("\r\n"))
-
-        total_lines = None if range_truncated else last_line
-        return "\n".join(selected), total_lines, range_truncated
-
     def search(
         self,
         *,
@@ -205,6 +178,7 @@ class WorkspaceTools(NativeCodingComponent):
     ) -> dict[str, typing.Any]:
         """统一搜索工作区路径、文本、正则和符号，并返回同构匹配结果。"""
         queries = self._normalize_search_queries(query)
+
         normalized_mode = str(mode or "auto").strip().lower()
         if normalized_mode not in {"auto", "text", "literal", "regex", "file", "symbol"}:
             normalized_mode = "auto"
@@ -216,9 +190,7 @@ class WorkspaceTools(NativeCodingComponent):
                 queries=[],
                 mode=normalized_mode,
                 matches=[],
-                files=[],
-                text_matches=[],
-                symbols=[],
+                match_count=0,
                 skipped=True,
                 reason="query_empty",
                 suggested_next_action="read_known_file_or_provide_search_query"
@@ -270,9 +242,10 @@ class WorkspaceTools(NativeCodingComponent):
                     matches=matches
                 )
 
-        files        = [item for item in matches if item.get("kind") == "file"]
-        text_matches = [item for item in matches if item.get("kind") == "text"]
-        symbols      = [item for item in matches if item.get("kind") == "symbol"]
+        matches = self._rank_search_matches(
+            self._dedupe_search_matches(matches),
+            queries=queries
+        )[:max_matches]
 
         primary_query = queries[0]
 
@@ -282,12 +255,6 @@ class WorkspaceTools(NativeCodingComponent):
             queries=queries,
             mode=normalized_mode,
             matches=matches,
-            files=files,
-            text_matches=text_matches,
-            symbols=symbols,
-            file_count=len(files),
-            text_match_count=len(text_matches),
-            symbol_count=len(symbols),
             match_count=len(matches),
             truncated=len(matches) >= max_matches,
             recommended_next_steps=self._search_next_steps(
@@ -301,335 +268,6 @@ class WorkspaceTools(NativeCodingComponent):
                 truncated=len(matches) >= max_matches
             )
         )
-
-    @staticmethod
-    def _normalize_search_queries(
-        query: str | list[str]
-    ) -> list[str]:
-        """把单个查询或多查询列表归一化为非空字符串列表。"""
-        raw_items = query if isinstance(query, list) else [query]
-
-        values: list[str] = []
-        for item in raw_items:
-            value = str(item or "").strip()
-            if value and value not in values:
-                values.append(value)
-
-        return values[:20]
-
-    def _search_files(
-        self,
-        *,
-        base: typing.Any,
-        query: str,
-        glob: str | None,
-        case_sensitive: bool,
-        max_matches: int,
-        matches: list[dict[str, typing.Any]]
-    ) -> None:
-        """搜索工作区相对路径和文件名。"""
-        needle = query if case_sensitive else query.lower()
-
-        for item in self._walk(base, recursive=True):
-            if len(matches) >= max_matches:
-                break
-            if self._is_excluded(item):
-                continue
-
-            rel = self._rel(item)
-            if glob and not fnmatch.fnmatch(rel, glob) and not fnmatch.fnmatch(item.name, glob):
-                continue
-
-            haystack = rel if case_sensitive else rel.lower()
-            name     = item.name if case_sensitive else item.name.lower()
-
-            if needle not in haystack and needle not in name:
-                continue
-            matches.append({
-                "kind"      : "file",
-                "query"     : query,
-                "path"      : rel,
-                "line"      : None,
-                "text"      : rel,
-                "file_kind" : "dir" if item.is_dir() else "file"
-            })
-
-    def _search_file_contents(
-        self,
-        *,
-        base: typing.Any,
-        query: str,
-        glob: str | None,
-        regex_mode: bool,
-        case_sensitive: bool,
-        context_before: int,
-        context_after: int,
-        max_matches: int,
-        matches: list[dict[str, typing.Any]]
-    ) -> None:
-        """搜索文本内容，支持字面量、正则和上下文行。"""
-        flags = 0 if case_sensitive else re.IGNORECASE
-        try:
-            regex = re.compile(query if regex_mode else re.escape(query), flags)
-        except re.error as exc:
-            matches.append({
-                "kind"   : "error",
-                "path"   : None,
-                "line"   : None,
-                "text"   : f"invalid regex: {exc}",
-                "reason" : "invalid_regex"
-            })
-            return
-
-        for item in self._walk(base, recursive=True):
-            if len(matches) >= max_matches:
-                break
-            if not item.is_file() or self._is_excluded(item) or not self._looks_text(item):
-                continue
-            rel = self._rel(item)
-            if glob and not fnmatch.fnmatch(rel, glob) and not fnmatch.fnmatch(item.name, glob):
-                continue
-            try:
-                raw = item.read_bytes()[:self.max_read_bytes]
-            except OSError:
-                continue
-            lines = self._decode(raw).splitlines()
-            for index, line in enumerate(lines):
-                if regex.search(line):
-                    matches.append({
-                        "kind"    : "text",
-                        "query"   : query,
-                        "path"    : rel,
-                        "line"    : index + 1,
-                        "text"    : clip_text(line.strip(), limit=500),
-                        "context" : self._line_context(
-                            lines,
-                            index=index,
-                            before=context_before,
-                            after=context_after
-                        )
-                    })
-                    if len(matches) >= max_matches:
-                        break
-
-    def _search_symbols(
-        self,
-        *,
-        path: str,
-        query: str,
-        glob: str | None,
-        case_sensitive: bool,
-        max_matches: int,
-        matches: list[dict[str, typing.Any]]
-    ) -> None:
-        """通过 repo map 的符号索引补充符号搜索结果。"""
-        finder = getattr(self.core, "find_symbol", None)
-        if not callable(finder):
-            return
-
-        result = finder(
-            query=query,
-            path=path,
-            glob=glob,
-            max_matches=max(1, max_matches - len(matches))
-        )
-
-        data = result.get("data") if isinstance(result, dict) else {}
-        if not isinstance(data, dict) or not data.get("ok"):
-            return
-
-        needle = query if case_sensitive else query.lower()
-
-        for item in data.get("matches") or []:
-            if len(matches) >= max_matches:
-                break
-
-            name     = str(item.get("name") or item.get("qualified_name") or "")
-            haystack = name if case_sensitive else name.lower()
-
-            if needle not in haystack:
-                continue
-            matches.append({
-                "kind"   : "symbol",
-                "query"  : query,
-                "path"   : item.get("path"),
-                "line"   : item.get("line"),
-                "text"   : item.get("signature") or item.get("qualified_name") or item.get("name"),
-                "symbol" : item
-            })
-
-    @staticmethod
-    def _line_context(
-        lines: list[str],
-        *,
-        index: int,
-        before: int,
-        after: int
-    ) -> list[dict[str, typing.Any]]:
-        """生成命中行前后的简短上下文。"""
-        if before <= 0 and after <= 0:
-            return []
-
-        start = max(0, index - before)
-        stop  = min(len(lines), index + after + 1)
-
-        return [
-            {
-                "line"  : line_index + 1,
-                "text"  : clip_text(lines[line_index].strip(), limit=500),
-                "match" : line_index == index
-            }
-            for line_index in range(start, stop)
-        ]
-
-    @staticmethod
-    def _read_file_next_steps(
-        *,
-        path: str,
-        end_line: int,
-        total_lines: int | None,
-        byte_truncated: bool,
-        range_truncated: bool
-    ) -> list[dict[str, typing.Any]]:
-        """为被截断的文件读取结果生成继续读取下一段的建议。"""
-        steps: list[dict[str, typing.Any]] = []
-        if range_truncated or (byte_truncated and total_lines is None):
-            steps.append({
-                "tool"   : "workspace_read_file",
-                "args"   : {"path": path, "start_line": end_line + 1, "max_lines": 200},
-                "reason" : "continue_from_next_line"
-            })
-        elif byte_truncated and isinstance(total_lines, int) and end_line < total_lines:
-            steps.append({
-                "tool": "workspace_read_file",
-                "args": {"path": path, "start_line": end_line + 1, "max_lines": 200},
-                "reason": "continue_from_next_line"
-            })
-        return steps
-
-    @staticmethod
-    def _search_next_steps(
-        *,
-        queries: list[str],
-        path: str,
-        glob: str | None,
-        mode: str,
-        case_sensitive: bool,
-        max_matches: int,
-        matches: list[dict[str, typing.Any]],
-        truncated: bool
-    ) -> list[dict[str, typing.Any]]:
-        """根据搜索结果生成继续定位、读取窗口和扩大/缩小范围建议。"""
-        steps: list[dict[str, typing.Any]] = []
-
-        read_items: list[dict[str, typing.Any]] = []
-        seen_reads: set[tuple[str, int]] = set()
-        for item in matches:
-            if not isinstance(item, dict):
-                continue
-            item_path = str(item.get("path") or "").strip()
-            line = item.get("line")
-            if not item_path or not isinstance(line, int):
-                continue
-            start_line = max(1, line - 20)
-            key = (item_path, start_line)
-            if key in seen_reads:
-                continue
-            seen_reads.add(key)
-            read_items.append({
-                "tool": "workspace_read_file",
-                "args": {"path": item_path, "start_line": start_line, "max_lines": 60},
-                "reason": "read_result_window"
-            })
-            if len(read_items) >= 8:
-                break
-
-        steps.extend(read_items[:3])
-        if len(read_items) > 1:
-            steps.append({
-                "tool": "native_parallel_read",
-                "args": {"items": read_items[:8]},
-                "reason": "read_multiple_candidate_windows"
-            })
-
-        if truncated:
-            steps.append({
-                "tool": "workspace_search",
-                "args": {
-                    "query": queries,
-                    "path": path,
-                    "glob": glob,
-                    "mode": mode,
-                    "case_sensitive": case_sensitive,
-                    "max_matches": min(max_matches * 2, 1000)
-                },
-                "reason": "increase_limit"
-            })
-
-        if mode != "file":
-            steps.append({
-                "tool": "workspace_search",
-                "args": {
-                    "query": queries,
-                    "path": path,
-                    "glob": glob,
-                    "mode": "file",
-                    "case_sensitive": case_sensitive,
-                    "max_matches": min(max_matches, 200)
-                },
-                "reason": "check_file_path_matches"
-            })
-
-        if mode != "symbol":
-            steps.append({
-                "tool": "workspace_search",
-                "args": {
-                    "query": queries,
-                    "path": path,
-                    "glob": glob,
-                    "mode": "symbol",
-                    "case_sensitive": case_sensitive,
-                    "max_matches": min(max_matches, 200)
-                },
-                "reason": "check_symbol_matches"
-            })
-
-        if not glob:
-            likely_glob = WorkspaceTools._suggest_search_glob(matches)
-            if likely_glob:
-                steps.append({
-                    "tool": "workspace_search",
-                    "args": {
-                        "query": queries,
-                        "path": path,
-                        "glob": likely_glob,
-                        "mode": mode,
-                        "case_sensitive": case_sensitive,
-                        "max_matches": max_matches
-                    },
-                    "reason": "narrow_search_scope"
-                })
-
-        return steps[:12]
-
-    @staticmethod
-    def _suggest_search_glob(
-        matches: list[dict[str, typing.Any]]
-    ) -> str | None:
-        """根据命中文件扩展名建议一个更窄的 glob。"""
-        suffix_counts: dict[str, int] = {}
-        for item in matches:
-            path = str(item.get("path") or "")
-            if "." not in path:
-                continue
-            suffix = "." + path.rsplit(".", 1)[-1]
-            suffix_counts[suffix] = suffix_counts.get(suffix, 0) + 1
-
-        if not suffix_counts:
-            return None
-
-        suffix = max(suffix_counts, key=suffix_counts.get)
-        return f"**/*{suffix}"
 
     def write_file(
         self,
@@ -652,6 +290,7 @@ class WorkspaceTools(NativeCodingComponent):
             return self._fail("file_exists", path=self._rel(target))
         if conflict := self._conflict_guard(target, expected_sha256=expected_sha256, force=force):
             return conflict
+
         if create_dirs:
             target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -804,6 +443,435 @@ class WorkspaceTools(NativeCodingComponent):
             bytes=len(payload),
             sha256=sha
         )
+
+    def _search_files(
+        self,
+        *,
+        base: typing.Any,
+        query: str,
+        glob: str | None,
+        case_sensitive: bool,
+        max_matches: int,
+        matches: list[dict[str, typing.Any]]
+    ) -> None:
+        """搜索工作区相对路径和文件名。"""
+        needle = query if case_sensitive else query.lower()
+
+        for item in self._walk(base, recursive=True):
+            if len(matches) >= max_matches:
+                break
+            if self._is_excluded(item):
+                continue
+
+            rel = self._rel(item)
+            if glob and not fnmatch.fnmatch(rel, glob) and not fnmatch.fnmatch(item.name, glob):
+                continue
+
+            haystack = rel if case_sensitive else rel.lower()
+            name     = item.name if case_sensitive else item.name.lower()
+
+            if needle not in haystack and needle not in name:
+                continue
+            matches.append({
+                "kind"      : "file",
+                "query"     : query,
+                "path"      : rel,
+                "line"      : None,
+                "text"      : rel,
+                "file_kind" : "dir" if item.is_dir() else "file"
+            })
+
+    def _search_file_contents(
+        self,
+        *,
+        base: typing.Any,
+        query: str,
+        glob: str | None,
+        regex_mode: bool,
+        case_sensitive: bool,
+        context_before: int,
+        context_after: int,
+        max_matches: int,
+        matches: list[dict[str, typing.Any]]
+    ) -> None:
+        """搜索文本内容，支持字面量、正则和上下文行。"""
+        flags = 0 if case_sensitive else re.IGNORECASE
+
+        try:
+            regex = re.compile(query if regex_mode else re.escape(query), flags)
+        except re.error as exc:
+            matches.append({
+                "kind"   : "error",
+                "path"   : None,
+                "line"   : None,
+                "text"   : f"invalid regex: {exc}",
+                "reason" : "invalid_regex"
+            })
+            return
+
+        for item in self._walk(base, recursive=True):
+            if len(matches) >= max_matches:
+                break
+            if not item.is_file() or self._is_excluded(item) or not self._looks_text(item):
+                continue
+
+            rel = self._rel(item)
+            if glob and not fnmatch.fnmatch(rel, glob) and not fnmatch.fnmatch(item.name, glob):
+                continue
+
+            try:
+                raw = item.read_bytes()[:self.max_read_bytes]
+            except OSError:
+                continue
+
+            lines = self._decode(raw).splitlines()
+            for index, line in enumerate(lines):
+                if regex.search(line):
+                    matches.append({
+                        "kind"    : "text",
+                        "query"   : query,
+                        "path"    : rel,
+                        "line"    : index + 1,
+                        "text"    : clip_text(line.strip(), limit=500),
+                        "context" : self._line_context(
+                            lines,
+                            index=index,
+                            before=context_before,
+                            after=context_after
+                        )
+                    })
+                    if len(matches) >= max_matches:
+                        break
+
+    def _search_symbols(
+        self,
+        *,
+        path: str,
+        query: str,
+        glob: str | None,
+        case_sensitive: bool,
+        max_matches: int,
+        matches: list[dict[str, typing.Any]]
+    ) -> None:
+        """通过 repo map 的符号索引补充符号搜索结果。"""
+        finder = getattr(self.core, "find_symbol", None)
+        if not callable(finder):
+            return
+
+        result = finder(
+            query=query,
+            path=path,
+            glob=glob,
+            max_matches=max(1, max_matches - len(matches))
+        )
+
+        data = result.get("data") if isinstance(result, dict) else {}
+        if not isinstance(data, dict) or not data.get("ok"):
+            return
+
+        needle = query if case_sensitive else query.lower()
+
+        for item in data.get("matches") or []:
+            if len(matches) >= max_matches:
+                break
+
+            name = str(item.get("name") or item.get("qualified_name") or "")
+
+            haystack = name if case_sensitive else name.lower()
+            if needle not in haystack:
+                continue
+            matches.append({
+                "kind"   : "symbol",
+                "query"  : query,
+                "path"   : item.get("path"),
+                "line"   : item.get("line"),
+                "text"   : item.get("signature") or item.get("qualified_name") or item.get("name"),
+                "symbol" : item
+            })
+
+    @staticmethod
+    def _read_line_window(
+        target: typing.Any,
+        *,
+        start_line: int,
+        max_lines: int
+    ) -> tuple[str, int | None, bool]:
+        """读取指定行窗口，避免大文件整文件进入内存。"""
+        selected: list[str] = []
+
+        last_line       = 0
+        stop_after      = start_line + max_lines - 1
+        range_truncated = False
+
+        with target.open("r", encoding=const.CHARSET, errors=const.IGNORE, newline=None) as fh:
+            for lineno, line in enumerate(fh, start=1):
+                last_line = lineno
+                if lineno < start_line:
+                    continue
+                if lineno > stop_after:
+                    range_truncated = True
+                    break
+                selected.append(line.rstrip("\r\n"))
+
+        total_lines = None if range_truncated else last_line
+        return "\n".join(selected), total_lines, range_truncated
+
+    @staticmethod
+    def _normalize_search_queries(
+        query: str | list[str]
+    ) -> list[str]:
+        """把单个查询或多查询列表归一化为非空字符串列表。"""
+        raw_items = query if isinstance(query, list) else [query]
+
+        values: list[str] = []
+        for item in raw_items:
+            value = str(item or "").strip()
+            if value and value not in values:
+                values.append(value)
+
+        return values[:20]
+
+    @staticmethod
+    def _dedupe_search_matches(
+        matches: list[dict[str, typing.Any]]
+    ) -> list[dict[str, typing.Any]]:
+        """按稳定定位信息去除重复搜索结果。"""
+        deduped: list[dict[str, typing.Any]] = []
+        seen: set[tuple[str, str, int, str, str]] = set()
+
+        for item in matches:
+            if not isinstance(item, dict):
+                continue
+            key = (
+                str(item.get("kind") or ""),
+                str(item.get("path") or ""),
+                int(item.get("line") or 0),
+                str(item.get("query") or ""),
+                str(item.get("text") or "")
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+
+        return deduped
+
+    @staticmethod
+    def _rank_search_matches(
+        matches: list[dict[str, typing.Any]],
+        *,
+        queries: list[str]
+    ) -> list[dict[str, typing.Any]]:
+        """把更可能有用的文件名、符号和精确命中排到前面。"""
+        lowered_queries = [item.lower() for item in queries if item]
+        kind_rank = {
+            "file"   : 0,
+            "symbol" : 1,
+            "text"   : 2,
+            "error"  : 9
+        }
+
+        def rank(item: dict[str, typing.Any]) -> tuple[int, int, int, int, str, int]:
+            kind = str(item.get("kind") or "")
+            path = str(item.get("path") or "")
+            name = path.replace("\\", "/").rsplit("/", 1)[-1].lower()
+
+            exact_name  = 0 if any(query == name for query in lowered_queries) else 1
+            starts_name = 0 if any(name.startswith(query) for query in lowered_queries) else 1
+
+            line = int(item.get("line") or 0)
+
+            return (
+                kind_rank.get(kind, 8),
+                exact_name,
+                starts_name,
+                len(path),
+                path,
+                line if line > 0 else 1_000_000
+            )
+
+        return sorted(matches, key=rank)
+
+    @staticmethod
+    def _line_context(
+        lines: list[str],
+        *,
+        index: int,
+        before: int,
+        after: int
+    ) -> list[dict[str, typing.Any]]:
+        """生成命中行前后的简短上下文。"""
+        if before <= 0 and after <= 0:
+            return []
+
+        start = max(0, index - before)
+        stop  = min(len(lines), index + after + 1)
+
+        return [
+            {
+                "line"  : line_index + 1,
+                "text"  : clip_text(lines[line_index].strip(), limit=500),
+                "match" : line_index == index
+            }
+            for line_index in range(start, stop)
+        ]
+
+    @staticmethod
+    def _read_file_next_steps(
+        *,
+        path: str,
+        end_line: int,
+        total_lines: int | None,
+        byte_truncated: bool,
+        range_truncated: bool
+    ) -> list[dict[str, typing.Any]]:
+        """为被截断的文件读取结果生成继续读取下一段的建议。"""
+        steps: list[dict[str, typing.Any]] = []
+
+        if range_truncated or (byte_truncated and total_lines is None):
+            steps.append({
+                "tool"   : "workspace_read_file",
+                "args"   : {"path": path, "start_line": end_line + 1, "max_lines": 200},
+                "reason" : "continue_from_next_line"
+            })
+
+        elif byte_truncated and isinstance(total_lines, int) and end_line < total_lines:
+            steps.append({
+                "tool"   : "workspace_read_file",
+                "args"   : {"path": path, "start_line": end_line + 1, "max_lines": 200},
+                "reason" : "continue_from_next_line"
+            })
+
+        return steps
+
+    @staticmethod
+    def _search_next_steps(
+        *,
+        queries: list[str],
+        path: str,
+        glob: str | None,
+        mode: str,
+        case_sensitive: bool,
+        max_matches: int,
+        matches: list[dict[str, typing.Any]],
+        truncated: bool
+    ) -> list[dict[str, typing.Any]]:
+        """根据搜索结果生成继续定位、读取窗口和扩大/缩小范围建议。"""
+        steps: list[dict[str, typing.Any]] = []
+
+        read_items: list[dict[str, typing.Any]] = []
+        seen_reads: set[tuple[str, int]] = set()
+
+        ranked = WorkspaceTools._rank_search_matches(
+            WorkspaceTools._dedupe_search_matches(matches),
+            queries=queries
+        )
+        for item in ranked:
+            if not isinstance(item, dict):
+                continue
+            item_path = str(item.get("path") or "").strip()
+            line = item.get("line")
+            if not item_path or not isinstance(line, int):
+                continue
+            start_line = max(1, line - 20)
+            key = (item_path, start_line)
+            if key in seen_reads:
+                continue
+            seen_reads.add(key)
+            read_items.append({
+                "tool"   : "workspace_read_file",
+                "args"   : {"path": item_path, "start_line": start_line, "max_lines": 60},
+                "reason" : "read_result_window"
+            })
+            if len(read_items) >= 8:
+                break
+
+        steps.extend(read_items[:5])
+        if len(read_items) > 1:
+            steps.append({
+                "tool"   : "native_parallel_read",
+                "args"   : {"items": read_items[:8]},
+                "reason" : "read_multiple_candidate_windows"
+            })
+
+        if truncated:
+            steps.append({
+                "tool": "workspace_search",
+                "args": {
+                    "query": queries,
+                    "path": path,
+                    "glob": glob,
+                    "mode": mode,
+                    "case_sensitive": case_sensitive,
+                    "max_matches": min(max_matches * 2, 1000)
+                },
+                "reason": "increase_limit"
+            })
+
+        if mode != "file":
+            steps.append({
+                "tool": "workspace_search",
+                "args": {
+                    "query": queries,
+                    "path": path,
+                    "glob": glob,
+                    "mode": "file",
+                    "case_sensitive": case_sensitive,
+                    "max_matches": min(max_matches, 200)
+                },
+                "reason": "check_file_path_matches"
+            })
+
+        if mode != "symbol":
+            steps.append({
+                "tool": "workspace_search",
+                "args": {
+                    "query": queries,
+                    "path": path,
+                    "glob": glob,
+                    "mode": "symbol",
+                    "case_sensitive": case_sensitive,
+                    "max_matches": min(max_matches, 200)
+                },
+                "reason": "check_symbol_matches"
+            })
+
+        if not glob:
+            likely_glob = WorkspaceTools._suggest_search_glob(matches)
+            if likely_glob:
+                steps.append({
+                    "tool": "workspace_search",
+                    "args": {
+                        "query": queries,
+                        "path": path,
+                        "glob": likely_glob,
+                        "mode": mode,
+                        "case_sensitive": case_sensitive,
+                        "max_matches": max_matches
+                    },
+                    "reason": "narrow_search_scope"
+                })
+
+        return steps[:12]
+
+    @staticmethod
+    def _suggest_search_glob(
+        matches: list[dict[str, typing.Any]]
+    ) -> str | None:
+        """根据命中文件扩展名建议一个更窄的 glob。"""
+        suffix_counts: dict[str, int] = {}
+        for item in matches:
+            path = str(item.get("path") or "")
+            if "." not in path:
+                continue
+            suffix = "." + path.rsplit(".", 1)[-1]
+            suffix_counts[suffix] = suffix_counts.get(suffix, 0) + 1
+
+        if not suffix_counts:
+            return None
+
+        suffix = max(suffix_counts, key=suffix_counts.get)
+        return f"**/*{suffix}"
 
 
 if __name__ == '__main__':
