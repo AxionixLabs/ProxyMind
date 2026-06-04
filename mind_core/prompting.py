@@ -5,10 +5,13 @@ import html
 import typing
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import (
-    AutoSuggest, Suggestion
+    AutoSuggest,
+    Suggestion
 )
 from prompt_toolkit.completion import (
-    Completer, CompleteEvent, Completion
+    Completer,
+    CompleteEvent,
+    Completion
 )
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
@@ -46,15 +49,27 @@ class SlashCommandCompleter(Completer):
         {"text": "/attach ", "display": "/attach", "meta": "添加本轮待发送附件"},
         {"text": "/attachments", "display": "/attachments", "meta": "查看待发送附件"},
         {"text": "/detach ", "display": "/detach", "meta": "移除待发送附件"},
-        {"text": "/attach-clear", "display": "/attach-clear", "meta": "清空待发送附件"},
+        {"text": "/attach-clear", "display": "/attach-clear", "meta": "清空待发送附件"}
     )
+
     TOP_LEVEL: tuple[str, ...] = (
-        "/chat", "/fast", "/plan", "/xtra", "/help", "/license",
-        "/quit", "/model", "/apikey", "/attach", "/attachments",
-        "/detach", "/attach-clear"
+        "/chat",
+        "/fast",
+        "/plan",
+        "/xtra",
+        "/help",
+        "/license",
+        "/quit",
+        "/model",
+        "/apikey",
+        "/attach",
+        "/attachments",
+        "/detach",
+        "/attach-clear"
     )
 
     def get_completions(self, document, complete_event):
+        """根据当前输入内容生成斜杠命令补全项。"""
         text = document.text_before_cursor
         stripped = text.lstrip()
 
@@ -97,7 +112,7 @@ class CommandAutoSuggest(AutoSuggest):
         "/attach": " <path>",
         "/attach ": "<path>",
         "/detach": " <index-or-path>",
-        "/detach ": "<index-or-path>",
+        "/detach ": "<index-or-path>"
     }
 
     MODE_ALLOWED_DOMAINS: dict[RunMode, frozenset[str]] = {
@@ -114,7 +129,7 @@ class CommandAutoSuggest(AutoSuggest):
             "performance_memrix",
             "performance_framix",
             "stability_monkey",
-            "report",
+            "report"
         }),
         "fast": frozenset({
             "inspect_runtime",
@@ -126,7 +141,7 @@ class CommandAutoSuggest(AutoSuggest):
             "network_mail_file",
             "media_video",
             "media_audio",
-            "report",
+            "report"
         }),
         "plan": frozenset({
             "device_connection",
@@ -143,7 +158,7 @@ class CommandAutoSuggest(AutoSuggest):
             "stability_monkey",
             "media_video",
             "media_audio",
-            "report",
+            "report"
         }),
         "xtra": frozenset({
             "inspect_runtime",
@@ -153,9 +168,10 @@ class CommandAutoSuggest(AutoSuggest):
             "network_graphql",
             "network_socket",
             "network_mail_file",
-            "report",
+            "report"
         }),
     }
+
     MODE_PREFERRED_PHRASES: dict[RunMode, dict[str, tuple[str, ...]]] = {
         "chat": {
             "查看": ("设备信息", "页面结构", "内存趋势", "当前控件树"),
@@ -193,11 +209,12 @@ class CommandAutoSuggest(AutoSuggest):
             "打开": ("网页", "控制台"),
         },
     }
+
     MODE_BLOCKED_FULL_PHRASES: dict[RunMode, frozenset[str]] = {
         "chat": frozenset(),
         "fast": frozenset(),
         "plan": frozenset({"循环执行步骤"}),
-        "xtra": frozenset(),
+        "xtra": frozenset()
     }
 
     def __init__(self) -> None:
@@ -206,74 +223,13 @@ class CommandAutoSuggest(AutoSuggest):
         self.intent_templates: tuple[dict[str, typing.Any], ...] = build_intent_templates()
 
     def set_mode(self, mode: RunMode) -> None:
+        """设置当前输入模式。"""
         self.mode = mode
 
-    def _mode_alias_suggestion(self, text: str) -> typing.Optional[Suggestion]:
-        stripped = text.strip().lower()
-        if not stripped or stripped.startswith("/"):
-            return None
-
-        candidates: list[tuple[int, str]] = []
-        blocked_phrases = self.MODE_BLOCKED_FULL_PHRASES.get(self.mode, frozenset())
-        for prefix, suffix in MODE_ALIAS_TEMPLATES.get(self.mode, ()):
-            full = f"{prefix}{suffix}"
-            if full in blocked_phrases:
-                continue
-            if full == stripped:
-                continue
-            if full.startswith(stripped):
-                remain = full[len(stripped):]
-                if remain:
-                    candidates.append((len(remain), remain))
-            elif prefix.startswith(stripped):
-                remain = prefix[len(stripped):] + suffix
-                if remain:
-                    candidates.append((len(remain), remain))
-
-        if not candidates:
-            return None
-
-        candidates.sort(key=lambda item: item[0])
-        return Suggestion(candidates[0][1])
-
-    def _phrase_priority(self, verb: str, suggestion: str) -> int:
-        preferred = self.MODE_PREFERRED_PHRASES.get(self.mode, {}).get(verb, ())
-        for idx, phrase in enumerate(preferred):
-            if suggestion == phrase:
-                return len(preferred) - idx
-        return 0
-
-    @staticmethod
-    def _best_prefix_completion(
-        text: str,
-        pairs: tuple[tuple[str, str], ...],
-    ) -> typing.Optional[Suggestion]:
-        stripped = text.strip()
-        if not stripped:
-            return None
-
-        candidates: list[tuple[int, str]] = []
-        for prefix, suffix in pairs:
-            full = f"{prefix}{suffix}"
-            if full == stripped:
-                continue
-            if full.startswith(stripped):
-                remain = full[len(stripped):]
-                if remain:
-                    candidates.append((len(remain), remain))
-            elif prefix.startswith(stripped):
-                remain = prefix[len(stripped):] + suffix
-                if remain:
-                    candidates.append((len(remain), remain))
-
-        if not candidates:
-            return None
-
-        candidates.sort(key=lambda item: item[0])
-        return Suggestion(candidates[0][1])
-
     def get_suggestion(self, buffer, document):
+        """根据当前输入上下文生成行内提示。"""
         text = document.text_before_cursor
+
         current_line = text.splitlines()[-1] if text.splitlines() else text
         if text.endswith("\n"):
             current_line = ""
@@ -300,8 +256,10 @@ class CommandAutoSuggest(AutoSuggest):
 
         if not current_line.startswith("/"):
             stripped = current_line.strip()
+
             allowed_domains = self.MODE_ALLOWED_DOMAINS.get(self.mode, frozenset())
             blocked_phrases = self.MODE_BLOCKED_FULL_PHRASES.get(self.mode, frozenset())
+
             matched = [
                 item
                 for item in self.intent_templates
@@ -336,27 +294,108 @@ class CommandAutoSuggest(AutoSuggest):
                         VERB_DOMAIN_WEIGHTS.get(item["verb"], {}).get(item["domain"], 0),
                         item["group_weight"],
                         -item["order"],
-                        remain,
+                        remain
                     ))
 
             if prefix_intents:
-                prefix_intents.sort(key=lambda item: (item[0], -item[1], -item[2], -item[3], item[4]))
+                prefix_intents.sort(
+                    key=lambda item: (item[0], -item[1], -item[2], -item[3], item[4])
+                )
                 return Suggestion(prefix_intents[0][5])
+
         return None
+
+    def _mode_alias_suggestion(self, text: str) -> typing.Optional[Suggestion]:
+        """根据模式别名模板生成行内提示。"""
+        stripped = text.strip().lower()
+        if not stripped or stripped.startswith("/"):
+            return None
+
+        candidates: list[tuple[int, str]] = []
+
+        blocked_phrases = self.MODE_BLOCKED_FULL_PHRASES.get(self.mode, frozenset())
+        for prefix, suffix in MODE_ALIAS_TEMPLATES.get(self.mode, ()):
+            full = f"{prefix}{suffix}"
+            if full in blocked_phrases:
+                continue
+            if full == stripped:
+                continue
+            if full.startswith(stripped):
+                remain = full[len(stripped):]
+                if remain:
+                    candidates.append((len(remain), remain))
+            elif prefix.startswith(stripped):
+                remain = prefix[len(stripped):] + suffix
+                if remain:
+                    candidates.append((len(remain), remain))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda item: item[0])
+        return Suggestion(candidates[0][1])
+
+    def _phrase_priority(self, verb: str, suggestion: str) -> int:
+        """返回指定动词和提示短语的优先级。"""
+        preferred = self.MODE_PREFERRED_PHRASES.get(self.mode, {}).get(verb, ())
+        for idx, phrase in enumerate(preferred):
+            if suggestion == phrase:
+                return len(preferred) - idx
+        return 0
+
+    @staticmethod
+    def _best_prefix_completion(
+        text: str,
+        pairs: tuple[tuple[str, str], ...],
+    ) -> typing.Optional[Suggestion]:
+        """从前缀模板中选择最短可用补全提示。"""
+        stripped = text.strip()
+        if not stripped:
+            return None
+
+        candidates: list[tuple[int, str]] = []
+        for prefix, suffix in pairs:
+            full = f"{prefix}{suffix}"
+            if full == stripped:
+                continue
+            if full.startswith(stripped):
+                remain = full[len(stripped):]
+                if remain:
+                    candidates.append((len(remain), remain))
+            elif prefix.startswith(stripped):
+                remain = prefix[len(stripped):] + suffix
+                if remain:
+                    candidates.append((len(remain), remain))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda item: item[0])
+        return Suggestion(candidates[0][1])
 
 
 class PromptToolkitBox(object):
     """交互输入视图。"""
 
-    PARAMETERIZED_COMMANDS: tuple[str, ...] = ("/model ", "/apikey ", "/attach ", "/detach ")
-    MODEL_DISPLAY_MAX: int = 24
+    PARAMETERIZED_COMMANDS: tuple[str, ...] = (
+        "/model ", "/apikey ", "/attach ", "/detach "
+    )
+
+    MODEL_DISPLAY_MAX: int    = 24
+    PASTE_CHAR_THRESHOLD: int = 1200
+    PASTE_LINE_THRESHOLD: int = 20
 
     def __init__(self) -> None:
-        self.history: InMemoryHistory = InMemoryHistory()
-        self.key_bindings: KeyBindings = self._build_key_bindings()
-        self.session: typing.Optional[PromptSession[str]] = None
+        self.history: InMemoryHistory         = InMemoryHistory()
         self.completer: SlashCommandCompleter = SlashCommandCompleter()
         self.auto_suggest: CommandAutoSuggest = CommandAutoSuggest()
+
+        self.key_bindings: KeyBindings = self._build_key_bindings()
+
+        self.session: typing.Optional[PromptSession[str]] = None
+
+        self.paste_store: dict[str, str] = {}
+
         self.style: Style = Style.from_dict({
             "prompt": "bold #E2E5EA",
             "prompt.kicker": "bold #7B838E",
@@ -370,8 +409,38 @@ class PromptToolkitBox(object):
             "completion-menu.meta.completion": "bg:#111315 #7D858F",
             "completion-menu.meta.completion.current": "bg:#3B4148 #D9E0E7",
             "scrollbar.background": "bg:#111315",
-            "scrollbar.button": "bg:#666D76",
+            "scrollbar.button": "bg:#666D76"
         })
+
+    async def prompt_async(self, *, mode: RunMode, model: str) -> str:
+        """异步输入渲染入口。"""
+        th = self._theme(mode)
+        message = self._render_message(model, th)
+
+        self.auto_suggest.set_mode(mode)
+
+        with patch_stdout(raw=True):
+            value = await self._get_session().prompt_async(
+                message=message,
+                completer=self.completer,
+                auto_suggest=self.auto_suggest,
+                complete_while_typing=True,
+                complete_style=CompleteStyle.COLUMN,
+                enable_history_search=True,
+                multiline=True,
+                prompt_continuation=self._render_continuation(),
+                placeholder=HTML(
+                    f"<placeholder> {html.escape(th['placeholder'])}</placeholder>"
+                ),
+                reserve_space_for_menu=4,
+                style=self.style,
+                mouse_support=False
+            )
+
+        try:
+            return self._restore_pasted_content(value).strip()
+        finally:
+            self.paste_store.clear()
 
     def _sync_completion_suggestion(self, buf) -> None:
         """同步当前补全项的预览提示。"""
@@ -387,6 +456,45 @@ class PromptToolkitBox(object):
         if buf.suggestion is not None:
             buf.suggestion = None
             buf.on_suggestion_set.fire()
+
+    def _paste_placeholder(self, text: str, *, current_text: str = "") -> str:
+        """生成粘贴内容的可见占位文本。"""
+        self._prune_paste_store(current_text)
+
+        index  = len(self.paste_store) + 1
+        suffix = "" if index == 1 else f" #{index}"
+
+        return f"[Pasted Content {len(text)} chars]{suffix}"
+
+    def _display_text_for_paste(self, text: str, *, current_text: str = "") -> str:
+        """返回输入框中用于显示的粘贴文本。"""
+        if not self._should_fold_paste(text):
+            return text
+
+        placeholder = self._paste_placeholder(text, current_text=current_text)
+        self.paste_store[placeholder] = text
+        return placeholder
+
+    def _prune_paste_store(self, current_text: str) -> None:
+        """移除当前输入框中已经不存在的粘贴占位文本。"""
+        if not self.paste_store:
+            return None
+        self.paste_store = {
+            placeholder: original
+            for placeholder, original in self.paste_store.items()
+            if placeholder in current_text
+        }
+
+    def _restore_pasted_content(self, text: str) -> str:
+        """把仍然完整存在的粘贴占位文本还原为原始内容。"""
+        restored = text
+        for placeholder, original in sorted(
+            self.paste_store.items(),
+            key=lambda item: len(item[0]),
+            reverse=True
+        ):
+            restored = restored.replace(placeholder, original)
+        return restored
 
     def _build_key_bindings(self) -> KeyBindings:
         """按键绑定集合。"""
@@ -435,7 +543,7 @@ class PromptToolkitBox(object):
             buf = event.app.current_buffer
             data = (event.data or "").replace("\r\n", "\n").replace("\r", "\n")
             buf.cancel_completion()
-            buf.insert_text(data)
+            buf.insert_text(self._display_text_for_paste(data, current_text=buf.text))
 
         @kb.add("enter")
         def _(event) -> None:
@@ -478,6 +586,13 @@ class PromptToolkitBox(object):
                 key_bindings=self.key_bindings
             )
         return self.session
+
+    @classmethod
+    def _should_fold_paste(cls, text: str) -> bool:
+        """判断粘贴内容是否需要折叠展示。"""
+        if len(text) >= cls.PASTE_CHAR_THRESHOLD:
+            return True
+        return len(text.splitlines()) >= cls.PASTE_LINE_THRESHOLD
 
     @staticmethod
     def _theme(mode: RunMode) -> dict[str, str]:
@@ -534,31 +649,6 @@ class PromptToolkitBox(object):
         return HTML(
             f"<prompt.kicker>.</prompt.kicker> "
         )
-
-    async def prompt_async(self, *, mode: RunMode, model: str) -> str:
-        """异步输入渲染入口。"""
-        th = self._theme(mode)
-        message = self._render_message(model, th)
-        self.auto_suggest.set_mode(mode)
-
-        with patch_stdout(raw=True):
-            value = await self._get_session().prompt_async(
-                message=message,
-                completer=self.completer,
-                auto_suggest=self.auto_suggest,
-                complete_while_typing=True,
-                complete_style=CompleteStyle.COLUMN,
-                enable_history_search=True,
-                multiline=True,
-                prompt_continuation=self._render_continuation(),
-                placeholder=HTML(
-                    f"<placeholder> {html.escape(th['placeholder'])}</placeholder>"
-                ),
-                reserve_space_for_menu=4,
-                style=self.style,
-                mouse_support=False
-            )
-        return value.strip()
 
 
 if __name__ == '__main__':
