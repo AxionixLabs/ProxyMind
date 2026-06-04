@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from .tool_traces import (
+from .common import (
     ACTION_EDIT_STYLE,
     ACTION_GIT_STYLE,
     ACTION_READ_STYLE,
@@ -13,7 +13,6 @@ from .tool_traces import (
     ERROR_DOT_STYLE,
     ERROR_STYLE,
     MISSING,
-    NATIVE_CODING_TRACE_TOOLS,
     PREVIEW_COUNT_STYLE,
     PREVIEW_LINE_STYLE,
     PREVIEW_MORE_STYLE,
@@ -24,14 +23,17 @@ from .tool_traces import (
     RUNNING_STYLE,
     SUCCESS_DOT_STYLE,
     TITLE_STYLE,
-    TracePreview,
+    TracePreview
+)
+from .native import (
+    NATIVE_CODING_TRACE_TOOLS,
     is_native_coding_trace_tool,
     local_path_exists,
     render_tool_result_preview,
     render_tool_start_trace,
-    render_tool_trace,
-    render_tool_trace_parts
+    render_tool_trace
 )
+from .title import render_tool_trace_parts
 
 __all__ = [
     "ACTION_EDIT_STYLE",
