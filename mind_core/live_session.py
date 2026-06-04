@@ -18,15 +18,18 @@ class LiveRenderSession(object):
         self.live: typing.Optional[Live] = None
 
     def set_refresh_per_second(self, refresh_per_second: int) -> None:
+        """设置当前 Live 会话的刷新频率。"""
         rate = max(1, int(refresh_per_second))
         self.refresh_per_second = rate
         if self.live is not None:
             self.live.refresh_per_second = rate
 
     def _live_renderable(self) -> typing.Any:
+        """返回当前 Live 使用的可渲染对象。"""
         return self.renderable if self.renderable is not None else Text(self.out, style="bold")
 
     async def start(self) -> None:
+        """启动 Live 渲染会话。"""
         if self.live:
             return None
 
@@ -40,12 +43,14 @@ class LiveRenderSession(object):
         self.live.__enter__()
 
     async def suspend(self) -> None:
+        """暂停并释放当前 Live 会话。"""
         if self.live is None:
             return None
         self.live.__exit__(None, None, None)
         self.live = None
 
     async def stop(self) -> None:
+        """停止 Live 会话并清理渲染状态。"""
         await self.suspend()
         self.renderable = None
 
@@ -55,6 +60,7 @@ class LiveRenderSession(object):
         *,
         renderable: typing.Optional[typing.Any] = None
     ) -> None:
+        """用指定内容更新 Live 画面。"""
         if self.live is None:
             return None
 
@@ -69,29 +75,38 @@ class LiveRenderSession(object):
         animate: bool = False,
         renderable: typing.Optional[typing.Any] = None
     ) -> None:
+        """同步内容到 Live，会话基类不处理动画参数。"""
         del animate
         await self.render(content, renderable=renderable)
 
 
 class TypewriterStreamSession(LiveRenderSession):
+    """管理流式正文的打字机窗口和光标渲染。"""
 
     MIN_VIEW_LINES = 8
-    VIEW_MARGIN = 4
+    MAX_VIEW_LINES = 32
+    VIEW_MARGIN    = 6
 
-    def __init__(self, max_lines: int = 16, refresh_per_second: int = 12) -> None:
-        self.lines: deque = deque(maxlen=max_lines)
-        self.col: int = 0
-        self.delay: float = 0.01
-        self.cursor: str = random.choice(["█", "▉", "▋"])
+    def __init__(self, max_lines: int = MAX_VIEW_LINES, refresh_per_second: int = 12) -> None:
+        """初始化打字机窗口状态。"""
         super().__init__(refresh_per_second=refresh_per_second)
 
+        self.lines: deque = deque(maxlen=max_lines)
+        self.col: int     = 0
+        self.delay: float = 0.01
+        self.cursor: str  = random.choice(["█", "▉", "▋"])
+
     def _viewport_lines(self) -> int:
-        height = max(0, int(getattr(Design.console, "height", 0) or 0))
+        """根据当前终端高度计算正文可见行数。"""
+        height   = max(0, int(getattr(Design.console, "height", 0) or 0))
+        line_cap = min(int(self.lines.maxlen), self.MAX_VIEW_LINES)
+
         if height <= 0:
-            return self.lines.maxlen
-        return max(self.MIN_VIEW_LINES, min(self.lines.maxlen, height - self.VIEW_MARGIN))
+            return line_cap
+        return max(self.MIN_VIEW_LINES, min(line_cap, height - self.VIEW_MARGIN))
 
     def _tail_text(self, text: str, *, reserve_lines: int = 0) -> str:
+        """截取适合当前打字机窗口显示的尾部文本。"""
         max_lines = self._viewport_lines() - max(0, int(reserve_lines))
         if not text or max_lines <= 0:
             return text
@@ -104,12 +119,15 @@ class TypewriterStreamSession(LiveRenderSession):
         return "\n".join(rows)
 
     def tail_text(self, text: str, *, reserve_lines: int = 0) -> str:
+        """返回按窗口高度裁剪后的尾部文本。"""
         return self._tail_text(text, reserve_lines=reserve_lines)
 
     def _live_renderable(self) -> typing.Any:
+        """返回打字机窗口当前使用的可渲染对象。"""
         return self.renderable if self.renderable is not None else Text(self._tail_text(self.out), style="bold")
 
     async def stop(self, *, blink: bool = True) -> None:
+        """停止打字机 Live，并在结束后输出最终文本。"""
         if self.live is not None:
             try:
                 if blink:
@@ -127,6 +145,7 @@ class TypewriterStreamSession(LiveRenderSession):
         self.renderable = None
 
     async def feed(self, delta: str) -> None:
+        """把新增文本以打字机动画追加到 Live。"""
         if not delta or not self.live:
             return None
 
@@ -147,6 +166,7 @@ class TypewriterStreamSession(LiveRenderSession):
         *,
         renderable: typing.Optional[typing.Any] = None
     ) -> None:
+        """直接更新打字机 Live 的完整内容。"""
         await super().render(content, renderable=renderable)
 
     async def sync(
@@ -156,6 +176,7 @@ class TypewriterStreamSession(LiveRenderSession):
         animate: bool = False,
         renderable: typing.Optional[typing.Any] = None
     ) -> None:
+        """根据内容变化选择动画追加或直接同步。"""
         if self.live is None:
             return None
 

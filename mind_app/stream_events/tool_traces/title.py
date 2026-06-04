@@ -8,6 +8,7 @@ from .common import (
     ACTION_GIT_STYLE,
     ACTION_READ_STYLE,
     ACTION_RUN_STYLE,
+    ACTION_TOOL_STYLE,
     COUNT_UNIT_STYLE,
     COUNT_VALUE_STYLE,
     DELTA_ADD_STYLE,
@@ -181,6 +182,8 @@ def _action_style_for_body(
         return ACTION_EDIT_STYLE
     if first in {"Ran", "Recorded", "Rolled", "Updated"}:
         return ACTION_RUN_STYLE
+    if first in {"Tool"}:
+        return ACTION_TOOL_STYLE
 
     return None
 

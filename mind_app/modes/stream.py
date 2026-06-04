@@ -39,6 +39,8 @@ from ..stream_events.tool_trace import (
     MISSING,
     is_native_coding_trace_tool,
     local_path_exists,
+    render_generic_tool_result_parts,
+    render_generic_tool_result_preview,
     render_tool_result_preview,
     render_tool_start_trace,
     render_tool_trace,
@@ -294,7 +296,10 @@ async def stream_looper(
                 if not use_coding_trace:
                     trace_start = render_tool_start_trace(name, arguments)
                     await slog.feed(
-                        f"{trace_start}\n", display=StreamUI.BLOCK, display_chunk=summary
+                        f"{trace_start}\n",
+                        display=StreamUI.BLOCK,
+                        display_chunk=trace_start,
+                        display_parts=render_tool_trace_parts(trace_start)
                     )
 
                 arguments = Enhancer.exchange(name, arguments, mind.report)
@@ -357,7 +362,12 @@ async def stream_looper(
                         display_parts=trace_parts
                     )
                 else:
-                    await slog.feed(text, display=StreamUI.BLOCK)
+                    trace_preview = render_generic_tool_result_preview(text)
+                    await slog.feed(
+                        text,
+                        display=StreamUI.BLOCK,
+                        display_parts=render_generic_tool_result_parts(trace_preview, ok=ok)
+                    )
 
                 await request.post_tool_result(
                     event["cid"],

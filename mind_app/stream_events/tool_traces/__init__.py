@@ -6,6 +6,7 @@ from .common import (
     ACTION_GIT_STYLE,
     ACTION_READ_STYLE,
     ACTION_RUN_STYLE,
+    ACTION_TOOL_STYLE,
     COUNT_UNIT_STYLE,
     COUNT_VALUE_STYLE,
     DELTA_ADD_STYLE,
@@ -25,6 +26,10 @@ from .common import (
     TITLE_STYLE,
     TracePreview
 )
+from .generic import (
+    render_generic_tool_result_parts,
+    render_generic_tool_result_preview
+)
 from .native import (
     NATIVE_CODING_TRACE_TOOLS,
     is_native_coding_trace_tool,
@@ -40,6 +45,7 @@ __all__ = [
     "ACTION_GIT_STYLE",
     "ACTION_READ_STYLE",
     "ACTION_RUN_STYLE",
+    "ACTION_TOOL_STYLE",
     "COUNT_UNIT_STYLE",
     "COUNT_VALUE_STYLE",
     "DELTA_ADD_STYLE",
@@ -61,6 +67,8 @@ __all__ = [
     "TracePreview",
     "is_native_coding_trace_tool",
     "local_path_exists",
+    "render_generic_tool_result_parts",
+    "render_generic_tool_result_preview",
     "render_tool_result_preview",
     "render_tool_start_trace",
     "render_tool_trace",

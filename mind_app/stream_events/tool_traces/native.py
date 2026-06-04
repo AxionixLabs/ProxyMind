@@ -305,10 +305,7 @@ def render_tool_start_trace(
     arguments: dict[str, typing.Any]
 ) -> str:
     """渲染普通工具开始执行前的轨迹行。"""
-    args = arguments if isinstance(arguments, dict) else {}
-    summary = _short_text(args, 100)
-    detail  = f" {summary}" if summary else ""
-    return f"• Running {name}{detail}"
+    return f"• Tool {str(name or 'tool').strip() or 'tool'}"
 
 
 def is_native_coding_trace_tool(name: str) -> bool:
