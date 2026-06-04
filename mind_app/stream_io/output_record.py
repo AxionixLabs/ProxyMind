@@ -3,6 +3,7 @@
 
 import os
 import typing
+from loguru import logger
 from mind_nova import const
 
 
@@ -21,10 +22,19 @@ class StreamRecordWriter(object):
         if self.fp:
             return None
 
-        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
-        self.fp = open(
-            self.log_file, "a", encoding=const.CHARSET, buffering=1, newline=""
-        )
+        try:
+            dirname = os.path.dirname(self.log_file)
+            if dirname:
+                os.makedirs(dirname, exist_ok=True)
+            self.fp = open(
+                self.log_file, "a", encoding=const.CHARSET, buffering=1, newline=""
+            )
+        except OSError as exc:
+            self.fp = None
+            logger.warning(
+                f"[StreamRecord] disabled file record path={self.log_file!r} "
+                f"reason={type(exc).__name__}: {exc}"
+            )
 
     def write(self, chunk: typing.Optional[str], *, block: bool = False) -> None:
         if not chunk:

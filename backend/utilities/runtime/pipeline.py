@@ -9,8 +9,8 @@ from rich.console import Console
 from rich.logging import (
     LogRecord, RichHandler
 )
-from backend.utilities import const
 from backend.utilities.storage.logs import ensure_log_path
+from backend.utilities import const
 
 
 class _HelixBaseError(BaseException):
@@ -38,22 +38,21 @@ class Active(object):
     console: Console = Console()
 
     class _RichSink(RichHandler):
+
+        # 电青，霓虹绿，霓虹粉
         debug_color = [
-            "#00E5FF",  # 电青
-            "#39FF14",  # 霓虹绿
-            "#FF2D95",  # 霓虹粉
+            "#00E5FF", "#39FF14", "#FF2D95"
         ]
+        # 电黄，亮绿，蓝灰
         info_color = [
-            "#FFD300",  # 电黄
-            "#7CFF6B",  # 亮绿
-            "#64748B",  # 蓝灰
+            "#FFD300", "#7CFF6B", "#64748B"
         ]
         level_style = {
             "DEBUG"    : f"bold {random.choice(debug_color)}",
             "INFO"     : f"bold {random.choice(info_color)}",
             "WARNING"  : "bold #FFD700",
             "ERROR"    : "bold #FF4500",
-            "CRITICAL" : "bold #FF1493",
+            "CRITICAL" : "bold #FF1493"
         }
 
         def __init__(self, console: "Console"):

@@ -26,17 +26,17 @@ Version [bold #FFD75F]{APP_VERSION}[/] :: Licensed software. Authorization requi
 """
 
 # ========【路径与资源配置】========
-LIC_FILE         = f"{APP_NAME}_signature.lic"
-SCHEMATIC        = r"schematic"
-SUPPORTS         = r"supports"
-STRUCTURE        = r"Structure"
-SRC_OPERA_PLACE  = f"{APP_DESC}_Mix"
-SRC_TOTAL_PLACE  = f"{APP_DESC}_Report"
-PREF             = f"{APP_NAME}_pref.json"
-R_TOTAL_TAG      = r"PM"
-R_COLLECTION     = f"{APP_DESC}_Collection"
-R_RECOVERY       = f"{APP_DESC}_Recovery"
-R_LOG_FILE       = f"{APP_NAME}.log"
+LIC_FILE        = f"{APP_NAME}_signature.lic"
+SCHEMATIC       = r"schematic"
+SUPPORTS        = r"supports"
+STRUCTURE       = r"Structure"
+SRC_OPERA_PLACE = f"{APP_DESC}_Mix"
+SRC_TOTAL_PLACE = f"{APP_DESC}_Report"
+PREF            = f"{APP_NAME}_pref.json"
+R_TOTAL_TAG     = r"PM"
+R_COLLECTION    = f"{APP_DESC}_Collection"
+R_RECOVERY      = f"{APP_DESC}_Recovery"
+R_LOG_FILE      = f"{APP_NAME}.log"
 
 # ========【日志与显示设置】========
 PRINT_HEAD = f"[bold #8B8B8B]{APP_DESC} ::[/]"

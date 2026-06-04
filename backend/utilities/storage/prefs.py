@@ -2,23 +2,21 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import os
-import sys
 import time
 import typing
 import sqlite3
 from pathlib import Path
-from backend.utilities.paths import app_root
+from backend.utilities.storage.roots import (
+    storage_dir, temp_storage_dir
+)
 from backend.utilities import const
-
-Slot = dict[str, typing.Any]
 
 PROFILE_TITLE      = f"Default"
 SLOT_KEYS          = ("primary", "secondary")
 REQUIRED_SLOT_KEYS = ("primary",)
-APP_DATA_DIR_NAME  = f"{const.APP_DESC}"
+TABLE_PROFILES     = r"pref_profiles"
+TABLE_SLOTS        = r"pref_model_slots"
 
-TABLE_PROFILES  = "pref_profiles"
-TABLE_SLOTS     = "pref_model_slots"
 SLOT_COLUMN_MAP = {
     "api"      : "provider",
     "base_url" : "base_url",
@@ -26,51 +24,17 @@ SLOT_COLUMN_MAP = {
     "apikey"   : "api_key",
     "model"    : "model_name",
     "type"     : "model_type",
-    "notes"    : "notes",
+    "notes"    : "notes"
 }
 
-DATA_STORAGE_DIR = f"storage"
-DATA_FILENAME    = f"{const.APP_NAME}.db"
+DATA_FILENAME = f"{const.APP_NAME}.db"
 
 DEFAULT_SCHEMA_VERSION = 2
-DEFAULT_PROFILE_KEY    = "default"
-DEFAULT_PROVIDER       = "OpenAI"
-DEFAULT_ROUTE          = "responses"
+DEFAULT_PROFILE_KEY    = r"default"
+DEFAULT_PROVIDER       = r"OpenAI"
+DEFAULT_ROUTE          = r"responses"
 ALLOWED_ROUTES         = {"responses", "chat_completions"}
-DEFAULT_MODEL_TYPE     = "Text"
-
-
-def _default_slot() -> Slot:
-    """返回单个模型槽位的默认配置。"""
-    return {
-        "api"      : DEFAULT_PROVIDER,
-        "base_url" : "",
-        "route"    : DEFAULT_ROUTE,
-        "apikey"   : "",
-        "model"    : "",
-        "type"     : DEFAULT_MODEL_TYPE,
-        "notes"    : "",
-    }
-
-
-def _default_prefs() -> dict[str, typing.Any]:
-    """返回整份偏好配置的默认结构。"""
-    return {
-        "schema_version" : DEFAULT_SCHEMA_VERSION,
-        "profile_key"    : DEFAULT_PROFILE_KEY,
-        "primary"        : _default_slot(),
-        "secondary"      : None,
-    }
-
-
-def _normalize_route(value: typing.Any) -> str:
-    """把路由值收敛到受支持的接口类型。"""
-    route = str(value or "").strip()
-    if route in ALLOWED_ROUTES:
-        return route
-
-    return DEFAULT_ROUTE
-
+DEFAULT_MODEL_TYPE     = r"Text"
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS pref_profiles (
@@ -103,32 +67,220 @@ CREATE TABLE IF NOT EXISTS pref_model_slots (
 SCHEMA_SQL = SCHEMA_SQL.replace("pref_profiles", TABLE_PROFILES).replace("pref_model_slots", TABLE_SLOTS)
 
 
-def _data_root() -> Path:
-    """根据当前平台推断偏好数据目录。"""
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / APP_DATA_DIR_NAME
-
-    if sys.platform == "win32":
-        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
-        if base:
-            return Path(base) / APP_DATA_DIR_NAME
-
-    return app_root() / APP_DATA_DIR_NAME
-
-
 def pref_path() -> Path:
     """返回偏好数据库文件的标准路径。"""
-    return _data_root() / DATA_STORAGE_DIR / DATA_FILENAME
+    return storage_dir() / DATA_FILENAME
+
+
+def load_pref() -> dict[str, typing.Any]:
+    """从数据库加载当前偏好配置。"""
+    conn = _connect()
+    try:
+        with conn:
+            _init_schema(conn)
+            profile_id = _ensure_profile(conn)
+
+            rows = conn.execute(
+                f"""
+                SELECT slot_key, provider, base_url, api_key, model_name, model_type, notes
+                     , route
+                FROM {TABLE_SLOTS}
+                WHERE profile_id = ?
+                """,
+                (profile_id,)
+            ).fetchall()
+    finally:
+        conn.close()
+
+    slots = {str(row["slot_key"]): _row_to_slot(row) for row in rows}
+    prefs = _default_prefs()
+    prefs["primary"] = slots.get("primary", _default_slot())
+    secondary = slots.get("secondary")
+    prefs["secondary"] = secondary if _is_slot_configured(secondary) else None
+    return prefs
+
+
+def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
+    """把偏好配置归一化后写入数据库并返回最终结果。"""
+    prefs = normalize_pref(raw)
+    now   = _now_ms()
+    conn  = _connect()
+
+    try:
+        with conn:
+            _init_schema(conn)
+            profile_id = _ensure_profile(conn, str(prefs.get("profile_key") or DEFAULT_PROFILE_KEY))
+
+            for slot_key in REQUIRED_SLOT_KEYS:
+                slot = prefs[slot_key]
+
+                provider, base_url, route, api_key, model_name, model_type, notes = _slot_record(slot)
+
+                conn.execute(
+                    f"""
+                    INSERT INTO {TABLE_SLOTS} (
+                        profile_id, slot_key, provider, base_url, route, api_key, model_name,
+                        model_type, notes, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(profile_id, slot_key) DO UPDATE SET
+                        provider   = excluded.provider,
+                        base_url   = excluded.base_url,
+                        route      = excluded.route,
+                        api_key    = excluded.api_key,
+                        model_name = excluded.model_name,
+                        model_type = excluded.model_type,
+                        notes      = excluded.notes,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        profile_id,
+                        slot_key,
+                        provider,
+                        base_url,
+                        route,
+                        api_key,
+                        model_name,
+                        model_type,
+                        notes,
+                        now,
+                        now
+                    )
+                )
+
+            secondary = prefs.get("secondary")
+            if _is_slot_configured(secondary):
+                provider, base_url, route, api_key, model_name, model_type, notes = _slot_record(secondary)
+                conn.execute(
+                    f"""
+                    INSERT INTO {TABLE_SLOTS} (
+                        profile_id, slot_key, provider, base_url, route, api_key, model_name,
+                        model_type, notes, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(profile_id, slot_key) DO UPDATE SET
+                        provider   = excluded.provider,
+                        base_url   = excluded.base_url,
+                        route      = excluded.route,
+                        api_key    = excluded.api_key,
+                        model_name = excluded.model_name,
+                        model_type = excluded.model_type,
+                        notes      = excluded.notes,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        profile_id,
+                        "secondary",
+                        provider,
+                        base_url,
+                        route,
+                        api_key,
+                        model_name,
+                        model_type,
+                        notes,
+                        now,
+                        now
+                    )
+                )
+            else:
+                conn.execute(
+                    f"DELETE FROM {TABLE_SLOTS} WHERE profile_id = ? AND slot_key = ?",
+                    (profile_id, "secondary")
+                )
+    finally:
+        conn.close()
+
+    return prefs
+
+
+def normalize_pref(raw: typing.Any) -> dict[str, typing.Any]:
+    """把任意输入归一化为标准偏好配置结构。"""
+    prefs = _default_prefs()
+    if not isinstance(raw, dict):
+        return prefs
+
+    prefs["primary"]          = _merge_slot(prefs["primary"], raw.get("primary"))
+    prefs["primary"]["type"]  = prefs["primary"]["type"] or DEFAULT_MODEL_TYPE
+    prefs["primary"]["route"] = _normalize_route(prefs["primary"].get("route"))
+
+    secondary          = _merge_slot(_default_slot(), raw.get("secondary"))
+    secondary["type"]  = secondary["type"] or DEFAULT_MODEL_TYPE
+    secondary["route"] = _normalize_route(secondary.get("route"))
+    prefs["secondary"] = secondary if _is_slot_configured(secondary) else None
+
+    return prefs
+
+
+def _default_slot() -> dict[str, typing.Any]:
+    """返回单个模型槽位的默认配置。"""
+    return {
+        "api"      : DEFAULT_PROVIDER,
+        "base_url" : "",
+        "route"    : DEFAULT_ROUTE,
+        "apikey"   : "",
+        "model"    : "",
+        "type"     : DEFAULT_MODEL_TYPE,
+        "notes"    : ""
+    }
+
+
+def _default_prefs() -> dict[str, typing.Any]:
+    """返回整份偏好配置的默认结构。"""
+    return {
+        "schema_version" : DEFAULT_SCHEMA_VERSION,
+        "profile_key"    : DEFAULT_PROFILE_KEY,
+        "primary"        : _default_slot(),
+        "secondary"      : None
+    }
+
+
+def _normalize_route(value: typing.Any) -> str:
+    """把路由值收敛到受支持的接口类型。"""
+    route = str(value or "").strip()
+    if route in ALLOWED_ROUTES:
+        return route
+
+    return DEFAULT_ROUTE
+
+
+def _pref_path_candidates() -> list[Path]:
+    """返回按优先级排列的偏好数据库文件候选。"""
+    candidates = [
+        pref_path(),
+        temp_storage_dir() / DATA_FILENAME,
+    ]
+
+    seen: set[str] = set()
+    result: list[Path] = []
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(candidate)
+    return result
 
 
 def _connect() -> sqlite3.Connection:
-    """建立并返回偏好数据库连接。"""
-    target = pref_path()
-    os.makedirs(target.parent, exist_ok=True)
-    conn = sqlite3.connect(target)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    """建立偏好数据库连接；标准文件不可用时降级到临时数据库。"""
+    last_error: BaseException | None = None
+    for target in _pref_path_candidates():
+        conn: sqlite3.Connection | None = None
+        try:
+            os.makedirs(target.parent, exist_ok=True)
+            conn = sqlite3.connect(target)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+            return conn
+        except (OSError, sqlite3.Error) as exc:
+            last_error = exc
+            if conn is not None:
+                conn.close()
+            continue
+
+    if last_error is not None:
+        raise last_error
+    raise sqlite3.OperationalError("no writable pref database candidates")
 
 
 def _init_schema(conn: sqlite3.Connection) -> None:
@@ -194,7 +346,7 @@ def _ensure_profile(conn: sqlite3.Connection, profile_key: str = DEFAULT_PROFILE
     return profile_id
 
 
-def _slot_record(slot: Slot) -> tuple[str, str, str, str, str, str, str]:
+def _slot_record(slot: dict[str, typing.Any]) -> tuple[str, str, str, str, str, str, str]:
     """把槽位字典转换成数据库写入元组。"""
     return (
         slot["api"],
@@ -203,11 +355,11 @@ def _slot_record(slot: Slot) -> tuple[str, str, str, str, str, str, str]:
         slot["apikey"],
         slot["model"],
         slot["type"],
-        slot["notes"],
+        slot["notes"]
     )
 
 
-def _row_to_slot(row: sqlite3.Row | None) -> Slot:
+def _row_to_slot(row: sqlite3.Row | None) -> dict[str, typing.Any]:
     """把数据库行对象转换成标准槽位字典。"""
     slot = _default_slot()
     if row is None:
@@ -221,7 +373,7 @@ def _row_to_slot(row: sqlite3.Row | None) -> Slot:
     return slot
 
 
-def _merge_slot(base: Slot, incoming: typing.Any) -> Slot:
+def _merge_slot(base: dict[str, typing.Any], incoming: typing.Any) -> dict[str, typing.Any]:
     """把传入槽位配置合并到基准槽位上。"""
     merged = dict(base)
     if not isinstance(incoming, dict):
@@ -244,117 +396,6 @@ def _is_slot_configured(slot: typing.Any) -> bool:
 
     meaningful_keys = ("base_url", "apikey", "model", "notes")
     return any(str(slot.get(key, "")).strip() for key in meaningful_keys)
-
-
-def normalize_pref(raw: typing.Any) -> dict[str, typing.Any]:
-    """把任意输入归一化为标准偏好配置结构。"""
-    prefs = _default_prefs()
-    if not isinstance(raw, dict):
-        return prefs
-
-    prefs["primary"] = _merge_slot(prefs["primary"], raw.get("primary"))
-    prefs["primary"]["type"] = prefs["primary"]["type"] or DEFAULT_MODEL_TYPE
-    prefs["primary"]["route"] = _normalize_route(prefs["primary"].get("route"))
-
-    secondary = _merge_slot(_default_slot(), raw.get("secondary"))
-    secondary["type"] = secondary["type"] or DEFAULT_MODEL_TYPE
-    secondary["route"] = _normalize_route(secondary.get("route"))
-    prefs["secondary"] = secondary if _is_slot_configured(secondary) else None
-
-    return prefs
-
-
-def load_pref() -> dict[str, typing.Any]:
-    """从数据库加载当前偏好配置。"""
-    with _connect() as conn:
-        _init_schema(conn)
-        profile_id = _ensure_profile(conn)
-
-        rows = conn.execute(
-            f"""
-            SELECT slot_key, provider, base_url, api_key, model_name, model_type, notes
-                 , route
-            FROM {TABLE_SLOTS}
-            WHERE profile_id = ?
-            """,
-            (profile_id,)
-        ).fetchall()
-
-    slots = {str(row["slot_key"]): _row_to_slot(row) for row in rows}
-    prefs = _default_prefs()
-    prefs["primary"] = slots.get("primary", _default_slot())
-    secondary = slots.get("secondary")
-    prefs["secondary"] = secondary if _is_slot_configured(secondary) else None
-    return prefs
-
-
-def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
-    """把偏好配置归一化后写入数据库并返回最终结果。"""
-    prefs = normalize_pref(raw)
-    now = _now_ms()
-
-    with _connect() as conn:
-        _init_schema(conn)
-        profile_id = _ensure_profile(conn, str(prefs.get("profile_key") or DEFAULT_PROFILE_KEY))
-
-        for slot_key in REQUIRED_SLOT_KEYS:
-            slot = prefs[slot_key]
-            provider, base_url, route, api_key, model_name, model_type, notes = _slot_record(slot)
-            conn.execute(
-                f"""
-                INSERT INTO {TABLE_SLOTS} (
-                    profile_id, slot_key, provider, base_url, route, api_key, model_name,
-                    model_type, notes, created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(profile_id, slot_key) DO UPDATE SET
-                    provider   = excluded.provider,
-                    base_url   = excluded.base_url,
-                    route      = excluded.route,
-                    api_key    = excluded.api_key,
-                    model_name = excluded.model_name,
-                    model_type = excluded.model_type,
-                    notes      = excluded.notes,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    profile_id, slot_key, provider, base_url, route, api_key, model_name,
-                    model_type, notes, now, now
-                )
-            )
-
-        secondary = prefs.get("secondary")
-        if _is_slot_configured(secondary):
-            provider, base_url, route, api_key, model_name, model_type, notes = _slot_record(secondary)
-            conn.execute(
-                f"""
-                INSERT INTO {TABLE_SLOTS} (
-                    profile_id, slot_key, provider, base_url, route, api_key, model_name,
-                    model_type, notes, created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(profile_id, slot_key) DO UPDATE SET
-                    provider   = excluded.provider,
-                    base_url   = excluded.base_url,
-                    route      = excluded.route,
-                    api_key    = excluded.api_key,
-                    model_name = excluded.model_name,
-                    model_type = excluded.model_type,
-                    notes      = excluded.notes,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    profile_id, "secondary", provider, base_url, route, api_key, model_name,
-                    model_type, notes, now, now
-                )
-            )
-        else:
-            conn.execute(
-                f"DELETE FROM {TABLE_SLOTS} WHERE profile_id = ? AND slot_key = ?",
-                (profile_id, "secondary")
-            )
-
-    return prefs
 
 
 if __name__ == '__main__':
