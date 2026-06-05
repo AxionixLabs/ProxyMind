@@ -28,6 +28,19 @@ from .mcp import mcp_servers_path
 from .mind_core import Mind
 
 
+def resolve_code_mode(cmd_lines: typing.Any) -> RunMode:
+    if cmd_lines.chat is not None:
+        return "chat"
+    if cmd_lines.fast is not None:
+        return "fast"
+    if cmd_lines.plan is not None:
+        return "plan"
+    if cmd_lines.xtra is not None:
+        return "xtra"
+
+    raise MindError("--code requires --chat, --fast, --plan, or --xtra")
+
+
 async def resolve_cli_attachments(
     mind: Mind,
     cmd_lines: typing.Any
@@ -76,19 +89,6 @@ async def resolve_cli_attachments(
         Design.console.print(reporter.render_summary(reporter.last_event))
 
     return uploaded
-
-
-def resolve_code_mode(cmd_lines: typing.Any) -> RunMode:
-    if cmd_lines.chat is not None:
-        return "chat"
-    if cmd_lines.fast is not None:
-        return "fast"
-    if cmd_lines.plan is not None:
-        return "plan"
-    if cmd_lines.xtra is not None:
-        return "xtra"
-
-    raise MindError("--code requires --chat, --fast, --plan, or --xtra")
 
 
 async def main(entry_file: typing.Optional[str] = None) -> int:
@@ -267,6 +267,7 @@ async def main(entry_file: typing.Optional[str] = None) -> int:
     mind.bind_runtime(asyncio.get_running_loop(), asyncio.current_task())
     mind.bind_server_manager(server)
     mind.start_keepalive_supervisor()
+    await mind.start_external_mcp_runtime()
 
     signal.signal(signal.SIGINT, mind.signal_processor)
 

@@ -30,6 +30,7 @@ from .runtime.calling import (
 )
 from .runtime.session import with_mcp_session as run_with_mcp_session
 from .runtime.keepalive import run_keepalive
+from .runtime.external_mcp import ExternalMcpRuntime
 from .mcp import McpSessionLike
 
 
@@ -73,6 +74,7 @@ class Mind(object):
         self.server_manager: typing.Optional[ServerManage]            = None
         self.keepalive_stop: typing.Optional[asyncio.Event]           = None
         self.keepalive_task: typing.Optional[asyncio.Task[None]]      = None
+        self.external_mcp: typing.Optional[ExternalMcpRuntime]        = None
 
         self.exit_code: int = 0
         self.sig_count: int = 0
@@ -90,11 +92,11 @@ class Mind(object):
     def bind_runtime(
         self,
         loop: asyncio.AbstractEventLoop,
-        root_task: typing.Optional[asyncio.Task[typing.Any]],
+        root_task: typing.Optional[asyncio.Task[typing.Any]]
     ) -> None:
         """绑定当前事件循环与顶层任务，用于异步退出。"""
         self.runtime_loop = loop
-        self.root_task = root_task
+        self.root_task    = root_task
 
     def bind_server_manager(self, server_manager: ServerManage) -> None:
         """绑定 Helix 后台管理器。"""
@@ -114,6 +116,19 @@ class Mind(object):
             name="helix keepalive"
         )
 
+    async def start_external_mcp_runtime(self) -> None:
+        """启动 Mind 生命周期级外部 MCP 运行时。"""
+        if self.external_mcp is None:
+            self.external_mcp = ExternalMcpRuntime(self)
+        await self.external_mcp.start()
+
+    async def stop_external_mcp_runtime(self) -> None:
+        """停止 Mind 生命周期级外部 MCP 运行时。"""
+        runtime = self.external_mcp
+        self.external_mcp = None
+        if runtime is not None:
+            await runtime.stop()
+
     async def stop_keepalive_supervisor(self) -> None:
         """停止 Mind 生命周期内的 Helix 保活任务。"""
         if self.keepalive_stop is not None:
@@ -130,6 +145,7 @@ class Mind(object):
 
     async def close_runtime_resources(self) -> None:
         """关闭 Mind 持有的运行时资源，不关闭 Helix 后台进程。"""
+        await self.stop_external_mcp_runtime()
         await self.stop_keepalive_supervisor()
         if self.server_manager is not None:
             await self.server_manager.close()
@@ -266,6 +282,7 @@ class Mind(object):
         """初始化或续用当前会话标识。"""
         self.cid = cid or self.cid or craft.new_cid()
         self.sid = sid or self.sid or craft.new_sid(self.cid)
+
         return {"cid": self.cid, "sid": self.sid}
 
     async def with_mcp_session(
@@ -279,7 +296,7 @@ class Mind(object):
             ],
             typing.Awaitable[None],
         ],
-        before_user_flow: typing.Optional[typing.Callable[[], typing.Any]] = None,
+        before_user_flow: typing.Optional[typing.Callable[[], typing.Any]] = None
     ) -> None:
         """MCP 会话入口：把共享连接与工具集构建委托给运行时模块。"""
         return await run_with_mcp_session(

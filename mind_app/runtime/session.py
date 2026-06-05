@@ -8,16 +8,12 @@ import typing
 import asyncio
 import inspect
 import contextlib
-from loguru import logger
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from engine.tinker import MindError
 from mind_app.mcp import (
-    ExternalMcpStatus,
     McpSessionLike,
     MultiMcpSession,
-    load_mcp_servers_file,
-    open_optional_external_mcp_group
 )
 from mind_nova import (
     authentic, const, request
@@ -181,45 +177,20 @@ async def with_mcp_session(
             async with streamable_http_client(url, http_client=client) as (r, w, _):
                 async with ClientSession(r, w) as session:
                     await session.initialize()
-                    external_servers = load_mcp_servers_file(mind.src_opera_place)
-                    if external_servers:
-                        logger.debug(
-                            f"[MCP] external configured count={len(external_servers)}"
-                        )
+                    external_group = mind.external_mcp.group if mind.external_mcp else None
+                    active_session = MultiMcpSession(session, external_group)
 
-                    external_status = ExternalMcpStatus(external_servers)
+                    list_tools = await active_session.list_tools()
 
-                    external_anim_started = False
-                    if external_status.visible:
-                        await mind.start_external_mcp_anim(external_status.snapshot)
-                        external_anim_started = True
+                    openai_tools, tool_meta = mind.build_openai_tools(list_tools)
 
-                    try:
-                        async with open_optional_external_mcp_group(
-                            external_servers,
-                            status=external_status
-                        ) as external_group:
-                            if external_anim_started:
-                                await mind.await_cleanup(mind.stop_anim())
-                                external_anim_started = False
+                    if before_user_flow is not None:
+                        callback_result = before_user_flow()
+                        if inspect.isawaitable(callback_result):
+                            await callback_result
 
-                            active_session = MultiMcpSession(session, external_group)
-
-                            list_tools = await active_session.list_tools()
-
-                            openai_tools, tool_meta = mind.build_openai_tools(list_tools)
-
-                            if before_user_flow is not None:
-                                callback_result = before_user_flow()
-                                if inspect.isawaitable(callback_result):
-                                    await callback_result
-
-                            entered_user_flow = True
-                            await function(active_session, openai_tools, tool_meta)
-
-                    finally:
-                        if external_anim_started:
-                            await mind.await_cleanup(mind.stop_anim())
+                    entered_user_flow = True
+                    await function(active_session, openai_tools, tool_meta)
 
         except BaseException as exc:
             if isinstance(exc, (asyncio.CancelledError, KeyboardInterrupt, SystemExit, MindError)):
