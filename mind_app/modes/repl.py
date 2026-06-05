@@ -172,7 +172,7 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #FFD75F]/chat[/]                     对话模式（交互能力协作/自然语言交互）
         [bold #FFD75F]/fast[/]                     高速模式（高吞吐任务流/数据媒体直达）
         [bold #FFD75F]/plan[/]                     编排模式（结构任务拆解/确定路径执行）
-        [bold #FFD75F]/xtra[/]                     外接模式（外部 MCP 工具 + 通用工具）
+        [bold #FFD75F]/xtra[/]                     外接模式（外部 MCP 工具 + 通用工具 + 编码工具）
         [bold #7F8C9A]/model <name>[/]             引擎切换（选择推理内核）
         [bold #7F8C9A]/apikey <key>[/]             凭证更新（替换访问密钥）
         [/]"""
