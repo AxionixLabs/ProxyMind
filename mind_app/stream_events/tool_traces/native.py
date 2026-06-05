@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import re
+import ast
 import typing
 from pathlib import Path
 from .common import (
@@ -69,6 +70,28 @@ def _count_from_payload(payload: dict[str, typing.Any], key: str, count_key: str
         return len(items)
     value = payload.get(count_key)
     return value if isinstance(value, int) else None
+
+
+def _search_query_label(args: dict[str, typing.Any]) -> tuple[str, bool]:
+    """生成搜索标题中的查询摘要，并标记是否需要引号。"""
+    query = args.get("query")
+    mode  = str(args.get("mode") or "").strip().lower()
+
+    if isinstance(query, (list, tuple)):
+        unit = "filenames" if mode == "file" else "queries"
+        return f"{len(query)} {unit}", False
+
+    text = str(query or "").strip()
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            parsed = ast.literal_eval(text)
+        except (SyntaxError, ValueError):
+            parsed = None
+        if isinstance(parsed, list) and all(isinstance(item, str) for item in parsed):
+            unit = "filenames" if mode == "file" else "queries"
+            return f"{len(parsed)} {unit}", False
+
+    return _short_text(text, 80), True
 
 
 def _session_id_from_payload(payload: dict[str, typing.Any], args: dict[str, typing.Any]) -> str:
@@ -164,6 +187,18 @@ def _format_size(value: typing.Any) -> str:
     return f"{size / (1024 * 1024):.1f} MB"
 
 
+def _preview_file_kind(value: typing.Any) -> str:
+    """把文件类型压缩为固定宽度的预览标签。"""
+    kind = str(value or "").strip().lower()
+    if kind == "directory":
+        return "dir"
+    if kind == "symlink":
+        return "link"
+    if kind in {"file", "dir", "link"}:
+        return kind
+    return kind[:4]
+
+
 def _diagnostic_sequence_lines(label: str, value: typing.Any) -> list[str]:
     """把失败诊断中的 expected/actual 序列压缩成单行显示。"""
     if isinstance(value, list):
@@ -202,6 +237,16 @@ def _patch_failure_diagnostic_lines(data: dict[str, typing.Any]) -> list[str]:
             lines.append(f"nearby: {' | '.join(sample)}")
 
     return lines
+
+
+def _failure_preview_lines(data: dict[str, typing.Any], *pairs: tuple[str, typing.Any]) -> list[str]:
+    """生成失败预览摘要，优先展示 reason 和少量关键字段。"""
+    return _summary_lines(
+        ("reason", data.get("reason")),
+        ("error", data.get("error")),
+        *pairs,
+        ("hint", data.get("suggested_next_action")),
+    )
 
 
 def _numbered_added_lines(content: typing.Any, *, start_line: int = 1) -> list[str]:
@@ -300,6 +345,32 @@ def _unified_action(files: typing.Any) -> str:
     return "Edited"
 
 
+def _list_file_preview_lines(files: list[typing.Any]) -> list[str]:
+    """把目录列表结果格式化为类型列对齐的预览行。"""
+    rows: list[tuple[str, str]] = []
+
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+
+        path = str(item.get("path") or "").strip()
+        kind = _preview_file_kind(item.get("file_kind") or item.get("kind"))
+        if not path:
+            continue
+        rows.append((kind, path))
+
+    kind_width = 4 if any(kind for kind, _ in rows) else 0
+    lines: list[str] = []
+
+    for kind, path in rows:
+        if kind and kind_width:
+            lines.append(f"{kind:<{kind_width}} {path}")
+        else:
+            lines.append(path)
+
+    return lines
+
+
 def render_tool_start_trace(
     name: str,
     arguments: dict[str, typing.Any]
@@ -327,38 +398,50 @@ def render_tool_result_preview(
     failed = data.get("ok") is False
 
     if name == "workspace_root":
+        if failed:
+            return _trace_preview_from_lines(_failure_preview_lines(data))
         root = str(data.get("root") or "").strip()
         return _trace_preview_from_lines([f"root={root}"] if root else [])
 
     if name == "workspace_list_file":
+        if failed:
+            return _trace_preview_from_lines(_failure_preview_lines(
+                data,
+                ("path", data.get("path") or args.get("path")),
+            ))
         files = data.get("files")
         if isinstance(files, list):
-            lines = []
-            for item in files:
-                if not isinstance(item, dict):
-                    continue
-                path = str(item.get("path") or "").strip()
-                kind = str(item.get("file_kind") or "").strip()
-                row = f"{kind} {path}".strip()
-                if row:
-                    lines.append(row)
-            return _trace_preview_from_lines(lines)
+            return _trace_preview_from_lines(_list_file_preview_lines(files))
 
     if name == "workspace_read_file":
+        if failed:
+            return _trace_preview_from_lines(_failure_preview_lines(
+                data,
+                ("path", data.get("path") or args.get("path")),
+            ))
         return _trace_preview_from_lines(_normalize_preview_lines(data.get("content")))
 
     if name == "workspace_search":
+        if failed:
+            return _trace_preview_from_lines(_failure_preview_lines(
+                data,
+                ("query", args.get("query")),
+            ))
         matches = data.get("matches")
         if isinstance(matches, list):
             lines = []
             for item in matches:
                 if isinstance(item, dict):
 
+                    kind = str(item.get("kind") or "").strip()
                     path = str(item.get("path") or "")
                     line = str(item.get("line") or "")
-                    text = _short_text(item.get("text"), MAX_PREVIEW_WIDTH)
+                    text = _short_text(
+                        item.get("text") or item.get("signature") or item.get("qualified_name") or item.get("name"),
+                        MAX_PREVIEW_WIDTH,
+                    )
                     loc  = f"{path}:{line}" if line else path
-                    row  = f"{loc} {text}".strip()
+                    row  = loc if kind == "file" and not line else f"{loc} {text}".strip()
 
                     if row:
                         lines.append(row)
@@ -398,6 +481,11 @@ def render_tool_result_preview(
             return _trace_preview_from_lines(lines)
 
     if name == "workspace_write_file":
+        if failed:
+            return _trace_preview_from_lines(_failure_preview_lines(
+                data,
+                ("path", data.get("path") or args.get("path")),
+            ))
         content = args.get("content")
         if content is not None:
             return _trace_code_preview_from_lines(
@@ -410,6 +498,12 @@ def render_tool_result_preview(
         ))
 
     if name == "workspace_copy_file":
+        if failed:
+            return _trace_preview_from_lines(_failure_preview_lines(
+                data,
+                ("from", data.get("source_path") or args.get("source_path")),
+                ("to", data.get("target_path") or args.get("target_path")),
+            ))
 
         source = str(data.get("source_path") or "").strip()
         target = str(data.get("target_path") or "").strip()
@@ -424,6 +518,12 @@ def render_tool_result_preview(
         ))
 
     if name == "workspace_move_file":
+        if failed:
+            return _trace_preview_from_lines(_failure_preview_lines(
+                data,
+                ("from", data.get("source_path") or args.get("source_path")),
+                ("to", data.get("target_path") or args.get("target_path")),
+            ))
         source = str(data.get("source_path") or "").strip()
         target = str(data.get("target_path") or "").strip()
         size   = _format_size(data.get("bytes"))
@@ -437,6 +537,11 @@ def render_tool_result_preview(
         ))
 
     if name == "workspace_delete_file":
+        if failed:
+            return _trace_preview_from_lines(_failure_preview_lines(
+                data,
+                ("path", data.get("path") or args.get("path")),
+            ))
         path = str(data.get("path") or "").strip()
         size = _format_size(data.get("bytes"))
         sha  = _short_sha(data.get("sha256"))
@@ -448,6 +553,13 @@ def render_tool_result_preview(
         ))
 
     if name == "workspace_apply_patch":
+        if failed:
+            return _trace_preview_from_lines(_failure_preview_lines(
+                data,
+                ("path", data.get("path") or args.get("path")),
+                ("found", data.get("found")),
+                ("expected", data.get("expected")),
+            ))
         preview_lines = _patch_replacement_preview(args)
         if preview_lines:
             return _trace_code_preview_from_lines(
@@ -505,8 +617,17 @@ def render_tool_result_preview(
     if name in {"shell_exec", "git_status", "git_diff"}:
 
         stdout_source = data.get("git_status") if name == "git_status" else data.get("stdout")
-        lines         = _normalize_preview_lines(stdout_source)
-        err_lines     = _normalize_preview_lines(data.get("stderr"))
+
+        lines     = _normalize_preview_lines(stdout_source)
+        err_lines = _normalize_preview_lines(data.get("stderr"))
+
+        prefix = []
+
+        if failed:
+            prefix = _failure_preview_lines(
+                data,
+                ("exit_code", data.get("exit_code")),
+            )
 
         if lines and err_lines:
             lines.extend(err_lines)
@@ -516,6 +637,9 @@ def render_tool_result_preview(
             lines = [f"exit_code={data.get('exit_code')}"]
         if not lines and name == "git_diff" and data.get("ok") is True:
             lines = ["No tracked changes in git diff"]
+
+        if prefix:
+            lines = [*prefix, *lines]
 
         return _trace_preview_from_lines(lines)
 
@@ -598,15 +722,16 @@ def render_tool_trace(
 
     if name == "workspace_search":
 
-        query = _short_text(args.get("query"), 80)
+        query, quote_query = _search_query_label(args)
         if payload.get("skipped") and payload.get("reason") == "query_empty":
             return "• Skipped empty search"
 
         matches = payload.get("matches")
         total   = len(matches) if isinstance(matches, list) else None
         detail  = f" ({total} matches)" if isinstance(total, int) else ""
+        target  = f"\"{query}\"" if quote_query else query
 
-        return f"• Searched \"{query}\"{detail}{suffix}"
+        return f"• Searched {target}{detail}{suffix}"
 
     if name == "native_parallel_read":
 

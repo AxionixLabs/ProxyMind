@@ -54,7 +54,7 @@ def _title_parts(
     ok: bool
 ) -> list[dict[str, typing.Optional[str]]]:
     """把标题里的行数增删摘要拆成可独立着色的片段。"""
-    base_style = TITLE_STYLE if ok else ERROR_STYLE
+    base_style = TITLE_STYLE
     dot_style  = SUCCESS_DOT_STYLE if ok else ERROR_DOT_STYLE
     body       = title
 
@@ -141,9 +141,9 @@ def _styled_action_body_parts(
     """把标题动作词拆出来，参数仍保留常规标题色。"""
     if not body:
         return []
-    action_style = _action_style_for_body(body, ok=ok)
+    action_style = _action_style_for_body(body)
     if not action_style:
-        return [{"text": body, "style": base_style}]
+        return _failure_body_parts(body, base_style=base_style, ok=ok)
 
     leading_len = len(body) - len(body.lstrip(" "))
     leading     = body[:leading_len]
@@ -157,20 +157,37 @@ def _styled_action_body_parts(
     if action:
         parts.append({"text": action, "style": action_style})
     if sep or tail:
-        parts.append({"text": f"{sep}{tail}", "style": base_style})
+        parts.extend(_failure_body_parts(f"{sep}{tail}", base_style=base_style, ok=ok))
 
     return parts
 
 
-def _action_style_for_body(
+def _failure_body_parts(
     body: str,
     *,
+    base_style: str,
     ok: bool
+) -> list[dict[str, typing.Optional[str]]]:
+    """失败标题中仅突出 failed 和 reason，其余内容保持普通标题色。"""
+    if ok:
+        return [{"text": body, "style": base_style}]
+
+    match = re.search(r"( failed(?:: [^\n]+)?)$", body)
+    if not match:
+        return [{"text": body, "style": base_style}]
+
+    start = match.start(1)
+    parts: list[dict[str, typing.Optional[str]]] = []
+    if start:
+        parts.append({"text": body[:start], "style": base_style})
+    parts.append({"text": body[start:], "style": ERROR_STYLE})
+    return parts
+
+
+def _action_style_for_body(
+    body: str
 ) -> str | None:
     """返回标题动作前缀的弱分类颜色。"""
-    if not ok:
-        return None
-
     text  = body.lstrip()
     first = text.split(" ", 1)[0] if text else ""
 
@@ -222,7 +239,28 @@ def _preview_line_parts(
             {"text": location.group(3), "style": PREVIEW_TEXT_STYLE},
         ]
 
+    listed_entry = re.match(r"^(file|dir|symlink|directory)(\s+)(.+)$", line)
+    if listed_entry:
+        return [
+            {"text": listed_entry.group(1), "style": PREVIEW_LINE_STYLE},
+            {"text": listed_entry.group(2), "style": PREVIEW_STYLE},
+            {"text": listed_entry.group(3), "style": PREVIEW_PATH_STYLE},
+        ]
+
+    if _looks_like_path(line):
+        return [{"text": line, "style": PREVIEW_PATH_STYLE}]
+
     return [{"text": line, "style": PREVIEW_TEXT_STYLE}]
+
+
+def _looks_like_path(line: str) -> bool:
+    """判断预览行是否是单独路径。"""
+    text = str(line or "").strip()
+    if not text or any(char.isspace() for char in text):
+        return False
+    if text in {".", ".."}:
+        return True
+    return "/" in text or "\\" in text or bool(re.search(r"\.[A-Za-z0-9_+-]{1,12}$", text))
 
 
 if __name__ == '__main__':

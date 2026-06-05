@@ -40,12 +40,20 @@ class RenderCoord(object):
 
         async with self.render_lock:
             if self.text_state.display_text:
+                final_renderable = (
+                    self.text_state.renderable()
+                    if self.text_state.has_styles()
+                    else None
+                )
                 await self.text_renderer.show(
                     self.text_state.display_text,
                     animate=False,
                     refresh_per_second=self.refresh_per_second
                 )
-                await self.text_renderer.stop(blink=blink)
+                await self.text_renderer.stop(
+                    blink=blink,
+                    final_renderable=final_renderable
+                )
                 return None
 
             await self.text_renderer.stop(blink=blink)

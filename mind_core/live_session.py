@@ -126,7 +126,12 @@ class TypewriterStreamSession(LiveRenderSession):
         """返回打字机窗口当前使用的可渲染对象。"""
         return self.renderable if self.renderable is not None else Text(self._tail_text(self.out), style="bold")
 
-    async def stop(self, *, blink: bool = True) -> None:
+    async def stop(
+        self,
+        *,
+        blink: bool = True,
+        final_renderable: typing.Optional[typing.Any] = None
+    ) -> None:
         """停止打字机 Live，并在结束后输出最终文本。"""
         if self.live is not None:
             try:
@@ -140,7 +145,13 @@ class TypewriterStreamSession(LiveRenderSession):
 
         final_text = self.out.rstrip("\n")
         if final_text:
-            Design.console.print(Text(final_text, style="bold"))
+            if final_renderable is not None:
+                if isinstance(final_renderable, Text):
+                    final_renderable = final_renderable.copy()
+                    final_renderable.rstrip()
+                Design.console.print(final_renderable)
+            else:
+                Design.console.print(Text(final_text, style="bold"))
             Design.console.print()
         self.renderable = None
 
