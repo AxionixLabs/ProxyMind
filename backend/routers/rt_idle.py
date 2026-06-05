@@ -40,9 +40,9 @@ async def api_keepalive(request: Request) -> dict:
     """
     返回 keepalive 状态。
 
-    续命动作由全局 HTTP middleware 统一执行，这里只负责回传状态与周期，
-    不再额外调用 `idle.touch()`，避免形成重复语义。
+    该接口显式刷新 idle 最近活动时间，并返回当前状态与建议周期。
     """
+    await request.app.state.idle.touch()
     data = await request.app.state.idle.snapshot()
 
     return {

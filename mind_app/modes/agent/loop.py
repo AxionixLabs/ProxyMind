@@ -20,7 +20,6 @@ from .models import (
 from .ui import (
     start_connect_animation,
     start_status_animation,
-    ensure_agent_keepalive,
     publish_external_access,
     show_external_access_link
 )
@@ -223,8 +222,8 @@ async def agent_loop(mind: "Mind") -> None:
         )
 
         await mind.await_cleanup(mind.stop_anim())
-        ensure_agent_keepalive(runtime, mind.task_event)
         await publish_external_access(runtime)
+
         show_external_access_link()
 
         if not mind.task_event.is_set():
@@ -290,7 +289,6 @@ async def agent_loop(mind: "Mind") -> None:
                         continue
 
                     await mind.await_cleanup(mind.stop_anim())
-                    ensure_agent_keepalive(runtime, mind.task_event)
                     await publish_external_access(runtime)
                     show_external_access_link()
                     if not mind.task_event.is_set():
@@ -397,7 +395,6 @@ async def agent_loop(mind: "Mind") -> None:
                         continue
 
                     await mind.await_cleanup(mind.stop_anim())
-                    ensure_agent_keepalive(runtime, mind.task_event)
                     await publish_external_access(runtime)
                     show_external_access_link()
                     if not mind.task_event.is_set():
@@ -470,7 +467,6 @@ async def agent_loop(mind: "Mind") -> None:
                 live_status.update(
                     "Resumed and Waiting", "Returning to listening state in 1s"
                 )
-                ensure_agent_keepalive(runtime, mind.task_event)
                 await publish_external_access(runtime)
                 await sleep_or_stop(1.0, mind.task_event)
 

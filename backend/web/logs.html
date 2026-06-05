@@ -56,6 +56,9 @@
       --dot-warn:#ffc86f;
       --dot-ok:#6fffd1;
       --footer-fg:rgba(137,163,173,.85);
+      --log-console-max-lines:34;
+      --log-console-line-height:1.45rem;
+      --log-entry-max-lines:12;
     }
     *{box-sizing:border-box}
     html{
@@ -186,10 +189,10 @@
       overflow:hidden;
     }
     .count-chip{
-      flex:0 0 7ch;
-      width:7ch;
-      min-width:7ch;
-      max-width:7ch;
+      flex:0 0 11ch;
+      width:11ch;
+      min-width:11ch;
+      max-width:11ch;
       justify-content:center;
       text-align:center;
       font-variant-numeric:tabular-nums;
@@ -536,6 +539,9 @@
     }
     .console{
       min-height:420px;
+      max-height:calc(var(--log-console-max-lines) * var(--log-console-line-height));
+      overflow-y:auto;
+      overscroll-behavior:contain;
       padding:14px;
       border:1px solid rgba(255,255,255,.06);
       border-radius:16px;
@@ -544,6 +550,22 @@
       font:12px/1.42 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       word-break:break-word;
       color:#dbe9ef;
+      scrollbar-width:thin;
+      scrollbar-color:rgba(255,255,255,.16) transparent;
+    }
+    .console::-webkit-scrollbar,
+    .entry-text::-webkit-scrollbar{
+      width:8px;
+      height:8px;
+    }
+    .console::-webkit-scrollbar-thumb,
+    .entry-text::-webkit-scrollbar-thumb{
+      background:rgba(255,255,255,.16);
+      border-radius:999px;
+    }
+    .console::-webkit-scrollbar-track,
+    .entry-text::-webkit-scrollbar-track{
+      background:transparent;
     }
     .entry{
       display:grid;
@@ -608,6 +630,14 @@
       color:#dbe9ef;
       white-space:pre-wrap;
       line-height:1.4;
+    }
+    .entry-text.scrollable{
+      max-height:calc(var(--log-entry-max-lines) * 1.4em);
+      overflow:auto;
+      overscroll-behavior:contain;
+      padding-right:4px;
+      scrollbar-width:thin;
+      scrollbar-color:rgba(255,255,255,.16) transparent;
     }
     .entry[data-level="INFO"]::before{background:rgba(215,247,255,.16)}
     .entry[data-level="DEBUG"]::before{background:rgba(154,215,255,.28)}
@@ -936,6 +966,7 @@
     const searchInput = document.getElementById("log-search");
     const countChip = document.getElementById("log-count");
     const copyPathButton = document.getElementById("copy-log-path");
+    const LOG_ENTRY_SCROLL_LINES = 12;
     const previewMode = location.protocol === "file:";
     const previewPayload = {
       exists: true,
@@ -1097,7 +1128,7 @@
                 <span class="entry-lines">${entry.lineCount} ${entry.lineCount === 1 ? "line" : "lines"}</span>
                 <span class="entry-no">${index + 1}</span>
               </div>
-              <pre class="entry-text">${highlightText(entry.message, query)}</pre>
+              <pre class="entry-text${entry.lineCount > LOG_ENTRY_SCROLL_LINES ? " scrollable" : ""}">${highlightText(entry.message, query)}</pre>
             </div>`).join("")
         : `<div class="empty">No log entries match current filters.</div>`;
       renderLevelFilters(entries);

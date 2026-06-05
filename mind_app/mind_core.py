@@ -4,10 +4,10 @@
 import sys
 import typing
 import asyncio
+import contextlib
 from loguru import logger
-from mcp import (
-    ClientSession, ListToolsResult
-)
+from mcp import ListToolsResult
+from engine.manage import ServerManage
 from engine.animation import AsyncAnimManager
 from engine.tinker import MindError
 from mind_core.design import Design
@@ -29,6 +29,7 @@ from .runtime.calling import (
     with_mcp_guard as run_with_mcp_guard
 )
 from .runtime.session import with_mcp_session as run_with_mcp_session
+from .runtime.keepalive import run_keepalive
 from .mcp import McpSessionLike
 
 
@@ -56,7 +57,7 @@ class Mind(object):
         self.anim_manager: AsyncAnimManager = AsyncAnimManager()
 
         self.last_refresh_ts: float = 0.0
-        self.ttl_sec: float = 1.0
+        self.ttl_sec: float         = 1.0
 
         self.design: Design = Design(self.level)
 
@@ -68,7 +69,10 @@ class Mind(object):
         self.attach: Attach = Attach()
 
         self.runtime_loop: typing.Optional[asyncio.AbstractEventLoop] = None
-        self.root_task: typing.Optional[asyncio.Task[typing.Any]] = None
+        self.root_task: typing.Optional[asyncio.Task[typing.Any]]     = None
+        self.server_manager: typing.Optional[ServerManage]            = None
+        self.keepalive_stop: typing.Optional[asyncio.Event]           = None
+        self.keepalive_task: typing.Optional[asyncio.Task[None]]      = None
 
         self.exit_code: int = 0
         self.sig_count: int = 0
@@ -91,6 +95,45 @@ class Mind(object):
         """绑定当前事件循环与顶层任务，用于异步退出。"""
         self.runtime_loop = loop
         self.root_task = root_task
+
+    def bind_server_manager(self, server_manager: ServerManage) -> None:
+        """绑定 Helix 后台管理器。"""
+        self.server_manager = server_manager
+
+    def start_keepalive_supervisor(self) -> None:
+        """启动 Mind 生命周期内的 Helix 保活任务。"""
+        if self.keepalive_task and not self.keepalive_task.done():
+            return None
+
+        self.keepalive_stop = asyncio.Event()
+        self.keepalive_task = asyncio.create_task(
+            run_keepalive(
+                self.keepalive_stop,
+                server_manager=self.server_manager
+            ),
+            name="helix keepalive"
+        )
+
+    async def stop_keepalive_supervisor(self) -> None:
+        """停止 Mind 生命周期内的 Helix 保活任务。"""
+        if self.keepalive_stop is not None:
+            self.keepalive_stop.set()
+
+        task = self.keepalive_task
+        self.keepalive_task = None
+        self.keepalive_stop = None
+
+        if task and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    async def close_runtime_resources(self) -> None:
+        """关闭 Mind 持有的运行时资源，不关闭 Helix 后台进程。"""
+        await self.stop_keepalive_supervisor()
+        if self.server_manager is not None:
+            await self.server_manager.close()
+            self.server_manager = None
 
     def _cancel_root_task(self) -> None:
         """取消顶层任务，让退出沿协程栈执行清理逻辑。"""

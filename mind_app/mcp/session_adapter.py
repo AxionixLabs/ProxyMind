@@ -47,7 +47,7 @@ def tool_for_openai(
     )
 
 
-class MultiMcpSession(object):
+class MultiMcpSession(McpSessionLike):
 
     def __init__(
         self,

@@ -22,7 +22,6 @@ from mind_app.mcp import (
 from mind_nova import (
     authentic, const, request
 )
-from .keepalive import run_keepalive
 
 if typing.TYPE_CHECKING:
     from ..mind_core import Mind
@@ -176,8 +175,6 @@ async def with_mcp_session(
     event_hooks = {"request": [inject_auth], "response": [request.cap_response]}
 
     async with httpx.AsyncClient(timeout=timeout, event_hooks=event_hooks, trust_env=False) as client:
-        keepalive_stop = asyncio.Event()
-        keepalive_task: typing.Optional[asyncio.Task[None]] = None
         entered_user_flow = False
 
         try:
@@ -186,9 +183,12 @@ async def with_mcp_session(
                     await session.initialize()
                     external_servers = load_mcp_servers_file(mind.src_opera_place)
                     if external_servers:
-                        logger.debug(f"[MCP] external configured count={len(external_servers)}")
+                        logger.debug(
+                            f"[MCP] external configured count={len(external_servers)}"
+                        )
 
                     external_status = ExternalMcpStatus(external_servers)
+
                     external_anim_started = False
                     if external_status.visible:
                         await mind.start_external_mcp_anim(external_status.snapshot)
@@ -197,25 +197,26 @@ async def with_mcp_session(
                     try:
                         async with open_optional_external_mcp_group(
                             external_servers,
-                            status=external_status,
+                            status=external_status
                         ) as external_group:
                             if external_anim_started:
                                 await mind.await_cleanup(mind.stop_anim())
                                 external_anim_started = False
 
                             active_session = MultiMcpSession(session, external_group)
+
                             list_tools = await active_session.list_tools()
+
                             openai_tools, tool_meta = mind.build_openai_tools(list_tools)
+
                             if before_user_flow is not None:
                                 callback_result = before_user_flow()
                                 if inspect.isawaitable(callback_result):
                                     await callback_result
 
-                            keepalive_task = asyncio.create_task(
-                                run_keepalive(keepalive_stop, req_client=client)
-                            )
                             entered_user_flow = True
                             await function(active_session, openai_tools, tool_meta)
+
                     finally:
                         if external_anim_started:
                             await mind.await_cleanup(mind.stop_anim())
@@ -226,14 +227,6 @@ async def with_mcp_session(
             if entered_user_flow:
                 raise
             raise _bootstrap_failure(exc, mcp_url=url) from None
-
-        finally:
-            keepalive_stop.set()
-
-            if keepalive_task:
-                keepalive_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await keepalive_task
 
 
 if __name__ == '__main__':

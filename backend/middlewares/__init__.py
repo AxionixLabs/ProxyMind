@@ -3,11 +3,10 @@
 
 from fastapi import FastAPI
 
-from .mid_touch import touch_middleware
-
 
 def register_middlewares(app: FastAPI) -> None:
-    app.middleware("http")(touch_middleware)
+    """注册全局 HTTP 中间件。"""
+    return None
 
 
 if __name__ == '__main__':

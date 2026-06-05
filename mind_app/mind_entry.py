@@ -246,7 +246,6 @@ async def main(entry_file: typing.Optional[str] = None) -> int:
 
     server: ServerManage = ServerManage(launch_cmd)
     await server.ensure_running()
-    await server.close()
     await pref.load_pref()
 
     # Design.Doc.log(f"[bold #0EA5E9]🌐 {const.BASE_URL}[/]\n")
@@ -266,27 +265,32 @@ async def main(entry_file: typing.Optional[str] = None) -> int:
 
     mind = Mind(wires, level, power, remote, *positions, **keywords)
     mind.bind_runtime(asyncio.get_running_loop(), asyncio.current_task())
+    mind.bind_server_manager(server)
+    mind.start_keepalive_supervisor()
 
     signal.signal(signal.SIGINT, mind.signal_processor)
 
-    cli_attachments = await resolve_cli_attachments(mind, cmd_lines)
+    try:
+        cli_attachments = await resolve_cli_attachments(mind, cmd_lines)
 
-    if cmd_lines.agent:
-        await mind.agent_loop()
-    elif chat := cmd_lines.chat:
-        await mind.calling(message=chat, mode="chat", attachments=cli_attachments)
-    elif fast := cmd_lines.fast:
-        await mind.calling(message=fast, mode="fast", attachments=cli_attachments)
-    elif plan := cmd_lines.plan:
-        await mind.calling(message=plan, mode="plan")
-    elif xtra := cmd_lines.xtra:
-        await mind.calling(message=xtra, mode="xtra", attachments=cli_attachments)
-    elif code := cmd_lines.code:
-        mode = resolve_code_mode(cmd_lines)
-        await mind.mind_pack(code, mode)
+        if cmd_lines.agent:
+            await mind.agent_loop()
+        elif chat := cmd_lines.chat:
+            await mind.calling(message=chat, mode="chat", attachments=cli_attachments)
+        elif fast := cmd_lines.fast:
+            await mind.calling(message=fast, mode="fast", attachments=cli_attachments)
+        elif plan := cmd_lines.plan:
+            await mind.calling(message=plan, mode="plan")
+        elif xtra := cmd_lines.xtra:
+            await mind.calling(message=xtra, mode="xtra", attachments=cli_attachments)
+        elif code := cmd_lines.code:
+            mode = resolve_code_mode(cmd_lines)
+            await mind.mind_pack(code, mode)
 
-    else:
-        await mind.mind_loop()
+        else:
+            await mind.mind_loop()
+    finally:
+        await mind.close_runtime_resources()
 
     return mind.exit_code
 

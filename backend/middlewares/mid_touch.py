@@ -26,6 +26,7 @@ async def touch_middleware(request: Request, call_next: typing.Callable) -> typi
 
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     logger.debug(f"{request.method} {request.url.path} -> {response.status_code} ({elapsed_ms}ms)")
+
     return response
 
 

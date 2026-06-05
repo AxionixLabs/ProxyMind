@@ -5,7 +5,6 @@ import time
 import httpx
 import typing
 from loguru import logger
-from mcp import ClientSession
 from mind_app.mcp import McpSessionLike
 from mind_nova.events import EventReport
 from mind_nova.modes import RunMode
@@ -143,7 +142,7 @@ async def calling(
     async def function(
         session: McpSessionLike,
         openai_tools: list[dict[str, typing.Any]],
-        tool_meta: dict[str, dict[str, typing.Any]],
+        tool_meta: dict[str, dict[str, typing.Any]]
     ) -> None:
         """在共享 MCP 会话中执行单次请求。"""
         await with_mcp_guard(
