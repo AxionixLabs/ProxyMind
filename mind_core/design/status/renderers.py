@@ -454,9 +454,9 @@ class StatusRenderer(StatusSpec):
         out.append(edge_left, style=edge_style)
         out.append(left_outer, style=outer_style if left_outer.strip() else edge_style)
         out.append(left_inner, style=inner_style if left_inner.strip() else edge_style)
-        out.append(cls.status_content_gap(), style=edge_style)
+        out.append(" ", style=edge_style)
         out.append(core, style=core_style)
-        out.append(cls.status_content_gap(), style=edge_style)
+        out.append(" ", style=edge_style)
         out.append(right_inner, style=inner_style if right_inner.strip() else edge_style)
         out.append(right_outer, style=outer_style if right_outer.strip() else edge_style)
         out.append(edge_right, style=edge_style)
@@ -928,7 +928,7 @@ class StatusRenderer(StatusSpec):
             entry_pad=spec.entry_pad,
             exit_pad=spec.exit_pad
         )
-        cls._append_sweep_text(
+        cls._append_forward_sweep_text(
             out,
             text,
             focus=focus,
@@ -938,12 +938,8 @@ class StatusRenderer(StatusSpec):
             mid_style=colors["text_mid"],
             fade_style=colors["text_fade"],
             dim_style=colors["text_dim"],
-            lead_span=spec.lead_span,
             tail_span=spec.tail_span,
-            peak_radius=spec.peak_radius,
-            soft_ratio=0.20,
-            near_ratio=spec.near_ratio,
-            mid_ratio=spec.mid_ratio
+            peak_radius=spec.peak_radius
         )
         return out
 
@@ -1174,7 +1170,7 @@ class StatusRenderer(StatusSpec):
     def thinking_status_renderable(cls, phase: float, text: str) -> Text:
         spec = cls.status_spec("wait")
 
-        status_shell_motion_scale    = 0.76
+        status_shell_motion_scale    = 0.52
         status_inner_solid_threshold = 0.87
         status_inner_soft_threshold  = 0.70
         status_outer_solid_threshold = 0.92
@@ -1246,7 +1242,7 @@ class StatusRenderer(StatusSpec):
         )
         out.append(cls.status_content_gap(), style=colors["edge"])
 
-        span = max(1, len(text))
+        span = max(1, len(text.rstrip()) or len(text))
         head = (
             (phase * spec.head_speed) % max(1.0, float((span * 2) + spec.cycle_padding))
         ) + spec.head_offset

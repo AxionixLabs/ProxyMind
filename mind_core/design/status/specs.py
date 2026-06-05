@@ -91,7 +91,7 @@ LOOP_STATUS_SPEC = SweepStatusSpec(
 )
 WAIT_STATUS_SPEC = ProgressiveStatusSpec(
     refresh_per_second=24,
-    phase_rate=19.2,
+    phase_rate=15.6,
     text_limit=48,
     shell_freq=0.48,
     head_speed=0.78,
@@ -117,18 +117,18 @@ STATUS_TEXT_CHROME_WIDTH: dict[str, int] = {
     "mode"    : 18,
     "heal"    : 18,
     "loop"    : 18,
-    "wait"    : 17,
-    "builtin" : 17
+    "wait"    : 18,
+    "builtin" : 18
 }
 
 STATUS_TEXT_FLOOR: dict[str, int] = {
     "tool"    : 16,
     "code"    : 16,
     "mode"    : 16,
-    "heal"    : 18,
-    "loop"    : 18,
-    "wait"    : 12,
-    "builtin" : 12
+    "heal"    : 16,
+    "loop"    : 16,
+    "wait"    : 16,
+    "builtin" : 16
 }
 
 
