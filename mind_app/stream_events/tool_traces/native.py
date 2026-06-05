@@ -271,24 +271,37 @@ def _numbered_removed_lines(content: typing.Any, *, start_line: int = 1) -> list
 
 def _patch_replacement_preview(args: dict[str, typing.Any]) -> list[str]:
     """根据文本替换参数生成代码预览行。"""
+    prefix = _summary_lines(
+        ("file", args.get("path")),
+        ("replacements", args.get("expected_replacements") if int(args.get("expected_replacements") or 1) > 1 else None),
+    )
     old_lines = _numbered_removed_lines(args.get("old_text"))
     new_lines = _numbered_added_lines(args.get("new_text"))
     if old_lines and new_lines:
-        return [*old_lines, *new_lines]
-    return new_lines or old_lines
+        return [*prefix, *old_lines, *new_lines]
+    return [*prefix, *(new_lines or old_lines)]
 
 
 def _unified_patch_preview_lines(patch: typing.Any) -> list[str]:
     """从 unified diff 文本中提取可显示的代码预览行。"""
     lines: list[str] = []
+    current_old_line = 1
     current_new_line = 1
+    pending_old_path = ""
     for raw in _normalize_preview_lines(patch):
-        if raw.startswith("--- ") or raw.startswith("+++ "):
+        if raw.startswith("--- "):
+            pending_old_path = _patch_display_path(raw[4:])
+            continue
+        if raw.startswith("+++ "):
+            path = _patch_display_path(raw[4:]) or pending_old_path
+            if path and path != "/dev/null":
+                lines.append(f"file: {path}")
             continue
         if raw.startswith("@@ "):
-            match = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", raw)
+            match = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", raw)
             if match:
-                current_new_line = int(match.group(1))
+                current_old_line = int(match.group(1))
+                current_new_line = int(match.group(2))
             lines.append(raw)
             continue
         if not raw:
@@ -299,11 +312,55 @@ def _unified_patch_preview_lines(patch: typing.Any) -> list[str]:
             lines.append(f"{current_new_line:>4} +{text}")
             current_new_line += 1
         elif marker == "-":
-            lines.append(f"{current_new_line:>4} -{text}")
+            lines.append(f"{current_old_line:>4} -{text}")
+            current_old_line += 1
         elif marker == " ":
             lines.append(f"{current_new_line:>4}  {text}")
+            current_old_line += 1
             current_new_line += 1
     return lines
+
+
+def _failed_unified_patch_preview_lines(patch: typing.Any, data: dict[str, typing.Any]) -> list[str]:
+    """从失败 patch 中提取失败 hunk 附近的短预览。"""
+    hunk_header = str(data.get("hunk_header") or data.get("header") or "").strip()
+    if not hunk_header:
+        return _unified_patch_preview_lines(patch)[:6]
+
+    raw_lines = _normalize_preview_lines(patch)
+    hunk_index = next(
+        (index for index, line in enumerate(raw_lines) if line.strip() == hunk_header),
+        -1,
+    )
+    if hunk_index < 0:
+        return _unified_patch_preview_lines(patch)[:6]
+
+    start = hunk_index
+    while start > 0 and not raw_lines[start].startswith("--- "):
+        start -= 1
+
+    end = hunk_index + 1
+    body_count = 0
+    while end < len(raw_lines):
+        line = raw_lines[end]
+        if line.startswith(("@@ ", "--- ", "+++ ")):
+            break
+        body_count += 1
+        end += 1
+        if body_count >= 4:
+            break
+
+    return _unified_patch_preview_lines("\n".join(raw_lines[start:end]))
+
+
+def _patch_display_path(value: typing.Any) -> str:
+    """把 unified diff 文件头路径转换为工作区相对显示路径。"""
+    text = str(value or "").strip()
+    if text in {"", "/dev/null"}:
+        return text
+    if text.startswith("a/") or text.startswith("b/"):
+        return text[2:]
+    return text
 
 
 def _hunk_label(value: typing.Any) -> str:
@@ -572,12 +629,13 @@ def render_tool_result_preview(
         ))
 
     if name == "workspace_apply_unified_patch":
-        preview_lines = _unified_patch_preview_lines(args.get("patch"))
         if failed:
+            preview_lines = _failed_unified_patch_preview_lines(args.get("patch"), data)
             prefix = _patch_failure_diagnostic_lines(data)
             if preview_lines:
                 return _trace_code_preview_from_lines([*prefix, *preview_lines])
             return _trace_preview_from_lines(prefix)
+        preview_lines = _unified_patch_preview_lines(args.get("patch"))
         if preview_lines:
             return _trace_code_preview_from_lines(preview_lines)
 

@@ -16,6 +16,7 @@ from .common import (
     ERROR_DOT_STYLE,
     ERROR_STYLE,
     PREVIEW_COUNT_STYLE,
+    PREVIEW_HUNK_STYLE,
     PREVIEW_LINE_STYLE,
     PREVIEW_MORE_STYLE,
     PREVIEW_PATH_STYLE,
@@ -230,6 +231,9 @@ def _preview_line_parts(
             {"text": more.group(3), "style": PREVIEW_MORE_STYLE},
         ]
 
+    if re.match(r"^@@ .+ @@$", line):
+        return [{"text": line, "style": PREVIEW_HUNK_STYLE}]
+
     location = re.match(r"^([^:\s][^:\n]*):(\d+)(.*)$", line)
     if location:
         return [
@@ -237,6 +241,14 @@ def _preview_line_parts(
             {"text": ":", "style": PREVIEW_STYLE},
             {"text": location.group(2), "style": PREVIEW_LINE_STYLE},
             {"text": location.group(3), "style": PREVIEW_TEXT_STYLE},
+        ]
+
+    summary_entry = re.match(r"^([A-Za-z_][A-Za-z0-9_ -]*)(: )(.+)$", line)
+    if summary_entry:
+        return [
+            {"text": summary_entry.group(1), "style": PREVIEW_LINE_STYLE},
+            {"text": summary_entry.group(2), "style": PREVIEW_STYLE},
+            {"text": summary_entry.group(3), "style": PREVIEW_PATH_STYLE if summary_entry.group(1) == "file" else PREVIEW_TEXT_STYLE},
         ]
 
     listed_entry = re.match(r"^(file|dir|symlink|directory)(\s+)(.+)$", line)
