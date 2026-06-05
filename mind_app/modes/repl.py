@@ -224,14 +224,13 @@ async def mind_loop(mind: "Mind") -> None:
             continue
 
         if command in reboot_set:
-            Design.console.print("[bold #AFC7D8]Rebooting runtime...[/]")
+            Design.console.print("[bold #AFC7D8]Runtime[/] [dim #7F8C9A]· reboot[/]")
             try:
                 await mind.reboot_runtime()
             except MindError as error:
                 Design.console.print(f"[bold #FF5F5F]Runtime reboot failed: {error}[/]")
                 Design.console.print()
                 continue
-            Design.console.print("[bold #5FD7AF]Runtime rebooted[/]")
             Design.console.print()
             continue
 
