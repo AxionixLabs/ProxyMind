@@ -49,7 +49,8 @@ class SlashCommandCompleter(Completer):
         {"text": "/attach ", "display": "/attach", "meta": "添加本轮待发送附件"},
         {"text": "/attachments", "display": "/attachments", "meta": "查看待发送附件"},
         {"text": "/detach ", "display": "/detach", "meta": "移除待发送附件"},
-        {"text": "/attach-clear", "display": "/attach-clear", "meta": "清空待发送附件"}
+        {"text": "/attach-clear", "display": "/attach-clear", "meta": "清空待发送附件"},
+        {"text": "/reboot", "display": "/reboot", "meta": "重启本地后台服务"}
     )
 
     TOP_LEVEL: tuple[str, ...] = (
@@ -65,7 +66,8 @@ class SlashCommandCompleter(Completer):
         "/attach",
         "/attachments",
         "/detach",
-        "/attach-clear"
+        "/attach-clear",
+        "/reboot"
     )
 
     def get_completions(self, document, complete_event):
@@ -228,6 +230,9 @@ class CommandAutoSuggest(AutoSuggest):
 
     def get_suggestion(self, buffer, document):
         """根据当前输入上下文生成行内提示。"""
+        if getattr(buffer, "complete_state", None) is not None:
+            return None
+
         text = document.text_before_cursor
 
         current_line = text.splitlines()[-1] if text.splitlines() else text
@@ -444,15 +449,6 @@ class PromptToolkitBox(object):
 
     def _sync_completion_suggestion(self, buf) -> None:
         """同步当前补全项的预览提示。"""
-        completion = buf.complete_state.current_completion if buf.complete_state else None
-        if completion and completion.text in self.PARAMETERIZED_COMMANDS:
-            text = completion.text.rstrip()
-            buf.suggestion = self.auto_suggest.get_suggestion(
-                buf, buf.document.__class__(text=text, cursor_position=len(text))
-            )
-            buf.on_suggestion_set.fire()
-            return
-
         if buf.suggestion is not None:
             buf.suggestion = None
             buf.on_suggestion_set.fire()

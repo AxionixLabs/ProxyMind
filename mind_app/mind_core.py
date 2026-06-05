@@ -135,6 +135,19 @@ class Mind(object):
             await self.server_manager.close()
             self.server_manager = None
 
+    async def reboot_runtime(self) -> None:
+        """重启已绑定的后台进程，并在完成后恢复保活任务。"""
+        if self.server_manager is None:
+            raise MindError("Server manager is not bound")
+
+        await self.stop_keepalive_supervisor()
+        try:
+            await self.server_manager.restart()
+            if not await self.server_manager.wait_until_ready(10.0, 0.3):
+                raise MindError("Server not ready after reboot")
+        finally:
+            self.start_keepalive_supervisor()
+
     def _cancel_root_task(self) -> None:
         """取消顶层任务，让退出沿协程栈执行清理逻辑。"""
         task = self.root_task
