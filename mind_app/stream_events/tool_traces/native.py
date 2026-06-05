@@ -693,6 +693,8 @@ def render_tool_result_preview(
             lines = err_lines
         if not lines and name == "shell_exec" and data.get("exit_code") is not None:
             lines = [f"exit_code={data.get('exit_code')}"]
+        if not lines and name == "git_status" and data.get("ok") is True:
+            lines = ["No changes in git status"]
         if not lines and name == "git_diff" and data.get("ok") is True:
             lines = ["No tracked changes in git diff"]
 
