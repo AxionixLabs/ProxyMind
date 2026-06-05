@@ -2,9 +2,14 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from .tool_trace import PREVIEW_STYLE, TITLE_STYLE, ERROR_STYLE
+from .tool_trace import (
+    PREVIEW_STYLE, TITLE_STYLE, ERROR_STYLE
+)
 
-APPROVAL_STYLE = "bold #F2C94C"
+APPROVAL_PENDING_STYLE  = "bold #F2C94C"
+APPROVAL_APPROVED_STYLE = "bold #6EE7A8"
+APPROVAL_DENIED_STYLE   = ERROR_STYLE
+APPROVAL_COMMAND_STYLE  = TITLE_STYLE
 
 
 def command_text(command: typing.Any) -> str:
@@ -28,9 +33,10 @@ def approval_summary(approval: dict[str, typing.Any]) -> str:
 
 def approval_preview_lines(approval: dict[str, typing.Any]) -> list[str]:
     lines: list[str] = []
-    cwd = str(approval.get("cwd") or "").strip()
-    reason = str(approval.get("reason") or "").strip()
-    risk = str(approval.get("risk") or "").strip()
+
+    cwd      = str(approval.get("cwd") or "").strip()
+    reason   = str(approval.get("reason") or "").strip()
+    risk     = str(approval.get("risk") or "").strip()
     category = str(approval.get("category") or "").strip()
 
     if cwd:
@@ -38,7 +44,11 @@ def approval_preview_lines(approval: dict[str, typing.Any]) -> list[str]:
     if reason:
         lines.append(f"reason={reason}")
     if risk or category:
-        detail = " ".join(part for part in [f"risk={risk}" if risk else "", f"category={category}" if category else ""] if part)
+        detail = " ".join(
+            part for part in [
+                f"risk={risk}" if risk else "", f"category={category}" if category else ""
+            ] if part
+        )
         lines.append(detail)
     return lines
 
@@ -78,11 +88,11 @@ def render_approval_trace_parts(
     state: typing.Literal["pending", "approved", "denied"] = "pending"
 ) -> list[dict[str, typing.Optional[str]]]:
     if state == "denied":
-        title_style = ERROR_STYLE
+        title_style = APPROVAL_DENIED_STYLE
     elif state == "approved":
-        title_style = TITLE_STYLE
+        title_style = APPROVAL_APPROVED_STYLE
     else:
-        title_style = APPROVAL_STYLE
+        title_style = APPROVAL_PENDING_STYLE
 
     parts: list[dict[str, typing.Optional[str]]] = [
         {"text": title, "style": title_style}

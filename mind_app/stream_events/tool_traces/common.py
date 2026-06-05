@@ -36,10 +36,11 @@ ACTION_TOOL_STYLE           = "bold #7DD3FC"
 COUNT_VALUE_STYLE           = "bold #F8D66D"
 COUNT_UNIT_STYLE            = "bold #9FB3C8"
 
-MAX_PREVIEW_LINES      = 8
-SCREEN_PREVIEW_LINES   = 5
-MAX_PREVIEW_WIDTH      = 120
-MAX_CODE_PREVIEW_LINES = 12
+MAX_PREVIEW_LINES         = 8
+SCREEN_PREVIEW_LINES      = 5
+MAX_PREVIEW_WIDTH         = 120
+MAX_CODE_PREVIEW_LINES    = 24
+SCREEN_CODE_PREVIEW_LINES = 12
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,7 +103,7 @@ def _trace_preview_from_lines(lines: list[str]) -> TracePreview:
 def _trace_code_preview_from_lines(lines: list[str]) -> TracePreview:
     """从代码行生成轨迹预览。"""
     full, _ = _format_preview_lines(lines, max_lines=MAX_CODE_PREVIEW_LINES)
-    screen, omitted = _format_preview_lines(lines, max_lines=SCREEN_PREVIEW_LINES)
+    screen, omitted = _format_preview_lines(lines, max_lines=SCREEN_CODE_PREVIEW_LINES)
     return TracePreview(full=full, screen=screen, omitted_lines=omitted)
 
 

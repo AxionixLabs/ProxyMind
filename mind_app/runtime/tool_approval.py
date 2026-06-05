@@ -16,7 +16,11 @@ from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
 from mind_core.design import Design
-from mind_app.stream_events.approval_trace import approval_summary
+from mind_app.stream_events.approval_trace import (
+    APPROVAL_COMMAND_STYLE,
+    APPROVAL_PENDING_STYLE,
+    approval_summary
+)
 
 ApprovalDecisionValue = typing.Literal[
     "accept",
@@ -251,8 +255,8 @@ def approval_prompt_renderable(
     summary = approval_summary(approval)
     noun = _approval_prompt_noun(approval)
     return Group(
-        Text(f"Would you like to approve the following {noun}?\n", style="bold #E2E8F0"),
-        Text(f"$ {summary}", style="bold #D7E7FF"),
+        Text(f"Would you like to approve the following {noun}?\n", style=APPROVAL_PENDING_STYLE),
+        Text(f"$ {summary}", style=APPROVAL_COMMAND_STYLE),
     )
 
 
@@ -307,8 +311,8 @@ def approval_prompt_parts(
     summary = approval_summary(approval)
     noun = _approval_prompt_noun(approval)
     return [
-        {"text": f"Would you like to approve the following {noun}?\n\n", "style": "bold #E2E8F0"},
-        {"text": f"$ {summary}\n", "style": "bold #D7E7FF"}
+        {"text": f"Would you like to approve the following {noun}?\n\n", "style": APPROVAL_PENDING_STYLE},
+        {"text": f"$ {summary}\n", "style": APPROVAL_COMMAND_STYLE}
     ]
 
 
