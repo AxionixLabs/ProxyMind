@@ -122,7 +122,7 @@ class StreamUI(object):
         self,
         text: str,
         *,
-        delay_sec: float = 0.0,
+        delay_sec: float = 0.18,
         min_visible_sec: float = 0.32
     ) -> None:
         self.coordinator.hold_status_slot()

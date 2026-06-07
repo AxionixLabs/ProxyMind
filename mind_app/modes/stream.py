@@ -26,6 +26,7 @@ from ..runtime.execution_policy import (
     should_pass_execution_to_tool,
     validate_execution_policy
 )
+from ..runtime.idle_status import IdleStatusTimer
 from ..stream_events.responses_builtin import (
     resolve_builtin_name,
     consume_builtin_done
@@ -104,11 +105,18 @@ async def stream_looper(
 
     approvals = ApprovalStore()
 
+    idle_wait = IdleStatusTimer(
+        lambda: slog.begin_reply_wait_status(delay_sec=0.0),
+        delay_sec=0.9
+    )
+
     try:
         await slog.open()
         tracker = SegmentTracker()
 
         async for event in request.stream_chat(mode, model_api, message, filtered_tools, **kwargs):
+            await idle_wait.cancel()
+
             if ev_report:
                 ev_report.bind_event(event)
 
@@ -134,6 +142,7 @@ async def stream_looper(
                 text = str(event.get("text") or "")
                 tracker.on_text_delta(event)
                 await slog.feed(text, display=StreamUI.STREAM)
+                idle_wait.reschedule()
                 continue
 
             if event_type == "text.done":
@@ -225,8 +234,6 @@ async def stream_looper(
 
                 event_meta = event.get("meta") if isinstance(event.get("meta"), dict) else None
                 event_execution = event.get("execution") if isinstance(event.get("execution"), dict) else None
-
-                summary = Tooling.summarize_tool_arguments(name, arguments)
 
                 if not isinstance(arguments, dict):
                     arguments = {}
@@ -399,6 +406,7 @@ async def stream_looper(
         await slog.feed(f"{build_sources_text(tracker)}\n", display=StreamUI.BLOCK)
 
     finally:
+        await idle_wait.cancel()
         await mind.await_cleanup(slog.stop(blink=not interrupted))
 
 
