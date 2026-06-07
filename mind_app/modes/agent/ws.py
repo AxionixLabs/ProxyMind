@@ -192,9 +192,9 @@ def summarize_ws_message(message: dict[str, typing.Any]) -> str:
     return " ".join(parts)
 
 
-def build_runtime_llm_conf(mind: "Mind") -> dict[str, typing.Any]:
+async def build_runtime_llm_conf(mind: "Mind") -> dict[str, typing.Any]:
     """基于当前偏好配置生成 `runtime.bind` 所需的 llm_conf。"""
-    payload     = mind.pref.to_config()
+    payload     = await mind.fresh_pref_config(ttl_sec=0.0)
     primary_raw = payload.get("primary")
     primary     = primary_raw if isinstance(primary_raw, dict) else {}
 
@@ -419,7 +419,7 @@ async def connect_once(
         await client.send_runtime_bind(
             connection,
             session_id=runtime.session_id,
-            llm_conf=build_runtime_llm_conf(mind)
+            llm_conf=await build_runtime_llm_conf(mind)
         )
         logger.debug("[Agent] runtime.bind sent")
         logger.debug(

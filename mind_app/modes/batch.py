@@ -44,9 +44,9 @@ class PackConfig:
 
 @dataclass(slots=True)
 class PackRuntime:
-    """批处理运行时：收敛会话、模型和事件上报依赖。"""
+    """批处理运行时：收敛会话、偏好配置和事件上报依赖。"""
     mode: RunMode
-    model_api: dict[str, typing.Any]
+    pref_config: dict[str, typing.Any]
     event_report: EventReport
     runner: typing.Callable[..., typing.Awaitable[None]]
 
@@ -153,7 +153,7 @@ async def _run_virtual_message(
         await runtime.runner(
             session,
             runtime.mode,
-            runtime.model_api,
+            runtime.pref_config,
             msg,
             openai_tools,
             tool_meta,
@@ -254,7 +254,7 @@ async def _run_pack_item(
                 await runtime.runner(
                     session,
                     runtime.mode,
-                    runtime.model_api,
+                    runtime.pref_config,
                     final_msg,
                     openai_tools,
                     tool_meta,
@@ -580,7 +580,7 @@ async def mind_pack(
 ) -> None:
     """批处理入口：绑定会话、事件流和 pack 源执行流程。"""
     code_sources = await resolve_code_sources(code)
-    model_api    = mind.pref.to_config()
+    pref_config  = await mind.fresh_pref_config(ttl_sec=0.0)
     runner       = resolve_mode_runner(mind, mode)
 
     meta_in = kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {}
@@ -619,7 +619,7 @@ async def mind_pack(
     await event_report.open()
     event_report.begin_turn(round_no=1)
 
-    runtime = PackRuntime(mode=mode, model_api=model_api, event_report=event_report, runner=runner)
+    runtime = PackRuntime(mode=mode, pref_config=pref_config, event_report=event_report, runner=runner)
 
     def before_user_flow() -> None:
         if report_url:
@@ -638,7 +638,7 @@ async def mind_pack(
             )
 
     try:
-        return await mind.with_mcp_session(model_api, function, before_user_flow=before_user_flow)
+        return await mind.with_mcp_session(pref_config, function, before_user_flow=before_user_flow)
     finally:
         await mind.await_cleanup(event_report.flush())
         await mind.await_cleanup(event_report.close())

@@ -59,7 +59,7 @@ async def stream_looper(
     mind: "Mind",
     session: McpSessionLike,
     mode: typing.Literal["chat", "fast", "xtra"],
-    model_api: dict[str, typing.Any],
+    pref_config: dict[str, typing.Any],
     message: str,
     openai_tools: list[dict[str, typing.Any]],
     tool_meta: dict[str, dict[str, typing.Any]],
@@ -114,7 +114,7 @@ async def stream_looper(
         await slog.open()
         tracker = SegmentTracker()
 
-        async for event in request.stream_chat(mode, model_api, message, filtered_tools, **kwargs):
+        async for event in request.stream_chat(mode, pref_config, message, filtered_tools, **kwargs):
             await idle_wait.cancel()
 
             if ev_report:
@@ -321,7 +321,7 @@ async def stream_looper(
                     arguments=arguments,
                     meta=event_meta,
                     mode=mode,
-                    model_api=model_api,
+                    pref_config=pref_config,
                     metadata=kwargs.get("metadata") or {},
                     enable_progress_notify=True,
                     stream_callback=lambda x: slog.feed(

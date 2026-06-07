@@ -20,7 +20,7 @@ MODE_BY_COMMAND: dict[str, RunMode] = {
     "/chat": "chat",
     "/fast": "fast",
     "/plan": "plan",
-    "/xtra": "xtra",
+    "/xtra": "xtra"
 }
 
 
@@ -73,7 +73,7 @@ async def mind_loop(mind: "Mind") -> None:
     async def run_model_turn(
         message_text: str,
         run_mode: RunMode,
-        turn_model_api: dict[str, typing.Any]
+        turn_pref_config: dict[str, typing.Any]
     ) -> None:
         """为单轮用户输入建立 MCP 会话并执行模型流程。"""
         async def function(
@@ -135,7 +135,7 @@ async def mind_loop(mind: "Mind") -> None:
                     runner,
                     mode=run_mode,
                     session=session,
-                    model_api=turn_model_api,
+                    pref_config=turn_pref_config,
                     message=message_text,
                     openai_tools=openai_tools,
                     tool_meta=tool_meta,
@@ -149,7 +149,7 @@ async def mind_loop(mind: "Mind") -> None:
                 if uploaded_attachments:
                     mind.attach.clear_pending_attachments()
 
-        await mind.with_mcp_session(turn_model_api, function)
+        await mind.with_mcp_session(turn_pref_config, function)
 
     quit_set: set[str] = {"/quit", "/q", "quit", "exit"}
     help_set: set[str] = {"/help", "/h"}
@@ -182,14 +182,17 @@ async def mind_loop(mind: "Mind") -> None:
     re_attach = re.compile(r"^\s*/attach(?:\s+(.*))?\s*$", re.IGNORECASE)
     re_detach = re.compile(r"^\s*/detach(?:\s+(.*))?\s*$", re.IGNORECASE)
 
-    pref_cfg = mind.pref.to_config()
-    primary  = pref_cfg.get("primary") or {}
-    model    = primary.get("model", "")
-    apikey   = primary.get("apikey", "")
+    pref_config = await mind.fresh_pref_config()
+    primary     = pref_config.get("primary") or {}
+    model       = primary.get("model", "")
 
     mode: RunMode = "chat"
 
     while not mind.task_event.is_set():
+        pref_config = await mind.fresh_pref_config()
+        primary     = pref_config.get("primary") or {}
+        model       = primary.get("model", "") or model
+
         try:
             raw = await mind.prompt_box.prompt_async(mode=mode, model=model)
         except KeyboardInterrupt:
@@ -244,7 +247,7 @@ async def mind_loop(mind: "Mind") -> None:
             continue
 
         if m := re_apikey.match(raw):
-            apikey = await exchange(m, types="apikey") or apikey
+            await exchange(m, types="apikey")
             continue
 
         if m := re_attach.match(raw):
@@ -305,8 +308,8 @@ async def mind_loop(mind: "Mind") -> None:
             print_attach_gap()
             continue
 
-        model_api = mind.pref.to_config()
-        await run_model_turn(raw, mode, model_api)
+        pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
+        await run_model_turn(raw, mode, pref_config)
 
     return None
 

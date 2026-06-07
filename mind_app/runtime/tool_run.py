@@ -102,7 +102,7 @@ async def run_tool_step(
     arguments: dict[str, typing.Any],
     meta: typing.Optional[dict[str, typing.Any]],
     mode: str,
-    model_api: dict[str, typing.Any],
+    pref_config: dict[str, typing.Any],
     metadata: dict[str, typing.Any],
     enable_progress_notify: bool = False,
     stream_callback: typing.Optional[typing.Callable[[str], typing.Awaitable[None]]] = None,
@@ -130,7 +130,7 @@ async def run_tool_step(
         )
         ok = not result.isError
 
-        enhancer = Enhancer(session, mode, model_api, metadata)
+        enhancer = Enhancer(session, mode, pref_config, metadata)
         fields = await enhancer.enhance(name, result, ok, stream_ui)
         fields = normalize_tool_result_fields(name, fields)
     finally:

@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import sys
+import time
 import typing
 import asyncio
 import contextlib
@@ -52,6 +53,8 @@ class Mind(object):
         self.src_total_place: str = kwargs["src_total_place"]
 
         self.pref: Preferences = kwargs["pref"]
+        self.pref_refreshed_at: float = time.monotonic()
+        self.pref_refresh_ttl_sec: float = 1.0
 
         self.task_event: asyncio.Event = asyncio.Event()
 
@@ -101,6 +104,26 @@ class Mind(object):
     def bind_server_manager(self, server_manager: ServerManage) -> None:
         """绑定 Helix 后台管理器。"""
         self.server_manager = server_manager
+
+    async def refresh_pref_if_stale(self, *, ttl_sec: typing.Optional[float] = None) -> None:
+        """按 TTL 从后端刷新偏好配置，用于模型与密钥热更新。"""
+        refresh_ttl = self.pref_refresh_ttl_sec if ttl_sec is None else max(0.0, float(ttl_sec))
+        now = time.monotonic()
+        if self.pref_refreshed_at and (now - self.pref_refreshed_at) < refresh_ttl:
+            return None
+
+        try:
+            await self.pref.load_pref()
+        except Exception as exc:
+            logger.debug(f"[Pref] refresh skipped: {type(exc).__name__}: {exc}")
+            return None
+
+        self.pref_refreshed_at = time.monotonic()
+
+    async def fresh_pref_config(self, *, ttl_sec: typing.Optional[float] = None) -> dict[str, typing.Any]:
+        """返回刷新后的偏好配置快照。"""
+        await self.refresh_pref_if_stale(ttl_sec=ttl_sec)
+        return self.pref.to_config()
 
     def start_keepalive_supervisor(self) -> None:
         """启动 Mind 生命周期内的 Helix 保活任务。"""
@@ -225,17 +248,17 @@ class Mind(object):
         )
 
     @staticmethod
-    def ensure_model_api(model_api: dict[str, typing.Any]) -> None:
-        """校验模型配置中的关键字段是否完整。"""
-        primary = model_api.get("primary") if isinstance(model_api, dict) else None
+    def ensure_pref_config(pref_config: dict[str, typing.Any]) -> None:
+        """校验偏好配置中的关键字段是否完整。"""
+        primary = pref_config.get("primary") if isinstance(pref_config, dict) else None
         if isinstance(primary, dict):
             api    = primary.get("api")
             model  = primary.get("model")
             apikey = primary.get("apikey")
         else:
-            api    = model_api["api"]
-            model  = model_api["model"]
-            apikey = model_api["apikey"]
+            api    = pref_config["api"]
+            model  = pref_config["model"]
+            apikey = pref_config["apikey"]
 
         if api and model and apikey:
             return None
@@ -287,7 +310,7 @@ class Mind(object):
 
     async def with_mcp_session(
         self,
-        model_api: dict[str, typing.Any],
+        pref_config: dict[str, typing.Any],
         function: typing.Callable[
             [
                 McpSessionLike,
@@ -301,7 +324,7 @@ class Mind(object):
         """MCP 会话入口：把共享连接与工具集构建委托给运行时模块。"""
         return await run_with_mcp_session(
             self,
-            model_api,
+            pref_config,
             function,
             before_user_flow=before_user_flow
         )
@@ -326,7 +349,7 @@ class Mind(object):
 
     async def calling(
         self,
-        model_api: typing.Optional[dict[str, typing.Any]] = None,
+        pref_config: typing.Optional[dict[str, typing.Any]] = None,
         *,
         message: str,
         mode: RunMode = "chat",
@@ -335,7 +358,7 @@ class Mind(object):
         """调用入口：统一委托运行时模块按 mode 执行单次请求。"""
         return await run_calling(
             self,
-            model_api=model_api,
+            pref_config=pref_config,
             message=message,
             mode=mode,
             **kwargs
@@ -345,7 +368,7 @@ class Mind(object):
         self,
         session: McpSessionLike,
         mode: typing.Literal["chat", "fast", "xtra"],
-        model_api: dict[str, typing.Any],
+        pref_config: dict[str, typing.Any],
         message: str,
         openai_tools: list[dict[str, typing.Any]],
         tool_meta: dict[str, dict[str, typing.Any]],
@@ -357,7 +380,7 @@ class Mind(object):
             self,
             session,
             mode,
-            model_api,
+            pref_config,
             message,
             openai_tools,
             tool_meta,
@@ -368,7 +391,7 @@ class Mind(object):
         self,
         session: McpSessionLike,
         mode: typing.Literal["plan"],
-        model_api: dict[str, typing.Any],
+        pref_config: dict[str, typing.Any],
         message: str,
         openai_tools: list[dict[str, typing.Any]],
         tool_meta: dict[str, dict[str, typing.Any]],
@@ -380,7 +403,7 @@ class Mind(object):
             self,
             session,
             mode,
-            model_api,
+            pref_config,
             message,
             openai_tools,
             tool_meta,

@@ -143,7 +143,7 @@ def _bootstrap_failure(exc: BaseException, *, mcp_url: str) -> MindError:
 
 async def with_mcp_session(
     mind: "Mind",
-    model_api: dict[str, typing.Any],
+    pref_config: dict[str, typing.Any],
     function: typing.Callable[
         [
             McpSessionLike,
@@ -163,7 +163,7 @@ async def with_mcp_session(
             token_cache["ts"] = now
         req.headers["Authorization"] = f"Bearer {token_cache['val']}"
 
-    mind.ensure_model_api(model_api)
+    mind.ensure_pref_config(pref_config)
 
     url         = const.BASE_URL + const.MCP_ED
     token_cache = {"ts": 0, "val": ""}

@@ -26,7 +26,7 @@ async def static_looper(
     mind: "Mind",
     session: McpSessionLike,
     mode: typing.Literal["plan"],
-    model_api: dict[str, typing.Any],
+    pref_config: dict[str, typing.Any],
     message: str,
     openai_tools: list[dict[str, typing.Any]],
     tool_meta: dict[str, dict[str, typing.Any]],
@@ -69,7 +69,7 @@ async def static_looper(
 
         first_frame = True
 
-        async for plan in request.stream_plan(mode, model_api, message, filtered_tools, extras, **kwargs):
+        async for plan in request.stream_plan(mode, pref_config, message, filtered_tools, extras, **kwargs):
             if ev_report:
                 ev_report.bind_event(plan)
 
@@ -235,7 +235,7 @@ async def static_looper(
                         arguments=arguments,
                         meta=action_meta,
                         mode=mode,
-                        model_api=model_api,
+                        pref_config=pref_config,
                         metadata=kwargs.get("metadata") or {}
                     )
 

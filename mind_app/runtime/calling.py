@@ -112,14 +112,15 @@ async def wakeup(
 
 async def calling(
     mind: "Mind",
-    model_api: typing.Optional[dict[str, typing.Any]] = None,
+    pref_config: typing.Optional[dict[str, typing.Any]] = None,
     *,
     message: str,
     mode: RunMode = "chat",
     **kwargs
 ) -> None:
     """统一包装一次用户调用，并由 mode 决定底层执行器。"""
-    model_api = model_api or mind.pref.to_config()
+    if pref_config is None:
+        pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
 
     runner = resolve_mode_runner(mind, mode)
 
@@ -150,7 +151,7 @@ async def calling(
             runner,
             session=session,
             mode=mode,
-            model_api=model_api,
+            pref_config=pref_config,
             message=message,
             openai_tools=openai_tools,
             tool_meta=tool_meta,
@@ -158,7 +159,7 @@ async def calling(
         )
 
     try:
-        return await mind.with_mcp_session(model_api, function)
+        return await mind.with_mcp_session(pref_config, function)
     finally:
         if owns_event_report:
             await event_report.flush()
