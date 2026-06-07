@@ -333,7 +333,7 @@ async def post_tool_approval(
 
 async def stream_chat(
     mode: str,
-    model_api: dict[str, typing.Any],
+    pref_config: dict[str, typing.Any],
     message: str,
     openai_tools: list[dict],
     attachments: typing.Optional[list[dict[str, typing.Any]]] = None,
@@ -345,7 +345,7 @@ async def stream_chat(
     headers = Channel.make_headers()
     payload = {
         "mode"     : resolve_transport_mode(mode),
-        "llm_conf" : model_api,
+        "llm_conf" : pref_config,
         "message"  : message,
         "tools"    : openai_tools,
         **kwargs
@@ -364,7 +364,7 @@ async def stream_chat(
 
 async def stream_plan(
     mode: str,
-    model_api: dict[str, typing.Any],
+    pref_config: dict[str, typing.Any],
     message: str,
     openai_tools: list[dict],
     extras: typing.Optional[dict[str, typing.Any]] = None,
@@ -376,7 +376,7 @@ async def stream_plan(
     headers = Channel.make_headers()
     payload = {
         "mode"     : mode,
-        "llm_conf" : model_api,
+        "llm_conf" : pref_config,
         "message"  : message,
         "tools"    : openai_tools,
         "extras"   : extras,
@@ -393,7 +393,7 @@ async def stream_plan(
 
 
 async def stream_heal(
-    model_api: dict[str, typing.Any],
+    pref_config: dict[str, typing.Any],
     page_id: str,
     station: str,
     locator: str,
@@ -408,7 +408,7 @@ async def stream_heal(
     """流式获取修复链路事件。"""
     headers = Channel.make_headers()
     payload = {
-        "llm_conf"   : model_api,
+        "llm_conf"   : pref_config,
         "app_id"     : const.APP_DESC,
         "page_id"    : page_id,
         "platform"   : station,
@@ -448,7 +448,7 @@ async def stream_heal(
 
 async def stream_rule(
     mode: str,
-    model_api: dict[str, typing.Any],
+    pref_config: dict[str, typing.Any],
     message: str,
     context: dict[str, typing.Any],
     metadata: dict[str, typing.Any],
@@ -458,7 +458,7 @@ async def stream_rule(
     headers = Channel.make_headers()
     payload = {
         "mode"      : mode,
-        "llm_conf"  : model_api,
+        "llm_conf"  : pref_config,
         "message"   : message,
         "metadata"  : metadata,
         "extras"    : {"context" : context}

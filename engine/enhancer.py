@@ -19,14 +19,14 @@ class Enhancer(object):
         self,
         session: ClientSession,
         mode: str,
-        model_api: dict[str, typing.Any],
-        metadata: dict[str, typing.Any],
+        pref_config: dict[str, typing.Any],
+        metadata: dict[str, typing.Any]
     ):
 
-        self.session   = session
-        self.mode      = mode
-        self.model_api = model_api
-        self.metadata  = metadata
+        self.session     = session
+        self.mode        = mode
+        self.pref_config = pref_config
+        self.metadata    = metadata
 
     @staticmethod
     def nexus_artifact(src: dict[str, typing.Any], default: str) -> dict[str, typing.Any]:
@@ -545,7 +545,7 @@ class Enhancer(object):
 
                 chunks: list[str] = []
                 async for rule_event in request.stream_rule(
-                    self.mode, self.model_api, message, context, self.metadata
+                    self.mode, self.pref_config, message, context, self.metadata
                 ):
                     if rule_event.get("type") == "turn.failed":
                         per_agent[agent_id] = {"ok": False, "message": message, "error": rule_event}
@@ -570,8 +570,8 @@ class Enhancer(object):
                 "data": {
                     "ok"        : ok,
                     "mode"      : self.mode,
-                    "api"       : self.model_api.get("api"),
-                    "model"     : self.model_api.get("model"),
+                    "api"       : self.pref_config.get("api"),
+                    "model"     : self.pref_config.get("model"),
                     "per_agent" : per_agent
                 }
             }
@@ -660,7 +660,7 @@ class Enhancer(object):
                 serial = data.pop("serial", "unknown")
 
                 async for heal_event in request.stream_heal(
-                    self.model_api,
+                    self.pref_config,
                     **data,
                     slog=slog
                 ):
