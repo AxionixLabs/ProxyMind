@@ -369,7 +369,7 @@ async def open_optional_external_mcp_group(
             pending = set()
 
         if connected_servers <= 0:
-            logger.debug("[MCP] external unavailable, local helix only")
+            logger.debug("[MCP] external unavailable, local service only")
             if status is not None:
                 status.finish()
             yield None

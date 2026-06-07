@@ -102,7 +102,7 @@ class Mind(object):
         self.root_task    = root_task
 
     def bind_server_manager(self, server_manager: ServerManage) -> None:
-        """绑定 Helix 后台管理器。"""
+        """绑定本地后台服务管理器。"""
         self.server_manager = server_manager
 
     async def refresh_pref_if_stale(self, *, ttl_sec: typing.Optional[float] = None) -> None:
@@ -126,7 +126,7 @@ class Mind(object):
         return self.pref.to_config()
 
     def start_keepalive_supervisor(self) -> None:
-        """启动 Mind 生命周期内的 Helix 保活任务。"""
+        """启动 Mind 生命周期内的本地后台服务保活任务。"""
         if self.keepalive_task and not self.keepalive_task.done():
             return None
 
@@ -136,7 +136,7 @@ class Mind(object):
                 self.keepalive_stop,
                 server_manager=self.server_manager
             ),
-            name="helix keepalive"
+            name="local service keepalive"
         )
 
     async def start_external_mcp_runtime(self) -> None:
@@ -153,7 +153,7 @@ class Mind(object):
             await runtime.stop()
 
     async def stop_keepalive_supervisor(self) -> None:
-        """停止 Mind 生命周期内的 Helix 保活任务。"""
+        """停止 Mind 生命周期内的本地后台服务保活任务。"""
         if self.keepalive_stop is not None:
             self.keepalive_stop.set()
 
@@ -167,7 +167,7 @@ class Mind(object):
                 await task
 
     async def close_runtime_resources(self) -> None:
-        """关闭 Mind 持有的运行时资源，不关闭 Helix 后台进程。"""
+        """关闭 Mind 持有的运行时资源，不关闭本地后台进程。"""
         await self.stop_external_mcp_runtime()
         await self.stop_keepalive_supervisor()
         if self.server_manager is not None:

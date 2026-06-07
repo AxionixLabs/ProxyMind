@@ -118,22 +118,22 @@ def _bootstrap_failure(exc: BaseException, *, mcp_url: str) -> MindError:
 
     if isinstance(root, httpx.ConnectError):
         return MindError(
-            f"MCP bootstrap failed: unable to connect to local helix at {const.BASE_URL}"
+            f"MCP bootstrap failed: unable to connect to local service at {const.BASE_URL}"
         )
 
     if isinstance(root, httpx.TimeoutException):
         return MindError(
-            f"MCP bootstrap failed: timeout while preparing local helix session"
+            f"MCP bootstrap failed: timeout while preparing local service session"
         )
 
     if isinstance(root, httpx.RemoteProtocolError):
         return MindError(
-            f"MCP bootstrap failed: local helix returned an invalid HTTP response"
+            f"MCP bootstrap failed: local service returned an invalid HTTP response"
         )
 
     if isinstance(root, httpx.ProxyError):
         return MindError(
-            f"MCP bootstrap failed: proxy error while preparing local helix session"
+            f"MCP bootstrap failed: proxy error while preparing local service session"
         )
 
     return MindError(

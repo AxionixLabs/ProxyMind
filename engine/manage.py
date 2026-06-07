@@ -256,7 +256,7 @@ class ServerManage(object):
         return False
 
     async def restart(self) -> None:
-        logger.debug(f"[Server] restarting helix on port {self.port}")
+        logger.debug(f"[Server] restarting local service on port {self.port}")
         with contextlib.suppress(Exception):
             await craft.kill_port(self.port)
         await asyncio.sleep(0.2)
