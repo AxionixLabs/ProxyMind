@@ -3,10 +3,8 @@
 
 import typing
 from rich.text import Text
+from rich.markdown import Markdown
 from mind_core.design import Design
-
-
-TextPart = dict[str, typing.Optional[str]]
 
 
 class TextState(object):
@@ -23,11 +21,16 @@ class TextState(object):
     BLOCK_LINES     = 2
 
     def __init__(self) -> None:
+        """初始化文本段、可见文本和最终正文缓存。"""
         self.display_segments: list[dict[str, typing.Any]] = []
-        self.visible_segments: list[TextPart] = []
-        self.display_text: str = ""
-        self.at_line_start: bool = True
+        self.visible_segments: list[dict[str, typing.Optional[str]]] = []
+
         self.trailing_newlines: int = 0
+        self.display_text: str = ""
+        self.raw_text: str     = ""
+
+        self.at_line_start: bool = True
+
         self.last_display: str | None = None
 
     def append(
@@ -37,12 +40,14 @@ class TextState(object):
         display: str = STREAM,
         display_chunk: typing.Optional[str] = None,
         display_style: typing.Optional[str] = None,
-        display_parts: typing.Optional[list[TextPart]] = None,
+        display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None,
         echo: bool = True
     ) -> bool:
+        """追加一段文本并返回是否适合继续打字机动画。"""
         if not echo or not chunk:
             return False
 
+        raw_delta = ""
         if display_parts is not None:
             visible_parts = self._normalize_display_parts(display_parts, display=display)
         else:
@@ -56,20 +61,35 @@ class TextState(object):
             return False
 
         visible_delta = self._parts_text(visible_parts)
+        if display == self.STREAM and display_parts is None and display_style is None and display_chunk is None:
+            raw_delta = str(chunk)
+
         self._append_segment(display, visible_delta, visible_parts)
+        self.raw_text += raw_delta
         self.visible_segments = self._compose_visible_segments()
+
         visible = self._parts_text(self.visible_segments)
         animate = (display == self.STREAM and visible.startswith(self.display_text))
-        self.display_text = visible
-        self.at_line_start = visible_delta.endswith("\n")
+
+        self.display_text      = visible
+        self.at_line_start     = visible_delta.endswith("\n")
         self.trailing_newlines = self._count_trailing_newlines(visible_delta)
-        self.last_display = display
+        self.last_display      = display
+
         return animate
 
     def renderable(self) -> Text:
+        """返回当前可见文本的 Rich Text。"""
         return self.renderable_for_text(self.display_text)
 
+    def final_renderable(self) -> typing.Any:
+        """返回最终落版 renderable；纯正文用 Markdown，结构化内容保留 Rich Text。"""
+        if self._markdown_final_enabled():
+            return Markdown(self.raw_text.rstrip("\n"))
+        return self.renderable()
+
     def renderable_for_text(self, text: str) -> Text:
+        """按给定文本窗口生成对应的 Rich Text。"""
         if text == self.display_text:
             parts = self.visible_segments or [{"text": self.display_text, "style": None}]
         else:
@@ -91,9 +111,11 @@ class TextState(object):
         return out
 
     def has_styles(self) -> bool:
+        """判断当前可见文本是否包含显式样式。"""
         return any(bool(part.get("style")) for part in self.visible_segments)
 
     def status_spacer(self) -> str:
+        """返回正文和状态行之间需要补充的换行。"""
         if not self.display_text:
             return ""
         if self.display_text.endswith("\n"):
@@ -101,14 +123,37 @@ class TextState(object):
         return "\n"
 
     def clear(self) -> None:
+        """清空所有文本状态和缓存。"""
         self.display_segments.clear()
         self.visible_segments.clear()
-        self.display_text = ""
-        self.at_line_start = True
-        self.trailing_newlines = 0
-        self.last_display = None
 
-    def _append_segment(self, display: str, delta: str, parts: list[TextPart]) -> None:
+        self.display_text      = ""
+        self.raw_text          = ""
+        self.at_line_start     = True
+        self.trailing_newlines = 0
+        self.last_display      = None
+
+    def _markdown_final_enabled(self) -> bool:
+        """判断最终落版是否可以使用 Markdown 渲染。"""
+        if not self.raw_text.strip():
+            return False
+        if not self.display_segments:
+            return False
+        for segment in self.display_segments:
+            if segment.get("mode") != self.STREAM:
+                return False
+            for part in segment.get("parts") or []:
+                if part.get("style"):
+                    return False
+        return True
+
+    def _append_segment(
+        self,
+        display: str,
+        delta: str,
+        parts: list[dict[str, typing.Optional[str]]]
+    ) -> None:
+        """追加一个显示段，并合并连续 stream 段。"""
         if (
             display == self.STREAM
             and self.display_segments
@@ -118,14 +163,21 @@ class TextState(object):
             self.display_segments[-1]["parts"].extend(parts)
             return None
 
-        self.display_segments.append({"mode": display, "text": delta, "parts": parts})
+        self.display_segments.append({
+            "mode"  : display,
+            "text"  : delta,
+            "parts" : parts
+        })
 
     def _compose_visible_text(self) -> str:
+        """组合当前可见文本。"""
         return self._parts_text(self._compose_visible_segments())
 
-    def _compose_visible_segments(self) -> list[TextPart]:
-        styled_parts: list[TextPart] = []
-        line_limit = self._line_limit()
+    def _compose_visible_segments(self) -> list[dict[str, typing.Optional[str]]]:
+        """根据所有显示段生成裁剪后的可见片段。"""
+        styled_parts: list[dict[str, typing.Optional[str]]] = []
+
+        line_limit  = self._line_limit()
         block_limit = self._block_limit(line_limit)
 
         for segment in self.display_segments:
@@ -147,6 +199,7 @@ class TextState(object):
         return styled_parts
 
     def _render_block(self, delta: str, limit: int) -> str:
+        """按块文本限制裁剪单段纯文本。"""
         parts: list[str] = []
         visible = 0
         trimmed = False
@@ -173,10 +226,12 @@ class TextState(object):
         return out
 
     def _render_stream(self, delta: str, limit: int) -> str:
+        """按行宽限制裁剪流式纯文本。"""
         parts: list[str] = []
+
         line_start = 0
-        line_len = 0
-        line_cut = False
+        line_len   = 0
+        line_cut   = False
 
         for ch in delta:
             if ch == "\n":
@@ -195,6 +250,7 @@ class TextState(object):
                 continue
 
             need = max(0, line_len - (limit - len(self.ELLIPSIS)))
+
             removed = self._trim_tail(parts, line_start, need)
             if removed == need:
                 parts.append(self.ELLIPSIS)
@@ -203,20 +259,29 @@ class TextState(object):
         return "".join(parts)
 
     def _line_limit(self) -> int:
+        """根据终端宽度计算流式行宽限制。"""
         width = max(0, int(getattr(Design.console, "width", 0) or 0))
         limit = width - self.LINE_PADDING
         return max(self.MIN_LINE_LIMIT, min(self.MAX_LINE_LIMIT, limit))
 
     def _block_limit(self, line_limit: int) -> int:
+        """根据行宽计算块文本总字符限制。"""
         limit = line_limit * self.BLOCK_LINES
         return max(self.MIN_BLOCK_LIMIT, min(self.MAX_BLOCK_LIMIT, limit))
 
     def _normalize_display_text(self, text: str, *, display: str) -> str:
+        """按显示模式归一化纯文本输入。"""
         if display == self.BLOCK:
             return self._normalize_block_text(text)
         return self._normalize_stream_text(text)
 
-    def _normalize_display_parts(self, parts: list[TextPart], *, display: str) -> list[TextPart]:
+    def _normalize_display_parts(
+        self,
+        parts: list[dict[str, typing.Optional[str]]],
+        *,
+        display: str
+    ) -> list[dict[str, typing.Optional[str]]]:
+        """按显示模式归一化带样式的文本片段。"""
         clean = [
             {"text": str(part.get("text") or ""), "style": part.get("style")}
             for part in parts
@@ -234,10 +299,12 @@ class TextState(object):
             if trailing <= 0:
                 trailing = 1
             prefix = self._segment_prefix(for_display=self.BLOCK)
-            out: list[TextPart] = []
+            out: list[dict[str, typing.Optional[str]]] = []
             if prefix:
                 out.append({"text": prefix, "style": None})
-            self._extend_parts(out, self._slice_parts(clean, raw_text.find(body), raw_text.find(body) + len(body)))
+            self._extend_parts(
+                out, self._slice_parts(clean, raw_text.find(body), raw_text.find(body) + len(body))
+            )
             out.append({"text": "\n" * trailing, "style": None})
             return out
 
@@ -249,6 +316,7 @@ class TextState(object):
         return out
 
     def _normalize_block_text(self, text: str) -> str:
+        """归一化块文本的前后换行。"""
         body = text.strip("\n")
         if not body:
             return ""
@@ -257,6 +325,7 @@ class TextState(object):
         return f"{prefix}{body}\n"
 
     def _normalize_stream_text(self, text: str) -> str:
+        """归一化流式文本的段间前缀。"""
         if not text:
             return ""
 
@@ -269,6 +338,7 @@ class TextState(object):
         for_display: str,
         incoming_text: str | None = None
     ) -> str:
+        """根据上一段输出状态生成段间换行。"""
         if self.last_display is None:
             return ""
 
@@ -283,35 +353,40 @@ class TextState(object):
 
         return "\n" * (2 - self.trailing_newlines)
 
-    @staticmethod
-    def _count_trailing_newlines(text: str) -> int:
-        count = 0
-        for ch in reversed(text):
-            if ch != "\n":
-                break
-            count += 1
-        return count
-
     @classmethod
-    def _render_block_parts(cls, parts: list[TextPart], limit: int) -> list[TextPart]:
+    def _render_block_parts(
+        cls,
+        parts: list[dict[str, typing.Optional[str]]],
+        limit: int
+    ) -> list[dict[str, typing.Optional[str]]]:
+        """按块文本限制裁剪带样式片段。"""
         rendered = cls._take_visible_chars(parts, limit + 1)
         if cls._visible_len(rendered) <= limit:
             return rendered
+
         keep = max(0, limit - len(cls.ELLIPSIS))
-        out = cls._take_visible_chars(parts, keep)
+        out  = cls._take_visible_chars(parts, keep)
+
         while out and str(out[-1].get("text") or "").endswith("\n"):
             out[-1]["text"] = str(out[-1].get("text") or "").rstrip("\n")
             if not out[-1]["text"]:
                 out.pop()
+
         cls._append_part(out, cls.ELLIPSIS, None)
         if cls._parts_text(parts).endswith("\n"):
             cls._append_part(out, "\n", None)
+
         return out
 
     @classmethod
-    def _render_stream_parts(cls, parts: list[TextPart], limit: int) -> list[TextPart]:
-        out: list[TextPart] = []
-        line_parts: list[TextPart] = []
+    def _render_stream_parts(
+        cls,
+        parts: list[dict[str, typing.Optional[str]]],
+        limit: int
+    ) -> list[dict[str, typing.Optional[str]]]:
+        """按行宽限制裁剪流式带样式片段。"""
+        out: list[dict[str, typing.Optional[str]]] = []
+        line_parts: list[dict[str, typing.Optional[str]]] = []
         line_len = 0
         line_cut = False
 
@@ -341,8 +416,13 @@ class TextState(object):
         return out
 
     @classmethod
-    def _take_visible_chars(cls, parts: list[TextPart], limit: int) -> list[TextPart]:
-        out: list[TextPart] = []
+    def _take_visible_chars(
+        cls,
+        parts: list[dict[str, typing.Optional[str]]],
+        limit: int
+    ) -> list[dict[str, typing.Optional[str]]]:
+        """从片段列表中按可见字符数截取前缀。"""
+        out: list[dict[str, typing.Optional[str]]] = []
         visible = 0
         for part in parts:
             style = part.get("style")
@@ -354,17 +434,16 @@ class TextState(object):
                 cls._append_part(out, ch, style)
         return out
 
-    @staticmethod
-    def _visible_len(parts: list[TextPart]) -> int:
-        return sum(1 for ch in TextState._parts_text(parts) if ch != "\n")
-
-    @staticmethod
-    def _parts_text(parts: list[TextPart]) -> str:
-        return "".join(str(part.get("text") or "") for part in parts)
-
     @classmethod
-    def _slice_parts(cls, parts: list[TextPart], start: int, end: int) -> list[TextPart]:
-        out: list[TextPart] = []
+    def _slice_parts(
+        cls,
+        parts: list[dict[str, typing.Optional[str]]],
+        start: int,
+        end: int
+    ) -> list[dict[str, typing.Optional[str]]]:
+        """按字符串位置切取片段列表。"""
+        out: list[dict[str, typing.Optional[str]]] = []
+
         pos = 0
         for part in parts:
             text = str(part.get("text") or "")
@@ -378,10 +457,46 @@ class TextState(object):
             if chunk:
                 cls._append_part(out, chunk, part.get("style"))
             pos = next_pos
+
         return out
 
+    @classmethod
+    def _extend_parts(
+        cls,
+        target: list[dict[str, typing.Optional[str]]],
+        source: list[dict[str, typing.Optional[str]]]
+    ) -> None:
+        """把源片段追加到目标片段列表。"""
+        for part in source:
+            cls._append_part(target, str(part.get("text") or ""), part.get("style"))
+
     @staticmethod
-    def _append_part(parts: list[TextPart], text: str, style: typing.Optional[str]) -> None:
+    def _count_trailing_newlines(text: str) -> int:
+        """统计文本尾部连续换行数量。"""
+        count = 0
+        for ch in reversed(text):
+            if ch != "\n":
+                break
+            count += 1
+        return count
+
+    @staticmethod
+    def _visible_len(parts: list[dict[str, typing.Optional[str]]]) -> int:
+        """统计片段中的非换行字符数量。"""
+        return sum(1 for ch in TextState._parts_text(parts) if ch != "\n")
+
+    @staticmethod
+    def _parts_text(parts: list[dict[str, typing.Optional[str]]]) -> str:
+        """把片段列表合并为纯文本。"""
+        return "".join(str(part.get("text") or "") for part in parts)
+
+    @staticmethod
+    def _append_part(
+        parts: list[dict[str, typing.Optional[str]]],
+        text: str,
+        style: typing.Optional[str]
+    ) -> None:
+        """追加片段并合并相邻同样式内容。"""
         if not text:
             return None
         if parts and parts[-1].get("style") == style:
@@ -389,13 +504,13 @@ class TextState(object):
             return None
         parts.append({"text": text, "style": style})
 
-    @classmethod
-    def _extend_parts(cls, target: list[TextPart], source: list[TextPart]) -> None:
-        for part in source:
-            cls._append_part(target, str(part.get("text") or ""), part.get("style"))
-
     @staticmethod
-    def _trim_tail(parts: list[str], line_start: int, count: int) -> int:
+    def _trim_tail(
+        parts: list[str],
+        line_start: int,
+        count: int
+    ) -> int:
+        """从行尾移除指定数量的字符。"""
         removed = 0
         while count > 0 and len(parts) > line_start:
             parts.pop()
@@ -404,9 +519,15 @@ class TextState(object):
         return removed
 
     @staticmethod
-    def _trim_visible_tail(parts: list[str], limit: int, reserve: int) -> None:
-        keep = max(0, limit - reserve)
+    def _trim_visible_tail(
+        parts: list[str],
+        limit: int,
+        reserve: int
+    ) -> None:
+        """保留指定可见字符数并为省略标记预留空间。"""
+        keep    = max(0, limit - reserve)
         visible = 0
+
         kept: list[str] = []
 
         for ch in parts:
@@ -419,6 +540,7 @@ class TextState(object):
             visible += 1
 
         parts[:] = kept
+
 
 if __name__ == '__main__':
     pass

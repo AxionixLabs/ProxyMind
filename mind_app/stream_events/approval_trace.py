@@ -2,23 +2,31 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from mind_nova import const
 from .tool_trace import (
-    PREVIEW_STYLE, TITLE_STYLE, ERROR_STYLE
+    PREVIEW_STYLE,
+    TITLE_STYLE,
+    ERROR_STYLE
 )
 
 APPROVAL_PENDING_STYLE  = "bold #F2C94C"
 APPROVAL_APPROVED_STYLE = "bold #6EE7A8"
 APPROVAL_DENIED_STYLE   = ERROR_STYLE
 APPROVAL_COMMAND_STYLE  = TITLE_STYLE
+APPROVAL_PROMPT_STYLE   = "bold #8FA4B8"
+APPROVAL_TOOL_STYLE     = "bold #7DD3FC"
+APPROVAL_ARG_STYLE      = "bold #A7F3D0"
 
 
 def command_text(command: typing.Any) -> str:
+    """把审批命令字段转换为单行文本。"""
     if isinstance(command, list):
         return " ".join(str(item) for item in command)
     return str(command or "").strip()
 
 
 def approval_summary(approval: dict[str, typing.Any]) -> str:
+    """生成审批请求的简短摘要。"""
     command   = command_text(approval.get("command"))
     tool      = str(approval.get("tool") or "").strip()
     arguments = approval.get("arguments", approval.get("args"))
@@ -32,6 +40,7 @@ def approval_summary(approval: dict[str, typing.Any]) -> str:
 
 
 def approval_preview_lines(approval: dict[str, typing.Any]) -> list[str]:
+    """提取审批请求的辅助预览信息。"""
     lines: list[str] = []
 
     cwd      = str(approval.get("cwd") or "").strip()
@@ -54,18 +63,21 @@ def approval_preview_lines(approval: dict[str, typing.Any]) -> list[str]:
 
 
 def render_approval_pending_trace(approval: dict[str, typing.Any]) -> str:
+    """生成等待审批的轨迹标题。"""
     summary = approval_summary(approval)
     return f"• Approval required {summary}".rstrip()
 
 
 def render_approval_approved_trace(approval: dict[str, typing.Any]) -> str:
+    """生成审批通过后的轨迹标题。"""
     summary = approval_summary(approval)
-    return f"✔ You approved mind to run {summary} this time".rstrip()
+    return f"✔ You approved {const.APP_NAME} to run {summary}".rstrip()
 
 
 def render_approval_denied_trace(approval: dict[str, typing.Any]) -> str:
+    """生成审批拒绝后的轨迹标题。"""
     summary = approval_summary(approval)
-    return f"• You denied mind to run {summary}".rstrip()
+    return f"• You denied {const.APP_NAME} to run {summary}".rstrip()
 
 
 def render_approval_trace_text(
@@ -74,6 +86,7 @@ def render_approval_trace_text(
     approval: dict[str, typing.Any] | None = None,
     include_preview: bool = True
 ) -> str:
+    """生成审批轨迹的纯文本内容。"""
     lines = approval_preview_lines(approval or {}) if include_preview else []
     if not lines:
         return title
@@ -87,6 +100,7 @@ def render_approval_trace_parts(
     approval: dict[str, typing.Any] | None = None,
     state: typing.Literal["pending", "approved", "denied"] = "pending"
 ) -> list[dict[str, typing.Optional[str]]]:
+    """生成审批轨迹的分段样式内容。"""
     if state == "denied":
         title_style = APPROVAL_DENIED_STYLE
     elif state == "approved":
@@ -94,9 +108,7 @@ def render_approval_trace_parts(
     else:
         title_style = APPROVAL_PENDING_STYLE
 
-    parts: list[dict[str, typing.Optional[str]]] = [
-        {"text": title, "style": title_style}
-    ]
+    parts = _approval_title_parts(title, approval or {}, base_style=title_style)
 
     lines = approval_preview_lines(approval or {}) if state == "pending" else []
     if lines:
@@ -106,6 +118,48 @@ def render_approval_trace_parts(
             {"text": "\n  ".join(lines), "style": PREVIEW_STYLE},
         ])
     return parts
+
+
+def _approval_title_parts(
+    title: str,
+    approval: dict[str, typing.Any],
+    *,
+    base_style: str
+) -> list[dict[str, typing.Optional[str]]]:
+    """把审批 trace 标题拆成状态文本、工具名和参数。"""
+    summary = approval_summary(approval)
+    if not summary or summary not in title:
+        return [{"text": title, "style": base_style}]
+
+    start = title.find(summary)
+    end   = start + len(summary)
+
+    parts: list[dict[str, typing.Optional[str]]] = []
+
+    if start:
+        parts.append({"text": title[:start], "style": base_style})
+    parts.extend(_approval_summary_parts(summary, approval))
+    if end < len(title):
+        parts.append({"text": title[end:], "style": base_style})
+    return parts
+
+
+def _approval_summary_parts(
+    summary: str,
+    approval: dict[str, typing.Any]
+) -> list[dict[str, typing.Optional[str]]]:
+    """把审批摘要拆成工具名和参数片段。"""
+    tool = str(approval.get("tool") or "").strip()
+    if tool and summary.startswith(tool):
+        rest = summary[len(tool):]
+        parts: list[dict[str, typing.Optional[str]]] = [
+            {"text": tool, "style": APPROVAL_TOOL_STYLE}
+        ]
+        if rest:
+            parts.append({"text": rest, "style": APPROVAL_ARG_STYLE})
+        return parts
+
+    return [{"text": summary, "style": APPROVAL_COMMAND_STYLE}]
 
 
 if __name__ == '__main__':

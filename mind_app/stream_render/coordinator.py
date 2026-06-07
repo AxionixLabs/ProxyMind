@@ -40,11 +40,7 @@ class RenderCoord(object):
 
         async with self.render_lock:
             if self.text_state.display_text:
-                final_renderable = (
-                    self.text_state.renderable()
-                    if self.text_state.has_styles()
-                    else None
-                )
+                final_renderable = self.text_state.final_renderable()
                 await self.text_renderer.show(
                     self.text_state.display_text,
                     animate=False,

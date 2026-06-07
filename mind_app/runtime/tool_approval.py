@@ -17,8 +17,11 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
 from mind_core.design import Design
 from mind_app.stream_events.approval_trace import (
+    APPROVAL_ARG_STYLE,
     APPROVAL_COMMAND_STYLE,
     APPROVAL_PENDING_STYLE,
+    APPROVAL_PROMPT_STYLE,
+    APPROVAL_TOOL_STYLE,
     approval_summary
 )
 
@@ -40,10 +43,10 @@ DECISION_LABELS: dict[str, str] = {
 }
 APPROVAL_MENU_STYLE = Style.from_dict({
     "radio-list"     : "",
-    "radio"          : "#7F8C9A",
+    "radio"          : "bold #9AA9B5",
     "radio-selected" : "bold #A7C7FF",
     "radio-checked"  : "bold #E2E8F0",
-    "radio-number"   : "#7F8C9A"
+    "radio-number"   : "bold #9AA9B5"
 })
 
 @dataclass(slots=True)
@@ -252,11 +255,13 @@ def approval_prompt_renderable(
     approval: dict[str, typing.Any]
 ) -> Group:
     """构造审批提示的终端渲染内容。"""
-    summary = approval_summary(approval)
     noun = _approval_prompt_noun(approval)
+    command_line = Text()
+    for part in approval_command_parts(approval, newline=False):
+        command_line.append(str(part.get("text") or ""), style=part.get("style"))
     return Group(
         Text(f"Would you like to approve the following {noun}?\n", style=APPROVAL_PENDING_STYLE),
-        Text(f"$ {summary}", style=APPROVAL_COMMAND_STYLE),
+        command_line,
     )
 
 
@@ -286,8 +291,8 @@ def approval_choice_parts(
         if parts:
             parts.append({"text": "\n", "style": None})
         parts.extend([
-            {"text": f"{prefix} {index}. ", "style": "bold #A7C7FF" if index == 1 else "#7F8C9A"},
-            {"text": DECISION_LABELS.get(decision, decision), "style": "bold #E2E8F0" if index == 1 else "#9AA9B5"},
+            {"text": f"{prefix} {index}. ", "style": "bold #A7C7FF" if index == 1 else "bold #9AA9B5"},
+            {"text": DECISION_LABELS.get(decision, decision), "style": "bold #E2E8F0" if index == 1 else "bold #9AA9B5"},
         ])
     parts.append({"text": "\n", "style": None})
     return parts
@@ -308,12 +313,36 @@ def approval_prompt_parts(
     approval: dict[str, typing.Any]
 ) -> list[dict[str, str | None]]:
     """构造审批提示的文本片段。"""
-    summary = approval_summary(approval)
     noun = _approval_prompt_noun(approval)
     return [
         {"text": f"Would you like to approve the following {noun}?\n\n", "style": APPROVAL_PENDING_STYLE},
-        {"text": f"$ {summary}\n", "style": APPROVAL_COMMAND_STYLE}
+        *approval_command_parts(approval, newline=True)
     ]
+
+
+def approval_command_parts(
+    approval: dict[str, typing.Any],
+    *,
+    newline: bool
+) -> list[dict[str, str | None]]:
+    """把审批命令行拆成 `$`、工具名和参数片段。"""
+    summary = approval_summary(approval)
+    tool = str(approval.get("tool") or "").strip()
+    parts: list[dict[str, str | None]] = [
+        {"text": "$ ", "style": APPROVAL_PROMPT_STYLE}
+    ]
+
+    if tool and summary.startswith(tool):
+        parts.append({"text": tool, "style": APPROVAL_TOOL_STYLE})
+        rest = summary[len(tool):]
+        if rest:
+            parts.append({"text": rest, "style": APPROVAL_ARG_STYLE})
+    else:
+        parts.append({"text": summary, "style": APPROVAL_COMMAND_STYLE})
+
+    if newline:
+        parts.append({"text": "\n", "style": None})
+    return parts
 
 
 def _approval_prompt_noun(
