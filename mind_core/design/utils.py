@@ -14,43 +14,94 @@ from rich.console import Console
 from mind_nova import const
 
 DESIGN_CONSOLE: Console = Console()
+TYPEWRITER_CURSOR_STYLE = "bold #D7E7FF"
 
 
-def mix_hex_color(start: str, end: str, ratio: float) -> str:
+def mix_hex_color(
+    start: str,
+    end: str,
+    ratio: float
+) -> str:
     start_rgb = tuple(int(start[index:index + 2], 16) for index in (1, 3, 5))
     end_rgb   = tuple(int(end[index:index + 2], 16) for index in (1, 3, 5))
     clamped   = max(0.0, min(1.0, float(ratio)))
 
-    mixed  = tuple(
+    mixed = tuple(
         round(start_rgb[channel] + ((end_rgb[channel] - start_rgb[channel]) * clamped))
         for channel in range(3)
     )
     return f"#{mixed[0]:02X}{mixed[1]:02X}{mixed[2]:02X}"
 
 
-def ease_in_out_sine(ratio: float) -> float:
+def ease_in_out_sine(
+    ratio: float
+) -> float:
     clamped = max(0.0, min(1.0, float(ratio)))
     return 0.5 - 0.5 * math.cos(math.pi * clamped)
 
 
-class DesignDoc(object):
-    """统一的终端输出门面。"""
+def build_file_tree(
+    file_path: str,
+    *,
+    console: Console | None = None
+) -> None:
+    """显示树状图。"""
+    active_console = console or DESIGN_CONSOLE
 
-    @classmethod
-    def log(cls, text: typing.Any) -> None:
-        DESIGN_CONSOLE.print(const.PRINT_HEAD, f"[bold]{text}")
+    color_schemes = {
+        "Ocean Breeze": ["#AFD7FF", "#87D7FF", "#5FAFD7"],
+        "Forest Pulse": ["#A8FFB0", "#87D75F", "#5FAF5F"],
+        "Neon Sunset": ["#FFAF87", "#FF875F", "#D75F5F"],
+        "Midnight Ice": ["#C6D7FF", "#AFAFD7", "#8787AF"],
+        "Cyber Mint": ["#AFFFFF", "#87FFFF", "#5FD7D7"]
+    }
+    file_icons = {
+        "folder": "📁",
+        ".json": "📦",
+        ".yaml": "🧾",
+        ".yml": "🧾",
+        ".md": "📝",
+        ".log": "📄",
+        ".html": "🌐",
+        ".sh": "🔧",
+        ".bat": "🔧",
+        ".db": "🗃️",
+        ".sqlite": "🗃️",
+        ".zip": "📦",
+        ".tar": "📦",
+        "default": "📄"
+    }
+    text_color = random.choice([
+        "#8A8A8A", "#949494", "#9E9E9E", "#A8A8A8", "#B2B2B2"
+    ])
 
-    @classmethod
-    def suc(cls, text: typing.Any) -> None:
-        DESIGN_CONSOLE.print(const.PRINT_HEAD, f"{const.SUC}{text}")
+    root_color, folder_color, file_color = random.choice(list(color_schemes.values()))
 
-    @classmethod
-    def wrn(cls, text: typing.Any) -> None:
-        DESIGN_CONSOLE.print(const.PRINT_HEAD, f"{const.WRN}{text}")
+    choice_icon: typing.Callable[
+        [typing.Union[Path, str]], str
+    ] = lambda x: file_icons["folder"] if (y := Path(x)).is_dir() else (
+        file_icons[n] if (n := y.name.lower()) in file_icons else file_icons["default"]
+    )
 
-    @classmethod
-    def err(cls, text: typing.Any) -> None:
-        DESIGN_CONSOLE.print(const.PRINT_HEAD, f"{const.ERR}{text}")
+    parts = Path(file_path).parts
+
+    root = parts[0]
+    tree = Tree(
+        f"[bold {text_color}]{choice_icon(root)} {root}[/]", guide_style=f"bold {root_color}"
+    )
+    current_path = parts[0]
+    current_node = tree
+
+    for part in parts[1:-1]:
+        current_path = Path(current_path, part)
+        current_node = current_node.add(
+            f"[bold {text_color}]{choice_icon(current_path)} {part}[/]", guide_style=f"bold {folder_color}"
+        )
+
+    ext = (file := Path(parts[-1])).suffix.lower()
+    current_node.add(f"[bold {file_color}]{choice_icon(ext)} {file.name}[/]")
+
+    active_console.print(tree)
 
 
 async def typewriter(
@@ -84,7 +135,7 @@ async def typewriter(
 
     def default_renderer(text: str, cur_cursor: str) -> Text:
         t = Text(text, style="bold", no_wrap=bool(max_lines), overflow="crop")
-        t.append(cur_cursor, style="bold")
+        t.append(cur_cursor, style=TYPEWRITER_CURSOR_STYLE)
         return t
 
     render_fn = renderer or default_renderer
@@ -154,12 +205,15 @@ async def typewriter(
                 live.update(
                     Text(win.text(), style="bold")
                     + Text(random.choice("▓▒░"), style="bold")
-                    + Text(cursor, style="bold")
+                    + Text(cursor, style=TYPEWRITER_CURSOR_STYLE)
                 )
                 await asyncio.sleep(0.010)
                 render()
             else:
-                live.update(Text(out + random.choice("▓▒░") + cursor))
+                live.update(
+                    Text(out + random.choice("▓▒░"), style="bold")
+                    + Text(cursor, style=TYPEWRITER_CURSOR_STYLE)
+                )
                 await asyncio.sleep(0.010)
                 render()
 
@@ -207,7 +261,7 @@ async def cursor_blink(
     def default_render(text: str, cursor_on: bool) -> Text:
         base = Text(text, style="bold", no_wrap=bool(max_lines), overflow="crop")
         if cursor_on:
-            base += Text(cursor, style="reverse")
+            base += Text(cursor, style=TYPEWRITER_CURSOR_STYLE)
         return base
 
     r = renderer or default_render
@@ -222,64 +276,24 @@ async def cursor_blink(
     live.update(r(view, False))
 
 
-def build_file_tree(file_path: str, *, console: Console | None = None) -> None:
-    """显示树状图。"""
-    active_console = console or DESIGN_CONSOLE
+class DesignDoc(object):
+    """统一的终端输出门面。"""
 
-    color_schemes = {
-        "Ocean Breeze": ["#AFD7FF", "#87D7FF", "#5FAFD7"],
-        "Forest Pulse": ["#A8FFB0", "#87D75F", "#5FAF5F"],
-        "Neon Sunset": ["#FFAF87", "#FF875F", "#D75F5F"],
-        "Midnight Ice": ["#C6D7FF", "#AFAFD7", "#8787AF"],
-        "Cyber Mint": ["#AFFFFF", "#87FFFF", "#5FD7D7"]
-    }
-    file_icons = {
-        "folder": "📁",
-        ".json": "📦",
-        ".yaml": "🧾",
-        ".yml": "🧾",
-        ".md": "📝",
-        ".log": "📄",
-        ".html": "🌐",
-        ".sh": "🔧",
-        ".bat": "🔧",
-        ".db": "🗃️",
-        ".sqlite": "🗃️",
-        ".zip": "📦",
-        ".tar": "📦",
-        "default": "📄"
-    }
-    text_color = random.choice([
-        "#8A8A8A", "#949494", "#9E9E9E", "#A8A8A8", "#B2B2B2"
-    ])
+    @classmethod
+    def log(cls, text: typing.Any) -> None:
+        DESIGN_CONSOLE.print(const.PRINT_HEAD, f"[bold]{text}")
 
-    root_color, folder_color, file_color = random.choice(list(color_schemes.values()))
+    @classmethod
+    def suc(cls, text: typing.Any) -> None:
+        DESIGN_CONSOLE.print(const.PRINT_HEAD, f"{const.SUC}{text}")
 
-    choice_icon: typing.Callable[
-        [typing.Union[Path, str]], str
-    ] = lambda x: file_icons["folder"] if (y := Path(x)).is_dir() else (
-        file_icons[n] if (n := y.name.lower()) in file_icons else file_icons["default"]
-    )
+    @classmethod
+    def wrn(cls, text: typing.Any) -> None:
+        DESIGN_CONSOLE.print(const.PRINT_HEAD, f"{const.WRN}{text}")
 
-    parts = Path(file_path).parts
-
-    root = parts[0]
-    tree = Tree(
-        f"[bold {text_color}]{choice_icon(root)} {root}[/]", guide_style=f"bold {root_color}"
-    )
-    current_path = parts[0]
-    current_node = tree
-
-    for part in parts[1:-1]:
-        current_path = Path(current_path, part)
-        current_node = current_node.add(
-            f"[bold {text_color}]{choice_icon(current_path)} {part}[/]", guide_style=f"bold {folder_color}"
-        )
-
-    ext = (file := Path(parts[-1])).suffix.lower()
-    current_node.add(f"[bold {file_color}]{choice_icon(ext)} {file.name}[/]")
-
-    active_console.print(tree)
+    @classmethod
+    def err(cls, text: typing.Any) -> None:
+        DESIGN_CONSOLE.print(const.PRINT_HEAD, f"{const.ERR}{text}")
 
 
 if __name__ == '__main__':
