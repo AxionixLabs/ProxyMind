@@ -43,19 +43,6 @@ def _path_from_args(args: dict[str, typing.Any]) -> str:
     return str(args.get("path") or ".").strip() or "."
 
 
-def local_path_exists(arguments: dict[str, typing.Any]) -> typing.Any:
-    """判断参数中的路径是否存在；无法判断时返回 MISSING。"""
-    if not isinstance(arguments, dict):
-        return MISSING
-    raw_path = str(arguments.get("path") or "").strip()
-    if not raw_path:
-        return MISSING
-    try:
-        return Path(raw_path).expanduser().resolve().exists()
-    except OSError:
-        return MISSING
-
-
 def _command_text(command: typing.Any) -> str:
     """把命令参数转换为单行文本。"""
     if isinstance(command, list):
@@ -110,6 +97,75 @@ def _status_from_payload(payload: dict[str, typing.Any]) -> str:
         return "failed"
 
     return ""
+
+
+def _parallel_read_item_payload(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """提取 native_parallel_read 子项的结果 data。"""
+    result = item.get("result") if isinstance(item, dict) else None
+    return _result_payload(result) if isinstance(result, dict) else {}
+
+
+def _parallel_read_reason_label(reason: typing.Any) -> str:
+    """把底层失败 reason 压缩成适合 trace 的短标签。"""
+    text = str(reason or "").strip()
+    if text == "file_not_found":
+        return "missing"
+    if text == "file_not_text":
+        return "not_text"
+    if text == "path_outside_workspace":
+        return "outside"
+    if text == "tool_not_allowed":
+        return "not_allowed"
+    if text == "parallel_read_item_failed":
+        return "error"
+    return text or "failed"
+
+
+def _parallel_read_item_target(
+    item: dict[str, typing.Any],
+    payload: dict[str, typing.Any]
+) -> str:
+    """读取并行读子项最有用的目标描述。"""
+    args = item.get("args") if isinstance(item.get("args"), dict) else {}
+    tool = str(item.get("tool") or "").strip()
+
+    if tool == "workspace_read_file":
+        return str(payload.get("path") or args.get("path") or "").strip()
+    if tool == "workspace_list_file":
+        path = str(payload.get("path") or args.get("path") or ".").strip() or "."
+        count = payload.get("file_count")
+        return f"{path} ({count} files)" if isinstance(count, int) else path
+    if tool == "workspace_search":
+        query = args.get("query", payload.get("query"))
+        if isinstance(query, (list, tuple)):
+            target = f"{len(query)} queries"
+        else:
+            target = _short_text(query, 80)
+        count = payload.get("match_count")
+        return f"{target} ({count} matches)" if isinstance(count, int) else target
+    if tool == "workspace_root":
+        return str(payload.get("root") or "").strip()
+
+    return _short_text(args, 100)
+
+
+def _parallel_read_failure_summary(payload: dict[str, typing.Any]) -> str:
+    """生成 native_parallel_read 标题里的失败原因摘要。"""
+    reasons = payload.get("failure_reasons")
+    if not isinstance(reasons, dict) or not reasons:
+        fail_count = payload.get("fail_count")
+        return f"{fail_count} failed" if isinstance(fail_count, int) and fail_count else ""
+
+    parts = []
+    for reason, count in sorted(reasons.items(), key=lambda item: str(item[0])):
+        try:
+            number = int(count)
+        except (TypeError, ValueError):
+            number = 0
+        if number <= 0:
+            continue
+        parts.append(f"{number} {_parallel_read_reason_label(reason)}")
+    return ", ".join(parts)
 
 
 def _line_delta_from_content(content: typing.Any) -> tuple[int, int]:
@@ -273,10 +329,12 @@ def _patch_replacement_preview(args: dict[str, typing.Any]) -> list[str]:
     """根据文本替换参数生成代码预览行。"""
     prefix = _summary_lines(
         ("file", args.get("path")),
-        ("replacements", args.get("expected_replacements") if int(args.get("expected_replacements") or 1) > 1 else None),
+        ("replacements", args.get("expected_replacements")
+        if int(args.get("expected_replacements") or 1) > 1 else None)
     )
     old_lines = _numbered_removed_lines(args.get("old_text"))
     new_lines = _numbered_added_lines(args.get("new_text"))
+
     if old_lines and new_lines:
         return [*prefix, *old_lines, *new_lines]
     return [*prefix, *(new_lines or old_lines)]
@@ -285,9 +343,11 @@ def _patch_replacement_preview(args: dict[str, typing.Any]) -> list[str]:
 def _unified_patch_preview_lines(patch: typing.Any) -> list[str]:
     """从 unified diff 文本中提取可显示的代码预览行。"""
     lines: list[str] = []
-    current_old_line = 1
-    current_new_line = 1
-    pending_old_path = ""
+
+    current_old_line: int = 1
+    current_new_line: int = 1
+    pending_old_path: str = ""
+
     for raw in _normalize_preview_lines(patch):
         if raw.startswith("--- "):
             pending_old_path = _patch_display_path(raw[4:])
@@ -306,8 +366,10 @@ def _unified_patch_preview_lines(patch: typing.Any) -> list[str]:
             continue
         if not raw:
             continue
+
         marker = raw[0]
-        text = raw[1:] if marker in {" ", "+", "-"} else raw
+        text   = raw[1:] if marker in {" ", "+", "-"} else raw
+
         if marker == "+":
             lines.append(f"{current_new_line:>4} +{text}")
             current_new_line += 1
@@ -318,6 +380,7 @@ def _unified_patch_preview_lines(patch: typing.Any) -> list[str]:
             lines.append(f"{current_new_line:>4}  {text}")
             current_old_line += 1
             current_new_line += 1
+
     return lines
 
 
@@ -328,6 +391,7 @@ def _failed_unified_patch_preview_lines(patch: typing.Any, data: dict[str, typin
         return _unified_patch_preview_lines(patch)[:6]
 
     raw_lines = _normalize_preview_lines(patch)
+
     hunk_index = next(
         (index for index, line in enumerate(raw_lines) if line.strip() == hunk_header),
         -1,
@@ -341,6 +405,7 @@ def _failed_unified_patch_preview_lines(patch: typing.Any, data: dict[str, typin
 
     end = hunk_index + 1
     body_count = 0
+
     while end < len(raw_lines):
         line = raw_lines[end]
         if line.startswith(("@@ ", "--- ", "+++ ")):
@@ -433,10 +498,28 @@ def render_tool_start_trace(
     arguments: dict[str, typing.Any]
 ) -> str:
     """渲染普通工具开始执行前的轨迹行。"""
+    _ = arguments
     return f"• Tool {str(name or 'tool').strip() or 'tool'}"
 
 
-def is_native_coding_trace_tool(name: str) -> bool:
+def local_path_exists(
+    arguments: dict[str, typing.Any]
+) -> typing.Any:
+    """判断参数中的路径是否存在；无法判断时返回 MISSING。"""
+    if not isinstance(arguments, dict):
+        return MISSING
+    raw_path = str(arguments.get("path") or "").strip()
+    if not raw_path:
+        return MISSING
+    try:
+        return Path(raw_path).expanduser().resolve().exists()
+    except OSError:
+        return MISSING
+
+
+def is_native_coding_trace_tool(
+    name: str
+) -> bool:
     """判断工具是否使用原生编码轨迹样式。"""
     return name in NATIVE_CODING_TRACE_TOOLS
 
@@ -513,27 +596,22 @@ def render_tool_result_preview(
                 if not isinstance(item, dict):
                     continue
 
-                index       = item.get("index")
-                tool        = str(item.get("tool") or "").strip()
-                ok          = "ok" if item.get("ok") else "failed"
-                result      = item.get("result") if isinstance(item.get("result"), dict) else {}
-                result_data = _result_payload(result)
-                detail      = ""
+                index   = item.get("index")
+                tool    = str(item.get("tool") or "").strip()
+                payload = _parallel_read_item_payload(item)
+                target  = _parallel_read_item_target(item, payload)
+                state   = "ok" if item.get("ok") else _parallel_read_reason_label(payload.get("reason"))
 
-                if tool == "workspace_read_file":
-                    detail = str(result_data.get("path") or "").strip()
-                elif tool == "workspace_list_file":
-                    count = _count_from_payload(result_data, "files", "file_count")
-                    detail = f"{count} files" if isinstance(count, int) else ""
-                elif tool == "workspace_search":
-                    count = _count_from_payload(result_data, "matches", "match_count")
-                    detail = f"{count} matches" if isinstance(count, int) else ""
-                elif tool == "workspace_root":
-                    detail = str(result_data.get("root") or "").strip()
-
+                label = "read" if tool == "workspace_read_file" else (
+                    "list" if tool == "workspace_list_file" else (
+                        "search" if tool == "workspace_search" else (
+                            "root" if tool == "workspace_root" else tool or "item"
+                        )
+                    )
+                )
                 prefix = f"{index}: " if index is not None else ""
-                suffix = f" {detail}" if detail else ""
-                lines.append(f"{prefix}{tool} {ok}{suffix}".strip())
+                detail = f" {target}" if target else ""
+                lines.append(f"{prefix}{state} {label}{detail}".strip())
 
             return _trace_preview_from_lines(lines)
 
@@ -755,7 +833,7 @@ def render_tool_trace(
     ok: bool,
     data: typing.Any = None,
     cost_ms: int | None = None,
-    before_exists: typing.Any = MISSING,
+    before_exists: typing.Any = MISSING
 ) -> str:
     """渲染工具完成后的轨迹摘要行。"""
     args    = arguments if isinstance(arguments, dict) else {}
@@ -805,7 +883,8 @@ def render_tool_trace(
             if isinstance(ok_count, int):
                 detail += f", {ok_count} ok"
             if isinstance(fail_count, int) and fail_count:
-                detail += f", {fail_count} failed"
+                failure_summary = _parallel_read_failure_summary(payload)
+                detail += f", {failure_summary or f'{fail_count} failed'}"
             detail += ")"
 
         return f"• Read context{detail}{suffix}"
