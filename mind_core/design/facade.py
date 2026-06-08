@@ -240,8 +240,6 @@ class Design(DesignStatusLiveDriver):
         final = Text()
         final.append(title, style=f"bold {title_live}")
         final.append(" · ", style=f"bold {sep_dim}")
-        final.append("NEEWER", style=f"bold {version_dim}")
-        final.append(" · ", style=f"bold {sep_dim}")
         final.append("Ready", style=f"bold {ready_live}")
         final.append(" · ", style=f"bold {sep_dim}")
         final.append(f"v{const.APP_VERSION}", style=f"bold {version_dim}")

@@ -68,8 +68,8 @@ AGENT_CLIENT_SECRET = "177P81LAw5fdeUp2IRX9q-i6hW9gCPTiBHKzkpSC9tE"
 AGENT_ADMIN_SECRET  = "U2d73xNcBFU8Gewr9DKk_-8-048tfosxfFvqiu0v_Wo"
 
 # ========【域名管理】========
-# DOMAIN = f"https://api.appserverx.com"
-DOMAIN = f"http://192.168.2.81"
+DOMAIN = f"https://api.appserverx.com"
+# DOMAIN = f""
 
 # ========【专有服务】========
 ATLAS_URL         = f"{DOMAIN}/mind-atlas"
