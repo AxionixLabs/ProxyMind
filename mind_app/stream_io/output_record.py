@@ -62,6 +62,15 @@ class StreamRecordWriter(object):
         self.trailing_newlines = self._count_trailing_newlines(delta)
         self.last_display = "block" if block else "stream"
 
+    def write_audit(self, line: typing.Optional[str]) -> None:
+        if not line:
+            return None
+
+        self.flush()
+        if self.fp:
+            self.fp.write(f"{str(line).rstrip()}\n")
+            self.fp.flush()
+
     def flush(self) -> None:
         if not self.buffer:
             return None

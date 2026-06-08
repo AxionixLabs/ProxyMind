@@ -54,8 +54,9 @@ def render_tool_trace_parts(
 
     preview_text = preview.screen if isinstance(preview, TracePreview) else _preview_text(preview)
     if preview_text:
+        if parts:
+            parts.append({"text": "\n", "style": None})
         parts.extend([
-            {"text": "\n", "style": None},
             {"text": "└ ", "style": PREVIEW_STYLE},
             *_preview_parts(preview_text),
         ])

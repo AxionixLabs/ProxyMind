@@ -39,6 +39,7 @@ from .tool_traces import (
     render_generic_tool_result_parts,
     render_generic_tool_result_preview,
     render_tool_result_preview,
+    render_tool_start_preview,
     render_tool_start_trace,
     render_tool_trace,
     render_tool_trace_parts
@@ -82,6 +83,7 @@ __all__ = [
     "render_generic_tool_result_parts",
     "render_generic_tool_result_preview",
     "render_tool_result_preview",
+    "render_tool_start_preview",
     "render_tool_start_trace",
     "render_tool_trace",
     "render_tool_trace_parts"

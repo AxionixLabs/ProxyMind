@@ -16,6 +16,10 @@ from ..runtime.loop_support import (
     ensure_wakeup, finish_failure
 )
 from ..runtime.tool_run import run_tool_step
+from ..runtime.tool_display import (
+    show_tool_result,
+    show_tool_start
+)
 from ..stream_events.finish import finish_stream
 
 if typing.TYPE_CHECKING:
@@ -154,7 +158,7 @@ async def static_looper(
 
                     name, arguments = action["action"], action["args"]
                     action_meta = action.get("meta") if isinstance(action.get("meta"), dict) else None
-                    summary = Tooling.summarize_tool_arguments(name, arguments)
+                    display_arguments = arguments if isinstance(arguments, dict) else {}
 
                     step_context: dict[str, typing.Any] = {
                         "run"     : index,
@@ -198,7 +202,13 @@ async def static_looper(
                         )
                         continue
 
-                    await slog.feed(f"{summary}\n", display=StreamUI.BLOCK)
+                    call_id = craft.short_uid()
+                    await show_tool_start(
+                        slog,
+                        name,
+                        display_arguments,
+                        call_id=call_id
+                    )
 
                     arguments = Enhancer.exchange(name, arguments, mind.report)
                     if name == "free_rule":
@@ -218,7 +228,6 @@ async def static_looper(
                             }
                         }
 
-                    call_id = craft.short_uid()
                     if ev_report: ev_report.emit({
                         "type"      : "exec.tool.call",
                         "call_id"   : call_id,
@@ -276,7 +285,12 @@ async def static_looper(
                         )
                         continue
 
-                    await slog.feed(f"{tool_run.text}\n", display=StreamUI.BLOCK)
+                    await show_tool_result(
+                        slog,
+                        name,
+                        arguments,
+                        tool_run
+                    )
                     if ev_report: ev_report.emit({
                         "type"    : "exec.step.done",
                         "run"     : index,

@@ -43,6 +43,7 @@ from .native import (
     is_native_coding_trace_tool,
     local_path_exists,
     render_tool_result_preview,
+    render_tool_start_preview,
     render_tool_start_trace,
     render_tool_trace
 )
@@ -86,6 +87,7 @@ __all__ = [
     "render_generic_tool_result_parts",
     "render_generic_tool_result_preview",
     "render_tool_result_preview",
+    "render_tool_start_preview",
     "render_tool_start_trace",
     "render_tool_trace",
     "render_tool_trace_parts"

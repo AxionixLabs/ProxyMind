@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import json
 import time
 import typing
 import asyncio
 from loguru import logger
 from rich.text import Text
+from backend.utilities.trace import sanitize_value
 from mind_core.design import Design
 from mind_app.stream_render.coordinator import RenderCoord
 from mind_app.stream_state.status import StatusFamily
@@ -83,6 +85,20 @@ class StreamUI(object):
 
     def mark_stream_boundary(self) -> None:
         self._stream_boundary_pending = True
+
+    def record_tool_arguments(
+        self,
+        name: str,
+        arguments: dict[str, typing.Any],
+        *,
+        call_id: typing.Optional[str] = None
+    ) -> None:
+        payload   = self._tool_arguments_audit_payload(arguments)
+        call_part = f" call_id={call_id}" if call_id else ""
+
+        self.record_writer.write_audit(
+            f"# tool_args tool={name}{call_part} arguments={payload}"
+        )
 
     async def begin_builtin_status(
         self,
@@ -350,6 +366,24 @@ class StreamUI(object):
         if lower == base_lower:
             return base_title
         return f"{base_title} · {normalized}"
+
+    @staticmethod
+    def _tool_arguments_audit_payload(arguments: dict[str, typing.Any]) -> str:
+        try:
+            sanitized = sanitize_value(arguments, max_depth=6, max_items=50)
+            return json.dumps(
+                sanitized,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str
+            )
+        except Exception as exc:
+            return json.dumps(
+                {"error": f"{type(exc).__name__}: {exc}"},
+                ensure_ascii=False,
+                separators=(",", ":")
+            )
 
     @classmethod
     def _compose_loop_status_text(cls, summary: typing.Optional[str]) -> str:

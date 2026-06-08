@@ -76,6 +76,21 @@ def render_tool_start_trace(
     return f"• Tool {str(name or 'tool').strip() or 'tool'}"
 
 
+def render_tool_start_preview(
+    arguments: dict[str, typing.Any]
+) -> TracePreview:
+    """生成普通工具开始执行前的参数摘要。"""
+    if not isinstance(arguments, dict) or not arguments:
+        return TracePreview()
+    lines: list[str] = []
+    for key in sorted(arguments, key=lambda item: str(item))[:6]:
+        value = arguments.get(key)
+        lines.append(f"{key}={_argument_preview(value)}")
+    if len(arguments) > 6:
+        lines.append(f"… +{len(arguments) - 6} args")
+    return _trace_preview_from_lines(lines)
+
+
 def local_path_exists(
     arguments: dict[str, typing.Any]
 ) -> typing.Any:
@@ -89,6 +104,19 @@ def local_path_exists(
         return Path(raw_path).expanduser().resolve().exists()
     except OSError:
         return MISSING
+
+
+def _argument_preview(value: typing.Any) -> str:
+    if isinstance(value, str):
+        text = _short_text(value, MAX_PREVIEW_WIDTH)
+        return repr(text)
+    if isinstance(value, (int, float, bool)) or value is None:
+        return str(value)
+    if isinstance(value, dict):
+        return f"<dict:{len(value)}>"
+    if isinstance(value, (list, tuple, set)):
+        return f"<{type(value).__name__}:{len(value)}>"
+    return _short_text(value, MAX_PREVIEW_WIDTH)
 
 
 def is_native_coding_trace_tool(

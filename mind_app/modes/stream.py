@@ -13,6 +13,10 @@ from ..runtime.loop_support import (
     ensure_wakeup, finish_failure
 )
 from ..runtime.tool_run import run_tool_step
+from ..runtime.tool_display import (
+    show_tool_result,
+    show_tool_start
+)
 from ..runtime.cloud_sandbox import normalize_cloud_sandbox_handoff
 from ..runtime.tool_approval import (
     ApprovalStore,
@@ -39,13 +43,7 @@ from ..stream_events.approval_trace import (
 from ..stream_events.tool_trace import (
     MISSING,
     is_native_coding_trace_tool,
-    local_path_exists,
-    render_generic_tool_result_parts,
-    render_generic_tool_result_preview,
-    render_tool_result_preview,
-    render_tool_start_trace,
-    render_tool_trace,
-    render_tool_trace_parts
+    local_path_exists
 )
 from ..stream_state.segment import (
     SegmentTracker, build_sources_text
@@ -301,12 +299,17 @@ async def stream_looper(
                 use_coding_trace = is_native_coding_trace_tool(name)
 
                 if not use_coding_trace:
-                    trace_start = render_tool_start_trace(name, arguments)
-                    await slog.feed(
-                        f"{trace_start}\n",
-                        display=StreamUI.BLOCK,
-                        display_chunk=trace_start,
-                        display_parts=render_tool_trace_parts(trace_start)
+                    await show_tool_start(
+                        slog,
+                        name,
+                        arguments,
+                        call_id=str(event.get("call_id") or "")
+                    )
+                else:
+                    slog.record_tool_arguments(
+                        name,
+                        arguments,
+                        call_id=str(event.get("call_id") or "")
                     )
 
                 arguments = Enhancer.exchange(name, arguments, mind.report)
@@ -340,41 +343,17 @@ async def stream_looper(
                     fields = handoff
                     text   = str(handoff.get("text") or "")
 
-                if use_coding_trace:
-                    await slog.end_status()
-                    trace_title = render_tool_trace(
-                        name,
-                        arguments,
-                        ok=ok,
-                        data=tool_run.data,
-                        cost_ms=tool_run.cost_ms,
-                        before_exists=before_exists
-                    )
-                    trace_preview = render_tool_result_preview(
-                        name,
-                        tool_run.data,
-                        arguments=arguments
-                    )
-
-                    trace_parts = render_tool_trace_parts(
-                        trace_title, preview=trace_preview, ok=ok
-                    )
-                    trace_text = trace_title
-                    if trace_preview.full:
-                        indented_preview = trace_preview.full.replace("\n", "\n  ")
-                        trace_text = f"{trace_title}\n└ {indented_preview}"
-                    await slog.feed(
-                        f"{trace_text}\n",
-                        display=StreamUI.BLOCK,
-                        display_parts=trace_parts
-                    )
-                else:
-                    trace_preview = render_generic_tool_result_preview(text)
-                    await slog.feed(
-                        text,
-                        display=StreamUI.BLOCK,
-                        display_parts=render_generic_tool_result_parts(trace_preview, ok=ok)
-                    )
+                await show_tool_result(
+                    slog,
+                    name,
+                    arguments,
+                    tool_run,
+                    ok=ok,
+                    fields=fields,
+                    text=text,
+                    use_coding_trace=use_coding_trace,
+                    before_exists=before_exists
+                )
 
                 await request.post_tool_result(
                     event["cid"],
