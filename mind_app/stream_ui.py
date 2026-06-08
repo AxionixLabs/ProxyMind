@@ -5,6 +5,7 @@ import time
 import typing
 import asyncio
 from loguru import logger
+from rich.text import Text
 from mind_core.design import Design
 from mind_app.stream_render.coordinator import RenderCoord
 from mind_app.stream_state.status import StatusFamily
@@ -251,8 +252,27 @@ class StreamUI(object):
         )
         await self.coordinator.text_renderer.suspend()
         if renderable is not None:
-            Design.console.print(renderable)
+            self._print_direct(renderable)
             self.coordinator.text_state.clear()
+
+    async def print_block(
+        self,
+        chunk: typing.Optional[str],
+        *,
+        display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None
+    ) -> None:
+        """直接打印块文本，不启动 live renderer。"""
+        if not chunk:
+            return None
+
+        text = str(chunk)
+        self.record_writer.write(text, block=True)
+        await self.coordinator.text_renderer.suspend()
+        self._print_direct(
+            self._parts_renderable(display_parts)
+            if display_parts is not None
+            else Text(text.rstrip("\n"), style="bold")
+        )
 
     def flush(self) -> None:
         self.record_writer.flush()
@@ -289,6 +309,22 @@ class StreamUI(object):
         self._heal_status_pending_text = ""
         self._heal_status_last_flush_at = 0.0
         self._heal_status_flush_task = None
+
+    @staticmethod
+    def _print_direct(renderable: typing.Any) -> None:
+        Design.console.print(renderable)
+
+    @staticmethod
+    def _parts_renderable(
+        parts: list[dict[str, typing.Optional[str]]]
+    ) -> Text:
+        renderable = Text()
+        for part in parts:
+            part_text = str(part.get("text") or "")
+            if part_text:
+                renderable.append(part_text, style=part.get("style") or "bold")
+        renderable.rstrip()
+        return renderable
 
     @staticmethod
     def _on_status_task_done(task: asyncio.Task[None]) -> None:

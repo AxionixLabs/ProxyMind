@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from rich.console import Group
 from rich.text import Text
 from rich.markdown import Markdown
 from mind_core.design import Design
@@ -64,7 +65,7 @@ class TextState(object):
         if display == self.STREAM and display_parts is None and display_style is None and display_chunk is None:
             raw_delta = str(chunk)
 
-        self._append_segment(display, visible_delta, visible_parts)
+        self._append_segment(display, visible_delta, visible_parts, raw_delta=raw_delta)
         self.raw_text += raw_delta
         self.visible_segments = self._compose_visible_segments()
 
@@ -86,7 +87,7 @@ class TextState(object):
         """返回最终落版 renderable；纯正文用 Markdown，结构化内容保留 Rich Text。"""
         if self._markdown_final_enabled():
             return Markdown(self.raw_text.rstrip("\n"))
-        return self.renderable()
+        return self._mixed_final_renderable()
 
     def renderable_for_text(self, text: str) -> Text:
         """按给定文本窗口生成对应的 Rich Text。"""
@@ -147,11 +148,52 @@ class TextState(object):
                     return False
         return True
 
+    def _mixed_final_renderable(self) -> typing.Any:
+        """按 segment 类型分别生成最终落版，正文段保留 Markdown。"""
+        renderables: list[typing.Any] = []
+        pending_markdown: list[str] = []
+        pending_parts: list[dict[str, typing.Optional[str]]] = []
+
+        def flush_markdown() -> None:
+            text = "".join(pending_markdown).rstrip("\n")
+            pending_markdown.clear()
+            if text.strip():
+                renderables.append(Markdown(text))
+
+        def flush_parts() -> None:
+            if not pending_parts:
+                return None
+            renderable = self._parts_renderable(pending_parts)
+            pending_parts.clear()
+            if renderable.plain.strip():
+                renderables.append(renderable)
+
+        for segment in self.display_segments:
+            if self._segment_markdown_enabled(segment):
+                flush_parts()
+                pending_markdown.append(str(segment.get("raw_text") or segment.get("text") or ""))
+                continue
+
+            flush_markdown()
+            segment_parts = segment.get("parts") or []
+            self._extend_parts(pending_parts, segment_parts)
+
+        flush_markdown()
+        flush_parts()
+
+        if not renderables:
+            return self.renderable()
+        if len(renderables) == 1:
+            return renderables[0]
+        return Group(*renderables)
+
     def _append_segment(
         self,
         display: str,
         delta: str,
-        parts: list[dict[str, typing.Optional[str]]]
+        parts: list[dict[str, typing.Optional[str]]],
+        *,
+        raw_delta: str = ""
     ) -> None:
         """追加一个显示段，并合并连续 stream 段。"""
         if (
@@ -161,12 +203,14 @@ class TextState(object):
         ):
             self.display_segments[-1]["text"] += delta
             self.display_segments[-1]["parts"].extend(parts)
+            self.display_segments[-1]["raw_text"] += raw_delta
             return None
 
         self.display_segments.append({
-            "mode"  : display,
-            "text"  : delta,
-            "parts" : parts
+            "mode"     : display,
+            "text"     : delta,
+            "parts"    : parts,
+            "raw_text" : raw_delta
         })
 
     def _compose_visible_text(self) -> str:
@@ -354,6 +398,18 @@ class TextState(object):
         return "\n" * (2 - self.trailing_newlines)
 
     @classmethod
+    def _segment_markdown_enabled(cls, segment: dict[str, typing.Any]) -> bool:
+        if segment.get("mode") != cls.STREAM:
+            return False
+        if not str(segment.get("raw_text") or segment.get("text") or "").strip():
+            return False
+        for part in segment.get("parts") or []:
+            if part.get("style"):
+                return False
+
+        return True
+
+    @classmethod
     def _render_block_parts(
         cls,
         parts: list[dict[str, typing.Optional[str]]],
@@ -489,6 +545,17 @@ class TextState(object):
     def _parts_text(parts: list[dict[str, typing.Optional[str]]]) -> str:
         """把片段列表合并为纯文本。"""
         return "".join(str(part.get("text") or "") for part in parts)
+
+    @staticmethod
+    def _parts_renderable(parts: list[dict[str, typing.Optional[str]]]) -> Text:
+        out = Text()
+        for part in parts:
+            text = str(part.get("text") or "")
+            if not text:
+                continue
+            out.append(text, style=str(part.get("style") or "bold"))
+        out.rstrip()
+        return out
 
     @staticmethod
     def _append_part(

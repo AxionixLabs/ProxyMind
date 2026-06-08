@@ -199,9 +199,8 @@ async def stream_looper(
                     render_approval_approved_trace(approval)
                     if approved else render_approval_denied_trace(approval)
                 )
-                await slog.feed(
+                await slog.print_block(
                     f"{done_title}\n",
-                    display=StreamUI.BLOCK,
                     display_parts=render_approval_trace_parts(
                         done_title, approval=approval, state="approved" if approved else "denied"
                     )
@@ -214,6 +213,7 @@ async def stream_looper(
                     decision=decision,
                     reason=reason
                 )
+                await slog.begin_reply_wait_status(delay_sec=0.0)
                 continue
 
             if event_type == "tool.call":

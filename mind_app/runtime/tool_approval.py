@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import sys
 import typing
 import asyncio
 from dataclasses import (
@@ -397,13 +396,6 @@ def _answer_to_decision(
     return "decline" if "decline" in decisions else decisions[-1]
 
 
-def _set_terminal_cursor_visible(
-    visible: bool
-) -> None:
-    sys.stdout.write("\x1b[?25h" if visible else "\x1b[?25l")
-    sys.stdout.flush()
-
-
 async def prompt_tool_approval_decision(
     approval: dict[str, typing.Any],
     *,
@@ -498,11 +490,7 @@ async def _run_approval_menu(
         erase_when_done=True,
         mouse_support=False,
     )
-    _set_terminal_cursor_visible(False)
-    try:
-        return str(await app.run_async())
-    finally:
-        _set_terminal_cursor_visible(True)
+    return str(await app.run_async())
 
 
 if __name__ == '__main__':
