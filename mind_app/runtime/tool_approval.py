@@ -80,7 +80,9 @@ class ApprovalStore(object):
         approval_id = str(approval.get("id") or "").strip()
         if not approval_id:
             return None
+
         tool = str(approval.get("tool") or "shell_exec").strip() or "shell_exec"
+
         self.by_call_id[call_id] = ApprovalRecord(
             approval_id=approval_id,
             call_id=call_id,
@@ -97,7 +99,9 @@ class ApprovalStore(object):
     ) -> None:
         """记录审批请求对应的用户选择。"""
         self.remember_request(call_id=call_id, approval=approval)
+
         approval_id = str(approval.get("id") or "").strip()
+
         if decision in {"accept", "acceptForSession"} and approval_id:
             self.approved_by_call_id[call_id] = approval_id
             return None
@@ -129,6 +133,7 @@ def validate_tool_approval(
     call_id        = str(event.get("call_id") or "")
     approval_id    = str(event.get("approval_id") or "").strip()
     event_approved = bool(event.get("approved"))
+
     effective_meta = (
         {**tool_meta, **meta}
         if isinstance(tool_meta, dict) and isinstance(meta, dict)
@@ -180,7 +185,8 @@ def approval_required(
 ) -> bool:
     """读取远端声明的工具审批策略。"""
     event = event or {}
-    meta = meta or {}
+    meta  = meta or {}
+
     return any(
         _truthy_approval_required(value)
         for value in (
@@ -193,18 +199,21 @@ def approval_required(
 
 
 def _truthy_approval_required(value: typing.Any) -> bool:
+    """判断审批标记值是否表示需要审批。"""
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "required"}
     if isinstance(value, (int, float)):
         return bool(value)
+
     return False
 
 
 def _approval_arguments(
     approval: dict[str, typing.Any]
 ) -> dict[str, typing.Any]:
+    """读取并规范化审批请求参数。"""
     raw = approval.get("arguments", approval.get("args"))
     arguments = dict(raw) if isinstance(raw, dict) else {}
     return _canonical_tool_arguments(arguments)
@@ -213,10 +222,12 @@ def _approval_arguments(
 def _canonical_tool_arguments(
     arguments: dict[str, typing.Any]
 ) -> dict[str, typing.Any]:
+    """返回可稳定比较的工具参数。"""
     return typing.cast(dict[str, typing.Any], _normalize_value(arguments))
 
 
 def _normalize_value(value: typing.Any) -> typing.Any:
+    """递归规范化审批参数中的值。"""
     if isinstance(value, dict):
         return {
             str(key): _normalize_value(value[key])
@@ -226,6 +237,7 @@ def _normalize_value(value: typing.Any) -> typing.Any:
         return [_normalize_value(item) for item in value]
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
+
     return str(value)
 
 
@@ -243,7 +255,8 @@ def approval_prompt_text(
 ) -> str:
     """构造审批提示的纯文本内容。"""
     summary = approval_summary(approval)
-    noun = _approval_prompt_noun(approval)
+    noun    = _approval_prompt_noun(approval)
+
     return (
         f"\nWould you like to approve the following {noun}?\n\n"
         f"$ {summary}\n"
@@ -255,9 +268,12 @@ def approval_prompt_renderable(
 ) -> Group:
     """构造审批提示的终端渲染内容。"""
     noun = _approval_prompt_noun(approval)
+
     command_line = Text()
+
     for part in approval_command_parts(approval, newline=False):
         command_line.append(str(part.get("text") or ""), style=part.get("style"))
+
     return Group(
         Text(f"Would you like to approve the following {noun}?\n", style=APPROVAL_PENDING_STYLE),
         command_line,
@@ -268,15 +284,18 @@ def approval_decisions(
     approval: dict[str, typing.Any]
 ) -> list[ApprovalDecisionValue]:
     """读取服务端可用审批选项，并补齐安全默认值。"""
-    raw = approval.get("availableDecisions", approval.get("available_decisions"))
+    raw    = approval.get("availableDecisions", approval.get("available_decisions"))
     values = raw if isinstance(raw, list) else list(DEFAULT_APPROVAL_DECISIONS)
+
     out: list[ApprovalDecisionValue] = []
+
     for value in values:
         normalized = _normalize_decision(value)
         if normalized is not None and normalized not in out:
             out.append(normalized)
     if "decline" not in out:
         out.append("decline")
+
     return out or list(DEFAULT_APPROVAL_DECISIONS)
 
 
@@ -291,7 +310,7 @@ def approval_choice_parts(
             parts.append({"text": "\n", "style": None})
         parts.extend([
             {"text": f"{prefix} {index}. ", "style": "bold #A7C7FF" if index == 1 else "bold #9AA9B5"},
-            {"text": DECISION_LABELS.get(decision, decision), "style": "bold #E2E8F0" if index == 1 else "bold #9AA9B5"},
+            {"text": DECISION_LABELS.get(decision, decision), "style": "bold #E2E8F0" if index == 1 else "bold #9AA9B5"}
         ])
     parts.append({"text": "\n", "style": None})
     return parts
@@ -326,7 +345,8 @@ def approval_command_parts(
 ) -> list[dict[str, str | None]]:
     """把审批命令行拆成 `$`、工具名和参数片段。"""
     summary = approval_summary(approval)
-    tool = str(approval.get("tool") or "").strip()
+    tool    = str(approval.get("tool") or "").strip()
+
     parts: list[dict[str, str | None]] = [
         {"text": "$ ", "style": APPROVAL_PROMPT_STYLE}
     ]
@@ -341,24 +361,29 @@ def approval_command_parts(
 
     if newline:
         parts.append({"text": "\n", "style": None})
+
     return parts
 
 
 def _approval_prompt_noun(
     approval: dict[str, typing.Any]
 ) -> str:
+    """返回审批提示中使用的操作类型名称。"""
     tool = str(approval.get("tool") or "").strip()
     return "command" if tool in {"", "shell_exec"} else "tool action"
 
 
 def _approval_choice_renderable(approval: dict[str, typing.Any]) -> Text:
+    """构造带间距的审批选项渲染对象。"""
     out = Text()
+    out.append("\n")
     for part in approval_choice_parts(approval):
         out.append(str(part.get("text") or ""), style=part.get("style"))
     return out
 
 
 def _normalize_decision(value: typing.Any) -> ApprovalDecisionValue | None:
+    """将输入的审批选项值转换为内部枚举。"""
     text = str(value or "").strip()
     aliases: dict[str, ApprovalDecisionValue] = {
         "accept"             : "accept",
@@ -381,6 +406,7 @@ def _answer_to_decision(
     answer: typing.Any,
     decisions: list[ApprovalDecisionValue]
 ) -> ApprovalDecisionValue:
+    """将用户输入转换为最终审批选择。"""
     text = str(answer or "").strip().lower()
     if text.isdigit():
         index = int(text) - 1
@@ -390,9 +416,11 @@ def _answer_to_decision(
         return "accept"
     if text in {"n", "no", ""}:
         return "decline" if "decline" in decisions else decisions[-1]
+
     normalized = _normalize_decision(text)
     if normalized is not None and normalized in decisions:
         return normalized
+
     return "decline" if "decline" in decisions else decisions[-1]
 
 
@@ -418,60 +446,74 @@ async def prompt_tool_approval_decision(
             answer = await _run_approval_menu(decisions)
     except (EOFError, KeyboardInterrupt):
         return "decline"
+
     return _answer_to_decision(answer, decisions)
 
 
 async def _run_approval_menu(
     decisions: list[ApprovalDecisionValue]
 ) -> str:
+    """运行交互式审批菜单并返回选择结果。"""
     bindings = KeyBindings()
     selected = [0]
 
     def render_menu() -> list[tuple[str, str]]:
-        parts: list[tuple[str, str]] = []
+        """生成当前审批菜单的格式化文本片段。"""
+        parts: list[tuple[str, str]] = [("", "\n")]
+
         for _index, _decision in enumerate(decisions, start=1):
             active = _index - 1 == selected[0]
-            style = "class:radio-selected" if active else "class:radio"
+            style  = "class:radio-selected" if active else "class:radio"
             prefix = "›" if active else " "
-            label = DECISION_LABELS.get(_decision, _decision)
+            label  = DECISION_LABELS.get(_decision, _decision)
+
             parts.append((style, f"{prefix} {_index}. {label}"))
+
             if _index < len(decisions):
                 parts.append(("", "\n"))
+
         return parts
 
     @bindings.add("enter")
     def _(event) -> None:
+        """确认当前选中的审批选项。"""
         event.app.exit(result=decisions[selected[0]])
 
     @bindings.add("down")
     @bindings.add("c-n")
     def _(event) -> None:
+        """将菜单选择移动到下一项。"""
         selected[0] = (selected[0] + 1) % len(decisions)
         event.app.invalidate()
 
     @bindings.add("up")
     @bindings.add("c-p")
     def _(event) -> None:
+        """将菜单选择移动到上一项。"""
         selected[0] = (selected[0] - 1) % len(decisions)
         event.app.invalidate()
 
     @bindings.add("escape")
     @bindings.add("c-c")
     def _(event) -> None:
+        """取消审批并返回拒绝结果。"""
         event.app.exit(result="decline")
 
     @bindings.add("y")
     def _(event) -> None:
+        """通过快捷键接受审批请求。"""
         if "accept" in decisions:
             event.app.exit(result="accept")
 
     @bindings.add("n")
     def _(event) -> None:
+        """通过快捷键拒绝审批请求。"""
         event.app.exit(result="decline" if "decline" in decisions else decisions[-1])
 
     for option_index, option_decision in enumerate(decisions, start=1):
         @bindings.add(str(option_index))
         def _(event, selected_decision=option_decision) -> None:
+            """通过数字快捷键选择审批选项。"""
             event.app.exit(result=selected_decision)
 
     control = FormattedTextControl(render_menu, focusable=True)
@@ -479,7 +521,7 @@ async def _run_approval_menu(
         layout=Layout(
             Window(
                 content=control,
-                height=len(decisions),
+                height=len(decisions) + 1,
                 always_hide_cursor=True
             ),
             focused_element=control

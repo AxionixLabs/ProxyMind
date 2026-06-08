@@ -197,11 +197,15 @@ async def stream_looper(
                     render_approval_approved_trace(approval)
                     if approved else render_approval_denied_trace(approval)
                 )
-                await slog.print_block(
-                    f"{done_title}\n",
-                    display_parts=render_approval_trace_parts(
+                done_parts = [
+                    {"text": "\n", "style": None},
+                    *render_approval_trace_parts(
                         done_title, approval=approval, state="approved" if approved else "denied"
                     )
+                ]
+                await slog.print_block(
+                    f"\n{done_title}\n",
+                    display_parts=done_parts
                 )
                 await request.post_tool_approval(
                     event["cid"],
