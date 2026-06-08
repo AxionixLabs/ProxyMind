@@ -292,6 +292,7 @@ async def packaging() -> tuple[
 
     compile_cmd += [
         f"--assume-yes-for-downloads", f"--show-progress", f"--show-memory",
+        f"--include-package=pygments",
         f"--output-dir={app}", f"{const.APP_NAME}.py"
     ]
 
