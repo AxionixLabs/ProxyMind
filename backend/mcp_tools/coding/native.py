@@ -34,10 +34,7 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     ShellCwdArg,
     ShellTimeoutArg,
     ExecutionMetadataArg,
-    GitDiffMaxCharsArg,
-    CodingSessionIdArg,
-    CodingRequiredSessionIdArg,
-    CodingRunIdArg
+    GitDiffMaxCharsArg
 )
 from backend.utilities.runtime import (
     AppContext, Idle
@@ -526,12 +523,10 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     )
     @task_middleware("change_summary")
     async def change_summary(
-        session_id: CodingSessionIdArg = None,
         max_diff_chars: GitDiffMaxCharsArg = 12000
     ) -> CallToolResult:
 
         args = {
-            "session_id"     : session_id,
             "max_diff_chars" : max_diff_chars
         }
 
@@ -540,35 +535,6 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
         return await broadcast(
             tool="change_summary",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
-            "按变更会话和运行记录的文件快照回滚本轮改动。"
-            " 只恢复工具记录过的文件快照，不执行 git reset。"
-        ),
-        meta={"hidden": False, "domain": "coding", "class": "session"}
-    )
-    @task_middleware("rollback_run")
-    async def rollback_run(
-        session_id: CodingRequiredSessionIdArg,
-        run_id: CodingRunIdArg = None
-    ) -> CallToolResult:
-
-        args = {
-            "session_id" : session_id,
-            "run_id"     : run_id
-        }
-
-        async def call(*_) -> dict:
-            return ctx.native_coding.rollback_run(**args)
-
-        return await broadcast(
-            tool="rollback_run",
             args=args,
             target_list=[ctx.native_coding],
             call=call,

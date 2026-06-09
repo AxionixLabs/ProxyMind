@@ -133,19 +133,5 @@ GitDiffMaxCharsArg = typing.Annotated[
     Field(description="git diff 最多返回的字符数。"),
 ]
 
-CodingSessionIdArg = typing.Annotated[
-    typing.Optional[str],
-    Field(description="变更会话 ID；为空时使用最近一次会话。"),
-]
-CodingRequiredSessionIdArg = typing.Annotated[
-    str,
-    Field(description="必填变更会话 ID。"),
-]
-CodingRunIdArg = typing.Annotated[
-    typing.Optional[str],
-    Field(description="可选运行记录 ID；为空时使用指定会话的最后一个运行记录。"),
-]
-
-
 if __name__ == '__main__':
     pass

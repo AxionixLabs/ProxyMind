@@ -43,11 +43,6 @@ def _search_query_label(args: dict[str, typing.Any]) -> tuple[str, bool]:
     return _short_text(text, 80), True
 
 
-def _session_id_from_payload(payload: dict[str, typing.Any], args: dict[str, typing.Any]) -> str:
-    """从结果载荷或参数中读取会话 ID。"""
-    return str(payload.get("session_id") or args.get("session_id") or "").strip()
-
-
 def _status_from_payload(payload: dict[str, typing.Any]) -> str:
     """从结果载荷中读取状态文本。"""
     raw = str(payload.get("status") or "").strip().lower()

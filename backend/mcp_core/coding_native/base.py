@@ -126,15 +126,15 @@ class NativeCodingBase(object):
     }
 
     def __init__(self, root: str | None = None):
+        """初始化工作区根目录和默认读写输出限制。"""
         self.root = Path(root or os.getcwd()).resolve()
 
-        self.max_read_bytes   = 512_000
-        self.max_write_bytes  = 1_000_000
-        self.max_output_chars = 24_000
-
-        self.sessions: dict[str, dict[str, typing.Any]] = {}
+        self.max_read_bytes: int   = 512_000
+        self.max_write_bytes: int  = 1_000_000
+        self.max_output_chars: int = 24_000
 
     def _rel(self, path: Path) -> str:
+        """把路径转换为相对工作区的展示路径。"""
         try:
             return path.relative_to(self.root).as_posix()
         except ValueError:
@@ -166,6 +166,7 @@ class NativeCodingBase(object):
                     yield item
 
     def _resolve(self, path: str | None = None) -> Path:
+        """解析工作区内路径，并拒绝越过工作区边界的路径。"""
         raw       = str(path or ".").strip() or "."
         candidate = Path(raw)
 
@@ -179,6 +180,7 @@ class NativeCodingBase(object):
         return resolved
 
     def _looks_text(self, path: Path) -> bool:
+        """根据后缀、文件名和内容采样判断文件是否适合作为文本读取。"""
         if path.suffix.lower() in self.TEXT_SUFFIXES or path.name in {
             "README", "LICENSE", "Dockerfile", "Makefile"
         }:
@@ -206,10 +208,12 @@ class NativeCodingBase(object):
         return control_count / max(1, len(decoded)) < 0.10
 
     def _is_excluded(self, path: Path) -> bool:
+        """判断路径是否位于默认排除目录中。"""
         parts = set(path.relative_to(self.root).parts) if path != self.root else set()
         return bool(parts & self.DEFAULT_EXCLUDES)
 
     def _clip_output(self, text: str, *, max_chars: int | None = None) -> str:
+        """按字符上限截断输出文本，并附加截断说明。"""
         limit = max_chars or self.max_output_chars
         if len(text) <= limit:
             return text
@@ -217,14 +221,17 @@ class NativeCodingBase(object):
 
     @staticmethod
     def _decode(data: bytes) -> str:
+        """按项目默认字符集解码字节数据。"""
         return data.decode(const.CHARSET, const.IGNORE)
 
     @staticmethod
     def _sha256(data: bytes) -> str:
+        """计算字节数据的 SHA256 摘要。"""
         return hashlib.sha256(data).hexdigest()
 
     @staticmethod
     def _ok(text: str, **data: typing.Any) -> dict[str, typing.Any]:
+        """构造统一的成功工具返回结构。"""
         payload = {"ok": True, **data}
         return {
             "text"        : text,
@@ -235,6 +242,7 @@ class NativeCodingBase(object):
 
     @staticmethod
     def _fail(reason: str, **data: typing.Any) -> dict[str, typing.Any]:
+        """构造统一的失败工具返回结构。"""
         payload = {"ok": False, "reason": reason, **data}
         return {
             "text"        : f"native coding failed: {reason}",
@@ -248,9 +256,11 @@ class NativeCodingComponent(object):
     """共享 NativeCoding 运行时上下文的组件包装器。"""
 
     def __init__(self, core: NativeCodingBase):
+        """保存共享的原生编码核心对象。"""
         self.core = core
 
     def __getattr__(self, name: str) -> typing.Any:
+        """把未在组件上定义的属性代理到核心对象。"""
         return getattr(self.core, name)
 
 

@@ -39,6 +39,7 @@ class WorkspaceTools(NativeCodingComponent):
             return self._fail("path_not_directory", path=path)
 
         limit = max(1, min(int(max_matches or 100), 1000))
+
         files: list[dict[str, typing.Any]] = []
 
         for item in self._walk(base, recursive=bool(recursive)):

@@ -87,29 +87,6 @@ class ShellGitTools(NativeCodingComponent):
             }
         ]
 
-    def _is_git_workspace(self) -> bool:
-        """判断当前工作区是否包含 git 仓库。"""
-        git_marker = self.root / ".git"
-        if git_marker.exists():
-            return True
-
-        env = os.environ.copy()
-        try:
-            result = subprocess.run(
-                NativeCommandRuntime.resolve_command(["git", "rev-parse", "--is-inside-work-tree"], env=env),
-                cwd=str(self.root),
-                env=env,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=5,
-                check=False
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return False
-
-        return result.returncode == 0 and (result.stdout or b"").decode(errors="ignore").strip().lower() == "true"
-
     @classmethod
     def _audit_mode_for_command(cls, cmd: list[str], *, audit_files: bool) -> str:
         """根据命令类型选择审计强度。"""
@@ -142,6 +119,35 @@ class ShellGitTools(NativeCodingComponent):
             return "metadata"
 
         return "full"
+
+    def _is_git_workspace(self) -> bool:
+        """判断当前工作区是否包含 git 仓库。"""
+        git_marker = self.root / ".git"
+        if git_marker.exists():
+            return True
+
+        env = os.environ.copy()
+        try:
+            result = subprocess.run(
+                NativeCommandRuntime.resolve_command(["git", "rev-parse", "--is-inside-work-tree"], env=env),
+                cwd=str(self.root),
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=5,
+                check=False
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+
+        return result.returncode == 0 and (result.stdout or b"").decode(errors="ignore").strip().lower() == "true"
+
+    def _capture_shell_audit(self, mode: str) -> dict[str, typing.Any] | None:
+        """按审计模式采集文件指纹。"""
+        if mode == "off":
+            return None
+        return self.capture_file_fingerprints(hash_files=mode == "full")
 
     async def _git(
         self,
@@ -199,7 +205,9 @@ class ShellGitTools(NativeCodingComponent):
             "logs"        : []
         }
 
-    async def git_status(self) -> dict[str, typing.Any]:
+    async def git_status(
+        self
+    ) -> dict[str, typing.Any]:
         """返回当前工作区的 git status 摘要。"""
         if not self._is_git_workspace():
             return self._ok(
@@ -210,7 +218,8 @@ class ShellGitTools(NativeCodingComponent):
         return await self._git(["status", "--short"])
 
     async def git_diff(
-        self, path: str | None = None,
+        self,
+        path: str | None = None,
         max_chars: int = 24000
     ) -> dict[str, typing.Any]:
         """返回当前工作区或指定路径的 git diff。"""
@@ -431,12 +440,6 @@ class ShellGitTools(NativeCodingComponent):
             },
             "logs": []
         }
-
-    def _capture_shell_audit(self, mode: str) -> dict[str, typing.Any] | None:
-        """按审计模式采集文件指纹。"""
-        if mode == "off":
-            return None
-        return self.capture_file_fingerprints(hash_files=mode == "full")
 
 
 if __name__ == '__main__':

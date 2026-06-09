@@ -29,9 +29,6 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     ShellTimeoutArg,
     ExecutionMetadataArg,
     GitDiffMaxCharsArg,
-    CodingSessionIdArg,
-    CodingRequiredSessionIdArg,
-    CodingRunIdArg,
 )
 
 __all__ = [
@@ -61,10 +58,7 @@ __all__ = [
     "ShellCwdArg",
     "ShellTimeoutArg",
     "ExecutionMetadataArg",
-    "GitDiffMaxCharsArg",
-    "CodingSessionIdArg",
-    "CodingRequiredSessionIdArg",
-    "CodingRunIdArg",
+    "GitDiffMaxCharsArg"
 ]
 
 

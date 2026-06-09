@@ -7,17 +7,22 @@ from backend.mcp_core.coding_native.base import NativeCodingComponent
 
 
 class ParallelReadCore(typing.Protocol):
+    """描述并行读取依赖的只读工作区接口。"""
 
     def workspace_root(self) -> dict[str, typing.Any]:
+        """返回当前工作区根目录。"""
         ...
 
     def list_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+        """列出工作区内的文件路径。"""
         ...
 
     def read_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+        """读取工作区内的文本文件。"""
         ...
 
     def search(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+        """搜索工作区内的路径、内容或符号。"""
         ...
 
 
@@ -38,6 +43,7 @@ class ParallelReadTools(NativeCodingComponent):
         self,
         items: list[dict[str, typing.Any]]
     ) -> list[dict[str, typing.Any]]:
+        """归一化批量读取请求，限制数量并保留原始顺序索引。"""
         if not isinstance(items, list):
             return []
 
@@ -57,6 +63,7 @@ class ParallelReadTools(NativeCodingComponent):
         self,
         items: list[dict[str, typing.Any]]
     ) -> dict[str, typing.Any]:
+        """并发执行允许的只读工作区工具，并返回有序结果和后续建议。"""
         normalized = self._normalize_items(items)
         core       = typing.cast(ParallelReadCore, typing.cast(object, self.core))
         semaphore  = asyncio.Semaphore(self.MAX_CONCURRENCY)
@@ -137,6 +144,7 @@ class ParallelReadTools(NativeCodingComponent):
     def _parallel_read_item_reason(
         item: dict[str, typing.Any]
     ) -> str:
+        """从单项读取结果中提取失败原因。"""
         result = item.get("result") if isinstance(item, dict) else None
 
         data = result.get("data") if isinstance(result, dict) else None
@@ -151,6 +159,7 @@ class ParallelReadTools(NativeCodingComponent):
         self,
         results: list[dict[str, typing.Any]]
     ) -> dict[str, int]:
+        """按原因统计并行读取失败项。"""
         reasons: dict[str, int] = {}
 
         for item in results:
@@ -165,7 +174,9 @@ class ParallelReadTools(NativeCodingComponent):
         self,
         results: list[dict[str, typing.Any]]
     ) -> list[dict[str, typing.Any]]:
+        """提取失败项的索引、工具、参数和原因。"""
         failures: list[dict[str, typing.Any]] = []
+
         for item in results:
             if item.get("ok"):
                 continue
@@ -175,6 +186,7 @@ class ParallelReadTools(NativeCodingComponent):
                 "args"   : item.get("args") if isinstance(item.get("args"), dict) else {},
                 "reason" : self._parallel_read_item_reason(item)
             })
+
         return failures
 
     def _parallel_read_next_steps(
@@ -185,6 +197,7 @@ class ParallelReadTools(NativeCodingComponent):
         truncated: bool,
         failures: list[dict[str, typing.Any]]
     ) -> list[dict[str, typing.Any]]:
+        """根据截断、失败项和子工具建议生成下一步读取动作。"""
         steps: list[dict[str, typing.Any]] = []
         if truncated:
             steps.append({
@@ -195,17 +208,19 @@ class ParallelReadTools(NativeCodingComponent):
 
         if failures:
             steps.append({
-                "tool"   : "native_parallel_read",
-                "args"   : {"items": [
+                "tool": "native_parallel_read",
+                "args": {"items": [
                     {"tool": item.get("tool"), "args": item.get("args") or {}}
                     for item in failures[:self.MAX_ITEMS]
                 ]},
-                "reason" : "retry_failed_items_after_fixing_inputs"
+                "reason": "retry_failed_items_after_fixing_inputs"
             })
 
         for item in results:
+
             result = item.get("result") if isinstance(item, dict) else None
-            data = result.get("data") if isinstance(result, dict) else None
+            data   = result.get("data") if isinstance(result, dict) else None
+
             if not isinstance(data, dict):
                 continue
             if not data.get("truncated") and not data.get("recommended_next_steps"):
@@ -213,9 +228,9 @@ class ParallelReadTools(NativeCodingComponent):
             for step in data.get("recommended_next_steps") or []:
                 if isinstance(step, dict):
                     steps.append({
-                        "source_index": item.get("index"),
-                        **step
+                        "source_index": item.get("index"), **step
                     })
+
         return steps
 
 

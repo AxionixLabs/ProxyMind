@@ -10,7 +10,6 @@ class ChangeSummaryTools(NativeCodingComponent):
     async def change_summary(
         self,
         *,
-        session_id: str | None = None,
         max_diff_chars: int = 12000,
         include_untracked_preview: bool = True
     ) -> dict[str, typing.Any]:
@@ -31,9 +30,6 @@ class ChangeSummaryTools(NativeCodingComponent):
         numstat_text       = str(numstat_data.get("stdout") or "")
         changed_files      = self._parse_git_status_short(status_text)
         diff_stats         = self._summarize_diff_text(diff_text, numstat_text=numstat_text)
-        session            = self.sessions.get(str(session_id or "")) if session_id else self._latest_session()
-        session_summary    = session.get("summary") if isinstance(session, dict) else None
-        latest_run         = (session.get("runs") or [])[-1] if isinstance(session, dict) and session.get("runs") else None
         untracked_previews = self._summarize_untracked_files(changed_files) if include_untracked_preview else []
 
         blockers: list[dict[str, typing.Any]] = []
@@ -65,41 +61,9 @@ class ChangeSummaryTools(NativeCodingComponent):
                 "message" : "diff output was truncated"
             })
 
-        if isinstance(latest_run, dict):
-            preflight = latest_run.get("preflight") or {}
-            validation = latest_run.get("validation")
-
-            if preflight and not bool(preflight.get("ok")):
-                blockers.append({
-                    "kind"    : "preflight_failed",
-                    "run_id"  : latest_run.get("run_id"),
-                    "runtime" : self._runtime_failure_summary(preflight)
-                })
-            if validation and not bool(validation.get("ok")):
-                blockers.append({
-                    "kind"       : "verification_failed",
-                    "run_id"     : latest_run.get("run_id"),
-                    "command"    : validation.get("command"),
-                    "reason"     : validation.get("reason"),
-                    "exit_code"  : validation.get("exit_code"),
-                    "runtime"    : self._runtime_failure_summary(validation)
-                })
-            if validation is None:
-                warnings.append({
-                    "kind"   : "verification_missing",
-                    "run_id" : latest_run.get("run_id")
-                })
-
-        else:
-            warnings.append({
-                "kind"    : "session_missing",
-                "message" : "no coding change session was found"
-            })
-
         ready = not blockers
 
         verification = self._verification_assessment(
-            latest_run=latest_run,
             blockers=blockers,
             warnings=warnings,
             changed_files=changed_files
@@ -117,25 +81,8 @@ class ChangeSummaryTools(NativeCodingComponent):
             diff_stats=diff_stats,
             git_status=status_text,
             stdout=status_text,
-            diff=diff_text,
-            session_id=session.get("session_id") if isinstance(session, dict) else None,
-            latest_run={
-                "run_id": latest_run.get("run_id"),
-                "run_index": latest_run.get("run_index"),
-                "ok": latest_run.get("ok"),
-                "validation_ok": bool((latest_run.get("validation") or {}).get("ok")) if latest_run.get("validation") else None,
-                "preflight_ok": bool((latest_run.get("preflight") or {}).get("ok")) if latest_run.get("preflight") else None
-            } if isinstance(latest_run, dict) else None,
-            session_summary=session_summary
+            diff=diff_text
         )
-
-    def _latest_session(
-        self
-    ) -> dict[str, typing.Any] | None:
-        """返回最近创建的变更会话。"""
-        if not self.sessions:
-            return None
-        return list(self.sessions.values())[-1]
 
     def _summarize_untracked_files(
         self,
@@ -305,30 +252,25 @@ class ChangeSummaryTools(NativeCodingComponent):
     @staticmethod
     def _verification_assessment(
         *,
-        latest_run: dict[str, typing.Any] | None,
         blockers: list[dict[str, typing.Any]],
         warnings: list[dict[str, typing.Any]],
         changed_files: list[dict[str, typing.Any]]
     ) -> dict[str, typing.Any]:
-        """判断当前变更是否已有充分验证。"""
-        validation    = latest_run.get("validation") if isinstance(latest_run, dict) else None
-        validation_ok = bool(validation.get("ok")) if isinstance(validation, dict) else False
-        has_changes   = bool(changed_files)
-        sufficient    = validation_ok and not blockers
+        """根据可见工作区状态判断当前摘要是否存在阻断项。"""
+        has_changes = bool(changed_files)
+        sufficient  = not blockers
 
-        reason = "validated" if sufficient else "validation_missing_or_failed"
+        reason = "workspace_state_checked"
         if not has_changes:
             reason = "no_changes_detected"
         elif blockers:
             reason = "blockers_present"
-        elif not validation_ok:
-            reason = "validation_missing_or_failed"
         elif warnings:
-            reason = "validated_with_warnings"
+            reason = "workspace_state_checked_with_warnings"
 
         return {
             "sufficient"    : sufficient,
-            "validation_ok" : validation_ok if isinstance(validation, dict) else None,
+            "validation_ok" : None,
             "has_changes"   : has_changes,
             "blocker_count" : len(blockers),
             "warning_count" : len(warnings),

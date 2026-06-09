@@ -19,7 +19,6 @@ from .common import (
     _trace_preview_from_lines
 )
 from .native_helpers import (
-    _command_text,
     _failure_preview_lines,
     _failure_suffix,
     _file_action_from_args,
@@ -28,9 +27,7 @@ from .native_helpers import (
     _list_file_preview_lines,
     _path_from_args,
     _search_query_label,
-    _session_id_from_payload,
     _short_sha,
-    _status_from_payload,
     _unified_action
 )
 from .native_parallel import (
@@ -66,8 +63,7 @@ NATIVE_CODING_TRACE_TOOLS = {
     "shell_exec",
     "git_status",
     "git_diff",
-    "change_summary",
-    "rollback_run"
+    "change_summary"
 }
 
 
@@ -424,24 +420,6 @@ def render_tool_result_preview(
             )
         return _trace_preview_from_lines(lines)
 
-    if name == "rollback_run":
-
-        lines  = []
-        sid    = str(data.get("session_id") or "").strip()
-        run_id = str(data.get("run_id") or "").strip()
-        status = _status_from_payload(data)
-
-        if sid:
-            lines.append(f"session_id={sid}")
-        if run_id:
-            lines.append(f"run_id={run_id}")
-        if status:
-            lines.append(f"status={status}")
-        if data.get("elapsed_ms") is not None:
-            lines.append(f"elapsed_ms={data.get('elapsed_ms')}")
-
-        return _trace_preview_from_lines(lines)
-
     return TracePreview()
 
 
@@ -580,13 +558,6 @@ def render_tool_trace(
 
     if name == "change_summary":
         return f"• Change summary{suffix}"
-
-    if name == "rollback_run":
-
-        sid    = _session_id_from_payload(payload, args)
-        detail = f" {sid}" if sid else ""
-
-        return f"• Rolled back run{detail}{suffix}"
 
     summary = _short_text(args, 100)
     detail  = f" {summary}" if summary else ""

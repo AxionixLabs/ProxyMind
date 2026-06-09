@@ -11,9 +11,6 @@ from backend.mcp_core.coding_native.shell_git import ShellGitTools
 from backend.mcp_core.coding_native.command_policy import CommandPolicy
 from backend.mcp_core.coding_native.file_audit import FileAudit
 from backend.mcp_core.coding_native.change_summary import ChangeSummaryTools
-from backend.mcp_core.coding_native.snapshots import SnapshotTools
-from backend.mcp_core.coding_native.plan import PlanTools
-from backend.mcp_core.coding_native.session import SessionTools
 
 
 class NativeCoding(NativeCodingBase):
@@ -30,11 +27,14 @@ class NativeCoding(NativeCodingBase):
         self._file_audit     = FileAudit(self)
         self._shell_git      = ShellGitTools(self)
         self._change_summary = ChangeSummaryTools(self)
-        self._snapshots      = SnapshotTools(self)
-        self._plan           = PlanTools(self)
-        self._session        = SessionTools(self)
 
         self._private_delegates = self._build_private_delegates()
+
+    def __getattr__(self, name: str) -> typing.Any:
+        if name.startswith("_") and "_private_delegates" in self.__dict__:
+            if name in self._private_delegates:
+                return self._private_delegates[name]
+        raise AttributeError(f"{self.__class__.__name__!s} object has no attribute {name!r}")
 
     def _build_private_delegates(self) -> dict[str, typing.Any]:
         delegates: dict[str, typing.Any] = {}
@@ -45,21 +45,12 @@ class NativeCoding(NativeCodingBase):
             self._command_policy,
             self._file_audit,
             self._shell_git,
-            self._change_summary,
-            self._snapshots,
-            self._plan,
-            self._session
+            self._change_summary
         ):
             for name in dir(component.__class__):
                 if name.startswith("_") and not name.startswith("__") and not hasattr(NativeCodingBase, name):
                     delegates.setdefault(name, getattr(component, name))
         return delegates
-
-    def __getattr__(self, name: str) -> typing.Any:
-        if name.startswith("_") and "_private_delegates" in self.__dict__:
-            if name in self._private_delegates:
-                return self._private_delegates[name]
-        raise AttributeError(f"{self.__class__.__name__!s} object has no attribute {name!r}")
 
     def execution_metadata_policy(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any] | None:
         return self._command_policy.execution_metadata_policy(*args, **kwargs)
@@ -82,9 +73,6 @@ class NativeCoding(NativeCodingBase):
     def search(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._workspace.search(*args, **kwargs)
 
-    async def parallel_read(self, items: list[dict[str, typing.Any]]) -> dict[str, typing.Any]:
-        return await self._parallel_read.parallel_read(items)
-
     def write_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._workspace.write_file(*args, **kwargs)
 
@@ -103,17 +91,8 @@ class NativeCoding(NativeCodingBase):
     def apply_unified_patch(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._patch_engine.apply_unified_patch(*args, **kwargs)
 
-    def rollback_run(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return self._snapshots.rollback_run(*args, **kwargs)
-
-    def update_plan(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return self._plan.update_plan(*args, **kwargs)
-
-    def get_plan(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return self._plan.get_plan(*args, **kwargs)
-
-    def session_snapshot(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return self._session.session_snapshot(*args, **kwargs)
+    async def parallel_read(self, items: list[dict[str, typing.Any]]) -> dict[str, typing.Any]:
+        return await self._parallel_read.parallel_read(items)
 
     async def shell_exec(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return await self._shell_git.shell_exec(*args, **kwargs)
