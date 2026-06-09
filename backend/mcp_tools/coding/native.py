@@ -516,8 +516,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "生成提交前/最终回答前的变更摘要和质量闸。"
-            " 汇总 git_status、diff 统计、未跟踪文件、冲突、最近 native session 的 preflight/validation 状态，"
-            "并返回 verification.sufficient 判断验证是否充分。"
+            " 汇总当前 git_status、diff 统计、未跟踪文件预览、冲突和截断风险，"
+            "并返回 verification.sufficient 判断当前工作区状态是否存在阻断项。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "git"}
     )
