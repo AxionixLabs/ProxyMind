@@ -3,8 +3,13 @@
 
 import typing
 from mind_nova import const
+from .command_preview import (
+    command_preview,
+    inline_script_preview_lines
+)
 from .tool_trace import (
     PREVIEW_STYLE,
+    TracePreview,
     TITLE_STYLE,
     ERROR_STYLE
 )
@@ -18,16 +23,9 @@ APPROVAL_TOOL_STYLE     = "bold #7DD3FC"
 APPROVAL_ARG_STYLE      = "bold #A7F3D0"
 
 
-def command_text(command: typing.Any) -> str:
-    """把审批命令字段转换为单行文本。"""
-    if isinstance(command, list):
-        return " ".join(str(item) for item in command)
-    return str(command or "").strip()
-
-
 def approval_summary(approval: dict[str, typing.Any]) -> str:
     """生成审批请求的简短摘要。"""
-    command   = command_text(approval.get("command"))
+    command   = command_preview(approval.get("command")).title
     tool      = str(approval.get("tool") or "").strip()
     arguments = approval.get("arguments", approval.get("args"))
 
@@ -60,6 +58,15 @@ def approval_preview_lines(approval: dict[str, typing.Any]) -> list[str]:
         )
         lines.append(detail)
     return lines
+
+
+def approval_command_preview(approval: dict[str, typing.Any]) -> TracePreview:
+    """提取审批命令里的内联脚本预览，不改变审批标题样式。"""
+    preview = command_preview(approval.get("command"))
+    if not preview.has_script:
+        return TracePreview()
+    text = "\n".join(inline_script_preview_lines(preview.script, path=preview.path))
+    return TracePreview(full=text, screen=text, omitted_lines=0)
 
 
 def render_approval_pending_trace(approval: dict[str, typing.Any]) -> str:

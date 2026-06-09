@@ -3,6 +3,10 @@
 
 import typing
 from pathlib import Path
+from mind_app.stream_events.command_preview import (
+    command_preview,
+    inline_script_preview_lines
+)
 from .common import (
     MAX_PREVIEW_WIDTH,
     MISSING,
@@ -380,9 +384,20 @@ def render_tool_result_preview(
         if not lines and name == "git_diff" and data.get("ok") is True:
             lines = ["No tracked changes in git diff"]
 
+        has_inline_script = False
+        if name == "shell_exec":
+            preview = command_preview(data.get("command") or args.get("command"))
+            if preview.has_script:
+                script_lines = inline_script_preview_lines(preview.script, path=preview.path)
+                if script_lines:
+                    has_inline_script = True
+                    lines = [*script_lines, *lines]
+
         if prefix:
             lines = [*prefix, *lines]
 
+        if name == "shell_exec" and has_inline_script:
+            return _trace_code_preview_from_lines(lines)
         return _trace_preview_from_lines(lines)
 
     if name == "change_summary":
@@ -545,7 +560,7 @@ def render_tool_trace(
 
     if name == "shell_exec":
 
-        command = _command_text(payload.get("command") or args.get("command"))
+        command = command_preview(payload.get("command") or args.get("command")).title
         rc      = payload.get("exit_code")
         elapsed = payload.get("elapsed_ms", cost_ms)
         status  = ""

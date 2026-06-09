@@ -21,8 +21,10 @@ from mind_app.stream_events.approval_trace import (
     APPROVAL_PENDING_STYLE,
     APPROVAL_PROMPT_STYLE,
     APPROVAL_TOOL_STYLE,
+    approval_command_preview,
     approval_summary
 )
+from mind_app.stream_events.tool_trace import render_tool_trace_parts
 
 ApprovalDecisionValue = typing.Literal[
     "accept",
@@ -332,10 +334,16 @@ def approval_prompt_parts(
 ) -> list[dict[str, str | None]]:
     """构造审批提示的文本片段。"""
     noun = _approval_prompt_noun(approval)
-    return [
+    parts: list[dict[str, str | None]] = [
         {"text": f"Would you like to approve the following {noun}?\n\n", "style": APPROVAL_PENDING_STYLE},
         *approval_command_parts(approval, newline=True)
     ]
+    preview = approval_command_preview(approval)
+    if preview.full:
+        parts.extend([
+            *render_tool_trace_parts("", preview=preview)
+        ])
+    return parts
 
 
 def approval_command_parts(

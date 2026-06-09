@@ -3,6 +3,7 @@
 
 import ast
 import typing
+from mind_app.stream_events.command_preview import command_text
 from .common import (
     _short_line,
     _short_text,
@@ -17,9 +18,7 @@ def _path_from_args(args: dict[str, typing.Any]) -> str:
 
 def _command_text(command: typing.Any) -> str:
     """把命令参数转换为单行文本。"""
-    if isinstance(command, list):
-        return " ".join(str(item) for item in command)
-    return str(command or "").strip()
+    return command_text(command)
 
 
 def _search_query_label(args: dict[str, typing.Any]) -> tuple[str, bool]:
