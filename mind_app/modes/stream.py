@@ -334,7 +334,7 @@ async def stream_looper(
                     stream_callback=lambda x: slog.feed(
                         f"{x}\n", display=StreamUI.BLOCK
                     ),
-                    status_text="coding workspace" if use_coding_trace else None,
+                    status_text="coding" if use_coding_trace else None,
                     code_status=use_coding_trace
                 )
 
