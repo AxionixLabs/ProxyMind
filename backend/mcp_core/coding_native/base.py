@@ -51,6 +51,7 @@ class NativeCodingBase(object):
         ".xml",
         ".svg",
         ".csv",
+        ".log",
         ".go",
         ".rs"
     }
@@ -178,9 +179,31 @@ class NativeCodingBase(object):
         return resolved
 
     def _looks_text(self, path: Path) -> bool:
-        return path.suffix.lower() in self.TEXT_SUFFIXES or path.name in {
+        if path.suffix.lower() in self.TEXT_SUFFIXES or path.name in {
             "README", "LICENSE", "Dockerfile", "Makefile"
-        }
+        }:
+            return True
+
+        try:
+            sample = path.read_bytes()[:4096]
+        except OSError:
+            return False
+
+        if not sample:
+            return True
+
+        if b"\x00" in sample:
+            return False
+
+        decoded = sample.decode(const.CHARSET, const.IGNORE)
+        if not decoded:
+            return False
+
+        control_count = sum(
+            1 for ch in decoded
+            if ord(ch) < 32 and ch not in "\t\r\n\f\b"
+        )
+        return control_count / max(1, len(decoded)) < 0.10
 
     def _is_excluded(self, path: Path) -> bool:
         parts = set(path.relative_to(self.root).parts) if path != self.root else set()
