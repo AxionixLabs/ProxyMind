@@ -6,7 +6,7 @@ import shutil
 
 
 class NativeCommandRuntime(object):
-    """解析 Windows command shim，保持 Flux 只负责启动进程。"""
+    """提供命令启动前的可执行文件解析能力。"""
 
     @staticmethod
     def resolve_command(
@@ -14,6 +14,7 @@ class NativeCommandRuntime(object):
         *,
         env: dict[str, str] | None = None
     ) -> list[str]:
+        """解析命令路径，并在 Windows 批处理脚本场景补充解释器。"""
         cmd = [str(item) for item in (command or []) if str(item or "").strip()]
         if not cmd:
             return cmd
@@ -30,6 +31,7 @@ class NativeCommandRuntime(object):
 
     @staticmethod
     def _which(program: str, *, env: dict[str, str] | None = None) -> str:
+        """按给定环境变量查找可执行文件路径。"""
         path = (env or {}).get("PATH") if env is not None else None
         return shutil.which(program, path=path) if path is not None else (shutil.which(program) or "")
 

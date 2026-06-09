@@ -2,16 +2,16 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.mcp_core.coding_native.base import NativeCodingBase
-from backend.mcp_core.coding_native.workspace import WorkspaceTools
-from backend.mcp_core.coding_native.parallel_read import ParallelReadTools
-from backend.mcp_core.coding_native.repo_map import RepoMapTools
-from backend.mcp_core.coding_native.patch_engine import PatchEngine
-from backend.mcp_core.coding_native.shell_exec import ShellExecTools
-from backend.mcp_core.coding_native.git_tools import GitTools
-from backend.mcp_core.coding_native.command_policy import CommandPolicy
-from backend.mcp_core.coding_native.file_audit import FileAudit
-from backend.mcp_core.coding_native.change_summary import ChangeSummaryTools
+from backend.mcp_code.base import NativeCodingBase
+from backend.mcp_code.workspace import WorkspaceTools
+from backend.mcp_code.parallel_read import ParallelReadTools
+from backend.mcp_code.repo_map import RepoMapTools
+from backend.mcp_code.patch_engine import PatchEngine
+from backend.mcp_code.shell_exec import ShellExecTools
+from backend.mcp_code.git_tools import GitTools
+from backend.mcp_code.command_policy import CommandPolicy
+from backend.mcp_code.file_audit import FileAudit
+from backend.mcp_code.change_summary import ChangeSummaryTools
 
 
 class NativeCoding(NativeCodingBase):

@@ -2,13 +2,14 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import os
+import re
 import time
 import typing
 import asyncio
 from loguru import logger
-from backend.mcp_core.coding_native.base import NativeCodingComponent
-from backend.mcp_core.coding_native.command_runtime import NativeCommandRuntime
-from backend.mcp_core.coding_native.runtime_resolution import RuntimeResolver
+from backend.mcp_code.base import NativeCodingComponent
+from backend.mcp_code.command_runtime import NativeCommandRuntime
+from backend.mcp_code.runtime_resolution import RuntimeResolver
 from backend.utilities.process import Flux
 from backend.utilities.trace import summarize_command
 
@@ -61,6 +62,26 @@ class ShellExecTools(NativeCodingComponent):
         "status"
     }
 
+    SHELL_WRITE_COMMAND_TO_TOOL = {
+        "cp"          : "workspace_copy_file",
+        "copy"        : "workspace_copy_file",
+        "copy-item"   : "workspace_copy_file",
+        "mv"          : "workspace_move_file",
+        "move"        : "workspace_move_file",
+        "move-item"   : "workspace_move_file",
+        "rename"      : "workspace_move_file",
+        "rename-item" : "workspace_move_file",
+        "rm"          : "workspace_delete_file",
+        "del"         : "workspace_delete_file",
+        "erase"       : "workspace_delete_file",
+        "remove-item" : "workspace_delete_file",
+        "ri"          : "workspace_delete_file",
+        "touch"       : "workspace_write_file",
+        "tee"         : "workspace_write_file"
+    }
+
+    INLINE_SCRIPT_FLAGS = {"-c", "-e", "-r"}
+
     @staticmethod
     def _shell_output_next_steps(
         *,
@@ -78,9 +99,9 @@ class ShellExecTools(NativeCodingComponent):
             {
                 "tool": "shell_exec",
                 "args": {
-                    "command"     : cmd,
-                    "cwd"         : cwd,
-                    "timeout_sec" : timeout_sec
+                    "command": cmd,
+                    "cwd": cwd,
+                    "timeout_sec": timeout_sec
                 },
                 "reason": "rerun_with_narrower_or_larger_output"
             }
@@ -124,6 +145,99 @@ class ShellExecTools(NativeCodingComponent):
 
         return "full"
 
+    @classmethod
+    def _shell_write_intent(
+        cls,
+        cmd: list[str]
+    ) -> dict[str, typing.Any] | None:
+        """识别明显用于修改工作区文件的 shell 命令。"""
+        if not cmd:
+            return None
+
+        executable = os.path.basename(str(cmd[0])).lower()
+        if executable.endswith(".exe"):
+            executable = executable[:-4]
+
+        suggested_tool = cls.SHELL_WRITE_COMMAND_TO_TOOL.get(executable)
+        if suggested_tool:
+            return {
+                "reason"         : "shell_file_operation_command",
+                "suggested_tool" : suggested_tool,
+                "suggested_args" : {},
+                "message"        : "use workspace file tools instead of shell file operations"
+            }
+
+        lowered_args = [str(item).lower() for item in cmd[1:]]
+        joined       = " ".join(lowered_args)
+
+        if executable in {"sed", "gsed"} and any(item == "-i" or item.startswith("-i") for item in lowered_args):
+            return {
+                "reason"         : "shell_in_place_edit_command",
+                "suggested_tool" : "workspace_apply_patch",
+                "suggested_args" : {},
+                "message"        : "use workspace_apply_patch for in-place text edits"
+            }
+
+        if script_intent := cls._inline_script_write_intent(executable, cmd):
+            return script_intent
+
+        if ">" in lowered_args or ">>" in lowered_args or "|" in lowered_args and "tee" in joined:
+            return {
+                "reason"         : "shell_redirection_file_write",
+                "suggested_tool" : "workspace_write_file",
+                "suggested_args" : {},
+                "message"        : "use workspace_write_file instead of shell redirection"
+            }
+
+        return None
+
+    @classmethod
+    def _inline_script_write_intent(
+        cls,
+        executable: str,
+        cmd: list[str]
+    ) -> dict[str, typing.Any] | None:
+        """识别常见脚本解释器的内联写文件表达式。"""
+        if len(cmd) < 3:
+            return None
+
+        flag_index = next(
+            (
+                index for index, item in enumerate(cmd[1:], start=1)
+                if str(item).lower() in cls.INLINE_SCRIPT_FLAGS
+            ),
+            None
+        )
+        if flag_index is None or flag_index + 1 >= len(cmd):
+            return None
+
+        script = str(cmd[flag_index + 1])
+        patterns_by_executable = {
+            "python"  : [r"\bopen\s*\([^)]*['\"](?:w|a|x|wb|ab|xb)\+?['\"]"],
+            "python3" : [r"\bopen\s*\([^)]*['\"](?:w|a|x|wb|ab|xb)\+?['\"]"],
+            "py"      : [r"\bopen\s*\([^)]*['\"](?:w|a|x|wb|ab|xb)\+?['\"]"],
+            "node"    : [
+                r"\b(?:fs\.)?(?:writeFileSync|appendFileSync|createWriteStream)\s*\(",
+                r"\brequire\s*\(\s*['\"]fs['\"]\s*\)\s*\.\s*(?:writeFileSync|appendFileSync|createWriteStream)\s*\("
+            ],
+            "ruby"    : [r"\bFile\.(?:write|open)\s*\(", r"\bIO\.write\s*\("],
+            "perl"    : [r"\bopen\s*\([^)]*,\s*['\"]?>", r"\b(?:print|say)\s+\w+\s+"],
+            "php"     : [r"\bfile_put_contents\s*\(", r"\bfopen\s*\([^)]*,\s*['\"](?:w|a|x|c)"]
+        }
+
+        patterns = patterns_by_executable.get(executable)
+        if not patterns:
+            return None
+        if not any(re.search(pattern, script) for pattern in patterns):
+            return None
+
+        return {
+            "reason"         : "shell_inline_script_file_write",
+            "suggested_tool" : "workspace_write_file",
+            "suggested_args" : {},
+            "message"        : "use workspace file tools for inline script file writes"
+        }
+
     def _capture_shell_audit(self, mode: str) -> dict[str, typing.Any] | None:
         """按审计模式采集文件指纹。"""
         if mode == "off":
@@ -134,7 +248,16 @@ class ShellExecTools(NativeCodingComponent):
         """记录最近一次 shell_exec 结果，供 change_summary 汇总验证证据。"""
         if not isinstance(data, dict):
             return
-        self.core.last_shell_result = dict(data)
+        record = dict(data)
+
+        self.core.last_shell_result = record
+
+        history = getattr(self.core, "validation_history", None)
+        if not isinstance(history, list):
+            history = []
+            self.core.validation_history = history
+        history.append(record)
+        del history[:-20]
 
     async def shell_exec(
         self,
@@ -149,6 +272,20 @@ class ShellExecTools(NativeCodingComponent):
         cmd = [str(item) for item in (command or []) if str(item or "").strip()]
         if not cmd:
             return self._fail("command_empty")
+
+        if write_intent := self._shell_write_intent(cmd):
+            result = self._fail(
+                write_intent["reason"],
+                command=cmd,
+                suggested_tool=write_intent.get("suggested_tool"),
+                suggested_args=write_intent.get("suggested_args") or {},
+                message=write_intent.get("message"),
+                shell_write_detected=True,
+                execution_target="blocked",
+                requires_cloud_sandbox=False
+            )
+            self._record_shell_result(result.get("data") or {})
+            return result
 
         policy = self.execution_metadata_policy(
             execution,

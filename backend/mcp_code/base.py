@@ -166,6 +166,7 @@ class NativeCodingBase(object):
         self.max_output_chars: int = 24_000
 
         self.last_shell_result: dict[str, typing.Any] | None = None
+        self.validation_history: list[dict[str, typing.Any]] = []
 
     def _rel(self, path: Path) -> str:
         """把路径转换为相对工作区的展示路径。"""

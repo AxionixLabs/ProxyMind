@@ -3,7 +3,7 @@
 
 import typing
 import asyncio
-from backend.mcp_core.coding_native import NativeCoding
+from backend.mcp_code import NativeCoding
 from backend.mcp_core.core_k6 import K6
 from backend.mcp_core.core_framix import Framix
 from backend.mcp_core.core_memrix import Memrix

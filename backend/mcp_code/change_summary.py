@@ -2,7 +2,7 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.mcp_core.coding_native.base import NativeCodingComponent
+from backend.mcp_code.base import NativeCodingComponent
 
 
 class ChangeSummaryTools(NativeCodingComponent):
@@ -20,18 +20,13 @@ class ChangeSummaryTools(NativeCodingComponent):
         status_data = status.get("data") or {}
         diff_data   = diff.get("data") or {}
 
-        numstat = await self._git(
-            ["diff", "--numstat"], output_limit=max_diff_chars
-        ) if bool(status_data.get("available", True)) else {}
-
-        numstat_data       = (numstat.get("data") or {}) if isinstance(numstat, dict) else {}
         status_text        = str(status_data.get("stdout") or "")
         diff_text          = str(diff_data.get("stdout") or "")
-        numstat_text       = str(numstat_data.get("stdout") or "")
         changed_files      = self._parse_git_status_short(status_text)
-        diff_stats         = self._summarize_diff_text(diff_text, numstat_text=numstat_text)
+        diff_stats         = diff_data.get("diff_stats") if isinstance(diff_data.get("diff_stats"), dict) else {}
         untracked_previews = self._summarize_untracked_files(changed_files) if include_untracked_preview else []
         validation         = self._validation_summary(self.last_shell_result)
+        validation_history = self._validation_history_summary(self.validation_history)
 
         blockers: list[dict[str, typing.Any]] = []
         warnings: list[dict[str, typing.Any]] = []
@@ -84,13 +79,18 @@ class ChangeSummaryTools(NativeCodingComponent):
                 "command" : validation.get("command")
             })
 
+        shell_write_risk = self._shell_write_risk(validation)
+        if shell_write_risk:
+            warnings.append(shell_write_risk)
+
         ready = not blockers
 
         verification = self._verification_assessment(
             blockers=blockers,
             warnings=warnings,
             changed_files=changed_files,
-            validation=validation
+            validation=validation,
+            validation_history=validation_history
         )
 
         return self._ok(
@@ -104,9 +104,8 @@ class ChangeSummaryTools(NativeCodingComponent):
             file_count=len(changed_files),
             diff_stats=diff_stats,
             validation=validation,
-            git_status=status_text,
-            stdout=status_text,
-            diff=diff_text
+            validation_history=validation_history,
+            shell_write_risk=shell_write_risk
         )
 
     def _summarize_untracked_files(
@@ -187,77 +186,6 @@ class ChangeSummaryTools(NativeCodingComponent):
         return files
 
     @staticmethod
-    def _summarize_diff_text(
-        diff: str,
-        *,
-        numstat_text: str = ""
-    ) -> dict[str, typing.Any]:
-        """根据 git diff 文本或 numstat 输出统计变更规模。"""
-        added   = 0
-        deleted = 0
-
-        files: list[str] = []
-        per_file: list[dict[str, typing.Any]] = []
-
-        for line in str(numstat_text or "").splitlines():
-            parts = line.split("\t")
-            if len(parts) < 3:
-                continue
-            added_text, deleted_text, path = parts[0], parts[1], parts[2]
-
-            file_added   = None if added_text == "-" else int(added_text) if added_text.isdigit() else None
-            file_deleted = None if deleted_text == "-" else int(deleted_text) if deleted_text.isdigit() else None
-
-            per_file.append({
-                "path"          : path,
-                "added_lines"   : file_added,
-                "deleted_lines" : file_deleted,
-                "binary"        : file_added is None or file_deleted is None
-            })
-
-        if per_file:
-            numeric_files = [item for item in per_file if not item.get("binary")]
-
-            return {
-                "files"         : [str(item.get("path") or "") for item in per_file],
-                "file_count"    : len(per_file),
-                "added_lines"   : sum(int(item.get("added_lines") or 0) for item in numeric_files),
-                "deleted_lines" : sum(int(item.get("deleted_lines") or 0) for item in numeric_files),
-                "changed_lines" : sum(
-                    int(item.get("added_lines") or 0) + int(item.get("deleted_lines") or 0)
-                    for item in numeric_files
-                ),
-                "binary_files" : [str(item.get("path") or "") for item in per_file if item.get("binary")],
-                "per_file"     : per_file,
-                "source"       : "git_numstat"
-            }
-
-        for line in str(diff or "").splitlines():
-            if line.startswith("diff --git "):
-                parts = line.split()
-                if len(parts) >= 4:
-                    path = parts[3][2:] if parts[3].startswith("b/") else parts[3]
-                    files.append(path)
-                continue
-            if line.startswith("+++") or line.startswith("---"):
-                continue
-            if line.startswith("+"):
-                added += 1
-            elif line.startswith("-"):
-                deleted += 1
-
-        return {
-            "files"         : files,
-            "file_count"    : len(files),
-            "added_lines"   : added,
-            "deleted_lines" : deleted,
-            "changed_lines" : added + deleted,
-            "binary_files"  : [],
-            "per_file"      : [],
-            "source"        : "diff_text"
-        }
-
-    @staticmethod
     def _runtime_failure_summary(
         payload: dict[str, typing.Any]
     ) -> dict[str, typing.Any] | None:
@@ -330,8 +258,76 @@ class ChangeSummaryTools(NativeCodingComponent):
             "stderr_truncated"       : bool(payload.get("stderr_truncated")),
             "truncated"              : bool(payload.get("truncated")),
             "runtime_failure"        : runtime_failure,
+            "suggested_tool"         : payload.get("suggested_tool"),
+            "suggested_args"         : payload.get("suggested_args") if isinstance(payload.get("suggested_args"), dict) else {},
+            "reason"                 : payload.get("reason"),
             "shell_write_detected"   : bool(payload.get("shell_write_detected")),
             "shell_file_changes"     : payload.get("shell_file_changes") if isinstance(payload.get("shell_file_changes"), dict) else None
+        }
+
+    @classmethod
+    def _validation_history_summary(
+        cls,
+        payloads: list[dict[str, typing.Any]] | None
+    ) -> dict[str, typing.Any]:
+        """整理本轮会话记录过的 shell_exec 验证历史。"""
+        if not isinstance(payloads, list) or not payloads:
+            return {
+                "command_count"                : 0,
+                "commands"                     : [],
+                "passed_count"                 : 0,
+                "failed_count"                 : 0,
+                "timed_out_count"              : 0,
+                "cloud_sandbox_required_count" : 0,
+                "latest"                       : cls._validation_summary(None),
+                "all_passed"                   : False,
+                "any_failed"                   : False
+            }
+
+        entries = [
+            cls._validation_summary(item)
+            for item in payloads
+            if isinstance(item, dict) and item
+        ]
+        commands = [
+            item.get("command")
+            for item in entries
+            if isinstance(item.get("command"), list)
+        ]
+
+        return {
+            "command_count"                : len(entries),
+            "commands"                     : commands,
+            "passed_count"                 : sum(1 for item in entries if item.get("status") == "passed"),
+            "failed_count"                 : sum(1 for item in entries if item.get("status") == "failed"),
+            "timed_out_count"              : sum(1 for item in entries if item.get("status") == "timed_out"),
+            "cloud_sandbox_required_count" : sum(1 for item in entries if item.get("status") == "cloud_sandbox_required"),
+            "latest"                       : entries[-1] if entries else cls._validation_summary(None),
+            "all_passed"                   : bool(entries) and all(item.get("status") == "passed" for item in entries),
+            "any_failed"                   : any(item.get("status") in {"failed", "timed_out"} for item in entries)
+        }
+
+    @staticmethod
+    def _shell_write_risk(
+        validation: dict[str, typing.Any]
+    ) -> dict[str, typing.Any] | None:
+        """从验证摘要中提取 shell 写文件风险。"""
+        if not bool(validation.get("shell_write_detected")):
+            return None
+
+        changes = validation.get("shell_file_changes") if isinstance(validation.get("shell_file_changes"), dict) else {}
+
+        return {
+            "kind"           : "shell_write_detected",
+            "message"        : "latest shell_exec wrote or attempted to write workspace files",
+            "command"        : validation.get("command"),
+            "suggested_tool" : validation.get("suggested_tool"),
+            "suggested_args" : validation.get("suggested_args") or {},
+            "reason"         : validation.get("reason"),
+            "created"        : list(changes.get("created") or []),
+            "modified"       : list(changes.get("modified") or []),
+            "deleted"        : list(changes.get("deleted") or []),
+            "change_count"   : changes.get("change_count")
         }
 
     @staticmethod
@@ -340,12 +336,14 @@ class ChangeSummaryTools(NativeCodingComponent):
         blockers: list[dict[str, typing.Any]],
         warnings: list[dict[str, typing.Any]],
         changed_files: list[dict[str, typing.Any]],
-        validation: dict[str, typing.Any]
+        validation: dict[str, typing.Any],
+        validation_history: dict[str, typing.Any] | None = None
     ) -> dict[str, typing.Any]:
         """根据可见工作区状态判断当前摘要是否存在阻断项。"""
         has_changes   = bool(changed_files)
         validation_ok = validation.get("validation_ok")
         sufficient    = not blockers and (validation_ok is True or not has_changes)
+        history       = validation_history if isinstance(validation_history, dict) else {}
 
         reason = "workspace_state_checked"
 
@@ -361,19 +359,20 @@ class ChangeSummaryTools(NativeCodingComponent):
             reason = "workspace_state_checked_with_warnings"
 
         return {
-            "sufficient"        : sufficient,
-            "validation_ok"     : validation_ok,
-            "validation"        : validation,
-            "validation_status" : validation.get("status"),
-            "commands"          : validation.get("commands") or [],
-            "last_exit_code"    : validation.get("exit_code"),
-            "stdout_preview"    : validation.get("stdout_preview"),
-            "stderr_preview"    : validation.get("stderr_preview"),
-            "not_run_reason"    : validation.get("not_run_reason"),
-            "has_changes"       : has_changes,
-            "blocker_count"     : len(blockers),
-            "warning_count"     : len(warnings),
-            "reason"            : reason
+            "sufficient"         : sufficient,
+            "validation_ok"      : validation_ok,
+            "validation"         : validation,
+            "validation_history" : history,
+            "validation_status"  : validation.get("status"),
+            "commands"           : history.get("commands") or validation.get("commands") or [],
+            "last_exit_code"     : validation.get("exit_code"),
+            "stdout_preview"     : validation.get("stdout_preview"),
+            "stderr_preview"     : validation.get("stderr_preview"),
+            "not_run_reason"     : validation.get("not_run_reason"),
+            "has_changes"        : has_changes,
+            "blocker_count"      : len(blockers),
+            "warning_count"      : len(warnings),
+            "reason"             : reason
         }
 
     @staticmethod

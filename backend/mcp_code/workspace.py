@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
+import os
 import re
 import typing
 import fnmatch
-from backend.mcp_core.coding_native.base import NativeCodingComponent
+from pathlib import Path
+from backend.mcp_code.base import NativeCodingComponent
 from backend.utilities.trace import clip_text
 from backend.utilities import const
 
@@ -231,6 +233,17 @@ class WorkspaceTools(NativeCodingComponent):
             "skipped_large_tail_count"    : 0,
             "search_byte_limit"           : self.max_read_bytes
         }
+        symbol_metadata: dict[str, typing.Any] = {
+            "indexed_files": [],
+            "skipped_files": [],
+            "truncated_files": [],
+            "supported_languages": [],
+            "parser_level": None,
+            "parser_limitations": [],
+            "references": [],
+            "call_candidates": [],
+            "reference_search_truncated_files": []
+        }
 
         for needle in queries:
             if len(matches) >= max_matches:
@@ -266,7 +279,8 @@ class WorkspaceTools(NativeCodingComponent):
                     glob=glob,
                     case_sensitive=case_sensitive,
                     max_matches=max_matches,
-                    matches=matches
+                    matches=matches,
+                    metadata=symbol_metadata
                 )
 
         matches = self._rank_search_matches(
@@ -275,10 +289,26 @@ class WorkspaceTools(NativeCodingComponent):
         )[:max_matches]
         self._attach_search_read_windows(matches)
 
+        coverage_diagnostics = self._search_coverage_diagnostics(
+            base=base,
+            glob=glob,
+            text_search_enabled=normalized_mode in {"auto", "text", "literal", "regex", "symbol"},
+            content_diagnostics=search_diagnostics,
+            symbol_metadata=symbol_metadata
+        )
+
         search_diagnostics["large_files_truncated_count"] = len(search_diagnostics["large_files_truncated"])
         search_diagnostics["skipped_large_tail_count"]    = len(search_diagnostics["large_files_truncated"])
+        search_diagnostics["coverage"] = coverage_diagnostics
 
         primary_query = queries[0]
+        search_truncated = (
+            len(matches) >= max_matches
+            or bool(search_diagnostics["large_files_truncated"])
+            or bool(symbol_metadata.get("truncated_files"))
+            or bool(symbol_metadata.get("reference_search_truncated_files"))
+            or bool(coverage_diagnostics.get("incomplete"))
+        )
 
         return self._ok(
             f"workspace search ok mode={normalized_mode} matches={len(matches)}",
@@ -287,11 +317,27 @@ class WorkspaceTools(NativeCodingComponent):
             mode=normalized_mode,
             matches=matches,
             match_count=len(matches),
-            truncated=len(matches) >= max_matches,
+            truncated=search_truncated,
             search_diagnostics=search_diagnostics,
+            coverage_diagnostics=coverage_diagnostics,
             large_files_truncated=search_diagnostics["large_files_truncated"],
             large_files_truncated_count=search_diagnostics["large_files_truncated_count"],
             skipped_large_tail_count=search_diagnostics["skipped_large_tail_count"],
+            symbol_search=symbol_metadata if normalized_mode in {"auto", "symbol"} else None,
+            parser_level=symbol_metadata.get("parser_level") if normalized_mode in {"auto", "symbol"} else None,
+            parser_limitations=symbol_metadata.get("parser_limitations") if normalized_mode in {"auto", "symbol"} else [],
+            indexed_files=symbol_metadata["indexed_files"] if normalized_mode in {"auto", "symbol"} else [],
+            skipped_files=symbol_metadata["skipped_files"] if normalized_mode in {"auto", "symbol"} else [],
+            truncated_files=symbol_metadata["truncated_files"] if normalized_mode in {"auto", "symbol"} else [],
+            indexed_file_count=symbol_metadata.get("indexed_file_count", 0) if normalized_mode in {"auto", "symbol"} else 0,
+            skipped_file_count=symbol_metadata.get("skipped_file_count", 0) if normalized_mode in {"auto", "symbol"} else 0,
+            truncated_file_count=symbol_metadata.get("truncated_file_count", 0) if normalized_mode in {"auto", "symbol"} else 0,
+            references=symbol_metadata["references"] if normalized_mode in {"auto", "symbol"} else [],
+            call_candidates=symbol_metadata["call_candidates"] if normalized_mode in {"auto", "symbol"} else [],
+            reference_count=symbol_metadata.get("reference_count", 0) if normalized_mode in {"auto", "symbol"} else 0,
+            call_candidate_count=symbol_metadata.get("call_candidate_count", 0) if normalized_mode in {"auto", "symbol"} else 0,
+            reference_search_truncated_files=symbol_metadata["reference_search_truncated_files"] if normalized_mode in {"auto", "symbol"} else [],
+            reference_search_truncated_file_count=symbol_metadata.get("reference_search_truncated_file_count", 0) if normalized_mode in {"auto", "symbol"} else 0,
             recommended_next_steps=self._search_next_steps(
                 queries=queries,
                 path=self._rel(base),
@@ -300,7 +346,8 @@ class WorkspaceTools(NativeCodingComponent):
                 case_sensitive=case_sensitive,
                 max_matches=max_matches,
                 matches=matches,
-                truncated=len(matches) >= max_matches
+                truncated=search_truncated,
+                coverage_diagnostics=coverage_diagnostics
             )
         )
 
@@ -318,6 +365,7 @@ class WorkspaceTools(NativeCodingComponent):
         target  = self._resolve(path)
         payload = str(content or "")
         size    = len(payload.encode(const.CHARSET, const.IGNORE))
+        before  = self._file_state(target)
 
         if size > self.max_write_bytes:
             return self._fail("content_too_large", size=size, max_bytes=self.max_write_bytes)
@@ -331,11 +379,18 @@ class WorkspaceTools(NativeCodingComponent):
 
         target.write_text(payload, encoding=const.CHARSET, newline="")
 
+        after = self._file_state(target)
+
         return self._ok(
             f"workspace write ok path={self._rel(target)} bytes={size}",
             path=self._rel(target),
             bytes=size,
-            sha256=self._sha256(payload.encode(const.CHARSET, const.IGNORE))
+            changed=before != after,
+            bytes_before=before.get("bytes"),
+            bytes_after=after.get("bytes"),
+            sha256_before=before.get("sha256"),
+            sha256_after=after.get("sha256"),
+            sha256=after.get("sha256")
         )
 
     def move_file(
@@ -364,6 +419,7 @@ class WorkspaceTools(NativeCodingComponent):
 
         payload = source.read_bytes()
         sha     = self._sha256(payload)
+        target_before = self._file_state(target)
 
         if expected_sha256 and not force and expected_sha256 != sha:
             return self._fail(
@@ -381,12 +437,21 @@ class WorkspaceTools(NativeCodingComponent):
         overwritten = target.exists()
 
         source.replace(target)
+        source_after = self._file_state(source)
+        target_after = self._file_state(target)
+
         return self._ok(
             f"workspace move ok source={self._rel(source)} target={self._rel(target)} bytes={len(payload)}",
             source_path=self._rel(source),
             target_path=self._rel(target),
             bytes=len(payload),
+            changed=True,
+            bytes_before=target_before.get("bytes"),
+            bytes_after=target_after.get("bytes"),
+            sha256_before=target_before.get("sha256"),
+            sha256_after=target_after.get("sha256"),
             sha256=sha,
+            source_exists_after=source_after.get("exists"),
             overwritten=overwritten
         )
 
@@ -416,6 +481,7 @@ class WorkspaceTools(NativeCodingComponent):
 
         payload = source.read_bytes()
         sha     = self._sha256(payload)
+        target_before = self._file_state(target)
 
         if expected_sha256 and not force and expected_sha256 != sha:
             return self._fail(
@@ -432,12 +498,18 @@ class WorkspaceTools(NativeCodingComponent):
 
         overwritten = target.exists()
         target.write_bytes(payload)
+        target_after = self._file_state(target)
 
         return self._ok(
             f"workspace copy ok source={self._rel(source)} target={self._rel(target)} bytes={len(payload)}",
             source_path=self._rel(source),
             target_path=self._rel(target),
             bytes=len(payload),
+            changed=target_before != target_after,
+            bytes_before=target_before.get("bytes"),
+            bytes_after=target_after.get("bytes"),
+            sha256_before=target_before.get("sha256"),
+            sha256_after=target_after.get("sha256"),
             sha256=sha,
             overwritten=overwritten
         )
@@ -462,6 +534,7 @@ class WorkspaceTools(NativeCodingComponent):
 
         payload = target.read_bytes()
         sha     = self._sha256(payload)
+        before  = self._file_state(target)
 
         if expected_sha256 and not force and expected_sha256 != sha:
             return self._fail(
@@ -472,12 +545,37 @@ class WorkspaceTools(NativeCodingComponent):
             )
 
         target.unlink()
+        after = self._file_state(target)
+
         return self._ok(
             f"workspace delete ok path={self._rel(target)} bytes={len(payload)}",
             path=self._rel(target),
             bytes=len(payload),
+            changed=before != after,
+            bytes_before=before.get("bytes"),
+            bytes_after=after.get("bytes"),
+            sha256_before=before.get("sha256"),
+            sha256_after=after.get("sha256"),
             sha256=sha
         )
+
+    def _file_state(
+        self,
+        target: typing.Any
+    ) -> dict[str, typing.Any]:
+        """返回单个文件的存在性、大小和 SHA256 摘要。"""
+        if not target.exists() or not target.is_file():
+            return {
+                "exists" : False,
+                "bytes"  : None,
+                "sha256" : None
+            }
+        payload = target.read_bytes()
+        return {
+            "exists" : True,
+            "bytes"  : len(payload),
+            "sha256" : self._sha256(payload)
+        }
 
     def _search_files(
         self,
@@ -532,7 +630,7 @@ class WorkspaceTools(NativeCodingComponent):
     ) -> None:
         """搜索文本内容，支持字面量、正则和上下文行。"""
         flags = 0 if case_sensitive else re.IGNORECASE
-        diag = diagnostics if isinstance(diagnostics, dict) else {}
+        diag  = diagnostics if isinstance(diagnostics, dict) else {}
 
         try:
             regex = re.compile(query if regex_mode else re.escape(query), flags)
@@ -594,6 +692,110 @@ class WorkspaceTools(NativeCodingComponent):
                     if len(matches) >= max_matches:
                         break
 
+    def _search_coverage_diagnostics(
+        self,
+        *,
+        base: typing.Any,
+        glob: str | None,
+        text_search_enabled: bool,
+        content_diagnostics: dict[str, typing.Any],
+        symbol_metadata: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
+        """描述 workspace_search 未覆盖或只部分覆盖的文件范围。"""
+        diagnostics: dict[str, typing.Any] = {
+            "complete"                              : True,
+            "incomplete"                            : False,
+            "reasons"                               : [],
+            "files_considered"                      : 0,
+            "files_scanned"                         : int(content_diagnostics.get("files_scanned") or 0),
+            "search_byte_limit"                     : self.max_read_bytes,
+            "glob_excluded_files"                   : [],
+            "glob_excluded_file_count"              : 0,
+            "binary_or_non_text_files"              : [],
+            "binary_or_non_text_file_count"         : 0,
+            "generated_or_excluded_dirs"            : [],
+            "generated_or_excluded_dir_count"       : 0,
+            "large_files_truncated"                 : list(content_diagnostics.get("large_files_truncated") or []),
+            "large_files_truncated_count"           : len(content_diagnostics.get("large_files_truncated") or []),
+            "symbol_truncated_files"                : list(symbol_metadata.get("truncated_files") or []),
+            "symbol_truncated_file_count"           : len(symbol_metadata.get("truncated_files") or []),
+            "reference_search_truncated_files"      : list(symbol_metadata.get("reference_search_truncated_files") or []),
+            "reference_search_truncated_file_count" : len(symbol_metadata.get("reference_search_truncated_files") or [])
+        }
+
+        self._collect_excluded_dir_diagnostics(base, diagnostics)
+
+        for item in self._walk(base, recursive=True):
+            if not item.is_file():
+                continue
+
+            rel = self._rel(item)
+            if glob and not fnmatch.fnmatch(rel, glob) and not fnmatch.fnmatch(item.name, glob):
+                diagnostics["glob_excluded_file_count"] += 1
+                self._append_limited(
+                    diagnostics["glob_excluded_files"],
+                    {
+                        "path"   : rel,
+                        "reason" : "glob_mismatch"
+                    }
+                )
+                continue
+
+            diagnostics["files_considered"] += 1
+
+            if text_search_enabled and not self._looks_text(item):
+                diagnostics["binary_or_non_text_file_count"] += 1
+                self._append_limited(
+                    diagnostics["binary_or_non_text_files"],
+                    {
+                        "path"   : rel,
+                        "size"   : item.stat().st_size,
+                        "reason" : "file_not_text"
+                    }
+                )
+
+        reason_checks = {
+            "large_file_tail_not_searched"       : bool(diagnostics["large_files_truncated"]),
+            "symbol_index_file_truncated"        : bool(diagnostics["symbol_truncated_files"]),
+            "reference_search_file_truncated"    : bool(diagnostics["reference_search_truncated_files"]),
+            "binary_or_non_text_skipped"         : diagnostics["binary_or_non_text_file_count"] > 0,
+            "generated_or_excluded_dirs_skipped" : diagnostics["generated_or_excluded_dir_count"] > 0,
+            "glob_scope_excluded_files"          : diagnostics["glob_excluded_file_count"] > 0
+        }
+
+        diagnostics["reasons"]    = [reason for reason, enabled in reason_checks.items() if enabled]
+        diagnostics["incomplete"] = bool(diagnostics["reasons"])
+        diagnostics["complete"]   = not diagnostics["incomplete"]
+
+        diagnostics["recommended_next_steps"] = self._coverage_next_steps(diagnostics=diagnostics)
+        return diagnostics
+
+    def _collect_excluded_dir_diagnostics(
+        self,
+        base: typing.Any,
+        diagnostics: dict[str, typing.Any]
+    ) -> None:
+        """采样会被默认遍历排除的目录。"""
+        if not base.is_dir():
+            return
+        for root, dirs, _files in os.walk(base):
+            root_path = Path(root)
+            kept_dirs: list[str] = []
+            for dirname in dirs:
+                candidate = root_path / dirname
+                if self._is_excluded(candidate):
+                    diagnostics["generated_or_excluded_dir_count"] += 1
+                    self._append_limited(
+                        diagnostics["generated_or_excluded_dirs"],
+                        {
+                            "path"   : self._rel(candidate),
+                            "reason" : "default_exclude"
+                        }
+                    )
+                    continue
+                kept_dirs.append(dirname)
+            dirs[:] = kept_dirs
+
     def _search_symbols(
         self,
         *,
@@ -602,9 +804,10 @@ class WorkspaceTools(NativeCodingComponent):
         glob: str | None,
         case_sensitive: bool,
         max_matches: int,
-        matches: list[dict[str, typing.Any]]
+        matches: list[dict[str, typing.Any]],
+        metadata: dict[str, typing.Any]
     ) -> None:
-        """通过 repo map 的符号索引补充符号搜索结果。"""
+        """通过内部符号索引补充符号搜索结果。"""
         result = self._find_symbol(
             query=query,
             path=path,
@@ -615,6 +818,8 @@ class WorkspaceTools(NativeCodingComponent):
         data = result.get("data") if isinstance(result, dict) else {}
         if not isinstance(data, dict) or not data.get("ok"):
             return
+
+        self._merge_symbol_search_metadata(metadata, data)
 
         needle = query if case_sensitive else query.lower()
 
@@ -636,6 +841,118 @@ class WorkspaceTools(NativeCodingComponent):
                 "text"   : item.get("signature") or item.get("qualified_name") or item.get("name"),
                 "symbol" : item
             })
+
+    @staticmethod
+    def _append_limited(
+        items: list[dict[str, typing.Any]],
+        item: dict[str, typing.Any],
+        *,
+        limit: int = 50
+    ) -> None:
+        """向诊断样本列表追加有限条目。"""
+        if len(items) < limit:
+            items.append(item)
+
+    @staticmethod
+    def _coverage_next_steps(
+        *,
+        diagnostics: dict[str, typing.Any]
+    ) -> list[dict[str, typing.Any]]:
+        """为搜索覆盖不足生成补查建议。"""
+        steps: list[dict[str, typing.Any]] = []
+
+        for item in diagnostics.get("large_files_truncated") or []:
+            path = str(item.get("path") or "")
+            if not path:
+                continue
+            steps.append({
+                "tool": "workspace_read_file",
+                "args": {
+                    "path": path,
+                    "start_line": 1,
+                    "max_lines": 200
+                },
+                "reason": "large_file_tail_not_searched_read_windows"
+            })
+            if len(steps) >= 5:
+                break
+
+        for item in diagnostics.get("binary_or_non_text_files") or []:
+            path = str(item.get("path") or "")
+            if not path:
+                continue
+            steps.append({
+                "tool": "shell_exec",
+                "args": {
+                    "command": ["file", path],
+                    "cwd": "."
+                },
+                "reason": "inspect_binary_or_non_text_file_type"
+            })
+            if len(steps) >= 8:
+                break
+
+        return steps[:8]
+
+    @staticmethod
+    def _merge_symbol_search_metadata(
+        metadata: dict[str, typing.Any],
+        data: dict[str, typing.Any]
+    ) -> None:
+        """把内部符号索引诊断合并到 workspace_search 返回。"""
+        for key in (
+            "indexed_files",
+            "skipped_files",
+            "truncated_files",
+            "supported_languages",
+            "references",
+            "call_candidates",
+            "reference_search_truncated_files"
+        ):
+            existing = metadata.setdefault(key, [])
+            incoming = data.get(key) or []
+            if not isinstance(existing, list) or not isinstance(incoming, list):
+                continue
+            if key == "supported_languages":
+                metadata[key] = sorted({*(str(item) for item in existing), *(str(item) for item in incoming)})
+                continue
+            seen = {
+                (
+                    str(item.get("path") or ""),
+                    str(item.get("line") or ""),
+                    str(item.get("symbol") or item.get("name") or item.get("reason") or "")
+                )
+                for item in existing
+                if isinstance(item, dict)
+            }
+            for item in incoming:
+                if not isinstance(item, dict):
+                    continue
+                marker = (
+                    str(item.get("path") or ""),
+                    str(item.get("line") or ""),
+                    str(item.get("symbol") or item.get("name") or item.get("reason") or "")
+                )
+                if marker in seen:
+                    continue
+                seen.add(marker)
+                existing.append(item)
+
+        metadata["indexed_file_count"]   = len(metadata.get("indexed_files") or [])
+        metadata["skipped_file_count"]   = len(metadata.get("skipped_files") or [])
+        metadata["truncated_file_count"] = len(metadata.get("truncated_files") or [])
+        metadata["reference_count"]      = len(metadata.get("references") or [])
+        metadata["call_candidate_count"] = len(metadata.get("call_candidates") or [])
+
+        metadata["reference_search_truncated_file_count"] = len(metadata.get("reference_search_truncated_files") or [])
+        metadata["parser_level"] = data.get("parser_level") or metadata.get("parser_level") or "regex"
+
+        limitations = [str(item) for item in (metadata.get("parser_limitations") or [])]
+        for item in data.get("parser_limitations") or []:
+            value = str(item)
+            if value not in limitations:
+                limitations.append(value)
+        metadata["parser_limitations"] = limitations
 
     @staticmethod
     def _read_line_window(
@@ -712,6 +1029,7 @@ class WorkspaceTools(NativeCodingComponent):
     ) -> list[dict[str, typing.Any]]:
         """把更可能有用的文件名、符号和精确命中排到前面。"""
         lowered_queries = [item.lower() for item in queries if item]
+
         kind_rank = {
             "file"   : 0,
             "symbol" : 1,
@@ -842,7 +1160,8 @@ class WorkspaceTools(NativeCodingComponent):
         case_sensitive: bool,
         max_matches: int,
         matches: list[dict[str, typing.Any]],
-        truncated: bool
+        truncated: bool,
+        coverage_diagnostics: dict[str, typing.Any] | None = None
     ) -> list[dict[str, typing.Any]]:
         """根据搜索结果生成继续定位、读取窗口和扩大/缩小范围建议。"""
         steps: list[dict[str, typing.Any]] = []
@@ -895,8 +1214,13 @@ class WorkspaceTools(NativeCodingComponent):
                     "case_sensitive": case_sensitive,
                     "max_matches": min(max_matches * 2, 1000)
                 },
-                "reason": "increase_limit"
+                "reason": "increase_limit_or_review_coverage"
             })
+
+        if isinstance(coverage_diagnostics, dict):
+            for item in coverage_diagnostics.get("recommended_next_steps") or []:
+                if isinstance(item, dict):
+                    steps.append(item)
 
         if mode != "file":
             steps.append({

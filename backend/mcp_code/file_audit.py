@@ -2,7 +2,7 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.mcp_core.coding_native.base import NativeCodingComponent
+from backend.mcp_code.base import NativeCodingComponent
 
 
 class FileAudit(NativeCodingComponent):

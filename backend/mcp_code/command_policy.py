@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
-"""原生编码命令的执行元数据校验辅助。"""
 
 import typing
-from backend.mcp_core.coding_native.base import NativeCodingComponent
+from backend.mcp_code.base import NativeCodingComponent
 
 
 class CommandPolicy(NativeCodingComponent):
@@ -77,14 +76,14 @@ class CommandPolicy(NativeCodingComponent):
         canonical = execution.get("canonicalArguments") or execution.get("canonical_arguments")
         if isinstance(canonical, dict):
             expected = {
-                "command": list(command or []),
-                "cwd": str(cwd or "."),
-                "timeout_sec": int(timeout_sec or 60)
+                "command"     : list(command or []),
+                "cwd"         : str(cwd or "."),
+                "timeout_sec" : int(timeout_sec or 60)
             }
             actual = {
-                "command": canonical.get("command"),
-                "cwd": canonical.get("cwd"),
-                "timeout_sec": canonical.get("timeout_sec")
+                "command"     : canonical.get("command"),
+                "cwd"         : canonical.get("cwd"),
+                "timeout_sec" : canonical.get("timeout_sec")
             }
             if CommandPolicy._normalize_policy_value(expected) != CommandPolicy._normalize_policy_value(actual):
                 return CommandPolicy._deny(
@@ -126,6 +125,7 @@ class CommandPolicy(NativeCodingComponent):
             return [CommandPolicy._normalize_policy_value(item) for item in value]
         if isinstance(value, (str, int, float, bool)) or value is None:
             return value
+
         return str(value)
 
     @staticmethod
@@ -134,8 +134,10 @@ class CommandPolicy(NativeCodingComponent):
     ) -> dict[str, typing.Any]:
         """构造允许执行的策略结果。"""
         payload: dict[str, typing.Any] = {"ok": True, **data}
+
         payload.setdefault("execution_target", "local")
         payload.setdefault("requires_cloud_sandbox", False)
+
         return payload
 
     @staticmethod
@@ -147,13 +149,12 @@ class CommandPolicy(NativeCodingComponent):
     ) -> dict[str, typing.Any]:
         """构造拒绝执行的策略结果。"""
         payload: dict[str, typing.Any] = {
-            "ok": False,
-            "reason": reason,
-            "risk": risk,
-            **data
+            "ok": False, "reason": reason, "risk": risk, **data
         }
+
         payload.setdefault("execution_target", "blocked")
         payload.setdefault("requires_cloud_sandbox", False)
+
         return payload
 
 
