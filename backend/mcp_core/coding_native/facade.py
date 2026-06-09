@@ -7,7 +7,8 @@ from backend.mcp_core.coding_native.workspace import WorkspaceTools
 from backend.mcp_core.coding_native.parallel_read import ParallelReadTools
 from backend.mcp_core.coding_native.repo_map import RepoMapTools
 from backend.mcp_core.coding_native.patch_engine import PatchEngine
-from backend.mcp_core.coding_native.shell_git import ShellGitTools
+from backend.mcp_core.coding_native.shell_exec import ShellExecTools
+from backend.mcp_core.coding_native.git_tools import GitTools
 from backend.mcp_core.coding_native.command_policy import CommandPolicy
 from backend.mcp_core.coding_native.file_audit import FileAudit
 from backend.mcp_core.coding_native.change_summary import ChangeSummaryTools
@@ -25,7 +26,8 @@ class NativeCoding(NativeCodingBase):
         self._patch_engine   = PatchEngine(self)
         self._command_policy = CommandPolicy(self)
         self._file_audit     = FileAudit(self)
-        self._shell_git      = ShellGitTools(self)
+        self._shell_exec     = ShellExecTools(self)
+        self._git_tools      = GitTools(self)
         self._change_summary = ChangeSummaryTools(self)
 
         self._private_delegates = self._build_private_delegates()
@@ -44,7 +46,8 @@ class NativeCoding(NativeCodingBase):
             self._patch_engine,
             self._command_policy,
             self._file_audit,
-            self._shell_git,
+            self._shell_exec,
+            self._git_tools,
             self._change_summary
         ):
             for name in dir(component.__class__):
@@ -95,13 +98,13 @@ class NativeCoding(NativeCodingBase):
         return await self._parallel_read.parallel_read(items)
 
     async def shell_exec(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return await self._shell_git.shell_exec(*args, **kwargs)
+        return await self._shell_exec.shell_exec(*args, **kwargs)
 
     async def git_status(self) -> dict[str, typing.Any]:
-        return await self._shell_git.git_status()
+        return await self._git_tools.git_status()
 
     async def git_diff(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        return await self._shell_git.git_diff(*args, **kwargs)
+        return await self._git_tools.git_diff(*args, **kwargs)
 
     async def change_summary(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return await self._change_summary.change_summary(*args, **kwargs)

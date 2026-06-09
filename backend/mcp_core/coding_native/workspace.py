@@ -224,6 +224,14 @@ class WorkspaceTools(NativeCodingComponent):
 
         matches: list[dict[str, typing.Any]] = []
 
+        search_diagnostics: dict[str, typing.Any] = {
+            "files_scanned"               : 0,
+            "large_files_truncated"       : [],
+            "large_files_truncated_count" : 0,
+            "skipped_large_tail_count"    : 0,
+            "search_byte_limit"           : self.max_read_bytes
+        }
+
         for needle in queries:
             if len(matches) >= max_matches:
                 break
@@ -247,7 +255,8 @@ class WorkspaceTools(NativeCodingComponent):
                     context_before=context_before,
                     context_after=context_after,
                     max_matches=max_matches,
-                    matches=matches
+                    matches=matches,
+                    diagnostics=search_diagnostics
                 )
 
             if normalized_mode in {"auto", "symbol"} and len(matches) < max_matches:
@@ -264,6 +273,10 @@ class WorkspaceTools(NativeCodingComponent):
             self._dedupe_search_matches(matches),
             queries=queries
         )[:max_matches]
+        self._attach_search_read_windows(matches)
+
+        search_diagnostics["large_files_truncated_count"] = len(search_diagnostics["large_files_truncated"])
+        search_diagnostics["skipped_large_tail_count"]    = len(search_diagnostics["large_files_truncated"])
 
         primary_query = queries[0]
 
@@ -275,6 +288,10 @@ class WorkspaceTools(NativeCodingComponent):
             matches=matches,
             match_count=len(matches),
             truncated=len(matches) >= max_matches,
+            search_diagnostics=search_diagnostics,
+            large_files_truncated=search_diagnostics["large_files_truncated"],
+            large_files_truncated_count=search_diagnostics["large_files_truncated_count"],
+            skipped_large_tail_count=search_diagnostics["skipped_large_tail_count"],
             recommended_next_steps=self._search_next_steps(
                 queries=queries,
                 path=self._rel(base),
@@ -510,10 +527,12 @@ class WorkspaceTools(NativeCodingComponent):
         context_before: int,
         context_after: int,
         max_matches: int,
-        matches: list[dict[str, typing.Any]]
+        matches: list[dict[str, typing.Any]],
+        diagnostics: dict[str, typing.Any] | None = None
     ) -> None:
         """搜索文本内容，支持字面量、正则和上下文行。"""
         flags = 0 if case_sensitive else re.IGNORECASE
+        diag = diagnostics if isinstance(diagnostics, dict) else {}
 
         try:
             regex = re.compile(query if regex_mode else re.escape(query), flags)
@@ -538,20 +557,34 @@ class WorkspaceTools(NativeCodingComponent):
                 continue
 
             try:
+                size = item.stat().st_size
                 raw = item.read_bytes()[:self.max_read_bytes]
             except OSError:
                 continue
+            diag["files_scanned"] = int(diag.get("files_scanned") or 0) + 1
+            if size > self.max_read_bytes:
+                large_files = diag.setdefault("large_files_truncated", [])
+                if isinstance(large_files, list) and not any(entry.get("path") == rel for entry in large_files if isinstance(entry, dict)):
+                    large_files.append({
+                        "path"             : rel,
+                        "size"             : size,
+                        "searched_bytes"   : min(size, self.max_read_bytes),
+                        "unsearched_bytes" : max(0, size - self.max_read_bytes)
+                    })
 
             lines = self._decode(raw).splitlines()
             for index, line in enumerate(lines):
                 if regex.search(line):
                     matches.append({
-                        "kind"    : "text",
-                        "query"   : query,
-                        "path"    : rel,
-                        "line"    : index + 1,
-                        "text"    : clip_text(line.strip(), limit=500),
-                        "context" : self._line_context(
+                        "kind"             : "text",
+                        "query"            : query,
+                        "path"             : rel,
+                        "line"             : index + 1,
+                        "text"             : clip_text(line.strip(), limit=500),
+                        "searched_bytes"   : min(size, self.max_read_bytes),
+                        "file_size"        : size,
+                        "search_truncated" : size > self.max_read_bytes,
+                        "context": self._line_context(
                             lines,
                             index=index,
                             before=context_before,
@@ -594,6 +627,7 @@ class WorkspaceTools(NativeCodingComponent):
             haystack = name if case_sensitive else name.lower()
             if needle not in haystack:
                 continue
+
             matches.append({
                 "kind"   : "symbol",
                 "query"  : query,
@@ -613,8 +647,8 @@ class WorkspaceTools(NativeCodingComponent):
         """读取指定行窗口，避免大文件整文件进入内存。"""
         selected: list[str] = []
 
-        last_line       = 0
-        stop_after      = start_line + max_lines - 1
+        last_line      = 0
+        stop_after     = start_line + max_lines - 1
         line_truncated = False
 
         with target.open("r", encoding=const.CHARSET, errors=const.IGNORE, newline=None) as fh:
@@ -650,7 +684,7 @@ class WorkspaceTools(NativeCodingComponent):
         matches: list[dict[str, typing.Any]]
     ) -> list[dict[str, typing.Any]]:
         """按稳定定位信息去除重复搜索结果。"""
-        deduped: list[dict[str, typing.Any]] = []
+        deduped: list[dict[str, typing.Any]]      = []
         seen: set[tuple[str, str, int, str, str]] = set()
 
         for item in matches:
@@ -705,6 +739,27 @@ class WorkspaceTools(NativeCodingComponent):
             )
 
         return sorted(matches, key=rank)
+
+    @staticmethod
+    def _attach_search_read_windows(
+        matches: list[dict[str, typing.Any]]
+    ) -> None:
+        """给可定位的搜索命中补充直接可执行的读取窗口参数。"""
+        for item in matches:
+            if not isinstance(item, dict):
+                continue
+
+            item_path = str(item.get("path") or "").strip()
+            line      = item.get("line")
+
+            if not item_path or not isinstance(line, int):
+                continue
+            start_line = max(1, line - 20)
+            item["read_window"] = {
+                "tool"   : "workspace_read_file",
+                "args"   : {"path": item_path, "start_line": start_line, "max_lines": 60},
+                "reason" : "read_result_window"
+            }
 
     @staticmethod
     def _line_context(
@@ -765,6 +820,7 @@ class WorkspaceTools(NativeCodingComponent):
     ) -> list[str]:
         """返回文件读取被截断的具体原因。"""
         reasons: list[str] = []
+
         if input_truncated and not line_window:
             reasons.append("byte_limit")
         elif input_truncated and line_window and total_lines is None:
@@ -773,6 +829,7 @@ class WorkspaceTools(NativeCodingComponent):
             reasons.append("output_byte_limit")
         if line_truncated:
             reasons.append("line_window")
+
         return reasons
 
     @staticmethod
@@ -791,7 +848,7 @@ class WorkspaceTools(NativeCodingComponent):
         steps: list[dict[str, typing.Any]] = []
 
         read_items: list[dict[str, typing.Any]] = []
-        seen_reads: set[tuple[str, int]] = set()
+        seen_reads: set[tuple[str, int]]        = set()
 
         ranked = WorkspaceTools._rank_search_matches(
             WorkspaceTools._dedupe_search_matches(matches),
@@ -800,8 +857,10 @@ class WorkspaceTools(NativeCodingComponent):
         for item in ranked:
             if not isinstance(item, dict):
                 continue
+
             item_path = str(item.get("path") or "").strip()
-            line = item.get("line")
+            line      = item.get("line")
+
             if not item_path or not isinstance(line, int):
                 continue
             start_line = max(1, line - 20)

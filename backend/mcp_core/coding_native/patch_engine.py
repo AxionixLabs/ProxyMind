@@ -5,6 +5,7 @@ import os
 import re
 import time
 import typing
+import difflib
 from pathlib import Path
 from loguru import logger
 from backend.mcp_core.coding_native.base import NativeCodingComponent
@@ -12,6 +13,7 @@ from backend.utilities import const
 
 
 class PatchEngine(NativeCodingComponent):
+    """提供工作区文本补丁解析、校验、应用和诊断能力。"""
 
     def apply_patch(
         self,
@@ -23,6 +25,7 @@ class PatchEngine(NativeCodingComponent):
         expected_sha256: str | None = None,
         force: bool = False
     ) -> dict[str, typing.Any]:
+        """对单个文本文件执行精确片段替换。"""
         target = self._resolve(path)
 
         if not target.is_file():
@@ -37,12 +40,17 @@ class PatchEngine(NativeCodingComponent):
         expected = max(1, int(expected_replacements or 1))
 
         if count != expected:
+            diagnostics = self._replacement_mismatch_diagnostics(
+                current=current,
+                old_text=old_text
+            )
             data = {
                 "path"                  : self._rel(target),
                 "found"                 : count,
                 "expected"              : expected,
                 "old_text_preview"      : self._diagnostic_preview(old_text, limit=600),
                 "current_preview"       : self._diagnostic_preview(current, limit=1200),
+                **diagnostics,
                 "suggested_next_action" : "refresh_file_snapshot_or_use_write_file"
             }
             self._log_patch_failure(
@@ -76,6 +84,7 @@ class PatchEngine(NativeCodingComponent):
         expected_sha256: dict[str, str] | None = None,
         force: bool = False
     ) -> dict[str, typing.Any]:
+        """解析并应用标准 unified diff 补丁。"""
         planned_result = self._plan_unified_patch(
             patch=patch,
             expected_sha256=expected_sha256,
@@ -157,10 +166,12 @@ class PatchEngine(NativeCodingComponent):
         expected_sha256: str | None,
         force: bool
     ) -> dict[str, typing.Any] | None:
+        """根据可选 SHA256 基线判断目标文件是否发生外部变更。"""
         expected = str(expected_sha256 or "").strip().lower()
 
         if force or not expected or not target.exists():
             return None
+
         current = self._sha256(target.read_bytes())
         if current == expected:
             return None
@@ -172,6 +183,35 @@ class PatchEngine(NativeCodingComponent):
             current_sha256=current
         )
 
+    def _replacement_mismatch_diagnostics(
+        self,
+        *,
+        current: str,
+        old_text: str
+    ) -> dict[str, typing.Any]:
+        """为精确替换失败返回可用于重试的近似匹配诊断。"""
+        normalized_old     = self._normalize_patch_text_for_compare(old_text)
+        normalized_current = self._normalize_patch_text_for_compare(current)
+        newline_old        = self._normalize_newlines(old_text)
+        newline_current    = self._normalize_newlines(current)
+
+        actual_occurrences = [
+            {"line": self._line_number_for_offset(current, index)}
+            for index in self._find_occurrences(current, old_text, limit=8)
+        ]
+
+        return {
+            "line_ending_equivalent": bool(old_text not in current and newline_old in newline_current),
+            "whitespace_equivalent": bool(
+                old_text not in current and normalized_old and normalized_old in normalized_current
+            ),
+            "actual_occurrences": actual_occurrences,
+            "replacement_candidates": self._replacement_candidates(
+                current=current,
+                old_text=old_text
+            )
+        }
+
     def _plan_unified_patch(
         self,
         *,
@@ -180,6 +220,7 @@ class PatchEngine(NativeCodingComponent):
         force: bool = False,
         virtual_files: dict[str, str | None] | None = None
     ) -> dict[str, typing.Any]:
+        """预检查 unified diff，并生成待写入文件的变更计划。"""
         parsed = self._parse_unified_patch(patch)
         if not parsed.get("ok"):
             return {
@@ -395,6 +436,7 @@ class PatchEngine(NativeCodingComponent):
         self,
         patch: str
     ) -> dict[str, typing.Any]:
+        """把 unified diff 文本解析为文件和 hunk 的结构化表示。"""
         lines = str(patch or "").splitlines()
         files: list[dict[str, typing.Any]] = []
         i = 0
@@ -531,6 +573,7 @@ class PatchEngine(NativeCodingComponent):
         content: str,
         hunks: list[dict[str, typing.Any]]
     ) -> dict[str, typing.Any]:
+        """把已解析的 hunk 应用到文本内容并返回新内容。"""
         original = content.splitlines(keepends=True)
         output: list[str] = []
         cursor: int = 0
@@ -669,21 +712,28 @@ class PatchEngine(NativeCodingComponent):
     def _hunk_old_sequence(
         self,
         hunk: dict[str, typing.Any],
-        *, newline: str = "\n"
+        *,
+        newline: str = "\n"
     ) -> list[str]:
+        """提取 hunk 中需要与原文匹配的上下文和删除行序列。"""
         sequence: list[str] = []
         for raw_line in hunk.get("lines") or []:
             if isinstance(raw_line, dict):
-                marker = str(raw_line.get("marker") or "")
-                text = str(raw_line.get("text") or "")
+                marker     = str(raw_line.get("marker") or "")
+                text       = str(raw_line.get("text") or "")
                 no_newline = bool(raw_line.get("no_newline"))
+
             else:
-                raw_text = str(raw_line)
-                marker = raw_text[0] if raw_text else ""
-                text = raw_text[1:]
+                raw_text   = str(raw_line)
+                marker     = raw_text[0] if raw_text else ""
+                text       = raw_text[1:]
                 no_newline = False
+
             if marker in {" ", "-"}:
-                sequence.append(self._patch_line_content(text, no_newline=no_newline, newline=newline))
+                sequence.append(
+                    self._patch_line_content(text, no_newline=no_newline, newline=newline)
+                )
+
         return sequence
 
     def _locate_hunk(
@@ -693,6 +743,7 @@ class PatchEngine(NativeCodingComponent):
         *,
         cursor: int
     ) -> dict[str, typing.Any]:
+        """在当前文本中查找可唯一匹配的 hunk 上下文位置。"""
         if not expected:
             return {
                 "ok"     : False,
@@ -735,14 +786,120 @@ class PatchEngine(NativeCodingComponent):
         data: dict[str, typing.Any],
         patch: str
     ) -> dict[str, typing.Any]:
+        """为 unified patch 失败结果补充格式提示和补丁预览。"""
         enriched = dict(data)
         enriched.setdefault("patch_format_hint", self._unified_patch_hint(reason))
         enriched.setdefault("suggested_next_action", self._unified_patch_next_action(reason))
         enriched.setdefault("patch_preview", self._diagnostic_preview(patch, limit=1600))
         return enriched
 
+    @classmethod
+    def _replacement_candidates(
+        cls,
+        *,
+        current: str,
+        old_text: str
+    ) -> list[dict[str, typing.Any]]:
+        """从当前文件中找出与 old_text 最接近的少量候选窗口。"""
+        lines = current.splitlines(keepends=True)
+        if not lines:
+            return []
+
+        old_line_count = max(1, len(old_text.splitlines()) or 1)
+        window_sizes = sorted({
+            max(1, old_line_count - 2),
+            max(1, old_line_count - 1),
+            old_line_count,
+            old_line_count + 1,
+            old_line_count + 2
+        })
+
+        scored: list[dict[str, typing.Any]] = []
+
+        normalized_old = cls._normalize_patch_text_for_compare(old_text)
+        newline_old    = cls._normalize_newlines(old_text)
+
+        for window_size in window_sizes:
+            if window_size > len(lines):
+                continue
+
+            for start in range(0, len(lines) - window_size + 1):
+
+                candidate = "".join(lines[start:start + window_size])
+                ratio = difflib.SequenceMatcher(None, old_text, candidate).ratio()
+
+                if normalized_old and normalized_old == cls._normalize_patch_text_for_compare(candidate):
+                    ratio = max(ratio, 0.99)
+                elif newline_old == cls._normalize_newlines(candidate):
+                    ratio = max(ratio, 0.97)
+                if ratio < 0.45:
+                    continue
+
+                scored.append({
+                    "line_start": start + 1,
+                    "line_end": start + window_size,
+                    "score": round(ratio, 3),
+                    "line_ending_equivalent": newline_old == cls._normalize_newlines(candidate),
+                    "whitespace_equivalent": (
+                        bool(normalized_old)
+                        and normalized_old == cls._normalize_patch_text_for_compare(candidate)
+                    ),
+                    "preview": cls._diagnostic_preview(candidate, limit=800)
+                })
+
+        scored.sort(key=lambda x: (-float(x["score"]), int(x["line_start"])))
+
+        deduped: list[dict[str, typing.Any]] = []
+        seen: set[tuple[int, int, str]]      = set()
+
+        for item in scored:
+            key = (
+                int(item["line_start"]), int(item["line_end"]), str(item["preview"])
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+            if len(deduped) >= 5:
+                break
+
+        return deduped
+
+    @staticmethod
+    def _find_occurrences(text: str, needle: str, *, limit: int) -> list[int]:
+        """返回 needle 在 text 中出现的前几个偏移量。"""
+        if not needle:
+            return []
+        offsets: list[int] = []
+
+        start = 0
+        while len(offsets) < limit:
+            index = text.find(needle, start)
+            if index < 0:
+                break
+            offsets.append(index)
+            start = index + max(1, len(needle))
+
+        return offsets
+
+    @staticmethod
+    def _line_number_for_offset(text: str, offset: int) -> int:
+        """把字符偏移转换为 1-based 行号。"""
+        return text.count("\n", 0, max(0, offset)) + 1
+
+    @staticmethod
+    def _normalize_newlines(text: str) -> str:
+        """把不同换行格式归一为 LF。"""
+        return str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+
+    @staticmethod
+    def _normalize_patch_text_for_compare(text: str) -> str:
+        """把文本归一为空白无关的比较形式。"""
+        return re.sub(r"\s+", " ", PatchEngine._normalize_newlines(text).strip())
+
     @staticmethod
     def _diagnostic_preview(value: typing.Any, *, limit: int) -> str:
+        """按字符上限生成诊断预览文本。"""
         text = str(value or "")
         if len(text) <= limit:
             return text
@@ -750,6 +907,7 @@ class PatchEngine(NativeCodingComponent):
 
     @staticmethod
     def _unified_patch_hint(reason: str) -> str:
+        """根据 unified patch 失败原因返回格式提示。"""
         if reason == "unified_patch_no_files":
             return "patch must include --- and +++ file headers"
         if reason == "unified_patch_missing_new_header":
@@ -773,6 +931,7 @@ class PatchEngine(NativeCodingComponent):
 
     @staticmethod
     def _unified_patch_next_action(reason: str) -> str:
+        """根据 unified patch 失败原因返回建议的下一步动作。"""
         if reason in {
             "unified_patch_no_files",
             "unified_patch_missing_new_header",
@@ -792,15 +951,14 @@ class PatchEngine(NativeCodingComponent):
 
     @staticmethod
     def _log_patch_failure(tool: str, reason: str, data: dict[str, typing.Any]) -> None:
+        """记录补丁失败的结构化诊断信息。"""
         logger.warning(
-            "[PatchEngine] {} failed reason={} data={}",
-            tool,
-            reason,
-            data
+            "[PatchEngine] {} failed reason={} data={}", tool, reason, data
         )
 
     @staticmethod
     def _clean_diff_path(path: str) -> str:
+        """清理 diff 文件头中的路径前缀和附加信息。"""
         raw = str(path or "").split("\t", 1)[0].strip()
         if raw.startswith("a/") or raw.startswith("b/"):
             raw = raw[2:]
@@ -808,10 +966,12 @@ class PatchEngine(NativeCodingComponent):
 
     @staticmethod
     def _patch_line_content(text: str, *, no_newline: bool = False, newline: str = "\n") -> str:
+        """按 hunk 行标记生成带目标换行符的文本行。"""
         return text if no_newline else f"{text}{newline}"
 
     @staticmethod
     def _hunk_target_index(*, old_start: int, old_count: int) -> int:
+        """把 hunk 的 1-based 起始行转换为 0-based 应用位置。"""
         if old_start <= 0:
             return 0
         if old_count == 0:
@@ -820,12 +980,14 @@ class PatchEngine(NativeCodingComponent):
 
     @staticmethod
     def _lines_match_at(lines: list[str], index: int, expected: list[str]) -> bool:
+        """判断指定位置的连续行是否与期望序列完全一致。"""
         if index < 0 or index + len(expected) > len(lines):
             return False
         return lines[index:index + len(expected)] == expected
 
     @staticmethod
     def _nearby_lines(lines: list[str], index: int, radius: int = 3) -> list[dict[str, typing.Any]]:
+        """返回指定位置附近的行号和文本。"""
         if not lines:
             return []
 
@@ -842,10 +1004,12 @@ class PatchEngine(NativeCodingComponent):
 
     @staticmethod
     def _strip_line_ending(line: str) -> str:
+        """移除单行末尾的 CR/LF 换行符。"""
         return str(line).rstrip("\r\n")
 
     @staticmethod
     def _detect_newline(lines: list[str]) -> str:
+        """根据现有文本行推断主要换行符。"""
         for line in lines:
             if line.endswith("\r\n"):
                 return "\r\n"
@@ -855,6 +1019,7 @@ class PatchEngine(NativeCodingComponent):
 
     @staticmethod
     def _unified_patch_line_stats(hunks: list[dict[str, typing.Any]]) -> dict[str, int]:
+        """统计 unified patch hunk 中的新增、删除和上下文行数。"""
         added   = 0
         removed = 0
         context = 0
@@ -878,6 +1043,7 @@ class PatchEngine(NativeCodingComponent):
 
     @staticmethod
     def _unified_patch_count_corrections(hunks: list[dict[str, typing.Any]]) -> list[dict[str, typing.Any]]:
+        """收集 hunk 头声明行数与实际行数不一致的修正信息。"""
         corrections: list[dict[str, typing.Any]] = []
         for index, hunk in enumerate(hunks, start=1):
             if not bool(hunk.get("count_corrected")):
@@ -894,6 +1060,7 @@ class PatchEngine(NativeCodingComponent):
 
     @staticmethod
     def _public_unified_patch_file(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        """把内部变更计划转换为对外返回的文件摘要。"""
         return {
             "path"            : item.get("path"),
             "source_path"     : item.get("source_path"),
@@ -910,11 +1077,13 @@ class PatchEngine(NativeCodingComponent):
 
     @staticmethod
     def _read_text_preserve_newlines(target: Path) -> str:
+        """读取文本文件并保留原始换行符。"""
         with target.open("r", encoding=const.CHARSET, errors=const.IGNORE, newline="") as handle:
             return handle.read()
 
     @staticmethod
     def _refresh_written_file_mtime(target: Path) -> None:
+        """刷新已写文件的修改时间，便于后续状态检测。"""
         try:
             stat = target.stat()
             fresh_mtime_ns = max(stat.st_mtime_ns + 1_000_000_000, time.time_ns() + 1_000_000_000)

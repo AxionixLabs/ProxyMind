@@ -5,7 +5,6 @@ import os
 import time
 import typing
 import asyncio
-import subprocess
 from loguru import logger
 from backend.mcp_core.coding_native.base import NativeCodingComponent
 from backend.mcp_core.coding_native.command_runtime import NativeCommandRuntime
@@ -14,8 +13,8 @@ from backend.utilities.process import Flux
 from backend.utilities.trace import summarize_command
 
 
-class ShellGitTools(NativeCodingComponent):
-    """提供 shell 执行、git 状态和 git diff 能力。"""
+class ShellExecTools(NativeCodingComponent):
+    """提供受控 shell 执行能力。"""
 
     READ_ONLY_COMMANDS = {
         "cat",
@@ -88,7 +87,12 @@ class ShellGitTools(NativeCodingComponent):
         ]
 
     @classmethod
-    def _audit_mode_for_command(cls, cmd: list[str], *, audit_files: bool) -> str:
+    def _audit_mode_for_command(
+        cls,
+        cmd: list[str],
+        *,
+        audit_files: bool
+    ) -> str:
         """根据命令类型选择审计强度。"""
         if not audit_files:
             return "off"
@@ -120,136 +124,17 @@ class ShellGitTools(NativeCodingComponent):
 
         return "full"
 
-    def _is_git_workspace(self) -> bool:
-        """判断当前工作区是否包含 git 仓库。"""
-        git_marker = self.root / ".git"
-        if git_marker.exists():
-            return True
-
-        env = os.environ.copy()
-        try:
-            result = subprocess.run(
-                NativeCommandRuntime.resolve_command(["git", "rev-parse", "--is-inside-work-tree"], env=env),
-                cwd=str(self.root),
-                env=env,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=5,
-                check=False
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return False
-
-        return result.returncode == 0 and (result.stdout or b"").decode(errors="ignore").strip().lower() == "true"
-
     def _capture_shell_audit(self, mode: str) -> dict[str, typing.Any] | None:
         """按审计模式采集文件指纹。"""
         if mode == "off":
             return None
         return self.capture_file_fingerprints(hash_files=mode == "full")
 
-    async def _git(
-        self,
-        args: list[str],
-        *,
-        output_limit: int | None = None
-    ) -> dict[str, typing.Any]:
-        """在工作区根目录执行 git 子命令并返回统一结果。"""
-        cmd     = ["git", *args]
-        workdir = self._resolve(".")
-        env     = os.environ.copy()
-        limit   = max(1, min(int(output_limit or self.max_output_chars), self.max_output_chars))
-        started = time.perf_counter()
-
-        proc = await Flux.cmd_link_exec(
-            NativeCommandRuntime.resolve_command(cmd, env=env),
-            cwd=str(workdir),
-            env=env
-        )
-        timed_out = False
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
-        except asyncio.TimeoutError:
-            timed_out = True
-            proc.kill()
-            stdout, stderr = await proc.communicate()
-
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
-        raw_stdout = self._decode(stdout or b"")
-        raw_stderr = self._decode(stderr or b"")
-        exit_code  = int(proc.returncode or 0)
-        ok         = (exit_code == 0) and not timed_out
-
-        data = {
-                "ok"                     : ok,
-                "command"                : cmd,
-                "cwd"                    : self._rel(workdir),
-                "execution_target"       : "local",
-                "requires_cloud_sandbox" : False,
-                "exit_code"              : exit_code,
-                "timed_out"              : timed_out,
-                "elapsed_ms"             : elapsed_ms,
-                "output_limit"           : limit,
-                "stdout"                 : self._clip_output(raw_stdout, max_chars=limit),
-                "stderr"                 : self._clip_output(raw_stderr, max_chars=limit),
-                "stdout_truncated"       : len(raw_stdout) > limit,
-                "stderr_truncated"       : len(raw_stderr) > limit,
-                "truncated"              : len(raw_stdout) > limit or len(raw_stderr) > limit
-            }
-
-        return {
-            "text"        : f"git {'ok' if ok else 'failed'} exit_code={exit_code} elapsed_ms={elapsed_ms}",
-            "attachments" : [],
-            "data"        : data,
-            "logs"        : []
-        }
-
-    async def git_status(
-        self
-    ) -> dict[str, typing.Any]:
-        """返回当前工作区的 git status 摘要。"""
-        if not self._is_git_workspace():
-            return self._ok(
-                "git status unavailable: workspace is not a git repository",
-                stdout="",
-                available=False
-            )
-        return await self._git(["status", "--short"])
-
-    async def git_diff(
-        self,
-        path: str | None = None,
-        max_chars: int = 24000
-    ) -> dict[str, typing.Any]:
-        """返回当前工作区或指定路径的 git diff。"""
-        if not self._is_git_workspace():
-            return self._ok(
-                "git diff unavailable: workspace is not a git repository",
-                stdout="",
-                available=False
-            )
-
-        cmd = ["diff", "--"]
-        if path:
-            cmd.append(self._rel(self._resolve(path)))
-
-        output_limit = max(1, min(int(max_chars or self.max_output_chars), self.max_output_chars))
-        result       = await self._git(cmd, output_limit=output_limit)
-        data         = result.get("data") or {}
-
-        if data.get("stdout_truncated") and output_limit < self.max_output_chars:
-            data["recommended_next_steps"] = [
-                {
-                    "tool": "git_diff",
-                    "args": {
-                        "path"      : path,
-                        "max_chars" : min(output_limit * 2, self.max_output_chars)
-                    },
-                    "reason": "increase_limit"
-                }
-            ]
-        return result
+    def _record_shell_result(self, data: dict[str, typing.Any]) -> None:
+        """记录最近一次 shell_exec 结果，供 change_summary 汇总验证证据。"""
+        if not isinstance(data, dict):
+            return
+        self.core.last_shell_result = dict(data)
 
     async def shell_exec(
         self,
@@ -272,7 +157,7 @@ class ShellGitTools(NativeCodingComponent):
             timeout_sec=timeout_sec
         )
         if not policy["ok"]:
-            return self._fail(
+            result = self._fail(
                 policy["reason"],
                 command=cmd,
                 risk=policy.get("risk"),
@@ -287,13 +172,17 @@ class ShellGitTools(NativeCodingComponent):
                 execution=policy.get("execution"),
                 grant_id=policy.get("grant_id")
             )
+            self._record_shell_result(result.get("data") or {})
+            return result
 
         workdir = self._resolve(cwd)
         if not workdir.is_dir():
-            return self._fail("cwd_not_directory", cwd=cwd)
+            result = self._fail("cwd_not_directory", cwd=cwd, command=cmd)
+            self._record_shell_result(result.get("data") or {})
+            return result
 
         if policy.get("execution_target") == "cloud_sandbox":
-            return self._ok(
+            result = self._ok(
                 "shell exec requires cloud sandbox",
                 ok=False,
                 command=cmd,
@@ -311,6 +200,8 @@ class ShellGitTools(NativeCodingComponent):
                 timeout_sec=policy.get("timeout_sec"),
                 output_limit=policy.get("output_limit")
             )
+            self._record_shell_result(result.get("data") or {})
+            return result
 
         effective_timeout = int(policy.get("timeout_sec") or timeout_sec or 60)
         output_limit      = int(policy.get("output_limit") or self.max_output_chars)
@@ -319,7 +210,7 @@ class ShellGitTools(NativeCodingComponent):
         runtime = RuntimeResolver.resolve_shell_command(cmd, env=env)
         if not runtime.get("ok"):
             cloud_supported = bool(runtime.get("cloud_sandbox_supported"))
-            return self._ok(
+            result = self._ok(
                 "shell exec runtime unavailable",
                 ok=False,
                 command=cmd,
@@ -344,6 +235,8 @@ class ShellGitTools(NativeCodingComponent):
                 suggested_next_action=runtime.get("suggested_next_action"),
                 runtime=runtime
             )
+            self._record_shell_result(result.get("data") or {})
+            return result
 
         exec_cmd = list(runtime.get("command") or cmd)
         if not runtime.get("changed"):
@@ -397,48 +290,51 @@ class ShellGitTools(NativeCodingComponent):
             f"native shell exit ok={ok} rc={exit_code} elapsed_ms={elapsed_ms} "
             f"cmd={summarize_command(cmd)}"
         )
+        data = {
+            "ok": ok,
+            "command": cmd,
+            "resolved_command": exec_cmd,
+            "cwd": self._rel(workdir),
+            "risk": policy.get("risk"),
+            "category": policy.get("category"),
+            "risk_reasons": policy.get("reasons") or [],
+            "approval_required": bool(policy.get("approval_required")),
+            "execution_target": policy.get("execution_target"),
+            "requires_cloud_sandbox": bool(policy.get("requires_cloud_sandbox")),
+            "execution": policy.get("execution"),
+            "grant_id": policy.get("grant_id"),
+            "runtime": runtime.get("runtime") if runtime.get("changed") else None,
+            "project_types": policy.get("project_types") or [],
+            "long_task": bool(policy.get("long_task")),
+            "timeout_sec": effective_timeout,
+            "output_limit": output_limit,
+            "stdout_truncated": stdout_truncated,
+            "stderr_truncated": stderr_truncated,
+            "truncated": stdout_truncated or stderr_truncated,
+            "recommended_next_steps": self._shell_output_next_steps(
+                cmd=cmd,
+                cwd=self._rel(workdir),
+                timeout_sec=effective_timeout,
+                stdout_truncated=stdout_truncated,
+                stderr_truncated=stderr_truncated
+            ),
+            "file_audit_enabled": audit_mode != "off",
+            "file_audit_mode": audit_mode,
+            "shell_file_changes": shell_file_changes,
+            "shell_write_detected": bool(shell_file_changes.get("changed")),
+            "exit_code": exit_code,
+            "timed_out": timed_out,
+            "elapsed_ms": elapsed_ms,
+            "stdout": out_text,
+            "stderr": err_text
+        }
+        self._record_shell_result(data)
+
         return {
-            "text": f"shell exec {'ok' if ok else 'failed'} exit_code={exit_code} elapsed_ms={elapsed_ms}",
-            "attachments": [],
-            "data": {
-                "ok": ok,
-                "command": cmd,
-                "resolved_command": exec_cmd,
-                "cwd": self._rel(workdir),
-                "risk": policy.get("risk"),
-                "category": policy.get("category"),
-                "risk_reasons": policy.get("reasons") or [],
-                "approval_required": bool(policy.get("approval_required")),
-                "execution_target": policy.get("execution_target"),
-                "requires_cloud_sandbox": bool(policy.get("requires_cloud_sandbox")),
-                "execution": policy.get("execution"),
-                "grant_id": policy.get("grant_id"),
-                "runtime": runtime.get("runtime") if runtime.get("changed") else None,
-                "project_types": policy.get("project_types") or [],
-                "long_task": bool(policy.get("long_task")),
-                "timeout_sec": effective_timeout,
-                "output_limit": output_limit,
-                "stdout_truncated": stdout_truncated,
-                "stderr_truncated": stderr_truncated,
-                "truncated": stdout_truncated or stderr_truncated,
-                "recommended_next_steps": self._shell_output_next_steps(
-                    cmd=cmd,
-                    cwd=self._rel(workdir),
-                    timeout_sec=effective_timeout,
-                    stdout_truncated=stdout_truncated,
-                    stderr_truncated=stderr_truncated
-                ),
-                "file_audit_enabled": audit_mode != "off",
-                "file_audit_mode": audit_mode,
-                "shell_file_changes": shell_file_changes,
-                "shell_write_detected": bool(shell_file_changes.get("changed")),
-                "exit_code": exit_code,
-                "timed_out": timed_out,
-                "elapsed_ms": elapsed_ms,
-                "stdout": out_text,
-                "stderr": err_text
-            },
-            "logs": []
+            "text"        : f"shell exec {'ok' if ok else 'failed'} exit_code={exit_code} elapsed_ms={elapsed_ms}",
+            "attachments" : [],
+            "data"        : data,
+            "logs"        : []
         }
 
 

@@ -32,7 +32,38 @@ class NativeCodingBase(object):
         ".pyi",
         ".md",
         ".txt",
+        ".c",
+        ".cc",
+        ".cjs",
+        ".clj",
+        ".cls",
+        ".cpp",
+        ".cs",
+        ".dart",
+        ".ex",
+        ".exs",
+        ".fs",
+        ".fsi",
+        ".fsx",
+        ".h",
+        ".hh",
+        ".hpp",
+        ".java",
         ".json",
+        ".kt",
+        ".kts",
+        ".lua",
+        ".mjs",
+        ".mm",
+        ".php",
+        ".pl",
+        ".pm",
+        ".proto",
+        ".rb",
+        ".scala",
+        ".scss",
+        ".svelte",
+        ".swift",
         ".toml",
         ".yaml",
         ".yml",
@@ -53,7 +84,8 @@ class NativeCodingBase(object):
         ".csv",
         ".log",
         ".go",
-        ".rs"
+        ".rs",
+        ".vue"
     }
 
     DANGEROUS_COMMANDS = {
@@ -132,6 +164,8 @@ class NativeCodingBase(object):
         self.max_read_bytes: int   = 512_000
         self.max_write_bytes: int  = 1_000_000
         self.max_output_chars: int = 24_000
+
+        self.last_shell_result: dict[str, typing.Any] | None = None
 
     def _rel(self, path: Path) -> str:
         """把路径转换为相对工作区的展示路径。"""
