@@ -1,17 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-from backend.mcp_tools.coding.schemas.schema_coding import (
-    CodingPromptArg,
-    CodingProfileArg,
-    CodingModelArg,
-    CodingSandboxArg,
-    CodingSkipGitRepoCheckArg,
-    CodingEphemeralArg,
-    CodingJsonOutputArg,
-    CodingTimeoutSecArg,
-    CodingExtraArgsArg,
-)
 from backend.mcp_tools.coding.schemas.schema_native import (
     WorkspacePathArg,
     WorkspaceOptionalPathArg,
@@ -46,15 +35,6 @@ from backend.mcp_tools.coding.schemas.schema_native import (
 )
 
 __all__ = [
-    "CodingPromptArg",
-    "CodingProfileArg",
-    "CodingModelArg",
-    "CodingSandboxArg",
-    "CodingSkipGitRepoCheckArg",
-    "CodingEphemeralArg",
-    "CodingJsonOutputArg",
-    "CodingTimeoutSecArg",
-    "CodingExtraArgsArg",
     "WorkspacePathArg",
     "WorkspaceOptionalPathArg",
     "WorkspacePatternArg",

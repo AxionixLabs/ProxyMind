@@ -37,7 +37,7 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     GitDiffMaxCharsArg,
     CodingSessionIdArg,
     CodingRequiredSessionIdArg,
-    CodingRunIdArg,
+    CodingRunIdArg
 )
 from backend.utilities.runtime import (
     AppContext, Idle

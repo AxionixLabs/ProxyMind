@@ -8,7 +8,6 @@ import typing
 import asyncio
 from loguru import logger
 from backend.mcp_hub.hub_device import Device
-from backend.mcp_core.coding_runtime import CodexRuntimeResolver
 from backend.models.model_device import SemanticResult
 from backend.utilities.process import Flux
 
@@ -135,14 +134,6 @@ class Requires(object):
             raise RuntimeError(f"Requires {application}. install it first, {navigator}.")
 
         return (await Flux.cmd_line([application, "--version"]) or "").strip()
-
-    @staticmethod
-    async def connect_codex() -> typing.Optional[str]:
-        if not shutil.which(application := "codex"):
-            navigator = "https://developers.openai.com/codex"
-            raise RuntimeError(f"Requires {application}. install it first, {navigator}.")
-
-        return (await Flux.cmd_line(CodexRuntimeResolver.resolve_command(["--version"])) or "").strip()
 
 
 if __name__ == '__main__':

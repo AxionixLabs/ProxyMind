@@ -3,7 +3,6 @@
 
 import typing
 import asyncio
-from backend.mcp_core.core_coding import Coding
 from backend.mcp_core.coding_native import NativeCoding
 from backend.mcp_core.core_k6 import K6
 from backend.mcp_core.core_framix import Framix
@@ -36,7 +35,6 @@ class AppContext(object):
 
         self.nexus: Nexus = Nexus()
         self.k6: K6 = K6()
-        self.coding: Coding = Coding()
         self.native_coding: NativeCoding = NativeCoding()
 
         self.ffmpeg: FFmpeg = FFmpeg()
@@ -49,13 +47,11 @@ class AppContext(object):
             self.fx_report_snapshot(),
             self.mx_report_snapshot()
         )
-        coding = await self.coding.snapshot()
         return {
             "instance": {
                 **video_list,
                 **fx_report,
                 **mx_report,
-                **coding,
                 self.native_coding.agent_id: {
                     "ok": True,
                     "root": str(self.native_coding.root)

@@ -58,10 +58,8 @@ def register_common_tools(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
 
 def register_coding_tools(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
-    from backend.mcp_tools.coding import coding
     from backend.mcp_tools.coding import native
 
-    coding.bind(mcp, idle, ctx)
     native.bind(mcp, idle, ctx)
 
 

@@ -31,7 +31,7 @@ class CodeSourceAuth:
             "type"     : self.type,
             "token"    : self.token,
             "username" : self.username,
-            "password" : self.password,
+            "password" : self.password
         }
 
     @classmethod
@@ -40,6 +40,7 @@ class CodeSourceAuth:
             raise MindError("code source auth must be an object")
 
         allowed = {"type", "token", "username", "password"}
+
         extra = set(value) - allowed
         if extra:
             raise MindError(f"Unsupported code source auth field(s): {', '.join(sorted(extra))}")
@@ -49,7 +50,7 @@ class CodeSourceAuth:
             raise MindError("code source auth.type must be bearer or basic")
 
         auth = cls(
-            type=typing.cast(typing.Literal["bearer", "basic"], auth_type),
+            type=auth_type,
             token=None if value.get("token") is None else str(value.get("token")),
             username=None if value.get("username") is None else str(value.get("username")),
             password=None if value.get("password") is None else str(value.get("password")),
@@ -64,6 +65,7 @@ class CodeSourceAuth:
             raise MindError("basic auth requires username")
         if auth.password is None:
             raise MindError("basic auth requires password")
+
         return auth
 
 
@@ -92,7 +94,7 @@ class CodeSourcePayload:
             "auth"              : None if self.auth is None else self.auth.to_dict(),
             "timeout_sec"       : self.timeout_sec,
             "cache_ttl_sec"     : self.cache_ttl_sec,
-            "max_content_bytes" : self.max_content_bytes,
+            "max_content_bytes" : self.max_content_bytes
         }
 
     @classmethod
@@ -105,7 +107,7 @@ class CodeSourcePayload:
 
         allowed = {
             "kind", "name", "path", "content", "url", "headers",
-            "auth", "timeout_sec", "cache_ttl_sec", "max_content_bytes",
+            "auth", "timeout_sec", "cache_ttl_sec", "max_content_bytes"
         }
         extra = set(value) - allowed
         if extra:
@@ -120,7 +122,7 @@ class CodeSourcePayload:
             raise MindError("code source headers must be an object")
 
         payload = cls(
-            kind=typing.cast(typing.Literal["file", "stdin", "inline", "url"], kind),
+            kind=kind,
             name=None if value.get("name") is None else str(value.get("name")),
             path=None if value.get("path") is None else str(value.get("path")),
             content=None if value.get("content") is None else str(value.get("content")),
@@ -129,7 +131,7 @@ class CodeSourcePayload:
             auth=None if value.get("auth") is None else CodeSourceAuth.from_input(value.get("auth")),
             timeout_sec=None if value.get("timeout_sec") in (None, "") else float(value.get("timeout_sec")),
             cache_ttl_sec=None if value.get("cache_ttl_sec") in (None, "") else int(value.get("cache_ttl_sec")),
-            max_content_bytes=None if value.get("max_content_bytes") in (None, "") else int(value.get("max_content_bytes")),
+            max_content_bytes=None if value.get("max_content_bytes") in (None, "") else int(value.get("max_content_bytes"))
         )
 
         if payload.kind == "file":
@@ -147,6 +149,7 @@ class CodeSourcePayload:
 
         if not str(payload.url or "").strip():
             raise MindError("url source requires url")
+
         return payload
 
 
