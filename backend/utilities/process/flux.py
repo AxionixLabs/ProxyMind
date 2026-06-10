@@ -78,9 +78,7 @@ class Flux(object):
         return transports
 
     @staticmethod
-    async def cmd_link_pty(
-        cmd: list[str]
-    ) -> typing.Optional[asyncio.subprocess.Process]:
+    async def cmd_link_pty(cmd: list[str]) -> typing.Optional[asyncio.subprocess.Process]:
         """在类 Unix 环境下通过 PTY 启动子进程，便于消费合并后的交互输出。"""
         if (os.name == "nt") or sys.platform.startswith("win"):
             return None
@@ -147,6 +145,35 @@ class Flux(object):
         )
         logger.debug(
             f"process link mode=shell pid={transports.pid} cmd={summarize_command(cmd)}"
+        )
+
+        return transports
+
+    @staticmethod
+    async def cmd_link_shell_exec(
+        cmd: str,
+        *,
+        shell: typing.Optional[list[str]] = None,
+        cwd: typing.Optional[str] = None,
+        env: typing.Optional[dict[str, str]] = None,
+        stdin: typing.Any = None
+    ) -> asyncio.subprocess.Process:
+        """以 shell 字符串方式启动子进程，并返回进程句柄。"""
+        prefix = [str(item) for item in (shell or []) if str(item or "").strip()]
+        if prefix:
+            transports = await asyncio.create_subprocess_exec(
+                *prefix, cmd,
+                cwd=cwd or None, env=env, stdin=stdin,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+        else:
+            transports = await asyncio.create_subprocess_shell(
+                cmd, cwd=cwd or None, env=env, stdin=stdin,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+        logger.debug(
+            f"process link mode=shell pid={transports.pid} cwd={clip_text(cwd or '', 120)} "
+            f"cmd={summarize_command(cmd)}"
         )
 
         return transports
