@@ -2,15 +2,20 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.mcp_code.base import NativeCodingComponent
+from backend.mcp_code.base import (
+    NativeCodingBase, NativeCodingComponent
+)
 from backend.utilities import const
 
 
 class TextPatchOperations(NativeCodingComponent):
+    """提供面向文本文件的补丁操作入口。"""
 
-    def __init__(self, core, *, planner, diagnostics):
+    def __init__(self, core: NativeCodingBase, *, planner: typing.Any, diagnostics: typing.Any) -> None:
+        """保存共享运行时上下文和补丁执行依赖。"""
         super().__init__(core)
-        self._planner = planner
+
+        self._planner     = planner
         self._diagnostics = diagnostics
 
     def apply_patch(

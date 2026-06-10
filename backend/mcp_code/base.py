@@ -157,7 +157,7 @@ class NativeCodingBase(object):
         "`"
     }
 
-    def __init__(self, root: str | None = None):
+    def __init__(self, root: str | None = None) -> None:
         """初始化工作区根目录和默认读写输出限制。"""
         self.root = Path(root or os.getcwd()).resolve()
 
@@ -314,41 +314,70 @@ class NativeCodingBase(object):
 class NativeCodingComponent(object):
     """共享 NativeCoding 运行时上下文的组件包装器。"""
 
-    def __init__(self, core: NativeCodingBase):
+    def __init__(self, core: NativeCodingBase) -> None:
         """保存共享的原生编码核心对象。"""
         self.core = core
 
     @property
     def root(self) -> Path:
+        """返回共享工作区根目录。"""
         return self.core.root
 
     @property
     def max_read_bytes(self) -> int:
+        """返回单次读取的字节上限。"""
         return self.core.max_read_bytes
 
     @property
     def max_write_bytes(self) -> int:
+        """返回单次写入的字节上限。"""
         return self.core.max_write_bytes
 
     @property
     def max_output_chars(self) -> int:
+        """返回命令输出的字符上限。"""
         return self.core.max_output_chars
 
     @property
     def last_shell_result(self) -> dict[str, typing.Any] | None:
+        """返回最近一次 shell 执行结果。"""
         return self.core.last_shell_result
 
     @property
     def validation_history(self) -> list[dict[str, typing.Any]]:
+        """返回当前会话记录的验证历史。"""
         return self.core.validation_history
 
+    @staticmethod
+    def decode_bytes(data: bytes) -> str:
+        """按项目默认字符集解码字节数据。"""
+        return NativeCodingBase.decode_bytes(data)
+
+    @staticmethod
+    def sha256_bytes(data: bytes) -> str:
+        """计算字节数据的 SHA256 摘要。"""
+        return NativeCodingBase.sha256_bytes(data)
+
+    @staticmethod
+    def ok_result(text: str, **data: typing.Any) -> dict[str, typing.Any]:
+        """构造统一成功返回结构。"""
+        return NativeCodingBase.ok_result(text, **data)
+
+    @staticmethod
+    def fail_result(reason: str, **data: typing.Any) -> dict[str, typing.Any]:
+        """构造统一失败返回结构。"""
+        return NativeCodingBase.fail_result(reason, **data)
+
     def relative_path(self, path: Path) -> str:
+        """委托生成相对工作区路径。"""
         return self.core.relative_path(path)
 
     def walk_paths(self, base: Path, *, recursive: bool = True) -> typing.Iterator[Path]:
+        """委托遍历工作区路径。"""
         return self.core.walk_paths(base, recursive=recursive)
 
     def resolve_path(self, path: str | None = None) -> Path:
+        """委托解析工作区内路径。"""
         return self.core.resolve_path(path)
 
     def conflict_guard(
@@ -358,32 +387,20 @@ class NativeCodingComponent(object):
         expected_sha256: str | None,
         force: bool
     ) -> dict[str, typing.Any] | None:
+        """委托检查文件写入冲突。"""
         return self.core.conflict_guard(target, expected_sha256=expected_sha256, force=force)
 
     def looks_text(self, path: Path) -> bool:
+        """委托判断文件是否适合作为文本处理。"""
         return self.core.looks_text(path)
 
     def is_excluded_path(self, path: Path) -> bool:
+        """委托判断路径是否位于排除范围。"""
         return self.core.is_excluded_path(path)
 
     def clip_output(self, text: str, *, max_chars: int | None = None) -> str:
+        """委托按字符上限截断文本。"""
         return self.core.clip_output(text, max_chars=max_chars)
-
-    @staticmethod
-    def decode_bytes(data: bytes) -> str:
-        return NativeCodingBase.decode_bytes(data)
-
-    @staticmethod
-    def sha256_bytes(data: bytes) -> str:
-        return NativeCodingBase.sha256_bytes(data)
-
-    @staticmethod
-    def ok_result(text: str, **data: typing.Any) -> dict[str, typing.Any]:
-        return NativeCodingBase.ok_result(text, **data)
-
-    @staticmethod
-    def fail_result(reason: str, **data: typing.Any) -> dict[str, typing.Any]:
-        return NativeCodingBase.fail_result(reason, **data)
 
 
 if __name__ == '__main__':

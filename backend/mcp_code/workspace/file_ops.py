@@ -8,6 +8,7 @@ from backend.utilities import const
 
 
 class WorkspaceFileTools(NativeCodingComponent):
+    """提供工作区文件读写、复制、移动和删除能力。"""
 
     @staticmethod
     def _read_line_window(
@@ -53,9 +54,9 @@ class WorkspaceFileTools(NativeCodingComponent):
 
         if has_known_next_line or has_possible_next_line:
             steps.append({
-                "tool"   : "workspace_read_file",
-                "args"   : {"path": path, "start_line": end_line + 1, "max_lines": 200},
-                "reason" : "continue_from_next_line"
+                "tool": "workspace_read_file",
+                "args": {"path": path, "start_line": end_line + 1, "max_lines": 200},
+                "reason": "continue_from_next_line"
             })
 
         return steps
@@ -82,6 +83,24 @@ class WorkspaceFileTools(NativeCodingComponent):
             reasons.append("line_window")
 
         return reasons
+
+    def _file_state(
+        self,
+        target: typing.Any
+    ) -> dict[str, typing.Any]:
+        """返回单个文件的存在性、大小和 SHA256 摘要。"""
+        if not target.exists() or not target.is_file():
+            return {
+                "exists" : False,
+                "bytes"  : None,
+                "sha256" : None
+            }
+        payload = target.read_bytes()
+        return {
+            "exists" : True,
+            "bytes"  : len(payload),
+            "sha256" : self.sha256_bytes(payload)
+        }
 
     def workspace_root(
         self
@@ -381,8 +400,8 @@ class WorkspaceFileTools(NativeCodingComponent):
         if target.exists() and not overwrite:
             return self.fail_result("target_exists", target_path=self.relative_path(target))
 
-        payload = source.read_bytes()
-        sha     = self.sha256_bytes(payload)
+        payload       = source.read_bytes()
+        sha           = self.sha256_bytes(payload)
         target_before = self._file_state(target)
 
         if expected_sha256 and not force and expected_sha256 != sha:
@@ -460,24 +479,6 @@ class WorkspaceFileTools(NativeCodingComponent):
             sha256_after=after.get("sha256"),
             sha256=sha
         )
-
-    def _file_state(
-        self,
-        target: typing.Any
-    ) -> dict[str, typing.Any]:
-        """返回单个文件的存在性、大小和 SHA256 摘要。"""
-        if not target.exists() or not target.is_file():
-            return {
-                "exists" : False,
-                "bytes"  : None,
-                "sha256" : None
-            }
-        payload = target.read_bytes()
-        return {
-            "exists" : True,
-            "bytes"  : len(payload),
-            "sha256" : self.sha256_bytes(payload)
-        }
 
 
 if __name__ == '__main__':

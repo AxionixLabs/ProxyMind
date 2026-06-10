@@ -54,6 +54,104 @@ class ParallelReadTools(NativeCodingComponent):
 
         return "item_failed"
 
+    def _normalize_items(
+        self,
+        items: list[dict[str, typing.Any]]
+    ) -> list[dict[str, typing.Any]]:
+        """归一化批量读取请求，限制数量并保留原始顺序索引。"""
+        if not isinstance(items, list):
+            return []
+
+        normalized: list[dict[str, typing.Any]] = []
+        for index, item in enumerate(items[:self.MAX_ITEMS]):
+            if not isinstance(item, dict):
+                normalized.append({"index": index, "tool": "", "args": {}})
+                continue
+
+            tool = str(item.get("tool") or "").strip()
+            args = item.get("args") if isinstance(item.get("args"), dict) else {}
+            normalized.append({"index": index, "tool": tool, "args": args})
+
+        return normalized
+
+    def _parallel_read_failure_reasons(
+        self,
+        results: list[dict[str, typing.Any]]
+    ) -> dict[str, int]:
+        """按原因统计并行读取失败项。"""
+        reasons: dict[str, int] = {}
+
+        for item in results:
+            if item.get("ok"):
+                continue
+            reason = self._parallel_read_item_reason(item)
+            reasons[reason] = reasons.get(reason, 0) + 1
+
+        return reasons
+
+    def _parallel_read_failures(
+        self,
+        results: list[dict[str, typing.Any]]
+    ) -> list[dict[str, typing.Any]]:
+        """提取失败项的索引、工具、参数和原因。"""
+        failures: list[dict[str, typing.Any]] = []
+
+        for item in results:
+            if item.get("ok"):
+                continue
+            failures.append({
+                "index": item.get("index"),
+                "tool": item.get("tool"),
+                "args": item.get("args") if isinstance(item.get("args"), dict) else {},
+                "reason": self._parallel_read_item_reason(item)
+            })
+
+        return failures
+
+    def _parallel_read_next_steps(
+        self,
+        *,
+        original_items: list[dict[str, typing.Any]],
+        results: list[dict[str, typing.Any]],
+        truncated: bool,
+        failures: list[dict[str, typing.Any]]
+    ) -> list[dict[str, typing.Any]]:
+        """根据截断、失败项和子工具建议生成下一步读取动作。"""
+        steps: list[dict[str, typing.Any]] = []
+        if truncated:
+            steps.append({
+                "tool"   : "native_parallel_read",
+                "args"   : {"items": original_items[self.MAX_ITEMS:self.MAX_ITEMS * 2]},
+                "reason" : "continue_remaining_items"
+            })
+
+        if failures:
+            steps.append({
+                "tool": "native_parallel_read",
+                "args": {"items": [
+                    {"tool": item.get("tool"), "args": item.get("args") or {}}
+                    for item in failures[:self.MAX_ITEMS]
+                ]},
+                "reason": "retry_failed_items_after_fixing_inputs"
+            })
+
+        for item in results:
+
+            result = item.get("result") if isinstance(item, dict) else None
+            data   = result.get("data") if isinstance(result, dict) else None
+
+            if not isinstance(data, dict):
+                continue
+            if not data.get("truncated") and not data.get("recommended_next_steps"):
+                continue
+            for step in data.get("recommended_next_steps") or []:
+                if isinstance(step, dict):
+                    steps.append({
+                        "source_index": item.get("index"), **step
+                    })
+
+        return steps
+
     async def parallel_read(
         self,
         items: list[dict[str, typing.Any]]
@@ -64,6 +162,7 @@ class ParallelReadTools(NativeCodingComponent):
         semaphore  = asyncio.Semaphore(self.MAX_CONCURRENCY)
 
         async def run_item(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
+            """执行单个并行读取条目并保留原始索引。"""
             index = int(item.get("index") or 0)
             tool  = str(item.get("tool") or "").strip()
             args  = item.get("args") if isinstance(item.get("args"), dict) else {}
@@ -134,104 +233,6 @@ class ParallelReadTools(NativeCodingComponent):
             recommended_next_steps=recommended_next_steps,
             results=results
         )
-
-    def _normalize_items(
-        self,
-        items: list[dict[str, typing.Any]]
-    ) -> list[dict[str, typing.Any]]:
-        """归一化批量读取请求，限制数量并保留原始顺序索引。"""
-        if not isinstance(items, list):
-            return []
-
-        normalized: list[dict[str, typing.Any]] = []
-        for index, item in enumerate(items[:self.MAX_ITEMS]):
-            if not isinstance(item, dict):
-                normalized.append({"index": index, "tool": "", "args": {}})
-                continue
-
-            tool = str(item.get("tool") or "").strip()
-            args = item.get("args") if isinstance(item.get("args"), dict) else {}
-            normalized.append({"index": index, "tool": tool, "args": args})
-
-        return normalized
-
-    def _parallel_read_failure_reasons(
-        self,
-        results: list[dict[str, typing.Any]]
-    ) -> dict[str, int]:
-        """按原因统计并行读取失败项。"""
-        reasons: dict[str, int] = {}
-
-        for item in results:
-            if item.get("ok"):
-                continue
-            reason = self._parallel_read_item_reason(item)
-            reasons[reason] = reasons.get(reason, 0) + 1
-
-        return reasons
-
-    def _parallel_read_failures(
-        self,
-        results: list[dict[str, typing.Any]]
-    ) -> list[dict[str, typing.Any]]:
-        """提取失败项的索引、工具、参数和原因。"""
-        failures: list[dict[str, typing.Any]] = []
-
-        for item in results:
-            if item.get("ok"):
-                continue
-            failures.append({
-                "index"  : item.get("index"),
-                "tool"   : item.get("tool"),
-                "args"   : item.get("args") if isinstance(item.get("args"), dict) else {},
-                "reason" : self._parallel_read_item_reason(item)
-            })
-
-        return failures
-
-    def _parallel_read_next_steps(
-        self,
-        *,
-        original_items: list[dict[str, typing.Any]],
-        results: list[dict[str, typing.Any]],
-        truncated: bool,
-        failures: list[dict[str, typing.Any]]
-    ) -> list[dict[str, typing.Any]]:
-        """根据截断、失败项和子工具建议生成下一步读取动作。"""
-        steps: list[dict[str, typing.Any]] = []
-        if truncated:
-            steps.append({
-                "tool"   : "native_parallel_read",
-                "args"   : {"items": original_items[self.MAX_ITEMS:self.MAX_ITEMS * 2]},
-                "reason" : "continue_remaining_items"
-            })
-
-        if failures:
-            steps.append({
-                "tool": "native_parallel_read",
-                "args": {"items": [
-                    {"tool": item.get("tool"), "args": item.get("args") or {}}
-                    for item in failures[:self.MAX_ITEMS]
-                ]},
-                "reason": "retry_failed_items_after_fixing_inputs"
-            })
-
-        for item in results:
-
-            result = item.get("result") if isinstance(item, dict) else None
-            data   = result.get("data") if isinstance(result, dict) else None
-
-            if not isinstance(data, dict):
-                continue
-            if not data.get("truncated") and not data.get("recommended_next_steps"):
-                continue
-            for step in data.get("recommended_next_steps") or []:
-                if isinstance(step, dict):
-                    steps.append({
-                        "source_index": item.get("index"), **step
-                    })
-
-        return steps
 
 
 if __name__ == '__main__':

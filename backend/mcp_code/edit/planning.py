@@ -2,17 +2,87 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.mcp_code.base import NativeCodingComponent
+from backend.mcp_code.base import (
+    NativeCodingBase, NativeCodingComponent
+)
 from backend.utilities import const
 
 
 class UnifiedPatchPlanner(NativeCodingComponent):
+    """预检查 unified diff 并生成文件写入计划。"""
 
-    def __init__(self, core, *, parser, applier, diagnostics):
+    def __init__(
+        self,
+        core: NativeCodingBase,
+        *,
+        parser: typing.Any,
+        applier: typing.Any,
+        diagnostics: typing.Any
+    ) -> None:
+        """保存共享运行时上下文和 unified patch 处理依赖。"""
         super().__init__(core)
+
         self._parser      = parser
         self._applier     = applier
         self._diagnostics = diagnostics
+
+    @staticmethod
+    def _unified_patch_line_stats(hunks: list[dict[str, typing.Any]]) -> dict[str, int]:
+        """统计 unified patch hunk 中的新增、删除和上下文行数。"""
+        added   = 0
+        removed = 0
+        context = 0
+
+        for hunk in hunks:
+            for raw_line in hunk.get("lines") or []:
+                marker = str(raw_line.get("marker") or "") if isinstance(raw_line, dict) else str(raw_line)[:1]
+                if marker == "+":
+                    added += 1
+                elif marker == "-":
+                    removed += 1
+                elif marker == " ":
+                    context += 1
+
+        return {
+            "added_lines"   : added,
+            "removed_lines" : removed,
+            "context_lines" : context,
+            "replacements"  : min(added, removed)
+        }
+
+    @staticmethod
+    def _unified_patch_count_corrections(hunks: list[dict[str, typing.Any]]) -> list[dict[str, typing.Any]]:
+        """收集 hunk 头声明行数与实际行数不一致的修正信息。"""
+        corrections: list[dict[str, typing.Any]] = []
+        for index, hunk in enumerate(hunks, start=1):
+            if not bool(hunk.get("count_corrected")):
+                continue
+            corrections.append({
+                "hunk"               : index,
+                "header"             : hunk.get("header"),
+                "declared_old_count" : hunk.get("declared_old_count"),
+                "declared_new_count" : hunk.get("declared_new_count"),
+                "actual_old_count"   : hunk.get("old_count"),
+                "actual_new_count"   : hunk.get("new_count")
+            })
+        return corrections
+
+    @staticmethod
+    def public_unified_patch_file(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        """把内部变更计划转换为对外返回的文件摘要。"""
+        return {
+            "path"            : item.get("path"),
+            "source_path"     : item.get("source_path"),
+            "action"          : item.get("action"),
+            "hunks"           : item.get("hunks"),
+            "relocated_hunks" : list(item.get("relocated_hunks") or []),
+            "corrected_hunks" : list(item.get("corrected_hunks") or []),
+            "sha256_before"   : item.get("sha256_before"),
+            "sha256_after"    : item.get("sha256_after"),
+            "added_lines"     : item.get("added_lines"),
+            "removed_lines"   : item.get("removed_lines"),
+            "replacements"    : item.get("replacements")
+        }
 
     def plan_unified_patch(
         self,
@@ -233,64 +303,6 @@ class UnifiedPatchPlanner(NativeCodingComponent):
             })
 
         return {"ok": True, "planned": planned}
-
-    @staticmethod
-    def _unified_patch_line_stats(hunks: list[dict[str, typing.Any]]) -> dict[str, int]:
-        """统计 unified patch hunk 中的新增、删除和上下文行数。"""
-        added   = 0
-        removed = 0
-        context = 0
-
-        for hunk in hunks:
-            for raw_line in hunk.get("lines") or []:
-                marker = str(raw_line.get("marker") or "") if isinstance(raw_line, dict) else str(raw_line)[:1]
-                if marker == "+":
-                    added += 1
-                elif marker == "-":
-                    removed += 1
-                elif marker == " ":
-                    context += 1
-
-        return {
-            "added_lines"   : added,
-            "removed_lines" : removed,
-            "context_lines" : context,
-            "replacements"  : min(added, removed)
-        }
-
-    @staticmethod
-    def _unified_patch_count_corrections(hunks: list[dict[str, typing.Any]]) -> list[dict[str, typing.Any]]:
-        """收集 hunk 头声明行数与实际行数不一致的修正信息。"""
-        corrections: list[dict[str, typing.Any]] = []
-        for index, hunk in enumerate(hunks, start=1):
-            if not bool(hunk.get("count_corrected")):
-                continue
-            corrections.append({
-                "hunk"               : index,
-                "header"             : hunk.get("header"),
-                "declared_old_count" : hunk.get("declared_old_count"),
-                "declared_new_count" : hunk.get("declared_new_count"),
-                "actual_old_count"   : hunk.get("old_count"),
-                "actual_new_count"   : hunk.get("new_count")
-            })
-        return corrections
-
-    @staticmethod
-    def public_unified_patch_file(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        """把内部变更计划转换为对外返回的文件摘要。"""
-        return {
-            "path"            : item.get("path"),
-            "source_path"     : item.get("source_path"),
-            "action"          : item.get("action"),
-            "hunks"           : item.get("hunks"),
-            "relocated_hunks" : list(item.get("relocated_hunks") or []),
-            "corrected_hunks" : list(item.get("corrected_hunks") or []),
-            "sha256_before"   : item.get("sha256_before"),
-            "sha256_after"    : item.get("sha256_after"),
-            "added_lines"     : item.get("added_lines"),
-            "removed_lines"   : item.get("removed_lines"),
-            "replacements"    : item.get("replacements")
-        }
 
 
 if __name__ == '__main__':

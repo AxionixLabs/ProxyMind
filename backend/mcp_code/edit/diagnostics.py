@@ -13,49 +13,7 @@ from backend.utilities import const
 
 
 class PatchDiagnostics(NativeCodingComponent):
-
-    def replacement_mismatch_diagnostics(
-        self,
-        *,
-        current: str,
-        old_text: str
-    ) -> dict[str, typing.Any]:
-        """为精确替换失败返回可用于重试的近似匹配诊断。"""
-        normalized_old     = self._normalize_patch_text_for_compare(old_text)
-        normalized_current = self._normalize_patch_text_for_compare(current)
-        newline_old        = self._normalize_newlines(old_text)
-        newline_current    = self._normalize_newlines(current)
-
-        actual_occurrences = [
-            {"line": self._line_number_for_offset(current, index)}
-            for index in self._find_occurrences(current, old_text, limit=8)
-        ]
-
-        return {
-            "line_ending_equivalent": bool(old_text not in current and newline_old in newline_current),
-            "whitespace_equivalent": bool(
-                old_text not in current and normalized_old and normalized_old in normalized_current
-            ),
-            "actual_occurrences": actual_occurrences,
-            "replacement_candidates": self._replacement_candidates(
-                current=current,
-                old_text=old_text
-            )
-        }
-
-    def with_unified_patch_diagnostics(
-        self,
-        *,
-        reason: str,
-        data: dict[str, typing.Any],
-        patch: str
-    ) -> dict[str, typing.Any]:
-        """为 unified patch 失败结果补充格式提示和补丁预览。"""
-        enriched = dict(data)
-        enriched.setdefault("patch_format_hint", self.unified_patch_hint(reason))
-        enriched.setdefault("suggested_next_action", self.unified_patch_next_action(reason))
-        enriched.setdefault("patch_preview", self.diagnostic_preview(patch, limit=1600))
-        return enriched
+    """提供文本补丁失败诊断和提示信息。"""
 
     @classmethod
     def _replacement_candidates(
@@ -243,6 +201,49 @@ class PatchDiagnostics(NativeCodingComponent):
             os.utime(target, ns=(stat.st_atime_ns, fresh_mtime_ns))
         except OSError:
             return
+
+    def replacement_mismatch_diagnostics(
+        self,
+        *,
+        current: str,
+        old_text: str
+    ) -> dict[str, typing.Any]:
+        """为精确替换失败返回可用于重试的近似匹配诊断。"""
+        normalized_old     = self._normalize_patch_text_for_compare(old_text)
+        normalized_current = self._normalize_patch_text_for_compare(current)
+        newline_old        = self._normalize_newlines(old_text)
+        newline_current    = self._normalize_newlines(current)
+
+        actual_occurrences = [
+            {"line": self._line_number_for_offset(current, index)}
+            for index in self._find_occurrences(current, old_text, limit=8)
+        ]
+
+        return {
+            "line_ending_equivalent": bool(old_text not in current and newline_old in newline_current),
+            "whitespace_equivalent": bool(
+                old_text not in current and normalized_old and normalized_old in normalized_current
+            ),
+            "actual_occurrences": actual_occurrences,
+            "replacement_candidates": self._replacement_candidates(
+                current=current,
+                old_text=old_text
+            )
+        }
+
+    def with_unified_patch_diagnostics(
+        self,
+        *,
+        reason: str,
+        data: dict[str, typing.Any],
+        patch: str
+    ) -> dict[str, typing.Any]:
+        """为 unified patch 失败结果补充格式提示和补丁预览。"""
+        enriched = dict(data)
+        enriched.setdefault("patch_format_hint", self.unified_patch_hint(reason))
+        enriched.setdefault("suggested_next_action", self.unified_patch_next_action(reason))
+        enriched.setdefault("patch_preview", self.diagnostic_preview(patch, limit=1600))
+        return enriched
 
 
 if __name__ == '__main__':

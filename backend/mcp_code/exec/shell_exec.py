@@ -7,7 +7,9 @@ import time
 import typing
 import asyncio
 from loguru import logger
-from backend.mcp_code.base import NativeCodingComponent
+from backend.mcp_code.base import (
+    NativeCodingBase, NativeCodingComponent
+)
 from backend.mcp_code.exec.command_runtime import NativeCommandRuntime
 from backend.mcp_code.exec.runtime_resolution import RuntimeResolver
 from backend.utilities.process import Flux
@@ -86,7 +88,14 @@ class ShellExecTools(NativeCodingComponent):
         "-r"
     }
 
-    def __init__(self, core, *, command_policy, file_audit):
+    def __init__(
+        self,
+        core: NativeCodingBase,
+        *,
+        command_policy: typing.Any,
+        file_audit: typing.Any
+    ) -> None:
+        """保存共享运行时上下文、命令策略和文件审计依赖。"""
         super().__init__(core)
         self._command_policy = command_policy
         self._file_audit     = file_audit

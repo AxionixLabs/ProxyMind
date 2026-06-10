@@ -2,252 +2,19 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import typing
-from backend.mcp_code.base import NativeCodingComponent
+from backend.mcp_code.base import (
+    NativeCodingBase, NativeCodingComponent
+)
 
 
 class ChangeSummaryTools(NativeCodingComponent):
     """汇总 Git 变更、验证记录和工作区风险信息。"""
 
-    def __init__(self, core, *, git_tools):
+    def __init__(self, core: NativeCodingBase, *, git_tools: typing.Any) -> None:
         """保存共享运行时上下文和 Git 工具依赖。"""
         super().__init__(core)
+
         self._git_tools = git_tools
-
-    async def change_summary(
-        self,
-        *,
-        max_diff_chars: int = 12000,
-        include_untracked_preview: bool = True
-    ) -> dict[str, typing.Any]:
-        """生成变更摘要、风险项和验证充分性判断。"""
-        status = await self._git_tools.git_status()
-        diff   = await self._git_tools.git_diff(max_chars=max_diff_chars)
-
-        status_data = status.get("data") or {}
-        diff_data   = diff.get("data") or {}
-
-        status_text           = str(status_data.get("stdout") or "")
-        diff_text             = str(diff_data.get("stdout") or "")
-        changed_files         = self._parse_git_status_short(status_text)
-        structured_diff_stats = diff_data.get("diff_stats") if isinstance(diff_data.get("diff_stats"), dict) else {}
-        diff_stats            = self._tracked_diff_stats(structured_diff_stats)
-        untracked_previews    = self._summarize_untracked_files(changed_files) if include_untracked_preview else []
-        validation            = self._validation_summary(self.last_shell_result)
-        validation_history    = self._validation_history_summary(self.validation_history)
-
-        blockers: list[dict[str, typing.Any]] = []
-        warnings: list[dict[str, typing.Any]] = []
-
-        if not bool(status_data.get("available", True)):
-            warnings.append({
-                "kind"    : "git_unavailable",
-                "message" : "workspace is not a git repository"
-            })
-
-        if any(item.get("conflict") for item in changed_files):
-            blockers.append({
-                "kind"    : "merge_conflict",
-                "message" : "git status reports unresolved conflicts"
-            })
-
-        if validation.get("status") == "failed":
-            blockers.append({
-                "kind"      : "validation_failed",
-                "message"   : "latest validation command failed",
-                "command"   : validation.get("command"),
-                "exit_code" : validation.get("exit_code")
-            })
-
-        untracked = [item for item in changed_files if item.get("untracked")]
-        if untracked:
-            warnings.append({
-                "kind"  : "untracked_files",
-                "count" : len(untracked),
-                "paths" : [item["path"] for item in untracked[:20]]
-            })
-
-        if bool(diff_data.get("truncated")) or "...[truncated " in diff_text:
-            warnings.append({
-                "kind"    : "diff_truncated",
-                "message" : "diff output was truncated"
-            })
-
-        if validation.get("status") == "not_run" and changed_files:
-            warnings.append({
-                "kind"    : "validation_not_run",
-                "message" : "no validation command has been recorded for current native coding session",
-                "reason"  : validation.get("not_run_reason")
-            })
-
-        if validation.get("status") == "cloud_sandbox_required":
-            warnings.append({
-                "kind"    : "validation_pending_cloud_sandbox",
-                "message" : "latest validation command requires cloud sandbox execution",
-                "command" : validation.get("command")
-            })
-
-        shell_write_risk = self._shell_write_risk(validation)
-        if shell_write_risk:
-            warnings.append(shell_write_risk)
-
-        ready = not blockers
-
-        verification = self._verification_assessment(
-            blockers=blockers,
-            warnings=warnings,
-            changed_files=changed_files,
-            validation=validation,
-            validation_history=validation_history
-        )
-
-        return self.ok_result(
-            f"change summary ready={ready} files={len(changed_files)} blockers={len(blockers)} warnings={len(warnings)}",
-            ready=ready,
-            verification=verification,
-            blockers=blockers,
-            warnings=warnings,
-            changed_files=changed_files,
-            git_status=status_data,
-            untracked_previews=untracked_previews,
-            file_count=len(changed_files),
-            diff_stats=diff_stats,
-            structured_diff_stats=structured_diff_stats,
-            validation=validation,
-            validation_history=validation_history,
-            shell_write_risk=shell_write_risk
-        )
-
-    @staticmethod
-    def _tracked_diff_stats(
-        diff_stats: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
-        """从结构化 diff 统计中提取已跟踪文件的汇总字段。"""
-        if not isinstance(diff_stats, dict):
-            return {}
-        if diff_stats.get("source") != "git_diff_structured":
-            return diff_stats
-
-        sections = [
-            item for item in (diff_stats.get("unstaged"), diff_stats.get("staged"))
-            if isinstance(item, dict)
-        ]
-        per_file = [
-            item
-            for section in sections
-            for item in (section.get("per_file") or [])
-            if isinstance(item, dict)
-        ]
-        numeric_files = [item for item in per_file if not item.get("binary")]
-
-        return {
-            "files": [str(item.get("path") or "") for item in per_file],
-            "file_count": len(per_file),
-            "added_lines": sum(int(item.get("added_lines") or 0) for item in numeric_files),
-            "deleted_lines": sum(int(item.get("deleted_lines") or 0) for item in numeric_files),
-            "changed_lines": sum(
-                int(item.get("added_lines") or 0) + int(item.get("deleted_lines") or 0)
-                for item in numeric_files
-            ),
-            "binary_files": [str(item.get("path") or "") for item in per_file if item.get("binary")],
-            "per_file": per_file,
-            "source": "git_numstat",
-            "truncated": any(bool(section.get("truncated")) for section in sections)
-        }
-
-    def _summarize_untracked_files(
-        self,
-        changed_files: list[dict[str, typing.Any]]
-    ) -> list[dict[str, typing.Any]]:
-        """为未跟踪文本文件生成有限内容预览。"""
-        previews: list[dict[str, typing.Any]] = []
-
-        for item in changed_files:
-            if not item.get("untracked"):
-                continue
-
-            path = str(item.get("path") or "")
-            try:
-                target = self.resolve_path(path)
-            except ValueError:
-                previews.append({"path": path, "ok": False, "reason": "path_outside_workspace"})
-                continue
-            if not target.is_file():
-                previews.append({"path": path, "ok": False, "reason": "not_a_file"})
-                continue
-            if not self.looks_text(target):
-                previews.append({"path": path, "ok": False, "reason": "file_not_text"})
-                continue
-
-            size  = target.stat().st_size
-            limit = 1200
-
-            content = self.decode_bytes(target.read_bytes()[:limit])
-
-            previews.append({
-                "path"           : path,
-                "ok"             : True,
-                "size"           : size,
-                "byte_truncated" : size > limit,
-                "preview"        : content
-            })
-
-        return previews
-
-    @staticmethod
-    def _parse_git_status_short(
-        status: str
-    ) -> list[dict[str, typing.Any]]:
-        """解析 git status --short 输出为文件状态列表。"""
-        files: list[dict[str, typing.Any]] = []
-
-        conflict_pairs = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
-
-        for raw in str(status or "").splitlines():
-            if not raw:
-                continue
-            if len(raw) < 4:
-                continue
-
-            xy        = raw[:2]
-            path_text = raw[3:].strip()
-            original  = None
-
-            if " -> " in path_text:
-                original, path_text = path_text.split(" -> ", 1)
-
-            item = {
-                "path"            : path_text,
-                "status"          : xy,
-                "index_status"    : xy[0],
-                "worktree_status" : xy[1],
-                "staged"          : xy[0] not in {" ", "?"},
-                "unstaged"        : xy[1] not in {" ", "?"},
-                "untracked"       : xy == "??",
-                "conflict"        : xy in conflict_pairs or "U" in xy
-            }
-            if original:
-                item["original_path"] = original
-            files.append(item)
-
-        return files
-
-    @staticmethod
-    def _runtime_failure_summary(
-        payload: dict[str, typing.Any]
-    ) -> dict[str, typing.Any] | None:
-        """提取运行时失败的关键诊断字段。"""
-        runtime = payload.get("runtime") if isinstance(payload, dict) else None
-        if not isinstance(runtime, dict):
-            return None
-        if bool(runtime.get("ok")):
-            return None
-
-        return {
-            "name"                    : runtime.get("name"),
-            "reason"                  : runtime.get("reason"),
-            "suggested_next_action"   : runtime.get("suggested_next_action"),
-            "cloud_sandbox_supported" : runtime.get("cloud_sandbox_supported")
-        }
 
     @classmethod
     def _validation_summary(
@@ -354,6 +121,99 @@ class ChangeSummaryTools(NativeCodingComponent):
         }
 
     @staticmethod
+    def _parse_git_status_short(
+        status: str
+    ) -> list[dict[str, typing.Any]]:
+        """解析 git status --short 输出为文件状态列表。"""
+        files: list[dict[str, typing.Any]] = []
+
+        conflict_pairs = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
+
+        for raw in str(status or "").splitlines():
+            if not raw:
+                continue
+            if len(raw) < 4:
+                continue
+
+            xy        = raw[:2]
+            path_text = raw[3:].strip()
+            original  = None
+
+            if " -> " in path_text:
+                original, path_text = path_text.split(" -> ", 1)
+
+            item = {
+                "path"            : path_text,
+                "status"          : xy,
+                "index_status"    : xy[0],
+                "worktree_status" : xy[1],
+                "staged"          : xy[0] not in {" ", "?"},
+                "unstaged"        : xy[1] not in {" ", "?"},
+                "untracked"       : xy == "??",
+                "conflict"        : xy in conflict_pairs or "U" in xy
+            }
+            if original:
+                item["original_path"] = original
+            files.append(item)
+
+        return files
+
+    @staticmethod
+    def _runtime_failure_summary(
+        payload: dict[str, typing.Any]
+    ) -> dict[str, typing.Any] | None:
+        """提取运行时失败的关键诊断字段。"""
+        runtime = payload.get("runtime") if isinstance(payload, dict) else None
+        if not isinstance(runtime, dict):
+            return None
+        if bool(runtime.get("ok")):
+            return None
+
+        return {
+            "name"                    : runtime.get("name"),
+            "reason"                  : runtime.get("reason"),
+            "suggested_next_action"   : runtime.get("suggested_next_action"),
+            "cloud_sandbox_supported" : runtime.get("cloud_sandbox_supported")
+        }
+
+    @staticmethod
+    def _tracked_diff_stats(
+        diff_stats: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
+        """从结构化 diff 统计中提取已跟踪文件的汇总字段。"""
+        if not isinstance(diff_stats, dict):
+            return {}
+        if diff_stats.get("source") != "git_diff_structured":
+            return diff_stats
+
+        sections = [
+            item for item in (diff_stats.get("unstaged"), diff_stats.get("staged"))
+            if isinstance(item, dict)
+        ]
+        per_file = [
+            item
+            for section in sections
+            for item in (section.get("per_file") or [])
+            if isinstance(item, dict)
+        ]
+        numeric_files = [item for item in per_file if not item.get("binary")]
+
+        return {
+            "files": [str(item.get("path") or "") for item in per_file],
+            "file_count": len(per_file),
+            "added_lines": sum(int(item.get("added_lines") or 0) for item in numeric_files),
+            "deleted_lines": sum(int(item.get("deleted_lines") or 0) for item in numeric_files),
+            "changed_lines": sum(
+                int(item.get("added_lines") or 0) + int(item.get("deleted_lines") or 0)
+                for item in numeric_files
+            ),
+            "binary_files": [str(item.get("path") or "") for item in per_file if item.get("binary")],
+            "per_file": per_file,
+            "source": "git_numstat",
+            "truncated": any(bool(section.get("truncated")) for section in sections)
+        }
+
+    @staticmethod
     def _shell_write_risk(
         validation: dict[str, typing.Any]
     ) -> dict[str, typing.Any] | None:
@@ -428,6 +288,149 @@ class ChangeSummaryTools(NativeCodingComponent):
         if len(text) <= limit:
             return text
         return f"{text[:limit]}\n...[truncated {len(text) - limit} chars]"
+
+    def _summarize_untracked_files(
+        self,
+        changed_files: list[dict[str, typing.Any]]
+    ) -> list[dict[str, typing.Any]]:
+        """为未跟踪文本文件生成有限内容预览。"""
+        previews: list[dict[str, typing.Any]] = []
+
+        for item in changed_files:
+            if not item.get("untracked"):
+                continue
+
+            path = str(item.get("path") or "")
+            try:
+                target = self.resolve_path(path)
+            except ValueError:
+                previews.append({"path": path, "ok": False, "reason": "path_outside_workspace"})
+                continue
+            if not target.is_file():
+                previews.append({"path": path, "ok": False, "reason": "not_a_file"})
+                continue
+            if not self.looks_text(target):
+                previews.append({"path": path, "ok": False, "reason": "file_not_text"})
+                continue
+
+            size  = target.stat().st_size
+            limit = 1200
+
+            content = self.decode_bytes(target.read_bytes()[:limit])
+
+            previews.append({
+                "path"           : path,
+                "ok"             : True,
+                "size"           : size,
+                "byte_truncated" : size > limit,
+                "preview"        : content
+            })
+
+        return previews
+
+    async def change_summary(
+        self,
+        *,
+        max_diff_chars: int = 12000,
+        include_untracked_preview: bool = True
+    ) -> dict[str, typing.Any]:
+        """生成变更摘要、风险项和验证充分性判断。"""
+        status = await self._git_tools.git_status()
+        diff   = await self._git_tools.git_diff(max_chars=max_diff_chars)
+
+        status_data = status.get("data") or {}
+        diff_data   = diff.get("data") or {}
+
+        status_text           = str(status_data.get("stdout") or "")
+        diff_text             = str(diff_data.get("stdout") or "")
+        changed_files         = self._parse_git_status_short(status_text)
+        structured_diff_stats = diff_data.get("diff_stats") if isinstance(diff_data.get("diff_stats"), dict) else {}
+        diff_stats            = self._tracked_diff_stats(structured_diff_stats)
+        untracked_previews    = self._summarize_untracked_files(changed_files) if include_untracked_preview else []
+        validation            = self._validation_summary(self.last_shell_result)
+        validation_history    = self._validation_history_summary(self.validation_history)
+
+        blockers: list[dict[str, typing.Any]] = []
+        warnings: list[dict[str, typing.Any]] = []
+
+        if not bool(status_data.get("available", True)):
+            warnings.append({
+                "kind"    : "git_unavailable",
+                "message" : "workspace is not a git repository"
+            })
+
+        if any(item.get("conflict") for item in changed_files):
+            blockers.append({
+                "kind"    : "merge_conflict",
+                "message" : "git status reports unresolved conflicts"
+            })
+
+        if validation.get("status") == "failed":
+            blockers.append({
+                "kind"      : "validation_failed",
+                "message"   : "latest validation command failed",
+                "command"   : validation.get("command"),
+                "exit_code" : validation.get("exit_code")
+            })
+
+        untracked = [item for item in changed_files if item.get("untracked")]
+        if untracked:
+            warnings.append({
+                "kind"  : "untracked_files",
+                "count" : len(untracked),
+                "paths" : [item["path"] for item in untracked[:20]]
+            })
+
+        if bool(diff_data.get("truncated")) or "...[truncated " in diff_text:
+            warnings.append({
+                "kind"    : "diff_truncated",
+                "message" : "diff output was truncated"
+            })
+
+        if validation.get("status") == "not_run" and changed_files:
+            warnings.append({
+                "kind"    : "validation_not_run",
+                "message" : "no validation command has been recorded for current native coding session",
+                "reason"  : validation.get("not_run_reason")
+            })
+
+        if validation.get("status") == "cloud_sandbox_required":
+            warnings.append({
+                "kind"    : "validation_pending_cloud_sandbox",
+                "message" : "latest validation command requires cloud sandbox execution",
+                "command" : validation.get("command")
+            })
+
+        shell_write_risk = self._shell_write_risk(validation)
+        if shell_write_risk:
+            warnings.append(shell_write_risk)
+
+        ready = not blockers
+
+        verification = self._verification_assessment(
+            blockers=blockers,
+            warnings=warnings,
+            changed_files=changed_files,
+            validation=validation,
+            validation_history=validation_history
+        )
+
+        return self.ok_result(
+            f"change summary ready={ready} files={len(changed_files)} blockers={len(blockers)} warnings={len(warnings)}",
+            ready=ready,
+            verification=verification,
+            blockers=blockers,
+            warnings=warnings,
+            changed_files=changed_files,
+            git_status=status_data,
+            untracked_previews=untracked_previews,
+            file_count=len(changed_files),
+            diff_stats=diff_stats,
+            structured_diff_stats=structured_diff_stats,
+            validation=validation,
+            validation_history=validation_history,
+            shell_write_risk=shell_write_risk
+        )
 
 
 if __name__ == '__main__':

@@ -4,13 +4,23 @@
 import re
 import typing
 import fnmatch
-from backend.mcp_code.base import NativeCodingComponent
+from backend.mcp_code.base import (
+    NativeCodingBase, NativeCodingComponent
+)
 from backend.utilities.trace import clip_text
 
 
 class WorkspaceSearchTools(NativeCodingComponent):
+    """提供工作区文件名、文本内容和符号搜索能力。"""
 
-    def __init__(self, core, *, diagnostics, symbols):
+    def __init__(
+        self,
+        core: NativeCodingBase,
+        *,
+        diagnostics: typing.Any,
+        symbols: typing.Any
+    ) -> None:
+        """保存共享运行时上下文和搜索诊断依赖。"""
         super().__init__(core)
         self._diagnostics = diagnostics
         self._symbols     = symbols
@@ -72,6 +82,7 @@ class WorkspaceSearchTools(NativeCodingComponent):
         }
 
         def rank(item: dict[str, typing.Any]) -> tuple[int, int, int, int, str, int]:
+            """返回搜索结果排序键。"""
             kind = str(item.get("kind") or "")
             path = str(item.get("path") or "")
             name = path.replace("\\", "/").rsplit("/", 1)[-1].lower()
@@ -274,6 +285,170 @@ class WorkspaceSearchTools(NativeCodingComponent):
         suffix = max(suffix_counts, key=suffix_counts.get)
         return f"**/*{suffix}"
 
+    def _search_files(
+        self,
+        *,
+        base: typing.Any,
+        query: str,
+        glob: str | None,
+        case_sensitive: bool,
+        max_matches: int,
+        matches: list[dict[str, typing.Any]]
+    ) -> None:
+        """搜索工作区相对路径和文件名。"""
+        needle = query if case_sensitive else query.lower()
+
+        for item in self.walk_paths(base, recursive=True):
+            if len(matches) >= max_matches:
+                break
+            if self.is_excluded_path(item):
+                continue
+
+            rel = self.relative_path(item)
+            if glob and not fnmatch.fnmatch(rel, glob) and not fnmatch.fnmatch(item.name, glob):
+                continue
+
+            haystack = rel if case_sensitive else rel.lower()
+            name     = item.name if case_sensitive else item.name.lower()
+
+            if needle not in haystack and needle not in name:
+                continue
+            matches.append({
+                "kind": "file",
+                "query": query,
+                "path": rel,
+                "line": None,
+                "text": rel,
+                "file_kind": "dir" if item.is_dir() else "file"
+            })
+
+    def _search_file_contents(
+        self,
+        *,
+        base: typing.Any,
+        query: str,
+        glob: str | None,
+        regex_mode: bool,
+        case_sensitive: bool,
+        context_before: int,
+        context_after: int,
+        max_matches: int,
+        matches: list[dict[str, typing.Any]],
+        diagnostics: dict[str, typing.Any] | None = None
+    ) -> None:
+        """搜索文本内容，支持字面量、正则和上下文行。"""
+        flags = 0 if case_sensitive else re.IGNORECASE
+        diag  = diagnostics if isinstance(diagnostics, dict) else {}
+
+        try:
+            regex = re.compile(query if regex_mode else re.escape(query), flags)
+        except re.error as exc:
+            matches.append({
+                "kind": "error",
+                "path": None,
+                "line": None,
+                "text": f"invalid regex: {exc}",
+                "reason": "invalid_regex"
+            })
+            return
+
+        for item in self.walk_paths(base, recursive=True):
+            if len(matches) >= max_matches:
+                break
+            if not item.is_file() or self.is_excluded_path(item) or not self.looks_text(item):
+                continue
+
+            rel = self.relative_path(item)
+            if glob and not fnmatch.fnmatch(rel, glob) and not fnmatch.fnmatch(item.name, glob):
+                continue
+
+            try:
+                size = item.stat().st_size
+                raw = item.read_bytes()[:self.max_read_bytes]
+            except OSError:
+                continue
+            diag["files_scanned"] = int(diag.get("files_scanned") or 0) + 1
+            if size > self.max_read_bytes:
+                large_files = diag.setdefault("large_files_truncated", [])
+                if isinstance(large_files, list) and not any(entry.get("path") == rel for entry in large_files if isinstance(entry, dict)):
+                    large_files.append({
+                        "path": rel,
+                        "size": size,
+                        "searched_bytes": min(size, self.max_read_bytes),
+                        "unsearched_bytes": max(0, size - self.max_read_bytes)
+                    })
+
+            lines = self.decode_bytes(raw).splitlines()
+            for index, line in enumerate(lines):
+                if regex.search(line):
+                    matches.append({
+                        "kind": "text",
+                        "query": query,
+                        "path": rel,
+                        "line": index + 1,
+                        "text": clip_text(line.strip(), limit=500),
+                        "searched_bytes": min(size, self.max_read_bytes),
+                        "file_size": size,
+                        "search_truncated": size > self.max_read_bytes,
+                        "context": self._line_context(
+                            lines,
+                            index=index,
+                            before=context_before,
+                            after=context_after
+                        )
+                    })
+                    if len(matches) >= max_matches:
+                        break
+
+    def _search_symbols(
+        self,
+        *,
+        path: str,
+        query: str,
+        glob: str | None,
+        case_sensitive: bool,
+        max_matches: int,
+        matches: list[dict[str, typing.Any]],
+        metadata: dict[str, typing.Any]
+    ) -> None:
+        """通过内部符号索引补充符号搜索结果。"""
+        if self._symbols is None:
+            return
+
+        result = self._symbols.find_symbol(
+            query=query,
+            path=path,
+            glob=glob,
+            max_matches=max(1, max_matches - len(matches))
+        )
+
+        data = result.get("data") if isinstance(result, dict) else {}
+        if not isinstance(data, dict) or not data.get("ok"):
+            return
+
+        self._diagnostics.merge_symbol_search_metadata(metadata, data)
+
+        needle = query if case_sensitive else query.lower()
+
+        for item in data.get("matches") or []:
+            if len(matches) >= max_matches:
+                break
+
+            name = str(item.get("name") or item.get("qualified_name") or "")
+
+            haystack = name if case_sensitive else name.lower()
+            if needle not in haystack:
+                continue
+
+            matches.append({
+                "kind"   : "symbol",
+                "query"  : query,
+                "path"   : item.get("path"),
+                "line"   : item.get("line"),
+                "text"   : item.get("signature") or item.get("qualified_name") or item.get("name"),
+                "symbol" : item
+            })
+
     def search(
         self,
         *,
@@ -441,170 +616,6 @@ class WorkspaceSearchTools(NativeCodingComponent):
                 coverage_diagnostics=coverage_diagnostics
             )
         )
-
-    def _search_files(
-        self,
-        *,
-        base: typing.Any,
-        query: str,
-        glob: str | None,
-        case_sensitive: bool,
-        max_matches: int,
-        matches: list[dict[str, typing.Any]]
-    ) -> None:
-        """搜索工作区相对路径和文件名。"""
-        needle = query if case_sensitive else query.lower()
-
-        for item in self.walk_paths(base, recursive=True):
-            if len(matches) >= max_matches:
-                break
-            if self.is_excluded_path(item):
-                continue
-
-            rel = self.relative_path(item)
-            if glob and not fnmatch.fnmatch(rel, glob) and not fnmatch.fnmatch(item.name, glob):
-                continue
-
-            haystack = rel if case_sensitive else rel.lower()
-            name     = item.name if case_sensitive else item.name.lower()
-
-            if needle not in haystack and needle not in name:
-                continue
-            matches.append({
-                "kind": "file",
-                "query": query,
-                "path": rel,
-                "line": None,
-                "text": rel,
-                "file_kind": "dir" if item.is_dir() else "file"
-            })
-
-    def _search_file_contents(
-        self,
-        *,
-        base: typing.Any,
-        query: str,
-        glob: str | None,
-        regex_mode: bool,
-        case_sensitive: bool,
-        context_before: int,
-        context_after: int,
-        max_matches: int,
-        matches: list[dict[str, typing.Any]],
-        diagnostics: dict[str, typing.Any] | None = None
-    ) -> None:
-        """搜索文本内容，支持字面量、正则和上下文行。"""
-        flags = 0 if case_sensitive else re.IGNORECASE
-        diag  = diagnostics if isinstance(diagnostics, dict) else {}
-
-        try:
-            regex = re.compile(query if regex_mode else re.escape(query), flags)
-        except re.error as exc:
-            matches.append({
-                "kind": "error",
-                "path": None,
-                "line": None,
-                "text": f"invalid regex: {exc}",
-                "reason": "invalid_regex"
-            })
-            return
-
-        for item in self.walk_paths(base, recursive=True):
-            if len(matches) >= max_matches:
-                break
-            if not item.is_file() or self.is_excluded_path(item) or not self.looks_text(item):
-                continue
-
-            rel = self.relative_path(item)
-            if glob and not fnmatch.fnmatch(rel, glob) and not fnmatch.fnmatch(item.name, glob):
-                continue
-
-            try:
-                size = item.stat().st_size
-                raw = item.read_bytes()[:self.max_read_bytes]
-            except OSError:
-                continue
-            diag["files_scanned"] = int(diag.get("files_scanned") or 0) + 1
-            if size > self.max_read_bytes:
-                large_files = diag.setdefault("large_files_truncated", [])
-                if isinstance(large_files, list) and not any(entry.get("path") == rel for entry in large_files if isinstance(entry, dict)):
-                    large_files.append({
-                        "path": rel,
-                        "size": size,
-                        "searched_bytes": min(size, self.max_read_bytes),
-                        "unsearched_bytes": max(0, size - self.max_read_bytes)
-                    })
-
-            lines = self.decode_bytes(raw).splitlines()
-            for index, line in enumerate(lines):
-                if regex.search(line):
-                    matches.append({
-                        "kind": "text",
-                        "query": query,
-                        "path": rel,
-                        "line": index + 1,
-                        "text": clip_text(line.strip(), limit=500),
-                        "searched_bytes": min(size, self.max_read_bytes),
-                        "file_size": size,
-                        "search_truncated": size > self.max_read_bytes,
-                        "context": self._line_context(
-                            lines,
-                            index=index,
-                            before=context_before,
-                            after=context_after
-                        )
-                    })
-                    if len(matches) >= max_matches:
-                        break
-
-    def _search_symbols(
-        self,
-        *,
-        path: str,
-        query: str,
-        glob: str | None,
-        case_sensitive: bool,
-        max_matches: int,
-        matches: list[dict[str, typing.Any]],
-        metadata: dict[str, typing.Any]
-    ) -> None:
-        """通过内部符号索引补充符号搜索结果。"""
-        if self._symbols is None:
-            return
-
-        result = self._symbols.find_symbol(
-            query=query,
-            path=path,
-            glob=glob,
-            max_matches=max(1, max_matches - len(matches))
-        )
-
-        data = result.get("data") if isinstance(result, dict) else {}
-        if not isinstance(data, dict) or not data.get("ok"):
-            return
-
-        self._diagnostics.merge_symbol_search_metadata(metadata, data)
-
-        needle = query if case_sensitive else query.lower()
-
-        for item in data.get("matches") or []:
-            if len(matches) >= max_matches:
-                break
-
-            name = str(item.get("name") or item.get("qualified_name") or "")
-
-            haystack = name if case_sensitive else name.lower()
-            if needle not in haystack:
-                continue
-
-            matches.append({
-                "kind"   : "symbol",
-                "query"  : query,
-                "path"   : item.get("path"),
-                "line"   : item.get("line"),
-                "text"   : item.get("signature") or item.get("qualified_name") or item.get("name"),
-                "symbol" : item
-            })
 
 
 if __name__ == '__main__':

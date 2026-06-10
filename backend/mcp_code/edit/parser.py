@@ -3,13 +3,16 @@
 
 import re
 import typing
-from backend.mcp_code.base import NativeCodingComponent
+from backend.mcp_code.base import NativeCodingBase, NativeCodingComponent
 
 
 class UnifiedPatchParser(NativeCodingComponent):
+    """解析 unified diff 文本为结构化补丁数据。"""
 
-    def __init__(self, core, *, diagnostics):
+    def __init__(self, core: NativeCodingBase, *, diagnostics: typing.Any) -> None:
+        """保存共享运行时上下文和补丁诊断依赖。"""
         super().__init__(core)
+
         self._diagnostics = diagnostics
 
     def parse_unified_patch(

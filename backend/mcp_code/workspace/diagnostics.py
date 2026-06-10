@@ -5,117 +5,17 @@ import os
 import typing
 import fnmatch
 from pathlib import Path
-from backend.mcp_code.base import NativeCodingComponent
+from backend.mcp_code.base import (
+    NativeCodingBase, NativeCodingComponent
+)
 
 
 class WorkspaceSearchDiagnostics(NativeCodingComponent):
+    """提供 workspace_search 覆盖率和合并诊断。"""
 
-    def __init__(self, core):
+    def __init__(self, core: NativeCodingBase) -> None:
+        """保存共享运行时上下文。"""
         super().__init__(core)
-
-    def search_coverage_diagnostics(
-        self,
-        *,
-        base: typing.Any,
-        glob: str | None,
-        text_search_enabled: bool,
-        content_diagnostics: dict[str, typing.Any],
-        symbol_metadata: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
-        """描述 workspace_search 未覆盖或只部分覆盖的文件范围。"""
-        diagnostics: dict[str, typing.Any] = {
-            "complete": True,
-            "incomplete": False,
-            "reasons": [],
-            "files_considered": 0,
-            "files_scanned": int(content_diagnostics.get("files_scanned") or 0),
-            "search_byte_limit": self.max_read_bytes,
-            "glob_excluded_files": [],
-            "glob_excluded_file_count": 0,
-            "binary_or_non_text_files": [],
-            "binary_or_non_text_file_count": 0,
-            "generated_or_excluded_dirs": [],
-            "generated_or_excluded_dir_count": 0,
-            "large_files_truncated": list(content_diagnostics.get("large_files_truncated") or []),
-            "large_files_truncated_count": len(content_diagnostics.get("large_files_truncated") or []),
-            "symbol_truncated_files": list(symbol_metadata.get("truncated_files") or []),
-            "symbol_truncated_file_count": len(symbol_metadata.get("truncated_files") or []),
-            "reference_search_truncated_files": list(symbol_metadata.get("reference_search_truncated_files") or []),
-            "reference_search_truncated_file_count": len(symbol_metadata.get("reference_search_truncated_files") or [])
-        }
-
-        self._collect_excluded_dir_diagnostics(base, diagnostics)
-
-        for item in self.walk_paths(base, recursive=True):
-            if not item.is_file():
-                continue
-
-            rel = self.relative_path(item)
-            if glob and not fnmatch.fnmatch(rel, glob) and not fnmatch.fnmatch(item.name, glob):
-                diagnostics["glob_excluded_file_count"] += 1
-                self._append_limited(
-                    diagnostics["glob_excluded_files"],
-                    {
-                        "path"   : rel,
-                        "reason" : "glob_mismatch"
-                    }
-                )
-                continue
-
-            diagnostics["files_considered"] += 1
-
-            if text_search_enabled and not self.looks_text(item):
-                diagnostics["binary_or_non_text_file_count"] += 1
-                self._append_limited(
-                    diagnostics["binary_or_non_text_files"],
-                    {
-                        "path"   : rel,
-                        "size"   : item.stat().st_size,
-                        "reason" : "file_not_text"
-                    }
-                )
-
-        reason_checks = {
-            "large_file_tail_not_searched"       : bool(diagnostics["large_files_truncated"]),
-            "symbol_index_file_truncated"        : bool(diagnostics["symbol_truncated_files"]),
-            "reference_search_file_truncated"    : bool(diagnostics["reference_search_truncated_files"]),
-            "binary_or_non_text_skipped"         : diagnostics["binary_or_non_text_file_count"] > 0,
-            "generated_or_excluded_dirs_skipped" : diagnostics["generated_or_excluded_dir_count"] > 0,
-            "glob_scope_excluded_files"          : diagnostics["glob_excluded_file_count"] > 0
-        }
-
-        diagnostics["reasons"]    = [reason for reason, enabled in reason_checks.items() if enabled]
-        diagnostics["incomplete"] = bool(diagnostics["reasons"])
-        diagnostics["complete"]   = not diagnostics["incomplete"]
-
-        diagnostics["recommended_next_steps"] = self._coverage_next_steps(diagnostics=diagnostics)
-        return diagnostics
-
-    def _collect_excluded_dir_diagnostics(
-        self,
-        base: typing.Any,
-        diagnostics: dict[str, typing.Any]
-    ) -> None:
-        """采样会被默认遍历排除的目录。"""
-        if not base.is_dir():
-            return
-        for root, dirs, _files in os.walk(base):
-            root_path = Path(root)
-            kept_dirs: list[str] = []
-            for dirname in dirs:
-                candidate = root_path / dirname
-                if self.is_excluded_path(candidate):
-                    diagnostics["generated_or_excluded_dir_count"] += 1
-                    self._append_limited(
-                        diagnostics["generated_or_excluded_dirs"],
-                        {
-                            "path"   : self.relative_path(candidate),
-                            "reason" : "default_exclude"
-                        }
-                    )
-                    continue
-                kept_dirs.append(dirname)
-            dirs[:] = kept_dirs
 
     @staticmethod
     def _append_limited(
@@ -228,6 +128,110 @@ class WorkspaceSearchDiagnostics(NativeCodingComponent):
             if value not in limitations:
                 limitations.append(value)
         metadata["parser_limitations"] = limitations
+
+    def search_coverage_diagnostics(
+        self,
+        *,
+        base: typing.Any,
+        glob: str | None,
+        text_search_enabled: bool,
+        content_diagnostics: dict[str, typing.Any],
+        symbol_metadata: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
+        """描述 workspace_search 未覆盖或只部分覆盖的文件范围。"""
+        diagnostics: dict[str, typing.Any] = {
+            "complete": True,
+            "incomplete": False,
+            "reasons": [],
+            "files_considered": 0,
+            "files_scanned": int(content_diagnostics.get("files_scanned") or 0),
+            "search_byte_limit": self.max_read_bytes,
+            "glob_excluded_files": [],
+            "glob_excluded_file_count": 0,
+            "binary_or_non_text_files": [],
+            "binary_or_non_text_file_count": 0,
+            "generated_or_excluded_dirs": [],
+            "generated_or_excluded_dir_count": 0,
+            "large_files_truncated": list(content_diagnostics.get("large_files_truncated") or []),
+            "large_files_truncated_count": len(content_diagnostics.get("large_files_truncated") or []),
+            "symbol_truncated_files": list(symbol_metadata.get("truncated_files") or []),
+            "symbol_truncated_file_count": len(symbol_metadata.get("truncated_files") or []),
+            "reference_search_truncated_files": list(symbol_metadata.get("reference_search_truncated_files") or []),
+            "reference_search_truncated_file_count": len(symbol_metadata.get("reference_search_truncated_files") or [])
+        }
+
+        self._collect_excluded_dir_diagnostics(base, diagnostics)
+
+        for item in self.walk_paths(base, recursive=True):
+            if not item.is_file():
+                continue
+
+            rel = self.relative_path(item)
+            if glob and not fnmatch.fnmatch(rel, glob) and not fnmatch.fnmatch(item.name, glob):
+                diagnostics["glob_excluded_file_count"] += 1
+                self._append_limited(
+                    diagnostics["glob_excluded_files"],
+                    {
+                        "path"   : rel,
+                        "reason" : "glob_mismatch"
+                    }
+                )
+                continue
+
+            diagnostics["files_considered"] += 1
+
+            if text_search_enabled and not self.looks_text(item):
+                diagnostics["binary_or_non_text_file_count"] += 1
+                self._append_limited(
+                    diagnostics["binary_or_non_text_files"],
+                    {
+                        "path"   : rel,
+                        "size"   : item.stat().st_size,
+                        "reason" : "file_not_text"
+                    }
+                )
+
+        reason_checks = {
+            "large_file_tail_not_searched"       : bool(diagnostics["large_files_truncated"]),
+            "symbol_index_file_truncated"        : bool(diagnostics["symbol_truncated_files"]),
+            "reference_search_file_truncated"    : bool(diagnostics["reference_search_truncated_files"]),
+            "binary_or_non_text_skipped"         : diagnostics["binary_or_non_text_file_count"] > 0,
+            "generated_or_excluded_dirs_skipped" : diagnostics["generated_or_excluded_dir_count"] > 0,
+            "glob_scope_excluded_files"          : diagnostics["glob_excluded_file_count"] > 0
+        }
+
+        diagnostics["reasons"]    = [reason for reason, enabled in reason_checks.items() if enabled]
+        diagnostics["incomplete"] = bool(diagnostics["reasons"])
+        diagnostics["complete"]   = not diagnostics["incomplete"]
+
+        diagnostics["recommended_next_steps"] = self._coverage_next_steps(diagnostics=diagnostics)
+        return diagnostics
+
+    def _collect_excluded_dir_diagnostics(
+        self,
+        base: typing.Any,
+        diagnostics: dict[str, typing.Any]
+    ) -> None:
+        """采样会被默认遍历排除的目录。"""
+        if not base.is_dir():
+            return
+        for root, dirs, _files in os.walk(base):
+            root_path = Path(root)
+            kept_dirs: list[str] = []
+            for dirname in dirs:
+                candidate = root_path / dirname
+                if self.is_excluded_path(candidate):
+                    diagnostics["generated_or_excluded_dir_count"] += 1
+                    self._append_limited(
+                        diagnostics["generated_or_excluded_dirs"],
+                        {
+                            "path"   : self.relative_path(candidate),
+                            "reason" : "default_exclude"
+                        }
+                    )
+                    continue
+                kept_dirs.append(dirname)
+            dirs[:] = kept_dirs
 
 
 if __name__ == '__main__':
