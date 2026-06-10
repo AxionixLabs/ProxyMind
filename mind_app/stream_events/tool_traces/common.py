@@ -33,6 +33,7 @@ ACTION_READ_STYLE           = "bold #9CCBFF"
 ACTION_EDIT_STYLE           = "bold #6EE7A8"
 ACTION_RUN_STYLE            = "bold #B8C7D9"
 ACTION_TOOL_STYLE           = "bold #7DD3FC"
+COMMAND_STYLE               = "bold #8FB8FF"
 COUNT_VALUE_STYLE           = "bold #F8D66D"
 COUNT_UNIT_STYLE            = "bold #9FB3C8"
 

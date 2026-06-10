@@ -437,12 +437,10 @@ def render_tool_trace(
     suffix  = _failure_suffix(payload, ok=ok)
 
     if name == "workspace_root":
-
         root = str(payload.get("root") or "").strip()
         return f"• Root {root}".rstrip()
 
     if name == "workspace_list_file":
-
         path   = str(payload.get("path") or _path_from_args(args))
         count  = payload.get("file_count")
         detail = f" ({count} files)" if isinstance(count, int) else ""
@@ -450,12 +448,10 @@ def render_tool_trace(
         return f"• Listed {path}{detail}{suffix}"
 
     if name == "workspace_read_file":
-
         path = str(payload.get("path") or _path_from_args(args))
         return f"• Read {path}{suffix}"
 
     if name == "workspace_search":
-
         query, quote_query = _search_query_label(args)
         if payload.get("skipped") and payload.get("reason") == "query_empty":
             return "• Skipped empty search"
@@ -468,7 +464,6 @@ def render_tool_trace(
         return f"• Searched {target}{detail}{suffix}"
 
     if name == "native_parallel_read":
-
         total      = payload.get("total")
         ok_count   = payload.get("ok_count")
         fail_count = payload.get("fail_count")
@@ -486,7 +481,6 @@ def render_tool_trace(
         return f"• Read context{detail}{suffix}"
 
     if name == "workspace_write_file":
-
         path = str(payload.get("path") or _path_from_args(args))
         added, removed = _line_delta_from_content(args.get("content"))
         action = _file_action_from_args(args, before_exists)
@@ -494,34 +488,30 @@ def render_tool_trace(
         return f"• {action} {path}{_format_delta(added, removed)}{suffix}"
 
     if name == "workspace_copy_file":
-
         source = str(payload.get("source_path") or args.get("source_path") or "").strip()
         target = str(payload.get("target_path") or args.get("target_path") or "").strip()
         return f"• Copied {source} -> {target}{suffix}".rstrip()
 
     if name == "workspace_move_file":
-
         source = str(payload.get("source_path") or args.get("source_path") or "").strip()
         target = str(payload.get("target_path") or args.get("target_path") or "").strip()
         return f"• Moved {source} -> {target}{suffix}".rstrip()
 
     if name == "workspace_delete_file":
-
         path = str(payload.get("path") or _path_from_args(args))
         return f"• Deleted {path}{suffix}"
 
     if name == "workspace_apply_patch":
-
         path = str(payload.get("path") or _path_from_args(args))
         added, removed = _line_delta_from_patch_args(args)
         return f"• Edited {path}{_format_delta(added, removed)}{suffix}"
 
     if name == "workspace_apply_unified_patch":
-
         if not ok:
             reason = str(payload.get("reason") or "").strip()
             detail = f": {reason}" if reason else ""
             return f"• Patch failed{detail}"
+
         files = payload.get("files")
         if isinstance(files, list) and len(files) == 1 and isinstance(files[0], dict):
             target = str(files[0].get("path") or "patch")
@@ -536,18 +526,8 @@ def render_tool_trace(
         return f"• {action} {target}{_format_delta(added, removed)}{suffix}"
 
     if name == "shell_exec":
-
         command = command_preview(payload.get("command") or args.get("command")).title
-        rc      = payload.get("exit_code")
-        elapsed = payload.get("elapsed_ms", cost_ms)
-        status  = ""
-
-        if rc is not None:
-            status += f" exit_code={rc}"
-        if elapsed is not None:
-            status += f" elapsed_ms={elapsed}"
-
-        return f"• Ran {command}{status}{suffix}".rstrip()
+        return f"• Ran {command}{suffix}".rstrip()
 
     if name == "git_status":
         return f"• Git status{suffix}"

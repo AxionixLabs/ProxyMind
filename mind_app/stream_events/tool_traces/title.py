@@ -16,6 +16,7 @@ from .common import (
     ACTION_READ_STYLE,
     ACTION_RUN_STYLE,
     ACTION_TOOL_STYLE,
+    COMMAND_STYLE,
     COUNT_UNIT_STYLE,
     COUNT_VALUE_STYLE,
     DELTA_ADD_STYLE,
@@ -172,8 +173,45 @@ def _styled_action_body_parts(
         parts.append({"text": leading, "style": base_style})
     if action:
         parts.append({"text": action, "style": action_style})
+    if action == "Ran":
+        parts.extend(_ran_command_parts(f"{sep}{tail}", base_style=base_style, ok=ok))
+        return parts
     if sep or tail:
         parts.extend(_failure_body_parts(f"{sep}{tail}", base_style=base_style, ok=ok))
+
+    return parts
+
+
+def _ran_command_parts(
+    body: str,
+    *,
+    base_style: str,
+    ok: bool
+) -> list[dict[str, typing.Optional[str]]]:
+    """把 Ran 后面的命令和失败后缀拆成独立颜色。"""
+    if not body:
+        return []
+
+    command_body = body
+    failure_body = ""
+
+    if not ok:
+        match = re.search(r"( failed(?:: [^\n]+)?)$", body)
+        if match:
+            command_body = body[:match.start(1)]
+            failure_body = body[match.start(1):]
+
+    leading_len = len(command_body) - len(command_body.lstrip(" "))
+    leading     = command_body[:leading_len]
+    command     = command_body[leading_len:]
+
+    parts: list[dict[str, typing.Optional[str]]] = []
+    if leading:
+        parts.append({"text": leading, "style": base_style})
+    if command:
+        parts.append({"text": command, "style": COMMAND_STYLE})
+    if failure_body:
+        parts.append({"text": failure_body, "style": ERROR_STYLE})
 
     return parts
 
