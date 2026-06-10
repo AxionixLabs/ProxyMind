@@ -2,7 +2,6 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import os
-import re
 import time
 import typing
 import asyncio
@@ -64,30 +63,6 @@ class ShellExecTools(NativeCodingComponent):
         "status"
     }
 
-    SHELL_WRITE_COMMAND_TO_TOOL = {
-        "cp"          : "workspace_copy_file",
-        "copy"        : "workspace_copy_file",
-        "copy-item"   : "workspace_copy_file",
-        "mv"          : "workspace_move_file",
-        "move"        : "workspace_move_file",
-        "move-item"   : "workspace_move_file",
-        "rename"      : "workspace_move_file",
-        "rename-item" : "workspace_move_file",
-        "rm"          : "workspace_delete_file",
-        "del"         : "workspace_delete_file",
-        "erase"       : "workspace_delete_file",
-        "remove-item" : "workspace_delete_file",
-        "ri"          : "workspace_delete_file",
-        "touch"       : "workspace_write_file",
-        "tee"         : "workspace_write_file"
-    }
-
-    INLINE_SCRIPT_FLAGS = {
-        "-c",
-        "-e",
-        "-r"
-    }
-
     def __init__(
         self,
         core: NativeCodingBase,
@@ -138,90 +113,6 @@ class ShellExecTools(NativeCodingComponent):
 
         return "full"
 
-    @classmethod
-    def _inline_script_write_intent(
-        cls,
-        executable: str,
-        cmd: list[str]
-    ) -> dict[str, typing.Any] | None:
-        """识别常见脚本解释器的内联写文件表达式。"""
-        if len(cmd) < 3:
-            return None
-
-        flag_index = next(
-            (
-                index for index, item in enumerate(cmd[1:], start=1)
-                if str(item).lower() in cls.INLINE_SCRIPT_FLAGS
-            ),
-            None
-        )
-        if flag_index is None or flag_index + 1 >= len(cmd):
-            return None
-
-        script = str(cmd[flag_index + 1])
-        patterns_by_executable = {
-            "python"  : [r"\bopen\s*\([^)]*['\"](?:w|a|x|wb|ab|xb)\+?['\"]"],
-            "python3" : [r"\bopen\s*\([^)]*['\"](?:w|a|x|wb|ab|xb)\+?['\"]"],
-            "py"      : [r"\bopen\s*\([^)]*['\"](?:w|a|x|wb|ab|xb)\+?['\"]"],
-            "node"    : [
-                r"\b(?:fs\.)?(?:writeFileSync|appendFileSync|createWriteStream)\s*\(",
-                r"\brequire\s*\(\s*['\"]fs['\"]\s*\)\s*\.\s*(?:writeFileSync|appendFileSync|createWriteStream)\s*\("
-            ],
-            "ruby"    : [r"\bFile\.(?:write|open)\s*\(", r"\bIO\.write\s*\("],
-            "perl"    : [r"\bopen\s*\([^)]*,\s*['\"]?>", r"\b(?:print|say)\s+\w+\s+"],
-            "php"     : [r"\bfile_put_contents\s*\(", r"\bfopen\s*\([^)]*,\s*['\"](?:w|a|x|c)"]
-        }
-
-        patterns = patterns_by_executable.get(executable)
-        if not patterns:
-            return None
-        if not any(re.search(pattern, script) for pattern in patterns):
-            return None
-
-        return {
-            "reason"  : "shell_inline_script_file_write",
-            "message" : "inline script writes workspace files"
-        }
-
-    @classmethod
-    def _shell_write_intent(
-        cls,
-        cmd: list[str]
-    ) -> dict[str, typing.Any] | None:
-        """识别明显用于修改工作区文件的 shell 命令。"""
-        if not cmd:
-            return None
-
-        executable = os.path.basename(str(cmd[0])).lower()
-        if executable.endswith(".exe"):
-            executable = executable[:-4]
-
-        if executable in cls.SHELL_WRITE_COMMAND_TO_TOOL:
-            return {
-                "reason"  : "shell_file_operation_command",
-                "message" : "shell file operation command targets workspace files"
-            }
-
-        lowered_args = [str(item).lower() for item in cmd[1:]]
-        joined       = " ".join(lowered_args)
-
-        if executable in {"sed", "gsed"} and any(item == "-i" or item.startswith("-i") for item in lowered_args):
-            return {
-                "reason"  : "shell_in_place_edit_command",
-                "message" : "shell in-place edit command targets workspace files"
-            }
-
-        if script_intent := cls._inline_script_write_intent(executable, cmd):
-            return script_intent
-
-        if ">" in lowered_args or ">>" in lowered_args or "|" in lowered_args and "tee" in joined:
-            return {
-                "reason"  : "shell_redirection_file_write",
-                "message" : "shell redirection writes workspace files"
-            }
-
-        return None
-
     def _capture_shell_audit(self, mode: str) -> dict[str, typing.Any] | None:
         """按审计模式采集文件指纹。"""
         if mode == "off":
@@ -256,18 +147,6 @@ class ShellExecTools(NativeCodingComponent):
         cmd = [str(item) for item in (command or []) if str(item or "").strip()]
         if not cmd:
             return self.fail_result("command_empty")
-
-        if write_intent := self._shell_write_intent(cmd):
-            result = self.fail_result(
-                write_intent["reason"],
-                command=cmd,
-                message=write_intent.get("message"),
-                shell_write_detected=True,
-                execution_target="blocked",
-                requires_cloud_sandbox=False
-            )
-            self._record_shell_result(result.get("data") or {})
-            return result
 
         policy = self._command_policy.execution_metadata_policy(
             execution,
@@ -402,6 +281,7 @@ class ShellExecTools(NativeCodingComponent):
 
         stdout_truncated = len(raw_stdout) > output_limit
         stderr_truncated = len(raw_stderr) > output_limit
+
         reason = "command_timed_out" if timed_out else "command_failed" if exit_code != 0 else None
 
         logger.debug(
