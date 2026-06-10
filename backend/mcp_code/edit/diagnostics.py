@@ -128,50 +128,6 @@ class PatchDiagnostics(NativeCodingComponent):
         return f"{text[:limit]}\n...[truncated {len(text) - limit} chars]"
 
     @staticmethod
-    def unified_patch_hint(reason: str) -> str:
-        """根据 unified patch 失败原因返回格式提示。"""
-        if reason == "unified_patch_no_files":
-            return "patch must include --- and +++ file headers"
-        if reason == "unified_patch_missing_new_header":
-            return "each --- file header must be followed by a +++ file header"
-        if reason == "unified_patch_bad_hunk_header":
-            return "hunk header must look like @@ -old,count +new,count @@"
-        if reason == "unified_patch_no_hunks":
-            return "each file diff must include at least one @@ hunk"
-        if reason == "unified_patch_bad_line":
-            return "hunk body lines must start with exactly one of: space, +, -"
-        if reason == "unified_patch_context_mismatch":
-            return "patch context does not match the current file; read the file again and regenerate"
-        if reason == "unified_patch_context_ambiguous":
-            return "patch context matches multiple places; add more unique context lines"
-        if reason == "unified_patch_context_out_of_range":
-            return "hunk target is outside the current file; read the file again and regenerate"
-        if reason == "file_changed_since_read":
-            return "file sha256 changed; read the file again and retry with the current sha256"
-
-        return "inspect failure data and regenerate the smallest valid patch"
-
-    @staticmethod
-    def unified_patch_next_action(reason: str) -> str:
-        """根据 unified patch 失败原因返回建议的下一步动作。"""
-        if reason in {
-            "unified_patch_no_files",
-            "unified_patch_missing_new_header",
-            "unified_patch_bad_hunk_header",
-            "unified_patch_no_hunks",
-            "unified_patch_bad_line"
-        }:
-            return "regenerate_strict_unified_diff"
-        if reason.startswith("unified_patch_context_"):
-            return "read_current_context_and_regenerate_patch"
-        if reason == "file_changed_since_read":
-            return "refresh_file_snapshot_and_retry"
-        if reason == "file_not_found":
-            return "locate_file_before_editing"
-
-        return "inspect_failure_and_retry"
-
-    @staticmethod
     def log_patch_failure(tool: str, reason: str, data: dict[str, typing.Any]) -> None:
         """记录补丁失败的结构化诊断信息。"""
         logger.warning(
@@ -219,7 +175,7 @@ class PatchDiagnostics(NativeCodingComponent):
             for index in self._find_occurrences(current, old_text, limit=8)
         ]
 
-        return {
+        diagnostics = {
             "line_ending_equivalent": bool(old_text not in current and newline_old in newline_current),
             "whitespace_equivalent": bool(
                 old_text not in current and normalized_old and normalized_old in normalized_current
@@ -230,18 +186,16 @@ class PatchDiagnostics(NativeCodingComponent):
                 old_text=old_text
             )
         }
+        return diagnostics
 
     def with_unified_patch_diagnostics(
         self,
         *,
-        reason: str,
         data: dict[str, typing.Any],
         patch: str
     ) -> dict[str, typing.Any]:
-        """为 unified patch 失败结果补充格式提示和补丁预览。"""
+        """为 unified patch 失败结果补充补丁预览。"""
         enriched = dict(data)
-        enriched.setdefault("patch_format_hint", self.unified_patch_hint(reason))
-        enriched.setdefault("suggested_next_action", self.unified_patch_next_action(reason))
         enriched.setdefault("patch_preview", self.diagnostic_preview(patch, limit=1600))
         return enriched
 

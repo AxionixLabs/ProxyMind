@@ -4,12 +4,14 @@
 import json
 import typing
 from pathlib import Path
-from mcp import ClientSession
 from mcp.types import CallToolResult
 from mind_core.api import Api
 from mind_nova.report import Report
 from mind_nova import request
 from mind_app.stream_ui import StreamUI
+
+if typing.TYPE_CHECKING:
+    from mind_app.mcp import McpSessionLike
 
 
 class Enhancer(object):
@@ -17,7 +19,7 @@ class Enhancer(object):
 
     def __init__(
         self,
-        session: ClientSession,
+        session: "McpSessionLike",
         mode: str,
         pref_config: dict[str, typing.Any],
         metadata: dict[str, typing.Any]

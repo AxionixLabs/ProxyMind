@@ -59,9 +59,7 @@ def _patch_failure_diagnostic_lines(data: dict[str, typing.Any]) -> list[str]:
         ("reason", data.get("reason")),
         ("file", data.get("path")),
         ("hunk", data.get("hunk_header") or data.get("header")),
-        ("line", data.get("target_line") or data.get("line")),
-        ("hint", data.get("patch_format_hint")),
-        ("next", data.get("suggested_next_action")),
+        ("line", data.get("target_line") or data.get("line"))
     )
     lines.extend(
         _diagnostic_sequence_lines(

@@ -38,30 +38,6 @@ class WorkspaceFileTools(NativeCodingComponent):
         return "\n".join(selected), total_lines, line_truncated
 
     @staticmethod
-    def _read_file_next_steps(
-        *,
-        path: str,
-        end_line: int,
-        total_lines: int | None,
-        byte_truncated: bool,
-        line_truncated: bool
-    ) -> list[dict[str, typing.Any]]:
-        """为被截断的文件读取结果生成继续读取下一段的建议。"""
-        steps: list[dict[str, typing.Any]] = []
-
-        has_known_next_line    = isinstance(total_lines, int) and end_line < total_lines
-        has_possible_next_line = line_truncated or (byte_truncated and total_lines is None)
-
-        if has_known_next_line or has_possible_next_line:
-            steps.append({
-                "tool": "workspace_read_file",
-                "args": {"path": path, "start_line": end_line + 1, "max_lines": 200},
-                "reason": "continue_from_next_line"
-            })
-
-        return steps
-
-    @staticmethod
     def _read_file_truncation_reasons(
         *,
         input_truncated: bool,
@@ -175,8 +151,7 @@ class WorkspaceFileTools(NativeCodingComponent):
             return self.fail_result(
                 "file_not_text",
                 path=self.relative_path(target),
-                size=target.stat().st_size,
-                suggested_next_action="use_shell_or_specialized_binary_tool"
+                size=target.stat().st_size
             )
 
         limit = max(1, min(int(max_bytes or self.max_read_bytes), self.max_read_bytes))
@@ -262,14 +237,7 @@ class WorkspaceFileTools(NativeCodingComponent):
             truncated=bool(truncation_reasons),
             byte_truncated=byte_truncated,
             line_truncated=line_truncated,
-            truncation_reasons=truncation_reasons,
-            recommended_next_steps=self._read_file_next_steps(
-                path=self.relative_path(target),
-                end_line=end_line,
-                total_lines=total_lines,
-                byte_truncated=byte_truncated,
-                line_truncated=line_truncated
-            )
+            truncation_reasons=truncation_reasons
         )
 
     def write_file(

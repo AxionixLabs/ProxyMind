@@ -138,26 +138,6 @@ class RepoMapTools(NativeCodingComponent):
         return []
 
     @staticmethod
-    def _attach_symbol_read_windows(
-        matches: list[dict[str, typing.Any]]
-    ) -> None:
-        """给符号命中补充读取窗口建议。"""
-        for item in matches:
-            path = str(item.get("path") or "")
-            line = item.get("line")
-            if not path or not isinstance(line, int):
-                continue
-            item["read_window"] = {
-                "tool": "workspace_read_file",
-                "args": {
-                    "path": path,
-                    "start_line": max(1, line - 20),
-                    "max_lines": 80
-                },
-                "reason": "read_symbol_window"
-            }
-
-    @staticmethod
     def _reference_record(
         *,
         symbol: str,
@@ -172,16 +152,7 @@ class RepoMapTools(NativeCodingComponent):
             "path": path,
             "line": line,
             "text": clip_text(text, limit=300),
-            "call_candidate": call_candidate,
-            "read_window": {
-                "tool": "workspace_read_file",
-                "args": {
-                    "path": path,
-                    "start_line": max(1, line - 20),
-                    "max_lines": 80
-                },
-                "reason": "read_reference_window"
-            }
+            "call_candidate": call_candidate
         }
 
     @staticmethod
@@ -201,76 +172,6 @@ class RepoMapTools(NativeCodingComponent):
         ]
 
         return any(re.search(pattern, text) for pattern in patterns)
-
-    @staticmethod
-    def _repo_map_next_steps(
-        *,
-        path: str,
-        glob: str | None,
-        truncated: bool,
-        max_symbols: int,
-        symbols: list[dict[str, typing.Any]]
-    ) -> list[dict[str, typing.Any]]:
-        """根据 repo map 结果生成后续建议。"""
-        steps: list[dict[str, typing.Any]] = []
-
-        if truncated:
-            steps.append({
-                "tool": "workspace_search",
-                "args": {
-                    "query": [str(item.get("name") or "") for item in symbols[:10] if item.get("name")],
-                    "path": path,
-                    "glob": glob,
-                    "mode": "symbol",
-                    "max_matches": min(max_symbols * 2, 1000)
-                },
-                "reason": "symbol_index_truncated_use_workspace_search"
-            })
-
-        symbol_windows = []
-
-        for item in symbols[:8]:
-
-            path_value = str(item.get("path") or "")
-            line       = item.get("line")
-
-            if path_value and isinstance(line, int):
-                symbol_windows.append({
-                    "tool": "workspace_read_file",
-                    "args": {"path": path_value, "start_line": max(1, line - 20), "max_lines": 80},
-                    "reason": "read_indexed_symbol_window"
-                })
-
-        if len(symbol_windows) > 1:
-            steps.append({
-                "tool": "native_parallel_read",
-                "args": {"items": symbol_windows},
-                "reason": "read_indexed_symbol_windows"
-            })
-
-        return steps[:8]
-
-    @staticmethod
-    def _symbol_next_steps(
-        matches: list[dict[str, typing.Any]]
-    ) -> list[dict[str, typing.Any]]:
-        """根据符号搜索结果生成后续读取建议。"""
-        items = [
-            item["read_window"]
-            for item in matches
-            if isinstance(item, dict) and isinstance(item.get("read_window"), dict)
-        ][:8]
-
-        steps = items[:5]
-
-        if len(items) > 1:
-            steps.append({
-                "tool": "native_parallel_read",
-                "args": {"items": items},
-                "reason": "read_multiple_symbol_windows"
-            })
-
-        return steps
 
     @staticmethod
     def _symbol_record(
@@ -449,14 +350,7 @@ class RepoMapTools(NativeCodingComponent):
             file_count=len(files),
             symbol_count=len(symbols),
             import_count=len(imports),
-            truncated=truncated,
-            recommended_next_steps=self._repo_map_next_steps(
-                path=self.relative_path(base),
-                glob=glob,
-                truncated=truncated,
-                max_symbols=max_symbols,
-                symbols=symbols
-            )
+            truncated=truncated
         )
 
     def find_symbol(
@@ -491,7 +385,6 @@ class RepoMapTools(NativeCodingComponent):
             if lowered in str(item.get("name") or "").lower()
             or lowered in str(item.get("qualified_name") or "").lower()
         ][:max(1, min(int(max_matches or 50), 200))]
-        self._attach_symbol_read_windows(matches)
 
         reference_data = self._symbol_references(matches, path=path, glob=glob)
 
@@ -515,8 +408,7 @@ class RepoMapTools(NativeCodingComponent):
             call_candidates=reference_data["call_candidates"],
             call_candidate_count=len(reference_data["call_candidates"]),
             reference_search_truncated_files=reference_data["truncated_files"],
-            reference_search_truncated_file_count=len(reference_data["truncated_files"]),
-            recommended_next_steps=self._symbol_next_steps(matches)
+            reference_search_truncated_file_count=len(reference_data["truncated_files"])
         )
 
     def _parse_symbol_file(

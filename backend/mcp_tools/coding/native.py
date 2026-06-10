@@ -139,8 +139,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "mode=file 搜文件名/路径，mode=symbol 搜函数、类和类型定义。"
             " query 可传字符串列表，用文件名、符号名、调用点、错误文本做多轮搜索。"
             " 这是查找文件、符号、调用点和错误文本的默认入口。"
-            " 搜到候选后优先按 recommended_next_steps 调用 workspace_read_file 读取行窗口，"
-            "或用 native_parallel_read 并行读取多个候选窗口。"
+            " 返回结果包含 path、line、kind、match_count、truncated 和覆盖诊断等事实字段。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )

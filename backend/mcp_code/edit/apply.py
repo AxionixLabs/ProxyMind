@@ -195,12 +195,6 @@ class UnifiedPatchApplier(NativeCodingComponent):
                         "hunk": hunk_index,
                         "hunk_header": hunk.get("header"),
                         "target_line": target_index + 1,
-                        "patch_format_hint": self._diagnostics.unified_patch_hint(
-                            str(located.get("reason") or "unified_patch_context_mismatch")
-                        ),
-                        "suggested_next_action": self._diagnostics.unified_patch_next_action(
-                            str(located.get("reason") or "unified_patch_context_mismatch")
-                        ),
                         "expected_sequence": [
                             self._strip_line_ending(item) for item in old_sequence[:12]
                         ],
@@ -242,9 +236,7 @@ class UnifiedPatchApplier(NativeCodingComponent):
                                 "line": body_index,
                                 "target_line": cursor + 1,
                                 "expected": text,
-                                "nearby": self._nearby_lines(original, cursor),
-                                "patch_format_hint": self._diagnostics.unified_patch_hint("unified_patch_context_out_of_range"),
-                                "suggested_next_action": self._diagnostics.unified_patch_next_action("unified_patch_context_out_of_range")
+                                "nearby": self._nearby_lines(original, cursor)
                             }
                         }
 
@@ -262,9 +254,7 @@ class UnifiedPatchApplier(NativeCodingComponent):
                                 "actual": self._strip_line_ending(current_line),
                                 "expected_sequence": [self._strip_line_ending(expected_line)],
                                 "actual_sequence": [self._strip_line_ending(current_line)],
-                                "nearby": self._nearby_lines(original, cursor),
-                                "patch_format_hint": self._diagnostics.unified_patch_hint("unified_patch_context_mismatch"),
-                                "suggested_next_action": self._diagnostics.unified_patch_next_action("unified_patch_context_mismatch")
+                                "nearby": self._nearby_lines(original, cursor)
                             }
                         }
                     cursor += 1

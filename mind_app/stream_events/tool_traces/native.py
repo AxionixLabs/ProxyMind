@@ -356,10 +356,9 @@ def render_tool_result_preview(
 
     if name in {"shell_exec", "git_status", "git_diff"}:
 
-        stdout_source = data.get("git_status") if name == "git_status" else data.get("stdout")
-
-        lines     = _normalize_preview_lines(stdout_source)
-        err_lines = _normalize_preview_lines(data.get("stderr"))
+        stdout_source = data.get("stdout")
+        lines         = _normalize_preview_lines(stdout_source)
+        err_lines     = _normalize_preview_lines(data.get("stderr"))
 
         prefix = []
 

@@ -120,10 +120,7 @@ def _diagnostic_sequence_lines(label: str, value: typing.Any) -> list[str]:
 def _failure_preview_lines(data: dict[str, typing.Any], *pairs: tuple[str, typing.Any]) -> list[str]:
     """生成失败预览摘要，优先展示 reason 和少量关键字段。"""
     return _summary_lines(
-        ("reason", data.get("reason")),
-        ("error", data.get("error")),
-        *pairs,
-        ("hint", data.get("suggested_next_action")),
+        ("reason", data.get("reason")), ("error", data.get("error")), *pairs
     )
 
 

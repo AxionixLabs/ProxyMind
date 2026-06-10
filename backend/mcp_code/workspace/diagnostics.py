@@ -29,47 +29,6 @@ class WorkspaceSearchDiagnostics(NativeCodingComponent):
             items.append(item)
 
     @staticmethod
-    def _coverage_next_steps(
-        *,
-        diagnostics: dict[str, typing.Any]
-    ) -> list[dict[str, typing.Any]]:
-        """为搜索覆盖不足生成补查建议。"""
-        steps: list[dict[str, typing.Any]] = []
-
-        for item in diagnostics.get("large_files_truncated") or []:
-            path = str(item.get("path") or "")
-            if not path:
-                continue
-            steps.append({
-                "tool": "workspace_read_file",
-                "args": {
-                    "path": path,
-                    "start_line": 1,
-                    "max_lines": 200
-                },
-                "reason": "large_file_tail_not_searched_read_windows"
-            })
-            if len(steps) >= 5:
-                break
-
-        for item in diagnostics.get("binary_or_non_text_files") or []:
-            path = str(item.get("path") or "")
-            if not path:
-                continue
-            steps.append({
-                "tool": "shell_exec",
-                "args": {
-                    "command": ["file", path],
-                    "cwd": "."
-                },
-                "reason": "inspect_binary_or_non_text_file_type"
-            })
-            if len(steps) >= 8:
-                break
-
-        return steps[:8]
-
-    @staticmethod
     def merge_symbol_search_metadata(
         metadata: dict[str, typing.Any],
         data: dict[str, typing.Any]
@@ -204,7 +163,6 @@ class WorkspaceSearchDiagnostics(NativeCodingComponent):
         diagnostics["incomplete"] = bool(diagnostics["reasons"])
         diagnostics["complete"]   = not diagnostics["incomplete"]
 
-        diagnostics["recommended_next_steps"] = self._coverage_next_steps(diagnostics=diagnostics)
         return diagnostics
 
     def _collect_excluded_dir_diagnostics(

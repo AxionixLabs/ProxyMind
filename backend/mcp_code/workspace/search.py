@@ -104,27 +104,6 @@ class WorkspaceSearchTools(NativeCodingComponent):
         return sorted(matches, key=rank)
 
     @staticmethod
-    def _attach_search_read_windows(
-        matches: list[dict[str, typing.Any]]
-    ) -> None:
-        """给可定位的搜索命中补充直接可执行的读取窗口参数。"""
-        for item in matches:
-            if not isinstance(item, dict):
-                continue
-
-            item_path = str(item.get("path") or "").strip()
-            line      = item.get("line")
-
-            if not item_path or not isinstance(line, int):
-                continue
-            start_line = max(1, line - 20)
-            item["read_window"] = {
-                "tool": "workspace_read_file",
-                "args": {"path": item_path, "start_line": start_line, "max_lines": 60},
-                "reason": "read_result_window"
-            }
-
-    @staticmethod
     def _line_context(
         lines: list[str],
         *,
@@ -147,143 +126,6 @@ class WorkspaceSearchTools(NativeCodingComponent):
             }
             for line_index in range(start, stop)
         ]
-
-    @staticmethod
-    def _search_next_steps(
-        *,
-        queries: list[str],
-        path: str,
-        glob: str | None,
-        mode: str,
-        case_sensitive: bool,
-        max_matches: int,
-        matches: list[dict[str, typing.Any]],
-        truncated: bool,
-        coverage_diagnostics: dict[str, typing.Any] | None = None
-    ) -> list[dict[str, typing.Any]]:
-        """根据搜索结果生成继续定位、读取窗口和扩大/缩小范围建议。"""
-        steps: list[dict[str, typing.Any]] = []
-
-        read_items: list[dict[str, typing.Any]] = []
-        seen_reads: set[tuple[str, int]]        = set()
-
-        ranked = WorkspaceSearchTools._rank_search_matches(
-            WorkspaceSearchTools._dedupe_search_matches(matches),
-            queries=queries
-        )
-        for item in ranked:
-            if not isinstance(item, dict):
-                continue
-
-            item_path = str(item.get("path") or "").strip()
-            line      = item.get("line")
-
-            if not item_path or not isinstance(line, int):
-                continue
-            start_line = max(1, line - 20)
-            key = (item_path, start_line)
-            if key in seen_reads:
-                continue
-            seen_reads.add(key)
-            read_items.append({
-                "tool": "workspace_read_file",
-                "args": {"path": item_path, "start_line": start_line, "max_lines": 60},
-                "reason": "read_result_window"
-            })
-            if len(read_items) >= 8:
-                break
-
-        steps.extend(read_items[:5])
-        if len(read_items) > 1:
-            steps.append({
-                "tool": "native_parallel_read",
-                "args": {"items": read_items[:8]},
-                "reason": "read_multiple_candidate_windows"
-            })
-
-        if truncated:
-            steps.append({
-                "tool": "workspace_search",
-                "args": {
-                    "query": queries,
-                    "path": path,
-                    "glob": glob,
-                    "mode": mode,
-                    "case_sensitive": case_sensitive,
-                    "max_matches": min(max_matches * 2, 1000)
-                },
-                "reason": "increase_limit"
-            })
-
-        if isinstance(coverage_diagnostics, dict):
-            for item in coverage_diagnostics.get("recommended_next_steps") or []:
-                if isinstance(item, dict):
-                    steps.append(item)
-
-        if mode != "file":
-            steps.append({
-                "tool": "workspace_search",
-                "args": {
-                    "query": queries,
-                    "path": path,
-                    "glob": glob,
-                    "mode": "file",
-                    "case_sensitive": case_sensitive,
-                    "max_matches": min(max_matches, 200)
-                },
-                "reason": "check_file_path_matches"
-            })
-
-        if mode != "symbol":
-            steps.append({
-                "tool": "workspace_search",
-                "args": {
-                    "query": queries,
-                    "path": path,
-                    "glob": glob,
-                    "mode": "symbol",
-                    "case_sensitive": case_sensitive,
-                    "max_matches": min(max_matches, 200)
-                },
-                "reason": "check_symbol_matches"
-            })
-
-        if not glob:
-            likely_glob = WorkspaceSearchTools._suggest_search_glob(matches)
-            if likely_glob:
-                steps.append({
-                    "tool": "workspace_search",
-                    "args": {
-                        "query": queries,
-                        "path": path,
-                        "glob": likely_glob,
-                        "mode": mode,
-                        "case_sensitive": case_sensitive,
-                        "max_matches": max_matches
-                    },
-                    "reason": "narrow_search_scope"
-                })
-
-        return steps[:12]
-
-    @staticmethod
-    def _suggest_search_glob(
-        matches: list[dict[str, typing.Any]]
-    ) -> str | None:
-        """根据命中文件扩展名建议一个更窄的 glob。"""
-        suffix_counts: dict[str, int] = {}
-        for item in matches:
-            path = str(item.get("path") or "")
-            if "." not in path:
-                continue
-            suffix = "." + path.rsplit(".", 1)[-1]
-            suffix_counts[suffix] = suffix_counts.get(suffix, 0) + 1
-
-        if not suffix_counts:
-            return None
-
-        suffix = max(suffix_counts, key=suffix_counts.get)
-        return f"**/*{suffix}"
 
     def _search_files(
         self,
@@ -477,8 +319,7 @@ class WorkspaceSearchTools(NativeCodingComponent):
                 matches=[],
                 match_count=0,
                 skipped=True,
-                reason="query_empty",
-                suggested_next_action="read_known_file_or_provide_search_query"
+                reason="query_empty"
             )
 
         base = self.resolve_path(path)
@@ -553,7 +394,6 @@ class WorkspaceSearchTools(NativeCodingComponent):
             self._dedupe_search_matches(matches),
             queries=queries
         )[:max_matches]
-        self._attach_search_read_windows(matches)
 
         coverage_diagnostics = self._diagnostics.search_coverage_diagnostics(
             base=base,
@@ -603,18 +443,7 @@ class WorkspaceSearchTools(NativeCodingComponent):
             reference_count=symbol_metadata.get("reference_count", 0) if normalized_mode in {"auto", "symbol"} else 0,
             call_candidate_count=symbol_metadata.get("call_candidate_count", 0) if normalized_mode in {"auto", "symbol"} else 0,
             reference_search_truncated_files=symbol_metadata["reference_search_truncated_files"] if normalized_mode in {"auto", "symbol"} else [],
-            reference_search_truncated_file_count=symbol_metadata.get("reference_search_truncated_file_count", 0) if normalized_mode in {"auto", "symbol"} else 0,
-            recommended_next_steps=self._search_next_steps(
-                queries=queries,
-                path=self.relative_path(base),
-                glob=glob,
-                mode=normalized_mode,
-                case_sensitive=case_sensitive,
-                max_matches=max_matches,
-                matches=matches,
-                truncated=search_truncated,
-                coverage_diagnostics=coverage_diagnostics
-            )
+            reference_search_truncated_file_count=symbol_metadata.get("reference_search_truncated_file_count", 0) if normalized_mode in {"auto", "symbol"} else 0
         )
 
 

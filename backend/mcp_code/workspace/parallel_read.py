@@ -108,50 +108,6 @@ class ParallelReadTools(NativeCodingComponent):
 
         return failures
 
-    def _parallel_read_next_steps(
-        self,
-        *,
-        original_items: list[dict[str, typing.Any]],
-        results: list[dict[str, typing.Any]],
-        truncated: bool,
-        failures: list[dict[str, typing.Any]]
-    ) -> list[dict[str, typing.Any]]:
-        """根据截断、失败项和子工具建议生成下一步读取动作。"""
-        steps: list[dict[str, typing.Any]] = []
-        if truncated:
-            steps.append({
-                "tool"   : "native_parallel_read",
-                "args"   : {"items": original_items[self.MAX_ITEMS:self.MAX_ITEMS * 2]},
-                "reason" : "continue_remaining_items"
-            })
-
-        if failures:
-            steps.append({
-                "tool": "native_parallel_read",
-                "args": {"items": [
-                    {"tool": item.get("tool"), "args": item.get("args") or {}}
-                    for item in failures[:self.MAX_ITEMS]
-                ]},
-                "reason": "retry_failed_items_after_fixing_inputs"
-            })
-
-        for item in results:
-
-            result = item.get("result") if isinstance(item, dict) else None
-            data   = result.get("data") if isinstance(result, dict) else None
-
-            if not isinstance(data, dict):
-                continue
-            if not data.get("truncated") and not data.get("recommended_next_steps"):
-                continue
-            for step in data.get("recommended_next_steps") or []:
-                if isinstance(step, dict):
-                    steps.append({
-                        "source_index": item.get("index"), **step
-                    })
-
-        return steps
-
     async def parallel_read(
         self,
         items: list[dict[str, typing.Any]]
@@ -208,13 +164,6 @@ class ParallelReadTools(NativeCodingComponent):
         failures        = self._parallel_read_failures(results)
         failure_reasons = self._parallel_read_failure_reasons(results)
 
-        recommended_next_steps = self._parallel_read_next_steps(
-            original_items=items or [],
-            results=results,
-            truncated=truncated,
-            failures=failures
-        )
-
         return self.ok_result(
             (
                 f"native parallel read ok total={len(results)} "
@@ -230,7 +179,6 @@ class ParallelReadTools(NativeCodingComponent):
             max_concurrency=self.MAX_CONCURRENCY,
             dropped_count=dropped_count,
             truncated=truncated,
-            recommended_next_steps=recommended_next_steps,
             results=results
         )
 

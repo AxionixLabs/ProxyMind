@@ -123,8 +123,7 @@ class UnifiedPatchPlanner(NativeCodingComponent):
                     "reason": "path_outside_workspace",
                     "data": {
                         "path": path,
-                        "error": str(exc),
-                        "suggested_next_action": "regenerate_patch_with_workspace_relative_paths"
+                        "error": str(exc)
                     }
                 }
 
@@ -141,11 +140,10 @@ class UnifiedPatchPlanner(NativeCodingComponent):
                         "ok": False,
                         "reason": "path_outside_workspace",
                         "data": {
-                            "path": source_path,
-                            "error": str(exc),
-                            "suggested_next_action": "regenerate_patch_with_workspace_relative_paths"
-                        }
+                        "path": source_path,
+                        "error": str(exc)
                     }
+                }
                 source_rel = self.relative_path(source_target)
 
             duplicate_paths = [rel]
@@ -157,8 +155,7 @@ class UnifiedPatchPlanner(NativeCodingComponent):
                     "ok": False,
                     "reason": "unified_patch_duplicate_file",
                     "data": {
-                        "path": duplicate,
-                        "suggested_next_action": "merge_changes_into_single_file_diff"
+                        "path": duplicate
                     }
                 }
             seen_paths.update(duplicate_paths)
@@ -174,8 +171,7 @@ class UnifiedPatchPlanner(NativeCodingComponent):
                     "ok": False,
                     "reason": "file_already_exists",
                     "data": {
-                        "path": path,
-                        "suggested_next_action": "use_modify_patch_or_choose_new_path"
+                        "path": path
                     }
                 }
             if action == "rename":
@@ -184,8 +180,7 @@ class UnifiedPatchPlanner(NativeCodingComponent):
                         "ok": False,
                         "reason": "file_not_found",
                         "data": {
-                            "path": source_rel,
-                            "suggested_next_action": "list_or_read_workspace_then_regenerate_patch"
+                            "path": source_rel
                         }
                     }
                 if target.exists():
@@ -193,8 +188,7 @@ class UnifiedPatchPlanner(NativeCodingComponent):
                         "ok": False,
                         "reason": "file_already_exists",
                         "data": {
-                            "path": rel,
-                            "suggested_next_action": "use_modify_patch_or_choose_new_path"
+                            "path": rel
                         }
                     }
             if action in {"modify", "delete"} and not exists:
@@ -202,8 +196,7 @@ class UnifiedPatchPlanner(NativeCodingComponent):
                     "ok": False,
                     "reason": "file_not_found",
                     "data": {
-                        "path": path,
-                        "suggested_next_action": "list_or_read_workspace_then_regenerate_patch"
+                        "path": path
                     }
                 }
             if action in {"modify", "delete", "rename"}:
@@ -227,8 +220,7 @@ class UnifiedPatchPlanner(NativeCodingComponent):
                             "data": {
                                 "path": rel,
                                 "expected_sha256": expected,
-                                "current_sha256": current_sha256,
-                                "suggested_next_action": "refresh_file_snapshot_and_retry_with_current_sha256"
+                                "current_sha256": current_sha256
                             }
                         }
                 else:
@@ -251,7 +243,7 @@ class UnifiedPatchPlanner(NativeCodingComponent):
             if not applied.get("ok"):
                 reason = str(applied["reason"])
                 data   = {"path": path, **(applied.get("data") or {})}
-                data   = self._diagnostics.with_unified_patch_diagnostics(reason=reason, data=data, patch=patch)
+                data   = self._diagnostics.with_unified_patch_diagnostics(data=data, patch=patch)
 
                 return {
                     "ok"     : False,
@@ -265,8 +257,7 @@ class UnifiedPatchPlanner(NativeCodingComponent):
                     "ok": False,
                     "reason": "unified_patch_delete_leaves_content",
                     "data": {
-                        "path": path,
-                        "suggested_next_action": "regenerate_delete_patch_with_all_original_lines"
+                        "path": path
                     }
                 }
             size = len(content.encode(const.CHARSET, const.IGNORE))
@@ -277,8 +268,7 @@ class UnifiedPatchPlanner(NativeCodingComponent):
                     "data": {
                         "path": path,
                         "size": size,
-                        "max_bytes": self.max_write_bytes,
-                        "suggested_next_action": "split_change_or_reduce_generated_content"
+                        "max_bytes": self.max_write_bytes
                     }
                 }
 

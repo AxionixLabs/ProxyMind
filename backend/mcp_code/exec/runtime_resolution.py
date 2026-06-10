@@ -15,14 +15,12 @@ class RuntimeResolver(object):
             "fallbacks": ("python", "python3", "py"),
             "cloud_sandbox_supported": True,
             "reason": "local_python_unavailable",
-            "suggested_next_action": "use_cloud_sandbox_or_configure_python",
         },
         "node": {
             "heads": {"node", "node.exe", "npm", "npm.cmd", "npx", "npx.cmd"},
             "fallbacks": (),
             "cloud_sandbox_supported": False,
             "reason": "local_runtime_unavailable",
-            "suggested_next_action": "install_node_or_skip_local_validation",
         },
         "java": {
             "heads": {
@@ -32,14 +30,12 @@ class RuntimeResolver(object):
             "fallbacks": (),
             "cloud_sandbox_supported": False,
             "reason": "local_runtime_unavailable",
-            "suggested_next_action": "install_jdk_or_skip_local_validation",
         },
         "go": {
             "heads": {"go", "go.exe"},
             "fallbacks": (),
             "cloud_sandbox_supported": False,
             "reason": "local_runtime_unavailable",
-            "suggested_next_action": "install_go_or_skip_local_validation",
         },
     }
 
@@ -89,7 +85,6 @@ class RuntimeResolver(object):
             "execution_target": "cloud_sandbox" if cloud_supported else "local",
             "requires_cloud_sandbox": cloud_supported,
             "cloud_sandbox_supported": cloud_supported,
-            "suggested_next_action": str(spec.get("suggested_next_action") or "configure_runtime"),
             "diagnostic": cls._diagnostic(runtime_name, cloud_supported=cloud_supported),
         }
 

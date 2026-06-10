@@ -292,6 +292,8 @@ class NativeCodingBase(object):
     def ok_result(text: str, **data: typing.Any) -> dict[str, typing.Any]:
         """构造统一的成功工具返回结构。"""
         payload = {"ok": True, **data}
+        if payload.get("ok") is False:
+            NativeCodingBase.enrich_failure_facts(payload)
         return {
             "text"        : text,
             "attachments" : [],
@@ -300,9 +302,57 @@ class NativeCodingBase(object):
         }
 
     @staticmethod
+    def failure_context(data: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        """从失败结果中提取稳定的事实上下文字段。"""
+        keys = [
+            "path",
+            "source_path",
+            "target_path",
+            "cwd",
+            "command",
+            "resolved_command",
+            "tool",
+            "error",
+            "exit_code",
+            "timed_out",
+            "line",
+            "target_line",
+            "hunk",
+            "expected",
+            "actual",
+            "found",
+            "expected_sha256",
+            "current_sha256",
+            "actual_sha256",
+            "size",
+            "max_bytes"
+        ]
+
+        context: dict[str, typing.Any] = {}
+        for key in keys:
+            if key not in data:
+                continue
+            value = data.get(key)
+            if value is None or value == "":
+                continue
+            context[key] = value
+
+        return context
+
+    @staticmethod
+    def enrich_failure_facts(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        """补齐失败结果的 reason 和事实上下文，不生成修复策略。"""
+        reason = str(payload.get("reason") or "operation_failed")
+        payload["reason"] = reason
+        if not isinstance(payload.get("failure_context"), dict):
+            payload["failure_context"] = NativeCodingBase.failure_context(payload)
+        return payload
+
+    @staticmethod
     def fail_result(reason: str, **data: typing.Any) -> dict[str, typing.Any]:
         """构造统一的失败工具返回结构。"""
         payload = {"ok": False, "reason": reason, **data}
+        NativeCodingBase.enrich_failure_facts(payload)
         return {
             "text"        : f"native coding failed: {reason}",
             "attachments" : [],

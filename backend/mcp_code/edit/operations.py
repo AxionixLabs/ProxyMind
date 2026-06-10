@@ -53,8 +53,7 @@ class TextPatchOperations(NativeCodingComponent):
                 "expected": expected,
                 "old_text_preview": self._diagnostics.diagnostic_preview(old_text, limit=600),
                 "current_preview": self._diagnostics.diagnostic_preview(current, limit=1200),
-                **diagnostics,
-                "suggested_next_action": "refresh_file_snapshot_or_use_write_file"
+                **diagnostics
             }
             self._diagnostics.log_patch_failure(
                 "workspace_apply_patch", "replacement_count_mismatch", data
@@ -97,7 +96,6 @@ class TextPatchOperations(NativeCodingComponent):
             data = dict(planned_result.get("data") or {})
             data.pop("reason", None)
             data = self._diagnostics.with_unified_patch_diagnostics(
-                reason=str(planned_result["reason"]),
                 data=data,
                 patch=patch
             )

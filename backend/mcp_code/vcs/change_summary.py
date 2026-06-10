@@ -71,8 +71,6 @@ class ChangeSummaryTools(NativeCodingComponent):
             "stderr_truncated"       : bool(payload.get("stderr_truncated")),
             "truncated"              : bool(payload.get("truncated")),
             "runtime_failure"        : runtime_failure,
-            "suggested_tool"         : payload.get("suggested_tool"),
-            "suggested_args"         : payload.get("suggested_args") if isinstance(payload.get("suggested_args"), dict) else {},
             "reason"                 : payload.get("reason"),
             "shell_write_detected"   : bool(payload.get("shell_write_detected")),
             "shell_file_changes"     : payload.get("shell_file_changes") if isinstance(payload.get("shell_file_changes"), dict) else None
@@ -172,7 +170,6 @@ class ChangeSummaryTools(NativeCodingComponent):
         return {
             "name"                    : runtime.get("name"),
             "reason"                  : runtime.get("reason"),
-            "suggested_next_action"   : runtime.get("suggested_next_action"),
             "cloud_sandbox_supported" : runtime.get("cloud_sandbox_supported")
         }
 
@@ -227,8 +224,6 @@ class ChangeSummaryTools(NativeCodingComponent):
             "kind"           : "shell_write_detected",
             "message"        : "latest shell_exec wrote or attempted to write workspace files",
             "command"        : validation.get("command"),
-            "suggested_tool" : validation.get("suggested_tool"),
-            "suggested_args" : validation.get("suggested_args") or {},
             "reason"         : validation.get("reason"),
             "created"        : list(changes.get("created") or []),
             "modified"       : list(changes.get("modified") or []),

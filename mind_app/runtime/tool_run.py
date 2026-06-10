@@ -10,6 +10,61 @@ from engine.enhancer import Enhancer
 from ..stream_ui import StreamUI
 from .tool_router import execute_tool
 
+_COMMON_PROMOTED_RESULT_KEYS = (
+    "reason",
+    "failure_context",
+    "path",
+    "source_path",
+    "target_path",
+    "cwd",
+    "command",
+    "resolved_command",
+    "error",
+    "exit_code",
+    "timed_out",
+    "elapsed_ms",
+    "line",
+    "target_line",
+    "hunk",
+    "expected",
+    "actual",
+    "found",
+    "expected_sha256",
+    "current_sha256",
+    "actual_sha256",
+    "sha256",
+    "sha256_before",
+    "sha256_after",
+    "size",
+    "max_bytes",
+    "changed",
+    "replacements",
+    "hunk_count",
+    "file_count",
+    "match_count",
+    "ok_count",
+    "fail_count",
+    "truncated",
+    "byte_truncated",
+    "line_truncated",
+    "stdout_truncated",
+    "stderr_truncated",
+    "execution_target",
+    "requires_cloud_sandbox",
+    "cloud_sandbox_supported",
+)
+
+_OUTPUT_PROMOTED_TOOLS = {
+    "shell_exec",
+    "git_status",
+    "git_diff"
+}
+
+_OUTPUT_PROMOTED_RESULT_KEYS = (
+    "stdout",
+    "stderr"
+)
+
 
 @dataclass(slots=True)
 class ToolRunResult(object):
@@ -37,22 +92,66 @@ def _tool_result_data(fields: typing.Union[str, dict[str, typing.Any], typing.An
     return None
 
 
-def _first_native_result_data(fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """从 broadcast 结果中取出第一个原生编码执行数据。"""
+def _native_broadcast_data(fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
     data = fields.get("data")
-    if not isinstance(data, dict):
-        return {}
+    return data if isinstance(data, dict) else {}
 
-    direct = data if any(key in data for key in {"stdout", "stderr", "exit_code"}) else {}
+
+def _native_result_items(fields: dict[str, typing.Any]) -> list[dict[str, typing.Any]]:
+    """提取 broadcast 包装内的原生工具结果项。"""
+    data = _native_broadcast_data(fields)
     results = data.get("results")
-    if isinstance(results, list):
-        for item in results:
-            if not isinstance(item, dict):
-                continue
-            item_data = item.get("data")
-            if isinstance(item_data, dict):
-                return item_data
-    return direct
+    if not isinstance(results, list):
+        return []
+    return [item for item in results if isinstance(item, dict)]
+
+
+def _native_result_failed(item: dict[str, typing.Any]) -> bool:
+    if item.get("ok") is False:
+        return True
+    item_data = item.get("data")
+    return isinstance(item_data, dict) and item_data.get("ok") is False
+
+
+def _first_native_result_item(fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """优先取失败结果；没有失败时取第一个原生工具结果。"""
+    items = _native_result_items(fields)
+    if not items:
+        return {}
+    for item in items:
+        if _native_result_failed(item):
+            return item
+    return items[0]
+
+
+def _first_native_result_data(fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """从 broadcast 结果中取出代表性的原生编码执行数据。"""
+    item = _first_native_result_item(fields)
+    if item:
+        item_data = item.get("data")
+        if isinstance(item_data, dict):
+            return item_data
+
+    data = _native_broadcast_data(fields)
+    direct_keys = {
+        "ok",
+        "reason",
+        "failure_context",
+        "stdout",
+        "stderr",
+        "exit_code",
+    }
+    return data if any(key in data for key in direct_keys) else {}
+
+
+def _promote_if_present(
+    normalized: dict[str, typing.Any],
+    payload: dict[str, typing.Any],
+    keys: tuple[str, ...]
+) -> None:
+    for key in keys:
+        if key in payload:
+            normalized[key] = payload[key]
 
 
 def normalize_tool_result_fields(
@@ -67,30 +166,30 @@ def normalize_tool_result_fields(
     if not payload:
         return fields
 
-    if name == "git_status":
-        stdout = str(payload.get("stdout") or "")
-        return {
-            **fields,
-            "git_status": stdout,
-            "stdout": stdout
-        }
+    normalized = dict(fields)
+    data = _native_broadcast_data(fields)
+    item = _first_native_result_item(fields)
 
-    if name == "shell_exec":
-        normalized = dict(fields)
-        for key in (
-            "exit_code",
-            "stdout",
-            "stderr",
-            "elapsed_ms",
-            "timed_out",
-            "command",
-            "cwd"
-        ):
-            if key in payload:
-                normalized[key] = payload[key]
-        return normalized
+    if isinstance(data.get("ok"), bool):
+        normalized["ok"] = data["ok"]
+    elif isinstance(payload.get("ok"), bool):
+        normalized["ok"] = payload["ok"]
 
-    return fields
+    normalized["tool"] = str(data.get("tool") or name)
+
+    if item.get("agent_id"):
+        normalized["agent_id"] = item["agent_id"]
+
+    summary = data.get("summary")
+    if isinstance(summary, dict):
+        normalized["result_summary"] = summary
+
+    _promote_if_present(normalized, payload, _COMMON_PROMOTED_RESULT_KEYS)
+
+    if name in _OUTPUT_PROMOTED_TOOLS:
+        _promote_if_present(normalized, payload, _OUTPUT_PROMOTED_RESULT_KEYS)
+
+    return normalized
 
 
 async def run_tool_step(

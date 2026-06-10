@@ -282,6 +282,9 @@ class GitTools(NativeCodingComponent):
             "stderr_truncated"       : len(raw_stderr) > limit,
             "truncated"              : len(raw_stdout) > limit or len(raw_stderr) > limit
         }
+        if not ok:
+            data["reason"] = "git_command_timed_out" if timed_out else "git_command_failed"
+            self.core.enrich_failure_facts(data)
 
         return {
             "text"        : f"git {'ok' if ok else 'failed'} exit_code={exit_code} elapsed_ms={elapsed_ms}",
@@ -326,17 +329,6 @@ class GitTools(NativeCodingComponent):
         data = result.get("data") or {}
         data["diff_stats"] = await self._git_diff_stats(path=path, output_limit=output_limit)
 
-        if data.get("stdout_truncated") and output_limit < self.max_output_chars:
-            data["recommended_next_steps"] = [
-                {
-                    "tool": "git_diff",
-                    "args": {
-                        "path"      : path,
-                        "max_chars" : min(output_limit * 2, self.max_output_chars)
-                    },
-                    "reason": "increase_limit"
-                }
-            ]
         return result
 
     async def _git_diff_stats(
