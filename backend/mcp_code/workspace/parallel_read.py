@@ -39,25 +39,20 @@ class ParallelReadTools(NativeCodingComponent):
     MAX_ITEMS       = 12
     MAX_CONCURRENCY = 4
 
-    def _normalize_items(
-        self,
-        items: list[dict[str, typing.Any]]
-    ) -> list[dict[str, typing.Any]]:
-        """归一化批量读取请求，限制数量并保留原始顺序索引。"""
-        if not isinstance(items, list):
-            return []
+    @staticmethod
+    def _parallel_read_item_reason(
+        item: dict[str, typing.Any]
+    ) -> str:
+        """从单项读取结果中提取失败原因。"""
+        result = item.get("result") if isinstance(item, dict) else None
 
-        normalized: list[dict[str, typing.Any]] = []
-        for index, item in enumerate(items[:self.MAX_ITEMS]):
-            if not isinstance(item, dict):
-                normalized.append({"index": index, "tool": "", "args": {}})
-                continue
+        data = result.get("data") if isinstance(result, dict) else None
+        if isinstance(data, dict):
+            reason = str(data.get("reason") or "").strip()
+            if reason:
+                return reason
 
-            tool = str(item.get("tool") or "").strip()
-            args = item.get("args") if isinstance(item.get("args"), dict) else {}
-            normalized.append({"index": index, "tool": tool, "args": args})
-
-        return normalized
+        return "item_failed"
 
     async def parallel_read(
         self,
@@ -84,9 +79,9 @@ class ParallelReadTools(NativeCodingComponent):
                     elif tool == "workspace_search":
                         result = await asyncio.to_thread(core.search, **args)
                     else:
-                        result = self._fail("tool_not_allowed", tool=tool)
+                        result = self.fail_result("tool_not_allowed", tool=tool)
             except Exception as exc:
-                result = self._fail(
+                result = self.fail_result(
                     "parallel_read_item_failed",
                     tool=tool,
                     error=f"{type(exc).__name__}: {exc}"
@@ -121,7 +116,7 @@ class ParallelReadTools(NativeCodingComponent):
             failures=failures
         )
 
-        return self._ok(
+        return self.ok_result(
             (
                 f"native parallel read ok total={len(results)} "
                 f"ok={ok_count} fail={fail_count} truncated={truncated}"
@@ -140,20 +135,25 @@ class ParallelReadTools(NativeCodingComponent):
             results=results
         )
 
-    @staticmethod
-    def _parallel_read_item_reason(
-        item: dict[str, typing.Any]
-    ) -> str:
-        """从单项读取结果中提取失败原因。"""
-        result = item.get("result") if isinstance(item, dict) else None
+    def _normalize_items(
+        self,
+        items: list[dict[str, typing.Any]]
+    ) -> list[dict[str, typing.Any]]:
+        """归一化批量读取请求，限制数量并保留原始顺序索引。"""
+        if not isinstance(items, list):
+            return []
 
-        data = result.get("data") if isinstance(result, dict) else None
-        if isinstance(data, dict):
-            reason = str(data.get("reason") or "").strip()
-            if reason:
-                return reason
+        normalized: list[dict[str, typing.Any]] = []
+        for index, item in enumerate(items[:self.MAX_ITEMS]):
+            if not isinstance(item, dict):
+                normalized.append({"index": index, "tool": "", "args": {}})
+                continue
 
-        return "item_failed"
+            tool = str(item.get("tool") or "").strip()
+            args = item.get("args") if isinstance(item.get("args"), dict) else {}
+            normalized.append({"index": index, "tool": tool, "args": args})
+
+        return normalized
 
     def _parallel_read_failure_reasons(
         self,

@@ -3,15 +3,15 @@
 
 import typing
 from backend.mcp_code.base import NativeCodingBase
-from backend.mcp_code.workspace import WorkspaceTools
-from backend.mcp_code.parallel_read import ParallelReadTools
-from backend.mcp_code.repo_map import RepoMapTools
-from backend.mcp_code.patch_engine import PatchEngine
-from backend.mcp_code.shell_exec import ShellExecTools
-from backend.mcp_code.git_tools import GitTools
-from backend.mcp_code.command_policy import CommandPolicy
-from backend.mcp_code.file_audit import FileAudit
-from backend.mcp_code.change_summary import ChangeSummaryTools
+from backend.mcp_code.workspace.tools import WorkspaceTools
+from backend.mcp_code.workspace.parallel_read import ParallelReadTools
+from backend.mcp_code.workspace.repo_map import RepoMapTools
+from backend.mcp_code.edit.patch_engine import PatchEngine
+from backend.mcp_code.exec.shell_exec import ShellExecTools
+from backend.mcp_code.vcs.git_tools import GitTools
+from backend.mcp_code.exec.command_policy import CommandPolicy
+from backend.mcp_code.exec.file_audit import FileAudit
+from backend.mcp_code.vcs.change_summary import ChangeSummaryTools
 
 
 class NativeCoding(NativeCodingBase):
@@ -26,34 +26,9 @@ class NativeCoding(NativeCodingBase):
         self._patch_engine   = PatchEngine(self)
         self._command_policy = CommandPolicy(self)
         self._file_audit     = FileAudit(self)
-        self._shell_exec     = ShellExecTools(self)
+        self._shell_exec     = ShellExecTools(self, command_policy=self._command_policy, file_audit=self._file_audit)
         self._git_tools      = GitTools(self)
-        self._change_summary = ChangeSummaryTools(self)
-
-        self._private_delegates = self._build_private_delegates()
-
-    def __getattr__(self, name: str) -> typing.Any:
-        if name.startswith("_") and "_private_delegates" in self.__dict__:
-            if name in self._private_delegates:
-                return self._private_delegates[name]
-        raise AttributeError(f"{self.__class__.__name__!s} object has no attribute {name!r}")
-
-    def _build_private_delegates(self) -> dict[str, typing.Any]:
-        delegates: dict[str, typing.Any] = {}
-        for component in (
-            self._repo_map,
-            self._parallel_read,
-            self._patch_engine,
-            self._command_policy,
-            self._file_audit,
-            self._shell_exec,
-            self._git_tools,
-            self._change_summary
-        ):
-            for name in dir(component.__class__):
-                if name.startswith("_") and not name.startswith("__") and not hasattr(NativeCodingBase, name):
-                    delegates.setdefault(name, getattr(component, name))
-        return delegates
+        self._change_summary = ChangeSummaryTools(self, git_tools=self._git_tools)
 
     def execution_metadata_policy(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any] | None:
         return self._command_policy.execution_metadata_policy(*args, **kwargs)
@@ -63,6 +38,17 @@ class NativeCoding(NativeCodingBase):
 
     def diff_file_fingerprints(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return self._file_audit.diff_file_fingerprints(*args, **kwargs)
+
+    @property
+    def parallel_read_limits(self) -> dict[str, int]:
+        return {
+            "max_items": self._parallel_read.MAX_ITEMS,
+            "max_concurrency": self._parallel_read.MAX_CONCURRENCY
+        }
+
+    @property
+    def git_tools(self) -> GitTools:
+        return self._git_tools
 
     def workspace_root(self) -> dict[str, typing.Any]:
         return self._workspace.workspace_root()
@@ -105,6 +91,15 @@ class NativeCoding(NativeCodingBase):
 
     async def git_diff(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return await self._git_tools.git_diff(*args, **kwargs)
+
+    async def run_git(self, args: list[str], *, output_limit: int | None = None) -> dict[str, typing.Any]:
+        return await self._git_tools.run_git(args, output_limit=output_limit)
+
+    def is_git_workspace(self) -> bool:
+        return self._git_tools.is_git_workspace()
+
+    def audit_mode_for_command(self, command: list[str], *, audit_files: bool) -> str:
+        return self._shell_exec.audit_mode_for_command(command, audit_files=audit_files)
 
     async def change_summary(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         return await self._change_summary.change_summary(*args, **kwargs)

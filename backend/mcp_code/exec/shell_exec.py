@@ -8,8 +8,8 @@ import typing
 import asyncio
 from loguru import logger
 from backend.mcp_code.base import NativeCodingComponent
-from backend.mcp_code.command_runtime import NativeCommandRuntime
-from backend.mcp_code.runtime_resolution import RuntimeResolver
+from backend.mcp_code.exec.command_runtime import NativeCommandRuntime
+from backend.mcp_code.exec.runtime_resolution import RuntimeResolver
 from backend.utilities.process import Flux
 from backend.utilities.trace import summarize_command
 
@@ -80,35 +80,19 @@ class ShellExecTools(NativeCodingComponent):
         "tee"         : "workspace_write_file"
     }
 
-    INLINE_SCRIPT_FLAGS = {"-c", "-e", "-r"}
+    INLINE_SCRIPT_FLAGS = {
+        "-c",
+        "-e",
+        "-r"
+    }
 
-    @staticmethod
-    def _shell_output_next_steps(
-        *,
-        cmd: list[str],
-        cwd: str,
-        timeout_sec: int,
-        stdout_truncated: bool,
-        stderr_truncated: bool
-    ) -> list[dict[str, typing.Any]]:
-        """根据输出截断状态生成可选的后续执行建议。"""
-        if not stdout_truncated and not stderr_truncated:
-            return []
-
-        return [
-            {
-                "tool": "shell_exec",
-                "args": {
-                    "command": cmd,
-                    "cwd": cwd,
-                    "timeout_sec": timeout_sec
-                },
-                "reason": "rerun_with_narrower_or_larger_output"
-            }
-        ]
+    def __init__(self, core, *, command_policy, file_audit):
+        super().__init__(core)
+        self._command_policy = command_policy
+        self._file_audit     = file_audit
 
     @classmethod
-    def _audit_mode_for_command(
+    def audit_mode_for_command(
         cls,
         cmd: list[str],
         *,
@@ -144,52 +128,6 @@ class ShellExecTools(NativeCodingComponent):
             return "metadata"
 
         return "full"
-
-    @classmethod
-    def _shell_write_intent(
-        cls,
-        cmd: list[str]
-    ) -> dict[str, typing.Any] | None:
-        """识别明显用于修改工作区文件的 shell 命令。"""
-        if not cmd:
-            return None
-
-        executable = os.path.basename(str(cmd[0])).lower()
-        if executable.endswith(".exe"):
-            executable = executable[:-4]
-
-        suggested_tool = cls.SHELL_WRITE_COMMAND_TO_TOOL.get(executable)
-        if suggested_tool:
-            return {
-                "reason"         : "shell_file_operation_command",
-                "suggested_tool" : suggested_tool,
-                "suggested_args" : {},
-                "message"        : "use workspace file tools instead of shell file operations"
-            }
-
-        lowered_args = [str(item).lower() for item in cmd[1:]]
-        joined       = " ".join(lowered_args)
-
-        if executable in {"sed", "gsed"} and any(item == "-i" or item.startswith("-i") for item in lowered_args):
-            return {
-                "reason"         : "shell_in_place_edit_command",
-                "suggested_tool" : "workspace_apply_patch",
-                "suggested_args" : {},
-                "message"        : "use workspace_apply_patch for in-place text edits"
-            }
-
-        if script_intent := cls._inline_script_write_intent(executable, cmd):
-            return script_intent
-
-        if ">" in lowered_args or ">>" in lowered_args or "|" in lowered_args and "tee" in joined:
-            return {
-                "reason"         : "shell_redirection_file_write",
-                "suggested_tool" : "workspace_write_file",
-                "suggested_args" : {},
-                "message"        : "use workspace_write_file instead of shell redirection"
-            }
-
-        return None
 
     @classmethod
     def _inline_script_write_intent(
@@ -238,11 +176,82 @@ class ShellExecTools(NativeCodingComponent):
             "message"        : "use workspace file tools for inline script file writes"
         }
 
+    @classmethod
+    def _shell_write_intent(
+        cls,
+        cmd: list[str]
+    ) -> dict[str, typing.Any] | None:
+        """识别明显用于修改工作区文件的 shell 命令。"""
+        if not cmd:
+            return None
+
+        executable = os.path.basename(str(cmd[0])).lower()
+        if executable.endswith(".exe"):
+            executable = executable[:-4]
+
+        suggested_tool = cls.SHELL_WRITE_COMMAND_TO_TOOL.get(executable)
+        if suggested_tool:
+            return {
+                "reason"         : "shell_file_operation_command",
+                "suggested_tool" : suggested_tool,
+                "suggested_args" : {},
+                "message"        : "use workspace file tools instead of shell file operations"
+            }
+
+        lowered_args = [str(item).lower() for item in cmd[1:]]
+        joined       = " ".join(lowered_args)
+
+        if executable in {"sed", "gsed"} and any(item == "-i" or item.startswith("-i") for item in lowered_args):
+            return {
+                "reason"         : "shell_in_place_edit_command",
+                "suggested_tool" : "workspace_apply_patch",
+                "suggested_args" : {},
+                "message"        : "use workspace_apply_patch for in-place text edits"
+            }
+
+        if script_intent := cls._inline_script_write_intent(executable, cmd):
+            return script_intent
+
+        if ">" in lowered_args or ">>" in lowered_args or "|" in lowered_args and "tee" in joined:
+            return {
+                "reason"         : "shell_redirection_file_write",
+                "suggested_tool" : "workspace_write_file",
+                "suggested_args" : {},
+                "message"        : "use workspace_write_file instead of shell redirection"
+            }
+
+        return None
+
+    @staticmethod
+    def _shell_output_next_steps(
+        *,
+        cmd: list[str],
+        cwd: str,
+        timeout_sec: int,
+        stdout_truncated: bool,
+        stderr_truncated: bool
+    ) -> list[dict[str, typing.Any]]:
+        """根据输出截断状态生成可选的后续执行建议。"""
+        if not stdout_truncated and not stderr_truncated:
+            return []
+
+        return [
+            {
+                "tool": "shell_exec",
+                "args": {
+                    "command": cmd,
+                    "cwd": cwd,
+                    "timeout_sec": timeout_sec
+                },
+                "reason": "rerun_with_narrower_or_larger_output"
+            }
+        ]
+
     def _capture_shell_audit(self, mode: str) -> dict[str, typing.Any] | None:
         """按审计模式采集文件指纹。"""
         if mode == "off":
             return None
-        return self.capture_file_fingerprints(hash_files=mode == "full")
+        return self._file_audit.capture_file_fingerprints(hash_files=mode == "full")
 
     def _record_shell_result(self, data: dict[str, typing.Any]) -> None:
         """记录最近一次 shell_exec 结果，供 change_summary 汇总验证证据。"""
@@ -271,10 +280,10 @@ class ShellExecTools(NativeCodingComponent):
         """按执行元数据运行 shell 命令，必要时返回云端沙盒交接结果。"""
         cmd = [str(item) for item in (command or []) if str(item or "").strip()]
         if not cmd:
-            return self._fail("command_empty")
+            return self.fail_result("command_empty")
 
         if write_intent := self._shell_write_intent(cmd):
-            result = self._fail(
+            result = self.fail_result(
                 write_intent["reason"],
                 command=cmd,
                 suggested_tool=write_intent.get("suggested_tool"),
@@ -287,14 +296,14 @@ class ShellExecTools(NativeCodingComponent):
             self._record_shell_result(result.get("data") or {})
             return result
 
-        policy = self.execution_metadata_policy(
+        policy = self._command_policy.execution_metadata_policy(
             execution,
             command=cmd,
             cwd=cwd,
             timeout_sec=timeout_sec
         )
         if not policy["ok"]:
-            result = self._fail(
+            result = self.fail_result(
                 policy["reason"],
                 command=cmd,
                 risk=policy.get("risk"),
@@ -312,18 +321,18 @@ class ShellExecTools(NativeCodingComponent):
             self._record_shell_result(result.get("data") or {})
             return result
 
-        workdir = self._resolve(cwd)
+        workdir = self.resolve_path(cwd)
         if not workdir.is_dir():
-            result = self._fail("cwd_not_directory", cwd=cwd, command=cmd)
+            result = self.fail_result("cwd_not_directory", cwd=cwd, command=cmd)
             self._record_shell_result(result.get("data") or {})
             return result
 
         if policy.get("execution_target") == "cloud_sandbox":
-            result = self._ok(
+            result = self.ok_result(
                 "shell exec requires cloud sandbox",
                 ok=False,
                 command=cmd,
-                cwd=self._rel(workdir),
+                cwd=self.relative_path(workdir),
                 risk=policy.get("risk"),
                 category=policy.get("category"),
                 risk_reasons=policy.get("reasons") or [],
@@ -347,11 +356,11 @@ class ShellExecTools(NativeCodingComponent):
         runtime = RuntimeResolver.resolve_shell_command(cmd, env=env)
         if not runtime.get("ok"):
             cloud_supported = bool(runtime.get("cloud_sandbox_supported"))
-            result = self._ok(
+            result = self.ok_result(
                 "shell exec runtime unavailable",
                 ok=False,
                 command=cmd,
-                cwd=self._rel(workdir),
+                cwd=self.relative_path(workdir),
                 risk=policy.get("risk"),
                 category=policy.get("category"),
                 risk_reasons=[
@@ -379,7 +388,7 @@ class ShellExecTools(NativeCodingComponent):
         if not runtime.get("changed"):
             exec_cmd = NativeCommandRuntime.resolve_command(exec_cmd, env=env)
 
-        audit_mode   = self._audit_mode_for_command(cmd, audit_files=audit_files)
+        audit_mode   = self.audit_mode_for_command(cmd, audit_files=audit_files)
         audit_before = self._capture_shell_audit(audit_mode)
         started      = time.perf_counter()
 
@@ -400,7 +409,7 @@ class ShellExecTools(NativeCodingComponent):
         elapsed_ms  = int((time.perf_counter() - started) * 1000)
         audit_after = self._capture_shell_audit(audit_mode)
 
-        shell_file_changes = self.diff_file_fingerprints(audit_before, audit_after) if audit_mode != "off" else {
+        shell_file_changes = self._file_audit.diff_file_fingerprints(audit_before, audit_after) if audit_mode != "off" else {
             "changed"        : False,
             "change_count"   : 0,
             "created"        : [],
@@ -412,10 +421,10 @@ class ShellExecTools(NativeCodingComponent):
             "truncated"      : False
         }
 
-        raw_stdout = self._decode(stdout or b"")
-        raw_stderr = self._decode(stderr or b"")
-        out_text   = self._clip_output(raw_stdout, max_chars=output_limit)
-        err_text   = self._clip_output(raw_stderr, max_chars=output_limit)
+        raw_stdout = self.decode_bytes(stdout or b"")
+        raw_stderr = self.decode_bytes(stderr or b"")
+        out_text   = self.clip_output(raw_stdout, max_chars=output_limit)
+        err_text   = self.clip_output(raw_stderr, max_chars=output_limit)
         exit_code  = int(proc.returncode or 0)
 
         ok = (exit_code == 0) and not timed_out
@@ -431,7 +440,7 @@ class ShellExecTools(NativeCodingComponent):
             "ok": ok,
             "command": cmd,
             "resolved_command": exec_cmd,
-            "cwd": self._rel(workdir),
+            "cwd": self.relative_path(workdir),
             "risk": policy.get("risk"),
             "category": policy.get("category"),
             "risk_reasons": policy.get("reasons") or [],
@@ -450,7 +459,7 @@ class ShellExecTools(NativeCodingComponent):
             "truncated": stdout_truncated or stderr_truncated,
             "recommended_next_steps": self._shell_output_next_steps(
                 cmd=cmd,
-                cwd=self._rel(workdir),
+                cwd=self.relative_path(workdir),
                 timeout_sec=effective_timeout,
                 stdout_truncated=stdout_truncated,
                 stderr_truncated=stderr_truncated

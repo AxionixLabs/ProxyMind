@@ -76,14 +76,14 @@ class CommandPolicy(NativeCodingComponent):
         canonical = execution.get("canonicalArguments") or execution.get("canonical_arguments")
         if isinstance(canonical, dict):
             expected = {
-                "command"     : list(command or []),
-                "cwd"         : str(cwd or "."),
-                "timeout_sec" : int(timeout_sec or 60)
+                "command": list(command or []),
+                "cwd": str(cwd or "."),
+                "timeout_sec": int(timeout_sec or 60)
             }
             actual = {
-                "command"     : canonical.get("command"),
-                "cwd"         : canonical.get("cwd"),
-                "timeout_sec" : canonical.get("timeout_sec")
+                "command": canonical.get("command"),
+                "cwd": canonical.get("cwd"),
+                "timeout_sec": canonical.get("timeout_sec")
             }
             if CommandPolicy._normalize_policy_value(expected) != CommandPolicy._normalize_policy_value(actual):
                 return CommandPolicy._deny(

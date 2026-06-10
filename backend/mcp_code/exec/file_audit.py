@@ -24,8 +24,8 @@ class FileAudit(NativeCodingComponent):
         truncated = False
         count     = 0
 
-        for item in self._walk(self.root, recursive=True):
-            if not item.is_file() or self._is_excluded(item):
+        for item in self.walk_paths(self.root, recursive=True):
+            if not item.is_file() or self.is_excluded_path(item):
                 continue
             count += 1
             if len(files) >= limit:
@@ -34,16 +34,16 @@ class FileAudit(NativeCodingComponent):
 
             try:
                 stat = item.stat()
-                rel  = self._rel(item)
+                rel  = self.relative_path(item)
 
                 fingerprint: dict[str, typing.Any] = {
-                    "path"     : rel,
-                    "size"     : stat.st_size,
-                    "mtime_ns" : stat.st_mtime_ns
+                    "path": rel,
+                    "size": stat.st_size,
+                    "mtime_ns": stat.st_mtime_ns
                 }
 
                 if hash_files and stat.st_size <= self.MAX_HASH_BYTES:
-                    fingerprint["sha256"] = self._sha256(item.read_bytes())
+                    fingerprint["sha256"] = self.sha256_bytes(item.read_bytes())
                 files[rel] = fingerprint
             except OSError:
                 continue
@@ -79,6 +79,7 @@ class FileAudit(NativeCodingComponent):
                 modified.append(path)
 
         changed = created + modified + deleted
+
         return {
             "changed"           : bool(changed),
             "change_count"      : len(changed),
@@ -94,7 +95,10 @@ class FileAudit(NativeCodingComponent):
         }
 
     @staticmethod
-    def _fingerprint_changed(before: dict[str, typing.Any], after: dict[str, typing.Any]) -> bool:
+    def _fingerprint_changed(
+        before: dict[str, typing.Any],
+        after: dict[str, typing.Any]
+    ) -> bool:
         """判断单个文件指纹是否变化；优先比较哈希，缺失时回退到大小和 mtime。"""
         before_hash = before.get("sha256")
         after_hash  = after.get("sha256")

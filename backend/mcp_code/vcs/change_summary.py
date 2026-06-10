@@ -6,6 +6,12 @@ from backend.mcp_code.base import NativeCodingComponent
 
 
 class ChangeSummaryTools(NativeCodingComponent):
+    """汇总 Git 变更、验证记录和工作区风险信息。"""
+
+    def __init__(self, core, *, git_tools):
+        """保存共享运行时上下文和 Git 工具依赖。"""
+        super().__init__(core)
+        self._git_tools = git_tools
 
     async def change_summary(
         self,
@@ -14,19 +20,20 @@ class ChangeSummaryTools(NativeCodingComponent):
         include_untracked_preview: bool = True
     ) -> dict[str, typing.Any]:
         """生成变更摘要、风险项和验证充分性判断。"""
-        status = await self.git_status()
-        diff   = await self.git_diff(max_chars=max_diff_chars)
+        status = await self._git_tools.git_status()
+        diff   = await self._git_tools.git_diff(max_chars=max_diff_chars)
 
         status_data = status.get("data") or {}
         diff_data   = diff.get("data") or {}
 
-        status_text        = str(status_data.get("stdout") or "")
-        diff_text          = str(diff_data.get("stdout") or "")
-        changed_files      = self._parse_git_status_short(status_text)
-        diff_stats         = diff_data.get("diff_stats") if isinstance(diff_data.get("diff_stats"), dict) else {}
-        untracked_previews = self._summarize_untracked_files(changed_files) if include_untracked_preview else []
-        validation         = self._validation_summary(self.last_shell_result)
-        validation_history = self._validation_history_summary(self.validation_history)
+        status_text           = str(status_data.get("stdout") or "")
+        diff_text             = str(diff_data.get("stdout") or "")
+        changed_files         = self._parse_git_status_short(status_text)
+        structured_diff_stats = diff_data.get("diff_stats") if isinstance(diff_data.get("diff_stats"), dict) else {}
+        diff_stats            = self._tracked_diff_stats(structured_diff_stats)
+        untracked_previews    = self._summarize_untracked_files(changed_files) if include_untracked_preview else []
+        validation            = self._validation_summary(self.last_shell_result)
+        validation_history    = self._validation_history_summary(self.validation_history)
 
         blockers: list[dict[str, typing.Any]] = []
         warnings: list[dict[str, typing.Any]] = []
@@ -93,20 +100,59 @@ class ChangeSummaryTools(NativeCodingComponent):
             validation_history=validation_history
         )
 
-        return self._ok(
+        return self.ok_result(
             f"change summary ready={ready} files={len(changed_files)} blockers={len(blockers)} warnings={len(warnings)}",
             ready=ready,
             verification=verification,
             blockers=blockers,
             warnings=warnings,
             changed_files=changed_files,
+            git_status=status_data,
             untracked_previews=untracked_previews,
             file_count=len(changed_files),
             diff_stats=diff_stats,
+            structured_diff_stats=structured_diff_stats,
             validation=validation,
             validation_history=validation_history,
             shell_write_risk=shell_write_risk
         )
+
+    @staticmethod
+    def _tracked_diff_stats(
+        diff_stats: dict[str, typing.Any]
+    ) -> dict[str, typing.Any]:
+        """从结构化 diff 统计中提取已跟踪文件的汇总字段。"""
+        if not isinstance(diff_stats, dict):
+            return {}
+        if diff_stats.get("source") != "git_diff_structured":
+            return diff_stats
+
+        sections = [
+            item for item in (diff_stats.get("unstaged"), diff_stats.get("staged"))
+            if isinstance(item, dict)
+        ]
+        per_file = [
+            item
+            for section in sections
+            for item in (section.get("per_file") or [])
+            if isinstance(item, dict)
+        ]
+        numeric_files = [item for item in per_file if not item.get("binary")]
+
+        return {
+            "files": [str(item.get("path") or "") for item in per_file],
+            "file_count": len(per_file),
+            "added_lines": sum(int(item.get("added_lines") or 0) for item in numeric_files),
+            "deleted_lines": sum(int(item.get("deleted_lines") or 0) for item in numeric_files),
+            "changed_lines": sum(
+                int(item.get("added_lines") or 0) + int(item.get("deleted_lines") or 0)
+                for item in numeric_files
+            ),
+            "binary_files": [str(item.get("path") or "") for item in per_file if item.get("binary")],
+            "per_file": per_file,
+            "source": "git_numstat",
+            "truncated": any(bool(section.get("truncated")) for section in sections)
+        }
 
     def _summarize_untracked_files(
         self,
@@ -121,21 +167,21 @@ class ChangeSummaryTools(NativeCodingComponent):
 
             path = str(item.get("path") or "")
             try:
-                target = self._resolve(path)
+                target = self.resolve_path(path)
             except ValueError:
                 previews.append({"path": path, "ok": False, "reason": "path_outside_workspace"})
                 continue
             if not target.is_file():
                 previews.append({"path": path, "ok": False, "reason": "not_a_file"})
                 continue
-            if not self._looks_text(target):
+            if not self.looks_text(target):
                 previews.append({"path": path, "ok": False, "reason": "file_not_text"})
                 continue
 
             size  = target.stat().st_size
             limit = 1200
 
-            content = self._decode(target.read_bytes()[:limit])
+            content = self.decode_bytes(target.read_bytes()[:limit])
 
             previews.append({
                 "path"           : path,
@@ -342,7 +388,7 @@ class ChangeSummaryTools(NativeCodingComponent):
         """根据可见工作区状态判断当前摘要是否存在阻断项。"""
         has_changes   = bool(changed_files)
         validation_ok = validation.get("validation_ok")
-        sufficient    = not blockers and (validation_ok is True or not has_changes)
+        sufficient    = not blockers
         history       = validation_history if isinstance(validation_history, dict) else {}
 
         reason = "workspace_state_checked"
@@ -377,6 +423,7 @@ class ChangeSummaryTools(NativeCodingComponent):
 
     @staticmethod
     def _preview(value: typing.Any, *, limit: int) -> str:
+        """按字符上限生成文本预览。"""
         text = str(value or "")
         if len(text) <= limit:
             return text

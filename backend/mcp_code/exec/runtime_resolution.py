@@ -7,7 +7,7 @@ from backend.utilities.command_heads import is_python_head
 
 
 class RuntimeResolver(object):
-    """为 native shell_exec 解析常见语言运行时，并生成统一诊断。"""
+    """解析 shell 命令涉及的本地运行时，并返回统一的解析结果。"""
 
     RUNTIME_SPECS: typing.ClassVar[dict[str, dict[str, typing.Any]]] = {
         "python": {
@@ -50,7 +50,7 @@ class RuntimeResolver(object):
         *,
         env: dict[str, str] | None = None
     ) -> dict[str, typing.Any]:
-        """解析 shell_exec 命令头对应的语言运行时。"""
+        """根据命令头解析可执行文件路径，并在缺失时返回运行时状态。"""
         cmd = [str(item) for item in (command or []) if str(item or "").strip()]
         if not cmd:
             return {"ok": True, "command": cmd, "changed": False}
@@ -60,6 +60,7 @@ class RuntimeResolver(object):
             return {"ok": True, "command": cmd, "changed": False}
 
         spec = cls.RUNTIME_SPECS[runtime_name]
+
         resolved = cls._resolve_from_path(cmd[0], spec=spec, env=env)
         if resolved:
             return {
@@ -74,6 +75,7 @@ class RuntimeResolver(object):
             }
 
         cloud_supported = bool(spec.get("cloud_sandbox_supported"))
+
         return {
             "ok": False,
             "reason": str(spec.get("reason") or "local_runtime_unavailable"),
@@ -99,26 +101,43 @@ class RuntimeResolver(object):
         spec: dict[str, typing.Any],
         env: dict[str, str] | None
     ) -> str:
+        """按请求名称和备用名称在 PATH 中查找匹配的运行时。"""
         fallbacks = tuple(str(item) for item in spec.get("fallbacks") or ())
+
         names = [requested, *[item for item in fallbacks if item != requested]]
         for name in names:
             resolved = cls._which(name, env=env)
             if cls._runtime_candidate(resolved, spec=spec):
                 return resolved
+
         return ""
 
     @classmethod
-    def _runtime_name(cls, head: str) -> str:
-        normalized = str(head or "").replace("\\", "/").rsplit("/", 1)[-1].strip().lower()
+    def _runtime_name(
+        cls,
+        head: str
+    ) -> str:
+        """根据命令头识别运行时类型；无法识别时返回空字符串。"""
+        normalized = str(
+            head or ""
+        ).replace("\\", "/").rsplit("/", 1)[-1].strip().lower()
+
         if is_python_head(normalized):
             return "python"
         for name, spec in cls.RUNTIME_SPECS.items():
             if normalized in spec.get("heads", set()):
                 return name
+
         return ""
 
     @classmethod
-    def _runtime_candidate(cls, value: typing.Any, *, spec: dict[str, typing.Any]) -> bool:
+    def _runtime_candidate(
+        cls,
+        value: typing.Any,
+        *,
+        spec: dict[str, typing.Any]
+    ) -> bool:
+        """判断 PATH 查找结果是否符合当前运行时规格。"""
         path = str(value or "").strip()
         if not path:
             return False
@@ -129,6 +148,7 @@ class RuntimeResolver(object):
 
     @staticmethod
     def _diagnostic(runtime_name: str, *, cloud_supported: bool) -> str:
+        """根据运行时类型和云端支持状态生成诊断说明。"""
         if runtime_name == "python":
             return (
                 "local Python is unavailable from PATH; "
@@ -136,6 +156,7 @@ class RuntimeResolver(object):
             )
         if cloud_supported:
             return f"local {runtime_name} runtime is unavailable from PATH"
+
         return (
             f"local {runtime_name} runtime is unavailable from PATH; "
             "cloud sandbox does not support this runtime"
@@ -143,6 +164,7 @@ class RuntimeResolver(object):
 
     @staticmethod
     def _which(program: str, *, env: dict[str, str] | None = None) -> str:
+        """使用指定环境或当前环境在 PATH 中查找可执行文件。"""
         path = (env or {}).get("PATH") if env is not None else None
         return shutil.which(program, path=path) if path is not None else (shutil.which(program) or "")
 
