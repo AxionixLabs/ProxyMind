@@ -78,7 +78,9 @@ class Flux(object):
         return transports
 
     @staticmethod
-    async def cmd_link_pty(cmd: list[str]) -> typing.Optional[asyncio.subprocess.Process]:
+    async def cmd_link_pty(
+        cmd: list[str]
+    ) -> typing.Optional[asyncio.subprocess.Process]:
         """在类 Unix 环境下通过 PTY 启动子进程，便于消费合并后的交互输出。"""
         if (os.name == "nt") or sys.platform.startswith("win"):
             return None
