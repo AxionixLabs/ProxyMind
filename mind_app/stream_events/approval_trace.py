@@ -27,12 +27,6 @@ def approval_summary(approval: dict[str, typing.Any]) -> str:
     """生成审批请求的简短摘要。"""
     command   = command_preview(approval.get("command")).title
     tool      = str(approval.get("tool") or "").strip()
-    arguments = approval.get("arguments", approval.get("args"))
-
-    if not command and tool == "workspace_delete_file" and isinstance(arguments, dict):
-        path = str(arguments.get("path") or "").strip()
-        if path:
-            return f"{tool} {path}"
 
     return command or tool or "tool call"
 

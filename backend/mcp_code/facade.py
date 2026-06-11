@@ -64,18 +64,6 @@ class NativeCoding(NativeCodingBase):
         """创建或覆盖工作区文本文件。"""
         return self._workspace.write_file(*args, **kwargs)
 
-    def copy_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        """复制工作区文件。"""
-        return self._workspace.copy_file(*args, **kwargs)
-
-    def move_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        """移动或重命名工作区文件。"""
-        return self._workspace.move_file(*args, **kwargs)
-
-    def delete_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        """删除工作区文件。"""
-        return self._workspace.delete_file(*args, **kwargs)
-
     def apply_patch(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         """应用精确文本替换补丁。"""
         return self._patch_engine.apply_patch(*args, **kwargs)

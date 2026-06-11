@@ -17,14 +17,6 @@ WorkspaceContentArg = typing.Annotated[
     str,
     Field(description="要写入文件的完整文本内容；用于创建或整体覆盖文件。"),
 ]
-WorkspaceSourcePathArg = typing.Annotated[
-    str,
-    Field(description="工作区内要复制、移动或重命名的源文件相对路径；不允许越过工作区根目录。"),
-]
-WorkspaceTargetPathArg = typing.Annotated[
-    str,
-    Field(description="工作区内复制、移动或重命名后的目标文件相对路径；不允许越过工作区根目录。"),
-]
 WorkspaceStartLineArg = typing.Annotated[
     typing.Optional[int],
     Field(description="读取文件时的起始行号，从 1 开始。"),

@@ -50,9 +50,6 @@ NATIVE_CODING_TRACE_TOOLS = {
     "workspace_read_file",
     "native_parallel_read",
     "workspace_write_file",
-    "workspace_copy_file",
-    "workspace_move_file",
-    "workspace_delete_file",
     "workspace_apply_patch",
     "workspace_apply_unified_patch",
     "shell_exec",
@@ -181,61 +178,6 @@ def render_tool_result_preview(
             ("file", str(data.get("path") or "").strip()),
             ("size", _format_size(data.get("bytes"))),
             ("sha256", _short_sha(data.get("sha256"))),
-        ))
-
-    if name == "workspace_copy_file":
-        if failed:
-            return _trace_preview_from_lines(_failure_preview_lines(
-                data,
-                ("from", data.get("source_path") or args.get("source_path")),
-                ("to", data.get("target_path") or args.get("target_path")),
-            ))
-
-        source = str(data.get("source_path") or "").strip()
-        target = str(data.get("target_path") or "").strip()
-        size   = _format_size(data.get("bytes"))
-        sha    = _short_sha(data.get("sha256"))
-
-        return _trace_preview_from_lines(_summary_lines(
-            ("from", source),
-            ("to", target),
-            ("size", size),
-            ("sha256", sha)
-        ))
-
-    if name == "workspace_move_file":
-        if failed:
-            return _trace_preview_from_lines(_failure_preview_lines(
-                data,
-                ("from", data.get("source_path") or args.get("source_path")),
-                ("to", data.get("target_path") or args.get("target_path")),
-            ))
-        source = str(data.get("source_path") or "").strip()
-        target = str(data.get("target_path") or "").strip()
-        size   = _format_size(data.get("bytes"))
-        sha    = _short_sha(data.get("sha256"))
-
-        return _trace_preview_from_lines(_summary_lines(
-            ("from", source),
-            ("to", target),
-            ("size", size),
-            ("sha256", sha)
-        ))
-
-    if name == "workspace_delete_file":
-        if failed:
-            return _trace_preview_from_lines(_failure_preview_lines(
-                data,
-                ("path", data.get("path") or args.get("path")),
-            ))
-        path = str(data.get("path") or "").strip()
-        size = _format_size(data.get("bytes"))
-        sha  = _short_sha(data.get("sha256"))
-
-        return _trace_preview_from_lines(_summary_lines(
-            ("file", path),
-            ("removed", size),
-            ("sha256", sha)
         ))
 
     if name == "workspace_apply_patch":
@@ -412,20 +354,6 @@ def render_tool_trace(
         action = _file_action_from_args(args, before_exists)
 
         return f"• {action} {path}{_format_delta(added, removed)}{suffix}"
-
-    if name == "workspace_copy_file":
-        source = str(payload.get("source_path") or args.get("source_path") or "").strip()
-        target = str(payload.get("target_path") or args.get("target_path") or "").strip()
-        return f"• Copied {source} -> {target}{suffix}".rstrip()
-
-    if name == "workspace_move_file":
-        source = str(payload.get("source_path") or args.get("source_path") or "").strip()
-        target = str(payload.get("target_path") or args.get("target_path") or "").strip()
-        return f"• Moved {source} -> {target}{suffix}".rstrip()
-
-    if name == "workspace_delete_file":
-        path = str(payload.get("path") or _path_from_args(args))
-        return f"• Deleted {path}{suffix}"
 
     if name == "workspace_apply_patch":
         path = str(payload.get("path") or _path_from_args(args))
