@@ -135,7 +135,7 @@ def detect_workspace() -> dict[str, typing.Any]:
     return {
         "root"    : str(root),
         "markers" : markers,
-        "source"  : f"{const.APP_NAME}_process_cwd"
+        "source"  : "client_process_cwd"
     }
 
 
