@@ -58,6 +58,8 @@ def inline_script_preview_lines(script: str, *, path: str = "inline.py") -> list
 def _list_command_preview(command: list[typing.Any]) -> InlineCommandPreview:
     """处理数组形式命令的展示信息。"""
     parts = [str(item) for item in command]
+    if parts:
+        parts[0] = _display_command_head(parts[0])
 
     script_index = _first_multiline_arg_index(parts)
     if script_index is None:
@@ -81,7 +83,7 @@ def _string_command_preview(command: typing.Any) -> InlineCommandPreview:
     """处理字符串形式命令的展示信息。"""
     text = str(command or "").strip()
     if "\n" not in text and "\r" not in text:
-        return InlineCommandPreview(title=text)
+        return InlineCommandPreview(title=_display_command_text(text))
 
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
 
@@ -96,7 +98,7 @@ def _string_command_preview(command: typing.Any) -> InlineCommandPreview:
         return InlineCommandPreview(title=text)
 
     return InlineCommandPreview(
-        title=f"{head} <inline script>",
+        title=f"{_display_command_text(head)} <inline script>",
         script=tail,
         path=_inline_path_for_command([head])
     )
@@ -118,6 +120,37 @@ def _normalize_executable(value: str) -> str:
     ).replace("\\", "/").rsplit("/", 1)[-1].lower()
 
     return executable.rsplit(".", 1)[0]
+
+
+def _display_command_head(value: str) -> str:
+    """把内置工具的绝对路径压缩为稳定展示名。"""
+    text = str(value or "").strip()
+    if _normalize_executable(text) == "rg":
+        return "rg"
+
+    return text
+
+
+def _display_command_text(value: str) -> str:
+    """压缩字符串命令中的命令头展示。"""
+    text = str(value or "").strip()
+    if not text:
+        return text
+
+    if text[0] in {"'", "\""}:
+        quote = text[0]
+        end = text.find(quote, 1)
+        if end > 0:
+            head = text[1:end]
+            if _normalize_executable(head) == "rg":
+                return "rg" + text[end + 1:]
+        return text
+
+    parts = text.split(maxsplit=1)
+    if parts and _normalize_executable(parts[0]) == "rg":
+        return "rg" + (f" {parts[1]}" if len(parts) > 1 else "")
+
+    return text
 
 
 def _inline_path_for_command(parts: list[str]) -> str:

@@ -11,7 +11,7 @@ from backend.mcp_code.workspace.search import WorkspaceSearchTools
 
 
 class WorkspaceTools(NativeCodingComponent):
-    """提供工作区文件读取、写入、搜索和路径列表能力。"""
+    """提供工作区文件读取、写入和搜索能力。"""
 
     def __init__(self, core: NativeCodingBase) -> None:
         """装配文件工具、搜索诊断和搜索工具。"""
@@ -25,10 +25,6 @@ class WorkspaceTools(NativeCodingComponent):
             diagnostics=self._diagnostics,
             symbols=getattr(core, "_repo_map", None)
         )
-
-    def list_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        """转发文件列表请求。"""
-        return self._files.list_file(*args, **kwargs)
 
     def read_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         """转发文件读取请求。"""

@@ -24,7 +24,6 @@ from .native_helpers import (
     _file_action_from_args,
     _format_delta,
     _format_size,
-    _list_file_preview_lines,
     _path_from_args,
     _search_query_label,
     _short_sha,
@@ -49,7 +48,6 @@ from .native_patch import (
 )
 
 NATIVE_CODING_TRACE_TOOLS = {
-    "workspace_list_file",
     "workspace_read_file",
     "workspace_search",
     "native_parallel_read",
@@ -140,16 +138,6 @@ def render_tool_result_preview(
         return TracePreview()
     failed = data.get("ok") is False
 
-    if name == "workspace_list_file":
-        if failed:
-            return _trace_preview_from_lines(_failure_preview_lines(
-                data,
-                ("path", data.get("path") or args.get("path")),
-            ))
-        files = data.get("files")
-        if isinstance(files, list):
-            return _trace_preview_from_lines(_list_file_preview_lines(files))
-
     if name == "workspace_read_file":
         if failed:
             return _trace_preview_from_lines(_failure_preview_lines(
@@ -200,10 +188,9 @@ def render_tool_result_preview(
                 state   = "ok" if item.get("ok") else _parallel_read_reason_label(payload.get("reason"))
 
                 label = "read" if tool == "workspace_read_file" else (
-                    "list" if tool == "workspace_list_file" else (
-                        "search" if tool == "workspace_search" else tool or "item"
-                    )
+                    "search" if tool == "workspace_search" else tool or "item"
                 )
+
                 prefix = f"{index}: " if index is not None else ""
                 detail = f" {target}" if target else ""
                 lines.append(f"{prefix}{state} {label}{detail}".strip())
@@ -426,13 +413,6 @@ def render_tool_trace(
     args    = arguments if isinstance(arguments, dict) else {}
     payload = _result_payload(data)
     suffix  = _failure_suffix(payload, ok=ok)
-
-    if name == "workspace_list_file":
-        path   = str(payload.get("path") or _path_from_args(args))
-        count  = payload.get("file_count")
-        detail = f" ({count} files)" if isinstance(count, int) else ""
-
-        return f"• Listed {path}{detail}{suffix}"
 
     if name == "workspace_read_file":
         path = str(payload.get("path") or _path_from_args(args))

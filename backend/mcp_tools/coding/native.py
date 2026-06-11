@@ -16,10 +16,7 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     WorkspaceMaxLinesArg,
     WorkspaceMaxBytesArg,
     WorkspaceCaseSensitiveArg,
-    WorkspaceSearchModeArg,
-    WorkspaceSearchContextArg,
     WorkspaceMaxMatchesArg,
-    WorkspaceRecursiveArg,
     NativeParallelReadItemsArg,
     WorkspaceCreateDirsArg,
     WorkspaceOverwriteArg,
@@ -79,46 +76,10 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "列出工作区内文件路径。"
-            " 用于查看目录文件；按名称、符号、文本或错误信息定位时优先用 workspace_search。"
-        ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace"}
-    )
-    @task_middleware("workspace_list_file")
-    async def workspace_list_file(
-        path: WorkspaceOptionalPathArg = ".",
-        glob: WorkspacePatternArg = None,
-        recursive: WorkspaceRecursiveArg = True,
-        max_matches: WorkspaceMaxMatchesArg = 100
-    ) -> CallToolResult:
-
-        args = {
-            "path"        : path or ".",
-            "glob"        : glob,
-            "recursive"   : recursive,
-            "max_matches" : max_matches
-        }
-
-        async def call(*_) -> dict:
-            return ctx.native_coding.list_file(**args)
-
-        return await broadcast(
-            tool="workspace_list_file",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
-            "统一搜索工作区上下文。"
-            " mode=auto 会同时搜索文件路径、文本内容和符号；"
-            " mode=text/literal 搜字面量文本，mode=regex 搜正则，"
-            "mode=file 搜文件名/路径，mode=symbol 搜函数、类和类型定义。"
-            " query 可传字符串列表，用文件名、符号名、调用点、错误文本做多轮搜索。"
-            " 这是查找文件、符号、调用点和错误文本的默认入口。"
-            " 返回结果包含 path、line、kind、match_count、truncated 和覆盖诊断等事实字段。"
+            "结构化符号搜索。"
+            " 用于查找函数、类、方法、类型等符号定义，并返回相关引用和调用候选。"
+            " 文本、错误信息、调用点粗搜和文件路径发现优先使用 shell 中的 rg。"
+            " 返回结果包含 path、line、kind、match_count、references、call_candidates 和覆盖诊断等事实字段。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
@@ -127,10 +88,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         query: WorkspaceSearchQueryArg,
         path: WorkspaceOptionalPathArg = ".",
         glob: WorkspacePatternArg = None,
-        mode: WorkspaceSearchModeArg = "auto",
         case_sensitive: WorkspaceCaseSensitiveArg = False,
-        context_before: WorkspaceSearchContextArg = 0,
-        context_after: WorkspaceSearchContextArg = 0,
         max_matches: WorkspaceMaxMatchesArg = 100
     ) -> CallToolResult:
 
@@ -138,10 +96,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "query"          : query,
             "path"           : path or ".",
             "glob"           : glob,
-            "mode"           : mode,
             "case_sensitive" : case_sensitive,
-            "context_before" : context_before,
-            "context_after"  : context_after,
             "max_matches"    : max_matches
         }
 
@@ -159,7 +114,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "并行读取多段工作区上下文。"
-            " 只允许 workspace_list_file、workspace_read_file、workspace_search；"
+            " 只允许 workspace_read_file、workspace_search；"
             " 不执行 shell、不写文件、不应用 patch。适合一次读取多个搜索候选窗口。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}

@@ -78,7 +78,9 @@ class WorkspaceSearchDiagnostics(NativeCodingComponent):
         metadata["reference_count"]      = len(metadata.get("references") or [])
         metadata["call_candidate_count"] = len(metadata.get("call_candidates") or [])
 
-        metadata["reference_search_truncated_file_count"] = len(metadata.get("reference_search_truncated_files") or [])
+        metadata["reference_search_truncated_file_count"] = len(
+            metadata.get("reference_search_truncated_files") or []
+        )
         metadata["parser_level"] = data.get("parser_level") or metadata.get("parser_level") or "regex"
 
         limitations = [str(item) for item in (metadata.get("parser_limitations") or [])]
@@ -93,26 +95,19 @@ class WorkspaceSearchDiagnostics(NativeCodingComponent):
         *,
         base: typing.Any,
         glob: str | None,
-        text_search_enabled: bool,
-        content_diagnostics: dict[str, typing.Any],
         symbol_metadata: dict[str, typing.Any]
     ) -> dict[str, typing.Any]:
-        """描述 workspace_search 未覆盖或只部分覆盖的文件范围。"""
+        """描述符号搜索未覆盖或只部分覆盖的文件范围。"""
         diagnostics: dict[str, typing.Any] = {
             "complete": True,
             "incomplete": False,
             "reasons": [],
             "files_considered": 0,
-            "files_scanned": int(content_diagnostics.get("files_scanned") or 0),
             "search_byte_limit": self.max_read_bytes,
             "glob_excluded_files": [],
             "glob_excluded_file_count": 0,
-            "binary_or_non_text_files": [],
-            "binary_or_non_text_file_count": 0,
             "generated_or_excluded_dirs": [],
             "generated_or_excluded_dir_count": 0,
-            "large_files_truncated": list(content_diagnostics.get("large_files_truncated") or []),
-            "large_files_truncated_count": len(content_diagnostics.get("large_files_truncated") or []),
             "symbol_truncated_files": list(symbol_metadata.get("truncated_files") or []),
             "symbol_truncated_file_count": len(symbol_metadata.get("truncated_files") or []),
             "reference_search_truncated_files": list(symbol_metadata.get("reference_search_truncated_files") or []),
@@ -139,22 +134,9 @@ class WorkspaceSearchDiagnostics(NativeCodingComponent):
 
             diagnostics["files_considered"] += 1
 
-            if text_search_enabled and not self.looks_text(item):
-                diagnostics["binary_or_non_text_file_count"] += 1
-                self._append_limited(
-                    diagnostics["binary_or_non_text_files"],
-                    {
-                        "path"   : rel,
-                        "size"   : item.stat().st_size,
-                        "reason" : "file_not_text"
-                    }
-                )
-
         reason_checks = {
-            "large_file_tail_not_searched"       : bool(diagnostics["large_files_truncated"]),
             "symbol_index_file_truncated"        : bool(diagnostics["symbol_truncated_files"]),
             "reference_search_file_truncated"    : bool(diagnostics["reference_search_truncated_files"]),
-            "binary_or_non_text_skipped"         : diagnostics["binary_or_non_text_file_count"] > 0,
             "generated_or_excluded_dirs_skipped" : diagnostics["generated_or_excluded_dir_count"] > 0,
             "glob_scope_excluded_files"          : diagnostics["glob_excluded_file_count"] > 0
         }
@@ -172,7 +154,8 @@ class WorkspaceSearchDiagnostics(NativeCodingComponent):
     ) -> None:
         """采样会被默认遍历排除的目录。"""
         if not base.is_dir():
-            return
+            return None
+
         for root, dirs, _files in os.walk(base):
             root_path = Path(root)
             kept_dirs: list[str] = []
