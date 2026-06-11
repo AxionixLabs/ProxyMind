@@ -25,7 +25,6 @@ from .native_helpers import (
     _format_delta,
     _format_size,
     _path_from_args,
-    _search_query_label,
     _short_sha,
     _unified_action
 )
@@ -49,7 +48,6 @@ from .native_patch import (
 
 NATIVE_CODING_TRACE_TOOLS = {
     "workspace_read_file",
-    "workspace_search",
     "native_parallel_read",
     "workspace_write_file",
     "workspace_copy_file",
@@ -146,33 +144,6 @@ def render_tool_result_preview(
             ))
         return _trace_preview_from_lines(_normalize_preview_lines(data.get("content")))
 
-    if name == "workspace_search":
-        if failed:
-            return _trace_preview_from_lines(_failure_preview_lines(
-                data,
-                ("query", args.get("query")),
-            ))
-        matches = data.get("matches")
-        if isinstance(matches, list):
-            lines = []
-            for item in matches:
-                if isinstance(item, dict):
-
-                    kind = str(item.get("kind") or "").strip()
-                    path = str(item.get("path") or "")
-                    line = str(item.get("line") or "")
-                    text = _short_text(
-                        item.get("text") or item.get("signature") or item.get("qualified_name") or item.get("name"),
-                        MAX_PREVIEW_WIDTH,
-                    )
-                    loc  = f"{path}:{line}" if line else path
-                    row  = loc if kind == "file" and not line else f"{loc} {text}".strip()
-
-                    if row:
-                        lines.append(row)
-
-            return _trace_preview_from_lines(lines)
-
     if name == "native_parallel_read":
         results = data.get("results")
         if isinstance(results, list):
@@ -187,9 +158,7 @@ def render_tool_result_preview(
                 target  = _parallel_read_item_target(item, payload)
                 state   = "ok" if item.get("ok") else _parallel_read_reason_label(payload.get("reason"))
 
-                label = "read" if tool == "workspace_read_file" else (
-                    "search" if tool == "workspace_search" else tool or "item"
-                )
+                label = "read" if tool == "workspace_read_file" else tool or "item"
 
                 prefix = f"{index}: " if index is not None else ""
                 detail = f" {target}" if target else ""
@@ -410,6 +379,8 @@ def render_tool_trace(
     before_exists: typing.Any = MISSING
 ) -> str:
     """渲染工具完成后的轨迹摘要行。"""
+    _ = cost_ms
+
     args    = arguments if isinstance(arguments, dict) else {}
     payload = _result_payload(data)
     suffix  = _failure_suffix(payload, ok=ok)
@@ -417,18 +388,6 @@ def render_tool_trace(
     if name == "workspace_read_file":
         path = str(payload.get("path") or _path_from_args(args))
         return f"• Read {path}{suffix}"
-
-    if name == "workspace_search":
-        query, quote_query = _search_query_label(args)
-        if payload.get("skipped") and payload.get("reason") == "query_empty":
-            return "• Skipped empty search"
-
-        matches = payload.get("matches")
-        total   = len(matches) if isinstance(matches, list) else None
-        detail  = f" ({total} matches)" if isinstance(total, int) else ""
-        target  = f"\"{query}\"" if quote_query else query
-
-        return f"• Searched {target}{detail}{suffix}"
 
     if name == "native_parallel_read":
         total      = payload.get("total")

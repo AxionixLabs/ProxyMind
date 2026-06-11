@@ -41,14 +41,6 @@ def _parallel_read_item_target(
 
     if tool == "workspace_read_file":
         return str(payload.get("path") or args.get("path") or "").strip()
-    if tool == "workspace_search":
-        query = args.get("query", payload.get("query"))
-        if isinstance(query, (list, tuple)):
-            target = f"{len(query)} queries"
-        else:
-            target = _short_text(query, 80)
-        count = payload.get("match_count")
-        return f"{target} ({count} matches)" if isinstance(count, int) else target
 
     return _short_text(args, 100)
 

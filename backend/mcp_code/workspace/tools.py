@@ -5,34 +5,21 @@ import typing
 from backend.mcp_code.base import (
     NativeCodingBase, NativeCodingComponent
 )
-from backend.mcp_code.workspace.diagnostics import WorkspaceSearchDiagnostics
 from backend.mcp_code.workspace.file_ops import WorkspaceFileTools
-from backend.mcp_code.workspace.search import WorkspaceSearchTools
 
 
 class WorkspaceTools(NativeCodingComponent):
-    """提供工作区文件读取、写入和搜索能力。"""
+    """提供工作区文件读取和写入能力。"""
 
     def __init__(self, core: NativeCodingBase) -> None:
-        """装配文件工具、搜索诊断和搜索工具。"""
+        """装配文件工具。"""
         super().__init__(core)
 
-        self._files       = WorkspaceFileTools(core)
-        self._diagnostics = WorkspaceSearchDiagnostics(core)
-
-        self._search = WorkspaceSearchTools(
-            core,
-            diagnostics=self._diagnostics,
-            symbols=getattr(core, "_repo_map", None)
-        )
+        self._files = WorkspaceFileTools(core)
 
     def read_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         """转发文件读取请求。"""
         return self._files.read_file(*args, **kwargs)
-
-    def search(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        """转发工作区搜索请求。"""
-        return self._search.search(*args, **kwargs)
 
     def write_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         """转发文件写入请求。"""

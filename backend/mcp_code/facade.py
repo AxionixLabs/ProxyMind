@@ -60,10 +60,6 @@ class NativeCoding(NativeCodingBase):
         """读取工作区文本文件内容。"""
         return self._workspace.read_file(*args, **kwargs)
 
-    def search(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        """执行文件、文本或符号搜索。"""
-        return self._workspace.search(*args, **kwargs)
-
     def write_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         """创建或覆盖工作区文本文件。"""
         return self._workspace.write_file(*args, **kwargs)

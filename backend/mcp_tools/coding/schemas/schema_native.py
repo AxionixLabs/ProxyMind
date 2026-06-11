@@ -13,10 +13,6 @@ WorkspaceOptionalPathArg = typing.Annotated[
     typing.Optional[str],
     Field(description="工作区内可选相对路径；为空时使用工作区根目录。"),
 ]
-WorkspacePatternArg = typing.Annotated[
-    typing.Optional[str],
-    Field(description="文件名或相对路径 glob 过滤表达式。"),
-]
 WorkspaceContentArg = typing.Annotated[
     str,
     Field(description="要写入文件的完整文本内容；用于创建或整体覆盖文件。"),
@@ -28,10 +24,6 @@ WorkspaceSourcePathArg = typing.Annotated[
 WorkspaceTargetPathArg = typing.Annotated[
     str,
     Field(description="工作区内复制、移动或重命名后的目标文件相对路径；不允许越过工作区根目录。"),
-]
-WorkspaceSearchQueryArg = typing.Annotated[
-    typing.Union[str, list[str]],
-    Field(description="一个或多个符号查询；用于按函数、类、方法、类型等名称定位结构化符号结果。"),
 ]
 WorkspaceStartLineArg = typing.Annotated[
     typing.Optional[int],
@@ -45,20 +37,12 @@ WorkspaceMaxBytesArg = typing.Annotated[
     typing.Optional[int],
     Field(description="读取文件时最多读取的字节数。"),
 ]
-WorkspaceCaseSensitiveArg = typing.Annotated[
-    bool,
-    Field(description="符号名称过滤是否区分大小写。"),
-]
-WorkspaceMaxMatchesArg = typing.Annotated[
-    int,
-    Field(description="最多返回的匹配条数，工具内部会限制上限。"),
-]
 NativeParallelReadItemsArg = typing.Annotated[
     list[dict[str, typing.Any]],
     Field(
         description=(
             "并行读取上下文的只读步骤列表。每项包含 tool 和 args；"
-            "仅允许 workspace_read_file、workspace_search。"
+            "仅允许 workspace_read_file。"
         )
     ),
 ]

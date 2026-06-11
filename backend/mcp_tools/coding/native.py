@@ -7,16 +7,12 @@ from backend.middlewares.mid_task import task_middleware
 from backend.mcp_tools.coding.schemas.schema_native import (
     WorkspacePathArg,
     WorkspaceOptionalPathArg,
-    WorkspacePatternArg,
     WorkspaceContentArg,
     WorkspaceSourcePathArg,
     WorkspaceTargetPathArg,
-    WorkspaceSearchQueryArg,
     WorkspaceStartLineArg,
     WorkspaceMaxLinesArg,
     WorkspaceMaxBytesArg,
-    WorkspaceCaseSensitiveArg,
-    WorkspaceMaxMatchesArg,
     NativeParallelReadItemsArg,
     WorkspaceCreateDirsArg,
     WorkspaceOverwriteArg,
@@ -46,7 +42,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "读取工作区内文本文件。"
             " 支持按起始行和最大行数读取窗口；搜索后优先读取命中附近窗口，不要无条件读取大文件。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace"}
+        meta={"hidden": True, "domain": "coding", "class": "workspace"}
     )
     @task_middleware("workspace_read_file")
     async def workspace_read_file(
@@ -76,45 +72,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "结构化符号搜索。"
-            " 用于查找函数、类、方法、类型等符号定义，并返回相关引用和调用候选。"
-            " 文本、错误信息、调用点粗搜和文件路径发现优先使用 shell 中的 rg。"
-            " 返回结果包含 path、line、kind、match_count、references、call_candidates 和覆盖诊断等事实字段。"
-        ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace"}
-    )
-    @task_middleware("workspace_search")
-    async def workspace_search(
-        query: WorkspaceSearchQueryArg,
-        path: WorkspaceOptionalPathArg = ".",
-        glob: WorkspacePatternArg = None,
-        case_sensitive: WorkspaceCaseSensitiveArg = False,
-        max_matches: WorkspaceMaxMatchesArg = 100
-    ) -> CallToolResult:
-
-        args = {
-            "query"          : query,
-            "path"           : path or ".",
-            "glob"           : glob,
-            "case_sensitive" : case_sensitive,
-            "max_matches"    : max_matches
-        }
-
-        async def call(*_) -> dict:
-            return ctx.native_coding.search(**args)
-
-        return await broadcast(
-            tool="workspace_search",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
             "并行读取多段工作区上下文。"
-            " 只允许 workspace_read_file、workspace_search；"
+            " 只允许 workspace_read_file；"
             " 不执行 shell、不写文件、不应用 patch。适合一次读取多个搜索候选窗口。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}

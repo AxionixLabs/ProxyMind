@@ -13,17 +13,12 @@ class ParallelReadCore(typing.Protocol):
         """读取工作区内的文本文件。"""
         ...
 
-    def search(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        """搜索工作区内的路径、内容或符号。"""
-        ...
-
 
 class ParallelReadTools(NativeCodingComponent):
     """并行读取工作区上下文的只读组合工具。"""
 
     ALLOWED_TOOLS = {
-        "workspace_read_file",
-        "workspace_search"
+        "workspace_read_file"
     }
 
     MAX_ITEMS       = 12
@@ -117,8 +112,6 @@ class ParallelReadTools(NativeCodingComponent):
                 async with semaphore:
                     if tool == "workspace_read_file":
                         result = await asyncio.to_thread(core.read_file, **args)
-                    elif tool == "workspace_search":
-                        result = await asyncio.to_thread(core.search, **args)
                     else:
                         result = self.fail_result("tool_not_allowed", tool=tool)
             except Exception as exc:
