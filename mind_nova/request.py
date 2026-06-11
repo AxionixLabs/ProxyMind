@@ -13,6 +13,7 @@ from pathlib import Path
 from loguru import logger
 from engine.channel import Channel
 from mind_app.stream_ui import StreamUI
+from mind_app.runtime.exec_env import exec_env
 from mind_nova.modes import RunMode
 from mind_nova import const
 
@@ -61,6 +62,24 @@ async def fetch_manifest() -> typing.Optional[dict[str, typing.Any]]:
         return None
 
     return data.get("data")
+
+
+async def fetch_exec_env(timeout: float = 1.5) -> dict[str, typing.Any]:
+    """从本地运行时服务获取执行环境信息，失败时返回本进程兜底信息。"""
+    try:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+            resp = await client.get(f"{const.BASE_URL}/api/runtime/exec-env")
+            resp.raise_for_status()
+            body = resp.json()
+    except Exception as exc:
+        logger.debug(f"[Runtime] exec_env fallback: {type(exc).__name__}: {exc}")
+        return exec_env()
+
+    if not isinstance(body, dict) or not body.get("ok"):
+        return exec_env()
+
+    data = body.get("data")
+    return data if isinstance(data, dict) else exec_env()
 
 
 async def streaming(
@@ -165,7 +184,8 @@ async def upload_file_stream(
     ) -> dict[str, typing.Any]:
 
         elapsed_sec = max(0.0, time.monotonic() - progress_started_at)
-        speed = (float(current_uploaded_bytes) / elapsed_sec) if elapsed_sec > 0 else 0.0
+        speed       = (float(current_uploaded_bytes) / elapsed_sec) if elapsed_sec > 0 else 0.0
+
         percent = 1.0 if current_total_bytes <= 0 and done else (
             min(1.0, float(current_uploaded_bytes) / float(current_total_bytes)) if current_total_bytes > 0 else 0.0
         )
@@ -251,7 +271,7 @@ async def upload_file_stream(
         len(field_agent) + len(field_prefix) + len(field_file) + file_size + len(closing)
     )
 
-    started_at = time.monotonic()
+    started_at   = time.monotonic()
     upload_state = {"uploaded_bytes": 0}
 
     if progress_callback is not None:
@@ -343,11 +363,16 @@ async def stream_chat(
 ) -> typing.AsyncGenerator[dict[str, typing.Any], None]:
     """流式获取 chat/fast/xtra 模式事件。"""
     headers = Channel.make_headers()
+
+    if not isinstance(runtime_exec_env := kwargs.pop("exec_env", None), dict):
+        runtime_exec_env = await fetch_exec_env()
+
     payload = {
         "mode"     : resolve_transport_mode(mode),
         "llm_conf" : pref_config,
         "message"  : message,
         "tools"    : openai_tools,
+        "exec_env" : runtime_exec_env,
         **kwargs
     }
     if attachments:
