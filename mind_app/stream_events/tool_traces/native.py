@@ -49,7 +49,6 @@ from .native_patch import (
 )
 
 NATIVE_CODING_TRACE_TOOLS = {
-    "workspace_root",
     "workspace_list_file",
     "workspace_read_file",
     "workspace_search",
@@ -141,12 +140,6 @@ def render_tool_result_preview(
         return TracePreview()
     failed = data.get("ok") is False
 
-    if name == "workspace_root":
-        if failed:
-            return _trace_preview_from_lines(_failure_preview_lines(data))
-        root = str(data.get("root") or "").strip()
-        return _trace_preview_from_lines([f"root={root}"] if root else [])
-
     if name == "workspace_list_file":
         if failed:
             return _trace_preview_from_lines(_failure_preview_lines(
@@ -208,9 +201,7 @@ def render_tool_result_preview(
 
                 label = "read" if tool == "workspace_read_file" else (
                     "list" if tool == "workspace_list_file" else (
-                        "search" if tool == "workspace_search" else (
-                            "root" if tool == "workspace_root" else tool or "item"
-                        )
+                        "search" if tool == "workspace_search" else tool or "item"
                     )
                 )
                 prefix = f"{index}: " if index is not None else ""
@@ -435,10 +426,6 @@ def render_tool_trace(
     args    = arguments if isinstance(arguments, dict) else {}
     payload = _result_payload(data)
     suffix  = _failure_suffix(payload, ok=ok)
-
-    if name == "workspace_root":
-        root = str(payload.get("root") or "").strip()
-        return f"• Root {root}".rstrip()
 
     if name == "workspace_list_file":
         path   = str(payload.get("path") or _path_from_args(args))

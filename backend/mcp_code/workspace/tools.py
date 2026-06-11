@@ -26,10 +26,6 @@ class WorkspaceTools(NativeCodingComponent):
             symbols=getattr(core, "_repo_map", None)
         )
 
-    def workspace_root(self) -> dict[str, typing.Any]:
-        """返回当前工作区根目录。"""
-        return self._files.workspace_root()
-
     def list_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         """转发文件列表请求。"""
         return self._files.list_file(*args, **kwargs)

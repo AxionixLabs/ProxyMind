@@ -9,10 +9,6 @@ from backend.mcp_code.base import NativeCodingComponent
 class ParallelReadCore(typing.Protocol):
     """描述并行读取依赖的只读工作区接口。"""
 
-    def workspace_root(self) -> dict[str, typing.Any]:
-        """返回当前工作区根目录。"""
-        ...
-
     def list_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         """列出工作区内的文件路径。"""
         ...
@@ -30,7 +26,6 @@ class ParallelReadTools(NativeCodingComponent):
     """并行读取工作区上下文的只读组合工具。"""
 
     ALLOWED_TOOLS = {
-        "workspace_root",
         "workspace_list_file",
         "workspace_read_file",
         "workspace_search"
@@ -125,9 +120,7 @@ class ParallelReadTools(NativeCodingComponent):
 
             try:
                 async with semaphore:
-                    if tool == "workspace_root":
-                        result = await asyncio.to_thread(core.workspace_root)
-                    elif tool == "workspace_list_file":
+                    if tool == "workspace_list_file":
                         result = await asyncio.to_thread(core.list_file, **args)
                     elif tool == "workspace_read_file":
                         result = await asyncio.to_thread(core.read_file, **args)

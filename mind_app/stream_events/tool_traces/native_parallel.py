@@ -53,8 +53,6 @@ def _parallel_read_item_target(
             target = _short_text(query, 80)
         count = payload.get("match_count")
         return f"{target} ({count} matches)" if isinstance(count, int) else target
-    if tool == "workspace_root":
-        return str(payload.get("root") or "").strip()
 
     return _short_text(args, 100)
 

@@ -56,10 +56,6 @@ class NativeCoding(NativeCodingBase):
         """比较两次文件指纹并返回变更摘要。"""
         return self._file_audit.diff_file_fingerprints(*args, **kwargs)
 
-    def workspace_root(self) -> dict[str, typing.Any]:
-        """返回当前工作区根目录。"""
-        return self._workspace.workspace_root()
-
     def list_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         """列出工作区文件或目录。"""
         return self._workspace.list_file(*args, **kwargs)

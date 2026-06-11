@@ -78,17 +78,6 @@ class WorkspaceFileTools(NativeCodingComponent):
             "sha256" : self.sha256_bytes(payload)
         }
 
-    def workspace_root(
-        self
-    ) -> dict[str, typing.Any]:
-        """返回当前 native coding 工作区根目录。"""
-        return {
-            "text"        : f"workspace root={self.root}",
-            "attachments" : [],
-            "data"        : {"ok": True, "root": str(self.root)},
-            "logs"        : []
-        }
-
     def list_file(
         self,
         *,
