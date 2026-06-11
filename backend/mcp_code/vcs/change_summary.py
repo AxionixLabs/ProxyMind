@@ -21,18 +21,18 @@ class ChangeSummaryTools(NativeCodingComponent):
         cls,
         payload: dict[str, typing.Any] | None
     ) -> dict[str, typing.Any]:
-        """把最近一次 shell_exec 结果整理为最终摘要可消费的验证证据。"""
+        """把最近一次 shell_command 结果整理为最终摘要可消费的验证证据。"""
         if not isinstance(payload, dict) or not payload:
             return {
                 "status"         : "not_run",
                 "validation_ok"  : None,
                 "sufficient"     : False,
-                "not_run_reason" : "no_shell_exec_recorded",
+                "not_run_reason" : "no_shell_command_recorded",
                 "command"        : None,
                 "commands"       : []
             }
 
-        command        = payload.get("command") if isinstance(payload.get("command"), list) else None
+        command        = str(payload.get("command") or "").strip() or None
         requires_cloud = bool(payload.get("requires_cloud_sandbox"))
         timed_out      = bool(payload.get("timed_out"))
         ok             = bool(payload.get("ok"))
@@ -81,7 +81,7 @@ class ChangeSummaryTools(NativeCodingComponent):
         cls,
         payloads: list[dict[str, typing.Any]] | None
     ) -> dict[str, typing.Any]:
-        """整理本轮会话记录过的 shell_exec 验证历史。"""
+        """整理本轮会话记录过的 shell_command 验证历史。"""
         if not isinstance(payloads, list) or not payloads:
             return {
                 "command_count"                : 0,
@@ -100,11 +100,7 @@ class ChangeSummaryTools(NativeCodingComponent):
             for item in payloads
             if isinstance(item, dict) and item
         ]
-        commands = [
-            item.get("command")
-            for item in entries
-            if isinstance(item.get("command"), list)
-        ]
+        commands = [item.get("command") for item in entries if isinstance(item.get("command"), str) and item.get("command")]
 
         return {
             "command_count"                : len(entries),
@@ -222,7 +218,7 @@ class ChangeSummaryTools(NativeCodingComponent):
 
         return {
             "kind"           : "shell_write_detected",
-            "message"        : "latest shell_exec wrote or attempted to write workspace files",
+            "message"        : "latest shell_command wrote or attempted to write workspace files",
             "command"        : validation.get("command"),
             "reason"         : validation.get("reason"),
             "created"        : list(changes.get("created") or []),

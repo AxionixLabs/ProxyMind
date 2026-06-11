@@ -100,7 +100,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         description=(
             "写入工作区内文本文件。"
             " 默认允许覆盖并自动创建父目录，路径不能越过工作区。"
-            " 创建或整体覆盖文本文件时优先使用本工具，不要用 shell_exec 的 echo/tee/重定向。"
+            " 创建或整体覆盖文本文件时优先使用本工具，不要用 shell_command 的 echo/tee/重定向。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
@@ -138,7 +138,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         description=(
             "对工作区内文本文件执行精确文本替换。"
             " 只有实际匹配次数等于 expected_replacements 时才会写回，避免误改。"
-            " 局部修改文本文件时优先使用本工具，不要用 shell_exec 的 sed/perl/重定向改文件。"
+            " 局部修改文本文件时优先使用本工具，不要用 shell_command 的 sed/perl/重定向改文件。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
@@ -208,18 +208,17 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "在工作区内执行一次本地命令。"
-            " 命令必须使用参数数组，表示真实可执行程序及其参数，不是 shell 字符串。"
-            " 适合运行测试、构建、脚本、版本查询和只读诊断命令。"
+            " 命令必须是 shell 字符串，由系统默认 shell 解释执行。"
+            " 适合运行测试、构建、脚本、版本查询和诊断命令。"
             " 不要用本工具做工作区文件创建、覆盖或局部修改；"
             " 文本写入请使用 workspace_write_file、workspace_apply_patch 或 workspace_apply_unified_patch。"
             " 文件复制、移动、删除可通过受控 shell 命令执行。"
-            " 不要依赖 shell alias/内建命令或 shell 语法，例如 pwd、dir、管道、重定向、&&。"
             " 执行前必须携带 execution metadata，由执行元数据决定本地执行、云端沙盒或拒绝。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "shell"}
     )
-    @task_middleware("shell_exec")
-    async def shell_exec(
+    @task_middleware("shell_command")
+    async def shell_command(
         command: ShellCommandArg,
         cwd: ShellCwdArg = ".",
         timeout_sec: ShellTimeoutArg = 60,
@@ -234,14 +233,14 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         }
 
         async def call(*_) -> dict:
-            job_id = await idle.job_begin("native_coding.shell_exec", args=args)
+            job_id = await idle.job_begin("native_coding.shell_command", args=args)
             try:
-                return await ctx.native_coding.shell_exec(**args)
+                return await ctx.native_coding.shell_command(**args)
             finally:
                 await idle.job_final(job_id)
 
         return await broadcast(
-            tool="shell_exec",
+            tool="shell_command",
             args=args,
             target_list=[ctx.native_coding],
             call=call,

@@ -137,7 +137,7 @@ def _build_handoff_request(
         canonical = {}
 
     command = canonical.get("command") or node.get("command")
-    if not isinstance(command, list) or not command:
+    if not isinstance(command, str) or not str(command).strip():
         return None
 
     session_id = context.get("session_id")
@@ -150,7 +150,7 @@ def _build_handoff_request(
         "agent_id": context.get("agent_id"),
         "session_id": session_id,
         "run_id": run_id,
-        "command": command,
+        "command": str(command).strip(),
         "cwd": cwd,
         "timeout_sec": canonical.get("timeout_sec") or node.get("timeout_sec"),
         "reason": node.get("reason"),

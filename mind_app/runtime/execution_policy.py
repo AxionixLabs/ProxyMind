@@ -3,7 +3,7 @@
 
 import typing
 
-SUPPORTED_CLOUD_EXECUTION_TOOLS = {"shell_exec"}
+SUPPORTED_CLOUD_EXECUTION_TOOLS = {"shell_command"}
 EXECUTION_ALLOWED_STATES        = {"allowed", "approved"}
 EXECUTION_TARGETS               = {"local", "cloud_sandbox", "blocked"}
 

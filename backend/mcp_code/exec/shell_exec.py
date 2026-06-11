@@ -3,19 +3,19 @@
 
 import os
 import time
+import shlex
 import typing
 import asyncio
 from loguru import logger
 from backend.mcp_code.base import (
     NativeCodingBase, NativeCodingComponent
 )
-from backend.mcp_code.exec.command_runtime import NativeCommandRuntime
-from backend.mcp_code.exec.runtime_resolution import RuntimeResolver
+from backend.mcp_code.exec.shell_runtime import ShellRuntimeResolver
 from backend.utilities.process import Flux
 from backend.utilities.trace import summarize_command
 
 
-class ShellExecTools(NativeCodingComponent):
+class ShellCommandTools(NativeCodingComponent):
     """提供受控 shell 执行能力。"""
 
     READ_ONLY_COMMANDS = {
@@ -78,33 +78,39 @@ class ShellExecTools(NativeCodingComponent):
     @classmethod
     def audit_mode_for_command(
         cls,
-        cmd: list[str],
+        command: str,
         *,
         audit_files: bool
     ) -> str:
         """根据命令类型选择审计强度。"""
         if not audit_files:
             return "off"
-        if not cmd:
+        text = str(command or "").strip()
+        if not text:
             return "full"
 
-        executable = os.path.basename(str(cmd[0])).lower()
-        if executable.endswith(".exe"):
-            executable = executable[:-4]
+        if any(marker in text for marker in ("|", ">", "<", ";", "&", "`", "$(", "\n")):
+            return "full"
+
+        parts = cls._split_command(text)
+        if not parts:
+            return "full"
+
+        executable = os.path.basename(parts[0]).lower()
+        lowered    = text.lower()
 
         if executable == "git":
-            subcommand = next((str(item).lower() for item in cmd[1:] if not str(item).startswith("-")), "")
+            subcommand = parts[1].lower() if len(parts) > 1 else ""
             return "metadata" if subcommand in cls.READ_ONLY_GIT_SUBCOMMANDS else "full"
 
         if executable in {"python", "python3", "py"}:
-            if len(cmd) >= 2 and str(cmd[1]) in cls.READ_ONLY_PYTHON_FLAGS:
+            if cls._python_read_only(text):
                 return "metadata"
             return "full"
 
         version_flags = cls.READ_ONLY_VERSION_COMMANDS.get(executable)
         if version_flags:
-            normalized_args = {str(item).lower() for item in cmd[1:]}
-            if normalized_args and normalized_args.issubset(version_flags):
+            if cls._version_command_matches(lowered, executable, version_flags):
                 return "metadata"
             return "full"
 
@@ -113,6 +119,35 @@ class ShellExecTools(NativeCodingComponent):
 
         return "full"
 
+    @staticmethod
+    def _split_command(command: str) -> list[str]:
+        """尽量按 shell 词法切分命令头，用于审计分类。"""
+        try:
+            parts = shlex.split(command, posix=True)
+        except ValueError:
+            parts = str(command or "").strip().split()
+        return [str(item) for item in parts if str(item or "").strip()]
+
+    @classmethod
+    def _python_read_only(cls, command: str) -> bool:
+        text = str(command or "").strip()
+        if not text:
+            return False
+        parts = cls._split_command(text)
+        if len(parts) < 2:
+            return False
+        return parts[1] in cls.READ_ONLY_PYTHON_FLAGS or parts[1].lower() in cls.READ_ONLY_PYTHON_FLAGS
+
+    @classmethod
+    def _version_command_matches(cls, text: str, executable: str, flags: set[str]) -> bool:
+        parts = cls._split_command(text)
+        if not parts:
+            return False
+        normalized_args = {str(item).lower() for item in parts[1:]}
+        if not normalized_args:
+            return False
+        return normalized_args.issubset(flags)
+
     def _capture_shell_audit(self, mode: str) -> dict[str, typing.Any] | None:
         """按审计模式采集文件指纹。"""
         if mode == "off":
@@ -120,7 +155,7 @@ class ShellExecTools(NativeCodingComponent):
         return self._file_audit.capture_file_fingerprints(hash_files=mode == "full")
 
     def _record_shell_result(self, data: dict[str, typing.Any]) -> None:
-        """记录最近一次 shell_exec 结果，供 change_summary 汇总验证证据。"""
+        """记录最近一次 shell_command 结果，供 change_summary 汇总验证证据。"""
         if not isinstance(data, dict):
             return
         record = dict(data)
@@ -134,17 +169,17 @@ class ShellExecTools(NativeCodingComponent):
         history.append(record)
         del history[:-20]
 
-    async def shell_exec(
+    async def shell_command(
         self,
         *,
-        command: list[str],
+        command: str,
         cwd: str = ".",
         timeout_sec: int = 60,
         execution: dict[str, typing.Any] | None = None,
         audit_files: bool = True
     ) -> dict[str, typing.Any]:
         """按执行元数据运行 shell 命令，必要时返回云端沙盒交接结果。"""
-        cmd = [str(item) for item in (command or []) if str(item or "").strip()]
+        cmd = str(command or "").strip()
         if not cmd:
             return self.fail_result("command_empty")
 
@@ -179,7 +214,7 @@ class ShellExecTools(NativeCodingComponent):
 
         if policy.get("execution_target") == "cloud_sandbox":
             result = self.ok_result(
-                "shell exec requires cloud sandbox",
+                "shell_command requires cloud sandbox",
                 ok=False,
                 reason="cloud_sandbox_required",
                 command=cmd,
@@ -204,45 +239,28 @@ class ShellExecTools(NativeCodingComponent):
         output_limit      = int(policy.get("output_limit") or self.max_output_chars)
         env               = os.environ.copy()
 
-        runtime = RuntimeResolver.resolve_shell_command(cmd, env=env)
-        if not runtime.get("ok"):
-            cloud_supported = bool(runtime.get("cloud_sandbox_supported"))
-            result = self.ok_result(
-                "shell exec runtime unavailable",
-                ok=False,
-                command=cmd,
-                cwd=self.relative_path(workdir),
-                risk=policy.get("risk"),
-                category=policy.get("category"),
-                risk_reasons=[
-                    *(policy.get("reasons") or []),
-                    str(runtime.get("reason") or "local_runtime_unavailable")
-                ],
-                approval_required=bool(policy.get("approval_required")),
-                execution_target=runtime.get("execution_target") or "local",
-                requires_cloud_sandbox=bool(runtime.get("requires_cloud_sandbox")),
-                cloud_sandbox_supported=cloud_supported,
-                execution=policy.get("execution"),
-                grant_id=policy.get("grant_id"),
-                project_types=policy.get("project_types") or [],
-                long_task=bool(policy.get("long_task")),
-                timeout_sec=policy.get("timeout_sec"),
-                output_limit=policy.get("output_limit"),
-                reason=runtime.get("reason"),
-                runtime=runtime
-            )
-            self._record_shell_result(result.get("data") or {})
-            return result
+        runtime = ShellRuntimeResolver.resolve(env=env)
 
-        exec_cmd = list(runtime.get("command") or cmd)
-        if not runtime.get("changed"):
-            exec_cmd = NativeCommandRuntime.resolve_command(exec_cmd, env=env)
+        runtime_info = {
+            "name"       : runtime.name,
+            "syntax"     : runtime.syntax,
+            "executable" : runtime.executable,
+            "source"     : runtime.source
+        }
+
+        exec_cmd = list(runtime.prefix or [])
+        exec_cmd.append(cmd)
 
         audit_mode   = self.audit_mode_for_command(cmd, audit_files=audit_files)
         audit_before = self._capture_shell_audit(audit_mode)
         started      = time.perf_counter()
 
-        proc = await Flux.cmd_link_exec(exec_cmd, cwd=str(workdir), env=env)
+        proc = await Flux.cmd_link_shell_exec(
+            cmd,
+            shell=runtime.prefix or None,
+            cwd=str(workdir),
+            env=env
+        )
 
         timed_out = False
 
@@ -301,7 +319,8 @@ class ShellExecTools(NativeCodingComponent):
             "requires_cloud_sandbox": bool(policy.get("requires_cloud_sandbox")),
             "execution": policy.get("execution"),
             "grant_id": policy.get("grant_id"),
-            "runtime": runtime.get("runtime") if runtime.get("changed") else None,
+            "runtime": runtime_info,
+            "runtime_name": runtime.name,
             "project_types": policy.get("project_types") or [],
             "long_task": bool(policy.get("long_task")),
             "timeout_sec": effective_timeout,
@@ -325,7 +344,7 @@ class ShellExecTools(NativeCodingComponent):
         self._record_shell_result(data)
 
         return {
-            "text"        : f"shell exec {'ok' if ok else 'failed'} exit_code={exit_code} elapsed_ms={elapsed_ms}",
+            "text"        : f"shell_command {'ok' if ok else 'failed'} exit_code={exit_code} elapsed_ms={elapsed_ms}",
             "attachments" : [],
             "data"        : data,
             "logs"        : []

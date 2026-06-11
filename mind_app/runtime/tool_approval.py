@@ -83,7 +83,7 @@ class ApprovalStore(object):
         if not approval_id:
             return None
 
-        tool = str(approval.get("tool") or "shell_exec").strip() or "shell_exec"
+        tool = str(approval.get("tool") or "shell_command").strip() or "shell_command"
 
         self.by_call_id[call_id] = ApprovalRecord(
             approval_id=approval_id,
@@ -378,7 +378,7 @@ def _approval_prompt_noun(
 ) -> str:
     """返回审批提示中使用的操作类型名称。"""
     tool = str(approval.get("tool") or "").strip()
-    return "command" if tool in {"", "shell_exec"} else "tool action"
+    return "command" if tool in {"", "shell_command"} else "tool action"
 
 
 def _approval_choice_renderable(approval: dict[str, typing.Any]) -> Text:

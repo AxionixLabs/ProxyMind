@@ -52,7 +52,7 @@ NATIVE_CODING_TRACE_TOOLS = {
     "workspace_write_file",
     "workspace_apply_patch",
     "workspace_apply_unified_patch",
-    "shell_exec",
+    "shell_command",
     "git_status",
     "git_diff",
     "change_summary"
@@ -243,7 +243,7 @@ def render_tool_result_preview(
 
             return _trace_preview_from_lines(lines)
 
-    if name in {"shell_exec", "git_status", "git_diff"}:
+    if name in {"shell_command", "git_status", "git_diff"}:
 
         stdout_source = data.get("stdout")
         lines         = _normalize_preview_lines(stdout_source)
@@ -261,7 +261,7 @@ def render_tool_result_preview(
             lines.extend(err_lines)
         elif err_lines:
             lines = err_lines
-        if not lines and name == "shell_exec" and data.get("exit_code") is not None:
+        if not lines and name == "shell_command" and data.get("exit_code") is not None:
             lines = [f"exit_code={data.get('exit_code')}"]
         if not lines and name == "git_status" and data.get("ok") is True:
             lines = ["No changes in git status"]
@@ -269,7 +269,7 @@ def render_tool_result_preview(
             lines = ["No tracked changes in git diff"]
 
         has_inline_script = False
-        if name == "shell_exec":
+        if name == "shell_command":
             preview = command_preview(data.get("command") or args.get("command"))
             if preview.has_script:
                 script_lines = inline_script_preview_lines(preview.script, path=preview.path)
@@ -280,7 +280,7 @@ def render_tool_result_preview(
         if prefix:
             lines = [*prefix, *lines]
 
-        if name == "shell_exec" and has_inline_script:
+        if name == "shell_command" and has_inline_script:
             return _trace_code_preview_from_lines(lines)
         return _trace_preview_from_lines(lines)
 
@@ -379,7 +379,7 @@ def render_tool_trace(
 
         return f"• {action} {target}{_format_delta(added, removed)}{suffix}"
 
-    if name == "shell_exec":
+    if name == "shell_command":
         command = command_preview(payload.get("command") or args.get("command")).title
         return f"• Ran {command}{suffix}".rstrip()
 

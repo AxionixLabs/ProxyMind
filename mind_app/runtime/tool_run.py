@@ -55,7 +55,7 @@ _COMMON_PROMOTED_RESULT_KEYS = (
 )
 
 _OUTPUT_PROMOTED_TOOLS = {
-    "shell_exec",
+    "shell_command",
     "git_status",
     "git_diff"
 }

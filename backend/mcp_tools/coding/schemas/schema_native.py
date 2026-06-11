@@ -76,8 +76,8 @@ WorkspaceExpectedSha256MapArg = typing.Annotated[
 ]
 
 ShellCommandArg = typing.Annotated[
-    list[str],
-    Field(description="以参数数组表达的真实可执行程序及参数；不接受 shell 控制符、重定向、管道或内建命令拼接。"),
+    str,
+    Field(description="要执行的 shell 命令字符串；由系统默认 shell 解释执行。"),
 ]
 ShellCwdArg = typing.Annotated[
     str,
@@ -89,7 +89,7 @@ ShellTimeoutArg = typing.Annotated[
 ]
 ExecutionMetadataArg = typing.Annotated[
     typing.Optional[dict[str, typing.Any]],
-    Field(description="服务端执行裁决；shell_exec 必须包含 grantId 和 canonicalArguments 等执行元数据。"),
+    Field(description="服务端执行裁决；shell_command 必须包含 grantId 和 canonicalArguments 等执行元数据。"),
 ]
 
 GitDiffMaxCharsArg = typing.Annotated[

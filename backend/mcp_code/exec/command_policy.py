@@ -16,7 +16,7 @@ class CommandPolicy(NativeCodingComponent):
     def execution_metadata_policy(
         execution: dict[str, typing.Any] | None,
         *,
-        command: list[str] | None = None,
+        command: str | None = None,
         cwd: str = ".",
         timeout_sec: int
     ) -> dict[str, typing.Any]:
@@ -76,7 +76,7 @@ class CommandPolicy(NativeCodingComponent):
         canonical = execution.get("canonicalArguments") or execution.get("canonical_arguments")
         if isinstance(canonical, dict):
             expected = {
-                "command": list(command or []),
+                "command": str(command or ""),
                 "cwd": str(cwd or "."),
                 "timeout_sec": int(timeout_sec or 60)
             }

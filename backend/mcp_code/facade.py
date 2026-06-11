@@ -7,7 +7,7 @@ from backend.mcp_code.workspace.tools import WorkspaceTools
 from backend.mcp_code.workspace.parallel_read import ParallelReadTools
 from backend.mcp_code.workspace.repo_map import RepoMapTools
 from backend.mcp_code.edit.patch_engine import PatchEngine
-from backend.mcp_code.exec.shell_exec import ShellExecTools
+from backend.mcp_code.exec.shell_exec import ShellCommandTools
 from backend.mcp_code.vcs.git_tools import GitTools
 from backend.mcp_code.exec.command_policy import CommandPolicy
 from backend.mcp_code.exec.file_audit import FileAudit
@@ -27,7 +27,7 @@ class NativeCoding(NativeCodingBase):
         self._patch_engine   = PatchEngine(self)
         self._command_policy = CommandPolicy(self)
         self._file_audit     = FileAudit(self)
-        self._shell_exec     = ShellExecTools(self, command_policy=self._command_policy, file_audit=self._file_audit)
+        self._shell_command  = ShellCommandTools(self, command_policy=self._command_policy, file_audit=self._file_audit)
         self._git_tools      = GitTools(self)
         self._change_summary = ChangeSummaryTools(self, git_tools=self._git_tools)
 
@@ -76,17 +76,17 @@ class NativeCoding(NativeCodingBase):
         """判断当前工作区是否为 Git 仓库。"""
         return self._git_tools.is_git_workspace()
 
-    def audit_mode_for_command(self, command: list[str], *, audit_files: bool) -> str:
+    def audit_mode_for_command(self, command: str, *, audit_files: bool) -> str:
         """返回指定命令对应的文件审计模式。"""
-        return self._shell_exec.audit_mode_for_command(command, audit_files=audit_files)
+        return self._shell_command.audit_mode_for_command(command, audit_files=audit_files)
 
     async def parallel_read(self, items: list[dict[str, typing.Any]]) -> dict[str, typing.Any]:
         """并行执行多个只读工具请求。"""
         return await self._parallel_read.parallel_read(items)
 
-    async def shell_exec(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+    async def shell_command(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         """按策略执行本地 shell 命令。"""
-        return await self._shell_exec.shell_exec(*args, **kwargs)
+        return await self._shell_command.shell_command(*args, **kwargs)
 
     async def git_status(self) -> dict[str, typing.Any]:
         """返回 git status 摘要。"""
