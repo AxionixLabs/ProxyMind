@@ -252,10 +252,7 @@ def render_tool_result_preview(
         prefix = []
 
         if failed:
-            prefix = _failure_preview_lines(
-                data,
-                ("exit_code", data.get("exit_code")),
-            )
+            prefix = _shell_command_failure_context_lines(data)
 
         if lines and err_lines:
             lines.extend(err_lines)
@@ -309,6 +306,33 @@ def render_tool_result_preview(
         return _trace_preview_from_lines(lines)
 
     return TracePreview()
+
+
+def _shell_command_failure_context_lines(
+    data: dict[str, typing.Any],
+    *,
+    max_context_lines: int = 6
+) -> list[str]:
+    """把 shell_command 失败预览压缩成 exit_code + 尾部上下文。"""
+    lines: list[str] = []
+    exit_code = data.get("exit_code")
+    if exit_code is not None:
+        lines.append(f"exit_code={exit_code}")
+
+    stderr_lines = _normalize_preview_lines(data.get("stderr"))
+    stdout_lines = _normalize_preview_lines(data.get("stdout"))
+    stream_lines = stderr_lines or stdout_lines
+    if not stream_lines:
+        return lines
+
+    if len(stream_lines) > max_context_lines:
+        omitted = len(stream_lines) - max_context_lines
+        lines.append(f"… +{omitted} lines (ctrl + t to view transcript)")
+        lines.extend(stream_lines[-max_context_lines:])
+    else:
+        lines.extend(stream_lines)
+
+    return lines
 
 
 def render_tool_trace(
