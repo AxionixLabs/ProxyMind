@@ -78,15 +78,16 @@ def detect_shell() -> dict[str, typing.Any]:
 def detect_runtimes() -> dict[str, typing.Any]:
     """检测常见本地运行时。"""
     return {
-        "python" : runtime_bin(["python", "python3", "py"], version_args=["--version"]),
-        "node"   : runtime_bin(["node"], version_args=["--version"]),
-        "npm"    : runtime_bin(["npm"], version_args=["--version"]),
-        "java"   : runtime_bin(["java"], version_args=["-version"]),
-        "javac"  : runtime_bin(["javac"], version_args=["-version"]),
-        "maven"  : runtime_bin(["mvn"], version_args=["-version"]),
-        "gradle" : runtime_bin(["gradle"], version_args=["-version"]),
-        "go"     : runtime_bin(["go"], version_args=["version"]),
-        "git"    : runtime_bin(["git"], version_args=["--version"])
+        "python"  : runtime_bin(["python", "python3", "py"], version_args=["--version"]),
+        "node"    : runtime_bin(["node"], version_args=["--version"]),
+        "npm"     : runtime_bin(["npm"], version_args=["--version"]),
+        "java"    : runtime_bin(["java"], version_args=["-version"]),
+        "javac"   : runtime_bin(["javac"], version_args=["-version"]),
+        "maven"   : runtime_bin(["mvn"], version_args=["-version"]),
+        "gradle"  : runtime_bin(["gradle"], version_args=["-version"]),
+        "go"      : runtime_bin(["go"], version_args=["version"]),
+        "git"     : runtime_bin(["git"], version_args=["--version"]),
+        "ripgrep" : runtime_bin(["rg"], version_args=["--version"])
     }
 
 

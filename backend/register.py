@@ -75,7 +75,7 @@ def register_media_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: Ap
 
 def initialize(
     tools: typing.Iterable[str] = (
-        "adb", "ffmpeg", "k6"
+        "adb", "ffmpeg", "k6", "rg"
     )
 ) -> dict[str, typing.Any]:
     """
@@ -90,12 +90,14 @@ def initialize(
         "windows": {
             "adb"    : ["platform-tools"],
             "ffmpeg" : ["ffmpeg", "bin"],
-            "k6"     : ["k6"]
+            "k6"     : ["k6"],
+            "rg"     : ["ripgrep"]
         },
         "macos": {
             "adb"    : ["platform-tools"],
             "ffmpeg" : ["ffmpeg", "bin"],
-            "k6"     : ["k6"]
+            "k6"     : ["k6"],
+            "rg"     : ["ripgrep"]
         }
     }
 
@@ -103,12 +105,14 @@ def initialize(
         "windows": {
             "adb"    : "adb.exe",
             "ffmpeg" : "ffmpeg.exe",
-            "k6"     : "k6.exe"
+            "k6"     : "k6.exe",
+            "rg"     : "rg.exe"
         },
         "macos": {
             "adb"    : "adb",
             "ffmpeg" : "ffmpeg",
-            "k6"     : "k6"
+            "k6"     : "k6",
+            "rg"     : "rg"
         }
     }
 
