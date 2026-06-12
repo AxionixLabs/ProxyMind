@@ -573,7 +573,6 @@ async def _run_approval_menu(
         event.app.invalidate()
 
     @bindings.add("escape")
-    @bindings.add("c-[")
     @bindings.add("c-c")
     def _(event) -> None:
         """取消审批并返回拒绝结果。"""
