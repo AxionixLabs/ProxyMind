@@ -9,32 +9,16 @@ WorkspacePathArg = typing.Annotated[
     str,
     Field(description="工作区内相对路径；不允许越过工作区根目录。"),
 ]
-WorkspaceOptionalPathArg = typing.Annotated[
-    typing.Optional[str],
-    Field(description="工作区内可选相对路径；为空时使用工作区根目录。"),
-]
 WorkspaceContentArg = typing.Annotated[
     str,
     Field(description="要写入文件的完整文本内容；用于创建或整体覆盖文件。"),
 ]
-WorkspaceStartLineArg = typing.Annotated[
-    typing.Optional[int],
-    Field(description="读取文件时的起始行号，从 1 开始。"),
-]
-WorkspaceMaxLinesArg = typing.Annotated[
-    typing.Optional[int],
-    Field(description="读取文件时最多返回的行数。"),
-]
-WorkspaceMaxBytesArg = typing.Annotated[
-    typing.Optional[int],
-    Field(description="读取文件时最多读取的字节数。"),
-]
-NativeParallelReadItemsArg = typing.Annotated[
+ParallelShellCallItemsArg = typing.Annotated[
     list[dict[str, typing.Any]],
     Field(
         description=(
-            "并行读取上下文的只读步骤列表。每项包含 tool 和 args；"
-            "仅允许 workspace_read_file。"
+            "并行 shell calls 的步骤列表。每项包含 tool 和 args；"
+            "仅允许 shell_command。每项 args 需包含 command、cwd、timeout_sec 和 execution。"
         )
     ),
 ]
@@ -90,11 +74,6 @@ ShellTimeoutArg = typing.Annotated[
 ExecutionMetadataArg = typing.Annotated[
     typing.Optional[dict[str, typing.Any]],
     Field(description="服务端执行裁决；shell_command 必须包含 grantId 和 canonicalArguments 等执行元数据。"),
-]
-
-GitDiffMaxCharsArg = typing.Annotated[
-    int,
-    Field(description="git diff 最多返回的字符数。"),
 ]
 
 if __name__ == '__main__':

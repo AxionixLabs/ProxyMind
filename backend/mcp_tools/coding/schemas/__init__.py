@@ -3,11 +3,8 @@
 
 from backend.mcp_tools.coding.schemas.schema_native import (
     WorkspacePathArg,
-    WorkspaceOptionalPathArg,
     WorkspaceContentArg,
-    WorkspaceStartLineArg,
-    WorkspaceMaxLinesArg,
-    WorkspaceMaxBytesArg,
+    ParallelShellCallItemsArg,
     WorkspaceCreateDirsArg,
     WorkspaceOverwriteArg,
     WorkspaceOldTextArg,
@@ -21,16 +18,12 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     ShellCwdArg,
     ShellTimeoutArg,
     ExecutionMetadataArg,
-    GitDiffMaxCharsArg,
 )
 
 __all__ = [
     "WorkspacePathArg",
-    "WorkspaceOptionalPathArg",
     "WorkspaceContentArg",
-    "WorkspaceStartLineArg",
-    "WorkspaceMaxLinesArg",
-    "WorkspaceMaxBytesArg",
+    "ParallelShellCallItemsArg",
     "WorkspaceCreateDirsArg",
     "WorkspaceOverwriteArg",
     "WorkspaceOldTextArg",
@@ -43,8 +36,7 @@ __all__ = [
     "ShellCommandArg",
     "ShellCwdArg",
     "ShellTimeoutArg",
-    "ExecutionMetadataArg",
-    "GitDiffMaxCharsArg"
+    "ExecutionMetadataArg"
 ]
 
 

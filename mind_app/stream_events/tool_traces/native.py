@@ -28,11 +28,11 @@ from .native_helpers import (
     _short_sha,
     _unified_action
 )
-from .native_parallel import (
-    _parallel_read_failure_summary,
-    _parallel_read_item_payload,
-    _parallel_read_item_target,
-    _parallel_read_reason_label
+from .parallel_shell_calls import (
+    _parallel_shell_failure_summary,
+    _parallel_shell_item_payload,
+    _parallel_shell_item_target,
+    _parallel_shell_reason_label
 )
 from .native_patch import (
     _failed_unified_patch_preview_lines,
@@ -47,15 +47,11 @@ from .native_patch import (
 )
 
 NATIVE_CODING_TRACE_TOOLS = {
-    "workspace_read_file",
-    "native_parallel_read",
+    "parallel_shell_calls",
     "workspace_write_file",
     "workspace_apply_patch",
     "workspace_apply_unified_patch",
-    "shell_command",
-    "git_status",
-    "git_diff",
-    "change_summary"
+    "shell_command"
 }
 
 
@@ -133,15 +129,7 @@ def render_tool_result_preview(
         return TracePreview()
     failed = data.get("ok") is False
 
-    if name == "workspace_read_file":
-        if failed:
-            return _trace_preview_from_lines(_failure_preview_lines(
-                data,
-                ("path", data.get("path") or args.get("path")),
-            ))
-        return _trace_preview_from_lines(_normalize_preview_lines(data.get("content")))
-
-    if name == "native_parallel_read":
+    if name == "parallel_shell_calls":
         results = data.get("results")
         if isinstance(results, list):
             lines = []
@@ -151,11 +139,11 @@ def render_tool_result_preview(
 
                 index   = item.get("index")
                 tool    = str(item.get("tool") or "").strip()
-                payload = _parallel_read_item_payload(item)
-                target  = _parallel_read_item_target(item, payload)
-                state   = "ok" if item.get("ok") else _parallel_read_reason_label(payload.get("reason"))
+                payload = _parallel_shell_item_payload(item)
+                target  = _parallel_shell_item_target(item, payload)
+                state   = "ok" if item.get("ok") else _parallel_shell_reason_label(payload.get("reason"))
 
-                label = "read" if tool == "workspace_read_file" else tool or "item"
+                label = "shell" if tool == "shell_command" else tool or "item"
 
                 prefix = f"{index}: " if index is not None else ""
                 detail = f" {target}" if target else ""
@@ -243,66 +231,33 @@ def render_tool_result_preview(
 
             return _trace_preview_from_lines(lines)
 
-    if name in {"shell_command", "git_status", "git_diff"}:
-
-        stdout_source = data.get("stdout")
-        lines         = _normalize_preview_lines(stdout_source)
-        err_lines     = _normalize_preview_lines(data.get("stderr"))
-
-        prefix = []
+    if name == "shell_command":
 
         if failed:
-            prefix = _shell_command_failure_context_lines(data)
+            lines = _shell_command_failure_context_lines(data)
+        else:
+            stdout_source = data.get("stdout")
+            lines         = _normalize_preview_lines(stdout_source)
+            err_lines     = _normalize_preview_lines(data.get("stderr"))
 
-        if lines and err_lines:
-            lines.extend(err_lines)
-        elif err_lines:
-            lines = err_lines
-        if not lines and name == "shell_command" and data.get("exit_code") is not None:
-            lines = [f"exit_code={data.get('exit_code')}"]
-        if not lines and name == "git_status" and data.get("ok") is True:
-            lines = ["No changes in git status"]
-        if not lines and name == "git_diff" and data.get("ok") is True:
-            lines = ["No tracked changes in git diff"]
+            if lines and err_lines:
+                lines.extend(err_lines)
+            elif err_lines:
+                lines = err_lines
 
         has_inline_script = False
-        if name == "shell_command":
-            preview = command_preview(data.get("command") or args.get("command"))
-            if preview.has_script:
-                script_lines = inline_script_preview_lines(preview.script, path=preview.path)
-                if script_lines:
-                    has_inline_script = True
-                    lines = [*script_lines, *lines]
+        preview = command_preview(data.get("command") or args.get("command"))
+        if preview.has_script:
+            script_lines = inline_script_preview_lines(preview.script, path=preview.path)
+            if script_lines:
+                has_inline_script = True
+                lines = [*script_lines, *lines]
 
-        if prefix:
-            lines = [*prefix, *lines]
-
-        if name == "shell_command" and has_inline_script:
-            return _trace_code_preview_from_lines(lines)
-        return _trace_preview_from_lines(lines)
-
-    if name == "change_summary":
-        verification = data.get("verification") if isinstance(data.get("verification"), dict) else {}
-        blockers     = data.get("blockers") if isinstance(data.get("blockers"), list) else []
-        warnings     = data.get("warnings") if isinstance(data.get("warnings"), list) else []
-        diff_stats   = data.get("diff_stats") if isinstance(data.get("diff_stats"), dict) else {}
-
-        lines = _summary_lines(
-            ("ready", data.get("ready")),
-            ("verification", verification.get("reason")),
-            ("files", data.get("file_count")),
-            ("diff", f"+{diff_stats.get('added_lines', 0)} -{diff_stats.get('deleted_lines', 0)}" if diff_stats else ""),
-        )
-        for item in blockers[:3]:
-            if isinstance(item, dict):
-                lines.append(f"blocker: {item.get('kind')}")
-        for item in warnings[:3]:
-            if isinstance(item, dict):
-                lines.append(f"warning: {item.get('kind')}")
         if not lines:
-            lines = _normalize_preview_lines(
-                data.get("summary") or data.get("diff") or data.get("git_status")
-            )
+            lines = ["(no output)"]
+
+        if has_inline_script:
+            return _trace_code_preview_from_lines(lines)
         return _trace_preview_from_lines(lines)
 
     return TracePreview()
@@ -313,26 +268,21 @@ def _shell_command_failure_context_lines(
     *,
     max_context_lines: int = 6
 ) -> list[str]:
-    """把 shell_command 失败预览压缩成 exit_code + 尾部上下文。"""
-    lines: list[str] = []
-    exit_code = data.get("exit_code")
-    if exit_code is not None:
-        lines.append(f"exit_code={exit_code}")
-
+    """把 shell_command 失败预览压缩成尾部输出上下文。"""
     stderr_lines = _normalize_preview_lines(data.get("stderr"))
     stdout_lines = _normalize_preview_lines(data.get("stdout"))
     stream_lines = stderr_lines or stdout_lines
     if not stream_lines:
-        return lines
+        return []
 
     if len(stream_lines) > max_context_lines:
         omitted = len(stream_lines) - max_context_lines
-        lines.append(f"… +{omitted} lines (ctrl + t to view transcript)")
-        lines.extend(stream_lines[-max_context_lines:])
-    else:
-        lines.extend(stream_lines)
+        return [
+            f"… +{omitted} lines (ctrl + t to view transcript)",
+            *stream_lines[-max_context_lines:]
+        ]
 
-    return lines
+    return stream_lines
 
 
 def render_tool_trace(
@@ -351,11 +301,7 @@ def render_tool_trace(
     payload = _result_payload(data)
     suffix  = _failure_suffix(payload, ok=ok)
 
-    if name == "workspace_read_file":
-        path = str(payload.get("path") or _path_from_args(args))
-        return f"• Read {path}{suffix}"
-
-    if name == "native_parallel_read":
+    if name == "parallel_shell_calls":
         total      = payload.get("total")
         ok_count   = payload.get("ok_count")
         fail_count = payload.get("fail_count")
@@ -366,11 +312,11 @@ def render_tool_trace(
             if isinstance(ok_count, int):
                 detail += f", {ok_count} ok"
             if isinstance(fail_count, int) and fail_count:
-                failure_summary = _parallel_read_failure_summary(payload)
+                failure_summary = _parallel_shell_failure_summary(payload)
                 detail += f", {failure_summary or f'{fail_count} failed'}"
             detail += ")"
 
-        return f"• Read context{detail}{suffix}"
+        return f"• Parallel shell calls{detail}{suffix}"
 
     if name == "workspace_write_file":
         path = str(payload.get("path") or _path_from_args(args))
@@ -405,16 +351,7 @@ def render_tool_trace(
 
     if name == "shell_command":
         command = command_preview(payload.get("command") or args.get("command")).title
-        return f"• Ran {command}{suffix}".rstrip()
-
-    if name == "git_status":
-        return f"• Git status{suffix}"
-
-    if name == "git_diff":
-        return f"• Git diff{suffix}"
-
-    if name == "change_summary":
-        return f"• Change summary{suffix}"
+        return f"• Ran {command}".rstrip()
 
     summary = _short_text(args, 100)
     detail  = f" {summary}" if summary else ""

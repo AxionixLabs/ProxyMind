@@ -6,29 +6,29 @@ import asyncio
 from backend.mcp_code.base import NativeCodingComponent
 
 
-class ParallelReadCore(typing.Protocol):
-    """描述并行读取依赖的只读工作区接口。"""
+class ParallelShellCore(typing.Protocol):
+    """描述并行 shell 调用依赖的接口。"""
 
-    def read_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        """读取工作区内的文本文件。"""
+    async def shell_command(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+        """执行受控 shell 命令。"""
         ...
 
 
-class ParallelReadTools(NativeCodingComponent):
-    """并行读取工作区上下文的只读组合工具。"""
+class ParallelShellCallTools(NativeCodingComponent):
+    """并行执行多个 shell 调用。"""
 
     ALLOWED_TOOLS = {
-        "workspace_read_file"
+        "shell_command"
     }
 
     MAX_ITEMS       = 12
     MAX_CONCURRENCY = 4
 
     @staticmethod
-    def _parallel_read_item_reason(
+    def _parallel_shell_item_reason(
         item: dict[str, typing.Any]
     ) -> str:
-        """从单项读取结果中提取失败原因。"""
+        """从单项 shell 调用结果中提取失败原因。"""
         result = item.get("result") if isinstance(item, dict) else None
 
         data = result.get("data") if isinstance(result, dict) else None
@@ -43,7 +43,7 @@ class ParallelReadTools(NativeCodingComponent):
         self,
         items: list[dict[str, typing.Any]]
     ) -> list[dict[str, typing.Any]]:
-        """归一化批量读取请求，限制数量并保留原始顺序索引。"""
+        """归一化批量 shell 请求，限制数量并保留原始顺序索引。"""
         if not isinstance(items, list):
             return []
 
@@ -59,22 +59,22 @@ class ParallelReadTools(NativeCodingComponent):
 
         return normalized
 
-    def _parallel_read_failure_reasons(
+    def _parallel_shell_failure_reasons(
         self,
         results: list[dict[str, typing.Any]]
     ) -> dict[str, int]:
-        """按原因统计并行读取失败项。"""
+        """按原因统计并行 shell 调用失败项。"""
         reasons: dict[str, int] = {}
 
         for item in results:
             if item.get("ok"):
                 continue
-            reason = self._parallel_read_item_reason(item)
+            reason = self._parallel_shell_item_reason(item)
             reasons[reason] = reasons.get(reason, 0) + 1
 
         return reasons
 
-    def _parallel_read_failures(
+    def _parallel_shell_failures(
         self,
         results: list[dict[str, typing.Any]]
     ) -> list[dict[str, typing.Any]]:
@@ -88,35 +88,35 @@ class ParallelReadTools(NativeCodingComponent):
                 "index": item.get("index"),
                 "tool": item.get("tool"),
                 "args": item.get("args") if isinstance(item.get("args"), dict) else {},
-                "reason": self._parallel_read_item_reason(item)
+                "reason": self._parallel_shell_item_reason(item)
             })
 
         return failures
 
-    async def parallel_read(
+    async def parallel_shell_calls(
         self,
         items: list[dict[str, typing.Any]]
     ) -> dict[str, typing.Any]:
-        """并发执行允许的只读工作区工具，并返回有序结果和后续建议。"""
+        """并发执行允许的 shell 调用，并返回有序结果。"""
         normalized = self._normalize_items(items)
-        core       = typing.cast(ParallelReadCore, typing.cast(object, self.core))
+        core       = typing.cast(ParallelShellCore, typing.cast(object, self.core))
         semaphore  = asyncio.Semaphore(self.MAX_CONCURRENCY)
 
         async def run_item(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
-            """执行单个并行读取条目并保留原始索引。"""
+            """执行单个并行 shell 调用并保留原始索引。"""
             index = int(item.get("index") or 0)
             tool  = str(item.get("tool") or "").strip()
             args  = item.get("args") if isinstance(item.get("args"), dict) else {}
 
             try:
                 async with semaphore:
-                    if tool == "workspace_read_file":
-                        result = await asyncio.to_thread(core.read_file, **args)
+                    if tool == "shell_command":
+                        result = await core.shell_command(**args)
                     else:
                         result = self.fail_result("tool_not_allowed", tool=tool)
             except Exception as exc:
                 result = self.fail_result(
-                    "parallel_read_item_failed",
+                    "parallel_shell_item_failed",
                     tool=tool,
                     error=f"{type(exc).__name__}: {exc}"
                 )
@@ -140,12 +140,12 @@ class ParallelReadTools(NativeCodingComponent):
         requested_count = len(items) if isinstance(items, list) else 0
         dropped_count   = max(0, requested_count - len(normalized))
         truncated       = dropped_count > 0
-        failures        = self._parallel_read_failures(results)
-        failure_reasons = self._parallel_read_failure_reasons(results)
+        failures        = self._parallel_shell_failures(results)
+        failure_reasons = self._parallel_shell_failure_reasons(results)
 
         return self.ok_result(
             (
-                f"native parallel read ok total={len(results)} "
+                f"parallel shell calls ok total={len(results)} "
                 f"ok={ok_count} fail={fail_count} truncated={truncated}"
             ),
             requested_count=requested_count,

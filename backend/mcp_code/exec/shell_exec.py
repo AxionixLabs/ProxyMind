@@ -155,7 +155,7 @@ class ShellCommandTools(NativeCodingComponent):
         return self._file_audit.capture_file_fingerprints(hash_files=mode == "full")
 
     def _record_shell_result(self, data: dict[str, typing.Any]) -> None:
-        """记录最近一次 shell_command 结果，供 change_summary 汇总验证证据。"""
+        """记录最近一次 shell_command 结果，供后续质量检查使用。"""
         if not isinstance(data, dict):
             return
         record = dict(data)

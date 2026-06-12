@@ -45,8 +45,6 @@ _COMMON_PROMOTED_RESULT_KEYS = (
     "ok_count",
     "fail_count",
     "truncated",
-    "byte_truncated",
-    "line_truncated",
     "stdout_truncated",
     "stderr_truncated",
     "execution_target",
@@ -55,9 +53,7 @@ _COMMON_PROMOTED_RESULT_KEYS = (
 )
 
 _OUTPUT_PROMOTED_TOOLS = {
-    "shell_command",
-    "git_status",
-    "git_diff"
+    "shell_command"
 }
 
 _OUTPUT_PROMOTED_RESULT_KEYS = (

@@ -6,12 +6,8 @@ from mcp.types import CallToolResult
 from backend.middlewares.mid_task import task_middleware
 from backend.mcp_tools.coding.schemas.schema_native import (
     WorkspacePathArg,
-    WorkspaceOptionalPathArg,
     WorkspaceContentArg,
-    WorkspaceStartLineArg,
-    WorkspaceMaxLinesArg,
-    WorkspaceMaxBytesArg,
-    NativeParallelReadItemsArg,
+    ParallelShellCallItemsArg,
     WorkspaceCreateDirsArg,
     WorkspaceOverwriteArg,
     WorkspaceOldTextArg,
@@ -24,8 +20,7 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     ShellCommandArg,
     ShellCwdArg,
     ShellTimeoutArg,
-    ExecutionMetadataArg,
-    GitDiffMaxCharsArg
+    ExecutionMetadataArg
 )
 from backend.utilities.runtime import (
     AppContext, Idle
@@ -37,31 +32,40 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "读取工作区内文本文件。"
-            " 支持按起始行和最大行数读取窗口；搜索后优先读取命中附近窗口，不要无条件读取大文件。"
+            "在工作区内执行一次本地命令。"
+            " 命令必须是 shell 字符串，由系统默认 shell 解释执行。"
+            " 适合运行测试、构建、脚本、版本查询和诊断命令。"
+            " 不要用本工具做工作区文件创建、覆盖或局部修改；"
+            " 文本写入请使用 workspace_write_file、workspace_apply_patch 或 workspace_apply_unified_patch。"
+            " 文件复制、移动、删除可通过受控 shell 命令执行。"
+            " 执行前必须携带 execution metadata，由执行元数据决定本地执行、云端沙盒或拒绝。"
         ),
-        meta={"hidden": True, "domain": "coding", "class": "workspace"}
+        meta={"hidden": False, "domain": "coding", "class": "shell"}
     )
-    @task_middleware("workspace_read_file")
-    async def workspace_read_file(
-        path: WorkspacePathArg,
-        start_line: WorkspaceStartLineArg = None,
-        max_lines: WorkspaceMaxLinesArg = None,
-        max_bytes: WorkspaceMaxBytesArg = None
+    @task_middleware("shell_command")
+    async def shell_command(
+        command: ShellCommandArg,
+        cwd: ShellCwdArg = ".",
+        timeout_sec: ShellTimeoutArg = 60,
+        execution: ExecutionMetadataArg = None
     ) -> CallToolResult:
 
         args = {
-            "path"       : path,
-            "start_line" : start_line,
-            "max_lines"  : max_lines,
-            "max_bytes"  : max_bytes
+            "command"         : command,
+            "cwd"             : cwd,
+            "timeout_sec"     : timeout_sec,
+            "execution"       : execution
         }
 
         async def call(*_) -> dict:
-            return ctx.native_coding.read_file(**args)
+            job_id = await idle.job_begin("native_coding.shell_command", args=args)
+            try:
+                return await ctx.native_coding.shell_command(**args)
+            finally:
+                await idle.job_final(job_id)
 
         return await broadcast(
-            tool="workspace_read_file",
+            tool="shell_command",
             args=args,
             target_list=[ctx.native_coding],
             call=call,
@@ -70,15 +74,15 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "并行读取多段工作区上下文。"
-            " 只允许 workspace_read_file；"
-            " 不执行 shell、不写文件、不应用 patch。适合一次读取多个搜索候选窗口。"
+            "并行执行多个 shell calls。"
+            " 只允许子项 tool=shell_command；每个子项 args 必须包含对应 execution metadata。"
+            " 适合一次执行多个只读 shell 上下文命令；不要用于写文件、应用 patch 或长任务。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "workspace"}
     )
-    @task_middleware("native_parallel_read")
-    async def native_parallel_read(
-        items: NativeParallelReadItemsArg
+    @task_middleware("parallel_shell_calls")
+    async def parallel_shell_calls(
+        items: ParallelShellCallItemsArg
     ) -> CallToolResult:
 
         args = {
@@ -86,10 +90,10 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         }
 
         async def call(*_) -> dict:
-            return await ctx.native_coding.parallel_read(**args)
+            return await ctx.native_coding.parallel_shell_calls(**args)
 
         return await broadcast(
-            tool="native_parallel_read",
+            tool="parallel_shell_calls",
             args=args,
             target_list=[ctx.native_coding],
             call=call,
@@ -199,123 +203,6 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
         return await broadcast(
             tool="workspace_apply_unified_patch",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
-            "在工作区内执行一次本地命令。"
-            " 命令必须是 shell 字符串，由系统默认 shell 解释执行。"
-            " 适合运行测试、构建、脚本、版本查询和诊断命令。"
-            " 不要用本工具做工作区文件创建、覆盖或局部修改；"
-            " 文本写入请使用 workspace_write_file、workspace_apply_patch 或 workspace_apply_unified_patch。"
-            " 文件复制、移动、删除可通过受控 shell 命令执行。"
-            " 执行前必须携带 execution metadata，由执行元数据决定本地执行、云端沙盒或拒绝。"
-        ),
-        meta={"hidden": False, "domain": "coding", "class": "shell"}
-    )
-    @task_middleware("shell_command")
-    async def shell_command(
-        command: ShellCommandArg,
-        cwd: ShellCwdArg = ".",
-        timeout_sec: ShellTimeoutArg = 60,
-        execution: ExecutionMetadataArg = None
-    ) -> CallToolResult:
-
-        args = {
-            "command"         : command,
-            "cwd"             : cwd,
-            "timeout_sec"     : timeout_sec,
-            "execution"       : execution
-        }
-
-        async def call(*_) -> dict:
-            job_id = await idle.job_begin("native_coding.shell_command", args=args)
-            try:
-                return await ctx.native_coding.shell_command(**args)
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="shell_command",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description="返回当前工作区的 `git status --short`。",
-        meta={"hidden": False, "domain": "coding", "class": "git"}
-    )
-    @task_middleware("git_status")
-    async def git_status() -> CallToolResult:
-
-        async def call(*_) -> dict:
-            return await ctx.native_coding.git_status()
-
-        return await broadcast(
-            tool="git_status",
-            args={},
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
-            "返回当前工作区 git diff。"
-            " 可选 path 用于限制到单个路径，输出会按 max_chars 截断。"
-        ),
-        meta={"hidden": False, "domain": "coding", "class": "git"}
-    )
-    @task_middleware("git_diff")
-    async def git_diff(
-        path: WorkspaceOptionalPathArg = None,
-        max_chars: GitDiffMaxCharsArg = 24000
-    ) -> CallToolResult:
-
-        args = {
-            "path"      : path,
-            "max_chars" : max_chars
-        }
-
-        async def call(*_) -> dict:
-            return await ctx.native_coding.git_diff(**args)
-
-        return await broadcast(
-            tool="git_diff",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
-            "生成提交前/最终回答前的变更摘要和质量闸。"
-            " 汇总当前 git_status、diff 统计、未跟踪文件预览、冲突和截断风险，"
-            "并返回 verification.sufficient 判断当前工作区状态是否存在阻断项。"
-        ),
-        meta={"hidden": False, "domain": "coding", "class": "git"}
-    )
-    @task_middleware("change_summary")
-    async def change_summary(
-        max_diff_chars: GitDiffMaxCharsArg = 12000
-    ) -> CallToolResult:
-
-        args = {
-            "max_diff_chars" : max_diff_chars
-        }
-
-        async def call(*_) -> dict:
-            return await ctx.native_coding.change_summary(**args)
-
-        return await broadcast(
-            tool="change_summary",
             args=args,
             target_list=[ctx.native_coding],
             call=call,
