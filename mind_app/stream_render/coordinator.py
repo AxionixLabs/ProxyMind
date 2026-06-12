@@ -61,6 +61,7 @@ class RenderCoord(object):
         echo: bool = True,
         display: str = TextState.STREAM,
         display_chunk: typing.Optional[str] = None,
+        raw_chunk: typing.Optional[str] = None,
         display_style: typing.Optional[str] = None,
         display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None
     ) -> None:
@@ -69,6 +70,7 @@ class RenderCoord(object):
             echo=echo,
             display=display,
             display_chunk=display_chunk,
+            raw_chunk=raw_chunk,
             display_style=display_style,
             display_parts=display_parts
         )

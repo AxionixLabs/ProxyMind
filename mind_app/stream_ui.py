@@ -62,9 +62,12 @@ class StreamUI(object):
             return None
 
         text = str(chunk)
+
+        raw_chunk = None
         if display == self.STREAM and self._stream_boundary_pending:
             self._stream_boundary_pending = False
             if self.coordinator.text_state.display_text and not text.startswith("\n"):
+                raw_chunk = f"\n\n{text}"
                 text = f"\n{text}"
 
         if display == self.STREAM:
@@ -79,6 +82,7 @@ class StreamUI(object):
             echo=echo,
             display=display,
             display_chunk=display_chunk,
+            raw_chunk=raw_chunk,
             display_style=display_style,
             display_parts=display_parts
         )

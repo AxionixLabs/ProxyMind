@@ -35,7 +35,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             " 不要用本工具做工作区文件创建、覆盖或局部修改；"
             " 文本写入和工作区文件删除请使用 workspace_write_file 或 workspace_apply_unified_patch。"
             " 文件复制、移动可通过受控 shell 命令执行。"
-            " 执行前必须携带 execution metadata，由执行元数据决定本地执行、云端沙盒或拒绝。"
+            " execution metadata 由服务端策略层补充，用于决定本地执行、云端沙盒或拒绝。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "shell"}
     )
@@ -72,7 +72,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "并行执行多个 shell calls。"
-            " 只允许子项 tool=shell_command；每个子项 args 必须包含对应 execution metadata。"
+            " 只允许子项 tool=shell_command；每个子项 args 只需提供 command，可提供 cwd 和 timeout_sec。"
+            " execution metadata 由服务端策略层补充。"
             " 适合一次执行多个只读 shell 上下文命令；不要用于写文件、应用 patch 或长任务。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "shell"}

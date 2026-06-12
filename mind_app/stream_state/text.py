@@ -4,8 +4,8 @@
 import typing
 from rich.console import Group
 from rich.text import Text
-from rich.markdown import Markdown
 from mind_core.design import Design
+from mind_app.stream_state.markdown import render_markdown
 
 
 class TextState(object):
@@ -40,6 +40,7 @@ class TextState(object):
         *,
         display: str = STREAM,
         display_chunk: typing.Optional[str] = None,
+        raw_chunk: typing.Optional[str] = None,
         display_style: typing.Optional[str] = None,
         display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None,
         echo: bool = True
@@ -64,6 +65,8 @@ class TextState(object):
         visible_delta = self._parts_text(visible_parts)
         if display == self.STREAM and display_parts is None and display_style is None and display_chunk is None:
             raw_delta = str(chunk)
+        elif display == self.STREAM and raw_chunk is not None:
+            raw_delta = str(raw_chunk)
 
         self._append_segment(display, visible_delta, visible_parts, raw_delta=raw_delta)
         self.raw_text += raw_delta
@@ -86,7 +89,7 @@ class TextState(object):
     def final_renderable(self) -> typing.Any:
         """返回最终落版 renderable；纯正文用 Markdown，结构化内容保留 Rich Text。"""
         if self._markdown_final_enabled():
-            return Markdown(self.raw_text.rstrip("\n"))
+            return render_markdown(self.raw_text.rstrip("\n"))
         return self._mixed_final_renderable()
 
     def renderable_for_text(self, text: str) -> Text:
@@ -158,7 +161,7 @@ class TextState(object):
             text = "".join(pending_markdown).rstrip("\n")
             pending_markdown.clear()
             if text.strip():
-                renderables.append(Markdown(text))
+                renderables.append(render_markdown(text))
 
         def flush_parts() -> None:
             if not pending_parts:

@@ -18,7 +18,8 @@ ShellCallItemsArg = typing.Annotated[
     Field(
         description=(
             "shell calls 的步骤列表。每项包含 tool 和 args；"
-            "仅允许 shell_command。每项 args 需包含 command、cwd、timeout_sec 和 execution。"
+            "仅允许 shell_command。每项 args 需包含 command，可包含 cwd 和 timeout_sec；"
+            "execution 由服务端策略层补充，不需要模型生成。"
         )
     ),
 ]
@@ -61,7 +62,7 @@ ShellTimeoutArg = typing.Annotated[
 ]
 ExecutionMetadataArg = typing.Annotated[
     typing.Optional[dict[str, typing.Any]],
-    Field(description="服务端执行裁决；shell_command 必须包含 grantId 和 canonicalArguments 等执行元数据。"),
+    Field(description="服务端策略层补充的执行裁决，包含 grantId 和 canonicalArguments 等元数据；模型调用时可省略。"),
 ]
 
 if __name__ == '__main__':
