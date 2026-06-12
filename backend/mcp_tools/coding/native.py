@@ -7,7 +7,7 @@ from backend.middlewares.mid_task import task_middleware
 from backend.mcp_tools.coding.schemas.schema_native import (
     WorkspacePathArg,
     WorkspaceContentArg,
-    ParallelShellCallItemsArg,
+    ShellCallItemsArg,
     WorkspaceCreateDirsArg,
     WorkspaceOverwriteArg,
     WorkspaceOldTextArg,
@@ -80,9 +80,9 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         ),
         meta={"hidden": False, "domain": "coding", "class": "shell"}
     )
-    @task_middleware("parallel_shell_calls")
-    async def parallel_shell_calls(
-        items: ParallelShellCallItemsArg
+    @task_middleware("shell_calls")
+    async def shell_calls(
+        items: ShellCallItemsArg
     ) -> CallToolResult:
 
         args = {
@@ -90,10 +90,10 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         }
 
         async def call(*_) -> dict:
-            return await ctx.native_coding.parallel_shell_calls(**args)
+            return await ctx.native_coding.shell_calls(**args)
 
         return await broadcast(
-            tool="parallel_shell_calls",
+            tool="shell_calls",
             args=args,
             target_list=[ctx.native_coding],
             call=call,

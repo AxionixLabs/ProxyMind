@@ -28,11 +28,11 @@ from .native_helpers import (
     _short_sha,
     _unified_action
 )
-from .parallel_shell_calls import (
-    _parallel_shell_failure_summary,
-    _parallel_shell_item_payload,
-    _parallel_shell_item_target,
-    _parallel_shell_reason_label
+from .shell_calls import (
+    _shell_call_failure_summary,
+    _shell_call_item_payload,
+    _shell_call_item_target,
+    _shell_call_reason_label
 )
 from .native_patch import (
     _failed_unified_patch_preview_lines,
@@ -47,7 +47,7 @@ from .native_patch import (
 )
 
 NATIVE_CODING_TRACE_TOOLS = {
-    "parallel_shell_calls",
+    "shell_calls",
     "workspace_write_file",
     "workspace_apply_patch",
     "workspace_apply_unified_patch",
@@ -129,7 +129,7 @@ def render_tool_result_preview(
         return TracePreview()
     failed = data.get("ok") is False
 
-    if name == "parallel_shell_calls":
+    if name == "shell_calls":
         results = data.get("results")
         if isinstance(results, list):
             lines = []
@@ -139,9 +139,9 @@ def render_tool_result_preview(
 
                 index   = item.get("index")
                 tool    = str(item.get("tool") or "").strip()
-                payload = _parallel_shell_item_payload(item)
-                target  = _parallel_shell_item_target(item, payload)
-                state   = "ok" if item.get("ok") else _parallel_shell_reason_label(payload.get("reason"))
+                payload = _shell_call_item_payload(item)
+                target  = _shell_call_item_target(item, payload)
+                state   = "ok" if item.get("ok") else _shell_call_reason_label(payload.get("reason"))
 
                 label = "shell" if tool == "shell_command" else tool or "item"
 
@@ -301,7 +301,7 @@ def render_tool_trace(
     payload = _result_payload(data)
     suffix  = _failure_suffix(payload, ok=ok)
 
-    if name == "parallel_shell_calls":
+    if name == "shell_calls":
         total      = payload.get("total")
         ok_count   = payload.get("ok_count")
         fail_count = payload.get("fail_count")
@@ -312,11 +312,11 @@ def render_tool_trace(
             if isinstance(ok_count, int):
                 detail += f", {ok_count} ok"
             if isinstance(fail_count, int) and fail_count:
-                failure_summary = _parallel_shell_failure_summary(payload)
+                failure_summary = _shell_call_failure_summary(payload)
                 detail += f", {failure_summary or f'{fail_count} failed'}"
             detail += ")"
 
-        return f"• Parallel shell calls{detail}{suffix}"
+        return f"• Shell calls{detail}{suffix}"
 
     if name == "workspace_write_file":
         path = str(payload.get("path") or _path_from_args(args))

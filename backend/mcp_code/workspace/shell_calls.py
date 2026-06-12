@@ -6,7 +6,7 @@ import asyncio
 from backend.mcp_code.base import NativeCodingComponent
 
 
-class ParallelShellCore(typing.Protocol):
+class ShellCallCore(typing.Protocol):
     """描述并行 shell 调用依赖的接口。"""
 
     async def shell_command(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
@@ -14,14 +14,14 @@ class ParallelShellCore(typing.Protocol):
         ...
 
 
-class ParallelShellCallTools(NativeCodingComponent):
+class ShellCallTools(NativeCodingComponent):
     """并行执行多个 shell 调用。"""
 
     MAX_ITEMS       = 12
     MAX_CONCURRENCY = 4
 
     @staticmethod
-    def _parallel_shell_item_reason(
+    def _shell_call_item_reason(
         item: dict[str, typing.Any]
     ) -> str:
         """从单项 shell 调用结果中提取失败原因。"""
@@ -55,7 +55,7 @@ class ParallelShellCallTools(NativeCodingComponent):
 
         return normalized
 
-    def _parallel_shell_failure_reasons(
+    def _shell_call_failure_reasons(
         self,
         results: list[dict[str, typing.Any]]
     ) -> dict[str, int]:
@@ -65,12 +65,12 @@ class ParallelShellCallTools(NativeCodingComponent):
         for item in results:
             if item.get("ok"):
                 continue
-            reason = self._parallel_shell_item_reason(item)
+            reason = self._shell_call_item_reason(item)
             reasons[reason] = reasons.get(reason, 0) + 1
 
         return reasons
 
-    def _parallel_shell_failures(
+    def _shell_call_failures(
         self,
         results: list[dict[str, typing.Any]]
     ) -> list[dict[str, typing.Any]]:
@@ -84,18 +84,18 @@ class ParallelShellCallTools(NativeCodingComponent):
                 "index": item.get("index"),
                 "tool": item.get("tool"),
                 "args": item.get("args") if isinstance(item.get("args"), dict) else {},
-                "reason": self._parallel_shell_item_reason(item)
+                "reason": self._shell_call_item_reason(item)
             })
 
         return failures
 
-    async def parallel_shell_calls(
+    async def shell_calls(
         self,
         items: list[dict[str, typing.Any]]
     ) -> dict[str, typing.Any]:
         """并发执行允许的 shell 调用，并返回有序结果。"""
         normalized = self._normalize_items(items)
-        core       = typing.cast(ParallelShellCore, typing.cast(object, self.core))
+        core       = typing.cast(ShellCallCore, typing.cast(object, self.core))
         semaphore  = asyncio.Semaphore(self.MAX_CONCURRENCY)
 
         async def run_item(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
@@ -112,7 +112,7 @@ class ParallelShellCallTools(NativeCodingComponent):
                         result = self.fail_result("tool_not_allowed", tool=tool)
             except Exception as exc:
                 result = self.fail_result(
-                    "parallel_shell_item_failed",
+                    "shell_call_item_failed",
                     tool=tool,
                     error=f"{type(exc).__name__}: {exc}"
                 )
@@ -136,12 +136,12 @@ class ParallelShellCallTools(NativeCodingComponent):
         requested_count = len(items) if isinstance(items, list) else 0
         dropped_count   = max(0, requested_count - len(normalized))
         truncated       = dropped_count > 0
-        failures        = self._parallel_shell_failures(results)
-        failure_reasons = self._parallel_shell_failure_reasons(results)
+        failures        = self._shell_call_failures(results)
+        failure_reasons = self._shell_call_failure_reasons(results)
 
         return self.ok_result(
             (
-                f"parallel shell calls ok total={len(results)} "
+                f"shell calls ok total={len(results)} "
                 f"ok={ok_count} fail={fail_count} truncated={truncated}"
             ),
             requested_count=requested_count,

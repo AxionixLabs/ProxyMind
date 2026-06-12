@@ -4,7 +4,7 @@
 from backend.mcp_tools.coding.schemas.schema_native import (
     WorkspacePathArg,
     WorkspaceContentArg,
-    ParallelShellCallItemsArg,
+    ShellCallItemsArg,
     WorkspaceCreateDirsArg,
     WorkspaceOverwriteArg,
     WorkspaceOldTextArg,
@@ -23,7 +23,7 @@ from backend.mcp_tools.coding.schemas.schema_native import (
 __all__ = [
     "WorkspacePathArg",
     "WorkspaceContentArg",
-    "ParallelShellCallItemsArg",
+    "ShellCallItemsArg",
     "WorkspaceCreateDirsArg",
     "WorkspaceOverwriteArg",
     "WorkspaceOldTextArg",

@@ -13,11 +13,11 @@ WorkspaceContentArg = typing.Annotated[
     str,
     Field(description="要写入文件的完整文本内容；用于创建或整体覆盖文件。"),
 ]
-ParallelShellCallItemsArg = typing.Annotated[
+ShellCallItemsArg = typing.Annotated[
     list[dict[str, typing.Any]],
     Field(
         description=(
-            "并行 shell calls 的步骤列表。每项包含 tool 和 args；"
+            "shell calls 的步骤列表。每项包含 tool 和 args；"
             "仅允许 shell_command。每项 args 需包含 command、cwd、timeout_sec 和 execution。"
         )
     ),
