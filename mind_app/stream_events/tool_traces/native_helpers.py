@@ -46,14 +46,6 @@ def _format_delta(added: int, removed: int) -> str:
     return f" (+{max(0, added)} -{max(0, removed)})"
 
 
-def _failure_suffix(payload: dict[str, typing.Any], *, ok: bool) -> str:
-    """生成失败标题后缀，并优先带上失败原因。"""
-    if ok:
-        return ""
-    reason = str(payload.get("reason") or "").strip()
-    return f" failed: {reason}" if reason else " failed"
-
-
 def _short_sha(value: typing.Any) -> str:
     """生成短哈希文本。"""
     text = str(value or "").strip()
@@ -87,11 +79,9 @@ def _diagnostic_sequence_lines(label: str, value: typing.Any) -> list[str]:
     return [f"{label}: {text}"] if text else []
 
 
-def _failure_preview_lines(data: dict[str, typing.Any], *pairs: tuple[str, typing.Any]) -> list[str]:
-    """生成失败预览摘要，优先展示 reason 和少量关键字段。"""
-    return _summary_lines(
-        ("reason", data.get("reason")), ("error", data.get("error")), *pairs
-    )
+def _error_preview_lines(data: dict[str, typing.Any], *pairs: tuple[str, typing.Any]) -> list[str]:
+    """生成异常预览摘要，优先展示真实错误和少量关键字段。"""
+    return _summary_lines(("error", data.get("error")), *pairs)
 
 
 if __name__ == '__main__':

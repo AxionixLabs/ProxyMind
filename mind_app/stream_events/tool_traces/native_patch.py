@@ -44,10 +44,10 @@ def _line_delta_from_unified_files(data: dict[str, typing.Any]) -> tuple[int, in
     return total_added, total_removed
 
 
-def _patch_failure_diagnostic_lines(data: dict[str, typing.Any]) -> list[str]:
-    """生成 patch 失败时优先展示的诊断摘要。"""
+def _patch_error_diagnostic_lines(data: dict[str, typing.Any]) -> list[str]:
+    """生成 patch 异常时优先展示的诊断摘要。"""
     lines = _summary_lines(
-        ("reason", data.get("reason")),
+        ("error", data.get("error")),
         ("file", data.get("path")),
         ("hunk", data.get("hunk_header") or data.get("header")),
         ("line", data.get("target_line") or data.get("line"))
@@ -136,8 +136,8 @@ def _unified_patch_preview_lines(patch: typing.Any) -> list[str]:
     return lines
 
 
-def _failed_unified_patch_preview_lines(patch: typing.Any, data: dict[str, typing.Any]) -> list[str]:
-    """从失败 patch 中提取失败 hunk 附近的短预览。"""
+def _error_unified_patch_preview_lines(patch: typing.Any, data: dict[str, typing.Any]) -> list[str]:
+    """从异常 patch 中提取相关 hunk 附近的短预览。"""
     hunk_header = str(data.get("hunk_header") or data.get("header") or "").strip()
     if not hunk_header:
         return _unified_patch_preview_lines(patch)[:6]

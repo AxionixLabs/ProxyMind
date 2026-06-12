@@ -18,7 +18,6 @@ from .common import (
     DELTA_ADD_STYLE,
     DELTA_REMOVE_STYLE,
     ERROR_DOT_STYLE,
-    ERROR_STYLE,
     PREVIEW_COUNT_STYLE,
     PREVIEW_CODE_COMMENT_STYLE,
     PREVIEW_CODE_KEYWORD_STYLE,
@@ -38,9 +37,6 @@ from .common import (
     TracePreview,
     _preview_text
 )
-
-FAILED_SUFFIX_PATTERN = re.compile(r"( failed(?:: [^\n]+)?)$")
-
 
 def _part(text: str, style: str | None) -> dict[str, typing.Optional[str]]:
     """创建一段带样式的显示片段。"""
@@ -123,7 +119,7 @@ def _styled_action_body_parts(
         return []
     action_style = _action_style_for_body(body)
     if not action_style:
-        return _failure_body_parts(body, base_style=base_style, ok=ok)
+        return _plain_body_parts(body, base_style=base_style, ok=ok)
 
     leading_len = len(body) - len(body.lstrip(" "))
     leading     = body[:leading_len]
@@ -140,7 +136,7 @@ def _styled_action_body_parts(
         parts.extend(_ran_command_parts(f"{sep}{tail}", base_style=base_style, ok=ok))
         return parts
     if sep or tail:
-        parts.extend(_failure_body_parts(f"{sep}{tail}", base_style=base_style, ok=ok))
+        parts.extend(_plain_body_parts(f"{sep}{tail}", base_style=base_style, ok=ok))
 
     return parts
 
@@ -151,18 +147,12 @@ def _ran_command_parts(
     base_style: str,
     ok: bool
 ) -> list[dict[str, typing.Optional[str]]]:
-    """把 Ran 后面的命令和失败后缀拆成独立颜色。"""
+    """把 Ran 后面的命令拆成独立颜色。"""
     if not body:
         return []
 
     command_body = body
-    failure_body = ""
-
-    if not ok:
-        match = FAILED_SUFFIX_PATTERN.search(body)
-        if match:
-            command_body = body[:match.start(1)]
-            failure_body = body[match.start(1):]
+    _ = ok
 
     leading_len = len(command_body) - len(command_body.lstrip(" "))
     leading     = command_body[:leading_len]
@@ -173,34 +163,19 @@ def _ran_command_parts(
         parts.append(_part(leading, base_style))
     if command:
         parts.append(_part(command, COMMAND_STYLE))
-    if failure_body:
-        parts.append(_part(failure_body, ERROR_STYLE))
 
     return parts
 
 
-def _failure_body_parts(
+def _plain_body_parts(
     body: str,
     *,
     base_style: str,
     ok: bool
 ) -> list[dict[str, typing.Optional[str]]]:
-    """失败标题中仅突出 failed 和 reason，其余内容保持普通标题色。"""
-    if ok:
-        return [_part(body, base_style)]
-
-    match = FAILED_SUFFIX_PATTERN.search(body)
-    if not match:
-        return [_part(body, base_style)]
-
-    parts: list[dict[str, typing.Optional[str]]] = []
-
-    start = match.start(1)
-    if start:
-        parts.append(_part(body[:start], base_style))
-    parts.append(_part(body[start:], ERROR_STYLE))
-
-    return parts
+    """标题正文保持原文本，失败状态由状态点表达。"""
+    _ = ok
+    return [_part(body, base_style)]
 
 
 def _action_style_for_body(

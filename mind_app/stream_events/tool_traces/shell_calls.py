@@ -31,11 +31,5 @@ def _shell_call_item_label(
     return f"{label} {target}".strip()
 
 
-def _shell_call_failure_summary(payload: dict[str, typing.Any]) -> str:
-    """生成 shell calls 标题里的失败原因摘要。"""
-    fail_count = payload.get("fail_count")
-    return f"{fail_count} failed" if isinstance(fail_count, int) and fail_count else ""
-
-
 if __name__ == '__main__':
     pass

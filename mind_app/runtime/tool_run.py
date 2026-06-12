@@ -11,8 +11,6 @@ from ..stream_ui import StreamUI
 from .tool_router import execute_tool
 
 _COMMON_PROMOTED_RESULT_KEYS = (
-    "reason",
-    "failure_context",
     "path",
     "source_path",
     "target_path",
@@ -129,14 +127,14 @@ def _first_native_result_data(fields: dict[str, typing.Any]) -> dict[str, typing
             return item_data
 
     data = _native_broadcast_data(fields)
+
     direct_keys = {
         "ok",
-        "reason",
-        "failure_context",
         "stdout",
         "stderr",
-        "exit_code",
+        "exit_code"
     }
+
     return data if any(key in data for key in direct_keys) else {}
 
 

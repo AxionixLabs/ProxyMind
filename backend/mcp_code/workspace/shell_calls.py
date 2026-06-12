@@ -20,21 +20,6 @@ class ShellCallTools(NativeCodingComponent):
     MAX_ITEMS       = 12
     MAX_CONCURRENCY = 4
 
-    @staticmethod
-    def _shell_call_item_reason(
-        item: dict[str, typing.Any]
-    ) -> str:
-        """从单项 shell 调用结果中提取失败原因。"""
-        result = item.get("result") if isinstance(item, dict) else None
-
-        data = result.get("data") if isinstance(result, dict) else None
-        if isinstance(data, dict):
-            reason = str(data.get("reason") or "").strip()
-            if reason:
-                return reason
-
-        return "item_failed"
-
     def _normalize_items(
         self,
         items: list[dict[str, typing.Any]]
@@ -54,40 +39,6 @@ class ShellCallTools(NativeCodingComponent):
             normalized.append({"index": index, "tool": tool, "args": args})
 
         return normalized
-
-    def _shell_call_failure_reasons(
-        self,
-        results: list[dict[str, typing.Any]]
-    ) -> dict[str, int]:
-        """按原因统计并行 shell 调用失败项。"""
-        reasons: dict[str, int] = {}
-
-        for item in results:
-            if item.get("ok"):
-                continue
-            reason = self._shell_call_item_reason(item)
-            reasons[reason] = reasons.get(reason, 0) + 1
-
-        return reasons
-
-    def _shell_call_failures(
-        self,
-        results: list[dict[str, typing.Any]]
-    ) -> list[dict[str, typing.Any]]:
-        """提取失败项的索引、工具、参数和原因。"""
-        failures: list[dict[str, typing.Any]] = []
-
-        for item in results:
-            if item.get("ok"):
-                continue
-            failures.append({
-                "index": item.get("index"),
-                "tool": item.get("tool"),
-                "args": item.get("args") if isinstance(item.get("args"), dict) else {},
-                "reason": self._shell_call_item_reason(item)
-            })
-
-        return failures
 
     async def shell_calls(
         self,
@@ -109,13 +60,23 @@ class ShellCallTools(NativeCodingComponent):
                     if tool == "shell_command":
                         result = await core.shell_command(**args)
                     else:
-                        result = self.fail_result("tool_not_allowed", tool=tool)
+                        result = {
+                            "text"        : "shell call item not allowed",
+                            "attachments" : [],
+                            "data"        : {"ok": False, "tool": tool, "error": "tool_not_allowed"},
+                            "logs"        : []
+                        }
             except Exception as exc:
-                result = self.fail_result(
-                    "shell_call_item_failed",
-                    tool=tool,
-                    error=f"{type(exc).__name__}: {exc}"
-                )
+                result = {
+                    "text": "shell call item error",
+                    "attachments": [],
+                    "data": {
+                        "ok": False,
+                        "tool": tool,
+                        "error": f"{type(exc).__name__}: {exc}"
+                    },
+                    "logs": []
+                }
 
             return {
                 "index"  : index,
@@ -136,8 +97,6 @@ class ShellCallTools(NativeCodingComponent):
         requested_count = len(items) if isinstance(items, list) else 0
         dropped_count   = max(0, requested_count - len(normalized))
         truncated       = dropped_count > 0
-        failures        = self._shell_call_failures(results)
-        failure_reasons = self._shell_call_failure_reasons(results)
 
         return self.ok_result(
             (
@@ -148,8 +107,6 @@ class ShellCallTools(NativeCodingComponent):
             total=len(results),
             ok_count=ok_count,
             fail_count=fail_count,
-            failure_reasons=failure_reasons,
-            failures=failures,
             max_items=self.MAX_ITEMS,
             max_concurrency=self.MAX_CONCURRENCY,
             dropped_count=dropped_count,

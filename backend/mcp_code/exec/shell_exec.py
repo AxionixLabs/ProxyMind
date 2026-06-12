@@ -110,7 +110,7 @@ class ShellCommandTools(NativeCodingComponent):
 
         version_flags = cls.READ_ONLY_VERSION_COMMANDS.get(executable)
         if version_flags:
-            if cls._version_command_matches(lowered, executable, version_flags):
+            if cls._version_command_matches(lowered, version_flags):
                 return "metadata"
             return "full"
 
@@ -139,7 +139,7 @@ class ShellCommandTools(NativeCodingComponent):
         return parts[1] in cls.READ_ONLY_PYTHON_FLAGS or parts[1].lower() in cls.READ_ONLY_PYTHON_FLAGS
 
     @classmethod
-    def _version_command_matches(cls, text: str, executable: str, flags: set[str]) -> bool:
+    def _version_command_matches(cls, text: str, flags: set[str]) -> bool:
         parts = cls._split_command(text)
         if not parts:
             return False
@@ -190,25 +190,41 @@ class ShellCommandTools(NativeCodingComponent):
             timeout_sec=timeout_sec
         )
         if not policy["ok"]:
-            result = self.fail_result(
-                policy["reason"],
-                command=cmd,
-                risk=policy.get("risk"),
-                category=policy.get("category"),
-                reasons=policy.get("reasons") or [],
-                approval_required=bool(policy.get("approval_required")),
-                project_types=policy.get("project_types") or [],
-                execution_target=policy.get("execution_target"),
-                requires_cloud_sandbox=bool(policy.get("requires_cloud_sandbox")),
-                execution=policy.get("execution"),
-                grant_id=policy.get("grant_id")
-            )
+            result = {
+                "text": "shell_command blocked by execution policy",
+                "attachments": [],
+                "data": {
+                    "ok": False,
+                    "command": cmd,
+                    "risk": policy.get("risk"),
+                    "category": policy.get("category"),
+                    "risk_signals": policy.get("reasons") or [],
+                    "approval_required": bool(policy.get("approval_required")),
+                    "project_types": policy.get("project_types") or [],
+                    "execution_target": policy.get("execution_target"),
+                    "requires_cloud_sandbox": bool(policy.get("requires_cloud_sandbox")),
+                    "execution": policy.get("execution"),
+                    "grant_id": policy.get("grant_id"),
+                    "error": "execution_policy_blocked"
+                },
+                "logs": []
+            }
             self._record_shell_result(result.get("data") or {})
             return result
 
         workdir = self.resolve_path(cwd)
         if not workdir.is_dir():
-            result = self.fail_result("cwd_not_directory", cwd=cwd, command=cmd)
+            result = {
+                "text": "shell_command cwd is not a directory",
+                "attachments": [],
+                "data": {
+                    "ok": False,
+                    "cwd": cwd,
+                    "command": cmd,
+                    "error": "cwd_not_directory"
+                },
+                "logs": []
+            }
             self._record_shell_result(result.get("data") or {})
             return result
 
@@ -216,12 +232,11 @@ class ShellCommandTools(NativeCodingComponent):
             result = self.ok_result(
                 "shell_command requires cloud sandbox",
                 ok=False,
-                reason="cloud_sandbox_required",
                 command=cmd,
                 cwd=self.relative_path(workdir),
                 risk=policy.get("risk"),
                 category=policy.get("category"),
-                risk_reasons=policy.get("reasons") or [],
+                risk_signals=policy.get("reasons") or [],
                 approval_required=bool(policy.get("approval_required")),
                 execution_target="cloud_sandbox",
                 requires_cloud_sandbox=True,
@@ -300,8 +315,6 @@ class ShellCommandTools(NativeCodingComponent):
         stdout_truncated = len(raw_stdout) > output_limit
         stderr_truncated = len(raw_stderr) > output_limit
 
-        reason = "command_timed_out" if timed_out else "command_failed" if exit_code != 0 else None
-
         logger.debug(
             f"native shell exit ok={ok} rc={exit_code} elapsed_ms={elapsed_ms} "
             f"cmd={summarize_command(cmd)}"
@@ -313,7 +326,7 @@ class ShellCommandTools(NativeCodingComponent):
             "cwd": self.relative_path(workdir),
             "risk": policy.get("risk"),
             "category": policy.get("category"),
-            "risk_reasons": policy.get("reasons") or [],
+            "risk_signals": policy.get("reasons") or [],
             "approval_required": bool(policy.get("approval_required")),
             "execution_target": policy.get("execution_target"),
             "requires_cloud_sandbox": bool(policy.get("requires_cloud_sandbox")),
@@ -338,9 +351,6 @@ class ShellCommandTools(NativeCodingComponent):
             "stdout": out_text,
             "stderr": err_text
         }
-        if reason is not None:
-            data["reason"] = reason
-            self.core.enrich_failure_facts(data)
         self._record_shell_result(data)
 
         return {
