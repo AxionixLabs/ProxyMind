@@ -93,8 +93,9 @@ def _numbered_added_lines(content: typing.Any, *, start_line: int = 1) -> list[s
 
 
 def _unified_patch_preview_lines(patch: typing.Any) -> list[str]:
-    """从 unified diff 文本中提取可显示的代码预览行。"""
-    lines: list[str] = []
+    """从 unified diff 文本中提取按文件分组的代码预览行。"""
+    groups: list[dict[str, typing.Any]]   = []
+    current: dict[str, typing.Any] | None = None
 
     current_old_line: int = 1
     current_new_line: int = 1
@@ -106,15 +107,23 @@ def _unified_patch_preview_lines(patch: typing.Any) -> list[str]:
             continue
         if raw.startswith("+++ "):
             path = _patch_display_path(raw[4:]) or pending_old_path
-            if path and path != "/dev/null":
-                lines.append(f"file: {path}")
+            if path == "/dev/null":
+                path = pending_old_path
+            if path:
+                current = {
+                    "path"    : path,
+                    "added"   : 0,
+                    "removed" : 0,
+                    "lines"   : []
+                }
+                groups.append(current)
             continue
         if raw.startswith("@@ "):
             match = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", raw)
             if match:
                 current_old_line = int(match.group(1))
                 current_new_line = int(match.group(2))
-            lines.append(raw)
+            _append_patch_preview_line(groups, current, raw)
             continue
         if not raw:
             continue
@@ -123,15 +132,58 @@ def _unified_patch_preview_lines(patch: typing.Any) -> list[str]:
         text   = raw[1:] if marker in {" ", "+", "-"} else raw
 
         if marker == "+":
-            lines.append(f"{current_new_line:>4} +{text}")
+            _append_patch_preview_line(groups, current, f"{current_new_line:>4} +{text}")
+            if current is not None:
+                current["added"] = int(current.get("added") or 0) + 1
             current_new_line += 1
         elif marker == "-":
-            lines.append(f"{current_old_line:>4} -{text}")
+            _append_patch_preview_line(groups, current, f"{current_old_line:>4} -{text}")
+            if current is not None:
+                current["removed"] = int(current.get("removed") or 0) + 1
             current_old_line += 1
         elif marker == " ":
-            lines.append(f"{current_new_line:>4}  {text}")
+            _append_patch_preview_line(groups, current, f"{current_new_line:>4}  {text}")
             current_old_line += 1
             current_new_line += 1
+
+    return _flatten_patch_preview_groups(groups)
+
+
+def _append_patch_preview_line(
+    groups: list[dict[str, typing.Any]],
+    current: dict[str, typing.Any] | None,
+    line: str
+) -> None:
+    """向当前文件分组追加一行；没有文件头时使用匿名分组。"""
+    if current is None:
+        current = {
+            "path"    : "",
+            "added"   : 0,
+            "removed" : 0,
+            "lines"   : []
+        }
+        groups.append(current)
+
+    lines = current.get("lines")
+    if isinstance(lines, list):
+        lines.append(line)
+
+
+def _flatten_patch_preview_groups(groups: list[dict[str, typing.Any]]) -> list[str]:
+    """把文件分组压平为可渲染的预览行。"""
+    lines: list[str] = []
+
+    for index, group in enumerate(groups):
+
+        path    = str(group.get("path") or "").strip()
+        added   = int(group.get("added") or 0)
+        removed = int(group.get("removed") or 0)
+
+        if index:
+            lines.append("")
+        if path:
+            lines.append(f"{path} (+{added} -{removed})")
+        lines.extend(str(item) for item in group.get("lines") or [])
 
     return lines
 
@@ -156,6 +208,7 @@ def _error_unified_patch_preview_lines(patch: typing.Any, data: dict[str, typing
         start -= 1
 
     end = hunk_index + 1
+
     body_count = 0
 
     while end < len(raw_lines):
@@ -173,10 +226,12 @@ def _error_unified_patch_preview_lines(patch: typing.Any, data: dict[str, typing
 def _patch_display_path(value: typing.Any) -> str:
     """把 unified diff 文件头路径转换为工作区相对显示路径。"""
     text = str(value or "").strip()
+
     if text in {"", "/dev/null"}:
         return text
     if text.startswith("a/") or text.startswith("b/"):
         return text[2:]
+
     return text
 
 

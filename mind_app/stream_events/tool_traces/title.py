@@ -242,6 +242,18 @@ def _preview_line_parts(
             *_code_parts(code, current_path=current_path, deleted=marker == "-"),
         ], ""
 
+    file_delta = re.match(r"^(.+?) \(\+(\d+) -(\d+)\)$", line)
+    if file_delta and _looks_like_path(file_delta.group(1)):
+        path, added, removed = file_delta.groups()
+        return [
+            _part(path, PREVIEW_PATH_STYLE),
+            _part(" (", PREVIEW_STYLE),
+            _part(f"+{added}", DELTA_ADD_STYLE),
+            _part(" ", PREVIEW_STYLE),
+            _part(f"-{removed}", DELTA_REMOVE_STYLE),
+            _part(")", PREVIEW_STYLE),
+        ], path
+
     location = re.match(r"^([^:\s][^:\n]*):(\d+)(.*)$", line)
     if location:
         return [
