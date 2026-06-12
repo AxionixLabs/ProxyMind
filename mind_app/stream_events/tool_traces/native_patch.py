@@ -20,15 +20,6 @@ def _line_delta_from_content(content: typing.Any) -> tuple[int, int]:
     return len(text.splitlines()) or 1, 0
 
 
-def _line_delta_from_patch_args(args: dict[str, typing.Any]) -> tuple[int, int]:
-    """根据文本替换参数估算新增和删除行数。"""
-    old_lines    = str(args.get("old_text") or "").splitlines()
-    new_lines    = str(args.get("new_text") or "").splitlines()
-    replacements = max(1, int(args.get("expected_replacements") or 1))
-
-    return (len(new_lines) or 1) * replacements, (len(old_lines) or 1) * replacements
-
-
 def _line_delta_from_unified_files(data: dict[str, typing.Any]) -> tuple[int, int]:
     """从 unified patch 结果中读取新增和删除行数。"""
     added   = data.get("added_lines")
@@ -99,33 +90,6 @@ def _numbered_added_lines(content: typing.Any, *, start_line: int = 1) -> list[s
         f"{line_no:>{width}} +{line}"
         for line_no, line in enumerate(lines, start=start_line)
     ]
-
-
-def _numbered_removed_lines(content: typing.Any, *, start_line: int = 1) -> list[str]:
-    """把删除内容格式化为带行号的预览行。"""
-    lines = _normalize_preview_lines(content)
-    width = max(4, len(str(start_line + len(lines))))
-
-    return [
-        f"{line_no:>{width}} -{line}"
-        for line_no, line in enumerate(lines, start=start_line)
-    ]
-
-
-def _patch_replacement_preview(args: dict[str, typing.Any]) -> list[str]:
-    """根据文本替换参数生成代码预览行。"""
-    prefix = _summary_lines(
-        ("file", args.get("path")),
-        ("replacements", args.get("expected_replacements")
-        if int(args.get("expected_replacements") or 1) > 1 else None)
-    )
-    old_lines = _numbered_removed_lines(args.get("old_text"))
-    new_lines = _numbered_added_lines(args.get("new_text"))
-
-    if old_lines and new_lines:
-        return [*prefix, *old_lines, *new_lines]
-
-    return [*prefix, *(new_lines or old_lines)]
 
 
 def _unified_patch_preview_lines(patch: typing.Any) -> list[str]:

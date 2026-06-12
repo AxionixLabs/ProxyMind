@@ -7,7 +7,6 @@ from dataclasses import dataclass
 MISSING = object()
 
 TITLE_STYLE                 = "bold #D7E7FF"
-RUNNING_STYLE               = "bold #8FB8FF"
 PREVIEW_STYLE               = "dim #8FA4B8"
 PREVIEW_PATH_STYLE          = "bold #A9B8C8"
 PREVIEW_LINE_STYLE          = "bold #95A6B8"
@@ -25,17 +24,12 @@ PREVIEW_COUNT_STYLE         = "bold #A0ADBA"
 ERROR_STYLE                 = "bold #FF7A7A"
 SUCCESS_DOT_STYLE           = "bold #6EE7A8"
 ERROR_DOT_STYLE             = "bold #FF6B6B"
-RUNNING_DOT_STYLE           = "bold #8FB8FF"
 DELTA_ADD_STYLE             = "bold #6EE7A8"
 DELTA_REMOVE_STYLE          = "bold #FF8A8A"
-ACTION_GIT_STYLE            = "bold #72D6FF"
-ACTION_READ_STYLE           = "bold #9CCBFF"
 ACTION_EDIT_STYLE           = "bold #6EE7A8"
 ACTION_RUN_STYLE            = "bold #B8C7D9"
 ACTION_TOOL_STYLE           = "bold #7DD3FC"
 COMMAND_STYLE               = "bold #8FB8FF"
-COUNT_VALUE_STYLE           = "bold #F8D66D"
-COUNT_UNIT_STYLE            = "bold #9FB3C8"
 
 MAX_PREVIEW_LINES         = 8
 SCREEN_PREVIEW_LINES      = 5

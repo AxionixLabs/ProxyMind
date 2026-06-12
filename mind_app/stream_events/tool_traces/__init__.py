@@ -3,13 +3,9 @@
 
 from .common import (
     ACTION_EDIT_STYLE,
-    ACTION_GIT_STYLE,
-    ACTION_READ_STYLE,
     ACTION_RUN_STYLE,
     ACTION_TOOL_STYLE,
     COMMAND_STYLE,
-    COUNT_UNIT_STYLE,
-    COUNT_VALUE_STYLE,
     DELTA_ADD_STYLE,
     DELTA_REMOVE_STYLE,
     ERROR_DOT_STYLE,
@@ -29,8 +25,6 @@ from .common import (
     PREVIEW_PATH_STYLE,
     PREVIEW_STYLE,
     PREVIEW_TEXT_STYLE,
-    RUNNING_DOT_STYLE,
-    RUNNING_STYLE,
     SUCCESS_DOT_STYLE,
     TITLE_STYLE,
     TracePreview
@@ -52,13 +46,9 @@ from .title import render_tool_trace_parts
 
 __all__ = [
     "ACTION_EDIT_STYLE",
-    "ACTION_GIT_STYLE",
-    "ACTION_READ_STYLE",
     "ACTION_RUN_STYLE",
     "ACTION_TOOL_STYLE",
     "COMMAND_STYLE",
-    "COUNT_UNIT_STYLE",
-    "COUNT_VALUE_STYLE",
     "DELTA_ADD_STYLE",
     "DELTA_REMOVE_STYLE",
     "ERROR_DOT_STYLE",
@@ -79,8 +69,6 @@ __all__ = [
     "PREVIEW_PATH_STYLE",
     "PREVIEW_STYLE",
     "PREVIEW_TEXT_STYLE",
-    "RUNNING_DOT_STYLE",
-    "RUNNING_STYLE",
     "SUCCESS_DOT_STYLE",
     "TITLE_STYLE",
     "TracePreview",

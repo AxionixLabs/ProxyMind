@@ -9,7 +9,7 @@ from backend.utilities import const
 
 
 class TextPatchOperations(NativeCodingComponent):
-    """提供面向文本文件的补丁操作入口。"""
+    """提供 unified diff 补丁操作入口。"""
 
     def __init__(self, core: NativeCodingBase, *, planner: typing.Any, diagnostics: typing.Any) -> None:
         """保存共享运行时上下文和补丁执行依赖。"""
@@ -17,67 +17,6 @@ class TextPatchOperations(NativeCodingComponent):
 
         self._planner     = planner
         self._diagnostics = diagnostics
-
-    def apply_patch(
-        self,
-        *,
-        path: str,
-        old_text: str,
-        new_text: str,
-        expected_replacements: int = 1,
-        expected_sha256: str | None = None,
-        force: bool = False
-    ) -> dict[str, typing.Any]:
-        """对单个文本文件执行精确片段替换。"""
-        target = self.resolve_path(path)
-
-        if not target.is_file():
-            return self.fail_result("file_not_found", path=path)
-        if not str(old_text or ""):
-            return self.fail_result("old_text_empty", path=self.relative_path(target))
-        if conflict := self.conflict_guard(target, expected_sha256=expected_sha256, force=force):
-            return conflict
-
-        current  = target.read_text(encoding=const.CHARSET, errors=const.IGNORE)
-        count    = current.count(old_text)
-        expected = max(1, int(expected_replacements or 1))
-
-        if count != expected:
-            diagnostics = self._diagnostics.replacement_mismatch_diagnostics(
-                current=current,
-                old_text=old_text
-            )
-            data = {
-                "path": self.relative_path(target),
-                "found": count,
-                "expected": expected,
-                "old_text_preview": self._diagnostics.diagnostic_preview(old_text, limit=600),
-                "current_preview": self._diagnostics.diagnostic_preview(current, limit=1200),
-                **diagnostics
-            }
-            self._diagnostics.log_patch_failure(
-                "workspace_apply_patch", "replacement_count_mismatch", data
-            )
-            return self.fail_result(
-                "replacement_count_mismatch", **data
-            )
-
-        updated = current.replace(old_text, new_text, expected)
-        size    = len(updated.encode(const.CHARSET, const.IGNORE))
-
-        if size > self.max_write_bytes:
-            return self.fail_result(
-                "content_too_large", size=size, max_bytes=self.max_write_bytes
-            )
-
-        target.write_text(updated, encoding=const.CHARSET, newline="")
-
-        return self.ok_result(
-            f"workspace patch ok path={self.relative_path(target)} replacements={expected}",
-            path=self.relative_path(target),
-            replacements=expected,
-            sha256=self.sha256_bytes(updated.encode(const.CHARSET, const.IGNORE))
-        )
 
     def apply_unified_patch(
         self,

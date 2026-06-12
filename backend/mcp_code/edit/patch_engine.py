@@ -41,10 +41,6 @@ class PatchEngine(NativeCodingComponent):
             diagnostics=self._diagnostics
         )
 
-    def apply_patch(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        """转发精确文本替换补丁请求。"""
-        return self._operations.apply_patch(*args, **kwargs)
-
     def apply_unified_patch(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         """转发 unified diff 补丁请求。"""
         return self._operations.apply_unified_patch(*args, **kwargs)

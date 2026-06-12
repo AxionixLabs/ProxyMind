@@ -1,0 +1,25 @@
+{
+  "name": "@mind/mind",
+  "version": "1.0.0",
+  "description": "Mind command line launcher.",
+  "type": "module",
+  "bin": {
+    "mind": "./bin/mind.js"
+  },
+  "files": [
+    "bin",
+    "scripts",
+    "applications",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "sync:applications": "node ./scripts/sync-applications.js",
+    "pack:local": "npm run sync:applications && npm pack"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED",
+  "private": false
+}

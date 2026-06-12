@@ -296,7 +296,7 @@ async def stream_looper(
 
                 before_exists = (
                     local_path_exists(arguments)
-                    if name in {"workspace_write_file", "workspace_apply_patch"}
+                    if name == "workspace_write_file"
                     else MISSING
                 )
 

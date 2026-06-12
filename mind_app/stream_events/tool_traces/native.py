@@ -21,35 +21,31 @@ from .common import (
 from .native_helpers import (
     _failure_preview_lines,
     _failure_suffix,
-    _file_action_from_args,
+    _file_action_from_before_exists,
     _format_delta,
     _format_size,
     _path_from_args,
     _short_sha,
-    _unified_action
+    _unified_file_action,
 )
 from .shell_calls import (
     _shell_call_failure_summary,
+    _shell_call_item_label,
     _shell_call_item_payload,
-    _shell_call_item_target,
-    _shell_call_reason_label
 )
 from .native_patch import (
     _failed_unified_patch_preview_lines,
     _hunk_label,
     _line_delta_from_content,
-    _line_delta_from_patch_args,
     _line_delta_from_unified_files,
     _numbered_added_lines,
     _patch_failure_diagnostic_lines,
-    _patch_replacement_preview,
     _unified_patch_preview_lines
 )
 
 NATIVE_CODING_TRACE_TOOLS = {
     "shell_calls",
     "workspace_write_file",
-    "workspace_apply_patch",
     "workspace_apply_unified_patch",
     "shell_command"
 }
@@ -137,17 +133,11 @@ def render_tool_result_preview(
                 if not isinstance(item, dict):
                     continue
 
-                index   = item.get("index")
-                tool    = str(item.get("tool") or "").strip()
                 payload = _shell_call_item_payload(item)
-                target  = _shell_call_item_target(item, payload)
-                state   = "ok" if item.get("ok") else _shell_call_reason_label(payload.get("reason"))
 
-                label = "shell" if tool == "shell_command" else tool or "item"
-
-                prefix = f"{index}: " if index is not None else ""
-                detail = f" {target}" if target else ""
-                lines.append(f"{prefix}{state} {label}{detail}".strip())
+                line = _shell_call_item_label(item, payload)
+                if line:
+                    lines.append(line)
 
             return _trace_preview_from_lines(lines)
 
@@ -168,32 +158,15 @@ def render_tool_result_preview(
             ("sha256", _short_sha(data.get("sha256"))),
         ))
 
-    if name == "workspace_apply_patch":
-        if failed:
-            return _trace_preview_from_lines(_failure_preview_lines(
-                data,
-                ("path", data.get("path") or args.get("path")),
-                ("found", data.get("found")),
-                ("expected", data.get("expected")),
-            ))
-        preview_lines = _patch_replacement_preview(args)
-        if preview_lines:
-            return _trace_code_preview_from_lines(
-                preview_lines
-            )
-        return _trace_preview_from_lines(_summary_lines(
-            ("file", str(data.get("path") or "").strip()),
-            ("replacements", data.get("replacements")),
-            ("sha256", _short_sha(data.get("sha256"))),
-        ))
-
     if name == "workspace_apply_unified_patch":
         if failed:
-            preview_lines = _failed_unified_patch_preview_lines(args.get("patch"), data)
             prefix = _patch_failure_diagnostic_lines(data)
+
+            preview_lines = _failed_unified_patch_preview_lines(args.get("patch"), data)
             if preview_lines:
                 return _trace_code_preview_from_lines([*prefix, *preview_lines])
             return _trace_preview_from_lines(prefix)
+
         preview_lines = _unified_patch_preview_lines(args.get("patch"))
         if preview_lines:
             return _trace_code_preview_from_lines(preview_lines)
@@ -316,19 +289,14 @@ def render_tool_trace(
                 detail += f", {failure_summary or f'{fail_count} failed'}"
             detail += ")"
 
-        return f"• Shell calls{detail}{suffix}"
+        return f"• Explored{detail}"
 
     if name == "workspace_write_file":
         path = str(payload.get("path") or _path_from_args(args))
         added, removed = _line_delta_from_content(args.get("content"))
-        action = _file_action_from_args(args, before_exists)
+        action = _file_action_from_before_exists(before_exists)
 
         return f"• {action} {path}{_format_delta(added, removed)}{suffix}"
-
-    if name == "workspace_apply_patch":
-        path = str(payload.get("path") or _path_from_args(args))
-        added, removed = _line_delta_from_patch_args(args)
-        return f"• Edited {path}{_format_delta(added, removed)}{suffix}"
 
     if name == "workspace_apply_unified_patch":
         if not ok:
@@ -336,7 +304,9 @@ def render_tool_trace(
             detail = f": {reason}" if reason else ""
             return f"• Patch failed{detail}"
 
-        files = payload.get("files")
+        files  = payload.get("files")
+        action = _unified_file_action(files)
+
         if isinstance(files, list) and len(files) == 1 and isinstance(files[0], dict):
             target = str(files[0].get("path") or "patch")
         elif isinstance(files, list):
@@ -345,8 +315,6 @@ def render_tool_trace(
             target = "patch"
 
         added, removed = _line_delta_from_unified_files(payload)
-        action = _unified_action(files)
-
         return f"• {action} {target}{_format_delta(added, removed)}{suffix}"
 
     if name == "shell_command":

@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import ast
 import typing
-from mind_app.stream_events.command_preview import command_text
 from .common import (
     _short_line,
-    _short_text,
     _summary_lines
 )
 
@@ -16,44 +13,30 @@ def _path_from_args(args: dict[str, typing.Any]) -> str:
     return str(args.get("path") or ".").strip() or "."
 
 
-def _command_text(command: typing.Any) -> str:
-    """把命令参数转换为单行文本。"""
-    return command_text(command)
+def _file_action_from_before_exists(before_exists: typing.Any) -> str:
+    """根据写入前的文件状态选择文件动作文案。"""
+    if before_exists is False:
+        return "Added"
+    if before_exists is True:
+        return "Edited"
+
+    return "Edited"
 
 
-def _search_query_label(args: dict[str, typing.Any]) -> tuple[str, bool]:
-    """生成搜索标题中的查询摘要，并标记是否需要引号。"""
-    query = args.get("query")
-    mode  = str(args.get("mode") or "").strip().lower()
+def _unified_file_action(files: typing.Any) -> str:
+    """根据 unified patch 结果选择文件动作文案。"""
+    if not isinstance(files, list):
+        return "Edited"
+    if len(files) != 1 or not isinstance(files[0], dict):
+        return "Edited"
 
-    if isinstance(query, (list, tuple)):
-        unit = "filenames" if mode == "file" else "queries"
-        return f"{len(query)} {unit}", False
+    action = str(files[0].get("action") or "").strip().lower()
+    if action in {"create", "add"}:
+        return "Added"
+    if action == "delete":
+        return "Deleted"
 
-    text = str(query or "").strip()
-    if text.startswith("[") and text.endswith("]"):
-        try:
-            parsed = ast.literal_eval(text)
-        except (SyntaxError, ValueError):
-            parsed = None
-        if isinstance(parsed, list) and all(isinstance(item, str) for item in parsed):
-            unit = "filenames" if mode == "file" else "queries"
-            return f"{len(parsed)} {unit}", False
-
-    return _short_text(text, 80), True
-
-
-def _status_from_payload(payload: dict[str, typing.Any]) -> str:
-    """从结果载荷中读取状态文本。"""
-    raw = str(payload.get("status") or "").strip().lower()
-    if raw in {"success", "failed", "cancelled", "timeout"}:
-        return raw
-    if payload.get("ok"):
-        return "success"
-    if payload.get("ok") is False:
-        return "failed"
-
-    return ""
+    return "Edited"
 
 
 def _format_delta(added: int, removed: int) -> str:
@@ -91,19 +74,6 @@ def _format_size(value: typing.Any) -> str:
     return f"{size / (1024 * 1024):.1f} MB"
 
 
-def _preview_file_kind(value: typing.Any) -> str:
-    """把文件类型压缩为固定宽度的预览标签。"""
-    kind = str(value or "").strip().lower()
-    if kind == "directory":
-        return "dir"
-    if kind == "symlink":
-        return "link"
-    if kind in {"file", "dir", "link"}:
-        return kind
-
-    return kind[:4]
-
-
 def _diagnostic_sequence_lines(label: str, value: typing.Any) -> list[str]:
     """把失败诊断中的 expected/actual 序列压缩成单行显示。"""
     if isinstance(value, list):
@@ -122,61 +92,6 @@ def _failure_preview_lines(data: dict[str, typing.Any], *pairs: tuple[str, typin
     return _summary_lines(
         ("reason", data.get("reason")), ("error", data.get("error")), *pairs
     )
-
-
-def _file_action_from_args(args: dict[str, typing.Any], before_exists: typing.Any) -> str:
-    """根据参数和原路径状态判断文件动作。"""
-    if before_exists is False:
-        return "Added"
-    if before_exists is True:
-        return "Edited"
-    if args.get("overwrite") is False:
-        return "Added"
-
-    return "Edited"
-
-
-def _unified_action(files: typing.Any) -> str:
-    """根据 unified patch 文件动作集合生成摘要动作。"""
-    if not isinstance(files, list) or not files:
-        return "Edited"
-    actions = {
-        str(item.get("action") or "modify")
-        for item in files
-        if isinstance(item, dict)
-    }
-    if actions == {"create"}:
-        return "Added"
-    if actions == {"delete"}:
-        return "Deleted"
-
-    return "Edited"
-
-
-def _list_file_preview_lines(files: list[typing.Any]) -> list[str]:
-    """把目录列表结果格式化为类型列对齐的预览行。"""
-    rows: list[tuple[str, str]] = []
-
-    for item in files:
-        if not isinstance(item, dict):
-            continue
-
-        path = str(item.get("path") or "").strip()
-        kind = _preview_file_kind(item.get("file_kind") or item.get("kind"))
-        if not path:
-            continue
-        rows.append((kind, path))
-
-    kind_width = 4 if any(kind for kind, _ in rows) else 0
-    lines: list[str] = []
-
-    for kind, path in rows:
-        if kind and kind_width:
-            lines.append(f"{kind:<{kind_width}} {path}")
-        else:
-            lines.append(path)
-
-    return lines
 
 
 if __name__ == '__main__':

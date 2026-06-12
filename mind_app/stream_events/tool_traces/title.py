@@ -12,13 +12,9 @@ from pygments.lexers import (
 from pygments.token import Token
 from .common import (
     ACTION_EDIT_STYLE,
-    ACTION_GIT_STYLE,
-    ACTION_READ_STYLE,
     ACTION_RUN_STYLE,
     ACTION_TOOL_STYLE,
     COMMAND_STYLE,
-    COUNT_UNIT_STYLE,
-    COUNT_VALUE_STYLE,
     DELTA_ADD_STYLE,
     DELTA_REMOVE_STYLE,
     ERROR_DOT_STYLE,
@@ -43,6 +39,13 @@ from .common import (
     _preview_text
 )
 
+FAILED_SUFFIX_PATTERN = re.compile(r"( failed(?:: [^\n]+)?)$")
+
+
+def _part(text: str, style: str | None) -> dict[str, typing.Optional[str]]:
+    """创建一段带样式的显示片段。"""
+    return {"text": text, "style": style}
+
 
 def render_tool_trace_parts(
     title: str,
@@ -56,11 +59,10 @@ def render_tool_trace_parts(
     preview_text = preview.screen if isinstance(preview, TracePreview) else _preview_text(preview)
     if preview_text:
         if parts:
-            parts.append({"text": "\n", "style": None})
-        parts.extend([
-            {"text": "└ ", "style": PREVIEW_STYLE},
-            *_preview_parts(preview_text),
-        ])
+            parts.append(_part("\n", None))
+        parts.extend(
+            [_part("└ ", PREVIEW_STYLE), *_preview_parts(preview_text)]
+        )
 
     return parts
 
@@ -77,15 +79,11 @@ def _title_parts(
 
     parts: list[dict[str, typing.Optional[str]]] = []
     if body.startswith("•"):
-        parts.append({"text": "•", "style": dot_style})
+        parts.append(_part("•", dot_style))
         body = body[1:]
 
     match = re.search(r"\(\+(\d+) -(\d+)\)", title)
     if not match:
-        count_parts = _title_count_parts(body, base_style=base_style, ok=ok)
-        if count_parts:
-            parts.extend(count_parts)
-            return parts
         if body:
             parts.extend(_styled_action_body_parts(body, base_style=base_style, ok=ok))
         return parts
@@ -102,47 +100,12 @@ def _title_parts(
         parts.extend(_styled_action_body_parts(body[:start], base_style=base_style, ok=ok))
 
     parts.extend([
-        {"text": "(", "style": base_style},
-        {"text": f"+{add_count}", "style": DELTA_ADD_STYLE},
-        {"text": " ", "style": base_style},
-        {"text": f"-{remove_count}", "style": DELTA_REMOVE_STYLE},
-        {"text": ")", "style": base_style},
+        _part("(", base_style),
+        _part(f"+{add_count}", DELTA_ADD_STYLE),
+        _part(" ", base_style),
+        _part(f"-{remove_count}", DELTA_REMOVE_STYLE),
+        _part(")", base_style),
     ])
-    if end < len(body):
-        parts.extend(_styled_action_body_parts(body[end:], base_style=base_style, ok=ok))
-
-    return parts
-
-
-def _title_count_parts(
-    body: str,
-    *,
-    base_style: str,
-    ok: bool
-) -> list[dict[str, typing.Optional[str]]]:
-    """拆分标题里的计数摘要，如 (84 matches)。"""
-    match = re.search(r"\((\d+) (items|matches|files|symbols|results|sessions)([^)]*)\)", body)
-    if not match:
-        return []
-
-    start, end = match.span()
-
-    count, unit, tail = match.groups()
-
-    parts: list[dict[str, typing.Optional[str]]] = []
-
-    if start:
-        parts.extend(_styled_action_body_parts(body[:start], base_style=base_style, ok=ok))
-
-    parts.extend([
-        {"text": "(", "style": base_style},
-        {"text": count, "style": COUNT_VALUE_STYLE if ok else base_style},
-        {"text": " ", "style": base_style},
-        {"text": unit, "style": COUNT_UNIT_STYLE if ok else base_style},
-        {"text": tail, "style": base_style},
-        {"text": ")", "style": base_style},
-    ])
-
     if end < len(body):
         parts.extend(_styled_action_body_parts(body[end:], base_style=base_style, ok=ok))
 
@@ -170,9 +133,9 @@ def _styled_action_body_parts(
 
     parts: list[dict[str, typing.Optional[str]]] = []
     if leading:
-        parts.append({"text": leading, "style": base_style})
+        parts.append(_part(leading, base_style))
     if action:
-        parts.append({"text": action, "style": action_style})
+        parts.append(_part(action, action_style))
     if action == "Ran":
         parts.extend(_ran_command_parts(f"{sep}{tail}", base_style=base_style, ok=ok))
         return parts
@@ -196,7 +159,7 @@ def _ran_command_parts(
     failure_body = ""
 
     if not ok:
-        match = re.search(r"( failed(?:: [^\n]+)?)$", body)
+        match = FAILED_SUFFIX_PATTERN.search(body)
         if match:
             command_body = body[:match.start(1)]
             failure_body = body[match.start(1):]
@@ -207,11 +170,11 @@ def _ran_command_parts(
 
     parts: list[dict[str, typing.Optional[str]]] = []
     if leading:
-        parts.append({"text": leading, "style": base_style})
+        parts.append(_part(leading, base_style))
     if command:
-        parts.append({"text": command, "style": COMMAND_STYLE})
+        parts.append(_part(command, COMMAND_STYLE))
     if failure_body:
-        parts.append({"text": failure_body, "style": ERROR_STYLE})
+        parts.append(_part(failure_body, ERROR_STYLE))
 
     return parts
 
@@ -224,17 +187,19 @@ def _failure_body_parts(
 ) -> list[dict[str, typing.Optional[str]]]:
     """失败标题中仅突出 failed 和 reason，其余内容保持普通标题色。"""
     if ok:
-        return [{"text": body, "style": base_style}]
+        return [_part(body, base_style)]
 
-    match = re.search(r"( failed(?:: [^\n]+)?)$", body)
+    match = FAILED_SUFFIX_PATTERN.search(body)
     if not match:
-        return [{"text": body, "style": base_style}]
+        return [_part(body, base_style)]
+
+    parts: list[dict[str, typing.Optional[str]]] = []
 
     start = match.start(1)
-    parts: list[dict[str, typing.Optional[str]]] = []
     if start:
-        parts.append({"text": body[:start], "style": base_style})
-    parts.append({"text": body[start:], "style": ERROR_STYLE})
+        parts.append(_part(body[:start], base_style))
+    parts.append(_part(body[start:], ERROR_STYLE))
+
     return parts
 
 
@@ -245,15 +210,11 @@ def _action_style_for_body(
     text  = body.lstrip()
     first = text.split(" ", 1)[0] if text else ""
 
-    if first in {"Git", "Change"}:
-        return ACTION_GIT_STYLE
-    if first in {"Read", "Listed", "Searched", "Root", "Skipping", "Skipped"}:
-        return ACTION_READ_STYLE
-    if first in {"Added", "Edited", "Created", "Deleted", "Copied", "Moved", "Patch"}:
+    if first in {"Added", "Edited", "Deleted", "Patch"}:
         return ACTION_EDIT_STYLE
-    if first in {"Ran", "Recorded", "Rolled", "Updated"}:
+    if first in {"Explored", "Ran"}:
         return ACTION_RUN_STYLE
-    if first in {"Tool"}:
+    if first == "Tool":
         return ACTION_TOOL_STYLE
 
     return None
@@ -265,14 +226,17 @@ def _preview_parts(
     """把预览摘要拆成路径、行号、内容和省略提示片段。"""
     lines = str(preview_text or "").split("\n")
     parts: list[dict[str, typing.Optional[str]]] = []
-    current_path = ""
+
+    current_path: str = ""
+
     for index, line in enumerate(lines):
         if index:
-            parts.append({"text": "\n  ", "style": PREVIEW_STYLE})
+            parts.append(_part("\n  ", PREVIEW_STYLE))
         line_parts, path = _preview_line_parts(line, current_path=current_path)
         if path:
             current_path = path
         parts.extend(line_parts)
+
     return parts
 
 
@@ -285,31 +249,31 @@ def _preview_line_parts(
     more = re.match(r"^(… \+)(\d+)( lines)$", line)
     if more:
         return [
-            {"text": more.group(1), "style": PREVIEW_MORE_STYLE},
-            {"text": more.group(2), "style": PREVIEW_COUNT_STYLE},
-            {"text": more.group(3), "style": PREVIEW_MORE_STYLE},
+            _part(more.group(1), PREVIEW_MORE_STYLE),
+            _part(more.group(2), PREVIEW_COUNT_STYLE),
+            _part(more.group(3), PREVIEW_MORE_STYLE)
         ], ""
 
     if re.match(r"^@@ .+ @@$", line):
-        return [{"text": line, "style": PREVIEW_HUNK_STYLE}], ""
+        return [_part(line, PREVIEW_HUNK_STYLE)], ""
 
     code_line = re.match(r"^(\s*\d+)(\s)([ +\-])(.*)$", line)
     if code_line:
         line_no, sep, marker, code = code_line.groups()
         return [
-            {"text": line_no, "style": PREVIEW_LINE_STYLE},
-            {"text": sep, "style": PREVIEW_STYLE},
-            {"text": marker, "style": _diff_marker_style(marker)},
+            _part(line_no, PREVIEW_LINE_STYLE),
+            _part(sep, PREVIEW_STYLE),
+            _part(marker, _diff_marker_style(marker)),
             *_code_parts(code, current_path=current_path, deleted=marker == "-"),
         ], ""
 
     location = re.match(r"^([^:\s][^:\n]*):(\d+)(.*)$", line)
     if location:
         return [
-            {"text": location.group(1), "style": PREVIEW_PATH_STYLE},
-            {"text": ":", "style": PREVIEW_STYLE},
-            {"text": location.group(2), "style": PREVIEW_LINE_STYLE},
-            {"text": location.group(3), "style": PREVIEW_TEXT_STYLE},
+            _part(location.group(1), PREVIEW_PATH_STYLE),
+            _part(":", PREVIEW_STYLE),
+            _part(location.group(2), PREVIEW_LINE_STYLE),
+            _part(location.group(3), PREVIEW_TEXT_STYLE)
         ], ""
 
     summary_entry = re.match(r"^([A-Za-z_][A-Za-z0-9_ -]*)(: )(.+)$", line)
@@ -317,23 +281,15 @@ def _preview_line_parts(
         key = summary_entry.group(1)
         value = summary_entry.group(3)
         return [
-            {"text": summary_entry.group(1), "style": PREVIEW_LINE_STYLE},
-            {"text": summary_entry.group(2), "style": PREVIEW_STYLE},
-            {"text": value, "style": PREVIEW_PATH_STYLE if key == "file" else PREVIEW_TEXT_STYLE},
+            _part(summary_entry.group(1), PREVIEW_LINE_STYLE),
+            _part(summary_entry.group(2), PREVIEW_STYLE),
+            _part(value, PREVIEW_PATH_STYLE if key == "file" else PREVIEW_TEXT_STYLE),
         ], value if key == "file" else ""
 
-    listed_entry = re.match(r"^(file|dir|symlink|directory)(\s+)(.+)$", line)
-    if listed_entry:
-        return [
-            {"text": listed_entry.group(1), "style": PREVIEW_LINE_STYLE},
-            {"text": listed_entry.group(2), "style": PREVIEW_STYLE},
-            {"text": listed_entry.group(3), "style": PREVIEW_PATH_STYLE},
-        ], ""
-
     if _looks_like_path(line):
-        return [{"text": line, "style": PREVIEW_PATH_STYLE}], line
+        return [_part(line, PREVIEW_PATH_STYLE)], line
 
-    return [{"text": line, "style": PREVIEW_TEXT_STYLE}], ""
+    return [_part(line, PREVIEW_TEXT_STYLE)], ""
 
 
 def _looks_like_path(line: str) -> bool:
@@ -363,17 +319,17 @@ def _code_parts(
 ) -> list[dict[str, typing.Optional[str]]]:
     """按当前文件路径对代码片段做语法高亮。"""
     if not code:
-        return [{"text": code, "style": PREVIEW_TEXT_STYLE}]
+        return [_part(code, PREVIEW_TEXT_STYLE)]
 
     lexer = _lexer_for_path(current_path, code)
     if lexer is None:
-        return [{"text": code, "style": _deleted_style(PREVIEW_CODE_TEXT_STYLE) if deleted else PREVIEW_CODE_TEXT_STYLE}]
+        return [_part(code, _deleted_style(PREVIEW_CODE_TEXT_STYLE) if deleted else PREVIEW_CODE_TEXT_STYLE)]
 
     parts: list[dict[str, typing.Optional[str]]] = []
     try:
         tokens = list(lex(code, lexer))
     except (TypeError, ValueError):
-        return [{"text": code, "style": _deleted_style(PREVIEW_CODE_TEXT_STYLE) if deleted else PREVIEW_CODE_TEXT_STYLE}]
+        return [_part(code, _deleted_style(PREVIEW_CODE_TEXT_STYLE) if deleted else PREVIEW_CODE_TEXT_STYLE)]
 
     for token_type, value in tokens:
         if not value:
@@ -384,9 +340,9 @@ def _code_parts(
         style = _token_style(token_type)
         if deleted and style:
             style = _deleted_style(style)
-        parts.append({"text": value, "style": style})
+        parts.append(_part(value, style))
 
-    return parts or [{"text": code, "style": PREVIEW_CODE_TEXT_STYLE}]
+    return parts or [_part(code, PREVIEW_CODE_TEXT_STYLE)]
 
 
 def _lexer_for_path(path: str, code: str) -> typing.Any:

@@ -29,10 +29,6 @@ class NativeCoding(NativeCodingBase):
         """创建或覆盖工作区文本文件。"""
         return self._workspace.write_file(*args, **kwargs)
 
-    def apply_patch(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        """应用精确文本替换补丁。"""
-        return self._patch_engine.apply_patch(*args, **kwargs)
-
     def apply_unified_patch(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
         """应用 unified diff 补丁。"""
         return self._patch_engine.apply_unified_patch(*args, **kwargs)

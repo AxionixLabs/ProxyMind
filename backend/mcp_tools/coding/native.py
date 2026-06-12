@@ -10,9 +10,6 @@ from backend.mcp_tools.coding.schemas.schema_native import (
     ShellCallItemsArg,
     WorkspaceCreateDirsArg,
     WorkspaceOverwriteArg,
-    WorkspaceOldTextArg,
-    WorkspaceNewTextArg,
-    WorkspaceExpectedReplacementsArg,
     WorkspaceExpectedSha256Arg,
     WorkspaceForceArg,
     WorkspaceUnifiedPatchArg,
@@ -36,8 +33,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             " 命令必须是 shell 字符串，由系统默认 shell 解释执行。"
             " 适合运行测试、构建、脚本、版本查询和诊断命令。"
             " 不要用本工具做工作区文件创建、覆盖或局部修改；"
-            " 文本写入请使用 workspace_write_file、workspace_apply_patch 或 workspace_apply_unified_patch。"
-            " 文件复制、移动、删除可通过受控 shell 命令执行。"
+            " 文本写入和工作区文件删除请使用 workspace_write_file 或 workspace_apply_unified_patch。"
+            " 文件复制、移动可通过受控 shell 命令执行。"
             " 执行前必须携带 execution metadata，由执行元数据决定本地执行、云端沙盒或拒绝。"
         ),
         meta={"hidden": False, "domain": "coding", "class": "shell"}
@@ -132,44 +129,6 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
         return await broadcast(
             tool="workspace_write_file",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
-            "对工作区内文本文件执行精确文本替换。"
-            " 只有实际匹配次数等于 expected_replacements 时才会写回，避免误改。"
-            " 局部修改文本文件时优先使用本工具，不要用 shell_command 的 sed/perl/重定向改文件。"
-        ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace"}
-    )
-    @task_middleware("workspace_apply_patch")
-    async def workspace_apply_patch(
-        path: WorkspacePathArg,
-        old_text: WorkspaceOldTextArg,
-        new_text: WorkspaceNewTextArg,
-        expected_replacements: WorkspaceExpectedReplacementsArg = 1,
-        expected_sha256: WorkspaceExpectedSha256Arg = None,
-        force: WorkspaceForceArg = False
-    ) -> CallToolResult:
-
-        args = {
-            "path"                  : path,
-            "old_text"              : old_text,
-            "new_text"              : new_text,
-            "expected_replacements" : expected_replacements,
-            "expected_sha256"       : expected_sha256,
-            "force"                 : force
-        }
-
-        async def call(*_) -> dict:
-            return ctx.native_coding.apply_patch(**args)
-
-        return await broadcast(
-            tool="workspace_apply_patch",
             args=args,
             target_list=[ctx.native_coding],
             call=call,

@@ -30,18 +30,6 @@ WorkspaceOverwriteArg = typing.Annotated[
     bool,
     Field(description="目标文件已存在时是否允许覆盖。"),
 ]
-WorkspaceOldTextArg = typing.Annotated[
-    str,
-    Field(description="文本替换 patch 的原始片段。"),
-]
-WorkspaceNewTextArg = typing.Annotated[
-    str,
-    Field(description="文本替换 patch 的新片段。"),
-]
-WorkspaceExpectedReplacementsArg = typing.Annotated[
-    int,
-    Field(description="期望替换次数；实际次数不一致时拒绝修改。"),
-]
 WorkspaceExpectedSha256Arg = typing.Annotated[
     typing.Optional[str],
     Field(description="编辑前文件 SHA256 基线；当前文件不匹配时拒绝写入，避免覆盖外部改动。"),
