@@ -51,10 +51,10 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     ) -> CallToolResult:
 
         args = {
-            "command"         : command,
-            "cwd"             : cwd,
-            "timeout_sec"     : timeout_sec,
-            "execution"       : execution
+            "command"     : command,
+            "cwd"         : cwd,
+            "timeout_sec" : timeout_sec,
+            "execution"   : execution
         }
 
         async def call(*_) -> dict:
@@ -78,7 +78,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             " 只允许子项 tool=shell_command；每个子项 args 必须包含对应 execution metadata。"
             " 适合一次执行多个只读 shell 上下文命令；不要用于写文件、应用 patch 或长任务。"
         ),
-        meta={"hidden": False, "domain": "coding", "class": "workspace"}
+        meta={"hidden": False, "domain": "coding", "class": "shell"}
     )
     @task_middleware("parallel_shell_calls")
     async def parallel_shell_calls(

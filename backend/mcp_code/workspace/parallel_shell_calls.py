@@ -17,10 +17,6 @@ class ParallelShellCore(typing.Protocol):
 class ParallelShellCallTools(NativeCodingComponent):
     """并行执行多个 shell 调用。"""
 
-    ALLOWED_TOOLS = {
-        "shell_command"
-    }
-
     MAX_ITEMS       = 12
     MAX_CONCURRENCY = 4
 
