@@ -22,6 +22,7 @@ class SweepStatusSpec(object):
     drift_offset: float = 0.0
     entry_pad: float = 0.0
     exit_pad: float = 0.0
+    label_width: int = 0
 
 
 @dataclass(frozen=True)

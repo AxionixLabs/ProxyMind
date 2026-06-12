@@ -21,16 +21,19 @@ TOOL_STATUS_SPEC = SweepStatusSpec(
 )
 CODE_STATUS_SPEC = SweepStatusSpec(
     refresh_per_second=28,
-    phase_rate=12.8,
+    phase_rate=11.2,
     text_limit=56,
+    label_width=14,
     shell_freq=0.42,
     lead_span=2.8,
-    tail_span=5.2,
+    tail_span=4.4,
     peak_radius=0.70,
     near_ratio=0.50,
     mid_ratio=0.84,
     scan_speed=0.24,
-    scan_pad=2.0
+    scan_pad=2.0,
+    entry_pad=1.2,
+    exit_pad=3.8
 )
 MODE_STATUS_SPEC = SweepStatusSpec(
     refresh_per_second=30,

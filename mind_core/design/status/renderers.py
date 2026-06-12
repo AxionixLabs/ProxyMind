@@ -921,7 +921,8 @@ class StatusRenderer(StatusSpec):
         out.append(cls.status_content_gap(), style=colors["edge"])
 
         text = cls.fit_status_text(text, kind="code", fallback="Running")
-        span = max(1, len(text))
+        span = max(1, int(getattr(spec, "label_width", 0) or len(text)))
+
         focus = cls._drift_focus(
             phase,
             span,
