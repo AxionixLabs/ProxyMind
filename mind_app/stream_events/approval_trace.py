@@ -22,6 +22,7 @@ APPROVAL_PROMPT_STYLE   = "bold #8FA4B8"
 APPROVAL_TOOL_STYLE     = "bold #7DD3FC"
 APPROVAL_ARG_STYLE      = "bold #A7F3D0"
 APPROVAL_RES_STYLE      = "dim #8FA4B8"
+APPROVAL_SCOPE_STYLE    = "bold #A7F3D0"
 
 APPROVAL_SUMMARY_MAX_CHARS = 72
 
@@ -158,8 +159,29 @@ def _approval_title_parts(
         parts.append({"text": title[:start], "style": base_style})
     parts.extend(_approval_summary_parts(summary, approval, base_style=base_style))
     if end < len(title):
-        parts.append({"text": title[end:], "style": base_style})
+        parts.extend(_approval_suffix_parts(title[end:], base_style=base_style))
     return parts
+
+
+def _approval_suffix_parts(
+    suffix: str,
+    *,
+    base_style: str
+) -> list[dict[str, typing.Optional[str]]]:
+    """把审批通过后的作用域提示单独着色。"""
+    if base_style != APPROVAL_APPROVED_STYLE:
+        return [{"text": suffix, "style": base_style}]
+
+    for scope in ("for this session", "this time"):
+        if suffix.endswith(scope):
+            prefix = suffix[:-len(scope)]
+            parts: list[dict[str, typing.Optional[str]]] = []
+            if prefix:
+                parts.append({"text": prefix, "style": base_style})
+            parts.append({"text": scope, "style": APPROVAL_SCOPE_STYLE})
+            return parts
+
+    return [{"text": suffix, "style": base_style}]
 
 
 def _approval_summary_parts(

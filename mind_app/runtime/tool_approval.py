@@ -33,31 +33,38 @@ ApprovalDecisionValue = typing.Literal[
     "decline",
     "cancel"
 ]
+
 DEFAULT_APPROVAL_DECISIONS: tuple[ApprovalDecisionValue, ...] = (
     "accept",
     "decline"
 )
+
 DECISION_LABELS: dict[str, str] = {
     "accept"           : "Yes, proceed",
     "acceptForSession" : "Yes, for this session",
     "decline"          : f"No, and tell {const.APP_DESC} what to do differently",
     "cancel"           : "Cancel"
 }
+
 DECISION_SHORTCUT_LABELS: dict[str, str] = {
     "accept"           : "y",
     "acceptForSession" : "",
     "decline"          : "esc",
     "cancel"           : "esc"
 }
+
 APPROVAL_MENU_STYLE = Style.from_dict({
-    "radio-list"     : "",
-    "radio"          : "bold #9AA9B5",
-    "radio-selected" : "bold #A7C7FF",
-    "radio-checked"  : "bold #E2E8F0",
-    "radio-number"   : "bold #9AA9B5",
-    "shortcut"       : "dim #8FA4B8"
+    "radio-list"        : "",
+    "radio"             : "bold #9AA9B5",
+    "radio-selected"    : "bold #A7C7FF",
+    "radio-checked"     : "bold #E2E8F0",
+    "radio-number"      : "bold #9AA9B5",
+    "shortcut"          : "dim #8FA4B8",
+    "shortcut-selected" : "bold #E2E8F0"
 })
+
 APPROVAL_SHORTCUT_STYLE = "dim #8FA4B8"
+
 
 @dataclass(slots=True)
 class ApprovalRecord(object):
@@ -452,18 +459,19 @@ def _decision_display_parts(
 def _decision_display_prompt_parts(
     decision: str,
     *,
-    style: str
+    style: str,
+    shortcut_style: str
 ) -> list[tuple[str, str]]:
     """返回 prompt_toolkit 菜单选项的分段展示文案。"""
     label    = DECISION_LABELS.get(decision, decision)
     shortcut = DECISION_SHORTCUT_LABELS.get(decision, "")
-    parts = [(style, label)]
+    parts    = [(style, label)]
+
     if shortcut:
-        parts.extend([
-            (style, " ("),
-            ("class:shortcut", shortcut),
-            (style, ")"),
-        ])
+        parts.extend(
+            [(style, " ("), (shortcut_style, shortcut), (style, ")")]
+        )
+
     return parts
 
 
@@ -527,12 +535,18 @@ async def _run_approval_menu(
         parts: list[tuple[str, str]] = [("", "\n")]
 
         for _index, _decision in enumerate(decisions, start=1):
-            active = _index - 1 == selected[0]
-            style  = "class:radio-selected" if active else "class:radio"
-            prefix = "›" if active else " "
+
+            active         = _index - 1 == selected[0]
+            style          = "class:radio-selected" if active else "class:radio"
+            prefix         = "›" if active else " "
+            shortcut_style = "class:shortcut-selected" if active else "class:shortcut"
 
             parts.append((style, f"{prefix} {_index}. "))
-            parts.extend(_decision_display_prompt_parts(_decision, style=style))
+            parts.extend(
+                _decision_display_prompt_parts(
+                    _decision, style=style, shortcut_style=shortcut_style
+                )
+            )
 
             if _index < len(decisions):
                 parts.append(("", "\n"))
@@ -559,6 +573,7 @@ async def _run_approval_menu(
         event.app.invalidate()
 
     @bindings.add("escape")
+    @bindings.add("c-[")
     @bindings.add("c-c")
     def _(event) -> None:
         """取消审批并返回拒绝结果。"""
@@ -595,7 +610,7 @@ async def _run_approval_menu(
         style=APPROVAL_MENU_STYLE,
         full_screen=False,
         erase_when_done=True,
-        mouse_support=False,
+        mouse_support=False
     )
     return str(await app.run_async())
 

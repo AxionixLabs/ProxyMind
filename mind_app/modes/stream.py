@@ -204,8 +204,9 @@ async def stream_looper(
                     ),
                     {"text": "\n", "style": None},
                 ]
-                await slog.print_block(
+                await slog.feed(
                     f"\n{done_title}\n\n",
+                    display=StreamUI.BLOCK,
                     display_parts=done_parts
                 )
                 await request.post_tool_approval(

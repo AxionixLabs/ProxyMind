@@ -148,13 +148,15 @@ class StreamUI(object):
         self.coordinator.hold_status_slot()
         if delay_sec <= 0:
             await self._cancel_pending_status_task()
+            if str(text or "").strip().lower() == "coding":
+                text = "native coding"
             await self.coordinator.set_status(text, family="code", animated=True)
             self._mark_status_visible(min_visible_sec)
             return None
 
         await self._schedule_status_task(
             self._delayed_status_flow(
-                text,
+                "native coding" if str(text or "").strip().lower() == "coding" else text,
                 show_delay_sec=delay_sec,
                 animate_after_sec=delay_sec,
                 family="code",
