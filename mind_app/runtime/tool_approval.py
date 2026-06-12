@@ -25,6 +25,7 @@ from mind_app.stream_events.approval_trace import (
     approval_summary
 )
 from mind_app.stream_events.tool_trace import render_tool_trace_parts
+from mind_nova import const
 
 ApprovalDecisionValue = typing.Literal[
     "accept",
@@ -39,16 +40,24 @@ DEFAULT_APPROVAL_DECISIONS: tuple[ApprovalDecisionValue, ...] = (
 DECISION_LABELS: dict[str, str] = {
     "accept"           : "Yes, proceed",
     "acceptForSession" : "Yes, for this session",
-    "decline"          : "No",
+    "decline"          : f"No, and tell {const.APP_DESC} what to do differently",
     "cancel"           : "Cancel"
+}
+DECISION_SHORTCUT_LABELS: dict[str, str] = {
+    "accept"           : "y",
+    "acceptForSession" : "",
+    "decline"          : "esc",
+    "cancel"           : "esc"
 }
 APPROVAL_MENU_STYLE = Style.from_dict({
     "radio-list"     : "",
     "radio"          : "bold #9AA9B5",
     "radio-selected" : "bold #A7C7FF",
     "radio-checked"  : "bold #E2E8F0",
-    "radio-number"   : "bold #9AA9B5"
+    "radio-number"   : "bold #9AA9B5",
+    "shortcut"       : "dim #8FA4B8"
 })
+APPROVAL_SHORTCUT_STYLE = "dim #8FA4B8"
 
 @dataclass(slots=True)
 class ApprovalRecord(object):
@@ -312,7 +321,10 @@ def approval_choice_parts(
             parts.append({"text": "\n", "style": None})
         parts.extend([
             {"text": f"{prefix} {index}. ", "style": "bold #A7C7FF" if index == 1 else "bold #9AA9B5"},
-            {"text": DECISION_LABELS.get(decision, decision), "style": "bold #E2E8F0" if index == 1 else "bold #9AA9B5"}
+            *_decision_display_parts(
+                decision,
+                label_style="bold #E2E8F0" if index == 1 else "bold #9AA9B5"
+            )
         ])
     parts.append({"text": "\n", "style": None})
     return parts
@@ -325,7 +337,7 @@ def approval_choice_text(
     lines = []
     for index, decision in enumerate(approval_decisions(approval), start=1):
         prefix = "›" if index == 1 else " "
-        lines.append(f"{prefix} {index}. {DECISION_LABELS.get(decision, decision)}")
+        lines.append(f"{prefix} {index}. {_decision_display_label(decision)}")
     return "\n".join(lines) + "\n"
 
 
@@ -410,6 +422,51 @@ def _normalize_decision(value: typing.Any) -> ApprovalDecisionValue | None:
     return aliases.get(text.lower())
 
 
+def _decision_display_label(decision: str) -> str:
+    """返回审批选项的展示文案，包含可用快捷键提示。"""
+    label    = DECISION_LABELS.get(decision, decision)
+    shortcut = DECISION_SHORTCUT_LABELS.get(decision, "")
+    return f"{label} ({shortcut})" if shortcut else label
+
+
+def _decision_display_parts(
+    decision: str,
+    *,
+    label_style: str
+) -> list[dict[str, str | None]]:
+    """返回审批选项的分段展示文案。"""
+    label    = DECISION_LABELS.get(decision, decision)
+    shortcut = DECISION_SHORTCUT_LABELS.get(decision, "")
+    parts: list[dict[str, str | None]] = [
+        {"text": label, "style": label_style}
+    ]
+    if shortcut:
+        parts.extend([
+            {"text": " (", "style": label_style},
+            {"text": shortcut, "style": APPROVAL_SHORTCUT_STYLE},
+            {"text": ")", "style": label_style},
+        ])
+    return parts
+
+
+def _decision_display_prompt_parts(
+    decision: str,
+    *,
+    style: str
+) -> list[tuple[str, str]]:
+    """返回 prompt_toolkit 菜单选项的分段展示文案。"""
+    label    = DECISION_LABELS.get(decision, decision)
+    shortcut = DECISION_SHORTCUT_LABELS.get(decision, "")
+    parts = [(style, label)]
+    if shortcut:
+        parts.extend([
+            (style, " ("),
+            ("class:shortcut", shortcut),
+            (style, ")"),
+        ])
+    return parts
+
+
 def _answer_to_decision(
     answer: typing.Any,
     decisions: list[ApprovalDecisionValue]
@@ -473,9 +530,9 @@ async def _run_approval_menu(
             active = _index - 1 == selected[0]
             style  = "class:radio-selected" if active else "class:radio"
             prefix = "›" if active else " "
-            label  = DECISION_LABELS.get(_decision, _decision)
 
-            parts.append((style, f"{prefix} {_index}. {label}"))
+            parts.append((style, f"{prefix} {_index}. "))
+            parts.extend(_decision_display_prompt_parts(_decision, style=style))
 
             if _index < len(decisions):
                 parts.append(("", "\n"))

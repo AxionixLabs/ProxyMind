@@ -30,6 +30,12 @@ ACTION_EDIT_STYLE           = "bold #6EE7A8"
 ACTION_RUN_STYLE            = "bold #B8C7D9"
 ACTION_TOOL_STYLE           = "bold #7DD3FC"
 COMMAND_STYLE               = "bold #8FB8FF"
+COMMAND_HEAD_STYLE          = "bold #8FB8FF"
+COMMAND_FLAG_STYLE          = "#AFC7D8"
+COMMAND_PATH_STYLE          = "bold #C9D7E6"
+COMMAND_STRING_STYLE        = "#A9CDBB"
+COMMAND_NUMBER_STYLE        = "#D3C27C"
+COMMAND_OPERATOR_STYLE      = "bold #8FA4B8"
 
 MAX_PREVIEW_LINES         = 8
 SCREEN_PREVIEW_LINES      = 5

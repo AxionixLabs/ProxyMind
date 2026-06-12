@@ -10,11 +10,11 @@ from pygments.lexers import (
     get_lexer_by_name
 )
 from pygments.token import Token
+from .command_parts import render_command_parts
 from .common import (
     ACTION_EDIT_STYLE,
     ACTION_RUN_STYLE,
     ACTION_TOOL_STYLE,
-    COMMAND_STYLE,
     DELTA_ADD_STYLE,
     DELTA_REMOVE_STYLE,
     ERROR_DOT_STYLE,
@@ -162,7 +162,7 @@ def _ran_command_parts(
     if leading:
         parts.append(_part(leading, base_style))
     if command:
-        parts.append(_part(command, COMMAND_STYLE))
+        parts.extend(render_command_parts(command))
 
     return parts
 
