@@ -20,6 +20,23 @@ from mind_app.stream_events.approval_trace import (
     approval_summary
 )
 from mind_app.stream_events.command_preview import command_preview
+from mind_app.stream_events.compact_rule import (
+    COMPACT_RULE_MAX_INNER_WIDTH,
+    COMPACT_RULE_MIN_INNER_WIDTH,
+    COMPACT_RULE_PADDING,
+    COMPACT_RULE_TERMINAL_MARGIN,
+    compact_rule_width
+)
+from mind_app.stream_events.tool_traces.command_parts import render_command_parts
+from mind_app.stream_events.tool_traces.common import (
+    COMMAND_FLAG_STYLE,
+    COMMAND_HEAD_STYLE,
+    COMMAND_NUMBER_STYLE,
+    COMMAND_OPERATOR_STYLE,
+    COMMAND_PATH_STYLE,
+    COMMAND_STRING_STYLE,
+    COMMAND_STYLE
+)
 from mind_nova import const
 
 ApprovalDecisionValue = typing.Literal[
@@ -62,15 +79,22 @@ APPROVAL_MENU_STYLE = Style.from_dict({
     "approval-arg"      : "#B7C5D3",
     "approval-command"  : "#D8E3EE",
     "approval-border"   : "#667380",
-    "approval-preview"  : "dim #8896A5"
+    "approval-preview"  : "dim #8896A5",
+    "command"           : COMMAND_STYLE,
+    "command-head"      : COMMAND_HEAD_STYLE,
+    "command-flag"      : COMMAND_FLAG_STYLE,
+    "command-path"      : COMMAND_PATH_STYLE,
+    "command-string"    : COMMAND_STRING_STYLE,
+    "command-number"    : COMMAND_NUMBER_STYLE,
+    "command-operator"  : COMMAND_OPERATOR_STYLE
 })
 
-APPROVAL_MENU_PADDING             = 3
-APPROVAL_MENU_MIN_INNER_WIDTH     = 36
-APPROVAL_MENU_TERMINAL_MARGIN     = 4
+APPROVAL_MENU_PADDING             = COMPACT_RULE_PADDING
+APPROVAL_MENU_MIN_INNER_WIDTH     = COMPACT_RULE_MIN_INNER_WIDTH
+APPROVAL_MENU_TERMINAL_MARGIN     = COMPACT_RULE_TERMINAL_MARGIN
 APPROVAL_MENU_TITLE_MIN_RULE      = 4
 APPROVAL_MENU_CONTINUATION_INDENT = 2
-APPROVAL_MENU_MAX_COMMAND_WIDTH   = 82
+APPROVAL_MENU_MAX_COMMAND_WIDTH   = COMPACT_RULE_MAX_INNER_WIDTH
 
 
 @dataclass(slots=True)
@@ -411,28 +435,32 @@ def render_bordered_approval_menu(
     padding: int = APPROVAL_MENU_PADDING,
     title: str | None = "Approval required"
 ) -> list[tuple[str, str]]:
-    """把审批菜单内容行渲染为带边框的 prompt_toolkit 片段。"""
+    """把审批菜单内容行渲染为顶部规则线和缩进内容。"""
     command_width    = approval_menu_command_width(lines, max_width=max_width, padding=padding)
     prewrapped_lines = _wrap_command_lines(lines, max_width=command_width)
     content_width    = approval_menu_content_width(prewrapped_lines, max_width=max_width, padding=padding)
     wrapped_lines    = _wrap_fragment_lines(prewrapped_lines, max_width=content_width)
-    horizontal_width = content_width + padding * 2
+
+    horizontal_width = approval_menu_rule_width(
+        wrapped_lines,
+        max_width=max_width,
+        padding=padding
+    )
 
     parts: list[tuple[str, str]] = [
         *_approval_top_border_parts(horizontal_width, title=title),
-        ("class:approval-border", "\n")
+        ("class:approval-border", "\n"),
+        ("", "\n")
     ]
 
     for line in wrapped_lines:
-        line_width = approval_menu_line_width(line)
-        parts.append(("class:approval-border", "│"))
+        if not line:
+            parts.append(("", "\n"))
+            continue
         parts.append(("", " " * padding))
         parts.extend(line)
-        parts.append(("", " " * max(0, content_width - line_width)))
-        parts.append(("", " " * padding))
-        parts.append(("class:approval-border", "│\n"))
+        parts.append(("", "\n"))
 
-    parts.append(("class:approval-border", f"╰{'─' * horizontal_width}╯"))
     parts.append(("", "\n"))
     return parts
 
@@ -445,16 +473,19 @@ def approval_menu_content_width(
 ) -> int:
     """计算审批卡内容区宽度，受终端最大宽度约束。"""
     natural_width = max((approval_menu_line_width(line) for line in lines), default=0)
-    bounded_width = natural_width
+    rule_width    = compact_rule_width(natural_width + padding, terminal_width=max_width, padding=padding)
+    return max(APPROVAL_MENU_MIN_INNER_WIDTH, rule_width - padding)
 
-    if max_width is not None:
-        available = max(
-            APPROVAL_MENU_MIN_INNER_WIDTH,
-            int(max_width) - APPROVAL_MENU_TERMINAL_MARGIN - 2 - padding * 2
-        )
-        bounded_width = min(natural_width, available)
 
-    return max(APPROVAL_MENU_MIN_INNER_WIDTH, bounded_width)
+def approval_menu_rule_width(
+    lines: list[list[tuple[str, str]]],
+    *,
+    max_width: int | None = None,
+    padding: int = APPROVAL_MENU_PADDING
+) -> int:
+    """计算审批菜单顶部规则线宽度。"""
+    natural_width = max((approval_menu_line_width(line) for line in lines), default=0)
+    return compact_rule_width(natural_width + padding, terminal_width=max_width, padding=padding)
 
 
 def approval_menu_command_width(
@@ -486,7 +517,7 @@ def _approval_top_border_parts(
     """生成包含居中标题的审批卡上边框。"""
     title_text = str(title or "").strip()
     if not title_text:
-        return [("class:approval-border", f"╭{'─' * width}╮")]
+        return [("class:approval-border", "─" * width)]
 
     decorated = f" {title_text} "
     title_width = get_cwidth(decorated)
@@ -495,14 +526,14 @@ def _approval_top_border_parts(
         width = min_width
 
     if title_width >= width:
-        return [("class:approval-border", f"╭{decorated}╮")]
+        return [("class:approval-pending", decorated)]
 
     left = (width - title_width) // 2
     right = width - title_width - left
     return [
-        ("class:approval-border", f"╭{'─' * left}"),
+        ("class:approval-border", "─" * left),
         ("class:approval-pending", decorated),
-        ("class:approval-border", f"{'─' * right}╮")
+        ("class:approval-border", "─" * right)
     ]
 
 
@@ -521,18 +552,44 @@ def _approval_command_lines(
 ) -> list[list[tuple[str, str]]]:
     """生成审批命令区域。"""
     summary = command_preview(approval.get("command")).title or approval_summary(approval)
-    tool    = str(approval.get("tool") or "").strip()
-    line: list[tuple[str, str]] = [("class:approval-prompt", "$ ")]
 
-    if tool and summary.startswith(tool):
-        line.append(("class:approval-tool", tool))
-        rest = summary[len(tool):]
-        if rest:
-            line.append(("class:approval-arg", rest))
-    else:
-        line.append(("class:approval-command", summary))
+    line: list[tuple[str, str]] = [("class:approval-prompt", "$ ")]
+    line.extend(_approval_command_prompt_parts(summary))
 
     return [line]
+
+
+def _approval_command_prompt_parts(command: str) -> list[tuple[str, str]]:
+    """复用工具轨迹的保守命令着色规则。"""
+    out: list[tuple[str, str]] = []
+
+    for part in render_command_parts(command):
+        text = str(part.get("text") or "")
+        if not text:
+            continue
+        out.append((_approval_command_prompt_style(part.get("style")), text))
+
+    return out
+
+
+def _approval_command_prompt_style(style: str | None) -> str:
+    """把工具轨迹命令样式映射为 prompt_toolkit class。"""
+    if style == COMMAND_HEAD_STYLE:
+        return "class:command-head"
+    if style == COMMAND_FLAG_STYLE:
+        return "class:command-flag"
+    if style == COMMAND_PATH_STYLE:
+        return "class:command-path"
+    if style == COMMAND_STRING_STYLE:
+        return "class:command-string"
+    if style == COMMAND_NUMBER_STYLE:
+        return "class:command-number"
+    if style == COMMAND_OPERATOR_STYLE:
+        return "class:command-operator"
+    if style == COMMAND_STYLE:
+        return "class:command"
+
+    return ""
 
 
 def _approval_preview_menu_lines(

@@ -203,6 +203,8 @@ async def stream_looper(
                     decision=decision,
                     reason=reason
                 )
+                if not approved:
+                    await slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                 continue
 
             if event_type == "tool.call":

@@ -30,9 +30,10 @@ class TextState(object):
         self.display_text: str      = ""
         self.raw_text: str          = ""
 
-        self.at_line_start: bool = True
-
+        self.at_line_start: bool      = True
         self.last_display: str | None = None
+
+        self.external_boundary: dict[str, typing.Any] | None = None
 
     def append(
         self,
@@ -139,6 +140,12 @@ class TextState(object):
         self.trailing_newlines = self._count_trailing_newlines(text)
         self.last_display      = display
 
+        self.external_boundary = {
+            "display"           : display,
+            "trailing_newlines" : self.trailing_newlines,
+            "has_text"          : bool(str(text or "").strip())
+        }
+
     def clear(self) -> None:
         """清空所有文本状态和缓存。"""
         self.display_segments.clear()
@@ -149,10 +156,13 @@ class TextState(object):
         self.at_line_start     = True
         self.trailing_newlines = 0
         self.last_display      = None
+        self.external_boundary = None
 
     def _markdown_final_enabled(self) -> bool:
         """判断最终落版是否可以使用 Markdown 渲染。"""
         if not self.raw_text.strip():
+            return False
+        if self._has_external_boundary():
             return False
         if not self.display_segments:
             return False
@@ -182,7 +192,7 @@ class TextState(object):
                     "kind"    : "markdown",
                     "visible" : markdown_visible,
                     "text"    : markdown_raw,
-                    "gap"     : self._final_unit_gap(markdown_visible, has_previous=bool(units))
+                    "gap"     : self._should_gap_before_final_unit(markdown_visible, has_previous=bool(units))
                 })
 
         def flush_parts() -> None:
@@ -191,12 +201,13 @@ class TextState(object):
             parts = [dict(part) for part in pending_parts]
             pending_parts.clear()
             parts_visible = self._parts_text(parts)
+
             if parts_visible.strip():
                 units.append({
                     "kind"    : "parts",
                     "visible" : parts_visible,
                     "parts"   : parts,
-                    "gap"     : self._final_unit_gap(parts_visible, has_previous=bool(units))
+                    "gap"     : self._should_gap_before_final_unit(parts_visible, has_previous=bool(units))
                 })
 
         for segment in self.display_segments:
@@ -569,32 +580,47 @@ class TextState(object):
         for part in source:
             cls._append_part(target, str(part.get("text") or ""), part.get("style"))
 
-    @classmethod
     def _final_renderables_from_units(
-        cls,
+        self,
         units: list[dict[str, typing.Any]]
     ) -> list[typing.Any]:
         """按可见段落边界生成最终落版 renderable。"""
         renderables: list[typing.Any] = []
 
         for unit in units:
-            if unit.get("gap") and renderables:
+            if unit.get("gap"):
                 renderables.append(Text(""))
-            renderable = cls._unit_renderable(unit)
+            renderable = self._unit_renderable(unit)
             if renderable is not None:
                 renderables.append(renderable)
 
         return renderables
 
-    @classmethod
-    def _final_unit_gap(
-        cls,
+    def _should_gap_before_final_unit(
+        self,
         visible: str,
         *,
         has_previous: bool
     ) -> bool:
         """读取 segment 边界，转换为最终落版的显式段间空行。"""
-        return bool(has_previous and cls._count_leading_newlines(visible) > 0)
+        if has_previous:
+            return self._count_leading_newlines(visible) > 0
+        if not self._has_external_boundary():
+            return False
+        if self._external_boundary_trailing_newlines() >= 2:
+            return False
+
+        return bool(str(visible or "").strip())
+
+    def _has_external_boundary(self) -> bool:
+        """判断当前最终落版前是否存在直接输出边界。"""
+        return bool(self.external_boundary and self.external_boundary.get("has_text"))
+
+    def _external_boundary_trailing_newlines(self) -> int:
+        """返回直接输出边界尾部换行数。"""
+        if not self.external_boundary:
+            return 0
+        return max(0, int(self.external_boundary.get("trailing_newlines") or 0))
 
     @classmethod
     def _unit_renderable(

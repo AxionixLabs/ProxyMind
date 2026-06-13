@@ -4,10 +4,9 @@
 from rich.text import Text
 from mind_core.design import Design
 from mind_core.design.status.elapsed import format_elapsed
-from mind_app.runtime.tool_approval import (
-    APPROVAL_MENU_MIN_INNER_WIDTH,
-    APPROVAL_MENU_PADDING,
-    APPROVAL_MENU_TERMINAL_MARGIN
+from mind_app.stream_events.compact_rule import (
+    compact_rule_max_width,
+    compact_rule_width
 )
 
 WORKED_RULE_STYLE  = "dim #6F7A86"
@@ -27,14 +26,10 @@ def worked_footer_text(elapsed_sec: float, *, width: int | None = None) -> str:
 def worked_footer_width(label: str, *, terminal_width: int | None = None) -> int:
     """计算与审批卡一致的页脚宽度。"""
     natural_width = len(label) + 2
-    if terminal_width is None:
-        return max(natural_width, APPROVAL_MENU_MIN_INNER_WIDTH + APPROVAL_MENU_PADDING * 2 + 2)
 
-    available = max(
-        APPROVAL_MENU_MIN_INNER_WIDTH + APPROVAL_MENU_PADDING * 2 + 2,
-        int(terminal_width) - APPROVAL_MENU_TERMINAL_MARGIN
+    return compact_rule_width(
+        max(natural_width, compact_rule_max_width()), terminal_width=terminal_width
     )
-    return max(natural_width, available)
 
 
 def render_worked_footer(elapsed_sec: float, *, width: int | None = None) -> Text:

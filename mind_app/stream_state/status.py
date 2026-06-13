@@ -166,32 +166,7 @@ class StatusState(object):
 
         text, family, phase, animated, presence, elapsed_override = state
 
-        if not animated and family == self.FAMILY_TOOL:
-            out = Design.tool_status_static_renderable(text)
-        elif not animated and family == self.FAMILY_CODE:
-            out = Design.code_status_static_renderable(text)
-        elif not animated and family == self.FAMILY_MODE:
-            out = Design.mode_status_static_renderable(text)
-        elif not animated and family == self.FAMILY_LOOP:
-            out = Design.loop_status_static_renderable(text)
-        elif not animated and family == self.FAMILY_HEAL:
-            out = Design.heal_status_renderable(0.0, text)
-        elif not animated:
-            out = Text(text, style="bold #8FA4B8")
-        elif family == self.FAMILY_TOOL:
-            out = Design.tool_status_renderable(phase, text)
-        elif family == self.FAMILY_CODE:
-            out = Design.code_status_renderable(phase, text)
-        elif family == self.FAMILY_MODE:
-            out = Design.mode_status_renderable(phase, text)
-        elif family == self.FAMILY_LOOP:
-            out = Design.loop_status_renderable(phase, text)
-        elif family == self.FAMILY_HEAL:
-            out = Design.heal_status_renderable(phase, text)
-        elif family == self.FAMILY_WAIT:
-            out = Design.thinking_status_renderable(phase, text)
-        else:
-            out = Design.builtin_status_renderable(phase, text)
+        out = self._family_renderable(family, 0.0 if not animated else phase, text)
 
         self._apply_presence(out, presence)
         self._append_elapsed(
@@ -217,6 +192,7 @@ class StatusState(object):
             return 0.25
 
         _, family, _, animated, _, _ = state
+
         if self.active and animated:
             return float(Design.status_interval(family))
         return 1 / self.EXIT_REFRESH_PER_SECOND
@@ -292,6 +268,24 @@ class StatusState(object):
         aux.append(label, style=self.ELAPSED_LABEL_DIM)
         self._apply_presence(aux, presence * label_presence * appearance)
         out.append_text(aux)
+
+    @classmethod
+    def _family_renderable(cls, family: StatusFamily, phase: float, text: str) -> Text:
+        """按状态族生成一致布局的状态行主体。"""
+        if family == cls.FAMILY_TOOL:
+            return Design.tool_status_renderable(phase, text)
+        if family == cls.FAMILY_CODE:
+            return Design.code_status_renderable(phase, text)
+        if family == cls.FAMILY_MODE:
+            return Design.mode_status_renderable(phase, text)
+        if family == cls.FAMILY_LOOP:
+            return Design.loop_status_renderable(phase, text)
+        if family == cls.FAMILY_HEAL:
+            return Design.heal_status_renderable(phase, text)
+        if family == cls.FAMILY_WAIT:
+            return Design.thinking_status_renderable(phase, text)
+
+        return Design.builtin_status_renderable(phase, text)
 
     @staticmethod
     def _elapsed_slot() -> Text:

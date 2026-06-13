@@ -176,14 +176,16 @@ class StreamUI(object):
         self,
         text: typing.Optional[str] = "thinking",
         *,
-        delay_sec: float = 0.28
+        delay_sec: float = 0.28,
+        animate_after_sec: float | None = None
     ) -> None:
+        animate_after = delay_sec if animate_after_sec is None else max(0.0, float(animate_after_sec))
         await self._schedule_status_task(
             self._delayed_status_flow(
                 text,
                 show_delay_sec=delay_sec,
-                animate_after_sec=delay_sec,
-                family="wait",
+                animate_after_sec=animate_after,
+                family="wait"
             )
         )
 
