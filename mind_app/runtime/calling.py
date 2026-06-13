@@ -126,6 +126,9 @@ async def calling(
     **kwargs
 ) -> None:
     """统一包装一次用户调用，并由 mode 决定底层执行器。"""
+    if not str(message or "").strip():
+        return None
+
     if pref_config is None:
         pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
 

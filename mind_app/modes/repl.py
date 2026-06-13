@@ -207,6 +207,9 @@ async def mind_loop(mind: "Mind") -> None:
         except (EOFError, UnicodeDecodeError):
             continue
 
+        if not raw.strip():
+            continue
+
         command = raw.strip().lower()
 
         if command in quit_set:
