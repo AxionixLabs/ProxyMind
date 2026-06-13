@@ -18,6 +18,10 @@ from .common import (
     DELTA_ADD_STYLE,
     DELTA_REMOVE_STYLE,
     ERROR_DOT_STYLE,
+    ERROR_PREVIEW_HEAD_STYLE,
+    ERROR_PREVIEW_LINE_STYLE,
+    ERROR_PREVIEW_MESSAGE_STYLE,
+    ERROR_PREVIEW_TEXT_STYLE,
     PREVIEW_COUNT_STYLE,
     PREVIEW_CODE_COMMENT_STYLE,
     PREVIEW_CODE_KEYWORD_STYLE,
@@ -57,7 +61,7 @@ def render_tool_trace_parts(
         if parts:
             parts.append(_part("\n", None))
         parts.extend(
-            [_part("└ ", PREVIEW_STYLE), *_preview_parts(preview_text)]
+            [_part("└ ", PREVIEW_STYLE), *_preview_parts(preview_text, ok=ok)]
         )
 
     return parts
@@ -196,7 +200,9 @@ def _action_style_for_body(
 
 
 def _preview_parts(
-    preview_text: str
+    preview_text: str,
+    *,
+    ok: bool
 ) -> list[dict[str, typing.Optional[str]]]:
     """把预览摘要拆成路径、行号、内容和省略提示片段。"""
     lines = str(preview_text or "").split("\n")
@@ -207,7 +213,7 @@ def _preview_parts(
     for index, line in enumerate(lines):
         if index:
             parts.append(_part("\n  ", PREVIEW_STYLE))
-        line_parts, path = _preview_line_parts(line, current_path=current_path)
+        line_parts, path = _preview_line_parts(line, current_path=current_path, ok=ok)
         if path:
             current_path = path
         parts.extend(line_parts)
@@ -218,9 +224,15 @@ def _preview_parts(
 def _preview_line_parts(
     line: str,
     *,
-    current_path: str = ""
+    current_path: str = "",
+    ok: bool = True
 ) -> tuple[list[dict[str, typing.Optional[str]]], str]:
     """拆分单行预览摘要。"""
+    if not ok:
+        error_parts = _error_preview_line_parts(line)
+        if error_parts is not None:
+            return error_parts, ""
+
     more = re.match(r"^(… \+)(\d+)( lines)$", line)
     if more:
         return [
@@ -277,6 +289,48 @@ def _preview_line_parts(
         return [_part(line, PREVIEW_PATH_STYLE)], line
 
     return [_part(line, PREVIEW_TEXT_STYLE)], ""
+
+
+def _error_preview_line_parts(
+    line: str
+) -> list[dict[str, typing.Optional[str]]] | None:
+    """按命令错误输出常见结构分层着色。"""
+    stripped = line.strip()
+    if not stripped:
+        return [_part(line, PREVIEW_STYLE)]
+
+    if re.match(r"^[A-Za-z][A-Za-z0-9_. -]*:$", stripped):
+        return [_part(line, ERROR_PREVIEW_HEAD_STYLE)]
+
+    if stripped == "Line |":
+        return [_part(line, ERROR_PREVIEW_LINE_STYLE)]
+
+    if re.match(r"^[A-Za-z]+Error:$", stripped):
+        return [_part(line, ERROR_PREVIEW_HEAD_STYLE)]
+
+    if re.match(r"^\s*\d+\s+\|\s", line):
+        prefix, sep, body = line.partition("|")
+        return [
+            _part(prefix, PREVIEW_LINE_STYLE),
+            _part(f"{sep}{body}", ERROR_PREVIEW_LINE_STYLE),
+        ]
+
+    if line.startswith("  ") and not line.lstrip().startswith("|"):
+        return [_part(line, ERROR_PREVIEW_LINE_STYLE)]
+
+    if re.match(r"^\s*\|", line):
+        if "~" in line or "^" in line:
+            return [_part(line, ERROR_PREVIEW_MESSAGE_STYLE)]
+        prefix, sep, body = line.partition("|")
+        return [
+            _part(f"{prefix}{sep}", PREVIEW_STYLE),
+            _part(body, ERROR_PREVIEW_TEXT_STYLE),
+        ]
+
+    if re.match(r"(?i)^\s*(error|cannot|missing|failed|exception)\b", stripped):
+        return [_part(line, ERROR_PREVIEW_TEXT_STYLE)]
+
+    return None
 
 
 def _looks_like_path(line: str) -> bool:
@@ -382,7 +436,7 @@ def _lexer_name_from_extension(path: str) -> str:
 
 
 def _token_style(token_type: typing.Any) -> str:
-    """把 Pygments token 映射为终端预览样式。"""
+    """把 Pygments token 映射为预览显示样式。"""
     if token_type in Token.Keyword:
         return PREVIEW_CODE_KEYWORD_STYLE
     if token_type in Token.Name:

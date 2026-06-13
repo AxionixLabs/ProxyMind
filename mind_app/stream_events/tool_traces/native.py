@@ -204,8 +204,10 @@ def render_tool_result_preview(
 
     if name == "shell_command":
 
+        preview = command_preview(data.get("command") or args.get("command"))
+
         if is_error:
-            lines = _shell_command_error_context_lines(data)
+            lines = _shell_command_error_context_lines(data, command=preview.title)
         else:
             stdout_source = data.get("stdout")
             lines         = _normalize_preview_lines(stdout_source)
@@ -217,7 +219,6 @@ def render_tool_result_preview(
                 lines = err_lines
 
         has_inline_script = False
-        preview = command_preview(data.get("command") or args.get("command"))
         if preview.has_script:
             script_lines = inline_script_preview_lines(preview.script, path=preview.path)
             if script_lines:
@@ -237,6 +238,7 @@ def render_tool_result_preview(
 def _shell_command_error_context_lines(
     data: dict[str, typing.Any],
     *,
+    command: str = "",
     max_context_lines: int = 6
 ) -> list[str]:
     """把 shell_command 异常预览压缩成尾部输出上下文。"""
@@ -248,6 +250,10 @@ def _shell_command_error_context_lines(
             ("error", data.get("error")),
         )
 
+    split_single = _split_single_line_shell_error(stream_lines, command=command)
+    if split_single:
+        return split_single
+
     if len(stream_lines) > max_context_lines:
         omitted = len(stream_lines) - max_context_lines
         return [
@@ -256,6 +262,41 @@ def _shell_command_error_context_lines(
         ]
 
     return stream_lines
+
+
+def _split_single_line_shell_error(
+    lines: list[str],
+    *,
+    command: str,
+    line_number: int = 1
+) -> list[str]:
+    """把单行命令错误整理成通用定位预览。"""
+    if len(lines) != 1:
+        return []
+
+    line = str(lines[0] or "").strip()
+    if not line:
+        return []
+
+    head, sep, message = line.partition(": ")
+    if not sep or not head or not message:
+        head = "Command"
+        message = line
+
+    command = str(command or "").strip()
+    if not command:
+        return []
+
+    line_number = max(1, int(line_number or 1))
+    command_line = f"{line_number:4d} |  {command}"
+    marker_width = max(8, min(MAX_PREVIEW_WIDTH - 8, len(command)))
+    return [
+        f"{head}:",
+        "Line |",
+        command_line,
+        f"     |  {'~' * marker_width}",
+        f"     | {message}",
+    ]
 
 
 def render_tool_trace(
