@@ -71,6 +71,26 @@ class StreamRecordWriter(object):
             self.fp.write(f"{str(line).rstrip()}\n")
             self.fp.flush()
 
+    def write_raw(self, chunk: typing.Optional[str]) -> None:
+        """写入已完成格式化的文本，不再做段间换行归一化。"""
+        if not chunk:
+            return None
+
+        text = str(chunk)
+        self.buffer += text
+
+        while True:
+            pos = self.buffer.find("\n")
+            if pos < 0:
+                break
+            line = self.buffer[:pos + 1]
+            self.buffer = self.buffer[pos + 1:]
+            if self.fp:
+                self.fp.write(line)
+
+        self.at_line_start     = text.endswith("\n")
+        self.trailing_newlines = self._count_trailing_newlines(text)
+
     def flush(self) -> None:
         if not self.buffer:
             return None

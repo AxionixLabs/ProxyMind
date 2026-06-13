@@ -168,8 +168,7 @@ async def stream_looper(
             if event_type == "tool.approval_required":
                 approval = event.get("approval") if isinstance(event.get("approval"), dict) else {}
                 await slog.end_status(immediate=True)
-                await slog.settle_stream()
-                await slog.commit_live()
+                await slog.prepare_external_output()
 
                 decision = await prompt_tool_approval_decision(
                     approval,
@@ -189,16 +188,12 @@ async def stream_looper(
                     if approved else render_approval_denied_trace(approval)
                 )
                 done_parts = [
-                    {"text": "\n", "style": None},
-                    {"text": "\n", "style": None},
                     *render_approval_trace_parts(
                         done_title, approval=approval, state="approved" if approved else "denied"
-                    ),
-                    {"text": "\n", "style": None},
-                    {"text": "\n", "style": None},
+                    )
                 ]
                 await slog.print_block(
-                    f"\n\n{done_title}\n\n", display_parts=done_parts
+                    done_title, display_parts=done_parts
                 )
                 await request.post_tool_approval(
                     event["cid"],
@@ -208,7 +203,6 @@ async def stream_looper(
                     decision=decision,
                     reason=reason
                 )
-                await slog.begin_reply_wait_status(delay_sec=0.0)
                 continue
 
             if event_type == "tool.call":
@@ -325,7 +319,7 @@ async def stream_looper(
                     metadata=kwargs.get("metadata") or {},
                     enable_progress_notify=True,
                     stream_callback=lambda x: slog.feed(
-                        f"{x}\n", display=StreamUI.BLOCK
+                        x, display=StreamUI.BLOCK
                     ),
                     status_text="coding" if use_coding_trace else None,
                     code_status=use_coding_trace
@@ -379,7 +373,7 @@ async def stream_looper(
 
     else:
         await slog.end_status()
-        await slog.feed(f"{build_sources_text(tracker)}\n", display=StreamUI.BLOCK)
+        await slog.feed(build_sources_text(tracker), display=StreamUI.BLOCK)
 
     finally:
         await idle_wait.cancel()

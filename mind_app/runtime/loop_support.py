@@ -39,7 +39,7 @@ async def finish_failure(
     """统一结束失败事件并输出用户可见错误。"""
     message = "" if error is None else str(error)
     await finish_stream(ev_report, phase=phase, error=message, **extra)
-    await stream_ui.feed(f"{message}\n", display=StreamUI.BLOCK)
+    await stream_ui.feed(message, display=StreamUI.BLOCK)
 
 
 if __name__ == '__main__':

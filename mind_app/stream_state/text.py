@@ -23,12 +23,12 @@ class TextState(object):
 
     def __init__(self) -> None:
         """初始化文本段、可见文本和最终正文缓存。"""
-        self.display_segments: list[dict[str, typing.Any]] = []
+        self.display_segments: list[dict[str, typing.Any]]           = []
         self.visible_segments: list[dict[str, typing.Optional[str]]] = []
 
         self.trailing_newlines: int = 0
-        self.display_text: str = ""
-        self.raw_text: str     = ""
+        self.display_text: str      = ""
+        self.raw_text: str          = ""
 
         self.at_line_start: bool = True
 
@@ -55,6 +55,7 @@ class TextState(object):
         else:
             visible_delta = str(display_chunk) if display_chunk is not None else str(chunk)
             visible_delta = self._normalize_display_text(visible_delta, display=display)
+
             visible_parts = [
                 {"text": visible_delta, "style": display_style}
             ] if visible_delta else []
@@ -107,11 +108,13 @@ class TextState(object):
             )
 
         out = Text()
+
         for part in parts:
             text = str(part.get("text") or "")
             if not text:
                 continue
             out.append(text, style=str(part.get("style") or "bold"))
+
         return out
 
     def has_styles(self) -> bool:
@@ -124,7 +127,17 @@ class TextState(object):
             return ""
         if self.display_text.endswith("\n"):
             return ""
+
         return "\n"
+
+    def remember_external_output(self, *, display: str, text: str) -> None:
+        """记录非 live renderer 直接输出的段落边界。"""
+        if not text:
+            return None
+
+        self.at_line_start     = text.endswith("\n")
+        self.trailing_newlines = self._count_trailing_newlines(text)
+        self.last_display      = display
 
     def clear(self) -> None:
         """清空所有文本状态和缓存。"""
@@ -153,28 +166,46 @@ class TextState(object):
 
     def _mixed_final_renderable(self) -> typing.Any:
         """按 segment 类型分别生成最终落版，正文段保留 Markdown。"""
-        renderables: list[typing.Any] = []
-        pending_markdown: list[str] = []
+        units: list[dict[str, typing.Any]]  = []
+        pending_markdown_visible: list[str] = []
+        pending_markdown_raw: list[str]     = []
+
         pending_parts: list[dict[str, typing.Optional[str]]] = []
 
         def flush_markdown() -> None:
-            text = "".join(pending_markdown).rstrip("\n")
-            pending_markdown.clear()
-            if text.strip():
-                renderables.append(render_markdown(text))
+            markdown_visible = "".join(pending_markdown_visible)
+            markdown_raw = "".join(pending_markdown_raw).rstrip("\n")
+            pending_markdown_visible.clear()
+            pending_markdown_raw.clear()
+            if markdown_visible.strip() and markdown_raw.strip():
+                units.append({
+                    "kind"    : "markdown",
+                    "visible" : markdown_visible,
+                    "text"    : markdown_raw,
+                    "gap"     : self._final_unit_gap(markdown_visible, has_previous=bool(units))
+                })
 
         def flush_parts() -> None:
             if not pending_parts:
                 return None
-            renderable = self._parts_renderable(pending_parts)
+            parts = [dict(part) for part in pending_parts]
             pending_parts.clear()
-            if renderable.plain.strip():
-                renderables.append(renderable)
+            parts_visible = self._parts_text(parts)
+            if parts_visible.strip():
+                units.append({
+                    "kind"    : "parts",
+                    "visible" : parts_visible,
+                    "parts"   : parts,
+                    "gap"     : self._final_unit_gap(parts_visible, has_previous=bool(units))
+                })
 
         for segment in self.display_segments:
             if self._segment_markdown_enabled(segment):
                 flush_parts()
-                pending_markdown.append(str(segment.get("raw_text") or segment.get("text") or ""))
+                visible = str(segment.get("text") or "")
+                raw = str(segment.get("raw_text") or visible.lstrip("\n"))
+                pending_markdown_visible.append(visible)
+                pending_markdown_raw.append(raw)
                 continue
 
             flush_markdown()
@@ -183,6 +214,8 @@ class TextState(object):
 
         flush_markdown()
         flush_parts()
+
+        renderables = self._final_renderables_from_units(units)
 
         if not renderables:
             return self.renderable()
@@ -401,7 +434,10 @@ class TextState(object):
         return "\n" * (2 - self.trailing_newlines)
 
     @classmethod
-    def _segment_markdown_enabled(cls, segment: dict[str, typing.Any]) -> bool:
+    def _segment_markdown_enabled(
+        cls,
+        segment: dict[str, typing.Any]
+    ) -> bool:
         if segment.get("mode") != cls.STREAM:
             return False
         if not str(segment.get("raw_text") or segment.get("text") or "").strip():
@@ -444,10 +480,11 @@ class TextState(object):
         limit: int
     ) -> list[dict[str, typing.Optional[str]]]:
         """按行宽限制裁剪流式带样式片段。"""
-        out: list[dict[str, typing.Optional[str]]] = []
+        out: list[dict[str, typing.Optional[str]]]        = []
         line_parts: list[dict[str, typing.Optional[str]]] = []
-        line_len = 0
-        line_cut = False
+
+        line_len: int  = 0
+        line_cut: bool = False
 
         for part in parts:
             style = part.get("style")
@@ -482,7 +519,9 @@ class TextState(object):
     ) -> list[dict[str, typing.Optional[str]]]:
         """从片段列表中按可见字符数截取前缀。"""
         out: list[dict[str, typing.Optional[str]]] = []
-        visible = 0
+
+        visible: int = 0
+
         for part in parts:
             style = part.get("style")
             for ch in str(part.get("text") or ""):
@@ -491,6 +530,7 @@ class TextState(object):
                         return out
                     visible += 1
                 cls._append_part(out, ch, style)
+
         return out
 
     @classmethod
@@ -503,7 +543,7 @@ class TextState(object):
         """按字符串位置切取片段列表。"""
         out: list[dict[str, typing.Optional[str]]] = []
 
-        pos = 0
+        pos: int = 0
         for part in parts:
             text = str(part.get("text") or "")
             next_pos = pos + len(text)
@@ -529,6 +569,65 @@ class TextState(object):
         for part in source:
             cls._append_part(target, str(part.get("text") or ""), part.get("style"))
 
+    @classmethod
+    def _final_renderables_from_units(
+        cls,
+        units: list[dict[str, typing.Any]]
+    ) -> list[typing.Any]:
+        """按可见段落边界生成最终落版 renderable。"""
+        renderables: list[typing.Any] = []
+
+        for unit in units:
+            if unit.get("gap") and renderables:
+                renderables.append(Text(""))
+            renderable = cls._unit_renderable(unit)
+            if renderable is not None:
+                renderables.append(renderable)
+
+        return renderables
+
+    @classmethod
+    def _final_unit_gap(
+        cls,
+        visible: str,
+        *,
+        has_previous: bool
+    ) -> bool:
+        """读取 segment 边界，转换为最终落版的显式段间空行。"""
+        return bool(has_previous and cls._count_leading_newlines(visible) > 0)
+
+    @classmethod
+    def _unit_renderable(
+        cls,
+        unit: dict[str, typing.Any]
+    ) -> typing.Any:
+        kind = str(unit.get("kind") or "")
+        if kind == "markdown":
+            text = str(unit.get("text") or "").lstrip("\n").rstrip("\n")
+            return render_markdown(text)
+
+        parts = [
+            dict(part) for part in unit.get("parts") or []
+            if isinstance(part, dict)
+        ]
+        return cls._parts_renderable(cls._strip_parts_leading_newlines(parts))
+
+    @classmethod
+    def _strip_parts_leading_newlines(
+        cls,
+        parts: list[dict[str, typing.Optional[str]]]
+    ) -> list[dict[str, typing.Optional[str]]]:
+        out = [dict(part) for part in parts]
+
+        while out and str(out[0].get("text") or "").startswith("\n"):
+            text = str(out[0].get("text") or "").lstrip("\n")
+            if text:
+                out[0]["text"] = text
+                break
+            out.pop(0)
+
+        return out
+
     @staticmethod
     def _count_trailing_newlines(text: str) -> int:
         """统计文本尾部连续换行数量。"""
@@ -548,6 +647,15 @@ class TextState(object):
     def _parts_text(parts: list[dict[str, typing.Optional[str]]]) -> str:
         """把片段列表合并为纯文本。"""
         return "".join(str(part.get("text") or "") for part in parts)
+
+    @staticmethod
+    def _count_leading_newlines(text: str) -> int:
+        count = 0
+        for ch in str(text or ""):
+            if ch != "\n":
+                break
+            count += 1
+        return count
 
     @staticmethod
     def _parts_renderable(parts: list[dict[str, typing.Optional[str]]]) -> Text:

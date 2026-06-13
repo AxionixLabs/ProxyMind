@@ -63,12 +63,13 @@ class StreamUI(object):
 
         text = str(chunk)
 
+        boundary_prefix = self._consume_stream_boundary_prefix(incoming_text=text)
+        if boundary_prefix and display == self.STREAM:
+            text = f"{boundary_prefix}{text}"
+
         raw_chunk = None
-        if display == self.STREAM and self._stream_boundary_pending:
-            self._stream_boundary_pending = False
-            if self.coordinator.text_state.display_text and not text.startswith("\n"):
-                raw_chunk = f"\n\n{text}"
-                text = f"\n{text}"
+        if boundary_prefix and display == self.STREAM:
+            raw_chunk = text
 
         if display == self.STREAM:
             if not self._has_stream_output:
@@ -89,6 +90,13 @@ class StreamUI(object):
 
     def mark_stream_boundary(self) -> None:
         self._stream_boundary_pending = True
+
+    async def prepare_external_output(self) -> None:
+        """落版当前 live 文本，并在外部 UI 输出前消费 text.done 边界。"""
+        boundary_prefix = self._consume_stream_boundary_prefix()
+        await self.settle_stream()
+        await self.commit_live()
+        await self._print_boundary_prefix(boundary_prefix)
 
     def record_tool_arguments(
         self,
@@ -288,12 +296,23 @@ class StreamUI(object):
             return None
 
         text = str(chunk)
+
+        boundary_prefix = self._consume_stream_boundary_prefix(incoming_text=text)
+        if boundary_prefix:
+            self.record_writer.write_raw(boundary_prefix)
         self.record_writer.write(text, block=True)
         await self.coordinator.text_renderer.suspend(clear=True)
+
+        await self._print_boundary_prefix(boundary_prefix, record=False)
+
         self._print_direct(
             self._parts_renderable(display_parts)
             if display_parts is not None
             else Text(text.rstrip("\n"), style="bold")
+        )
+        self.coordinator.text_state.remember_external_output(
+            display=self.BLOCK,
+            text=text if text.endswith("\n") else f"{text}\n"
         )
 
     def flush(self) -> None:
@@ -335,6 +354,49 @@ class StreamUI(object):
     @staticmethod
     def _print_direct(renderable: typing.Any) -> None:
         Design.console.print(renderable)
+
+    async def _print_boundary_prefix(self, prefix: str, *, record: bool = True) -> None:
+        if not prefix:
+            return None
+        if record:
+            self.record_writer.write_raw(prefix)
+        await self.coordinator.text_renderer.suspend(clear=True)
+        self._print_raw(prefix)
+
+    def _consume_stream_boundary_prefix(
+        self,
+        *,
+        incoming_text: str | None = None
+    ) -> str:
+        if not self._stream_boundary_pending:
+            return ""
+
+        self._stream_boundary_pending = False
+
+        if incoming_text and incoming_text.startswith("\n"):
+            return ""
+
+        source = self.coordinator.text_state.display_text
+        if not source:
+            return ""
+
+        trailing = self._count_trailing_newlines(source)
+        needed   = max(0, 1 - trailing)
+
+        return "\n" * needed
+
+    @staticmethod
+    def _count_trailing_newlines(text: str) -> int:
+        count = 0
+        for char in reversed(str(text or "")):
+            if char != "\n":
+                break
+            count += 1
+        return count
+
+    @staticmethod
+    def _print_raw(text: str) -> None:
+        Design.console.print("", end=text)
 
     @staticmethod
     def _parts_renderable(

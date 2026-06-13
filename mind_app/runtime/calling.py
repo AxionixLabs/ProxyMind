@@ -10,6 +10,7 @@ from mind_nova.events import EventReport
 from mind_nova.modes import RunMode
 from mind_nova import const
 from ..stream_ui import StreamUI
+from ..stream_events.worked import print_worked_footer
 
 if typing.TYPE_CHECKING:
     from ..mind_core import Mind
@@ -45,8 +46,10 @@ async def with_mcp_guard(
 ) -> None:
     """为模式执行增加动画、网络异常和 HTTP 异常保护层。"""
     network_errors: list[BaseException] = []
-    http_errors: list[BaseException] = []
+    http_errors: list[BaseException]    = []
     runtime_errors: list[BaseException] = []
+
+    started_at = time.perf_counter()
 
     await mind.start_anim(mode)
 
@@ -81,6 +84,8 @@ async def with_mcp_guard(
 
     for error_item in runtime_errors:
         logger.error(f"❌ [Runtime Error] {error_item!r}\n")
+
+    print_worked_footer(time.perf_counter() - started_at)
 
 
 async def wakeup(

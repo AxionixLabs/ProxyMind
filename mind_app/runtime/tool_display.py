@@ -33,7 +33,7 @@ async def show_tool_start(
     trace_start = render_tool_start_trace(name, arguments)
 
     await stream_ui.feed(
-        f"{trace_start}\n",
+        trace_start,
         display=StreamUI.BLOCK,
         display_chunk=trace_start,
         display_parts=render_tool_trace_parts(
@@ -84,7 +84,7 @@ async def show_tool_result(
             trace_text = f"{trace_title}\n└ {indented_preview}"
 
         await stream_ui.feed(
-            f"{trace_text}\n",
+            trace_text,
             display=StreamUI.BLOCK,
             display_parts=render_tool_trace_parts(
                 trace_title,

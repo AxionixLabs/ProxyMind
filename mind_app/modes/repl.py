@@ -30,6 +30,9 @@ async def mind_loop(mind: "Mind") -> None:
     def print_attach_gap() -> None:
         Design.console.print()
 
+    def print_turn_body_gap() -> None:
+        Design.console.print()
+
     def print_pending_attachments() -> None:
         attachments = mind.attach.pending_attachments_snapshot()
         if not attachments:
@@ -309,6 +312,7 @@ async def mind_loop(mind: "Mind") -> None:
             continue
 
         pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
+        print_turn_body_gap()
         await run_model_turn(raw, mode, pref_config)
 
     return None

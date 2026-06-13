@@ -8,8 +8,6 @@ import re
 from dataclasses import (
     dataclass, field
 )
-from rich.console import Group
-from rich.text import Text
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
@@ -18,19 +16,10 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 from mind_app.stream_events.approval_trace import (
-    APPROVAL_ARG_STYLE,
-    APPROVAL_COMMAND_STYLE,
-    APPROVAL_PENDING_STYLE,
-    APPROVAL_PROMPT_STYLE,
-    APPROVAL_TOOL_STYLE,
     approval_command_preview,
     approval_summary
 )
 from mind_app.stream_events.command_preview import command_preview
-from mind_app.stream_events.tool_trace import (
-    PREVIEW_STYLE,
-    render_tool_trace_parts
-)
 from mind_nova import const
 
 ApprovalDecisionValue = typing.Literal[
@@ -61,28 +50,27 @@ DECISION_SHORTCUT_LABELS: dict[str, str] = {
 
 APPROVAL_MENU_STYLE = Style.from_dict({
     "radio-list"        : "",
-    "radio"             : "bold #9AA9B5",
-    "radio-selected"    : "bold #A7C7FF",
-    "radio-checked"     : "bold #E2E8F0",
-    "radio-number"      : "bold #9AA9B5",
-    "shortcut"          : "dim #8FA4B8",
-    "shortcut-selected" : "bold #E2E8F0",
-    "approval-pending"  : "bold #D7E7FF",
-    "approval-prompt"   : "bold #8FA4B8",
-    "approval-tool"     : "bold #7DD3FC",
-    "approval-arg"      : "#AFC7D8",
-    "approval-command"  : "bold #E2E8F0",
-    "approval-border"   : "#6F8498",
-    "approval-preview"  : "dim #A5B3C2"
+    "radio"             : "#8B96A3",
+    "radio-selected"    : "bold #4DE3FF",
+    "radio-checked"     : "bold #C7F7FF",
+    "radio-number"      : "#8B96A3",
+    "shortcut"          : "dim #6F7B88",
+    "shortcut-selected" : "bold #C7F7FF",
+    "approval-pending"  : "bold #4DE3FF",
+    "approval-prompt"   : "#7D8A98",
+    "approval-tool"     : "bold #8BD3FF",
+    "approval-arg"      : "#B7C5D3",
+    "approval-command"  : "#D8E3EE",
+    "approval-border"   : "#667380",
+    "approval-preview"  : "dim #8896A5"
 })
-
-APPROVAL_SHORTCUT_STYLE = "dim #8FA4B8"
 
 APPROVAL_MENU_PADDING             = 3
 APPROVAL_MENU_MIN_INNER_WIDTH     = 36
 APPROVAL_MENU_TERMINAL_MARGIN     = 4
 APPROVAL_MENU_TITLE_MIN_RULE      = 4
 APPROVAL_MENU_CONTINUATION_INDENT = 2
+APPROVAL_MENU_MAX_COMMAND_WIDTH   = 82
 
 
 @dataclass(slots=True)
@@ -300,23 +288,6 @@ def approval_prompt_text(
     )
 
 
-def approval_prompt_renderable(
-    approval: dict[str, typing.Any]
-) -> Group:
-    """构造审批提示的终端渲染内容。"""
-    noun = _approval_prompt_noun(approval)
-
-    command_line = Text()
-
-    for part in approval_command_parts(approval, newline=False):
-        command_line.append(str(part.get("text") or ""), style=part.get("style"))
-
-    return Group(
-        Text(f"Would you like to approve the following {noun}?\n", style=APPROVAL_PENDING_STYLE),
-        command_line,
-    )
-
-
 def approval_decisions(
     approval: dict[str, typing.Any]
 ) -> list[ApprovalDecisionValue]:
@@ -336,26 +307,6 @@ def approval_decisions(
     return out or list(DEFAULT_APPROVAL_DECISIONS)
 
 
-def approval_choice_parts(
-    approval: dict[str, typing.Any]
-) -> list[dict[str, str | None]]:
-    """构造审批选项文本片段。"""
-    parts: list[dict[str, str | None]] = []
-    for index, decision in enumerate(approval_decisions(approval), start=1):
-        prefix = "›" if index == 1 else " "
-        if parts:
-            parts.append({"text": "\n", "style": None})
-        parts.extend([
-            {"text": f"{prefix} {index}. ", "style": "bold #A7C7FF" if index == 1 else "bold #9AA9B5"},
-            *_decision_display_parts(
-                decision,
-                label_style="bold #E2E8F0" if index == 1 else "bold #9AA9B5"
-            )
-        ])
-    parts.append({"text": "\n", "style": None})
-    return parts
-
-
 def approval_choice_text(
     approval: dict[str, typing.Any]
 ) -> str:
@@ -367,65 +318,12 @@ def approval_choice_text(
     return "\n".join(lines) + "\n"
 
 
-def approval_prompt_parts(
-    approval: dict[str, typing.Any]
-) -> list[dict[str, str | None]]:
-    """构造审批提示的文本片段。"""
-    noun = _approval_prompt_noun(approval)
-    parts: list[dict[str, str | None]] = [
-        {"text": f"Would you like to approve the following {noun}?\n\n", "style": APPROVAL_PENDING_STYLE},
-        *approval_command_parts(approval, newline=True)
-    ]
-    preview = approval_command_preview(approval)
-    if preview.full:
-        parts.extend([
-            *render_tool_trace_parts("", preview=preview)
-        ])
-    return parts
-
-
-def approval_command_parts(
-    approval: dict[str, typing.Any],
-    *,
-    newline: bool
-) -> list[dict[str, str | None]]:
-    """把审批命令行拆成 `$`、工具名和参数片段。"""
-    summary = approval_summary(approval)
-    tool    = str(approval.get("tool") or "").strip()
-
-    parts: list[dict[str, str | None]] = [
-        {"text": "$ ", "style": APPROVAL_PROMPT_STYLE}
-    ]
-
-    if tool and summary.startswith(tool):
-        parts.append({"text": tool, "style": APPROVAL_TOOL_STYLE})
-        rest = summary[len(tool):]
-        if rest:
-            parts.append({"text": rest, "style": APPROVAL_ARG_STYLE})
-    else:
-        parts.append({"text": summary, "style": APPROVAL_COMMAND_STYLE})
-
-    if newline:
-        parts.append({"text": "\n", "style": None})
-
-    return parts
-
-
 def _approval_prompt_noun(
     approval: dict[str, typing.Any]
 ) -> str:
     """返回审批提示中使用的操作类型名称。"""
     tool = str(approval.get("tool") or "").strip()
     return "command" if tool in {"", "shell_command"} else "tool action"
-
-
-def _approval_choice_renderable(approval: dict[str, typing.Any]) -> Text:
-    """构造带间距的审批选项渲染对象。"""
-    out = Text()
-    out.append("\n")
-    for part in approval_choice_parts(approval):
-        out.append(str(part.get("text") or ""), style=part.get("style"))
-    return out
 
 
 def _normalize_decision(value: typing.Any) -> ApprovalDecisionValue | None:
@@ -455,26 +353,6 @@ def _decision_display_label(decision: str) -> str:
     return f"{label} ({shortcut})" if shortcut else label
 
 
-def _decision_display_parts(
-    decision: str,
-    *,
-    label_style: str
-) -> list[dict[str, str | None]]:
-    """返回审批选项的分段展示文案。"""
-    label    = DECISION_LABELS.get(decision, decision)
-    shortcut = DECISION_SHORTCUT_LABELS.get(decision, "")
-    parts: list[dict[str, str | None]] = [
-        {"text": label, "style": label_style}
-    ]
-    if shortcut:
-        parts.extend([
-            {"text": " (", "style": label_style},
-            {"text": shortcut, "style": APPROVAL_SHORTCUT_STYLE},
-            {"text": ")", "style": label_style},
-        ])
-    return parts
-
-
 def _decision_display_prompt_parts(
     decision: str,
     *,
@@ -492,24 +370,6 @@ def _decision_display_prompt_parts(
         )
 
     return parts
-
-
-def _approval_promptkit_style(style: str | None) -> str:
-    """把 Rich 审批样式映射为 prompt_toolkit class。"""
-    if style == APPROVAL_PENDING_STYLE:
-        return "class:approval-pending"
-    if style == APPROVAL_PROMPT_STYLE:
-        return "class:approval-prompt"
-    if style == APPROVAL_TOOL_STYLE:
-        return "class:approval-tool"
-    if style == APPROVAL_ARG_STYLE:
-        return "class:approval-arg"
-    if style == APPROVAL_COMMAND_STYLE:
-        return "class:approval-command"
-    if style == PREVIEW_STYLE:
-        return "class:approval-preview"
-
-    return ""
 
 
 def approval_menu_content_lines(
@@ -552,11 +412,13 @@ def render_bordered_approval_menu(
     title: str | None = "Approval required"
 ) -> list[tuple[str, str]]:
     """把审批菜单内容行渲染为带边框的 prompt_toolkit 片段。"""
-    content_width = approval_menu_content_width(lines, max_width=max_width, padding=padding)
-    wrapped_lines = _wrap_fragment_lines(lines, max_width=content_width)
+    command_width    = approval_menu_command_width(lines, max_width=max_width, padding=padding)
+    prewrapped_lines = _wrap_command_lines(lines, max_width=command_width)
+    content_width    = approval_menu_content_width(prewrapped_lines, max_width=max_width, padding=padding)
+    wrapped_lines    = _wrap_fragment_lines(prewrapped_lines, max_width=content_width)
     horizontal_width = content_width + padding * 2
+
     parts: list[tuple[str, str]] = [
-        ("", "\n"),
         *_approval_top_border_parts(horizontal_width, title=title),
         ("class:approval-border", "\n")
     ]
@@ -593,6 +455,17 @@ def approval_menu_content_width(
         bounded_width = min(natural_width, available)
 
     return max(APPROVAL_MENU_MIN_INNER_WIDTH, bounded_width)
+
+
+def approval_menu_command_width(
+    lines: list[list[tuple[str, str]]],
+    *,
+    max_width: int | None = None,
+    padding: int = APPROVAL_MENU_PADDING
+) -> int:
+    """计算命令行专用换行宽度，避免长命令撑满整张卡片。"""
+    card_width = approval_menu_content_width(lines, max_width=max_width, padding=padding)
+    return max(APPROVAL_MENU_MIN_INNER_WIDTH, min(card_width, APPROVAL_MENU_MAX_COMMAND_WIDTH))
 
 
 def approval_menu_line_width(line: list[tuple[str, str]]) -> int:
@@ -639,8 +512,7 @@ def _approval_question_lines(
     """生成审批询问文案。"""
     noun = _approval_prompt_noun(approval)
     return [
-        [("class:approval-pending", f"Would you like to approve the following {noun}?")],
-        []
+        [("class:approval-pending", f"Would you like to approve the following {noun}?")], []
     ]
 
 
@@ -687,6 +559,26 @@ def _wrap_fragment_lines(
     for line in lines:
         wrapped.extend(_wrap_fragment_line(line, max_width=max_width))
     return wrapped
+
+
+def _wrap_command_lines(
+    lines: list[list[tuple[str, str]]],
+    *,
+    max_width: int
+) -> list[list[tuple[str, str]]]:
+    """只提前换行命令行，避免它决定整张审批卡最大宽度。"""
+    wrapped: list[list[tuple[str, str]]] = []
+    for line in lines:
+        if _is_command_line(line):
+            wrapped.extend(_wrap_fragment_line(line, max_width=max_width))
+            continue
+        wrapped.append(line)
+    return wrapped
+
+
+def _is_command_line(line: list[tuple[str, str]]) -> bool:
+    """判断文本片段行是否为审批命令行。"""
+    return bool(line and line[0] == ("class:approval-prompt", "$ "))
 
 
 def _wrap_fragment_line(

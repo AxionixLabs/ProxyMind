@@ -137,7 +137,7 @@ async def static_looper(
             context["reasoning"]  = reasoning
             context["loop_count"] = loop_count
 
-            await slog.feed(f"{reasoning}\n", display=StreamUI.BLOCK)
+            await slog.feed(reasoning, display=StreamUI.BLOCK)
             if ev_report: ev_report.emit({
                 "type"       : "exec.start",
                 "loop_count" : loop_count,
