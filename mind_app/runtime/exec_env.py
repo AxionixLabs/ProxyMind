@@ -19,6 +19,7 @@ def _cached_exec_env() -> dict[str, typing.Any]:
         "platform"  : detect_platform(),
         "shell"     : detect_shell(),
         "runtimes"  : detect_runtimes(),
+        "tools"     : detect_tools(),
         "workspace" : detect_workspace()
     }
 
@@ -87,6 +88,16 @@ def detect_runtimes() -> dict[str, typing.Any]:
         "gradle" : runtime_bin(["gradle"], version_args=["-version"]),
         "go"     : runtime_bin(["go"], version_args=["version"]),
         "git"    : runtime_bin(["git"], version_args=["--version"])
+    }
+
+
+def detect_tools() -> dict[str, typing.Any]:
+    """检测随本地运行时提供给远端感知的命令行工具。"""
+    return {
+        "adb"    : runtime_bin(["adb"], version_args=["version"]),
+        "ffmpeg" : runtime_bin(["ffmpeg"], version_args=["-version"]),
+        "k6"     : runtime_bin(["k6"], version_args=["version"]),
+        "rg"     : runtime_bin(["rg"], version_args=["--version"])
     }
 
 
