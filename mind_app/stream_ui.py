@@ -272,7 +272,7 @@ class StreamUI(object):
             self.coordinator.text_state.final_renderable()
             if self.coordinator.text_state.display_text else None
         )
-        await self.coordinator.text_renderer.suspend()
+        await self.coordinator.text_renderer.suspend(clear=True)
         if renderable is not None:
             self._print_direct(renderable)
             self.coordinator.text_state.clear()
@@ -289,7 +289,7 @@ class StreamUI(object):
 
         text = str(chunk)
         self.record_writer.write(text, block=True)
-        await self.coordinator.text_renderer.suspend()
+        await self.coordinator.text_renderer.suspend(clear=True)
         self._print_direct(
             self._parts_renderable(display_parts)
             if display_parts is not None

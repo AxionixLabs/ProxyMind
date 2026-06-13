@@ -532,7 +532,7 @@ async def _run_approval_menu(
 
     def render_menu() -> list[tuple[str, str]]:
         """生成当前审批菜单的格式化文本片段。"""
-        parts: list[tuple[str, str]] = [("", "\n")]
+        parts: list[tuple[str, str]] = []
 
         for _index, _decision in enumerate(decisions, start=1):
 
@@ -600,7 +600,7 @@ async def _run_approval_menu(
         layout=Layout(
             Window(
                 content=control,
-                height=len(decisions) + 1,
+                height=len(decisions),
                 always_hide_cursor=True
             ),
             focused_element=control

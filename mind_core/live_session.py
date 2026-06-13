@@ -42,12 +42,14 @@ class LiveRenderSession(object):
         )
         self.live.__enter__()
 
-    async def suspend(self) -> None:
+    async def suspend(self, *, clear: bool = False) -> None:
         """暂停并释放当前 Live 会话。"""
-        if self.live is None:
-            return None
-        self.live.__exit__(None, None, None)
-        self.live = None
+        if self.live is not None:
+            self.live.__exit__(None, None, None)
+            self.live = None
+        if clear:
+            self.out = ""
+            self.renderable = None
 
     async def stop(self) -> None:
         """停止 Live 会话并清理渲染状态。"""

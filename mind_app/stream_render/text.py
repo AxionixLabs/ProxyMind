@@ -29,8 +29,8 @@ class TextRenderer(object):
         await self.session.start()
         await self.session.sync(content, animate=animate, renderable=renderable)
 
-    async def suspend(self) -> None:
-        await self.session.suspend()
+    async def suspend(self, *, clear: bool = False) -> None:
+        await self.session.suspend(clear=clear)
 
     async def stop(
         self,
