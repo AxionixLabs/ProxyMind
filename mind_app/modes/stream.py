@@ -20,8 +20,6 @@ from ..runtime.tool_display import (
 from ..runtime.cloud_sandbox import normalize_cloud_sandbox_handoff
 from ..runtime.tool_approval import (
     ApprovalStore,
-    approval_prompt_parts,
-    approval_prompt_text,
     approval_id_from_event,
     prompt_tool_approval_decision,
     validate_tool_approval
@@ -171,18 +169,11 @@ async def stream_looper(
                 approval = event.get("approval") if isinstance(event.get("approval"), dict) else {}
                 await slog.end_status(immediate=True)
                 await slog.settle_stream()
-                await slog.feed(
-                    approval_prompt_text(approval),
-                    display=StreamUI.BLOCK,
-                    display_parts=approval_prompt_parts(approval)
-                )
-                await slog.settle_stream()
                 await slog.commit_live()
 
                 decision = await prompt_tool_approval_decision(
                     approval,
-                    input_func=approval_input_func,
-                    show_prompt=False
+                    input_func=approval_input_func
                 )
 
                 approved    = decision in {"accept", "acceptForSession"}
@@ -199,13 +190,15 @@ async def stream_looper(
                 )
                 done_parts = [
                     {"text": "\n", "style": None},
+                    {"text": "\n", "style": None},
                     *render_approval_trace_parts(
                         done_title, approval=approval, state="approved" if approved else "denied"
                     ),
                     {"text": "\n", "style": None},
+                    {"text": "\n", "style": None},
                 ]
                 await slog.print_block(
-                    f"\n{done_title}\n\n", display_parts=done_parts
+                    f"\n\n{done_title}\n\n", display_parts=done_parts
                 )
                 await request.post_tool_approval(
                     event["cid"],

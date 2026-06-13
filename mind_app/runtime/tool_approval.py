@@ -3,6 +3,8 @@
 
 import typing
 import asyncio
+import shutil
+import re
 from dataclasses import (
     dataclass, field
 )
@@ -14,7 +16,7 @@ from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
-from mind_core.design import Design
+from prompt_toolkit.utils import get_cwidth
 from mind_app.stream_events.approval_trace import (
     APPROVAL_ARG_STYLE,
     APPROVAL_COMMAND_STYLE,
@@ -24,7 +26,11 @@ from mind_app.stream_events.approval_trace import (
     approval_command_preview,
     approval_summary
 )
-from mind_app.stream_events.tool_trace import render_tool_trace_parts
+from mind_app.stream_events.command_preview import command_preview
+from mind_app.stream_events.tool_trace import (
+    PREVIEW_STYLE,
+    render_tool_trace_parts
+)
 from mind_nova import const
 
 ApprovalDecisionValue = typing.Literal[
@@ -60,10 +66,23 @@ APPROVAL_MENU_STYLE = Style.from_dict({
     "radio-checked"     : "bold #E2E8F0",
     "radio-number"      : "bold #9AA9B5",
     "shortcut"          : "dim #8FA4B8",
-    "shortcut-selected" : "bold #E2E8F0"
+    "shortcut-selected" : "bold #E2E8F0",
+    "approval-pending"  : "bold #D7E7FF",
+    "approval-prompt"   : "bold #8FA4B8",
+    "approval-tool"     : "bold #7DD3FC",
+    "approval-arg"      : "#AFC7D8",
+    "approval-command"  : "bold #E2E8F0",
+    "approval-border"   : "#6F8498",
+    "approval-preview"  : "dim #A5B3C2"
 })
 
 APPROVAL_SHORTCUT_STYLE = "dim #8FA4B8"
+
+APPROVAL_MENU_PADDING             = 3
+APPROVAL_MENU_MIN_INNER_WIDTH     = 36
+APPROVAL_MENU_TERMINAL_MARGIN     = 4
+APPROVAL_MENU_TITLE_MIN_RULE      = 4
+APPROVAL_MENU_CONTINUATION_INDENT = 2
 
 
 @dataclass(slots=True)
@@ -475,6 +494,282 @@ def _decision_display_prompt_parts(
     return parts
 
 
+def _approval_promptkit_style(style: str | None) -> str:
+    """把 Rich 审批样式映射为 prompt_toolkit class。"""
+    if style == APPROVAL_PENDING_STYLE:
+        return "class:approval-pending"
+    if style == APPROVAL_PROMPT_STYLE:
+        return "class:approval-prompt"
+    if style == APPROVAL_TOOL_STYLE:
+        return "class:approval-tool"
+    if style == APPROVAL_ARG_STYLE:
+        return "class:approval-arg"
+    if style == APPROVAL_COMMAND_STYLE:
+        return "class:approval-command"
+    if style == PREVIEW_STYLE:
+        return "class:approval-preview"
+
+    return ""
+
+
+def approval_menu_content_lines(
+    decisions: list[ApprovalDecisionValue],
+    *,
+    approval: dict[str, typing.Any] | None,
+    selected_index: int = 0
+) -> list[list[tuple[str, str]]]:
+    """生成审批菜单未加边框的语义内容行。"""
+    lines: list[list[tuple[str, str]]] = []
+    if approval is not None:
+        lines.extend(_approval_question_lines(approval))
+        lines.extend(_approval_command_lines(approval))
+        lines.extend(_approval_preview_menu_lines(approval))
+        lines.append([])
+
+    for index, decision in enumerate(decisions, start=1):
+        active         = index - 1 == selected_index
+        prefix_style   = "class:radio"
+        label_style    = "class:radio-selected" if active else "class:radio"
+        prefix         = "›" if active else " "
+        shortcut_style = "class:shortcut-selected" if active else "class:shortcut"
+
+        line: list[tuple[str, str]] = [(prefix_style, f"{prefix} {index}. ")]
+        line.extend(
+            _decision_display_prompt_parts(
+                decision, style=label_style, shortcut_style=shortcut_style
+            )
+        )
+        lines.append(line)
+
+    return lines
+
+
+def render_bordered_approval_menu(
+    lines: list[list[tuple[str, str]]],
+    *,
+    max_width: int | None = None,
+    padding: int = APPROVAL_MENU_PADDING,
+    title: str | None = "Approval required"
+) -> list[tuple[str, str]]:
+    """把审批菜单内容行渲染为带边框的 prompt_toolkit 片段。"""
+    content_width = approval_menu_content_width(lines, max_width=max_width, padding=padding)
+    wrapped_lines = _wrap_fragment_lines(lines, max_width=content_width)
+    horizontal_width = content_width + padding * 2
+    parts: list[tuple[str, str]] = [
+        ("", "\n"),
+        *_approval_top_border_parts(horizontal_width, title=title),
+        ("class:approval-border", "\n")
+    ]
+
+    for line in wrapped_lines:
+        line_width = approval_menu_line_width(line)
+        parts.append(("class:approval-border", "│"))
+        parts.append(("", " " * padding))
+        parts.extend(line)
+        parts.append(("", " " * max(0, content_width - line_width)))
+        parts.append(("", " " * padding))
+        parts.append(("class:approval-border", "│\n"))
+
+    parts.append(("class:approval-border", f"╰{'─' * horizontal_width}╯"))
+    parts.append(("", "\n"))
+    return parts
+
+
+def approval_menu_content_width(
+    lines: list[list[tuple[str, str]]],
+    *,
+    max_width: int | None = None,
+    padding: int = APPROVAL_MENU_PADDING
+) -> int:
+    """计算审批卡内容区宽度，受终端最大宽度约束。"""
+    natural_width = max((approval_menu_line_width(line) for line in lines), default=0)
+    bounded_width = natural_width
+
+    if max_width is not None:
+        available = max(
+            APPROVAL_MENU_MIN_INNER_WIDTH,
+            int(max_width) - APPROVAL_MENU_TERMINAL_MARGIN - 2 - padding * 2
+        )
+        bounded_width = min(natural_width, available)
+
+    return max(APPROVAL_MENU_MIN_INNER_WIDTH, bounded_width)
+
+
+def approval_menu_line_width(line: list[tuple[str, str]]) -> int:
+    """返回 prompt_toolkit 文本片段的终端显示宽度。"""
+    return sum(get_cwidth(text) for _style, text in line)
+
+
+def approval_menu_plain_text(parts: list[tuple[str, str]]) -> str:
+    """把 prompt_toolkit 片段转为纯文本，供测试断言。"""
+    return "".join(text for _style, text in parts)
+
+
+def _approval_top_border_parts(
+    width: int,
+    *,
+    title: str | None
+) -> list[tuple[str, str]]:
+    """生成包含居中标题的审批卡上边框。"""
+    title_text = str(title or "").strip()
+    if not title_text:
+        return [("class:approval-border", f"╭{'─' * width}╮")]
+
+    decorated = f" {title_text} "
+    title_width = get_cwidth(decorated)
+    min_width = title_width + APPROVAL_MENU_TITLE_MIN_RULE * 2
+    if min_width > width:
+        width = min_width
+
+    if title_width >= width:
+        return [("class:approval-border", f"╭{decorated}╮")]
+
+    left = (width - title_width) // 2
+    right = width - title_width - left
+    return [
+        ("class:approval-border", f"╭{'─' * left}"),
+        ("class:approval-pending", decorated),
+        ("class:approval-border", f"{'─' * right}╮")
+    ]
+
+
+def _approval_question_lines(
+    approval: dict[str, typing.Any]
+) -> list[list[tuple[str, str]]]:
+    """生成审批询问文案。"""
+    noun = _approval_prompt_noun(approval)
+    return [
+        [("class:approval-pending", f"Would you like to approve the following {noun}?")],
+        []
+    ]
+
+
+def _approval_command_lines(
+    approval: dict[str, typing.Any]
+) -> list[list[tuple[str, str]]]:
+    """生成审批命令区域。"""
+    summary = command_preview(approval.get("command")).title or approval_summary(approval)
+    tool    = str(approval.get("tool") or "").strip()
+    line: list[tuple[str, str]] = [("class:approval-prompt", "$ ")]
+
+    if tool and summary.startswith(tool):
+        line.append(("class:approval-tool", tool))
+        rest = summary[len(tool):]
+        if rest:
+            line.append(("class:approval-arg", rest))
+    else:
+        line.append(("class:approval-command", summary))
+
+    return [line]
+
+
+def _approval_preview_menu_lines(
+    approval: dict[str, typing.Any]
+) -> list[list[tuple[str, str]]]:
+    """生成内联脚本预览行。"""
+    preview = approval_command_preview(approval)
+    if not preview.screen:
+        return []
+
+    return [
+        [("class:approval-preview", f"└ {line}" if index == 0 else f"  {line}")]
+        for index, line in enumerate(preview.screen.splitlines())
+    ]
+
+
+def _wrap_fragment_lines(
+    lines: list[list[tuple[str, str]]],
+    *,
+    max_width: int
+) -> list[list[tuple[str, str]]]:
+    """按显示宽度换行，保留片段样式。"""
+    wrapped: list[list[tuple[str, str]]] = []
+    for line in lines:
+        wrapped.extend(_wrap_fragment_line(line, max_width=max_width))
+    return wrapped
+
+
+def _wrap_fragment_line(
+    line: list[tuple[str, str]],
+    *,
+    max_width: int
+) -> list[list[tuple[str, str]]]:
+    """按显示宽度换单行片段。"""
+    if max_width <= 0 or approval_menu_line_width(line) <= max_width:
+        return [line]
+
+    out: list[list[tuple[str, str]]] = []
+    current: list[tuple[str, str]]   = []
+
+    current_width = 0
+
+    for style, text in line:
+        for token in _wrap_tokens(text):
+            token_width = get_cwidth(token)
+            if token.isspace() and not current:
+                continue
+            if current and current_width + token_width > max_width:
+                out.append(current)
+                current = _continuation_prefix()
+                current_width = APPROVAL_MENU_CONTINUATION_INDENT
+                if token.isspace():
+                    continue
+            if token_width > max_width:
+                chunk_width = max(1, max_width - APPROVAL_MENU_CONTINUATION_INDENT)
+                for chunk in _split_wide_token(token, max_width=chunk_width):
+                    if current:
+                        out.append(current)
+                        current = _continuation_prefix()
+                        current_width = APPROVAL_MENU_CONTINUATION_INDENT
+                    current.append((style, chunk))
+                    current_width += get_cwidth(chunk)
+                continue
+            current.append((style, token))
+            current_width += token_width
+
+    if current or not out:
+        out.append(current)
+
+    return out
+
+
+def _continuation_prefix() -> list[tuple[str, str]]:
+    """返回长行续行缩进。"""
+    return [("", " " * APPROVAL_MENU_CONTINUATION_INDENT)]
+
+
+def _wrap_tokens(text: str) -> list[str]:
+    """把文本切成适合换行的 token，优先保留非空白片段完整。"""
+    return re.findall(r"\S+\s*|\s+", text)
+
+
+def _split_wide_token(token: str, *, max_width: int) -> list[str]:
+    """把单个超宽 token 按显示宽度拆分。"""
+    chunks: list[str] = []
+
+    current: str       = ""
+    current_width: int = 0
+
+    for char in token:
+        char_width = get_cwidth(char)
+        if current and current_width + char_width > max_width:
+            chunks.append(current)
+            current = ""
+            current_width = 0
+        current += char
+        current_width += char_width
+
+    if current:
+        chunks.append(current)
+
+    return chunks
+
+
+def _terminal_menu_width() -> int:
+    """返回审批菜单可用的终端宽度。"""
+    return max(40, shutil.get_terminal_size(fallback=(100, 24)).columns)
+
+
 def _answer_to_decision(
     answer: typing.Any,
     decisions: list[ApprovalDecisionValue]
@@ -512,11 +807,9 @@ async def prompt_tool_approval_decision(
                 approval_prompt_text(approval) + "\n" + approval_choice_text(approval)
             )
         else:
-            if show_prompt:
-                Design.console.print()
-                Design.console.print(approval_prompt_renderable(approval))
-                Design.console.print(_approval_choice_renderable(approval))
-            answer = await _run_approval_menu(decisions)
+            answer = await _run_approval_menu(
+                decisions, approval=approval if show_prompt else None
+            )
     except (EOFError, KeyboardInterrupt):
         return "decline"
 
@@ -524,34 +817,34 @@ async def prompt_tool_approval_decision(
 
 
 async def _run_approval_menu(
-    decisions: list[ApprovalDecisionValue]
+    decisions: list[ApprovalDecisionValue],
+    *,
+    approval: dict[str, typing.Any] | None = None
 ) -> str:
     """运行交互式审批菜单并返回选择结果。"""
     bindings = KeyBindings()
     selected = [0]
 
+    def content_lines() -> list[list[tuple[str, str]]]:
+        """生成审批菜单未加边框的内容行。"""
+        return approval_menu_content_lines(
+            decisions,
+            approval=approval,
+            selected_index=selected[0]
+        )
+
     def render_menu() -> list[tuple[str, str]]:
         """生成当前审批菜单的格式化文本片段。"""
-        parts: list[tuple[str, str]] = []
+        return render_bordered_approval_menu(
+            content_lines(),
+            max_width=_terminal_menu_width(),
+            title="Approval required" if approval is not None else None
+        )
 
-        for _index, _decision in enumerate(decisions, start=1):
-
-            active         = _index - 1 == selected[0]
-            style          = "class:radio-selected" if active else "class:radio"
-            prefix         = "›" if active else " "
-            shortcut_style = "class:shortcut-selected" if active else "class:shortcut"
-
-            parts.append((style, f"{prefix} {_index}. "))
-            parts.extend(
-                _decision_display_prompt_parts(
-                    _decision, style=style, shortcut_style=shortcut_style
-                )
-            )
-
-            if _index < len(decisions):
-                parts.append(("", "\n"))
-
-        return parts
+    def menu_height() -> int:
+        """返回 prompt_toolkit 窗口需要显示的行数。"""
+        text = approval_menu_plain_text(render_menu())
+        return text.count("\n") + 1
 
     @bindings.add("enter")
     def _(event) -> None:
@@ -600,7 +893,7 @@ async def _run_approval_menu(
         layout=Layout(
             Window(
                 content=control,
-                height=len(decisions),
+                height=menu_height(),
                 always_hide_cursor=True
             ),
             focused_element=control
