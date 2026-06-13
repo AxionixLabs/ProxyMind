@@ -90,7 +90,7 @@ APPROVAL_MENU_STYLE = Style.from_dict({
 })
 
 APPROVAL_MENU_PADDING             = COMPACT_RULE_PADDING
-APPROVAL_MENU_MIN_INNER_WIDTH     = COMPACT_RULE_MIN_INNER_WIDTH
+APPROVAL_MENU_MIN_INNER_WIDTH     = max(COMPACT_RULE_MIN_INNER_WIDTH, 96)
 APPROVAL_MENU_TERMINAL_MARGIN     = COMPACT_RULE_TERMINAL_MARGIN
 APPROVAL_MENU_TITLE_MIN_RULE      = 4
 APPROVAL_MENU_CONTINUATION_INDENT = 2
@@ -532,8 +532,11 @@ def approval_menu_content_width(
 ) -> int:
     """计算审批卡内容区宽度，受终端最大宽度约束。"""
     natural_width = max((approval_menu_line_width(line) for line in lines), default=0)
-    rule_width    = compact_rule_width(natural_width + padding, terminal_width=max_width, padding=padding)
-    return max(APPROVAL_MENU_MIN_INNER_WIDTH, rule_width - padding)
+
+    rule_width = _approval_rule_width_for_natural(
+        natural_width, max_width=max_width, padding=padding
+    )
+    return max(_approval_min_inner_width(max_width, padding=padding), rule_width - padding)
 
 
 def approval_menu_rule_width(
@@ -544,7 +547,10 @@ def approval_menu_rule_width(
 ) -> int:
     """计算审批菜单顶部规则线宽度。"""
     natural_width = max((approval_menu_line_width(line) for line in lines), default=0)
-    return compact_rule_width(natural_width + padding, terminal_width=max_width, padding=padding)
+
+    return _approval_rule_width_for_natural(
+        natural_width, max_width=max_width, padding=padding
+    )
 
 
 def approval_menu_command_width(
@@ -555,7 +561,47 @@ def approval_menu_command_width(
 ) -> int:
     """计算命令行专用换行宽度，避免长命令撑满整张卡片。"""
     card_width = approval_menu_content_width(lines, max_width=max_width, padding=padding)
-    return max(APPROVAL_MENU_MIN_INNER_WIDTH, min(card_width, APPROVAL_MENU_MAX_COMMAND_WIDTH))
+
+    return min(
+        card_width,
+        max(APPROVAL_MENU_MAX_COMMAND_WIDTH, _approval_min_inner_width(max_width, padding=padding))
+    )
+
+
+def _approval_rule_width_for_natural(
+    natural_width: int,
+    *,
+    max_width: int | None,
+    padding: int
+) -> int:
+    """按审批卡专用宽线策略计算规则线宽度。"""
+    minimum = compact_rule_width(0, terminal_width=None, padding=padding)
+    target  = max(
+        int(natural_width or 0) + padding,
+        _approval_min_inner_width(max_width, padding=padding) + padding,
+        minimum
+    )
+    if max_width is None:
+        return target
+
+    available = max(minimum, int(max_width) - APPROVAL_MENU_TERMINAL_MARGIN)
+    return min(target, available)
+
+
+def _approval_min_inner_width(
+    max_width: int | None,
+    *,
+    padding: int
+) -> int:
+    """返回不会超过当前终端可用宽度的审批卡最小内容宽度。"""
+    if max_width is None:
+        return APPROVAL_MENU_MIN_INNER_WIDTH
+
+    available = max(
+        COMPACT_RULE_MIN_INNER_WIDTH,
+        int(max_width) - APPROVAL_MENU_TERMINAL_MARGIN - padding
+    )
+    return min(APPROVAL_MENU_MIN_INNER_WIDTH, available)
 
 
 def approval_menu_line_width(line: list[tuple[str, str]]) -> int:

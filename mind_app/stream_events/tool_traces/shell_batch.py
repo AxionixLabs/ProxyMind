@@ -106,10 +106,15 @@ def _shell_batch_tree_lines(
         detail = _shell_batch_tree_detail(item, item_payload, ok=ok)
 
         lines.append(f"{item_connector} {mark} {label}".rstrip())
-        if detail:
+        if detail and (ok or _normalize_tree_text(detail) != _normalize_tree_text(label)):
             lines.append(f"{detail_connector} {detail}".rstrip())
 
     return lines
+
+
+def _normalize_tree_text(value: typing.Any) -> str:
+    """归一化树节点文本，用于避免标题和详情重复展示。"""
+    return " ".join(str(value or "").split())
 
 
 def _shell_batch_tree_label(
@@ -122,8 +127,7 @@ def _shell_batch_tree_label(
     command = command_preview(args.get("command", payload.get("command"))).title
 
     if tool in {"", "shell_command"} and command:
-        target = _target_from_command(command)
-        return _short_text(target or command or "shell_command", 80)
+        return _short_text(command or "shell_command", 80)
 
     target = _short_text(args, 80)
     return f"{tool or 'item'} {target}".strip()
@@ -140,7 +144,7 @@ def _shell_batch_tree_detail(
     command = command_preview(args.get("command", payload.get("command"))).title
 
     if ok:
-        return _short_line(command, MAX_PREVIEW_WIDTH)
+        return _short_line(_shell_batch_output_summary(payload) or "(no output)", MAX_PREVIEW_WIDTH)
 
     message = failure_summary(payload)
     if message:
@@ -149,89 +153,78 @@ def _shell_batch_tree_detail(
     return _short_line(command, MAX_PREVIEW_WIDTH)
 
 
-def _target_from_command(command: str) -> str:
-    """从常见只读命令里提取展示目标。"""
-    tokens = _display_tokens(command)
-    if not tokens:
-        return ""
+def _shell_batch_output_summary(payload: dict[str, typing.Any]) -> str:
+    """生成成功命令的单行输出摘要。"""
+    stdout = _first_output_line(payload.get("stdout"))
+    if stdout:
+        return stdout
 
-    for flag in ("-LiteralPath", "-Path"):
-        if flag in tokens:
-            index = tokens.index(flag)
-            if index + 1 < len(tokens):
-                return tokens[index + 1]
-
-    for token in tokens[1:]:
-        if _looks_like_target(token):
-            return token
+    stderr = _first_output_line(payload.get("stderr"))
+    if stderr:
+        return f"stderr: {stderr}"
 
     return ""
 
 
-def _display_tokens(command: str) -> list[str]:
-    """按显示用途拆分命令 token。"""
-    text = str(command or "").strip()
-    if not text:
-        return []
+def _first_output_line(value: typing.Any) -> str:
+    """返回输出中的首个非空行，并提示后续省略行数。"""
+    lines = [
+        line.strip()
+        for line in str(value or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        if line.strip()
+    ]
+    if not lines:
+        return ""
 
-    tokens: list[str]  = []
-    current: list[str] = []
-
-    quote: str    = ""
-    escaped: bool = False
-
-    for char in text:
-        if escaped:
-            current.append(char)
-            escaped = False
-            continue
-        if char == "\\":
-            current.append(char)
-            escaped = True
-            continue
-        if quote:
-            if char == quote:
-                quote = ""
-            else:
-                current.append(char)
-            continue
-        if char in {"'", '"'}:
-            quote = char
-            continue
-        if char.isspace():
-            if current:
-                tokens.append("".join(current))
-                current = []
-            continue
-        current.append(char)
-
-    if current:
-        tokens.append("".join(current))
-
-    return tokens
-
-
-def _looks_like_target(token: str) -> bool:
-    """判断 token 是否适合作为树节点标题。"""
-    text = str(token or "").strip()
-    if not text or text.startswith("-") or "=" in text:
-        return False
-    if text in {".", ".."}:
-        return True
-
-    return "/" in text or "\\" in text or "." in text
+    suffix = f" … +{len(lines) - 1} lines" if len(lines) > 1 else ""
+    return f"{lines[0]}{suffix}"
 
 
 def _shell_batch_screen_lines(results: list[typing.Any]) -> tuple[list[str], int]:
-    """按 item 数限制 shell batch 屏幕树高度。"""
+    """按 item 数限制 shell batch 屏幕树高度，并优先展示失败项。"""
     max_items = 5
 
     items = [item for item in results if isinstance(item, dict)]
+    if len(items) <= max_items:
+        return _shell_batch_tree_lines(items), 0
 
-    visible = items[:max_items]
-    omitted = max(0, len(items) - len(visible))
+    selected: set[int] = set(range(min(2, len(items))))
 
-    return _shell_batch_tree_lines(visible, omitted_items=omitted), omitted
+    for index, item in enumerate(items):
+        if len(selected) >= max_items:
+            break
+        if not _shell_batch_item_ok(item):
+            selected.add(index)
+
+    for index in range(len(items)):
+        if len(selected) >= max_items:
+            break
+        selected.add(index)
+
+    selected_indexes = sorted(selected)
+    entries: list[dict[str, typing.Any]] = []
+    previous = -1
+
+    for index in selected_indexes:
+        skipped = index - previous - 1
+        if skipped > 0:
+            entries.append({"_omitted_items": skipped})
+        entries.append(items[index])
+        previous = index
+
+    trailing = len(items) - previous - 1
+    if trailing > 0:
+        entries.append({"_omitted_items": trailing})
+
+    omitted = len(items) - len(selected)
+
+    return _shell_batch_tree_lines(entries), omitted
+
+
+def _shell_batch_item_ok(item: dict[str, typing.Any]) -> bool:
+    """判断 shell batch 子项是否成功。"""
+    payload = _shell_batch_item_payload(item)
+    return bool(item.get("ok")) if "ok" in item else bool(payload.get("ok"))
 
 
 def _plural(count: int, singular: str, plural: str) -> str:

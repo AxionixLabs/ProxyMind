@@ -26,10 +26,9 @@ APPROVAL_SUMMARY_MAX_CHARS = 72
 
 def approval_summary(approval: dict[str, typing.Any]) -> str:
     """生成审批请求的简短摘要。"""
-    command = command_preview(approval.get("command")).title
+    command = _batch_command_summary(approval)
     if not command:
-        command = _batch_command_summary(approval)
-
+        command = command_preview(approval.get("command")).title
     tool = str(approval.get("tool") or "").strip()
     return _short_approval_summary(command or tool or "tool call")
 

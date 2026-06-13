@@ -8,6 +8,7 @@ from .common import (
     ERROR_DOT_STYLE,
     ERROR_PREVIEW_HEAD_STYLE,
     ERROR_PREVIEW_TEXT_STYLE,
+    PREVIEW_COUNT_STYLE,
     PREVIEW_PATH_STYLE,
     PREVIEW_STYLE,
     PREVIEW_TEXT_STYLE,
@@ -23,19 +24,28 @@ def tree_preview_line_parts(
     part: typing.Callable[[str, str | None], dict[str, typing.Optional[str]]],
 ) -> tuple[list[dict[str, typing.Optional[str]]], str, bool | None] | None:
     """拆分树形预览行，并返回下一条 detail 是否应按错误渲染。"""
+    omitted = re.match(r"^([├└]─ )(… \+)(\d+)( commands?)$", line)
+    if omitted:
+        prefix, head, count, tail = omitted.groups()
+        return [
+            part(prefix, PREVIEW_STYLE),
+            part(head, PREVIEW_STYLE),
+            part(count, PREVIEW_COUNT_STYLE),
+            part(tail, PREVIEW_STYLE),
+        ], "", False
+
     item = re.match(r"^([├└]─ )([✓✗]) (.+)$", line)
     if item:
         prefix, mark, label = item.groups()
 
-        mark_style  = SUCCESS_DOT_STYLE if mark == "✓" else ERROR_DOT_STYLE
-        label_style = PREVIEW_PATH_STYLE if looks_like_path(label) else PREVIEW_TEXT_STYLE
+        mark_style = SUCCESS_DOT_STYLE if mark == "✓" else ERROR_DOT_STYLE
 
         return [
             part(prefix, PREVIEW_STYLE),
             part(mark, mark_style),
             part(" ", PREVIEW_STYLE),
-            part(label, label_style),
-        ], label if looks_like_path(label) else "", mark == "✗"
+            *render_command_parts(label),
+        ], "", mark == "✗"
 
     detail = re.match(r"^((?:│  |   )└─ )(.+)$", line)
     if detail:
@@ -47,7 +57,7 @@ def tree_preview_line_parts(
             ], "", False
         return [
             part(prefix, PREVIEW_STYLE),
-            *render_command_parts(body),
+            part(body, PREVIEW_PATH_STYLE if looks_like_path(body) else PREVIEW_TEXT_STYLE),
         ], "", False
 
     return None
