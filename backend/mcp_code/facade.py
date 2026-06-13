@@ -4,7 +4,7 @@
 import typing
 from backend.mcp_code.base import NativeCodingBase
 from backend.mcp_code.workspace.tools import WorkspaceTools
-from backend.mcp_code.workspace.shell_calls import ShellCallTools
+from backend.mcp_code.exec.shell_batch import ShellBatchTools
 from backend.mcp_code.edit.patch_engine import PatchEngine
 from backend.mcp_code.exec.shell_exec import ShellCommandTools
 from backend.mcp_code.exec.command_policy import CommandPolicy
@@ -23,23 +23,32 @@ class NativeCoding(NativeCodingBase):
         self._command_policy = CommandPolicy(self)
         self._file_audit     = FileAudit(self)
         self._shell_command  = ShellCommandTools(self, command_policy=self._command_policy, file_audit=self._file_audit)
-        self._shell_calls    = ShellCallTools(self)
+        self._shell_batch    = ShellBatchTools(self, shell_command=self._shell_command)
 
-    def write_file(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+    async def shell_command(
+        self,
+        *,
+        items: list[dict[str, typing.Any]],
+        execution: dict[str, typing.Any] | None = None
+    ) -> dict[str, typing.Any]:
+        """批量执行 shell 命令。"""
+        return await self._shell_batch.shell_command(items=items, execution=execution)
+
+    def write_file(
+        self,
+        *args: typing.Any,
+        **kwargs: typing.Any
+    ) -> dict[str, typing.Any]:
         """创建或覆盖工作区文本文件。"""
         return self._workspace.write_file(*args, **kwargs)
 
-    def apply_unified_patch(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
+    def apply_unified_patch(
+        self,
+        *args: typing.Any,
+        **kwargs: typing.Any
+    ) -> dict[str, typing.Any]:
         """应用 unified diff 补丁。"""
         return self._patch_engine.apply_unified_patch(*args, **kwargs)
-
-    async def shell_calls(self, items: list[dict[str, typing.Any]]) -> dict[str, typing.Any]:
-        """并行执行多个 shell 调用。"""
-        return await self._shell_calls.shell_calls(items)
-
-    async def shell_command(self, *args: typing.Any, **kwargs: typing.Any) -> dict[str, typing.Any]:
-        """按策略执行本地 shell 命令。"""
-        return await self._shell_command.shell_command(*args, **kwargs)
 
 
 if __name__ == '__main__':

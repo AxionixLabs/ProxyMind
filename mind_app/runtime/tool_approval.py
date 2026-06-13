@@ -136,7 +136,7 @@ class ApprovalStore(object):
             approval_id=approval_id,
             call_id=call_id,
             tool=tool,
-            arguments=_approval_arguments(approval)
+            arguments=_approval_arguments(approval, tool=tool)
         )
 
     def mark_decision(
@@ -214,7 +214,7 @@ def validate_tool_approval(
                 action="reject",
                 result=_approval_reject_result("approved tool mismatch")
             )
-        if _canonical_tool_arguments(arguments) != record.arguments:
+        if _canonical_tool_arguments(tool_name, arguments) != record.arguments:
             return ApprovalDecision(
                 action="reject",
                 result=_approval_reject_result("approved tool arguments mismatch")
@@ -260,19 +260,78 @@ def _truthy_approval_required(value: typing.Any) -> bool:
 
 
 def _approval_arguments(
-    approval: dict[str, typing.Any]
+    approval: dict[str, typing.Any],
+    *,
+    tool: str
 ) -> dict[str, typing.Any]:
     """读取并规范化审批请求参数。"""
-    raw = approval.get("arguments", approval.get("args"))
-    arguments = dict(raw) if isinstance(raw, dict) else {}
-    return _canonical_tool_arguments(arguments)
+    raw       = approval.get("arguments", approval.get("args"))
+    arguments = dict(raw) if isinstance(raw, dict) else _approval_argument_fallback(approval, tool=tool)
+
+    return _canonical_tool_arguments(tool, arguments)
 
 
 def _canonical_tool_arguments(
+    tool: str,
     arguments: dict[str, typing.Any]
 ) -> dict[str, typing.Any]:
     """返回可稳定比较的工具参数。"""
+    if str(tool or "").strip() == "shell_command":
+        return typing.cast(dict[str, typing.Any], _normalize_shell_command_arguments(arguments))
     return typing.cast(dict[str, typing.Any], _normalize_value(arguments))
+
+
+def _approval_argument_fallback(
+    approval: dict[str, typing.Any],
+    *,
+    tool: str
+) -> dict[str, typing.Any]:
+    """兼容审批事件只携带 command/items 摘要而缺少 arguments 的情况。"""
+    if str(tool or "").strip() != "shell_command":
+        return {}
+
+    raw_items = approval.get("items")
+    if isinstance(raw_items, list):
+        return {"items": raw_items}
+
+    command = str(approval.get("command") or "").strip()
+    if not command:
+        return {}
+
+    item: dict[str, typing.Any] = {"command": command}
+    if "cwd" in approval:
+        item["cwd"] = approval.get("cwd")
+    if "timeout_sec" in approval:
+        item["timeout_sec"] = approval.get("timeout_sec")
+    return {"items": [item]}
+
+
+def _normalize_shell_command_arguments(
+    arguments: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+    """规范化批量 shell_command 参数，避免默认 cwd/timeout 导致审批误拒。"""
+    if not isinstance(arguments, dict):
+        return {"items": []}
+
+    raw_items = arguments.get("items")
+    if isinstance(raw_items, list):
+        return {"items": [_normalize_shell_command_item(item) for item in raw_items]}
+
+    if "command" in arguments:
+        return {"items": [_normalize_shell_command_item(arguments)]}
+
+    return {"items": []}
+
+
+def _normalize_shell_command_item(
+    value: typing.Any
+) -> dict[str, typing.Any]:
+    item = value if isinstance(value, dict) else {}
+    return {
+        "command"     : str(item.get("command") or ""),
+        "cwd"         : str(item.get("cwd") or "."),
+        "timeout_sec" : int(item.get("timeout_sec") or 60)
+    }
 
 
 def _normalize_value(value: typing.Any) -> typing.Any:
@@ -551,12 +610,70 @@ def _approval_command_lines(
     approval: dict[str, typing.Any]
 ) -> list[list[tuple[str, str]]]:
     """生成审批命令区域。"""
+    batch_commands = _approval_batch_commands(approval)
+    if len(batch_commands) > 1:
+        return _approval_batch_command_lines(batch_commands)
+
     summary = command_preview(approval.get("command")).title or approval_summary(approval)
 
     line: list[tuple[str, str]] = [("class:approval-prompt", "$ ")]
     line.extend(_approval_command_prompt_parts(summary))
 
     return [line]
+
+
+def _approval_batch_commands(
+    approval: dict[str, typing.Any]
+) -> list[str]:
+    """读取批量 shell_command 审批命令列表。"""
+    if str(approval.get("tool") or "").strip() != "shell_command":
+        return []
+
+    raw       = approval.get("arguments", approval.get("args"))
+    arguments = raw if isinstance(raw, dict) else {}
+    items     = arguments.get("items")
+
+    if not isinstance(items, list):
+        items = approval.get("items")
+    if not isinstance(items, list):
+        return []
+
+    commands: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        command = str(item.get("command") or "").strip()
+        if command:
+            commands.append(command_preview(command).title or command)
+
+    return commands
+
+
+def _approval_batch_command_lines(
+    commands: list[str],
+    *,
+    max_items: int = 5
+) -> list[list[tuple[str, str]]]:
+    """生成批量命令审批树。"""
+    visible = commands[:max_items]
+    omitted = max(0, len(commands) - len(visible))
+
+    lines: list[list[tuple[str, str]]] = [
+        [("class:approval-prompt", "$ "), ("class:approval-command", f"{len(commands)} commands")]
+    ]
+    for index, command in enumerate(visible):
+        is_last_visible = index == len(visible) - 1 and omitted == 0
+        connector = "└─ " if is_last_visible else "├─ "
+        line: list[tuple[str, str]] = [("class:approval-prompt", connector)]
+        line.extend(_approval_command_prompt_parts(command))
+        lines.append(line)
+    if omitted:
+        lines.append([
+            ("class:approval-prompt", "└─ "),
+            ("class:approval-preview", f"+{omitted} more")
+        ])
+
+    return lines
 
 
 def _approval_command_prompt_parts(command: str) -> list[tuple[str, str]]:

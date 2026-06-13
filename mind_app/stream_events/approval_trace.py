@@ -27,7 +27,10 @@ APPROVAL_SUMMARY_MAX_CHARS = 72
 def approval_summary(approval: dict[str, typing.Any]) -> str:
     """生成审批请求的简短摘要。"""
     command = command_preview(approval.get("command")).title
-    tool    = str(approval.get("tool") or "").strip()
+    if not command:
+        command = _batch_command_summary(approval)
+
+    tool = str(approval.get("tool") or "").strip()
     return _short_approval_summary(command or tool or "tool call")
 
 
@@ -43,9 +46,58 @@ def approval_command_preview(approval: dict[str, typing.Any]) -> TracePreview:
     """提取审批命令里的内联脚本预览，不改变审批标题样式。"""
     preview = command_preview(approval.get("command"))
     if not preview.has_script:
-        return TracePreview()
+        previews = []
+        for command in _approval_commands(approval):
+            item_preview = command_preview(command)
+            if item_preview.has_script:
+                previews.append(inline_script_preview_lines(
+                    item_preview.script, path=item_preview.path
+                ))
+
+        lines = [line for group in previews for line in group]
+        if not lines:
+            return TracePreview()
+        text = "\n".join(lines)
+        return TracePreview(full=text, screen=text, omitted_lines=0)
+
     text = "\n".join(inline_script_preview_lines(preview.script, path=preview.path))
     return TracePreview(full=text, screen=text, omitted_lines=0)
+
+
+def _approval_arguments(approval: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    raw = approval.get("arguments", approval.get("args"))
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _approval_commands(approval: dict[str, typing.Any]) -> list[str]:
+    """从批量 shell_command 审批参数里提取命令列表。"""
+    arguments = _approval_arguments(approval)
+    raw_items = arguments.get("items")
+    if not isinstance(raw_items, list):
+        raw_items = approval.get("items")
+    if not isinstance(raw_items, list):
+        return []
+
+    commands: list[str] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        command = str(item.get("command") or "").strip()
+        if command:
+            commands.append(command)
+    return commands
+
+
+def _batch_command_summary(approval: dict[str, typing.Any]) -> str:
+    """为批量 shell_command 审批生成可读摘要。"""
+    commands = _approval_commands(approval)
+    if not commands:
+        return ""
+    if len(commands) == 1:
+        return command_preview(commands[0]).title or commands[0]
+    sample = "; ".join(command_preview(command).title or command for command in commands[:2])
+    suffix = f"; +{len(commands) - 2} more" if len(commands) > 2 else ""
+    return f"{len(commands)} commands: {sample}{suffix}"
 
 
 def render_approval_approved_trace(

@@ -15,18 +15,23 @@ class NativeCommandRuntime(object):
         env: dict[str, str] | None = None
     ) -> list[str]:
         """解析命令路径，并在 Windows 批处理脚本场景补充解释器。"""
-        cmd = [str(item) for item in (command or []) if str(item or "").strip()]
+        cmd = [
+            str(item) for item in (command or []) if str(item or "").strip()
+        ]
+
         if not cmd:
             return cmd
 
-        program = str(cmd[0] or "").strip()
+        program  = str(cmd[0] or "").strip()
         resolved = NativeCommandRuntime._which(program, env=env) or program
-        suffix = os.path.splitext(resolved)[1].lower()
+        suffix   = os.path.splitext(resolved)[1].lower()
+
         if suffix in {".cmd", ".bat"}:
             comspec = (env or {}).get("COMSPEC") or os.environ.get("COMSPEC") or "cmd.exe"
             return [comspec, "/c", resolved, *cmd[1:]]
         if resolved:
             return [resolved, *cmd[1:]]
+
         return cmd
 
     @staticmethod

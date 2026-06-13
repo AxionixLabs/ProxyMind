@@ -21,8 +21,14 @@ def validate_execution_policy(
     state  = str(execution.get("state") or "").strip().lower()
     target = str(execution.get("target") or "").strip().lower()
 
+    if name == "shell_command" and not isinstance(arguments.get("items"), list):
+        return _reject("shell_command items missing")
+
     canonical = execution.get("canonicalArguments") or execution.get("canonical_arguments")
-    if isinstance(canonical, dict) and _normalize_value(arguments) != _normalize_value(canonical):
+    if (
+        isinstance(canonical, dict)
+        and _canonical_arguments(name, arguments) != _canonical_arguments(name, canonical)
+    ):
         return _reject("execution canonical arguments mismatch")
 
     grant_id = execution.get("grantId") or execution.get("grant_id")
@@ -60,6 +66,34 @@ def _normalize_value(value: typing.Any) -> typing.Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)
+
+
+def _canonical_arguments(
+    name: str,
+    value: dict[str, typing.Any]
+) -> typing.Any:
+    """按工具语义归一化执行裁决比较参数。"""
+    if name != "shell_command" or not isinstance(value, dict):
+        return _normalize_value(value)
+
+    if isinstance(value.get("items"), list):
+        return {
+            "items": [_canonical_shell_item(item) for item in value.get("items") or []]
+        }
+
+    return _canonical_shell_item(value)
+
+
+def _canonical_shell_item(
+    value: typing.Any
+) -> dict[str, typing.Any]:
+    """归一化单条 shell command 参数。"""
+    item = value if isinstance(value, dict) else {}
+    return {
+        "command"     : str(item.get("command") or ""),
+        "cwd"         : str(item.get("cwd") or "."),
+        "timeout_sec" : int(item.get("timeout_sec") or 60)
+    }
 
 
 if __name__ == '__main__':

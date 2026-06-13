@@ -148,6 +148,24 @@ def _promote_if_present(
             normalized[key] = payload[key]
 
 
+def _single_batch_result_data(
+    payload: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+    """单元素批量结果可沿用单命令顶层字段，方便模型读取 stdout/stderr。"""
+    results = payload.get("results")
+    if not isinstance(results, list) or len(results) != 1:
+        return {}
+
+    item = results[0]
+    if not isinstance(item, dict):
+        return {}
+    result = item.get("result")
+    if not isinstance(result, dict):
+        return {}
+    data = result.get("data")
+    return data if isinstance(data, dict) else {}
+
+
 def normalize_tool_result_fields(
     name: str,
     fields: typing.Union[str, dict[str, typing.Any]]
@@ -180,8 +198,12 @@ def normalize_tool_result_fields(
 
     _promote_if_present(normalized, payload, _COMMON_PROMOTED_RESULT_KEYS)
 
+    representative = _single_batch_result_data(payload)
+    if representative:
+        _promote_if_present(normalized, representative, _COMMON_PROMOTED_RESULT_KEYS)
+
     if name in _OUTPUT_PROMOTED_TOOLS:
-        _promote_if_present(normalized, payload, _OUTPUT_PROMOTED_RESULT_KEYS)
+        _promote_if_present(normalized, representative or payload, _OUTPUT_PROMOTED_RESULT_KEYS)
 
     return normalized
 

@@ -4,33 +4,31 @@
 from backend.mcp_tools.coding.schemas.schema_native import (
     WorkspacePathArg,
     WorkspaceContentArg,
-    ShellCallItemsArg,
+    ShellCommandItem,
+    ShellCommandItemsArg,
     WorkspaceCreateDirsArg,
     WorkspaceOverwriteArg,
     WorkspaceExpectedSha256Arg,
     WorkspaceForceArg,
     WorkspaceUnifiedPatchArg,
     WorkspaceExpectedSha256MapArg,
-    ShellCommandArg,
-    ShellCwdArg,
-    ShellTimeoutArg,
     ExecutionMetadataArg,
+    shell_command_items_payload,
 )
 
 __all__ = [
     "WorkspacePathArg",
     "WorkspaceContentArg",
-    "ShellCallItemsArg",
+    "ShellCommandItem",
+    "ShellCommandItemsArg",
     "WorkspaceCreateDirsArg",
     "WorkspaceOverwriteArg",
     "WorkspaceExpectedSha256Arg",
     "WorkspaceForceArg",
     "WorkspaceUnifiedPatchArg",
     "WorkspaceExpectedSha256MapArg",
-    "ShellCommandArg",
-    "ShellCwdArg",
-    "ShellTimeoutArg",
-    "ExecutionMetadataArg"
+    "ExecutionMetadataArg",
+    "shell_command_items_payload"
 ]
 
 

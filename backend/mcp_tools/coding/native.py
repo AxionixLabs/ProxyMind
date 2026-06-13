@@ -7,17 +7,15 @@ from backend.middlewares.mid_task import task_middleware
 from backend.mcp_tools.coding.schemas.schema_native import (
     WorkspacePathArg,
     WorkspaceContentArg,
-    ShellCallItemsArg,
+    ShellCommandItemsArg,
     WorkspaceCreateDirsArg,
     WorkspaceOverwriteArg,
     WorkspaceExpectedSha256Arg,
     WorkspaceForceArg,
     WorkspaceUnifiedPatchArg,
     WorkspaceExpectedSha256MapArg,
-    ShellCommandArg,
-    ShellCwdArg,
-    ShellTimeoutArg,
-    ExecutionMetadataArg
+    ExecutionMetadataArg,
+    shell_command_items_payload
 )
 from backend.utilities.runtime import (
     AppContext, Idle
@@ -29,9 +27,10 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "在工作区内执行一次本地命令。"
+            "在工作区内批量执行本地 shell 命令。"
+            " items 是命令列表，每项包含 command，可包含 cwd 和 timeout_sec。"
             " 命令必须是 shell 字符串，由系统默认 shell 解释执行。"
-            " 适合运行测试、构建、脚本、版本查询和诊断命令。"
+            " 适合一次运行多个只读诊断命令，或以单元素 items 运行测试、构建和脚本。"
             " 不要用本工具做工作区文件创建、覆盖或局部修改；"
             " 文本写入和工作区文件删除请使用 workspace_write_file 或 workspace_apply_unified_patch。"
             " 文件复制、移动可通过受控 shell 命令执行。"
@@ -41,21 +40,17 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     )
     @task_middleware("shell_command")
     async def shell_command(
-        command: ShellCommandArg,
-        cwd: ShellCwdArg = ".",
-        timeout_sec: ShellTimeoutArg = 60,
+        items: ShellCommandItemsArg,
         execution: ExecutionMetadataArg = None
     ) -> CallToolResult:
 
         args = {
-            "command"     : command,
-            "cwd"         : cwd,
-            "timeout_sec" : timeout_sec,
-            "execution"   : execution
+            "items"     : shell_command_items_payload(items),
+            "execution" : execution
         }
 
         async def call(*_) -> dict:
-            job_id = await idle.job_begin("native_coding.shell_command", args=args)
+            job_id = await idle.job_begin("native_coding.shell_command.batch", args=args)
             try:
                 return await ctx.native_coding.shell_command(**args)
             finally:
@@ -63,35 +58,6 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
         return await broadcast(
             tool="shell_command",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
-
-    @mcp.tool(
-        description=(
-            "并行执行多个 shell calls。"
-            " 只允许子项 tool=shell_command；每个子项 args 只需提供 command，可提供 cwd 和 timeout_sec。"
-            " execution metadata 由服务端策略层补充。"
-            " 适合一次执行多个只读 shell 上下文命令；不要用于写文件、应用 patch 或长任务。"
-        ),
-        meta={"hidden": False, "domain": "coding", "class": "shell"}
-    )
-    @task_middleware("shell_calls")
-    async def shell_calls(
-        items: ShellCallItemsArg
-    ) -> CallToolResult:
-
-        args = {
-            "items" : items
-        }
-
-        async def call(*_) -> dict:
-            return await ctx.native_coding.shell_calls(**args)
-
-        return await broadcast(
-            tool="shell_calls",
             args=args,
             target_list=[ctx.native_coding],
             call=call,

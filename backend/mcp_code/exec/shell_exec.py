@@ -351,6 +351,9 @@ class ShellCommandTools(NativeCodingComponent):
             "stdout": out_text,
             "stderr": err_text
         }
+        if not ok:
+            data["reason"] = "command_timed_out" if timed_out else "command_failed"
+            self.core.enrich_failure_facts(data)
         self._record_shell_result(data)
 
         return {

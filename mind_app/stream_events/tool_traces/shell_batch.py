@@ -14,18 +14,18 @@ from .common import (
 from .native_helpers import failure_summary
 
 
-def _shell_call_item_payload(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """提取 shell calls 子项的结果 data。"""
+def _shell_batch_item_payload(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """提取 shell batch 子项的结果 data。"""
     result = item.get("result") if isinstance(item, dict) else None
     return _result_payload(result) if isinstance(result, dict) else {}
 
 
-def shell_calls_trace_title(
+def shell_batch_trace_title(
     payload: dict[str, typing.Any],
     *,
     cost_ms: int | None = None
 ) -> str:
-    """生成 shell_calls 的聚合标题。"""
+    """生成 shell batch 的聚合标题。"""
     total      = _int_or_none(payload.get("total"))
     ok_count   = _int_or_none(payload.get("ok_count"))
     fail_count = _int_or_none(payload.get("fail_count"))
@@ -40,7 +40,7 @@ def shell_calls_trace_title(
     if fail_count is None and ok_count is not None:
         fail_count = max(0, total - ok_count)
 
-    parts = [f"• Explored {total} {_plural(total, 'item', 'items')}"]
+    parts = [f"• Ran {total} {_plural(total, 'command', 'commands')}"]
 
     if ok_count is not None:
         parts.append(f"{ok_count} ok")
@@ -52,17 +52,17 @@ def shell_calls_trace_title(
     return " · ".join(parts)
 
 
-def shell_calls_tree_preview(data: typing.Any) -> TracePreview:
-    """生成 shell_calls 的树形结果预览。"""
+def shell_batch_tree_preview(data: typing.Any) -> TracePreview:
+    """生成 shell batch 的树形结果预览。"""
     payload = _result_payload(data)
     results = payload.get("results")
 
     if not isinstance(results, list) or not results:
         return TracePreview()
 
-    full_lines = _shell_calls_tree_lines(results)
+    full_lines = _shell_batch_tree_lines(results)
 
-    screen_lines, omitted = _shell_calls_screen_lines(results)
+    screen_lines, omitted = _shell_batch_screen_lines(results)
 
     return TracePreview(
         full="\n".join(full_lines),
@@ -72,13 +72,14 @@ def shell_calls_tree_preview(data: typing.Any) -> TracePreview:
     )
 
 
-def _shell_calls_tree_lines(
+def _shell_batch_tree_lines(
     results: list[typing.Any],
     *,
     omitted_items: int = 0
 ) -> list[str]:
-    """把 shell_calls 结果转换为树形行。"""
+    """把 shell batch 结果转换为树形行。"""
     lines: list[str] = []
+
     visible_results = [item for item in results if isinstance(item, dict)]
     if omitted_items:
         visible_results.append({"_omitted_items": omitted_items})
@@ -94,15 +95,15 @@ def _shell_calls_tree_lines(
 
         omitted = item.get("_omitted_items")
         if isinstance(omitted, int) and omitted > 0:
-            lines.append(f"{item_connector} … +{omitted} {_plural(omitted, 'item', 'items')}")
+            lines.append(f"{item_connector} … +{omitted} {_plural(omitted, 'command', 'commands')}")
             continue
 
-        item_payload = _shell_call_item_payload(item)
+        item_payload = _shell_batch_item_payload(item)
 
         ok     = bool(item.get("ok")) if "ok" in item else bool(item_payload.get("ok"))
         mark   = "✓" if ok else "✗"
-        label  = _shell_call_tree_label(item, item_payload)
-        detail = _shell_call_tree_detail(item, item_payload, ok=ok)
+        label  = _shell_batch_tree_label(item, item_payload)
+        detail = _shell_batch_tree_detail(item, item_payload, ok=ok)
 
         lines.append(f"{item_connector} {mark} {label}".rstrip())
         if detail:
@@ -111,16 +112,16 @@ def _shell_calls_tree_lines(
     return lines
 
 
-def _shell_call_tree_label(
+def _shell_batch_tree_label(
     item: dict[str, typing.Any],
     payload: dict[str, typing.Any]
 ) -> str:
-    """提取 shell_calls 树节点标题。"""
+    """提取 shell batch 树节点标题。"""
     args    = item.get("args") if isinstance(item.get("args"), dict) else {}
     tool    = str(item.get("tool") or "").strip()
     command = command_preview(args.get("command", payload.get("command"))).title
 
-    if tool == "shell_command":
+    if tool in {"", "shell_command"} and command:
         target = _target_from_command(command)
         return _short_text(target or command or "shell_command", 80)
 
@@ -128,13 +129,13 @@ def _shell_call_tree_label(
     return f"{tool or 'item'} {target}".strip()
 
 
-def _shell_call_tree_detail(
+def _shell_batch_tree_detail(
     item: dict[str, typing.Any],
     payload: dict[str, typing.Any],
     *,
     ok: bool
 ) -> str:
-    """提取 shell_calls 树节点详情。"""
+    """提取 shell batch 树节点详情。"""
     args    = item.get("args") if isinstance(item.get("args"), dict) else {}
     command = command_preview(args.get("command", payload.get("command"))).title
 
@@ -221,8 +222,8 @@ def _looks_like_target(token: str) -> bool:
     return "/" in text or "\\" in text or "." in text
 
 
-def _shell_calls_screen_lines(results: list[typing.Any]) -> tuple[list[str], int]:
-    """按 item 数限制 shell_calls 屏幕树高度。"""
+def _shell_batch_screen_lines(results: list[typing.Any]) -> tuple[list[str], int]:
+    """按 item 数限制 shell batch 屏幕树高度。"""
     max_items = 5
 
     items = [item for item in results if isinstance(item, dict)]
@@ -230,7 +231,7 @@ def _shell_calls_screen_lines(results: list[typing.Any]) -> tuple[list[str], int
     visible = items[:max_items]
     omitted = max(0, len(items) - len(visible))
 
-    return _shell_calls_tree_lines(visible, omitted_items=omitted), omitted
+    return _shell_batch_tree_lines(visible, omitted_items=omitted), omitted
 
 
 def _plural(count: int, singular: str, plural: str) -> str:
