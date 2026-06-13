@@ -146,8 +146,10 @@ class UnifiedPatchApplier(NativeCodingComponent):
     ) -> dict[str, typing.Any]:
         """把已解析的 hunk 应用到文本内容并返回新内容。"""
         original = content.splitlines(keepends=True)
+
         output: list[str] = []
-        cursor: int = 0
+        cursor: int       = 0
+
         relocated_hunks: list[dict[str, int]] = []
 
         newline = self._detect_newline(original)
@@ -163,8 +165,8 @@ class UnifiedPatchApplier(NativeCodingComponent):
                     "ok": False,
                     "reason": "unified_patch_overlapping_hunk",
                     "data": {
-                        "hunk": hunk_index,
-                        "hunk_header": hunk.get("header")
+                        "hunk"        : hunk_index,
+                        "hunk_header" : hunk.get("header")
                     }
                 }
 
@@ -178,9 +180,9 @@ class UnifiedPatchApplier(NativeCodingComponent):
                             "ok": False,
                             "reason": "unified_patch_overlapping_hunk",
                             "data": {
-                                "hunk": hunk_index,
-                                "hunk_header": hunk.get("header"),
-                                "target_line": relocated_index + 1
+                                "hunk"        : hunk_index,
+                                "hunk_header" : hunk.get("header"),
+                                "target_line" : relocated_index + 1
                             }
                         }
                     relocated_hunks.append({
@@ -231,12 +233,12 @@ class UnifiedPatchApplier(NativeCodingComponent):
                             "ok": False,
                             "reason": "unified_patch_context_out_of_range",
                             "data": {
-                                "hunk": hunk_index,
-                                "hunk_header": hunk.get("header"),
-                                "line": body_index,
-                                "target_line": cursor + 1,
-                                "expected": text,
-                                "nearby": self._nearby_lines(original, cursor)
+                                "hunk"        : hunk_index,
+                                "hunk_header" : hunk.get("header"),
+                                "line"        : body_index,
+                                "target_line" : cursor + 1,
+                                "expected"    : text,
+                                "nearby"      : self._nearby_lines(original, cursor)
                             }
                         }
 
@@ -246,15 +248,15 @@ class UnifiedPatchApplier(NativeCodingComponent):
                             "ok": False,
                             "reason": "unified_patch_context_mismatch",
                             "data": {
-                                "hunk": hunk_index,
-                                "hunk_header": hunk.get("header"),
-                                "line": body_index,
-                                "target_line": cursor + 1,
-                                "expected": self._strip_line_ending(expected_line),
-                                "actual": self._strip_line_ending(current_line),
-                                "expected_sequence": [self._strip_line_ending(expected_line)],
-                                "actual_sequence": [self._strip_line_ending(current_line)],
-                                "nearby": self._nearby_lines(original, cursor)
+                                "hunk"              : hunk_index,
+                                "hunk_header"       : hunk.get("header"),
+                                "line"              : body_index,
+                                "target_line"       : cursor + 1,
+                                "expected"          : self._strip_line_ending(expected_line),
+                                "actual"            : self._strip_line_ending(current_line),
+                                "expected_sequence" : [self._strip_line_ending(expected_line)],
+                                "actual_sequence"   : [self._strip_line_ending(current_line)],
+                                "nearby"            : self._nearby_lines(original, cursor)
                             }
                         }
                     cursor += 1

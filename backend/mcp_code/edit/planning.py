@@ -140,10 +140,10 @@ class UnifiedPatchPlanner(NativeCodingComponent):
                         "ok": False,
                         "reason": "path_outside_workspace",
                         "data": {
-                        "path": source_path,
-                        "error": str(exc)
+                            "path": source_path,
+                            "error": str(exc)
+                        }
                     }
-                }
                 source_rel = self.relative_path(source_target)
 
             duplicate_paths = [rel]
