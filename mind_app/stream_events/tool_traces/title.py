@@ -11,6 +11,7 @@ from pygments.lexers import (
 )
 from pygments.token import Token
 from .command_parts import render_command_parts
+from .tree_preview import tree_preview_line_parts
 from .common import (
     ACTION_EDIT_STYLE,
     ACTION_RUN_STYLE,
@@ -60,9 +61,14 @@ def render_tool_trace_parts(
     if preview_text:
         if parts:
             parts.append(_part("\n", None))
-        parts.extend(
-            [_part("└ ", PREVIEW_STYLE), *_preview_parts(preview_text, ok=ok)]
-        )
+
+        preview_kind = preview.kind if isinstance(preview, TracePreview) else "text"
+        if preview_kind != "tree":
+            parts.extend(
+                [_part("└ ", PREVIEW_STYLE), *_preview_parts(preview_text, ok=ok)]
+            )
+        else:
+            parts.extend(_preview_parts(preview_text, ok=ok, indent_prefix=""))
 
     return parts
 
@@ -202,18 +208,29 @@ def _action_style_for_body(
 def _preview_parts(
     preview_text: str,
     *,
-    ok: bool
+    ok: bool,
+    indent_prefix: str = "  "
 ) -> list[dict[str, typing.Optional[str]]]:
     """把预览摘要拆成路径、行号、内容和省略提示片段。"""
     lines = str(preview_text or "").split("\n")
     parts: list[dict[str, typing.Optional[str]]] = []
 
     current_path: str = ""
+    tree_error_detail = False
 
     for index, line in enumerate(lines):
         if index:
-            parts.append(_part("\n  ", PREVIEW_STYLE))
-        line_parts, path = _preview_line_parts(line, current_path=current_path, ok=ok)
+            parts.append(_part(f"\n{indent_prefix}", PREVIEW_STYLE))
+
+        line_parts, path, tree_error_state = _preview_line_parts(
+            line,
+            current_path=current_path,
+            ok=ok,
+            tree_error_detail=tree_error_detail,
+        )
+
+        if tree_error_state is not None:
+            tree_error_detail = tree_error_state
         if path:
             current_path = path
         parts.extend(line_parts)
@@ -225,13 +242,24 @@ def _preview_line_parts(
     line: str,
     *,
     current_path: str = "",
-    ok: bool = True
-) -> tuple[list[dict[str, typing.Optional[str]]], str]:
+    ok: bool = True,
+    tree_error_detail: bool = False,
+) -> tuple[list[dict[str, typing.Optional[str]]], str, bool | None]:
     """拆分单行预览摘要。"""
+    tree_parts = tree_preview_line_parts(
+        line,
+        is_error_detail=tree_error_detail,
+        looks_like_path=_looks_like_path,
+        part=_part
+    )
+
+    if tree_parts is not None:
+        return tree_parts
+
     if not ok:
         error_parts = _error_preview_line_parts(line)
         if error_parts is not None:
-            return error_parts, ""
+            return error_parts, "", None
 
     more = re.match(r"^(… \+)(\d+)( lines)$", line)
     if more:
@@ -239,10 +267,10 @@ def _preview_line_parts(
             _part(more.group(1), PREVIEW_MORE_STYLE),
             _part(more.group(2), PREVIEW_COUNT_STYLE),
             _part(more.group(3), PREVIEW_MORE_STYLE)
-        ], ""
+        ], "", None
 
     if re.match(r"^@@ .+ @@$", line):
-        return [_part(line, PREVIEW_HUNK_STYLE)], ""
+        return [_part(line, PREVIEW_HUNK_STYLE)], "", None
 
     code_line = re.match(r"^(\s*\d+)(\s)([ +\-])(.*)$", line)
     if code_line:
@@ -252,7 +280,7 @@ def _preview_line_parts(
             _part(sep, PREVIEW_STYLE),
             _part(marker, _diff_marker_style(marker)),
             *_code_parts(code, current_path=current_path, deleted=marker == "-"),
-        ], ""
+        ], "", None
 
     file_delta = re.match(r"^(.+?) \(\+(\d+) -(\d+)\)$", line)
     if file_delta and _looks_like_path(file_delta.group(1)):
@@ -264,7 +292,7 @@ def _preview_line_parts(
             _part(" ", PREVIEW_STYLE),
             _part(f"-{removed}", DELTA_REMOVE_STYLE),
             _part(")", PREVIEW_STYLE),
-        ], path
+        ], path, None
 
     location = re.match(r"^([^:\s][^:\n]*):(\d+)(.*)$", line)
     if location:
@@ -273,7 +301,7 @@ def _preview_line_parts(
             _part(":", PREVIEW_STYLE),
             _part(location.group(2), PREVIEW_LINE_STYLE),
             _part(location.group(3), PREVIEW_TEXT_STYLE)
-        ], ""
+        ], "", None
 
     summary_entry = re.match(r"^([A-Za-z_][A-Za-z0-9_ -]*)(: )(.+)$", line)
     if summary_entry:
@@ -283,12 +311,12 @@ def _preview_line_parts(
             _part(summary_entry.group(1), PREVIEW_LINE_STYLE),
             _part(summary_entry.group(2), PREVIEW_STYLE),
             _part(value, PREVIEW_PATH_STYLE if key == "file" else PREVIEW_TEXT_STYLE),
-        ], value if key == "file" else ""
+        ], value if key == "file" else "", None
 
     if _looks_like_path(line):
-        return [_part(line, PREVIEW_PATH_STYLE)], line
+        return [_part(line, PREVIEW_PATH_STYLE)], line, None
 
-    return [_part(line, PREVIEW_TEXT_STYLE)], ""
+    return [_part(line, PREVIEW_TEXT_STYLE)], "", None
 
 
 def _error_preview_line_parts(
@@ -340,6 +368,7 @@ def _looks_like_path(line: str) -> bool:
         return False
     if text in {".", ".."}:
         return True
+
     return "/" in text or "\\" in text or bool(re.search(r"\.[A-Za-z0-9_+-]{1,12}$", text))
 
 
@@ -449,6 +478,7 @@ def _token_style(token_type: typing.Any) -> str:
         return PREVIEW_CODE_COMMENT_STYLE
     if token_type in Token.Operator or token_type in Token.Punctuation:
         return PREVIEW_CODE_OPERATOR_STYLE
+
     return PREVIEW_CODE_TEXT_STYLE
 
 

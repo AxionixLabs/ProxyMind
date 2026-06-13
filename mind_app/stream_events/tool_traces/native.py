@@ -25,11 +25,11 @@ from .native_helpers import (
     _format_size,
     _path_from_args,
     _short_sha,
-    _unified_file_action,
+    _unified_file_action
 )
 from .shell_calls import (
-    _shell_call_item_label,
-    _shell_call_item_payload,
+    shell_calls_trace_title,
+    shell_calls_tree_preview
 )
 from .native_patch import (
     _error_unified_patch_preview_lines,
@@ -119,25 +119,14 @@ def render_tool_result_preview(
     """根据工具结果和参数生成执行结果预览。"""
     data = _result_payload(data)
     args = arguments if isinstance(arguments, dict) else {}
+
     if not data:
         return TracePreview()
+
     is_error = data.get("ok") is False
 
     if name == "shell_calls":
-        results = data.get("results")
-        if isinstance(results, list):
-            lines = []
-            for item in results:
-                if not isinstance(item, dict):
-                    continue
-
-                payload = _shell_call_item_payload(item)
-
-                line = _shell_call_item_label(item, payload)
-                if line:
-                    lines.append(line)
-
-            return _trace_preview_from_lines(lines)
+        return shell_calls_tree_preview(data)
 
     if name == "workspace_write_file":
         if is_error:
@@ -315,17 +304,7 @@ def render_tool_trace(
     payload = _result_payload(data)
 
     if name == "shell_calls":
-        total    = payload.get("total")
-        ok_count = payload.get("ok_count")
-        detail   = ""
-
-        if isinstance(total, int):
-            detail = f" ({total} items"
-            if isinstance(ok_count, int):
-                detail += f", {ok_count} ok"
-            detail += ")"
-
-        return f"• Explored{detail}"
+        return shell_calls_trace_title(payload, cost_ms=cost_ms)
 
     if name == "workspace_write_file":
         path = str(payload.get("path") or _path_from_args(args))

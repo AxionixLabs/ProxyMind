@@ -80,8 +80,11 @@ async def show_tool_result(
 
         trace_text = trace_title
         if trace_preview.full:
-            indented_preview = trace_preview.full.replace("\n", "\n  ")
-            trace_text = f"{trace_title}\n└ {indented_preview}"
+            if trace_preview.kind != "tree":
+                indented_preview = trace_preview.full.replace("\n", "\n  ")
+                trace_text = f"{trace_title}\n└ {indented_preview}"
+            else:
+                trace_text = f"{trace_title}\n{trace_preview.full}"
 
         await stream_ui.feed(
             trace_text,

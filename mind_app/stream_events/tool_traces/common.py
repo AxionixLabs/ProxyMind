@@ -51,9 +51,10 @@ SCREEN_CODE_PREVIEW_LINES = 12
 @dataclass(frozen=True, slots=True)
 class TracePreview(object):
     """保存完整预览、屏幕预览和省略行数。"""
-    full: str = ""
-    screen: str = ""
+    full: str          = ""
+    screen: str        = ""
     omitted_lines: int = 0
+    kind: str          = "text"
 
 
 def _short_text(value: typing.Any, limit: int = 120) -> str:
