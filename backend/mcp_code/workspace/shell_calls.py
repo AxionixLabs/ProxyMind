@@ -87,8 +87,7 @@ class ShellCallTools(NativeCodingComponent):
             }
 
         results: list[dict[str, typing.Any]] = list(await asyncio.gather(
-            *(run_item(item) for item in normalized),
-            return_exceptions=False
+            *(run_item(item) for item in normalized)
         ))
         results.sort(key=lambda item: int(item.get("index") or 0))
 
