@@ -340,18 +340,22 @@ def _error_preview_line_parts(
         prefix, sep, body = line.partition("|")
         return [
             _part(prefix, PREVIEW_LINE_STYLE),
-            _part(f"{sep}{body}", ERROR_PREVIEW_LINE_STYLE),
+            _part(sep, ERROR_PREVIEW_LINE_STYLE),
+            _part(body, ERROR_PREVIEW_LINE_STYLE),
         ]
 
     if line.startswith("  ") and not line.lstrip().startswith("|"):
         return [_part(line, ERROR_PREVIEW_LINE_STYLE)]
 
     if re.match(r"^\s*\|", line):
-        if "~" in line or "^" in line:
-            return [_part(line, ERROR_PREVIEW_MESSAGE_STYLE)]
         prefix, sep, body = line.partition("|")
+        if "~" in line or "^" in line:
+            return [
+                _part(f"{prefix}{sep}", ERROR_PREVIEW_LINE_STYLE),
+                _part(body, ERROR_PREVIEW_MESSAGE_STYLE),
+            ]
         return [
-            _part(f"{prefix}{sep}", PREVIEW_STYLE),
+            _part(f"{prefix}{sep}", ERROR_PREVIEW_LINE_STYLE),
             _part(body, ERROR_PREVIEW_TEXT_STYLE),
         ]
 

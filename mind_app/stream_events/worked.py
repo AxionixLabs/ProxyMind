@@ -21,9 +21,9 @@ def worked_footer_text(elapsed_sec: float, *, width: int | None = None) -> str:
 
 
 def worked_footer_width(label: str, *, terminal_width: int | None = None) -> int:
-    """按终端可用宽度计算页脚宽度。"""
+    """按终端完整宽度计算页脚宽度。"""
     return full_rule_width(
-        terminal_width=terminal_width, natural_width=len(label) + 2
+        terminal_width=terminal_width, natural_width=len(label) + 2, margin=0
     )
 
 
