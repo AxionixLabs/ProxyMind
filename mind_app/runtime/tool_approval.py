@@ -21,11 +21,8 @@ from mind_app.stream_events.approval_trace import (
 )
 from mind_app.stream_events.command_preview import command_preview
 from mind_app.stream_events.compact_rule import (
-    COMPACT_RULE_MAX_INNER_WIDTH,
-    COMPACT_RULE_MIN_INNER_WIDTH,
     COMPACT_RULE_PADDING,
-    COMPACT_RULE_TERMINAL_MARGIN,
-    compact_rule_width
+    COMPACT_RULE_TERMINAL_MARGIN
 )
 from mind_app.stream_events.tool_traces.command_parts import render_command_parts
 from mind_app.stream_events.tool_traces.common import (
@@ -90,11 +87,10 @@ APPROVAL_MENU_STYLE = Style.from_dict({
 })
 
 APPROVAL_MENU_PADDING             = COMPACT_RULE_PADDING
-APPROVAL_MENU_MIN_INNER_WIDTH     = max(COMPACT_RULE_MIN_INNER_WIDTH, 96)
 APPROVAL_MENU_TERMINAL_MARGIN     = COMPACT_RULE_TERMINAL_MARGIN
 APPROVAL_MENU_TITLE_MIN_RULE      = 4
 APPROVAL_MENU_CONTINUATION_INDENT = 2
-APPROVAL_MENU_MAX_COMMAND_WIDTH   = COMPACT_RULE_MAX_INNER_WIDTH
+APPROVAL_MENU_FIXED_WIDTH         = 104
 
 
 @dataclass(slots=True)
@@ -492,19 +488,12 @@ def render_bordered_approval_menu(
     *,
     max_width: int | None = None,
     padding: int = APPROVAL_MENU_PADDING,
-    title: str | None = "Approval required"
+    title: str | None = "Review command"
 ) -> list[tuple[str, str]]:
     """把审批菜单内容行渲染为顶部规则线和缩进内容。"""
-    command_width    = approval_menu_command_width(lines, max_width=max_width, padding=padding)
-    prewrapped_lines = _wrap_command_lines(lines, max_width=command_width)
-    content_width    = approval_menu_content_width(prewrapped_lines, max_width=max_width, padding=padding)
-    wrapped_lines    = _wrap_fragment_lines(prewrapped_lines, max_width=content_width)
-
-    horizontal_width = approval_menu_rule_width(
-        wrapped_lines,
-        max_width=max_width,
-        padding=padding
-    )
+    horizontal_width = _approval_rule_width(max_width=max_width)
+    content_width    = max(1, horizontal_width - padding)
+    wrapped_lines    = _wrap_fragment_lines(lines, max_width=content_width)
 
     parts: list[tuple[str, str]] = [
         *_approval_top_border_parts(horizontal_width, title=title),
@@ -524,84 +513,13 @@ def render_bordered_approval_menu(
     return parts
 
 
-def approval_menu_content_width(
-    lines: list[list[tuple[str, str]]],
-    *,
-    max_width: int | None = None,
-    padding: int = APPROVAL_MENU_PADDING
-) -> int:
-    """计算审批卡内容区宽度，受终端最大宽度约束。"""
-    natural_width = max((approval_menu_line_width(line) for line in lines), default=0)
-
-    rule_width = _approval_rule_width_for_natural(
-        natural_width, max_width=max_width, padding=padding
-    )
-    return max(_approval_min_inner_width(max_width, padding=padding), rule_width - padding)
-
-
-def approval_menu_rule_width(
-    lines: list[list[tuple[str, str]]],
-    *,
-    max_width: int | None = None,
-    padding: int = APPROVAL_MENU_PADDING
-) -> int:
-    """计算审批菜单顶部规则线宽度。"""
-    natural_width = max((approval_menu_line_width(line) for line in lines), default=0)
-
-    return _approval_rule_width_for_natural(
-        natural_width, max_width=max_width, padding=padding
-    )
-
-
-def approval_menu_command_width(
-    lines: list[list[tuple[str, str]]],
-    *,
-    max_width: int | None = None,
-    padding: int = APPROVAL_MENU_PADDING
-) -> int:
-    """计算命令行专用换行宽度，避免长命令撑满整张卡片。"""
-    card_width = approval_menu_content_width(lines, max_width=max_width, padding=padding)
-
-    return min(
-        card_width,
-        max(APPROVAL_MENU_MAX_COMMAND_WIDTH, _approval_min_inner_width(max_width, padding=padding))
-    )
-
-
-def _approval_rule_width_for_natural(
-    natural_width: int,
-    *,
-    max_width: int | None,
-    padding: int
-) -> int:
-    """按审批卡专用宽线策略计算规则线宽度。"""
-    minimum = compact_rule_width(0, terminal_width=None, padding=padding)
-    target  = max(
-        int(natural_width or 0) + padding,
-        _approval_min_inner_width(max_width, padding=padding) + padding,
-        minimum
-    )
+def _approval_rule_width(*, max_width: int | None) -> int:
+    """按固定宽度策略计算审批卡规则线宽度。"""
     if max_width is None:
-        return target
+        return APPROVAL_MENU_FIXED_WIDTH
 
-    available = max(minimum, int(max_width) - APPROVAL_MENU_TERMINAL_MARGIN)
-    return min(target, available)
-
-
-def _approval_min_inner_width(
-    max_width: int | None,
-    *,
-    padding: int
-) -> int:
-    """返回不会超过当前终端可用宽度的审批卡最小内容宽度。"""
-    if max_width is None:
-        return APPROVAL_MENU_MIN_INNER_WIDTH
-
-    available = max(
-        COMPACT_RULE_MIN_INNER_WIDTH,
-        int(max_width) - APPROVAL_MENU_TERMINAL_MARGIN - padding
-    )
-    return min(APPROVAL_MENU_MIN_INNER_WIDTH, available)
+    available = max(1, int(max_width) - APPROVAL_MENU_TERMINAL_MARGIN)
+    return min(APPROVAL_MENU_FIXED_WIDTH, available)
 
 
 def approval_menu_line_width(line: list[tuple[str, str]]) -> int:
@@ -624,22 +542,46 @@ def _approval_top_border_parts(
     if not title_text:
         return [("class:approval-border", "─" * width)]
 
-    decorated = f" {title_text} "
+    decorated       = f" {title_text} "
+    max_title_width = max(1, width - APPROVAL_MENU_TITLE_MIN_RULE * 2)
+
     title_width = get_cwidth(decorated)
-    min_width = title_width + APPROVAL_MENU_TITLE_MIN_RULE * 2
-    if min_width > width:
-        width = min_width
+    if title_width > max_title_width:
+        decorated   = _clip_display_width(decorated, max_width=max_title_width)
+        title_width = get_cwidth(decorated)
 
     if title_width >= width:
         return [("class:approval-pending", decorated)]
 
-    left = (width - title_width) // 2
+    left  = (width - title_width) // 2
     right = width - title_width - left
+
     return [
         ("class:approval-border", "─" * left),
         ("class:approval-pending", decorated),
         ("class:approval-border", "─" * right)
     ]
+
+
+def _clip_display_width(text: str, *, max_width: int) -> str:
+    """按显示宽度截断文本，避免标题撑开固定宽度卡片。"""
+    limit = max(1, int(max_width or 1))
+    if get_cwidth(text) <= limit:
+        return text
+    if limit <= 1:
+        return "…"
+
+    out: str  = ""
+    used: int = 0
+
+    for char in text:
+        char_width = get_cwidth(char)
+        if used + char_width > limit - 1:
+            break
+        out += char
+        used += char_width
+
+    return f"{out}…"
 
 
 def _approval_question_lines(
@@ -779,26 +721,6 @@ def _wrap_fragment_lines(
     for line in lines:
         wrapped.extend(_wrap_fragment_line(line, max_width=max_width))
     return wrapped
-
-
-def _wrap_command_lines(
-    lines: list[list[tuple[str, str]]],
-    *,
-    max_width: int
-) -> list[list[tuple[str, str]]]:
-    """只提前换行命令行，避免它决定整张审批卡最大宽度。"""
-    wrapped: list[list[tuple[str, str]]] = []
-    for line in lines:
-        if _is_command_line(line):
-            wrapped.extend(_wrap_fragment_line(line, max_width=max_width))
-            continue
-        wrapped.append(line)
-    return wrapped
-
-
-def _is_command_line(line: list[tuple[str, str]]) -> bool:
-    """判断文本片段行是否为审批命令行。"""
-    return bool(line and line[0] == ("class:approval-prompt", "$ "))
 
 
 def _wrap_fragment_line(
@@ -950,7 +872,7 @@ async def _run_approval_menu(
         return render_bordered_approval_menu(
             content_lines(),
             max_width=_terminal_menu_width(),
-            title="Approval required" if approval is not None else None
+            title="Review command" if approval is not None else None
         )
 
     def menu_height() -> int:

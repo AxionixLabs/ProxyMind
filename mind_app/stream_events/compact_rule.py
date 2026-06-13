@@ -40,5 +40,18 @@ def compact_rule_width(
     return min(max(natural, minimum), available)
 
 
+def full_rule_width(
+    *,
+    terminal_width: int | None,
+    natural_width: int,
+    margin: int = COMPACT_RULE_TERMINAL_MARGIN
+) -> int:
+    """按终端可用宽度计算完整规则线宽度。"""
+    natural = max(0, int(natural_width or 0))
+    if terminal_width is None:
+        return max(natural, compact_rule_max_width())
+    return max(natural, int(terminal_width) - int(margin))
+
+
 if __name__ == '__main__':
     pass
