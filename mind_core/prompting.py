@@ -25,6 +25,7 @@ from mind_nova.modes import (
     DEFAULT_RUN_MODE, RunMode
 )
 from mind_core.prompting_ghost import (
+    BASE_CODING_AGENT_TEMPLATES,
     CHAT_TEMPLATES,
     MODE_ALIAS_TEMPLATES,
     VERB_DOMAIN_WEIGHTS,
@@ -121,6 +122,7 @@ class CommandAutoSuggest(AutoSuggest):
 
     MODE_ALLOWED_DOMAINS: dict[RunMode, frozenset[str]] = {
         "chat": frozenset({
+            "coding_agent",
             "device_connection",
             "app_lifecycle",
             "ui_action",
@@ -136,6 +138,7 @@ class CommandAutoSuggest(AutoSuggest):
             "report"
         }),
         "fast": frozenset({
+            "coding_agent",
             "inspect_runtime",
             "security",
             "network_http",
@@ -148,6 +151,7 @@ class CommandAutoSuggest(AutoSuggest):
             "report"
         }),
         "plan": frozenset({
+            "coding_agent",
             "device_connection",
             "app_lifecycle",
             "ui_action",
@@ -165,6 +169,7 @@ class CommandAutoSuggest(AutoSuggest):
             "report"
         }),
         "xtra": frozenset({
+            "coding_agent",
             "inspect_runtime",
             "security",
             "network_http",
@@ -176,18 +181,50 @@ class CommandAutoSuggest(AutoSuggest):
         }),
     }
 
+    BASE_PREFERRED_PHRASES: dict[str, tuple[str, ...]] = {
+        "查看": ("当前改动", "相关实现", "调用链路", "失败日志"),
+        "分析": ("失败原因", "回归风险", "代码路径", "当前改动"),
+        "检查": ("当前改动", "类型问题", "代码风格", "测试覆盖"),
+        "审查": ("当前改动",),
+        "评审": ("当前改动",),
+        "定位": ("问题根因", "调用链路"),
+        "排查": ("失败原因", "回归问题"),
+        "复现": ("问题",),
+        "修复": ("问题并跑测试", "测试失败", "类型错误", "展示问题"),
+        "修改": ("代码并验证",),
+        "改": ("代码并验证",),
+        "实现": ("这个需求并验证",),
+        "补": ("测试覆盖",),
+        "补充": ("回归测试",),
+        "运行": ("相关测试", "lint", "type check", "构建"),
+        "跑": ("相关测试", "lint", "type check"),
+        "验证": ("修改结果", "回归风险"),
+        "构建": ("项目并修复失败",),
+        "重构": ("相关实现并保持行为",),
+        "搜索": ("相关代码",),
+        "梳理": ("调用链路",),
+        "总结": ("当前改动",),
+        "review": (" current changes and identify risks",),
+        "debug": (" reproduce, inspect, patch, and verify",),
+        "inspect": (" related implementation and summarize findings",),
+        "trace": (" the call path and locate the issue",),
+        "fix": (" the issue and run tests",),
+        "patch": (" the minimal change and verify",),
+        "repro": (" the issue and locate the cause",),
+        "run": (" relevant tests",),
+        "verify": (" the change and summarize results",),
+        "refactor": (" safely and verify behavior",),
+        "search": (" related code",),
+        "summarize": (" current changes",),
+    }
+
     MODE_PREFERRED_PHRASES: dict[RunMode, dict[str, tuple[str, ...]]] = {
         "chat": {
-            "查看": ("设备信息", "页面结构", "内存趋势", "当前控件树"),
-            "分析": ("视频帧", "内存趋势", "流畅度趋势", "页面切换速度"),
             "生成": ("内存报告", "流畅度报告", "阶段帧分析报告"),
             "打开": ("设置", "应用", "录屏"),
             "执行": ("Monkey 测试",),
-            "跑": ("稳定性扰动",),
         },
         "fast": {
-            "查看": ("HTTP 响应", "接口响应", "响应", "SSE 事件流", "WebSocket 消息", "视频信息"),
-            "分析": ("HTTP 响应", "接口响应", "GraphQL 响应", "视频帧"),
             "生成": ("结果摘要", "执行结果"),
             "提取": ("关键帧", "场景帧", "音轨"),
             "请求": ("HTTP 接口", "GraphQL 接口"),
@@ -198,7 +235,6 @@ class CommandAutoSuggest(AutoSuggest):
             "抽": ("关键帧", "场景帧", "音轨", "截图"),
         },
         "plan": {
-            "查看": ("设备信息", "当前控件树", "当前焦点"),
             "打开": ("设置", "通知栏", "应用"),
             "开": ("设置", "通知栏", "应用"),
             "进入": ("应用", "设置"),
@@ -207,7 +243,6 @@ class CommandAutoSuggest(AutoSuggest):
             "滚动": ("到目标元素", "到顶部", "到底部"),
         },
         "xtra": {
-            "查看": ("数据库结构", "表结构", "接口响应", "页面快照"),
             "查询": ("数据库", "用户表", "订单表"),
             "执行": ("SQL", "查询语句"),
             "打开": ("网页", "控制台"),
@@ -321,7 +356,9 @@ class CommandAutoSuggest(AutoSuggest):
         candidates: list[tuple[int, str]] = []
 
         blocked_phrases = self.MODE_BLOCKED_FULL_PHRASES.get(self.mode, frozenset())
-        for prefix, suffix in MODE_ALIAS_TEMPLATES.get(self.mode, ()):
+        for prefix, suffix in (
+            BASE_CODING_AGENT_TEMPLATES + MODE_ALIAS_TEMPLATES.get(self.mode, ())
+        ):
             full = f"{prefix}{suffix}"
             if full in blocked_phrases:
                 continue
@@ -344,7 +381,10 @@ class CommandAutoSuggest(AutoSuggest):
 
     def _phrase_priority(self, verb: str, suggestion: str) -> int:
         """返回指定动词和提示短语的优先级。"""
-        preferred = self.MODE_PREFERRED_PHRASES.get(self.mode, {}).get(verb, ())
+        preferred = (
+            self.BASE_PREFERRED_PHRASES.get(verb, ())
+            + self.MODE_PREFERRED_PHRASES.get(self.mode, {}).get(verb, ())
+        )
         for idx, phrase in enumerate(preferred):
             if suggestion == phrase:
                 return len(preferred) - idx
