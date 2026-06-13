@@ -7,7 +7,9 @@ import typing
 from loguru import logger
 from mind_app.mcp import McpSessionLike
 from mind_nova.events import EventReport
-from mind_nova.modes import RunMode
+from mind_nova.modes import (
+    DEFAULT_RUN_MODE, RunMode
+)
 from mind_nova import const
 from ..stream_ui import StreamUI
 from ..stream_events.worked import print_worked_footer
@@ -41,7 +43,7 @@ async def with_mcp_guard(
     mind: "Mind",
     runner: typing.Callable[..., typing.Awaitable[None]],
     *,
-    mode: RunMode = "chat",
+    mode: RunMode = DEFAULT_RUN_MODE,
     **kwargs
 ) -> None:
     """为模式执行增加动画、网络异常和 HTTP 异常保护层。"""
@@ -120,7 +122,7 @@ async def calling(
     pref_config: typing.Optional[dict[str, typing.Any]] = None,
     *,
     message: str,
-    mode: RunMode = "chat",
+    mode: RunMode = DEFAULT_RUN_MODE,
     **kwargs
 ) -> None:
     """统一包装一次用户调用，并由 mode 决定底层执行器。"""

@@ -21,7 +21,9 @@ from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.shortcuts import CompleteStyle
 from prompt_toolkit.styles import Style
 from mind_nova import const
-from mind_nova.modes import RunMode
+from mind_nova.modes import (
+    DEFAULT_RUN_MODE, RunMode
+)
 from mind_core.prompting_ghost import (
     CHAT_TEMPLATES,
     MODE_ALIAS_TEMPLATES,
@@ -220,7 +222,7 @@ class CommandAutoSuggest(AutoSuggest):
     }
 
     def __init__(self) -> None:
-        self.mode: RunMode = "chat"
+        self.mode: RunMode = DEFAULT_RUN_MODE
         self.chat_templates: tuple[tuple[str, str], ...] = CHAT_TEMPLATES
         self.intent_templates: tuple[dict[str, typing.Any], ...] = build_intent_templates()
 
@@ -417,37 +419,71 @@ class PromptToolkitBox(object):
             "scrollbar.button": "bg:#666D76"
         })
 
-    async def prompt_async(self, *, mode: RunMode, model: str) -> str:
-        """异步输入渲染入口。"""
-        th = self._theme(mode)
-        message = self._render_message(model, th)
+    @classmethod
+    def _should_fold_paste(cls, text: str) -> bool:
+        """判断粘贴内容是否需要折叠展示。"""
+        if len(text) >= cls.PASTE_CHAR_THRESHOLD:
+            return True
+        return len(text.splitlines()) >= cls.PASTE_LINE_THRESHOLD
 
-        self.auto_suggest.set_mode(mode)
+    @staticmethod
+    def _theme(mode: RunMode) -> dict[str, str]:
+        return {
+            "chat": {
+                "brand": "#4F8FC8",
+                "soft": "#2F6FAD",
+                "placeholder": "Chat 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
+            },
+            "fast": {
+                "brand": "#4FA37D",
+                "soft": "#2E7D5B",
+                "placeholder": "Fast 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
+            },
+            "plan": {
+                "brand": "#866FD1",
+                "soft": "#6B57B8",
+                "placeholder": "Plan 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
+            },
+            "xtra": {
+                "brand": "#2DAA9E",
+                "soft": "#1E7F78",
+                "placeholder": "Xtra 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
+            }
+        }[mode]
 
-        with patch_stdout(raw=True):
-            value = await self._get_session().prompt_async(
-                message=message,
-                completer=self.completer,
-                auto_suggest=self.auto_suggest,
-                complete_while_typing=True,
-                complete_style=CompleteStyle.COLUMN,
-                enable_history_search=True,
-                multiline=True,
-                prompt_continuation=self._render_continuation(),
-                placeholder=HTML(
-                    f"<placeholder> {html.escape(th['placeholder'])}</placeholder>"
-                ),
-                reserve_space_for_menu=4,
-                style=self.style,
-                mouse_support=False
-            )
+    @staticmethod
+    def _clip_model_name(model: str, limit: int) -> str:
+        """展示名称裁剪。"""
+        if len(model) <= limit:
+            return model
+        return model[: max(0, limit - 3)] + "..."
 
-        try:
-            return self._restore_pasted_content(value).strip()
-        finally:
-            self.paste_store.clear()
+    @staticmethod
+    def _render_message(model: str, th: dict[str, str]) -> HTML:
+        """输入头部渲染。"""
+        safe_model = html.escape(
+            PromptToolkitBox._clip_model_name(model or "-", PromptToolkitBox.MODEL_DISPLAY_MAX)
+        )
+        return HTML(
+            f"<prompt>"
+            f"<prompt.kicker>[</prompt.kicker> "
+            f"<prompt.brand fg='{th['brand']}'>{html.escape(const.APP_DESC)}</prompt.brand> "
+            f"<prompt.kicker>::</prompt.kicker> "
+            f"<prompt.model fg='{th['soft']}'>{safe_model}</prompt.model> "
+            f"<prompt.kicker>]</prompt.kicker>\n"
+            f"<prompt.kicker>></prompt.kicker> "
+            f"</prompt>"
+        )
 
-    def _sync_completion_suggestion(self, buf) -> None:
+    @staticmethod
+    def _render_continuation() -> HTML:
+        """续行前缀渲染。"""
+        return HTML(
+            f"<prompt.kicker>.</prompt.kicker> "
+        )
+
+    @staticmethod
+    def _sync_completion_suggestion(buf) -> None:
         """同步当前补全项的预览提示。"""
         if buf.suggestion is not None:
             buf.suggestion = None
@@ -583,68 +619,35 @@ class PromptToolkitBox(object):
             )
         return self.session
 
-    @classmethod
-    def _should_fold_paste(cls, text: str) -> bool:
-        """判断粘贴内容是否需要折叠展示。"""
-        if len(text) >= cls.PASTE_CHAR_THRESHOLD:
-            return True
-        return len(text.splitlines()) >= cls.PASTE_LINE_THRESHOLD
+    async def prompt_async(self, *, mode: RunMode, model: str) -> str:
+        """异步输入渲染入口。"""
+        th = self._theme(mode)
+        message = self._render_message(model, th)
 
-    @staticmethod
-    def _theme(mode: RunMode) -> dict[str, str]:
-        return {
-            "chat": {
-                "brand": "#4F8FC8",
-                "soft": "#2F6FAD",
-                "placeholder": "Chat 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
-            },
-            "fast": {
-                "brand": "#4FA37D",
-                "soft": "#2E7D5B",
-                "placeholder": "Fast 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
-            },
-            "plan": {
-                "brand": "#866FD1",
-                "soft": "#6B57B8",
-                "placeholder": "Plan 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
-            },
-            "xtra": {
-                "brand": "#2DAA9E",
-                "soft": "#1E7F78",
-                "placeholder": "Xtra 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
-            }
-        }[mode]
+        self.auto_suggest.set_mode(mode)
 
-    @staticmethod
-    def _clip_model_name(model: str, limit: int) -> str:
-        """展示名称裁剪。"""
-        if len(model) <= limit:
-            return model
-        return model[: max(0, limit - 3)] + "..."
+        with patch_stdout(raw=True):
+            value = await self._get_session().prompt_async(
+                message=message,
+                completer=self.completer,
+                auto_suggest=self.auto_suggest,
+                complete_while_typing=True,
+                complete_style=CompleteStyle.COLUMN,
+                enable_history_search=True,
+                multiline=True,
+                prompt_continuation=self._render_continuation(),
+                placeholder=HTML(
+                    f"<placeholder> {html.escape(th['placeholder'])}</placeholder>"
+                ),
+                reserve_space_for_menu=4,
+                style=self.style,
+                mouse_support=False
+            )
 
-    @staticmethod
-    def _render_message(model: str, th: dict[str, str]) -> HTML:
-        """输入头部渲染。"""
-        safe_model = html.escape(
-            PromptToolkitBox._clip_model_name(model or "-", PromptToolkitBox.MODEL_DISPLAY_MAX)
-        )
-        return HTML(
-            f"<prompt>"
-            f"<prompt.kicker>[</prompt.kicker> "
-            f"<prompt.brand fg='{th['brand']}'>{html.escape(const.APP_DESC)}</prompt.brand> "
-            f"<prompt.kicker>::</prompt.kicker> "
-            f"<prompt.model fg='{th['soft']}'>{safe_model}</prompt.model> "
-            f"<prompt.kicker>]</prompt.kicker>\n"
-            f"<prompt.kicker>></prompt.kicker> "
-            f"</prompt>"
-        )
-
-    @staticmethod
-    def _render_continuation() -> HTML:
-        """续行前缀渲染。"""
-        return HTML(
-            f"<prompt.kicker>.</prompt.kicker> "
-        )
+        try:
+            return self._restore_pasted_content(value).strip()
+        finally:
+            self.paste_store.clear()
 
 
 if __name__ == '__main__':

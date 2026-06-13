@@ -8,7 +8,9 @@ from engine.tinker import MindError
 from mind_core.design import Design
 from mind_core.design.upload import UploadProgressLiveReporter
 from mind_nova.events import EventReport
-from mind_nova.modes import RunMode
+from mind_nova.modes import (
+    DEFAULT_RUN_MODE, RunMode
+)
 from mind_nova import const
 from ..runtime.calling import resolve_mode_runner
 
@@ -189,7 +191,7 @@ async def mind_loop(mind: "Mind") -> None:
     primary     = pref_config.get("primary") or {}
     model       = primary.get("model", "")
 
-    mode: RunMode = "chat"
+    mode: RunMode = DEFAULT_RUN_MODE
 
     while not mind.task_event.is_set():
         pref_config = await mind.fresh_pref_config()

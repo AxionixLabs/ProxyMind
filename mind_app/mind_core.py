@@ -14,7 +14,9 @@ from engine.tinker import MindError
 from mind_core.design import Design
 from mind_core.prompting import PromptToolkitBox
 from mind_core.preference import Preferences
-from mind_nova.modes import RunMode
+from mind_nova.modes import (
+    DEFAULT_RUN_MODE, RunMode
+)
 from mind_nova.report import Report
 from mind_nova import craft
 from .attach import Attach
@@ -223,7 +225,7 @@ class Mind(object):
         """停止等待动画。"""
         await self.anim_manager.stop()
 
-    async def start_anim(self, mode: RunMode = "chat") -> None:
+    async def start_anim(self, mode: RunMode = DEFAULT_RUN_MODE) -> None:
         """启动指定模式的等待动画。"""
         await self.anim_manager.start(
             lambda stop_event: self.design.stream_mode_live(stop_event, mode)
@@ -333,7 +335,7 @@ class Mind(object):
         self,
         runner: typing.Callable[..., typing.Awaitable[None]],
         *,
-        mode: RunMode = "chat",
+        mode: RunMode = DEFAULT_RUN_MODE,
         **kwargs
     ) -> None:
         """执行保护入口：统一委托给运行时模块处理动画和异常。"""
@@ -352,7 +354,7 @@ class Mind(object):
         pref_config: typing.Optional[dict[str, typing.Any]] = None,
         *,
         message: str,
-        mode: RunMode = "chat",
+        mode: RunMode = DEFAULT_RUN_MODE,
         **kwargs,
     ) -> None:
         """调用入口：统一委托运行时模块按 mode 执行单次请求。"""

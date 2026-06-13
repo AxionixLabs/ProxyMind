@@ -14,7 +14,9 @@ from .agent_frames import (
 from .renderers import StatusRenderer
 from .types import AgentLiveTheme
 from mind_nova import const
-from mind_nova.modes import RunMode
+from mind_nova.modes import (
+    DEFAULT_RUN_MODE, RunMode
+)
 
 
 class DesignStatusLiveDriver(StatusRenderer):
@@ -392,7 +394,7 @@ class DesignStatusLiveDriver(StatusRenderer):
     async def stream_mode_live(
         self,
         stop_event: asyncio.Event,
-        mode: RunMode = "chat"
+        mode: RunMode = DEFAULT_RUN_MODE
     ) -> None:
         """主请求模式等待动画。"""
         if self.design_level != const.SHOW_LEVEL:
@@ -404,9 +406,9 @@ class DesignStatusLiveDriver(StatusRenderer):
         interval = self.status_interval(kind)
         phase = 0.0
 
-        def frame(elapsed_sec: float) -> Text:
+        def frame(sec: float) -> Text:
             renderable = self.mode_status_renderable(phase, label)
-            renderable.append_text(self.status_elapsed_renderable(elapsed_sec))
+            renderable.append_text(self.status_elapsed_renderable(sec))
             return renderable
 
         loop = asyncio.get_running_loop()
