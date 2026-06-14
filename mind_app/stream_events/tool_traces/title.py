@@ -3,7 +3,6 @@
 
 import re
 import typing
-from rich.cells import cell_len
 from pygments import lex
 from pygments.util import ClassNotFound
 from pygments.lexers import (
@@ -44,6 +43,7 @@ from .common import (
     _preview_text
 )
 
+
 def _part(text: str, style: str | None) -> dict[str, typing.Optional[str]]:
     """创建一段带样式的显示片段。"""
     return {"text": text, "style": style}
@@ -53,155 +53,24 @@ def render_tool_trace_parts(
     title: str,
     *,
     preview: typing.Optional[typing.Union[str, TracePreview]] = None,
-    ok: bool = True,
-    terminal_width: int | None = None
+    ok: bool = True
 ) -> list[dict[str, typing.Optional[str]]]:
     """把轨迹标题和预览内容转换为带样式的文本片段。"""
     parts = _title_parts(title, ok=ok)
 
     preview_text = preview.screen if isinstance(preview, TracePreview) else _preview_text(preview)
     if preview_text:
-        title_wrapped = _should_wrap_shell_title(title, terminal_width=terminal_width)
-        if title_wrapped:
-            parts = _wrap_title_parts(
-                parts,
-                terminal_width=max(1, int(terminal_width or 0)),
-                continuation_prefix="  │ "
-            )
-
         if parts:
             parts.append(_part("\n", None))
 
         preview_kind = preview.kind if isinstance(preview, TracePreview) else "text"
         if preview_kind != "tree":
-            preview_prefix = "  └ " if title_wrapped else "└ "
-            preview_indent = "    " if title_wrapped else "  "
             parts.extend(
-                [
-                    _part(preview_prefix, PREVIEW_STYLE),
-                    *_preview_parts(preview_text, ok=ok, indent_prefix=preview_indent)
-                ]
+                [_part("└ ", PREVIEW_STYLE), *_preview_parts(preview_text, ok=ok)]
             )
         else:
             parts.extend(_preview_parts(preview_text, ok=ok, indent_prefix=""))
 
-    return parts
-
-
-def _should_wrap_shell_title(
-    title: str,
-    *,
-    terminal_width: int | None
-) -> bool:
-    """判断 shell 标题是否需要主动按显示宽度换行。"""
-    if not isinstance(terminal_width, int) or terminal_width <= 0:
-        return False
-    text = str(title or "")
-    return text.startswith("• Ran ") and cell_len(text) > terminal_width
-
-
-def _wrap_title_parts(
-    parts: list[dict[str, typing.Optional[str]]],
-    *,
-    terminal_width: int,
-    continuation_prefix: str
-) -> list[dict[str, typing.Optional[str]]]:
-    """按终端宽度换行标题片段，并保留续行轨迹线。"""
-    if not parts:
-        return []
-
-    cells = _styled_cells(parts)
-    if not cells:
-        return []
-
-    width = max(16, int(terminal_width or 0))
-    continuation_width = max(8, width - cell_len(continuation_prefix))
-
-    lines: list[list[dict[str, typing.Optional[str]]]] = []
-    remaining = cells
-    line_limit = width
-
-    while remaining:
-        line, remaining = _take_wrapped_line(remaining, max(1, line_limit))
-        if line:
-            lines.append(line)
-        line_limit = continuation_width
-
-    wrapped: list[dict[str, typing.Optional[str]]] = []
-    for index, line in enumerate(lines):
-        if index:
-            wrapped.append(_part("\n", None))
-            wrapped.append(_part(continuation_prefix, PREVIEW_STYLE))
-        wrapped.extend(_coalesce_cells(line))
-
-    return wrapped
-
-
-def _styled_cells(
-    parts: list[dict[str, typing.Optional[str]]]
-) -> list[dict[str, typing.Optional[str]]]:
-    """把样式片段展开为逐字符显示单元。"""
-    cells: list[dict[str, typing.Optional[str]]] = []
-    for part in parts:
-        style = part.get("style")
-        for char in str(part.get("text") or ""):
-            cells.append({"text": char, "style": style})
-    return cells
-
-
-def _take_wrapped_line(
-    cells: list[dict[str, typing.Optional[str]]],
-    limit: int
-) -> tuple[list[dict[str, typing.Optional[str]]], list[dict[str, typing.Optional[str]]]]:
-    """优先在空白处取一行，避免长命令在单词中间换行。"""
-    line: list[dict[str, typing.Optional[str]]] = []
-    width = 0
-    cursor = 0
-    last_space = -1
-
-    while cursor < len(cells):
-        char = str(cells[cursor].get("text") or "")
-        char_width = max(1, cell_len(char))
-        if line and width + char_width > limit:
-            break
-
-        line.append(cells[cursor])
-        width += char_width
-        if char.isspace():
-            last_space = len(line) - 1
-        cursor += 1
-
-        if width >= limit:
-            break
-
-    if cursor < len(cells) and last_space > 0:
-        next_line = line[last_space + 1:] + cells[cursor:]
-        line = line[:last_space]
-    else:
-        next_line = cells[cursor:]
-
-    while line and str(line[-1].get("text") or "").isspace():
-        line.pop()
-    while next_line and str(next_line[0].get("text") or "").isspace():
-        next_line = next_line[1:]
-
-    return line, next_line
-
-
-def _coalesce_cells(
-    cells: list[dict[str, typing.Optional[str]]]
-) -> list[dict[str, typing.Optional[str]]]:
-    """把逐字符显示单元合并回连续样式片段。"""
-    parts: list[dict[str, typing.Optional[str]]] = []
-    for cell in cells:
-        text = str(cell.get("text") or "")
-        style = cell.get("style")
-        if not text:
-            continue
-        if parts and parts[-1].get("style") == style:
-            parts[-1]["text"] = f"{parts[-1].get('text') or ''}{text}"
-        else:
-            parts.append(_part(text, style))
     return parts
 
 

@@ -2,7 +2,6 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_core.design import Design
 from ..stream_ui import StreamUI
 from ..stream_events.tool_trace import (
     MISSING,
@@ -95,8 +94,7 @@ async def show_tool_result(
                 display_parts=render_tool_trace_parts(
                     entry.title,
                     preview=entry.preview,
-                    ok=entry.ok,
-                    terminal_width=getattr(Design.console, "width", None)
+                    ok=entry.ok
                 )
             )
         return None
