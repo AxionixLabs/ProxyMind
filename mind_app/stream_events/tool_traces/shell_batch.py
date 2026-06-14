@@ -182,7 +182,7 @@ def _first_output_line(value: typing.Any) -> str:
 
 def _shell_batch_screen_lines(results: list[typing.Any]) -> tuple[list[str], int]:
     """按 item 数限制 shell batch 屏幕树高度，并优先展示失败项。"""
-    max_items = 5
+    max_items = 6
 
     items = [item for item in results if isinstance(item, dict)]
     if len(items) <= max_items:

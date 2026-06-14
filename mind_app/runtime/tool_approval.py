@@ -259,7 +259,7 @@ def _truthy_approval_required(value: typing.Any) -> bool:
 
 
 def approval_expired(approval: dict[str, typing.Any] | None) -> bool:
-    """根据服务端下发的 expires_at_ms 判断审批是否已过期。"""
+    """根据 expires_at_ms 判断审批是否已过期。"""
     remaining = approval_remaining_sec(approval)
     return remaining is not None and remaining <= 0
 
@@ -274,6 +274,9 @@ def approval_remaining_sec(approval: dict[str, typing.Any] | None) -> float | No
 
 def approval_expiry_label(approval: dict[str, typing.Any] | None) -> str:
     """生成审批过期倒计时文案。"""
+    if not approval_show_timer(approval):
+        return ""
+
     remaining = approval_remaining_sec(approval)
     if remaining is None:
         return ""
@@ -286,6 +289,41 @@ def approval_expiry_label(approval: dict[str, typing.Any] | None) -> str:
     if minutes:
         return f"Expires in {minutes}m {seconds:02d}s"
     return f"Expires in {seconds}s"
+
+
+def approval_show_timer(approval: dict[str, typing.Any] | None) -> bool:
+    """读取审批倒计时展示配置。"""
+    return _approval_bool(approval, "show_timer", default=True)
+
+
+def approval_show_preview(approval: dict[str, typing.Any] | None) -> bool:
+    """读取内联预览展示配置。"""
+    return _approval_bool(approval, "show_preview", default=True)
+
+
+def _approval_bool(
+    approval: dict[str, typing.Any] | None,
+    key: str,
+    *,
+    default: bool
+) -> bool:
+    """读取审批数据中的布尔配置。"""
+    if not isinstance(approval, dict) or key not in approval:
+        return default
+
+    value = approval.get(key)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"1", "true", "yes", "on"}:
+            return True
+        if text in {"0", "false", "no", "off"}:
+            return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+
+    return default
 
 
 def _approval_expires_at_ms(approval: dict[str, typing.Any] | None) -> int | None:
@@ -344,13 +382,14 @@ def _approval_argument_fallback(
         item["cwd"] = approval.get("cwd")
     if "timeout_sec" in approval:
         item["timeout_sec"] = approval.get("timeout_sec")
+
     return {"items": [item]}
 
 
 def _normalize_shell_command_arguments(
     arguments: dict[str, typing.Any]
 ) -> dict[str, typing.Any]:
-    """规范化批量 shell_command 参数，避免默认 cwd/timeout 导致审批误拒。"""
+    """规范化批量 shell_command 参数。"""
     if not isinstance(arguments, dict):
         return {"items": []}
 
@@ -367,6 +406,7 @@ def _normalize_shell_command_arguments(
 def _normalize_shell_command_item(
     value: typing.Any
 ) -> dict[str, typing.Any]:
+    """规范化单条 shell_command 参数。"""
     item = value if isinstance(value, dict) else {}
     return {
         "command"     : str(item.get("command") or ""),
@@ -404,10 +444,10 @@ def approval_prompt_text(
 ) -> str:
     """构造审批提示的纯文本内容。"""
     summary = approval_summary(approval)
-    noun    = _approval_prompt_noun(approval)
+    prompt  = approval_prompt(approval)
 
     return (
-        f"\nWould you like to approve the following {noun}?\n\n"
+        f"\n{prompt}\n\n"
         f"$ {summary}\n"
     )
 
@@ -415,7 +455,7 @@ def approval_prompt_text(
 def approval_decisions(
     approval: dict[str, typing.Any]
 ) -> list[ApprovalDecisionValue]:
-    """读取服务端可用审批选项，并补齐安全默认值。"""
+    """读取可用审批选项，并补齐默认值。"""
     raw    = approval.get("availableDecisions", approval.get("available_decisions"))
     values = raw if isinstance(raw, list) else list(DEFAULT_APPROVAL_DECISIONS)
 
@@ -438,7 +478,7 @@ def approval_choice_text(
     lines = []
     for index, decision in enumerate(approval_decisions(approval), start=1):
         prefix = "›" if index == 1 else " "
-        lines.append(f"{prefix} {index}. {_decision_display_label(decision)}")
+        lines.append(f"{prefix} {index}. {_decision_display_label(decision, approval=approval)}")
     return "\n".join(lines) + "\n"
 
 
@@ -470,21 +510,40 @@ def _normalize_decision(value: typing.Any) -> ApprovalDecisionValue | None:
     return aliases.get(text.lower())
 
 
-def _decision_display_label(decision: str) -> str:
+def _decision_display_label(
+    decision: str,
+    *,
+    approval: dict[str, typing.Any] | None = None
+) -> str:
     """返回审批选项的展示文案，包含可用快捷键提示。"""
-    label    = DECISION_LABELS.get(decision, decision)
+    label    = approval_decision_label(approval, decision)
     shortcut = DECISION_SHORTCUT_LABELS.get(decision, "")
     return f"{label} ({shortcut})" if shortcut else label
+
+
+def approval_decision_label(
+    approval: dict[str, typing.Any] | None,
+    decision: str
+) -> str:
+    """读取审批选项展示文案。"""
+    labels = {}
+    if isinstance(approval, dict):
+        raw = approval.get("decision_labels", approval.get("decisionLabels"))
+        labels = raw if isinstance(raw, dict) else {}
+
+    custom = str(labels.get(decision) or "").strip()
+    return custom or DECISION_LABELS.get(decision, decision)
 
 
 def _decision_display_prompt_parts(
     decision: str,
     *,
+    approval: dict[str, typing.Any] | None,
     style: str,
     shortcut_style: str
 ) -> list[tuple[str, str]]:
     """返回 prompt_toolkit 菜单选项的分段展示文案。"""
-    label    = DECISION_LABELS.get(decision, decision)
+    label    = approval_decision_label(approval, decision)
     shortcut = DECISION_SHORTCUT_LABELS.get(decision, "")
     parts    = [(style, label)]
 
@@ -522,7 +581,10 @@ def approval_menu_content_lines(
         line: list[tuple[str, str]] = [(prefix_style, f"{prefix} {index}. ")]
         line.extend(
             _decision_display_prompt_parts(
-                decision, style=label_style, shortcut_style=shortcut_style
+                decision,
+                approval=approval,
+                style=label_style,
+                shortcut_style=shortcut_style
             )
         )
         lines.append(line)
@@ -560,6 +622,35 @@ def render_bordered_approval_menu(
     return parts
 
 
+def approval_title(approval: dict[str, typing.Any] | None) -> str:
+    """读取审批卡标题。"""
+    if not isinstance(approval, dict):
+        return "Review command"
+    return str(approval.get("title") or "Review command").strip() or "Review command"
+
+
+def approval_prompt(approval: dict[str, typing.Any] | None) -> str:
+    """读取审批询问文案，缺省时按命令数量生成。"""
+    if isinstance(approval, dict):
+        prompt = str(approval.get("prompt") or "").strip()
+        if prompt:
+            return prompt
+
+    noun = _approval_prompt_noun(approval or {})
+    return f"Would you like to approve the following {noun}?"
+
+
+def approval_max_preview_items(approval: dict[str, typing.Any] | None) -> int:
+    """读取批量命令预览数量上限。"""
+    raw = approval.get("max_preview_items") if isinstance(approval, dict) else None
+
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = 5
+    return max(1, min(8, value))
+
+
 def _approval_rule_width(*, max_width: int | None) -> int:
     """按固定宽度策略计算审批卡规则线宽度。"""
     if max_width is None:
@@ -575,7 +666,7 @@ def approval_menu_line_width(line: list[tuple[str, str]]) -> int:
 
 
 def approval_menu_plain_text(parts: list[tuple[str, str]]) -> str:
-    """把 prompt_toolkit 片段转为纯文本，供测试断言。"""
+    """把 prompt_toolkit 片段转为纯文本。"""
     return "".join(text for _style, text in parts)
 
 
@@ -611,7 +702,7 @@ def _approval_top_border_parts(
 
 
 def _clip_display_width(text: str, *, max_width: int) -> str:
-    """按显示宽度截断文本，避免标题撑开固定宽度卡片。"""
+    """按显示宽度截断文本。"""
     limit = max(1, int(max_width or 1))
     if get_cwidth(text) <= limit:
         return text
@@ -635,9 +726,8 @@ def _approval_question_lines(
     approval: dict[str, typing.Any]
 ) -> list[list[tuple[str, str]]]:
     """生成审批询问文案。"""
-    noun = _approval_prompt_noun(approval)
     return [
-        [("class:approval-pending", f"Would you like to approve the following {noun}?")], []
+        [("class:approval-pending", approval_prompt(approval))], []
     ]
 
 
@@ -647,7 +737,10 @@ def _approval_command_lines(
     """生成审批命令区域。"""
     batch_commands = _approval_batch_commands(approval)
     if len(batch_commands) > 1:
-        return _approval_batch_command_lines(batch_commands)
+        return _approval_batch_command_lines(
+            batch_commands,
+            max_items=approval_max_preview_items(approval)
+        )
 
     summary = command_preview(approval.get("command")).title or approval_summary(approval)
 
@@ -712,7 +805,7 @@ def _approval_batch_command_lines(
 
 
 def _approval_command_prompt_parts(command: str) -> list[tuple[str, str]]:
-    """复用工具轨迹的保守命令着色规则。"""
+    """复用工具轨迹的命令着色规则。"""
     out: list[tuple[str, str]] = []
 
     for part in render_command_parts(command):
@@ -748,6 +841,9 @@ def _approval_preview_menu_lines(
     approval: dict[str, typing.Any]
 ) -> list[list[tuple[str, str]]]:
     """生成内联脚本预览行。"""
+    if not approval_show_preview(approval):
+        return []
+
     preview = approval_command_preview(approval)
     if not preview.screen:
         return []
@@ -924,7 +1020,7 @@ async def _run_approval_menu(
         return render_bordered_approval_menu(
             content_lines(),
             max_width=_terminal_menu_width(),
-            title="Review command" if approval is not None else None
+            title=approval_title(approval) if approval is not None else None
         )
 
     def menu_height() -> int:
