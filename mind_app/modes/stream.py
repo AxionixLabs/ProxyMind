@@ -95,7 +95,7 @@ async def stream_looper(
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
     approval_input_func = kwargs.pop("approval_input_func", None)
 
-    slog: StreamUI = StreamUI(mind.report.log_papers)
+    slog: StreamUI = StreamUI(mind.report.log_papers, design_level=mind.level)
 
     interrupted = False
     first_frame = True

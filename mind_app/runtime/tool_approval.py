@@ -60,8 +60,8 @@ DECISION_LABELS: dict[str, str] = {
 
 DECISION_SHORTCUT_LABELS: dict[str, str] = {
     "accept"           : "y",
-    "acceptForSession" : "",
-    "decline"          : "esc",
+    "acceptForSession" : "s",
+    "decline"          : "n",
     "cancel"           : "esc"
 }
 
@@ -94,6 +94,9 @@ APPROVAL_MENU_TERMINAL_MARGIN     = COMPACT_RULE_TERMINAL_MARGIN
 APPROVAL_MENU_TITLE_MIN_RULE      = 4
 APPROVAL_MENU_CONTINUATION_INDENT = 2
 APPROVAL_MENU_FIXED_WIDTH         = 104
+APPROVAL_COMMAND_MAX_LINES        = 8
+APPROVAL_COMMAND_ITEM_MAX_LINES   = 2
+APPROVAL_PREVIEW_MAX_LINES        = 4
 
 
 @dataclass(slots=True)
@@ -602,7 +605,7 @@ def render_bordered_approval_menu(
     """把审批菜单内容行渲染为顶部规则线和缩进内容。"""
     horizontal_width = _approval_rule_width(max_width=max_width)
     content_width    = max(1, horizontal_width - padding)
-    wrapped_lines    = _wrap_fragment_lines(lines, max_width=content_width)
+    wrapped_lines    = _wrap_fragment_lines_with_budget(lines, max_width=content_width)
 
     parts: list[tuple[str, str]] = [
         *_approval_top_border_parts(horizontal_width, title=title),
@@ -866,6 +869,90 @@ def _wrap_fragment_lines(
     return wrapped
 
 
+def _wrap_fragment_lines_with_budget(
+    lines: list[list[tuple[str, str]]],
+    *,
+    max_width: int
+) -> list[list[tuple[str, str]]]:
+    """按宽度换行，并限制审批卡中命令和预览区域高度。"""
+    wrapped: list[list[tuple[str, str]]] = []
+
+    command_lines = 0
+    preview_lines = 0
+
+    command_hidden = False
+    preview_hidden = False
+
+    def flush_command_hidden() -> None:
+        nonlocal command_hidden
+        if command_hidden:
+            wrapped.append(_approval_truncation_line("… command preview truncated"))
+            command_hidden = False
+
+    def flush_preview_hidden() -> None:
+        nonlocal preview_hidden
+        if preview_hidden:
+            wrapped.append(_approval_truncation_line("… preview truncated"))
+            preview_hidden = False
+
+    for line in lines:
+        is_command = _approval_line_has_command_parts(line)
+        is_preview = _approval_line_is_inline_preview(line)
+
+        if not is_command:
+            flush_command_hidden()
+        if not is_preview:
+            flush_preview_hidden()
+
+        line_wrapped = _wrap_fragment_line(line, max_width=max_width)
+
+        if is_command:
+            remaining_total = max(0, APPROVAL_COMMAND_MAX_LINES - command_lines)
+            visible_limit = min(APPROVAL_COMMAND_ITEM_MAX_LINES, remaining_total)
+            visible = line_wrapped[:visible_limit]
+            wrapped.extend(visible)
+            command_lines += len(visible)
+            if len(visible) < len(line_wrapped):
+                command_hidden = True
+            continue
+
+        if is_preview:
+            remaining_total = max(0, APPROVAL_PREVIEW_MAX_LINES - preview_lines)
+            visible = line_wrapped[:remaining_total]
+            wrapped.extend(visible)
+            preview_lines += len(visible)
+            if len(visible) < len(line_wrapped):
+                preview_hidden = True
+            continue
+
+        wrapped.extend(line_wrapped)
+
+    flush_command_hidden()
+    flush_preview_hidden()
+
+    return wrapped
+
+
+def _approval_line_has_command_parts(line: list[tuple[str, str]]) -> bool:
+    """判断一行是否包含审批命令片段。"""
+    return any(str(style or "").startswith("class:command") for style, _text in line)
+
+
+def _approval_line_is_inline_preview(line: list[tuple[str, str]]) -> bool:
+    """判断一行是否来自审批内联预览区域。"""
+    if not line:
+        return False
+    if not all(str(style or "") == "class:approval-preview" for style, _text in line):
+        return False
+    text = approval_menu_plain_text(line)
+    return text.startswith("└ ") or text.startswith("  ")
+
+
+def _approval_truncation_line(text: str) -> list[tuple[str, str]]:
+    """生成审批卡截断提示行。"""
+    return [("class:approval-preview", text)]
+
+
 def _wrap_fragment_line(
     line: list[tuple[str, str]],
     *,
@@ -885,22 +972,32 @@ def _wrap_fragment_line(
             token_width = get_cwidth(token)
             if token.isspace() and not current:
                 continue
-            if current and current_width + token_width > max_width:
+
+            if current and token_width <= max_width < current_width + token_width:
                 out.append(current)
-                current = _continuation_prefix()
+
+                current       = _continuation_prefix()
                 current_width = APPROVAL_MENU_CONTINUATION_INDENT
+
                 if token.isspace():
                     continue
+
             if token_width > max_width:
                 chunk_width = max(1, max_width - APPROVAL_MENU_CONTINUATION_INDENT)
                 for chunk in _split_wide_token(token, max_width=chunk_width):
                     if current:
                         out.append(current)
+                        current = []
+                        current_width = 0
+                    if out:
                         current = _continuation_prefix()
                         current_width = APPROVAL_MENU_CONTINUATION_INDENT
+
                     current.append((style, chunk))
                     current_width += get_cwidth(chunk)
+
                 continue
+
             current.append((style, token))
             current_width += token_width
 
@@ -931,8 +1028,10 @@ def _split_wide_token(token: str, *, max_width: int) -> list[str]:
         char_width = get_cwidth(char)
         if current and current_width + char_width > max_width:
             chunks.append(current)
-            current = ""
+
+            current       = ""
             current_width = 0
+
         current += char
         current_width += char_width
 
@@ -1050,8 +1149,13 @@ async def _run_approval_menu(
     @bindings.add("escape")
     @bindings.add("c-c")
     def _(event) -> None:
-        """取消审批并返回拒绝结果。"""
-        event.app.exit(result="decline")
+        """取消审批菜单。"""
+        if "cancel" in decisions:
+            event.app.exit(result="cancel")
+        elif "decline" in decisions:
+            event.app.exit(result="decline")
+        else:
+            event.app.exit(result=decisions[-1])
 
     @bindings.add("y")
     def _(event) -> None:
@@ -1059,10 +1163,21 @@ async def _run_approval_menu(
         if "accept" in decisions:
             event.app.exit(result="accept")
 
+    @bindings.add("s")
+    def _(event) -> None:
+        """通过快捷键在当前会话接受审批请求。"""
+        if "acceptForSession" in decisions:
+            event.app.exit(result="acceptForSession")
+
     @bindings.add("n")
     def _(event) -> None:
         """通过快捷键拒绝审批请求。"""
-        event.app.exit(result="decline" if "decline" in decisions else decisions[-1])
+        if "decline" in decisions:
+            event.app.exit(result="decline")
+        elif "cancel" in decisions:
+            event.app.exit(result="cancel")
+        else:
+            event.app.exit(result=decisions[-1])
 
     for option_index, option_decision in enumerate(decisions, start=1):
         @bindings.add(str(option_index))

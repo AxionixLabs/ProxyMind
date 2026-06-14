@@ -50,7 +50,7 @@ async def static_looper(
     filtered_tools = Tooling.filter_tools(openai_tools, tool_meta, exclude=exclude)
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
-    slog: StreamUI = StreamUI(mind.report.log_papers)
+    slog: StreamUI = StreamUI(mind.report.log_papers, design_level=mind.level)
     interrupted = False
 
     try:

@@ -13,6 +13,7 @@ from mind_app.stream_render.coordinator import RenderCoord
 from mind_app.stream_state.status import StatusFamily
 from mind_app.stream_state.text import TextState
 from mind_app.stream_io.output_record import StreamRecordWriter
+from mind_nova import const
 
 
 class StreamUI(object):
@@ -21,8 +22,9 @@ class StreamUI(object):
     BLOCK  = TextState.BLOCK
     STREAM = TextState.STREAM
 
-    def __init__(self, log_file: str) -> None:
+    def __init__(self, log_file: str, *, design_level: str = const.SHOW_LEVEL) -> None:
         self.log_file = log_file
+        self.design_level = design_level
 
         self._has_stream_output = False
         self._pending_status_task: typing.Optional[asyncio.Task[None]] = None
@@ -119,6 +121,8 @@ class StreamUI(object):
         delay_sec: float = 0.12
     ) -> None:
         """显示 Responses builtin 名称，短延迟后露出，避免极短 builtin 闪屏。"""
+        if self.design_level != const.SHOW_LEVEL:
+            return None
         if self._has_stream_output:
             return None
         status_text, family = self._compose_builtin_status(text)
@@ -136,6 +140,8 @@ class StreamUI(object):
         await self.begin_custom_tool_status("function calling")
 
     async def begin_custom_tool_status(self, text: typing.Optional[str]) -> None:
+        if self.design_level != const.SHOW_LEVEL:
+            return None
         self.coordinator.hold_status_slot()
         await self._schedule_status_task(
             self._delayed_status_flow(
@@ -153,6 +159,8 @@ class StreamUI(object):
         delay_sec: float = 0.18,
         min_visible_sec: float = 0.32
     ) -> None:
+        if self.design_level != const.SHOW_LEVEL:
+            return None
         self.coordinator.hold_status_slot()
         if delay_sec <= 0:
             await self._cancel_pending_status_task()
@@ -179,6 +187,8 @@ class StreamUI(object):
         delay_sec: float = 0.28,
         animate_after_sec: float | None = None
     ) -> None:
+        if self.design_level != const.SHOW_LEVEL:
+            return None
         animate_after = delay_sec if animate_after_sec is None else max(0.0, float(animate_after_sec))
         await self._schedule_status_task(
             self._delayed_status_flow(
@@ -195,6 +205,8 @@ class StreamUI(object):
         *,
         delay_sec: float = 0.0
     ) -> None:
+        if self.design_level != const.SHOW_LEVEL:
+            return None
         self.coordinator.hold_status_slot()
         await self._cancel_pending_status_task()
         await self._cancel_heal_status_flush_task()
@@ -220,6 +232,8 @@ class StreamUI(object):
         self,
         summary: typing.Optional[str] = None
     ) -> None:
+        if self.design_level != const.SHOW_LEVEL:
+            return None
         self.coordinator.hold_status_slot()
         await self._cancel_pending_status_task()
         text = self._compose_loop_status_text(summary)
@@ -230,6 +244,8 @@ class StreamUI(object):
         self,
         summary: typing.Optional[str]
     ) -> None:
+        if self.design_level != const.SHOW_LEVEL:
+            return None
         self.coordinator.hold_status_slot()
         await self._cancel_pending_status_task()
         await self.coordinator.set_status(
@@ -244,6 +260,8 @@ class StreamUI(object):
         self,
         summary: typing.Optional[str]
     ) -> None:
+        if self.design_level != const.SHOW_LEVEL:
+            return None
         text = self._compose_heal_status_text(summary)
         if not text or text == self._heal_status_text:
             return None
@@ -501,6 +519,8 @@ class StreamUI(object):
             self._heal_status_flush_task = None
 
     async def _flush_heal_status_text(self, text: str) -> None:
+        if self.design_level != const.SHOW_LEVEL:
+            return None
         self._heal_status_pending_text = ""
         self._heal_status_text = text
         self._heal_status_last_flush_at = time.perf_counter()
