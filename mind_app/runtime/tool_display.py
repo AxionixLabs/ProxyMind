@@ -7,15 +7,29 @@ from ..stream_events.tool_trace import (
     MISSING,
     render_generic_tool_result_parts,
     render_generic_tool_result_preview,
-    render_tool_result_preview,
+    render_tool_result_entries,
     render_tool_start_preview,
     render_tool_start_trace,
-    render_tool_trace,
     render_tool_trace_parts
 )
 
 if typing.TYPE_CHECKING:
     from .tool_run import ToolRunResult
+
+
+def _coding_trace_text(
+    title: str,
+    preview: typing.Any
+) -> str:
+    """生成用于记录的编码工具轨迹文本。"""
+    trace_text = title
+    if preview.full:
+        if preview.kind != "tree":
+            indented_preview = preview.full.replace("\n", "\n  ")
+            trace_text = f"{title}\n└ {indented_preview}"
+        else:
+            trace_text = f"{title}\n{preview.full}"
+    return trace_text
 
 
 async def show_tool_start(
@@ -64,7 +78,7 @@ async def show_tool_result(
 
     if use_coding_trace:
         await stream_ui.end_status()
-        trace_title = render_tool_trace(
+        trace_entries = render_tool_result_entries(
             name,
             arguments,
             ok=display_ok,
@@ -72,29 +86,17 @@ async def show_tool_result(
             cost_ms=tool_run.cost_ms,
             before_exists=before_exists
         )
-        trace_preview = render_tool_result_preview(
-            name,
-            tool_run.data,
-            arguments=arguments
-        )
 
-        trace_text = trace_title
-        if trace_preview.full:
-            if trace_preview.kind != "tree":
-                indented_preview = trace_preview.full.replace("\n", "\n  ")
-                trace_text = f"{trace_title}\n└ {indented_preview}"
-            else:
-                trace_text = f"{trace_title}\n{trace_preview.full}"
-
-        await stream_ui.feed(
-            trace_text,
-            display=StreamUI.BLOCK,
-            display_parts=render_tool_trace_parts(
-                trace_title,
-                preview=trace_preview,
-                ok=display_ok
+        for entry in trace_entries:
+            await stream_ui.feed(
+                _coding_trace_text(entry.title, entry.preview),
+                display=StreamUI.BLOCK,
+                display_parts=render_tool_trace_parts(
+                    entry.title,
+                    preview=entry.preview,
+                    ok=entry.ok
+                )
             )
-        )
         return None
 
     if not display_text:

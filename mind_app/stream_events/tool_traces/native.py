@@ -10,6 +10,7 @@ from mind_app.stream_events.command_preview import (
 from .common import (
     MAX_PREVIEW_WIDTH,
     MISSING,
+    TraceEntry,
     TracePreview,
     _normalize_preview_lines,
     _result_payload,
@@ -52,7 +53,7 @@ def render_tool_start_trace(
     name: str,
     arguments: dict[str, typing.Any]
 ) -> str:
-    """渲染普通工具开始执行前的轨迹行。"""
+    """生成工具开始执行时的轨迹标题。"""
     _ = arguments
     return f"• Tool {str(name or 'tool').strip() or 'tool'}"
 
@@ -60,7 +61,7 @@ def render_tool_start_trace(
 def render_tool_start_preview(
     arguments: dict[str, typing.Any]
 ) -> TracePreview:
-    """生成普通工具开始执行前的参数摘要。"""
+    """生成工具开始执行时的参数预览。"""
     if not isinstance(arguments, dict) or not arguments:
         return _trace_preview_from_lines(["no args"])
 
@@ -77,7 +78,7 @@ def render_tool_start_preview(
 def local_path_exists(
     arguments: dict[str, typing.Any]
 ) -> typing.Any:
-    """判断参数中的路径是否存在；无法判断时返回 MISSING。"""
+    """检查参数路径是否存在；无法检查时返回 MISSING。"""
     if not isinstance(arguments, dict):
         return MISSING
     raw_path = str(arguments.get("path") or "").strip()
@@ -90,6 +91,7 @@ def local_path_exists(
 
 
 def _argument_preview(value: typing.Any) -> str:
+    """把参数值转换为单行预览文本。"""
     if isinstance(value, str):
         text = _short_text(value, MAX_PREVIEW_WIDTH)
         return repr(text)
@@ -99,13 +101,14 @@ def _argument_preview(value: typing.Any) -> str:
         return f"<dict:{len(value)}>"
     if isinstance(value, (list, tuple, set)):
         return f"<{type(value).__name__}:{len(value)}>"
+
     return _short_text(value, MAX_PREVIEW_WIDTH)
 
 
 def is_native_coding_trace_tool(
     name: str
 ) -> bool:
-    """判断工具是否使用原生编码轨迹样式。"""
+    """判断工具是否使用原生轨迹样式。"""
     return name in NATIVE_CODING_TRACE_TOOLS
 
 
@@ -115,7 +118,7 @@ def render_tool_result_preview(
     *,
     arguments: dict[str, typing.Any] | None = None
 ) -> TracePreview:
-    """根据工具结果和参数生成执行结果预览。"""
+    """根据工具结果和参数生成结果预览。"""
     data = _result_payload(data)
     args = arguments if isinstance(arguments, dict) else {}
 
@@ -228,13 +231,75 @@ def render_tool_result_preview(
     return TracePreview()
 
 
+def render_tool_result_entries(
+    name: str,
+    arguments: dict[str, typing.Any],
+    *,
+    ok: bool,
+    data: typing.Any = None,
+    cost_ms: int | None = None,
+    before_exists: typing.Any = MISSING
+) -> list[TraceEntry]:
+    """生成工具结果可独立展示的轨迹列表。"""
+    args    = arguments if isinstance(arguments, dict) else {}
+    payload = _result_payload(data)
+
+    if name == "shell_command":
+        results = payload.get("results")
+        if isinstance(results, list):
+            items = [item for item in results if isinstance(item, dict)]
+            if 0 < len(items) <= 3:
+                entries: list[TraceEntry] = []
+
+                for item in items:
+                    inner = _single_shell_batch_payload([item])
+                    if inner is None:
+                        break
+
+                    inner_args = inner.get("args") if isinstance(inner.get("args"), dict) else {}
+                    inner_data = inner.get("data") if isinstance(inner.get("data"), dict) else {}
+                    item_ok    = bool(item.get("ok")) if "ok" in item else bool(inner_data.get("ok"))
+
+                    entries.append(TraceEntry(
+                        title=render_tool_trace(
+                            "shell_command",
+                            inner_args,
+                            ok=item_ok,
+                            data=inner_data,
+                            before_exists=before_exists
+                        ),
+                        preview=render_tool_result_preview(
+                            "shell_command",
+                            inner_data,
+                            arguments=inner_args
+                        ),
+                        ok=item_ok
+                    ))
+
+                if len(entries) == len(items):
+                    return entries
+
+    return [TraceEntry(
+        title=render_tool_trace(
+            name,
+            args,
+            ok=ok,
+            data=data,
+            cost_ms=cost_ms,
+            before_exists=before_exists
+        ),
+        preview=render_tool_result_preview(name, data, arguments=args),
+        ok=ok
+    )]
+
+
 def _shell_command_error_context_lines(
     data: dict[str, typing.Any],
     *,
     command: str = "",
     max_context_lines: int = 6
 ) -> list[str]:
-    """把 shell_command 异常预览压缩成尾部输出上下文。"""
+    """生成 shell_command 失败输出的上下文行。"""
     stderr_lines = _normalize_preview_lines(data.get("stderr"))
     stdout_lines = _normalize_preview_lines(data.get("stdout"))
     stream_lines = stderr_lines or stdout_lines
@@ -263,7 +328,7 @@ def _split_single_line_shell_error(
     command: str,
     line_number: int = 1
 ) -> list[str]:
-    """把单行命令错误整理成通用定位预览。"""
+    """把单行命令错误转换为带命令定位的预览行。"""
     if len(lines) != 1:
         return []
 
@@ -288,7 +353,7 @@ def _split_single_line_shell_error(
         "Line |",
         command_line,
         f"     |  {'~' * marker_width}",
-        f"     | {message}",
+        f"     |  {message}",
     ]
 
 
@@ -301,7 +366,7 @@ def render_tool_trace(
     cost_ms: int | None = None,
     before_exists: typing.Any = MISSING
 ) -> str:
-    """渲染工具完成后的轨迹摘要行。"""
+    """生成工具执行完成后的轨迹标题。"""
     _ = cost_ms
 
     args    = arguments if isinstance(arguments, dict) else {}
@@ -360,7 +425,7 @@ def render_tool_trace(
 def _single_shell_batch_payload(
     results: list[typing.Any]
 ) -> dict[str, typing.Any] | None:
-    """单元素 shell_command 批量 复用单命令预览。"""
+    """从单条 shell_command 批量结果中提取单命令参数和数据。"""
     items = [item for item in results if isinstance(item, dict)]
     if len(items) != 1:
         return None

@@ -57,6 +57,14 @@ class TracePreview(object):
     kind: str          = "text"
 
 
+@dataclass(frozen=True, slots=True)
+class TraceEntry(object):
+    """保存一条可独立展示的工具轨迹。"""
+    title: str
+    preview: TracePreview
+    ok: bool = True
+
+
 def _short_text(value: typing.Any, limit: int = 120) -> str:
     """把任意值压缩为单行短文本。"""
     text = " ".join(str(value or "").split())
