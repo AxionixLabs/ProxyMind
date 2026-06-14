@@ -6,10 +6,8 @@ import sys
 import shutil
 import typing
 import platform
-import subprocess
 from pathlib import Path
 from functools import lru_cache
-from backend.utilities import const
 
 
 @lru_cache(maxsize=1)
@@ -20,6 +18,7 @@ def _cached_exec_env() -> dict[str, typing.Any]:
         "shell"     : detect_shell(),
         "runtimes"  : detect_runtimes(),
         "tools"     : detect_tools(),
+        "env"       : detect_env(),
         "workspace" : detect_workspace()
     }
 
@@ -79,34 +78,48 @@ def detect_shell() -> dict[str, typing.Any]:
 def detect_runtimes() -> dict[str, typing.Any]:
     """检测常见本地运行时。"""
     return {
-        "python"  : runtime_bin(["python", "python3", "py"], version_args=["--version"]),
-        "node"    : runtime_bin(["node"], version_args=["--version"]),
-        "npm"     : runtime_bin(["npm"], version_args=["--version"]),
-        "java"    : runtime_bin(["java"], version_args=["-version"]),
-        "javac"   : runtime_bin(["javac"], version_args=["-version"]),
-        "maven"   : runtime_bin(["mvn"], version_args=["-version"]),
-        "gradle"  : runtime_bin(["gradle"], version_args=["-version"]),
-        "go"      : runtime_bin(["go"], version_args=["version"]),
-        "git"     : runtime_bin(["git"], version_args=["--version"]),
-        "ripgrep" : runtime_bin(["rg"], version_args=["--version"])
+        "python" : runtime_bin(["python", "python3", "py"]),
+        "node"   : runtime_bin(["node"]),
+        "npm"    : runtime_bin(["npm"]),
+        "java"   : runtime_bin(["java"]),
+        "javac"  : runtime_bin(["javac"]),
+        "maven"  : runtime_bin(["mvn"]),
+        "gradle" : runtime_bin(["gradle"]),
+        "go"     : runtime_bin(["go"]),
+        "git"    : runtime_bin(["git"])
     }
 
 
 def detect_tools() -> dict[str, typing.Any]:
     """检测随本地运行时提供给远端感知的命令行工具。"""
     return {
-        "adb"    : tool_bin("adb", version_args=["version"]),
-        "ffmpeg" : tool_bin("ffmpeg", version_args=["-version"]),
-        "k6"     : tool_bin("k6", version_args=["version"]),
-        "rg"     : tool_bin("rg", version_args=["--version"])
+        "adb"    : tool_bin("adb"),
+        "ffmpeg" : tool_bin("ffmpeg"),
+        "k6"     : tool_bin("k6"),
+        "rg"     : tool_bin("rg")
+    }
+
+
+def detect_env() -> dict[str, str]:
+    """读取允许上报给远端的本地环境变量。"""
+    names = [
+        "JAVA_HOME",
+        "MAVEN_HOME",
+        "GRADLE_HOME",
+        "VIRTUAL_ENV",
+        "CONDA_PREFIX",
+        "NVM_DIR"
+    ]
+    return {
+        name: value
+        for name in names
+        if (value := _clean_env(name))
     }
 
 
 def tool_bin(
     command: str,
     *,
-    version_args: list[str],
-    timeout_sec: float = 1.5,
     path_required: bool = False
 ) -> dict[str, typing.Any]:
     """解析可供远端生成命令的本地工具信息。"""
@@ -115,24 +128,16 @@ def tool_bin(
         "available"     : bool(executable),
         "command"       : command,
         "path"          : executable or "",
-        "path_required" : bool(path_required)
+        "path_required" : bool(path_required),
+        "source"        : tool_source(executable)
     }
-    if not executable:
-        return result
-
-    version = _runtime_version(executable, version_args, timeout_sec=timeout_sec)
-    if version:
-        result["version"] = version
     return result
 
 
 def runtime_bin(
-    candidates: list[str],
-    *,
-    version_args: list[str],
-    timeout_sec: float = 1.5
+    candidates: list[str]
 ) -> dict[str, typing.Any]:
-    """解析运行时可执行文件并读取版本信息。"""
+    """解析运行时可执行文件。"""
     for candidate in candidates:
         executable = shutil.which(candidate)
         if not executable:
@@ -142,10 +147,6 @@ def runtime_bin(
             "available"  : True,
             "executable" : executable
         }
-
-        # version = _runtime_version(executable, version_args, timeout_sec=timeout_sec)
-        # if version:
-        #     result["version"] = version
         return result
 
     return {"available": False}
@@ -154,57 +155,91 @@ def runtime_bin(
 def detect_workspace() -> dict[str, typing.Any]:
     """返回当前进程工作目录和项目标记。"""
     root = Path.cwd().resolve()
-
     marker_names = [
         ".git",
         "pyproject.toml",
         "requirements.txt",
         "setup.py",
         "package.json",
+        "package-lock.json",
         "pnpm-lock.yaml",
         "yarn.lock",
+        "bun.lock",
+        "bun.lockb",
         "pom.xml",
         "build.gradle",
         "build.gradle.kts",
         "go.mod",
         "Cargo.toml"
     ]
-
     markers = [name for name in marker_names if (root / name).exists()]
-
     return {
-        "root"    : str(root),
-        "markers" : markers,
-        "source"  : "runtime_service_process_cwd"
+        "root"               : str(root),
+        "markers"            : markers,
+        "package_manager"    : detect_package_manager(root),
+        "python_virtualenvs" : detect_python_virtualenvs(root),
+        "source"             : "runtime_service_process_cwd"
     }
 
 
-def _runtime_version(
-    executable: str,
-    args: list[str],
-    *,
-    timeout_sec: float
-) -> str:
-    """执行版本查询命令并返回首行输出。"""
-    try:
-        completed = subprocess.run(
-            [executable, *args],
-            capture_output=True,
-            text=True,
-            timeout=timeout_sec,
-            encoding=const.CHARSET,
-            errors="replace",
-            check=False
-        )
-    except (OSError, subprocess.SubprocessError):
-        return ""
+def detect_package_manager(root: Path) -> str:
+    """根据锁文件推断 Node 包管理器。"""
+    if (root / "pnpm-lock.yaml").exists():
+        return "pnpm"
+    if (root / "yarn.lock").exists():
+        return "yarn"
+    if (root / "bun.lock").exists() or (root / "bun.lockb").exists():
+        return "bun"
+    if (root / "package-lock.json").exists():
+        return "npm"
+    return "npm" if (root / "package.json").exists() else ""
 
-    output = "\n".join(
-        item.strip() for item in (completed.stdout, completed.stderr)
-        if item and item.strip()
-    )
 
-    return output.splitlines()[0].strip() if output else ""
+def detect_python_virtualenvs(root: Path) -> list[dict[str, typing.Any]]:
+    """扫描工作区常见 Python 虚拟环境。"""
+    out: list[dict[str, typing.Any]] = []
+    for name in ("venv", ".venv"):
+        path = root / name
+        executable = venv_python(path)
+        if executable is None:
+            continue
+        relative_python = executable.relative_to(root).as_posix()
+        out.append({
+            "name"            : name,
+            "path"            : str(path),
+            "relative_path"   : name,
+            "python"          : str(executable),
+            "relative_python" : relative_python,
+            "available"       : True
+        })
+    return out
+
+
+def venv_python(root: Path) -> Path | None:
+    """返回虚拟环境中的 Python 可执行文件。"""
+    folders = [
+        root / "Scripts" if os.name == "nt" else root / "bin",
+        root / "bin",
+        root / "Scripts"
+    ]
+    names = ("python.exe", "python") if os.name == "nt" else ("python", "python3")
+
+    for folder in folders:
+        if not folder.is_dir():
+            continue
+        for name in names:
+            executable = folder / name
+            if executable.exists():
+                return executable
+    return None
+
+
+def tool_source(executable: str | None) -> str:
+    """标记工具来自普通 PATH 还是随包 bundled requires。"""
+    if not executable:
+        return "missing"
+    parts = Path(executable).resolve().parts
+    return "bundled" if "requires" in parts else "path"
 
 
 def _shell_name(executable: str) -> str:
@@ -212,7 +247,6 @@ def _shell_name(executable: str) -> str:
     name = str(executable or "").replace("\\", "/").rsplit("/", 1)[-1].strip().lower()
     if name.endswith(".exe"):
         name = name[:-4]
-
     return name or "shell"
 
 
