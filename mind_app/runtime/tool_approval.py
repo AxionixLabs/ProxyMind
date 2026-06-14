@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import re
+import time
+import shutil
 import typing
 import asyncio
-import shutil
-import re
+import contextlib
 from dataclasses import (
     dataclass, field
 )
@@ -40,7 +42,8 @@ ApprovalDecisionValue = typing.Literal[
     "accept",
     "acceptForSession",
     "decline",
-    "cancel"
+    "cancel",
+    "expired"
 ]
 
 DEFAULT_APPROVAL_DECISIONS: tuple[ApprovalDecisionValue, ...] = (
@@ -255,6 +258,48 @@ def _truthy_approval_required(value: typing.Any) -> bool:
     return False
 
 
+def approval_expired(approval: dict[str, typing.Any] | None) -> bool:
+    """根据服务端下发的 expires_at_ms 判断审批是否已过期。"""
+    remaining = approval_remaining_sec(approval)
+    return remaining is not None and remaining <= 0
+
+
+def approval_remaining_sec(approval: dict[str, typing.Any] | None) -> float | None:
+    """返回审批剩余秒数；缺少过期时间时返回 None。"""
+    expires_at_ms = _approval_expires_at_ms(approval)
+    if expires_at_ms is None:
+        return None
+    return (expires_at_ms - int(time.time() * 1000)) / 1000.0
+
+
+def approval_expiry_label(approval: dict[str, typing.Any] | None) -> str:
+    """生成审批过期倒计时文案。"""
+    remaining = approval_remaining_sec(approval)
+    if remaining is None:
+        return ""
+    if remaining <= 0:
+        return "Approval expired"
+
+    total_sec = max(1, int(remaining + 0.999))
+
+    minutes, seconds = divmod(total_sec, 60)
+    if minutes:
+        return f"Expires in {minutes}m {seconds:02d}s"
+    return f"Expires in {seconds}s"
+
+
+def _approval_expires_at_ms(approval: dict[str, typing.Any] | None) -> int | None:
+    """读取审批过期时间毫秒时间戳。"""
+    if not isinstance(approval, dict):
+        return None
+    raw = approval.get("expires_at_ms") or approval.get("expiresAtMs")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
 def _approval_arguments(
     approval: dict[str, typing.Any],
     *,
@@ -463,6 +508,8 @@ def approval_menu_content_lines(
         lines.extend(_approval_question_lines(approval))
         lines.extend(_approval_command_lines(approval))
         lines.extend(_approval_preview_menu_lines(approval))
+        if expiry_label := approval_expiry_label(approval):
+            lines.append([("class:approval-preview", expiry_label)])
         lines.append([])
 
     for index, decision in enumerate(decisions, start=1):
@@ -810,6 +857,8 @@ def _answer_to_decision(
 ) -> ApprovalDecisionValue:
     """将用户输入转换为最终审批选择。"""
     text = str(answer or "").strip().lower()
+    if text == "expired":
+        return "expired"
     if text.isdigit():
         index = int(text) - 1
         if 0 <= index < len(decisions):
@@ -833,6 +882,9 @@ async def prompt_tool_approval_decision(
     show_prompt: bool = True
 ) -> ApprovalDecisionValue:
     """读取审批请求的用户选择。"""
+    if approval_expired(approval):
+        return "expired"
+
     decisions = approval_decisions(approval)
     try:
         if input_func is not None:
@@ -923,6 +975,7 @@ async def _run_approval_menu(
             event.app.exit(result=selected_decision)
 
     control = FormattedTextControl(render_menu, focusable=True)
+
     app: Application[str] = Application(
         layout=Layout(
             Window(
@@ -938,7 +991,35 @@ async def _run_approval_menu(
         erase_when_done=True,
         mouse_support=False
     )
-    return str(await app.run_async())
+
+    expiry_task = asyncio.create_task(_expire_approval_menu(app, approval))
+
+    try:
+        return str(await app.run_async())
+    finally:
+        expiry_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await expiry_task
+
+
+async def _expire_approval_menu(
+    app: Application[str],
+    approval: dict[str, typing.Any] | None
+) -> None:
+    """刷新审批倒计时，并在过期后自动关闭菜单。"""
+    while True:
+        remaining = approval_remaining_sec(approval)
+        if remaining is None:
+            return None
+        if remaining <= 0:
+            with contextlib.suppress(Exception):
+                app.exit(result="expired")
+            return None
+
+        await asyncio.sleep(min(1.0, max(0.05, remaining)))
+
+        with contextlib.suppress(Exception):
+            app.invalidate()
 
 
 if __name__ == '__main__':

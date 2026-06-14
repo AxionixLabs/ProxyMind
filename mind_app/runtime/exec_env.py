@@ -94,11 +94,35 @@ def detect_runtimes() -> dict[str, typing.Any]:
 def detect_tools() -> dict[str, typing.Any]:
     """检测随本地运行时提供给远端感知的命令行工具。"""
     return {
-        "adb"    : runtime_bin(["adb"], version_args=["version"]),
-        "ffmpeg" : runtime_bin(["ffmpeg"], version_args=["-version"]),
-        "k6"     : runtime_bin(["k6"], version_args=["version"]),
-        "rg"     : runtime_bin(["rg"], version_args=["--version"])
+        "adb"    : tool_bin("adb", version_args=["version"]),
+        "ffmpeg" : tool_bin("ffmpeg", version_args=["-version"]),
+        "k6"     : tool_bin("k6", version_args=["version"]),
+        "rg"     : tool_bin("rg", version_args=["--version"])
     }
+
+
+def tool_bin(
+    command: str,
+    *,
+    version_args: list[str],
+    timeout_sec: float = 1.5,
+    path_required: bool = False
+) -> dict[str, typing.Any]:
+    """解析可供远端生成命令的本地工具信息。"""
+    executable = shutil.which(command)
+    result: dict[str, typing.Any] = {
+        "available"     : bool(executable),
+        "command"       : command,
+        "path"          : executable or "",
+        "path_required" : bool(path_required)
+    }
+    if not executable:
+        return result
+
+    # version = _runtime_version(executable, version_args, timeout_sec=timeout_sec)
+    # if version:
+    #     result["version"] = version
+    return result
 
 
 def runtime_bin(

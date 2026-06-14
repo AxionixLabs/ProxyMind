@@ -36,6 +36,7 @@ from ..stream_events.responses_builtin import (
 from ..stream_events.approval_trace import (
     render_approval_approved_trace,
     render_approval_denied_trace,
+    render_approval_expired_trace,
     render_approval_trace_parts
 )
 from ..stream_events.tool_trace import (
@@ -175,9 +176,44 @@ async def stream_looper(
                     input_func=approval_input_func
                 )
 
+                if decision == "expired":
+                    expired_title = render_approval_expired_trace(approval)
+                    expired_parts = [
+                        *render_approval_trace_parts(
+                            expired_title, approval=approval, state="denied"
+                        )
+                    ]
+                    await slog.print_block(
+                        expired_title, display_parts=expired_parts
+                    )
+                    await slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
+                    continue
+
                 approved    = decision in {"accept", "acceptForSession"}
                 approval_id = approval_id_from_event(event)
                 reason      = None if approved else "user denied"
+
+                try:
+                    await request.post_tool_approval(
+                        event["cid"],
+                        event["sid"],
+                        event["call_id"],
+                        approval_id,
+                        decision=decision,
+                        reason=reason
+                    )
+                except request.ToolApprovalExpired:
+                    expired_title = render_approval_expired_trace(approval)
+                    expired_parts = [
+                        *render_approval_trace_parts(
+                            expired_title, approval=approval, state="denied"
+                        )
+                    ]
+                    await slog.print_block(
+                        expired_title, display_parts=expired_parts
+                    )
+                    await slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
+                    continue
 
                 approvals.mark_decision(
                     call_id=str(event.get("call_id") or ""), approval=approval, decision=decision
@@ -194,14 +230,6 @@ async def stream_looper(
                 ]
                 await slog.print_block(
                     done_title, display_parts=done_parts
-                )
-                await request.post_tool_approval(
-                    event["cid"],
-                    event["sid"],
-                    event["call_id"],
-                    approval_id,
-                    decision=decision,
-                    reason=reason
                 )
                 if not approved:
                     await slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)

@@ -18,6 +18,14 @@ from mind_nova.modes import RunMode
 from mind_nova import const
 
 
+class ToolApprovalExpired(Exception):
+    """表示服务端审批请求已不再处于 pending 状态。"""
+
+    def __init__(self, message: str = "tool approval not pending") -> None:
+        super().__init__(message)
+        self.message = message
+
+
 def resolve_transport_mode(mode: str) -> str:
     """规范化传输模式，保持本地模式与服务端链路一一对应。"""
     return str(mode or "").strip().lower()
@@ -348,7 +356,25 @@ async def post_tool_approval(
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(const.TOOL_APPROVAL_URL, headers=headers, json=payload)
+        if _tool_approval_expired_response(r):
+            raise ToolApprovalExpired(_response_text(r) or "tool approval not pending")
         r.raise_for_status()
+
+
+def _tool_approval_expired_response(response: httpx.Response) -> bool:
+    """识别服务端返回的审批已过期/不再 pending 响应。"""
+    if response.status_code != 404:
+        return False
+    text = _response_text(response).lower()
+    return "tool approval not pending" in text or "approval not pending" in text
+
+
+def _response_text(response: httpx.Response) -> str:
+    """安全读取 HTTP 响应文本。"""
+    try:
+        return str(response.text or "").strip()
+    except (TypeError, ValueError, AttributeError):
+        return ""
 
 
 async def stream_chat(

@@ -95,11 +95,35 @@ def detect_runtimes() -> dict[str, typing.Any]:
 def detect_tools() -> dict[str, typing.Any]:
     """检测随本地运行时提供给远端感知的命令行工具。"""
     return {
-        "adb"    : runtime_bin(["adb"], version_args=["version"]),
-        "ffmpeg" : runtime_bin(["ffmpeg"], version_args=["-version"]),
-        "k6"     : runtime_bin(["k6"], version_args=["version"]),
-        "rg"     : runtime_bin(["rg"], version_args=["--version"])
+        "adb"    : tool_bin("adb", version_args=["version"]),
+        "ffmpeg" : tool_bin("ffmpeg", version_args=["-version"]),
+        "k6"     : tool_bin("k6", version_args=["version"]),
+        "rg"     : tool_bin("rg", version_args=["--version"])
     }
+
+
+def tool_bin(
+    command: str,
+    *,
+    version_args: list[str],
+    timeout_sec: float = 1.5,
+    path_required: bool = False
+) -> dict[str, typing.Any]:
+    """解析可供远端生成命令的本地工具信息。"""
+    executable = shutil.which(command)
+    result: dict[str, typing.Any] = {
+        "available"     : bool(executable),
+        "command"       : command,
+        "path"          : executable or "",
+        "path_required" : bool(path_required)
+    }
+    if not executable:
+        return result
+
+    version = _runtime_version(executable, version_args, timeout_sec=timeout_sec)
+    if version:
+        result["version"] = version
+    return result
 
 
 def runtime_bin(
@@ -118,9 +142,10 @@ def runtime_bin(
             "available"  : True,
             "executable" : executable
         }
-        version = _runtime_version(executable, version_args, timeout_sec=timeout_sec)
-        if version:
-            result["version"] = version
+
+        # version = _runtime_version(executable, version_args, timeout_sec=timeout_sec)
+        # if version:
+        #     result["version"] = version
         return result
 
     return {"available": False}
@@ -129,6 +154,7 @@ def runtime_bin(
 def detect_workspace() -> dict[str, typing.Any]:
     """返回当前进程工作目录和项目标记。"""
     root = Path.cwd().resolve()
+
     marker_names = [
         ".git",
         "pyproject.toml",
@@ -143,7 +169,9 @@ def detect_workspace() -> dict[str, typing.Any]:
         "go.mod",
         "Cargo.toml"
     ]
+
     markers = [name for name in marker_names if (root / name).exists()]
+
     return {
         "root"    : str(root),
         "markers" : markers,
@@ -172,10 +200,10 @@ def _runtime_version(
         return ""
 
     output = "\n".join(
-        item.strip()
-        for item in (completed.stdout, completed.stderr)
+        item.strip() for item in (completed.stdout, completed.stderr)
         if item and item.strip()
     )
+
     return output.splitlines()[0].strip() if output else ""
 
 
@@ -184,6 +212,7 @@ def _shell_name(executable: str) -> str:
     name = str(executable or "").replace("\\", "/").rsplit("/", 1)[-1].strip().lower()
     if name.endswith(".exe"):
         name = name[:-4]
+
     return name or "shell"
 
 
