@@ -44,6 +44,7 @@ class TextState(object):
         raw_chunk: typing.Optional[str] = None,
         display_style: typing.Optional[str] = None,
         display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None,
+        preserve_display_parts: bool = False,
         echo: bool = True
     ) -> bool:
         """追加一段文本并返回是否适合继续打字机动画。"""
@@ -70,7 +71,13 @@ class TextState(object):
         elif display == self.STREAM and raw_chunk is not None:
             raw_delta = str(raw_chunk)
 
-        self._append_segment(display, visible_delta, visible_parts, raw_delta=raw_delta)
+        self._append_segment(
+            display,
+            visible_delta,
+            visible_parts,
+            raw_delta=raw_delta,
+            preserve_display_parts=preserve_display_parts
+        )
         self.raw_text += raw_delta
         self.visible_segments = self._compose_visible_segments()
 
@@ -240,7 +247,8 @@ class TextState(object):
         delta: str,
         parts: list[dict[str, typing.Optional[str]]],
         *,
-        raw_delta: str = ""
+        raw_delta: str = "",
+        preserve_display_parts: bool = False
     ) -> None:
         """追加一个显示段，并合并连续 stream 段。"""
         if (
@@ -251,13 +259,17 @@ class TextState(object):
             self.display_segments[-1]["text"] += delta
             self.display_segments[-1]["parts"].extend(parts)
             self.display_segments[-1]["raw_text"] += raw_delta
+            self.display_segments[-1]["preserve_display_parts"] = bool(
+                self.display_segments[-1].get("preserve_display_parts")
+            ) and preserve_display_parts
             return None
 
         self.display_segments.append({
-            "mode"     : display,
-            "text"     : delta,
-            "parts"    : parts,
-            "raw_text" : raw_delta
+            "mode"                   : display,
+            "text"                   : delta,
+            "parts"                  : parts,
+            "raw_text"               : raw_delta,
+            "preserve_display_parts" : preserve_display_parts
         })
 
     def _compose_visible_text(self) -> str:
@@ -277,6 +289,9 @@ class TextState(object):
                 {"text": str(segment.get("text") or ""), "style": None}
             ]
             if mode == self.BLOCK:
+                if segment.get("preserve_display_parts"):
+                    self._extend_parts(styled_parts, segment_parts)
+                    continue
                 self._extend_parts(
                     styled_parts,
                     self._render_block_parts(segment_parts, block_limit)

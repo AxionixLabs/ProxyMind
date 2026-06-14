@@ -58,7 +58,8 @@ class StreamUI(object):
         display: str = STREAM,
         display_chunk: typing.Optional[str] = None,
         display_style: typing.Optional[str] = None,
-        display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None
+        display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None,
+        preserve_display_parts: bool = False
     ) -> None:
         if not chunk:
             return None
@@ -87,7 +88,8 @@ class StreamUI(object):
             display_chunk=display_chunk,
             raw_chunk=raw_chunk,
             display_style=display_style,
-            display_parts=display_parts
+            display_parts=display_parts,
+            preserve_display_parts=preserve_display_parts
         )
 
     def mark_stream_boundary(self) -> None:

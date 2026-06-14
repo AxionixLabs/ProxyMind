@@ -63,7 +63,8 @@ class RenderCoord(object):
         display_chunk: typing.Optional[str] = None,
         raw_chunk: typing.Optional[str] = None,
         display_style: typing.Optional[str] = None,
-        display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None
+        display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None,
+        preserve_display_parts: bool = False
     ) -> None:
         animate = self.text_state.append(
             chunk,
@@ -72,7 +73,8 @@ class RenderCoord(object):
             display_chunk=display_chunk,
             raw_chunk=raw_chunk,
             display_style=display_style,
-            display_parts=display_parts
+            display_parts=display_parts,
+            preserve_display_parts=preserve_display_parts
         )
         if not (echo and chunk):
             return None

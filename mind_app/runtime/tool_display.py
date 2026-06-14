@@ -97,7 +97,8 @@ async def show_tool_result(
                     preview=entry.preview,
                     ok=entry.ok,
                     terminal_width=getattr(Design.console, "width", None)
-                )
+                ),
+                preserve_display_parts=True
             )
         return None
 
