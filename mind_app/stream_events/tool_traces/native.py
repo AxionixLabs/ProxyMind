@@ -48,6 +48,8 @@ NATIVE_CODING_TRACE_TOOLS = {
     "workspace_apply_unified_patch"
 }
 
+SMALL_SHELL_BATCH_TRACE_LIMIT = 3
+
 
 def render_tool_start_trace(
     name: str,
@@ -248,7 +250,7 @@ def render_tool_result_entries(
         results = payload.get("results")
         if isinstance(results, list):
             items = [item for item in results if isinstance(item, dict)]
-            if 0 < len(items) <= 3:
+            if 0 < len(items) <= SMALL_SHELL_BATCH_TRACE_LIMIT:
                 entries: list[TraceEntry] = []
 
                 for item in items:

@@ -2,17 +2,42 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from pygments.token import Token
 from rich.console import (
     Console,
     ConsoleOptions,
     RenderResult
 )
 from rich.markdown import (
+    CodeBlock,
     Heading,
     Markdown,
     TableDataElement
 )
+from rich.style import Style
+from rich.syntax import Syntax
+from rich.syntax import ANSISyntaxTheme
 from rich.text import Text
+from rich.theme import Theme
+
+MARKDOWN_CODE_STYLE = "#A8D5C2"
+
+MARKDOWN_THEME = Theme({
+    "markdown.code"       : MARKDOWN_CODE_STYLE,
+    "markdown.code_block" : MARKDOWN_CODE_STYLE
+})
+
+MARKDOWN_CODE_THEME = ANSISyntaxTheme({
+    Token                 : Style.parse("#BCC9D6"),
+    Token.Comment         : Style.parse("dim #8FA4B8"),
+    Token.Keyword         : Style.parse("bold #B9A6D8"),
+    Token.Name            : Style.parse("#CAD5DF"),
+    Token.Operator        : Style.parse("#AAB8C6"),
+    Token.Literal.Number  : Style.parse("#D3C27C"),
+    Token.Literal.String  : Style.parse("#A9CDBB"),
+    Token.Generic.Deleted : Style.parse("#FF8A8A"),
+    Token.Generic.Inserted : Style.parse("#6EE7A8"),
+})
 
 
 class LeftHeading(Heading):
@@ -40,6 +65,27 @@ class LeftTableDataElement(TableDataElement):
         return cls(justify="left")
 
 
+class PlainCodeBlock(CodeBlock):
+    """渲染无背景的 Markdown 代码块。"""
+
+    def __rich_console__(
+        self,
+        console: Console,
+        options: ConsoleOptions
+    ) -> RenderResult:
+        _ = console, options
+
+        code = str(self.text).rstrip()
+        yield Syntax(
+            code,
+            self.lexer_name,
+            theme=MARKDOWN_CODE_THEME,
+            word_wrap=True,
+            background_color="default",
+            padding=0
+        )
+
+
 class MarkdownRenderer(Markdown):
     """统一的 Markdown 渲染器，保留 Rich 能力并修正默认布局。"""
 
@@ -47,8 +93,21 @@ class MarkdownRenderer(Markdown):
         **Markdown.elements,
         "heading_open" : LeftHeading,
         "td_open"      : LeftTableDataElement,
-        "th_open"      : LeftTableDataElement
+        "th_open"      : LeftTableDataElement,
+        "fence"        : PlainCodeBlock,
+        "code_block"   : PlainCodeBlock
     }
+
+    def __rich_console__(
+        self,
+        console: Console,
+        options: ConsoleOptions
+    ) -> RenderResult:
+        console.push_theme(MARKDOWN_THEME)
+        try:
+            yield from super().__rich_console__(console, options)
+        finally:
+            console.pop_theme()
 
 
 def render_markdown(text: typing.Any) -> MarkdownRenderer:
