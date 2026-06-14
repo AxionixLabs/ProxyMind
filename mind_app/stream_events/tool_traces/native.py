@@ -48,7 +48,7 @@ NATIVE_CODING_TRACE_TOOLS = {
     "workspace_apply_unified_patch"
 }
 
-SMALL_SHELL_BATCH_TRACE_LIMIT = 3
+SMALL_SHELL_BATCH_TRACE_LIMIT = 2
 
 
 def render_tool_start_trace(
