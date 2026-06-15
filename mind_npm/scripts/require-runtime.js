@@ -17,7 +17,7 @@ for (const candidate of candidates) {
   }
 }
 
-console.error("Required runtime binary not found. Checked:");
+console.error("Required runtime path not found. Checked:");
 for (const candidate of candidates) {
   console.error(`- ${path.resolve(process.cwd(), candidate)}`);
 }

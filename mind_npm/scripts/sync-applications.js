@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { cpSync, existsSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -60,6 +60,7 @@ for (const item of syncTargets) {
       continue;
     }
 
+    mkdirSync(path.dirname(entry.target), { recursive: true });
     cpSync(entry.source, entry.target, { recursive: true });
     console.log(`Synced ${item.name}: ${entry.source} -> ${entry.target}`);
   }

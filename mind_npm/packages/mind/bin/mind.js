@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import readline from "node:readline/promises";
+import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
@@ -14,6 +14,13 @@ const packageJson = JSON.parse(readFileSync(path.join(packageRoot, "package.json
 const packageName = packageJson.name;
 const currentVersion = packageJson.version;
 const updateCheckIntervalMs = 24 * 60 * 60 * 1000;
+const color = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  cyan: "\x1b[38;5;37m",
+  yellow: "\x1b[33m"
+};
 
 function updateStateDir() {
   if (process.platform === "win32") {
@@ -111,21 +118,20 @@ async function installLatestPackage() {
 }
 
 async function promptForUpdate(latestVersion, state, now) {
-  console.log(`\n\u2728 Update available! ${currentVersion} -> ${latestVersion}\n`);
-  console.log(`Release notes: https://www.npmjs.com/package/${packageName}\n`);
-  console.log(`1. Update now (runs \`npm install -g ${packageName}\`)`);
-  console.log("2. Skip");
-  console.log("3. Skip until next version\n");
+  console.log(
+    `\n${color.bold}${color.yellow}\u2728 Update available!${color.reset} ` +
+    `${color.dim}${currentVersion}${color.reset} -> ${latestVersion}\n`
+  );
+  console.log(
+    `${color.dim}Release notes:${color.reset} ` +
+    `https://www.npmjs.com/package/${packageName}\n`
+  );
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-
-  const answer = (await rl.question("Press enter to continue [2]: ")).trim();
-  rl.close();
-
-  const choice = answer || "2";
+  const choice = await selectUpdateChoice([
+    `Update now (runs \`npm install -g ${packageName}\`)`,
+    "Skip",
+    "Skip until next version"
+  ], 0);
 
   if (choice === "1") {
     await installLatestPackage();
@@ -138,10 +144,115 @@ async function promptForUpdate(latestVersion, state, now) {
       last_checked_at: now,
       skip_until_version: latestVersion
     });
+    return;
+  }
+
+  if (choice === "exit") {
+    process.exit(130);
   }
 }
 
+function renderUpdateMenu(items, selected) {
+  process.stdout.write("\x1b[?25l");
+  for (let index = 0; index < items.length; index += 1) {
+    process.stdout.write(`${formatMenuLine(items, index, selected)}\n`);
+  }
+  process.stdout.write(`\n${color.dim}Press enter to continue, Esc to exit${color.reset}`);
+}
+
+function formatMenuLine(items, index, selected) {
+  return `${menuMarker(index === selected)} ${color.cyan}${index + 1}. ${items[index]}${color.reset}`;
+}
+
+function menuMarker(active) {
+  return active
+    ? `${color.cyan}\u203a${color.reset}`
+    : " ";
+}
+
+function writeMenuMarker(index, active) {
+  readline.cursorTo(process.stdout, 0);
+  process.stdout.write(menuMarker(active));
+}
+
+function moveMenuSelection(items, previous, selected) {
+  const lineCount = items.length + 2;
+  const promptLine = lineCount - 1;
+
+  readline.moveCursor(process.stdout, 0, -(promptLine - previous));
+  writeMenuMarker(previous, false);
+
+  readline.moveCursor(process.stdout, 0, selected - previous);
+  writeMenuMarker(selected, true);
+
+  readline.moveCursor(process.stdout, 0, promptLine - selected);
+  readline.cursorTo(process.stdout, 0);
+}
+
+async function selectUpdateChoice(items, defaultIndex) {
+  let selected = Math.max(0, Math.min(items.length - 1, defaultIndex));
+  const wasRaw = process.stdin.isRaw;
+
+  readline.emitKeypressEvents(process.stdin);
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+
+  renderUpdateMenu(items, selected);
+
+  return await new Promise((resolve) => {
+    const finish = (value) => {
+      process.stdin.off("keypress", onKeypress);
+      process.stdin.setRawMode(wasRaw);
+      process.stdout.write("\x1b[?25h\n");
+      resolve(value);
+    };
+
+    const onKeypress = (_str, key) => {
+      if (key.ctrl && key.name === "c") {
+        finish("exit");
+        return;
+      }
+
+      if (key.name === "escape") {
+        finish("exit");
+        return;
+      }
+
+      if (key.name === "up") {
+        const previous = selected;
+        selected = selected === 0 ? items.length - 1 : selected - 1;
+        moveMenuSelection(items, previous, selected);
+        return;
+      }
+
+      if (key.name === "down") {
+        const previous = selected;
+        selected = selected === items.length - 1 ? 0 : selected + 1;
+        moveMenuSelection(items, previous, selected);
+        return;
+      }
+
+      if (key.name === "return" || key.name === "enter") {
+        finish(String(selected + 1));
+        return;
+      }
+
+      if (["1", "2", "3"].includes(key.sequence)) {
+        finish(key.sequence);
+      }
+    };
+
+    process.stdin.on("keypress", onKeypress);
+  });
+}
+
 async function maybeCheckPackageUpdate(args) {
+  if (process.env.MIND_TEST_UPDATE_MENU === "1") {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) return;
+    await promptForUpdate("9.9.9", loadUpdateState(), Date.now());
+    return;
+  }
+
   if (shouldSkipUpdateCheck(args)) return;
 
   const state = loadUpdateState();
