@@ -61,6 +61,24 @@ def _answer_to_decision(
     return "decline" if "decline" in decisions else decisions[-1]
 
 
+def _escape_decision(
+    decisions: list[ApprovalDecisionValue]
+) -> ApprovalDecisionValue | None:
+    """返回 Esc 允许触发的审批结果；未显式提供 cancel 时只吞掉按键。"""
+    return "cancel" if "cancel" in decisions else None
+
+
+def _interrupt_decision(
+    decisions: list[ApprovalDecisionValue]
+) -> ApprovalDecisionValue:
+    """返回 Ctrl-C 触发的本地安全中断结果。"""
+    if "decline" in decisions:
+        return "decline"
+    if "cancel" in decisions:
+        return "cancel"
+    return decisions[-1]
+
+
 async def prompt_tool_approval_decision(
     approval: dict[str, typing.Any],
     *,
@@ -139,15 +157,18 @@ async def _run_approval_menu(
         event.app.invalidate()
 
     @bindings.add("escape")
-    @bindings.add("c-c")
     def _(event) -> None:
         """取消审批菜单。"""
-        if "cancel" in decisions:
-            event.app.exit(result="cancel")
-        elif "decline" in decisions:
-            event.app.exit(result="decline")
-        else:
-            event.app.exit(result=decisions[-1])
+        decision = _escape_decision(decisions)
+        if decision is not None:
+            event.app.exit(result=decision)
+            return None
+        event.app.invalidate()
+
+    @bindings.add("c-c")
+    def _(event) -> None:
+        """中断审批菜单。"""
+        event.app.exit(result=_interrupt_decision(decisions))
 
     @bindings.add("y")
     def _(event) -> None:
