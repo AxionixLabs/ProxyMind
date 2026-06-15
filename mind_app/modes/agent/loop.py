@@ -37,6 +37,7 @@ from .ws import (
     connect_once
 )
 from mind_nova import const
+from mind_nova.services import service_domain
 
 if typing.TYPE_CHECKING:
     from ...mind_core import Mind
@@ -192,7 +193,7 @@ async def open_new_runtime(
 async def agent_loop(mind: "Mind") -> None:
     """订阅模式主循环：创建会话、建立 WS，并持续处理协议消息。"""
     config = AgentConfig(
-        base_url=const.DOMAIN,
+        base_url=service_domain(),
         device_id=build_device_id(),
         agent_id=const.APP_NAME,
         client_version=const.APP_VERSION,

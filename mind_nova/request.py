@@ -15,6 +15,7 @@ from engine.channel import Channel
 from mind_app.stream_ui import StreamUI
 from mind_app.runtime.exec_env import exec_env
 from mind_nova.modes import RunMode
+from mind_nova.services import endpoint
 from mind_nova import const
 
 
@@ -59,7 +60,7 @@ async def fetch_manifest() -> typing.Optional[dict[str, typing.Any]]:
 
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.request("GET", const.MANIFEST_URL, headers=headers, params=params)
+            resp = await client.request("GET", endpoint("/mind-manifest"), headers=headers, params=params)
             resp.raise_for_status()
             data = resp.json()
 
@@ -130,7 +131,7 @@ async def post_stream_event(
         "event" : event
     }
     async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(const.STREAM_EVENT_URL, headers=headers, json=payload)
+        r = await client.post(endpoint("/events-ingest"), headers=headers, json=payload)
         r.raise_for_status()
 
 
@@ -153,7 +154,7 @@ async def open_report_session(
         payload["proto"] = proto.strip()
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(const.REPORT_OPEN_URL, headers=headers, json=payload)
+        r = await client.post(endpoint("/reports/open"), headers=headers, json=payload)
         r.raise_for_status()
         body = r.json()
 
@@ -288,7 +289,7 @@ async def upload_file_stream(
         )
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(const.FILE_STREAM_URL, headers=headers, content=body())
+        r = await client.post(endpoint("/upload"), headers=headers, content=body())
         r.raise_for_status()
 
         if progress_callback is not None:
@@ -328,7 +329,7 @@ async def post_tool_result(
         payload["execution"] = execution
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await client.post(const.TOOL_RESULT_URL, headers=headers, json=payload)
+        r = await client.post(endpoint("/tool-result"), headers=headers, json=payload)
         r.raise_for_status()
 
 
@@ -355,7 +356,7 @@ async def post_tool_approval(
         payload["reason"] = reason
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(const.TOOL_APPROVAL_URL, headers=headers, json=payload)
+        r = await client.post(endpoint("/tool-approval"), headers=headers, json=payload)
         if _tool_approval_expired_response(r):
             raise ToolApprovalExpired(_response_text(r) or "tool approval not pending")
         r.raise_for_status()
@@ -404,7 +405,7 @@ async def stream_chat(
     if attachments:
         payload["attachments"] = attachments
 
-    async for event in streaming(const.STREAM_CHAT_URL, headers, payload, timeout):
+    async for event in streaming(endpoint("/mind-chat"), headers, payload, timeout):
         event_type = str(event.get("type") or "")
 
         if event_type == "ping":
@@ -434,7 +435,7 @@ async def stream_plan(
         **kwargs
     }
 
-    async for event in streaming(const.STREAM_PLAN_URL, headers, payload, timeout):
+    async for event in streaming(endpoint("/mind-plan"), headers, payload, timeout):
         event_type = str(event.get("type") or "")
 
         if event_type in ["plan.done", "ping"]:
@@ -470,7 +471,7 @@ async def stream_heal(
         "context"    : kwargs
     }
 
-    async for event in streaming(const.STREAM_HEAL_URL, headers, payload, timeout):
+    async for event in streaming(endpoint("/mind-heal"), headers, payload, timeout):
         match event.get("type"):
             case "ping":
                 continue
@@ -515,7 +516,7 @@ async def stream_rule(
         "extras"    : {"context" : context}
     }
 
-    async for event in streaming(const.STREAM_RULE_URL, headers, payload, timeout):
+    async for event in streaming(endpoint("/mind-rule"), headers, payload, timeout):
         event_type = str(event.get("type") or "")
 
         if event_type in {"turn.thinking", "ping"}:

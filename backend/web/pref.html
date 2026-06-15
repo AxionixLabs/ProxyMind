@@ -509,9 +509,16 @@
     .model-card{
       min-width:0;
     }
+    .service-card{
+      min-height:0;
+    }
+    .service-card > .section{
+      flex:0 0 auto;
+    }
     .model-card .section{
       display:grid;
       gap:18px;
+      align-content:start;
     }
     .model-copy{
       display:grid;
@@ -1075,6 +1082,32 @@
 
     <section class="page-content-grid">
       <form class="fields" id="pref-form">
+        <section class="card model-card main-panel-card service-card">
+          <div class="bar">
+            <div class="bar-start">
+              <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+              <div class="chip">Service Domain</div>
+            </div>
+            <div class="bar-end">
+              <div class="chip">runtime</div>
+            </div>
+          </div>
+          <div class="section">
+            <div class="section-head">
+              <div class="section-title-wrap model-copy">
+                <h3 class="section-title model-title">Service Domain</h3>
+                <p class="section-desc model-desc">远端专有服务的基础域名。留空时使用应用内置常量。</p>
+              </div>
+            </div>
+            <div class="field">
+              <div class="label-row">
+                <label for="service-domain">Domain</label>
+                <span class="hint">http or https</span>
+              </div>
+              <input id="service-domain" name="service_domain" placeholder="https://api.example.com" />
+            </div>
+          </div>
+        </section>
         <div class="page-content-grid page-content-grid--equal model-stack">
           <section class="card model-card main-panel-card">
             <div class="bar">
@@ -1285,6 +1318,11 @@
       primary        : {api: "OpenAI", type: "Text", base_url: "", route: "responses", apikey: "", model: ""},
       secondary      : null
     };
+    const previewServiceConfig = {
+      schema_version : 1,
+      domain         : "",
+      configured     : false
+    };
 
     function escapeHtml(value){
       return String(value || "")
@@ -1434,6 +1472,11 @@
       syncFieldStates();
     }
 
+    function applyServiceConfig(data) {
+      fieldValue("service-domain", data.domain || "");
+      syncFieldStates();
+    }
+
     function collectSlot(prefix) {
       return {
         api      : fieldSelectValue(`${prefix}-api`, "OpenAI"),
@@ -1469,10 +1512,18 @@
       return payload;
     }
 
+    function collectServiceConfig() {
+      return {
+        schema_version : 1,
+        domain         : fieldInputValue("service-domain")
+      };
+    }
+
     async function loadPref(options = {}) {
       const {silent = false} = options;
       if (previewMode) {
         applyPref(previewPref);
+        applyServiceConfig(previewServiceConfig);
         status.textContent = "Preview mode active.";
         setMessage("Preview mode active. Start helix to load local configuration.", "");
         return;
@@ -1483,6 +1534,12 @@
         if (!resp.ok) throw new Error("load failed");
         const payload = await resp.json();
         applyPref(payload.data || {});
+
+        const serviceResp = await fetch("/api/service-config", {cache: "no-store"});
+        if (!serviceResp.ok) throw new Error("service config load failed");
+        const servicePayload = await serviceResp.json();
+        applyServiceConfig(servicePayload.data || {});
+
         status.textContent = "Local configuration loaded.";
         setMessage("Local configuration loaded.", "ok");
         if (!silent) {
@@ -1519,6 +1576,16 @@
         if (!resp.ok) throw new Error("save failed");
         const payload = await resp.json();
         applyPref(payload.data || {});
+
+        const serviceResp = await fetch("/api/service-config", {
+          method  : "PUT",
+          headers : {"Content-Type": "application/json"},
+          body    : JSON.stringify(collectServiceConfig())
+        });
+        if (!serviceResp.ok) throw new Error("service config save failed");
+        const servicePayload = await serviceResp.json();
+        applyServiceConfig(servicePayload.data || {});
+
         status.textContent = "Local configuration saved.";
         setMessage("Local configuration saved.", "ok");
         const [title, detail] = shellMessage("saved");

@@ -8,6 +8,9 @@ from .output import mk_out_dir
 from .prefs import (
     load_pref, normalize_pref, pref_path, save_pref
 )
+from .services import (
+    load_service_config, normalize_service_config, save_service_config
+)
 
 
 __all__ = [
@@ -18,7 +21,10 @@ __all__ = [
     "load_pref",
     "normalize_pref",
     "pref_path",
-    "save_pref"
+    "save_pref",
+    "load_service_config",
+    "normalize_service_config",
+    "save_service_config"
 ]
 
 
