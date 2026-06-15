@@ -18,7 +18,7 @@ from ..runtime.tool_display import (
     show_tool_start
 )
 from ..runtime.cloud_sandbox import normalize_cloud_sandbox_handoff
-from ..runtime.tool_approval import (
+from mind_app.approval import (
     ApprovalStore,
     approval_from_event,
     approval_id_from_event,
