@@ -572,6 +572,16 @@ class PromptToolkitBox(object):
         """按键绑定集合。"""
         kb = KeyBindings()
 
+        @kb.add("c-u", eager=True)
+        def _(event) -> None:
+            buf = event.app.current_buffer
+            buf.cancel_completion()
+            buf.text = ""
+            buf.cursor_position = 0
+            self._sync_completion_suggestion(buf)
+            self.paste_store.clear()
+            event.app.invalidate()
+
         @kb.add("escape", "enter")
         @kb.add("c-o")
         def _(event) -> None:
