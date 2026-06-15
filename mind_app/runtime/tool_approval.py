@@ -19,6 +19,7 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 from mind_app.stream_events.approval_trace import (
     approval_command_preview,
+    approval_shell_commands,
     approval_summary
 )
 from mind_app.stream_events.command_preview import command_preview
@@ -94,6 +95,7 @@ APPROVAL_MENU_TERMINAL_MARGIN     = COMPACT_RULE_TERMINAL_MARGIN
 APPROVAL_MENU_TITLE_MIN_RULE      = 4
 APPROVAL_MENU_CONTINUATION_INDENT = 2
 APPROVAL_MENU_FIXED_WIDTH         = 104
+APPROVAL_MENU_MAX_COMMAND_WIDTH   = APPROVAL_MENU_FIXED_WIDTH - APPROVAL_MENU_PADDING
 
 
 @dataclass(slots=True)
@@ -154,6 +156,32 @@ class ApprovalStore(object):
             self.approved_by_call_id[call_id] = approval_id
             return None
         self.approved_by_call_id.pop(call_id, None)
+
+
+def approval_from_event(event: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """把服务端审批事件归一化为审批卡和审批记录使用的 approval。"""
+    raw_approval = event.get("approval") if isinstance(event.get("approval"), dict) else {}
+    approval     = dict(raw_approval)
+    raw_meta     = event.get("meta") if isinstance(event.get("meta"), dict) else {}
+
+    meta_approval = raw_meta.get("approval") if isinstance(raw_meta.get("approval"), dict) else {}
+    for key, value in meta_approval.items():
+        approval.setdefault(key, value)
+
+    if "arguments" not in approval and isinstance(event.get("arguments"), dict):
+        approval["arguments"] = event.get("arguments")
+    if "arguments" not in approval and isinstance(event.get("execution"), dict):
+        canonical = (
+            event["execution"].get("canonicalArguments")
+            or event["execution"].get("canonical_arguments")
+        )
+        if isinstance(canonical, dict):
+            approval["arguments"] = canonical
+
+    if "tool" not in approval:
+        approval["tool"] = str(event.get("tool") or event.get("name") or "").strip()
+
+    return approval
 
 
 def approval_id_from_event(
@@ -356,8 +384,10 @@ def _canonical_tool_arguments(
 ) -> dict[str, typing.Any]:
     """返回可稳定比较的工具参数。"""
     if str(tool or "").strip() == "shell_command":
-        return typing.cast(dict[str, typing.Any], _normalize_shell_command_arguments(arguments))
-    return typing.cast(dict[str, typing.Any], _normalize_value(arguments))
+        return _normalize_shell_command_arguments(arguments)
+
+    normalized = _normalize_value(arguments)
+    return normalized if isinstance(normalized, dict) else {}
 
 
 def _approval_argument_fallback(
@@ -622,6 +652,42 @@ def render_bordered_approval_menu(
     return parts
 
 
+def approval_menu_content_width(
+    lines: list[list[tuple[str, str]]],
+    *,
+    max_width: int | None = None
+) -> int:
+    """返回审批菜单内容区宽度。"""
+    if not lines:
+        return max(1, _approval_rule_width(max_width=max_width) - APPROVAL_MENU_PADDING)
+
+    natural = max(approval_menu_line_width(line) for line in lines)
+
+    return min(
+        APPROVAL_MENU_MAX_COMMAND_WIDTH, max(1, natural)
+    )
+
+
+def approval_menu_command_width(
+    lines: list[list[tuple[str, str]]],
+    *,
+    max_width: int | None = None
+) -> int:
+    """返回审批菜单命令区域宽度。"""
+    _ = max_width
+    return approval_menu_content_width(lines, max_width=max_width)
+
+
+def approval_menu_rule_width(
+    lines: list[list[tuple[str, str]]],
+    *,
+    max_width: int | None = None
+) -> int:
+    """返回审批菜单边框宽度。"""
+    _ = lines
+    return _approval_rule_width(max_width=max_width)
+
+
 def approval_title(approval: dict[str, typing.Any] | None) -> str:
     """读取审批卡标题。"""
     if not isinstance(approval, dict):
@@ -735,14 +801,14 @@ def _approval_command_lines(
     approval: dict[str, typing.Any]
 ) -> list[list[tuple[str, str]]]:
     """生成审批命令区域。"""
-    batch_commands = _approval_batch_commands(approval)
-    if len(batch_commands) > 1:
+    commands = _approval_commands(approval)
+    if len(commands) > 1:
         return _approval_batch_command_lines(
-            batch_commands,
+            commands,
             max_items=approval_max_preview_items(approval)
         )
 
-    summary = command_preview(approval.get("command")).title or approval_summary(approval)
+    summary = commands[0] if commands else approval_summary(approval)
 
     line: list[tuple[str, str]] = [("class:approval-prompt", "$ ")]
     line.extend(_approval_command_prompt_parts(summary))
@@ -750,29 +816,21 @@ def _approval_command_lines(
     return [line]
 
 
-def _approval_batch_commands(
+def _approval_commands(
     approval: dict[str, typing.Any]
 ) -> list[str]:
-    """读取批量 shell_command 审批命令列表。"""
+    """读取 shell_command 审批命令列表。"""
     if str(approval.get("tool") or "").strip() != "shell_command":
-        return []
+        fallback = approval.get("command", approval.get("resolved_command"))
 
-    raw       = approval.get("arguments", approval.get("args"))
-    arguments = raw if isinstance(raw, dict) else {}
-    items     = arguments.get("items")
-
-    if not isinstance(items, list):
-        items = approval.get("items")
-    if not isinstance(items, list):
-        return []
+        text = command_preview(fallback).title
+        return [text] if text else []
 
     commands: list[str] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        command = str(item.get("command") or "").strip()
-        if command:
-            commands.append(command_preview(command).title or command)
+    for command in approval_shell_commands(approval):
+        title = command_preview(command).title
+        if title:
+            commands.append(title)
 
     return commands
 

@@ -20,6 +20,7 @@ from ..runtime.tool_display import (
 from ..runtime.cloud_sandbox import normalize_cloud_sandbox_handoff
 from ..runtime.tool_approval import (
     ApprovalStore,
+    approval_from_event,
     approval_id_from_event,
     prompt_tool_approval_decision,
     validate_tool_approval
@@ -167,7 +168,7 @@ async def stream_looper(
                 continue
 
             if event_type == "tool.approval_required":
-                approval = event.get("approval") if isinstance(event.get("approval"), dict) else {}
+                approval = approval_from_event(event)
                 await slog.end_status(immediate=True)
                 await slog.prepare_external_output()
 
