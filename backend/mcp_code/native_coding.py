@@ -12,7 +12,7 @@ from backend.mcp_code.exec.file_audit import FileAudit
 
 
 class NativeCoding(NativeCodingBase):
-    """由可组合工具组件支撑的原生编码门面。"""
+    """由可组合工具组件支撑的原生编码服务入口。"""
 
     def __init__(self, root: str | None = None) -> None:
         """初始化共享运行时状态并装配各能力组件。"""
