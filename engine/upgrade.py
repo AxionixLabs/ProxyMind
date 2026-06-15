@@ -20,7 +20,62 @@ from mind_nova import (
 )
 
 
+class UpgradePackageMissing(MindError):
+    """远端升级包不存在或当前平台没有可用安装包。"""
+
+    def __init__(self, msg: typing.Any, *, shown_in_animation: bool = False):
+        super().__init__(msg)
+        self.shown_in_animation = shown_in_animation
+
+
 class Upgrade(object):
+
+    @staticmethod
+    def download_state(filename: str) -> dict[str, typing.Any]:
+        return {
+            "stage"    : "warming",
+            "filename" : filename,
+            "phase"    : 0.0,
+            "done"     : 0,
+            "speed"    : 0.0
+        }
+
+    @staticmethod
+    def mark_final(
+        state: dict[str, typing.Any],
+        label: str,
+        *,
+        icon: str,
+        style: str,
+        stage: str | None = None
+    ) -> None:
+        if stage is not None:
+            state["stage"] = stage
+
+        state["speed"]       = 0.0
+        state["final_icon"]  = icon
+        state["final_label"] = label
+        state["final_style"] = style
+
+    @staticmethod
+    def cancel_download(
+        state: dict[str, typing.Any],
+        archive_path: Path,
+        stop_event: asyncio.Event,
+        *,
+        label: str,
+        icon: str,
+        style: str,
+        stage: str | None = None,
+        reset_progress: bool = False
+    ) -> None:
+        Upgrade.mark_final(state, label, icon=icon, style=style, stage=stage)
+        if reset_progress:
+            state["phase"] = 0.0
+            state["done"] = 0
+
+        stop_event.set()
+        archive_path.unlink(missing_ok=True)
 
     @staticmethod
     def overwrite(src_dir: Path, dst_dir: Path) -> None:
@@ -64,7 +119,7 @@ class Upgrade(object):
         version = str(remote.get("version") or "").strip() or "unknown"
 
         if not url:
-            raise MindError("Install failed: missing package.url")
+            raise UpgradePackageMissing("No backend upgrade package is available for this platform.")
 
         target_dir = Path(install_dir).expanduser().resolve()
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -80,14 +135,10 @@ class Upgrade(object):
         timeout: float       = 120.0
         chunk_size: int      = 1024 * 256
 
-        state: dict[str, typing.Any] = {
-            "stage"    : "warming",
-            "filename" : filename,
-            "phase"    : 0.0,
-            "done"     : 0,
-            "speed"    : 0.0
-        }
+        state = self.download_state(filename)
+
         stop_event = asyncio.Event()
+
         anim_task = asyncio.create_task(
             Design.download_animation(state, stop_event)
         )
@@ -97,6 +148,12 @@ class Upgrade(object):
 
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
                 async with client.stream("GET", url) as resp:
+                    if resp.status_code == 404:
+                        raise UpgradePackageMissing(
+                            f"No backend upgrade package was found: {filename}",
+                            shown_in_animation=True
+                        )
+
                     resp.raise_for_status()
 
                     total = int(resp.headers.get("content-length") or 0)
@@ -124,14 +181,17 @@ class Upgrade(object):
             if sha256_expect:
                 actual = hasher.hexdigest().lower()
                 if actual != sha256_expect:
-                    stop_event.set()
-                    archive_path.unlink(missing_ok=True)
+                    self.cancel_download(
+                        state, archive_path, stop_event,
+                        icon="✗", label="failed", style="bold #FF8787"
+                    )
                     raise MindError(
                         f"Install failed: sha256 mismatch expect={sha256_expect} actual={actual}"
                     )
 
             with tempfile.TemporaryDirectory(prefix="mind_runtime_") as tmp_dir:
                 tmp_path = Path(tmp_dir).resolve()
+
                 extract_dir = tmp_path / "extract"
                 extract_dir.mkdir(parents=True, exist_ok=True)
 
@@ -141,8 +201,13 @@ class Upgrade(object):
                     with zipfile.ZipFile(archive_path, "r") as zf:
                         zf.extractall(extract_dir)
                 else:
-                    stop_event.set()
-                    raise MindError(f"Install failed: unsupported archive type: {archive_path.suffix}")
+                    self.cancel_download(
+                        state, archive_path, stop_event,
+                        icon="✗", label="failed", style="bold #FF8787"
+                    )
+                    raise MindError(
+                        f"Install failed: unsupported archive type: {archive_path.suffix}"
+                    )
 
                 children = [p for p in extract_dir.iterdir() if p.exists()]
 
@@ -169,8 +234,9 @@ class Upgrade(object):
 
             elapsed = max(0.001, time.perf_counter() - started)
 
-            state["stage"] = "done"
-            state["speed"] = 0.0
+            self.mark_final(
+                state, "complete", icon="✓", style="bold #87FFAF", stage="done"
+            )
 
             return {
                 "ok"               : True,
@@ -182,14 +248,26 @@ class Upgrade(object):
                 "elapsed_sec"      : round(elapsed, 3)
             }
 
+        except UpgradePackageMissing:
+            self.cancel_download(
+                state, archive_path, stop_event,
+                icon="⚠", label="package missing", style="bold #FFD75F", stage="missing",
+                reset_progress=True
+            )
+            raise
+
         except MindError:
-            stop_event.set()
-            archive_path.unlink(missing_ok=True)
+            self.cancel_download(
+                state, archive_path, stop_event,
+                icon="✗", label="failed", style="bold #FF8787"
+            )
             raise
 
         except Exception as e:
-            stop_event.set()
-            archive_path.unlink(missing_ok=True)
+            self.cancel_download(
+                state, archive_path, stop_event,
+                icon="✗", label="failed", style="bold #FF8787"
+            )
             raise MindError(f"Install failed: {type(e).__name__}: {e}") from e
 
         finally:
@@ -201,8 +279,8 @@ class Upgrade(object):
             await craft.kill_port(port)
 
         remote: typing.Optional[dict] = None
-        max_retries: int = 3
 
+        max_retries: int = 3
         for i in range(max_retries):
             if remote := await request.fetch_manifest():
                 break
@@ -210,7 +288,9 @@ class Upgrade(object):
                 await asyncio.sleep(1.0)
 
         if not remote:
-            raise MindError(f"❌ Install failed after {max_retries} retries: remote={remote}")
+            raise UpgradePackageMissing(
+                f"No backend upgrade manifest is available after {max_retries} retries."
+            )
 
         await self.install_app(remote, str(install_dir))
 

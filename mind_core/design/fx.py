@@ -375,11 +375,14 @@ async def download_animation(
             await asyncio.sleep(1 / 18)
 
         for _ in range(3):
-            filename = str(state.get("filename") or "package")
-            done_s   = fmt_size(float(state.get("done") or 0))
+            filename     = str(state.get("filename") or "package")
+            done_s       = fmt_size(float(state.get("done") or 0))
+            final_icon   = str(state.get("final_icon") or "✗")
+            final_label  = str(state.get("final_label") or "failed")
+            final_style  = str(state.get("final_style") or "bold #FF8787")
 
             out = Text()
-            out.append("✓ complete".ljust(width), style="bold #87FFAF")
+            out.append(f"{final_icon} {final_label}".ljust(width), style=final_style)
             out.append("\n")
             out.append(filename[:width].ljust(width), style="bold dim #8A8A8A")
             out.append("\n")

@@ -15,7 +15,9 @@ from engine.tinker import (
     MindError, Active, FileAssist
 )
 from engine.terminal import Terminal
-from engine.upgrade import Upgrade
+from engine.upgrade import (
+    Upgrade, UpgradePackageMissing
+)
 # from mind_core import authorize
 # from mind_core.api import Api
 from mind_core.design import Design
@@ -185,7 +187,11 @@ async def main(entry_file: typing.Optional[str] = None) -> int:
     # Notes: ========== 升级流程 ==========
     if cmd_lines.upgrade:
         up: Upgrade = Upgrade()
-        await up.upgrade_app(supports)
+        try:
+            await up.upgrade_app(supports)
+        except UpgradePackageMissing as error:
+            if not error.shown_in_animation:
+                Design.console.print(f"[bold #FFD75F]Backend upgrade skipped:[/] {error.msg}")
         return 0
 
     for tls in (tools := [helix]):
