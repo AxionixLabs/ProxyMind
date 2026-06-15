@@ -6,12 +6,9 @@ from pathlib import Path
 from mind_app.stream_events.command_preview import command_text
 from .common import (
     MAX_PREVIEW_WIDTH,
-    MAX_PREVIEW_LINES,
     MISSING,
-    SCREEN_PREVIEW_LINES,
     TraceEntry,
     TracePreview,
-    _format_preview_lines,
     _normalize_preview_lines,
     _result_payload,
     _short_text,
@@ -217,12 +214,9 @@ def render_tool_result_preview(
             elif err_lines:
                 lines = err_lines
 
-        command_lines = _shell_command_raw_block_lines(command)
         if not lines:
             lines = ["(no output)"]
 
-        if command_lines:
-            return _shell_command_preview_from_blocks(command_lines, lines)
         return _trace_preview_from_lines(lines)
 
     return TracePreview()
@@ -327,19 +321,6 @@ def _shell_command_title(command: typing.Any) -> str:
     return _short_text(lines[0], MAX_PREVIEW_WIDTH)
 
 
-def _shell_command_raw_block_lines(command: typing.Any) -> list[str]:
-    """生成 shell_command 原文块预览行。"""
-    lines = _shell_command_raw_lines(command)
-    if not lines:
-        return []
-    if len(lines) == 1:
-        return [lines[0]]
-
-    return [
-        lines[0], *[f"   {line}" if line else "" for line in lines[1:]]
-    ]
-
-
 def _shell_command_raw_lines(command: typing.Any) -> list[str]:
     """按原始换行拆分命令；数组命令保持参数间空格。"""
     text = command_text(command) if isinstance(command, list) else str(command or "").strip()
@@ -349,30 +330,6 @@ def _shell_command_raw_lines(command: typing.Any) -> list[str]:
         lines.pop()
 
     return lines
-
-
-def _shell_command_preview_from_blocks(
-    command_lines: list[str],
-    output_lines: list[str]
-) -> TracePreview:
-    """生成 shell_command 预览：命令原文块完整展示，输出单独截断。"""
-    full_output, _ = _format_preview_lines(output_lines, max_lines=MAX_PREVIEW_LINES)
-
-    screen_output, omitted = _format_preview_lines(output_lines, max_lines=SCREEN_PREVIEW_LINES)
-
-    full_parts = [*command_lines]
-    if full_output:
-        full_parts.extend(full_output.split("\n"))
-
-    screen_parts = [*command_lines]
-    if screen_output:
-        screen_parts.extend(screen_output.split("\n"))
-
-    return TracePreview(
-        full="\n".join(full_parts),
-        screen="\n".join(screen_parts),
-        omitted_lines=omitted
-    )
 
 
 def _split_single_line_shell_error(
@@ -390,17 +347,19 @@ def _split_single_line_shell_error(
         return []
 
     head, sep, message = line.partition(": ")
+
     if not sep or not head or not message:
-        head = "Command"
+        head    = "Command"
         message = line
 
     command = str(command or "").strip()
     if not command:
         return []
 
-    line_number = max(1, int(line_number or 1))
+    line_number  = max(1, int(line_number or 1))
     command_line = f"{line_number:4d} |  {command}"
     marker_width = max(8, min(MAX_PREVIEW_WIDTH - 8, len(command)))
+
     return [
         f"{head}:",
         "Line |",
