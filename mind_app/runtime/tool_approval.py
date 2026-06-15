@@ -18,11 +18,10 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
 from mind_app.stream_events.approval_trace import (
-    approval_command_preview,
     approval_shell_commands,
     approval_summary
 )
-from mind_app.stream_events.command_preview import command_preview
+from mind_app.stream_events.command_preview import command_text
 from mind_app.stream_events.compact_rule import (
     COMPACT_RULE_PADDING,
     COMPACT_RULE_TERMINAL_MARGIN
@@ -324,11 +323,6 @@ def approval_show_timer(approval: dict[str, typing.Any] | None) -> bool:
     return _approval_bool(approval, "show_timer", default=True)
 
 
-def approval_show_preview(approval: dict[str, typing.Any] | None) -> bool:
-    """读取内联预览展示配置。"""
-    return _approval_bool(approval, "show_preview", default=True)
-
-
 def _approval_bool(
     approval: dict[str, typing.Any] | None,
     key: str,
@@ -596,7 +590,6 @@ def approval_menu_content_lines(
     if approval is not None:
         lines.extend(_approval_question_lines(approval))
         lines.extend(_approval_command_lines(approval))
-        lines.extend(_approval_preview_menu_lines(approval))
         if expiry_label := approval_expiry_label(approval):
             lines.append([("class:approval-preview", expiry_label)])
         lines.append([])
@@ -706,17 +699,6 @@ def approval_prompt(approval: dict[str, typing.Any] | None) -> str:
     return f"Would you like to approve the following {noun}?"
 
 
-def approval_max_preview_items(approval: dict[str, typing.Any] | None) -> int:
-    """读取批量命令预览数量上限。"""
-    raw = approval.get("max_preview_items") if isinstance(approval, dict) else None
-
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        value = 5
-    return max(1, min(8, value))
-
-
 def _approval_rule_width(*, max_width: int | None) -> int:
     """按固定宽度策略计算审批卡规则线宽度。"""
     if max_width is None:
@@ -801,14 +783,11 @@ def _approval_command_lines(
     approval: dict[str, typing.Any]
 ) -> list[list[tuple[str, str]]]:
     """生成审批命令区域。"""
-    commands = _approval_commands(approval)
+    commands = _approval_raw_commands(approval)
     if len(commands) > 1:
-        return _approval_batch_command_lines(
-            commands,
-            max_items=approval_max_preview_items(approval)
-        )
+        return _approval_batch_command_lines(commands)
 
-    summary = commands[0] if commands else approval_summary(approval)
+    summary = _approval_command_display(commands[0]) if commands else approval_summary(approval)
 
     line: list[tuple[str, str]] = [("class:approval-prompt", "$ ")]
     line.extend(_approval_command_prompt_parts(summary))
@@ -816,50 +795,79 @@ def _approval_command_lines(
     return [line]
 
 
-def _approval_commands(
+def _approval_raw_commands(
     approval: dict[str, typing.Any]
-) -> list[str]:
-    """读取 shell_command 审批命令列表。"""
+) -> list[typing.Any]:
+    """读取 shell_command 审批命令原文。"""
     if str(approval.get("tool") or "").strip() != "shell_command":
         fallback = approval.get("command", approval.get("resolved_command"))
+        if isinstance(fallback, list):
+            return [fallback]
 
-        text = command_preview(fallback).title
+        text = str(fallback or "").strip()
         return [text] if text else []
 
-    commands: list[str] = []
-    for command in approval_shell_commands(approval):
-        title = command_preview(command).title
-        if title:
-            commands.append(title)
-
-    return commands
+    return approval_shell_commands(approval)
 
 
 def _approval_batch_command_lines(
-    commands: list[str],
-    *,
-    max_items: int = 5
+    commands: list[typing.Any]
 ) -> list[list[tuple[str, str]]]:
-    """生成批量命令审批树。"""
-    visible = commands[:max_items]
-    omitted = max(0, len(commands) - len(visible))
-
+    """按命令项原文生成批量命令审批树。"""
     lines: list[list[tuple[str, str]]] = [
         [("class:approval-prompt", "$ "), ("class:approval-command", f"{len(commands)} commands")]
     ]
-    for index, command in enumerate(visible):
-        is_last_visible = index == len(visible) - 1 and omitted == 0
-        connector = "└─ " if is_last_visible else "├─ "
-        line: list[tuple[str, str]] = [("class:approval-prompt", connector)]
-        line.extend(_approval_command_prompt_parts(command))
-        lines.append(line)
-    if omitted:
-        lines.append([
-            ("class:approval-prompt", "└─ "),
-            ("class:approval-preview", f"+{omitted} more")
-        ])
+    for index, command in enumerate(commands):
+        lines.extend(_approval_command_item_lines(
+            command, is_last=index == len(commands) - 1
+        ))
 
     return lines
+
+
+def _approval_command_item_lines(
+    command: typing.Any,
+    *,
+    is_last: bool
+) -> list[list[tuple[str, str]]]:
+    """把单个命令项原文转换为树形展示行。"""
+    connector = "└─ " if is_last else "├─ "
+    prefix    = "   " if is_last else "│  "
+
+    raw_lines = _approval_command_raw_lines(command)
+    if not raw_lines:
+        return [[("class:approval-prompt", connector)]]
+
+    lines: list[list[tuple[str, str]]] = []
+
+    first_line: list[tuple[str, str]] = [("class:approval-prompt", connector)]
+    first_line.extend(_approval_command_prompt_parts(raw_lines[0]))
+
+    lines.append(first_line)
+
+    for raw_line in raw_lines[1:]:
+        line: list[tuple[str, str]] = [("class:approval-prompt", prefix)]
+        if raw_line:
+            line.extend(_approval_command_prompt_parts(raw_line))
+        lines.append(line)
+
+    return lines
+
+
+def _approval_command_raw_lines(command: typing.Any) -> list[str]:
+    """返回命令原文行，数组命令保持参数间空格，多行参数保留原始换行。"""
+    text = command_text(command) if isinstance(command, list) else str(command or "").strip()
+
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    while lines and not lines[-1]:
+        lines.pop()
+
+    return lines or [""]
+
+
+def _approval_command_display(command: typing.Any) -> str:
+    """返回单命令展示文本；多行命令保留原文。"""
+    return "\n".join(_approval_command_raw_lines(command))
 
 
 def _approval_command_prompt_parts(command: str) -> list[tuple[str, str]]:
@@ -895,23 +903,6 @@ def _approval_command_prompt_style(style: str | None) -> str:
     return ""
 
 
-def _approval_preview_menu_lines(
-    approval: dict[str, typing.Any]
-) -> list[list[tuple[str, str]]]:
-    """生成内联脚本预览行。"""
-    if not approval_show_preview(approval):
-        return []
-
-    preview = approval_command_preview(approval)
-    if not preview.screen:
-        return []
-
-    return [
-        [("class:approval-preview", f"└ {line}" if index == 0 else f"  {line}")]
-        for index, line in enumerate(preview.screen.splitlines())
-    ]
-
-
 def _wrap_fragment_lines(
     lines: list[list[tuple[str, str]]],
     *,
@@ -937,28 +928,35 @@ def _wrap_fragment_line(
     current: list[tuple[str, str]]   = []
 
     current_width = 0
+    continuation  = _line_continuation_prefix(line)
 
     for style, text in line:
         for token in _wrap_tokens(text):
             token_width = get_cwidth(token)
-            if token.isspace() and not current:
-                continue
             if current and current_width + token_width > max_width:
                 out.append(current)
-                current = _continuation_prefix()
-                current_width = APPROVAL_MENU_CONTINUATION_INDENT
+
+                current       = continuation.copy()
+                current_width = approval_menu_line_width(current)
                 if token.isspace():
                     continue
+
             if token_width > max_width:
-                chunk_width = max(1, max_width - APPROVAL_MENU_CONTINUATION_INDENT)
+                continuation_width = approval_menu_line_width(continuation)
+                chunk_width        = max(1, max_width - continuation_width)
+
                 for chunk in _split_wide_token(token, max_width=chunk_width):
                     if current:
                         out.append(current)
-                        current = _continuation_prefix()
-                        current_width = APPROVAL_MENU_CONTINUATION_INDENT
+
+                        current       = continuation.copy()
+                        current_width = continuation_width
+
                     current.append((style, chunk))
                     current_width += get_cwidth(chunk)
+
                 continue
+
             current.append((style, token))
             current_width += token_width
 
@@ -968,7 +966,27 @@ def _wrap_fragment_line(
     return out
 
 
-def _continuation_prefix() -> list[tuple[str, str]]:
+def _line_continuation_prefix(line: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """根据行首树形前缀生成续行缩进。"""
+    prefix: str = ""
+    for _style, text in line:
+        value = str(text or "")
+        if not value or not value.strip():
+            prefix += value
+            continue
+        for marker in ("├─ ", "└─ "):
+            if value == marker:
+                prefix += "│  " if marker == "├─ " else "   "
+                continue
+        if value in {"│  ", "   "}:
+            prefix += value
+            continue
+        break
+
+    return [("", prefix)] if prefix else _default_continuation_prefix()
+
+
+def _default_continuation_prefix() -> list[tuple[str, str]]:
     """返回长行续行缩进。"""
     return [("", " " * APPROVAL_MENU_CONTINUATION_INDENT)]
 

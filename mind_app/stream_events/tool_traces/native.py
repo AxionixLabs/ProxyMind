@@ -3,15 +3,15 @@
 
 import typing
 from pathlib import Path
-from mind_app.stream_events.command_preview import (
-    command_preview,
-    inline_script_preview_lines
-)
+from mind_app.stream_events.command_preview import command_text
 from .common import (
     MAX_PREVIEW_WIDTH,
+    MAX_PREVIEW_LINES,
     MISSING,
+    SCREEN_PREVIEW_LINES,
     TraceEntry,
     TracePreview,
+    _format_preview_lines,
     _normalize_preview_lines,
     _result_payload,
     _short_text,
@@ -202,10 +202,11 @@ def render_tool_result_preview(
             inner_data = inner.get("data") if isinstance(inner.get("data"), dict) else {}
             return render_tool_result_preview("shell_command", inner_data, arguments=inner_args)
 
-        preview = command_preview(data.get("command") or args.get("command"))
+        command       = data.get("command") or args.get("command")
+        command_title = _shell_command_title(command)
 
         if is_error:
-            lines = _shell_command_error_context_lines(data, command=preview.title)
+            lines = _shell_command_error_context_lines(data, command=command_title)
         else:
             stdout_source = data.get("stdout")
             lines         = _normalize_preview_lines(stdout_source)
@@ -216,18 +217,12 @@ def render_tool_result_preview(
             elif err_lines:
                 lines = err_lines
 
-        has_inline_script = False
-        if preview.has_script:
-            script_lines = inline_script_preview_lines(preview.script, path=preview.path)
-            if script_lines:
-                has_inline_script = True
-                lines = [*script_lines, *lines]
-
+        command_lines = _shell_command_raw_block_lines(command)
         if not lines:
             lines = ["(no output)"]
 
-        if has_inline_script:
-            return _trace_code_preview_from_lines(lines)
+        if command_lines:
+            return _shell_command_preview_from_blocks(command_lines, lines)
         return _trace_preview_from_lines(lines)
 
     return TracePreview()
@@ -324,6 +319,62 @@ def _shell_command_error_context_lines(
     return stream_lines
 
 
+def _shell_command_title(command: typing.Any) -> str:
+    """生成 shell_command 标题中的命令摘要。"""
+    lines = _shell_command_raw_lines(command)
+    if not lines:
+        return "shell command"
+    return _short_text(lines[0], MAX_PREVIEW_WIDTH)
+
+
+def _shell_command_raw_block_lines(command: typing.Any) -> list[str]:
+    """生成 shell_command 原文块预览行。"""
+    lines = _shell_command_raw_lines(command)
+    if not lines:
+        return []
+    if len(lines) == 1:
+        return [lines[0]]
+
+    return [
+        lines[0], *[f"   {line}" if line else "" for line in lines[1:]]
+    ]
+
+
+def _shell_command_raw_lines(command: typing.Any) -> list[str]:
+    """按原始换行拆分命令；数组命令保持参数间空格。"""
+    text = command_text(command) if isinstance(command, list) else str(command or "").strip()
+
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    while lines and not lines[-1]:
+        lines.pop()
+
+    return lines
+
+
+def _shell_command_preview_from_blocks(
+    command_lines: list[str],
+    output_lines: list[str]
+) -> TracePreview:
+    """生成 shell_command 预览：命令原文块完整展示，输出单独截断。"""
+    full_output, _ = _format_preview_lines(output_lines, max_lines=MAX_PREVIEW_LINES)
+
+    screen_output, omitted = _format_preview_lines(output_lines, max_lines=SCREEN_PREVIEW_LINES)
+
+    full_parts = [*command_lines]
+    if full_output:
+        full_parts.extend(full_output.split("\n"))
+
+    screen_parts = [*command_lines]
+    if screen_output:
+        screen_parts.extend(screen_output.split("\n"))
+
+    return TracePreview(
+        full="\n".join(full_parts),
+        screen="\n".join(screen_parts),
+        omitted_lines=omitted
+    )
+
+
 def _split_single_line_shell_error(
     lines: list[str],
     *,
@@ -415,7 +466,7 @@ def render_tool_trace(
                 before_exists=before_exists
             )
 
-        command = command_preview(payload.get("command") or args.get("command")).title
+        command = _shell_command_title(payload.get("command") or args.get("command"))
         return f"• Ran {command}".rstrip()
 
     summary = _short_text(args, 100)

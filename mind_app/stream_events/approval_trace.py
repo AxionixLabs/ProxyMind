@@ -3,12 +3,8 @@
 
 import typing
 from mind_nova import const
-from .command_preview import (
-    command_preview,
-    inline_script_preview_lines
-)
+from .command_preview import command_preview
 from .tool_trace import (
-    TracePreview,
     TITLE_STYLE,
     ERROR_STYLE
 )
@@ -39,26 +35,6 @@ def _short_approval_summary(value: typing.Any) -> str:
     if len(text) <= APPROVAL_SUMMARY_MAX_CHARS:
         return text
     return f"{text[:max(0, APPROVAL_SUMMARY_MAX_CHARS - 4)].rstrip()} ..."
-
-
-def approval_command_preview(approval: dict[str, typing.Any]) -> TracePreview:
-    """提取审批命令里的内联脚本预览，不改变审批标题样式。"""
-    commands = approval_shell_commands(approval)
-    previews = []
-
-    for command in commands:
-        item_preview = command_preview(command)
-        if item_preview.has_script:
-            previews.append(inline_script_preview_lines(
-                item_preview.script, path=item_preview.path
-            ))
-
-    lines = [line for group in previews for line in group]
-    if not lines:
-        return TracePreview()
-
-    text = "\n".join(lines)
-    return TracePreview(full=text, screen=text, omitted_lines=0)
 
 
 def _approval_arguments(approval: dict[str, typing.Any]) -> dict[str, typing.Any]:
