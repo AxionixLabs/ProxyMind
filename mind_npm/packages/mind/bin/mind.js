@@ -18,6 +18,7 @@ const color = {
   reset: "\x1b[0m",
   bold: "\x1b[1m",
   dim: "\x1b[2m",
+  blue: "\x1b[38;5;75m",
   cyan: "\x1b[38;5;37m",
   yellow: "\x1b[33m"
 };
@@ -79,9 +80,9 @@ function compareVersions(left, right) {
 }
 
 function latestVersionFromNpm() {
-  const result = spawnSync("npm", ["view", packageName, "version"], {
+  const npm = npmCommand(["view", packageName, "version"]);
+  const result = spawnSync(npm.command, npm.args, {
     encoding: "utf8",
-    shell: process.platform === "win32",
     timeout: 2500
   });
 
@@ -104,9 +105,9 @@ function shouldSkipUpdateCheck(args) {
 async function installLatestPackage() {
   console.log(`\nInstalling ${packageName}@latest...\n`);
 
-  const child = spawn("npm", ["install", "-g", packageName], {
-    stdio: "inherit",
-    shell: process.platform === "win32"
+  const npm = npmCommand(["install", "-g", packageName]);
+  const child = spawn(npm.command, npm.args, {
+    stdio: "inherit"
   });
 
   const code = await new Promise((resolve) => {
@@ -117,10 +118,21 @@ async function installLatestPackage() {
   process.exit(code);
 }
 
+function npmCommand(args) {
+  if (process.platform !== "win32") {
+    return { command: "npm", args };
+  }
+
+  return {
+    command: process.env.ComSpec || "cmd.exe",
+    args: ["/d", "/s", "/c", "npm", ...args]
+  };
+}
+
 async function promptForUpdate(latestVersion, state, now) {
   console.log(
     `\n${color.bold}${color.yellow}\u2728 Update available!${color.reset} ` +
-    `${color.dim}${currentVersion}${color.reset} -> ${latestVersion}\n`
+    `${color.dim}${currentVersion}${color.reset} -> ${color.blue}${latestVersion}${color.reset}\n`
   );
   console.log(
     `${color.dim}Release notes:${color.reset} ` +
@@ -247,12 +259,6 @@ async function selectUpdateChoice(items, defaultIndex) {
 }
 
 async function maybeCheckPackageUpdate(args) {
-  if (process.env.MIND_TEST_UPDATE_MENU === "1") {
-    if (!process.stdin.isTTY || !process.stdout.isTTY) return;
-    await promptForUpdate("9.9.9", loadUpdateState(), Date.now());
-    return;
-  }
-
   if (shouldSkipUpdateCheck(args)) return;
 
   const state = loadUpdateState();
