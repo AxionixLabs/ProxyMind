@@ -510,7 +510,7 @@ def _wrap_fragment_line(
                 chunk_width        = max(1, max_width - continuation_width)
 
                 for chunk in _split_wide_token(token, max_width=chunk_width):
-                    if current:
+                    if current and current_width > continuation_width:
                         out.append(current)
 
                         current       = continuation.copy()
