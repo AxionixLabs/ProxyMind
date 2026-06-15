@@ -419,7 +419,6 @@ def _preview_line_parts(
     tree_parts = tree_preview_line_parts(
         line,
         is_error_detail=tree_error_detail,
-        looks_like_path=_looks_like_path,
         part=_part
     )
 

@@ -9,7 +9,6 @@ from .common import (
     ERROR_PREVIEW_HEAD_STYLE,
     ERROR_PREVIEW_TEXT_STYLE,
     PREVIEW_COUNT_STYLE,
-    PREVIEW_PATH_STYLE,
     PREVIEW_STYLE,
     PREVIEW_TEXT_STYLE,
     SUCCESS_DOT_STYLE
@@ -20,7 +19,6 @@ def tree_preview_line_parts(
     line: str,
     *,
     is_error_detail: bool,
-    looks_like_path: typing.Callable[[str], bool],
     part: typing.Callable[[str, str | None], dict[str, typing.Optional[str]]],
 ) -> tuple[list[dict[str, typing.Optional[str]]], str, bool | None] | None:
     """拆分树形预览行，并返回下一条 detail 是否应按错误渲染。"""
@@ -47,7 +45,7 @@ def tree_preview_line_parts(
             *render_command_parts(label),
         ], "", mark == "✗"
 
-    detail = re.match(r"^((?:│  |   )└─ )(.+)$", line)
+    detail = re.match(r"^((?:│ {2}| {3})└─ )(.+)$", line)
     if detail:
         prefix, body = detail.groups()
         if is_error_detail:
@@ -57,7 +55,7 @@ def tree_preview_line_parts(
             ], "", False
         return [
             part(prefix, PREVIEW_STYLE),
-            part(body, PREVIEW_PATH_STYLE if looks_like_path(body) else PREVIEW_TEXT_STYLE),
+            part(body, PREVIEW_TEXT_STYLE),
         ], "", False
 
     return None
