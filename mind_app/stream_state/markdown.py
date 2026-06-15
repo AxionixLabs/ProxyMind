@@ -28,26 +28,27 @@ MARKDOWN_THEME = Theme({
 })
 
 MARKDOWN_CODE_THEME = ANSISyntaxTheme({
-    Token                 : Style.parse("#BCC9D6"),
-    Token.Comment         : Style.parse("dim #8FA4B8"),
-    Token.Keyword         : Style.parse("bold #B9A6D8"),
-    Token.Name            : Style.parse("#CAD5DF"),
-    Token.Operator        : Style.parse("#AAB8C6"),
-    Token.Literal.Number  : Style.parse("#D3C27C"),
-    Token.Literal.String  : Style.parse("#A9CDBB"),
-    Token.Generic.Deleted : Style.parse("#FF8A8A"),
-    Token.Generic.Inserted : Style.parse("#6EE7A8"),
+    Token                  : Style.parse("#BCC9D6"),
+    Token.Comment          : Style.parse("dim #8FA4B8"),
+    Token.Keyword          : Style.parse("bold #B9A6D8"),
+    Token.Name             : Style.parse("#CAD5DF"),
+    Token.Operator         : Style.parse("#AAB8C6"),
+    Token.Literal.Number   : Style.parse("#D3C27C"),
+    Token.Literal.String   : Style.parse("#A9CDBB"),
+    Token.Generic.Deleted  : Style.parse("#FF8A8A"),
+    Token.Generic.Inserted : Style.parse("#6EE7A8")
 })
 
 
 class LeftHeading(Heading):
-    """左对齐渲染 Markdown 标题。"""
+    """按左对齐方式渲染 Markdown 标题。"""
 
     def __rich_console__(
         self,
         console: Console,
         options: ConsoleOptions
     ) -> RenderResult:
+        """生成标题的 Rich 控制台片段。"""
         _ = console, options
 
         text = self.text or Text()
@@ -57,25 +58,28 @@ class LeftHeading(Heading):
 
 
 class LeftTableDataElement(TableDataElement):
-    """左对齐渲染 Markdown 表格单元格。"""
+    """按左对齐方式创建 Markdown 表格单元格。"""
 
     @classmethod
     def create(cls, markdown: Markdown, token: typing.Any) -> "LeftTableDataElement":
+        """根据 Markdown token 创建左对齐单元格元素。"""
         _ = markdown, token
         return cls(justify="left")
 
 
 class PlainCodeBlock(CodeBlock):
-    """渲染无背景的 Markdown 代码块。"""
+    """渲染使用默认背景的 Markdown 代码块。"""
 
     def __rich_console__(
         self,
         console: Console,
         options: ConsoleOptions
     ) -> RenderResult:
+        """生成代码块的 Rich 控制台片段。"""
         _ = console, options
 
         code = str(self.text).rstrip()
+
         yield Syntax(
             code,
             self.lexer_name,
@@ -87,7 +91,7 @@ class PlainCodeBlock(CodeBlock):
 
 
 class MarkdownRenderer(Markdown):
-    """统一的 Markdown 渲染器，保留 Rich 能力并修正默认布局。"""
+    """提供项目内统一 Markdown 元素映射和主题。"""
 
     elements = {
         **Markdown.elements,
@@ -103,6 +107,7 @@ class MarkdownRenderer(Markdown):
         console: Console,
         options: ConsoleOptions
     ) -> RenderResult:
+        """在临时主题范围内生成 Markdown 控制台片段。"""
         console.push_theme(MARKDOWN_THEME)
         try:
             yield from super().__rich_console__(console, options)
@@ -111,7 +116,7 @@ class MarkdownRenderer(Markdown):
 
 
 def render_markdown(text: typing.Any) -> MarkdownRenderer:
-    """创建统一的 Markdown 渲染对象。"""
+    """创建项目内统一的 Markdown 渲染对象。"""
     return MarkdownRenderer(
         str(text or ""), justify="left", hyperlinks=False
     )
