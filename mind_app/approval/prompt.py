@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import os
+import sys
 import shutil
 import typing
 import asyncio
 import contextlib
 from prompt_toolkit.application import Application
+from prompt_toolkit.input.typeahead import clear_typeahead
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import Window
@@ -35,6 +38,40 @@ def _terminal_menu_width() -> int:
 def _terminal_menu_height() -> int:
     """返回审批菜单可用的终端高度。"""
     return max(12, shutil.get_terminal_size(fallback=(100, 24)).lines)
+
+
+def _clear_pending_approval_input(input_obj) -> None:
+    """清掉审批菜单边界上的排队按键，避免误触审批或带入下一轮。"""
+    with contextlib.suppress(Exception):
+        clear_typeahead(input_obj)
+
+    with contextlib.suppress(Exception):
+        input_obj.flush_keys()
+
+    if sys.platform == "win32":
+        _flush_win32_console_input(input_obj)
+    else:
+        _flush_posix_tty_input(input_obj)
+
+
+def _flush_posix_tty_input(input_obj) -> None:
+    """清 POSIX TTY 内核输入队列。"""
+    with contextlib.suppress(Exception):
+        import termios
+
+        fd = input_obj.fileno()
+        if os.isatty(fd):
+            termios.tcflush(fd, termios.TCIFLUSH)
+
+
+def _flush_win32_console_input(input_obj) -> None:
+    """清 Windows Console 输入队列。"""
+    with contextlib.suppress(Exception):
+        from ctypes import windll
+
+        handle = getattr(input_obj, "handle", None)
+        if handle is not None and getattr(handle, "value", handle) is not None:
+            windll.kernel32.FlushConsoleInputBuffer(handle)
 
 
 def _answer_to_decision(
@@ -207,8 +244,11 @@ async def _run_approval_menu(
     expiry_task = asyncio.create_task(_expire_approval_menu(app, approval))
 
     try:
-        return str(await app.run_async())
+        return str(await app.run_async(
+            pre_run=lambda: _clear_pending_approval_input(app.input)
+        ))
     finally:
+        _clear_pending_approval_input(app.input)
         expiry_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await expiry_task
