@@ -74,7 +74,14 @@ def render_tool_trace_parts(
             parts.append(_part("\n", None))
 
         preview_kind = preview.kind if isinstance(preview, TracePreview) else "text"
-        if preview_kind != "tree":
+        if preview_kind == "plain":
+            preview_prefix = "  └ " if title_wrapped else "└ "
+            preview_indent = "    " if title_wrapped else "  "
+            parts.extend([
+                _part(preview_prefix, PREVIEW_STYLE),
+                *_plain_preview_parts(preview_text, indent_prefix=preview_indent)
+            ])
+        elif preview_kind != "tree":
             preview_prefix = "  └ " if title_wrapped else "└ "
             preview_indent = "    " if title_wrapped else "  "
             parts.extend(
@@ -85,6 +92,24 @@ def render_tool_trace_parts(
             )
         else:
             parts.extend(_preview_parts(preview_text, ok=ok, indent_prefix=""))
+
+    return parts
+
+
+def _plain_preview_parts(
+    preview_text: str,
+    *,
+    indent_prefix: str = "  "
+) -> list[dict[str, typing.Optional[str]]]:
+    """把普通输出预览渲染为统一文本样式，不做路径等结构识别。"""
+    lines = str(preview_text or "").split("\n")
+
+    parts: list[dict[str, typing.Optional[str]]] = []
+
+    for index, line in enumerate(lines):
+        if index:
+            parts.append(_part(f"\n{indent_prefix}", PREVIEW_STYLE))
+        parts.append(_part(line, PREVIEW_TEXT_STYLE))
 
     return parts
 

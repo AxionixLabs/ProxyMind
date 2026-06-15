@@ -619,13 +619,19 @@ def render_bordered_approval_menu(
     lines: list[list[tuple[str, str]]],
     *,
     max_width: int | None = None,
+    max_height: int | None = None,
     padding: int = APPROVAL_MENU_PADDING,
     title: str | None = "Review command"
 ) -> list[tuple[str, str]]:
     """把审批菜单内容行渲染为顶部规则线和缩进内容。"""
     horizontal_width = _approval_rule_width(max_width=max_width)
     content_width    = max(1, horizontal_width - padding)
-    wrapped_lines    = _wrap_fragment_lines(lines, max_width=content_width)
+
+    wrapped_lines = _wrap_approval_menu_lines(
+        lines,
+        max_width=content_width,
+        max_height=max_height
+    )
 
     parts: list[tuple[str, str]] = [
         *_approval_top_border_parts(horizontal_width, title=title),
@@ -787,10 +793,11 @@ def _approval_command_lines(
     if len(commands) > 1:
         return _approval_batch_command_lines(commands)
 
-    summary = _approval_command_display(commands[0]) if commands else approval_summary(approval)
+    if commands:
+        return _approval_single_command_lines(commands[0])
 
     line: list[tuple[str, str]] = [("class:approval-prompt", "$ ")]
-    line.extend(_approval_command_prompt_parts(summary))
+    line.extend(_approval_command_prompt_parts(approval_summary(approval)))
 
     return [line]
 
@@ -821,6 +828,28 @@ def _approval_batch_command_lines(
         lines.extend(_approval_command_item_lines(
             command, is_last=index == len(commands) - 1
         ))
+
+    return lines
+
+
+def _approval_single_command_lines(command: typing.Any) -> list[list[tuple[str, str]]]:
+    """按命令原文生成单命令审批展示行。"""
+    raw_lines = _approval_command_raw_lines(command)
+    if not raw_lines:
+        return [[("class:approval-prompt", "$ ")]]
+
+    lines: list[list[tuple[str, str]]] = []
+
+    first_line: list[tuple[str, str]] = [("class:approval-prompt", "$ ")]
+    first_line.extend(_approval_command_prompt_parts(raw_lines[0]))
+
+    lines.append(first_line)
+
+    for raw_line in raw_lines[1:]:
+        line: list[tuple[str, str]] = [("class:approval-prompt", "  ")]
+        if raw_line:
+            line.extend(_approval_command_prompt_parts(raw_line))
+        lines.append(line)
 
     return lines
 
@@ -865,11 +894,6 @@ def _approval_command_raw_lines(command: typing.Any) -> list[str]:
     return lines or [""]
 
 
-def _approval_command_display(command: typing.Any) -> str:
-    """返回单命令展示文本；多行命令保留原文。"""
-    return "\n".join(_approval_command_raw_lines(command))
-
-
 def _approval_command_prompt_parts(command: str) -> list[tuple[str, str]]:
     """复用工具轨迹的命令着色规则。"""
     out: list[tuple[str, str]] = []
@@ -903,16 +927,98 @@ def _approval_command_prompt_style(style: str | None) -> str:
     return ""
 
 
-def _wrap_fragment_lines(
+def _wrap_approval_menu_lines(
     lines: list[list[tuple[str, str]]],
     *,
-    max_width: int
+    max_width: int,
+    max_height: int | None
 ) -> list[list[tuple[str, str]]]:
-    """按显示宽度换行，保留片段样式。"""
-    wrapped: list[list[tuple[str, str]]] = []
-    for line in lines:
-        wrapped.extend(_wrap_fragment_line(line, max_width=max_width))
-    return wrapped
+    """按显示宽度换行，并按高度预算截断命令区。"""
+    wrapped_by_line = [
+        _wrap_fragment_line(line, max_width=max_width)
+        for line in lines
+    ]
+    if max_height is None:
+        return _flatten_wrapped_lines(wrapped_by_line)
+
+    command_range = _approval_command_line_range(lines)
+    if command_range is None:
+        return _flatten_wrapped_lines(wrapped_by_line)
+
+    start, end = command_range
+
+    before  = _flatten_wrapped_lines(wrapped_by_line[:start])
+    command = _flatten_wrapped_lines(wrapped_by_line[start:end])
+    after   = _flatten_wrapped_lines(wrapped_by_line[end:])
+
+    command_budget = _approval_command_line_budget(
+        non_command_lines=len(before) + len(after),
+        max_height=max_height
+    )
+
+    if len(command) <= command_budget:
+        return [*before, *command, *after]
+
+    keep    = max(0, command_budget - 1)
+    omitted = len(command) - keep
+
+    return [
+        *before,
+        *command[:keep],
+        _approval_command_omitted_line(omitted),
+        *after
+    ]
+
+
+def _flatten_wrapped_lines(
+    groups: list[list[list[tuple[str, str]]]]
+) -> list[list[tuple[str, str]]]:
+    """展开按原始行分组的换行结果。"""
+    return [line for group in groups for line in group]
+
+
+def _approval_command_line_range(
+    lines: list[list[tuple[str, str]]]
+) -> tuple[int, int] | None:
+    """返回审批菜单中命令区的原始行范围。"""
+    start: int | None = None
+
+    for index, line in enumerate(lines):
+        if _is_approval_command_line(line):
+            start = index
+            break
+    if start is None:
+        return None
+
+    end = start
+    while end < len(lines) and _is_approval_command_line(lines[end]):
+        end += 1
+
+    return start, end
+
+
+def _is_approval_command_line(line: list[tuple[str, str]]) -> bool:
+    """判断语义行是否属于审批命令区。"""
+    return bool(line and line[0][0] == "class:approval-prompt")
+
+
+def _approval_command_line_budget(
+    *,
+    non_command_lines: int,
+    max_height: int
+) -> int:
+    """按终端高度计算命令区最多可占用的显示行数。"""
+    render_overhead = 4
+
+    available = int(max_height or 0) - int(non_command_lines) - render_overhead
+
+    return max(1, available)
+
+
+def _approval_command_omitted_line(omitted: int) -> list[tuple[str, str]]:
+    """生成命令区截断提示行。"""
+    noun = "command line" if omitted == 1 else "command lines"
+    return [("class:approval-preview", f"… +{omitted} {noun}")]
 
 
 def _wrap_fragment_line(
@@ -1025,6 +1131,11 @@ def _terminal_menu_width() -> int:
     return max(40, shutil.get_terminal_size(fallback=(100, 24)).columns)
 
 
+def _terminal_menu_height() -> int:
+    """返回审批菜单可用的终端高度。"""
+    return max(12, shutil.get_terminal_size(fallback=(100, 24)).lines)
+
+
 def _answer_to_decision(
     answer: typing.Any,
     decisions: list[ApprovalDecisionValue]
@@ -1098,6 +1209,7 @@ async def _run_approval_menu(
         return render_bordered_approval_menu(
             content_lines(),
             max_width=_terminal_menu_width(),
+            max_height=_terminal_menu_height(),
             title=approval_title(approval) if approval is not None else None
         )
 

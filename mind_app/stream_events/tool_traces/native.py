@@ -10,6 +10,7 @@ from .common import (
     TraceEntry,
     TracePreview,
     _normalize_preview_lines,
+    _plain_trace_preview_from_lines,
     _result_payload,
     _short_text,
     _summary_lines,
@@ -217,7 +218,7 @@ def render_tool_result_preview(
         if not lines:
             lines = ["(no output)"]
 
-        return _trace_preview_from_lines(lines)
+        return _trace_preview_from_lines(lines) if is_error else _plain_trace_preview_from_lines(lines)
 
     return TracePreview()
 

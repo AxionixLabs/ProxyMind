@@ -114,6 +114,13 @@ def _trace_preview_from_lines(lines: list[str]) -> TracePreview:
     return TracePreview(full=full, screen=screen, omitted_lines=omitted)
 
 
+def _plain_trace_preview_from_lines(lines: list[str]) -> TracePreview:
+    """从文本行生成纯文本轨迹预览，不做路径/摘要结构识别。"""
+    full, _ = _format_preview_lines(lines, max_lines=MAX_PREVIEW_LINES)
+    screen, omitted = _format_preview_lines(lines, max_lines=SCREEN_PREVIEW_LINES)
+    return TracePreview(full=full, screen=screen, omitted_lines=omitted, kind="plain")
+
+
 def _trace_code_preview_from_lines(lines: list[str]) -> TracePreview:
     """从代码行生成轨迹预览。"""
     full, _ = _format_preview_lines(lines, max_lines=MAX_CODE_PREVIEW_LINES)
