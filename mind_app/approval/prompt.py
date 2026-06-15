@@ -234,7 +234,5 @@ async def _expire_approval_menu(
             app.invalidate()
 
 
-
-
 if __name__ == '__main__':
     pass
