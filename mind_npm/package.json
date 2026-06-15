@@ -1,25 +1,18 @@
 {
-  "name": "@mind/mind",
-  "version": "1.0.0",
-  "description": "Mind command line launcher.",
+  "name": "@proxymind/workspace",
+  "private": true,
+  "description": "ProxyMind npm workspace.",
   "type": "module",
-  "bin": {
-    "mind": "./bin/mind.js"
-  },
-  "files": [
-    "bin",
-    "scripts",
-    "applications",
-    "README.md",
-    "LICENSE"
+  "workspaces": [
+    "packages/mind",
+    "packages/mind-win32",
+    "packages/mind-darwin"
   ],
   "scripts": {
     "sync:applications": "node ./scripts/sync-applications.js",
-    "pack:local": "npm run sync:applications && npm pack"
-  },
-  "engines": {
-    "node": ">=18"
-  },
-  "license": "UNLICENSED",
-  "private": false
+    "check": "node --check ./packages/mind/bin/mind.js",
+    "dry:mind": "npm publish -w @proxymind/mind --dry-run --access public",
+    "dry:win32": "npm publish -w @proxymind/mind-win32 --dry-run --access public",
+    "dry:darwin": "npm publish -w @proxymind/mind-darwin --dry-run --access public"
+  }
 }

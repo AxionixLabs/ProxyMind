@@ -1,0 +1,23 @@
+{
+  "name": "@proxymind/mind",
+  "version": "1.0.0",
+  "description": "Mind command line launcher.",
+  "type": "module",
+  "bin": {
+    "mind": "bin/mind.js"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "optionalDependencies": {
+    "@proxymind/mind-win32": "1.0.0",
+    "@proxymind/mind-darwin": "1.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED",
+  "private": false
+}
