@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import re
 import typing
 from pathlib import Path
 from mind_app.stream_events.command_preview import command_text
@@ -200,11 +201,8 @@ def render_tool_result_preview(
             inner_data = inner.get("data") if isinstance(inner.get("data"), dict) else {}
             return render_tool_result_preview("shell_command", inner_data, arguments=inner_args)
 
-        command       = data.get("command") or args.get("command")
-        command_title = _shell_command_title(command)
-
         if is_error:
-            lines = _shell_command_error_context_lines(data, command=command_title)
+            lines = _shell_command_error_context_lines(data)
         else:
             stdout_source = data.get("stdout")
             lines         = _normalize_preview_lines(stdout_source)
@@ -216,7 +214,7 @@ def render_tool_result_preview(
                 lines = err_lines
 
         if not lines:
-            lines = ["(no output)"]
+            lines = _shell_command_empty_preview_lines(data, is_error=is_error)
 
         return _trace_preview_from_lines(lines) if is_error else _plain_trace_preview_from_lines(lines)
 
@@ -288,21 +286,24 @@ def render_tool_result_entries(
 def _shell_command_error_context_lines(
     data: dict[str, typing.Any],
     *,
-    command: str = "",
     max_context_lines: int = 6
 ) -> list[str]:
     """生成 shell_command 失败输出的上下文行。"""
     stderr_lines = _normalize_preview_lines(data.get("stderr"))
     stdout_lines = _normalize_preview_lines(data.get("stdout"))
     stream_lines = stderr_lines or stdout_lines
+
     if not stream_lines:
         return _summary_lines(
             ("error", data.get("error")),
         )
 
-    split_single = _split_single_line_shell_error(stream_lines, command=command)
-    if split_single:
-        return split_single
+    diagnostic = _shell_error_diagnostic_lines(
+        stream_lines,
+        max_context_lines=max_context_lines
+    )
+    if diagnostic:
+        return diagnostic
 
     if len(stream_lines) > max_context_lines:
         omitted = len(stream_lines) - max_context_lines
@@ -312,6 +313,178 @@ def _shell_command_error_context_lines(
         ]
 
     return stream_lines
+
+
+def _shell_command_empty_preview_lines(
+    data: dict[str, typing.Any],
+    *,
+    is_error: bool
+) -> list[str]:
+    """生成 shell_command 无输出时的预览；失败时避免伪造 Line 块。"""
+    if not is_error:
+        return ["(no output)"]
+
+    exit_code = data.get("exit_code")
+    if isinstance(exit_code, int):
+        summary = f"Command failed with exit code {exit_code}"
+    else:
+        summary = "Command failed"
+
+    details = []
+
+    runtime = data.get("runtime")
+    if isinstance(runtime, dict):
+        name = str(runtime.get("name") or "").strip()
+        prefix = runtime.get("prefix")
+        if isinstance(prefix, list):
+            shell = " ".join(str(item) for item in prefix if str(item or "").strip())
+        else:
+            shell = str(runtime.get("executable") or "").strip()
+        if name or shell:
+            details.append(f"runtime: {name or shell}")
+
+    details.append("stderr empty")
+    if details:
+        summary = f"{summary} ({', '.join(details)})"
+    return [summary]
+
+
+def _shell_error_diagnostic_lines(
+    lines: list[str],
+    *,
+    max_context_lines: int
+) -> list[str]:
+    """优先提取跨 shell 的结构化错误诊断块。"""
+    extractors = (
+        _powershell_line_diagnostic_block,
+        _powershell_at_line_diagnostic_block,
+        _python_traceback_diagnostic_block,
+        _posix_shell_diagnostic_block,
+        _tool_error_diagnostic_block,
+    )
+
+    for extractor in extractors:
+        block = extractor(lines)
+        if block:
+            return _clip_diagnostic_block(block, max_lines=max_context_lines)
+
+    return []
+
+
+def _powershell_line_diagnostic_block(lines: list[str]) -> list[str]:
+    """提取 PowerShell 的 Header/Line 管道错误块。"""
+    for index, line in enumerate(lines):
+        if str(line or "").strip() != "Line |":
+            continue
+
+        start = index
+        if index > 0 and _is_error_header_line(lines[index - 1]):
+            start = index - 1
+
+        end = index + 1
+        while end < len(lines) and _is_powershell_line_detail(lines[end]):
+            end += 1
+
+        if end > index + 1:
+            return lines[start:end]
+
+    return []
+
+
+def _powershell_at_line_diagnostic_block(lines: list[str]) -> list[str]:
+    """提取 Windows PowerShell 的 At line:char 错误块。"""
+    for index, line in enumerate(lines):
+        if not re.match(r"^At line:\d+ char:\d+", str(line or "").strip(), re.IGNORECASE):
+            continue
+
+        end = index + 1
+        while end < len(lines):
+            current = str(lines[end] or "")
+            stripped = current.strip()
+            if not stripped:
+                break
+            if end > index + 1 and re.match(r"^[A-Za-z][A-Za-z0-9_. -]*:$", stripped):
+                break
+            end += 1
+
+        return lines[index:end]
+
+    return []
+
+
+def _python_traceback_diagnostic_block(lines: list[str]) -> list[str]:
+    """提取 Python traceback，避免长堆栈只保留尾部。"""
+    for index, line in enumerate(lines):
+        if str(line or "").strip() == "Traceback (most recent call last):":
+            return lines[index:]
+
+    return []
+
+
+def _posix_shell_diagnostic_block(lines: list[str]) -> list[str]:
+    """提取 bash/zsh/sh 等 POSIX shell 常见语法错误。"""
+    for index, line in enumerate(lines):
+        stripped = str(line or "").strip()
+        if re.match(r"^(bash|zsh|sh|dash|fish|ksh)(:|\b).*(syntax error|parse error|not found|permission denied)", stripped, re.IGNORECASE):
+            return lines[index:min(len(lines), index + 3)]
+
+    return []
+
+
+def _tool_error_diagnostic_block(lines: list[str]) -> list[str]:
+    """提取常见 CLI 工具错误块，如 rg regex parse error。"""
+    for index, line in enumerate(lines):
+        stripped = str(line or "").strip()
+        if not re.match(r"^[A-Za-z0-9_.-]+: .*(error|failed|cannot|missing)", stripped, re.IGNORECASE):
+            continue
+
+        end = index + 1
+        while end < len(lines):
+            current = str(lines[end] or "").strip()
+            if not current:
+                break
+            if end > index + 1 and re.match(r"^[A-Za-z0-9_.-]+: ", current) and not current.lower().startswith("error:"):
+                break
+            end += 1
+
+        return lines[index:end]
+
+    return []
+
+
+def _clip_diagnostic_block(block: list[str], *, max_lines: int) -> list[str]:
+    """按诊断块语义裁剪，保留头部和最终错误信息。"""
+    limit = max(1, int(max_lines or 1))
+    if len(block) <= limit:
+        return block
+    if limit <= 2:
+        return block[:limit]
+
+    head_count = max(1, limit // 2)
+    tail_count = max(1, limit - head_count - 1)
+    omitted = len(block) - head_count - tail_count
+
+    return [
+        *block[:head_count],
+        f"… +{omitted} lines",
+        *block[-tail_count:],
+    ]
+
+
+def _is_error_header_line(line: str) -> bool:
+    """判断是否是错误块标题行。"""
+    return bool(re.match(r"^[A-Za-z][A-Za-z0-9_. -]*:$", str(line or "").strip()))
+
+
+def _is_powershell_line_detail(line: str) -> bool:
+    """判断是否是 PowerShell Line | 块的详情行。"""
+    text = str(line or "")
+    stripped = text.strip()
+    return bool(
+        re.match(r"^\d+\s+\|", stripped)
+        or re.match(r"^\|", stripped)
+        or re.match(r"^[~^]+$", stripped)
+    )
 
 
 def _shell_command_title(command: typing.Any) -> str:
@@ -331,43 +504,6 @@ def _shell_command_raw_lines(command: typing.Any) -> list[str]:
         lines.pop()
 
     return lines
-
-
-def _split_single_line_shell_error(
-    lines: list[str],
-    *,
-    command: str,
-    line_number: int = 1
-) -> list[str]:
-    """把单行命令错误转换为带命令定位的预览行。"""
-    if len(lines) != 1:
-        return []
-
-    line = str(lines[0] or "").strip()
-    if not line:
-        return []
-
-    head, sep, message = line.partition(": ")
-
-    if not sep or not head or not message:
-        head    = "Command"
-        message = line
-
-    command = str(command or "").strip()
-    if not command:
-        return []
-
-    line_number  = max(1, int(line_number or 1))
-    command_line = f"{line_number:4d} |  {command}"
-    marker_width = max(8, min(MAX_PREVIEW_WIDTH - 8, len(command)))
-
-    return [
-        f"{head}:",
-        "Line |",
-        command_line,
-        f"     |  {'~' * marker_width}",
-        f"     |  {message}",
-    ]
 
 
 def render_tool_trace(

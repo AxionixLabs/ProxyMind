@@ -503,8 +503,41 @@ def _error_preview_line_parts(
     if stripped == "Line |":
         return [_part(line, ERROR_PREVIEW_LINE_STYLE)]
 
+    if stripped == "Traceback (most recent call last):":
+        return [_part(line, ERROR_PREVIEW_HEAD_STYLE)]
+
     if re.match(r"^[A-Za-z]+Error:$", stripped):
         return [_part(line, ERROR_PREVIEW_HEAD_STYLE)]
+
+    if re.match(r"^At line:\d+ char:\d+", stripped, re.IGNORECASE):
+        return [_part(line, ERROR_PREVIEW_LINE_STYLE)]
+
+    exception = re.match(r"^([A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception|Warning))(:)(.*)$", line)
+    if exception:
+        return [
+            _part(f"{exception.group(1)}{exception.group(2)}", ERROR_PREVIEW_HEAD_STYLE),
+            _part(exception.group(3), ERROR_PREVIEW_TEXT_STYLE),
+        ]
+
+    if re.match(r"^[A-Za-z0-9_.-]+: .*(error|failed|cannot|missing|exception)", stripped, re.IGNORECASE):
+        return [_part(line, ERROR_PREVIEW_HEAD_STYLE)]
+
+    if re.match(r"^\s*[\^~]+$", line):
+        leading_len = len(line) - len(line.lstrip())
+        return [
+            _part(line[:leading_len], ERROR_PREVIEW_LINE_STYLE),
+            _part(line[leading_len:], ERROR_PREVIEW_MESSAGE_STYLE),
+        ]
+
+    powershell_at_marker = re.match(r"^(\+\s*)([\^~]+)$", line)
+    if powershell_at_marker:
+        return [
+            _part(powershell_at_marker.group(1), ERROR_PREVIEW_LINE_STYLE),
+            _part(powershell_at_marker.group(2), ERROR_PREVIEW_MESSAGE_STYLE),
+        ]
+
+    if re.match(r"^\+\s", line):
+        return [_part(line, ERROR_PREVIEW_LINE_STYLE)]
 
     if re.match(r"^\s*\d+\s+\|\s", line):
         prefix, sep, body = line.partition("|")
@@ -529,7 +562,16 @@ def _error_preview_line_parts(
             _part(body, ERROR_PREVIEW_TEXT_STYLE),
         ]
 
-    if re.match(r"(?i)^\s*(error|cannot|missing|failed|exception)\b", stripped):
+    if re.match(r"(?i)^\s*(error|fatal|warning|cannot|missing|failed|exception)\b", stripped):
+        return [_part(line, ERROR_PREVIEW_TEXT_STYLE)]
+
+    if re.match(r"(?i)^Command failed\b", stripped):
+        return [_part(line, ERROR_PREVIEW_TEXT_STYLE)]
+
+    if re.match(r"(?i)^stderr:\s*empty$", stripped):
+        return [_part(line, ERROR_PREVIEW_TEXT_STYLE)]
+
+    if re.search(r"(?i)\b(error|fatal|warning|cannot|missing|failed|failure|exception|not found|not recognized|permission denied|no such file|syntax error|parse error|not a valid)\b", stripped):
         return [_part(line, ERROR_PREVIEW_TEXT_STYLE)]
 
     return None
