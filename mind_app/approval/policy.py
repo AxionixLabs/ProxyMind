@@ -22,15 +22,13 @@ DEFAULT_APPROVAL_DECISIONS: tuple[ApprovalDecisionValue, ...] = (
 DECISION_LABELS: dict[str, str] = {
     "accept"           : "Yes, proceed",
     "acceptForSession" : "Yes, for this session",
-    "decline"          : f"No, and tell {const.APP_DESC} what to do differently",
-    "cancel"           : "Cancel"
+    "decline"          : f"No, and tell {const.APP_DESC} what to do differently"
 }
 
 DECISION_SHORTCUT_LABELS: dict[str, str] = {
     "accept"           : "y",
     "acceptForSession" : "s",
-    "decline"          : "n",
-    "cancel"           : "esc"
+    "decline"          : "esc"
 }
 
 
@@ -449,8 +447,7 @@ def _normalize_decision(value: typing.Any) -> ApprovalDecisionValue | None:
         "decline"            : "decline",
         "deny"               : "decline",
         "denied"             : "decline",
-        "no"                 : "decline",
-        "cancel"             : "cancel"
+        "no"                 : "decline"
     }
     return aliases.get(text.lower())
 

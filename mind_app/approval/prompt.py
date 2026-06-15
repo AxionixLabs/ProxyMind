@@ -51,7 +51,7 @@ def _answer_to_decision(
             return decisions[index]
     if text in {"y", "yes"} and "accept" in decisions:
         return "accept"
-    if text in {"n", "no", ""}:
+    if text in {"esc", "escape", "no", ""}:
         return "decline" if "decline" in decisions else decisions[-1]
 
     normalized = _normalize_decision(text)
@@ -64,8 +64,8 @@ def _answer_to_decision(
 def _escape_decision(
     decisions: list[ApprovalDecisionValue]
 ) -> ApprovalDecisionValue | None:
-    """返回 Esc 允许触发的审批结果；未显式提供 cancel 时只吞掉按键。"""
-    return "cancel" if "cancel" in decisions else None
+    """返回 Esc 触发的审批拒绝结果。"""
+    return "decline" if "decline" in decisions else None
 
 
 def _interrupt_decision(
@@ -74,8 +74,6 @@ def _interrupt_decision(
     """返回 Ctrl-C 触发的本地安全中断结果。"""
     if "decline" in decisions:
         return "decline"
-    if "cancel" in decisions:
-        return "cancel"
     return decisions[-1]
 
 
@@ -158,7 +156,7 @@ async def _run_approval_menu(
 
     @bindings.add("escape")
     def _(event) -> None:
-        """取消审批菜单。"""
+        """通过 Esc 拒绝审批请求。"""
         decision = _escape_decision(decisions)
         if decision is not None:
             event.app.exit(result=decision)
@@ -181,16 +179,6 @@ async def _run_approval_menu(
         """通过快捷键在当前会话接受审批请求。"""
         if "acceptForSession" in decisions:
             event.app.exit(result="acceptForSession")
-
-    @bindings.add("n")
-    def _(event) -> None:
-        """通过快捷键拒绝审批请求。"""
-        if "decline" in decisions:
-            event.app.exit(result="decline")
-        elif "cancel" in decisions:
-            event.app.exit(result="cancel")
-        else:
-            event.app.exit(result=decisions[-1])
 
     for option_index, option_decision in enumerate(decisions, start=1):
         @bindings.add(str(option_index))

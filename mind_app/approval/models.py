@@ -8,7 +8,6 @@ ApprovalDecisionValue = typing.Literal[
     "accept",
     "acceptForSession",
     "decline",
-    "cancel",
     "expired"
 ]
 
