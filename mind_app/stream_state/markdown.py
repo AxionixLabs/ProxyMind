@@ -11,9 +11,11 @@ from rich.console import (
 from rich.markdown import (
     CodeBlock,
     Heading,
+    ListItem,
     Markdown,
     TableDataElement
 )
+from rich.segment import Segment
 from rich.style import Style
 from rich.syntax import Syntax
 from rich.syntax import ANSISyntaxTheme
@@ -67,6 +69,32 @@ class LeftTableDataElement(TableDataElement):
         return cls(justify="left")
 
 
+class NumberedListItem(ListItem):
+    """渲染带句点的 Markdown 有序列表编号。"""
+
+    def render_number(
+        self,
+        console: Console,
+        options: ConsoleOptions,
+        number: int,
+        last_number: int
+    ) -> RenderResult:
+        """生成有序列表项的控制台片段。"""
+        number_width   = len(str(last_number)) + 3
+        render_options = options.update(width=options.max_width - number_width)
+        lines          = console.render_lines(self.elements, render_options, style=self.style)
+        number_style   = console.get_style("markdown.item.number", default="none")
+
+        new_line = Segment("\n")
+        padding  = Segment(" " * number_width, number_style)
+        numeral  = Segment(f"{number}.".rjust(number_width - 1) + " ", number_style)
+
+        for index, line in enumerate(lines):
+            yield numeral if index == 0 else padding
+            yield from line
+            yield new_line
+
+
 class PlainCodeBlock(CodeBlock):
     """渲染使用默认背景的 Markdown 代码块。"""
 
@@ -95,11 +123,12 @@ class MarkdownRenderer(Markdown):
 
     elements = {
         **Markdown.elements,
-        "heading_open" : LeftHeading,
-        "td_open"      : LeftTableDataElement,
-        "th_open"      : LeftTableDataElement,
-        "fence"        : PlainCodeBlock,
-        "code_block"   : PlainCodeBlock
+        "heading_open"   : LeftHeading,
+        "td_open"        : LeftTableDataElement,
+        "th_open"        : LeftTableDataElement,
+        "list_item_open" : NumberedListItem,
+        "fence"          : PlainCodeBlock,
+        "code_block"     : PlainCodeBlock
     }
 
     def __rich_console__(
@@ -109,6 +138,7 @@ class MarkdownRenderer(Markdown):
     ) -> RenderResult:
         """在临时主题范围内生成 Markdown 控制台片段。"""
         console.push_theme(MARKDOWN_THEME)
+
         try:
             yield from super().__rich_console__(console, options)
         finally:
@@ -118,8 +148,31 @@ class MarkdownRenderer(Markdown):
 def render_markdown(text: typing.Any) -> MarkdownRenderer:
     """创建项目内统一的 Markdown 渲染对象。"""
     return MarkdownRenderer(
-        str(text or ""), justify="left", hyperlinks=False
+        _preserve_blockquote_line_breaks(str(text or "")),
+        justify="left",
+        hyperlinks=False
     )
+
+
+def _preserve_blockquote_line_breaks(text: str) -> str:
+    """把连续引用行中的软换行转换为 Markdown 硬换行。"""
+    lines = str(text or "").splitlines(keepends=True)
+    if not lines:
+        return ""
+
+    out: list[str] = []
+    for index, line in enumerate(lines):
+
+        current   = line.rstrip("\r\n")
+        newline   = line[len(current):]
+        next_line = lines[index + 1].lstrip() if index + 1 < len(lines) else ""
+
+        if current.lstrip().startswith(">") and next_line.startswith(">") and not current.endswith("  "):
+            current = f"{current}  "
+
+        out.append(f"{current}{newline}")
+
+    return "".join(out)
 
 
 if __name__ == '__main__':
