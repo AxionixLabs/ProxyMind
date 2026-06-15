@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import re
 import typing
 from pathlib import Path
 from mind_app.stream_events.command_preview import command_text
@@ -31,6 +30,7 @@ from .shell_batch import (
     shell_batch_trace_title,
     shell_batch_tree_preview
 )
+from .shell_errors import shell_error_diagnostic_lines
 from .native_patch import (
     _error_unified_patch_preview_lines,
     _hunk_label,
@@ -298,9 +298,8 @@ def _shell_command_error_context_lines(
             ("error", data.get("error")),
         )
 
-    diagnostic = _shell_error_diagnostic_lines(
-        stream_lines,
-        max_context_lines=max_context_lines
+    diagnostic = shell_error_diagnostic_lines(
+        stream_lines, max_context_lines=max_context_lines
     )
     if diagnostic:
         return diagnostic
@@ -347,144 +346,6 @@ def _shell_command_empty_preview_lines(
     if details:
         summary = f"{summary} ({', '.join(details)})"
     return [summary]
-
-
-def _shell_error_diagnostic_lines(
-    lines: list[str],
-    *,
-    max_context_lines: int
-) -> list[str]:
-    """优先提取跨 shell 的结构化错误诊断块。"""
-    extractors = (
-        _powershell_line_diagnostic_block,
-        _powershell_at_line_diagnostic_block,
-        _python_traceback_diagnostic_block,
-        _posix_shell_diagnostic_block,
-        _tool_error_diagnostic_block,
-    )
-
-    for extractor in extractors:
-        block = extractor(lines)
-        if block:
-            return _clip_diagnostic_block(block, max_lines=max_context_lines)
-
-    return []
-
-
-def _powershell_line_diagnostic_block(lines: list[str]) -> list[str]:
-    """提取 PowerShell 的 Header/Line 管道错误块。"""
-    for index, line in enumerate(lines):
-        if str(line or "").strip() != "Line |":
-            continue
-
-        start = index
-        if index > 0 and _is_error_header_line(lines[index - 1]):
-            start = index - 1
-
-        end = index + 1
-        while end < len(lines) and _is_powershell_line_detail(lines[end]):
-            end += 1
-
-        if end > index + 1:
-            return lines[start:end]
-
-    return []
-
-
-def _powershell_at_line_diagnostic_block(lines: list[str]) -> list[str]:
-    """提取 Windows PowerShell 的 At line:char 错误块。"""
-    for index, line in enumerate(lines):
-        if not re.match(r"^At line:\d+ char:\d+", str(line or "").strip(), re.IGNORECASE):
-            continue
-
-        end = index + 1
-        while end < len(lines):
-            current = str(lines[end] or "")
-            stripped = current.strip()
-            if not stripped:
-                break
-            if end > index + 1 and re.match(r"^[A-Za-z][A-Za-z0-9_. -]*:$", stripped):
-                break
-            end += 1
-
-        return lines[index:end]
-
-    return []
-
-
-def _python_traceback_diagnostic_block(lines: list[str]) -> list[str]:
-    """提取 Python traceback，避免长堆栈只保留尾部。"""
-    for index, line in enumerate(lines):
-        if str(line or "").strip() == "Traceback (most recent call last):":
-            return lines[index:]
-
-    return []
-
-
-def _posix_shell_diagnostic_block(lines: list[str]) -> list[str]:
-    """提取 bash/zsh/sh 等 POSIX shell 常见语法错误。"""
-    for index, line in enumerate(lines):
-        stripped = str(line or "").strip()
-        if re.match(r"^(bash|zsh|sh|dash|fish|ksh)(:|\b).*(syntax error|parse error|not found|permission denied)", stripped, re.IGNORECASE):
-            return lines[index:min(len(lines), index + 3)]
-
-    return []
-
-
-def _tool_error_diagnostic_block(lines: list[str]) -> list[str]:
-    """提取常见 CLI 工具错误块，如 rg regex parse error。"""
-    for index, line in enumerate(lines):
-        stripped = str(line or "").strip()
-        if not re.match(r"^[A-Za-z0-9_.-]+: .*(error|failed|cannot|missing)", stripped, re.IGNORECASE):
-            continue
-
-        end = index + 1
-        while end < len(lines):
-            current = str(lines[end] or "").strip()
-            if not current:
-                break
-            if end > index + 1 and re.match(r"^[A-Za-z0-9_.-]+: ", current) and not current.lower().startswith("error:"):
-                break
-            end += 1
-
-        return lines[index:end]
-
-    return []
-
-
-def _clip_diagnostic_block(block: list[str], *, max_lines: int) -> list[str]:
-    """按诊断块语义裁剪，保留头部和最终错误信息。"""
-    limit = max(1, int(max_lines or 1))
-    if len(block) <= limit:
-        return block
-    if limit <= 2:
-        return block[:limit]
-
-    head_count = max(1, limit // 2)
-    tail_count = max(1, limit - head_count - 1)
-    omitted = len(block) - head_count - tail_count
-
-    return [
-        *block[:head_count],
-        f"… +{omitted} lines",
-        *block[-tail_count:],
-    ]
-
-
-def _is_error_header_line(line: str) -> bool:
-    """判断是否是错误块标题行。"""
-    return bool(re.match(r"^[A-Za-z][A-Za-z0-9_. -]*:$", str(line or "").strip()))
-
-
-def _is_powershell_line_detail(line: str) -> bool:
-    """判断是否是 PowerShell Line | 块的详情行。"""
-    text = str(line or "")
-    stripped = text.strip()
-    return bool(
-        re.match(r"^\d+\s+\|", stripped)
-        or re.match(r"^\|", stripped)
-        or re.match(r"^[~^]+$", stripped)
-    )
 
 
 def _shell_command_title(command: typing.Any) -> str:

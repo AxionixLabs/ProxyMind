@@ -12,6 +12,7 @@ from .common import (
     _short_text
 )
 from .native_helpers import failure_summary
+from .shell_errors import shell_error_compact_summary
 
 
 def _shell_batch_item_payload(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
@@ -146,7 +147,11 @@ def _shell_batch_tree_detail(
     if ok:
         return _short_line(_shell_batch_output_summary(payload) or "(no output)", MAX_PREVIEW_WIDTH)
 
-    message = failure_summary(payload)
+    message = (
+        shell_error_compact_summary(payload.get("stderr"))
+        or shell_error_compact_summary(payload.get("stdout"))
+        or failure_summary(payload)
+    )
     if message:
         return _short_line(message, MAX_PREVIEW_WIDTH)
 
