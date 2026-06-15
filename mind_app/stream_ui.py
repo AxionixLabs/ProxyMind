@@ -149,8 +149,9 @@ class StreamUI(object):
             self._delayed_status_flow(
                 text,
                 show_delay_sec=0.18,
-                animate_after_sec=0.72,
-                family="tool"
+                animate_after_sec=0.18,
+                family="tool",
+                initial_animated=True
             )
         )
 
@@ -567,7 +568,8 @@ class StreamUI(object):
         show_delay_sec: float,
         animate_after_sec: float,
         family: StatusFamily,
-        min_visible_sec: float = 0.0
+        min_visible_sec: float = 0.0,
+        initial_animated: bool = False
     ) -> None:
         task = asyncio.current_task()
         if task is None:
@@ -575,14 +577,16 @@ class StreamUI(object):
 
         try:
             await asyncio.sleep(show_delay_sec)
-            await self.coordinator.set_status(text, family=family, animated=False)
+            await self.coordinator.set_status(text, family=family, animated=initial_animated)
 
             self._mark_status_visible(min_visible_sec)
             if self._pending_status_revealed is not None:
                 self._pending_status_revealed.set()
 
             animate_delay = animate_after_sec - show_delay_sec
-            if animate_delay > 0:
+            if initial_animated:
+                pass
+            elif animate_delay > 0:
                 await asyncio.sleep(animate_delay)
                 await self.coordinator.set_status(text, family=family, animated=True)
             elif animate_after_sec <= show_delay_sec:
