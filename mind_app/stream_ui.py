@@ -24,21 +24,27 @@ class StreamUI(object):
 
     def __init__(self, log_file: str, *, design_level: str = const.SHOW_LEVEL) -> None:
         self.log_file = log_file
+
         self.design_level = design_level
 
-        self._has_stream_output = False
         self._pending_status_task: typing.Optional[asyncio.Task[None]] = None
         self._pending_status_force_reveal = False
         self._pending_status_revealed: typing.Optional[asyncio.Event] = None
+
         self._active_status_visible_at: typing.Optional[float] = None
         self._active_status_min_visible_sec = 0.0
+
         self._heal_status_text: str = ""
         self._heal_status_pending_text: str = ""
         self._heal_status_last_flush_at: float = 0.0
         self._heal_status_flush_task: typing.Optional[asyncio.Task[None]] = None
-        self._stream_boundary_pending = False
-        self.record_writer: StreamRecordWriter
+
+        self._stream_output_fact: bool = False
+        self._stream_boundary_pending: bool = False
+
         self._reset_components()
+
+        self.record_writer: StreamRecordWriter
 
     async def open(self) -> None:
         await self.record_writer.open()
@@ -75,12 +81,13 @@ class StreamUI(object):
             raw_chunk = text
 
         if display == self.STREAM:
-            if not self._has_stream_output:
-                self._has_stream_output = True
+            if not self._stream_output_fact:
+                self._stream_output_fact = True
             await self.end_status(immediate=True)
             self.coordinator.release_status_slot()
 
         self.record_writer.write(text, block=(display == self.BLOCK))
+
         await self.coordinator.append(
             text,
             echo=echo,
@@ -92,29 +99,20 @@ class StreamUI(object):
             preserve_display_parts=preserve_display_parts
         )
 
-    def mark_stream_boundary(self) -> None:
-        self._stream_boundary_pending = True
-
     async def prepare_external_output(self) -> None:
         """落版当前 live 文本，并在外部 UI 输出前消费 text.done 边界。"""
+        has_live_text   = bool(self.coordinator.text_state.display_text.strip())
         boundary_prefix = self._consume_stream_boundary_prefix()
+
         await self.settle_stream()
         await self.commit_live()
-        await self._print_boundary_prefix(boundary_prefix)
 
-    def record_tool_arguments(
-        self,
-        name: str,
-        arguments: dict[str, typing.Any],
-        *,
-        call_id: typing.Optional[str] = None
-    ) -> None:
-        payload   = self._tool_arguments_audit_payload(arguments)
-        call_part = f" call_id={call_id}" if call_id else ""
-
-        self.record_writer.write_audit(
-            f"# tool_args tool={name}{call_part} arguments={payload}"
+        boundary_prefix = self._external_output_boundary_prefix(
+            boundary_prefix,
+            has_live_text=has_live_text
         )
+
+        await self._print_boundary_prefix(boundary_prefix)
 
     async def begin_builtin_status(
         self,
@@ -125,9 +123,12 @@ class StreamUI(object):
         """显示 Responses builtin 名称，短延迟后露出，避免极短 builtin 闪屏。"""
         if self.design_level != const.SHOW_LEVEL:
             return None
-        if self._has_stream_output:
+
+        if self._stream_output_fact:
             return None
+
         status_text, family = self._compose_builtin_status(text)
+
         await self._schedule_status_task(
             self._delayed_status_flow(
                 status_text,
@@ -144,7 +145,9 @@ class StreamUI(object):
     async def begin_custom_tool_status(self, text: typing.Optional[str]) -> None:
         if self.design_level != const.SHOW_LEVEL:
             return None
+
         self.coordinator.hold_status_slot()
+
         await self._schedule_status_task(
             self._delayed_status_flow(
                 text,
@@ -164,11 +167,14 @@ class StreamUI(object):
     ) -> None:
         if self.design_level != const.SHOW_LEVEL:
             return None
+
         self.coordinator.hold_status_slot()
+
         if delay_sec <= 0:
             await self._cancel_pending_status_task()
             if str(text or "").strip().lower() == "coding":
                 text = "native coding"
+
             await self.coordinator.set_status(text, family="code", animated=True)
             self._mark_status_visible(min_visible_sec)
             return None
@@ -192,7 +198,9 @@ class StreamUI(object):
     ) -> None:
         if self.design_level != const.SHOW_LEVEL:
             return None
+
         animate_after = delay_sec if animate_after_sec is None else max(0.0, float(animate_after_sec))
+
         await self._schedule_status_task(
             self._delayed_status_flow(
                 text,
@@ -210,20 +218,25 @@ class StreamUI(object):
     ) -> None:
         if self.design_level != const.SHOW_LEVEL:
             return None
+
         self.coordinator.hold_status_slot()
+
         await self._cancel_pending_status_task()
         await self._cancel_heal_status_flush_task()
+
         text = self._compose_heal_status_text(summary)
-        self._heal_status_text = text
-        self._heal_status_pending_text = ""
+
+        self._heal_status_text          = text
+        self._heal_status_pending_text  = ""
         self._heal_status_last_flush_at = time.perf_counter()
+
         if delay_sec > 0:
             await self._schedule_status_task(
                 self._delayed_status_flow(
                     text,
                     show_delay_sec=delay_sec,
                     animate_after_sec=delay_sec,
-                    family="heal",
+                    family="heal"
                 )
             )
             return None
@@ -341,72 +354,33 @@ class StreamUI(object):
     def flush(self) -> None:
         self.record_writer.flush()
 
-    def _reset_components(self) -> None:
-        self._has_stream_output = False
-        self._stream_boundary_pending = False
-        self._pending_status_task = None
-        self._pending_status_force_reveal = False
-        self._pending_status_revealed = None
-        self._active_status_visible_at = None
-        self._active_status_min_visible_sec = 0.0
-        self._reset_heal_status_state()
+    def mark_stream_boundary(self) -> None:
+        self._stream_boundary_pending = True
 
-        refresh_per_second = 16
+    def record_tool_arguments(
+        self,
+        name: str,
+        arguments: dict[str, typing.Any],
+        *,
+        call_id: typing.Optional[str] = None
+    ) -> None:
+        payload   = self._tool_arguments_audit_payload(arguments)
+        call_part = f" call_id={call_id}" if call_id else ""
 
-        self.record_writer = StreamRecordWriter(self.log_file)
-        self.coordinator = RenderCoord(
-            refresh_per_second=refresh_per_second
+        self.record_writer.write_audit(
+            f"# tool_args tool={name}{call_part} arguments={payload}"
         )
-
-    def _clear_pending_status_task_ref(self, task: asyncio.Task[None]) -> None:
-        if self._pending_status_task is task:
-            self._pending_status_task = None
-            self._pending_status_force_reveal = False
-            self._pending_status_revealed = None
-
-    def _mark_status_visible(self, min_visible_sec: float) -> None:
-        self._active_status_visible_at = time.perf_counter()
-        self._active_status_min_visible_sec = max(0.0, float(min_visible_sec))
-
-    def _reset_heal_status_state(self) -> None:
-        self._heal_status_text = ""
-        self._heal_status_pending_text = ""
-        self._heal_status_last_flush_at = 0.0
-        self._heal_status_flush_task = None
 
     @staticmethod
     def _print_direct(renderable: typing.Any) -> None:
         Design.console.print(renderable)
 
-    async def _print_boundary_prefix(self, prefix: str, *, record: bool = True) -> None:
-        if not prefix:
-            return None
-        if record:
-            self.record_writer.write_raw(prefix)
-        await self.coordinator.text_renderer.suspend(clear=True)
-        self._print_raw(prefix)
-
-    def _consume_stream_boundary_prefix(
-        self,
-        *,
-        incoming_text: str | None = None
-    ) -> str:
-        if not self._stream_boundary_pending:
-            return ""
-
-        self._stream_boundary_pending = False
-
-        if incoming_text and incoming_text.startswith("\n"):
-            return ""
-
-        source = self.coordinator.text_state.display_text
-        if not source:
-            return ""
-
-        trailing = self._count_trailing_newlines(source)
-        needed   = max(0, 1 - trailing)
-
-        return "\n" * needed
+    @staticmethod
+    def _external_output_boundary_prefix(prefix: str, *, has_live_text: bool) -> str:
+        """在模型正文和外部交互 UI 之间保留一个视觉空行。"""
+        if not has_live_text:
+            return prefix
+        return "\n"
 
     @staticmethod
     def _count_trailing_newlines(text: str) -> int:
@@ -422,9 +396,7 @@ class StreamUI(object):
         Design.console.print("", end=text)
 
     @staticmethod
-    def _parts_renderable(
-        parts: list[dict[str, typing.Optional[str]]]
-    ) -> Text:
+    def _parts_renderable(parts: list[dict[str, typing.Optional[str]]]) -> Text:
         renderable = Text()
         for part in parts:
             part_text = str(part.get("text") or "")
@@ -443,20 +415,6 @@ class StreamUI(object):
             return None
         except Exception as e:
             logger.debug(f"[StreamUI] status task failed: {type(e).__name__}: {e}")
-
-    @classmethod
-    def _compose_heal_status_text(cls, summary: typing.Optional[str]) -> str:
-        base_title = "restoring signal"
-        normalized = " ".join(str(summary or "").split())
-        if not normalized:
-            return base_title
-        lower = normalized.lower()
-        base_lower = base_title.lower()
-        if lower.startswith(f"{base_lower} · "):
-            return normalized
-        if lower == base_lower:
-            return base_title
-        return f"{base_title} · {normalized}"
 
     @staticmethod
     def _tool_arguments_audit_payload(arguments: dict[str, typing.Any]) -> str:
@@ -477,7 +435,27 @@ class StreamUI(object):
             )
 
     @classmethod
-    def _compose_loop_status_text(cls, summary: typing.Optional[str]) -> str:
+    def _compose_heal_status_text(
+        cls,
+        summary: typing.Optional[str]
+    ) -> str:
+        base_title = "restoring signal"
+        normalized = " ".join(str(summary or "").split())
+        if not normalized:
+            return base_title
+        lower = normalized.lower()
+        base_lower = base_title.lower()
+        if lower.startswith(f"{base_lower} · "):
+            return normalized
+        if lower == base_lower:
+            return base_title
+        return f"{base_title} · {normalized}"
+
+    @classmethod
+    def _compose_loop_status_text(
+        cls,
+        summary: typing.Optional[str]
+    ) -> str:
         base_title = "loop steps"
         normalized = " ".join(str(summary or "").split())
         if not normalized:
@@ -499,6 +477,66 @@ class StreamUI(object):
         if normalized.lower() in {"chat", "fast", "plan", "xtra"}:
             return Design.mode_status_text(normalized), "mode"
         return text, "builtin"
+
+    def _reset_components(self) -> None:
+        self._stream_output_fact            = False
+        self._stream_boundary_pending       = False
+        self._pending_status_task           = None
+        self._pending_status_force_reveal   = False
+        self._pending_status_revealed       = None
+        self._active_status_visible_at      = None
+        self._active_status_min_visible_sec = 0.0
+
+        self._reset_heal_status_state()
+
+        refresh_per_second = 16
+
+        self.record_writer = StreamRecordWriter(self.log_file)
+        self.coordinator = RenderCoord(
+            refresh_per_second=refresh_per_second
+        )
+
+    def _clear_pending_status_task_ref(self, task: asyncio.Task[None]) -> None:
+        if self._pending_status_task is task:
+            self._pending_status_task         = None
+            self._pending_status_force_reveal = False
+            self._pending_status_revealed     = None
+
+    def _mark_status_visible(self, min_visible_sec: float) -> None:
+        self._active_status_visible_at = time.perf_counter()
+        self._active_status_min_visible_sec = max(0.0, float(min_visible_sec))
+
+    def _reset_heal_status_state(self) -> None:
+        self._heal_status_text          = ""
+        self._heal_status_pending_text  = ""
+        self._heal_status_last_flush_at = 0.0
+        self._heal_status_flush_task    = None
+
+    def _consume_stream_boundary_prefix(self, *, incoming_text: str | None = None) -> str:
+        if not self._stream_boundary_pending:
+            return ""
+
+        self._stream_boundary_pending = False
+
+        if incoming_text and incoming_text.startswith("\n"):
+            return ""
+
+        source = self.coordinator.text_state.display_text
+        if not source:
+            return ""
+
+        trailing = self._count_trailing_newlines(source)
+        needed   = max(0, 1 - trailing)
+
+        return "\n" * needed
+
+    async def _print_boundary_prefix(self, prefix: str, *, record: bool = True) -> None:
+        if not prefix:
+            return None
+        if record:
+            self.record_writer.write_raw(prefix)
+        await self.coordinator.text_renderer.suspend(clear=True)
+        self._print_raw(prefix)
 
     async def _cancel_heal_status_flush_task(self) -> None:
         task = self._heal_status_flush_task
@@ -534,6 +572,40 @@ class StreamUI(object):
             reset_phase_on_text_change=False
         )
 
+    async def _wait_status_visibility_if_needed(self) -> None:
+        task     = self._pending_status_task
+        revealed = self._pending_status_revealed
+
+        if task and self._pending_status_force_reveal and revealed is not None:
+            try:
+                await revealed.wait()
+            except asyncio.CancelledError:
+                return None
+
+        if not self._active_status_visible_at or self._active_status_min_visible_sec <= 0:
+            return None
+
+        deadline  = self._active_status_visible_at + self._active_status_min_visible_sec
+        remaining = deadline - time.perf_counter()
+
+        if remaining > 0:
+            await asyncio.sleep(remaining)
+
+    async def _cancel_pending_status_task(self) -> None:
+        task = self._pending_status_task
+        if not task:
+            return None
+
+        self._pending_status_task         = None
+        self._pending_status_force_reveal = False
+        self._pending_status_revealed     = None
+
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
     async def _schedule_status_task(
         self,
         coro: typing.Coroutine[typing.Any, typing.Any, None],
@@ -546,20 +618,6 @@ class StreamUI(object):
         self._pending_status_task = task
         self._pending_status_force_reveal = force_reveal
         self._pending_status_revealed = asyncio.Event() if force_reveal else None
-
-    async def _cancel_pending_status_task(self) -> None:
-        task = self._pending_status_task
-        if not task:
-            return None
-
-        self._pending_status_task = None
-        self._pending_status_force_reveal = False
-        self._pending_status_revealed = None
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
 
     async def _delayed_status_flow(
         self,
@@ -596,25 +654,6 @@ class StreamUI(object):
 
         except asyncio.CancelledError:
             return None
-
-    async def _wait_status_visibility_if_needed(self) -> None:
-        task     = self._pending_status_task
-        revealed = self._pending_status_revealed
-
-        if task and self._pending_status_force_reveal and revealed is not None:
-            try:
-                await revealed.wait()
-            except asyncio.CancelledError:
-                return None
-
-        if not self._active_status_visible_at or self._active_status_min_visible_sec <= 0:
-            return None
-
-        deadline  = self._active_status_visible_at + self._active_status_min_visible_sec
-        remaining = deadline - time.perf_counter()
-
-        if remaining > 0:
-            await asyncio.sleep(remaining)
 
 
 if __name__ == '__main__':
