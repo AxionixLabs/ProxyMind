@@ -182,7 +182,7 @@ def _flatten_patch_preview_groups(groups: list[dict[str, typing.Any]]) -> list[s
         if index:
             lines.append("")
         if path:
-            lines.append(f"{path} (+{added} -{removed})")
+            lines.append(f"└─ {path} (+{added} -{removed})")
         lines.extend(str(item) for item in group.get("lines") or [])
 
     return lines

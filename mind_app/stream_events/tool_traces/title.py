@@ -77,19 +77,26 @@ def render_tool_trace_parts(
         if preview_kind == "plain":
             preview_prefix = "  └ " if title_wrapped else "└ "
             preview_indent = "    " if title_wrapped else "  "
+
             parts.extend([
                 _part(preview_prefix, PREVIEW_STYLE),
                 *_plain_preview_parts(preview_text, indent_prefix=preview_indent)
             ])
+
+        elif preview_kind in {"file_tree", "patch_tree"}:
+            parts.extend(_preview_parts(preview_text, ok=ok, indent_prefix=""))
+
         elif preview_kind != "tree":
             preview_prefix = "  └ " if title_wrapped else "└ "
             preview_indent = "    " if title_wrapped else "  "
+
             parts.extend(
                 [
                     _part(preview_prefix, PREVIEW_STYLE),
                     *_preview_parts(preview_text, ok=ok, indent_prefix=preview_indent)
                 ]
             )
+
         else:
             parts.extend(_preview_parts(preview_text, ok=ok, indent_prefix=""))
 
@@ -160,8 +167,9 @@ def _wrap_styled_cells(
 ) -> list[list[dict[str, typing.Optional[str]]]]:
     """把样式单元按首行和续行宽度拆成多行。"""
     lines: list[list[dict[str, typing.Optional[str]]]] = []
+
     remaining = cells
-    width = first_width
+    width     = first_width
 
     while remaining:
         line, remaining = _take_wrapped_line(remaining, max_width=width)
@@ -191,14 +199,17 @@ def _take_wrapped_line(
 ) -> tuple[list[dict[str, typing.Optional[str]]], list[dict[str, typing.Optional[str]]]]:
     """取一行样式单元，优先在空白处换行。"""
     limit = max(1, int(max_width or 1))
+
     line: list[dict[str, typing.Optional[str]]] = []
-    width = 0
-    cursor = 0
+
+    width      = 0
+    cursor     = 0
     last_space = -1
 
     while cursor < len(cells):
         cell = cells[cursor]
         char = str(cell.get("text") or "")
+
         char_width = max(1, cell_len(char))
         if line and width + char_width > limit:
             break
@@ -441,26 +452,52 @@ def _preview_line_parts(
     if re.match(r"^@@ .+ @@$", line):
         return [_part(line, PREVIEW_HUNK_STYLE)], "", None
 
+    tree_file_delta = re.match(r"^(└─ )(.+?) \(\+(\d+) -(\d+)\)$", line)
+
+    if tree_file_delta and _looks_like_path(tree_file_delta.group(2)):
+        prefix, path, added, removed = tree_file_delta.groups()
+
+        return [
+            _part(prefix, PREVIEW_STYLE),
+            _part(path, PREVIEW_PATH_STYLE),
+            _part(" (", PREVIEW_STYLE),
+            _part(f"+{added}", DELTA_ADD_STYLE),
+            _part(" ", PREVIEW_STYLE),
+            _part(f"-{removed}", DELTA_REMOVE_STYLE),
+            _part(")", PREVIEW_STYLE)
+        ], path, None
+
+    tree_file = re.match(r"^(└─ )(.+)$", line)
+    if tree_file and _looks_like_path(tree_file.group(2)):
+        prefix, path = tree_file.groups()
+
+        return [
+            _part(prefix, PREVIEW_STYLE),
+            _part(path, PREVIEW_PATH_STYLE)
+        ], path, None
+
     code_line = re.match(r"^(\s*\d+)(\s)([ +\-])(.*)$", line)
     if code_line:
         line_no, sep, marker, code = code_line.groups()
+
         return [
             _part(line_no, PREVIEW_LINE_STYLE),
             _part(sep, PREVIEW_STYLE),
             _part(marker, _diff_marker_style(marker)),
-            *_code_parts(code, current_path=current_path, deleted=marker == "-"),
+            *_code_parts(code, current_path=current_path, deleted=marker == "-")
         ], "", None
 
     file_delta = re.match(r"^(.+?) \(\+(\d+) -(\d+)\)$", line)
     if file_delta and _looks_like_path(file_delta.group(1)):
         path, added, removed = file_delta.groups()
+
         return [
             _part(path, PREVIEW_PATH_STYLE),
             _part(" (", PREVIEW_STYLE),
             _part(f"+{added}", DELTA_ADD_STYLE),
             _part(" ", PREVIEW_STYLE),
             _part(f"-{removed}", DELTA_REMOVE_STYLE),
-            _part(")", PREVIEW_STYLE),
+            _part(")", PREVIEW_STYLE)
         ], path, None
 
     location = re.match(r"^([^:\s][^:\n]*):(\d+)(.*)$", line)
@@ -474,12 +511,13 @@ def _preview_line_parts(
 
     summary_entry = re.match(r"^([A-Za-z_][A-Za-z0-9_ -]*)(: )(.+)$", line)
     if summary_entry:
-        key = summary_entry.group(1)
+        key   = summary_entry.group(1)
         value = summary_entry.group(3)
+
         return [
             _part(summary_entry.group(1), PREVIEW_LINE_STYLE),
             _part(summary_entry.group(2), PREVIEW_STYLE),
-            _part(value, PREVIEW_PATH_STYLE if key == "file" else PREVIEW_TEXT_STYLE),
+            _part(value, PREVIEW_PATH_STYLE if key == "file" else PREVIEW_TEXT_STYLE)
         ], value if key == "file" else "", None
 
     if _looks_like_path(line):
@@ -515,7 +553,7 @@ def _error_preview_line_parts(
     if exception:
         return [
             _part(f"{exception.group(1)}{exception.group(2)}", ERROR_PREVIEW_HEAD_STYLE),
-            _part(exception.group(3), ERROR_PREVIEW_TEXT_STYLE),
+            _part(exception.group(3), ERROR_PREVIEW_TEXT_STYLE)
         ]
 
     if re.match(r"^[A-Za-z0-9_.-]+: .*(error|failed|cannot|missing|exception)", stripped, re.IGNORECASE):
@@ -525,14 +563,14 @@ def _error_preview_line_parts(
         leading_len = len(line) - len(line.lstrip())
         return [
             _part(line[:leading_len], ERROR_PREVIEW_LINE_STYLE),
-            _part(line[leading_len:], ERROR_PREVIEW_MESSAGE_STYLE),
+            _part(line[leading_len:], ERROR_PREVIEW_MESSAGE_STYLE)
         ]
 
     powershell_at_marker = re.match(r"^(\+\s*)([\^~]+)$", line)
     if powershell_at_marker:
         return [
             _part(powershell_at_marker.group(1), ERROR_PREVIEW_LINE_STYLE),
-            _part(powershell_at_marker.group(2), ERROR_PREVIEW_MESSAGE_STYLE),
+            _part(powershell_at_marker.group(2), ERROR_PREVIEW_MESSAGE_STYLE)
         ]
 
     if re.match(r"^\+\s", line):
@@ -543,7 +581,7 @@ def _error_preview_line_parts(
         return [
             _part(prefix, PREVIEW_LINE_STYLE),
             _part(sep, ERROR_PREVIEW_LINE_STYLE),
-            _part(body, ERROR_PREVIEW_LINE_STYLE),
+            _part(body, ERROR_PREVIEW_LINE_STYLE)
         ]
 
     if line.startswith("  ") and not line.lstrip().startswith("|"):
@@ -554,11 +592,11 @@ def _error_preview_line_parts(
         if "~" in line or "^" in line:
             return [
                 _part(f"{prefix}{sep}", ERROR_PREVIEW_LINE_STYLE),
-                _part(body, ERROR_PREVIEW_MESSAGE_STYLE),
+                _part(body, ERROR_PREVIEW_MESSAGE_STYLE)
             ]
         return [
             _part(f"{prefix}{sep}", ERROR_PREVIEW_LINE_STYLE),
-            _part(body, ERROR_PREVIEW_TEXT_STYLE),
+            _part(body, ERROR_PREVIEW_TEXT_STYLE)
         ]
 
     if re.match(r"(?i)^\s*(error|fatal|warning|cannot|missing|failed|exception)\b", stripped):

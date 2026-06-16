@@ -136,9 +136,20 @@ def render_tool_result_preview(
             ))
         content = args.get("content")
         if content is not None:
-            return _trace_code_preview_from_lines(
-                _numbered_added_lines(content)
+            path = str(data.get("path") or args.get("path") or "").strip()
+
+            lines = [f"└─ {path}"] if path else []
+            lines.extend(_numbered_added_lines(content))
+
+            preview = _trace_code_preview_from_lines(lines)
+
+            return TracePreview(
+                full=preview.full,
+                screen=preview.screen,
+                omitted_lines=preview.omitted_lines,
+                kind="file_tree"
             )
+
         return _trace_preview_from_lines(_summary_lines(
             ("file", str(data.get("path") or "").strip()),
             ("size", _format_size(data.get("bytes"))),
@@ -156,7 +167,13 @@ def render_tool_result_preview(
 
         preview_lines = _unified_patch_preview_lines(args.get("patch"))
         if preview_lines:
-            return _trace_code_preview_from_lines(preview_lines)
+            preview = _trace_code_preview_from_lines(preview_lines)
+            return TracePreview(
+                full=preview.full,
+                screen=preview.screen,
+                omitted_lines=preview.omitted_lines,
+                kind="patch_tree"
+            )
 
         files = data.get("files")
         if isinstance(files, list):
