@@ -75,7 +75,7 @@ def register_media_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: Ap
 
 def initialize(
     tools: typing.Iterable[str] = (
-        "adb", "ffmpeg", "k6", "rg"
+        "adb", "ast-grep", "ffmpeg", "jq", "k6", "rg"
     )
 ) -> dict[str, typing.Any]:
     """
@@ -88,31 +88,39 @@ def initialize(
     """
     requires_layout: dict[str, dict[str, list[str]]] = {
         "windows": {
-            "adb"    : ["platform-tools"],
-            "ffmpeg" : ["ffmpeg", "bin"],
-            "k6"     : ["k6"],
-            "rg"     : ["ripgrep"]
+            "adb"      : ["platform-tools"],
+            "ast-grep" : ["ast-grep"],
+            "ffmpeg"   : ["ffmpeg", "bin"],
+            "jq"       : ["jq"],
+            "k6"       : ["k6"],
+            "rg"       : ["ripgrep"]
         },
         "macos": {
-            "adb"    : ["platform-tools"],
-            "ffmpeg" : ["ffmpeg", "bin"],
-            "k6"     : ["k6"],
-            "rg"     : ["ripgrep"]
+            "adb"      : ["platform-tools"],
+            "ast-grep" : ["ast-grep"],
+            "ffmpeg"   : ["ffmpeg", "bin"],
+            "jq"       : ["jq"],
+            "k6"       : ["k6"],
+            "rg"       : ["ripgrep"]
         }
     }
 
     executable_names: dict[str, dict[str, str]] = {
         "windows": {
-            "adb"    : "adb.exe",
-            "ffmpeg" : "ffmpeg.exe",
-            "k6"     : "k6.exe",
-            "rg"     : "rg.exe"
+            "adb"      : "adb.exe",
+            "ast-grep" : "ast-grep.exe",
+            "ffmpeg"   : "ffmpeg.exe",
+            "jq"       : "jq.exe",
+            "k6"       : "k6.exe",
+            "rg"       : "rg.exe"
         },
         "macos": {
-            "adb"    : "adb",
-            "ffmpeg" : "ffmpeg",
-            "k6"     : "k6",
-            "rg"     : "rg"
+            "adb"      : "adb",
+            "ast-grep" : "ast-grep",
+            "ffmpeg"   : "ffmpeg",
+            "jq"       : "jq",
+            "k6"       : "k6",
+            "rg"       : "rg"
         }
     }
 
