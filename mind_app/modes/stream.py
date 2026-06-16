@@ -5,7 +5,6 @@ import typing
 import asyncio
 from mind_app.mcp import McpSessionLike
 from engine.enhancer import Enhancer
-from engine.tinker import Tooling
 from mind_nova.events import EventReport
 from mind_nova import request
 from ..stream_ui import StreamUI
@@ -65,32 +64,7 @@ async def stream_looper(
     **kwargs
 ) -> None:
     """流式模式执行器：处理 chat/fast/xtra 的事件流、工具调用和输出上报。"""
-
-    common_exclude = [
-        {"domain": "common", "class": "inspect", "name": "free_rule"}
-    ]
-
-    if mode == "chat":
-        exclude = [
-            *common_exclude,
-            {"domain": "common", "class": "security"},
-            {"domain": "bench", "class": "k6"},
-            {"domain": "bench", "class": "nexus"},
-            {"domain": "media", "class": "ffmpeg"}
-        ]
-        filtered_tools = Tooling.filter_tools(openai_tools, tool_meta, exclude=exclude)
-    elif mode == "fast":
-        exclude = [
-            *common_exclude,
-            {"domain": "device"},
-            {"domain": "bench", "class": "framix"},
-            {"domain": "bench", "class": "memrix"},
-            {"domain": "media", "class": "screen"}
-        ]
-        filtered_tools = Tooling.filter_tools(openai_tools, tool_meta, exclude=exclude)
-    elif mode == "xtra":
-        filtered_tools = Tooling.filter_xtra_mode_tools(openai_tools, tool_meta)
-    else:
+    if mode not in {"chat", "fast", "xtra"}:
         raise ValueError(f"Invalid mode: {mode}")
 
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
@@ -112,7 +86,14 @@ async def stream_looper(
         await slog.open()
         tracker = SegmentTracker()
 
-        async for event in request.stream_chat(mode, pref_config, message, filtered_tools, **kwargs):
+        async for event in request.stream_chat(
+            mode,
+            pref_config,
+            message,
+            openai_tools,
+            tool_meta=tool_meta,
+            **kwargs
+        ):
             await idle_wait.cancel()
 
             if ev_report:

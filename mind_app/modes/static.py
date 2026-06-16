@@ -6,7 +6,6 @@ import typing
 import asyncio
 from mind_app.mcp import McpSessionLike
 from engine.enhancer import Enhancer
-from engine.tinker import Tooling
 from mind_nova.events import EventReport
 from mind_nova import (
     craft, request
@@ -38,16 +37,6 @@ async def static_looper(
     **kwargs
 ) -> None:
     """静态编排执行器：处理 plan 生成、步骤执行和结果回写。"""
-
-    exclude = [
-        {"domain": "common", "class": "security"},
-        {"domain": "common", "class": "runtime", "name": "loop_steps"},
-        {"domain": "device", "class": "ui", "name": "heal_element"},
-        {"domain": "bench", "class": "nexus"},
-        {"domain": "bench", "class": "k6"},
-        {"domain": "coding", "class": "session"}
-    ]
-    filtered_tools = Tooling.filter_tools(openai_tools, tool_meta, exclude=exclude)
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
     slog: StreamUI = StreamUI(mind.report.log_papers, design_level=mind.level)
@@ -73,7 +62,15 @@ async def static_looper(
 
         first_frame = True
 
-        async for plan in request.stream_plan(mode, pref_config, message, filtered_tools, extras, **kwargs):
+        async for plan in request.stream_plan(
+            mode,
+            pref_config,
+            message,
+            openai_tools,
+            extras,
+            tool_meta=tool_meta,
+            **kwargs
+        ):
             if ev_report:
                 ev_report.bind_event(plan)
 
