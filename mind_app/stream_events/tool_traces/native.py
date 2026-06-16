@@ -7,6 +7,7 @@ from mind_app.stream_events.command_preview import command_text
 from .common import (
     MAX_PREVIEW_WIDTH,
     MISSING,
+    SCREEN_PREVIEW_LINES,
     TraceEntry,
     TracePreview,
     _normalize_preview_lines,
@@ -303,7 +304,7 @@ def render_tool_result_entries(
 def _shell_command_error_context_lines(
     data: dict[str, typing.Any],
     *,
-    max_context_lines: int = 6
+    max_context_lines: int = SCREEN_PREVIEW_LINES
 ) -> list[str]:
     """生成 shell_command 失败输出的上下文行。"""
     stderr_lines = _normalize_preview_lines(data.get("stderr"))
@@ -322,13 +323,35 @@ def _shell_command_error_context_lines(
         return diagnostic
 
     if len(stream_lines) > max_context_lines:
-        omitted = len(stream_lines) - max_context_lines
+        tail_limit = max(1, int(max_context_lines or 1) - 1)
+        tail_lines = _shell_tail_preview_lines(stream_lines, tail_limit)
+
+        omitted = max(0, len(stream_lines) - len(tail_lines))
+
         return [
-            f"… +{omitted} lines (ctrl + t to view transcript)",
-            *stream_lines[-max_context_lines:]
+            f"… +{omitted} lines",
+            *tail_lines
         ]
 
     return stream_lines
+
+
+def _shell_tail_preview_lines(lines: list[str], limit: int) -> list[str]:
+    """返回尾部有信息量的行，避免空行占满失败预览。"""
+    wanted = max(1, int(limit or 1))
+
+    picked: list[str] = []
+
+    for line in reversed(lines):
+        if str(line or "").strip():
+            picked.append(line)
+        if len(picked) >= wanted:
+            break
+
+    if picked:
+        return list(reversed(picked))
+
+    return lines[-wanted:]
 
 
 def _shell_command_empty_preview_lines(
@@ -350,18 +373,21 @@ def _shell_command_empty_preview_lines(
 
     runtime = data.get("runtime")
     if isinstance(runtime, dict):
-        name = str(runtime.get("name") or "").strip()
+        name   = str(runtime.get("name") or "").strip()
         prefix = runtime.get("prefix")
+
         if isinstance(prefix, list):
             shell = " ".join(str(item) for item in prefix if str(item or "").strip())
         else:
             shell = str(runtime.get("executable") or "").strip()
+
         if name or shell:
             details.append(f"runtime: {name or shell}")
 
     details.append("stderr empty")
     if details:
         summary = f"{summary} ({', '.join(details)})"
+
     return [summary]
 
 
