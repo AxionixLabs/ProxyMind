@@ -3,8 +3,9 @@
 
 import re
 import typing
-from .command_parts import render_command_parts
-from .common import (
+
+from ..command_parts import render_command_parts
+from ..common import (
     ERROR_DOT_STYLE,
     ERROR_PREVIEW_HEAD_STYLE,
     ERROR_PREVIEW_TEXT_STYLE,

@@ -44,7 +44,7 @@ from .native import (
     render_tool_start_trace,
     render_tool_trace
 )
-from .title import render_tool_trace_parts
+from .render import render_tool_trace_parts
 
 __all__ = [
     "ACTION_EDIT_STYLE",

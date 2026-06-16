@@ -7,7 +7,7 @@ from .common import (
     _normalize_preview_lines,
     _trace_preview_from_lines
 )
-from .title import render_tool_trace_parts
+from .render import render_tool_trace_parts
 
 
 def render_generic_tool_result_preview(text: typing.Any) -> TracePreview:
