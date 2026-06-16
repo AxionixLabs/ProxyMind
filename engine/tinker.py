@@ -228,6 +228,8 @@ class Tooling(object):
                 continue
 
             meta = tool_meta.get(name) or {}
+            if meta.get("domain") == "common" and meta.get("class") == "security":
+                continue
             if (
                 bool(meta.get("external"))
                 or meta.get("domain") in {"common", "coding"}
