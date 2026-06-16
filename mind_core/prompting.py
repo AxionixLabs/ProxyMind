@@ -24,6 +24,7 @@ from mind_nova import const
 from mind_nova.modes import (
     DEFAULT_RUN_MODE, RunMode
 )
+from mind_core.terminal_input import clear_pending_input
 from mind_core.prompting_ghost import (
     BASE_CODING_AGENT_TEMPLATES,
     CHAT_TEMPLATES,
@@ -676,8 +677,10 @@ class PromptToolkitBox(object):
 
         self.auto_suggest.set_mode(mode)
 
+        session = self._get_session()
+
         with patch_stdout(raw=True):
-            value = await self._get_session().prompt_async(
+            value = await session.prompt_async(
                 message=message,
                 completer=self.completer,
                 auto_suggest=self.auto_suggest,
@@ -691,7 +694,8 @@ class PromptToolkitBox(object):
                 ),
                 reserve_space_for_menu=4,
                 style=self.style,
-                mouse_support=False
+                mouse_support=False,
+                pre_run=lambda: clear_pending_input(session.app.input)
             )
 
         try:

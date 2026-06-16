@@ -28,7 +28,7 @@ DECISION_LABELS: dict[str, str] = {
 DECISION_SHORTCUT_LABELS: dict[str, str] = {
     "accept"           : "y",
     "acceptForSession" : "s",
-    "decline"          : "esc"
+    "decline"          : "n/esc"
 }
 
 

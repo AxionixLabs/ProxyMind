@@ -1,18 +1,17 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
-import sys
 import shutil
 import typing
 import asyncio
 import contextlib
 from prompt_toolkit.application import Application
-from prompt_toolkit.input.typeahead import clear_typeahead
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
+from mind_core.terminal_input import clear_pending_input
 from .models import ApprovalDecisionValue
 from .policy import (
     approval_choice_text,
@@ -40,40 +39,6 @@ def _terminal_menu_height() -> int:
     return max(12, shutil.get_terminal_size(fallback=(100, 24)).lines)
 
 
-def _clear_pending_approval_input(input_obj) -> None:
-    """清掉审批菜单边界上的排队按键，避免误触审批或带入下一轮。"""
-    with contextlib.suppress(Exception):
-        clear_typeahead(input_obj)
-
-    with contextlib.suppress(Exception):
-        input_obj.flush_keys()
-
-    if sys.platform == "win32":
-        _flush_win32_console_input(input_obj)
-    else:
-        _flush_posix_tty_input(input_obj)
-
-
-def _flush_posix_tty_input(input_obj) -> None:
-    """清 POSIX TTY 内核输入队列。"""
-    with contextlib.suppress(Exception):
-        import termios
-
-        fd = input_obj.fileno()
-        if os.isatty(fd):
-            termios.tcflush(fd, termios.TCIFLUSH)
-
-
-def _flush_win32_console_input(input_obj) -> None:
-    """清 Windows Console 输入队列。"""
-    with contextlib.suppress(Exception):
-        from ctypes import windll
-
-        handle = getattr(input_obj, "handle", None)
-        if handle is not None and getattr(handle, "value", handle) is not None:
-            windll.kernel32.FlushConsoleInputBuffer(handle)
-
-
 def _answer_to_decision(
     answer: typing.Any,
     decisions: list[ApprovalDecisionValue]
@@ -88,7 +53,7 @@ def _answer_to_decision(
             return decisions[index]
     if text in {"y", "yes"} and "accept" in decisions:
         return "accept"
-    if text in {"esc", "escape", "no", ""}:
+    if text in {"n", "no", "esc", "escape", ""}:
         return "decline" if "decline" in decisions else decisions[-1]
 
     normalized = _normalize_decision(text)
@@ -191,7 +156,7 @@ async def _run_approval_menu(
         selected[0] = (selected[0] - 1) % len(decisions)
         event.app.invalidate()
 
-    @bindings.add("escape")
+    @bindings.add(Keys.Escape, eager=True)
     def _(event) -> None:
         """通过 Esc 拒绝审批请求。"""
         decision = _escape_decision(decisions)
@@ -199,6 +164,13 @@ async def _run_approval_menu(
             event.app.exit(result=decision)
             return None
         event.app.invalidate()
+
+    @bindings.add("n")
+    def _(event) -> None:
+        """通过快捷键拒绝审批请求。"""
+        decision = _escape_decision(decisions)
+        if decision is not None:
+            event.app.exit(result=decision)
 
     @bindings.add("c-c")
     def _(event) -> None:
@@ -245,10 +217,10 @@ async def _run_approval_menu(
 
     try:
         return str(await app.run_async(
-            pre_run=lambda: _clear_pending_approval_input(app.input)
+            pre_run=lambda: clear_pending_input(app.input)
         ))
     finally:
-        _clear_pending_approval_input(app.input)
+        clear_pending_input(app.input)
         expiry_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await expiry_task
