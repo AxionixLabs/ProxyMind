@@ -31,9 +31,7 @@ def is_ignored_repl_input(raw: str) -> bool:
     stripped = str(raw or "").strip()
     if not stripped:
         return True
-    if stripped in {"/", "\\"}:
-        return True
-    return stripped.startswith("$") and len(stripped.split()) == 1
+    return stripped in {"$", "/", "\\"}
 
 
 async def mind_loop(mind: "Mind") -> None:
