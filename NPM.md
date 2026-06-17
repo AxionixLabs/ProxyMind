@@ -1,39 +1,32 @@
 # NPM 发布命令
 
-## 配置 Token
+## 登录和配置 Token
 
 ```bash
 npm login
+npm config set //registry.npmjs.org/:_authToken "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"
+npm whoami
+npm config get registry
 ```
 
-```bash
-npm config set //registry.npmjs.org/:_authToken "npm_xxx_your_token"
-```
+---
 
 ## 验证登录和版本
 
 ```bash
-npm whoami
-```
-
-```bash
-npm config get registry
-```
-
-```bash
 npm view @craftline/mind version
-```
-
-```bash
 npm view @craftline/mind-win32 version
-```
-
-```bash
 npm view @craftline/mind-darwin version
 ```
 
-进入 npm 工作目录：
+进入 npm 工作目录，后续 `npm pack`、本地 tarball 安装和发布命令都在该目录执行。
 
+**Windows：**
+```powershell
+Set-Location .\mind_npm
+```
+
+**macOS：**
 ```bash
 cd mind_npm
 ```
@@ -41,6 +34,8 @@ cd mind_npm
 ```bash
 npm pkg get version --workspaces
 ```
+
+---
 
 ## 升级版本
 
@@ -52,86 +47,79 @@ packages/mind-win32/package.json
 packages/mind-darwin/package.json
 packages/mind/package.json optionalDependencies
 ```
+---
 
 ## 同步产物
 
 ```bash
 npm run sync:applications
 ```
+---
 
 ## Dry Run
 
 ```bash
 npm publish -w @craftline/mind-win32 --dry-run --access public
-```
-
-```bash
 npm publish -w @craftline/mind-darwin --dry-run --access public
-```
-
-```bash
 npm publish -w @craftline/mind --dry-run --access public
 ```
+---
 
 ## 发布前本地安装测试
 
-生成主包 tarball：
+> 本地测试必须生成两个 tarball：当前平台运行时包和主包。
 
+**Windows：**
 ```bash
+npm pack -w @craftline/mind-win32
 npm pack -w @craftline/mind
 ```
 
-创建临时测试目录：
+**macOS：**
+```bash
+npm pack -w @craftline/mind-darwin
+npm pack -w @craftline/mind
+```
+
+### 安装本地 tarball：
+
+**Windows：**
+```bash
+npm install -g ./craftline-mind-win32-1.0.0.tgz ./craftline-mind-1.0.0.tgz
+```
+
+**macOS：**
+```bash
+npm install -g ./craftline-mind-darwin-1.0.0.tgz ./craftline-mind-1.0.0.tgz
+```
+
+### 验证命令入口：
 
 ```bash
-rm -rf ./tmp-npm-test
+mind
+```
+
+### 卸载测试包：
+
+**Windows：**
+```powershell
+Stop-Process -Id (Get-NetTCPConnection -LocalPort 3333 -State Listen).OwningProcess -Force
 ```
 
 ```bash
-mkdir -p ./tmp-npm-test
+npm uninstall -g @craftline/mind @craftline/mind-win32
 ```
 
-进入临时测试目录：
+**macOS：**
+```bash
+lsof -ti tcp:3333 | xargs kill -9
+```
 
 ```bash
-cd ./tmp-npm-test
+npm uninstall -g @craftline/mind @craftline/mind-darwin
 ```
 
-初始化测试项目：
-
-```bash
-npm init -y
-```
-
-安装本地 tarball：
-
-```bash
-npm install ../craftline-mind-1.0.0.tgz
-```
-
-验证命令入口：
-
-```bash
-npx mind --help
-```
-
-卸载测试包：
-
-```bash
-npm uninstall @craftline/mind
-```
-
-回到发布目录：
-
-```bash
-cd ..
-```
-
-清理临时测试目录：
-
-```bash
-rm -rf ./tmp-npm-test
-```
+---
 
 ## 发布
 
