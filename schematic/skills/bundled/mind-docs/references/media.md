@@ -115,3 +115,4 @@ mind --chat "随便录一下屏，再帮我处理成合适的东西。"
 
 - [Framix 场景](framix.md)
 - [Memrix 场景](memrix.md)
+

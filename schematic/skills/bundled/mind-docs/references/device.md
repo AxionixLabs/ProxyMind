@@ -137,4 +137,5 @@ mind --chat "帮我按几个系统键，然后看看设备有没有问题。"
 
 - [Framix 场景](framix.md)
 - [Memrix 场景](memrix.md)
-- [错误与回退](../contracts/errors-and-fallbacks.md)
+- [错误与回退](errors-and-fallbacks.md)
+

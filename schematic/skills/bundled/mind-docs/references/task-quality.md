@@ -70,11 +70,12 @@ mind --chat "帮我看一下。"
 ## Failure Handling
 
 - 如果一条任务有 2 项以上 checklist 不满足，先不要执行，先重写。
-- 如果你不知道该补哪一项，去看 [任务写法反模式](../anti-patterns/task-writing.md) 找对照问题。
+- 如果你不知道该补哪一项，去看 [任务写法反模式](task-writing.md) 找对照问题。
 
 ## Related
 
-- [任务写法反模式](../anti-patterns/task-writing.md)
-- [CLI 与运行模式](../decisions/cli.md)
-- [`--code` 星图写法](../contracts/blueprint.md)
-- [错误与回退](../contracts/errors-and-fallbacks.md)
+- [任务写法反模式](task-writing.md)
+- [CLI 与运行模式](cli.md)
+- [`--code` 星图写法](blueprint.md)
+- [错误与回退](errors-and-fallbacks.md)
+

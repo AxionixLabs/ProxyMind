@@ -76,11 +76,12 @@ mind --fast "对 https://api.example.com/profile 做 GET 请求，校验状态�
 
 ## Failure Handling
 
-- 发现反模式时，不要继续扩写原句，直接按 [高质量任务 Rubric](../rubrics/task-quality.md) 的 6 个维度重写。
+- 发现反模式时，不要继续扩写原句，直接按 [高质量任务 Rubric](task-quality.md) 的 6 个维度重写。
 
 ## Related
 
-- [高质量任务 Rubric](../rubrics/task-quality.md)
-- [CLI 与运行模式](../decisions/cli.md)
-- [云端与本地边界](../concepts/builtin-and-hosted.md)
-- [错误与回退](../contracts/errors-and-fallbacks.md)
+- [高质量任务 Rubric](task-quality.md)
+- [CLI 与运行模式](cli.md)
+- [云端与本地边界](builtin-and-hosted.md)
+- [错误与回退](errors-and-fallbacks.md)
+

@@ -96,6 +96,7 @@ mind --chat "看下性能。"
 
 - [Framix 场景](framix.md)
 - [Device 场景](device.md)
-- [高质量任务 Rubric](../rubrics/task-quality.md)
-- [任务写法反模式](../anti-patterns/task-writing.md)
-- [`--code` 星图写法](../contracts/blueprint.md)
+- [高质量任务 Rubric](task-quality.md)
+- [任务写法反模式](task-writing.md)
+- [`--code` 星图写法](blueprint.md)
+

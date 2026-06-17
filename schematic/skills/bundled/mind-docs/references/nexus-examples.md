@@ -25,11 +25,11 @@ description: Nexus 稳定示例库，教模型把接口任务收束成可执行�
 
 ## Core Rules
 
-- 对外最终输出，仍然只写 `mind ...` 命令和自然语言任务。
+- 对外最终输出，尽量写 `mind ...` 命令和自然语言任务。
 - 稳定样例至少要区分：这次真正要发的内容、通过条件、要回收的结果、会变化的动态值。
 - 动态变量复杂时，优先先做预览或校验。
 - 多步链路优先拆成共享部分和多个独立样本。
-- 如果把这些样例固化进 `--code` 文件，任务块边界统一按 [`--code` 星图写法](../contracts/blueprint.md) 执行。
+- 如果把这些样例固化进 `--code` 文件，任务块边界统一按 [`--code` 星图写法](blueprint.md) 执行。
 - 对齐当前客户端工具集时，要把“单次执行”“批量回放”“只预览”“只校验”区分开，不要混成一个抽象动作。
 - 稳定策略仍然是：当前要发的内容单独写，共享默认值放在共享层，动态值集中管理，批量回放拆成多个样本；但对外示例应保持高层可读。
 
@@ -138,11 +138,11 @@ mind --chat "先帮我看看请求长什么样，再顺手发出去。"
 
 ## Related
 
-- [Nexus 场景](../playbooks/nexus.md)
-- [高质量任务 Rubric](../rubrics/task-quality.md)
-- [任务写法反模式](../anti-patterns/task-writing.md)
-- [`--code` 星图写法](../contracts/blueprint.md)
-- [错误与回退](../contracts/errors-and-fallbacks.md)
+- [Nexus 场景](nexus.md)
+- [高质量任务 Rubric](task-quality.md)
+- [任务写法反模式](task-writing.md)
+- [`--code` 星图写法](blueprint.md)
+- [错误与回退](errors-and-fallbacks.md)
 
 ## 结果回收
 
@@ -358,3 +358,4 @@ mind --plan "先准备 ts、nonce 和签名原文；再计算 HMAC 签名；然�
 如果你想先查字段是不是合法，用“先做结构校验”的自然语言写法。
 
 如果你真的要发请求，再明确写“执行这个请求”或“执行这批回放”。
+

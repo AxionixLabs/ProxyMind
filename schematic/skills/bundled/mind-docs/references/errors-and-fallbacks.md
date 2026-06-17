@@ -114,6 +114,6 @@ description: 统一失败语义、回退顺序和失败回报写法，避免模�
 
 ## Related
 
-- [云端与本地边界](../concepts/builtin-and-hosted.md)
+- [云端与本地边界](builtin-and-hosted.md)
 - [`--code` 星图写法](blueprint.md)
-- [Mind 超级文档中心](../README.md)
+- [Mind 超级文档中心](../SKILL.md)

@@ -15,10 +15,11 @@ description: 选择 Mind CLI 主模式和命令形态的决策对象，负责把
 - `mind --fast "..."`
 - `mind --plan "..."`
 - `mind --xtra "..."`
-- `mind --chat --code <file>`
-- `mind --fast --code <file>`
-- `mind --plan --code <file>`
-- `mind --xtra --code <file>`
+- `mind --agent`
+- `mind --chat --code <source...>`
+- `mind --fast --code <source...>`
+- `mind --plan --code <source...>`
+- `mind --xtra --code <source...>`
 
 ## When To Use
 
@@ -39,7 +40,7 @@ description: 选择 Mind CLI 主模式和命令形态的决策对象，负责把
 | 单次验证、单接口校验、一次性动作 | `--fast` | 写成长回归流程 |
 | 巡检、回归、批量回放、要证据链 | `--plan` | 把多步骤压成 `--fast` |
 | 增强探索、跨域串联、需要整理较宽证据 | `--xtra` | 强行压成单步 `--fast` |
-| 常驻、远端持续执行 | `--agent` | 用一次性模式代替 |
+| 订阅式 Agent 会话、远端持续执行 | `--agent` | 用一次性模式代替 |
 | 同一命令里有多个任务块、循环、批量回放 | `--chat/--fast/--plan/--xtra` + `--code` | 直接堆成长段自然语言 |
 | 只是要先把问题讲清楚，还不能确定执行细节 | `--chat` | 抢先选 `--plan` |
 | 你已经知道验证目标、阈值和产出，而且只需单步完成 | `--fast` | 先写成长解释 |
@@ -49,9 +50,12 @@ description: 选择 Mind CLI 主模式和命令形态的决策对象，负责把
 
 - 一条命令只用一个主模式。
 - `--code` 不是独立模式，必须附着在 `--chat/--fast/--plan/--xtra` 上。
+- `--agent` 是独立主模式，用于订阅式会话；不要和 `--code` 或 `--attach` 混用。
+- `--code` 可以接一个或多个 source：本地文件、`-` 标准输入、`inline:<内容>` 或 HTTP(S) URL。
+- `--attach` 只用于单次 `--chat` / `--fast` / `--xtra`，不和 `--plan` 或 `--code` 一起使用。
 - 对外输出的是任务意图，不是内部实现方式。
 - 先写目标对象、动作、通过条件、产出，再补边界。
-- 如果使用 `--code` 文件，任务块分隔规则统一按 [`--code` 星图写法](../contracts/blueprint.md) 执行。
+- 如果使用 `--code` 文件，任务块分隔规则统一按 [`--code` 星图写法](blueprint.md) 执行。
 - 模式选不准时，先澄清任务目标、边界和产出，再选择合适模式。
 - 如果任务里出现多步链路、失败分支、循环样本或夜间回归，优先考虑 `--plan` 或 `--code`。
 - 如果你无法一句话说明“通过条件是什么”，不要急着选 `--fast`。
@@ -76,6 +80,14 @@ mind --xtra "跨仓库梳理登录、鉴权和订单链路的关键接口、调�
 
 ```bash
 mind --chat --code nightly_regression.md
+```
+
+```bash
+mind --chat --code smoke.md api_regression.md
+```
+
+```bash
+mind --agent
 ```
 
 ## Bad Examples
@@ -120,17 +132,18 @@ mind --plan "对 https://api.example.com/profile 做 GET。"
 ## Failure Handling
 
 - 模式选不准时，先回到决策表重新确认任务目标、边界和产出。
-- 一行命令塞不下时，转成 [`--code` 星图写法](../contracts/blueprint.md)。
-- 边界不清时，回读 [云端与本地边界](../concepts/builtin-and-hosted.md)。
-- 失败回报和降级方式不清时，回读 [错误与回退](../contracts/errors-and-fallbacks.md)。
-- 输出仍然空泛时，先回 [高质量任务 Rubric](../rubrics/task-quality.md) 和 [任务写法反模式](../anti-patterns/task-writing.md)。
+- 一行命令塞不下时，转成 [`--code` 星图写法](blueprint.md)。
+- 边界不清时，回读 [云端与本地边界](builtin-and-hosted.md)。
+- 失败回报和降级方式不清时，回读 [错误与回退](errors-and-fallbacks.md)。
+- 输出仍然空泛时，先回 [高质量任务 Rubric](task-quality.md) 和 [任务写法反模式](task-writing.md)。
 - 明显选错模式时，先纠正模式，再细化任务正文，不要在错误模式上继续加细节。
 
 ## Related
 
-- [Mind 超级文档中心](../README.md)
-- [高质量任务 Rubric](../rubrics/task-quality.md)
-- [任务写法反模式](../anti-patterns/task-writing.md)
-- [`--code` 星图写法](../contracts/blueprint.md)
-- [云端与本地边界](../concepts/builtin-and-hosted.md)
-- [错误与回退](../contracts/errors-and-fallbacks.md)
+- [Mind 超级文档中心](../SKILL.md)
+- [高质量任务 Rubric](task-quality.md)
+- [任务写法反模式](task-writing.md)
+- [`--code` 星图写法](blueprint.md)
+- [云端与本地边界](builtin-and-hosted.md)
+- [错误与回退](errors-and-fallbacks.md)
+

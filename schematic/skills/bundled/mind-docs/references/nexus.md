@@ -36,7 +36,7 @@ description: 协议与接口任务对象，覆盖单次校验、批量回放、�
 - 指定要回收的关键结果：token、trace_id、user_id、intent、summary。
 - 压测时必须写阈值：失败率、P95、吞吐或持续时间。
 - 多步骤回归不要堆在一行里，优先改用 `--code`。
-- 一旦改用 `--code`，任务块边界统一按 [`--code` 星图写法](../contracts/blueprint.md) 执行。
+- 一旦改用 `--code`，任务块边界统一按 [`--code` 星图写法](blueprint.md) 执行。
 - 使用策略要与当前工具集对齐：单次执行、批量回放、执行前预览、执行前校验是不同能力，示例里要把这几类意图区分开。
 - 批量回放的稳定心智模型仍然是“共享环境 + 多个请求项 + 并发与失败策略”，但自然语言示例不需要下沉成参数对象。
 
@@ -100,13 +100,14 @@ mind --fast "测一下登录接口。"
 ## Failure Handling
 
 - 阈值缺失时，直接指出缺少失败率、P95、吞吐或持续时间。
-- 动态变量复杂或链路较长时，转到 [Nexus 示例对象](../recipes/nexus-examples.md) 或 [`--code` 星图写法](../contracts/blueprint.md)。
+- 动态变量复杂或链路较长时，转到 [Nexus 示例对象](nexus-examples.md) 或 [`--code` 星图写法](blueprint.md)。
 
 ## Related
 
-- [Nexus 示例对象](../recipes/nexus-examples.md)
-- [高质量任务 Rubric](../rubrics/task-quality.md)
-- [任务写法反模式](../anti-patterns/task-writing.md)
-- [`--code` 星图写法](../contracts/blueprint.md)
+- [Nexus 示例对象](nexus-examples.md)
+- [高质量任务 Rubric](task-quality.md)
+- [任务写法反模式](task-writing.md)
+- [`--code` 星图写法](blueprint.md)
 - [Common 场景](common.md)
-- [错误与回退](../contracts/errors-and-fallbacks.md)
+- [错误与回退](errors-and-fallbacks.md)
+

@@ -13,6 +13,8 @@ description: `--code` 星图协议对象，定义多任务块、循环、回放�
 
 - 星图正文只写自然语言任务。
 - 不写内部工具调用脚本。
+- 一个 `--code` 命令可以加载一个或多个 source。
+- source 可以是本地文件、`-` 标准输入、`inline:<内容>` 或 HTTP(S) URL。
 
 ## When To Use
 
@@ -27,6 +29,8 @@ description: `--code` 星图协议对象，定义多任务块、循环、回放�
 - 任务块之间用块结束线 `---` 分隔；如果文件里只有一个任务块，这个任务块末尾也照样保留块结束线 `---`。
 - 每条任务都要包含目标、动作、通过条件、输出。
 - `--code` 必须附着在 `--chat/--fast/--plan/--xtra` 后面。
+- `--code` 参数支持多个 source，按传入顺序顺序执行。
+- 本地文件不存在、URL 拉取失败、标准输入为空或 inline 内容为空时，按 [错误与回退](errors-and-fallbacks.md) 回报。
 - 生成星图时，先定块头和块结束线，再回填正文：先写 `# name`，再预留最后一行块结束线 `---`，中间再填任务内容。
 
 ## Good Examples
@@ -45,10 +49,15 @@ description: `--code` 星图协议对象，定义多任务块、循环、回放�
 
 ```bash
 mind --chat --code smoke.md
+mind --chat --code smoke.md regression.md
 mind --fast --code api_regression.md
 mind --plan --code nightly.md
 mind --xtra --code investigation.md
+mind --chat --code -
+mind --chat --code https://example.com/packs/smoke.md
 ```
+
+`inline:` 也可作为 source 使用，但内容必须包含真实换行，例如 `inline:<完整星图文本>`；如果命令行环境不便传多行文本，优先使用文件或 stdin。
 
 任务写法模板：
 
@@ -177,6 +186,7 @@ mind --xtra --code investigation.md
 - 是否任务块之间都用块结束线 `---` 分隔。
 - 是否只写自然语言任务。
 - 是否需要 `repeat`、`loop`、`attempts` 等全局控制。
+- 是否确认 `--code` source 形态正确：文件、stdin、inline 或 URL。
 - 生成时是否采用“先写 `# name` 和块结束线 `---`，再补正文”的顺序。
 
 终检口诀：
@@ -379,3 +389,4 @@ global_rule: |
 与历史基线做差异比对，输出 drift 指标、告警项和建议动作。
 ---
 ````
+

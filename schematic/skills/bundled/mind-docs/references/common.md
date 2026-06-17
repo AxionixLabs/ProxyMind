@@ -91,4 +91,5 @@ mind --chat "等一下。"
 
 - [Nexus 场景](nexus.md)
 - [Coding 场景](coding.md)
-- [错误与回退](../contracts/errors-and-fallbacks.md)
+- [错误与回退](errors-and-fallbacks.md)
+

@@ -103,6 +103,7 @@ mind --chat "分析这段首页到详情页的录屏，重点看端到端耗时�
 
 - [Memrix 场景](memrix.md)
 - [Media 场景](media.md)
-- [高质量任务 Rubric](../rubrics/task-quality.md)
-- [任务写法反模式](../anti-patterns/task-writing.md)
-- [`--code` 星图写法](../contracts/blueprint.md)
+- [高质量任务 Rubric](task-quality.md)
+- [任务写法反模式](task-writing.md)
+- [`--code` 星图写法](blueprint.md)
+

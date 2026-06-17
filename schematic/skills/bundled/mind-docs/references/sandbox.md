@@ -9,6 +9,8 @@ description: 云端执行任务对象，覆盖脚本执行、小项目运行、�
 
 `Sandbox` 负责把一段代码或一个小项目交给云端环境执行，并把结果带回来。
 
+它不是当前本地工具集里的直接执行入口；通常由云端注入能力或本地 shell 策略的云端沙箱接管来完成。写任务时要把云端依赖和不可用时的回报讲清楚。
+
 它关心的不是底层参数，而是：
 
 - 跑什么。
@@ -99,6 +101,7 @@ mind --chat "在云端跑一下这个项目，能跑就行。"
 
 ## Related
 
-- [云端与本地边界](../concepts/builtin-and-hosted.md)
-- [错误与回退](../contracts/errors-and-fallbacks.md)
+- [云端与本地边界](builtin-and-hosted.md)
+- [错误与回退](errors-and-fallbacks.md)
 - [Coding 场景](coding.md)
+

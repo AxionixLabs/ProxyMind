@@ -16,6 +16,17 @@ description: 解释本地执行能力与云端注入能力的边界，以及来�
 
 Builtin 事件名或 Hosted 工具名可以存在于系统内部，但不是对外稳定接口。
 
+当前项目本地注册能力主要包括：
+
+- Coding：批量 shell 命令、工作区文本写入、unified diff patch。
+- Common：固定等待、循环步骤声明、空闲状态快照、自由规则声明、摘要/HMAC、JWT、RSA、AES、签名文本拼装。
+- Nexus：HTTP、SSE、WebSocket、GraphQL、TCP、UDP、SMTP、IMAP、FTP 的单次执行、批量回放、预览和校验，以及 k6 压测。
+- Device：应用控制、文件操作、设备信息、系统键、系统面板、UI 交互、随机遍历和 Zest。
+- Media：ffmpeg 文件处理、scrcpy 镜像/录屏、本机音频播放。
+- Framix / Memrix：录屏帧分析、性能采样和报告。
+
+随包路由的本地二进制工具包括 `adb`、`ast-grep`、`ffmpeg`、`jq`、`k6` 和 `rg`。
+
 ## When To Use
 
 - 你需要判断一项能力是否能在本地直接完成。
@@ -37,10 +48,11 @@ Builtin 事件名或 Hosted 工具名可以存在于系统内部，但不是对�
 | 云端可能不可用 | 写清“若不可用则如何回报或替代” |
 | 任务可以本地等价完成，但用户要求的是结果而非来源 | 仍然优先写意图，不强调内部来源 |
 | 任务明显需要远端执行环境、会话态或托管注入 | 把依赖条件写清，并补失败降级 |
+| 本地 shell 命令被策略判定需要云端沙箱 | 写清云端依赖、期望 stdout/产物和不可用时的回报 |
 
 ## Core Rules
 
-- 始终输出 `mind ...` 和自然语言任务。
+- 对外表述尽量使用 `mind ...` 和自然语言任务。
 - 不暴露 `builtin`、`hosted tool`、内部事件名作为最终接口。
 - 来源不确定时，优先表达“要做什么”，不要表达“调用哪个内部能力”。
 - 云端依赖明显时，最好同时给出本地替代方案或失败回报。
@@ -103,6 +115,7 @@ mind --chat "先确认能不能调用 builtin，再决定做什么。"
 
 ## Related
 
-- [Mind CLI 与运行模式](../decisions/cli.md)
-- [Sandbox 场景](../playbooks/sandbox.md)
-- [错误与回退](../contracts/errors-and-fallbacks.md)
+- [Mind CLI 与运行模式](cli.md)
+- [Sandbox 场景](sandbox.md)
+- [错误与回退](errors-and-fallbacks.md)
+
