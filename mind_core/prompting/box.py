@@ -511,6 +511,14 @@ class PromptToolkitBox(object):
             self.paste_store.clear()
             event.app.invalidate()
 
+        @kb.add("c-z", eager=True, save_before=lambda event: False)
+        def _(event) -> None:
+            buf = event.app.current_buffer
+            buf.cancel_completion()
+            buf.undo()
+            self._sync_completion_suggestion(buf)
+            event.app.invalidate()
+
         @kb.add("escape", "enter")
         @kb.add("c-o")
         def _(event) -> None:
