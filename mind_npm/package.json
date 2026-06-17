@@ -11,6 +11,7 @@
   "scripts": {
     "sync:applications": "node ./scripts/sync-applications.js",
     "check": "node --check ./packages/mind/bin/mind.js",
+    "test": "node --test ./packages/mind/test/*.test.js",
     "dry:mind": "npm publish -w @craftline/mind --dry-run --access public",
     "dry:win32": "npm publish -w @craftline/mind-win32 --dry-run --access public",
     "dry:darwin": "npm publish -w @craftline/mind-darwin --dry-run --access public"

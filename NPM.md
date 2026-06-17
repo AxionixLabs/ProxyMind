@@ -5,8 +5,16 @@
 ```bash
 npm login
 npm config set //registry.npmjs.org/:_authToken "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"
-npm whoami
-npm config get registry
+```
+
+**Windows：**
+```shell
+npm whoami; npm config get registry
+```
+
+**macOS：**
+```bash
+npm whoami && npm config get registry
 ```
 
 ---
@@ -22,17 +30,13 @@ npm view @craftline/mind-darwin version
 进入 npm 工作目录，后续 `npm pack`、本地 tarball 安装和发布命令都在该目录执行。
 
 **Windows：**
-```powershell
-Set-Location .\mind_npm
+```shell
+Set-Location .\mind_npm; npm pkg get version --workspaces
 ```
 
 **macOS：**
 ```bash
-cd mind_npm
-```
-
-```bash
-npm pkg get version --workspaces
+cd mind_npm && npm pkg get version --workspaces
 ```
 
 ---
@@ -70,21 +74,19 @@ npm publish -w @craftline/mind --dry-run --access public
 > 本地测试必须生成两个 tarball：当前平台运行时包和主包。
 
 **Windows：**
-```bash
-npm pack -w @craftline/mind-win32
-npm pack -w @craftline/mind
+```shell
+npm pack -w @craftline/mind-win32; if ($LASTEXITCODE -eq 0) { npm pack -w @craftline/mind }
 ```
 
 **macOS：**
 ```bash
-npm pack -w @craftline/mind-darwin
-npm pack -w @craftline/mind
+npm pack -w @craftline/mind-darwin && npm pack -w @craftline/mind
 ```
 
 ### 安装本地 tarball：
 
 **Windows：**
-```bash
+```shell
 npm install -g ./craftline-mind-win32-1.0.0.tgz ./craftline-mind-1.0.0.tgz
 ```
 
@@ -102,20 +104,14 @@ mind
 ### 卸载测试包：
 
 **Windows：**
-```powershell
+```shell
 Stop-Process -Id (Get-NetTCPConnection -LocalPort 3333 -State Listen).OwningProcess -Force
-```
-
-```bash
 npm uninstall -g @craftline/mind @craftline/mind-win32
 ```
 
 **macOS：**
 ```bash
 lsof -ti tcp:3333 | xargs kill -9
-```
-
-```bash
 npm uninstall -g @craftline/mind @craftline/mind-darwin
 ```
 
