@@ -15,8 +15,7 @@ dist/
 pip-wheel-metadata/
 *.onefile.exe
 
-# 测试、覆盖率与分析缓存
-tests/
+# 覆盖率与分析缓存
 .coverage
 .coverage.*
 .pytest_cache/

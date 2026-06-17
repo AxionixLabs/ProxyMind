@@ -404,10 +404,12 @@ async def post_build() -> None:
 
     schematic, kit = app.parent / const.SCHEMATIC, "supports"
     r, s = schematic / "resources", schematic / kit / support
+    skills = schematic / "skills"
 
     local_pack, local_file = [
         (r, target / schematic.name / r.name),
-        (s, target / schematic.name / kit / s.name)
+        (s, target / schematic.name / kit / s.name),
+        (skills, target / schematic.name / skills.name)
     ], [
         launch
     ]
