@@ -134,7 +134,7 @@ class Preferences(object):
         """从远端加载偏好并同步写入本地文件。"""
         payload = await self._fetch_remote_pref()
         self._apply_primary_slot(payload)
-        await self.dump_pref()
+        # await self.dump_pref()
 
     async def dump_pref(self) -> None:
         """将当前偏好配置写入本地 json 文件。"""
@@ -150,7 +150,7 @@ class Preferences(object):
                 FileAssist.read_json, self.pref_file
             )
         except (FileNotFoundError, json.decoder.JSONDecodeError):
-            await self.dump_pref()
+            # await self.dump_pref()
             return None
 
         self._apply_primary_slot(payload if isinstance(payload, dict) else {})
