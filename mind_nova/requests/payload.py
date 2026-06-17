@@ -34,7 +34,8 @@ async def fetch_exec_env(timeout: float = 1.5) -> dict[str, typing.Any]:
 
 def ensure_default_skills(kwargs: dict[str, typing.Any]) -> None:
     """没有声明 skills 或声明为空时，补入本地可用 skills。"""
-    if kwargs.get("skills") in (None, []):
+    skills = kwargs.get("skills")
+    if skills is None or (isinstance(skills, (list, tuple)) and not skills):
         kwargs["skills"] = skills_payload()
 
 

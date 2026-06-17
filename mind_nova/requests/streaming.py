@@ -32,6 +32,20 @@ async def streaming(
     timeout: float = 60.0
 ) -> typing.AsyncGenerator[dict, None]:
     """按 SSE `data:` 行读取并解析事件流。"""
+    if "/mind-chat" in url:
+        skills = payload.get("skills") if isinstance(payload, dict) else None
+        skill_names = [
+            str(skill.get("name") or "")
+            for skill in skills[:5]
+            if isinstance(skill, dict)
+        ] if isinstance(skills, list) else []
+        logger.warning(
+            "[MIND_CLIENT] mind_chat.payload "
+            f"has_skills={'skills' in payload if isinstance(payload, dict) else False} "
+            f"skills_count={len(skills) if isinstance(skills, list) else 0} "
+            f"skills_names={skill_names}"
+        )
+
     async with httpx.AsyncClient(timeout=timeout, event_hooks={"response": [cap_response]}) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
             resp.raise_for_status()

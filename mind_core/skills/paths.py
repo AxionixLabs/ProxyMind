@@ -3,12 +3,26 @@ import os
 import sys
 
 from mind_nova import const
-from mind_core.paths import schematic_root
+
+
+def _mind_work() -> Path:
+    software = Path(sys.argv[0]).name.strip().lower()
+
+    if software == f"{const.APP_NAME}.exe":
+        return Path(sys.argv[0]).resolve().parent
+
+    if software == const.APP_NAME:
+        return Path(sys.executable).resolve().parent
+
+    if software == f"{const.APP_NAME}.py":
+        return Path(sys.argv[0]).resolve().parent
+
+    return Path.cwd().resolve()
 
 
 def bundled_skills_root() -> Path:
     """返回内置 skills 根目录。"""
-    return schematic_root() / "skills" / "bundled"
+    return _mind_work() / const.SCHEMATIC / "skills" / "bundled"
 
 
 def project_skills_root() -> Path:
