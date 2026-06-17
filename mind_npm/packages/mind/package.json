@@ -1,5 +1,5 @@
 {
-  "name": "@proxymind/mind",
+  "name": "@craftline/mind",
   "version": "1.0.0",
   "description": "Mind command line launcher.",
   "type": "module",
@@ -12,8 +12,8 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "@proxymind/mind-win32": "1.0.0",
-    "@proxymind/mind-darwin": "1.0.0"
+    "@craftline/mind-win32": "1.0.0",
+    "@craftline/mind-darwin": "1.0.0"
   },
   "engines": {
     "node": ">=18"

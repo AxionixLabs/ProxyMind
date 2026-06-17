@@ -280,8 +280,8 @@ async function maybeCheckPackageUpdate(args) {
 }
 
 function platformPackageName() {
-  if (process.platform === "win32") return "@proxymind/mind-win32";
-  if (process.platform === "darwin") return "@proxymind/mind-darwin";
+  if (process.platform === "win32") return "@craftline/mind-win32";
+  if (process.platform === "darwin") return "@craftline/mind-darwin";
   return null;
 }
 

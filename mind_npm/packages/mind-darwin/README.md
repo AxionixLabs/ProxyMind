@@ -1,3 +1,3 @@
 # Mind macOS Runtime
 
-macOS runtime package for `@proxymind/mind`.
+macOS runtime package for `@craftline/mind`.

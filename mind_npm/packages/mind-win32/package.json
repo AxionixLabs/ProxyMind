@@ -1,5 +1,5 @@
 {
-  "name": "@proxymind/mind-win32",
+  "name": "@craftline/mind-win32",
   "version": "1.0.0",
   "description": "Mind Windows runtime package.",
   "os": [

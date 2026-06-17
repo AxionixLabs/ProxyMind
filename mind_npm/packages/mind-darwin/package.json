@@ -1,5 +1,5 @@
 {
-  "name": "@proxymind/mind-darwin",
+  "name": "@craftline/mind-darwin",
   "version": "1.0.0",
   "description": "Mind macOS runtime package.",
   "os": [
