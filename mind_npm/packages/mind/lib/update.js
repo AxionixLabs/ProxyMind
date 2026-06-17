@@ -14,6 +14,7 @@ const color = {
   dim: "\x1b[2m",
   blue: "\x1b[38;5;75m",
   cyan: "\x1b[38;5;37m",
+  selectedFg: "\x1b[38;5;195m",
   yellow: "\x1b[33m"
 };
 
@@ -108,20 +109,9 @@ async function installLatestPackage(packageName) {
 }
 
 async function promptForUpdate(latestVersion, state, now, packageInfo) {
-  console.log(
-    `\n${color.bold}${color.yellow}\u2728 Update available!${color.reset} ` +
-    `${color.dim}${packageInfo.currentVersion}${color.reset} -> ${color.blue}${latestVersion}${color.reset}\n`
-  );
-  console.log(
-    `${color.dim}Release notes:${color.reset} ` +
-    `https://www.npmjs.com/package/${packageInfo.packageName}\n`
-  );
+  writeUpdatePromptHeader(latestVersion, packageInfo);
 
-  const choice = await selectUpdateChoice([
-    `Update now (runs \`npm install -g ${packageInfo.packageName}\`)`,
-    "Skip",
-    "Skip until next version"
-  ], 0);
+  const choice = await selectUpdateChoice(updateMenuItems(packageInfo), 0);
 
   if (choice === "1") {
     await installLatestPackage(packageInfo.packageName);
@@ -142,6 +132,25 @@ async function promptForUpdate(latestVersion, state, now, packageInfo) {
   }
 }
 
+function writeUpdatePromptHeader(latestVersion, packageInfo) {
+  console.log(
+    `\n${color.bold}${color.yellow}\u2728 Update available!${color.reset} ` +
+    `${color.dim}${packageInfo.currentVersion}${color.reset} -> ${color.blue}${latestVersion}${color.reset}\n`
+  );
+  console.log(
+    `${color.dim}Release notes:${color.reset} ` +
+    `https://www.npmjs.com/package/${packageInfo.packageName}\n`
+  );
+}
+
+function updateMenuItems(packageInfo) {
+  return [
+    `Update now (runs \`npm install -g ${packageInfo.packageName}\`)`,
+    "Skip",
+    "Skip until next version"
+  ];
+}
+
 function renderUpdateMenu(items, selected) {
   process.stdout.write("\x1b[?25l");
   for (let index = 0; index < items.length; index += 1) {
@@ -151,18 +160,26 @@ function renderUpdateMenu(items, selected) {
 }
 
 function formatMenuLine(items, index, selected) {
-  return `${menuMarker(index === selected)} ${color.cyan}${index + 1}. ${items[index]}${color.reset}`;
+  const active = index === selected;
+  const line = `${menuMarker(active)} ${index + 1}. ${items[index]}`;
+
+  if (active) {
+    return `${color.selectedFg}${color.bold}${line}${color.reset}`;
+  }
+
+  return `${line[0]} ${color.cyan}${line.slice(2)}${color.reset}`;
 }
 
 function menuMarker(active) {
   return active
-    ? `${color.cyan}\u203a${color.reset}`
+    ? "\u203a"
     : " ";
 }
 
-function writeMenuMarker(index, active) {
+function writeMenuLine(items, index, selected) {
   readline.cursorTo(process.stdout, 0);
-  process.stdout.write(menuMarker(active));
+  readline.clearLine(process.stdout, 0);
+  process.stdout.write(formatMenuLine(items, index, selected));
 }
 
 function moveMenuSelection(items, previous, selected) {
@@ -170,10 +187,10 @@ function moveMenuSelection(items, previous, selected) {
   const promptLine = lineCount - 1;
 
   readline.moveCursor(process.stdout, 0, -(promptLine - previous));
-  writeMenuMarker(previous, false);
+  writeMenuLine(items, previous, selected);
 
   readline.moveCursor(process.stdout, 0, selected - previous);
-  writeMenuMarker(selected, true);
+  writeMenuLine(items, selected, selected);
 
   readline.moveCursor(process.stdout, 0, promptLine - selected);
   readline.cursorTo(process.stdout, 0);
