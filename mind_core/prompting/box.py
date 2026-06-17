@@ -8,11 +8,7 @@ from prompt_toolkit.auto_suggest import (
     AutoSuggest,
     Suggestion
 )
-from prompt_toolkit.completion import (
-    Completer,
-    CompleteEvent,
-    Completion
-)
+from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
@@ -25,86 +21,15 @@ from mind_nova.modes import (
     DEFAULT_RUN_MODE, RunMode
 )
 from mind_core.terminal_input import clear_pending_input
-from mind_core.prompting_ghost import (
+from .commands import SlashCommandCompleter
+from .ghost import (
     BASE_CODING_AGENT_TEMPLATES,
     CHAT_TEMPLATES,
     MODE_ALIAS_TEMPLATES,
     VERB_DOMAIN_WEIGHTS,
     build_intent_templates
 )
-
-
-class SlashCommandCompleter(Completer):
-    """命令补全视图。"""
-
-    COMMANDS: tuple[dict[str, str], ...] = (
-        {"text": "/chat", "display": "/chat", "meta": "切换到 Chat 模式"},
-        {"text": "/fast", "display": "/fast", "meta": "切换到 Fast 模式"},
-        {"text": "/plan", "display": "/plan", "meta": "切换到 Plan 模式"},
-        {"text": "/xtra", "display": "/xtra", "meta": "切换到 Xtra 模式"},
-        {"text": "/help", "display": "/help", "meta": "查看帮助"},
-        {"text": "/h", "display": "/h", "meta": "查看帮助"},
-        {"text": "/license", "display": "/license", "meta": "查看授权"},
-        {"text": "/lic", "display": "/lic", "meta": "查看授权"},
-        {"text": "/quit", "display": "/quit", "meta": "退出会话"},
-        {"text": "/q", "display": "/q", "meta": "退出会话"},
-        {"text": "/model ", "display": "/model", "meta": "输入模型名"},
-        {"text": "/apikey ", "display": "/apikey", "meta": "输入 API Key"},
-        {"text": "/attach ", "display": "/attach", "meta": "添加本轮待发送附件"},
-        {"text": "/attachments", "display": "/attachments", "meta": "查看待发送附件"},
-        {"text": "/detach ", "display": "/detach", "meta": "移除待发送附件"},
-        {"text": "/attach-clear", "display": "/attach-clear", "meta": "清空待发送附件"},
-        {"text": "/reboot", "display": "/reboot", "meta": "重启本地后台服务"}
-    )
-
-    TOP_LEVEL: tuple[str, ...] = (
-        "/chat",
-        "/fast",
-        "/plan",
-        "/xtra",
-        "/help",
-        "/license",
-        "/quit",
-        "/model",
-        "/apikey",
-        "/attach",
-        "/attachments",
-        "/detach",
-        "/attach-clear",
-        "/reboot"
-    )
-
-    def get_completions(self, document, complete_event):
-        """根据当前输入内容生成斜杠命令补全项。"""
-        text = document.text_before_cursor
-        stripped = text.lstrip()
-
-        if not stripped.startswith("/"):
-            return
-
-        token = stripped.splitlines()[-1]
-        if " " in token and not token.startswith(("/model", "/apikey", "/attach", "/detach")):
-            return
-
-        if token == "/":
-            candidates = [
-                item for item in self.COMMANDS if item["display"] in self.TOP_LEVEL
-            ]
-            visible_limit = len(self.TOP_LEVEL)
-        else:
-            candidates = [
-                item for item in self.COMMANDS
-                if item["display"].startswith(token) or item["text"].startswith(token)
-            ]
-            visible_limit = 7
-
-        for item in candidates[:visible_limit]:
-            yield Completion(
-                item["text"],
-                start_position=-len(token),
-                display=item["display"],
-                display_meta=item["meta"]
-            )
+from .skills import SkillTokenLexer
 
 
 class CommandAutoSuggest(AutoSuggest):
@@ -428,6 +353,7 @@ class PromptToolkitBox(object):
     PARAMETERIZED_COMMANDS: tuple[str, ...] = (
         "/model ", "/apikey ", "/attach ", "/detach "
     )
+    SKILLS_COMMAND_TEXT: str = "$"
 
     MODEL_DISPLAY_MAX: int    = 24
     PASTE_CHAR_THRESHOLD: int = 1200
@@ -437,6 +363,7 @@ class PromptToolkitBox(object):
         self.history: InMemoryHistory         = InMemoryHistory()
         self.completer: SlashCommandCompleter = SlashCommandCompleter()
         self.auto_suggest: CommandAutoSuggest = CommandAutoSuggest()
+        self.lexer: SkillTokenLexer           = SkillTokenLexer()
 
         self.key_bindings: KeyBindings = self._build_key_bindings()
 
@@ -451,6 +378,7 @@ class PromptToolkitBox(object):
             "prompt.muted": "bold #767D87",
             "placeholder": "bold #727983",
             "auto-suggestion": "#5A616A bg:#0A0D18",
+            "skill-token": "bold #8FD7FF",
             "completion-menu": "bg:#111315 #D8DCE2",
             "completion-menu.completion": "bg:#111315 bold #D6DBE2",
             "completion-menu.completion.current": "bg:#3B4148 bold #F4F7FA",
@@ -598,6 +526,16 @@ class PromptToolkitBox(object):
             )
             self._sync_completion_suggestion(buf)
 
+        @kb.add("$")
+        def _(event) -> None:
+            buf = event.app.current_buffer
+            buf.insert_text("$")
+            buf.start_completion(
+                select_first=False,
+                complete_event=CompleteEvent(text_inserted=True)
+            )
+            self._sync_completion_suggestion(buf)
+
         @kb.add("tab")
         def _(event) -> None:
             buf = event.app.current_buffer
@@ -634,6 +572,18 @@ class PromptToolkitBox(object):
             if buf.complete_state and buf.complete_state.current_completion:
                 completion = buf.complete_state.current_completion
                 buf.apply_completion(completion)
+                if completion.text == PromptToolkitBox.SKILLS_COMMAND_TEXT:
+                    buf.start_completion(
+                        select_first=False,
+                        complete_event=CompleteEvent(text_inserted=True)
+                    )
+                    self._sync_completion_suggestion(buf)
+                    event.app.invalidate()
+                    return
+                if completion.text.startswith("$"):
+                    self._sync_completion_suggestion(buf)
+                    event.app.invalidate()
+                    return
                 if completion.text in PromptToolkitBox.PARAMETERIZED_COMMANDS:
                     buf.suggestion = self.auto_suggest.get_suggestion(buf, buf.document)
                     buf.on_suggestion_set.fire()
@@ -682,6 +632,7 @@ class PromptToolkitBox(object):
         with patch_stdout(raw=True):
             value = await session.prompt_async(
                 message=message,
+                lexer=self.lexer,
                 completer=self.completer,
                 auto_suggest=self.auto_suggest,
                 complete_while_typing=True,
