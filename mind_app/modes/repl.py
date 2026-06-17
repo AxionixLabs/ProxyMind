@@ -26,6 +26,16 @@ MODE_BY_COMMAND: dict[str, RunMode] = {
 }
 
 
+def is_ignored_repl_input(raw: str) -> bool:
+    """判断 REPL 输入是否应仅换行并跳过请求链路。"""
+    stripped = str(raw or "").strip()
+    if not stripped:
+        return True
+    if stripped in {"/", "\\"}:
+        return True
+    return stripped.startswith("$") and len(stripped.split()) == 1
+
+
 async def mind_loop(mind: "Mind") -> None:
     """交互式循环入口：处理命令切换、参数更新和模式调度。"""
 
@@ -207,7 +217,8 @@ async def mind_loop(mind: "Mind") -> None:
         except (EOFError, UnicodeDecodeError):
             continue
 
-        if not raw.strip():
+        if is_ignored_repl_input(raw):
+            Design.console.print()
             continue
 
         command = raw.strip().lower()
