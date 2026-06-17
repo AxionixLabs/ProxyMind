@@ -1,7 +1,9 @@
-from pathlib import Path
+# -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
+
 import os
 import sys
-
+from pathlib import Path
 from mind_nova import const
 
 
@@ -41,3 +43,7 @@ def user_skills_root() -> Path:
 
     base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
     return base / const.APP_NAME / "skills"
+
+
+if __name__ == '__main__':
+    pass
