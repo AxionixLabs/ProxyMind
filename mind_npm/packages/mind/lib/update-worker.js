@@ -58,7 +58,8 @@ if (!packageName) {
 const npm = npmCommand(["view", packageName, "version"]);
 const result = spawnSync(npm.command, npm.args, {
   encoding: "utf8",
-  timeout: 2500
+  timeout: 2500,
+  windowsHide: true
 });
 
 if (result.error || result.status !== 0) {

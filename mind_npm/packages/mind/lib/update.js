@@ -210,7 +210,7 @@ async function selectUpdateChoice(items, defaultIndex) {
     const finish = (value) => {
       process.stdin.off("keypress", onKeypress);
       process.stdin.setRawMode(wasRaw);
-      process.stdout.write("\x1b[?25h\n");
+      process.stdout.write("\x1b[?25h\n\n");
       resolve(value);
     };
 
