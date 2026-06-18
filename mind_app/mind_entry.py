@@ -10,14 +10,12 @@ import typing
 import asyncio
 from pathlib import Path
 from loguru import logger
+from engine.animation import AsyncAnimManager
 from engine.manage import ServerManage
 from engine.tinker import (
     MindError, Active, FileAssist
 )
 from engine.terminal import Terminal
-from engine.upgrade import (
-    Upgrade, UpgradePackageMissing
-)
 # from mind_core import authorize
 # from mind_core.api import Api
 from mind_core.design import Design
@@ -26,6 +24,7 @@ from mind_core.parser import Parser
 from mind_core.preference import Preferences
 from mind_nova import const
 from mind_nova.modes import RunMode
+from .assets import ensure_asset
 from .mcp import mcp_servers_path
 from .mind_core import Mind
 
@@ -93,39 +92,31 @@ async def resolve_cli_attachments(
     return uploaded
 
 
-async def ensure_backend(
-    *,
-    backend: str,
-    supports: str,
-    software: str,
-    explicit_upgrade: bool
-) -> bool:
-    package = not software.endswith(".py")
-    missing = package and not Path(backend).exists()
-
-    if not explicit_upgrade and not missing:
-        return False
-
-    up: Upgrade = Upgrade()
-    try:
-        await up.upgrade_app(supports)
-    except UpgradePackageMissing as error:
-        if explicit_upgrade:
-            if not error.shown_in_animation:
-                Design.console.print(
-                    f"[bold #FFD75F]Backend upgrade skipped:[/] {error.msg}"
-                )
-            return False
-
-        raise MindError(
-            f"Backend runtime missing and auto-download failed: {error.msg}"
-        ) from error
-
-    return True
-
-
 async def main(entry_file: typing.Optional[str] = None) -> int:
     """Main"""
+    entry_anim_manager = AsyncAnimManager()
+
+    try:
+        return await _run_main(entry_file, entry_anim_manager)
+    finally:
+        await await_cleanup(entry_anim_manager.stop())
+
+
+async def await_cleanup(awaitable: typing.Awaitable[None]) -> None:
+    """在取消态下等待清理任务执行完成。"""
+    task = asyncio.ensure_future(awaitable)
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
+        raise
+
+
+async def _run_main(
+    entry_file: typing.Optional[str],
+    entry_anim_manager: AsyncAnimManager
+) -> int:
+    """执行入口主流程。"""
     async def authorized() -> None:
         if platform != "darwin":
             return None
@@ -217,19 +208,21 @@ async def main(entry_file: typing.Optional[str] = None) -> int:
 
     # Notes: ========== 升级流程 ==========
     if cmd_lines.upgrade:
-        await ensure_backend(
-            backend=helix,
+        await ensure_asset(
+            asset=helix,
             supports=supports,
             software=software,
-            explicit_upgrade=True
+            explicit_upgrade=True,
+            anim_manager=entry_anim_manager
         )
         return 0
 
-    await ensure_backend(
-        backend=helix,
+    await ensure_asset(
+        asset=helix,
         supports=supports,
         software=software,
-        explicit_upgrade=False
+        explicit_upgrade=False,
+        anim_manager=entry_anim_manager
     )
 
     for tls in (tools := [helix]):
@@ -301,7 +294,8 @@ async def main(entry_file: typing.Optional[str] = None) -> int:
     keywords = {
         "src_opera_place" : src_opera_place,
         "src_total_place" : src_total_place,
-        "pref"            : pref
+        "pref"            : pref,
+        "anim_manager"    : entry_anim_manager
     }
 
     # remote = await global_config_task

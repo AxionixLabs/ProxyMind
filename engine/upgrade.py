@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
 import sys
 import time
+import stat
 import httpx
 import shutil
 import typing
@@ -14,31 +14,27 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 from engine.tinker import MindError
-from mind_core.design import Design
 from mind_nova import (
     craft, request
 )
 
 
-class UpgradePackageMissing(MindError):
-    """远端升级包不存在或当前平台没有可用安装包。"""
+UpgradeProgressStarter = typing.Callable[
+    [], typing.Coroutine[typing.Any, typing.Any, None]
+]
 
-    def __init__(self, msg: typing.Any, *, shown_in_animation: bool = False):
-        super().__init__(msg)
-        self.shown_in_animation = shown_in_animation
+
+class UpgradeProgress(typing.Protocol):
+    async def start(self, state: dict[str, typing.Any]) -> None:
+        """启动升级进度展示。"""
+        ...
+
+    async def stop(self) -> None:
+        """停止升级进度展示。"""
+        ...
 
 
 class Upgrade(object):
-
-    @staticmethod
-    def download_state(filename: str) -> dict[str, typing.Any]:
-        return {
-            "stage"    : "warming",
-            "filename" : filename,
-            "phase"    : 0.0,
-            "done"     : 0,
-            "speed"    : 0.0
-        }
 
     @staticmethod
     def mark_final(
@@ -49,6 +45,7 @@ class Upgrade(object):
         style: str,
         stage: str | None = None
     ) -> None:
+        """写入下载流程的最终展示状态。"""
         if stage is not None:
             state["stage"] = stage
 
@@ -61,102 +58,273 @@ class Upgrade(object):
     def cancel_download(
         state: dict[str, typing.Any],
         archive_path: Path,
-        stop_event: asyncio.Event,
         *,
-        label: str,
-        icon: str,
-        style: str,
         stage: str | None = None,
         reset_progress: bool = False
     ) -> None:
-        Upgrade.mark_final(state, label, icon=icon, style=style, stage=stage)
+        """结束下载动画并移除未完成的归档文件。"""
+        if stage is not None:
+            state["stage"] = stage
         if reset_progress:
             state["phase"] = 0.0
-            state["done"] = 0
+            state["done"]  = 0
 
-        stop_event.set()
         archive_path.unlink(missing_ok=True)
 
     @staticmethod
-    def overwrite(src_dir: Path, dst_dir: Path) -> None:
-        dst_dir.mkdir(parents=True, exist_ok=True)
+    def set_stage(
+        state: dict[str, typing.Any],
+        stage: str,
+        *,
+        phase: float | None = None,
+        speed: float | None = None
+    ) -> None:
+        """更新下载流程的阶段状态。"""
+        state["stage"] = stage
+        if phase is not None:
+            state["phase"] = phase
+        if speed is not None:
+            state["speed"] = speed
 
-        for root, dirs, files in os.walk(src_dir):
-            rel = Path(root).relative_to(src_dir)
-            target_root = dst_dir / rel
-            target_root.mkdir(parents=True, exist_ok=True)
+    @staticmethod
+    def download_state(filename: str) -> dict[str, typing.Any]:
+        """创建下载动画使用的初始状态。"""
+        return {
+            "stage"    : "warming",
+            "filename" : filename,
+            "phase"    : 0.0,
+            "done"     : 0,
+            "speed"    : 0.0
+        }
 
-            for d in dirs:
-                (target_root / d).mkdir(parents=True, exist_ok=True)
+    @staticmethod
+    def download_error(exc: Exception) -> MindError:
+        """将下载阶段异常转换为统一的安装错误。"""
+        if isinstance(exc, httpx.HTTPStatusError):
+            code = exc.response.status_code
+            if code in {401, 403}:
+                return MindError(f"Install failed: download unauthorized status={code}")
+            if code in {502, 503, 504}:
+                return MindError(f"Install failed: download service unavailable status={code}")
+            return MindError(f"Install failed: download http status={code}")
 
-            for f in files:
-                src_file = Path(root) / f
-                dst_file = target_root / f
+        if isinstance(exc, httpx.TimeoutException):
+            return MindError(f"Install failed: download timeout: {type(exc).__name__}")
 
-                if dst_file.exists():
-                    if dst_file.is_dir():
-                        shutil.rmtree(dst_file, ignore_errors=True)
-                    else:
-                        dst_file.unlink(missing_ok=True)
+        if isinstance(exc, httpx.ConnectError):
+            return MindError("Install failed: download connection failed")
 
-                shutil.copy2(src_file, dst_file)
+        if isinstance(exc, httpx.HTTPError):
+            return MindError(f"Install failed: download request failed: {type(exc).__name__}")
 
-                if not sys.platform.startswith("win") and os.access(src_file, os.X_OK):
-                    try:
-                        os.chmod(dst_file, os.stat(src_file).st_mode)
-                    except OSError:
-                        pass
+        return MindError(f"Install failed: download failed: {type(exc).__name__}: {exc}")
 
-    async def install_app(self, remote: dict[str, typing.Any], install_dir: str) -> dict[str, typing.Any]:
-        """
-        下载 -> 校验 -> 解压到临时目录 -> 覆盖安装 -> 删除压缩包
-        """
-        pkg = (remote.get("package") or {})
-        url = str(pkg.get("url") or "").strip()
-        sha256_expect = str(
-            pkg.get("sha256") or pkg.get("hash") or ""
-        ).strip().lower() or None
-        version = str(remote.get("version") or "").strip() or "unknown"
+    @staticmethod
+    def backend_runtime_name() -> str:
+        """返回当前平台的后端运行时目录名。"""
+        if sys.platform.startswith("win"):
+            return "helix.dist"
+        if sys.platform == "darwin":
+            return "helix.app"
+        raise MindError(f"Install failed: unsupported platform: {sys.platform}")
 
-        if not url:
-            raise UpgradePackageMissing("No backend upgrade package is available for this platform.")
+    @staticmethod
+    def safe_extract_zip(archive_path: Path, extract_dir: Path) -> None:
+        """校验 zip 成员路径后解压到指定目录。"""
+        extract_root = extract_dir.resolve()
 
-        target_dir = Path(install_dir).expanduser().resolve()
-        target_dir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(archive_path, "r") as zf:
+            for info in zf.infolist():
+                raw_name = info.filename
+                member = Path(raw_name)
 
-        filename = Path(urlparse(url).path or "").name.strip() or f"runtime_{version}.zip"
-        archive_path = (target_dir / filename).resolve()
+                if member.is_absolute() or ".." in member.parts:
+                    raise MindError(f"Install failed: unsafe archive path: {raw_name}")
 
-        done    = 0
-        hasher  = hashlib.sha256()
-        started = time.perf_counter()
+                target = (extract_root / member).resolve()
+                if target == extract_root:
+                    continue
+                if not target.is_relative_to(extract_root):
+                    raise MindError(f"Install failed: unsafe archive path: {raw_name}")
 
-        remove_archive: bool = True
-        timeout: float       = 120.0
-        chunk_size: int      = 1024 * 256
+            zf.extractall(extract_root)
 
-        state = self.download_state(filename)
+    @staticmethod
+    def replace_tree(src_dir: Path, dst_dir: Path) -> None:
+        """使用临时目录和备份目录替换目标目录。"""
+        parent = dst_dir.parent
+        parent.mkdir(parents=True, exist_ok=True)
 
-        stop_event = asyncio.Event()
+        tmp_dir = parent / f".{dst_dir.name}.tmp"
+        bak_dir = parent / f".{dst_dir.name}.bak"
 
-        anim_task = asyncio.create_task(
-            Design.download_animation(state, stop_event)
-        )
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        if bak_dir.exists():
+            if dst_dir.exists():
+                shutil.rmtree(bak_dir, ignore_errors=True)
+            else:
+                try:
+                    bak_dir.rename(dst_dir)
+                except Exception as e:
+                    raise MindError(
+                        f"Install failed: restore stale backup failed: {type(e).__name__}: {e}"
+                    ) from e
 
         try:
-            state["stage"] = "downloading"
+            shutil.copytree(src_dir, tmp_dir)
 
+            if dst_dir.exists():
+                dst_dir.rename(bak_dir)
+
+            tmp_dir.rename(dst_dir)
+
+            if bak_dir.exists():
+                shutil.rmtree(bak_dir, ignore_errors=True)
+
+        except Exception as e:
+            if tmp_dir.exists():
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+
+            if not dst_dir.exists() and bak_dir.exists():
+                try:
+                    bak_dir.rename(dst_dir)
+                except Exception as restore_error:
+                    raise MindError(
+                        f"Install failed: replace runtime failed: {type(e).__name__}: {e}; "
+                        f"restore failed: {type(restore_error).__name__}: {restore_error}"
+                    ) from restore_error
+
+            raise MindError(f"Install failed: replace runtime failed: {type(e).__name__}: {e}") from e
+
+    @classmethod
+    def backend_runtime_exec(cls, runtime_root: Path) -> Path:
+        """返回后端运行时目录内的可执行文件路径。"""
+        if sys.platform.startswith("win"):
+            return runtime_root / "helix.exe"
+        if sys.platform == "darwin":
+            return runtime_root / "Contents" / "MacOS" / "helix"
+
+        raise MindError(f"Install failed: unsupported platform: {sys.platform}")
+
+    @classmethod
+    def resolve_runtime_root(cls, extract_dir: Path) -> Path:
+        """从解压目录中定位并校验后端运行时根目录。"""
+        runtime_name = cls.backend_runtime_name()
+        direct       = extract_dir / runtime_name
+
+        if direct.is_dir():
+            runtime_root = direct
+        else:
+            children = [p for p in extract_dir.iterdir() if p.exists()]
+            dirs     = [p for p in children if p.is_dir()]
+
+            if len(children) == 1 and len(dirs) == 1:
+                nested = dirs[0] / runtime_name
+                if nested.is_dir():
+                    runtime_root = nested
+                elif dirs[0].name == runtime_name:
+                    runtime_root = dirs[0]
+                else:
+                    raise MindError("Install failed: invalid backend package layout")
+            else:
+                raise MindError("Install failed: invalid backend package layout")
+
+        runtime_exec = cls.backend_runtime_exec(runtime_root)
+        if not runtime_exec.is_file():
+            raise MindError(f"Install failed: backend executable missing: {runtime_exec.name}")
+
+        if sys.platform == "darwin":
+            try:
+                runtime_exec.chmod(runtime_exec.stat().st_mode | stat.S_IXUSR)
+            except OSError as e:
+                raise MindError(f"Install failed: chmod backend executable failed: {e}") from e
+
+        return runtime_root
+
+    def verify_archive(
+        self,
+        *,
+        state: dict[str, typing.Any],
+        sha256_actual: str | None,
+        sha256_expect: str | None
+    ) -> None:
+        """校验下载归档的哈希值。"""
+        self.set_stage(state, "verifying", phase=1.0, speed=0.0)
+
+        if not sha256_expect:
+            return
+
+        if sha256_actual != sha256_expect:
+            raise MindError(
+                f"Install failed: sha256 mismatch expect={sha256_expect} actual={sha256_actual}"
+            )
+
+    def extract_runtime(
+        self,
+        *,
+        archive_path: Path,
+        extract_dir: Path,
+        state: dict[str, typing.Any]
+    ) -> Path:
+        """解压归档并返回已校验的运行时根目录。"""
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        self.set_stage(state, "extracting")
+
+        if archive_path.suffix.lower() != ".zip":
+            raise MindError(f"Install failed: unsupported archive type: {archive_path.suffix}")
+
+        self.safe_extract_zip(archive_path, extract_dir)
+        return self.resolve_runtime_root(extract_dir)
+
+    def install_runtime(
+        self,
+        *,
+        runtime_root: Path,
+        target_dir: Path,
+        state: dict[str, typing.Any]
+    ) -> None:
+        """安装已校验的后端运行时。"""
+        self.set_stage(state, "installing")
+        final_target = target_dir / self.backend_runtime_name()
+        self.replace_tree(runtime_root, final_target)
+        self.set_stage(state, "cleaning")
+
+    async def download_archive(
+        self,
+        *,
+        url: str,
+        filename: str,
+        archive_path: Path,
+        state: dict[str, typing.Any],
+        started: float,
+        sha256_enabled: bool,
+        timeout: float,
+        chunk_size: int,
+        start_progress: UpgradeProgressStarter | None = None
+    ) -> tuple[int, str | None]:
+        """下载远端归档文件并更新进度状态。"""
+        done   = 0
+        hasher = hashlib.sha256() if sha256_enabled else None
+
+        self.set_stage(state, "connecting")
+        if start_progress is not None:
+            await start_progress()
+
+        try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
                 async with client.stream("GET", url) as resp:
                     if resp.status_code == 404:
-                        raise UpgradePackageMissing(
-                            f"No backend upgrade package was found: {filename}",
-                            shown_in_animation=True
+                        raise MindError(
+                            f"No backend upgrade package was found: {filename}"
                         )
 
                     resp.raise_for_status()
 
                     total = int(resp.headers.get("content-length") or 0)
+                    state["total"] = total
+                    self.set_stage(state, "downloading")
+
                     with open(archive_path, "wb") as f:
                         async for chunk in resp.aiter_bytes(chunk_size=chunk_size):
                             if not chunk: continue
@@ -165,72 +333,116 @@ class Upgrade(object):
                             size = len(chunk)
                             done += size
 
-                            if sha256_expect:
+                            if hasher is not None:
                                 hasher.update(chunk)
 
                             elapsed = max(0.001, time.perf_counter() - started)
+
                             state["done"] = done
                             state["speed"] = done / elapsed
+
                             if total > 0:
                                 state["phase"] = min(1.0, done / total)
 
-            state["stage"] = "verifying"
-            state["phase"] = 1.0
-            state["speed"] = 0.0
+                    if 0 < total != done:
+                        raise MindError(
+                            f"Install failed: incomplete download expect={total} actual={done}"
+                        )
 
-            if sha256_expect:
-                actual = hasher.hexdigest().lower()
-                if actual != sha256_expect:
-                    self.cancel_download(
-                        state, archive_path, stop_event,
-                        icon="✗", label="failed", style="bold #FF8787"
-                    )
-                    raise MindError(
-                        f"Install failed: sha256 mismatch expect={sha256_expect} actual={actual}"
-                    )
+        except MindError:
+            raise
+        except Exception as e:
+            raise self.download_error(e) from e
 
-            with tempfile.TemporaryDirectory(prefix="mind_runtime_") as tmp_dir:
-                tmp_path = Path(tmp_dir).resolve()
+        return done, hasher.hexdigest().lower() if hasher is not None else None
 
-                extract_dir = tmp_path / "extract"
-                extract_dir.mkdir(parents=True, exist_ok=True)
+    async def install_app(
+        self,
+        remote: dict[str, typing.Any],
+        install_dir: str,
+        *,
+        progress: UpgradeProgress | None = None
+    ) -> dict[str, typing.Any]:
+        """下载、校验并安装当前平台的后端运行时。"""
+        pkg = (remote.get("package") or {})
+        url = str(pkg.get("url") or "").strip()
 
-                state["stage"] = "extracting"
+        sha256_expect = str(
+            pkg.get("sha256") or pkg.get("hash") or ""
+        ).strip().lower() or None
 
-                if archive_path.suffix.lower() == ".zip":
-                    with zipfile.ZipFile(archive_path, "r") as zf:
-                        zf.extractall(extract_dir)
-                else:
-                    self.cancel_download(
-                        state, archive_path, stop_event,
-                        icon="✗", label="failed", style="bold #FF8787"
-                    )
-                    raise MindError(
-                        f"Install failed: unsupported archive type: {archive_path.suffix}"
-                    )
+        version = str(remote.get("version") or "").strip() or "unknown"
 
-                children = [p for p in extract_dir.iterdir() if p.exists()]
+        if not url:
+            raise MindError("No backend upgrade package is available for this platform.")
 
-                state["stage"] = "installing"
+        target_dir = Path(install_dir).expanduser().resolve()
+        filename   = Path(urlparse(url).path or "").name.strip() or f"runtime_{version}.zip"
 
-                if len(children) == 1 and children[0].is_dir():
-                    src_root = children[0]
-                    final_target = target_dir / src_root.name
+        archive_path: Path | None = None
+        tmp_path: Path | None     = None
 
-                    if final_target.exists():
-                        shutil.rmtree(final_target, ignore_errors=True)
+        started = time.perf_counter()
 
-                    shutil.copytree(src_root, final_target)
+        timeout: float  = 120.0
+        chunk_size: int = 1024 * 256
 
-                else:
-                    src_root = extract_dir
-                    final_target = target_dir
-                    self.overwrite(src_root, final_target)
+        state = self.download_state(filename)
 
-            state["stage"] = "cleaning"
+        progress_started = False
 
-            if remove_archive:
-                archive_path.unlink(missing_ok=True)
+        async def start_progress() -> None:
+            nonlocal progress_started
+            if progress is None or progress_started:
+                return None
+            await progress.start(state)
+            progress_started = True
+
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            tmp_path     = Path(tempfile.mkdtemp(prefix="mind_runtime_")).resolve()
+            archive_path = (tmp_path / filename).resolve()
+
+            done, sha256_actual = await self.download_archive(
+                url=url,
+                filename=filename,
+                archive_path=archive_path,
+                state=state,
+                started=started,
+                sha256_enabled=bool(sha256_expect),
+                timeout=timeout,
+                chunk_size=chunk_size,
+                start_progress=start_progress
+            )
+
+            self.verify_archive(
+                state=state,
+                sha256_actual=sha256_actual,
+                sha256_expect=sha256_expect
+            )
+            await asyncio.sleep(0)
+
+            runtime_root = await asyncio.to_thread(
+                self.extract_runtime,
+                archive_path=archive_path,
+                extract_dir=tmp_path / "extract",
+                state=state
+            )
+            await asyncio.sleep(0)
+
+            await asyncio.to_thread(
+                self.install_runtime,
+                runtime_root=runtime_root,
+                target_dir=target_dir,
+                state=state
+            )
+
+            if tmp_path.exists():
+                self.set_stage(state, "cleaning")
+                await asyncio.sleep(0)
+                await asyncio.to_thread(shutil.rmtree, tmp_path, ignore_errors=True)
+                tmp_path = None
 
             elapsed = max(0.001, time.perf_counter() - started)
 
@@ -242,39 +454,52 @@ class Upgrade(object):
                 "ok"               : True,
                 "version"          : version,
                 "install_dir"      : str(target_dir),
-                "archive"          : str(archive_path),
-                "removed_archive"  : bool(remove_archive),
+                "archive"          : str(archive_path or ""),
+                "removed_archive"  : True,
                 "downloaded_bytes" : done,
                 "elapsed_sec"      : round(elapsed, 3)
             }
 
-        except UpgradePackageMissing:
-            self.cancel_download(
-                state, archive_path, stop_event,
-                icon="⚠", label="package missing", style="bold #FFD75F", stage="missing",
-                reset_progress=True
-            )
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            if archive_path is not None:
+                self.cancel_download(
+                    state, archive_path, stage="cancelled"
+                )
+            else:
+                state["stage"] = "cancelled"
             raise
 
         except MindError:
-            self.cancel_download(
-                state, archive_path, stop_event,
-                icon="✗", label="failed", style="bold #FF8787"
-            )
+            if archive_path is not None:
+                self.cancel_download(
+                    state, archive_path, stage="failed"
+                )
+            else:
+                state["stage"] = "failed"
             raise
 
         except Exception as e:
-            self.cancel_download(
-                state, archive_path, stop_event,
-                icon="✗", label="failed", style="bold #FF8787"
-            )
+            if archive_path is not None:
+                self.cancel_download(
+                    state, archive_path, stage="failed"
+                )
+            else:
+                state["stage"] = "failed"
             raise MindError(f"Install failed: {type(e).__name__}: {e}") from e
 
         finally:
-            stop_event.set()
-            await anim_task
+            if tmp_path is not None and tmp_path.exists():
+                await asyncio.to_thread(shutil.rmtree, tmp_path, ignore_errors=True)
+            if progress_started and progress is not None:
+                await progress.stop()
 
-    async def upgrade_app(self, install_dir: typing.Union[str, Path]) -> None:
+    async def upgrade_app(
+        self,
+        install_dir: typing.Union[str, Path],
+        *,
+        progress: UpgradeProgress | None = None
+    ) -> None:
+        """获取远端清单并执行后端运行时升级。"""
         if not await craft.port_listen(port := 3333):
             await craft.kill_port(port)
 
@@ -288,11 +513,11 @@ class Upgrade(object):
                 await asyncio.sleep(1.0)
 
         if not remote:
-            raise UpgradePackageMissing(
+            raise MindError(
                 f"No backend upgrade manifest is available after {max_retries} retries."
             )
 
-        await self.install_app(remote, str(install_dir))
+        await self.install_app(remote, str(install_dir), progress=progress)
 
 
 if __name__ == '__main__':

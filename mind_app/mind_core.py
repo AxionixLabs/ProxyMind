@@ -55,12 +55,12 @@ class Mind(object):
         self.src_total_place: str = kwargs["src_total_place"]
 
         self.pref: Preferences = kwargs["pref"]
-        self.pref_refreshed_at: float = time.monotonic()
+        self.pref_refreshed_at: float    = time.monotonic()
         self.pref_refresh_ttl_sec: float = 1.0
 
         self.task_event: asyncio.Event = asyncio.Event()
 
-        self.anim_manager: AsyncAnimManager = AsyncAnimManager()
+        self.anim_manager: AsyncAnimManager = kwargs.get("anim_manager") or AsyncAnimManager()
 
         self.last_refresh_ts: float = 0.0
         self.ttl_sec: float         = 1.0
