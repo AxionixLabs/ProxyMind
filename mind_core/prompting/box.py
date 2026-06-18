@@ -4,14 +4,11 @@
 import html
 import typing
 from prompt_toolkit import PromptSession
-from prompt_toolkit.application.current import get_app_or_none
 from prompt_toolkit.auto_suggest import (
     AutoSuggest,
     Suggestion
 )
 from prompt_toolkit.completion import CompleteEvent
-from prompt_toolkit.document import Document
-from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
@@ -32,11 +29,7 @@ from .ghost import (
     VERB_DOMAIN_WEIGHTS,
     build_intent_templates
 )
-from .skills import (
-    SkillTokenLexer,
-    SkillTokenSpan,
-    skill_token_span_before_cursor
-)
+from .skills import SkillTokenLexer
 
 
 class CommandAutoSuggest(AutoSuggest):
@@ -371,11 +364,7 @@ class PromptToolkitBox(object):
         self.completer: SlashCommandCompleter = SlashCommandCompleter()
         self.auto_suggest: CommandAutoSuggest = CommandAutoSuggest()
 
-        self.focused_skill: SkillTokenSpan | None = None
-
-        self.lexer: SkillTokenLexer = SkillTokenLexer(
-            self._focused_skill_for_current_buffer
-        )
+        self.lexer: SkillTokenLexer = SkillTokenLexer()
 
         self.key_bindings: KeyBindings = self._build_key_bindings()
 
@@ -391,7 +380,6 @@ class PromptToolkitBox(object):
             "placeholder": "bold #727983",
             "auto-suggestion": "#5A616A bg:#0A0D18",
             "skill-token": "bold #8FD7FF",
-            "skill-token.focused": "bold #071018 bg:#8FD7FF",
             "completion-menu": "bg:#111315 #D8DCE2",
             "completion-menu.completion": "bg:#111315 bold #D6DBE2",
             "completion-menu.completion.current": "bg:#3B4148 bold #F4F7FA",
@@ -471,87 +459,6 @@ class PromptToolkitBox(object):
             buf.suggestion = None
             buf.on_suggestion_set.fire()
 
-    def _has_focused_skill(self) -> bool:
-        """判断是否存在仍有效的虚拟 skill focus。"""
-        return self._focused_skill_for_current_buffer() is not None
-
-    def _focused_skill_for_current_buffer(self) -> SkillTokenSpan | None:
-        """返回当前 prompt buffer 中仍有效的虚拟 skill focus。"""
-        app = get_app_or_none()
-        if app is None:
-            return None
-        return self._focused_skill_for_buffer(app.current_buffer)
-
-    def _focused_skill_for_buffer(self, buf) -> SkillTokenSpan | None:
-        """返回当前输入内容中仍有效的虚拟 skill focus。"""
-        focused = self.focused_skill
-
-        if focused is None:
-            return None
-        if focused.text_snapshot != buf.text:
-            self.focused_skill = None
-            return None
-        if not (0 <= focused.start <= focused.end <= len(buf.text)):
-            self.focused_skill = None
-            return None
-        if not buf.text[focused.start:focused.end].startswith("$"):
-            self.focused_skill = None
-            return None
-        if buf.cursor_position not in (focused.start, focused.end):
-            self.focused_skill = None
-            return None
-
-        return focused
-
-    def _clear_focused_skill(self) -> None:
-        """退出虚拟 skill focus 状态。"""
-        self.focused_skill = None
-
-    def _focus_skill(self, buf, span: SkillTokenSpan, *, side: str = "right") -> None:
-        """进入虚拟 skill focus 状态。"""
-        self.focused_skill = SkillTokenSpan(
-            start=span.start,
-            end=span.end,
-            side=side,
-            text_snapshot=buf.text
-        )
-        buf.cursor_position = span.start if side == "left" else span.end
-
-    def _replace_focused_skill(self, buf, text: str) -> bool:
-        """用指定文本替换当前 focused skill。"""
-        focused = self._focused_skill_for_buffer(buf)
-        if focused is None:
-            return False
-
-        new_text = (
-            buf.text[:focused.start]
-            + text
-            + buf.text[focused.end:]
-        )
-
-        buf.cancel_completion()
-        buf.document = Document(new_text, focused.start + len(text))
-
-        self._clear_focused_skill()
-
-        return True
-
-    def _insert_around_focused_skill(self, buf, text: str) -> bool:
-        """按 focus 侧在 skill token 前后插入文本。"""
-        focused = self._focused_skill_for_buffer(buf)
-        if focused is None:
-            return False
-
-        position = focused.start if focused.side == "left" else focused.end
-        new_text = buf.text[:position] + text + buf.text[position:]
-
-        buf.cancel_completion()
-        buf.document = Document(new_text, position + len(text))
-
-        self._clear_focused_skill()
-
-        return True
-
     def _paste_placeholder(self, text: str, *, current_text: str = "") -> str:
         """生成粘贴内容的可见占位文本。"""
         self._prune_paste_store(current_text)
@@ -595,7 +502,6 @@ class PromptToolkitBox(object):
     def _build_key_bindings(self) -> KeyBindings:
         """按键绑定集合。"""
         kb = KeyBindings()
-        focused_filter = Condition(self._has_focused_skill)
 
         @kb.add("c-u", eager=True)
         def _(event) -> None:
@@ -604,7 +510,6 @@ class PromptToolkitBox(object):
             buf.text = ""
             buf.cursor_position = 0
             self._sync_completion_suggestion(buf)
-            self._clear_focused_skill()
             self.paste_store.clear()
             event.app.invalidate()
 
@@ -614,19 +519,17 @@ class PromptToolkitBox(object):
             buf.cancel_completion()
             buf.undo()
             self._sync_completion_suggestion(buf)
-            self._clear_focused_skill()
             event.app.invalidate()
 
         @kb.add("escape", "enter")
         @kb.add("c-o")
         def _(event) -> None:
             event.app.current_buffer.insert_text("\n")
-            self._clear_focused_skill()
 
         @kb.add("/", eager=True)
         def _(event) -> None:
             buf = event.app.current_buffer
-            self._replace_focused_skill(buf, "/") or buf.insert_text("/")
+            buf.insert_text("/")
             buf.start_completion(
                 select_first=False,
                 complete_event=CompleteEvent(text_inserted=True)
@@ -636,7 +539,7 @@ class PromptToolkitBox(object):
         @kb.add("$", eager=True)
         def _(event) -> None:
             buf = event.app.current_buffer
-            self._replace_focused_skill(buf, "$") or buf.insert_text("$")
+            buf.insert_text("$")
             buf.start_completion(
                 select_first=False,
                 complete_event=CompleteEvent(text_inserted=True)
@@ -646,7 +549,6 @@ class PromptToolkitBox(object):
         @kb.add("tab")
         def _(event) -> None:
             buf = event.app.current_buffer
-            self._clear_focused_skill()
             if buf.suggestion and buf.suggestion.text:
                 buf.insert_text(buf.suggestion.text)
                 return
@@ -667,69 +569,15 @@ class PromptToolkitBox(object):
                 buf.complete_previous(count=event.arg)
                 self._sync_completion_suggestion(buf)
 
-        @kb.add("backspace", filter=focused_filter, eager=True)
-        @kb.add(Keys.Delete, filter=focused_filter, eager=True)
+        @kb.add("backspace", eager=True)
         def _(event) -> None:
             buf = event.app.current_buffer
-            self._replace_focused_skill(buf, "")
-            self._sync_completion_suggestion(buf)
-            event.app.invalidate()
-
-        @kb.add(" ", filter=focused_filter, eager=True)
-        def _(event) -> None:
-            buf = event.app.current_buffer
-            self._insert_around_focused_skill(buf, " " * event.arg)
-            event.app.invalidate()
-
-        @kb.add("left", filter=focused_filter, eager=True)
-        def _(event) -> None:
-            buf = event.app.current_buffer
-            focused = self._focused_skill_for_buffer(buf)
-            if focused is None:
-                return
-            self._focus_skill(buf, focused, side="left")
-            event.app.invalidate()
-
-        @kb.add("right", filter=focused_filter, eager=True)
-        def _(event) -> None:
-            buf = event.app.current_buffer
-            focused = self._focused_skill_for_buffer(buf)
-            if focused is None:
-                return
-            self._focus_skill(buf, focused, side="right")
-            event.app.invalidate()
-
-        def bind_focused_printable_character(character: str) -> None:
-            @kb.add(character, filter=focused_filter, eager=True)
-            def _(event, text: str = character) -> None:
-                buf = event.app.current_buffer
-                self._replace_focused_skill(buf, text * event.arg)
-                event.app.invalidate()
-
-        for char_code in range(33, 127):
-            printable = chr(char_code)
-            if printable not in {"/", "$"}:
-                bind_focused_printable_character(printable)
-
-        @kb.add("backspace", filter=~focused_filter, eager=True)
-        def _(event) -> None:
-            buf = event.app.current_buffer
-            span = skill_token_span_before_cursor(buf.text, buf.cursor_position)
-            if span is not None:
-                buf.cancel_completion()
-                buf.delete_before_cursor(count=1)
-                self._focus_skill(buf, span, side="right")
-                self._sync_completion_suggestion(buf)
-                event.app.invalidate()
-                return
-
             if event.arg < 0:
                 deleted = buf.delete(count=-event.arg)
             else:
                 deleted = buf.delete_before_cursor(count=event.arg)
             if not deleted:
                 event.app.output.bell()
-            self._clear_focused_skill()
 
         @kb.add(Keys.BracketedPaste, eager=True)
         def _(event) -> None:
@@ -737,13 +585,11 @@ class PromptToolkitBox(object):
             data = (event.data or "").replace("\r\n", "\n").replace("\r", "\n")
             buf.cancel_completion()
             display_text = self._display_text_for_paste(data, current_text=buf.text)
-            if not self._replace_focused_skill(buf, display_text):
-                buf.insert_text(display_text)
+            buf.insert_text(display_text)
 
         @kb.add("enter")
         def _(event) -> None:
             buf = event.app.current_buffer
-            self._clear_focused_skill()
             if buf.complete_state and buf.complete_state.current_completion:
                 completion = buf.complete_state.current_completion
                 buf.apply_completion(completion)
@@ -773,7 +619,6 @@ class PromptToolkitBox(object):
                 buf.complete_previous(count=event.arg)
                 self._sync_completion_suggestion(buf)
                 return
-            self._clear_focused_skill()
             buf.auto_up(count=event.arg, go_to_start_of_line_if_history_changes=True)
 
         @kb.add("down")
@@ -783,7 +628,6 @@ class PromptToolkitBox(object):
                 buf.complete_next(count=event.arg)
                 self._sync_completion_suggestion(buf)
                 return
-            self._clear_focused_skill()
             buf.auto_down(count=event.arg, go_to_start_of_line_if_history_changes=True)
 
         return kb

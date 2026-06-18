@@ -3,7 +3,6 @@
 
 import re
 import typing
-from dataclasses import dataclass
 from prompt_toolkit.completion import Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import StyleAndTextTuples
@@ -16,24 +15,8 @@ SKILL_EYE_WIDTH = 16
 SKILL_PREFIX_RE = re.compile(r"^\$[A-Za-z0-9_.-]*$")
 
 
-@dataclass(frozen=True)
-class SkillTokenSpan:
-    """输入框内一个可聚焦的 skill token。"""
-
-    start: int
-    end: int
-    side: str = "right"
-    text_snapshot: str = ""
-
-
 class SkillTokenLexer(Lexer):
     """输入框 skill token 高亮。"""
-
-    def __init__(
-        self,
-        focused_span: typing.Callable[[], SkillTokenSpan | None] | None = None
-    ) -> None:
-        self.focused_span = focused_span or (lambda: None)
 
     def lex_document(self, document: Document) -> typing.Callable[[int], StyleAndTextTuples]:
         """返回指定行的格式化文本。"""
@@ -42,7 +25,6 @@ class SkillTokenLexer(Lexer):
         def get_line(line_number: int) -> StyleAndTextTuples:
             line        = document.lines[line_number]
             line_offset = line_offsets[line_number] if line_number < len(line_offsets) else 0
-            focused     = self.focused_span()
 
             parts: StyleAndTextTuples = []
 
@@ -53,15 +35,7 @@ class SkillTokenLexer(Lexer):
                 if line_start > pos:
                     parts.append(("", line[pos:line_start]))
 
-                if (
-                    focused
-                    and focused.text_snapshot == document.text
-                    and focused.start == start
-                    and focused.end == end
-                ):
-                    parts.append(("class:skill-token.focused", line[line_start:line_end]))
-                else:
-                    parts.append(("class:skill-token", line[line_start:line_end]))
+                parts.append(("class:skill-token", line[line_start:line_end]))
                 pos = line_end
             if pos < len(line):
                 parts.append(("", line[pos:]))
@@ -134,31 +108,6 @@ def iter_known_skill_tokens(text: str, *, offset: int = 0) -> typing.Iterator[tu
         end, name = matched
         yield offset + start, offset + end, name
         cursor = end
-
-
-def skill_token_span_before_cursor(text: str, cursor_position: int) -> SkillTokenSpan | None:
-    """返回 Backspace 可聚焦的白名单 skill token 范围。"""
-    if cursor_position <= 0:
-        return None
-
-    end = min(cursor_position, len(text))
-    if end <= 0 or text[end - 1] not in (" ", "\t"):
-        return None
-
-    token_end = end - 1
-    token_start = text.rfind("$", 0, token_end)
-    if token_start < 0:
-        return None
-
-    matched = match_known_skill_at(text, token_start)
-    if matched is None:
-        return None
-
-    matched_end, _name = matched
-    if matched_end != token_end:
-        return None
-
-    return SkillTokenSpan(start=token_start, end=token_end)
 
 
 def is_skill_token(text: str) -> bool:
