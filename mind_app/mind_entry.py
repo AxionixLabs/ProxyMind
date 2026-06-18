@@ -93,6 +93,37 @@ async def resolve_cli_attachments(
     return uploaded
 
 
+async def ensure_backend(
+    *,
+    backend: str,
+    supports: str,
+    software: str,
+    explicit_upgrade: bool
+) -> bool:
+    package = not software.endswith(".py")
+    missing = package and not Path(backend).exists()
+
+    if not explicit_upgrade and not missing:
+        return False
+
+    up: Upgrade = Upgrade()
+    try:
+        await up.upgrade_app(supports)
+    except UpgradePackageMissing as error:
+        if explicit_upgrade:
+            if not error.shown_in_animation:
+                Design.console.print(
+                    f"[bold #FFD75F]Backend upgrade skipped:[/] {error.msg}"
+                )
+            return False
+
+        raise MindError(
+            f"Backend runtime missing and auto-download failed: {error.msg}"
+        ) from error
+
+    return True
+
+
 async def main(entry_file: typing.Optional[str] = None) -> int:
     """Main"""
     async def authorized() -> None:
@@ -186,13 +217,20 @@ async def main(entry_file: typing.Optional[str] = None) -> int:
 
     # Notes: ========== 升级流程 ==========
     if cmd_lines.upgrade:
-        up: Upgrade = Upgrade()
-        try:
-            await up.upgrade_app(supports)
-        except UpgradePackageMissing as error:
-            if not error.shown_in_animation:
-                Design.console.print(f"[bold #FFD75F]Backend upgrade skipped:[/] {error.msg}")
+        await ensure_backend(
+            backend=helix,
+            supports=supports,
+            software=software,
+            explicit_upgrade=True
+        )
         return 0
+
+    await ensure_backend(
+        backend=helix,
+        supports=supports,
+        software=software,
+        explicit_upgrade=False
+    )
 
     for tls in (tools := [helix]):
         os.environ["PATH"] = os.path.dirname(tls) + env_symbol + os.environ.get("PATH", "")
