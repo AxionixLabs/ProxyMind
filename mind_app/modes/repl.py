@@ -136,7 +136,6 @@ async def mind_loop(mind: "Mind") -> None:
 
                 if reporter.last_event is not None:
                     Design.console.print(reporter.render_summary(reporter.last_event))
-                    print_attach_gap()
 
             metadata  = mind.begin_session()
             ev_report = EventReport(run_mode, metadata["cid"], metadata["sid"])

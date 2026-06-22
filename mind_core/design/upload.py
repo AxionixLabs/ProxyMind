@@ -119,19 +119,11 @@ class UploadProgressLiveReporter(object):
             self.live = None
         return False
 
-    @classmethod
-    def render_idle_block(cls, *, item_total: int = 0, total_bytes: int = 0) -> Text:
-        text = Text()
-        text.append("Preparing attachment upload…", style="bold #AFC7D8")
-        if item_total > 0 or total_bytes > 0:
-            text.append("\n")
-            text.append(f"{int(max(0, item_total))} attachment(s)", style="bold #F4F7FA")
-            text.append("  ·  ", style="bold #7F8C9A")
-            text.append(format_bytes(float(max(0, total_bytes))), style="bold #AFC7D8")
-        return text
-
-    def render_idle(self) -> Text:
-        return self.render_idle_block(item_total=self.item_total, total_bytes=self.total_bytes)
+    async def __call__(self, event: dict[str, typing.Any]) -> None:
+        self.last_event = event
+        if self.live is not None:
+            self.live.update(self.render_progress(event), refresh=True)
+        return None
 
     @staticmethod
     def _format_eta(seconds: float | None) -> str:
@@ -145,7 +137,10 @@ class UploadProgressLiveReporter(object):
         return f"ETA {minutes:02d}:{secs:02d}"
 
     @classmethod
-    def _render_bar(cls, percent: float) -> str:
+    def _render_bar(
+        cls,
+        percent: float
+    ) -> str:
         clamped = max(0.0, min(1.0, float(percent)))
         filled  = int(round(clamped * cls.BAR_WIDTH))
         filled  = max(0, min(cls.BAR_WIDTH, filled))
@@ -153,7 +148,41 @@ class UploadProgressLiveReporter(object):
         return ("█" * filled) + ("·" * (cls.BAR_WIDTH - filled))
 
     @classmethod
-    def render_progress(cls, event: dict[str, typing.Any]) -> Text:
+    def build_summary(
+        cls,
+        event: dict[str, typing.Any]
+    ) -> str:
+        item_total = int(event.get("item_total") or 0)
+        total      = format_bytes(float(event.get("aggregate_total_bytes", 0.0) or 0.0))
+        elapsed    = float(event.get("aggregate_elapsed_sec") or 0.0)
+        speed      = format_bytes(float(event.get("aggregate_speed_bytes_per_sec") or 0.0))
+
+        return (
+            f"Uploaded {item_total} attachment(s) · {total} · "
+            f"{elapsed:.1f}s · {speed}/s"
+        )
+
+    @classmethod
+    def render_idle_block(
+        cls,
+        *,
+        item_total: int = 0,
+        total_bytes: int = 0
+    ) -> Text:
+        text = Text()
+        text.append("Preparing attachment upload…", style="bold #AFC7D8")
+        if item_total > 0 or total_bytes > 0:
+            text.append("\n")
+            text.append(f"{int(max(0, item_total))} attachment(s)", style="bold #F4F7FA")
+            text.append(" · ", style="bold #7F8C9A")
+            text.append(format_bytes(float(max(0, total_bytes))), style="bold #AFC7D8")
+        return text
+
+    @classmethod
+    def render_progress(
+        cls,
+        event: dict[str, typing.Any]
+    ) -> Text:
         aggregate_percent  = float(event.get("aggregate_percent", event.get("percent") or 0.0))
         aggregate_uploaded = float(event.get("aggregate_uploaded_bytes", event.get("uploaded_bytes") or 0.0))
 
@@ -190,19 +219,10 @@ class UploadProgressLiveReporter(object):
         return text
 
     @classmethod
-    def build_summary(cls, event: dict[str, typing.Any]) -> str:
-        item_total = int(event.get("item_total") or 0)
-        total      = format_bytes(float(event.get("aggregate_total_bytes", 0.0) or 0.0))
-        elapsed    = float(event.get("aggregate_elapsed_sec") or 0.0)
-        speed      = format_bytes(float(event.get("aggregate_speed_bytes_per_sec") or 0.0))
-
-        return (
-            f"Uploaded {item_total} attachment(s) · {total} · "
-            f"{elapsed:.1f}s · {speed}/s"
-        )
-
-    @classmethod
-    def render_summary(cls, event: dict[str, typing.Any]) -> Text:
+    def render_summary(
+        cls,
+        event: dict[str, typing.Any]
+    ) -> Text:
         item_total = int(event.get("item_total") or 0)
         total      = format_bytes(float(event.get("aggregate_total_bytes", 0.0) or 0.0))
         elapsed    = float(event.get("aggregate_elapsed_sec") or 0.0)
@@ -213,11 +233,11 @@ class UploadProgressLiveReporter(object):
         text.append("Upload complete", style="bold #5FD7AF")
         text.append("\n")
         text.append(f"{item_total} attachment(s)", style="bold #F4F7FA")
-        text.append("  ·  ", style="bold #7F8C9A")
+        text.append(" · ", style="bold #7F8C9A")
         text.append(total, style="bold #AFC7D8")
-        text.append("  ·  ", style="bold #7F8C9A")
+        text.append(" · ", style="bold #7F8C9A")
         text.append(f"{elapsed:.1f}s", style="bold #AFC7D8")
-        text.append("  ·  ", style="bold #7F8C9A")
+        text.append(" · ", style="bold #7F8C9A")
         text.append(f"{speed}/s", style="bold #AFC7D8")
         text.append("\n")
         text.append("Last file: ", style="bold #7F8C9A")
@@ -251,16 +271,13 @@ class UploadProgressLiveReporter(object):
             text.append("\n")
             text.append("During: ", style="bold #7F8C9A")
             text.append(f"{item_index}/{item_total} {filename}", style="bold #F4F7FA")
-            text.append("  ·  ", style="bold #7F8C9A")
+            text.append(" · ", style="bold #7F8C9A")
             text.append(f"{aggregate_uploaded}/{aggregate_total}", style="bold #AFC7D8")
 
         return text
 
-    async def __call__(self, event: dict[str, typing.Any]) -> None:
-        self.last_event = event
-        if self.live is not None:
-            self.live.update(self.render_progress(event), refresh=True)
-        return None
+    def render_idle(self) -> Text:
+        return self.render_idle_block(item_total=self.item_total, total_bytes=self.total_bytes)
 
 
 def render_upload_frame(
