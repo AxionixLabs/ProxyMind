@@ -23,6 +23,7 @@ class StreamUI(object):
     STREAM = TextState.STREAM
 
     def __init__(self, log_file: str, *, design_level: str = const.SHOW_LEVEL) -> None:
+        """初始化流式终端 UI 的记录、渲染和状态组件。"""
         self.log_file = log_file
 
         self.design_level = design_level
@@ -47,9 +48,11 @@ class StreamUI(object):
         self.record_writer: StreamRecordWriter
 
     async def open(self) -> None:
+        """打开流式输出记录。"""
         await self.record_writer.open()
 
     async def stop(self, *, blink: bool = True) -> None:
+        """停止渲染与后台状态任务，并关闭记录。"""
         await self._cancel_heal_status_flush_task()
         await self._cancel_pending_status_task()
         await self.coordinator.stop(blink=blink)
@@ -67,6 +70,7 @@ class StreamUI(object):
         display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None,
         preserve_display_parts: bool = False
     ) -> None:
+        """追加一段流式或块状文本到终端和记录。"""
         if not chunk:
             return None
 
@@ -140,9 +144,11 @@ class StreamUI(object):
         )
 
     async def begin_tool_status(self) -> None:
+        """启动通用工具调用状态。"""
         await self.begin_custom_tool_status("function calling")
 
     async def begin_custom_tool_status(self, text: typing.Optional[str]) -> None:
+        """启动自定义工具状态显示。"""
         if self.design_level != const.SHOW_LEVEL:
             return None
 
@@ -165,6 +171,7 @@ class StreamUI(object):
         delay_sec: float = 0.18,
         min_visible_sec: float = 0.32
     ) -> None:
+        """启动代码执行状态显示。"""
         if self.design_level != const.SHOW_LEVEL:
             return None
 
@@ -196,6 +203,7 @@ class StreamUI(object):
         delay_sec: float = 0.28,
         animate_after_sec: float | None = None
     ) -> None:
+        """启动等待模型回复的状态显示。"""
         if self.design_level != const.SHOW_LEVEL:
             return None
 
@@ -216,6 +224,7 @@ class StreamUI(object):
         *,
         delay_sec: float = 0.0
     ) -> None:
+        """启动恢复状态显示。"""
         if self.design_level != const.SHOW_LEVEL:
             return None
 
@@ -248,6 +257,7 @@ class StreamUI(object):
         self,
         summary: typing.Optional[str] = None
     ) -> None:
+        """启动循环步骤状态显示。"""
         if self.design_level != const.SHOW_LEVEL:
             return None
         self.coordinator.hold_status_slot()
@@ -260,6 +270,7 @@ class StreamUI(object):
         self,
         summary: typing.Optional[str]
     ) -> None:
+        """更新循环步骤状态摘要。"""
         if self.design_level != const.SHOW_LEVEL:
             return None
         self.coordinator.hold_status_slot()
@@ -276,6 +287,7 @@ class StreamUI(object):
         self,
         summary: typing.Optional[str]
     ) -> None:
+        """更新恢复状态摘要。"""
         if self.design_level != const.SHOW_LEVEL:
             return None
         text = self._compose_heal_status_text(summary)
@@ -298,6 +310,7 @@ class StreamUI(object):
             )
 
     async def end_status(self, *, immediate: bool = False) -> None:
+        """结束当前状态显示并清理相关后台任务。"""
         if not immediate:
             await self._wait_status_visibility_if_needed()
         await self._cancel_heal_status_flush_task()
@@ -309,9 +322,11 @@ class StreamUI(object):
         self._reset_heal_status_state()
 
     async def settle_stream(self) -> None:
+        """同步当前流式正文到稳定显示状态。"""
         await self.coordinator.settle_stream()
 
     async def commit_live(self) -> None:
+        """将当前 live 正文落版为普通终端输出。"""
         renderable = (
             self.coordinator.text_state.final_renderable()
             if self.coordinator.text_state.display_text else None
@@ -333,9 +348,17 @@ class StreamUI(object):
 
         text = str(chunk)
 
-        boundary_prefix = self._consume_stream_boundary_prefix(incoming_text=text)
+        boundary_prefix        = self._consume_stream_boundary_prefix(incoming_text=text)
+        record_boundary_prefix = boundary_prefix
+
+        if not boundary_prefix:
+            boundary_prefix = self.coordinator.text_state.segment_prefix_for(
+                display=self.BLOCK,
+                incoming_text=text
+            )
         if boundary_prefix:
-            self.record_writer.write_raw(boundary_prefix)
+            if record_boundary_prefix:
+                self.record_writer.write_raw(record_boundary_prefix)
         self.record_writer.write(text, block=True)
         await self.coordinator.text_renderer.suspend(clear=True)
 
@@ -352,9 +375,11 @@ class StreamUI(object):
         )
 
     def flush(self) -> None:
+        """刷新输出记录缓冲区。"""
         self.record_writer.flush()
 
     def mark_stream_boundary(self) -> None:
+        """标记下一段输出前需要处理流式边界。"""
         self._stream_boundary_pending = True
 
     def record_tool_arguments(
@@ -364,6 +389,7 @@ class StreamUI(object):
         *,
         call_id: typing.Optional[str] = None
     ) -> None:
+        """记录工具调用参数的审计信息。"""
         payload   = self._tool_arguments_audit_payload(arguments)
         call_part = f" call_id={call_id}" if call_id else ""
 
@@ -373,6 +399,7 @@ class StreamUI(object):
 
     @staticmethod
     def _print_direct(renderable: typing.Any) -> None:
+        """直接向终端打印一个 Rich 可渲染对象。"""
         Design.console.print(renderable)
 
     @staticmethod
@@ -384,6 +411,7 @@ class StreamUI(object):
 
     @staticmethod
     def _count_trailing_newlines(text: str) -> int:
+        """统计文本尾部连续换行数量。"""
         count = 0
         for char in reversed(str(text or "")):
             if char != "\n":
@@ -393,10 +421,12 @@ class StreamUI(object):
 
     @staticmethod
     def _print_raw(text: str) -> None:
+        """直接向终端写入原始文本。"""
         Design.console.print("", end=text)
 
     @staticmethod
     def _parts_renderable(parts: list[dict[str, typing.Optional[str]]]) -> Text:
+        """把带样式片段转换为 Rich 文本对象。"""
         renderable = Text()
         for part in parts:
             part_text = str(part.get("text") or "")
@@ -407,6 +437,7 @@ class StreamUI(object):
 
     @staticmethod
     def _on_status_task_done(task: asyncio.Task[None]) -> None:
+        """处理状态后台任务结束后的异常记录。"""
         if task.cancelled():
             return None
         try:
@@ -418,6 +449,7 @@ class StreamUI(object):
 
     @staticmethod
     def _tool_arguments_audit_payload(arguments: dict[str, typing.Any]) -> str:
+        """生成工具参数审计记录的 JSON 文本。"""
         try:
             sanitized = sanitize_value(arguments, max_depth=6, max_items=50)
             return json.dumps(
@@ -439,6 +471,7 @@ class StreamUI(object):
         cls,
         summary: typing.Optional[str]
     ) -> str:
+        """组合恢复状态的显示文本。"""
         base_title = "restoring signal"
         normalized = " ".join(str(summary or "").split())
         if not normalized:
@@ -456,6 +489,7 @@ class StreamUI(object):
         cls,
         summary: typing.Optional[str]
     ) -> str:
+        """组合循环步骤状态的显示文本。"""
         base_title = "loop steps"
         normalized = " ".join(str(summary or "").split())
         if not normalized:
@@ -473,12 +507,14 @@ class StreamUI(object):
         cls,
         text: typing.Optional[str]
     ) -> tuple[typing.Optional[str], StatusFamily]:
+        """组合内置状态文本与状态类别。"""
         normalized = " ".join(str(text or "").split())
         if normalized.lower() in {"chat", "fast", "plan", "xtra"}:
             return Design.mode_status_text(normalized), "mode"
         return text, "builtin"
 
     def _reset_components(self) -> None:
+        """重置渲染协调器、记录器和运行期状态。"""
         self._stream_output_fact            = False
         self._stream_boundary_pending       = False
         self._pending_status_task           = None
@@ -497,22 +533,26 @@ class StreamUI(object):
         )
 
     def _clear_pending_status_task_ref(self, task: asyncio.Task[None]) -> None:
+        """在指定状态任务结束后清理任务引用。"""
         if self._pending_status_task is task:
             self._pending_status_task         = None
             self._pending_status_force_reveal = False
             self._pending_status_revealed     = None
 
     def _mark_status_visible(self, min_visible_sec: float) -> None:
+        """记录状态开始可见的时间和最短显示时长。"""
         self._active_status_visible_at = time.perf_counter()
         self._active_status_min_visible_sec = max(0.0, float(min_visible_sec))
 
     def _reset_heal_status_state(self) -> None:
+        """重置恢复状态的缓存字段。"""
         self._heal_status_text          = ""
         self._heal_status_pending_text  = ""
         self._heal_status_last_flush_at = 0.0
         self._heal_status_flush_task    = None
 
     def _consume_stream_boundary_prefix(self, *, incoming_text: str | None = None) -> str:
+        """消费待处理的流式边界，并返回需要补充的前缀。"""
         if not self._stream_boundary_pending:
             return ""
 
@@ -531,6 +571,7 @@ class StreamUI(object):
         return "\n" * needed
 
     async def _print_boundary_prefix(self, prefix: str, *, record: bool = True) -> None:
+        """打印边界前缀，并按需写入记录。"""
         if not prefix:
             return None
         if record:
@@ -539,6 +580,7 @@ class StreamUI(object):
         self._print_raw(prefix)
 
     async def _cancel_heal_status_flush_task(self) -> None:
+        """取消等待中的恢复状态刷新任务。"""
         task = self._heal_status_flush_task
         if task is None:
             return None
@@ -550,6 +592,7 @@ class StreamUI(object):
             return None
 
     async def _flush_heal_status_after(self, delay_sec: float) -> None:
+        """在指定延迟后刷新恢复状态文本。"""
         try:
             await asyncio.sleep(max(0.0, float(delay_sec)))
             if self._heal_status_pending_text:
@@ -560,6 +603,7 @@ class StreamUI(object):
             self._heal_status_flush_task = None
 
     async def _flush_heal_status_text(self, text: str) -> None:
+        """立即刷新恢复状态文本。"""
         if self.design_level != const.SHOW_LEVEL:
             return None
         self._heal_status_pending_text = ""
@@ -573,6 +617,7 @@ class StreamUI(object):
         )
 
     async def _wait_status_visibility_if_needed(self) -> None:
+        """在结束状态前等待必要的最短可见时间。"""
         task     = self._pending_status_task
         revealed = self._pending_status_revealed
 
@@ -592,6 +637,7 @@ class StreamUI(object):
             await asyncio.sleep(remaining)
 
     async def _cancel_pending_status_task(self) -> None:
+        """取消等待中的状态显示任务。"""
         task = self._pending_status_task
         if not task:
             return None
@@ -612,6 +658,7 @@ class StreamUI(object):
         *,
         force_reveal: bool = False
     ) -> None:
+        """注册新的状态显示后台任务。"""
         await self._cancel_pending_status_task()
         task = asyncio.create_task(coro)
         task.add_done_callback(self._on_status_task_done)
@@ -629,6 +676,7 @@ class StreamUI(object):
         min_visible_sec: float = 0.0,
         initial_animated: bool = False
     ) -> None:
+        """按延迟策略显示并启动状态动画。"""
         task = asyncio.current_task()
         if task is None:
             return None

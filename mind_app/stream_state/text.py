@@ -6,6 +6,7 @@ from rich.console import Group
 from rich.text import Text
 from mind_core.design import Design
 from mind_app.stream_state.markdown import render_markdown
+from mind_app.stream_state.spacing import segment_prefix
 
 
 class TextState(object):
@@ -153,6 +154,15 @@ class TextState(object):
             "has_text"          : bool(str(text or "").strip())
         }
 
+    def segment_prefix_for(
+        self,
+        *,
+        display: str,
+        incoming_text: str | None = None
+    ) -> str:
+        """返回下一段输出应补的段间前缀，不修改状态。"""
+        return self._segment_prefix(for_display=display, incoming_text=incoming_text)
+
     def clear(self) -> None:
         """清空所有文本状态和缓存。"""
         self.display_segments.clear()
@@ -190,6 +200,7 @@ class TextState(object):
         pending_parts: list[dict[str, typing.Optional[str]]] = []
 
         def flush_markdown() -> None:
+            """把待合并的 Markdown 文本写入最终落版单元。"""
             markdown_visible = "".join(pending_markdown_visible)
             markdown_raw = "".join(pending_markdown_raw).rstrip("\n")
             pending_markdown_visible.clear()
@@ -203,6 +214,7 @@ class TextState(object):
                 })
 
         def flush_parts() -> None:
+            """把待合并的样式片段写入最终落版单元。"""
             if not pending_parts:
                 return None
             parts = [dict(part) for part in pending_parts]
@@ -445,25 +457,20 @@ class TextState(object):
         incoming_text: str | None = None
     ) -> str:
         """根据上一段输出状态生成段间换行。"""
-        if self.last_display is None:
-            return ""
-
-        if self.last_display == self.STREAM and for_display == self.STREAM:
-            return ""
-
-        if self.trailing_newlines >= 2:
-            return ""
-
-        if for_display == self.STREAM and incoming_text and incoming_text.startswith("\n"):
-            return ""
-
-        return "\n" * (2 - self.trailing_newlines)
+        return segment_prefix(
+            last_display=self.last_display,
+            trailing_newlines=self.trailing_newlines,
+            stream_display=self.STREAM,
+            for_display=for_display,
+            incoming_text=incoming_text
+        )
 
     @classmethod
     def _segment_markdown_enabled(
         cls,
         segment: dict[str, typing.Any]
     ) -> bool:
+        """判断指定片段是否可按 Markdown 最终渲染。"""
         if segment.get("mode") != cls.STREAM:
             return False
         if not str(segment.get("raw_text") or segment.get("text") or "").strip():
@@ -642,6 +649,7 @@ class TextState(object):
         cls,
         unit: dict[str, typing.Any]
     ) -> typing.Any:
+        """把最终落版单元转换为 Rich 可渲染对象。"""
         kind = str(unit.get("kind") or "")
         if kind == "markdown":
             text = str(unit.get("text") or "").lstrip("\n").rstrip("\n")
@@ -658,6 +666,7 @@ class TextState(object):
         cls,
         parts: list[dict[str, typing.Optional[str]]]
     ) -> list[dict[str, typing.Optional[str]]]:
+        """移除片段列表开头的连续换行。"""
         out = [dict(part) for part in parts]
 
         while out and str(out[0].get("text") or "").startswith("\n"):
@@ -691,6 +700,7 @@ class TextState(object):
 
     @staticmethod
     def _count_leading_newlines(text: str) -> int:
+        """统计文本开头连续换行数量。"""
         count = 0
         for ch in str(text or ""):
             if ch != "\n":
@@ -700,6 +710,7 @@ class TextState(object):
 
     @staticmethod
     def _parts_renderable(parts: list[dict[str, typing.Optional[str]]]) -> Text:
+        """把带样式片段转换为 Rich 文本对象。"""
         out = Text()
         for part in parts:
             text = str(part.get("text") or "")

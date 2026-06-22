@@ -5,20 +5,24 @@ import os
 import typing
 from loguru import logger
 from mind_nova import const
+from mind_app.stream_state.spacing import segment_prefix
 
 
 class StreamRecordWriter(object):
     """只负责把显示记录按行落盘。"""
 
     def __init__(self, log_file: str) -> None:
+        """初始化输出记录器状态。"""
         self.log_file = log_file
-        self.buffer: str = ""
+
+        self.buffer: str                        = ""
         self.fp: typing.Optional[typing.TextIO] = None
-        self.at_line_start: bool = True
-        self.trailing_newlines: int = 0
-        self.last_display: str | None = None
+        self.at_line_start: bool                = True
+        self.trailing_newlines: int             = 0
+        self.last_display: str | None           = None
 
     async def open(self) -> None:
+        """打开记录文件，失败时保持记录器可用。"""
         if self.fp:
             return None
 
@@ -37,6 +41,7 @@ class StreamRecordWriter(object):
             )
 
     def write(self, chunk: typing.Optional[str], *, block: bool = False) -> None:
+        """写入一段显示文本，并按显示类型归一化换行。"""
         if not chunk:
             return None
 
@@ -63,6 +68,7 @@ class StreamRecordWriter(object):
         self.last_display = "block" if block else "stream"
 
     def write_audit(self, line: typing.Optional[str]) -> None:
+        """写入一行审计记录。"""
         if not line:
             return None
 
@@ -92,6 +98,7 @@ class StreamRecordWriter(object):
         self.trailing_newlines = self._count_trailing_newlines(text)
 
     def flush(self) -> None:
+        """把缓冲区中未成行的内容写入文件。"""
         if not self.buffer:
             return None
 
@@ -105,6 +112,7 @@ class StreamRecordWriter(object):
             self.fp.flush()
 
     async def close(self) -> None:
+        """刷新并关闭记录文件。"""
         self.flush()
         if self.fp:
             try:
@@ -114,11 +122,13 @@ class StreamRecordWriter(object):
             self.fp = None
 
     def _normalize_display_text(self, text: str, *, display: str) -> str:
+        """按显示类型归一化待记录文本。"""
         if display == "block":
             return self._normalize_block_text(text)
         return self._normalize_stream_text(text)
 
     def _normalize_block_text(self, text: str) -> str:
+        """归一化块文本记录的段间和尾部换行。"""
         body = text.strip("\n")
         if not body:
             return ""
@@ -127,6 +137,7 @@ class StreamRecordWriter(object):
         return f"{prefix}{body}\n"
 
     def _normalize_stream_text(self, text: str) -> str:
+        """归一化流式文本记录的段间前缀。"""
         if not text:
             return ""
 
@@ -139,22 +150,18 @@ class StreamRecordWriter(object):
         for_display: str,
         incoming_text: str | None = None
     ) -> str:
-        if self.last_display is None:
-            return ""
-
-        if self.last_display == "stream" and for_display == "stream":
-            return ""
-
-        if self.trailing_newlines >= 2:
-            return ""
-
-        if for_display == "stream" and incoming_text and incoming_text.startswith("\n"):
-            return ""
-
-        return "\n" * (2 - self.trailing_newlines)
+        """返回下一段记录文本前需要补充的段间前缀。"""
+        return segment_prefix(
+            last_display=self.last_display,
+            trailing_newlines=self.trailing_newlines,
+            stream_display="stream",
+            for_display=for_display,
+            incoming_text=incoming_text
+        )
 
     @staticmethod
     def _count_trailing_newlines(text: str) -> int:
+        """统计文本尾部连续换行数量。"""
         count = 0
         for ch in reversed(text):
             if ch != "\n":
