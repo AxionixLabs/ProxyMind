@@ -49,21 +49,21 @@ function resolveMindBinary() {
     ? [
         {
           binary: path.join(runtimeRoot, "applications", "MindEngine", "mind.exe"),
-          cwd: path.join(runtimeRoot, "applications", "MindEngine")
+          cwd: process.cwd()
         },
         {
           binary: path.join(runtimeRoot, "applications", "MindEngine", "Mind.exe"),
-          cwd: path.join(runtimeRoot, "applications", "MindEngine")
+          cwd: process.cwd()
         }
       ]
     : [
         {
           binary: path.join(runtimeRoot, "applications", "Mind.app", "Contents", "MacOS", "mind"),
-          cwd: path.join(runtimeRoot, "applications", "Mind.app", "Contents", "MacOS")
+          cwd: process.cwd()
         },
         {
           binary: path.join(runtimeRoot, "applications", "Mind.app", "Contents", "MacOS", "Mind"),
-          cwd: path.join(runtimeRoot, "applications", "Mind.app", "Contents", "MacOS")
+          cwd: process.cwd()
         }
       ];
 
