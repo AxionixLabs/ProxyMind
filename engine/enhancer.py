@@ -8,6 +8,7 @@ from mcp.types import CallToolResult
 from mind_core.api import Api
 from mind_nova.report import Report
 from mind_nova import request
+from mind_nova.attachments import upload_response_attachment
 from mind_app.stream_ui import StreamUI
 
 if typing.TYPE_CHECKING:
@@ -15,7 +16,7 @@ if typing.TYPE_CHECKING:
 
 
 class Enhancer(object):
-    """通用工具结果增强"""
+    """统一处理工具参数补全、结果归一和附件上传。"""
 
     def __init__(
         self,
@@ -24,6 +25,7 @@ class Enhancer(object):
         pref_config: dict[str, typing.Any],
         metadata: dict[str, typing.Any]
     ):
+        """初始化工具结果增强上下文。"""
 
         self.session     = session
         self.mode        = mode
@@ -32,18 +34,22 @@ class Enhancer(object):
 
     @staticmethod
     def nexus_artifact(src: dict[str, typing.Any], default: str) -> dict[str, typing.Any]:
+        """为 nexus 参数补齐默认产物目录。"""
         item_reserved = {"name", "extract", "asserts", "request"}
 
         def has_dir(x: typing.Any) -> bool:
+            """判断参数中是否已有目录值。"""
             return isinstance(x, str) and bool(x.strip())
 
         def patch_request(req: typing.Any) -> dict[str, typing.Any]:
+            """为单个请求补齐产物目录。"""
             merged = dict(req) if isinstance(req, dict) else {}
             if not has_dir(merged.get("artifact_dir")):
                 merged["artifact_dir"] = default
             return merged
 
         def patch_item(item_data: dict[str, typing.Any]) -> dict[str, typing.Any]:
+            """为批量请求中的单项补齐产物目录。"""
             merged_item = dict(item_data)
             if isinstance(merged_item.get("request"), dict):
                 merged_item["request"] = patch_request(merged_item.get("request"))
@@ -128,22 +134,18 @@ class Enhancer(object):
         elif name.startswith("screenshot"):
             if local := src_arguments.get("local"):
                 p = Path(str(local)).expanduser()
-                # 1) 如果传的是目录：默认落到该目录下 screenshot.png
                 if p.exists() and p.is_dir():
                     return src_arguments | {"local": str(p / "screenshot.png")}
 
                 suf = p.suffix.lower()
 
-                # 2) 有后缀且合法：原样返回
                 if suf in {".png", ".jpg", ".jpeg", ".webp"}:
                     return src_arguments
 
-                # 3) 有后缀但不合法：强制改成 .png（避免 weird 容器）
                 if suf:
                     fixed = p.with_suffix(".png")
                     return src_arguments | {"local": str(fixed)}
 
-                # 4) 没后缀：补 .png
                 fixed = p.with_suffix(".png")
                 return src_arguments | {"local": str(fixed)}
 
@@ -154,28 +156,12 @@ class Enhancer(object):
 
     @staticmethod
     def fields(result: CallToolResult) -> typing.Union[dict[str, typing.Any], str]:
-        """Fields"""
+        """提取工具返回的结构化字段或首段文本。"""
         return sc if (sc := result.structuredContent) else result.content[0].text
 
     @staticmethod
     def fields_map(result: CallToolResult) -> dict[str, typing.Any]:
-        """
-        把工具返回统一归一成 dict。
-
-        输入：
-        - `result.structuredContent` 为 dict：直接返回。
-        - `result.content[0].text` 为 JSON 对象字符串：解析后返回。
-        - 其他文本/对象：包装成最小结构返回。
-
-        输出最小结构：
-        - `text: str`
-        - `attachments: list`
-        - `data: dict`
-
-        说明：
-        - 后续通用上传链路只依赖这三个字段，因此这里负责把“可能是 str 的结果”
-          收敛成稳定的 mapping，避免下游直接 `.get()` 时触发 AttributeError。
-        """
+        """把工具返回归一为包含 text、attachments、data 的字典。"""
         fields = Enhancer.fields(result)
         if isinstance(fields, dict):
             return fields
@@ -205,28 +191,7 @@ class Enhancer(object):
 
     @staticmethod
     def normalize_element(element: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        """
-        把 `fields["data"]["results"][]` 中的单个元素归一化。
-
-        期望输入结构（broadcast 的单 agent 结果）：
-        - `agent_id: str`
-        - `ok: bool` 或 `data.ok: bool`
-        - `text: str`
-        - `attachments: list[dict | AttachmentLike]`
-
-        其中 `attachments[]` 的上传约定为：
-        - 本地文件：`{"local", "kind"?, "filename"?, "mime_type"?}`
-        - 已上传附件：`{"url", "kind"?, "filename"?, "mime_type"?}`
-
-        输出结构：
-        - `ok: bool`
-        - `text: str`
-        - `attachments: list[dict]`
-
-        说明：
-        - 这里会把带 `to_dict()` 的附件对象转成普通 dict。
-        - 这里不处理上传，只做单元素的“判定 + 标准化”。
-        """
+        """归一化单个 agent 结果并保留本地附件描述。"""
         attachments = element.get("attachments", [])
         if not isinstance(attachments, list):
             attachments = []
@@ -239,12 +204,14 @@ class Enhancer(object):
                 normalized.append(item.to_dict())
 
         ok_raw = element.get("ok")
-        data = element.get("data")
+        data   = element.get("data")
+
+        ok = ok_raw if isinstance(ok_raw, bool) else (
+            bool(data.get("ok")) if isinstance(data, dict) else False
+        )
 
         return {
-            "ok"          : ok_raw if isinstance(ok_raw, bool) else (
-                bool(data.get("ok")) if isinstance(data, dict) else False
-            ),
+            "ok"          : ok,
             "text"        : str(element.get("text") or ""),
             "attachments" : normalized
         }
@@ -254,81 +221,34 @@ class Enhancer(object):
         local: str,
         agent_id: str,
         bucket: str,
-        kind: str = "file",
         filename: typing.Optional[str] = None,
         mime_type: typing.Optional[str] = None
     ) -> tuple[typing.Optional[dict[str, typing.Any]], dict[str, typing.Any]]:
-        """
-        上传单个本地文件，并返回两份结果：
+        """上传本地文件并返回服务端标准附件和内部上传记录。"""
+        up = await request.upload_file_stream(local, agent_id, bucket)
 
-        1. 给上游继续透传的附件：
-           - `{"kind", "url", "agent_id", "filename", "mime_type"}`
-        2. 给内部汇总/审计的上传记录：
-           - `{"ok", "local", "url"?, "r2_key"?, "filename"?, "mime_type"?, "error"?}`
+        attachment = upload_response_attachment(up, context=f"upload {Path(local).name}")
 
-        说明：
-        - `bucket` 决定远端上传前缀，例如 `screenshots` / `logcat` / `frames`。
-        - `kind` 只用于生成返回附件元信息，不影响实际上传内容。
-        """
-        try:
-            up = await request.upload_file_stream(local, agent_id, bucket)
-            url = up.get("url")
+        uploaded = {
+            "ok"        : True,
+            "local"     : local,
+            "url"       : attachment.get("url"),
+            "r2_key"    : up.get("key"),
+            "filename"  : attachment.get("filename", filename),
+            "mime_type" : attachment.get("mime_type", mime_type)
+        }
 
-            if not url:
-                return None, {
-                    "ok"    : False,
-                    "local" : local,
-                    "error" : f"upload returned no url: {up!r}"
-                }
-
-            attachment = {
-                "kind"      : kind,
-                "url"       : url,
-                "agent_id"  : agent_id,
-                "filename"  : up.get("filename", filename),
-                "mime_type" : up.get("mime_type", mime_type)
-            }
-            uploaded = {
-                "ok"        : True,
-                "local"     : local,
-                "url"       : url,
-                "r2_key"    : up.get("key"),
-                "filename"  : up.get("filename", filename),
-                "mime_type" : up.get("mime_type", mime_type)
-            }
-            return attachment, uploaded
-        except Exception as e:
-            return None, {
-                "ok"    : False,
-                "local" : local,
-                "error" : f"{type(e).__name__}: {e}"
-            }
+        return attachment, uploaded
 
     @staticmethod
     async def upload_attachments(
         local_attachments: list[dict[str, typing.Any]],
         agent_id: str,
-        bucket: str,
-        default_kind: str = "file"
+        bucket: str
     ) -> tuple[list[dict[str, typing.Any]], list[dict[str, typing.Any]]]:
-        """
-        批量处理并上传附件列表。
-
-        输入 `local_attachments` 要求是归一化后的附件 dict 列表，单项支持两种形态：
-        - 本地附件：`{"local", "kind"?, "filename"?, "mime_type"?}`
-        - 已有远端地址：`{"url", "kind"?, "filename"?, "mime_type"?}`
-
-        返回：
-        - `attachments`：可继续上抛给模型/前端的附件列表
-        - `uploads`：本次上传的逐项执行结果，供 `per_agent.uploads` 汇总
-
-        规则：
-        - 有 `local`：执行上传
-        - 无 `local` 但有 `url`：视为已上传，直接透传
-        - 两者都没有：跳过
-        """
+        """批量上传本地附件并返回服务端标准附件列表。"""
         attachments: list[dict[str, typing.Any]] = []
-        uploads: list[dict[str, typing.Any]] = []
+        uploads: list[dict[str, typing.Any]]     = []
 
         for a in local_attachments:
             if not isinstance(a, dict):
@@ -336,15 +256,12 @@ class Enhancer(object):
 
             local = a.get("local")
             if not local:
-                if a.get("url"):
-                    attachments.append(a)
                 continue
 
             attachment, uploaded = await Enhancer.upload_local(
                 local=local,
                 agent_id=agent_id,
                 bucket=bucket,
-                kind="image" if a.get("kind") == "image" else default_kind,
                 filename=a.get("filename"),
                 mime_type=a.get("mime_type")
             )
@@ -361,33 +278,11 @@ class Enhancer(object):
         bucket: str,
         missing_text: str,
         success_text: str,
-        partial_text: str,
-        default_kind: str = "file"
+        partial_text: str
     ) -> dict[str, typing.Any]:
-        """
-        处理“带附件产物”的工具结果，并统一完成上传汇总。
-
-        当前仅服务于：
-        - `screenshot`
-        - `file_logcat_dump`
-        - `ffmpeg_extract_snapshot`
-        - `ffmpeg_extract_keyframes`
-        - `ffmpeg_extract_scene`
-
-        期望 `result` 的结构化内容至少满足：
-        - `fields.data.results: list[element]`
-        - 每个 `element` 由 `normalize_element()` 负责归一化
-
-        输出统一结构：
-        - `text`
-        - `attachments`
-        - `data.ok`
-        - `data.upload_ok`
-        - `data.per_agent`
-
-        这样上层不再关心具体工具是截图、logcat 还是抽帧，只看统一上传结果。
-        """
+        """处理带附件产物的工具结果并汇总上传状态。"""
         attachments: list[dict[str, typing.Any]] = []
+
         fields = self.fields_map(result)
 
         if not (results := fields.get("data", {}).get("results")):
@@ -401,8 +296,9 @@ class Enhancer(object):
 
         for element in results:
             agent_id = element.get("agent_id", "unknown")
+
             uploaded_attachments, payload = await self.__upload_tool_element(
-                element, agent_id, bucket=bucket, default_kind=default_kind
+                element, agent_id, bucket=bucket
             )
             attachments.extend(uploaded_attachments)
             per_agent[agent_id] = payload
@@ -424,25 +320,9 @@ class Enhancer(object):
         element: dict[str, typing.Any],
         agent_id: str,
         *,
-        bucket: str,
-        default_kind: str = "file"
+        bucket: str
     ) -> tuple[list[dict[str, typing.Any]], dict[str, typing.Any]]:
-        """
-        处理单个 agent 的附件上传。
-
-        输入：
-        - `element`：`results[]` 中的单项
-        - `agent_id`：当前 agent 标识
-
-        输出：
-        - `uploaded_attachments`：已可对外返回的附件列表
-        - `payload`：当前 agent 的汇总结果
-          结构为 `{"ok": bool, "uploads": list[dict]}`
-
-        说明：
-        - 如果单 agent 本身执行失败，不会尝试上传，直接把失败文本写入 `uploads`。
-        - 如果执行成功但没有可上传附件，会返回 `missing uploadable attachments`。
-        """
+        """处理单个 agent 结果中的本地附件上传。"""
         normalized = self.normalize_element(element)
 
         if not normalized["ok"]:
@@ -452,7 +332,7 @@ class Enhancer(object):
             }
 
         uploaded_attachments, uploads = await self.upload_attachments(
-            normalized["attachments"], agent_id, bucket=bucket, default_kind=default_kind
+            normalized["attachments"], agent_id, bucket=bucket
         )
 
         if not uploads:
@@ -470,7 +350,7 @@ class Enhancer(object):
         ok: bool,
         slog: typing.Optional[StreamUI] = None
     ) -> typing.Union[str, dict[str, typing.Any]]:
-        """Enhance"""
+        """按工具名称增强成功结果。"""
         fields = self.fields(result)
 
         if not ok:
@@ -521,9 +401,9 @@ class Enhancer(object):
         result: CallToolResult,
         slog: typing.Optional[StreamUI] = None
     ) -> dict[str, typing.Any]:
-        """Free Rule"""
-
+        """执行自由规则并汇总各 agent 输出。"""
         fields = self.fields_map(result)
+
         attachments: list[dict[str, typing.Any]] = []
 
         if not (results := fields.get("data", {}).get("results")):
@@ -582,51 +462,37 @@ class Enhancer(object):
                 await slog.stop()
 
     async def __artifact_upload(self, name: str, result: CallToolResult) -> dict:
-        """
-        为指定工具选择上传配置，然后转发到统一上传链路。
-
-        这里只做“工具名 -> 上传策略”的映射：
-        - bucket
-        - 缺失结果文案
-        - 成功文案
-        - 部分失败文案
-        - 默认 kind
-        """
+        """按工具名称选择附件上传配置。"""
         specs = {
             "ffmpeg_extract_snapshot": {
                 "bucket"       : "frames",
                 "missing_text" : "未获取到视频帧结果",
                 "success_text" : "视频帧上传成功",
-                "partial_text" : "视频帧上传完成（存在失败）",
-                "default_kind" : "file"
+                "partial_text" : "视频帧上传完成（存在失败）"
             },
             "ffmpeg_extract_keyframes": {
                 "bucket"       : "frames",
                 "missing_text" : "未获取到视频帧结果",
                 "success_text" : "视频帧上传成功",
-                "partial_text" : "视频帧上传完成（存在失败）",
-                "default_kind" : "file"
+                "partial_text" : "视频帧上传完成（存在失败）"
             },
             "ffmpeg_extract_scene": {
                 "bucket"       : "frames",
                 "missing_text" : "未获取到视频帧结果",
                 "success_text" : "视频帧上传成功",
-                "partial_text" : "视频帧上传完成（存在失败）",
-                "default_kind" : "file"
+                "partial_text" : "视频帧上传完成（存在失败）"
             },
             "file_logcat_dump": {
                 "bucket"       : "logcat",
                 "missing_text" : "未获取到 logcat 结果",
                 "success_text" : "logcat 上传成功",
-                "partial_text" : "logcat 上传完成（存在失败）",
-                "default_kind" : "file"
+                "partial_text" : "logcat 上传完成（存在失败）"
             },
             "screenshot": {
                 "bucket"       : "screenshots",
                 "missing_text" : "未获取到截图结果",
                 "success_text" : "屏幕截图上传成功",
-                "partial_text" : "屏幕截图上传完成（存在失败）",
-                "default_kind" : "file"
+                "partial_text" : "屏幕截图上传完成（存在失败）"
             }
         }
         return await self.__upload_tool_result(result, **specs[name])
@@ -636,7 +502,9 @@ class Enhancer(object):
         result: CallToolResult,
         slog: typing.Optional[StreamUI] = None
     ) -> typing.Optional[dict[str, typing.Any]]:
+        """调用远程元素自愈服务并汇总定位结果。"""
         fields_map = self.fields_map(result)
+
         attachments: list[dict[str, str]] = []
 
         heal_status = await Api.heal_license() or {}
@@ -657,6 +525,7 @@ class Enhancer(object):
         per_agent: dict[str, dict[str, typing.Any]] = {}
 
         async def collect_heal_matrix() -> dict[str, dict[str, typing.Any]]:
+            """收集各设备的自愈定位矩阵。"""
             for element in results:
                 data   = element["data"]
                 serial = data.pop("serial", "unknown")
@@ -722,8 +591,10 @@ class Enhancer(object):
         result: CallToolResult,
         slog: typing.Optional[StreamUI] = None
     ) -> dict[str, typing.Any]:
+        """执行 loop_steps 声明并汇总每轮步骤结果。"""
 
         async def say(line: str) -> None:
+            """向流式界面输出 loop_steps 进度。"""
             if slog:
                 return await slog.feed(line, display=StreamUI.BLOCK)
 
@@ -771,6 +642,7 @@ class Enhancer(object):
 
         loops = int(payload.get("loops", 1))
         steps = payload.get("steps", [])
+
         stop_on_fail = bool(payload.get("stop_on_fail", True))
 
         if not steps or not isinstance(steps, list):
@@ -802,8 +674,10 @@ class Enhancer(object):
         for r in range(loops):
             if slog:
                 await slog.update_loop_status_summary(f"round {r + 1}/{loops}")
+
             await say(f"loop_steps: round {r + 1}/{loops}")
             round_ok = True
+
             round_steps: list[dict[str, typing.Any]] = []
 
             for i, st in enumerate(steps):
@@ -817,7 +691,7 @@ class Enhancer(object):
                 await say(f"loop_steps:  step {i + 1}/{len(steps)} tool={tool}")
 
                 tool_res = await self.session.call_tool(tool, args)
-                ok = (not tool_res.isError)
+                ok       = (not tool_res.isError)
 
                 step_fields = self.fields(tool_res)  # 宏模式：不调用 enhance
 

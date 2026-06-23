@@ -13,6 +13,7 @@ from mind_core.skills import available_skills
 
 SKILL_EYE_WIDTH = 16
 SKILL_PREFIX_RE = re.compile(r"^\$[A-Za-z0-9_.-]*$")
+PASTE_PREFIX_RE = re.compile(r"\[Pasted Content \d+ chars](?: #\d+)?")
 
 
 class SkillTokenLexer(Lexer):
@@ -29,13 +30,13 @@ class SkillTokenLexer(Lexer):
             parts: StyleAndTextTuples = []
 
             pos = 0
-            for start, end, _name in iter_known_skill_tokens(line, offset=line_offset):
+            for start, end, style in iter_prompt_tokens(line, offset=line_offset):
                 line_start = start - line_offset
                 line_end = end - line_offset
                 if line_start > pos:
                     parts.append(("", line[pos:line_start]))
 
-                parts.append(("class:skill-token", line[line_start:line_end]))
+                parts.append((style, line[line_start:line_end]))
                 pos = line_end
             if pos < len(line):
                 parts.append(("", line[pos:]))
@@ -107,6 +108,27 @@ def iter_known_skill_tokens(text: str, *, offset: int = 0) -> typing.Iterator[tu
 
         end, name = matched
         yield offset + start, offset + end, name
+        cursor = end
+
+
+def iter_paste_placeholder_tokens(text: str, *, offset: int = 0) -> typing.Iterator[tuple[int, int, str]]:
+    """迭代折叠粘贴内容的可见占位文本。"""
+    for match in PASTE_PREFIX_RE.finditer(text):
+        yield offset + match.start(), offset + match.end(), "class:paste-placeholder"
+
+
+def iter_prompt_tokens(text: str, *, offset: int = 0) -> typing.Iterator[tuple[int, int, str]]:
+    """迭代输入框中需要高亮的文本片段。"""
+    tokens = [
+        *iter_paste_placeholder_tokens(text, offset=offset),
+        *((start, end, "class:skill-token") for start, end, _ in iter_known_skill_tokens(text, offset=offset))
+    ]
+
+    cursor = offset
+    for start, end, style in sorted(tokens, key=lambda item: (item[0], item[1])):
+        if start < cursor:
+            continue
+        yield start, end, style
         cursor = end
 
 

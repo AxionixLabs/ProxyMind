@@ -374,19 +374,20 @@ class PromptToolkitBox(object):
 
         self.style: Style = Style.from_dict({
             "prompt": "bold #E2E5EA",
-            "prompt.kicker": "bold #7B838E",
-            "prompt.model": "bold #F3F5F8",
-            "prompt.muted": "bold #767D87",
-            "placeholder": "bold #727983",
-            "auto-suggestion": "#5A616A bg:#0A0D18",
-            "skill-token": "bold #8FD7FF",
-            "completion-menu": "bg:#111315 #D8DCE2",
-            "completion-menu.completion": "bg:#111315 bold #D6DBE2",
-            "completion-menu.completion.current": "bg:#3B4148 bold #F4F7FA",
-            "completion-menu.meta.completion": "bg:#111315 #7D858F",
-            "completion-menu.meta.completion.current": "bg:#3B4148 #D9E0E7",
-            "scrollbar.background": "bg:#111315",
-            "scrollbar.button": "bg:#666D76"
+            "prompt.kicker"                           : "bold #7B838E",
+            "prompt.model"                            : "bold #F3F5F8",
+            "prompt.muted"                            : "bold #767D87",
+            "placeholder"                             : "bold #727983",
+            "auto-suggestion"                         : "#5A616A bg:#0A0D18",
+            "skill-token"                             : "bold #8FD7FF",
+            "paste-placeholder"                       : "bold #D3C27C",
+            "completion-menu"                         : "bg:#111315 #D8DCE2",
+            "completion-menu.completion"              : "bg:#111315 bold #D6DBE2",
+            "completion-menu.completion.current"      : "bg:#3B4148 bold #F4F7FA",
+            "completion-menu.meta.completion"         : "bg:#111315 #7D858F",
+            "completion-menu.meta.completion.current" : "bg:#3B4148 #D9E0E7",
+            "scrollbar.background"                    : "bg:#111315",
+            "scrollbar.button"                        : "bg:#666D76"
         })
 
     @classmethod

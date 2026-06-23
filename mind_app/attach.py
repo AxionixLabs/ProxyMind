@@ -8,6 +8,7 @@ import mimetypes
 from pathlib import Path
 from engine.tinker import MindError
 from mind_nova import request
+from mind_nova.attachments import upload_response_attachment
 
 UploadProgressCallback = typing.Callable[[dict[str, typing.Any]], typing.Awaitable[None]]
 
@@ -251,16 +252,10 @@ class Attach(object):
             except Exception as exc:
                 raise MindError(f"attach upload failed: {Path(local).name} ({type(exc).__name__}: {exc})") from exc
 
-            if not (url := result.get("url")):
-                raise MindError(f"attach upload failed: {Path(local).name} (missing url)")
-
-            uploaded.append({
-                "kind"      : item.get("kind") or "file",
-                "url"       : url,
-                "agent_id"  : agent_id,
-                "filename"  : result.get("filename", item.get("filename")),
-                "mime_type" : result.get("mime_type", item.get("mime_type"))
-            })
+            try:
+                uploaded.append(upload_response_attachment(result, context=f"attach {Path(local).name}"))
+            except ValueError as exc:
+                raise MindError(str(exc)) from exc
             aggregate_uploaded_before += int(item.get("size") or 0)
 
         return uploaded
