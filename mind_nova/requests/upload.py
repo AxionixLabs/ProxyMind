@@ -31,7 +31,8 @@ async def upload_file_stream(
         current_total_bytes: int,
         progress_started_at: float,
         *,
-        done: bool
+        done: bool,
+        phase: str = "uploading"
     ) -> dict[str, typing.Any]:
 
         elapsed_sec = max(0.0, time.monotonic() - progress_started_at)
@@ -47,6 +48,7 @@ async def upload_file_stream(
             "percent"             : percent,
             "elapsed_sec"         : elapsed_sec,
             "speed_bytes_per_sec" : speed,
+            "phase"               : phase,
             "done"                : done
         }
 
@@ -95,11 +97,17 @@ async def upload_file_stream(
                 if progress_callback is not None:
                     await progress_callback(
                         upload_progress_payload(
-                            upload_state["uploaded_bytes"], file_size, started_at, done=False
+                            upload_state["uploaded_bytes"], file_size, started_at, done=False, phase="uploading"
                         )
                     )
 
         yield closing
+        upload_state["uploaded_bytes"] = file_size
+
+        if progress_callback is not None:
+            await progress_callback(
+                upload_progress_payload(file_size, file_size, started_at, done=False, phase="processing")
+            )
 
     if not (p := Path(path).expanduser()).exists() or not p.is_file():
         raise RuntimeError(f"upload_file_stream: file not exists: {p}")
@@ -127,7 +135,7 @@ async def upload_file_stream(
 
     if progress_callback is not None:
         await progress_callback(
-            upload_progress_payload(upload_state["uploaded_bytes"], file_size, started_at, done=False)
+            upload_progress_payload(upload_state["uploaded_bytes"], file_size, started_at, done=False, phase="uploading")
         )
 
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -135,7 +143,7 @@ async def upload_file_stream(
         r.raise_for_status()
 
         if progress_callback is not None:
-            await progress_callback(upload_progress_payload(file_size, file_size, started_at, done=True))
+            await progress_callback(upload_progress_payload(file_size, file_size, started_at, done=True, phase="done"))
 
         return r.json()
 

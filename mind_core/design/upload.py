@@ -48,11 +48,15 @@ class UploadProgressReporter(object):
         filename   = str(event.get("filename") or "-")
         item_index = int(event.get("item_index") or 1)
         item_total = int(event.get("item_total") or 1)
+        phase      = str(event.get("phase") or "")
         percent    = max(0.0, min(100.0, float(event.get("percent") or 0.0) * 100.0))
         uploaded   = format_bytes(float(event.get("uploaded_bytes") or 0.0))
         total      = format_bytes(float(event.get("total_bytes") or 0.0))
         speed      = format_bytes(float(event.get("speed_bytes_per_sec") or 0.0))
-        action     = "Uploaded" if bool(event.get("done")) else "Uploading"
+
+        action = "Uploaded" if bool(event.get("done")) else (
+            "Processing" if phase == "processing" else "Uploading"
+        )
 
         return (
             f"{action} {item_index}/{item_total}: {filename} "
@@ -189,6 +193,7 @@ class UploadProgressLiveReporter(object):
         aggregate_total = float(event.get("aggregate_total_bytes", event.get("total_bytes") or 0.0))
         aggregate_speed = float(event.get("aggregate_speed_bytes_per_sec", event.get("speed_bytes_per_sec") or 0.0))
         aggregate_eta   = event.get("aggregate_eta_sec")
+        phase           = str(event.get("phase") or "")
 
         item_index = int(event.get("item_index") or 1)
         item_total = int(event.get("item_total") or 1)
@@ -203,7 +208,8 @@ class UploadProgressLiveReporter(object):
         bar = cls._render_bar(aggregate_percent)
 
         text = Text()
-        text.append(f"Upload {item_index}/{item_total} ", style="bold #AFC7D8")
+        title = "Processing" if phase == "processing" else "Upload"
+        text.append(f"{title} {item_index}/{item_total} ", style="bold #AFC7D8")
         text.append("[", style="bold #7F8C9A")
         text.append(bar, style="bold #5FD7AF")
         text.append("]", style="bold #7F8C9A")
@@ -216,6 +222,8 @@ class UploadProgressLiveReporter(object):
         text.append("\n")
         text.append(f"{filename}", style="bold #F4F7FA")
         text.append(f"  {file_percent:5.1f}%  {file_uploaded}/{file_total}", style="#AFC7D8")
+        if phase == "processing":
+            text.append("  waiting for server response", style="bold #D3C27C")
         return text
 
     @classmethod
