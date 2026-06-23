@@ -105,14 +105,21 @@ class ExternalMcpStatus(object):
 def server_health_key(server: dict[str, typing.Any]) -> str:
     """生成外部服务健康缓存键，区分名称、传输方式和 URL。"""
     name = str(server.get("name") or "server").strip()
+
     transport = str(server.get("transport") or "streamable_http").strip()
+    if transport == "stdio":
+        command = str(server.get("command") or "").strip()
+        args    = " ".join(str(item) for item in (server.get("args") or []))
+        cwd     = str(server.get("cwd") or "").strip()
+        return f"{name}|{transport}|{command}|{args}|{cwd}"
+
     url = str(server.get("url") or "").strip()
     return f"{name}|{transport}|{url}"
 
 
 def cached_failure_reason(server: dict[str, typing.Any]) -> str | None:
     """读取未过期的失败缓存原因；过期后自动清除。"""
-    key = server_health_key(server)
+    key    = server_health_key(server)
     cached = EXTERNAL_MCP_HEALTH.get(key)
 
     if cached is None:

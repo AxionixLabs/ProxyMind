@@ -12,6 +12,9 @@ from contextlib import asynccontextmanager
 from loguru import logger
 from mcp import ClientSession, types as mcp_types
 from mcp.client.sse import sse_client
+from mcp.client.stdio import (
+    StdioServerParameters, stdio_client
+)
 from mcp.client.streamable_http import streamable_http_client
 from mcp.client.session_group import (
     ClientSessionParameters, SseServerParameters
@@ -41,6 +44,7 @@ class ExternalMcpGroup(object):
     """管理一组外部 MCP 会话，并把多个服务的工具合并成统一入口。"""
 
     def __init__(self) -> None:
+        """初始化外部 MCP 工具索引和资源释放栈。"""
         self.tools: dict[str, mcp_types.Tool] = {}
         self._tool_to_session: dict[str, ClientSession] = {}
         self._exit_stack = contextlib.AsyncExitStack()
@@ -79,8 +83,12 @@ class ExternalMcpGroup(object):
         session_stack = contextlib.AsyncExitStack()
 
         try:
-            # SSE 和 streamable-http 的连接入口不同，但最终都产出 read/write 流。
-            if isinstance(server_params, SseServerParameters):
+            # 各传输入口不同，但最终都产出 MCP read/write 流。
+            if isinstance(server_params, StdioServerParameters):
+                read, write = await session_stack.enter_async_context(
+                    stdio_client(server_params)
+                )
+            elif isinstance(server_params, SseServerParameters):
                 client = sse_client(
                     url=server_params.url,
                     headers=server_params.headers,

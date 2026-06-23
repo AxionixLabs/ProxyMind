@@ -6,6 +6,7 @@ import copy
 import json
 import math
 import httpx
+import shutil
 import typing
 import socket
 import asyncio
@@ -15,16 +16,18 @@ from pathlib import Path
 from datetime import timedelta
 from urllib.parse import urlsplit
 from mcp import types as mcp_types
+from mcp.client.stdio import StdioServerParameters
 from mcp.client.session_group import (
     SseServerParameters, StreamableHttpParameters
 )
 from mind_nova import const
 
 DEFAULT_MCP_TRANSPORT = "streamable_http"
-ALLOWED_MCP_TRANSPORT = {"streamable_http", "sse"}
+ALLOWED_MCP_TRANSPORT = {"streamable_http", "sse", "stdio"}
 
 
 def _positive_float(value: typing.Any, fallback: float) -> float:
+    """把输入转换为正浮点数，失败时返回给定默认值。"""
     try:
         number = float(value)
     except (TypeError, ValueError, OverflowError):
@@ -37,6 +40,7 @@ def _positive_float(value: typing.Any, fallback: float) -> float:
 
 
 def _string_map(value: typing.Any) -> dict[str, str]:
+    """把映射型配置规范化为字符串键值字典。"""
     if not isinstance(value, dict):
         return {}
 
@@ -47,7 +51,20 @@ def _string_map(value: typing.Any) -> dict[str, str]:
     }
 
 
+def _string_list(value: typing.Any) -> list[str]:
+    """把列表型配置规范化为字符串列表。"""
+    if not isinstance(value, list):
+        return []
+
+    return [
+        str(item)
+        for item in value
+        if isinstance(item, (str, int, float, bool))
+    ]
+
+
 def _safe_tool_component(value: typing.Any, fallback: str) -> str:
+    """生成可用于工具名片段的安全字符串。"""
     text = str(value or "").strip()
     safe = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in text)
     safe = "_".join(part for part in safe.split("_") if part)
@@ -55,6 +72,7 @@ def _safe_tool_component(value: typing.Any, fallback: str) -> str:
 
 
 def _limit_tool_name(value: str) -> str:
+    """限制外部工具名长度，超长时附加摘要后缀。"""
     max_external_name_len = 2048
     if len(value) <= max_external_name_len:
         return value
@@ -65,12 +83,14 @@ def _limit_tool_name(value: str) -> str:
 
 
 def slugify_mcp_name(value: typing.Any, fallback: str = "server") -> str:
+    """把服务名称转换为稳定的短横线标识。"""
     text = str(value or "").strip().lower()
     text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
     return text or fallback
 
 
 def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
+    """读取 mcpServers 配置并规范化为内部服务列表。"""
     if not isinstance(raw, dict):
         return []
 
@@ -88,19 +108,24 @@ def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
         name = str(key or "").strip() or f"server-{idx}"
         slug = slugify_mcp_name(name, fallback=f"server-{idx}")
 
-        url = str(item.get("url", "") or "").strip()
-        if not url:
-            continue
+        url     = str(item.get("url", "") or "").strip()
+        command = str(item.get("command", "") or "").strip()
 
         inferred_transport = item.get("transport")
         if not inferred_transport:
-            inferred_transport = "sse" if url.lower().endswith("/sse") else DEFAULT_MCP_TRANSPORT
+            if command and not url:
+                inferred_transport = "stdio"
+            else:
+                inferred_transport = "sse" if url.lower().endswith("/sse") else DEFAULT_MCP_TRANSPORT
 
         transport = str(inferred_transport or DEFAULT_MCP_TRANSPORT).strip().lower().replace("-", "_")
-        if transport == "stdio":
-            continue
         if transport not in ALLOWED_MCP_TRANSPORT:
             transport = DEFAULT_MCP_TRANSPORT
+        if transport == "stdio":
+            if not command:
+                continue
+        elif not url:
+            continue
 
         timeout_sec = _positive_float(item.get("timeout_sec"), 30.0)
         unique_slug = slug
@@ -111,17 +136,38 @@ def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
             suffix += 1
         seen_names.add(unique_slug)
 
+        base = {
+            "name"        : unique_slug,
+            "enabled"     : item.get("enabled", True) is not False,
+            "transport"   : transport,
+            "timeout_sec" : timeout_sec,
+            "notes"       : str(item.get("notes", "") or "").strip()
+        }
+
+        if transport == "stdio":
+            cwd = str(item.get("cwd", "") or "").strip()
+            normalized.append(
+                {
+                    **base,
+                    "command"  : command,
+                    "args"     : _string_list(item.get("args")),
+                    "env"      : _string_map(item.get("env")),
+                    "cwd"      : cwd,
+                    "encoding" : str(item.get("encoding", "") or "utf-8").strip() or "utf-8",
+                    "encoding_error_handler": (
+                        str(item.get("encoding_error_handler") or "strict").strip().lower()
+                    ),
+                }
+            )
+            continue
+
         normalized.append(
             {
-                "name": unique_slug,
-                "enabled": item.get("enabled", True) is not False,
-                "transport": transport,
-                "url": url,
-                "headers": _string_map(item.get("headers")),
-                "timeout_sec": timeout_sec,
-                "sse_read_timeout_sec": _positive_float(item.get("sse_read_timeout_sec"), 300.0),
-                "terminate_on_close": item.get("terminate_on_close", True) is not False,
-                "notes": str(item.get("notes", "") or "").strip(),
+                **base,
+                "url"                  : url,
+                "headers"              : _string_map(item.get("headers")),
+                "sse_read_timeout_sec" : _positive_float(item.get("sse_read_timeout_sec"), 300.0),
+                "terminate_on_close"   : item.get("terminate_on_close", True) is not False,
             }
         )
 
@@ -129,10 +175,12 @@ def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
 
 
 def mcp_servers_path(root_dir: typing.Any) -> Path:
+    """返回指定配置目录下的外部 MCP 配置文件路径。"""
     return Path(str(root_dir)).expanduser() / "mcp_servers.json"
 
 
 def load_mcp_servers_file(root_dir: typing.Any) -> list[dict[str, typing.Any]]:
+    """读取并解析外部 MCP 配置文件，异常时返回空列表。"""
     target = mcp_servers_path(root_dir)
     try:
         raw = target.read_text(encoding=const.CHARSET)
@@ -156,16 +204,19 @@ def load_mcp_servers_file(root_dir: typing.Any) -> list[dict[str, typing.Any]]:
 
 
 def tool_name_hook(name: str, server_info: mcp_types.Implementation) -> str:
-    alias = _safe_tool_component(slugify_mcp_name(server_info.name, fallback="server"), "server")
+    """生成带服务名前缀的外部工具展示名。"""
+    alias     = _safe_tool_component(slugify_mcp_name(server_info.name, fallback="server"), "server")
     tool_name = _safe_tool_component(name, "tool")
     return _limit_tool_name(f"mcp__{alias}__{tool_name}")
 
 
 def empty_tool_schema() -> dict[str, typing.Any]:
+    """返回空对象类型的工具参数 schema。"""
     return {"type": "object", "properties": {}}
 
 
 def normalize_tool_schema(value: typing.Any) -> dict[str, typing.Any]:
+    """规范化工具参数 schema，无法使用时返回空对象 schema。"""
     if not isinstance(value, dict):
         return empty_tool_schema()
 
@@ -201,6 +252,7 @@ def normalize_tool_schema(value: typing.Any) -> dict[str, typing.Any]:
 
 
 def truncate_text(value: typing.Any, limit: int) -> str:
+    """按指定长度截断展示文本。"""
     text = str(value or "").strip()
     if len(text) <= limit:
         return text
@@ -208,6 +260,7 @@ def truncate_text(value: typing.Any, limit: int) -> str:
 
 
 def request_timeout_sec(server: dict[str, typing.Any]) -> float:
+    """读取外部 MCP 服务的请求超时时间。"""
     return _positive_float(server.get("timeout_sec"), 30.0)
 
 
@@ -216,6 +269,7 @@ def external_http_client(
     timeout: httpx.Timeout | None = None,
     auth: httpx.Auth | None = None
 ) -> httpx.AsyncClient:
+    """创建外部 HTTP/SSE MCP 服务使用的 HTTP 客户端。"""
     kwargs: dict[str, typing.Any] = {
         "follow_redirects" : True,
         "timeout"          : timeout or httpx.Timeout(30.0, read=300.0),
@@ -229,8 +283,34 @@ def external_http_client(
 
 
 def build_server_params(server: dict[str, typing.Any]) -> typing.Any:
+    """按 transport 类型构造 MCP SDK 所需的服务参数对象。"""
     transport   = str(server.get("transport") or "streamable_http").strip().lower()
     timeout_sec = _positive_float(server.get("timeout_sec"), 30.0)
+
+    if transport == "stdio":
+        command = str(server.get("command") or "").strip()
+        if not command:
+            raise ValueError("stdio MCP server missing command")
+
+        encoding_error_handler = str(
+            server.get("encoding_error_handler") or "strict"
+        ).strip().lower()
+        if encoding_error_handler not in {"strict", "ignore", "replace"}:
+            encoding_error_handler = "strict"
+
+        cwd = str(server.get("cwd") or "").strip() or None
+
+        return StdioServerParameters(
+            command=command,
+            args=_string_list(server.get("args")),
+            env=_string_map(server.get("env")) or None,
+            cwd=cwd,
+            encoding=str(server.get("encoding") or "utf-8").strip() or "utf-8",
+            encoding_error_handler=typing.cast(
+                typing.Literal["strict", "ignore", "replace"],
+                encoding_error_handler
+            )
+        )
 
     sse_read_timeout_sec = _positive_float(server.get("sse_read_timeout_sec"), 300.0)
 
@@ -248,6 +328,7 @@ def build_server_params(server: dict[str, typing.Any]) -> typing.Any:
     url = str(server.get("url") or "").strip()
     if not url:
         raise ValueError("streamable_http MCP server missing url")
+
     return StreamableHttpParameters(
         url=url,
         headers=dict(server.get("headers") or {}) or None,
@@ -258,6 +339,10 @@ def build_server_params(server: dict[str, typing.Any]) -> typing.Any:
 
 
 async def preflight_server(server: dict[str, typing.Any]) -> None:
+    """对外部 MCP 服务执行连接前检查。"""
+    if str(server.get("transport") or "").strip().lower() == "stdio":
+        return preflight_stdio_server(server)
+
     url    = str(server.get("url") or "").strip()
     parsed = urlsplit(url)
     host   = parsed.hostname
@@ -310,9 +395,34 @@ async def preflight_server(server: dict[str, typing.Any]) -> None:
     raise RuntimeError(f"endpoint unavailable {host}:{port} ({'; '.join(errors)})")
 
 
+def preflight_stdio_server(server: dict[str, typing.Any]) -> None:
+    """对 stdio MCP 服务执行不启动进程的静态检查。"""
+    command = str(server.get("command") or "").strip()
+    if not command:
+        raise ValueError("stdio MCP server missing command")
+
+    cwd = str(server.get("cwd") or "").strip()
+    if cwd and not Path(cwd).expanduser().is_dir():
+        raise RuntimeError(f"stdio cwd unavailable: {cwd}")
+
+    command_path = Path(command).expanduser()
+    if command_path.parent != Path(".") or command_path.is_absolute():
+        if not command_path.exists():
+            raise RuntimeError(f"stdio command unavailable: {command}")
+        if command_path.is_dir():
+            raise RuntimeError(f"stdio command is a directory: {command}")
+        return None
+
+    if shutil.which(command) is None:
+        raise RuntimeError(f"stdio command unavailable: {command}")
+
+    return None
+
+
 async def preflight_targets(host: str, port: int) -> list[tuple[socket.AddressFamily, str, int]]:
+    """解析主机端口对应的预检连接目标。"""
     targets: list[tuple[socket.AddressFamily, str, int]] = []
-    seen: set[tuple[socket.AddressFamily, str, int]] = set()
+    seen: set[tuple[socket.AddressFamily, str, int]]     = set()
 
     infos = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
 
@@ -334,7 +444,9 @@ async def probe_preflight_target(
     target: tuple[socket.AddressFamily, str, int],
     timeout_sec: float
 ) -> None:
+    """尝试连接单个地址目标，用于判断远端端口可达性。"""
     family, address, target_port = target
+
     writer: asyncio.StreamWriter | None = None
 
     try:
