@@ -90,6 +90,7 @@ class ServerToolOutputResult(object):
 
 
 def _tool_result_text(fields: typing.Union[str, dict[str, typing.Any], typing.Any]) -> str:
+    """从工具结果字段中提取文本摘要。"""
     if isinstance(fields, dict):
         value = fields.get("text")
         return "" if value is None else str(value)
@@ -99,12 +100,14 @@ def _tool_result_text(fields: typing.Union[str, dict[str, typing.Any], typing.An
 
 
 def _tool_result_data(fields: typing.Union[str, dict[str, typing.Any], typing.Any]) -> typing.Any:
+    """从工具结果字段中提取结构化数据。"""
     if isinstance(fields, dict):
         return fields.get("data")
     return None
 
 
 def _native_broadcast_data(fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """提取原生工具广播结果中的 data 字段。"""
     data = fields.get("data")
     return data if isinstance(data, dict) else {}
 
@@ -119,6 +122,7 @@ def _native_result_items(fields: dict[str, typing.Any]) -> list[dict[str, typing
 
 
 def _native_result_failed(item: dict[str, typing.Any]) -> bool:
+    """判断原生工具结果项是否表示失败。"""
     if item.get("ok") is False:
         return True
     item_data = item.get("data")
@@ -161,6 +165,7 @@ def _promote_if_present(
     payload: dict[str, typing.Any],
     keys: tuple[str, ...]
 ) -> None:
+    """将存在的结果字段提升到顶层结果。"""
     for key in keys:
         if key in payload:
             normalized[key] = payload[key]
@@ -177,9 +182,11 @@ def _single_batch_result_data(
     item = results[0]
     if not isinstance(item, dict):
         return {}
+
     result = item.get("result")
     if not isinstance(result, dict):
         return {}
+
     data = result.get("data")
     return data if isinstance(data, dict) else {}
 
@@ -197,6 +204,7 @@ def normalize_tool_result_fields(
         return fields
 
     normalized = dict(fields)
+
     data = _native_broadcast_data(fields)
     item = _first_native_result_item(fields)
 
@@ -248,6 +256,7 @@ def server_tool_output_result(
 
 
 def _server_output_fields(event: dict[str, typing.Any]) -> typing.Union[str, dict[str, typing.Any]]:
+    """从服务端工具输出事件中提取结果字段。"""
     for key in ("result", "fields", "output"):
         value = event.get(key)
         if isinstance(value, dict):
@@ -279,15 +288,16 @@ def _server_output_dict_fields(
     value: dict[str, typing.Any],
     event: dict[str, typing.Any]
 ) -> dict[str, typing.Any]:
+    """规范化服务端工具输出中的字典结果。"""
     fields = dict(value)
 
     if "text" not in fields and event.get("text") is not None:
         fields["text"] = str(event.get("text") or "")
 
     if "data" not in fields:
-        data = event.get("data")
-        if isinstance(data, dict):
-            fields["data"] = data
+        event_data = event.get("data")
+        if isinstance(event_data, dict):
+            fields["data"] = event_data
         elif any(key in fields for key in ("ok", "stdout", "stderr", "exit_code", "results")):
             fields["data"] = dict(fields)
 
@@ -301,6 +311,7 @@ def _server_output_ok(
     event: dict[str, typing.Any],
     fields: typing.Union[str, dict[str, typing.Any]]
 ) -> bool:
+    """根据事件和结果字段判断服务端工具输出是否成功。"""
     if isinstance(event.get("ok"), bool):
         return bool(event["ok"])
     if isinstance(fields, dict):
@@ -309,10 +320,12 @@ def _server_output_ok(
         data = fields.get("data")
         if isinstance(data, dict) and isinstance(data.get("ok"), bool):
             return bool(data["ok"])
+
     return True
 
 
 def _server_output_cost_ms(event: dict[str, typing.Any]) -> int:
+    """从服务端工具输出事件中提取耗时毫秒数。"""
     for key in ("cost_ms", "elapsed_ms"):
         value = event.get(key)
         if isinstance(value, (int, float)):

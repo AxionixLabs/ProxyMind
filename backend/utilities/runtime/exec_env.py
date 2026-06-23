@@ -94,11 +94,13 @@ def detect_tools() -> dict[str, typing.Any]:
     """检测随本地运行时提供给远端感知的命令行工具。"""
     return {
         "adb"      : tool_bin("adb"),
-        "ast-grep" : tool_bin("ast-grep"),
-        "ffmpeg"   : tool_bin("ffmpeg"),
-        "jq"       : tool_bin("jq"),
         "k6"       : tool_bin("k6"),
-        "rg"       : tool_bin("rg")
+        "ffmpeg"   : tool_bin("ffmpeg"),
+        "ast-grep" : tool_bin("ast-grep"),
+        "rg"       : tool_bin("rg"),
+        "jq"       : tool_bin("jq"),
+        "framix"   : tool_bin("framix"),
+        "memrix"   : tool_bin("memrix")
     }
 
 

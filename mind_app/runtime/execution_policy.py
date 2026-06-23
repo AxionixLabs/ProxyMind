@@ -3,8 +3,8 @@
 
 import typing
 
-EXECUTION_ALLOWED = {"allowed", "approved"}
-EXECUTION_TARGETS = {"local", "blocked"}
+EXECUTION_ALLOWED    = {"allowed", "approved"}
+POLICY_MANAGED_TOOLS = {"shell_command"}
 
 
 def validate_execution_policy(
@@ -14,8 +14,11 @@ def validate_execution_policy(
     execution: dict[str, typing.Any] | None
 ) -> dict[str, typing.Any] | None:
     """在分发本地工具调用前校验执行元数据。"""
-    if not isinstance(execution, dict) or not execution:
+    if name not in POLICY_MANAGED_TOOLS:
         return None
+
+    if not isinstance(execution, dict) or not execution:
+        return _reject("missing execution")
 
     state  = str(execution.get("state") or "").strip().lower()
     target = str(execution.get("target") or "").strip().lower()
@@ -34,28 +37,40 @@ def validate_execution_policy(
     if not str(grant_id or "").strip():
         return _reject("execution grantId missing")
 
+    if target != "local":
+        return _ignore("server-owned execution target")
+
     if state and state not in EXECUTION_ALLOWED:
         return _reject(f"execution state not executable: {state}")
-    if target and target not in EXECUTION_TARGETS:
-        return _reject(f"execution target invalid: {target}")
-    if target == "blocked":
-        return _reject("execution target blocked")
 
     return None
 
 
 def should_pass_execution_to_tool(name: str, execution: dict[str, typing.Any] | None) -> bool:
+    """判断是否需要把执行授权元数据传给本地工具。"""
     if not isinstance(execution, dict) or name != "shell_command":
         return False
     target = str(execution.get("target") or "local").strip().lower()
     return target == "local"
 
 
+def is_execution_ignored(result: dict[str, typing.Any] | None) -> bool:
+    """判断策略结果是否表示客户端忽略本次工具调用。"""
+    return isinstance(result, dict) and result.get("execution_ignored") is True
+
+
 def _reject(message: str) -> dict[str, typing.Any]:
+    """构造执行策略拒绝结果。"""
     return {"execution_denied": True, "error": message}
 
 
+def _ignore(message: str) -> dict[str, typing.Any]:
+    """构造执行策略忽略结果。"""
+    return {"execution_ignored": True, "reason": message}
+
+
 def _normalize_value(value: typing.Any) -> typing.Any:
+    """将策略比较值转换为稳定的基础结构。"""
     if isinstance(value, dict):
         return {
             str(key): _normalize_value(value[key])

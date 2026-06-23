@@ -27,6 +27,7 @@ from mind_app.approval import (
     validate_tool_approval
 )
 from ..runtime.execution_policy import (
+    is_execution_ignored,
     should_pass_execution_to_tool,
     validate_execution_policy
 )
@@ -256,18 +257,21 @@ async def stream_looper(
                     await slog.begin_reply_wait_status()
                     continue
 
-                if execution_denied := validate_execution_policy(
+                if execution_policy_result := validate_execution_policy(
                     name=name,
                     arguments=arguments,
                     execution=event_execution
                 ):
+                    if is_execution_ignored(execution_policy_result):
+                        await slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
+                        continue
                     await request.post_tool_result(
                         event["cid"],
                         event["sid"],
                         event["call_id"],
                         name,
                         False,
-                        execution_denied,
+                        execution_policy_result,
                         execution=event_execution
                     )
                     await slog.begin_reply_wait_status()
