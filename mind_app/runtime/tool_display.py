@@ -15,7 +15,7 @@ from ..stream_events.tool_trace import (
 )
 
 if typing.TYPE_CHECKING:
-    from .tool_run import ToolRunResult
+    from .tool_run import ToolDisplayResult
 
 
 def _coding_trace_text(
@@ -62,7 +62,7 @@ async def show_tool_result(
     stream_ui: StreamUI,
     name: str,
     arguments: dict[str, typing.Any],
-    tool_run: "ToolRunResult",
+    tool_run: "ToolDisplayResult",
     *,
     ok: typing.Optional[bool] = None,
     fields: typing.Optional[typing.Union[str, dict[str, typing.Any]]] = None,

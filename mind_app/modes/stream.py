@@ -11,12 +11,14 @@ from ..stream_ui import StreamUI
 from ..runtime.loop_support import (
     ensure_wakeup, finish_failure
 )
-from ..runtime.tool_run import run_tool_step
+from ..runtime.tool_run import (
+    run_tool_step,
+    server_tool_output_result
+)
 from ..runtime.tool_display import (
     show_tool_result,
     show_tool_start
 )
-from ..runtime.cloud_sandbox import normalize_cloud_sandbox_handoff
 from mind_app.approval import (
     ApprovalStore,
     approval_from_event,
@@ -330,11 +332,6 @@ async def stream_looper(
                 fields = tool_run.fields
                 text   = tool_run.text
 
-                if handoff := normalize_cloud_sandbox_handoff(tool_name=name, fields=fields, ok=ok):
-                    ok     = True
-                    fields = handoff
-                    text   = str(handoff.get("text") or "")
-
                 await show_tool_result(
                     slog,
                     name,
@@ -360,6 +357,39 @@ async def stream_looper(
                 continue
 
             if event_type == "tool.output":
+                name = str(event.get("name") or event.get("tool") or "").strip()
+                if not name:
+                    continue
+
+                arguments = event.get("arguments")
+                if not isinstance(arguments, dict):
+                    arguments = {}
+
+                use_coding_trace = is_native_coding_trace_tool(name)
+                tool_run         = server_tool_output_result(name, event)
+
+                await show_tool_result(
+                    slog,
+                    name,
+                    arguments,
+                    tool_run,
+                    use_coding_trace=use_coding_trace
+                )
+
+                if ev_report:
+                    output_event = {
+                        "type"    : "exec.tool.output",
+                        "call_id" : str(event.get("call_id") or ""),
+                        "name"    : name,
+                        "ok"      : tool_run.ok,
+                        "result"  : tool_run.fields,
+                        "cost_ms" : tool_run.cost_ms,
+                    }
+                    if event.get("ts") is not None:
+                        output_event["ts"] = event.get("ts")
+                    ev_report.emit(output_event)
+
+                await slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                 continue
 
             continue

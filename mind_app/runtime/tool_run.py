@@ -46,8 +46,6 @@ _COMMON_PROMOTED_RESULT_KEYS = (
     "stdout_truncated",
     "stderr_truncated",
     "execution_target",
-    "requires_cloud_sandbox",
-    "cloud_sandbox_supported",
 )
 
 _OUTPUT_PROMOTED_TOOLS = {
@@ -60,10 +58,30 @@ _OUTPUT_PROMOTED_RESULT_KEYS = (
 )
 
 
+class ToolDisplayResult(typing.Protocol):
+    """工具结果展示层需要的最小字段集合。"""
+    ok: bool
+    fields: typing.Union[str, dict[str, typing.Any]]
+    text: str
+    data: typing.Any
+    cost_ms: int
+
+
 @dataclass(slots=True)
 class ToolRunResult(object):
     """统一描述单次工具执行的收束结果。"""
     result: CallToolResult
+    ok: bool
+    fields: typing.Union[str, dict[str, typing.Any]]
+    text: str
+    data: typing.Any
+    cost_ms: int
+
+
+@dataclass(slots=True)
+class ServerToolOutputResult(object):
+    """服务端已执行工具结果的本地展示适配对象。"""
+    result: typing.Any
     ok: bool
     fields: typing.Union[str, dict[str, typing.Any]]
     text: str
@@ -208,6 +226,107 @@ def normalize_tool_result_fields(
     return normalized
 
 
+def server_tool_output_result(
+    name: str,
+    event: dict[str, typing.Any]
+) -> ServerToolOutputResult:
+    """把服务端回灌的 tool.output 事件转换成展示层结果对象。"""
+    fields = _server_output_fields(event)
+    fields = normalize_tool_result_fields(name, fields)
+
+    ok      = _server_output_ok(event, fields)
+    cost_ms = _server_output_cost_ms(event)
+
+    return ServerToolOutputResult(
+        result=fields,
+        ok=ok,
+        fields=fields,
+        text=_tool_result_text(fields),
+        data=_tool_result_data(fields),
+        cost_ms=cost_ms
+    )
+
+
+def _server_output_fields(event: dict[str, typing.Any]) -> typing.Union[str, dict[str, typing.Any]]:
+    for key in ("result", "fields", "output"):
+        value = event.get(key)
+        if isinstance(value, dict):
+            return _server_output_dict_fields(value, event)
+        if isinstance(value, str):
+            return value
+
+    data = event.get("data")
+    if isinstance(data, dict):
+        text = event.get("text")
+        return {
+            "text"        : str(text) if text is not None else "",
+            "attachments" : event.get("attachments") if isinstance(event.get("attachments"), list) else [],
+            "data"        : data
+        }
+
+    text = event.get("text")
+    if text is not None:
+        return str(text)
+
+    return {
+        "text"        : "tool.output received",
+        "attachments" : [],
+        "data"        : {}
+    }
+
+
+def _server_output_dict_fields(
+    value: dict[str, typing.Any],
+    event: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+    fields = dict(value)
+
+    if "text" not in fields and event.get("text") is not None:
+        fields["text"] = str(event.get("text") or "")
+
+    if "data" not in fields:
+        data = event.get("data")
+        if isinstance(data, dict):
+            fields["data"] = data
+        elif any(key in fields for key in ("ok", "stdout", "stderr", "exit_code", "results")):
+            fields["data"] = dict(fields)
+
+    if "attachments" not in fields and isinstance(event.get("attachments"), list):
+        fields["attachments"] = event.get("attachments")
+
+    return fields
+
+
+def _server_output_ok(
+    event: dict[str, typing.Any],
+    fields: typing.Union[str, dict[str, typing.Any]]
+) -> bool:
+    if isinstance(event.get("ok"), bool):
+        return bool(event["ok"])
+    if isinstance(fields, dict):
+        if isinstance(fields.get("ok"), bool):
+            return bool(fields["ok"])
+        data = fields.get("data")
+        if isinstance(data, dict) and isinstance(data.get("ok"), bool):
+            return bool(data["ok"])
+    return True
+
+
+def _server_output_cost_ms(event: dict[str, typing.Any]) -> int:
+    for key in ("cost_ms", "elapsed_ms"):
+        value = event.get(key)
+        if isinstance(value, (int, float)):
+            return max(0, int(value))
+
+    data = event.get("data")
+    if isinstance(data, dict):
+        value = data.get("elapsed_ms")
+        if isinstance(value, (int, float)):
+            return max(0, int(value))
+
+    return 0
+
+
 async def run_tool_step(
     session: McpSessionLike,
     *,
@@ -246,8 +365,10 @@ async def run_tool_step(
         ok = not result.isError
 
         enhancer = Enhancer(session, mode, pref_config, metadata)
+
         fields = await enhancer.enhance(name, result, ok, stream_ui)
         fields = normalize_tool_result_fields(name, fields)
+
     finally:
         await stream_ui.end_status()
 

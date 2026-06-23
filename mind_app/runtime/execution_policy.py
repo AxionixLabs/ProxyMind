@@ -3,9 +3,8 @@
 
 import typing
 
-SUPPORTED_CLOUD_EXECUTION_TOOLS = {"shell_command"}
-EXECUTION_ALLOWED_STATES        = {"allowed", "approved"}
-EXECUTION_TARGETS               = {"local", "cloud_sandbox", "blocked"}
+EXECUTION_ALLOWED = {"allowed", "approved"}
+EXECUTION_TARGETS = {"local", "blocked"}
 
 
 def validate_execution_policy(
@@ -35,20 +34,21 @@ def validate_execution_policy(
     if not str(grant_id or "").strip():
         return _reject("execution grantId missing")
 
-    if state and state not in EXECUTION_ALLOWED_STATES:
+    if state and state not in EXECUTION_ALLOWED:
         return _reject(f"execution state not executable: {state}")
     if target and target not in EXECUTION_TARGETS:
         return _reject(f"execution target invalid: {target}")
     if target == "blocked":
         return _reject("execution target blocked")
-    if target == "cloud_sandbox" and name not in SUPPORTED_CLOUD_EXECUTION_TOOLS:
-        return _reject(f"cloud sandbox execution unsupported for tool: {name}")
 
     return None
 
 
 def should_pass_execution_to_tool(name: str, execution: dict[str, typing.Any] | None) -> bool:
-    return bool(isinstance(execution, dict) and name in SUPPORTED_CLOUD_EXECUTION_TOOLS)
+    if not isinstance(execution, dict) or name != "shell_command":
+        return False
+    target = str(execution.get("target") or "local").strip().lower()
+    return target == "local"
 
 
 def _reject(message: str) -> dict[str, typing.Any]:
@@ -65,6 +65,7 @@ def _normalize_value(value: typing.Any) -> typing.Any:
         return [_normalize_value(item) for item in value]
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
+
     return str(value)
 
 
