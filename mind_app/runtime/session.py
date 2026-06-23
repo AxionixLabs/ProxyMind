@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
 import json
+import time
 import httpx
 import typing
 import asyncio
 import inspect
 import contextlib
+from loguru import logger
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from engine.tinker import MindError
@@ -59,6 +60,42 @@ def _pick_mcp_bootstrap(exc: BaseException, *, mcp_url: str) -> BaseException:
         fallback = fallback or item
 
     return fallback or exc
+
+
+def _exception_type_name(exc: BaseException) -> str:
+    """返回异常的模块限定名，用于识别可选依赖的传输异常。"""
+    return f"{type(exc).__module__}.{type(exc).__name__}"
+
+
+def _is_transport_close_exception(exc: BaseException) -> bool:
+    """判断异常组是否只包含 MCP 关闭期可忽略的传输断开异常。"""
+    transport_close_types = {
+        "httpx.ReadError",
+        "httpx.WriteError",
+        "httpx.CloseError",
+        "httpcore.ReadError",
+        "httpcore.WriteError",
+        "httpcore.CloseError",
+        "anyio.EndOfStream",
+        "anyio.BrokenResourceError",
+        "anyio.ClosedResourceError",
+    }
+    items = list(_flatten_exceptions(exc))
+    if not items:
+        return False
+
+    return all(_exception_type_name(item) in transport_close_types for item in items)
+
+
+def _exception_summary(exc: BaseException) -> str:
+    """提取异常组中的首个叶子异常，生成简短 debug 摘要。"""
+    for item in _flatten_exceptions(exc):
+        text = str(item).strip()
+        if text:
+            return f"{type(item).__name__}: {text}"
+        return type(item).__name__
+
+    return type(exc).__name__
 
 
 def _response_body_text(exc: httpx.HTTPStatusError) -> str:
@@ -171,7 +208,7 @@ async def with_mcp_session(
     event_hooks = {"request": [inject_auth], "response": [request.cap_response]}
 
     async with httpx.AsyncClient(timeout=timeout, event_hooks=event_hooks, trust_env=False) as client:
-        entered_user_flow = False
+        phase = "bootstrap"
 
         try:
             async with streamable_http_client(url, http_client=client) as (r, w, _):
@@ -189,13 +226,17 @@ async def with_mcp_session(
                         if inspect.isawaitable(callback_result):
                             await callback_result
 
-                    entered_user_flow = True
+                    phase = "user_flow"
                     await function(active_session, openai_tools, tool_meta)
+                    phase = "teardown"
 
         except BaseException as exc:
             if isinstance(exc, (asyncio.CancelledError, KeyboardInterrupt, SystemExit, MindError)):
                 raise
-            if entered_user_flow:
+            if phase == "teardown" and _is_transport_close_exception(exc):
+                logger.debug(f"MCP session teardown ignored: {_exception_summary(exc)}")
+                return None
+            if phase != "bootstrap":
                 raise
             raise _bootstrap_failure(exc, mcp_url=url) from None
 
