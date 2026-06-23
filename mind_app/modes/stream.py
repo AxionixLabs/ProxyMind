@@ -380,19 +380,6 @@ async def stream_looper(
                     use_coding_trace=use_coding_trace
                 )
 
-                if ev_report:
-                    output_event = {
-                        "type"    : "exec.tool.output",
-                        "call_id" : str(event.get("call_id") or ""),
-                        "name"    : name,
-                        "ok"      : tool_run.ok,
-                        "result"  : tool_run.fields,
-                        "cost_ms" : tool_run.cost_ms,
-                    }
-                    if event.get("ts") is not None:
-                        output_event["ts"] = event.get("ts")
-                    ev_report.emit(output_event)
-
                 await slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                 continue
 
