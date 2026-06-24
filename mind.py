@@ -5,21 +5,27 @@ import sys
 import asyncio
 from mind_core.design import Design
 from engine.tinker import MindError
+from engine.signals import (
+    SignalHandler, install_handler
+)
 from mind_app.mind_entry import main as _main
 
 
-async def main() -> int:
+async def main(handler: SignalHandler | None = None) -> int:
     """兼容入口：转交到 `mind_app` 的应用入口。"""
-    return await _main(entry_file=__file__)
+    return await _main(entry_file=__file__, handler=handler)
 
 
 if __name__ == "__main__":
     main_loop = asyncio.new_event_loop()
+
     main_task: asyncio.Task[int] | None = None
+
+    signal_handler = install_handler(lambda: main_task)
 
     try:
         asyncio.set_event_loop(main_loop)
-        main_task = main_loop.create_task(main())
+        main_task = main_loop.create_task(main(signal_handler))
         exit_code = main_loop.run_until_complete(main_task)
 
     except MindError as _error:

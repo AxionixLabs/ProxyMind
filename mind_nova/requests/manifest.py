@@ -4,9 +4,11 @@
 import sys
 import httpx
 import typing
+import asyncio
 import platform
 from loguru import logger
 from engine.channel import Channel
+from engine import signals
 from mind_nova.services import endpoint
 
 
@@ -24,7 +26,11 @@ async def fetch_manifest() -> typing.Optional[dict[str, typing.Any]]:
             resp.raise_for_status()
             data = resp.json()
 
+    except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+        raise
     except Exception as e:
+        if signals.task_interrupt_active():
+            raise asyncio.CancelledError from e
         return logger.debug(f"[Manifest] fetch failed: {type(e).__name__}: {e}")
 
     if not isinstance(data, dict) or not data.get("ok"):

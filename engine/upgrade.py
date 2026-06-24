@@ -14,10 +14,10 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 from engine.tinker import MindError
+from engine import signals
 from mind_nova import (
     craft, request
 )
-
 
 UpgradeProgressStarter = typing.Callable[
     [], typing.Coroutine[typing.Any, typing.Any, None]
@@ -25,6 +25,7 @@ UpgradeProgressStarter = typing.Callable[
 
 
 class UpgradeProgress(typing.Protocol):
+
     async def start(self, state: dict[str, typing.Any]) -> None:
         """启动升级进度展示。"""
         ...
@@ -32,6 +33,35 @@ class UpgradeProgress(typing.Protocol):
     async def stop(self) -> None:
         """停止升级进度展示。"""
         ...
+
+
+class UpgradeProgressController(object):
+    """管理升级进度展示的启动状态。"""
+
+    def __init__(
+        self,
+        progress: UpgradeProgress | None,
+        state: dict[str, typing.Any]
+    ) -> None:
+        """绑定进度展示对象和共享状态。"""
+        self.progress = progress
+        self.state    = state
+        self.started  = False
+
+    async def start(self) -> None:
+        """按需启动进度展示。"""
+        if self.progress is None or self.started:
+            return None
+
+        await self.progress.start(self.state)
+        self.started = True
+
+    async def stop(self) -> None:
+        """按需停止已启动的进度展示。"""
+        if self.progress is None or not self.started:
+            return None
+
+        await self.progress.stop()
 
 
 class Upgrade(object):
@@ -349,9 +379,13 @@ class Upgrade(object):
                             f"Install failed: incomplete download expect={total} actual={done}"
                         )
 
+        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+            raise
         except MindError:
             raise
         except Exception as e:
+            if signals.task_interrupt_active():
+                raise asyncio.CancelledError from e
             raise self.download_error(e) from e
 
         return done, hasher.hexdigest().lower() if hasher is not None else None
@@ -389,14 +423,7 @@ class Upgrade(object):
 
         state = self.download_state(filename)
 
-        progress_started = False
-
-        async def start_progress() -> None:
-            nonlocal progress_started
-            if progress is None or progress_started:
-                return None
-            await progress.start(state)
-            progress_started = True
+        progress_controller = UpgradeProgressController(progress, state)
 
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
@@ -413,7 +440,7 @@ class Upgrade(object):
                 sha256_enabled=bool(sha256_expect),
                 timeout=timeout,
                 chunk_size=chunk_size,
-                start_progress=start_progress
+                start_progress=progress_controller.start
             )
 
             self.verify_archive(
@@ -460,7 +487,7 @@ class Upgrade(object):
                 "elapsed_sec"      : round(elapsed, 3)
             }
 
-        except (asyncio.CancelledError, KeyboardInterrupt):
+        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             if archive_path is not None:
                 self.cancel_download(
                     state, archive_path, stage="cancelled"
@@ -490,8 +517,7 @@ class Upgrade(object):
         finally:
             if tmp_path is not None and tmp_path.exists():
                 await asyncio.to_thread(shutil.rmtree, tmp_path, ignore_errors=True)
-            if progress_started and progress is not None:
-                await progress.stop()
+            await progress_controller.stop()
 
     async def upgrade_app(
         self,

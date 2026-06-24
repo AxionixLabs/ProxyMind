@@ -5,12 +5,12 @@ import os
 import sys
 import stat
 import shutil
-import signal
 import typing
 import asyncio
 from pathlib import Path
 from loguru import logger
 from engine.animation import AsyncAnimManager
+from engine.signals import SignalHandler
 from engine.manage import ServerManage
 from engine.tinker import (
     MindError, Active, FileAssist
@@ -92,12 +92,15 @@ async def resolve_cli_attachments(
     return uploaded
 
 
-async def main(entry_file: typing.Optional[str] = None) -> int:
-    """Main"""
+async def main(
+    entry_file: typing.Optional[str] = None,
+    handler: SignalHandler | None = None
+) -> int:
+    """执行命令入口并管理入口级动画。"""
     entry_anim_manager = AsyncAnimManager()
 
     try:
-        return await _run_main(entry_file, entry_anim_manager)
+        return await _run_main(entry_file, entry_anim_manager, handler)
     finally:
         await await_cleanup(entry_anim_manager.stop())
 
@@ -114,7 +117,8 @@ async def await_cleanup(awaitable: typing.Awaitable[None]) -> None:
 
 async def _run_main(
     entry_file: typing.Optional[str],
-    entry_anim_manager: AsyncAnimManager
+    entry_anim_manager: AsyncAnimManager,
+    handler: SignalHandler | None = None
 ) -> int:
     """执行入口主流程。"""
     async def authorized() -> None:
@@ -307,7 +311,8 @@ async def _run_main(
     mind.start_keepalive_supervisor()
     await mind.start_external_mcp_runtime()
 
-    signal.signal(signal.SIGINT, mind.signal_processor)
+    if handler is not None:
+        handler.bind_delegate(mind.signal_processor)
 
     try:
         cli_attachments = await resolve_cli_attachments(mind, cmd_lines)
