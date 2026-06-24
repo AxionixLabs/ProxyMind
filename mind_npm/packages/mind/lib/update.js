@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { isVersionGreater } from "./version.js";
 
 const updateCheckIntervalMs = 24 * 60 * 60 * 1000;
+const updateRetryIntervalMs = 60 * 60 * 1000;
 const color = {
   reset: "\x1b[0m",
   bold: "\x1b[1m",
@@ -85,10 +86,11 @@ function refreshLatestVersionInBackground(packageName, state, now) {
 }
 
 function maybeRefreshLatestVersion(packageName, state, now) {
-  const lastCheckedAt = Number(state.last_checked_at || 0);
-  if (now - lastCheckedAt < updateCheckIntervalMs) return;
+  const lastAttemptedAt = Number(state.last_attempted_at || state.last_checked_at || 0);
+  const interval = state.update_error ? updateRetryIntervalMs : updateCheckIntervalMs;
+  if (now - lastAttemptedAt < interval) return;
 
-  saveUpdateState({ ...state, last_checked_at: now });
+  saveUpdateState({ ...state, last_attempted_at: now });
   refreshLatestVersionInBackground(packageName, state, now);
 }
 

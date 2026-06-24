@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+const updateCheckTimeoutMs = 15000;
+
 function updateStateDir() {
   if (process.platform === "win32") {
     return path.join(process.env.APPDATA || os.homedir(), "Mind");
@@ -33,8 +35,16 @@ function saveUpdateState(state) {
     mkdirSync(updateStateDir(), { recursive: true });
     writeFileSync(updateStatePath(), JSON.stringify(state, null, 2), "utf8");
   } catch {
-    // best effort
+    // Update state is best-effort and should never block application startup.
   }
+}
+
+function saveUpdateError(state, startedAt, error) {
+  saveUpdateState({
+    ...state,
+    last_attempted_at: startedAt || Date.now(),
+    update_error: error
+  });
 }
 
 function npmCommand(args) {
@@ -58,23 +68,38 @@ if (!packageName) {
 const npm = npmCommand(["view", packageName, "version"]);
 const result = spawnSync(npm.command, npm.args, {
   encoding: "utf8",
-  timeout: 2500,
+  timeout: updateCheckTimeoutMs,
   windowsHide: true
 });
 
+const state = loadUpdateState();
+
 if (result.error || result.status !== 0) {
+  saveUpdateError(state, startedAt, {
+    type: result.error?.code || "npm_view_failed",
+    status: result.status,
+    signal: result.signal,
+    message: String(result.error?.message || result.stderr || "").trim()
+  });
   process.exit(0);
 }
 
 const latestVersion = String(result.stdout || "").trim();
 
 if (!latestVersion) {
+  saveUpdateError(state, startedAt, {
+    type: "empty_version",
+    status: result.status,
+    signal: result.signal,
+    message: "npm view returned an empty version"
+  });
   process.exit(0);
 }
 
-const state = loadUpdateState();
 saveUpdateState({
   ...state,
+  last_attempted_at: startedAt || Date.now(),
   last_checked_at: startedAt || Date.now(),
-  latest_version: latestVersion
+  latest_version: latestVersion,
+  update_error: null
 });
