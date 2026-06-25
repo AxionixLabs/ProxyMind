@@ -126,11 +126,13 @@ async def mind_loop(mind: "Mind") -> None:
                         progress_callback=capture_progress
                     )
                 except MindError as upload_error:
+                    failure_reason = str(getattr(upload_error, "display_reason", "") or upload_error)
                     Design.console.print(
-                        reporter.render_failure(message=str(upload_error), event=reporter.last_event)
+                        reporter.render_failure(message=failure_reason, event=reporter.last_event)
                     )
                     print_attach_gap()
                     return None
+
                 finally:
                     await mind.await_cleanup(mind.stop_anim())
 

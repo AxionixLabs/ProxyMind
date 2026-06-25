@@ -2,11 +2,12 @@
 # Notes: ==== Mind™ ====
 
 from .facade import Design
-from .upload import (
-    UploadProgressLiveReporter, UploadProgressReporter
-)
+from .upload import UploadProgressLiveReporter
 
-__all__ = ["Design", "UploadProgressReporter", "UploadProgressLiveReporter"]
+__all__ = [
+    "Design",
+    "UploadProgressLiveReporter"
+]
 
 
 if __name__ == '__main__':

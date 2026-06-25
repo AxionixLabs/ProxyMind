@@ -79,8 +79,10 @@ async def resolve_cli_attachments(
         await mind.start_upload_anim(lambda: dict(upload_state))
         uploaded = await mind.attach.upload_pending_attachments(progress_callback=capture_progress)
     except MindError as error:
-        Design.console.print(reporter.render_failure(message=str(error), event=reporter.last_event))
+        failure_reason = str(getattr(error, "display_reason", "") or error)
+        Design.console.print(reporter.render_failure(message=failure_reason, event=reporter.last_event))
         raise
+
     finally:
         await mind.await_cleanup(mind.stop_anim())
 

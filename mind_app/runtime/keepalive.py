@@ -12,6 +12,24 @@ if typing.TYPE_CHECKING:
     from engine.manage import ServerManage
 
 
+def _should_raise(exc: BaseException) -> bool:
+    """判断后台保活是否应向外传播中断类异常。"""
+    return isinstance(exc, (asyncio.CancelledError, KeyboardInterrupt, SystemExit))
+
+
+async def _recover_local_service(server_manager: "ServerManage | None") -> None:
+    """尽力恢复本地后台服务；恢复失败只记录，不中断保活任务。"""
+    if server_manager is None:
+        return None
+
+    try:
+        await server_manager.ensure_running()
+    except BaseException as exc:
+        if _should_raise(exc):
+            raise
+        logger.debug(f"[Keepalive] recovery skipped: {type(exc).__name__}: {exc}")
+
+
 async def run_keepalive(
     stop_event: asyncio.Event,
     *,
@@ -51,13 +69,14 @@ async def run_keepalive(
                     value = payload.get("keepalive_sec")
                     if isinstance(value, (int, float)) and value > 0:
                         keepalive_sec = float(value)
+
             except asyncio.CancelledError:
                 raise
+
             except Exception as exc:
                 logger.debug(f"[Keepalive] failed: {type(exc).__name__}: {exc}")
-                if server_manager is not None:
-                    with contextlib.suppress(Exception):
-                        await server_manager.ensure_running()
+                await _recover_local_service(server_manager)
+
     finally:
         if owns_client:
             with contextlib.suppress(Exception):

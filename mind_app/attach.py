@@ -13,6 +13,14 @@ from mind_nova.attachments import upload_response_attachment
 UploadProgressCallback = typing.Callable[[dict[str, typing.Any]], typing.Awaitable[None]]
 
 
+def _attach_upload_error(filename: str, exc: BaseException) -> MindError:
+    """构造附件上传错误，并保留适合界面展示的原因。"""
+    reason = str(exc).strip() or type(exc).__name__
+    error = MindError(f"attach upload failed: {filename} ({type(exc).__name__}: {exc})")
+    setattr(error, "display_reason", reason)
+    return error
+
+
 class Attach(object):
     """附件状态与上传编排。"""
 
@@ -25,16 +33,48 @@ class Attach(object):
     })
 
     def __init__(self) -> None:
+        """初始化待上传附件列表。"""
         self.pending: list[dict[str, typing.Any]] = []
+
+    @classmethod
+    def _classify_attachment(cls, path: Path) -> tuple[str, str]:
+        """根据文件名和 MIME 类型判断附件类型。"""
+        mime_type = mimetypes.guess_type(path.name)[0] or ""
+        suffix    = path.suffix.lower()
+
+        if mime_type.startswith("image/") or suffix in cls.IMAGE_ATTACHMENT_SUFFIXES:
+            return "image", mime_type or "image/png"
+
+        if mime_type.startswith("text/") or suffix in cls.TEXT_ATTACHMENT_SUFFIXES:
+            return "file", mime_type or "text/plain"
+
+        return "file", mime_type or "application/octet-stream"
 
     @staticmethod
     def _strip_wrapped_quotes(value: str) -> str:
+        """移除路径参数外层成对引号。"""
         text = str(value or "").strip()
         if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
             return text[1:-1].strip()
         return text
 
+    @staticmethod
+    def _dedupe_paths(paths: list[Path]) -> list[Path]:
+        """按路径字符串去重并保留原有顺序。"""
+        seen: set[str]     = set()
+        result: list[Path] = []
+
+        for path in paths:
+            key = str(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(path)
+
+        return result
+
     def _resolve_attachment_path(self, raw_path: str, *, must_exist: bool) -> Path:
+        """解析附件路径，并按需校验文件是否存在。"""
         text = self._strip_wrapped_quotes(raw_path)
         if not text:
             raise MindError("attach invalid: /attach <path>")
@@ -54,6 +94,7 @@ class Attach(object):
         return path
 
     def _resolve_glob_base(self, raw_path: str) -> str:
+        """解析 glob 表达式的基准路径字符串。"""
         text = self._strip_wrapped_quotes(raw_path)
         if not text:
             raise MindError("attach invalid: /attach <path>")
@@ -61,21 +102,11 @@ class Attach(object):
         path = Path(text).expanduser()
         if not path.is_absolute():
             path = Path.cwd() / path
+
         return str(path)
 
-    @staticmethod
-    def _dedupe_paths(paths: list[Path]) -> list[Path]:
-        seen: set[str] = set()
-        result: list[Path] = []
-        for path in paths:
-            key = str(path)
-            if key in seen:
-                continue
-            seen.add(key)
-            result.append(path)
-        return result
-
     def _expand_attachment_inputs(self, raw_path: str) -> list[Path]:
+        """把文件、目录或 glob 输入展开为文件路径列表。"""
         pattern = self._resolve_glob_base(raw_path)
 
         if glob.has_magic(pattern):
@@ -102,30 +133,21 @@ class Attach(object):
 
         return [path]
 
-    @classmethod
-    def _classify_attachment(cls, path: Path) -> tuple[str, str]:
-        mime_type = mimetypes.guess_type(path.name)[0] or ""
-        suffix = path.suffix.lower()
-
-        if mime_type.startswith("image/") or suffix in cls.IMAGE_ATTACHMENT_SUFFIXES:
-            return "image", mime_type or "image/png"
-
-        if mime_type.startswith("text/") or suffix in cls.TEXT_ATTACHMENT_SUFFIXES:
-            return "file", mime_type or "text/plain"
-
-        return "file", mime_type or "application/octet-stream"
-
     def has_pending_attachments(self) -> bool:
+        """判断是否存在待上传附件。"""
         return bool(self.pending)
 
     def pending_attachments_snapshot(self) -> list[dict[str, typing.Any]]:
+        """返回待上传附件的浅拷贝快照。"""
         return [dict(item) for item in self.pending]
 
     def add_pending_attachments(self, raw_path: str) -> dict[str, typing.Any]:
+        """添加文件、目录或 glob 匹配到的附件。"""
         candidates = self._expand_attachment_inputs(raw_path)
-        added: list[dict[str, typing.Any]] = []
+
+        added: list[dict[str, typing.Any]]    = []
         existing: list[dict[str, typing.Any]] = []
-        skipped: list[dict[str, typing.Any]] = []
+        skipped: list[dict[str, typing.Any]]  = []
 
         for path in candidates:
             local = str(path)
@@ -170,6 +192,7 @@ class Attach(object):
         }
 
     def remove_pending_attachment(self, query: str) -> dict[str, typing.Any]:
+        """按序号或路径移除一个待上传附件。"""
         text = self._strip_wrapped_quotes(query)
         if not text:
             raise MindError("detach invalid: /detach <index|path>")
@@ -190,6 +213,7 @@ class Attach(object):
         raise MindError(f"detach missing attachment: {local}")
 
     def clear_pending_attachments(self) -> int:
+        """清空待上传附件并返回清理数量。"""
         count = len(self.pending)
         self.pending.clear()
         return count
@@ -198,11 +222,14 @@ class Attach(object):
         self,
         progress_callback: typing.Optional[UploadProgressCallback] = None
     ) -> list[dict[str, typing.Any]]:
+        """顺序上传待发送附件，并返回服务端附件载荷。"""
         uploaded: list[dict[str, typing.Any]] = []
+
         total_items = len(self.pending)
         total_bytes = sum(int(item.get("size") or 0) for item in self.pending)
+
         aggregate_uploaded_before = 0
-        aggregate_started_at = time.monotonic()
+        aggregate_started_at      = time.monotonic()
 
         agent_id = "attachments"
 
@@ -212,33 +239,29 @@ class Attach(object):
                 continue
 
             async def emit_progress(payload: dict[str, typing.Any]) -> None:
+                """补充聚合上传状态并转发给进度回调。"""
                 if progress_callback is None:
                     return None
+
                 event = dict(payload)
+
                 aggregate_uploaded = aggregate_uploaded_before + int(event.get("uploaded_bytes") or 0)
-                aggregate_elapsed = max(0.0, time.monotonic() - aggregate_started_at)
+                aggregate_elapsed  = max(0.0, time.monotonic() - aggregate_started_at)
+
                 aggregate_speed = (
                     float(aggregate_uploaded) / aggregate_elapsed if aggregate_elapsed > 0 else 0.0
                 )
-                aggregate_percent = (
-                    min(1.0, float(aggregate_uploaded) / float(total_bytes)) if total_bytes > 0 else 1.0
-                )
-                remaining_bytes = max(0, int(total_bytes) - aggregate_uploaded)
-                aggregate_eta = (
-                    (float(remaining_bytes) / aggregate_speed) if aggregate_speed > 0 and remaining_bytes > 0 else 0.0
-                )
+
                 event.update({
-                    "item_index": item_index,
-                    "item_total": total_items,
-                    "filename": item.get("filename") or Path(local).name,
-                    "local": local,
-                    "kind": item.get("kind") or "file",
-                    "aggregate_uploaded_bytes": aggregate_uploaded,
-                    "aggregate_total_bytes": total_bytes,
-                    "aggregate_percent": aggregate_percent,
-                    "aggregate_elapsed_sec": aggregate_elapsed,
-                    "aggregate_speed_bytes_per_sec": aggregate_speed,
-                    "aggregate_eta_sec": 0.0 if bool(event.get("done")) else aggregate_eta,
+                    "item_index"                    : item_index,
+                    "item_total"                    : total_items,
+                    "filename"                      : item.get("filename") or Path(local).name,
+                    "local"                         : local,
+                    "kind"                          : item.get("kind") or "file",
+                    "aggregate_uploaded_bytes"      : aggregate_uploaded,
+                    "aggregate_total_bytes"         : total_bytes,
+                    "aggregate_elapsed_sec"         : aggregate_elapsed,
+                    "aggregate_speed_bytes_per_sec" : aggregate_speed
                 })
                 await progress_callback(event)
 
@@ -247,15 +270,16 @@ class Attach(object):
                     local,
                     agent_id,
                     prefix="prompt-attachments",
-                    progress_callback=emit_progress if progress_callback is not None else None,
+                    progress_callback=emit_progress if progress_callback is not None else None
                 )
             except Exception as exc:
-                raise MindError(f"attach upload failed: {Path(local).name} ({type(exc).__name__}: {exc})") from exc
+                raise _attach_upload_error(Path(local).name, exc) from exc
 
             try:
                 uploaded.append(upload_response_attachment(result, context=f"attach {Path(local).name}"))
             except ValueError as exc:
                 raise MindError(str(exc)) from exc
+
             aggregate_uploaded_before += int(item.get("size") or 0)
 
         return uploaded

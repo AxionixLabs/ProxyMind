@@ -94,6 +94,113 @@ class Mind(object):
         """设置远程全局配置，并在异常输入时兜底为空字典。"""
         self.__remote = value if isinstance(value, dict) else {}
 
+    @staticmethod
+    def keepalive_task_done(task: asyncio.Task[None]) -> None:
+        """回收后台保活任务异常，避免事件循环输出未取回异常。"""
+        if task.cancelled():
+            return None
+
+        try:
+            error = task.exception()
+        except asyncio.CancelledError:
+            return None
+
+        if error is not None:
+            logger.debug(f"[Keepalive] task stopped: {type(error).__name__}: {error}")
+
+    @staticmethod
+    def ensure_pref_config(pref_config: dict[str, typing.Any]) -> None:
+        """校验偏好配置中的关键字段是否完整。"""
+        primary = pref_config.get("primary") if isinstance(pref_config, dict) else None
+        if isinstance(primary, dict):
+            api    = primary.get("api")
+            model  = primary.get("model")
+            apikey = primary.get("apikey")
+        else:
+            api    = pref_config["api"]
+            model  = pref_config["model"]
+            apikey = pref_config["apikey"]
+
+        if api and model and apikey:
+            return None
+
+        configs = [("api", bool(api)), ("model", bool(model)), ("apikey", bool(apikey))]
+        missing = ", ".join(x for x, ok in configs if not ok)
+
+        raise MindError(f"Missing required field(s): {missing}")
+
+    @staticmethod
+    def build_openai_tools(
+        list_tools: ListToolsResult,
+    ) -> tuple[list[dict[str, typing.Any]], dict[str, dict[str, typing.Any]]]:
+        """把 MCP 工具列表转换为 OpenAI 兼容的工具描述。"""
+        openai_tools: list[dict[str, typing.Any]]   = []
+        tool_meta: dict[str, dict[str, typing.Any]] = {}
+
+        for tool in list_tools.tools:
+            meta = dict(tool.meta or {})
+            if bool(meta.get("hidden", False)):
+                continue
+            tool_meta[tool.name] = meta
+
+            openai_tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name"        : tool.name,
+                        "description" : tool.description,
+                        "parameters"  : tool.inputSchema
+                    }
+                }
+            )
+
+        logger.debug(f"[Tooling] count={len(openai_tools)}")
+
+        return openai_tools, tool_meta
+
+    @staticmethod
+    async def await_cleanup(awaitable: typing.Awaitable[None]) -> None:
+        """在取消态下也等待清理逻辑执行完成。"""
+        task = asyncio.ensure_future(awaitable)
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            await task
+            raise
+
+    def signal_processor(self, *_, **__) -> None:
+        """处理终止信号，并优先触发异步清理。"""
+        self.sig_count += 1
+        self.task_event.set()
+        self.exit_code = 130
+
+        if self.sig_count > 1:
+            sys.exit(self.exit_code)
+
+        loop = self.runtime_loop
+        if loop is not None and loop.is_running():
+            self.cancel_root_task()
+            return None
+
+        sys.exit(self.exit_code)
+
+    def cancel_root_task(self) -> None:
+        """取消顶层任务，让退出沿协程栈执行清理逻辑。"""
+        task = self.root_task
+        if task is not None and not task.done():
+            task.cancel()
+
+    def begin_session(
+        self,
+        cid: typing.Optional[str] = None,
+        sid: typing.Optional[str] = None
+    ) -> dict[str, str]:
+        """初始化或续用当前会话标识。"""
+        self.cid = cid or self.cid or craft.new_cid()
+        self.sid = sid or self.sid or craft.new_sid(self.cid)
+
+        return {"cid": self.cid, "sid": self.sid}
+
     def bind_runtime(
         self,
         loop: asyncio.AbstractEventLoop,
@@ -106,6 +213,21 @@ class Mind(object):
     def bind_server_manager(self, server_manager: ServerManage) -> None:
         """绑定本地后台服务管理器。"""
         self.server_manager = server_manager
+
+    def start_keepalive_supervisor(self) -> None:
+        """启动 Mind 生命周期内的本地后台服务保活任务。"""
+        if self.keepalive_task and not self.keepalive_task.done():
+            return None
+
+        self.keepalive_stop = asyncio.Event()
+        self.keepalive_task = asyncio.create_task(
+            run_keepalive(
+                self.keepalive_stop,
+                server_manager=self.server_manager
+            ),
+            name="local service keepalive"
+        )
+        self.keepalive_task.add_done_callback(self.keepalive_task_done)
 
     async def refresh_pref_if_stale(self, *, ttl_sec: typing.Optional[float] = None) -> None:
         """按 TTL 从后端刷新偏好配置，用于模型与密钥热更新。"""
@@ -126,20 +248,6 @@ class Mind(object):
         """返回刷新后的偏好配置快照。"""
         await self.refresh_pref_if_stale(ttl_sec=ttl_sec)
         return self.pref.to_config()
-
-    def start_keepalive_supervisor(self) -> None:
-        """启动 Mind 生命周期内的本地后台服务保活任务。"""
-        if self.keepalive_task and not self.keepalive_task.done():
-            return None
-
-        self.keepalive_stop = asyncio.Event()
-        self.keepalive_task = asyncio.create_task(
-            run_keepalive(
-                self.keepalive_stop,
-                server_manager=self.server_manager
-            ),
-            name="local service keepalive"
-        )
 
     async def start_external_mcp_runtime(self) -> None:
         """启动 Mind 生命周期级外部 MCP 运行时。"""
@@ -189,43 +297,14 @@ class Mind(object):
         finally:
             self.start_keepalive_supervisor()
 
-    def _cancel_root_task(self) -> None:
-        """取消顶层任务，让退出沿协程栈执行清理逻辑。"""
-        task = self.root_task
-        if task is not None and not task.done():
-            task.cancel()
-
-    def signal_processor(self, *_, **__) -> None:
-        """处理终止信号，并优先触发异步清理。"""
-        self.sig_count += 1
-        self.task_event.set()
-        self.exit_code = 130
-
-        if self.sig_count > 1:
-            sys.exit(self.exit_code)
-
-        loop = self.runtime_loop
-        if loop is not None and loop.is_running():
-            self._cancel_root_task()
-            return None
-
-        sys.exit(self.exit_code)
-
-    @staticmethod
-    async def await_cleanup(awaitable: typing.Awaitable[None]) -> None:
-        """在取消态下也等待清理逻辑执行完成。"""
-        task = asyncio.ensure_future(awaitable)
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError:
-            await task
-            raise
-
     async def stop_anim(self) -> None:
         """停止等待动画。"""
         await self.anim_manager.stop()
 
-    async def start_anim(self, mode: RunMode = DEFAULT_RUN_MODE) -> None:
+    async def start_anim(
+        self,
+        mode: RunMode = DEFAULT_RUN_MODE
+    ) -> None:
         """启动指定模式的等待动画。"""
         await self.anim_manager.start(
             lambda stop_event: self.design.stream_mode_live(stop_event, mode)
@@ -248,67 +327,6 @@ class Mind(object):
         await self.anim_manager.start(
             lambda stop_event: self.design.external_mcp_live(stop_event, snapshot)
         )
-
-    @staticmethod
-    def ensure_pref_config(pref_config: dict[str, typing.Any]) -> None:
-        """校验偏好配置中的关键字段是否完整。"""
-        primary = pref_config.get("primary") if isinstance(pref_config, dict) else None
-        if isinstance(primary, dict):
-            api    = primary.get("api")
-            model  = primary.get("model")
-            apikey = primary.get("apikey")
-        else:
-            api    = pref_config["api"]
-            model  = pref_config["model"]
-            apikey = pref_config["apikey"]
-
-        if api and model and apikey:
-            return None
-
-        configs = [("api", bool(api)), ("model", bool(model)), ("apikey", bool(apikey))]
-        missing = ", ".join(x for x, ok in configs if not ok)
-
-        raise MindError(f"Missing required field(s): {missing}")
-
-    @staticmethod
-    def build_openai_tools(
-        list_tools: ListToolsResult,
-    ) -> tuple[list[dict[str, typing.Any]], dict[str, dict[str, typing.Any]]]:
-        """把 MCP 工具列表转换为 OpenAI 兼容的工具描述。"""
-        openai_tools: list[dict[str, typing.Any]] = []
-        tool_meta: dict[str, dict[str, typing.Any]] = {}
-
-        for tool in list_tools.tools:
-            meta = dict(tool.meta or {})
-            if bool(meta.get("hidden", False)):
-                continue
-            tool_meta[tool.name] = meta
-
-            openai_tools.append(
-                {
-                    "type": "function",
-                    "function": {
-                        "name"        : tool.name,
-                        "description" : tool.description,
-                        "parameters"  : tool.inputSchema
-                    }
-                }
-            )
-
-        logger.debug(f"[Tooling] count={len(openai_tools)}")
-
-        return openai_tools, tool_meta
-
-    def begin_session(
-        self,
-        cid: typing.Optional[str] = None,
-        sid: typing.Optional[str] = None,
-    ) -> dict[str, str]:
-        """初始化或续用当前会话标识。"""
-        self.cid = cid or self.cid or craft.new_cid()
-        self.sid = sid or self.sid or craft.new_sid(self.cid)
-
-        return {"cid": self.cid, "sid": self.sid}
 
     async def with_mcp_session(
         self,
@@ -355,7 +373,7 @@ class Mind(object):
         *,
         message: str,
         mode: RunMode = DEFAULT_RUN_MODE,
-        **kwargs,
+        **kwargs
     ) -> None:
         """调用入口：统一委托运行时模块按 mode 执行单次请求。"""
         return await run_calling(
