@@ -192,6 +192,8 @@ async def with_mcp_session(
     before_user_flow: typing.Optional[typing.Callable[[], typing.Any]] = None,
 ) -> None:
     """建立共享 MCP 会话，并把工具信息注入到调用流程。"""
+    _ = pref_config  # 保留调用签名；模型配置完整性由服务端统一判断。
+
     async def inject_auth(req: httpx.Request) -> None:
         """为 MCP 请求注入短时 Bearer 凭证。"""
         now = int(time.time())
@@ -199,8 +201,6 @@ async def with_mcp_session(
             token_cache["val"] = authentic.manufacture_token()
             token_cache["ts"] = now
         req.headers["Authorization"] = f"Bearer {token_cache['val']}"
-
-    mind.ensure_pref_config(pref_config)
 
     url         = const.BASE_URL + const.MCP_ED
     token_cache = {"ts": 0, "val": ""}

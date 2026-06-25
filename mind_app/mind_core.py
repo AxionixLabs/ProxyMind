@@ -109,27 +109,6 @@ class Mind(object):
             logger.debug(f"[Keepalive] task stopped: {type(error).__name__}: {error}")
 
     @staticmethod
-    def ensure_pref_config(pref_config: dict[str, typing.Any]) -> None:
-        """校验偏好配置中的关键字段是否完整。"""
-        primary = pref_config.get("primary") if isinstance(pref_config, dict) else None
-        if isinstance(primary, dict):
-            api    = primary.get("api")
-            model  = primary.get("model")
-            apikey = primary.get("apikey")
-        else:
-            api    = pref_config["api"]
-            model  = pref_config["model"]
-            apikey = pref_config["apikey"]
-
-        if api and model and apikey:
-            return None
-
-        configs = [("api", bool(api)), ("model", bool(model)), ("apikey", bool(apikey))]
-        missing = ", ".join(x for x, ok in configs if not ok)
-
-        raise MindError(f"Missing required field(s): {missing}")
-
-    @staticmethod
     def build_openai_tools(
         list_tools: ListToolsResult,
     ) -> tuple[list[dict[str, typing.Any]], dict[str, dict[str, typing.Any]]]:

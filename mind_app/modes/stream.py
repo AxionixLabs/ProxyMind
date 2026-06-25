@@ -47,6 +47,10 @@ from ..stream_events.tool_trace import (
     is_native_coding_trace_tool,
     local_path_exists
 )
+from ..stream_events.lifecycle import (
+    StreamEventContext,
+    handle_lifecycle_event
+)
 from ..stream_state.segment import (
     SegmentTracker, build_sources_text
 )
@@ -75,8 +79,8 @@ async def stream_looper(
 
     slog: StreamUI = StreamUI(mind.report.log_papers, design_level=mind.level)
 
-    interrupted = False
-    first_frame = True
+    interrupted: bool = False
+    first_frame: bool = True
 
     approvals = ApprovalStore()
 
@@ -87,7 +91,19 @@ async def stream_looper(
 
     try:
         await slog.open()
-        tracker = SegmentTracker()
+
+        tracker  = SegmentTracker()
+        metadata = kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {}
+
+        event_ctx = StreamEventContext(
+            mind=mind,
+            session=session,
+            slog=slog,
+            tracker=tracker,
+            mode=mode,
+            pref_config=pref_config,
+            metadata=metadata
+        )
 
         async for event in request.stream_chat(
             mode,
@@ -383,7 +399,11 @@ async def stream_looper(
                 await slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                 continue
 
+            if await handle_lifecycle_event(event_type, event, event_ctx):
+                continue
+
             continue
+
     except asyncio.CancelledError:
         interrupted = True
         raise
