@@ -3,9 +3,8 @@
 
 import re
 import time
-import asyncio
 import typing
-from pathlib import Path
+import asyncio
 from mind_app.mcp import McpSessionLike
 from engine.tinker import MindError
 from mind_core.design import Design
@@ -18,17 +17,16 @@ from mind_nova.modes import (
 from mind_nova import const
 from ..runtime.calling import resolve_mode_runner
 from .support.repl_prompt import (
-    WORKSPACE_STATUS_REFRESH_TTL_SEC,
+    WORKSPACE_LABEL_REFRESH,
     fetch_runtime_workspace_root,
     primary_model_from_config,
     refresh_prompt_header_state,
     stop_prompt_header_refresh,
-    workspace_match_status
+    workspace_display_label
 )
 
 if typing.TYPE_CHECKING:
     from ..mind_core import Mind
-
 
 MODE_BY_COMMAND: dict[str, RunMode] = {
     "/chat": "chat",
@@ -37,7 +35,8 @@ MODE_BY_COMMAND: dict[str, RunMode] = {
     "/xtra": "xtra"
 }
 
-def is_ignored_repl_input(raw: str) -> bool:
+
+def ignored_repl_input(raw: str) -> bool:
     """判断 REPL 输入是否应仅换行并跳过请求链路。"""
     stripped = str(raw or "").strip()
     if not stripped:
@@ -215,10 +214,9 @@ async def mind_loop(mind: "Mind") -> None:
     model       = primary.get("model", "")
 
     mode: RunMode = DEFAULT_RUN_MODE
-    mind_workspace_root = Path.cwd().resolve()
-    workspace_status = "?"
-    workspace_status_refreshed_at = 0.0
-    prompt_header_state = PromptHeaderState(model=model, workspace_status=workspace_status)
+    workspace_label = ""
+    workspace_label_refreshed_at = 0.0
+    prompt_header_state = PromptHeaderState(model=model, workspace_label=workspace_label)
 
     while not mind.task_event.is_set():
         raw = ""
@@ -226,25 +224,21 @@ async def mind_loop(mind: "Mind") -> None:
         model       = primary_model_from_config(pref_config, model)
         now = time.monotonic()
         if (
-            workspace_status_refreshed_at <= 0.0
-            or now - workspace_status_refreshed_at >= WORKSPACE_STATUS_REFRESH_TTL_SEC
+            workspace_label_refreshed_at <= 0.0
+            or now - workspace_label_refreshed_at >= WORKSPACE_LABEL_REFRESH
         ):
             runtime_workspace_root = await fetch_runtime_workspace_root()
-            workspace_status = workspace_match_status(
-                mind_workspace_root,
-                runtime_workspace_root
-            )
-            workspace_status_refreshed_at = now
+            workspace_label = workspace_display_label(runtime_workspace_root)
+            workspace_label_refreshed_at = now
 
         prompt_header_state.update(
             model=model,
-            workspace_status=workspace_status
+            workspace_label=workspace_label
         )
         header_refresh_task = asyncio.create_task(
             refresh_prompt_header_state(
                 mind,
-                prompt_header_state,
-                mind_workspace_root=mind_workspace_root
+                prompt_header_state
             ),
             name="prompt header refresh"
         )
@@ -253,7 +247,7 @@ async def mind_loop(mind: "Mind") -> None:
             raw = await mind.prompt_box.prompt_async(
                 mode=mode,
                 model=model,
-                workspace_status=workspace_status,
+                workspace_label=workspace_label,
                 header_state=prompt_header_state
             )
         except KeyboardInterrupt:
@@ -265,7 +259,7 @@ async def mind_loop(mind: "Mind") -> None:
         finally:
             await stop_prompt_header_refresh(header_refresh_task)
 
-        if is_ignored_repl_input(raw):
+        if ignored_repl_input(raw):
             Design.console.print()
             continue
 
@@ -311,7 +305,7 @@ async def mind_loop(mind: "Mind") -> None:
                 Design.console.print(f"[bold #FF5F5F]Runtime reboot failed: {error}[/]")
                 Design.console.print()
                 continue
-            workspace_status_refreshed_at = 0.0
+            workspace_label_refreshed_at = 0.0
             Design.console.print()
             continue
 

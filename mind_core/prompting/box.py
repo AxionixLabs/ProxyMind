@@ -39,21 +39,21 @@ class PromptHeaderState:
         self,
         *,
         model: str = "",
-        workspace_status: str = "?"
+        workspace_label: str = ""
     ) -> None:
         self.model = str(model or "")
-        self.workspace_status = str(workspace_status or "?")
+        self.workspace_label = str(workspace_label or "")
 
     def update(
         self,
         *,
         model: typing.Optional[str] = None,
-        workspace_status: typing.Optional[str] = None
+        workspace_label: typing.Optional[str] = None
     ) -> None:
         if model is not None:
             self.model = model
-        if workspace_status is not None:
-            self.workspace_status = workspace_status
+        if workspace_label is not None:
+            self.workspace_label = workspace_label
 
 
 class CommandAutoSuggest(AutoSuggest):
@@ -380,9 +380,9 @@ class PromptToolkitBox(object):
     SKILLS_COMMAND_TEXT: str = "$"
 
     MODEL_DISPLAY_MAX: int    = 24
+    WORKSPACE_LABEL_MAX: int  = 36
     PASTE_CHAR_THRESHOLD: int = 1200
     PASTE_LINE_THRESHOLD: int = 20
-    WORKSPACE_STATUS_DEFAULT: str = "?"
 
     def __init__(self) -> None:
         self.history: InMemoryHistory         = InMemoryHistory()
@@ -402,9 +402,7 @@ class PromptToolkitBox(object):
             "prompt.kicker"                           : "bold #7B838E",
             "prompt.model"                            : "bold #F3F5F8",
             "prompt.muted"                            : "bold #767D87",
-            "prompt.workspace.same"                   : "bold #7B838E",
-            "prompt.workspace.diff"                   : "bold #D3C27C",
-            "prompt.workspace.unknown"                : "bold #767D87",
+            "prompt.workspace"                        : "bold #8A929C",
             "placeholder"                             : "bold #727983",
             "auto-suggestion"                         : "#5A616A bg:#0A0D18",
             "skill-token"                             : "bold #8FD7FF",
@@ -458,36 +456,51 @@ class PromptToolkitBox(object):
         return model[: max(0, limit - 3)] + "..."
 
     @staticmethod
-    def _workspace_status_symbol(status: str) -> tuple[str, str]:
-        """返回 workspace 状态符号和样式。"""
-        normalized = str(status or "").strip()
-        if normalized == "=":
-            return "=", "prompt.workspace.same"
-        if normalized == "!":
-            return "!", "prompt.workspace.diff"
-        return "?", "prompt.workspace.unknown"
+    def _clip_workspace_label(label: str, limit: int) -> str:
+        """workspace 展示名从前面裁剪，保留末尾目录信息。"""
+        if limit <= 0:
+            return ""
+        if len(label) <= limit:
+            return label
+        for home_prefix in ("~\\", "~/"):
+            if label.startswith(home_prefix):
+                if limit <= len(home_prefix):
+                    return home_prefix[:limit]
+                keep = limit - len(home_prefix)
+                return home_prefix + label[-keep:]
+        if limit <= 3:
+            return label[-limit:]
+        return "..." + label[-max(0, limit - 3):]
 
     @staticmethod
     def _render_message(
         model: str,
         th: dict[str, str],
-        workspace_status: str = WORKSPACE_STATUS_DEFAULT
+        workspace_label: str = ""
     ) -> HTML:
         """输入头部渲染。"""
         safe_model = html.escape(
             PromptToolkitBox._clip_model_name(model or "-", PromptToolkitBox.MODEL_DISPLAY_MAX)
         )
-        workspace_symbol, workspace_style = PromptToolkitBox._workspace_status_symbol(
-            workspace_status
+        safe_workspace = html.escape(
+            PromptToolkitBox._clip_workspace_label(
+                workspace_label or "",
+                PromptToolkitBox.WORKSPACE_LABEL_MAX
+            )
+        )
+        workspace_parts = (
+            f"<prompt.kicker>·</prompt.kicker> "
+            f"<prompt.workspace>{safe_workspace}</prompt.workspace> "
+            if safe_workspace
+            else ""
         )
         return HTML(
             f"<prompt>"
             f"<prompt.kicker>[</prompt.kicker> "
             f"<prompt.brand fg='{th['brand']}'>{html.escape(const.APP_DESC)}</prompt.brand> "
             f"<prompt.kicker>::</prompt.kicker> "
-            f"<{workspace_style}>{html.escape(workspace_symbol)}</{workspace_style}> "
-            f"<prompt.kicker>::</prompt.kicker> "
             f"<prompt.model fg='{th['soft']}'>{safe_model}</prompt.model> "
+            f"{workspace_parts}"
             f"<prompt.kicker>]</prompt.kicker>\n"
             f"<prompt.kicker>></prompt.kicker> "
             f"</prompt>"
@@ -694,21 +707,21 @@ class PromptToolkitBox(object):
         *,
         mode: RunMode,
         model: str,
-        workspace_status: str = WORKSPACE_STATUS_DEFAULT,
+        workspace_label: str = "",
         header_state: typing.Optional[PromptHeaderState] = None
     ) -> str:
         """异步输入渲染入口。"""
         th = self._theme(mode)
 
         if header_state is not None:
-            header_state.update(model=model, workspace_status=workspace_status)
+            header_state.update(model=model, workspace_label=workspace_label)
             message = lambda: self._render_message(
                 header_state.model,
                 th,
-                header_state.workspace_status
+                header_state.workspace_label
             )
         else:
-            message = self._render_message(model, th, workspace_status)
+            message = self._render_message(model, th, workspace_label)
 
         self.auto_suggest.set_mode(mode)
 
