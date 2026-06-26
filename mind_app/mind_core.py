@@ -12,6 +12,7 @@ from mcp import ListToolsResult
 from engine.manage import ServerManage
 from engine.animation import AsyncAnimManager
 from engine.tinker import MindError
+from mind_nova import craft
 from mind_core.design import Design
 from mind_core.prompting import PromptToolkitBox
 from mind_core.preference import Preferences
@@ -89,6 +90,7 @@ class Mind(object):
 
         self.exit_code: int = 0
         self.sig_count: int = 0
+        self.shutdown_helix_on_exit: bool = False
 
     @property
     def remote(self) -> dict:
@@ -347,12 +349,19 @@ class Mind(object):
                 await task
 
     async def close_runtime_resources(self) -> None:
-        """关闭 Mind 持有的运行时资源，不关闭本地后台进程。"""
+        """关闭 Mind 持有的运行时资源，并按退出策略处理本地后台进程。"""
         await self.stop_external_mcp_runtime()
         await self.stop_keepalive_supervisor()
-        if self.server_manager is not None:
-            await self.server_manager.close()
-            self.server_manager = None
+        server_manager = self.server_manager
+        self.server_manager = None
+
+        if server_manager is not None:
+            try:
+                await server_manager.close()
+            finally:
+                if self.shutdown_helix_on_exit:
+                    with contextlib.suppress(Exception):
+                        await craft.kill_port(server_manager.port)
 
     async def reboot_runtime(self) -> None:
         """重启已绑定的后台进程，并在完成后恢复保活任务。"""

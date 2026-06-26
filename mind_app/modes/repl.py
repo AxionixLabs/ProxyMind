@@ -4,8 +4,11 @@
 import re
 import time
 import typing
+import httpx
 from mind_app.mcp import McpSessionLike
-from engine.tinker import MindError
+from engine.tinker import (
+    MindError, FileAssist
+)
 from mind_core.design import Design
 from mind_core.design.upload import UploadProgressLiveReporter
 from mind_nova.events import EventReport
@@ -18,8 +21,11 @@ from .support.repl_prompt import (
     WORKSPACE_LABEL_REFRESH,
     fetch_runtime_workspace_root,
     primary_model_from_config,
+    save_primary_pref_field,
     workspace_display_label
 )
+from .support.repl_mcp import render_mcp_status
+from .support.repl_tools import render_tools_summary
 from ..history.resume_menu import choose_history_session
 
 if typing.TYPE_CHECKING:
@@ -70,25 +76,50 @@ async def mind_loop(mind: "Mind") -> None:
 
     async def exchange(
         matcher: re.Match[str],
-        types: typing.Literal["model", "apikey"]
+        pref_command: typing.Literal["model", "apikey", "base-url"]
     ) -> typing.Optional[str]:
-        """解析 `/model` 与 `/apikey` 指令，并给出交互提示。"""
+        """解析模型偏好类指令，并给出交互提示。"""
         if pref_name := matcher.group(1).strip() if matcher.group(1) else None:
             return pref_name
 
         styles: list[str] = []
 
-        match types:
+        match pref_command:
             case "model":
                 styles = ["<model> (Model name or ID)"]
             case "apikey":
                 styles = ["<apikey> (Provider API key)"]
+            case "base-url":
+                styles = ["<url> (Provider base URL)"]
 
         for s in styles:
             Design.console.print(f"[bold #AFC7D8]  • {s}[/]")
-        Design.console.print(f"[bold #FF5F5F]\n {types} invalid: /{types} {const.ERR}{pref_name}")
+        Design.console.print(
+            f"[bold #FF5F5F]\n {pref_command} invalid: /{pref_command} {const.ERR}{pref_name}"
+        )
         Design.console.print()
         return None
+
+    async def persist_primary_pref(
+        *,
+        command_name: typing.Literal["model", "apikey", "base-url"],
+        field_name: typing.Literal["model", "apikey", "base_url"],
+        field_value: str
+    ) -> typing.Optional[dict[str, typing.Any]]:
+        """把 REPL 偏好命令写入 primary slot，并刷新本地缓存。"""
+        try:
+            saved = await save_primary_pref_field(field_name, field_value)
+            await mind.refresh_pref_if_stale(ttl_sec=0.0)
+        except (httpx.HTTPError, ValueError) as pref_save_error:
+            Design.console.print(
+                f"[bold #FF5F5F]{command_name} save failed: "
+                f"{type(pref_save_error).__name__}: {pref_save_error}[/]"
+            )
+            Design.console.print()
+            return None
+
+        save_pri = saved.get("primary") if isinstance(saved, dict) else {}
+        return save_pri if isinstance(save_pri, dict) else {}
 
     async def run_model_turn(
         message_text: str,
@@ -96,7 +127,7 @@ async def mind_loop(mind: "Mind") -> None:
         turn_pref_config: dict[str, typing.Any]
     ) -> None:
         """为单轮用户输入建立 MCP 会话并执行模型流程。"""
-        async def function(
+        async def run_turn_with_session(
             session: McpSessionLike,
             openai_tools: list[dict[str, typing.Any]],
             tool_meta: dict[str, dict[str, typing.Any]],
@@ -171,7 +202,30 @@ async def mind_loop(mind: "Mind") -> None:
                 if uploaded_attachments:
                     mind.attach.clear_pending_attachments()
 
-        await mind.with_mcp_session(turn_pref_config, function)
+        await mind.with_mcp_session(turn_pref_config, run_turn_with_session)
+
+    async def print_available_tools(
+        run_mode: RunMode,
+        turn_pref_config: dict[str, typing.Any]
+    ) -> None:
+        """建立一次 MCP 会话并打印当前模式可见工具。"""
+        async def render_tools_with_session(
+            session: McpSessionLike,
+            openai_tools: list[dict[str, typing.Any]],
+            tool_meta: dict[str, dict[str, typing.Any]],
+        ) -> None:
+            _ = session
+            render_tools_summary(
+                mode=run_mode,
+                openai_tools=openai_tools,
+                tool_meta=tool_meta
+            )
+
+        try:
+            await mind.with_mcp_session(turn_pref_config, render_tools_with_session)
+        except MindError as err:
+            Design.console.print(f"[bold #FF5F5F]Tools unavailable: {err}[/]")
+            Design.console.print()
 
     quit_set: set[str] = {"/quit", "/q", "quit", "exit"}
     help_set: set[str] = {"/help", "/h"}
@@ -182,6 +236,9 @@ async def mind_loop(mind: "Mind") -> None:
     attach_clear_set: set[str] = {"/attach-clear"}
     reboot_set: set[str]       = {"/reboot"}
     resume_set: set[str]       = {"/resume"}
+    pref_set: set[str]         = {"/pref"}
+    tools_set: set[str]        = {"/tools"}
+    shutdown_set: set[str]     = {"/shutdown"}
 
     doc = """\
         [bold]
@@ -195,18 +252,23 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #AFD7FF]/detach <index|path>[/]      移除一个待发送附件
         [bold #AFD7FF]/attach-clear[/]             清空当前待发送附件
         [bold #AFD7FF]/reboot[/]                   重启本地后台服务
+        [bold #FF5F5F]/shutdown[/]                 关闭前台并停止 Helix 后台
+        [bold #AFD7FF]/pref[/]                     打开 Web 偏好配置页
+        [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
         [bold #FFD75F]/chat[/]                     对话模式（交互能力协作/自然语言交互）
         [bold #FFD75F]/fast[/]                     高速模式（高吞吐任务流/数据媒体直达）
         [bold #FFD75F]/plan[/]                     编排模式（结构任务拆解/确定路径执行）
         [bold #FFD75F]/xtra[/]                     外接模式（外部 MCP 工具 + 通用工具 + 编码工具）
-        [bold #7F8C9A]/model <name>[/]             引擎切换（选择推理内核）
-        [bold #7F8C9A]/apikey <key>[/]             凭证更新（替换访问密钥）
+        [bold #7F8C9A]/model <name>[/]             持久化主模型名称
+        [bold #7F8C9A]/apikey <key>[/]             持久化主模型访问密钥
+        [bold #7F8C9A]/base-url <url>[/]           持久化主模型 Base URL
         [/]"""
 
-    re_model  = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
-    re_apikey = re.compile(r"^\s*/apikey(?:\s+(.*))?\s*$", re.IGNORECASE)
-    re_attach = re.compile(r"^\s*/attach(?:\s+(.*))?\s*$", re.IGNORECASE)
-    re_detach = re.compile(r"^\s*/detach(?:\s+(.*))?\s*$", re.IGNORECASE)
+    re_model    = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
+    re_apikey   = re.compile(r"^\s*/apikey(?:\s+(.*))?\s*$", re.IGNORECASE)
+    re_base_url = re.compile(r"^\s*/base-url(?:\s+(.*))?\s*$", re.IGNORECASE)
+    re_attach   = re.compile(r"^\s*/attach(?:\s+(.*))?\s*$", re.IGNORECASE)
+    re_detach   = re.compile(r"^\s*/detach(?:\s+(.*))?\s*$", re.IGNORECASE)
 
     pref_config = await mind.fresh_pref_config()
     primary     = pref_config.get("primary") or {}
@@ -232,7 +294,7 @@ async def mind_loop(mind: "Mind") -> None:
             workspace_label_refreshed_at = now
 
         try:
-            raw = await mind.prompt_box.prompt_async(
+            prompt_text = await mind.prompt_box.prompt_async(
                 mode=mode,
                 model=model,
                 workspace_label=workspace_label
@@ -244,11 +306,11 @@ async def mind_loop(mind: "Mind") -> None:
         except (EOFError, UnicodeDecodeError):
             continue
 
-        if ignored_repl_input(raw):
+        if ignored_repl_input(prompt_text):
             Design.console.print()
             continue
 
-        command = raw.strip().lower()
+        command = prompt_text.strip().lower()
 
         if command in quit_set:
             mind.task_event.set()
@@ -298,6 +360,36 @@ async def mind_loop(mind: "Mind") -> None:
             Design.console.print()
             continue
 
+        if command in shutdown_set:
+            mind.shutdown_helix_on_exit = True
+            mind.task_event.set()
+            Design.console.print("[bold #FF5F5F]Shutdown[/] [dim #7F8C9A]· stopping Helix runtime[/]")
+            Design.console.print()
+            break
+
+        if command in pref_set:
+            url = f"{const.BASE_URL.rstrip('/')}/pref"
+            Design.console.print(
+                f"[bold #AFC7D8]Preferences[/] [dim #7F8C9A]· {url}[/]"
+            )
+            try:
+                await FileAssist.open_url(url)
+            except Exception as error:
+                Design.console.print(
+                    f"[bold #FF5F5F]Open preferences failed: {type(error).__name__}: {error}[/]"
+                )
+            Design.console.print()
+            continue
+
+        if command in tools_set:
+            pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
+            await print_available_tools(mode, pref_config)
+            continue
+
+        if command == "/mcp":
+            render_mcp_status(mind)
+            continue
+
         if command in resume_set:
             records = mind.recent_conversation_sessions(mode=mode)
             if not records:
@@ -330,15 +422,55 @@ async def mind_loop(mind: "Mind") -> None:
             mode = MODE_BY_COMMAND[command]
             continue
 
-        if m := re_model.match(raw):
-            model = await exchange(m, types="model") or model
+        if m := re_model.match(prompt_text):
+            if model_value := await exchange(m, pref_command="model"):
+                saved_primary = await persist_primary_pref(
+                    command_name="model",
+                    field_name="model",
+                    field_value=model_value
+                )
+                if saved_primary is not None:
+                    model = str(saved_primary.get("model") or model_value)
+                    Design.console.print(
+                        f"[bold #AFC7D8]Model saved[/] "
+                        f"[bold #F4F7FA]{model}[/]"
+                    )
+                    Design.console.print()
             continue
 
-        if m := re_apikey.match(raw):
-            await exchange(m, types="apikey")
+        if m := re_apikey.match(prompt_text):
+            if api_key_value := await exchange(m, pref_command="apikey"):
+                saved_primary = await persist_primary_pref(
+                    command_name="apikey",
+                    field_name="apikey",
+                    field_value=api_key_value
+                )
+                if saved_primary is not None:
+                    tail = str(saved_primary.get("apikey") or api_key_value)[-6:]
+                    Design.console.print(
+                        f"[bold #AFC7D8]API key saved[/] "
+                        f"[dim #7F8C9A]tail=...{tail}[/]"
+                    )
+                    Design.console.print()
             continue
 
-        if m := re_attach.match(raw):
+        if m := re_base_url.match(prompt_text):
+            if base_url_value := await exchange(m, pref_command="base-url"):
+                saved_primary = await persist_primary_pref(
+                    command_name="base-url",
+                    field_name="base_url",
+                    field_value=base_url_value
+                )
+                if saved_primary is not None:
+                    base_url = str(saved_primary.get("base_url") or base_url_value)
+                    Design.console.print(
+                        f"[bold #AFC7D8]Base URL saved[/] "
+                        f"[bold #F4F7FA]{base_url}[/]"
+                    )
+                    Design.console.print()
+            continue
+
+        if m := re_attach.match(prompt_text):
             value = m.group(1).strip() if m.group(1) else ""
             if not value:
                 Design.console.print("[bold #FF5F5F]attach invalid: /attach <path|dir|glob>[/]")
@@ -376,7 +508,7 @@ async def mind_loop(mind: "Mind") -> None:
             print_attach_gap()
             continue
 
-        if m := re_detach.match(raw):
+        if m := re_detach.match(prompt_text):
             value = m.group(1).strip() if m.group(1) else ""
             if not value:
                 Design.console.print("[bold #FF5F5F]detach invalid: /detach <index|path>[/]")
@@ -398,7 +530,7 @@ async def mind_loop(mind: "Mind") -> None:
 
         pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
         print_turn_body_gap()
-        await run_model_turn(raw, mode, pref_config)
+        await run_model_turn(prompt_text, mode, pref_config)
 
     return None
 

@@ -30,11 +30,16 @@ class SlashCommandCompleter(Completer):
         {"text": "/q", "display": "/q", "meta": "退出会话"},
         {"text": "/model ", "display": "/model", "meta": "输入模型名"},
         {"text": "/apikey ", "display": "/apikey", "meta": "输入 API Key"},
+        {"text": "/base-url ", "display": "/base-url", "meta": "输入 Base URL"},
         {"text": "/attach ", "display": "/attach", "meta": "添加本轮待发送附件"},
         {"text": "/attachments", "display": "/attachments", "meta": "查看待发送附件"},
         {"text": "/detach ", "display": "/detach", "meta": "移除待发送附件"},
         {"text": "/attach-clear", "display": "/attach-clear", "meta": "清空待发送附件"},
-        {"text": "/reboot", "display": "/reboot", "meta": "重启本地后台服务"}
+        {"text": "/reboot", "display": "/reboot", "meta": "重启本地后台服务"},
+        {"text": "/shutdown", "display": "/shutdown", "meta": "停止 Helix 并退出"},
+        {"text": "/pref", "display": "/pref", "meta": "打开偏好配置页"},
+        {"text": "/tools", "display": "/tools", "meta": "查看可用 MCP 工具"},
+        {"text": "/mcp", "display": "/mcp", "meta": "查看外部 MCP 状态"}
     )
 
     TOP_LEVEL: tuple[str, ...] = (
@@ -50,11 +55,16 @@ class SlashCommandCompleter(Completer):
         "/quit",
         "/model",
         "/apikey",
+        "/base-url",
         "/attach",
         "/attachments",
         "/detach",
         "/attach-clear",
-        "/reboot"
+        "/reboot",
+        "/shutdown",
+        "/pref",
+        "/tools",
+        "/mcp"
     )
 
     def get_completions(self, document, complete_event):
@@ -70,7 +80,7 @@ class SlashCommandCompleter(Completer):
             return
 
         token = stripped.splitlines()[-1]
-        if " " in token and not token.startswith(("/model", "/apikey", "/attach", "/detach")):
+        if " " in token and not token.startswith(("/model", "/apikey", "/base-url", "/attach", "/detach")):
             return
 
         if token == "/":
