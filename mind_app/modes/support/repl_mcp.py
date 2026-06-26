@@ -16,10 +16,13 @@ def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
     tools   = getattr(group, "tools", {}) if group is not None else {}
 
     grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
+
     for name, tool in dict(tools or {}).items():
+
         meta      = dict(getattr(tool, "meta", None) or {})
         server    = str(meta.get("server") or "external").strip() or "external"
         transport = str(meta.get("transport") or "external").strip() or "external"
+
         grouped[(server, transport)].append(str(name))
 
     tool_groups = [

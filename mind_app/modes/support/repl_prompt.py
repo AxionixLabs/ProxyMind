@@ -13,6 +13,14 @@ WORKSPACE_LABEL_REFRESH: float = 5.0
 WORKSPACE_LABEL_UNKNOWN: str   = "?"
 
 
+def ignored_repl_input(raw: str) -> bool:
+    """判断 REPL 输入是否应仅换行并跳过请求链路。"""
+    stripped = str(raw or "").strip()
+    if not stripped:
+        return True
+    return stripped in {"$", "/", "\\"}
+
+
 def workspace_display_label(
     runtime_root: typing.Optional[PurePath],
     *,
