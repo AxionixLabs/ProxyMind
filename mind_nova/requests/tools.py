@@ -4,7 +4,7 @@
 import httpx
 import typing
 from engine.channel import Channel
-from mind_nova.services import endpoint
+from mind_nova.services import service_endpoints
 
 
 class ToolApprovalExpired(Exception):
@@ -46,7 +46,7 @@ async def post_tool_result(
         payload["execution"] = execution
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await client.post(endpoint("/tool-result"), headers=headers, json=payload)
+        r = await client.post(service_endpoints.endpoint("/tool-result"), headers=headers, json=payload)
         r.raise_for_status()
 
 
@@ -73,7 +73,7 @@ async def post_tool_approval(
         payload["reason"] = reason
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(endpoint("/tool-approval"), headers=headers, json=payload)
+        r = await client.post(service_endpoints.endpoint("/tool-approval"), headers=headers, json=payload)
         if _tool_approval_expired_response(r):
             raise ToolApprovalExpired(_response_text(r) or "tool approval not pending")
         r.raise_for_status()

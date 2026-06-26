@@ -6,7 +6,7 @@ import typing
 from engine.channel import Channel
 from mind_nova.modes import RunMode
 from mind_nova.requests.payload import resolve_transport_mode
-from mind_nova.services import endpoint
+from mind_nova.services import service_endpoints
 
 
 async def post_stream_event(
@@ -26,7 +26,7 @@ async def post_stream_event(
         "event" : event
     }
     async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(endpoint("/events-ingest"), headers=headers, json=payload)
+        r = await client.post(service_endpoints.endpoint("/events-ingest"), headers=headers, json=payload)
         r.raise_for_status()
 
 
@@ -49,7 +49,7 @@ async def open_report_session(
         payload["proto"] = proto.strip()
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(endpoint("/reports/open"), headers=headers, json=payload)
+        r = await client.post(service_endpoints.endpoint("/reports/open"), headers=headers, json=payload)
         r.raise_for_status()
         body = r.json()
 

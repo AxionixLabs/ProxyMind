@@ -9,22 +9,6 @@ from mind_nova import const
 SERVICE_DOMAIN_ENV = "MIND_SERVICE_DOMAIN"
 
 
-class _ServiceDomainState(object):
-    """保存运行期远端服务域名覆盖。"""
-
-    def __init__(self) -> None:
-        self.domain: str = ""
-
-
-_state = _ServiceDomainState()
-
-
-def configure_service_domain(domain: typing.Any) -> str:
-    """配置远端服务域名；非法或空值会清空运行时覆盖。"""
-    _state.domain = normalize_domain(domain)
-    return _state.domain
-
-
 def normalize_domain(value: typing.Any) -> str:
     """规范化服务域名；空值或非法值返回空字符串。"""
     domain = str(value or "").strip().rstrip("/")
@@ -38,16 +22,39 @@ def normalize_domain(value: typing.Any) -> str:
     return domain
 
 
-def service_domain() -> str:
-    """返回当前远端服务域名；未配置时使用原有常量。"""
-    domain = _state.domain or normalize_domain(os.environ.get(SERVICE_DOMAIN_ENV))
+class ServiceEndpoints(object):
+    """远端服务 endpoint 解析器。"""
 
-    return domain or const.DOMAIN.rstrip("/")
+    def __init__(
+        self,
+        *,
+        default_domain: str,
+        env_name: str = SERVICE_DOMAIN_ENV
+    ) -> None:
+        self.default_domain = normalize_domain(default_domain)
+        self.env_name       = str(env_name or SERVICE_DOMAIN_ENV)
+        self.configured     = ""
+
+    def configure(self, domain: typing.Any) -> str:
+        """配置运行时远端服务域名；非法或空值会清空覆盖。"""
+        self.configured = normalize_domain(domain)
+        return self.configured
+
+    def domain(self) -> str:
+        """返回当前远端服务域名。"""
+        return (
+            self.configured
+            or normalize_domain(os.environ.get(self.env_name))
+            or self.default_domain
+            or const.DOMAIN.rstrip("/")
+        )
+
+    def endpoint(self, path: typing.Any) -> str:
+        """基于当前远端服务域名拼接完整 URL。"""
+        return f"{self.domain()}/{str(path or '').lstrip('/')}"
 
 
-def endpoint(path: str) -> str:
-    """基于当前远端服务域名拼接完整 URL。"""
-    return f"{service_domain()}/{str(path or '').lstrip('/')}"
+service_endpoints = ServiceEndpoints(default_domain=const.DOMAIN)
 
 
 if __name__ == '__main__':

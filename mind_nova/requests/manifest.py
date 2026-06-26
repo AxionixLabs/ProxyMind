@@ -9,7 +9,7 @@ import platform
 from loguru import logger
 from engine.channel import Channel
 from engine import signals
-from mind_nova.services import endpoint
+from mind_nova.services import service_endpoints
 
 
 async def fetch_manifest() -> typing.Optional[dict[str, typing.Any]]:
@@ -22,7 +22,12 @@ async def fetch_manifest() -> typing.Optional[dict[str, typing.Any]]:
 
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.request("GET", endpoint("/mind-manifest"), headers=headers, params=params)
+            resp = await client.request(
+                "GET",
+                service_endpoints.endpoint("/mind-manifest"),
+                headers=headers,
+                params=params
+            )
             resp.raise_for_status()
             data = resp.json()
 

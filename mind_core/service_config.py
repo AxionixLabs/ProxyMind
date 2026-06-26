@@ -3,13 +3,12 @@
 
 import httpx
 import typing
+from urllib.parse import urlparse
 from mind_nova import const
 
 
 def normalize_domain(value: typing.Any) -> str:
     """规范化服务域名；空值或非法值返回空字符串。"""
-    from urllib.parse import urlparse
-
     domain = str(value or "").strip().rstrip("/")
     if not domain:
         return ""

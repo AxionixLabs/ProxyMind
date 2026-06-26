@@ -8,7 +8,7 @@ import typing
 import mimetypes
 from pathlib import Path
 from engine.channel import Channel
-from mind_nova.services import endpoint
+from mind_nova.services import service_endpoints
 from mind_nova import const
 
 
@@ -139,7 +139,7 @@ async def upload_file_stream(
         )
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(endpoint("/upload"), headers=headers, content=body())
+        r = await client.post(service_endpoints.endpoint("/upload"), headers=headers, content=body())
         r.raise_for_status()
 
         if progress_callback is not None:

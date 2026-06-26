@@ -7,7 +7,7 @@ from engine.channel import Channel
 from mind_app.stream_ui import StreamUI
 from mind_nova.requests.payload import build_chat_payload
 from mind_nova.requests.streaming import streaming
-from mind_nova.services import endpoint
+from mind_nova.services import service_endpoints
 from mind_nova import const
 
 
@@ -32,7 +32,7 @@ async def stream_chat(
         **kwargs
     )
 
-    async for event in streaming(endpoint("/mind-chat"), headers, payload, timeout):
+    async for event in streaming(service_endpoints.endpoint("/mind-chat"), headers, payload, timeout):
         event_type = str(event.get("type") or "")
 
         if event_type == "ping":
@@ -62,7 +62,7 @@ async def stream_plan(
         **kwargs
     }
 
-    async for event in streaming(endpoint("/mind-plan"), headers, payload, timeout):
+    async for event in streaming(service_endpoints.endpoint("/mind-plan"), headers, payload, timeout):
         event_type = str(event.get("type") or "")
 
         if event_type in ["plan.done", "ping"]:
@@ -98,7 +98,7 @@ async def stream_heal(
         "context"    : kwargs
     }
 
-    async for event in streaming(endpoint("/mind-heal"), headers, payload, timeout):
+    async for event in streaming(service_endpoints.endpoint("/mind-heal"), headers, payload, timeout):
         match event.get("type"):
             case "ping":
                 continue
@@ -143,7 +143,7 @@ async def stream_rule(
         "extras"    : {"context" : context}
     }
 
-    async for event in streaming(endpoint("/mind-rule"), headers, payload, timeout):
+    async for event in streaming(service_endpoints.endpoint("/mind-rule"), headers, payload, timeout):
         event_type = str(event.get("type") or "")
 
         if event_type in {"turn.thinking", "ping"}:
