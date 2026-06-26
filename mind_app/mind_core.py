@@ -18,7 +18,6 @@ from mind_nova.modes import (
     DEFAULT_RUN_MODE, RunMode
 )
 from mind_nova.report import Report
-from mind_nova import craft
 from .attach import Attach
 from .stream_ui import StreamUI
 from .modes.repl import mind_loop as run_mind_loop
@@ -34,6 +33,7 @@ from .runtime.calling import (
 from .runtime.session import with_mcp_session as run_with_mcp_session
 from .runtime.keepalive import run_keepalive
 from .runtime.external_mcp import ExternalMcpRuntime
+from .runtime.conversation import ConversationState
 from .mcp import McpSessionLike
 
 
@@ -67,8 +67,7 @@ class Mind(object):
 
         self.design: Design = Design(self.level)
 
-        self.cid: typing.Optional[str] = None
-        self.sid: typing.Optional[str] = None
+        self.conversation: ConversationState = ConversationState()
 
         self.report: Report = Report(self.src_total_place, self.gravity)
         self.prompt_box: PromptToolkitBox = PromptToolkitBox()
@@ -175,10 +174,11 @@ class Mind(object):
         sid: typing.Optional[str] = None
     ) -> dict[str, str]:
         """初始化或续用当前会话标识。"""
-        self.cid = cid or self.cid or craft.new_cid()
-        self.sid = sid or self.sid or craft.new_sid(self.cid)
+        return self.conversation.begin(cid=cid, sid=sid)
 
-        return {"cid": self.cid, "sid": self.sid}
+    def reset_conversation(self, *, reason: str = "manual") -> dict[str, str]:
+        """开始一个新的模型对话。"""
+        return self.conversation.reset(reason=reason)
 
     def bind_runtime(
         self,

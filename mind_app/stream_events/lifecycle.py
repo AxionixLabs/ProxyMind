@@ -3,7 +3,7 @@
 
 import typing
 from dataclasses import dataclass
-from .tool_trace import render_tool_trace_parts
+from .lifecycle_display import render_lifecycle_display_parts
 
 if typing.TYPE_CHECKING:
     from mind_app.mcp import McpSessionLike
@@ -59,7 +59,7 @@ async def _display_event(
     await ctx.slog.feed(
         title,
         display=ctx.slog.BLOCK,
-        display_parts=render_tool_trace_parts(title)
+        display_parts=render_lifecycle_display_parts(title)
     )
     await ctx.slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
 

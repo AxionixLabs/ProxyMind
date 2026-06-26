@@ -168,6 +168,7 @@ async def mind_loop(mind: "Mind") -> None:
     quit_set: set[str] = {"/quit", "/q", "quit", "exit"}
     help_set: set[str] = {"/help", "/h"}
     seal_set: set[str] = {"/license", "/lic"}
+    new_set: set[str]  = {"/new"}
 
     attachments_set: set[str]  = {"/attachments"}
     attach_clear_set: set[str] = {"/attach-clear"}
@@ -177,6 +178,7 @@ async def mind_loop(mind: "Mind") -> None:
         [bold]
         [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
         [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
+        [bold #AFD7FF]/new[/]                      开始新对话（保留模式、模型和待发送附件）
         [bold #FF5F5F]/quit, /q, quit, exit[/]     断开会话（安全退出）
         [bold #AFD7FF]/attach <path|dir|glob>[/]   添加本轮待发送附件（任意文件）
         [bold #AFD7FF]/attachments[/]              查看当前待发送附件
@@ -232,6 +234,15 @@ async def mind_loop(mind: "Mind") -> None:
 
         if command in seal_set:
             Design.startup_logo()
+            continue
+
+        if command in new_set:
+            metadata = mind.reset_conversation(reason="command:/new")
+            Design.console.print(
+                f"[bold #AFC7D8]New conversation[/] "
+                f"[dim #7F8C9A]· cid={metadata['cid']} sid={metadata['sid']}[/]"
+            )
+            Design.console.print()
             continue
 
         if command in attachments_set:
