@@ -23,11 +23,8 @@ from mind_nova.modes import (
 from mind_core.terminal_input import clear_pending_input
 from .commands import SlashCommandCompleter
 from .ghost import (
-    BASE_CODING_AGENT_TEMPLATES,
-    CHAT_TEMPLATES,
-    MODE_ALIAS_TEMPLATES,
-    VERB_DOMAIN_WEIGHTS,
-    build_intent_templates
+    apply_ghost_prompt,
+    iter_ghost_templates
 )
 from .skills import SkillTokenLexer
 
@@ -46,146 +43,9 @@ class CommandAutoSuggest(AutoSuggest):
         "/detach ": "<index-or-path>"
     }
 
-    MODE_ALLOWED_DOMAINS: dict[RunMode, frozenset[str]] = {
-        "chat": frozenset({
-            "coding_agent",
-            "device_connection",
-            "app_lifecycle",
-            "ui_action",
-            "keyevent",
-            "system",
-            "file",
-            "screen_capture",
-            "package_info",
-            "inspect_runtime",
-            "performance_memrix",
-            "performance_framix",
-            "stability_monkey",
-            "report"
-        }),
-        "fast": frozenset({
-            "coding_agent",
-            "inspect_runtime",
-            "security",
-            "network_http",
-            "network_sse_ws",
-            "network_graphql",
-            "network_socket",
-            "network_mail_file",
-            "media_video",
-            "media_audio",
-            "report"
-        }),
-        "plan": frozenset({
-            "coding_agent",
-            "device_connection",
-            "app_lifecycle",
-            "ui_action",
-            "keyevent",
-            "system",
-            "file",
-            "screen_capture",
-            "package_info",
-            "inspect_runtime",
-            "performance_memrix",
-            "performance_framix",
-            "stability_monkey",
-            "media_video",
-            "media_audio",
-            "report"
-        }),
-        "xtra": frozenset({
-            "coding_agent",
-            "inspect_runtime",
-            "security",
-            "network_http",
-            "network_sse_ws",
-            "network_graphql",
-            "network_socket",
-            "network_mail_file",
-            "report"
-        }),
-    }
-
-    BASE_PREFERRED_PHRASES: dict[str, tuple[str, ...]] = {
-        "查看": ("当前改动", "相关实现", "调用链路", "失败日志"),
-        "分析": ("失败原因", "回归风险", "代码路径", "当前改动"),
-        "检查": ("当前改动", "类型问题", "代码风格", "测试覆盖"),
-        "审查": ("当前改动",),
-        "评审": ("当前改动",),
-        "定位": ("问题根因", "调用链路"),
-        "排查": ("失败原因", "回归问题"),
-        "复现": ("问题",),
-        "修复": ("问题并跑测试", "测试失败", "类型错误", "展示问题"),
-        "修改": ("代码并验证",),
-        "改": ("代码并验证",),
-        "实现": ("这个需求并验证",),
-        "补": ("测试覆盖",),
-        "补充": ("回归测试",),
-        "运行": ("相关测试", "lint", "type check", "构建"),
-        "跑": ("相关测试", "lint", "type check"),
-        "验证": ("修改结果", "回归风险"),
-        "构建": ("项目并修复失败",),
-        "重构": ("相关实现并保持行为",),
-        "搜索": ("相关代码",),
-        "梳理": ("调用链路",),
-        "总结": ("当前改动",),
-        "review": (" current changes and identify risks",),
-        "debug": (" reproduce, inspect, patch, and verify",),
-        "inspect": (" related implementation and summarize findings",),
-        "trace": (" the call path and locate the issue",),
-        "fix": (" the issue and run tests",),
-        "patch": (" the minimal change and verify",),
-        "repro": (" the issue and locate the cause",),
-        "run": (" relevant tests",),
-        "verify": (" the change and summarize results",),
-        "refactor": (" safely and verify behavior",),
-        "search": (" related code",),
-        "summarize": (" current changes",),
-    }
-
-    MODE_PREFERRED_PHRASES: dict[RunMode, dict[str, tuple[str, ...]]] = {
-        "chat": {
-            "生成": ("内存报告", "流畅度报告", "阶段帧分析报告"),
-            "打开": ("设置", "应用", "录屏"),
-            "执行": ("Monkey 测试",),
-        },
-        "fast": {
-            "生成": ("结果摘要", "执行结果"),
-            "提取": ("关键帧", "场景帧", "音轨"),
-            "请求": ("HTTP 接口", "GraphQL 接口"),
-            "连接": ("WebSocket",),
-            "看": ("接口响应", "HTTP 响应", "响应", "WebSocket 消息", "GraphQL 响应"),
-            "连": ("接 WebSocket",),
-            "抽取": ("音轨", "截图"),
-            "抽": ("关键帧", "场景帧", "音轨", "截图"),
-        },
-        "plan": {
-            "打开": ("设置", "通知栏", "应用"),
-            "开": ("设置", "通知栏", "应用"),
-            "进入": ("应用", "设置"),
-            "返回": ("首页", "上一页"),
-            "等待": ("元素出现", "元素消失", "3 秒"),
-            "滚动": ("到目标元素", "到顶部", "到底部"),
-        },
-        "xtra": {
-            "查询": ("数据库", "用户表", "订单表"),
-            "执行": ("SQL", "查询语句"),
-            "打开": ("网页", "控制台"),
-        },
-    }
-
-    MODE_BLOCKED_FULL_PHRASES: dict[RunMode, frozenset[str]] = {
-        "chat": frozenset(),
-        "fast": frozenset(),
-        "plan": frozenset({"循环执行步骤"}),
-        "xtra": frozenset()
-    }
-
     def __init__(self) -> None:
         self.mode: RunMode = DEFAULT_RUN_MODE
-        self.chat_templates: tuple[tuple[str, str], ...] = CHAT_TEMPLATES
-        self.intent_templates: tuple[dict[str, typing.Any], ...] = build_intent_templates()
+        self.ghost_templates: tuple[tuple[str, str], ...] = iter_ghost_templates()
 
     def set_mode(self, mode: RunMode) -> None:
         """设置当前输入模式。"""
@@ -209,142 +69,11 @@ class CommandAutoSuggest(AutoSuggest):
                 return Suggestion(self.SLASH_HINTS[current_line])
             return None
 
-        for prefix, suggestion in self.chat_templates:
-            if current_line == prefix:
-                return Suggestion(suggestion)
-
-        if not current_line.startswith("/"):
-            alias_suggestion = self._mode_alias_suggestion(current_line)
-            if alias_suggestion is not None:
-                return alias_suggestion
-
-            prefix_suggestion = self._best_prefix_completion(current_line, self.chat_templates)
-            if prefix_suggestion is not None:
-                return prefix_suggestion
-
-        if not current_line.startswith("/"):
-            stripped = current_line.strip()
-
-            allowed_domains = self.MODE_ALLOWED_DOMAINS.get(self.mode, frozenset())
-            blocked_phrases = self.MODE_BLOCKED_FULL_PHRASES.get(self.mode, frozenset())
-
-            matched = [
-                item
-                for item in self.intent_templates
-                if stripped == item["verb"]
-                and item["domain"] in allowed_domains
-                and f"{item['verb']}{item['suggestion']}" not in blocked_phrases
-            ]
-            if matched:
-                matched.sort(
-                    key=lambda item: (
-                        self._phrase_priority(item["verb"], item["suggestion"]),
-                        VERB_DOMAIN_WEIGHTS.get(item["verb"], {}).get(item["domain"], 0),
-                        item["group_weight"],
-                        -item["order"],
-                    ),
-                    reverse=True
-                )
-                return Suggestion(matched[0]["suggestion"])
-
-            prefix_intents = []
-            for item in self.intent_templates:
-                if item["domain"] not in allowed_domains:
-                    continue
-                full = f"{item['verb']}{item['suggestion']}"
-                if full in blocked_phrases:
-                    continue
-                if full.startswith(stripped) and full != stripped:
-                    remain = full[len(stripped):]
-                    prefix_intents.append((
-                        len(remain),
-                        self._phrase_priority(item["verb"], item["suggestion"]),
-                        VERB_DOMAIN_WEIGHTS.get(item["verb"], {}).get(item["domain"], 0),
-                        item["group_weight"],
-                        -item["order"],
-                        remain
-                    ))
-
-            if prefix_intents:
-                prefix_intents.sort(
-                    key=lambda item: (item[0], -item[1], -item[2], -item[3], item[4])
-                )
-                return Suggestion(prefix_intents[0][5])
+        candidate = apply_ghost_prompt(current_line, self.ghost_templates)
+        if candidate != current_line:
+            return Suggestion(candidate[len(current_line):])
 
         return None
-
-    def _mode_alias_suggestion(self, text: str) -> typing.Optional[Suggestion]:
-        """根据模式别名模板生成行内提示。"""
-        stripped = text.strip().lower()
-        if not stripped or stripped.startswith("/"):
-            return None
-
-        candidates: list[tuple[int, str]] = []
-
-        blocked_phrases = self.MODE_BLOCKED_FULL_PHRASES.get(self.mode, frozenset())
-        for prefix, suffix in (
-            BASE_CODING_AGENT_TEMPLATES + MODE_ALIAS_TEMPLATES.get(self.mode, ())
-        ):
-            full = f"{prefix}{suffix}"
-            if full in blocked_phrases:
-                continue
-            if full == stripped:
-                continue
-            if full.startswith(stripped):
-                remain = full[len(stripped):]
-                if remain:
-                    candidates.append((len(remain), remain))
-            elif prefix.startswith(stripped):
-                remain = prefix[len(stripped):] + suffix
-                if remain:
-                    candidates.append((len(remain), remain))
-
-        if not candidates:
-            return None
-
-        candidates.sort(key=lambda item: item[0])
-        return Suggestion(candidates[0][1])
-
-    def _phrase_priority(self, verb: str, suggestion: str) -> int:
-        """返回指定动词和提示短语的优先级。"""
-        preferred = (
-            self.BASE_PREFERRED_PHRASES.get(verb, ())
-            + self.MODE_PREFERRED_PHRASES.get(self.mode, {}).get(verb, ())
-        )
-        for idx, phrase in enumerate(preferred):
-            if suggestion == phrase:
-                return len(preferred) - idx
-        return 0
-
-    @staticmethod
-    def _best_prefix_completion(
-        text: str,
-        pairs: tuple[tuple[str, str], ...],
-    ) -> typing.Optional[Suggestion]:
-        """从前缀模板中选择最短可用补全提示。"""
-        stripped = text.strip()
-        if not stripped:
-            return None
-
-        candidates: list[tuple[int, str]] = []
-        for prefix, suffix in pairs:
-            full = f"{prefix}{suffix}"
-            if full == stripped:
-                continue
-            if full.startswith(stripped):
-                remain = full[len(stripped):]
-                if remain:
-                    candidates.append((len(remain), remain))
-            elif prefix.startswith(stripped):
-                remain = prefix[len(stripped):] + suffix
-                if remain:
-                    candidates.append((len(remain), remain))
-
-        if not candidates:
-            return None
-
-        candidates.sort(key=lambda item: item[0])
-        return Suggestion(candidates[0][1])
 
 
 class PromptToolkitBox(object):
@@ -403,24 +132,24 @@ class PromptToolkitBox(object):
     def _theme(mode: RunMode) -> dict[str, str]:
         return {
             "chat": {
-                "brand": "#4F8FC8",
-                "soft": "#2F6FAD",
-                "placeholder": "Chat 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
+                "brand"       : "#4F8FC8",
+                "soft"        : "#2F6FAD",
+                "placeholder" : "Chat 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
             },
             "fast": {
-                "brand": "#4FA37D",
-                "soft": "#2E7D5B",
-                "placeholder": "Fast 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
+                "brand"       : "#4FA37D",
+                "soft"        : "#2E7D5B",
+                "placeholder" : "Fast 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
             },
             "plan": {
-                "brand": "#866FD1",
-                "soft": "#6B57B8",
-                "placeholder": "Plan 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
+                "brand"       : "#866FD1",
+                "soft"        : "#6B57B8",
+                "placeholder" : "Plan 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
             },
             "xtra": {
-                "brand": "#2DAA9E",
-                "soft": "#1E7F78",
-                "placeholder": "Xtra 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
+                "brand"       : "#2DAA9E",
+                "soft"        : "#1E7F78",
+                "placeholder" : "Xtra 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
             }
         }[mode]
 
@@ -433,27 +162,105 @@ class PromptToolkitBox(object):
 
     @staticmethod
     def _clip_workspace_label(label: str, limit: int) -> str:
-        """workspace 展示名从前面裁剪，保留末尾目录信息。"""
+        """workspace 展示名按 Codex 风格裁剪，保留根前缀和末尾目录信息。"""
         if limit <= 0:
             return ""
         if len(label) <= limit:
             return label
-        for home_prefix in ("~\\", "~/"):
-            if label.startswith(home_prefix):
-                if limit <= len(home_prefix):
-                    return home_prefix[:limit]
-                keep = limit - len(home_prefix)
-                return home_prefix + label[-keep:]
-        if limit <= 3:
+        prefix, sep = PromptToolkitBox._workspace_label_root(label)
+        if not sep:
             return label[-limit:]
-        return "..." + label[-max(0, limit - 3):]
+
+        if limit <= len(prefix):
+            return prefix[:limit]
+
+        body = label[len(prefix):]
+        return PromptToolkitBox._clip_workspace_path_body(
+            prefix,
+            sep,
+            body,
+            limit
+        )
 
     @staticmethod
-    def _render_message(
-        model: str,
-        th: dict[str, str],
-        workspace_label: str = ""
-    ) -> HTML:
+    def _workspace_label_root(label: str) -> tuple[str, str]:
+        """返回 workspace label 的根前缀和路径分隔符。"""
+        if label.startswith("~\\"):
+            return "~\\", "\\"
+        if label.startswith("~/"):
+            return "~/", "/"
+        if len(label) >= 3 and label[1] == ":" and label[2] in ("\\", "/"):
+            return label[:3], label[2]
+        if label.startswith("\\\\"):
+            parts = label.split("\\")
+            if len(parts) >= 4 and parts[2] and parts[3]:
+                return f"\\\\{parts[2]}\\{parts[3]}\\", "\\"
+            return "\\\\", "\\"
+        if label.startswith("/"):
+            return "/", "/"
+        if "\\" in label:
+            return "", "\\"
+        if "/" in label:
+            return "", "/"
+
+        return "", ""
+
+    @staticmethod
+    def _clip_workspace_path_body(
+        prefix: str,
+        sep: str,
+        body: str,
+        limit: int
+    ) -> str:
+        """动态省略路径段；末段过长时才额外标记末段截断。"""
+        available = limit - len(prefix)
+        marker    = f"…{sep}"
+
+        if available <= len(marker):
+            return (prefix + marker)[:limit]
+
+        segments = [segment for segment in body.split(sep) if segment]
+        if not segments:
+            return prefix + body[-available:]
+
+        suffix = segments[-1]
+        if len(marker) + len(suffix) > available:
+            keep = max(0, available - len(marker))
+            return prefix + marker + PromptToolkitBox._clip_workspace_segment(
+                suffix,
+                keep
+            )
+
+        first_kept = len(segments) - 1
+        for idx in range(len(segments) - 2, -1, -1):
+            segment   = segments[idx]
+            candidate = f"{segment}{sep}{suffix}"
+
+            if len(marker) + len(candidate) > available:
+                break
+
+            suffix     = candidate
+            first_kept = idx
+
+        if first_kept == 0:
+            return prefix + suffix
+
+        return prefix + marker + suffix
+
+    @staticmethod
+    def _clip_workspace_segment(segment: str, limit: int) -> str:
+        """裁剪单个路径段，使用省略号标记段内前缀被截断。"""
+        if limit <= 0:
+            return ""
+        if len(segment) <= limit:
+            return segment
+        if limit == 1:
+            return "…"
+
+        return "…" + segment[-(limit - 1):]
+
+    @staticmethod
+    def _render_message(model: str, th: dict[str, str], workspace_label: str = "") -> HTML:
         """输入头部渲染。"""
         safe_model = html.escape(
             PromptToolkitBox._clip_model_name(model or "-", PromptToolkitBox.MODEL_DISPLAY_MAX)
@@ -495,6 +302,32 @@ class PromptToolkitBox(object):
         if buf.suggestion is not None:
             buf.suggestion = None
             buf.on_suggestion_set.fire()
+
+    @staticmethod
+    def _completion_navigation_index(complete_state, step: int) -> typing.Optional[int]:
+        """返回补全菜单只移动高亮时的新索引。"""
+        if complete_state is None or not complete_state.completions:
+            return None
+
+        count = len(complete_state.completions)
+        current = complete_state.complete_index
+
+        if current is None:
+            return 0 if step > 0 else count - 1
+
+        return (current + step) % count
+
+    def _select_completion(self, buf, step: int) -> bool:
+        """只移动补全菜单高亮，不把补全文本预写入输入区。"""
+        state = getattr(buf, "complete_state", None)
+        index = self._completion_navigation_index(state, step)
+        if index is None:
+            return False
+
+        state.go_to_index(index)
+        buf.on_completions_changed.fire()
+        self._sync_completion_suggestion(buf)
+        return True
 
     def _paste_placeholder(self, text: str, *, current_text: str = "") -> str:
         """生成粘贴内容的可见占位文本。"""
@@ -590,8 +423,8 @@ class PromptToolkitBox(object):
                 buf.insert_text(buf.suggestion.text)
                 return
             if buf.complete_state:
-                buf.complete_next(count=event.arg)
-                self._sync_completion_suggestion(buf)
+                if self._select_completion(buf, max(1, event.arg)):
+                    event.app.invalidate()
                 return
             buf.start_completion(
                 select_first=True,
@@ -603,8 +436,8 @@ class PromptToolkitBox(object):
         def _(event) -> None:
             buf = event.app.current_buffer
             if buf.complete_state:
-                buf.complete_previous(count=event.arg)
-                self._sync_completion_suggestion(buf)
+                if self._select_completion(buf, -max(1, event.arg)):
+                    event.app.invalidate()
 
         @kb.add("backspace", eager=True)
         def _(event) -> None:
@@ -653,8 +486,8 @@ class PromptToolkitBox(object):
         def _(event) -> None:
             buf = event.app.current_buffer
             if buf.complete_state:
-                buf.complete_previous(count=event.arg)
-                self._sync_completion_suggestion(buf)
+                if self._select_completion(buf, -max(1, event.arg)):
+                    event.app.invalidate()
                 return
             buf.auto_up(count=event.arg, go_to_start_of_line_if_history_changes=True)
 
@@ -662,8 +495,8 @@ class PromptToolkitBox(object):
         def _(event) -> None:
             buf = event.app.current_buffer
             if buf.complete_state:
-                buf.complete_next(count=event.arg)
-                self._sync_completion_suggestion(buf)
+                if self._select_completion(buf, max(1, event.arg)):
+                    event.app.invalidate()
                 return
             buf.auto_down(count=event.arg, go_to_start_of_line_if_history_changes=True)
 
