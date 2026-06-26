@@ -36,6 +36,16 @@ def mind_reports_dir() -> Path:
     return mind_home() / "reports"
 
 
+def mind_history_dir() -> Path:
+    """返回 Mind 对话历史本地目录。"""
+    return mind_home() / "history"
+
+
+def mind_history_db_path() -> Path:
+    """返回 Mind 对话历史 SQLite 文件路径。"""
+    return mind_history_dir() / "history.db"
+
+
 def ensure_writable_dir(path: Path) -> Path:
     """确保目录存在且可写。"""
     target = Path(path).expanduser()
@@ -76,6 +86,7 @@ def ensure_mind_home() -> Path:
     try:
         root = ensure_writable_dir(mind_home())
         ensure_writable_dir(mind_reports_dir())
+        ensure_writable_dir(mind_history_dir())
         ensure_writable_file(mind_pref_path())
         ensure_mcp_servers_file()
         return root

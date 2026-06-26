@@ -4,6 +4,7 @@
 import time
 import typing
 from mind_nova import craft
+from mind_app.history.ids import valid_session_ids
 
 
 class ConversationState(object):
@@ -22,6 +23,10 @@ class ConversationState(object):
         self.cid = self._clean(cid)
         self.sid = self._clean(sid)
 
+        if self.cid or self.sid:
+            if not valid_session_ids(self.cid, self.sid):
+                raise ValueError("valid cid and sid are required")
+
         self.created_at   = float(created_at or 0.0)
         self.turn_count   = int(turn_count or 0)
         self.reset_count  = int(reset_count or 0)
@@ -38,7 +43,10 @@ class ConversationState(object):
         external_sid = self._clean(sid)
 
         if external_cid or external_sid:
+            if not valid_session_ids(external_cid, external_sid):
+                raise ValueError("valid cid and sid are required")
             self._bind_external(external_cid, external_sid)
+
         elif not self.cid or not self.sid:
             self.reset(reason="initial")
 

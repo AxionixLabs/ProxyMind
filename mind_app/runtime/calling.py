@@ -135,15 +135,17 @@ async def calling(
     runner = resolve_mode_runner(mind, mode)
 
     meta_in = kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {}
-    cid = meta_in.get("cid") if isinstance(meta_in, dict) else None
-    sid = meta_in.get("sid") if isinstance(meta_in, dict) else None
+    cid     = meta_in.get("cid") if isinstance(meta_in, dict) else None
+    sid     = meta_in.get("sid") if isinstance(meta_in, dict) else None
+
     kwargs["metadata"] = meta = {
         **meta_in,
-        **mind.begin_session(cid=cid, sid=sid)
+        **mind.begin_session(cid=cid, sid=sid, mode=mode, title=message, source="calling")
     }
 
-    event_report = kwargs.get("ev_report")
     owns_event_report = False
+
+    event_report = kwargs.get("ev_report")
     if not event_report:
         event_report = EventReport(mode, meta["cid"], meta["sid"])
         kwargs["ev_report"] = event_report

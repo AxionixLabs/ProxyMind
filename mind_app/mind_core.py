@@ -5,6 +5,7 @@ import sys
 import time
 import typing
 import asyncio
+import sqlite3
 import contextlib
 from loguru import logger
 from mcp import ListToolsResult
@@ -34,6 +35,11 @@ from .runtime.session import with_mcp_session as run_with_mcp_session
 from .runtime.keepalive import run_keepalive
 from .runtime.external_mcp import ExternalMcpRuntime
 from .runtime.conversation import ConversationState
+from .history import (
+    ConversationHistoryStore,
+    HISTORY_LIMIT
+)
+from .history.ids import valid_session_ids
 from .mcp import McpSessionLike
 
 
@@ -67,7 +73,8 @@ class Mind(object):
 
         self.design: Design = Design(self.level)
 
-        self.conversation: ConversationState = ConversationState()
+        self.conversation: ConversationState         = ConversationState()
+        self.history_store: ConversationHistoryStore = ConversationHistoryStore()
 
         self.report: Report = Report(self.src_total_place, self.gravity)
         self.prompt_box: PromptToolkitBox = PromptToolkitBox()
@@ -171,14 +178,98 @@ class Mind(object):
     def begin_session(
         self,
         cid: typing.Optional[str] = None,
-        sid: typing.Optional[str] = None
+        sid: typing.Optional[str] = None,
+        *,
+        mode: typing.Optional[RunMode] = None,
+        title: str = "",
+        source: str = "begin"
     ) -> dict[str, str]:
         """初始化或续用当前会话标识。"""
-        return self.conversation.begin(cid=cid, sid=sid)
+        metadata = self.conversation.begin(cid=cid, sid=sid)
+        self._touch_history_session(metadata, mode=mode, title=title, source=source)
+        return metadata
 
-    def reset_conversation(self, *, reason: str = "manual") -> dict[str, str]:
+    def reset_conversation(
+        self,
+        *,
+        reason: str = "manual",
+        mode: typing.Optional[RunMode] = None,
+        source: str = "reset"
+    ) -> dict[str, str]:
         """开始一个新的模型对话。"""
-        return self.conversation.reset(reason=reason)
+        metadata = self.conversation.reset(reason=reason)
+        self._touch_history_session(metadata, mode=mode, source=source)
+        return metadata
+
+    def recent_conversation_sessions(
+        self,
+        *,
+        mode: typing.Optional[RunMode] = None,
+        limit: int = HISTORY_LIMIT
+    ) -> list[dict[str, typing.Any]]:
+        """返回当前 mode/workspace/gravity 下可恢复的本地会话游标。"""
+        try:
+            records = self.history_store.list_sessions(
+                mode=str(mode or ""),
+                workspace=self.src_opera_place,
+                gravity=self._history_gravity(),
+                limit=limit
+            )
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            logger.debug(f"[History] list skipped: {type(exc).__name__}: {exc}")
+            return []
+
+        return [
+            record for record in records
+            if valid_session_ids(record.get("cid"), record.get("sid"))
+        ]
+
+    def resume_conversation(
+        self,
+        record: dict[str, typing.Any],
+        *,
+        mode: typing.Optional[RunMode] = None,
+        source: str = "resume"
+    ) -> typing.Optional[dict[str, str]]:
+        """把当前会话绑定到 history 中选中的 cid/sid。"""
+        cid = str(record.get("cid") or "").strip()
+        sid = str(record.get("sid") or "").strip()
+        if not valid_session_ids(cid, sid):
+            logger.debug(f"[History] resume skipped: invalid cursor cid={cid} sid={sid}")
+            return None
+
+        self.conversation = ConversationState(cid=cid, sid=sid)
+
+        metadata = self.conversation.snapshot()
+        self._touch_history_session(metadata, mode=mode, source=source)
+
+        return metadata
+
+    def _touch_history_session(
+        self,
+        metadata: dict[str, str],
+        *,
+        mode: typing.Optional[RunMode] = None,
+        title: str = "",
+        source: str
+    ) -> None:
+        """把 cid/sid 写入本地 history SQLite。"""
+        try:
+            self.history_store.touch_session(
+                cid=metadata["cid"],
+                sid=metadata["sid"],
+                mode=str(mode or ""),
+                title=title,
+                workspace=self.src_opera_place,
+                gravity=self._history_gravity(),
+                source=source
+            )
+        except (OSError, sqlite3.Error, ValueError, KeyError) as exc:
+            logger.debug(f"[History] write skipped: {type(exc).__name__}: {exc}")
+
+    def _history_gravity(self) -> str:
+        """返回 history 使用的归档标签。"""
+        return str(self.gravity or "default")
 
     def bind_runtime(
         self,

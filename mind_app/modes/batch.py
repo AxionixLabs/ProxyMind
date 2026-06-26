@@ -96,6 +96,7 @@ def _emit_diagnostic(event_report: EventReport, event_type: str, **payload: typi
     if isinstance(payload.get("run"), int):
         event_report.set_round(payload["run"])
         payload.setdefault("round", payload["run"])
+
     event_report.emit({"type": event_type, "ts": time.time(), **payload})
 
 
@@ -103,8 +104,7 @@ def _build_task_message(item: PackItem, config: PackConfig) -> str:
     """组装单个任务的最终提示词。"""
     prefix = (item.meta.get("prefix") or config.global_prefix or "").strip()
     suffix = (item.meta.get("suffix") or config.global_suffix or "").strip()
-
-    rule = (item.meta.get("rule") or config.global_rule or "").strip()
+    rule   = (item.meta.get("rule") or config.global_rule or "").strip()
 
     final_msg = item.message
     if prefix:
@@ -115,6 +115,16 @@ def _build_task_message(item: PackItem, config: PackConfig) -> str:
         final_msg = f"{final_msg}\n\n{rule}"
 
     return final_msg
+
+
+def _first_pack_title(code_sources: list[CodeSourceResolved]) -> str:
+    """从批处理源里取第一条真实任务消息作为 history 标题。"""
+    for source in code_sources:
+        items, _ = Pack.pack_parse(source.content)
+        if items:
+            return items[0].message
+
+    return code_sources[0].content if code_sources else ""
 
 
 async def _run_virtual_message(
@@ -147,6 +157,7 @@ async def _run_virtual_message(
     )
 
     await mind.start_anim(runtime.mode)
+
     failure_error: typing.Optional[str] = None
 
     try:
@@ -229,7 +240,8 @@ async def _run_pack_item(
 
         for attempt in range(1, config.attempts + 1):
             started_at = time.time()
-            attempt_error: typing.Optional[str] = None
+
+            attempt_error: typing.Optional[str]   = None
             retry_backoff: typing.Optional[float] = None
 
             _emit_diagnostic(
@@ -584,11 +596,14 @@ async def mind_pack(
     runner       = resolve_mode_runner(mind, mode)
 
     meta_in = kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {}
-    cid = meta_in.get("cid") if isinstance(meta_in, dict) else None
-    sid = meta_in.get("sid") if isinstance(meta_in, dict) else None
+    cid     = meta_in.get("cid") if isinstance(meta_in, dict) else None
+    sid     = meta_in.get("sid") if isinstance(meta_in, dict) else None
+
+    first_title = _first_pack_title(code_sources)
+
     kwargs["metadata"] = meta = {
         **meta_in,
-        **mind.begin_session(cid=cid, sid=sid)
+        **mind.begin_session(cid=cid, sid=sid, mode=mode, title=first_title, source="batch")
     }
 
     report_url: typing.Optional[str] = None
@@ -602,6 +617,7 @@ async def mind_pack(
         report_url_raw = report_data.get("report_url")
         report_url     = report_url_raw.strip() if isinstance(report_url_raw, str) else None
         report_id      = str(report_data.get("report_id") or "").strip()
+
         if not report_url:
             logger.warning(
                 "[Batch] reports/open succeeded but report_url missing "

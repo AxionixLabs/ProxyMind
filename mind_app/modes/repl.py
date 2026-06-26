@@ -20,6 +20,7 @@ from .support.repl_prompt import (
     primary_model_from_config,
     workspace_display_label
 )
+from ..history.resume_menu import choose_history_session
 
 if typing.TYPE_CHECKING:
     from ..mind_core import Mind
@@ -146,8 +147,8 @@ async def mind_loop(mind: "Mind") -> None:
                     Design.console.print(reporter.render_summary(reporter.last_event))
                     print_attach_gap()
 
-            turn_metadata = mind.begin_session()
-            ev_report = EventReport(run_mode, turn_metadata["cid"], turn_metadata["sid"])
+            turn_metadata = mind.begin_session(mode=run_mode, title=message_text, source="repl")
+            ev_report     = EventReport(run_mode, turn_metadata["cid"], turn_metadata["sid"])
 
             await ev_report.open()
 
@@ -180,12 +181,14 @@ async def mind_loop(mind: "Mind") -> None:
     attachments_set: set[str]  = {"/attachments"}
     attach_clear_set: set[str] = {"/attach-clear"}
     reboot_set: set[str]       = {"/reboot"}
+    resume_set: set[str]       = {"/resume"}
 
     doc = """\
         [bold]
         [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
         [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
         [bold #AFD7FF]/new[/]                      开始新对话（保留模式、模型和待发送附件）
+        [bold #AFD7FF]/resume[/]                   从当前模式最近 24 小时会话中恢复
         [bold #FF5F5F]/quit, /q, quit, exit[/]     断开会话（安全退出）
         [bold #AFD7FF]/attach <path|dir|glob>[/]   添加本轮待发送附件（任意文件）
         [bold #AFD7FF]/attachments[/]              查看当前待发送附件
@@ -260,7 +263,11 @@ async def mind_loop(mind: "Mind") -> None:
             continue
 
         if command in new_set:
-            new_conversation_metadata = mind.reset_conversation(reason="command:/new")
+            new_conversation_metadata = mind.reset_conversation(
+                reason="command:/new",
+                mode=mode,
+                source="repl:new"
+            )
             Design.console.print(
                 f"[bold #AFC7D8]New conversation[/] "
                 f"[dim #7F8C9A]· cid={new_conversation_metadata['cid']} "
@@ -288,6 +295,33 @@ async def mind_loop(mind: "Mind") -> None:
                 Design.console.print()
                 continue
             workspace_label_refreshed_at = 0.0
+            Design.console.print()
+            continue
+
+        if command in resume_set:
+            records = mind.recent_conversation_sessions(mode=mode)
+            if not records:
+                Design.console.print(
+                    f"[bold #7F8C9A]No resumable {mode} conversations in the last 24 hours.[/]"
+                )
+                Design.console.print()
+                continue
+
+            selected_record = await choose_history_session(records)
+            if selected_record is None:
+                Design.console.print()
+                continue
+
+            resumed = mind.resume_conversation(selected_record, mode=mode, source="repl:resume")
+            if resumed is None:
+                Design.console.print("[bold #FF5F5F]Resume failed: invalid session cursor.[/]")
+                Design.console.print()
+                continue
+
+            Design.console.print(
+                f"[bold #AFC7D8]Resumed[/] "
+                f"[dim #7F8C9A]· cid={resumed['cid']} sid={resumed['sid']}[/]"
+            )
             Design.console.print()
             continue
 
