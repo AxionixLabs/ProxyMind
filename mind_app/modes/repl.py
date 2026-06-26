@@ -69,8 +69,8 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #AFD7FF]/detach <index|path>[/]      移除一个待发送附件
         [bold #AFD7FF]/attach-clear[/]             清空当前待发送附件
         [bold #AFD7FF]/reboot[/]                   重启本地后台服务
-        [bold #FF5F5F]/shutdown[/]                 关闭前台并停止 Helix 后台
-        [bold #AFD7FF]/pref[/]                     打开 Web 偏好配置页
+        [bold #FF5F5F]/shutdown[/]                 关闭前台并停止本地运行时
+        [bold #AFD7FF]/pref[/]                     打开偏好配置页
         [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
         [bold #FFD75F]/chat[/]                     对话模式（交互能力协作/自然语言交互）
         [bold #FFD75F]/fast[/]                     高速模式（高吞吐任务流/数据媒体直达）
@@ -178,9 +178,9 @@ async def mind_loop(mind: "Mind") -> None:
             continue
 
         if command in shutdown_set:
-            mind.shutdown_helix_on_exit = True
+            mind.stop_runtime_on_exit = True
             mind.task_event.set()
-            Design.console.print("[bold #FF5F5F]Shutdown[/] [dim #7F8C9A]· stopping Helix runtime[/]")
+            Design.console.print("[bold #AFC7D8]Shutdown[/] [dim #7F8C9A]· stop backend runtime[/]")
             Design.console.print()
             break
 

@@ -94,7 +94,7 @@ def print_attach_gap() -> None:
 
 
 async def open_pref_page() -> None:
-    """打开 Web 偏好配置页。"""
+    """打开偏好配置页。"""
     url = f"{const.BASE_URL.rstrip('/')}/pref"
     Design.console.print(
         f"[bold #AFC7D8]Preferences[/] [dim #7F8C9A]· {url}[/]"

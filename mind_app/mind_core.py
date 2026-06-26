@@ -90,7 +90,7 @@ class Mind(object):
 
         self.exit_code: int = 0
         self.sig_count: int = 0
-        self.shutdown_helix_on_exit: bool = False
+        self.stop_runtime_on_exit: bool = False
 
     @property
     def remote(self) -> dict:
@@ -359,7 +359,7 @@ class Mind(object):
             try:
                 await server_manager.close()
             finally:
-                if self.shutdown_helix_on_exit:
+                if self.stop_runtime_on_exit:
                     with contextlib.suppress(Exception):
                         await craft.kill_port(server_manager.port)
 

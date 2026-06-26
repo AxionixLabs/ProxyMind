@@ -36,7 +36,7 @@ class SlashCommandCompleter(Completer):
         {"text": "/detach ", "display": "/detach", "meta": "移除待发送附件"},
         {"text": "/attach-clear", "display": "/attach-clear", "meta": "清空待发送附件"},
         {"text": "/reboot", "display": "/reboot", "meta": "重启本地后台服务"},
-        {"text": "/shutdown", "display": "/shutdown", "meta": "停止 Helix 并退出"},
+        {"text": "/shutdown", "display": "/shutdown", "meta": "停止本地后台服务并退出"},
         {"text": "/pref", "display": "/pref", "meta": "打开偏好配置页"},
         {"text": "/tools", "display": "/tools", "meta": "查看可用 MCP 工具"},
         {"text": "/mcp", "display": "/mcp", "meta": "查看外部 MCP 状态"}
