@@ -4,7 +4,7 @@
 import typing
 
 LIFECYCLE_DOT_STYLE   = "bold #8A929C"
-LIFECYCLE_TITLE_STYLE = "bold #D7E7FF"
+LIFECYCLE_TITLE_STYLE = "bold #C9D3DE"
 
 
 def render_lifecycle_display_parts(
