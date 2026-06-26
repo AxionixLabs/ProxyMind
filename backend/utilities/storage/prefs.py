@@ -6,9 +6,7 @@ import time
 import typing
 import sqlite3
 from pathlib import Path
-from backend.utilities.storage.roots import (
-    storage_dir, temp_storage_dir
-)
+from backend.utilities.storage.roots import storage_dir
 from backend.utilities import const
 
 PROFILE_TITLE      = f"Default"
@@ -245,10 +243,7 @@ def _normalize_route(value: typing.Any) -> str:
 
 def _pref_path_candidates() -> list[Path]:
     """返回按优先级排列的偏好数据库文件候选。"""
-    candidates = [
-        pref_path(),
-        temp_storage_dir() / DATA_FILENAME,
-    ]
+    candidates = [pref_path()]
 
     seen: set[str] = set()
     result: list[Path] = []
@@ -262,7 +257,7 @@ def _pref_path_candidates() -> list[Path]:
 
 
 def _connect() -> sqlite3.Connection:
-    """建立偏好数据库连接；标准文件不可用时降级到临时数据库。"""
+    """建立偏好数据库连接；标准文件不可用时直接抛错。"""
     last_error: BaseException | None = None
     for target in _pref_path_candidates():
         conn: sqlite3.Connection | None = None

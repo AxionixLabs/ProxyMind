@@ -28,9 +28,32 @@ class Attach(object):
         ".txt", ".md", ".markdown", ".json", ".yaml", ".yml",
         ".csv", ".log", ".xml", ".html", ".htm", ".cfg", ".ini"
     })
+
     IMAGE_ATTACHMENT_SUFFIXES: typing.ClassVar[frozenset[str]] = frozenset({
         ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"
     })
+
+    INVISIBLE_PATH_CHARS: typing.ClassVar[frozenset[str]] = frozenset({
+        "\ufeff",
+        "\u200b",
+        "\u200c",
+        "\u200d",
+        "\u200e",
+        "\u200f",
+        "\u202a",
+        "\u202b",
+        "\u202c",
+        "\u202d",
+        "\u202e",
+        "\u2066",
+        "\u2067",
+        "\u2068",
+        "\u2069",
+    })
+
+    INVISIBLE_PATH_TRANSLATION: typing.ClassVar[dict[int, None]] = {
+        ord(char): None for char in INVISIBLE_PATH_CHARS
+    }
 
     def __init__(self) -> None:
         """初始化待上传附件列表。"""
@@ -51,11 +74,17 @@ class Attach(object):
         return "file", mime_type or "application/octet-stream"
 
     @staticmethod
+    def _clean_invisible_path_chars(value: str) -> str:
+        """移除复制路径时常见的不可见 Unicode 控制符。"""
+        return str(value or "").translate(Attach.INVISIBLE_PATH_TRANSLATION)
+
+    @staticmethod
     def _strip_wrapped_quotes(value: str) -> str:
         """移除路径参数外层成对引号。"""
-        text = str(value or "").strip()
+        text = Attach._clean_invisible_path_chars(value).strip()
         if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
-            return text[1:-1].strip()
+            return Attach._clean_invisible_path_chars(text[1:-1]).strip()
+
         return text
 
     @staticmethod

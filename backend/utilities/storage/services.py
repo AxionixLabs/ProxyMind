@@ -8,7 +8,6 @@ import sqlite3
 from pathlib import Path
 from urllib.parse import urlparse
 from backend.utilities.storage.prefs import pref_path
-from backend.utilities.storage.roots import temp_storage_dir
 
 TABLE_SERVICE_SETTINGS = r"service_settings"
 
@@ -24,7 +23,7 @@ CREATE TABLE IF NOT EXISTS {TABLE_SERVICE_SETTINGS} (
 
 
 def load_service_config() -> dict[str, typing.Any]:
-    """从本地数据库加载远端服务配置。"""
+    """从本地数据库读取服务配置。"""
     conn = _connect()
     try:
         with conn:
@@ -46,7 +45,7 @@ def load_service_config() -> dict[str, typing.Any]:
 
 
 def save_service_config(raw: typing.Any) -> dict[str, typing.Any]:
-    """保存远端服务配置，并返回归一化后的配置。"""
+    """保存服务配置并返回规范化结果。"""
     config = normalize_service_config(raw)
     now    = _now_ms()
     conn   = _connect()
@@ -71,7 +70,7 @@ def save_service_config(raw: typing.Any) -> dict[str, typing.Any]:
 
 
 def normalize_service_config(raw: typing.Any) -> dict[str, typing.Any]:
-    """把任意输入归一化为远端服务配置。"""
+    """将输入值转换为服务配置结构。"""
     domain: str = ""
 
     if isinstance(raw, dict):
@@ -85,7 +84,7 @@ def normalize_service_config(raw: typing.Any) -> dict[str, typing.Any]:
 
 
 def normalize_domain(value: typing.Any) -> str:
-    """归一化服务域名；空值或非法值表示回退到原有常量。"""
+    """规范化服务域名；空值或非法值返回空字符串。"""
     domain = str(value or "").strip().rstrip("/")
     if not domain:
         return ""
@@ -98,9 +97,8 @@ def normalize_domain(value: typing.Any) -> str:
 
 
 def _service_config_path_candidates() -> list[Path]:
-    candidates = [
-        pref_path(), temp_storage_dir() / pref_path().name
-    ]
+    """返回服务配置数据库路径候选。"""
+    candidates = [pref_path()]
 
     seen: set[str]     = set()
     result: list[Path] = []
@@ -116,6 +114,7 @@ def _service_config_path_candidates() -> list[Path]:
 
 
 def _connect() -> sqlite3.Connection:
+    """建立服务配置数据库连接。"""
     last_error: BaseException | None = None
     for target in _service_config_path_candidates():
         conn: sqlite3.Connection | None = None
@@ -136,10 +135,12 @@ def _connect() -> sqlite3.Connection:
 
 
 def _init_schema(conn: sqlite3.Connection) -> None:
+    """初始化服务配置表结构。"""
     conn.executescript(SCHEMA_SQL)
 
 
 def _now_ms() -> int:
+    """返回当前时间戳，单位为毫秒。"""
     return int(time.time() * 1000)
 
 

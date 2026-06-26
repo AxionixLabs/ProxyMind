@@ -1,26 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { updateStateDir, updateStatePath } from "./paths.js";
 
 const updateCheckTimeoutMs = 15000;
-
-function updateStateDir() {
-  if (process.platform === "win32") {
-    return path.join(process.env.APPDATA || os.homedir(), "Mind");
-  }
-
-  if (process.platform === "darwin") {
-    return path.join(os.homedir(), "Library", "Application Support", "Mind");
-  }
-
-  return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "mind");
-}
-
-function updateStatePath() {
-  return path.join(updateStateDir(), "update-check.json");
-}
 
 function loadUpdateState() {
   try {

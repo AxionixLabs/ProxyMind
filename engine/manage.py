@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import os
 import sys
 import json
 import time
@@ -18,13 +19,18 @@ from mind_nova import (
     authentic, const, request, craft
 )
 
-
 class ServerManage(object):
     """管理本地后台服务的启动、探测、重启和关闭。"""
 
-    def __init__(self, cmd: list[str], timeout: float = 0.6):
+    def __init__(
+        self,
+        cmd: list[str],
+        timeout: float = 0.6,
+        env: typing.Optional[dict[str, str]] = None
+    ):
         """保存启动命令并初始化本地服务 HTTP 客户端。"""
         self.cmd = cmd
+        self.env = dict(env or {})
         self.url = const.BASE_URL.rstrip("/")
 
         parsed    = urlparse(self.url)
@@ -312,6 +318,8 @@ class ServerManage(object):
             "stdout" : asyncio.subprocess.DEVNULL,
             "stderr" : asyncio.subprocess.DEVNULL
         }
+        if self.env:
+            kwargs["env"] = {**os.environ, **self.env}
 
         if sys.platform.startswith("win"):
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW

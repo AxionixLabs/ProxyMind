@@ -11,7 +11,7 @@
   "scripts": {
     "sync:applications": "node ./scripts/sync-applications.js",
     "check": "npm run check:mind",
-    "check:mind": "node --check ./packages/mind/bin/mind.js && node --check ./packages/mind/lib/update.js && node --check ./packages/mind/lib/update-worker.js && node --check ./packages/mind/lib/version.js",
+    "check:mind": "node --check ./packages/mind/bin/mind.js && node --check ./packages/mind/lib/paths.js && node --check ./packages/mind/lib/update.js && node --check ./packages/mind/lib/update-worker.js && node --check ./packages/mind/lib/version.js",
     "dry:mind": "npm run check:mind && npm publish -w @craftline/mind --dry-run --access public",
     "dry:win32": "npm publish -w @craftline/mind-win32 --dry-run --access public",
     "dry:darwin": "npm publish -w @craftline/mind-darwin --dry-run --access public"

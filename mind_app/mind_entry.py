@@ -25,8 +25,14 @@ from mind_core.preference import Preferences
 from mind_nova import const
 from mind_nova.modes import RunMode
 from .assets import ensure_asset
-from .mcp import mcp_servers_path
 from .mind_core import Mind
+from .paths import (
+    ensure_mcp_servers_file,
+    ensure_mind_home,
+    mind_pref_path,
+    mind_reports_dir,
+    process_env
+)
 
 
 def resolve_code_mode(cmd_lines: typing.Any) -> RunMode:
@@ -175,31 +181,20 @@ async def _run_main(
         raise MindError(f"{const.APP_DESC} compatible with {const.APP_NAME} command")
 
     # Notes: ========== 路径初始化 ==========
+    _ = mind_feasible
     turbo = os.path.join(mind_work, const.SCHEMATIC, const.SUPPORTS).format()
 
-    if not os.path.exists(
-        initial_source := os.path.join(mind_feasible, const.STRUCTURE).format()
-    ):
-        os.makedirs(initial_source, exist_ok=True)
+    home = ensure_mind_home()
 
-    if not os.path.exists(
-        src_opera_place := os.path.join(initial_source, const.SRC_OPERA_PLACE).format()
-    ):
-        os.makedirs(src_opera_place, exist_ok=True)
+    src_opera_place = str(home)
+    src_total_place = str(mind_reports_dir())
 
-    if not os.path.exists(
-        src_total_place := os.path.join(initial_source, const.SRC_TOTAL_PLACE).format()
-    ):
-        os.makedirs(src_total_place, exist_ok=True)
-
-    mcp_file = mcp_servers_path(src_opera_place)
-    if not mcp_file.exists():
-        mcp_file.write_text('{\n  "mcpServers": {}\n}\n', encoding="utf-8")
+    ensure_mcp_servers_file()
 
     # Notes: ========== 激活日志 ==========
     Active.active(level := "DEBUG" if cmd_lines.reflection else "INFO")
 
-    pref_file = os.path.join(initial_source, const.SRC_OPERA_PLACE, const.PREF)
+    pref_file = str(mind_pref_path())
     pref = Preferences(pref_file)
 
     # Notes: ========== 工具路径 ==========
@@ -287,7 +282,7 @@ async def _run_main(
         logger.debug(f"TLS: {tls}")
     logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}\n")
 
-    server: ServerManage = ServerManage(launch_cmd)
+    server: ServerManage = ServerManage(launch_cmd, env=process_env())
     await server.ensure_running()
     await pref.load_pref()
 

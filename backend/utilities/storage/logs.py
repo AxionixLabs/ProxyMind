@@ -6,7 +6,7 @@ import typing
 from pathlib import Path
 from backend.utilities import const
 from backend.utilities.storage.roots import (
-    ensure_writable_file, storage_dir, temp_storage_dir
+    ensure_writable_file, storage_dir
 )
 
 LOG_FILENAME    = f"{const.APP_NAME}.log"
@@ -19,25 +19,8 @@ def log_path() -> Path:
 
 
 def ensure_log_path() -> Path:
-    """返回可写日志文件路径，标准路径不可写时降级到临时目录。"""
-    candidates = [log_path(), temp_storage_dir() / LOG_FILENAME]
-
-    last_error: OSError | None = None
-    seen: set[str] = set()
-    for candidate in candidates:
-        key = str(candidate)
-        if key in seen:
-            continue
-        seen.add(key)
-        try:
-            return ensure_writable_file(candidate)
-        except OSError as exc:
-            last_error = exc
-            continue
-
-    if last_error is not None:
-        raise last_error
-    raise PermissionError("no writable log file candidates")
+    """返回可写日志文件路径；不可写时直接抛错。"""
+    return ensure_writable_file(log_path())
 
 
 def read_log_lines(max_lines: int = 400) -> dict[str, typing.Any]:
