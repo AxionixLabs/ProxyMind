@@ -96,6 +96,7 @@ def detect_tools() -> dict[str, typing.Any]:
         "adb"      : tool_bin("adb"),
         "k6"       : tool_bin("k6"),
         "ffmpeg"   : tool_bin("ffmpeg"),
+        "ffprobe"  : tool_bin("ffprobe"),
         "ast-grep" : tool_bin("ast-grep"),
         "rg"       : tool_bin("rg"),
         "jq"       : tool_bin("jq"),

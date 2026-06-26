@@ -75,7 +75,7 @@ def register_media_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: Ap
 
 def initialize(
     tools: typing.Iterable[str] = (
-        "adb", "ast-grep", "ffmpeg", "jq", "k6", "rg"
+        "adb", "ast-grep", "ffmpeg", "ffprobe", "jq", "k6", "rg"
     )
 ) -> dict[str, typing.Any]:
     """
@@ -91,6 +91,7 @@ def initialize(
             "adb"      : ["platform-tools"],
             "ast-grep" : ["ast-grep"],
             "ffmpeg"   : ["ffmpeg", "bin"],
+            "ffprobe"  : ["ffmpeg", "bin"],
             "jq"       : ["jq"],
             "k6"       : ["k6"],
             "rg"       : ["ripgrep"]
@@ -99,6 +100,7 @@ def initialize(
             "adb"      : ["platform-tools"],
             "ast-grep" : ["ast-grep"],
             "ffmpeg"   : ["ffmpeg", "bin"],
+            "ffprobe"  : ["ffmpeg", "bin"],
             "jq"       : ["jq"],
             "k6"       : ["k6"],
             "rg"       : ["ripgrep"]
@@ -110,6 +112,7 @@ def initialize(
             "adb"      : "adb.exe",
             "ast-grep" : "ast-grep.exe",
             "ffmpeg"   : "ffmpeg.exe",
+            "ffprobe"  : "ffprobe.exe",
             "jq"       : "jq.exe",
             "k6"       : "k6.exe",
             "rg"       : "rg.exe"
@@ -118,6 +121,7 @@ def initialize(
             "adb"      : "adb",
             "ast-grep" : "ast-grep",
             "ffmpeg"   : "ffmpeg",
+            "ffprobe"  : "ffprobe",
             "jq"       : "jq",
             "k6"       : "k6",
             "rg"       : "rg"
