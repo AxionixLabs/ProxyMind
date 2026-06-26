@@ -4,15 +4,10 @@
 import json
 import httpx
 import typing
-import asyncio
 from pathlib import (
     Path, PurePath
 )
-from mind_core.prompting.box import PromptHeaderState
 from mind_nova import const
-
-if typing.TYPE_CHECKING:
-    from ...mind_core import Mind
 
 WORKSPACE_LABEL_REFRESH: float = 5.0
 WORKSPACE_LABEL_UNKNOWN: str   = "?"
@@ -88,46 +83,6 @@ async def fetch_runtime_workspace_root(
     try:
         return Path(root).expanduser().resolve()
     except (OSError, RuntimeError, ValueError):
-        return None
-
-
-async def refresh_prompt_header_state(
-    mind: "Mind",
-    state: PromptHeaderState,
-    *,
-    interval_sec: float = 2.0
-) -> None:
-    """等待输入时异步刷新 prompt 头部状态。"""
-    while not mind.task_event.is_set():
-
-        pref_config            = await mind.fresh_pref_config()
-        runtime_workspace_root = await fetch_runtime_workspace_root()
-
-        state.update(
-            model=primary_model_from_config(pref_config, state.model),
-            workspace_label=workspace_display_label(runtime_workspace_root)
-        )
-        await asyncio.sleep(interval_sec)
-
-
-async def stop_prompt_header_refresh(
-    task: typing.Optional[asyncio.Task[None]]
-) -> None:
-    """停止当前输入框头部刷新任务。"""
-    if task is None:
-        return None
-    if task.done():
-        try:
-            task.result()
-        except asyncio.CancelledError:
-            return None
-        except RuntimeError:
-            return None
-        return None
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
         return None
 
 

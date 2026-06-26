@@ -32,30 +32,6 @@ from .ghost import (
 from .skills import SkillTokenLexer
 
 
-class PromptHeaderState:
-    """输入头部的动态展示状态。"""
-
-    def __init__(
-        self,
-        *,
-        model: str = "",
-        workspace_label: str = ""
-    ) -> None:
-        self.model = str(model or "")
-        self.workspace_label = str(workspace_label or "")
-
-    def update(
-        self,
-        *,
-        model: typing.Optional[str] = None,
-        workspace_label: typing.Optional[str] = None
-    ) -> None:
-        if model is not None:
-            self.model = model
-        if workspace_label is not None:
-            self.workspace_label = workspace_label
-
-
 class CommandAutoSuggest(AutoSuggest):
     """行内提示视图。"""
 
@@ -707,21 +683,11 @@ class PromptToolkitBox(object):
         *,
         mode: RunMode,
         model: str,
-        workspace_label: str = "",
-        header_state: typing.Optional[PromptHeaderState] = None
+        workspace_label: str = ""
     ) -> str:
         """异步输入渲染入口。"""
-        th = self._theme(mode)
-
-        if header_state is not None:
-            header_state.update(model=model, workspace_label=workspace_label)
-            message = lambda: self._render_message(
-                header_state.model,
-                th,
-                header_state.workspace_label
-            )
-        else:
-            message = self._render_message(model, th, workspace_label)
+        th      = self._theme(mode)
+        message = self._render_message(model, th, workspace_label)
 
         self.auto_suggest.set_mode(mode)
 
@@ -742,7 +708,6 @@ class PromptToolkitBox(object):
                     f"<placeholder> {html.escape(th['placeholder'])}</placeholder>"
                 ),
                 reserve_space_for_menu=4,
-                refresh_interval=0.5 if header_state is not None else None,
                 style=self.style,
                 mouse_support=False,
                 pre_run=lambda: clear_pending_input(session.app.input)

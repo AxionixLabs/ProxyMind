@@ -4,12 +4,10 @@
 import re
 import time
 import typing
-import asyncio
 from mind_app.mcp import McpSessionLike
 from engine.tinker import MindError
 from mind_core.design import Design
 from mind_core.design.upload import UploadProgressLiveReporter
-from mind_core.prompting.box import PromptHeaderState
 from mind_nova.events import EventReport
 from mind_nova.modes import (
     DEFAULT_RUN_MODE, RunMode
@@ -20,8 +18,6 @@ from .support.repl_prompt import (
     WORKSPACE_LABEL_REFRESH,
     fetch_runtime_workspace_root,
     primary_model_from_config,
-    refresh_prompt_header_state,
-    stop_prompt_header_refresh,
     workspace_display_label
 )
 
@@ -214,41 +210,29 @@ async def mind_loop(mind: "Mind") -> None:
     model       = primary.get("model", "")
 
     mode: RunMode = DEFAULT_RUN_MODE
+
     workspace_label = ""
     workspace_label_refreshed_at = 0.0
-    prompt_header_state = PromptHeaderState(model=model, workspace_label=workspace_label)
 
     while not mind.task_event.is_set():
-        raw = ""
         pref_config = await mind.fresh_pref_config()
-        model       = primary_model_from_config(pref_config, model)
+        model = primary_model_from_config(pref_config, model)
+
         now = time.monotonic()
         if (
             workspace_label_refreshed_at <= 0.0
             or now - workspace_label_refreshed_at >= WORKSPACE_LABEL_REFRESH
         ):
             runtime_workspace_root = await fetch_runtime_workspace_root()
+
             workspace_label = workspace_display_label(runtime_workspace_root)
             workspace_label_refreshed_at = now
-
-        prompt_header_state.update(
-            model=model,
-            workspace_label=workspace_label
-        )
-        header_refresh_task = asyncio.create_task(
-            refresh_prompt_header_state(
-                mind,
-                prompt_header_state
-            ),
-            name="prompt header refresh"
-        )
 
         try:
             raw = await mind.prompt_box.prompt_async(
                 mode=mode,
                 model=model,
-                workspace_label=workspace_label,
-                header_state=prompt_header_state
+                workspace_label=workspace_label
             )
         except KeyboardInterrupt:
             mind.exit_code = 130
@@ -256,8 +240,6 @@ async def mind_loop(mind: "Mind") -> None:
             break
         except (EOFError, UnicodeDecodeError):
             continue
-        finally:
-            await stop_prompt_header_refresh(header_refresh_task)
 
         if ignored_repl_input(raw):
             Design.console.print()
