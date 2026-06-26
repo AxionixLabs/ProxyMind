@@ -7,12 +7,12 @@ import typing
 import asyncio
 from loguru import logger
 from rich.text import Text
-from backend.utilities.trace import sanitize_value
 from mind_core.design import Design
 from mind_app.stream_render.coordinator import RenderCoord
 from mind_app.stream_state.status import StatusFamily
 from mind_app.stream_state.text import TextState
 from mind_app.stream_io.output_record import StreamRecordWriter
+from mind_app.stream_sanitize import sanitize_value
 from mind_nova import const
 
 

@@ -22,7 +22,9 @@ from mind_core.design import Design
 from mind_core.design.upload import UploadProgressLiveReporter
 from mind_core.parser import Parser
 from mind_core.preference import Preferences
+from mind_core.service_config import ServiceConfig
 from mind_nova import const
+from mind_nova.services import configure_service_domain
 from mind_nova.modes import RunMode
 from .assets import ensure_asset
 from .mind_core import Mind
@@ -285,6 +287,7 @@ async def _run_main(
     server: ServerManage = ServerManage(launch_cmd, env=process_env())
     await server.ensure_running()
     await pref.load_pref()
+    configure_service_domain(await ServiceConfig().load_domain())
 
     # Design.Doc.log(f"[bold #0EA5E9]🌐 {const.BASE_URL}[/]\n")
 

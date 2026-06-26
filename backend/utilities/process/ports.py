@@ -5,7 +5,7 @@ import sys
 import shutil
 import typing
 import asyncio
-from engine.terminal import Terminal
+from backend.utilities.process.flux import Flux
 
 
 async def port_listen(port: int, *, host: str = "127.0.0.1") -> bool:
@@ -30,10 +30,10 @@ async def kill_port(port: int) -> typing.Any:
             pwsh, "-Command", "Get-NetTCPConnection", "-LocalPort", f"{port}",
             "-ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }"
         ]
-        return await Terminal.cmd_line(cmd)
+        return await Flux.cmd_line(cmd)
 
     cmd = f"lsof -tiTCP:{port} -sTCP:LISTEN | xargs -r kill -9"
-    return await Terminal.cmd_line_shell(cmd)
+    return await Flux.cmd_line_shell(cmd)
 
 
 if __name__ == '__main__':
