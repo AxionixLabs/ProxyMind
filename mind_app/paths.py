@@ -87,7 +87,6 @@ def ensure_mind_home() -> Path:
         root = ensure_writable_dir(mind_home())
         ensure_writable_dir(mind_reports_dir())
         ensure_writable_dir(mind_history_dir())
-        ensure_writable_file(mind_pref_path())
         ensure_mcp_servers_file()
         return root
     except OSError as exc:
