@@ -2,17 +2,29 @@
 # Notes: ==== Mind™ ====
 
 import re
+import time
+import asyncio
 import typing
+from pathlib import Path
 from mind_app.mcp import McpSessionLike
 from engine.tinker import MindError
 from mind_core.design import Design
 from mind_core.design.upload import UploadProgressLiveReporter
+from mind_core.prompting.box import PromptHeaderState
 from mind_nova.events import EventReport
 from mind_nova.modes import (
     DEFAULT_RUN_MODE, RunMode
 )
 from mind_nova import const
 from ..runtime.calling import resolve_mode_runner
+from .support.repl_prompt import (
+    WORKSPACE_STATUS_REFRESH_TTL_SEC,
+    fetch_runtime_workspace_root,
+    primary_model_from_config,
+    refresh_prompt_header_state,
+    stop_prompt_header_refresh,
+    workspace_match_status
+)
 
 if typing.TYPE_CHECKING:
     from ..mind_core import Mind
@@ -24,7 +36,6 @@ MODE_BY_COMMAND: dict[str, RunMode] = {
     "/plan": "plan",
     "/xtra": "xtra"
 }
-
 
 def is_ignored_repl_input(raw: str) -> bool:
     """判断 REPL 输入是否应仅换行并跳过请求链路。"""
@@ -138,9 +149,10 @@ async def mind_loop(mind: "Mind") -> None:
 
                 if reporter.last_event is not None:
                     Design.console.print(reporter.render_summary(reporter.last_event))
+                    print_attach_gap()
 
-            metadata  = mind.begin_session()
-            ev_report = EventReport(run_mode, metadata["cid"], metadata["sid"])
+            turn_metadata = mind.begin_session()
+            ev_report = EventReport(run_mode, turn_metadata["cid"], turn_metadata["sid"])
 
             await ev_report.open()
 
@@ -154,7 +166,7 @@ async def mind_loop(mind: "Mind") -> None:
                     openai_tools=openai_tools,
                     tool_meta=tool_meta,
                     attachments=uploaded_attachments,
-                    metadata=metadata,
+                    metadata=turn_metadata,
                     ev_report=ev_report
                 )
             finally:
@@ -203,20 +215,55 @@ async def mind_loop(mind: "Mind") -> None:
     model       = primary.get("model", "")
 
     mode: RunMode = DEFAULT_RUN_MODE
+    mind_workspace_root = Path.cwd().resolve()
+    workspace_status = "?"
+    workspace_status_refreshed_at = 0.0
+    prompt_header_state = PromptHeaderState(model=model, workspace_status=workspace_status)
 
     while not mind.task_event.is_set():
+        raw = ""
         pref_config = await mind.fresh_pref_config()
-        primary     = pref_config.get("primary") or {}
-        model       = primary.get("model", "") or model
+        model       = primary_model_from_config(pref_config, model)
+        now = time.monotonic()
+        if (
+            workspace_status_refreshed_at <= 0.0
+            or now - workspace_status_refreshed_at >= WORKSPACE_STATUS_REFRESH_TTL_SEC
+        ):
+            runtime_workspace_root = await fetch_runtime_workspace_root()
+            workspace_status = workspace_match_status(
+                mind_workspace_root,
+                runtime_workspace_root
+            )
+            workspace_status_refreshed_at = now
+
+        prompt_header_state.update(
+            model=model,
+            workspace_status=workspace_status
+        )
+        header_refresh_task = asyncio.create_task(
+            refresh_prompt_header_state(
+                mind,
+                prompt_header_state,
+                mind_workspace_root=mind_workspace_root
+            ),
+            name="prompt header refresh"
+        )
 
         try:
-            raw = await mind.prompt_box.prompt_async(mode=mode, model=model)
+            raw = await mind.prompt_box.prompt_async(
+                mode=mode,
+                model=model,
+                workspace_status=workspace_status,
+                header_state=prompt_header_state
+            )
         except KeyboardInterrupt:
             mind.exit_code = 130
             mind.task_event.set()
             break
         except (EOFError, UnicodeDecodeError):
             continue
+        finally:
+            await stop_prompt_header_refresh(header_refresh_task)
 
         if is_ignored_repl_input(raw):
             Design.console.print()
@@ -237,10 +284,11 @@ async def mind_loop(mind: "Mind") -> None:
             continue
 
         if command in new_set:
-            metadata = mind.reset_conversation(reason="command:/new")
+            new_conversation_metadata = mind.reset_conversation(reason="command:/new")
             Design.console.print(
                 f"[bold #AFC7D8]New conversation[/] "
-                f"[dim #7F8C9A]· cid={metadata['cid']} sid={metadata['sid']}[/]"
+                f"[dim #7F8C9A]· cid={new_conversation_metadata['cid']} "
+                f"sid={new_conversation_metadata['sid']}[/]"
             )
             Design.console.print()
             continue
@@ -263,6 +311,7 @@ async def mind_loop(mind: "Mind") -> None:
                 Design.console.print(f"[bold #FF5F5F]Runtime reboot failed: {error}[/]")
                 Design.console.print()
                 continue
+            workspace_status_refreshed_at = 0.0
             Design.console.print()
             continue
 

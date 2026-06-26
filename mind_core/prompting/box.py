@@ -32,6 +32,30 @@ from .ghost import (
 from .skills import SkillTokenLexer
 
 
+class PromptHeaderState:
+    """输入头部的动态展示状态。"""
+
+    def __init__(
+        self,
+        *,
+        model: str = "",
+        workspace_status: str = "?"
+    ) -> None:
+        self.model = str(model or "")
+        self.workspace_status = str(workspace_status or "?")
+
+    def update(
+        self,
+        *,
+        model: typing.Optional[str] = None,
+        workspace_status: typing.Optional[str] = None
+    ) -> None:
+        if model is not None:
+            self.model = model
+        if workspace_status is not None:
+            self.workspace_status = workspace_status
+
+
 class CommandAutoSuggest(AutoSuggest):
     """行内提示视图。"""
 
@@ -358,6 +382,7 @@ class PromptToolkitBox(object):
     MODEL_DISPLAY_MAX: int    = 24
     PASTE_CHAR_THRESHOLD: int = 1200
     PASTE_LINE_THRESHOLD: int = 20
+    WORKSPACE_STATUS_DEFAULT: str = "?"
 
     def __init__(self) -> None:
         self.history: InMemoryHistory         = InMemoryHistory()
@@ -377,6 +402,9 @@ class PromptToolkitBox(object):
             "prompt.kicker"                           : "bold #7B838E",
             "prompt.model"                            : "bold #F3F5F8",
             "prompt.muted"                            : "bold #767D87",
+            "prompt.workspace.same"                   : "bold #7B838E",
+            "prompt.workspace.diff"                   : "bold #D3C27C",
+            "prompt.workspace.unknown"                : "bold #767D87",
             "placeholder"                             : "bold #727983",
             "auto-suggestion"                         : "#5A616A bg:#0A0D18",
             "skill-token"                             : "bold #8FD7FF",
@@ -430,15 +458,34 @@ class PromptToolkitBox(object):
         return model[: max(0, limit - 3)] + "..."
 
     @staticmethod
-    def _render_message(model: str, th: dict[str, str]) -> HTML:
+    def _workspace_status_symbol(status: str) -> tuple[str, str]:
+        """返回 workspace 状态符号和样式。"""
+        normalized = str(status or "").strip()
+        if normalized == "=":
+            return "=", "prompt.workspace.same"
+        if normalized == "!":
+            return "!", "prompt.workspace.diff"
+        return "?", "prompt.workspace.unknown"
+
+    @staticmethod
+    def _render_message(
+        model: str,
+        th: dict[str, str],
+        workspace_status: str = WORKSPACE_STATUS_DEFAULT
+    ) -> HTML:
         """输入头部渲染。"""
         safe_model = html.escape(
             PromptToolkitBox._clip_model_name(model or "-", PromptToolkitBox.MODEL_DISPLAY_MAX)
+        )
+        workspace_symbol, workspace_style = PromptToolkitBox._workspace_status_symbol(
+            workspace_status
         )
         return HTML(
             f"<prompt>"
             f"<prompt.kicker>[</prompt.kicker> "
             f"<prompt.brand fg='{th['brand']}'>{html.escape(const.APP_DESC)}</prompt.brand> "
+            f"<prompt.kicker>::</prompt.kicker> "
+            f"<{workspace_style}>{html.escape(workspace_symbol)}</{workspace_style}> "
             f"<prompt.kicker>::</prompt.kicker> "
             f"<prompt.model fg='{th['soft']}'>{safe_model}</prompt.model> "
             f"<prompt.kicker>]</prompt.kicker>\n"
@@ -642,10 +689,26 @@ class PromptToolkitBox(object):
             )
         return self.session
 
-    async def prompt_async(self, *, mode: RunMode, model: str) -> str:
+    async def prompt_async(
+        self,
+        *,
+        mode: RunMode,
+        model: str,
+        workspace_status: str = WORKSPACE_STATUS_DEFAULT,
+        header_state: typing.Optional[PromptHeaderState] = None
+    ) -> str:
         """异步输入渲染入口。"""
-        th      = self._theme(mode)
-        message = self._render_message(model, th)
+        th = self._theme(mode)
+
+        if header_state is not None:
+            header_state.update(model=model, workspace_status=workspace_status)
+            message = lambda: self._render_message(
+                header_state.model,
+                th,
+                header_state.workspace_status
+            )
+        else:
+            message = self._render_message(model, th, workspace_status)
 
         self.auto_suggest.set_mode(mode)
 
@@ -666,6 +729,7 @@ class PromptToolkitBox(object):
                     f"<placeholder> {html.escape(th['placeholder'])}</placeholder>"
                 ),
                 reserve_space_for_menu=4,
+                refresh_interval=0.5 if header_state is not None else None,
                 style=self.style,
                 mouse_support=False,
                 pre_run=lambda: clear_pending_input(session.app.input)
