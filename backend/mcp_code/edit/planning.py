@@ -30,9 +30,9 @@ class PatchPlanner(NativeCodingComponent):
     @staticmethod
     def _patch_line_stats(hunks: list[dict[str, typing.Any]]) -> dict[str, int]:
         """统计 patch hunk 中的新增、删除和上下文行数。"""
-        added   = 0
-        removed = 0
-        context = 0
+        added: int   = 0
+        removed: int = 0
+        context: int = 0
 
         for hunk in hunks:
             for raw_line in hunk.get("lines") or []:
@@ -50,6 +50,23 @@ class PatchPlanner(NativeCodingComponent):
             "context_lines" : context,
             "replacements"  : min(added, removed)
         }
+
+    @staticmethod
+    def _native_create_content(hunks: list[dict[str, typing.Any]]) -> str:
+        """从 Add File hunk 中生成新文件内容。"""
+        lines: list[str] = []
+        for hunk in hunks:
+            for raw_line in hunk.get("lines") or []:
+                marker = str(raw_line.get("marker") or "")
+                if marker != "+":
+                    continue
+                text = str(raw_line.get("text") or "")
+                if raw_line.get("no_newline"):
+                    lines.append(text)
+                else:
+                    lines.append(f"{text}\n")
+
+        return "".join(lines)
 
     @staticmethod
     def public_patch_file(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
@@ -89,8 +106,9 @@ class PatchPlanner(NativeCodingComponent):
             for k, v in (expected_sha256 or {}).items()
             if str(k).strip() and str(v).strip()
         }
+
         planned: list[dict[str, typing.Any]] = []
-        seen_paths: set[str] = set()
+        seen_paths: set[str]                 = set()
 
         for item in parsed["files"]:
             path   = str(item["path"])
@@ -134,7 +152,7 @@ class PatchPlanner(NativeCodingComponent):
             seen_paths.update(duplicate_paths)
 
             exists = target.is_file()
-            if action == "create" and exists:
+            if action == "create" and target.exists():
                 return {"ok": False, "reason": "file_already_exists", "data": {"path": rel}}
             if action == "rename":
                 if not source_target.is_file():
@@ -219,23 +237,6 @@ class PatchPlanner(NativeCodingComponent):
             })
 
         return {"ok": True, "planned": planned}
-
-    @staticmethod
-    def _native_create_content(hunks: list[dict[str, typing.Any]]) -> str:
-        """从 Add File hunk 中生成新文件内容。"""
-        lines: list[str] = []
-        for hunk in hunks:
-            for raw_line in hunk.get("lines") or []:
-                marker = str(raw_line.get("marker") or "")
-                if marker != "+":
-                    continue
-                text = str(raw_line.get("text") or "")
-                if raw_line.get("no_newline"):
-                    lines.append(text)
-                else:
-                    lines.append(f"{text}\n")
-
-        return "".join(lines)
 
 
 if __name__ == '__main__':

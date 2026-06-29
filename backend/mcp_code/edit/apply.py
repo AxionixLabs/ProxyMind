@@ -70,6 +70,33 @@ class PatchApplier(NativeCodingComponent):
 
         return "\n"
 
+    @staticmethod
+    def _hunk_overlap_is_context_only(
+        hunk: dict[str, typing.Any],
+        *,
+        overlap_count: int
+    ) -> bool:
+        """判断 hunk 开头重叠的旧文本是否只包含上下文行。"""
+        if overlap_count <= 0:
+            return True
+
+        consumed = 0
+        for raw_line in hunk.get("lines") or []:
+            if isinstance(raw_line, dict):
+                marker = str(raw_line.get("marker") or "")
+            else:
+                marker = str(raw_line)[0] if str(raw_line) else ""
+
+            if marker not in {" ", "-"}:
+                continue
+            consumed += 1
+            if marker != " ":
+                return False
+            if consumed >= overlap_count:
+                return True
+
+        return consumed >= overlap_count
+
     def _hunk_old_sequence(
         self,
         hunk: dict[str, typing.Any],
@@ -101,7 +128,8 @@ class PatchApplier(NativeCodingComponent):
         lines: list[str],
         expected: list[str],
         *,
-        cursor: int
+        cursor: int,
+        allow_overlap: bool = False
     ) -> dict[str, typing.Any]:
         """在当前文本中查找可唯一匹配的 hunk 上下文位置。"""
         if not expected:
@@ -110,15 +138,20 @@ class PatchApplier(NativeCodingComponent):
                 "reason" : "patch_context_empty",
                 "data"   : {}
             }
-        max_start = len(lines) - len(expected)
-        if max_start < cursor:
+
+        max_start    = len(lines) - len(expected)
+        search_start = cursor
+
+        if allow_overlap:
+            search_start = max(0, cursor - len(expected))
+        if max_start < search_start:
             return {
                 "ok"     : False,
                 "reason" : "patch_context_out_of_range",
                 "data"   : {}
             }
         candidates: list[int] = []
-        for index in range(max(0, cursor), max_start + 1):
+        for index in range(max(0, search_start), max_start + 1):
             if self._lines_match_at(lines, index, expected):
                 candidates.append(index)
                 if len(candidates) > 8:
@@ -160,22 +193,27 @@ class PatchApplier(NativeCodingComponent):
             old_count    = int(hunk.get("old_count") if hunk.get("old_count") is not None else 1)
             target_index = self._hunk_target_index(old_start=old_start, old_count=old_count)
 
-            if target_index < cursor:
-                return {
-                    "ok": False,
-                    "reason": "patch_overlapping_hunk",
-                    "data": {
-                        "hunk"        : hunk_index,
-                        "hunk_header" : hunk.get("header")
-                    }
-                }
-
             old_sequence = self._hunk_old_sequence(hunk, newline=newline)
-            if old_sequence and not self._lines_match_at(original, target_index, old_sequence):
-                located = self._locate_hunk(original, old_sequence, cursor=cursor)
+            if old_sequence and (
+                target_index < cursor
+                or not self._lines_match_at(original, target_index, old_sequence)
+            ):
+                located = self._locate_hunk(
+                    original,
+                    old_sequence,
+                    cursor=cursor,
+                    allow_overlap=True
+                )
                 if located.get("ok"):
                     relocated_index = int(located["index"])
-                    if relocated_index < cursor:
+                    overlap_count = max(0, cursor - relocated_index)
+                    if (
+                        relocated_index < cursor
+                        and not self._hunk_overlap_is_context_only(
+                            hunk,
+                            overlap_count=overlap_count
+                        )
+                    ):
                         return {
                             "ok": False,
                             "reason": "patch_overlapping_hunk",
@@ -211,9 +249,20 @@ class PatchApplier(NativeCodingComponent):
                         "reason" : located.get("reason") or "patch_context_mismatch",
                         "data"   : data
                     }
+            elif target_index < cursor:
+                return {
+                    "ok": False,
+                    "reason": "patch_overlapping_hunk",
+                    "data": {
+                        "hunk"        : hunk_index,
+                        "hunk_header" : hunk.get("header")
+                    }
+                }
 
-            output.extend(original[cursor:target_index])
-            cursor = target_index
+            overlap_remaining = max(0, cursor - target_index)
+            if target_index >= cursor:
+                output.extend(original[cursor:target_index])
+                cursor = target_index
 
             for body_index, raw_line in enumerate(hunk.get("lines") or [], start=1):
                 if isinstance(raw_line, dict):
@@ -228,6 +277,21 @@ class PatchApplier(NativeCodingComponent):
                 expected_line = self._patch_line_content(text, no_newline=no_newline, newline=newline)
 
                 if marker in {" ", "-"}:
+                    if overlap_remaining > 0:
+                        if marker != " ":
+                            return {
+                                "ok": False,
+                                "reason": "patch_overlapping_hunk",
+                                "data": {
+                                    "hunk"        : hunk_index,
+                                    "hunk_header" : hunk.get("header"),
+                                    "line"        : body_index,
+                                    "target_line" : cursor + 1
+                                }
+                            }
+                        overlap_remaining -= 1
+                        continue
+
                     if cursor >= len(original):
                         return {
                             "ok": False,
