@@ -4,7 +4,6 @@
 import typing
 from pydantic import Field
 
-
 ScriptTextArg = typing.Annotated[
     typing.Optional[str],
     Field(description="脚本文本。"),

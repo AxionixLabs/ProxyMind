@@ -4,7 +4,6 @@
 import typing
 from pydantic import Field
 
-
 VideoListArg = typing.Annotated[
     list[str],
     Field(description="待分析的视频文件路径列表。"),

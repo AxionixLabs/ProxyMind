@@ -4,14 +4,14 @@
 import os
 import json
 import typing
-import tempfile
 import asyncio
+import tempfile
 from pathlib import Path
 from backend.models.model_base import Attachment
 from backend.models.model_device import SemanticResult
 from backend.utilities.storage.output import mk_out_dir
-from backend.utilities import const
 from backend.utilities.validation import marked
+from backend.utilities import const
 
 
 class K6Base(object):
@@ -459,13 +459,13 @@ class K6(K6Base):
             env=plan["env"],
             action="脚本执行",
             data={
-                "script_file"             : plan["script_file"],
-                "summary_export"          : plan["summary_export"],
-                "execution_mode"          : plan["execution_mode"],
-                "response_capture_supported": plan["response_capture_supported"],
-                "response_capture_active" : plan["response_capture_active"],
-                "response_capture_rule"   : plan["response_capture_rule"],
-                "response_export"         : plan["response_export"]
+                "script_file"                : plan["script_file"],
+                "summary_export"             : plan["summary_export"],
+                "execution_mode"             : plan["execution_mode"],
+                "response_capture_supported" : plan["response_capture_supported"],
+                "response_capture_active"    : plan["response_capture_active"],
+                "response_capture_rule"      : plan["response_capture_rule"],
+                "response_export"            : plan["response_export"]
             }
         )
         result.setdefault("data", {})["summary_exists"] = bool(

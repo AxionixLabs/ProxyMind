@@ -112,7 +112,11 @@ cd mind_npm && npm pkg get version --workspaces
 ### 🍎 同步产物
 
 ```bash
-npm run sync:applications && rm -rf "packages/mind-darwin/applications/Mind.app/Contents/MacOS/schematic/supports/macos"
+npm run sync:applications
+```
+
+```bash
+rm -rf "packages/mind-darwin/applications/Mind.app/Contents/MacOS/schematic/supports/macos"
 ```
 
 ### 🍎 Dry Run

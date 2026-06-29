@@ -4,7 +4,6 @@
 import typing
 from pydantic import Field
 
-
 FocusArg = typing.Annotated[
     str,
     Field(description="采样目标，一般是包名、进程名或业务焦点标识。"),
