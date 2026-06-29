@@ -107,6 +107,8 @@ async def mind_loop(mind: "Mind") -> None:
             or now - workspace_label_refreshed_at >= WORKSPACE_LABEL_REFRESH
         ):
             runtime_workspace_root = await fetch_runtime_workspace_root()
+            if runtime_workspace_root is not None:
+                mind.set_history_workspace(runtime_workspace_root)
 
             workspace_label = workspace_display_label(runtime_workspace_root)
             workspace_label_refreshed_at = now

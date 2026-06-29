@@ -2,15 +2,16 @@
 # Notes: ==== Mind™ ====
 
 import os
+import re
 import time
 import typing
-import hashlib
 import sqlite3
 from pathlib import Path
 from mind_app.paths import mind_history_db_path
 from .ids import valid_session_ids
 
 TABLE_SESSION_CURSORS = "conversation_session_cursors"
+SCHEMA_VERSION        = 2
 
 HISTORY_TTL_MS     = 24 * 60 * 60 * 1000
 HISTORY_LIMIT      = 200
@@ -23,7 +24,7 @@ CREATE TABLE IF NOT EXISTS {TABLE_SESSION_CURSORS} (
     sid            TEXT NOT NULL,
     mode           TEXT NOT NULL DEFAULT '',
     title          TEXT NOT NULL DEFAULT '',
-    workspace_hash TEXT NOT NULL DEFAULT '',
+    workspace      TEXT NOT NULL DEFAULT '',
     gravity        TEXT NOT NULL DEFAULT '',
     source         TEXT NOT NULL DEFAULT '',
     created_at     INTEGER NOT NULL,
@@ -80,7 +81,7 @@ class ConversationHistoryStore(object):
             "sid"            : sid_text,
             "mode"           : _clean(mode),
             "title"          : _clean_title(title),
-            "workspace_hash" : workspace_hash(workspace),
+            "workspace"      : normalize_workspace(workspace),
             "gravity"        : _clean(gravity),
             "source"         : _clean(source),
             "updated_at"     : now,
@@ -95,13 +96,13 @@ class ConversationHistoryStore(object):
                 conn.execute(
                     f"""
                     INSERT INTO {TABLE_SESSION_CURSORS} (
-                        cid, sid, mode, workspace_hash, gravity, source,
+                        cid, sid, mode, workspace, gravity, source,
                         title, created_at, updated_at, expires_at
                     )
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(cid, sid) DO UPDATE SET
                         mode           = excluded.mode,
-                        workspace_hash = excluded.workspace_hash,
+                        workspace      = excluded.workspace,
                         gravity        = excluded.gravity,
                         source         = excluded.source,
                         title          = CASE
@@ -117,7 +118,7 @@ class ConversationHistoryStore(object):
                         record["cid"],
                         record["sid"],
                         record["mode"],
-                        record["workspace_hash"],
+                        record["workspace"],
                         record["gravity"],
                         record["source"],
                         record["title"],
@@ -145,7 +146,7 @@ class ConversationHistoryStore(object):
         now = _now_ms() if now_ms is None else int(now_ms)
 
         mode_text     = _clean(mode)
-        workspace_key = workspace_hash(workspace)
+        workspace_key = normalize_workspace(workspace)
         gravity_text  = _clean(gravity)
         item_limit    = max(1, int(limit or HISTORY_MENU_LIMIT))
 
@@ -154,7 +155,7 @@ class ConversationHistoryStore(object):
         params: list[typing.Any] = [now]
 
         if workspace_key:
-            clauses.append("workspace_hash = ?")
+            clauses.append("workspace = ?")
             params.append(workspace_key)
 
         if mode_text:
@@ -172,7 +173,7 @@ class ConversationHistoryStore(object):
                 self._prune_expired(conn, now_ms=now)
                 rows = conn.execute(
                     f"""
-                    SELECT cid, sid, mode, workspace_hash, gravity, source,
+                    SELECT cid, sid, mode, workspace, gravity, source,
                            title, created_at, updated_at, expires_at
                     FROM {TABLE_SESSION_CURSORS}
                     WHERE {" AND ".join(clauses)}
@@ -196,7 +197,16 @@ class ConversationHistoryStore(object):
     @staticmethod
     def _init_schema(conn: sqlite3.Connection) -> None:
         """初始化历史库结构。"""
+        current_version = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
+        columns = {
+            str(row["name"])
+            for row in conn.execute(f"PRAGMA table_info({TABLE_SESSION_CURSORS})").fetchall()
+        }
+        has_legacy_schema = bool(columns) and "workspace" not in columns
+        if has_legacy_schema or (current_version and current_version < SCHEMA_VERSION):
+            conn.execute(f"DROP TABLE IF EXISTS {TABLE_SESSION_CURSORS}")
         conn.executescript(SCHEMA_SQL)
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     @staticmethod
     def _prune_expired(conn: sqlite3.Connection, *, now_ms: int) -> None:
@@ -222,14 +232,46 @@ class ConversationHistoryStore(object):
         )
 
 
-def workspace_hash(workspace: typing.Any) -> str:
-    """返回工作区路径的稳定短 hash；空工作区返回空字符串。"""
+def normalize_workspace(workspace: typing.Any) -> str:
+    """返回跨平台稳定的工作区路径；空工作区返回空字符串。"""
     workspace_text = _clean(workspace)
     if not workspace_text:
         return ""
 
-    normalized = str(Path(workspace_text).expanduser()).replace("\\", "/").lower()
-    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:16]
+    if _looks_like_windows_path(workspace_text):
+        normalized = workspace_text.replace("\\", "/").rstrip("/")
+        if re.match(r"^[a-zA-Z]:$", normalized):
+            normalized += "/"
+        if re.match(r"^[a-zA-Z]:/", normalized):
+            normalized = normalized[0].lower() + normalized[1:]
+        return normalized
+
+    try:
+        path = Path(workspace_text).expanduser()
+        resolved = path.resolve(strict=False)
+    except (OSError, RuntimeError, ValueError):
+        normalized = workspace_text
+    else:
+        normalized = str(resolved)
+
+    normalized = normalized.replace("\\", "/").rstrip("/")
+    if len(normalized) == 2 and normalized[1] == ":":
+        normalized += "/"
+
+    if os.name == "nt":
+        normalized = normalized.lower()
+
+    return normalized
+
+
+def _looks_like_windows_path(value: str) -> bool:
+    """判断文本是否是 Windows drive 或 UNC 路径。"""
+    return bool(
+        re.match(r"^[a-zA-Z]:[\\/]", value)
+        or re.match(r"^[a-zA-Z]:$", value)
+        or value.startswith("\\\\")
+        or value.startswith("//")
+    )
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict[str, typing.Any]:

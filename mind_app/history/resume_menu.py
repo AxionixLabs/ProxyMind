@@ -195,7 +195,9 @@ def _record_title(record: dict[str, typing.Any]) -> str:
 
 def _record_prefix(record: dict[str, typing.Any]) -> str:
     """返回 history 行前置信息。"""
-    return _format_updated_at(record.get("updated_at"))
+    workspace  = _workspace_label(record.get("workspace"))
+    updated_at = _format_updated_at(record.get("updated_at"))
+    return f"{updated_at} · {workspace}" if workspace else updated_at
 
 
 def _format_updated_at(value: typing.Any) -> str:
@@ -212,6 +214,15 @@ def _clip(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 3)] + "..."
+
+
+def _workspace_label(value: typing.Any) -> str:
+    """返回 history 行中的短工作区标签。"""
+    text = str(value or "").replace("\\", "/").rstrip("/")
+    if not text:
+        return ""
+    tail = text.rsplit("/", 1)[-1]
+    return tail or text
 
 
 if __name__ == '__main__':

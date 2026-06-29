@@ -28,6 +28,7 @@ from mind_nova.services import service_endpoints
 from mind_nova.modes import RunMode
 from .assets import ensure_asset
 from .mind_core import Mind
+from .modes.support.repl_prompt import fetch_runtime_workspace_root
 from .paths import (
     ensure_mcp_servers_file,
     ensure_mind_home,
@@ -100,6 +101,29 @@ async def resolve_cli_attachments(
         Design.console.print(reporter.render_summary(reporter.last_event))
 
     return uploaded
+
+
+async def run_selected_mode(
+    mind: Mind,
+    cmd_lines: typing.Any,
+    cli_attachments: typing.Optional[list[dict[str, typing.Any]]]
+) -> None:
+    """按命令行参数分派到单次调用、批处理、订阅或交互模式。"""
+    if cmd_lines.agent:
+        await mind.agent_loop()
+    elif chat := cmd_lines.chat:
+        await mind.calling(message=chat, mode="chat", attachments=cli_attachments)
+    elif fast := cmd_lines.fast:
+        await mind.calling(message=fast, mode="fast", attachments=cli_attachments)
+    elif plan := cmd_lines.plan:
+        await mind.calling(message=plan, mode="plan")
+    elif xtra := cmd_lines.xtra:
+        await mind.calling(message=xtra, mode="xtra", attachments=cli_attachments)
+    elif code := cmd_lines.code:
+        mode = resolve_code_mode(cmd_lines)
+        await mind.mind_pack(code, mode)
+    else:
+        await mind.mind_loop()
 
 
 async def main(
@@ -311,6 +335,9 @@ async def _run_main(
         await mind.start_inbuild_startup_anim(lambda: dict(inbuild_status))
         try:
             await server.ensure_running()
+            runtime_workspace_root = await fetch_runtime_workspace_root()
+            if runtime_workspace_root is not None:
+                mind.set_history_workspace(runtime_workspace_root)
             inbuild_status["state"] = "ready"
         except (MindError, Exception):
             inbuild_status["state"] = "failed"
@@ -348,26 +375,10 @@ async def _run_main(
 
         cli_attachments = await resolve_cli_attachments(mind, cmd_lines)
 
-        if cmd_lines.agent:
-            await mind.agent_loop()
-        elif chat := cmd_lines.chat:
-            await mind.calling(message=chat, mode="chat", attachments=cli_attachments)
-        elif fast := cmd_lines.fast:
-            await mind.calling(message=fast, mode="fast", attachments=cli_attachments)
-        elif plan := cmd_lines.plan:
-            await mind.calling(message=plan, mode="plan")
-        elif xtra := cmd_lines.xtra:
-            await mind.calling(message=xtra, mode="xtra", attachments=cli_attachments)
-        elif code := cmd_lines.code:
-            mode = resolve_code_mode(cmd_lines)
-            await mind.mind_pack(code, mode)
-
-        else:
-            await mind.mind_loop()
+        await run_selected_mode(mind, cmd_lines, cli_attachments)
+        return mind.exit_code
     finally:
         await mind.close_runtime_resources()
-
-    return mind.exit_code
 
 
 if __name__ == '__main__':

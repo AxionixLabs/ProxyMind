@@ -7,6 +7,7 @@ import typing
 import asyncio
 import sqlite3
 import contextlib
+from pathlib import Path
 from loguru import logger
 from mcp import ListToolsResult
 from engine.manage import ServerManage
@@ -38,7 +39,8 @@ from .runtime.external_mcp import ExternalMcpRuntime
 from .runtime.conversation import ConversationState
 from .history import (
     ConversationHistoryStore,
-    HISTORY_LIMIT
+    HISTORY_LIMIT,
+    normalize_workspace
 )
 from .history.ids import valid_session_ids
 from .mcp import McpSessionLike
@@ -60,6 +62,10 @@ class Mind(object):
 
         self.src_opera_place: str = kwargs["src_opera_place"]
         self.src_total_place: str = kwargs["src_total_place"]
+
+        self.history_workspace: str = normalize_workspace(
+            kwargs.get("workspace_root") or Path.cwd()
+        )
 
         self.pref: Preferences = kwargs["pref"]
         self.pref_refreshed_at: float    = time.monotonic()
@@ -213,7 +219,7 @@ class Mind(object):
         try:
             records = self.history_store.list_sessions(
                 mode=str(mode or ""),
-                workspace=self.src_opera_place,
+                workspace=self.history_workspace,
                 gravity=self._history_gravity(),
                 limit=limit
             )
@@ -262,12 +268,19 @@ class Mind(object):
                 sid=metadata["sid"],
                 mode=str(mode or ""),
                 title=title,
-                workspace=self.src_opera_place,
+                workspace=self.history_workspace,
                 gravity=self._history_gravity(),
                 source=source
             )
         except (OSError, sqlite3.Error, ValueError, KeyError) as exc:
             logger.debug(f"[History] write skipped: {type(exc).__name__}: {exc}")
+
+    def set_history_workspace(self, workspace: typing.Any) -> str:
+        """更新 history 使用的真实工作区根目录。"""
+        normalized = normalize_workspace(workspace)
+        if normalized:
+            self.history_workspace = normalized
+        return self.history_workspace
 
     def _history_gravity(self) -> str:
         """返回 history 使用的归档标签。"""
