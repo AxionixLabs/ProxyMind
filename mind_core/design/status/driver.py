@@ -31,7 +31,7 @@ class DesignStatusLiveDriver(StatusRenderer):
         detail = str(item.get("detail") or "").strip()
 
         if state in {"failed", "cached"}:
-            return f"⚠ MCP startup incomplete (failed: {name})"
+            return f"{name}: {detail or 'failed'}"
 
         if detail:
             return f"{name} {detail}"
@@ -76,6 +76,88 @@ class DesignStatusLiveDriver(StatusRenderer):
         color  = mix_hex_color(colors["spin_dim"], colors["spin"], 0.22 + (pulse * 0.78))
 
         return glyph, f"bold {color}"
+
+    @classmethod
+    def inbuild_startup_renderable(cls, phase: float, snapshot: dict[str, typing.Any]) -> Text:
+        state = str(snapshot.get("state") or "starting").strip().lower()
+
+        colors = {
+            "spin"      : "#7DD3FC",
+            "spin_dim"  : "#425466",
+            "done"      : "#7EE787",
+            "fail"      : "#FF5F5F",
+            "text_peak" : "#F2F8FF",
+            "text"      : "#D7E6F2",
+            "text_near" : "#A9C7DC",
+            "text_mid"  : "#7893A6",
+            "text_dim"  : "#526575",
+            "fail_text" : "#FF8A8A",
+            "detail"    : "#D98A8A",
+            "branch"    : "#8FA4B8",
+        }
+
+        out = Text()
+        if state == "ready":
+            out.append("◆", style=f"bold {colors['done']}")
+            out.append(" Helix MCP ready", style=f"bold {colors['text']}")
+            return out
+
+        if state == "failed":
+            out.append("■", style=f"bold {colors['fail']}")
+            out.append(" Helix MCP failed", style=f"bold {colors['fail_text']}")
+            return out
+
+        marker, marker_style = cls._external_mcp_link_marker(phase, colors)
+        out.append(marker, style=marker_style)
+        out.append(" ", style=f"bold {colors['spin_dim']}")
+
+        label = "Helix MCP starting"
+
+        cls._append_gradient_sweep_text(
+            out,
+            label,
+            focus=cls._external_mcp_link_focus(phase, max(1, len(label))),
+            peak_color=colors["text_peak"],
+            soft_color=colors["text"],
+            near_color=colors["text_near"],
+            mid_color=colors["text_mid"],
+            fade_color="#60798B",
+            dim_color=colors["text_dim"],
+            lead_span=3.30,
+            tail_span=6.70,
+            peak_radius=0.84,
+        )
+        return out
+
+    async def inbuild_startup_live(
+        self,
+        stop_event: asyncio.Event,
+        snapshot: typing.Callable[[], dict[str, typing.Any]]
+    ) -> None:
+        """内置运行时启动状态，最终保留为单行。"""
+        if self.design_level != const.SHOW_LEVEL:
+            return None
+
+        fps        = 30
+        loop       = asyncio.get_running_loop()
+        started_at = loop.time()
+
+        with Live(
+            self.inbuild_startup_renderable(0.0, snapshot()),
+            console=self.console,
+            refresh_per_second=fps,
+            transient=False
+        ) as live:
+            while not stop_event.is_set():
+                phase = max(0.0, loop.time() - started_at)
+                live.update(self.inbuild_startup_renderable(phase, snapshot()))
+                await asyncio.sleep(1 / fps)
+
+            phase = max(0.0, loop.time() - started_at)
+            live.update(self.inbuild_startup_renderable(phase, snapshot()))
+
+        if self.console is not None:
+            self.console.print()
 
     @classmethod
     def _external_mcp_status_parts(
@@ -136,19 +218,21 @@ class DesignStatusLiveDriver(StatusRenderer):
             item for item in items
             if str(item.get("state") or "").strip().lower() in {"failed", "cached"}
         ]
+
         detail_limit = min(5, len(detail_items))
-        details = []
+        details      = []
+
         for item in detail_items[:detail_limit]:
             details.append(
                 {
-                    "text"  : f"  {cls._external_mcp_item_text(item)}",
+                    "text"  : f"└ [!] {cls._external_mcp_item_text(item)}",
                     "state" : str(item.get("state") or "").strip().lower()
                 }
             )
         if len(detail_items) > detail_limit:
             details.append(
                 {
-                    "text"  : f"  ... {len(detail_items) - detail_limit} more servers",
+                    "text"  : f"└ ... {len(detail_items) - detail_limit} more servers",
                     "state" : "more"
                 }
             )
@@ -177,10 +261,37 @@ class DesignStatusLiveDriver(StatusRenderer):
             out.append(fitted, style=f"bold {style}")
         return None
 
+    @classmethod
+    def _external_mcp_done_level(cls, snapshot: dict[str, typing.Any]) -> str:
+        items = [
+            item for item in list(snapshot.get("items") or [])
+            if isinstance(item, dict)
+        ]
+        if not items:
+            return "ready"
+
+        connected_count: int = 0
+        failed_count: int    = 0
+
+        for item in items:
+            state = str(item.get("state") or "").strip().lower()
+            if state in {"ready", "empty"}:
+                connected_count += 1
+            elif state in {"failed", "cached"}:
+                failed_count += 1
+
+        if failed_count and connected_count <= 0:
+            return "failed"
+        if failed_count:
+            return "warn"
+
+        return "ready"
+
     @staticmethod
     def _external_mcp_detail_color(state: str, detail: str, colors: dict[str, str]) -> str:
-        normalized_state = str(state or "").strip().lower()
         text = str(detail or "").strip().lower()
+
+        normalized_state = str(state or "").strip().lower()
         if normalized_state == "more" or text.startswith("..."):
             return colors["detail_dim"]
         if normalized_state in {"linking", "queued"}:
@@ -191,16 +302,19 @@ class DesignStatusLiveDriver(StatusRenderer):
             return colors["detail_warn"]
         if normalized_state in {"failed", "cached"}:
             return colors["detail_warn"]
+
         return colors["detail"]
 
     @classmethod
     def external_mcp_status_text(cls, snapshot: dict[str, typing.Any]) -> str:
         summary, details = cls._external_mcp_status_parts(snapshot)
+
         lines = [
             str(detail.get("text") or "")
             for detail in details
             if str(detail.get("text") or "").strip()
         ]
+
         return "\n".join([summary, *lines]) if summary else ""
 
     @classmethod
@@ -210,28 +324,37 @@ class DesignStatusLiveDriver(StatusRenderer):
         done = bool(snapshot.get("done", False))
 
         colors = {
-            "spin"        : "#7DD3FC",
-            "done"        : "#7EE787",
-            "spin_dim"    : "#425466",
-            "text_peak"   : "#F2F8FF",
-            "text_soft"   : "#D7E6F2",
-            "text_near"   : "#A9C7DC",
-            "text_mid"    : "#7893A6",
-            "text_dim"    : "#526575",
-            "detail"      : "#9FB3C3",
-            "detail_dim"  : "#617281",
-            "detail_ready": "#8BD49C",
-            "detail_wait" : "#8FC7EA",
-            "detail_warn" : "#D8B26E",
-            "detail_fail" : "#D88C8C",
+            "spin"         : "#7DD3FC",
+            "done"         : "#7EE787",
+            "warn"         : "#D8B26E",
+            "fail"         : "#FF5F5F",
+            "spin_dim"     : "#425466",
+            "text_peak"    : "#F2F8FF",
+            "text_soft"    : "#D7E6F2",
+            "text_near"    : "#A9C7DC",
+            "text_mid"     : "#7893A6",
+            "text_dim"     : "#526575",
+            "detail"       : "#9FB3C3",
+            "detail_dim"   : "#617281",
+            "detail_ready" : "#8BD49C",
+            "detail_wait"  : "#8FC7EA",
+            "detail_warn"  : "#D8B26E",
+            "detail_fail"  : "#D88C8C",
         }
 
         out = Text()
         if done:
-            out.append("◆", style=f"bold {colors['done']}")
+            done_level = cls._external_mcp_done_level(snapshot)
+            if done_level == "failed":
+                out.append("■", style=f"bold {colors['fail']}")
+            elif done_level == "warn":
+                out.append("◆", style=f"bold {colors['warn']}")
+            else:
+                out.append("◆", style=f"bold {colors['done']}")
         else:
             marker, marker_style = cls._external_mcp_link_marker(phase, colors)
             out.append(marker, style=marker_style)
+
         out.append(" ", style=f"bold {colors['spin_dim']}")
 
         if not summary:
@@ -240,6 +363,7 @@ class DesignStatusLiveDriver(StatusRenderer):
         console_width = 80
         if cls.console is not None:
             console_width = max(24, int(cls.console.width))
+
         fitted = cls.truncate_status_text(
             summary,
             limit=max(12, min(72, console_width - 3))
@@ -256,6 +380,7 @@ class DesignStatusLiveDriver(StatusRenderer):
             return out
 
         focus = cls._external_mcp_link_focus(phase, span)
+
         cls._append_gradient_sweep_text(
             out,
             fitted,
@@ -301,6 +426,7 @@ class DesignStatusLiveDriver(StatusRenderer):
                 await asyncio.sleep(1 / fps)
 
             last_snapshot = snapshot()
+
             phase = max(0.0, loop.time() - started_at) + phase_bias
             live.update(self.external_mcp_renderable(phase, last_snapshot))
             elapsed = loop.time() - started_at
@@ -339,6 +465,7 @@ class DesignStatusLiveDriver(StatusRenderer):
             default_title="Subscription Idle",
             default_detail="Waiting for link state"
         )
+
         tick = 0
         with Live(
             render_agent_wait_frame(0, snapshot(), width, theme),
@@ -401,10 +528,11 @@ class DesignStatusLiveDriver(StatusRenderer):
             return None
 
         kind = "mode"
-        label = self.mode_status_text(mode)
-        fps = self.status_refresh_per_second(kind)
+
+        label    = self.mode_status_text(mode)
+        fps      = self.status_refresh_per_second(kind)
         interval = self.status_interval(kind)
-        phase = 0.0
+        phase    = 0.0
 
         def frame(sec: float) -> Text:
             renderable = self.mode_status_renderable(phase, label)
@@ -412,6 +540,7 @@ class DesignStatusLiveDriver(StatusRenderer):
             return renderable
 
         loop = asyncio.get_running_loop()
+
         started_at = loop.time()
         with Live(
             frame(0.0),

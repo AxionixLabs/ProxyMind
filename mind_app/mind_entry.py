@@ -307,7 +307,17 @@ async def _run_main(
         handler.bind_delegate(mind.signal_processor)
 
     try:
-        await server.ensure_running()
+        inbuild_status: dict[str, typing.Any] = {"state": "starting", "error": ""}
+        await mind.start_inbuild_startup_anim(lambda: dict(inbuild_status))
+        try:
+            await server.ensure_running()
+            inbuild_status["state"] = "ready"
+        except (MindError, Exception):
+            inbuild_status["state"] = "failed"
+            raise
+        finally:
+            await mind.await_cleanup(mind.stop_anim())
+
         mind.start_keepalive_supervisor()
 
         external_task = asyncio.create_task(

@@ -398,6 +398,15 @@ class Mind(object):
             lambda stop_event: self.design.upload_progress_live(stop_event, snapshot)
         )
 
+    async def start_inbuild_startup_anim(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]]
+    ) -> None:
+        """启动内置运行时启动状态动画。"""
+        await self.anim_manager.start(
+            lambda stop_event: self.design.inbuild_startup_live(stop_event, snapshot)
+        )
+
     async def start_external_mcp_anim(
         self,
         snapshot: typing.Callable[[], dict[str, typing.Any]]
