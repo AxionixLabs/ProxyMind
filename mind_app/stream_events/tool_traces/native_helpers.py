@@ -9,23 +9,8 @@ from .common import (
 )
 
 
-def _path_from_args(args: dict[str, typing.Any]) -> str:
-    """从工具参数中读取路径。"""
-    return str(args.get("path") or ".").strip() or "."
-
-
-def _file_action_from_before_exists(before_exists: typing.Any) -> str:
-    """根据写入前的文件状态选择文件动作文案。"""
-    if before_exists is False:
-        return "Added"
-    if before_exists is True:
-        return "Edited"
-
-    return "Edited"
-
-
-def _unified_file_action(files: typing.Any) -> str:
-    """根据 unified patch 结果选择文件动作文案。"""
+def _patch_file_action(files: typing.Any) -> str:
+    """根据 patch 结果选择文件动作文案。"""
     if not isinstance(files, list):
         return "Edited"
     if len(files) != 1 or not isinstance(files[0], dict):
@@ -51,20 +36,6 @@ def _short_sha(value: typing.Any) -> str:
     """生成短哈希文本。"""
     text = str(value or "").strip()
     return text[:12] if text else ""
-
-
-def _format_size(value: typing.Any) -> str:
-    """格式化字节大小。"""
-    try:
-        size = int(value)
-    except (TypeError, ValueError):
-        return ""
-    if size < 1024:
-        return f"{size} B"
-    if size < 1024 * 1024:
-        return f"{size / 1024:.1f} KB"
-
-    return f"{size / (1024 * 1024):.1f} MB"
 
 
 def _diagnostic_sequence_lines(label: str, value: typing.Any) -> list[str]:

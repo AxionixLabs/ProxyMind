@@ -2,11 +2,9 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from pathlib import Path
 from mind_app.stream_events.command_preview import command_text
 from .common import (
     MAX_PREVIEW_WIDTH,
-    MISSING,
     SCREEN_PREVIEW_LINES,
     TraceEntry,
     TracePreview,
@@ -19,13 +17,9 @@ from .common import (
     _trace_preview_from_lines
 )
 from .native_helpers import (
-    _error_preview_lines,
-    _file_action_from_before_exists,
     _format_delta,
-    _format_size,
-    _path_from_args,
     _short_sha,
-    _unified_file_action
+    _patch_file_action
 )
 from .shell_batch import (
     shell_batch_trace_title,
@@ -33,19 +27,16 @@ from .shell_batch import (
 )
 from .shell_errors import shell_error_diagnostic_lines
 from .native_patch import (
-    _error_unified_patch_preview_lines,
+    _error_patch_preview_lines,
     _hunk_label,
-    _line_delta_from_content,
-    _line_delta_from_unified_files,
-    _numbered_added_lines,
+    _line_delta_from_patch_files,
     _patch_error_diagnostic_lines,
-    _unified_patch_preview_lines
+    _patch_preview_lines
 )
 
 NATIVE_CODING_TRACE_TOOLS = {
     "shell_command",
-    "workspace_write_file",
-    "workspace_apply_unified_patch"
+    "apply_patch"
 }
 
 SMALL_SHELL_BATCH_TRACE_LIMIT = 2
@@ -75,21 +66,6 @@ def render_tool_start_preview(
         lines.append(f"… +{len(arguments) - 6} args")
 
     return _trace_preview_from_lines(lines)
-
-
-def local_path_exists(
-    arguments: dict[str, typing.Any]
-) -> typing.Any:
-    """检查参数路径是否存在；无法检查时返回 MISSING。"""
-    if not isinstance(arguments, dict):
-        return MISSING
-    raw_path = str(arguments.get("path") or "").strip()
-    if not raw_path:
-        return MISSING
-    try:
-        return Path(raw_path).expanduser().resolve().exists()
-    except OSError:
-        return MISSING
 
 
 def _argument_preview(value: typing.Any) -> str:
@@ -129,44 +105,16 @@ def render_tool_result_preview(
 
     is_error = data.get("ok") is False
 
-    if name == "workspace_write_file":
-        if is_error:
-            return _trace_preview_from_lines(_error_preview_lines(
-                data,
-                ("path", data.get("path") or args.get("path")),
-            ))
-        content = args.get("content")
-        if content is not None:
-            path = str(data.get("path") or args.get("path") or "").strip()
-
-            lines = [f"└─ {path}"] if path else []
-            lines.extend(_numbered_added_lines(content))
-
-            preview = _trace_code_preview_from_lines(lines)
-
-            return TracePreview(
-                full=preview.full,
-                screen=preview.screen,
-                omitted_lines=preview.omitted_lines,
-                kind="file_tree"
-            )
-
-        return _trace_preview_from_lines(_summary_lines(
-            ("file", str(data.get("path") or "").strip()),
-            ("size", _format_size(data.get("bytes"))),
-            ("sha256", _short_sha(data.get("sha256"))),
-        ))
-
-    if name == "workspace_apply_unified_patch":
+    if name == "apply_patch":
         if is_error:
             prefix = _patch_error_diagnostic_lines(data)
 
-            preview_lines = _error_unified_patch_preview_lines(args.get("patch"), data)
+            preview_lines = _error_patch_preview_lines(args.get("patch"), data)
             if preview_lines:
                 return _trace_code_preview_from_lines([*prefix, *preview_lines])
             return _trace_preview_from_lines(prefix)
 
-        preview_lines = _unified_patch_preview_lines(args.get("patch"))
+        preview_lines = _patch_preview_lines(args.get("patch"))
         if preview_lines:
             preview = _trace_code_preview_from_lines(preview_lines)
             return TracePreview(
@@ -245,8 +193,7 @@ def render_tool_result_entries(
     *,
     ok: bool,
     data: typing.Any = None,
-    cost_ms: int | None = None,
-    before_exists: typing.Any = MISSING
+    cost_ms: int | None = None
 ) -> list[TraceEntry]:
     """生成工具结果可独立展示的轨迹列表。"""
     args    = arguments if isinstance(arguments, dict) else {}
@@ -273,8 +220,7 @@ def render_tool_result_entries(
                             "shell_command",
                             inner_args,
                             ok=item_ok,
-                            data=inner_data,
-                            before_exists=before_exists
+                            data=inner_data
                         ),
                         preview=render_tool_result_preview(
                             "shell_command",
@@ -293,8 +239,7 @@ def render_tool_result_entries(
             args,
             ok=ok,
             data=data,
-            cost_ms=cost_ms,
-            before_exists=before_exists
+            cost_ms=cost_ms
         ),
         preview=render_tool_result_preview(name, data, arguments=args),
         ok=ok
@@ -416,8 +361,7 @@ def render_tool_trace(
     *,
     ok: bool,
     data: typing.Any = None,
-    cost_ms: int | None = None,
-    before_exists: typing.Any = MISSING
+    cost_ms: int | None = None
 ) -> str:
     """生成工具执行完成后的轨迹标题。"""
     _ = cost_ms
@@ -425,19 +369,12 @@ def render_tool_trace(
     args    = arguments if isinstance(arguments, dict) else {}
     payload = _result_payload(data)
 
-    if name == "workspace_write_file":
-        path = str(payload.get("path") or _path_from_args(args))
-        added, removed = _line_delta_from_content(args.get("content"))
-        action = _file_action_from_before_exists(before_exists)
-
-        return f"• {action} {path}{_format_delta(added, removed)}"
-
-    if name == "workspace_apply_unified_patch":
+    if name == "apply_patch":
         if not ok:
             return "• Patch"
 
         files  = payload.get("files")
-        action = _unified_file_action(files)
+        action = _patch_file_action(files)
 
         if isinstance(files, list) and len(files) == 1 and isinstance(files[0], dict):
             target = str(files[0].get("path") or "patch")
@@ -446,7 +383,7 @@ def render_tool_trace(
         else:
             target = "patch"
 
-        added, removed = _line_delta_from_unified_files(payload)
+        added, removed = _line_delta_from_patch_files(payload)
         return f"• {action} {target}{_format_delta(added, removed)}"
 
     if name == "shell_command":
@@ -455,15 +392,16 @@ def render_tool_trace(
             inner = _single_shell_batch_payload(results)
             if inner is None:
                 return shell_batch_trace_title(payload, cost_ms=cost_ms)
+
             inner_args = inner.get("args") if isinstance(inner.get("args"), dict) else args
             inner_data = inner.get("data") if isinstance(inner.get("data"), dict) else {}
+
             return render_tool_trace(
                 "shell_command",
                 inner_args,
                 ok=ok,
                 data=inner_data,
-                cost_ms=cost_ms,
-                before_exists=before_exists
+                cost_ms=cost_ms
             )
 
         command = _shell_command_title(payload.get("command") or args.get("command"))

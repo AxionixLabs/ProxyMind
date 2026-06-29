@@ -42,11 +42,7 @@ from ..stream_events.approval_trace import (
     render_approval_expired_trace,
     render_approval_trace_parts
 )
-from ..stream_events.tool_trace import (
-    MISSING,
-    is_native_coding_trace_tool,
-    local_path_exists
-)
+from ..stream_events.tool_trace import is_native_coding_trace_tool
 from ..stream_events.lifecycle import (
     StreamEventContext,
     handle_lifecycle_event
@@ -304,12 +300,6 @@ async def stream_looper(
                     await finish_failure(slog, ev_report, phase="turn.failed", error=error)
                     continue
 
-                before_exists = (
-                    local_path_exists(arguments)
-                    if name == "workspace_write_file"
-                    else MISSING
-                )
-
                 use_coding_trace = is_native_coding_trace_tool(name)
 
                 if not use_coding_trace:
@@ -360,8 +350,7 @@ async def stream_looper(
                     ok=ok,
                     fields=fields,
                     text=text,
-                    use_coding_trace=use_coding_trace,
-                    before_exists=before_exists
+                    use_coding_trace=use_coding_trace
                 )
 
                 await request.post_tool_result(

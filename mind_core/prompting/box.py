@@ -113,6 +113,7 @@ class PromptToolkitBox(object):
             "placeholder"                             : "bold #727983",
             "auto-suggestion"                         : "#5A616A bg:#0A0D18",
             "skill-token"                             : "bold #8FD7FF",
+            "shell-escape"                            : "bold #FF6B6B",
             "paste-placeholder"                       : "bold #D3C27C",
             "completion-menu"                         : "bg:#111315 #D8DCE2",
             "completion-menu.completion"              : "bg:#111315 bold #D6DBE2",
@@ -136,22 +137,22 @@ class PromptToolkitBox(object):
             "chat": {
                 "brand"       : "#4F8FC8",
                 "soft"        : "#2F6FAD",
-                "placeholder" : "Chat 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
+                "placeholder" : "Chat Ask anything. / for commands"
             },
             "fast": {
                 "brand"       : "#4FA37D",
                 "soft"        : "#2E7D5B",
-                "placeholder" : "Fast 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
+                "placeholder" : "Fast Ask anything. / for commands"
             },
             "plan": {
                 "brand"       : "#866FD1",
                 "soft"        : "#6B57B8",
-                "placeholder" : "Plan 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
+                "placeholder" : "Plan Ask anything. / for commands"
             },
             "xtra": {
                 "brand"       : "#2DAA9E",
                 "soft"        : "#1E7F78",
-                "placeholder" : "Xtra 输入 / 查看命令；Enter 发送，Alt+Enter 换行，↑/↓"
+                "placeholder" : "Xtra Ask anything. / for commands"
             }
         }[mode]
 

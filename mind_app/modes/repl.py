@@ -25,6 +25,7 @@ from .support.repl_prompt import (
     workspace_display_label
 )
 from .support.repl_mcp import render_mcp_status
+from .support.repl_shell import run_shell_escape
 from .support.repl_turn import (
     print_turn_body_gap,
     run_repl_model_turn
@@ -124,6 +125,10 @@ async def mind_loop(mind: "Mind") -> None:
             continue
 
         if ignored_repl_input(prompt_text):
+            Design.console.print()
+            continue
+
+        if await run_shell_escape(prompt_text):
             Design.console.print()
             continue
 

@@ -47,14 +47,6 @@ def shell_command_items_payload(
     return payload
 
 
-WorkspacePathArg = typing.Annotated[
-    str,
-    Field(description="工作区内相对路径；不允许越过工作区根目录。"),
-]
-WorkspaceContentArg = typing.Annotated[
-    str,
-    Field(description="要写入文件的完整文本内容；用于创建或整体覆盖文件。"),
-]
 ShellCommandItemsArg = typing.Annotated[
     list[ShellCommandItem],
     Field(
@@ -66,25 +58,18 @@ ShellCommandItemsArg = typing.Annotated[
         )
     ),
 ]
-WorkspaceCreateDirsArg = typing.Annotated[
-    bool,
-    Field(description="写文件时是否自动创建父目录。"),
-]
-WorkspaceOverwriteArg = typing.Annotated[
-    bool,
-    Field(description="目标文件已存在时是否允许覆盖。"),
-]
-WorkspaceExpectedSha256Arg = typing.Annotated[
-    typing.Optional[str],
-    Field(description="编辑前文件 SHA256 基线；当前文件不匹配时拒绝写入，避免覆盖外部改动。"),
-]
 WorkspaceForceArg = typing.Annotated[
     bool,
     Field(description="是否跳过 SHA256 基线冲突检查。仅在明确需要覆盖外部改动时使用。"),
 ]
-WorkspaceUnifiedPatchArg = typing.Annotated[
+ApplyPatchArg = typing.Annotated[
     str,
-    Field(description="严格 unified diff 原文；必须包含 ---/+++ 文件头，禁止 UI 行号、Markdown 和解释文字。"),
+    Field(
+        description=(
+            "严格 apply_patch 补丁文本；必须以 *** Begin Patch 开始，以 *** End Patch 结束，"
+            "并使用 *** Add File / *** Update File / *** Delete File 描述文件变更。"
+        )
+    ),
 ]
 WorkspaceExpectedSha256MapArg = typing.Annotated[
     typing.Optional[dict[str, str]],
@@ -95,6 +80,7 @@ ExecutionMetadataArg = typing.Annotated[
     typing.Optional[dict[str, typing.Any]],
     Field(description="服务端策略层补充的执行裁决，包含 grantId 和 canonicalArguments 等元数据；模型调用时可省略。"),
 ]
+
 
 if __name__ == '__main__':
     pass

@@ -3,7 +3,6 @@
 
 import typing
 from backend.mcp_code.base import NativeCodingBase
-from backend.mcp_code.workspace.tools import WorkspaceTools
 from backend.mcp_code.exec.shell_batch import ShellBatchTools
 from backend.mcp_code.edit.patch_engine import PatchEngine
 from backend.mcp_code.exec.shell_exec import ShellCommandTools
@@ -18,7 +17,6 @@ class NativeCoding(NativeCodingBase):
         """初始化共享运行时状态并装配各能力组件。"""
         super().__init__(root=root)
 
-        self._workspace      = WorkspaceTools(self)
         self._patch_engine   = PatchEngine(self)
         self._command_policy = CommandPolicy(self)
         self._file_audit     = FileAudit(self)
@@ -34,21 +32,13 @@ class NativeCoding(NativeCodingBase):
         """批量执行 shell 命令。"""
         return await self._shell_batch.shell_command(items=items, execution=execution)
 
-    def write_file(
+    def apply_patch(
         self,
         *args: typing.Any,
         **kwargs: typing.Any
     ) -> dict[str, typing.Any]:
-        """创建或覆盖工作区文本文件。"""
-        return self._workspace.write_file(*args, **kwargs)
-
-    def apply_unified_patch(
-        self,
-        *args: typing.Any,
-        **kwargs: typing.Any
-    ) -> dict[str, typing.Any]:
-        """应用 unified diff 补丁。"""
-        return self._patch_engine.apply_unified_patch(*args, **kwargs)
+        """应用严格 apply_patch 补丁。"""
+        return self._patch_engine.apply_patch(*args, **kwargs)
 
 
 if __name__ == '__main__':

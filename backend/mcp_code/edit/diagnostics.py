@@ -135,14 +135,6 @@ class PatchDiagnostics(NativeCodingComponent):
         )
 
     @staticmethod
-    def clean_diff_path(path: str) -> str:
-        """清理 diff 文件头中的路径前缀和附加信息。"""
-        raw = str(path or "").split("\t", 1)[0].strip()
-        if raw.startswith("a/") or raw.startswith("b/"):
-            raw = raw[2:]
-        return raw
-
-    @staticmethod
     def read_text_preserve_newlines(target: Path) -> str:
         """读取文本文件并保留原始换行符。"""
         with target.open("r", encoding=const.CHARSET, errors=const.IGNORE, newline="") as handle:
@@ -188,13 +180,13 @@ class PatchDiagnostics(NativeCodingComponent):
         }
         return diagnostics
 
-    def with_unified_patch_diagnostics(
+    def with_patch_diagnostics(
         self,
         *,
         data: dict[str, typing.Any],
         patch: str
     ) -> dict[str, typing.Any]:
-        """为 unified patch 失败结果补充补丁预览。"""
+        """为 patch 失败结果补充补丁预览。"""
         enriched = dict(data)
         enriched.setdefault("patch_preview", self.diagnostic_preview(patch, limit=1600))
         return enriched

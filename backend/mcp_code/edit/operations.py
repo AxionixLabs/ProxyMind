@@ -9,7 +9,7 @@ from backend.utilities import const
 
 
 class TextPatchOperations(NativeCodingComponent):
-    """提供 unified diff 补丁操作入口。"""
+    """提供严格 apply_patch 操作入口。"""
 
     def __init__(self, core: NativeCodingBase, *, planner: typing.Any, diagnostics: typing.Any) -> None:
         """保存共享运行时上下文和补丁执行依赖。"""
@@ -18,15 +18,15 @@ class TextPatchOperations(NativeCodingComponent):
         self._planner     = planner
         self._diagnostics = diagnostics
 
-    def apply_unified_patch(
+    def apply_patch(
         self,
         *,
         patch: str,
         expected_sha256: dict[str, str] | None = None,
         force: bool = False
     ) -> dict[str, typing.Any]:
-        """解析并应用标准 unified diff 补丁。"""
-        planned_result = self._planner.plan_unified_patch(
+        """解析并应用严格 apply_patch 补丁。"""
+        planned_result = self._planner.plan_patch(
             patch=patch,
             expected_sha256=expected_sha256,
             force=force
@@ -34,12 +34,12 @@ class TextPatchOperations(NativeCodingComponent):
         if not planned_result.get("ok"):
             data = dict(planned_result.get("data") or {})
             data.pop("reason", None)
-            data = self._diagnostics.with_unified_patch_diagnostics(
+            data = self._diagnostics.with_patch_diagnostics(
                 data=data,
                 patch=patch
             )
             self._diagnostics.log_patch_failure(
-                "workspace_apply_unified_patch", str(planned_result["reason"]), data
+                "apply_patch", str(planned_result["reason"]), data
             )
             return self.fail_result(planned_result["reason"], **data)
 
@@ -50,12 +50,14 @@ class TextPatchOperations(NativeCodingComponent):
                 continue
             item["target"].parent.mkdir(parents=True, exist_ok=True)
             item["target"].write_text(item["content"], encoding=const.CHARSET, newline="")
+
             self._diagnostics.refresh_written_file_mtime(item["target"])
+
             if item["action"] == "rename" and item.get("source_target"):
                 item["source_target"].unlink()
 
         changed_files = [
-            self._planner.public_unified_patch_file(item) for item in planned
+            self._planner.public_patch_file(item) for item in planned
         ]
         created_files = [
             item for item in changed_files if item.get("action") == "create"
@@ -68,7 +70,7 @@ class TextPatchOperations(NativeCodingComponent):
         ]
 
         return self.ok_result(
-            f"workspace unified patch ok files={len(planned)} hunks={sum(item['hunks'] for item in planned)}",
+            f"apply patch ok files={len(planned)} hunks={sum(item['hunks'] for item in planned)}",
             files=[
                 {
                     "path"            : item["path"],

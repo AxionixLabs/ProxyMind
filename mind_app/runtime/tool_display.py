@@ -5,7 +5,6 @@ import typing
 from mind_core.design import Design
 from ..stream_ui import StreamUI
 from ..stream_events.tool_trace import (
-    MISSING,
     render_generic_tool_result_parts,
     render_generic_tool_result_preview,
     render_tool_result_entries,
@@ -67,8 +66,7 @@ async def show_tool_result(
     ok: typing.Optional[bool] = None,
     fields: typing.Optional[typing.Union[str, dict[str, typing.Any]]] = None,
     text: typing.Optional[str] = None,
-    use_coding_trace: bool = False,
-    before_exists: typing.Any = MISSING
+    use_coding_trace: bool = False
 ) -> None:
     """显示工具结果轨迹；两条模式链路共享同一套渲染入口。"""
     display_ok = tool_run.ok if ok is None else ok
@@ -84,8 +82,7 @@ async def show_tool_result(
             arguments,
             ok=display_ok,
             data=tool_run.data,
-            cost_ms=tool_run.cost_ms,
-            before_exists=before_exists
+            cost_ms=tool_run.cost_ms
         )
 
         for entry in trace_entries:

@@ -10,7 +10,6 @@ from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.utils import get_cwidth
 from mind_core.skills import available_skills
 
-
 SKILL_EYE_WIDTH = 16
 SKILL_PREFIX_RE = re.compile(r"^\$[A-Za-z0-9_.-]*$")
 PASTE_PREFIX_RE = re.compile(r"\[Pasted Content \d+ chars](?: #\d+)?")
@@ -123,6 +122,8 @@ def iter_prompt_tokens(text: str, *, offset: int = 0) -> typing.Iterator[tuple[i
         *iter_paste_placeholder_tokens(text, offset=offset),
         *((start, end, "class:skill-token") for start, end, _ in iter_known_skill_tokens(text, offset=offset))
     ]
+    if text.startswith("!"):
+        tokens.append((offset, offset + 1, "class:shell-escape"))
 
     cursor = offset
     for start, end, style in sorted(tokens, key=lambda item: (item[0], item[1])):

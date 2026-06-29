@@ -7,8 +7,8 @@ from backend.mcp_code.base import (
 )
 
 
-class UnifiedPatchApplier(NativeCodingComponent):
-    """应用已解析的 unified diff hunk。"""
+class PatchApplier(NativeCodingComponent):
+    """应用已解析的 patch hunk。"""
 
     def __init__(self, core: NativeCodingBase, *, diagnostics: typing.Any) -> None:
         """保存共享运行时上下文和补丁诊断依赖。"""
@@ -107,14 +107,14 @@ class UnifiedPatchApplier(NativeCodingComponent):
         if not expected:
             return {
                 "ok"     : False,
-                "reason" : "unified_patch_context_empty",
+                "reason" : "patch_context_empty",
                 "data"   : {}
             }
         max_start = len(lines) - len(expected)
         if max_start < cursor:
             return {
                 "ok"     : False,
-                "reason" : "unified_patch_context_out_of_range",
+                "reason" : "patch_context_out_of_range",
                 "data"   : {}
             }
         candidates: list[int] = []
@@ -126,20 +126,20 @@ class UnifiedPatchApplier(NativeCodingComponent):
         if not candidates:
             return {
                 "ok"     : False,
-                "reason" : "unified_patch_context_mismatch",
+                "reason" : "patch_context_mismatch",
                 "data"   : {}
             }
         if len(candidates) > 1:
             return {
                 "ok": False,
-                "reason": "unified_patch_context_ambiguous",
+                "reason": "patch_context_ambiguous",
                 "data": {
                     "candidate_lines": [item + 1 for item in candidates[:8]]
                 }
             }
         return {"ok": True, "index": candidates[0]}
 
-    def apply_unified_hunks(
+    def apply_patch_hunks(
         self,
         content: str,
         hunks: list[dict[str, typing.Any]]
@@ -163,7 +163,7 @@ class UnifiedPatchApplier(NativeCodingComponent):
             if target_index < cursor:
                 return {
                     "ok": False,
-                    "reason": "unified_patch_overlapping_hunk",
+                    "reason": "patch_overlapping_hunk",
                     "data": {
                         "hunk"        : hunk_index,
                         "hunk_header" : hunk.get("header")
@@ -178,7 +178,7 @@ class UnifiedPatchApplier(NativeCodingComponent):
                     if relocated_index < cursor:
                         return {
                             "ok": False,
-                            "reason": "unified_patch_overlapping_hunk",
+                            "reason": "patch_overlapping_hunk",
                             "data": {
                                 "hunk"        : hunk_index,
                                 "hunk_header" : hunk.get("header"),
@@ -208,7 +208,7 @@ class UnifiedPatchApplier(NativeCodingComponent):
                     })
                     return {
                         "ok"     : False,
-                        "reason" : located.get("reason") or "unified_patch_context_mismatch",
+                        "reason" : located.get("reason") or "patch_context_mismatch",
                         "data"   : data
                     }
 
@@ -231,7 +231,7 @@ class UnifiedPatchApplier(NativeCodingComponent):
                     if cursor >= len(original):
                         return {
                             "ok": False,
-                            "reason": "unified_patch_context_out_of_range",
+                            "reason": "patch_context_out_of_range",
                             "data": {
                                 "hunk"        : hunk_index,
                                 "hunk_header" : hunk.get("header"),
@@ -246,7 +246,7 @@ class UnifiedPatchApplier(NativeCodingComponent):
                     if current_line != expected_line:
                         return {
                             "ok": False,
-                            "reason": "unified_patch_context_mismatch",
+                            "reason": "patch_context_mismatch",
                             "data": {
                                 "hunk"              : hunk_index,
                                 "hunk_header"       : hunk.get("header"),

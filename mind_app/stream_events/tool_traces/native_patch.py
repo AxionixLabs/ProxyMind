@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import re
 import typing
 from .common import (
     _normalize_preview_lines,
@@ -11,17 +10,8 @@ from .common import (
 from .native_helpers import _diagnostic_sequence_lines
 
 
-def _line_delta_from_content(content: typing.Any) -> tuple[int, int]:
-    """根据完整内容估算新增和删除行数。"""
-    text = str(content or "")
-    if not text:
-        return 0, 0
-
-    return len(text.splitlines()) or 1, 0
-
-
-def _line_delta_from_unified_files(data: dict[str, typing.Any]) -> tuple[int, int]:
-    """从 unified patch 结果中读取新增和删除行数。"""
+def _line_delta_from_patch_files(data: dict[str, typing.Any]) -> tuple[int, int]:
+    """从 patch 结果中读取新增和删除行数。"""
     added   = data.get("added_lines")
     removed = data.get("removed_lines")
 
@@ -32,8 +22,8 @@ def _line_delta_from_unified_files(data: dict[str, typing.Any]) -> tuple[int, in
     if not isinstance(files, list):
         return 0, 0
 
-    total_added   = 0
-    total_removed = 0
+    total_added: int   = 0
+    total_removed: int = 0
 
     for item in files:
         if not isinstance(item, dict):
@@ -81,50 +71,48 @@ def _patch_error_diagnostic_lines(data: dict[str, typing.Any]) -> list[str]:
     return lines
 
 
-def _numbered_added_lines(content: typing.Any, *, start_line: int = 1) -> list[str]:
-    """把新增内容格式化为带行号的预览行。"""
-    lines = _normalize_preview_lines(content)
-    width = max(4, len(str(start_line + len(lines))))
-
-    return [
-        f"{line_no:>{width}} +{line}"
-        for line_no, line in enumerate(lines, start=start_line)
-    ]
-
-
-def _unified_patch_preview_lines(patch: typing.Any) -> list[str]:
-    """从 unified diff 文本中提取按文件分组的代码预览行。"""
+def _patch_preview_lines(patch: typing.Any) -> list[str]:
+    """从严格 apply_patch 文本中提取按文件分组的代码预览行。"""
     groups: list[dict[str, typing.Any]]   = []
     current: dict[str, typing.Any] | None = None
 
     current_old_line: int = 1
     current_new_line: int = 1
-    pending_old_path: str = ""
 
     for raw in _normalize_preview_lines(patch):
-        if raw.startswith("--- "):
-            pending_old_path = _patch_display_path(raw[4:])
+        if raw in {"*** Begin Patch", "*** End Patch"}:
             continue
-        if raw.startswith("+++ "):
-            path = _patch_display_path(raw[4:]) or pending_old_path
-            if path == "/dev/null":
-                path = pending_old_path
-            if path:
-                current = {
-                    "path"    : path,
-                    "added"   : 0,
-                    "removed" : 0,
-                    "lines"   : []
-                }
-                groups.append(current)
+
+        if raw.startswith("*** Add File: "):
+            current = _new_patch_preview_group(groups, raw[len("*** Add File: "):])
+            current_old_line = 1
+            current_new_line = 1
             continue
-        if raw.startswith("@@ "):
-            match = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", raw)
-            if match:
-                current_old_line = int(match.group(1))
-                current_new_line = int(match.group(2))
+
+        if raw.startswith("*** Update File: "):
+            current = _new_patch_preview_group(groups, raw[len("*** Update File: "):])
+            current_old_line = 1
+            current_new_line = 1
+            continue
+
+        if raw.startswith("*** Delete File: "):
+            current = _new_patch_preview_group(groups, raw[len("*** Delete File: "):])
+            current_old_line = 1
+            current_new_line = 1
+            continue
+
+        if raw.startswith("*** Move to: "):
+            if current is not None:
+                current["path"] = str(raw[len("*** Move to: "):] or "").strip()
+            continue
+
+        if raw.startswith("@@"):
             _append_patch_preview_line(groups, current, raw)
             continue
+
+        if raw.startswith("*** "):
+            continue
+
         if not raw:
             continue
 
@@ -136,17 +124,34 @@ def _unified_patch_preview_lines(patch: typing.Any) -> list[str]:
             if current is not None:
                 current["added"] = int(current.get("added") or 0) + 1
             current_new_line += 1
+
         elif marker == "-":
             _append_patch_preview_line(groups, current, f"{current_old_line:>4} -{text}")
             if current is not None:
                 current["removed"] = int(current.get("removed") or 0) + 1
             current_old_line += 1
+
         elif marker == " ":
             _append_patch_preview_line(groups, current, f"{current_new_line:>4}  {text}")
             current_old_line += 1
             current_new_line += 1
 
     return _flatten_patch_preview_groups(groups)
+
+
+def _new_patch_preview_group(
+    groups: list[dict[str, typing.Any]],
+    path: typing.Any
+) -> dict[str, typing.Any]:
+    """创建一个严格 patch 文件预览分组。"""
+    current = {
+        "path"    : str(path or "").strip(),
+        "added"   : 0,
+        "removed" : 0,
+        "lines"   : []
+    }
+    groups.append(current)
+    return current
 
 
 def _append_patch_preview_line(
@@ -188,11 +193,11 @@ def _flatten_patch_preview_groups(groups: list[dict[str, typing.Any]]) -> list[s
     return lines
 
 
-def _error_unified_patch_preview_lines(patch: typing.Any, data: dict[str, typing.Any]) -> list[str]:
+def _error_patch_preview_lines(patch: typing.Any, data: dict[str, typing.Any]) -> list[str]:
     """从异常 patch 中提取相关 hunk 附近的短预览。"""
     hunk_header = str(data.get("hunk_header") or data.get("header") or "").strip()
     if not hunk_header:
-        return _unified_patch_preview_lines(patch)[:6]
+        return _patch_preview_lines(patch)[:6]
 
     raw_lines = _normalize_preview_lines(patch)
 
@@ -201,10 +206,10 @@ def _error_unified_patch_preview_lines(patch: typing.Any, data: dict[str, typing
         -1,
     )
     if hunk_index < 0:
-        return _unified_patch_preview_lines(patch)[:6]
+        return _patch_preview_lines(patch)[:6]
 
     start = hunk_index
-    while start > 0 and not raw_lines[start].startswith("--- "):
+    while start > 0 and not raw_lines[start].startswith("*** "):
         start -= 1
 
     end = hunk_index + 1
@@ -213,26 +218,14 @@ def _error_unified_patch_preview_lines(patch: typing.Any, data: dict[str, typing
 
     while end < len(raw_lines):
         line = raw_lines[end]
-        if line.startswith(("@@ ", "--- ", "+++ ")):
+        if line.startswith(("@@", "*** ")):
             break
         body_count += 1
         end += 1
         if body_count >= 4:
             break
 
-    return _unified_patch_preview_lines("\n".join(raw_lines[start:end]))
-
-
-def _patch_display_path(value: typing.Any) -> str:
-    """把 unified diff 文件头路径转换为工作区相对显示路径。"""
-    text = str(value or "").strip()
-
-    if text in {"", "/dev/null"}:
-        return text
-    if text.startswith("a/") or text.startswith("b/"):
-        return text[2:]
-
-    return text
+    return _patch_preview_lines("\n".join(raw_lines[start:end]))
 
 
 def _hunk_label(value: typing.Any) -> str:
