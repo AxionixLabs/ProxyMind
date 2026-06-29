@@ -284,13 +284,6 @@ async def _run_main(
         logger.debug(f"TLS: {tls}")
     logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}\n")
 
-    server: ServerManage = ServerManage(launch_cmd, env=process_env())
-    await server.ensure_running()
-    await pref.load_pref()
-    service_endpoints.configure(await ServiceConfig().load_domain())
-
-    # Design.Doc.log(f"[bold #0EA5E9]🌐 {const.BASE_URL}[/]\n")
-
     positions = (
         cmd_lines.chat, cmd_lines.fast, cmd_lines.plan, cmd_lines.xtra,
         cmd_lines.gravity, cmd_lines.reflection, cmd_lines.code
@@ -305,16 +298,44 @@ async def _run_main(
     # remote = await global_config_task
     remote = {}
 
+    server: ServerManage = ServerManage(launch_cmd, env=process_env())
     mind = Mind(wires, level, power, remote, *positions, **keywords)
     mind.bind_runtime(asyncio.get_running_loop(), asyncio.current_task())
     mind.bind_server_manager(server)
-    mind.start_keepalive_supervisor()
-    await mind.start_external_mcp_runtime()
 
     if handler is not None:
         handler.bind_delegate(mind.signal_processor)
 
     try:
+        await server.ensure_running()
+        mind.start_keepalive_supervisor()
+
+        external_task = asyncio.create_task(
+            mind.start_external_mcp_runtime(),
+            name="startup external mcp"
+        )
+        pref_task = asyncio.create_task(
+            pref.load_pref(),
+            name="startup preference"
+        )
+        domain_task = asyncio.create_task(
+            ServiceConfig().load_domain(),
+            name="startup service domain"
+        )
+        startup_tasks = [external_task, pref_task, domain_task]
+
+        try:
+            await pref_task
+            service_endpoints.configure(await domain_task)
+            await external_task
+        finally:
+            for task in startup_tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*startup_tasks, return_exceptions=True)
+
+        # Design.Doc.log(f"[bold #0EA5E9]🌐 {const.BASE_URL}[/]\n")
+
         cli_attachments = await resolve_cli_attachments(mind, cmd_lines)
 
         if cmd_lines.agent:
