@@ -26,17 +26,19 @@ async def with_mcp_session(
         ],
         typing.Awaitable[None]
     ],
-    before_user_flow: typing.Optional[typing.Callable[[], typing.Any]] = None,
+    before_user_flow: typing.Optional[typing.Callable[[], typing.Any]] = None
 ) -> None:
     """建立共享 MCP 会话，并把工具信息注入到调用流程。"""
-    _ = pref_config  # 保留调用签名；模型配置完整性由服务端统一判断。
-    mcp_url = const.BASE_URL + const.MCP_ED
+    _ = pref_config
+
+    mcp_url        = const.BASE_URL + const.MCP_ED
     bootstrap_done = False
 
     try:
         async with open_local_mcp_session() as local_session:
+
             external_group = mind.external_mcp.group if mind.external_mcp else None
-            tool_context = await build_tool_context(local_session, external_group)
+            tool_context   = await build_tool_context(local_session, external_group)
             bootstrap_done = True
 
             if before_user_flow is not None:
@@ -47,7 +49,7 @@ async def with_mcp_session(
             await function(
                 tool_context.session,
                 tool_context.openai_tools,
-                tool_context.tool_meta,
+                tool_context.tool_meta
             )
 
     except BaseException as exc:
