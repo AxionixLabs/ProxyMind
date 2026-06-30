@@ -2,7 +2,6 @@
 # Notes: ==== Mind™ ====
 
 import re
-import copy
 import json
 import math
 import httpx
@@ -208,47 +207,6 @@ def tool_name_hook(name: str, server_info: mcp_types.Implementation) -> str:
     alias     = _safe_tool_component(slugify_mcp_name(server_info.name, fallback="server"), "server")
     tool_name = _safe_tool_component(name, "tool")
     return _limit_tool_name(f"mcp__{alias}__{tool_name}")
-
-
-def empty_tool_schema() -> dict[str, typing.Any]:
-    """返回空对象类型的工具参数 schema。"""
-    return {"type": "object", "properties": {}}
-
-
-def normalize_tool_schema(value: typing.Any) -> dict[str, typing.Any]:
-    """规范化工具参数 schema，无法使用时返回空对象 schema。"""
-    if not isinstance(value, dict):
-        return empty_tool_schema()
-
-    try:
-        schema = copy.deepcopy(value)
-    except (copy.Error, TypeError, ValueError, RecursionError):
-        return empty_tool_schema()
-
-    if not isinstance(schema, dict):
-        return empty_tool_schema()
-
-    schema_type = schema.get("type")
-    if schema_type is None:
-        schema["type"] = "object"
-    elif schema_type != "object":
-        return empty_tool_schema()
-
-    if not isinstance(schema.get("properties"), dict):
-        schema["properties"] = {}
-
-    required = schema.get("required")
-    if required is not None and not (
-        isinstance(required, list) and all(isinstance(item, str) for item in required)
-    ):
-        schema.pop("required", None)
-
-    try:
-        json.dumps(schema, ensure_ascii=False)
-    except (TypeError, ValueError, OverflowError):
-        return empty_tool_schema()
-
-    return schema
 
 
 def truncate_text(value: typing.Any, limit: int) -> str:
