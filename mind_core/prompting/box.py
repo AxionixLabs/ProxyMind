@@ -109,6 +109,8 @@ class PromptToolkitBox(object):
             "prompt.kicker"                           : "bold #7B838E",
             "prompt.model"                            : "bold #F3F5F8",
             "prompt.muted"                            : "bold #767D87",
+            "prompt.access"                           : "bold #8FC7EA",
+            "prompt.access.full"                      : "bold #D8B26E",
             "prompt.workspace"                        : "bold #8A929C",
             "placeholder"                             : "bold #727983",
             "auto-suggestion"                         : "#5A616A bg:#0A0D18",
@@ -263,11 +265,17 @@ class PromptToolkitBox(object):
         return "…" + segment[-(limit - 1):]
 
     @staticmethod
-    def _render_message(model: str, th: dict[str, str], workspace_label: str = "") -> HTML:
+    def _render_message(
+        model: str,
+        th: dict[str, str],
+        workspace_label: str = "",
+        access_label: str = ""
+    ) -> HTML:
         """输入头部渲染。"""
         safe_model = html.escape(
             PromptToolkitBox._clip_model_name(model or "-", PromptToolkitBox.MODEL_DISPLAY_MAX)
         )
+        safe_access = html.escape(str(access_label or "").strip())
         safe_workspace = html.escape(
             PromptToolkitBox._clip_workspace_label(
                 workspace_label or "",
@@ -275,9 +283,18 @@ class PromptToolkitBox(object):
             )
         )
         workspace_parts = (
-            f"<prompt.kicker>·</prompt.kicker> "
+            f"<prompt.kicker>&#183;</prompt.kicker> "
             f"<prompt.workspace>{safe_workspace}</prompt.workspace> "
             if safe_workspace
+            else ""
+        )
+
+        access_style = "prompt.access.full" if safe_access.lower() == "elevated" else "prompt.access"
+
+        access_parts = (
+            f"<prompt.kicker>&#183;</prompt.kicker> "
+            f"<{access_style}>{safe_access}</{access_style}> "
+            if safe_access
             else ""
         )
         return HTML(
@@ -286,6 +303,7 @@ class PromptToolkitBox(object):
             f"<prompt.brand fg='{th['brand']}'>{html.escape(const.APP_DESC)}</prompt.brand> "
             f"<prompt.kicker>::</prompt.kicker> "
             f"<prompt.model fg='{th['soft']}'>{safe_model}</prompt.model> "
+            f"{access_parts}"
             f"{workspace_parts}"
             f"<prompt.kicker>]</prompt.kicker>\n"
             f"<prompt.kicker>></prompt.kicker> "
@@ -520,11 +538,12 @@ class PromptToolkitBox(object):
         *,
         mode: RunMode,
         model: str,
-        workspace_label: str = ""
+        workspace_label: str = "",
+        access_label: str = ""
     ) -> str:
         """异步输入渲染入口。"""
         th      = self._theme(mode)
-        message = self._render_message(model, th, workspace_label)
+        message = self._render_message(model, th, workspace_label, access_label)
 
         self.auto_suggest.set_mode(mode)
 

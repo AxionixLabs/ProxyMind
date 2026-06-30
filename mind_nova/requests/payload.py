@@ -7,6 +7,10 @@ from loguru import logger
 from mind_app.runtime.exec_env import exec_env
 from mind_core.skills import skills_payload
 from mind_nova import const
+from .access import (
+    DEFAULT_ACCESS_MODE,
+    apply_access_mode
+)
 
 
 def resolve_transport_mode(mode: str) -> str:
@@ -61,6 +65,9 @@ async def build_chat_payload(
         "exec_env" : runtime_exec_env,
         **kwargs
     }
+
+    apply_access_mode(payload, payload.pop("access_mode", DEFAULT_ACCESS_MODE))
+
     if attachments:
         payload["attachments"] = attachments
 

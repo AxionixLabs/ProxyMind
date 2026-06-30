@@ -9,6 +9,11 @@ from mind_core.design import Design
 from mind_nova.modes import (
     DEFAULT_RUN_MODE, RunMode
 )
+from mind_nova.requests import (
+    DEFAULT_ACCESS_MODE,
+    access_mode_label,
+    normalize_access_mode
+)
 from .support.repl_commands import (
     exchange_pref_value,
     open_pref_page,
@@ -25,6 +30,10 @@ from .support.repl_prompt import (
     workspace_display_label
 )
 from .support.repl_mcp import render_mcp_status
+from .support.repl_permissions import (
+    choose_permissions_mode,
+    render_permissions_status
+)
 from .support.repl_shell import run_shell_escape
 from .support.repl_turn import (
     print_turn_body_gap,
@@ -55,6 +64,7 @@ async def mind_loop(mind: "Mind") -> None:
     reboot_set: set[str]       = {"/reboot"}
     resume_set: set[str]       = {"/resume"}
     pref_set: set[str]         = {"/pref"}
+    permissions_set: set[str]  = {"/permissions"}
     tools_set: set[str]        = {"/tools"}
     shutdown_set: set[str]     = {"/shutdown"}
 
@@ -72,6 +82,7 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #AFD7FF]/reboot[/]                   重启本地后台服务
         [bold #FF5F5F]/shutdown[/]                 关闭前台并停止本地运行时
         [bold #AFD7FF]/pref[/]                     打开偏好配置页
+        [bold #AFD7FF]/permissions[/]               切换权限模式
         [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
         [bold #FFD75F]/chat[/]                     对话模式（交互能力协作/自然语言交互）
         [bold #FFD75F]/fast[/]                     高速模式（高吞吐任务流/数据媒体直达）
@@ -93,6 +104,7 @@ async def mind_loop(mind: "Mind") -> None:
     model       = primary.get("model", "")
 
     mode: RunMode = DEFAULT_RUN_MODE
+    access_mode   = DEFAULT_ACCESS_MODE
 
     workspace_label = ""
     workspace_label_refreshed_at = 0.0
@@ -117,7 +129,8 @@ async def mind_loop(mind: "Mind") -> None:
             prompt_text = await mind.prompt_box.prompt_async(
                 mode=mode,
                 model=model,
-                workspace_label=workspace_label
+                workspace_label=workspace_label,
+                access_label=access_mode_label(access_mode)
             )
         except KeyboardInterrupt:
             mind.exit_code = 130
@@ -193,6 +206,15 @@ async def mind_loop(mind: "Mind") -> None:
 
         if command in pref_set:
             await open_pref_page()
+            continue
+
+        if command.split(maxsplit=1)[0] in permissions_set:
+            selected_access_mode = await choose_permissions_mode(access_mode)
+            if selected_access_mode is not None:
+                access_mode = normalize_access_mode(selected_access_mode)
+                render_permissions_status(access_mode)
+            else:
+                Design.console.print()
             continue
 
         if command in tools_set:
@@ -352,7 +374,8 @@ async def mind_loop(mind: "Mind") -> None:
             mind,
             message_text=prompt_text,
             run_mode=mode,
-            pref_config=pref_config
+            pref_config=pref_config,
+            access_mode=access_mode
         )
 
     return None

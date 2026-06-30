@@ -27,7 +27,8 @@ async def run_repl_model_turn(
     *,
     message_text: str,
     run_mode: RunMode,
-    pref_config: dict[str, typing.Any]
+    pref_config: dict[str, typing.Any],
+    access_mode: str = "safe"
 ) -> None:
     """为单轮 REPL 输入建立 MCP 会话并执行模型流程。"""
     async def run_turn_with_session(
@@ -67,6 +68,7 @@ async def run_repl_model_turn(
                 openai_tools=openai_tools,
                 tool_meta=tool_meta,
                 attachments=uploaded_attachments,
+                access_mode=access_mode,
                 metadata=turn_metadata,
                 ev_report=ev_report
             )

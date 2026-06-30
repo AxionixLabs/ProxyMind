@@ -5,6 +5,10 @@ import typing
 from loguru import logger
 from engine.channel import Channel
 from mind_app.stream_ui import StreamUI
+from mind_nova.requests.access import (
+    DEFAULT_ACCESS_MODE,
+    apply_access_mode
+)
 from mind_nova.requests.payload import build_chat_payload
 from mind_nova.requests.streaming import streaming
 from mind_nova.services import service_endpoints
@@ -61,6 +65,7 @@ async def stream_plan(
         "extras"   : extras,
         **kwargs
     }
+    apply_access_mode(payload, payload.pop("access_mode", DEFAULT_ACCESS_MODE))
 
     async for event in streaming(service_endpoints.endpoint("/mind-plan"), headers, payload, timeout):
         event_type = str(event.get("type") or "")
@@ -142,6 +147,7 @@ async def stream_rule(
         "metadata"  : metadata,
         "extras"    : {"context" : context}
     }
+    apply_access_mode(payload, DEFAULT_ACCESS_MODE)
 
     async for event in streaming(service_endpoints.endpoint("/mind-rule"), headers, payload, timeout):
         event_type = str(event.get("type") or "")

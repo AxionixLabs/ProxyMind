@@ -38,6 +38,7 @@ class SlashCommandCompleter(Completer):
         {"text": "/reboot", "display": "/reboot", "meta": "重启本地后台服务"},
         {"text": "/shutdown", "display": "/shutdown", "meta": "停止本地后台服务并退出"},
         {"text": "/pref", "display": "/pref", "meta": "打开偏好配置页"},
+        {"text": "/permissions", "display": "/permissions", "meta": "切换权限模式"},
         {"text": "/tools", "display": "/tools", "meta": "查看可用 MCP 工具"},
         {"text": "/mcp", "display": "/mcp", "meta": "查看外部 MCP 状态"}
     )
@@ -63,6 +64,7 @@ class SlashCommandCompleter(Completer):
         "/reboot",
         "/shutdown",
         "/pref",
+        "/permissions",
         "/tools",
         "/mcp"
     )
