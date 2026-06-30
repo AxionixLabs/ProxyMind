@@ -8,6 +8,7 @@ import typing
 import asyncio
 import inspect
 import contextlib
+from datetime import timedelta
 from loguru import logger
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -22,6 +23,8 @@ from mind_nova import (
 
 if typing.TYPE_CHECKING:
     from ..mind_core import Mind
+
+LOCAL_MCP_READ_TIMEOUT: timedelta = timedelta(minutes=30)
 
 
 def _flatten_exceptions(exc: BaseException) -> typing.Generator[BaseException, None, None]:
@@ -212,7 +215,7 @@ async def with_mcp_session(
 
         try:
             async with streamable_http_client(url, http_client=client) as (r, w, _):
-                async with ClientSession(r, w) as session:
+                async with ClientSession(r, w, read_timeout_seconds=LOCAL_MCP_READ_TIMEOUT) as session:
                     await session.initialize()
                     external_group = mind.external_mcp.group if mind.external_mcp else None
                     active_session = MultiMcpSession(session, external_group)
