@@ -70,27 +70,28 @@ async def mind_loop(mind: "Mind") -> None:
 
     doc = """\
         [bold]
-        [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
-        [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
-        [bold #AFD7FF]/new[/]                      开始新对话（保留模式、模型和待发送附件）
-        [bold #AFD7FF]/resume[/]                   从当前模式最近 24 小时会话中恢复
-        [bold #FF5F5F]/quit, /q, quit, exit[/]     断开会话（安全退出）
-        [bold #AFD7FF]/attach <path|dir|glob>[/]   添加本轮待发送附件（任意文件）
-        [bold #AFD7FF]/attachments[/]              查看当前待发送附件
-        [bold #AFD7FF]/detach <index|path>[/]      移除一个待发送附件
-        [bold #AFD7FF]/attach-clear[/]             清空当前待发送附件
-        [bold #AFD7FF]/reboot[/]                   重启本地后台服务
-        [bold #FF5F5F]/shutdown[/]                 关闭前台并停止本地运行时
-        [bold #AFD7FF]/pref[/]                     打开偏好配置页
-        [bold #AFD7FF]/permissions[/]               切换权限模式
-        [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
         [bold #FFD75F]/chat[/]                     对话模式（交互能力协作/自然语言交互）
         [bold #FFD75F]/fast[/]                     高速模式（高吞吐任务流/数据媒体直达）
         [bold #FFD75F]/plan[/]                     编排模式（结构任务拆解/确定路径执行）
         [bold #FFD75F]/xtra[/]                     外接模式（外部 MCP 工具 + 通用工具 + 编码工具）
+        [bold #AFD7FF]/new[/]                      开始新对话（保留模式、模型和待发送附件）
+        [bold #AFD7FF]/resume[/]                   从当前模式最近 24 小时会话中恢复
+        [bold #AFD7FF]/attach <path|dir|glob>[/]   添加本轮待发送附件（任意文件）
+        [bold #AFD7FF]/attachments[/]              查看当前待发送附件
+        [bold #AFD7FF]/detach <index|path>[/]      移除一个待发送附件
+        [bold #AFD7FF]/attach-clear[/]             清空当前待发送附件
+        [bold #AFD7FF]/permissions[/]               切换权限模式
+        [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
+        [bold #AFD7FF]/mcp[/]                      查看外部 MCP runtime 状态
+        [bold #AFD7FF]/pref[/]                     打开偏好配置页
         [bold #7F8C9A]/model <name>[/]             持久化主模型名称
-        [bold #7F8C9A]/apikey <key>[/]             持久化主模型访问密钥
         [bold #7F8C9A]/base-url <url>[/]           持久化主模型 Base URL
+        [bold #7F8C9A]/apikey <key>[/]             持久化主模型访问密钥
+        [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
+        [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
+        [bold #AFD7FF]/reboot[/]                   重启本地后台服务
+        [bold #FF5F5F]/shutdown[/]                 关闭前台并停止本地运行时
+        [bold #FF5F5F]/quit, /q, quit, exit[/]     断开会话（安全退出）
         [/]"""
 
     re_model    = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)

@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import html
+import random
 import typing
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import (
@@ -90,19 +91,37 @@ class PromptToolkitBox(object):
     WORKSPACE_LABEL_MAX: int  = 36
     PASTE_CHAR_THRESHOLD: int = 1200
     PASTE_LINE_THRESHOLD: int = 20
+    PROMPT_DOT: str           = "&#183;"
+
+    PLACEHOLDER_PROMPTS: tuple[str, ...] = (
+        "Ask anything",
+        "Describe a goal",
+        "Paste context",
+        "Request a change",
+        "Inspect something"
+    )
+
+    PLACEHOLDER_COMMANDS: tuple[str, ...] = (
+        "/ opens commands",
+        "$ opens skills",
+        "/permissions changes access",
+        "/resume restores a session",
+        "/new starts fresh",
+        "/attach adds files",
+        "! opens local shell",
+        "! <cmd> runs shell once"
+    )
 
     def __init__(self) -> None:
         self.history: InMemoryHistory         = InMemoryHistory()
         self.completer: SlashCommandCompleter = SlashCommandCompleter()
         self.auto_suggest: CommandAutoSuggest = CommandAutoSuggest()
 
-        self.lexer: SkillTokenLexer = SkillTokenLexer()
-
+        self.lexer: SkillTokenLexer    = SkillTokenLexer()
         self.key_bindings: KeyBindings = self._build_key_bindings()
 
         self.session: typing.Optional[PromptSession[str]] = None
-
-        self.paste_store: dict[str, str] = {}
+        self.paste_store: dict[str, str]                  = {}
 
         self.style: Style = Style.from_dict({
             "prompt": "bold #E2E5EA",
@@ -134,29 +153,40 @@ class PromptToolkitBox(object):
         return len(text.splitlines()) >= cls.PASTE_LINE_THRESHOLD
 
     @staticmethod
-    def _theme(mode: RunMode) -> dict[str, str]:
-        return {
+    def _theme(mode: RunMode, placeholder: str = "") -> dict[str, str]:
+        theme = {
             "chat": {
-                "brand"       : "#4F8FC8",
-                "soft"        : "#2F6FAD",
-                "placeholder" : "Chat, Ask anything. / for commands"
+                "brand" : "#4F8FC8",
+                "soft"  : "#2F6FAD",
+                "label" : "Chat"
             },
             "fast": {
-                "brand"       : "#4FA37D",
-                "soft"        : "#2E7D5B",
-                "placeholder" : "Fast, Ask anything. / for commands"
+                "brand" : "#4FA37D",
+                "soft"  : "#2E7D5B",
+                "label" : "Fast"
             },
             "plan": {
-                "brand"       : "#866FD1",
-                "soft"        : "#6B57B8",
-                "placeholder" : "Plan, Ask anything. / for commands"
+                "brand" : "#866FD1",
+                "soft"  : "#6B57B8",
+                "label" : "Plan"
             },
             "xtra": {
-                "brand"       : "#2DAA9E",
-                "soft"        : "#1E7F78",
-                "placeholder" : "Xtra, Ask anything. / for commands"
+                "brand" : "#2DAA9E",
+                "soft"  : "#1E7F78",
+                "label" : "Xtra"
             }
         }[mode]
+
+        return {
+            **theme,
+            "placeholder": placeholder or PromptToolkitBox._placeholder_text(theme["label"])
+        }
+
+    @staticmethod
+    def _placeholder_text(mode_label: str) -> str:
+        prompt  = random.choice(PromptToolkitBox.PLACEHOLDER_PROMPTS)
+        command = random.choice(PromptToolkitBox.PLACEHOLDER_COMMANDS)
+        return f"{mode_label}, {prompt}, {command}"
 
     @staticmethod
     def _clip_model_name(model: str, limit: int) -> str:
@@ -276,6 +306,7 @@ class PromptToolkitBox(object):
             PromptToolkitBox._clip_model_name(model or "-", PromptToolkitBox.MODEL_DISPLAY_MAX)
         )
         safe_access = html.escape(str(access_label or "").strip())
+
         safe_workspace = html.escape(
             PromptToolkitBox._clip_workspace_label(
                 workspace_label or "",
@@ -283,7 +314,7 @@ class PromptToolkitBox(object):
             )
         )
         workspace_parts = (
-            f"<prompt.kicker>&#183;</prompt.kicker> "
+            f"<prompt.kicker>{PromptToolkitBox.PROMPT_DOT}</prompt.kicker> "
             f"<prompt.workspace>{safe_workspace}</prompt.workspace> "
             if safe_workspace
             else ""
@@ -292,20 +323,19 @@ class PromptToolkitBox(object):
         access_style = "prompt.access.full" if safe_access.lower() == "elevated" else "prompt.access"
 
         access_parts = (
-            f"<prompt.kicker>&#183;</prompt.kicker> "
+            f"<prompt.kicker>{PromptToolkitBox.PROMPT_DOT}</prompt.kicker> "
             f"<{access_style}>{safe_access}</{access_style}> "
             if safe_access
             else ""
         )
         return HTML(
             f"<prompt>"
-            f"<prompt.kicker>[</prompt.kicker> "
             f"<prompt.brand fg='{th['brand']}'>{html.escape(const.APP_DESC)}</prompt.brand> "
-            f"<prompt.kicker>::</prompt.kicker> "
+            f"<prompt.kicker>{PromptToolkitBox.PROMPT_DOT}</prompt.kicker> "
             f"<prompt.model fg='{th['soft']}'>{safe_model}</prompt.model> "
             f"{access_parts}"
             f"{workspace_parts}"
-            f"<prompt.kicker>]</prompt.kicker>\n"
+            f"\n"
             f"<prompt.kicker>></prompt.kicker> "
             f"</prompt>"
         )
