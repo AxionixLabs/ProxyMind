@@ -347,10 +347,6 @@ async def _run_main(
 
         mind.start_keepalive_supervisor()
 
-        external_task = asyncio.create_task(
-            mind.start_external_mcp_runtime(),
-            name="startup external mcp"
-        )
         pref_task = asyncio.create_task(
             pref.load_pref(),
             name="startup preference"
@@ -359,12 +355,12 @@ async def _run_main(
             ServiceConfig().load_domain(),
             name="startup service domain"
         )
-        startup_tasks = [external_task, pref_task, domain_task]
+        startup_tasks = [pref_task, domain_task]
 
         try:
+            await mind.start_external_mcp_runtime()
             await pref_task
             service_endpoints.configure(await domain_task)
-            await external_task
         finally:
             for task in startup_tasks:
                 if not task.done():

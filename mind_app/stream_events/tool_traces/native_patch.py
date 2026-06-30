@@ -37,6 +37,7 @@ def _line_delta_from_patch_files(data: dict[str, typing.Any]) -> tuple[int, int]
 def _patch_error_diagnostic_lines(data: dict[str, typing.Any]) -> list[str]:
     """生成 patch 异常时优先展示的诊断摘要。"""
     lines = _summary_lines(
+        ("reason", data.get("reason")),
         ("error", data.get("error")),
         ("file", data.get("path")),
         ("hunk", data.get("hunk_header") or data.get("header")),

@@ -239,7 +239,6 @@ async def stream_looper(
 
                 event_meta = event.get("meta") if isinstance(event.get("meta"), dict) else None
                 event_execution = event.get("execution") if isinstance(event.get("execution"), dict) else None
-
                 if not isinstance(arguments, dict):
                     arguments = {}
 

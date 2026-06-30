@@ -99,6 +99,8 @@ def render_tool_result_preview(
             preview_lines = _error_patch_preview_lines(args.get("patch"), data)
             if preview_lines:
                 return _trace_code_preview_from_lines([*prefix, *preview_lines])
+            if not prefix:
+                prefix = ["error: patch failed"]
             return _trace_preview_from_lines(prefix)
 
         preview_lines = _patch_preview_lines(args.get("patch"))
