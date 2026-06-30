@@ -59,7 +59,7 @@ async def run_repl_model_turn(
         await ev_report.open()
 
         try:
-            await mind.with_mcp_guard(
+            await mind.run_mode_lifecycle(
                 runner,
                 mode=run_mode,
                 session=session,

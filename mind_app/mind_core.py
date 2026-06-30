@@ -9,7 +9,6 @@ import sqlite3
 import contextlib
 from pathlib import Path
 from loguru import logger
-from mcp import ListToolsResult
 from engine.manage import ServerManage
 from engine.animation import AsyncAnimManager
 from engine.tinker import MindError
@@ -31,7 +30,7 @@ from .modes.agent import run_agent_loop
 from .runtime.calling import (
     calling as run_calling,
     wakeup as run_wakeup,
-    with_mcp_guard as run_with_mcp_guard
+    run_mode_lifecycle as run_mode_lifecycle_wrapper
 )
 from .runtime.session import with_mcp_session as run_with_mcp_session
 from .runtime.keepalive import run_keepalive
@@ -121,35 +120,6 @@ class Mind(object):
 
         if error is not None:
             logger.debug(f"[Keepalive] task stopped: {type(error).__name__}: {error}")
-
-    @staticmethod
-    def build_openai_tools(
-        list_tools: ListToolsResult,
-    ) -> tuple[list[dict[str, typing.Any]], dict[str, dict[str, typing.Any]]]:
-        """把 MCP 工具列表转换为 OpenAI 兼容的工具描述。"""
-        openai_tools: list[dict[str, typing.Any]]   = []
-        tool_meta: dict[str, dict[str, typing.Any]] = {}
-
-        for tool in list_tools.tools:
-            meta = dict(tool.meta or {})
-            if bool(meta.get("hidden", False)):
-                continue
-            tool_meta[tool.name] = meta
-
-            openai_tools.append(
-                {
-                    "type": "function",
-                    "function": {
-                        "name"        : tool.name,
-                        "description" : tool.description,
-                        "parameters"  : tool.inputSchema
-                    }
-                }
-            )
-
-        logger.debug(f"[Tooling] count={len(openai_tools)}")
-
-        return openai_tools, tool_meta
 
     @staticmethod
     async def await_cleanup(awaitable: typing.Awaitable[None]) -> None:
@@ -450,15 +420,15 @@ class Mind(object):
             before_user_flow=before_user_flow
         )
 
-    async def with_mcp_guard(
+    async def run_mode_lifecycle(
         self,
         runner: typing.Callable[..., typing.Awaitable[None]],
         *,
         mode: RunMode = DEFAULT_RUN_MODE,
         **kwargs
     ) -> None:
-        """执行保护入口：统一委托给运行时模块处理动画和异常。"""
-        return await run_with_mcp_guard(self, runner, mode=mode, **kwargs)
+        """模式执行生命周期入口：统一委托运行时模块处理动画和耗时输出。"""
+        return await run_mode_lifecycle_wrapper(self, runner, mode=mode, **kwargs)
 
     async def wakeup(
         self,

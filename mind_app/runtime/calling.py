@@ -2,7 +2,6 @@
 # Notes: ==== Mind™ ====
 
 import time
-import httpx
 import typing
 from loguru import logger
 from mind_app.mcp import McpSessionLike
@@ -30,62 +29,22 @@ def resolve_mode_runner(
     raise ValueError(f"Unsupported mode: {mode}")
 
 
-def _flatten_exceptions(exc: BaseException) -> typing.Generator[BaseException, None, None]:
-    """展开异常组，便于统一记录底层异常。"""
-    if isinstance(exc, BaseExceptionGroup):
-        for sub in exc.exceptions:
-            yield from _flatten_exceptions(sub)
-    else:
-        yield exc
-
-
-async def with_mcp_guard(
+async def run_mode_lifecycle(
     mind: "Mind",
     runner: typing.Callable[..., typing.Awaitable[None]],
     *,
     mode: RunMode = DEFAULT_RUN_MODE,
     **kwargs
 ) -> None:
-    """为模式执行增加动画、网络异常和 HTTP 异常保护层。"""
-    network_errors: list[BaseException] = []
-    http_errors: list[BaseException]    = []
-    runtime_errors: list[BaseException] = []
-
+    """为模式执行增加动画生命周期和耗时输出。"""
     started_at = time.perf_counter()
 
     await mind.start_anim(mode)
 
     try:
         await runner(mode=mode, **kwargs)
-
-    except* (httpx.ConnectError, httpx.ProxyError, httpx.TimeoutException) as error_group:
-        network_errors.extend(_flatten_exceptions(error_group))
-
-    except* httpx.HTTPStatusError as error_group:
-        http_errors.extend(_flatten_exceptions(error_group))
-
-    except* Exception as error_group:
-        runtime_errors.extend(_flatten_exceptions(error_group))
-
     finally:
         await mind.await_cleanup(mind.stop_anim())
-
-    for error_item in network_errors:
-        logger.error(f"❌ [Network Error] {error_item!r}\n")
-
-    for error_item in http_errors:
-        if isinstance(error_item, httpx.HTTPStatusError):
-            body = error_item.response.extensions.get("error_body", b"")
-            text = body.decode(const.CHARSET, errors="replace").strip()
-            if text:
-                logger.error(f"❌ [HTTP Error] {error_item.response.status_code} {text}\n")
-            else:
-                logger.error(f"❌ [HTTP Error] {error_item.response.status_code}\n")
-        else:
-            logger.error(f"❌ [HTTP Error] unexpected: {error_item!r}\n")
-
-    for error_item in runtime_errors:
-        logger.error(f"❌ [Runtime Error] {error_item!r}\n")
 
     print_worked_footer(time.perf_counter() - started_at)
 
@@ -103,8 +62,8 @@ async def wakeup(
             return await stream_ui.feed(tip, display=StreamUI.BLOCK)
         return logger.debug(tip)
 
-    result = await session.call_tool("refresh", {"ttl_sec": mind.ttl_sec})
-    ok = not result.isError
+    result  = await session.call_tool("refresh", {"ttl_sec": mind.ttl_sec})
+    ok      = not result.isError
     content = result.content[0].text
 
     if not ok:
@@ -158,7 +117,7 @@ async def calling(
         tool_meta: dict[str, dict[str, typing.Any]]
     ) -> None:
         """在共享 MCP 会话中执行单次请求。"""
-        await with_mcp_guard(
+        await run_mode_lifecycle(
             mind,
             runner,
             session=session,

@@ -14,6 +14,7 @@ from ..stream_ui import StreamUI
 from ..runtime.loop_support import (
     ensure_wakeup, finish_failure
 )
+from ..runtime.session_policy import friendly_exception_text
 from ..runtime.tool_run import run_tool_step
 from ..runtime.tool_display import (
     show_tool_result,
@@ -310,6 +311,11 @@ async def static_looper(
     except asyncio.CancelledError:
         interrupted = True
         raise
+
+    except Exception as exc:
+        error = friendly_exception_text(exc)
+        await mind.await_cleanup(mind.stop_anim())
+        await finish_failure(slog, ev_report, phase="plan.failed", error=error)
 
     finally:
         await mind.await_cleanup(slog.stop(blink=not interrupted))

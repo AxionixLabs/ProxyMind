@@ -4,6 +4,7 @@
 import time
 import typing
 import asyncio
+from .errors import flatten_exceptions, summarize_exception
 from .config import slugify_mcp_name
 
 
@@ -99,25 +100,6 @@ class ExternalMcpStatus(object):
 def remaining_budget(deadline: float) -> float:
     """计算距离统一截止时间还剩多少秒，最小返回 0。"""
     return max(0.0, deadline - time.monotonic())
-
-
-def flatten_exceptions(exc: BaseException) -> typing.Iterator[BaseException]:
-    """展开 BaseExceptionGroup，便于按底层异常做判断。"""
-    if isinstance(exc, BaseExceptionGroup):
-        for item in exc.exceptions:
-            yield from flatten_exceptions(item)
-        return
-    yield exc
-
-
-def summarize_exception(exc: BaseException) -> str:
-    """从异常组中挑一个可读异常摘要用于 debug 日志。"""
-    for item in flatten_exceptions(exc):
-        text = str(item).strip()
-        if text:
-            return f"{type(item).__name__}: {text}"
-
-    return f"{type(exc).__name__}: {exc}"
 
 
 def external_status_detail_from_exception(exc: BaseException | None = None) -> str:

@@ -4,14 +4,12 @@
 import re
 import httpx
 import typing
-from engine.tinker import (
-    FileAssist,
-    MindError
-)
+from engine.tinker import FileAssist
 from mind_core.design import Design
 from mind_nova import const
 from mind_nova.modes import RunMode
 from mind_app.mcp import McpSessionLike
+from mind_app.stream_events.failure_display import render_failure_text
 from .repl_prompt import save_primary_pref_field
 from .repl_tools import render_tools_summary
 
@@ -122,6 +120,7 @@ async def print_available_tools(
         tool_meta: dict[str, dict[str, typing.Any]],
     ) -> None:
         _ = session
+
         render_tools_summary(
             mode=run_mode,
             openai_tools=openai_tools,
@@ -130,8 +129,15 @@ async def print_available_tools(
 
     try:
         await mind.with_mcp_session(pref_config, render_tools_with_session)
-    except MindError as tool_error:
-        Design.console.print(f"[bold #FF5F5F]Tools unavailable: {tool_error}[/]")
+
+    except (KeyboardInterrupt, SystemExit):
+        raise
+
+    except BaseException as tool_error:
+        message = str(tool_error).strip()
+        error   = f"{type(tool_error).__name__}: {message}" if message else type(tool_error).__name__
+
+        Design.console.print(render_failure_text("tools.failed", error))
         Design.console.print()
 
 

@@ -11,6 +11,7 @@ from ..stream_ui import StreamUI
 from ..runtime.loop_support import (
     ensure_wakeup, finish_failure
 )
+from ..runtime.session_policy import friendly_exception_text
 from ..runtime.tool_run import (
     run_tool_step,
     server_tool_output_result
@@ -397,7 +398,7 @@ async def stream_looper(
         raise
 
     except Exception as e:
-        error = f"{type(e).__name__}: {e}"
+        error = friendly_exception_text(e)
         await mind.await_cleanup(mind.stop_anim())
         await finish_failure(slog, ev_report, phase="turn.failed", error=error)
 
