@@ -44,6 +44,7 @@ htmlcov/
 Thumbs.db
 
 # 项目本地生成内容
+.playwright-mcp/
 applications/
 backend/requires/
 backend/data/
