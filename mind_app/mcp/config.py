@@ -24,6 +24,9 @@ from mind_nova import const
 DEFAULT_MCP_TRANSPORT = "streamable_http"
 ALLOWED_MCP_TRANSPORT = {"streamable_http", "sse", "stdio"}
 
+DEFAULT_MCP_REQ_TIMEOUT_SEC = 30 * 60
+DEFAULT_MCP_SSE_TIMEOUT_SEC = 30 * 60
+
 
 def _positive_float(value: typing.Any, fallback: float) -> float:
     """把输入转换为正浮点数，失败时返回给定默认值。"""
@@ -126,7 +129,10 @@ def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
         elif not url:
             continue
 
-        timeout_sec = _positive_float(item.get("timeout_sec"), 30.0)
+        timeout_sec = _positive_float(
+            item.get("timeout_sec"),
+            DEFAULT_MCP_REQ_TIMEOUT_SEC
+        )
         unique_slug = slug
 
         suffix = 2
@@ -165,7 +171,10 @@ def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
                 **base,
                 "url"                  : url,
                 "headers"              : _string_map(item.get("headers")),
-                "sse_read_timeout_sec" : _positive_float(item.get("sse_read_timeout_sec"), 300.0),
+                "sse_read_timeout_sec" : _positive_float(
+                    item.get("sse_read_timeout_sec"),
+                    DEFAULT_MCP_SSE_TIMEOUT_SEC
+                ),
                 "terminate_on_close"   : item.get("terminate_on_close", True) is not False,
             }
         )
@@ -219,7 +228,7 @@ def truncate_text(value: typing.Any, limit: int) -> str:
 
 def request_timeout_sec(server: dict[str, typing.Any]) -> float:
     """读取外部 MCP 服务的请求超时时间。"""
-    return _positive_float(server.get("timeout_sec"), 30.0)
+    return _positive_float(server.get("timeout_sec"), DEFAULT_MCP_REQ_TIMEOUT_SEC)
 
 
 def external_http_client(
@@ -230,7 +239,10 @@ def external_http_client(
     """创建外部 HTTP/SSE MCP 服务使用的 HTTP 客户端。"""
     kwargs: dict[str, typing.Any] = {
         "follow_redirects" : True,
-        "timeout"          : timeout or httpx.Timeout(30.0, read=300.0),
+        "timeout"          : timeout or httpx.Timeout(
+            DEFAULT_MCP_REQ_TIMEOUT_SEC,
+            read=DEFAULT_MCP_SSE_TIMEOUT_SEC
+        ),
         "trust_env"        : False
     }
     if headers:
@@ -243,7 +255,7 @@ def external_http_client(
 def build_server_params(server: dict[str, typing.Any]) -> typing.Any:
     """按 transport 类型构造 MCP SDK 所需的服务参数对象。"""
     transport   = str(server.get("transport") or "streamable_http").strip().lower()
-    timeout_sec = _positive_float(server.get("timeout_sec"), 30.0)
+    timeout_sec = request_timeout_sec(server)
 
     if transport == "stdio":
         command = str(server.get("command") or "").strip()
@@ -270,7 +282,10 @@ def build_server_params(server: dict[str, typing.Any]) -> typing.Any:
             )
         )
 
-    sse_read_timeout_sec = _positive_float(server.get("sse_read_timeout_sec"), 300.0)
+    sse_read_timeout_sec = _positive_float(
+        server.get("sse_read_timeout_sec"),
+        DEFAULT_MCP_SSE_TIMEOUT_SEC
+    )
 
     if transport == "sse":
         url = str(server.get("url") or "").strip()
