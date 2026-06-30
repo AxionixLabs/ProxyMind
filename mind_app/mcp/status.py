@@ -6,8 +6,6 @@ import typing
 import asyncio
 from .config import slugify_mcp_name
 
-EXTERNAL_MCP_HEALTH: dict[str, tuple[float, str]] = {}
-
 
 class ExternalMcpStatus(object):
     """维护外部 MCP 启动过程的可展示状态快照。"""
@@ -38,10 +36,6 @@ class ExternalMcpStatus(object):
     def mark_linking(self, server: dict[str, typing.Any]) -> None:
         """标记服务正在连接。"""
         self._update(server, "linking")
-
-    def mark_cached(self, server: dict[str, typing.Any], reason: str = "") -> None:
-        """标记服务因近期失败缓存而跳过。"""
-        self._update(server, "cached", detail=reason)
 
     def mark_failed(self, server: dict[str, typing.Any], reason: str) -> None:
         """标记服务连接或工具加载失败。"""
@@ -102,51 +96,6 @@ class ExternalMcpStatus(object):
         return None
 
 
-def server_health_key(server: dict[str, typing.Any]) -> str:
-    """生成外部服务健康缓存键，区分名称、传输方式和 URL。"""
-    name = str(server.get("name") or "server").strip()
-
-    transport = str(server.get("transport") or "streamable_http").strip()
-    if transport == "stdio":
-        command = str(server.get("command") or "").strip()
-        args    = " ".join(str(item) for item in (server.get("args") or []))
-        cwd     = str(server.get("cwd") or "").strip()
-        return f"{name}|{transport}|{command}|{args}|{cwd}"
-
-    url = str(server.get("url") or "").strip()
-    return f"{name}|{transport}|{url}"
-
-
-def cached_failure_reason(server: dict[str, typing.Any]) -> str | None:
-    """读取未过期的失败缓存原因；过期后自动清除。"""
-    key    = server_health_key(server)
-    cached = EXTERNAL_MCP_HEALTH.get(key)
-
-    if cached is None:
-        return None
-
-    failed_until, reason = cached
-
-    if failed_until <= time.monotonic():
-        EXTERNAL_MCP_HEALTH.pop(key, None)
-        return None
-
-    return reason
-
-
-def mark_server_failure(server: dict[str, typing.Any]) -> None:
-    """记录服务短期失败，避免后续启动立即重复连接。"""
-    EXTERNAL_MCP_HEALTH[server_health_key(server)] = (
-        time.monotonic() + 20.0,
-        "failed",
-    )
-
-
-def mark_server_success(server: dict[str, typing.Any]) -> None:
-    """服务恢复成功后清除失败缓存。"""
-    EXTERNAL_MCP_HEALTH.pop(server_health_key(server), None)
-
-
 def remaining_budget(deadline: float) -> float:
     """计算距离统一截止时间还剩多少秒，最小返回 0。"""
     return max(0.0, deadline - time.monotonic())
@@ -171,9 +120,11 @@ def summarize_exception(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {exc}"
 
 
-def external_status_detail_from_exception() -> str:
+def external_status_detail_from_exception(exc: BaseException | None = None) -> str:
     """返回展示给外部 MCP 状态 UI 的失败摘要。"""
-    return "failed"
+    if exc is None:
+        return "failed"
+    return summarize_exception(exc)
 
 
 def should_reraise_external(exc: BaseException) -> bool:

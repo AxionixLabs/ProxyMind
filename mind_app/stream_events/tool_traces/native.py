@@ -8,7 +8,6 @@ from .common import (
     SCREEN_PREVIEW_LINES,
     TraceEntry,
     TracePreview,
-    _normalize_preview_lines,
     _plain_trace_preview_from_lines,
     _result_payload,
     _short_text,
@@ -25,7 +24,10 @@ from .shell_batch import (
     shell_batch_trace_title,
     shell_batch_tree_preview
 )
-from .shell_errors import shell_error_diagnostic_lines
+from .shell_errors import (
+    shell_error_diagnostic_lines,
+    shell_output_lines
+)
 from .native_patch import (
     _error_patch_preview_lines,
     _hunk_label,
@@ -40,6 +42,13 @@ NATIVE_CODING_TRACE_TOOLS = {
 }
 
 SMALL_SHELL_BATCH_TRACE_LIMIT = 2
+
+
+def is_native_coding_trace_tool(
+    name: str
+) -> bool:
+    """判断工具是否使用原生轨迹样式。"""
+    return name in NATIVE_CODING_TRACE_TOOLS
 
 
 def render_tool_start_trace(
@@ -66,28 +75,6 @@ def render_tool_start_preview(
         lines.append(f"… +{len(arguments) - 6} args")
 
     return _trace_preview_from_lines(lines)
-
-
-def _argument_preview(value: typing.Any) -> str:
-    """把参数值转换为单行预览文本。"""
-    if isinstance(value, str):
-        text = _short_text(value, MAX_PREVIEW_WIDTH)
-        return repr(text)
-    if isinstance(value, (int, float, bool)) or value is None:
-        return str(value)
-    if isinstance(value, dict):
-        return f"<dict:{len(value)}>"
-    if isinstance(value, (list, tuple, set)):
-        return f"<{type(value).__name__}:{len(value)}>"
-
-    return _short_text(value, MAX_PREVIEW_WIDTH)
-
-
-def is_native_coding_trace_tool(
-    name: str
-) -> bool:
-    """判断工具是否使用原生轨迹样式。"""
-    return name in NATIVE_CODING_TRACE_TOOLS
 
 
 def render_tool_result_preview(
@@ -171,8 +158,8 @@ def render_tool_result_preview(
             lines = _shell_command_error_context_lines(data)
         else:
             stdout_source = data.get("stdout")
-            lines         = _normalize_preview_lines(stdout_source)
-            err_lines     = _normalize_preview_lines(data.get("stderr"))
+            lines         = shell_output_lines(stdout_source)
+            err_lines     = shell_output_lines(data.get("stderr"))
 
             if lines and err_lines:
                 lines.extend(err_lines)
@@ -246,14 +233,72 @@ def render_tool_result_entries(
     )]
 
 
+def render_tool_trace(
+    name: str,
+    arguments: dict[str, typing.Any],
+    *,
+    ok: bool,
+    data: typing.Any = None,
+    cost_ms: int | None = None
+) -> str:
+    """生成工具执行完成后的轨迹标题。"""
+    _ = cost_ms
+
+    args    = arguments if isinstance(arguments, dict) else {}
+    payload = _result_payload(data)
+
+    if name == "apply_patch":
+        if not ok:
+            return "• Patch"
+
+        files  = payload.get("files")
+        action = _patch_file_action(files)
+
+        if isinstance(files, list) and len(files) == 1 and isinstance(files[0], dict):
+            target = str(files[0].get("path") or "patch")
+        elif isinstance(files, list):
+            target = f"{len(files)} files"
+        else:
+            target = "patch"
+
+        added, removed = _line_delta_from_patch_files(payload)
+        return f"• {action} {target}{_format_delta(added, removed)}"
+
+    if name == "shell_command":
+        results = payload.get("results")
+        if isinstance(results, list):
+            inner = _single_shell_batch_payload(results)
+            if inner is None:
+                return shell_batch_trace_title(payload, cost_ms=cost_ms)
+
+            inner_args = inner.get("args") if isinstance(inner.get("args"), dict) else args
+            inner_data = inner.get("data") if isinstance(inner.get("data"), dict) else {}
+
+            return render_tool_trace(
+                "shell_command",
+                inner_args,
+                ok=ok,
+                data=inner_data,
+                cost_ms=cost_ms
+            )
+
+        command = _shell_command_title(payload.get("command") or args.get("command"))
+        return f"• Ran {command}".rstrip()
+
+    summary = _short_text(args, 100)
+    detail  = f" {summary}" if summary else ""
+
+    return f"• Ran {name}{detail}"
+
+
 def _shell_command_error_context_lines(
     data: dict[str, typing.Any],
     *,
     max_context_lines: int = SCREEN_PREVIEW_LINES
 ) -> list[str]:
     """生成 shell_command 失败输出的上下文行。"""
-    stderr_lines = _normalize_preview_lines(data.get("stderr"))
-    stdout_lines = _normalize_preview_lines(data.get("stdout"))
+    stderr_lines = shell_output_lines(data.get("stderr"))
+    stdout_lines = shell_output_lines(data.get("stdout"))
     stream_lines = stderr_lines or stdout_lines
 
     if not stream_lines:
@@ -355,62 +400,19 @@ def _shell_command_raw_lines(command: typing.Any) -> list[str]:
     return lines
 
 
-def render_tool_trace(
-    name: str,
-    arguments: dict[str, typing.Any],
-    *,
-    ok: bool,
-    data: typing.Any = None,
-    cost_ms: int | None = None
-) -> str:
-    """生成工具执行完成后的轨迹标题。"""
-    _ = cost_ms
+def _argument_preview(value: typing.Any) -> str:
+    """把参数值转换为单行预览文本。"""
+    if isinstance(value, str):
+        text = _short_text(value, MAX_PREVIEW_WIDTH)
+        return repr(text)
+    if isinstance(value, (int, float, bool)) or value is None:
+        return str(value)
+    if isinstance(value, dict):
+        return f"<dict:{len(value)}>"
+    if isinstance(value, (list, tuple, set)):
+        return f"<{type(value).__name__}:{len(value)}>"
 
-    args    = arguments if isinstance(arguments, dict) else {}
-    payload = _result_payload(data)
-
-    if name == "apply_patch":
-        if not ok:
-            return "• Patch"
-
-        files  = payload.get("files")
-        action = _patch_file_action(files)
-
-        if isinstance(files, list) and len(files) == 1 and isinstance(files[0], dict):
-            target = str(files[0].get("path") or "patch")
-        elif isinstance(files, list):
-            target = f"{len(files)} files"
-        else:
-            target = "patch"
-
-        added, removed = _line_delta_from_patch_files(payload)
-        return f"• {action} {target}{_format_delta(added, removed)}"
-
-    if name == "shell_command":
-        results = payload.get("results")
-        if isinstance(results, list):
-            inner = _single_shell_batch_payload(results)
-            if inner is None:
-                return shell_batch_trace_title(payload, cost_ms=cost_ms)
-
-            inner_args = inner.get("args") if isinstance(inner.get("args"), dict) else args
-            inner_data = inner.get("data") if isinstance(inner.get("data"), dict) else {}
-
-            return render_tool_trace(
-                "shell_command",
-                inner_args,
-                ok=ok,
-                data=inner_data,
-                cost_ms=cost_ms
-            )
-
-        command = _shell_command_title(payload.get("command") or args.get("command"))
-        return f"• Ran {command}".rstrip()
-
-    summary = _short_text(args, 100)
-    detail  = f" {summary}" if summary else ""
-
-    return f"• Ran {name}{detail}"
+    return _short_text(value, MAX_PREVIEW_WIDTH)
 
 
 def _single_shell_batch_payload(

@@ -13,10 +13,10 @@ from .agent_frames import (
 )
 from .renderers import StatusRenderer
 from .types import AgentLiveTheme
-from mind_nova import const
 from mind_nova.modes import (
     DEFAULT_RUN_MODE, RunMode
 )
+from mind_nova import const
 
 
 class DesignStatusLiveDriver(StatusRenderer):
@@ -30,7 +30,7 @@ class DesignStatusLiveDriver(StatusRenderer):
         state  = str(item.get("state") or "queued").strip().lower()
         detail = str(item.get("detail") or "").strip()
 
-        if state in {"failed", "cached"}:
+        if state == "failed":
             return f"{name}: {detail or 'failed'}"
 
         if detail:
@@ -49,13 +49,33 @@ class DesignStatusLiveDriver(StatusRenderer):
             return f"{name} linking"
         if state == "queued":
             return f"{name} queued"
-        if state == "cached":
-            return name
 
         return name
 
+    @staticmethod
+    def _external_mcp_detail_color(state: str, detail: str, colors: dict[str, str]) -> str:
+        text = str(detail or "").strip().lower()
+
+        normalized_state = str(state or "").strip().lower()
+        if normalized_state == "more" or text.startswith("..."):
+            return colors["detail_dim"]
+        if normalized_state in {"linking", "queued"}:
+            return colors["detail_wait"]
+        if normalized_state == "ready":
+            return colors["detail_ready"]
+        if normalized_state == "empty":
+            return colors["detail_warn"]
+        if normalized_state == "failed":
+            return colors["detail_warn"]
+
+        return colors["detail"]
+
     @classmethod
-    def _external_mcp_link_focus(cls, phase: float, span: int) -> float:
+    def _external_mcp_link_focus(
+        cls,
+        phase: float,
+        span: int
+    ) -> float:
         entry_pad = 1.2
         exit_pad  = 1.2
 
@@ -69,7 +89,11 @@ class DesignStatusLiveDriver(StatusRenderer):
         )
 
     @classmethod
-    def _external_mcp_link_marker(cls, phase: float, colors: dict[str, str]) -> tuple[str, str]:
+    def _external_mcp_link_marker(
+        cls,
+        phase: float,
+        colors: dict[str, str]
+    ) -> tuple[str, str]:
         pulse  = 0.5 + (0.5 * math.sin((phase * 3.8) + 0.45))
         glyphs = ("-", "\\", "|", "/")
         glyph  = glyphs[int(max(0.0, phase) * 6.4) % len(glyphs)]
@@ -78,7 +102,11 @@ class DesignStatusLiveDriver(StatusRenderer):
         return glyph, f"bold {color}"
 
     @classmethod
-    def inbuild_startup_renderable(cls, phase: float, snapshot: dict[str, typing.Any]) -> Text:
+    def inbuild_startup_renderable(
+        cls,
+        phase: float,
+        snapshot: dict[str, typing.Any
+        ]) -> Text:
         state = str(snapshot.get("state") or "starting").strip().lower()
 
         colors = {
@@ -98,20 +126,20 @@ class DesignStatusLiveDriver(StatusRenderer):
 
         out = Text()
         if state == "ready":
-            out.append("◆", style=f"bold {colors['done']}")
-            out.append(" Helix MCP ready", style=f"bold {colors['text']}")
+            out.append("■", style=f"bold {colors['done']}")
+            out.append(" Internal MCP ready", style=f"bold {colors['text']}")
             return out
 
         if state == "failed":
             out.append("■", style=f"bold {colors['fail']}")
-            out.append(" Helix MCP failed", style=f"bold {colors['fail_text']}")
+            out.append(" Internal MCP failed", style=f"bold {colors['fail_text']}")
             return out
 
         marker, marker_style = cls._external_mcp_link_marker(phase, colors)
         out.append(marker, style=marker_style)
         out.append(" ", style=f"bold {colors['spin_dim']}")
 
-        label = "Helix MCP starting"
+        label = "Internal MCP starting"
 
         cls._append_gradient_sweep_text(
             out,
@@ -128,36 +156,6 @@ class DesignStatusLiveDriver(StatusRenderer):
             peak_radius=0.84,
         )
         return out
-
-    async def inbuild_startup_live(
-        self,
-        stop_event: asyncio.Event,
-        snapshot: typing.Callable[[], dict[str, typing.Any]]
-    ) -> None:
-        """内置运行时启动状态，最终保留为单行。"""
-        if self.design_level != const.SHOW_LEVEL:
-            return None
-
-        fps        = 30
-        loop       = asyncio.get_running_loop()
-        started_at = loop.time()
-
-        with Live(
-            self.inbuild_startup_renderable(0.0, snapshot()),
-            console=self.console,
-            refresh_per_second=fps,
-            transient=False
-        ) as live:
-            while not stop_event.is_set():
-                phase = max(0.0, loop.time() - started_at)
-                live.update(self.inbuild_startup_renderable(phase, snapshot()))
-                await asyncio.sleep(1 / fps)
-
-            phase = max(0.0, loop.time() - started_at)
-            live.update(self.inbuild_startup_renderable(phase, snapshot()))
-
-        if self.console is not None:
-            self.console.print()
 
     @classmethod
     def _external_mcp_status_parts(
@@ -183,7 +181,7 @@ class DesignStatusLiveDriver(StatusRenderer):
             state = str(item.get("state") or "").lower()
             if state in {"ready", "empty"}:
                 connected_count += 1
-            elif state in {"failed", "cached"}:
+            elif state == "failed":
                 name = str(item.get("name") or "server").strip() or "server"
                 failed_names.append(name)
             if state != "ready":
@@ -216,7 +214,7 @@ class DesignStatusLiveDriver(StatusRenderer):
 
         detail_items = [
             item for item in items
-            if str(item.get("state") or "").strip().lower() in {"failed", "cached"}
+            if str(item.get("state") or "").strip().lower() == "failed"
         ]
 
         detail_limit = min(5, len(detail_items))
@@ -225,7 +223,7 @@ class DesignStatusLiveDriver(StatusRenderer):
         for item in detail_items[:detail_limit]:
             details.append(
                 {
-                    "text"  : f"└ [!] {cls._external_mcp_item_text(item)}",
+                    "text"  : f"└ {cls._external_mcp_item_text(item)}",
                     "state" : str(item.get("state") or "").strip().lower()
                 }
             )
@@ -262,7 +260,10 @@ class DesignStatusLiveDriver(StatusRenderer):
         return None
 
     @classmethod
-    def _external_mcp_done_level(cls, snapshot: dict[str, typing.Any]) -> str:
+    def _external_mcp_done_level(
+        cls,
+        snapshot: dict[str, typing.Any]
+    ) -> str:
         items = [
             item for item in list(snapshot.get("items") or [])
             if isinstance(item, dict)
@@ -277,7 +278,7 @@ class DesignStatusLiveDriver(StatusRenderer):
             state = str(item.get("state") or "").strip().lower()
             if state in {"ready", "empty"}:
                 connected_count += 1
-            elif state in {"failed", "cached"}:
+            elif state == "failed":
                 failed_count += 1
 
         if failed_count and connected_count <= 0:
@@ -287,26 +288,11 @@ class DesignStatusLiveDriver(StatusRenderer):
 
         return "ready"
 
-    @staticmethod
-    def _external_mcp_detail_color(state: str, detail: str, colors: dict[str, str]) -> str:
-        text = str(detail or "").strip().lower()
-
-        normalized_state = str(state or "").strip().lower()
-        if normalized_state == "more" or text.startswith("..."):
-            return colors["detail_dim"]
-        if normalized_state in {"linking", "queued"}:
-            return colors["detail_wait"]
-        if normalized_state == "ready":
-            return colors["detail_ready"]
-        if normalized_state == "empty":
-            return colors["detail_warn"]
-        if normalized_state in {"failed", "cached"}:
-            return colors["detail_warn"]
-
-        return colors["detail"]
-
     @classmethod
-    def external_mcp_status_text(cls, snapshot: dict[str, typing.Any]) -> str:
+    def external_mcp_status_text(
+        cls,
+        snapshot: dict[str, typing.Any]
+    ) -> str:
         summary, details = cls._external_mcp_status_parts(snapshot)
 
         lines = [
@@ -318,7 +304,11 @@ class DesignStatusLiveDriver(StatusRenderer):
         return "\n".join([summary, *lines]) if summary else ""
 
     @classmethod
-    def external_mcp_renderable(cls, phase: float, snapshot: dict[str, typing.Any]) -> Text:
+    def external_mcp_renderable(
+        cls,
+        phase: float,
+        snapshot: dict[str, typing.Any]
+    ) -> Text:
         summary, details = cls._external_mcp_status_parts(snapshot)
 
         done = bool(snapshot.get("done", False))
@@ -338,7 +328,7 @@ class DesignStatusLiveDriver(StatusRenderer):
             "detail_dim"   : "#617281",
             "detail_ready" : "#8BD49C",
             "detail_wait"  : "#8FC7EA",
-            "detail_warn"  : "#D8B26E",
+            "detail_warn"  : "#8A7A5A",
             "detail_fail"  : "#D88C8C",
         }
 
@@ -348,9 +338,9 @@ class DesignStatusLiveDriver(StatusRenderer):
             if done_level == "failed":
                 out.append("■", style=f"bold {colors['fail']}")
             elif done_level == "warn":
-                out.append("◆", style=f"bold {colors['warn']}")
+                out.append("■", style=f"bold {colors['warn']}")
             else:
-                out.append("◆", style=f"bold {colors['done']}")
+                out.append("■", style=f"bold {colors['done']}")
         else:
             marker, marker_style = cls._external_mcp_link_marker(phase, colors)
             out.append(marker, style=marker_style)
@@ -397,6 +387,36 @@ class DesignStatusLiveDriver(StatusRenderer):
         )
         cls._external_mcp_details(out, details, colors)
         return out
+
+    async def inbuild_startup_live(
+        self,
+        stop_event: asyncio.Event,
+        snapshot: typing.Callable[[], dict[str, typing.Any]]
+    ) -> None:
+        """内置运行时启动状态，最终保留为单行。"""
+        if self.design_level != const.SHOW_LEVEL:
+            return None
+
+        fps        = 30
+        loop       = asyncio.get_running_loop()
+        started_at = loop.time()
+
+        with Live(
+            self.inbuild_startup_renderable(0.0, snapshot()),
+            console=self.console,
+            refresh_per_second=fps,
+            transient=False
+        ) as live:
+            while not stop_event.is_set():
+                phase = max(0.0, loop.time() - started_at)
+                live.update(self.inbuild_startup_renderable(phase, snapshot()))
+                await asyncio.sleep(1 / fps)
+
+            phase = max(0.0, loop.time() - started_at)
+            live.update(self.inbuild_startup_renderable(phase, snapshot()))
+
+        if self.console is not None:
+            self.console.print()
 
     async def external_mcp_live(
         self,

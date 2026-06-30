@@ -30,10 +30,7 @@ from .config import (
 )
 from .status import (
     ExternalMcpStatus,
-    cached_failure_reason,
     external_status_detail_from_exception,
-    mark_server_failure,
-    mark_server_success,
     remaining_budget,
     should_reraise_external,
     summarize_exception
@@ -147,8 +144,9 @@ class ExternalMcpGroup(object):
         transport: str | None = None,
     ) -> int:
         """读取单个外部服务的工具列表，并登记工具名到对应会话的路由关系。"""
-        tools_temp: dict[str, mcp_types.Tool] = {}
+        tools_temp: dict[str, mcp_types.Tool]          = {}
         tool_to_session_temp: dict[str, ClientSession] = {}
+
         alias = slugify_mcp_name(server_info.name, fallback="server")
 
         capabilities = session.get_server_capabilities()
@@ -171,8 +169,10 @@ class ExternalMcpGroup(object):
             name = tool_name_hook(tool.name, server_info)
             meta = dict(tool.meta or {})
             meta.setdefault("server", alias)
+
             if transport:
                 meta.setdefault("transport", str(transport).strip().lower())
+
             tools_temp[name] = tool.model_copy(update={"meta": meta})
             tool_to_session_temp[name] = session
 
@@ -201,8 +201,9 @@ class ExternalMcpGroup(object):
         args: dict[str, typing.Any] | None = None,
     ) -> mcp_types.CallToolResult:
         """根据聚合后的工具名找到真实会话，并使用服务原始工具名发起调用。"""
-        session = self._tool_to_session[name]
+        session           = self._tool_to_session[name]
         session_tool_name = self.tools[name].name
+
         return await session.call_tool(
             session_tool_name,
             arguments if args is None else args,
@@ -211,7 +212,10 @@ class ExternalMcpGroup(object):
             meta=meta
         )
 
-    async def connect_with_alias(self, server: dict[str, typing.Any]) -> tuple[str, int]:
+    async def connect_with_alias(
+        self,
+        server: dict[str, typing.Any]
+    ) -> tuple[str, int]:
         """连接单个外部服务，并使用配置名作为稳定别名聚合工具。"""
         alias  = slugify_mcp_name(server.get("name"), fallback="server")
         params = build_server_params(server)
@@ -249,18 +253,6 @@ async def open_optional_external_mcp_group(
         if not bool(item.get("enabled", True)):
             continue
 
-        name = str(item.get("name") or "server")
-        transport = str(item.get("transport") or "streamable_http")
-        reason = cached_failure_reason(item)
-        if reason:
-            # 最近失败过的服务先跳过，避免每次启动都被同一个外部服务拖慢。
-            if status is not None:
-                status.mark_cached(item, reason)
-            logger.debug(
-                f"[MCP] external cached skip name={name} transport={transport} reason={reason}"
-            )
-            continue
-
         if status is not None:
             status.mark_linking(item)
         enabled.append(item)
@@ -271,9 +263,9 @@ async def open_optional_external_mcp_group(
         yield None
         return
 
-    group = ExternalMcpGroup()
+    group             = ExternalMcpGroup()
     connected_servers = 0
-    deadline = time.monotonic() + 5.0
+    deadline          = time.monotonic() + 5.0
 
     try:
         await group.__aenter__()
@@ -282,7 +274,7 @@ async def open_optional_external_mcp_group(
             raise
         logger.debug(f"[MCP] external group skipped {summarize_exception(exc)}")
         if status is not None:
-            detail = external_status_detail_from_exception()
+            detail = external_status_detail_from_exception(exc)
             for item in enabled:
                 status.mark_failed(item, detail)
             status.finish()
@@ -302,7 +294,9 @@ async def open_optional_external_mcp_group(
             if remaining <= 0:
                 logger.debug("[MCP] external connect budget exhausted")
                 if status is not None:
-                    detail = external_status_detail_from_exception()
+                    detail = external_status_detail_from_exception(
+                        asyncio.TimeoutError("external connect budget exhausted")
+                    )
                     for task in pending:
                         status.mark_failed(preflight_tasks[task], detail)
                 break
@@ -315,14 +309,16 @@ async def open_optional_external_mcp_group(
             if not done:
                 logger.debug("[MCP] external connect budget exhausted")
                 if status is not None:
-                    detail = external_status_detail_from_exception()
+                    detail = external_status_detail_from_exception(
+                        asyncio.TimeoutError("external connect budget exhausted")
+                    )
                     for task in pending:
                         status.mark_failed(preflight_tasks[task], detail)
                 break
 
             for task in done:
-                server = preflight_tasks[task]
-                name = str(server.get("name") or "server")
+                server    = preflight_tasks[task]
+                name      = str(server.get("name") or "server")
                 transport = str(server.get("transport") or "streamable_http")
 
                 try:
@@ -335,10 +331,8 @@ async def open_optional_external_mcp_group(
                         f"[MCP] external connect failed name={name} transport={transport} "
                         f"{summarize_exception(exc)}"
                     )
-                    detail = external_status_detail_from_exception()
-                    mark_server_failure(server)
                     if status is not None:
-                        status.mark_failed(server, detail)
+                        status.mark_failed(server, external_status_detail_from_exception(exc))
                     continue
 
                 try:
@@ -350,7 +344,6 @@ async def open_optional_external_mcp_group(
                     async with asyncio.timeout(remaining):
                         alias, tool_count = await group.connect_with_alias(server)
                     connected_servers += 1
-                    mark_server_success(server)
                     if status is not None:
                         status.mark_ready(server, alias, tool_count)
                     logger.debug(
@@ -364,10 +357,8 @@ async def open_optional_external_mcp_group(
                         f"[MCP] external connect failed name={name} transport={transport} "
                         f"{summarize_exception(exc)}"
                     )
-                    detail = external_status_detail_from_exception()
-                    mark_server_failure(server)
                     if status is not None:
-                        status.mark_failed(server, detail)
+                        status.mark_failed(server, external_status_detail_from_exception(exc))
 
         if pending:
             # 总预算耗尽后取消尚未完成的预检任务，避免后台任务泄漏。

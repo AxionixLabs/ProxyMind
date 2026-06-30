@@ -16,10 +16,10 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.shortcuts import CompleteStyle
 from prompt_toolkit.styles import Style
-from mind_nova import const
 from mind_nova.modes import (
     DEFAULT_RUN_MODE, RunMode
 )
+from mind_nova import const
 from mind_core.terminal_input import clear_pending_input
 from .commands import SlashCommandCompleter
 from .ghost import (
@@ -137,22 +137,22 @@ class PromptToolkitBox(object):
             "chat": {
                 "brand"       : "#4F8FC8",
                 "soft"        : "#2F6FAD",
-                "placeholder" : "Chat Ask anything. / for commands"
+                "placeholder" : "Chat, Ask anything. / for commands"
             },
             "fast": {
                 "brand"       : "#4FA37D",
                 "soft"        : "#2E7D5B",
-                "placeholder" : "Fast Ask anything. / for commands"
+                "placeholder" : "Fast, Ask anything. / for commands"
             },
             "plan": {
                 "brand"       : "#866FD1",
                 "soft"        : "#6B57B8",
-                "placeholder" : "Plan Ask anything. / for commands"
+                "placeholder" : "Plan, Ask anything. / for commands"
             },
             "xtra": {
                 "brand"       : "#2DAA9E",
                 "soft"        : "#1E7F78",
-                "placeholder" : "Xtra Ask anything. / for commands"
+                "placeholder" : "Xtra, Ask anything. / for commands"
             }
         }[mode]
 
@@ -312,7 +312,7 @@ class PromptToolkitBox(object):
         if complete_state is None or not complete_state.completions:
             return None
 
-        count = len(complete_state.completions)
+        count   = len(complete_state.completions)
         current = complete_state.complete_index
 
         if current is None:
@@ -323,6 +323,7 @@ class PromptToolkitBox(object):
     def _select_completion(self, buf, step: int) -> bool:
         """只移动补全菜单高亮，不把补全文本预写入输入区。"""
         state = getattr(buf, "complete_state", None)
+
         index = self._completion_navigation_index(state, step)
         if index is None:
             return False

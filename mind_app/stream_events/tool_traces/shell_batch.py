@@ -12,7 +12,10 @@ from .common import (
     _short_text
 )
 from .native_helpers import failure_summary
-from .shell_errors import shell_error_compact_summary
+from .shell_errors import (
+    shell_error_compact_summary,
+    shell_output_lines
+)
 
 
 def _shell_batch_item_payload(item: dict[str, typing.Any]) -> dict[str, typing.Any]:
@@ -33,11 +36,13 @@ def shell_batch_trace_title(
 
     if total is None:
         results = payload.get("results")
-        total = len(results) if isinstance(results, list) else 0
+        total   = len(results) if isinstance(results, list) else 0
+
     if ok_count is None:
         results = payload.get("results")
         if isinstance(results, list):
             ok_count = sum(1 for item in results if isinstance(item, dict) and bool(item.get("ok")))
+
     if fail_count is None and ok_count is not None:
         fail_count = max(0, total - ok_count)
 
@@ -173,11 +178,7 @@ def _shell_batch_output_summary(payload: dict[str, typing.Any]) -> str:
 
 def _first_output_line(value: typing.Any) -> str:
     """返回输出中的首个非空行，并提示后续省略行数。"""
-    lines = [
-        line.strip()
-        for line in str(value or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
-        if line.strip()
-    ]
+    lines = [line.strip() for line in shell_output_lines(value)]
     if not lines:
         return ""
 

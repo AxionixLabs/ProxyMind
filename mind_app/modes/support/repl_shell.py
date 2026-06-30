@@ -7,9 +7,17 @@ import shutil
 import typing
 import asyncio
 from dataclasses import dataclass
-from rich.markup import escape
+from rich.text import Text
 from mind_core.design import Design
-from mind_app.stream_events.tool_traces.shell_errors import shell_error_diagnostic_lines
+from mind_app.stream_events.tool_trace import (
+    render_tool_result_preview,
+    render_tool_trace,
+    render_tool_trace_parts
+)
+from mind_app.stream_events.tool_traces.shell_errors import (
+    shell_error_diagnostic_lines,
+    shell_output_lines
+)
 from mind_nova import const
 
 
@@ -135,18 +143,32 @@ def render_shell_escape_summary(
     stderr: str
 ) -> None:
     """渲染 ! <cmd> 执行摘要。"""
-    ok = int(rc or 0) == 0
-    bullet_style = "#6EE7A8" if ok else "#FF6B6B"
+    ok        = int(rc or 0) == 0
+    arguments = {"command": str(command or "")}
 
-    Design.console.print(
-        f"[bold {bullet_style}]•[/] "
-        f"[bold #B8C7D9]You ran[/] "
-        f"[#C8D2DD]{escape(str(command or ''))}[/]"
+    payload = {
+        "ok"        : ok,
+        "command"   : str(command or ""),
+        "exit_code" : int(rc or 0),
+        "stdout"    : stdout,
+        "stderr"    : stderr
+    }
+    title = render_tool_trace(
+        "shell_command",
+        arguments,
+        ok=ok,
+        data=payload
     )
 
-    for index, summary in enumerate(shell_escape_summary_lines(stdout=stdout, stderr=stderr, rc=rc)):
-        prefix = "  └─ " if index == 0 else "     "
-        Design.console.print(f"[dim #8FA4B8]{prefix}[/][dim #A5B3C2]{escape(str(summary or ''))}[/]")
+    preview = render_tool_result_preview("shell_command", payload, arguments=arguments)
+
+    parts = render_tool_trace_parts(
+        title,
+        preview=preview,
+        ok=ok,
+        terminal_width=getattr(Design.console, "width", None)
+    )
+    Design.console.print(_parts_renderable(parts))
 
 
 def shell_escape_summary(
@@ -188,7 +210,7 @@ def shell_escape_summary_lines(
 
 
 def _output_lines(value: typing.Any) -> list[str]:
-    return str(value or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    return shell_output_lines(value, keep_empty=True)
 
 
 def _non_empty_output_lines(value: typing.Any) -> list[str]:
@@ -204,6 +226,17 @@ def _short_line(value: typing.Any, limit: int = 160) -> str:
     if len(text) <= limit:
         return text
     return f"{text[:max(0, limit - 3)]}..."
+
+
+def _parts_renderable(parts: list[dict[str, typing.Optional[str]]]) -> Text:
+    """把 trace parts 转成 Rich 文本对象。"""
+    renderable = Text()
+    for part in parts:
+        part_text = str(part.get("text") or "")
+        if part_text:
+            renderable.append(part_text, style=part.get("style") or "bold")
+    renderable.rstrip()
+    return renderable
 
 
 if __name__ == '__main__':

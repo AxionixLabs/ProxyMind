@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import re
 import typing
 from .common import (
     _short_line,
     _summary_lines
 )
+from .shell_errors import strip_ansi_shell_output
 
 
 def _patch_file_action(files: typing.Any) -> str:
@@ -61,11 +61,11 @@ def failure_summary(data: dict[str, typing.Any]) -> str:
     if not isinstance(data, dict):
         return ""
 
-    stderr = _strip_ansi(str(data.get("stderr") or "")).strip()
+    stderr = strip_ansi_shell_output(data.get("stderr")).strip()
     if stderr:
         return _first_line(stderr)
 
-    error = _strip_ansi(str(data.get("error") or "")).strip()
+    error = strip_ansi_shell_output(data.get("error")).strip()
     if error:
         return error
 
@@ -86,11 +86,6 @@ def _first_line(value: str) -> str:
         if stripped:
             return stripped
     return ""
-
-
-def _strip_ansi(value: str) -> str:
-    """移除命令输出里的 ANSI 控制序列。"""
-    return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", str(value or ""))
 
 
 if __name__ == '__main__':

@@ -4,6 +4,21 @@
 import re
 import typing
 
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def strip_ansi_shell_output(value: typing.Any) -> str:
+    """移除命令输出里的 ANSI 控制序列。"""
+    return ANSI_ESCAPE_RE.sub("", str(value or ""))
+
+
+def shell_output_lines(value: typing.Any, *, keep_empty: bool = False) -> list[str]:
+    """把 shell 输出归一化成已清理 ANSI 的文本行。"""
+    lines = strip_ansi_shell_output(value).replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    if keep_empty:
+        return lines
+    return [line for line in lines if line.strip()]
+
 
 def shell_error_diagnostic_lines(
     lines: list[str],
@@ -11,6 +26,8 @@ def shell_error_diagnostic_lines(
     max_context_lines: int
 ) -> list[str]:
     """优先提取跨 shell 的结构化错误诊断块。"""
+    lines = shell_output_lines("\n".join(str(line or "") for line in lines))
+
     extractors = (
         _powershell_line_diagnostic_block,
         _powershell_at_line_diagnostic_block,
@@ -206,8 +223,7 @@ def _clip_diagnostic_block(block: list[str], *, max_lines: int) -> list[str]:
 
     head_count = max(1, limit // 2)
     tail_count = max(1, limit - head_count - 1)
-
-    omitted = len(block) - head_count - tail_count
+    omitted    = len(block) - head_count - tail_count
 
     return [
         *block[:head_count],
@@ -235,11 +251,7 @@ def _is_powershell_line_detail(line: str) -> bool:
 
 def _normalize_lines(value: typing.Any) -> list[str]:
     """把 shell 输出归一化成非空行。"""
-    return [
-        line
-        for line in str(value or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
-        if line.strip()
-    ]
+    return shell_output_lines(value)
 
 
 if __name__ == '__main__':

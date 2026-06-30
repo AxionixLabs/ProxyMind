@@ -11,12 +11,10 @@ from mind_app.paths import mind_history_db_path
 from .ids import valid_session_ids
 
 TABLE_SESSION_CURSORS = "conversation_session_cursors"
-SCHEMA_VERSION        = 2
-
-HISTORY_TTL_MS     = 24 * 60 * 60 * 1000
-HISTORY_LIMIT      = 200
-TITLE_MAX_CHARS    = 80
-HISTORY_MENU_LIMIT = 10
+HISTORY_TTL_MS        = 24 * 60 * 60 * 1000
+HISTORY_LIMIT         = 200
+TITLE_MAX_CHARS       = 80
+HISTORY_MENU_LIMIT    = 10
 
 SCHEMA_SQL = f"""
 CREATE TABLE IF NOT EXISTS {TABLE_SESSION_CURSORS} (
@@ -197,16 +195,7 @@ class ConversationHistoryStore(object):
     @staticmethod
     def _init_schema(conn: sqlite3.Connection) -> None:
         """初始化历史库结构。"""
-        current_version = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
-        columns = {
-            str(row["name"])
-            for row in conn.execute(f"PRAGMA table_info({TABLE_SESSION_CURSORS})").fetchall()
-        }
-        has_legacy_schema = bool(columns) and "workspace" not in columns
-        if has_legacy_schema or (current_version and current_version < SCHEMA_VERSION):
-            conn.execute(f"DROP TABLE IF EXISTS {TABLE_SESSION_CURSORS}")
         conn.executescript(SCHEMA_SQL)
-        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     @staticmethod
     def _prune_expired(conn: sqlite3.Connection, *, now_ms: int) -> None:
