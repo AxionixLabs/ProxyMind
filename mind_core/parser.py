@@ -161,6 +161,16 @@ class Parser(object):
         )
 
         minor_group.add_argument(
+            "--access", choices=("safe", "full"), default="safe",
+            help=textwrap.dedent(f'''\
+                \033[1;36m^* 准入协议 *^\033[0m
+                -------------------------
+                - 设置本次运行的工具访问模式：safe 需要审批，full 使用完整访问权限。
+
+            ''')
+        )
+
+        minor_group.add_argument(
             "--code", nargs="+", type=str, default=None,
             help=textwrap.dedent(f'''\
                 \033[1;36m^* 星图协议 *^\033[0m
