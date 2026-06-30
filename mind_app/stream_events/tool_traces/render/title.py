@@ -3,7 +3,6 @@
 
 import re
 import typing
-
 from ..common import (
     DELTA_ADD_STYLE,
     DELTA_REMOVE_STYLE,
@@ -21,7 +20,8 @@ from .preview_code import code_parts
 from .preview_error import error_preview_line_parts
 from .preview_tree import tree_preview_line_parts
 from .preview_wrap import (
-    shell_title_needs_wrap, wrap_title_parts
+    shell_title_needs_wrap,
+    wrap_title_parts
 )
 from .title_parts import title_parts
 

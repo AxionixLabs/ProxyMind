@@ -9,6 +9,7 @@ import typing
 import shutil
 import asyncio
 from engine.terminal import Terminal
+from mind_nova import const
 
 
 async def port_listen(port: int, *, host: str = "127.0.0.1") -> bool:
@@ -65,7 +66,7 @@ def short_uid(length: int = 8) -> str:
     raw = uuid.uuid4().bytes
     return (
         base64.b32encode(raw)
-        .decode("utf-8")
+        .decode(const.CHARSET)
         .rstrip("=")
         .lower()[:length]
     )

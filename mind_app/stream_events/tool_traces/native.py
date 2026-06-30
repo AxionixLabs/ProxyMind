@@ -44,7 +44,7 @@ NATIVE_CODING_TRACE_TOOLS = {
 SMALL_SHELL_BATCH_TRACE_LIMIT = 2
 
 
-def is_native_coding_trace_tool(
+def coding_trace_tool(
     name: str
 ) -> bool:
     """判断工具是否使用原生轨迹样式。"""

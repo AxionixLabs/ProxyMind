@@ -51,7 +51,7 @@ def is_transport_close_exception(exc: BaseException) -> bool:
         "httpcore.CloseError",
         "anyio.EndOfStream",
         "anyio.BrokenResourceError",
-        "anyio.ClosedResourceError",
+        "anyio.ClosedResourceError"
     }
     items = list(flatten_exceptions(exc))
     if not items:

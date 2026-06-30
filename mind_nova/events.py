@@ -5,9 +5,11 @@ import time
 import typing
 import asyncio
 from loguru import logger
-from mind_nova import const, craft
 from mind_nova.modes import RunMode
 from mind_nova.request import post_stream_event
+from mind_nova import (
+    const, craft
+)
 
 
 class EventReport(object):

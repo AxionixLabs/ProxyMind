@@ -35,7 +35,7 @@ from .generic import (
 )
 from .native import (
     NATIVE_CODING_TRACE_TOOLS,
-    is_native_coding_trace_tool,
+    coding_trace_tool,
     render_tool_result_entries,
     render_tool_result_preview,
     render_tool_start_preview,
@@ -72,7 +72,7 @@ __all__ = [
     "TITLE_STYLE",
     "TraceEntry",
     "TracePreview",
-    "is_native_coding_trace_tool",
+    "coding_trace_tool",
     "render_tool_result_entries",
     "render_generic_tool_result_parts",
     "render_generic_tool_result_preview",

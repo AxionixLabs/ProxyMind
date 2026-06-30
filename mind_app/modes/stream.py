@@ -3,8 +3,15 @@
 
 import typing
 import asyncio
-from mind_app.mcp import McpSessionLike
 from engine.enhancer import Enhancer
+from mind_app.mcp import McpSessionLike
+from mind_app.approval import (
+    ApprovalStore,
+    approval_from_event,
+    approval_id_from_event,
+    prompt_tool_approval_decision,
+    validate_tool_approval
+)
 from mind_nova.events import EventReport
 from mind_nova import request
 from ..stream_ui import StreamUI
@@ -19,13 +26,6 @@ from ..runtime.tool_run import (
 from ..runtime.tool_display import (
     show_tool_result,
     show_tool_start
-)
-from mind_app.approval import (
-    ApprovalStore,
-    approval_from_event,
-    approval_id_from_event,
-    prompt_tool_approval_decision,
-    validate_tool_approval
 )
 from ..runtime.execution_policy import (
     is_execution_ignored,
@@ -43,7 +43,7 @@ from ..stream_events.approval_trace import (
     render_approval_expired_trace,
     render_approval_trace_parts
 )
-from ..stream_events.tool_trace import is_native_coding_trace_tool
+from ..stream_events.tool_trace import coding_trace_tool
 from ..stream_events.lifecycle import (
     StreamEventContext,
     handle_lifecycle_event
@@ -300,7 +300,7 @@ async def stream_looper(
                     await finish_failure(slog, ev_report, phase="turn.failed", error=error)
                     continue
 
-                use_coding_trace = is_native_coding_trace_tool(name)
+                use_coding_trace = coding_trace_tool(name)
 
                 if not use_coding_trace:
                     await show_tool_start(
@@ -374,7 +374,7 @@ async def stream_looper(
                 if not isinstance(arguments, dict):
                     arguments = {}
 
-                use_coding_trace = is_native_coding_trace_tool(name)
+                use_coding_trace = coding_trace_tool(name)
                 tool_run         = server_tool_output_result(name, event)
 
                 await show_tool_result(
