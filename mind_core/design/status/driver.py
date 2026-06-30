@@ -218,24 +218,34 @@ class DesignStatusLiveDriver(StatusRenderer):
         ]
 
         detail_limit = min(5, len(detail_items))
+        visible_count = detail_limit + (1 if len(detail_items) > detail_limit else 0)
         details      = []
 
-        for item in detail_items[:detail_limit]:
+        for index, item in enumerate(detail_items[:detail_limit]):
+            connector = cls._external_mcp_detail_connector(index, visible_count)
             details.append(
                 {
-                    "text"  : f"└ {cls._external_mcp_item_text(item)}",
+                    "text"  : f"{connector}{cls._external_mcp_item_text(item)}",
                     "state" : str(item.get("state") or "").strip().lower()
                 }
             )
         if len(detail_items) > detail_limit:
+            connector = cls._external_mcp_detail_connector(detail_limit, visible_count)
             details.append(
                 {
-                    "text"  : f"└ ... {len(detail_items) - detail_limit} more servers",
+                    "text"  : f"{connector}... {len(detail_items) - detail_limit} more servers",
                     "state" : "more"
                 }
             )
 
         return " · ".join(parts), details
+
+    @staticmethod
+    def _external_mcp_detail_connector(index: int, count: int) -> str:
+        """返回外部 MCP 详情行连接符；单条详情保持轻量，列表详情使用树形线。"""
+        if count <= 1:
+            return "└ "
+        return "└─ " if index >= count - 1 else "├─ "
 
     @classmethod
     def _external_mcp_details(
