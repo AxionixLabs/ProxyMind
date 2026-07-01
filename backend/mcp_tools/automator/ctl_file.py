@@ -148,29 +148,6 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
             overrides=matrix
         )
 
-    @mcp.tool(
-        description=(
-            "清空设备当前 logcat 缓冲区。"
-            " 该工具清理的是运行中的 logcat buffer，不是删除磁盘日志文件。"
-            " 适合在执行前做证据归零，避免旧日志污染后续判断。"
-        ),
-        meta={"hidden": False, "domain": "device", "class": "file"}
-    )
-    @task_middleware("file_logcat_clean")
-    async def file_logcat_clean(
-        matrix: MatrixArg = None
-    ) -> CallToolResult:
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.file_logcat_clean()
-
-        return await broadcast(
-            tool="file_logcat_clean",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
 
 if __name__ == '__main__':
     pass

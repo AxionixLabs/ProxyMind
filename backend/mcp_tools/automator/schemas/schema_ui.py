@@ -4,7 +4,6 @@
 import typing
 from pydantic import Field
 
-
 ScrollDirectionArg = typing.Annotated[
     typing.Literal["up", "down", "left", "right"],
     Field(description="内容移动方向，不是手指滑动方向。")

@@ -4,7 +4,6 @@
 import typing
 from pydantic import Field
 
-
 SeedArg = typing.Annotated[
     int,
     Field(description="monkey 随机种子，用于复现同类运行。")

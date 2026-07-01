@@ -4,7 +4,6 @@
 import typing
 from pydantic import Field
 
-
 VideoPathArg = typing.Annotated[
     str,
     Field(description="输入视频文件路径。")

@@ -4,7 +4,6 @@
 import typing
 from pydantic import Field
 
-
 LongPressArg = typing.Annotated[
     bool,
     Field(description="是否以长按方式发送该按键事件。")

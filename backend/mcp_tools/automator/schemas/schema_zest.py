@@ -4,7 +4,6 @@
 import typing
 from pydantic import Field
 
-
 RefreshTtlArg = typing.Annotated[
     float,
     Field(description="设备列表缓存复用窗口，单位秒。")

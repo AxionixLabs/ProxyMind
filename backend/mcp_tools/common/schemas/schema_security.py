@@ -4,7 +4,6 @@
 import typing
 from pydantic import Field
 
-
 OutputKeyArg = typing.Annotated[
     str,
     Field(description="结果在返回 `data` 中保存时使用的字段名。")

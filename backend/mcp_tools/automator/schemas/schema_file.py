@@ -1,6 +1,8 @@
+# -*- coding: utf-8 -*-
+# Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
+
 import typing
 from pydantic import Field
-
 
 RemotePathArg = typing.Annotated[
     str,
@@ -35,3 +37,6 @@ DevicePathArg = typing.Annotated[
     Field(description="设备上的目标文件路径。"),
 ]
 
+
+if __name__ == '__main__':
+    pass

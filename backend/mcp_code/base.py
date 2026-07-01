@@ -6,6 +6,10 @@ import typing
 import hashlib
 from pathlib import Path
 from backend.utilities import const
+from backend.utilities.process.encoding import (
+    decode_process_output,
+    process_output_encodings
+)
 
 
 class NativeCodingBase(object):
@@ -211,8 +215,13 @@ class NativeCodingBase(object):
 
     @staticmethod
     def decode_bytes(data: bytes) -> str:
-        """按项目默认字符集解码字节数据。"""
-        return data.decode(const.CHARSET, const.IGNORE)
+        """使用候选编码解码字节数据。"""
+        return decode_process_output(data)
+
+    @staticmethod
+    def process_output_encodings() -> list[str]:
+        """返回进程输出的候选解码顺序。"""
+        return process_output_encodings()
 
     @staticmethod
     def sha256_bytes(data: bytes) -> str:

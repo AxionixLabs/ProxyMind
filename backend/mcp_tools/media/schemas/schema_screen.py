@@ -4,7 +4,6 @@
 import typing
 from pydantic import Field
 
-
 RecordDirectoryArg = typing.Annotated[
     typing.Optional[str],
     Field(description="录屏文件保存目录或输出基准路径；多设备时每台设备会生成独立文件。")

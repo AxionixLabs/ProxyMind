@@ -42,7 +42,6 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
             " 为避免冷启动误判，前台守护默认带启动宽限期。"
             " `saved` 非空时，会在会话结束后把本轮 logcat 导出到该根目录下的独立子目录。"
             " 启动后默认先用 `monkey_status` 看进度，用 `monkey_stop` 主动收束。"
-            " 除非用户明确要求等待最终结果，否则不要紧接着调用 `monkey_wait`。"
             " 若同一设备已存在活跃 monkey，会直接返回当前会话状态而不会重复启动。"
         ),
         meta={"hidden": False, "domain": "device", "class": "monkey"}
@@ -115,32 +114,6 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
 
         return await broadcast(
             tool="monkey_status",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(
-        description=(
-            "等待目标设备当前 monkey 会话结束，并返回最终结果。"
-            " 若会话仍在运行，会阻塞直到结束；若当前没有活跃会话，则返回最近一次结果或 idle 状态。"
-            " 该工具只适合用户明确要求等待最终结果的场景，默认不要作为 `monkey_start` 后的下一步。"
-        ),
-        meta={"hidden": False, "domain": "device", "class": "monkey"}
-    )
-    @task_middleware("monkey_wait")
-    async def monkey_wait(
-        matrix: MatrixArg = None
-    ) -> CallToolResult:
-
-        async def call(device: Device, *_) -> typing.Any:
-            if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
-                return await sess.wait()
-            return Monkey.recent_pack(device.serial, query_reason="no_active_session")
-
-        return await broadcast(
-            tool="monkey_wait",
             args={},
             target_list=manage.snapshot,
             call=call,

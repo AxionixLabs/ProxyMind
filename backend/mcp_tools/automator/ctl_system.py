@@ -204,32 +204,6 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "通过系统 `svc bluetooth` 打开或关闭蓝牙。"
-            " 该工具直接操作系统服务，不依赖快捷设置面板。"
-            " 是否允许切换取决于设备系统版本、ROM 限制和 adb 权限。"
-        ),
-        meta={"hidden": False, "domain": "device", "class": "system"}
-    )
-    @task_middleware("set_bluetooth")
-    async def set_bluetooth(
-        enabled: ToggleArg,
-        matrix: MatrixArg = None
-    ) -> CallToolResult:
-        args = {"enabled": enabled}
-
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.set_bluetooth(**a)
-
-        return await broadcast(
-            tool="set_bluetooth",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(
-        description=(
             "通过系统 `svc wifi` 打开或关闭 Wi-Fi。"
             " 该工具直接操作系统服务，不依赖快捷设置面板。"
             " 是否允许切换取决于设备系统版本、ROM 限制和 adb 权限。"
@@ -248,32 +222,6 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
 
         return await broadcast(
             tool="set_wifi",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(
-        description=(
-            "通过系统 `svc data` 打开或关闭移动数据。"
-            " 该工具直接操作系统服务，不依赖运营商设置页面。"
-            " 是否允许切换取决于设备系统版本、ROM 限制和 adb 权限。"
-        ),
-        meta={"hidden": False, "domain": "device", "class": "system"}
-    )
-    @task_middleware("set_mobile_data")
-    async def set_mobile_data(
-        enabled: ToggleArg,
-        matrix: MatrixArg = None
-    ) -> CallToolResult:
-        args = {"enabled": enabled}
-
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.set_mobile_data(**a)
-
-        return await broadcast(
-            tool="set_mobile_data",
             args=args,
             target_list=manage.snapshot,
             call=call,

@@ -4,7 +4,6 @@
 import typing
 from pydantic import Field
 
-
 UrlArg = typing.Annotated[
     str,
     Field(description="要发送给系统处理的 deep link URL。")

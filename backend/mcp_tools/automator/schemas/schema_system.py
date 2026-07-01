@@ -4,7 +4,6 @@
 import typing
 from pydantic import Field
 
-
 KeyCodeArg = typing.Annotated[
     int,
     Field(description="Android keycode。")

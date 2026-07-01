@@ -4,7 +4,6 @@
 import typing
 from pydantic import Field
 
-
 AudioFileArg = typing.Annotated[
     str,
     Field(description="要在当前运行环境本机播放的音频文件路径。")

@@ -4,7 +4,6 @@
 import typing
 from pydantic import Field
 
-
 FreeRuleMessageArg = typing.Annotated[
     str,
     Field(description="要交给上层规则链处理的自然语言请求。")

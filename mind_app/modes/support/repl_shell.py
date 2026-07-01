@@ -2,7 +2,6 @@
 # Notes: ==== Mind™ ====
 
 import os
-import sys
 import shutil
 import typing
 import asyncio
@@ -18,7 +17,7 @@ from mind_app.stream_events.tool_traces.shell_errors import (
     shell_error_diagnostic_lines,
     shell_output_lines
 )
-from mind_nova import const
+from engine.encoding import decode_process_output
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,29 +109,6 @@ def shell_command_args(executable: str, command: str) -> list[str]:
     if name in {"cmd", "cmd.exe"}:
         return [executable, "/d", "/s", "/c", command]
     return [executable, "-lc", command]
-
-
-def decode_process_output(value: bytes) -> str:
-    """按平台默认编码解码 shell 输出。"""
-    if not value:
-        return ""
-
-    encodings = [
-        sys.stdout.encoding,
-        const.CHARSET,
-        "mbcs" if os.name == "nt" else "",
-        "gbk" if os.name == "nt" else "",
-    ]
-
-    for encoding in encodings:
-        if not encoding:
-            continue
-        try:
-            return value.decode(encoding, errors="replace")
-        except LookupError:
-            continue
-
-    return value.decode(errors="replace")
 
 
 def render_shell_escape_summary(

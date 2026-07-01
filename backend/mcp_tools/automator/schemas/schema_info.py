@@ -4,7 +4,6 @@
 import typing
 from pydantic import Field
 
-
 ScreenshotLocalArg = typing.Annotated[
     typing.Optional[str],
     Field(description="截图保存目录或基准路径；为空时由底层工具按默认规则命名。")

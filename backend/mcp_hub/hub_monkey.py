@@ -904,8 +904,7 @@ class Monkey(object):
             self.status_text = "running"
             await self.patch_session()
             return self.build_pack(
-                "Monkey 已启动。默认请先用 monkey_status 查询进度，或用 monkey_stop 主动停止；"
-                "除非用户明确要求等待最终结果，否则不要立刻调用 monkey_wait。"
+                "Monkey 已启动。默认请先用 monkey_status 查询进度，或用 monkey_stop 主动停止。"
             )
         except Exception as e:
             self.result_reason = self.result_reason or "start_failed"
