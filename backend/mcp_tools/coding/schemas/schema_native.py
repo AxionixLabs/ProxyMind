@@ -68,6 +68,11 @@ ApplyPatchArg = typing.Annotated[
         description=(
             "严格 apply_patch 补丁文本；必须以 *** Begin Patch 开始，以 *** End Patch 结束，"
             "并使用 *** Add File / *** Update File / *** Delete File 描述文件变更。"
+            "补丁内容行必须带行标记：Add File 的每一行文件内容都必须以 + 开头；"
+            "Update File 使用空格表示上下文行、+ 表示新增行、- 表示删除行；"
+            "Delete File 只需要文件操作行，不包含文件内容。"
+            "重命名或移动文件时使用 *** Update File: old/path 后接 *** Move to: new/path。"
+            "不要传裸 JSON、裸 Markdown、统一 diff，或任何未带 +/空格/- 前缀的内容行。"
         )
     ),
 ]
@@ -75,7 +80,6 @@ WorkspaceExpectedSha256MapArg = typing.Annotated[
     typing.Optional[dict[str, str]],
     Field(description="按文件路径映射的 SHA256 基线；当前文件不匹配时拒绝应用 patch。"),
 ]
-
 ExecutionMetadataArg = typing.Annotated[
     typing.Optional[dict[str, typing.Any]],
     Field(description="服务端策略层补充的执行裁决，包含 grantId 和 canonicalArguments 等元数据；模型调用时可省略。"),
