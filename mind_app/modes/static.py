@@ -32,8 +32,7 @@ async def static_looper(
     mode: typing.Literal["plan"],
     pref_config: dict[str, typing.Any],
     message: str,
-    openai_tools: list[dict[str, typing.Any]],
-    tool_meta: dict[str, dict[str, typing.Any]],
+    tools: list[dict[str, typing.Any]],
     *_,
     **kwargs
 ) -> None:
@@ -67,9 +66,8 @@ async def static_looper(
             mode,
             pref_config,
             message,
-            openai_tools,
+            tools,
             extras,
-            tool_meta=tool_meta,
             **kwargs
         ):
             if ev_report:
@@ -185,7 +183,7 @@ async def static_looper(
                         mind,
                         session,
                         slog,
-                        tool_meta=tool_meta,
+                        tools=tools,
                         name=name,
                         meta=action_meta
                     ):
@@ -237,7 +235,7 @@ async def static_looper(
                     tool_run = await run_tool_step(
                         session,
                         stream_ui=slog,
-                        tool_meta=tool_meta,
+                        tools=tools,
                         name=name,
                         arguments=arguments,
                         meta=action_meta,

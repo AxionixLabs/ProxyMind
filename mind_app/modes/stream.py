@@ -5,6 +5,7 @@ import typing
 import asyncio
 from engine.enhancer import Enhancer
 from mind_app.mcp import McpSessionLike
+from mind_app.mcp.tool_store import meta_for_tool
 from mind_app.approval import (
     ApprovalStore,
     approval_from_event,
@@ -62,8 +63,7 @@ async def stream_looper(
     mode: typing.Literal["chat", "fast", "xtra"],
     pref_config: dict[str, typing.Any],
     message: str,
-    openai_tools: list[dict[str, typing.Any]],
-    tool_meta: dict[str, dict[str, typing.Any]],
+    tools: list[dict[str, typing.Any]],
     *_,
     **kwargs
 ) -> None:
@@ -106,8 +106,7 @@ async def stream_looper(
             mode,
             pref_config,
             message,
-            openai_tools,
-            tool_meta=tool_meta,
+            tools,
             **kwargs
         ):
             await idle_wait.cancel()
@@ -249,7 +248,7 @@ async def stream_looper(
                     arguments=arguments,
                     store=approvals,
                     meta=event_meta,
-                    tool_meta=tool_meta.get(name) if isinstance(tool_meta, dict) else None
+                    local_meta=meta_for_tool(tools, name)
                 )
 
                 if approval_decision.action == "wait":
@@ -293,7 +292,7 @@ async def stream_looper(
                     mind,
                     session,
                     slog,
-                    tool_meta=tool_meta,
+                    tools=tools,
                     name=name,
                     meta=event_meta
                 ):
@@ -323,7 +322,7 @@ async def stream_looper(
                 tool_run = await run_tool_step(
                     session,
                     stream_ui=slog,
-                    tool_meta=tool_meta,
+                    tools=tools,
                     name=name,
                     arguments=arguments,
                     meta=event_meta,

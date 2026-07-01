@@ -113,8 +113,7 @@ async def calling(
 
     async def function(
         session: McpSessionLike,
-        openai_tools: list[dict[str, typing.Any]],
-        tool_meta: dict[str, dict[str, typing.Any]]
+        tools: list[dict[str, typing.Any]],
     ) -> None:
         """在共享 MCP 会话中执行单次请求。"""
         await run_mode_lifecycle(
@@ -124,8 +123,7 @@ async def calling(
             mode=mode,
             pref_config=pref_config,
             message=message,
-            openai_tools=openai_tools,
-            tool_meta=tool_meta,
+            tools=tools,
             **kwargs
         )
 

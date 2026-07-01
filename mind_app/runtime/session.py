@@ -22,7 +22,6 @@ async def with_mcp_session(
         [
             McpSessionLike,
             list[dict[str, typing.Any]],
-            dict[str, dict[str, typing.Any]],
         ],
         typing.Awaitable[None]
     ],
@@ -48,8 +47,7 @@ async def with_mcp_session(
 
             await function(
                 tool_context.session,
-                tool_context.openai_tools,
-                tool_context.tool_meta
+                tool_context.tools,
             )
 
     except BaseException as exc:

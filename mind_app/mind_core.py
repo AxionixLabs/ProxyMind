@@ -406,7 +406,6 @@ class Mind(object):
             [
                 McpSessionLike,
                 list[dict[str, typing.Any]],
-                dict[str, dict[str, typing.Any]],
             ],
             typing.Awaitable[None],
         ],
@@ -461,8 +460,7 @@ class Mind(object):
         mode: typing.Literal["chat", "fast", "xtra"],
         pref_config: dict[str, typing.Any],
         message: str,
-        openai_tools: list[dict[str, typing.Any]],
-        tool_meta: dict[str, dict[str, typing.Any]],
+        tools: list[dict[str, typing.Any]],
         *_,
         **kwargs
     ) -> None:
@@ -473,8 +471,7 @@ class Mind(object):
             mode,
             pref_config,
             message,
-            openai_tools,
-            tool_meta,
+            tools,
             **kwargs
         )
 
@@ -484,8 +481,7 @@ class Mind(object):
         mode: typing.Literal["plan"],
         pref_config: dict[str, typing.Any],
         message: str,
-        openai_tools: list[dict[str, typing.Any]],
-        tool_meta: dict[str, dict[str, typing.Any]],
+        tools: list[dict[str, typing.Any]],
         *_,
         **kwargs
     ) -> None:
@@ -496,8 +492,7 @@ class Mind(object):
             mode,
             pref_config,
             message,
-            openai_tools,
-            tool_meta,
+            tools,
             **kwargs
         )
 

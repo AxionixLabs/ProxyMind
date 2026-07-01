@@ -3,6 +3,7 @@
 
 import typing
 from mind_app.mcp import McpSessionLike
+from mind_app.mcp.tool_store import has_tool
 from mcp.types import CallToolResult
 from .mcp_notify import (
     emit_tool_progress,
@@ -11,12 +12,12 @@ from .mcp_notify import (
 
 
 def is_hosted_tool(
-    tool_meta: dict[str, dict[str, typing.Any]],
+    tools: list[dict[str, typing.Any]],
     name: str,
     meta: typing.Optional[dict[str, typing.Any]] = None
 ) -> bool:
     """判断工具是否由服务端注入，而非本地 MCP 注册。"""
-    if name in tool_meta:
+    if has_tool(tools, name):
         return False
     return isinstance(meta, dict) and bool(meta)
 
@@ -24,7 +25,7 @@ def is_hosted_tool(
 async def execute_tool(
     session: McpSessionLike,
     *,
-    tool_meta: dict[str, dict[str, typing.Any]],
+    tools: list[dict[str, typing.Any]],
     name: str,
     arguments: dict[str, typing.Any],
     meta: typing.Optional[dict[str, typing.Any]] = None,
@@ -32,7 +33,7 @@ async def execute_tool(
     enable_progress_notify: bool = False
 ) -> CallToolResult:
     """统一工具执行入口。"""
-    if is_hosted_tool(tool_meta, name, meta=meta):
+    if is_hosted_tool(tools, name, meta=meta):
         raise RuntimeError(f"Hosted tool is not configured for local execution: {name}")
 
     progress_callback = None

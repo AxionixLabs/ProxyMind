@@ -15,37 +15,32 @@ from .session_adapter import (
 class McpToolContext:
     """承载一次模型调用所需的 MCP 会话和工具描述。"""
     session: McpSessionLike
-    openai_tools: list[dict[str, typing.Any]]
-    tool_meta: dict[str, dict[str, typing.Any]]
+    tools: list[dict[str, typing.Any]]
 
 
-def build_openai_tools(
+def build_wire_tools(
     list_tools: mcp_types.ListToolsResult,
-) -> tuple[list[dict[str, typing.Any]], dict[str, dict[str, typing.Any]]]:
-    """把 MCP 工具列表转换为 OpenAI 兼容的工具描述。"""
-    openai_tools: list[dict[str, typing.Any]] = []
-    tool_meta: dict[str, dict[str, typing.Any]] = {}
+) -> list[dict[str, typing.Any]]:
+    """把 MCP 工具列表转换为传输层工具描述，保留 MCP schema 和 meta。"""
+    tools: list[dict[str, typing.Any]] = []
 
     for tool in list_tools.tools:
         meta = dict(tool.meta or {})
         if bool(meta.get("hidden", False)):
             continue
-        tool_meta[tool.name] = meta
 
-        openai_tools.append(
+        tools.append(
             {
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.inputSchema
-                }
+                "name"        : tool.name,
+                "description" : tool.description,
+                "inputSchema" : tool.inputSchema,
+                "meta"        : meta
             }
         )
 
-    logger.debug(f"[Tooling] count={len(openai_tools)}")
+    logger.debug(f"[Tooling] count={len(tools)}")
 
-    return openai_tools, tool_meta
+    return tools
 
 
 async def build_tool_context(
@@ -54,13 +49,12 @@ async def build_tool_context(
 ) -> McpToolContext:
     """合并本地与外部 MCP 工具，并生成模型调用上下文。"""
     active_session = MultiMcpSession(local_session, external_group)
-    list_tools = await active_session.list_tools()
-    openai_tools, tool_meta = build_openai_tools(list_tools)
+    list_tools     = await active_session.list_tools()
+    tools          = build_wire_tools(list_tools)
 
     return McpToolContext(
         session=active_session,
-        openai_tools=openai_tools,
-        tool_meta=tool_meta,
+        tools=tools
     )
 
 

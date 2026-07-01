@@ -135,8 +135,7 @@ async def _run_virtual_message(
     source: CodeSourceResolved,
     item_count: int,
     session: McpSessionLike,
-    openai_tools: list[dict[str, typing.Any]],
-    tool_meta: dict[str, dict[str, typing.Any]],
+    tools: list[dict[str, typing.Any]],
     *,
     name: str,
     msg: str,
@@ -168,8 +167,7 @@ async def _run_virtual_message(
             runtime.mode,
             runtime.pref_config,
             msg,
-            openai_tools,
-            tool_meta,
+            tools,
             **kwargs
         )
     except (asyncio.CancelledError, KeyboardInterrupt):
@@ -215,8 +213,7 @@ async def _run_pack_item(
     index: int,
     total: int,
     session: McpSessionLike,
-    openai_tools: list[dict[str, typing.Any]],
-    tool_meta: dict[str, dict[str, typing.Any]],
+    tools: list[dict[str, typing.Any]],
     **kwargs,
 ) -> bool:
     """执行单个 item，内部负责重试、退避和失败收口。"""
@@ -270,8 +267,7 @@ async def _run_pack_item(
                     runtime.mode,
                     runtime.pref_config,
                     final_msg,
-                    openai_tools,
-                    tool_meta,
+                    tools,
                     **kwargs
                 )
 
@@ -369,8 +365,7 @@ async def _run_pack_source(
     runtime: PackRuntime,
     source: CodeSourceResolved,
     session: McpSessionLike,
-    openai_tools: list[dict[str, typing.Any]],
-    tool_meta: dict[str, dict[str, typing.Any]],
+    tools: list[dict[str, typing.Any]],
     **kwargs
 ) -> None:
     """执行单个 pack 源，负责 round/item/hook 的整体编排。"""
@@ -399,8 +394,7 @@ async def _run_pack_source(
         source,
         item_total,
         session,
-        openai_tools,
-        tool_meta,
+        tools,
         name="__loop_prefix__",
         msg=config.loop_prefix,
         **kwargs
@@ -423,8 +417,7 @@ async def _run_pack_source(
                 source,
                 item_total,
                 session,
-                openai_tools,
-                tool_meta,
+                tools,
                 name="__round_prefix__",
                 msg=config.round_prefix,
                 run=run,
@@ -470,8 +463,7 @@ async def _run_pack_source(
                     source,
                     item_total,
                     session,
-                    openai_tools,
-                    tool_meta,
+                    tools,
                     name="__item_prefix__",
                     msg=config.item_prefix,
                     run=run,
@@ -499,8 +491,7 @@ async def _run_pack_source(
                         index=index,
                         total=item_total,
                         session=session,
-                        openai_tools=openai_tools,
-                        tool_meta=tool_meta,
+                        tools=tools,
                         **kwargs
                     )
                     if not should_continue:
@@ -523,8 +514,7 @@ async def _run_pack_source(
                         source,
                         item_total,
                         session,
-                        openai_tools,
-                        tool_meta,
+                        tools,
                         name="__item_suffix__",
                         msg=config.item_suffix,
                         run=run,
@@ -547,8 +537,7 @@ async def _run_pack_source(
                 source,
                 item_total,
                 session,
-                openai_tools,
-                tool_meta,
+                tools,
                 name="__round_suffix__",
                 msg=config.round_suffix,
                 run=run,
@@ -569,8 +558,7 @@ async def _run_pack_source(
             source,
             item_total,
             session,
-            openai_tools,
-            tool_meta,
+            tools,
             name="__loop_suffix__",
             msg=config.loop_suffix,
             **kwargs
@@ -645,14 +633,13 @@ async def mind_pack(
 
     async def function(
         session: McpSessionLike,
-        openai_tools: list[dict[str, typing.Any]],
-        tool_meta: dict[str, dict[str, typing.Any]]
+        tools: list[dict[str, typing.Any]],
     ) -> None:
         """在共享 MCP 会话中顺序执行多个 pack 文件。"""
 
         for source in code_sources:
             await _run_pack_source(
-                mind, runtime, source, session, openai_tools, tool_meta, **kwargs
+                mind, runtime, source, session, tools, **kwargs
             )
 
     try:

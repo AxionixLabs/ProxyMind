@@ -147,12 +147,12 @@ class Tooling(object):
 
     @staticmethod
     def needs_wakeup(
-        meta_map: dict[str, dict[str, typing.Any]],
+        local_meta: dict[str, typing.Any],
         name: str,
         meta: typing.Optional[dict[str, typing.Any]] = None
     ) -> bool:
         """判断某工具是否需要“连接/设备准备”等前置动作。"""
-        local_meta = meta_map.get(name) or {}
+        local_meta = local_meta if isinstance(local_meta, dict) else {}
         effective_meta = {
             **local_meta,
             **(meta if isinstance(meta, dict) else {})

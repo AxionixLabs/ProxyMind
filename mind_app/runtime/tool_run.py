@@ -344,7 +344,7 @@ async def run_tool_step(
     session: McpSessionLike,
     *,
     stream_ui: StreamUI,
-    tool_meta: dict[str, dict[str, typing.Any]],
+    tools: list[dict[str, typing.Any]],
     name: str,
     arguments: dict[str, typing.Any],
     meta: typing.Optional[dict[str, typing.Any]],
@@ -368,7 +368,7 @@ async def run_tool_step(
     try:
         result = await execute_tool(
             session,
-            tool_meta=tool_meta,
+            tools=tools,
             name=name,
             arguments=arguments,
             meta=meta,

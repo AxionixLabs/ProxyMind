@@ -3,6 +3,7 @@
 
 import typing
 from mind_app.mcp import McpSessionLike
+from mind_app.mcp.tool_store import meta_for_tool
 from mind_nova.events import EventReport
 from engine.tinker import Tooling
 from ..stream_ui import StreamUI
@@ -21,12 +22,12 @@ async def ensure_wakeup(
     session: McpSessionLike,
     stream_ui: StreamUI,
     *,
-    tool_meta: dict[str, dict[str, typing.Any]],
+    tools: list[dict[str, typing.Any]],
     name: str,
     meta: typing.Optional[dict[str, typing.Any]] = None,
 ) -> typing.Optional[str]:
     """按工具需要执行 refresh，失败时返回错误文本。"""
-    if not Tooling.needs_wakeup(tool_meta, name, meta=meta):
+    if not Tooling.needs_wakeup(meta_for_tool(tools, name), name, meta=meta):
         return None
 
     return await mind.wakeup(session, stream_ui)

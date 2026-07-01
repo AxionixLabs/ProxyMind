@@ -19,7 +19,7 @@ async def stream_chat(
     mode: str,
     pref_config: dict[str, typing.Any],
     message: str,
-    openai_tools: list[dict],
+    tools: list[dict],
     attachments: typing.Optional[list[dict[str, typing.Any]]] = None,
     timeout: float = 60.0,
     *_,
@@ -31,7 +31,7 @@ async def stream_chat(
         mode,
         pref_config,
         message,
-        openai_tools,
+        tools,
         attachments,
         **kwargs
     )
@@ -49,7 +49,7 @@ async def stream_plan(
     mode: str,
     pref_config: dict[str, typing.Any],
     message: str,
-    openai_tools: list[dict],
+    tools: list[dict],
     extras: typing.Optional[dict[str, typing.Any]] = None,
     timeout: float = 60.0,
     *_,
@@ -61,7 +61,7 @@ async def stream_plan(
         "mode"     : mode,
         "llm_conf" : pref_config,
         "message"  : message,
-        "tools"    : openai_tools,
+        "tools"    : tools,
         "extras"   : extras,
         **kwargs
     }

@@ -116,15 +116,13 @@ async def print_available_tools(
     """建立一次 MCP 会话并打印当前模式可见工具。"""
     async def render_tools_with_session(
         session: McpSessionLike,
-        openai_tools: list[dict[str, typing.Any]],
-        tool_meta: dict[str, dict[str, typing.Any]],
+        tools: list[dict[str, typing.Any]],
     ) -> None:
         _ = session
 
         render_tools_summary(
             mode=run_mode,
-            openai_tools=openai_tools,
-            tool_meta=tool_meta
+            tools=tools,
         )
 
     try:

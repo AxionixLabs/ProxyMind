@@ -33,8 +33,7 @@ async def run_repl_model_turn(
     """为单轮 REPL 输入建立 MCP 会话并执行模型流程。"""
     async def run_turn_with_session(
         session: McpSessionLike,
-        openai_tools: list[dict[str, typing.Any]],
-        tool_meta: dict[str, dict[str, typing.Any]],
+        tools: list[dict[str, typing.Any]],
     ) -> None:
         runner = resolve_mode_runner(mind, run_mode)
 
@@ -65,8 +64,7 @@ async def run_repl_model_turn(
                 session=session,
                 pref_config=pref_config,
                 message=message_text,
-                openai_tools=openai_tools,
-                tool_meta=tool_meta,
+                tools=tools,
                 attachments=uploaded_attachments,
                 access_mode=access_mode,
                 metadata=turn_metadata,

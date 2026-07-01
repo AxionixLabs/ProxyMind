@@ -47,7 +47,7 @@ async def build_chat_payload(
     mode: str,
     pref_config: dict[str, typing.Any],
     message: str,
-    openai_tools: list[dict],
+    tools: list[dict],
     attachments: typing.Optional[list[dict[str, typing.Any]]] = None,
     **kwargs: typing.Any
 ) -> dict[str, typing.Any]:
@@ -61,7 +61,7 @@ async def build_chat_payload(
         "mode"     : resolve_transport_mode(mode),
         "llm_conf" : pref_config,
         "message"  : message,
-        "tools"    : openai_tools,
+        "tools"    : tools,
         "exec_env" : runtime_exec_env,
         **kwargs
     }

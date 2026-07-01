@@ -117,7 +117,7 @@ def validate_tool_approval(
     arguments: dict[str, typing.Any],
     store: ApprovalStore,
     meta: dict[str, typing.Any] | None = None,
-    tool_meta: dict[str, typing.Any] | None = None
+    local_meta: dict[str, typing.Any] | None = None
 ) -> ApprovalDecision:
     """校验服务端已批准工具调用的审批元数据。"""
     tool_name = str(name or "").strip()
@@ -129,10 +129,10 @@ def validate_tool_approval(
     event_approved = bool(event.get("approved"))
 
     effective_meta = (
-        {**tool_meta, **meta}
-        if isinstance(tool_meta, dict) and isinstance(meta, dict)
+        {**local_meta, **meta}
+        if isinstance(local_meta, dict) and isinstance(meta, dict)
         else meta if isinstance(meta, dict)
-        else tool_meta if isinstance(tool_meta, dict)
+        else local_meta if isinstance(local_meta, dict)
         else None
     )
 

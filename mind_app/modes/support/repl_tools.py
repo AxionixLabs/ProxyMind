@@ -9,27 +9,18 @@ from mind_nova.modes import RunMode
 GROUP_DISPLAY_LIMIT = 12
 
 
-def tool_function_name(tool: dict[str, typing.Any]) -> str:
-    """从 OpenAI tool 结构中提取函数名。"""
-    function = tool.get("function") if isinstance(tool, dict) else None
-    if not isinstance(function, dict):
-        return ""
-    return str(function.get("name") or "").strip()
-
-
 def summarize_tool_groups(
-    openai_tools: list[dict[str, typing.Any]],
-    tool_meta: dict[str, dict[str, typing.Any]],
+    tools: list[dict[str, typing.Any]],
 ) -> list[dict[str, typing.Any]]:
     """按 external/server 或 domain/class 汇总工具列表。"""
     grouped: dict[tuple[str, str, str], list[str]] = defaultdict(list)
 
-    for tool in openai_tools:
-        name = tool_function_name(tool)
+    for tool in tools:
+        name = str(tool.get("name") or "").strip() if isinstance(tool, dict) else ""
         if not name:
             continue
 
-        meta = tool_meta.get(name) or {}
+        meta = tool.get("meta") if isinstance(tool.get("meta"), dict) else {}
         if bool(meta.get("external")):
             label     = str(meta.get("server") or "external").strip() or "external"
             transport = str(meta.get("transport") or "external").strip() or "external"
@@ -63,12 +54,11 @@ def summarize_tool_groups(
 def render_tools_summary(
     *,
     mode: RunMode,
-    openai_tools: list[dict[str, typing.Any]],
-    tool_meta: dict[str, dict[str, typing.Any]],
+    tools: list[dict[str, typing.Any]],
     limit: int = GROUP_DISPLAY_LIMIT
 ) -> None:
     """打印当前会话可见工具摘要。"""
-    groups = summarize_tool_groups(openai_tools, tool_meta)
+    groups = summarize_tool_groups(tools)
     total  = sum(len(item["tools"]) for item in groups)
 
     external_total = sum(

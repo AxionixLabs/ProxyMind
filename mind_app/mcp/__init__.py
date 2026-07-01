@@ -17,13 +17,13 @@ from .session_adapter import (
 from .status import ExternalMcpStatus
 from .tools import (
     McpToolContext,
-    build_openai_tools,
+    build_wire_tools,
     build_tool_context
 )
 
 __all__ = [
     "build_tool_context",
-    "build_openai_tools",
+    "build_wire_tools",
     "ExternalMcpGroup",
     "ExternalMcpStatus",
     "McpToolContext",
