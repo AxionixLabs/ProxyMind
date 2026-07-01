@@ -33,6 +33,7 @@ from .native_patch import (
     _hunk_label,
     _line_delta_from_patch_files,
     _patch_error_diagnostic_lines,
+    _patch_preview,
     _patch_preview_lines
 )
 
@@ -95,23 +96,13 @@ def render_tool_result_preview(
     if name == "apply_patch":
         if is_error:
             prefix = _patch_error_diagnostic_lines(data)
-
-            preview_lines = _error_patch_preview_lines(args.get("patch"), data)
-            if preview_lines:
-                return _trace_code_preview_from_lines([*prefix, *preview_lines])
             if not prefix:
                 prefix = ["error: patch failed"]
             return _trace_preview_from_lines(prefix)
 
         preview_lines = _patch_preview_lines(args.get("patch"))
         if preview_lines:
-            preview = _trace_code_preview_from_lines(preview_lines)
-            return TracePreview(
-                full=preview.full,
-                screen=preview.screen,
-                omitted_lines=preview.omitted_lines,
-                kind="patch_tree"
-            )
+            return _patch_preview(args.get("patch"))
 
         files = data.get("files")
         if isinstance(files, list):

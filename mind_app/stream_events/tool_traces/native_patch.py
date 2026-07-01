@@ -3,6 +3,10 @@
 
 import typing
 from .common import (
+    MAX_CODE_PREVIEW_LINES,
+    SCREEN_CODE_PREVIEW_LINES,
+    TracePreview,
+    _format_preview_lines,
     _normalize_preview_lines,
     _short_line,
     _summary_lines
@@ -74,6 +78,25 @@ def _patch_error_diagnostic_lines(data: dict[str, typing.Any]) -> list[str]:
 
 def _patch_preview_lines(patch: typing.Any) -> list[str]:
     """从严格 apply_patch 文本中提取按文件分组的代码预览行。"""
+    return _flatten_patch_preview_groups(_patch_preview_groups(patch))
+
+
+def _patch_preview(patch: typing.Any) -> TracePreview:
+    """生成 patch 预览，屏幕摘要优先保留每个文件节点。"""
+    groups     = _patch_preview_groups(patch)
+    full_lines = _flatten_patch_preview_groups(groups)
+
+    full, _ = _format_preview_lines(full_lines, max_lines=MAX_CODE_PREVIEW_LINES)
+
+    screen_lines = _screen_patch_preview_groups(groups)
+
+    screen, omitted = _format_preview_lines(screen_lines, max_lines=SCREEN_CODE_PREVIEW_LINES)
+
+    return TracePreview(full=full, screen=screen, omitted_lines=omitted, kind="patch_tree")
+
+
+def _patch_preview_groups(patch: typing.Any) -> list[dict[str, typing.Any]]:
+    """从严格 apply_patch 文本中提取文件分组。"""
     groups: list[dict[str, typing.Any]]   = []
     current: dict[str, typing.Any] | None = None
 
@@ -137,7 +160,7 @@ def _patch_preview_lines(patch: typing.Any) -> list[str]:
             current_old_line += 1
             current_new_line += 1
 
-    return _flatten_patch_preview_groups(groups)
+    return groups
 
 
 def _new_patch_preview_group(
@@ -190,6 +213,37 @@ def _flatten_patch_preview_groups(groups: list[dict[str, typing.Any]]) -> list[s
         if path:
             lines.append(f"└─ {path} (+{added} -{removed})")
         lines.extend(str(item) for item in group.get("lines") or [])
+
+    return lines
+
+
+def _screen_patch_preview_groups(groups: list[dict[str, typing.Any]]) -> list[str]:
+    """生成屏幕预览，避免长文件内容挤掉后续文件节点。"""
+    if len(groups) <= 1:
+        return _flatten_patch_preview_groups(groups)
+
+    lines: list[str] = []
+    total: int       = len(groups)
+
+    detail_limit = 1 if total >= SCREEN_CODE_PREVIEW_LINES // 2 else 2
+
+    for index, group in enumerate(groups):
+        path    = str(group.get("path") or "").strip()
+        added   = int(group.get("added") or 0)
+        removed = int(group.get("removed") or 0)
+        body    = [str(item) for item in group.get("lines") or []]
+
+        if index:
+            lines.append("")
+        if path:
+            lines.append(f"└─ {path} (+{added} -{removed})")
+
+        shown = body[:detail_limit]
+        lines.extend(shown)
+
+        omitted = len(body) - len(shown)
+        if omitted > 0:
+            lines.append(f"… +{omitted} lines")
 
     return lines
 
