@@ -9,7 +9,8 @@ from rich.text import Text
 from rich.console import Console
 from ..utils import mix_hex_color
 from .agent_frames import (
-    render_agent_connect_frame, render_agent_wait_frame
+    render_agent_connect_frame,
+    render_agent_wait_frame
 )
 from .renderers import StatusRenderer
 from .types import AgentLiveTheme
@@ -23,6 +24,13 @@ class DesignStatusLiveDriver(StatusRenderer):
 
     design_level: str
     console: Console | None = None
+
+    STARTUP_SWEEP_ENTRY_PAD: float     = 5.2
+    STARTUP_SWEEP_EXIT_PAD: float      = 7.8
+    STARTUP_SWEEP_CHARS_PER_SEC: float = 18.0
+    STARTUP_SWEEP_LEAD_SPAN: float     = 4.6
+    STARTUP_SWEEP_TAIL_SPAN: float     = 9.4
+    STARTUP_SWEEP_PEAK_RADIUS: float   = 0.92
 
     @staticmethod
     def _external_mcp_item_text(item: dict[str, typing.Any]) -> str:
@@ -70,22 +78,24 @@ class DesignStatusLiveDriver(StatusRenderer):
 
         return colors["detail"]
 
+    @staticmethod
+    def _external_mcp_detail_connector(index: int, count: int) -> str:
+        """返回外部 MCP 详情行连接符；单条详情保持轻量，列表详情使用树形线。"""
+        if count <= 1:
+            return "└ "
+        return "└─ " if index >= count - 1 else "├─ "
+
     @classmethod
     def _external_mcp_link_focus(
         cls,
         phase: float,
         span: int
     ) -> float:
-        entry_pad = 1.2
-        exit_pad  = 1.2
-
-        chars_per_sec = 46.0
-
         return cls._drift_focus(
-            phase * chars_per_sec,
+            phase * cls.STARTUP_SWEEP_CHARS_PER_SEC,
             span,
-            entry_pad=entry_pad,
-            exit_pad=exit_pad
+            entry_pad=cls.STARTUP_SWEEP_ENTRY_PAD,
+            exit_pad=cls.STARTUP_SWEEP_EXIT_PAD
         )
 
     @classmethod
@@ -94,9 +104,9 @@ class DesignStatusLiveDriver(StatusRenderer):
         phase: float,
         colors: dict[str, str]
     ) -> tuple[str, str]:
-        pulse  = 0.5 + (0.5 * math.sin((phase * 3.8) + 0.45))
+        pulse  = 0.5 + (0.5 * math.sin((phase * 2.4) + 0.45))
         glyphs = ("-", "\\", "|", "/")
-        glyph  = glyphs[int(max(0.0, phase) * 6.4) % len(glyphs)]
+        glyph  = glyphs[int(max(0.0, phase) * 4.2) % len(glyphs)]
         color  = mix_hex_color(colors["spin_dim"], colors["spin"], 0.22 + (pulse * 0.78))
 
         return glyph, f"bold {color}"
@@ -106,7 +116,8 @@ class DesignStatusLiveDriver(StatusRenderer):
         cls,
         phase: float,
         snapshot: dict[str, typing.Any
-        ]) -> Text:
+        ]
+    ) -> Text:
         state = str(snapshot.get("state") or "starting").strip().lower()
 
         colors = {
@@ -151,9 +162,9 @@ class DesignStatusLiveDriver(StatusRenderer):
             mid_color=colors["text_mid"],
             fade_color="#60798B",
             dim_color=colors["text_dim"],
-            lead_span=3.30,
-            tail_span=6.70,
-            peak_radius=0.84,
+            lead_span=cls.STARTUP_SWEEP_LEAD_SPAN,
+            tail_span=cls.STARTUP_SWEEP_TAIL_SPAN,
+            peak_radius=cls.STARTUP_SWEEP_PEAK_RADIUS,
         )
         return out
 
@@ -239,13 +250,6 @@ class DesignStatusLiveDriver(StatusRenderer):
             )
 
         return " · ".join(parts), details
-
-    @staticmethod
-    def _external_mcp_detail_connector(index: int, count: int) -> str:
-        """返回外部 MCP 详情行连接符；单条详情保持轻量，列表详情使用树形线。"""
-        if count <= 1:
-            return "└ "
-        return "└─ " if index >= count - 1 else "├─ "
 
     @classmethod
     def _external_mcp_details(
@@ -391,9 +395,9 @@ class DesignStatusLiveDriver(StatusRenderer):
             mid_color=colors["text_mid"],
             fade_color="#60798B",
             dim_color=colors["text_dim"],
-            lead_span=3.30,
-            tail_span=6.70,
-            peak_radius=0.84,
+            lead_span=cls.STARTUP_SWEEP_LEAD_SPAN,
+            tail_span=cls.STARTUP_SWEEP_TAIL_SPAN,
+            peak_radius=cls.STARTUP_SWEEP_PEAK_RADIUS,
         )
         cls._external_mcp_details(out, details, colors)
         return out
