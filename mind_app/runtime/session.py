@@ -47,7 +47,7 @@ async def with_mcp_session(
 
             await function(
                 tool_context.session,
-                tool_context.tools,
+                tool_context.tools
             )
 
     except BaseException as exc:
