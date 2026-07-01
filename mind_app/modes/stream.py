@@ -16,9 +16,7 @@ from mind_app.approval import (
 from mind_nova.events import EventReport
 from mind_nova import request
 from ..stream_ui import StreamUI
-from ..runtime.loop_support import (
-    ensure_wakeup, finish_failure
-)
+from ..runtime.loop_support import finish_failure
 from ..runtime.session_policy import friendly_exception_text
 from ..runtime.tool_run import (
     run_tool_step,
@@ -286,17 +284,6 @@ async def stream_looper(
                         execution=event_execution
                     )
                     await slog.begin_reply_wait_status()
-                    continue
-
-                if error := await ensure_wakeup(
-                    mind,
-                    session,
-                    slog,
-                    tools=tools,
-                    name=name,
-                    meta=event_meta
-                ):
-                    await finish_failure(slog, ev_report, phase="turn.failed", error=error)
                     continue
 
                 use_coding_trace = coding_trace_tool(name)

@@ -146,30 +146,6 @@ class FileAssist(object):
 class Tooling(object):
 
     @staticmethod
-    def needs_wakeup(
-        local_meta: dict[str, typing.Any],
-        name: str,
-        meta: typing.Optional[dict[str, typing.Any]] = None
-    ) -> bool:
-        """判断某工具是否需要“连接/设备准备”等前置动作。"""
-        local_meta = local_meta if isinstance(local_meta, dict) else {}
-        effective_meta = {
-            **local_meta,
-            **(meta if isinstance(meta, dict) else {})
-        }
-        cls = str(effective_meta.get("class") or "")
-        skip_classes = {
-            "tool", "framix", "nexus", "inspect", "security", "runtime",
-            "audio", "ffmpeg", "k6"
-        }
-        return not (
-            local_meta.get("domain") == "coding"
-            or effective_meta.get("domain") == "coding"
-            or bool(effective_meta.get("external"))
-            or cls in skip_classes
-        )
-
-    @staticmethod
     def summarize_tool_arguments(tool_name: str, tool_args: typing.Any) -> str:
 
         def short_text(raw_value: typing.Any, limit: int = 48) -> str:

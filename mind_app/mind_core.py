@@ -29,7 +29,6 @@ from .modes.batch import mind_pack as run_mind_pack
 from .modes.agent import run_agent_loop
 from .runtime.calling import (
     calling as run_calling,
-    wakeup as run_wakeup,
     run_mode_lifecycle as run_mode_lifecycle_wrapper
 )
 from .runtime.session import with_mcp_session as run_with_mcp_session
@@ -73,9 +72,6 @@ class Mind(object):
         self.task_event: asyncio.Event = asyncio.Event()
 
         self.anim_manager: AsyncAnimManager = kwargs.get("anim_manager") or AsyncAnimManager()
-
-        self.last_refresh_ts: float = 0.0
-        self.ttl_sec: float         = 1.0
 
         self.design: Design = Design(self.level)
 
@@ -428,14 +424,6 @@ class Mind(object):
     ) -> None:
         """模式执行生命周期入口：统一委托运行时模块处理动画和耗时输出。"""
         return await run_mode_lifecycle_wrapper(self, runner, mode=mode, **kwargs)
-
-    async def wakeup(
-        self,
-        session: McpSessionLike,
-        slog: typing.Optional[StreamUI] = None
-    ) -> typing.Optional[str]:
-        """刷新入口：按 TTL 规则委托运行时模块执行 refresh。"""
-        return await run_wakeup(self, session, slog)
 
     async def calling(
         self,

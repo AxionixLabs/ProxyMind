@@ -11,9 +11,7 @@ from mind_nova import (
     craft, request
 )
 from ..stream_ui import StreamUI
-from ..runtime.loop_support import (
-    ensure_wakeup, finish_failure
-)
+from ..runtime.loop_support import finish_failure
 from ..runtime.session_policy import friendly_exception_text
 from ..runtime.tool_run import run_tool_step
 from ..runtime.tool_display import (
@@ -44,8 +42,6 @@ async def static_looper(
 
     try:
         await slog.open()
-        result = await session.call_tool("refresh", {"ttl_sec": mind.ttl_sec})
-        extras = None if result.isError else {"devices": result.content[0].text}
 
         if ev_report:
             ev_report.begin_turn(round_no=1)
@@ -67,7 +63,7 @@ async def static_looper(
             pref_config,
             message,
             tools,
-            extras,
+            None,
             **kwargs
         ):
             if ev_report:
@@ -178,25 +174,6 @@ async def static_looper(
                         "args"  : arguments,
                         "ts"    : time.time()
                     })
-
-                    if error := await ensure_wakeup(
-                        mind,
-                        session,
-                        slog,
-                        tools=tools,
-                        name=name,
-                        meta=action_meta
-                    ):
-                        await finish_failure(
-                            slog,
-                            ev_report,
-                            phase="exec.failed",
-                            error=str(error),
-                            run=index,
-                            index=step_idx,
-                            name=name
-                        )
-                        continue
 
                     call_id = craft.short_uid()
                     await show_tool_start(

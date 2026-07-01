@@ -3,17 +3,14 @@
 
 import time
 import typing
-from loguru import logger
-from mind_app.mcp import McpSessionLike
 from mind_nova.events import EventReport
 from mind_nova.modes import (
     DEFAULT_RUN_MODE, RunMode
 )
-from mind_nova import const
-from ..stream_ui import StreamUI
 from ..stream_events.worked import print_worked_footer
 
 if typing.TYPE_CHECKING:
+    from mind_app.mcp import McpSessionLike
     from ..mind_core import Mind
 
 
@@ -47,33 +44,6 @@ async def run_mode_lifecycle(
         await mind.await_cleanup(mind.stop_anim())
 
     print_worked_footer(time.perf_counter() - started_at)
-
-
-async def wakeup(
-    mind: "Mind",
-    session: McpSessionLike,
-    stream_ui: typing.Optional[StreamUI] = None
-) -> typing.Optional[str]:
-    """按 TTL 触发设备刷新，避免高频重复 refresh。"""
-
-    if ((now := time.time()) - mind.last_refresh_ts) < mind.ttl_sec:
-        tip = f"ttl-hit: skip refresh ttl={mind.ttl_sec:.3f}s"
-        if stream_ui and mind.level != const.SHOW_LEVEL:
-            return await stream_ui.feed(tip, display=StreamUI.BLOCK)
-        return logger.debug(tip)
-
-    result  = await session.call_tool("refresh", {"ttl_sec": mind.ttl_sec})
-    ok      = not result.isError
-    content = result.content[0].text
-
-    if not ok:
-        return content
-
-    mind.last_refresh_ts = now
-
-    if stream_ui and mind.level != const.SHOW_LEVEL:
-        return await stream_ui.feed(content, display=StreamUI.BLOCK)
-    return logger.debug(content)
 
 
 async def calling(
