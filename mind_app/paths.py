@@ -26,6 +26,11 @@ def mind_mcp_servers_path() -> Path:
     return mind_home() / "mcp_servers.json"
 
 
+def mind_config_path() -> Path:
+    """返回 Mind 主配置文件路径。"""
+    return mind_home() / "config.toml"
+
+
 def mind_pref_path() -> Path:
     """返回 Mind 本地偏好缓存文件路径。"""
     return mind_home() / "mind_pref.json"

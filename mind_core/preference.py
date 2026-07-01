@@ -8,29 +8,28 @@ import httpx
 import typing
 import asyncio
 from engine.tinker import FileAssist
+from mind_core.provider_config import (
+    DEFAULT_PROVIDER_NAME,
+    DEFAULT_ROUTE_NAME
+)
 from mind_nova import const
-
-DEFAULT_SCHEMA_VERSION = 2
-DEFAULT_PROVIDER       = "OpenAI"
-DEFAULT_ROUTE          = "responses"
 
 
 def _default_slot() -> dict[str, str]:
     """返回单个模型槽位的默认配置。"""
     return {
-        "api"      : DEFAULT_PROVIDER,
+        "api"      : DEFAULT_PROVIDER_NAME,
         "model"    : "",
         "apikey"   : "",
         "base_url" : "",
-        "route"    : DEFAULT_ROUTE
+        "route"    : DEFAULT_ROUTE_NAME
     }
 
 
 def _default_prefs() -> dict[str, typing.Any]:
     """返回偏好配置的默认结构。"""
     return {
-        "schema_version" : DEFAULT_SCHEMA_VERSION,
-        "primary"        : _default_slot()
+        "primary" : _default_slot()
     }
 
 
@@ -109,23 +108,22 @@ class Preferences(object):
         secondary = payload.get("secondary")
 
         prefs = {
-            "schema_version": int(payload.get("schema_version", DEFAULT_SCHEMA_VERSION) or DEFAULT_SCHEMA_VERSION),
             "primary": {
-                "api"      : str(primary.get("api", DEFAULT_PROVIDER)),
+                "api"      : str(primary.get("api", DEFAULT_PROVIDER_NAME)),
                 "model"    : str(primary.get("model", "")),
                 "apikey"   : str(primary.get("apikey", "")),
                 "base_url" : str(primary.get("base_url", "")),
-                "route"    : str(primary.get("route", DEFAULT_ROUTE) or DEFAULT_ROUTE)
+                "route"    : str(primary.get("route", DEFAULT_ROUTE_NAME) or DEFAULT_ROUTE_NAME)
             }
         }
 
         if self._slot_configured(secondary):
             prefs["secondary"] = {
-                "api"      : str(secondary.get("api", DEFAULT_PROVIDER)),
+                "api"      : str(secondary.get("api", DEFAULT_PROVIDER_NAME)),
                 "model"    : str(secondary.get("model", "")),
                 "apikey"   : str(secondary.get("apikey", "")),
                 "base_url" : str(secondary.get("base_url", "")),
-                "route"    : str(secondary.get("route", DEFAULT_ROUTE) or DEFAULT_ROUTE)
+                "route"    : str(secondary.get("route", DEFAULT_ROUTE_NAME) or DEFAULT_ROUTE_NAME)
             }
 
         self.prefs = prefs

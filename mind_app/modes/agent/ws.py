@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 from loguru import logger
 from ...runtime.agent_client import AgentClient
-from mind_core.preference import DEFAULT_SCHEMA_VERSION
+from mind_core.provider_config import DEFAULT_ROUTE_NAME
 from .models import (
     AgentSessionRuntime, AgentLiveStatus
 )
@@ -199,12 +199,11 @@ async def build_runtime_llm_conf(mind: "Mind") -> dict[str, typing.Any]:
     primary     = primary_raw if isinstance(primary_raw, dict) else {}
 
     return {
-        "schema_version" : int(payload.get("schema_version", DEFAULT_SCHEMA_VERSION) or DEFAULT_SCHEMA_VERSION),
         "primary": {
             "model"    : str(primary.get("model", "") or ""),
             "apikey"   : str(primary.get("apikey", "") or ""),
             "base_url" : str(primary.get("base_url", "") or ""),
-            "route"    : str(primary.get("route", "responses") or "responses")
+            "route"    : str(primary.get("route", DEFAULT_ROUTE_NAME) or DEFAULT_ROUTE_NAME)
         }
     }
 

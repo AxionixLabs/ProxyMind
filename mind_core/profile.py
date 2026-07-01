@@ -8,13 +8,14 @@ import asyncio
 from pathlib import Path
 from engine.tinker import FileAssist
 from mind_core.design import Design
+from mind_core.provider_config import DEFAULT_PROVIDER_NAME
 
 
 class Preferences(object):
     """Preferences class."""
 
     prefs = {
-        "api"      : "OpenAI",
+        "api"      : DEFAULT_PROVIDER_NAME,
         "model"    : "",
         "apikey"   : "",
         "base_url" : "",
