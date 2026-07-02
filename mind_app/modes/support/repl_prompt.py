@@ -66,7 +66,9 @@ def primary_model_from_config(
 ) -> str:
     """从偏好配置中读取主模型名称。"""
     primary = pref_config.get("primary") or {}
-    return primary.get("model", "") or fallback
+    if "model" not in primary:
+        return fallback
+    return str(primary.get("model") or "")
 
 
 async def fetch_runtime_workspace_root(
