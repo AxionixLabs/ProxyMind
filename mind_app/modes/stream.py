@@ -3,7 +3,6 @@
 
 import typing
 import asyncio
-from engine.enhance import exchange_arguments
 from mind_app.mcp import McpSessionLike
 from mind_app.mcp.tool_store import meta_for_tool
 from mind_app.approval import (
@@ -19,17 +18,20 @@ from ..stream_ui import StreamUI
 from ..runtime.loop_support import finish_failure
 from ..runtime.session_policy import friendly_exception_text
 from ..runtime.tool_run import (
-    run_tool_step,
     server_tool_output_result
 )
 from ..runtime.tool_display import (
     show_tool_result,
-    show_tool_start
 )
 from ..runtime.execution_policy import (
     is_execution_ignored,
-    should_pass_execution_to_tool,
     validate_execution_policy
+)
+from ..runtime.tool_batch import (
+    PendingToolCall,
+    ToolBatchExecutor,
+    ToolCallBatch,
+    batch_from_event
 )
 from ..runtime.idle_status import IdleStatusTimer
 from ..stream_events.responses_builtin import (
@@ -99,6 +101,16 @@ async def stream_looper(
             pref_config=pref_config,
             metadata=metadata
         )
+        current_batch: ToolCallBatch | None = None
+        tool_batch_executor = ToolBatchExecutor(
+            session=session,
+            stream_ui=slog,
+            tools=tools,
+            mode=mode,
+            pref_config=pref_config,
+            metadata=metadata,
+            report=mind.report
+        )
 
         async for event in request.stream_chat(
             mode,
@@ -149,6 +161,8 @@ async def stream_looper(
                 continue
 
             if event_type == "turn.done":
+                if current_batch is not None:
+                    await tool_batch_executor.execute_batch(current_batch)
                 break
 
             if event_type == "tool.builtin.call":
@@ -159,6 +173,18 @@ async def stream_looper(
             if event_type == "tool.builtin.done":
                 consume_builtin_done(event, tracker)
                 await slog.end_status()
+                continue
+
+            if event_type == "tool.calls.start":
+                current_batch = batch_from_event(event)
+                await slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
+                continue
+
+            if event_type == "tool.calls.done":
+                if current_batch is not None:
+                    await tool_batch_executor.execute_batch(current_batch)
+                    current_batch = None
+                await slog.begin_reply_wait_status(delay_sec=0.75)
                 continue
 
             if event_type == "tool.approval_required":
@@ -288,66 +314,27 @@ async def stream_looper(
 
                 use_coding_trace = coding_trace_tool(name)
 
-                if not use_coding_trace:
-                    await show_tool_start(
-                        slog,
-                        name,
-                        arguments,
-                        call_id=str(event.get("call_id") or "")
-                    )
-                else:
-                    slog.record_tool_arguments(
-                        name,
-                        arguments,
-                        call_id=str(event.get("call_id") or "")
-                    )
-
-                arguments = exchange_arguments(name, arguments, mind.report)
-                if should_pass_execution_to_tool(name, event_execution):
-                    arguments = {**arguments, "execution": event_execution}
-
-                tool_run = await run_tool_step(
-                    session,
-                    stream_ui=slog,
-                    tools=tools,
+                local_tool_meta = meta_for_tool(tools, name)
+                effective_meta = {
+                    **(local_tool_meta or {}),
+                    **(event_meta or {})
+                } or None
+                pending_call = PendingToolCall(
+                    event=event,
                     name=name,
                     arguments=arguments,
-                    meta=event_meta,
-                    mode=mode,
-                    pref_config=pref_config,
-                    metadata=kwargs.get("metadata") or {},
-                    enable_progress_notify=True,
-                    stream_callback=lambda x: slog.feed(
-                        x, display=StreamUI.BLOCK
-                    ),
-                    status_text="coding" if use_coding_trace else None,
-                    code_status=use_coding_trace
-                )
-
-                ok     = tool_run.ok
-                fields = tool_run.fields
-                text   = tool_run.text
-
-                await show_tool_result(
-                    slog,
-                    name,
-                    arguments,
-                    tool_run,
-                    ok=ok,
-                    fields=fields,
-                    text=text,
+                    meta=effective_meta,
+                    execution=event_execution,
                     use_coding_trace=use_coding_trace
                 )
 
-                await request.post_tool_result(
-                    event["cid"],
-                    event["sid"],
-                    event["call_id"],
-                    name,
-                    ok,
-                    fields,
-                    execution=event_execution
-                )
+                call_id = str(event.get("call_id") or "")
+                if current_batch is not None and current_batch.contains(call_id):
+                    current_batch.calls.append(pending_call)
+                    await slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
+                    continue
+
+                await tool_batch_executor.execute_call(pending_call)
                 await slog.begin_reply_wait_status(delay_sec=0.75)
                 continue
 

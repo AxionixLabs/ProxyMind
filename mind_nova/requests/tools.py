@@ -31,7 +31,7 @@ async def post_tool_result(
         dict[str, typing.Any]
     ],
     execution: dict[str, typing.Any] | None = None
-) -> None:
+) -> dict[str, typing.Any]:
     """把工具执行结果回传给服务端主循环。"""
     headers = Channel.make_headers()
     payload = {
@@ -48,6 +48,7 @@ async def post_tool_result(
     async with httpx.AsyncClient(timeout=30.0) as client:
         r = await client.post(service_endpoints.endpoint("/tool-result"), headers=headers, json=payload)
         r.raise_for_status()
+        return r.json()
 
 
 async def post_tool_approval(
