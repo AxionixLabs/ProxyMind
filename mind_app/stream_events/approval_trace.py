@@ -62,6 +62,11 @@ def approval_shell_commands(approval: dict[str, typing.Any]) -> list[typing.Any]
     if commands:
         return commands
 
+    argument_command = arguments.get("command")
+    text = str(argument_command or "").strip()
+    if text:
+        return [text]
+
     command = approval.get("command", approval.get("resolved_command"))
     if isinstance(command, list):
         return [command]

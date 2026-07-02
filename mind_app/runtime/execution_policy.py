@@ -4,7 +4,7 @@
 import typing
 
 EXECUTION_ALLOWED    = {"allowed", "approved"}
-POLICY_MANAGED_TOOLS = {"shell_command"}
+POLICY_MANAGED_TOOLS = {"shell_command", "shell_calls"}
 
 
 def validate_execution_policy(
@@ -23,8 +23,10 @@ def validate_execution_policy(
     state  = str(execution.get("state") or "").strip().lower()
     target = str(execution.get("target") or "").strip().lower()
 
-    if name == "shell_command" and not isinstance(arguments.get("items"), list):
-        return _reject("shell_command items missing")
+    if name == "shell_calls" and not isinstance(arguments.get("items"), list):
+        return _reject("shell_calls items missing")
+    if name == "shell_command" and not str(arguments.get("command") or "").strip():
+        return _reject("shell_command command missing")
 
     canonical = execution.get("canonicalArguments") or execution.get("canonical_arguments")
     if (
@@ -48,7 +50,7 @@ def validate_execution_policy(
 
 def should_pass_execution_to_tool(name: str, execution: dict[str, typing.Any] | None) -> bool:
     """判断是否需要把执行授权元数据传给本地工具。"""
-    if not isinstance(execution, dict) or name != "shell_command":
+    if not isinstance(execution, dict) or name not in POLICY_MANAGED_TOOLS:
         return False
     target = str(execution.get("target") or "local").strip().lower()
     return target == "local"
@@ -89,10 +91,10 @@ def _canonical_arguments(
     value: dict[str, typing.Any]
 ) -> typing.Any:
     """按工具语义归一化执行裁决比较参数。"""
-    if name != "shell_command" or not isinstance(value, dict):
+    if name not in POLICY_MANAGED_TOOLS or not isinstance(value, dict):
         return _normalize_value(value)
 
-    if isinstance(value.get("items"), list):
+    if name == "shell_calls":
         return {
             "items": [_canonical_shell_item(item) for item in value.get("items") or []]
         }

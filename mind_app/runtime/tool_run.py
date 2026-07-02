@@ -49,7 +49,8 @@ _COMMON_PROMOTED_RESULT_KEYS = (
 )
 
 _OUTPUT_PROMOTED_TOOLS = {
-    "shell_command"
+    "shell_command",
+    "shell_calls"
 }
 
 _OUTPUT_PROMOTED_RESULT_KEYS = (

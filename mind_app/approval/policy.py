@@ -31,6 +31,8 @@ DECISION_SHORTCUT_LABELS: dict[str, str] = {
     "decline"          : "n/esc"
 }
 
+SHELL_TOOL_NAMES = {"shell_command", "shell_calls"}
+
 
 @dataclass(slots=True)
 class ApprovalStore(object):
@@ -296,8 +298,11 @@ def _canonical_tool_arguments(
     arguments: dict[str, typing.Any]
 ) -> dict[str, typing.Any]:
     """返回可稳定比较的工具参数。"""
-    if str(tool or "").strip() == "shell_command":
+    normalized_tool = str(tool or "").strip()
+    if normalized_tool == "shell_command":
         return _normalize_shell_command_arguments(arguments)
+    if normalized_tool == "shell_calls":
+        return _normalize_shell_calls_arguments(arguments)
 
     normalized = _normalize_value(arguments)
     return normalized if isinstance(normalized, dict) else {}
@@ -309,11 +314,12 @@ def _approval_argument_fallback(
     tool: str
 ) -> dict[str, typing.Any]:
     """兼容审批事件只携带 command/items 摘要而缺少 arguments 的情况。"""
-    if str(tool or "").strip() != "shell_command":
+    normalized_tool = str(tool or "").strip()
+    if normalized_tool not in SHELL_TOOL_NAMES:
         return {}
 
     raw_items = approval.get("items")
-    if isinstance(raw_items, list):
+    if normalized_tool == "shell_calls" and isinstance(raw_items, list):
         return {"items": raw_items}
 
     command = str(approval.get("command") or "").strip()
@@ -326,13 +332,22 @@ def _approval_argument_fallback(
     if "timeout_sec" in approval:
         item["timeout_sec"] = approval.get("timeout_sec")
 
-    return {"items": [item]}
+    if normalized_tool == "shell_calls":
+        return {"items": [item]}
+    return item
 
 
 def _normalize_shell_command_arguments(
     arguments: dict[str, typing.Any]
 ) -> dict[str, typing.Any]:
-    """规范化批量 shell_command 参数。"""
+    """规范化单条 shell_command 参数。"""
+    return _normalize_shell_command_item(arguments)
+
+
+def _normalize_shell_calls_arguments(
+    arguments: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+    """规范化批量 shell_calls 参数。"""
     if not isinstance(arguments, dict):
         return {"items": []}
 
@@ -430,7 +445,11 @@ def _approval_prompt_noun(
 ) -> str:
     """返回审批提示中使用的操作类型名称。"""
     tool = str(approval.get("tool") or "").strip()
-    return "command" if tool in {"", "shell_command"} else "tool action"
+    if tool in {"", "shell_command"}:
+        return "command"
+    if tool == "shell_calls":
+        return "commands"
+    return "tool action"
 
 
 def _normalize_decision(value: typing.Any) -> ApprovalDecisionValue | None:

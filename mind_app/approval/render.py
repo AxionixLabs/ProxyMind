@@ -223,8 +223,8 @@ def _approval_command_lines(
 def _approval_raw_commands(
     approval: dict[str, typing.Any]
 ) -> list[typing.Any]:
-    """读取 shell_command 审批命令原文。"""
-    if str(approval.get("tool") or "").strip() != "shell_command":
+    """读取 shell 审批命令原文。"""
+    if str(approval.get("tool") or "").strip() not in {"shell_command", "shell_calls"}:
         fallback = approval.get("command", approval.get("resolved_command"))
         if isinstance(fallback, list):
             return [fallback]

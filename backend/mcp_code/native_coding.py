@@ -26,11 +26,27 @@ class NativeCoding(NativeCodingBase):
     async def shell_command(
         self,
         *,
+        command: str,
+        cwd: str = ".",
+        timeout_sec: int = 60,
+        execution: dict[str, typing.Any] | None = None
+    ) -> dict[str, typing.Any]:
+        """执行单条 shell 命令。"""
+        return await self._shell_command.shell_command(
+            command=command,
+            cwd=cwd,
+            timeout_sec=timeout_sec,
+            execution=execution
+        )
+
+    async def shell_calls(
+        self,
+        *,
         items: list[dict[str, typing.Any]],
         execution: dict[str, typing.Any] | None = None
     ) -> dict[str, typing.Any]:
         """批量执行 shell 命令。"""
-        return await self._shell_batch.shell_command(items=items, execution=execution)
+        return await self._shell_batch.shell_calls(items=items, execution=execution)
 
     def apply_patch(
         self,

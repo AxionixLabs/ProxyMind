@@ -11,7 +11,7 @@ from pydantic import (
 
 
 class ShellCommandItem(BaseModel):
-    """单条 shell_command 批量项。"""
+    """单条 shell_calls 批量项。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -33,7 +33,7 @@ class ShellCommandItem(BaseModel):
 def shell_command_items_payload(
     items: typing.Iterable[ShellCommandItem | dict[str, typing.Any]] | None
 ) -> list[dict[str, typing.Any]]:
-    """把 shell_command schema 项转换为执行层普通 dict。"""
+    """把 shell_calls schema 项转换为执行层普通 dict。"""
     payload: list[dict[str, typing.Any]] = []
     for item in items or []:
         if isinstance(item, ShellCommandItem):
@@ -47,13 +47,39 @@ def shell_command_items_payload(
     return payload
 
 
+def shell_command_payload(
+    *,
+    command: str,
+    cwd: str = ".",
+    timeout_sec: int = 60
+) -> dict[str, typing.Any]:
+    """把单条 shell_command 参数转换为执行层普通 dict。"""
+    return {
+        "command"     : str(command or ""),
+        "cwd"         : str(cwd or "."),
+        "timeout_sec" : int(timeout_sec or 60)
+    }
+
+
+ShellCommandArg = typing.Annotated[
+    str,
+    Field(description="要执行的单条 shell 命令字符串；由系统默认 shell 解释执行。"),
+]
+ShellCwdArg = typing.Annotated[
+    str,
+    Field(description="命令工作目录，必须在当前工作区内。"),
+]
+ShellTimeoutSecArg = typing.Annotated[
+    StrictInt,
+    Field(ge=1, le=600, description="命令超时秒数，范围 1-600。"),
+]
 ShellCommandItemsArg = typing.Annotated[
     list[ShellCommandItem],
     Field(
         min_length=1,
         max_length=12,
         description=(
-            "批量 shell 命令列表。每项需包含 command，可包含 cwd 和 timeout_sec；"
+            "shell_calls 批量命令列表。每项需包含 command，可包含 cwd 和 timeout_sec；"
             "不要包含 tool 字段；execution 由服务端策略层补充，不需要模型生成。"
         )
     ),

@@ -37,6 +37,7 @@ from .native_patch import (
 
 NATIVE_CODING_TRACE_TOOLS = {
     "shell_command",
+    "shell_calls",
     "apply_patch"
 }
 
@@ -136,15 +137,17 @@ def render_tool_result_preview(
 
             return _trace_preview_from_lines(lines)
 
-    if name == "shell_command":
+    if name in {"shell_command", "shell_calls"}:
         results = data.get("results")
         if isinstance(results, list):
             inner = _single_shell_batch_payload(results)
             if inner is None:
                 return shell_batch_tree_preview(data)
+
             inner_args = inner.get("args") if isinstance(inner.get("args"), dict) else args
             inner_data = inner.get("data") if isinstance(inner.get("data"), dict) else {}
-            inner_ok = bool(inner.get("ok")) if "ok" in inner else None
+            inner_ok   = bool(inner.get("ok")) if "ok" in inner else None
+
             return render_tool_result_preview(
                 "shell_command",
                 inner_data,
@@ -184,7 +187,7 @@ def render_tool_result_entries(
     args    = arguments if isinstance(arguments, dict) else {}
     payload = _result_payload(data)
 
-    if name == "shell_command":
+    if name in {"shell_command", "shell_calls"}:
         results = payload.get("results")
         if isinstance(results, list):
             items = [item for item in results if isinstance(item, dict)]
@@ -263,7 +266,7 @@ def render_tool_trace(
         added, removed = _line_delta_from_patch_files(payload)
         return f"• {action} {target}{_format_delta(added, removed)}"
 
-    if name == "shell_command":
+    if name in {"shell_command", "shell_calls"}:
         results = payload.get("results")
         if isinstance(results, list):
             inner = _single_shell_batch_payload(results)
@@ -417,7 +420,7 @@ def _argument_preview(value: typing.Any) -> str:
 def _single_shell_batch_payload(
     results: list[typing.Any]
 ) -> dict[str, typing.Any] | None:
-    """从单条 shell_command 批量结果中提取单命令参数和数据。"""
+    """从单条 shell_calls 批量结果中提取单命令参数和数据。"""
     items = [item for item in results if isinstance(item, dict)]
     if len(items) != 1:
         return None

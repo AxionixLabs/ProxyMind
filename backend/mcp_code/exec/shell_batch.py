@@ -116,7 +116,7 @@ class ShellBatchTools(NativeCodingComponent):
         self,
         items: list[dict[str, typing.Any]] | None
     ) -> list[dict[str, typing.Any]]:
-        """归一化 shell_command 批量请求，限制数量并保留原始顺序索引。"""
+        """归一化 shell 批量请求，限制数量并保留原始顺序索引。"""
         if not isinstance(items, list):
             return []
 
@@ -152,7 +152,7 @@ class ShellBatchTools(NativeCodingComponent):
         *,
         items: list[dict[str, typing.Any]] | None,
         execution: dict[str, typing.Any] | None = None,
-        result_tool: str = "shell_command"
+        result_tool: str = "shell_calls"
     ) -> dict[str, typing.Any]:
         """并发执行允许的 shell 命令批次，并返回有序结果。"""
         requested_count = len(items) if isinstance(items, list) else 0
@@ -160,7 +160,7 @@ class ShellBatchTools(NativeCodingComponent):
         normalized = self._normalize_items(items)
         if not normalized:
             return self.fail_result(
-                "shell_command_items_empty",
+                "shell_calls_items_empty",
                 mode="batch",
                 requested_count=requested_count,
                 total=0,
@@ -264,7 +264,7 @@ class ShellBatchTools(NativeCodingComponent):
             "results"         : results
         }
         if not all_ok:
-            data["reason"] = "shell_command_batch_failed" if results else "shell_command_items_empty"
+            data["reason"] = "shell_calls_batch_failed" if results else "shell_calls_items_empty"
             self.core.enrich_failure_facts(data)
 
         text = (
@@ -280,17 +280,17 @@ class ShellBatchTools(NativeCodingComponent):
             "logs"        : []
         }
 
-    async def shell_command(
+    async def shell_calls(
         self,
         *,
         items: list[dict[str, typing.Any]] | None = None,
         execution: dict[str, typing.Any] | None = None
     ) -> dict[str, typing.Any]:
-        """批量执行 shell_command。"""
+        """批量执行 shell 命令调用。"""
         return await self._execute_batch(
             items=items,
             execution=execution,
-            result_tool="shell_command"
+            result_tool="shell_calls"
         )
 
 
