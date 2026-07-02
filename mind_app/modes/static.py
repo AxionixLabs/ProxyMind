@@ -5,7 +5,7 @@ import time
 import typing
 import asyncio
 from mind_app.mcp import McpSessionLike
-from engine.enhancer import Enhancer
+from engine.enhance import exchange_arguments
 from mind_nova.events import EventReport
 from mind_nova import (
     craft, request
@@ -183,7 +183,7 @@ async def static_looper(
                         call_id=call_id
                     )
 
-                    arguments = Enhancer.exchange(name, arguments, mind.report)
+                    arguments = exchange_arguments(name, arguments, mind.report)
                     if name == "free_rule":
                         arguments = {
                             **arguments,

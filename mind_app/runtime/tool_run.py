@@ -6,7 +6,7 @@ import typing
 from dataclasses import dataclass
 from mind_app.mcp import McpSessionLike
 from mcp.types import CallToolResult
-from engine.enhancer import Enhancer
+from engine.enhance import enhance_result
 from ..stream_ui import StreamUI
 from .tool_router import execute_tool
 
@@ -328,9 +328,16 @@ async def run_tool_step(
         )
         ok = not result.isError
 
-        enhancer = Enhancer(session, mode, pref_config, metadata)
-
-        fields = await enhancer.enhance(name, result, ok, stream_ui)
+        fields = await enhance_result(
+            session=session,
+            mode=mode,
+            pref_config=pref_config,
+            metadata=metadata,
+            name=name,
+            result=result,
+            ok=ok,
+            slog=stream_ui
+        )
         fields = normalize_tool_result_fields(name, fields)
 
     finally:

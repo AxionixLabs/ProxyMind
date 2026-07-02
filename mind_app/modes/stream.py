@@ -3,7 +3,7 @@
 
 import typing
 import asyncio
-from engine.enhancer import Enhancer
+from engine.enhance import exchange_arguments
 from mind_app.mcp import McpSessionLike
 from mind_app.mcp.tool_store import meta_for_tool
 from mind_app.approval import (
@@ -302,7 +302,7 @@ async def stream_looper(
                         call_id=str(event.get("call_id") or "")
                     )
 
-                arguments = Enhancer.exchange(name, arguments, mind.report)
+                arguments = exchange_arguments(name, arguments, mind.report)
                 if should_pass_execution_to_tool(name, event_execution):
                     arguments = {**arguments, "execution": event_execution}
 
