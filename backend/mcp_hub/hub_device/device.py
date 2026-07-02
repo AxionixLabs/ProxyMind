@@ -704,7 +704,11 @@ class Device(object):
 
         os.remove(new_local)
 
-        return payload
+        return SemanticResult(
+            ok=True,
+            text="元素定位诊断。",
+            data=payload
+        ).to_dict()
 
     # workflow: ==== UI Interaction MCP Tool ====
     async def wait_element(
