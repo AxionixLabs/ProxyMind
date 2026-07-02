@@ -178,26 +178,30 @@ class NexusExecutorRegistry(object):
         base_headers = NexusExecutorRegistry._as_dict(env.get("headers"))
         base_timeout = NexusExecutorRegistry._as_float(env.get("timeout"), 30.0)
         req_base_url = NexusExecutorRegistry._request_or_env_str(request, env, "base_url")
+
         req_url = NexusExecutorRegistry._as_str(
             NexusExecutorRegistry._pick(request, env, "url")
         )
+
         req_headers = {
             **base_headers,
             **NexusExecutorRegistry._as_dict(request.get("headers"))
         }
         req_params = NexusExecutorRegistry._request_or_env_alias(request, env, "params")
+
         req_json_body = NexusExecutorRegistry._request_or_env_alias(
             request, env, "json", "json_body"
         )
         req_body_text = NexusExecutorRegistry._request_or_env_alias(
             request, env, "body", "body_text"
         )
-        req_form_raw = NexusExecutorRegistry._request_or_env_alias(request, env, "form")
-        req_form = req_form_raw if isinstance(req_form_raw, dict) else None
-        req_files_raw = NexusExecutorRegistry._request_or_env_alias(request, env, "files")
-        req_files = req_files_raw if isinstance(req_files_raw, list) else None
+
+        req_form_raw      = NexusExecutorRegistry._request_or_env_alias(request, env, "form")
+        req_form          = req_form_raw if isinstance(req_form_raw, dict) else None
+        req_files_raw     = NexusExecutorRegistry._request_or_env_alias(request, env, "files")
+        req_files         = req_files_raw if isinstance(req_files_raw, list) else None
         req_variables_raw = NexusExecutorRegistry._request_or_env_alias(request, env, "variables")
-        req_variables = req_variables_raw if isinstance(req_variables_raw, dict) else {}
+        req_variables     = req_variables_raw if isinstance(req_variables_raw, dict) else {}
 
         if kind == "http":
             return await HttpExecutor.execute(
@@ -282,7 +286,7 @@ class NexusExecutorRegistry(object):
 
         if kind == "tcp":
             raw_sends = request.get("sends", env.get("sends"))
-            sends = NexusExecutorRegistry._as_str_list(raw_sends, none_as=None)
+            sends     = NexusExecutorRegistry._as_str_list(raw_sends, none_as=None)
 
             return await TcpExecutor.execute(
                 host=NexusExecutorRegistry._as_str(request.get("host") or env.get("host")),
@@ -320,10 +324,10 @@ class NexusExecutorRegistry(object):
             )
 
         if kind == "smtp":
-            raw_to_addrs = request.get("to_addrs", env.get("to_addrs"))
-            to_addrs = NexusExecutorRegistry._as_str_list(raw_to_addrs, none_as=None)
+            raw_to_addrs    = request.get("to_addrs", env.get("to_addrs"))
+            to_addrs        = NexusExecutorRegistry._as_str_list(raw_to_addrs, none_as=None)
             raw_attachments = NexusExecutorRegistry._request_or_env_alias(request, env, "attachments")
-            attachments = raw_attachments if isinstance(raw_attachments, list) else None
+            attachments     = raw_attachments if isinstance(raw_attachments, list) else None
 
             return await SmtpExecutor.execute(
                 host=NexusExecutorRegistry._as_str(request.get("host") or env.get("host")),
@@ -408,7 +412,7 @@ class NexusExecutorRegistry(object):
 
         if kind == "ws":
             raw_sends = NexusExecutorRegistry._request_or_env_alias(request, env, "sends")
-            sends = NexusExecutorRegistry._as_str_list(raw_sends, none_as=[])
+            sends     = NexusExecutorRegistry._as_str_list(raw_sends, none_as=[])
 
             return await WsExecutor.execute(
                 url=req_url,

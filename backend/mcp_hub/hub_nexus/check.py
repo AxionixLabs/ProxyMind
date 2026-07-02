@@ -39,9 +39,10 @@ class CheckService(object):
             if not isinstance(rule, dict):
                 continue
 
-            path = str(rule.get("path") or "").strip()
-            op = str(rule.get("op") or "eq").strip().lower()
+            path     = str(rule.get("path") or "").strip()
+            op       = str(rule.get("op") or "eq").strip().lower()
             expected = rule.get("value")
+
             ok_pick, actual = ExtractService.safe_pick(source, path)
 
             if op == "exists":

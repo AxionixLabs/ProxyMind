@@ -78,7 +78,7 @@ class ArtifactService(object):
 
         artifact_dir = root_dir / "steps" / f"{step_index + 1:03d}_{step_slug}"
 
-        media_dir    = artifact_dir / "media"
+        media_dir = artifact_dir / "media"
         media_dir.mkdir(parents=True, exist_ok=True)
 
         return ArtifactRecord(
