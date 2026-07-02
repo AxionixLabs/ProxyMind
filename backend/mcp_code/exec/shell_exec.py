@@ -18,7 +18,7 @@ from backend.utilities.trace import summarize_command
 class ShellCommandTools(NativeCodingComponent):
     """提供受控 shell 执行能力。"""
 
-    READ_ONLY_COMMANDS = {
+    AUDIT_METADATA_COMMANDS = {
         "cat",
         "dir",
         "echo",
@@ -36,14 +36,14 @@ class ShellCommandTools(NativeCodingComponent):
         "where"
     }
 
-    READ_ONLY_PYTHON_FLAGS = {
+    AUDIT_METADATA_PYTHON_FLAGS = {
         "-c",
         "-m",
         "--version",
         "-V"
     }
 
-    READ_ONLY_VERSION_COMMANDS = {
+    AUDIT_METADATA_VERSION_COMMANDS = {
         "go"     : {"version"},
         "node"   : {"--version", "-v"},
         "npm"    : {"--version", "-v", "version"},
@@ -54,7 +54,7 @@ class ShellCommandTools(NativeCodingComponent):
         "gradle" : {"-version", "--version", "-v"}
     }
 
-    READ_ONLY_GIT_SUBCOMMANDS = {
+    AUDIT_METADATA_GIT_SUBCOMMANDS = {
         "branch",
         "diff",
         "log",
@@ -101,20 +101,20 @@ class ShellCommandTools(NativeCodingComponent):
 
         if executable == "git":
             subcommand = parts[1].lower() if len(parts) > 1 else ""
-            return "metadata" if subcommand in cls.READ_ONLY_GIT_SUBCOMMANDS else "full"
+            return "metadata" if subcommand in cls.AUDIT_METADATA_GIT_SUBCOMMANDS else "full"
 
         if executable in {"python", "python3", "py"}:
             if cls._python_read_only(text):
                 return "metadata"
             return "full"
 
-        version_flags = cls.READ_ONLY_VERSION_COMMANDS.get(executable)
+        version_flags = cls.AUDIT_METADATA_VERSION_COMMANDS.get(executable)
         if version_flags:
             if cls._version_command_matches(lowered, version_flags):
                 return "metadata"
             return "full"
 
-        if executable in cls.READ_ONLY_COMMANDS:
+        if executable in cls.AUDIT_METADATA_COMMANDS:
             return "metadata"
 
         return "full"
@@ -136,7 +136,7 @@ class ShellCommandTools(NativeCodingComponent):
         parts = cls._split_command(text)
         if len(parts) < 2:
             return False
-        return parts[1] in cls.READ_ONLY_PYTHON_FLAGS or parts[1].lower() in cls.READ_ONLY_PYTHON_FLAGS
+        return parts[1] in cls.AUDIT_METADATA_PYTHON_FLAGS or parts[1].lower() in cls.AUDIT_METADATA_PYTHON_FLAGS
 
     @classmethod
     def _version_command_matches(cls, text: str, flags: set[str]) -> bool:
@@ -189,19 +189,20 @@ class ShellCommandTools(NativeCodingComponent):
             cwd=cwd,
             timeout_sec=timeout_sec
         )
+
         if not policy["ok"]:
             data = {
-                "command": cmd,
-                "risk": policy.get("risk"),
-                "category": policy.get("category"),
-                "risk_signals": policy.get("reasons") or [],
-                "approval_required": bool(policy.get("approval_required")),
-                "project_types": policy.get("project_types") or [],
-                "execution_target": policy.get("execution_target"),
-                "requires_cloud_sandbox": bool(policy.get("requires_cloud_sandbox")),
-                "execution": policy.get("execution"),
-                "grant_id": policy.get("grant_id"),
-                "error": "execution_policy_blocked"
+                "command"                : cmd,
+                "risk"                   : policy.get("risk"),
+                "category"               : policy.get("category"),
+                "risk_signals"           : policy.get("reasons") or [],
+                "approval_required"      : bool(policy.get("approval_required")),
+                "project_types"          : policy.get("project_types") or [],
+                "execution_target"       : policy.get("execution_target"),
+                "requires_cloud_sandbox" : bool(policy.get("requires_cloud_sandbox")),
+                "execution"              : policy.get("execution"),
+                "grant_id"               : policy.get("grant_id"),
+                "error"                  : "execution_policy_blocked"
             }
             result = {
                 "ok"          : False,
@@ -210,15 +211,16 @@ class ShellCommandTools(NativeCodingComponent):
                 "data"        : data,
                 "logs"        : []
             }
+
             self._record_shell_result(data)
             return result
 
         workdir = self.resolve_path(cwd)
         if not workdir.is_dir():
             data = {
-                "cwd": cwd,
-                "command": cmd,
-                "error": "cwd_not_directory"
+                "cwd"     : cwd,
+                "command" : cmd,
+                "error"   : "cwd_not_directory"
             }
             result = {
                 "ok"          : False,
@@ -294,7 +296,9 @@ class ShellCommandTools(NativeCodingComponent):
         elapsed_ms  = int((time.perf_counter() - started) * 1000)
         audit_after = self._capture_shell_audit(audit_mode)
 
-        shell_file_changes = self._file_audit.diff_file_fingerprints(audit_before, audit_after) if audit_mode != "off" else {
+        shell_file_changes = self._file_audit.diff_file_fingerprints(
+            audit_before, audit_after
+        ) if audit_mode != "off" else {
             "changed"        : False,
             "change_count"   : 0,
             "created"        : [],
@@ -321,37 +325,39 @@ class ShellCommandTools(NativeCodingComponent):
             f"native shell exit ok={ok} rc={exit_code} elapsed_ms={elapsed_ms} "
             f"cmd={summarize_command(cmd)}"
         )
+
         data = {
-            "command": cmd,
-            "resolved_command": exec_cmd,
-            "cwd": self.relative_path(workdir),
-            "risk": policy.get("risk"),
-            "category": policy.get("category"),
-            "risk_signals": policy.get("reasons") or [],
-            "approval_required": bool(policy.get("approval_required")),
-            "execution_target": policy.get("execution_target"),
-            "requires_cloud_sandbox": bool(policy.get("requires_cloud_sandbox")),
-            "execution": policy.get("execution"),
-            "grant_id": policy.get("grant_id"),
-            "runtime": runtime_info,
-            "runtime_name": runtime.name,
-            "project_types": policy.get("project_types") or [],
-            "long_task": bool(policy.get("long_task")),
-            "timeout_sec": effective_timeout,
-            "output_limit": output_limit,
-            "stdout_truncated": stdout_truncated,
-            "stderr_truncated": stderr_truncated,
-            "truncated": stdout_truncated or stderr_truncated,
-            "file_audit_enabled": audit_mode != "off",
-            "file_audit_mode": audit_mode,
-            "shell_file_changes": shell_file_changes,
-            "shell_write_detected": bool(shell_file_changes.get("changed")),
-            "exit_code": exit_code,
-            "timed_out": timed_out,
-            "elapsed_ms": elapsed_ms,
-            "stdout": out_text,
-            "stderr": err_text
+            "command"                : cmd,
+            "resolved_command"       : exec_cmd,
+            "cwd"                    : self.relative_path(workdir),
+            "risk"                   : policy.get("risk"),
+            "category"               : policy.get("category"),
+            "risk_signals"           : policy.get("reasons") or [],
+            "approval_required"      : bool(policy.get("approval_required")),
+            "execution_target"       : policy.get("execution_target"),
+            "requires_cloud_sandbox" : bool(policy.get("requires_cloud_sandbox")),
+            "execution"              : policy.get("execution"),
+            "grant_id"               : policy.get("grant_id"),
+            "runtime"                : runtime_info,
+            "runtime_name"           : runtime.name,
+            "project_types"          : policy.get("project_types") or [],
+            "long_task"              : bool(policy.get("long_task")),
+            "timeout_sec"            : effective_timeout,
+            "output_limit"           : output_limit,
+            "stdout_truncated"       : stdout_truncated,
+            "stderr_truncated"       : stderr_truncated,
+            "truncated"              : stdout_truncated or stderr_truncated,
+            "file_audit_enabled"     : audit_mode != "off",
+            "file_audit_mode"        : audit_mode,
+            "shell_file_changes"     : shell_file_changes,
+            "shell_write_detected"   : bool(shell_file_changes.get("changed")),
+            "exit_code"              : exit_code,
+            "timed_out"              : timed_out,
+            "elapsed_ms"             : elapsed_ms,
+            "stdout"                 : out_text,
+            "stderr"                 : err_text
         }
+
         if not ok:
             data["reason"] = "command_timed_out" if timed_out else "command_failed"
             self.core.enrich_failure_facts(data)
