@@ -232,6 +232,19 @@ class Enhancer(object):
         return str(target or "default")
 
     @staticmethod
+    def pref_slot_value(pref_config: dict[str, typing.Any], key: str) -> typing.Any:
+        """从顶层或 primary 模型槽位中容错读取偏好字段。"""
+        value = pref_config.get(key)
+        if value not in (None, ""):
+            return value
+
+        primary = pref_config.get("primary")
+        if isinstance(primary, dict):
+            return primary.get(key)
+
+        return value
+
+    @staticmethod
     async def upload_local(
         local: str,
         agent_id: str,
@@ -463,8 +476,8 @@ class Enhancer(object):
                 "attachments" : attachments,
                 "data": {
                     "mode"    : self.mode,
-                    "api"     : self.pref_config.get("api"),
-                    "model"   : self.pref_config.get("model"),
+                    "api"     : self.pref_slot_value(self.pref_config, "api"),
+                    "model"   : self.pref_slot_value(self.pref_config, "model"),
                     "message" : message,
                     "chunks"  : chunks,
                     "error"   : error
