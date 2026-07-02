@@ -19,6 +19,7 @@ from ..stream_ui import StreamUI
 from ..runtime.loop_support import finish_failure
 from ..runtime.session_policy import friendly_exception_text
 from ..runtime.tool_run import (
+    run_tool_step,
     server_tool_output_result
 )
 from ..runtime.tool_display import (
@@ -29,10 +30,6 @@ from ..runtime.execution_policy import (
     is_execution_ignored,
     should_pass_execution_to_tool,
     validate_execution_policy
-)
-from ..runtime.tool_orchestrator import (
-    ToolCall,
-    ToolOrchestrator
 )
 from ..runtime.idle_status import IdleStatusTimer
 from ..stream_events.responses_builtin import (
@@ -80,8 +77,6 @@ async def stream_looper(
     interrupted: bool = False
     first_frame: bool = True
 
-    orchestrator: ToolOrchestrator | None = None
-
     approvals = ApprovalStore()
 
     idle_wait = IdleStatusTimer(
@@ -100,14 +95,6 @@ async def stream_looper(
             session=session,
             slog=slog,
             tracker=tracker,
-            mode=mode,
-            pref_config=pref_config,
-            metadata=metadata
-        )
-        orchestrator = ToolOrchestrator(
-            session=session,
-            stream_ui=slog,
-            tools=tools,
             mode=mode,
             pref_config=pref_config,
             metadata=metadata
@@ -162,7 +149,6 @@ async def stream_looper(
                 continue
 
             if event_type == "turn.done":
-                await orchestrator.drain_in_flight()
                 break
 
             if event_type == "tool.builtin.call":
@@ -250,11 +236,6 @@ async def stream_looper(
                     continue
 
                 event_meta = event.get("meta") if isinstance(event.get("meta"), dict) else None
-                local_tool_meta = meta_for_tool(tools, name)
-                effective_meta = {
-                    **(local_tool_meta or {}),
-                    **(event_meta or {})
-                } or None
                 event_execution = event.get("execution") if isinstance(event.get("execution"), dict) else None
                 if not isinstance(arguments, dict):
                     arguments = {}
@@ -265,7 +246,7 @@ async def stream_looper(
                     arguments=arguments,
                     store=approvals,
                     meta=event_meta,
-                    local_meta=local_tool_meta
+                    local_meta=meta_for_tool(tools, name)
                 )
 
                 if approval_decision.action == "wait":
@@ -325,17 +306,16 @@ async def stream_looper(
                 if should_pass_execution_to_tool(name, event_execution):
                     arguments = {**arguments, "execution": event_execution}
 
-                allow_parallel = await orchestrator.submit(
-                    ToolCall(
-                        cid=str(event["cid"]),
-                        sid=str(event["sid"]),
-                        call_id=str(event["call_id"]),
-                        name=name,
-                        arguments=arguments,
-                        meta=effective_meta,
-                        execution=event_execution
-                    ),
-                    use_coding_trace=use_coding_trace,
+                tool_run = await run_tool_step(
+                    session,
+                    stream_ui=slog,
+                    tools=tools,
+                    name=name,
+                    arguments=arguments,
+                    meta=event_meta,
+                    mode=mode,
+                    pref_config=pref_config,
+                    metadata=kwargs.get("metadata") or {},
                     enable_progress_notify=True,
                     stream_callback=lambda x: slog.feed(
                         x, display=StreamUI.BLOCK
@@ -343,7 +323,31 @@ async def stream_looper(
                     status_text="coding" if use_coding_trace else None,
                     code_status=use_coding_trace
                 )
-                await orchestrator.drain_ready(wait=allow_parallel is False)
+
+                ok     = tool_run.ok
+                fields = tool_run.fields
+                text   = tool_run.text
+
+                await show_tool_result(
+                    slog,
+                    name,
+                    arguments,
+                    tool_run,
+                    ok=ok,
+                    fields=fields,
+                    text=text,
+                    use_coding_trace=use_coding_trace
+                )
+
+                await request.post_tool_result(
+                    event["cid"],
+                    event["sid"],
+                    event["call_id"],
+                    name,
+                    ok,
+                    fields,
+                    execution=event_execution
+                )
                 await slog.begin_reply_wait_status(delay_sec=0.75)
                 continue
 
@@ -371,16 +375,12 @@ async def stream_looper(
                 continue
 
             if await handle_lifecycle_event(event_type, event, event_ctx):
-                await orchestrator.drain_ready()
                 continue
 
-            await orchestrator.drain_ready()
             continue
 
     except asyncio.CancelledError:
         interrupted = True
-        if orchestrator is not None:
-            await orchestrator.abort_in_flight("turn cancelled")
         raise
 
     except Exception as e:
@@ -393,8 +393,6 @@ async def stream_looper(
         await slog.feed(build_sources_text(tracker), display=StreamUI.BLOCK)
 
     finally:
-        if orchestrator is not None and not interrupted:
-            await orchestrator.drain_in_flight()
         await idle_wait.cancel()
         await mind.await_cleanup(slog.stop(blink=not interrupted))
 
