@@ -42,7 +42,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "local"  : local
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.file_pull(**args)
 
         return build_tool_result(tool="file_pull", args=args, raw=raw, target=device.serial)
@@ -67,7 +67,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "remote" : remote
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.file_push(**args)
 
         return build_tool_result(tool="file_push", args=args, raw=raw, target=device.serial)
@@ -90,7 +90,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "path" : path
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.file_remove(**args)
 
         return build_tool_result(tool="file_remove", args=args, raw=raw, target=device.serial)
@@ -121,7 +121,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "saved"     : saved
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.file_logcat_dump(**args)
 
         return build_tool_result(tool="file_logcat_dump", args=args, raw=raw, target=device.serial)

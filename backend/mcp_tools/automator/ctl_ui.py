@@ -55,7 +55,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
             "duration"  : duration
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.scroll(**args)
 
         return build_tool_result(tool="scroll", args=args, raw=raw, target=device.serial)
@@ -78,7 +78,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
             "edge" : edge
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
 
         job_id = await idle.job_begin(f"ui.scroll_to_edge.{args.get('edge')}", args=args)
         try:
@@ -120,7 +120,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
             "should_click" : should_click
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.scroll_into_view(**args)
 
         return build_tool_result(tool="scroll_into_view", args=args, raw=raw, target=device.serial)
@@ -149,7 +149,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
             "ignore_case" : ignore_case
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.click(**args)
 
         return build_tool_result(tool="click", args=args, raw=raw, target=device.serial)
@@ -174,7 +174,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
             "y" : y
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.double_click(**args)
 
         return build_tool_result(tool="double_click", args=args, raw=raw, target=device.serial)
@@ -197,7 +197,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
             "text" : text
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.input_text(**args)
 
         return build_tool_result(tool="input_text", args=args, raw=raw, target=device.serial)
@@ -214,7 +214,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
     async def clear_text(
         serial: SerialArg = None
     ) -> CallToolResult:
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.clear_text()
 
         return build_tool_result(tool="clear_text", args={}, raw=raw, target=device.serial)
@@ -231,7 +231,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
     async def current_focus(
         serial: SerialArg = None
     ) -> CallToolResult:
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.current_focus()
 
         return build_tool_result(tool="current_focus", args={}, raw=raw, target=device.serial)
@@ -254,7 +254,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
             "view" : view
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.current_widgets(**args)
 
         return build_tool_result(tool="current_widgets", args=args, raw=raw, target=device.serial)
@@ -283,7 +283,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
             "ignore_case" : ignore_case
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.find_element(**args)
 
         return build_tool_result(tool="find_element", args=args, raw=raw, target=device.serial)
@@ -305,7 +305,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
             "locator" : locator
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.heal_element(**args)
 
         return build_tool_result(tool="heal_element", args=args, raw=raw, target=device.serial)
@@ -338,7 +338,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
             "state"       : state
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.wait_element(**args)
 
         return build_tool_result(tool="wait_element", args=args, raw=raw, target=device.serial)

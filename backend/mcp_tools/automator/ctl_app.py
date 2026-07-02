@@ -37,7 +37,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "url" : url
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.app_deep_link(**args)
 
         return build_tool_result(tool="app_deep_link", args=args, raw=raw, target=device.serial)
@@ -62,7 +62,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "activity" : activity
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.app_start(**args)
 
         return build_tool_result(tool="app_start", args=args, raw=raw, target=device.serial)
@@ -85,7 +85,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "package" : package
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.app_stop(**args)
 
         return build_tool_result(tool="app_stop", args=args, raw=raw, target=device.serial)
@@ -108,7 +108,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "package" : package
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.app_clear(**args)
 
         return build_tool_result(tool="app_clear", args=args, raw=raw, target=device.serial)
@@ -133,7 +133,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "activity" : activity
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.app_foreground(**args)
 
         return build_tool_result(tool="app_foreground", args=args, raw=raw, target=device.serial)

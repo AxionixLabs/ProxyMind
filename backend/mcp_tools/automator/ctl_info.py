@@ -30,7 +30,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
         serial: SerialArg = None
     ) -> CallToolResult:
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.device_snapshot()
 
         return build_tool_result(tool="device_snapshot", args={}, raw=raw, target=device.serial)
@@ -53,7 +53,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "local" : local
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.screenshot(**args)
 
         return build_tool_result(tool="screenshot", args=args, raw=raw, target=device.serial)
@@ -78,7 +78,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "scope"   : scope
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.grep_packages(**args)
 
         return build_tool_result(tool="grep_packages", args=args, raw=raw, target=device.serial)

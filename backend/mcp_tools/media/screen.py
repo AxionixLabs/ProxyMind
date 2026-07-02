@@ -37,7 +37,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
 
         version = await Requires.connect_scrcpy()
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
 
         record = Record(
             device=device,
@@ -73,7 +73,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
             "silence"   : silence
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
 
         record = Record(
             device=device,
@@ -100,7 +100,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         serial: SerialArg = None
     ) -> CallToolResult:
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         if not (sess := await idle.session_get_handle(f"scrcpy:{device.serial}")):
             raw = Record.no_active_session(device.serial)
         else:

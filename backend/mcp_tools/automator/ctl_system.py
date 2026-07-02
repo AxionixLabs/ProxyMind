@@ -31,7 +31,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
         serial: SerialArg = None
     ) -> CallToolResult:
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.open_notification()
 
         return build_tool_result(tool="open_notification", args={}, raw=raw, target=device.serial)
@@ -49,7 +49,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
         serial: SerialArg = None
     ) -> CallToolResult:
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.open_quick_settings()
 
         return build_tool_result(tool="open_quick_settings", args={}, raw=raw, target=device.serial)
@@ -76,7 +76,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "wait_timeout" : wait_timeout
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.reboot(**args)
 
         return build_tool_result(tool="reboot", args=args, raw=raw, target=device.serial)
@@ -94,7 +94,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
         serial: SerialArg = None
     ) -> CallToolResult:
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.swipe_unlock()
 
         return build_tool_result(tool="swipe_unlock", args={}, raw=raw, target=device.serial)
@@ -117,7 +117,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "on" : on
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.set_screen(**args)
 
         return build_tool_result(tool="set_screen", args=args, raw=raw, target=device.serial)

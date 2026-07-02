@@ -43,6 +43,11 @@ class DeviceManage(object):
         serials = [device.serial for device in device_list]
         raise RuntimeError(f"Multiple devices connected; specify serial. available={serials}")
 
+    async def resolve_fresh(self, serial: str | None = None, ttl_sec: float = 0.0) -> Device:
+        """刷新设备列表后解析目标设备。"""
+        await self.refresh(ttl_sec=ttl_sec)
+        return self.resolve(serial)
+
     async def connect(self) -> list[Device]:
         if not shutil.which("adb"):
             raise RuntimeError("ADB not found in PATH")

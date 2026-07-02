@@ -80,7 +80,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
             "saved"                 : saved
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
 
         if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
             raw = await sess.status(query_reason="already_running")
@@ -102,7 +102,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
         serial: SerialArg = None
     ) -> CallToolResult:
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
 
         if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
             raw = await sess.status()
@@ -123,7 +123,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
         serial: SerialArg = None
     ) -> CallToolResult:
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
 
         if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
             raw = await sess.stop()
@@ -154,7 +154,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
         serial: SerialArg = None
     ) -> CallToolResult:
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
 
         if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
             raw = await sess.status(query_reason="session_active_clear_blocked")

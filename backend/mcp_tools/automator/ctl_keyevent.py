@@ -31,7 +31,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "longpress" : longpress
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.key_event(keycode=3, **args)
 
         return build_tool_result(tool="go_home", args=args, raw=raw, target=device.serial)
@@ -54,7 +54,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "longpress" : longpress
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.key_event(keycode=4, **args)
 
         return build_tool_result(tool="go_back", args=args, raw=raw, target=device.serial)
@@ -77,7 +77,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "longpress" : longpress
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.key_event(keycode=187, **args)
 
         return build_tool_result(tool="open_recents", args=args, raw=raw, target=device.serial)
@@ -100,7 +100,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "longpress" : longpress
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.key_event(keycode=26, **args)
 
         return build_tool_result(tool="press_power", args=args, raw=raw, target=device.serial)
@@ -123,7 +123,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "longpress" : longpress
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.key_event(keycode=66, **args)
 
         return build_tool_result(tool="press_enter", args=args, raw=raw, target=device.serial)
@@ -146,7 +146,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             "longpress" : longpress
         }
 
-        device = manage.resolve(serial)
+        device = await manage.resolve_fresh(serial)
         raw = await device.key_event(keycode=67, **args)
 
         return build_tool_result(tool="press_delete", args=args, raw=raw, target=device.serial)
