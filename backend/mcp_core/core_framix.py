@@ -160,10 +160,10 @@ class Framix(object):
             raise marked.subproc_fail(source=f"{self.prefix}.stream", out_ring=self.out_ring)
 
         return {
+            "ok"          : True,
             "text"        : f"{self.agent_id.capitalize()}已输出结果。",
             "attachments" : [],
             "data": {
-                "ok"     : True,
                 "events" : self.tool_events.get(self.agent_id, {})
             },
             "logs": []

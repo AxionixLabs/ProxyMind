@@ -93,13 +93,13 @@ class Combo(object):
         ok0, focus0, _ = await self.wait_foreground(package, 0.8, poll, 1)
         if ok0:
             result = {
-                "ok"      : True,
                 "stage"   : "already",
                 "focus"   : focus0,
                 "cost_ms" : int((time.time() - t0) * 1000)
             }
             return SemanticResult(text=
                 "应用已在前台，无需拉起。",
+                ok=True,
                 data=result
             ).to_dict()
 
@@ -107,13 +107,13 @@ class Combo(object):
         ok1, focus1, _ = await self.wait_foreground(package, 8.0, poll, 2)
         if ok1:
             result = {
-                "ok"      : True,
                 "stage"   : "start",
                 "focus"   : focus1,
                 "cost_ms" : int((time.time() - t0) * 1000)
             }
             return SemanticResult(text=
                 "应用已成功进入前台。",
+                ok=True,
                 data=result
             ).to_dict()
 
@@ -122,24 +122,24 @@ class Combo(object):
         ok2, focus2, _ = await self.wait_foreground(package, 5.0, poll, 2)
         if ok2:
             result = {
-                "ok"      : True,
                 "stage"   : "retry",
                 "focus"   : focus2,
                 "cost_ms" : int((time.time() - t0) * 1000)
             }
             return SemanticResult(text=
                 "首次拉起未命中前台，重试后已进入前台。",
+                ok=True,
                 data=result
             ).to_dict()
 
         result = {
-            "ok"      : False,
             "stage"   : "retry",
             "focus"   : focus2,
             "cost_ms" : int((time.time() - t0) * 1000)
         }
         return SemanticResult(text=
             "拉起应用超时（已重试一次仍失败）。",
+            ok=False,
             data=result
         ).to_dict()
 
@@ -156,7 +156,8 @@ class Combo(object):
         await self.screen_set(on)
         return SemanticResult(text=
             "屏幕已点亮。" if on else "屏幕已关闭。",
-            data={"ok": True, "on": on}
+            ok=True,
+            data={"on": on}
         ).to_dict()
 
     async def ensure_ime(self) -> dict[str, typing.Any]:
@@ -165,7 +166,8 @@ class Combo(object):
         if await self.phone.ime_current() == ime:
             return SemanticResult(
                 text="AdbIME 已就绪。",
-                data={"ok": True}
+                ok=True,
+                data={}
             ).to_dict()
 
         e_text = await self.phone.ime_enable(ime)
@@ -182,18 +184,21 @@ class Combo(object):
             detail = f"（失败阶段：{', '.join(stage)}）" if stage else ""
             return SemanticResult(
                 text=f"AdbIME 不可用{detail}。",
-                data={"ok": False, "stage": stage}
+                ok=False,
+                data={"stage": stage}
             ).to_dict()
 
         if await self.phone.ime_current() == ime:
             return SemanticResult(
                 text="AdbIME 已就绪。",
-                data={"ok": True}
+                ok=True,
+                data={}
             ).to_dict()
 
         return SemanticResult(
             text="AdbIME 未生效。",
-            data={"ok": False}
+            ok=False,
+            data={}
         ).to_dict()
 
     async def wait_element(
@@ -214,23 +219,23 @@ class Combo(object):
             found = bool(node)
             if found == want_exists:
                 result = {
-                    "ok"     : True,
                     "found"  : found,
                     "node"   : node.to_node() if node else None
                 }
                 return SemanticResult(
                     text="等待节点成功（已出现）。" if state == "exists" else "等待节点成功（已消失）。",
+                    ok=True,
                     data=result
                 ).to_dict()
 
             if time.monotonic() >= deadline:
                 result = {
-                    "ok"     : False,
                     "found"  : found,
                     "node"   : None
                 }
                 return SemanticResult(
                     text="等待节点超时（未出现）。" if state == "exists" else "等待节点超时（未消失）。",
+                    ok=False,
                     data=result
                 ).to_dict()
 
@@ -342,7 +347,6 @@ class Combo(object):
         node = action.get("widget")
 
         data = {
-            "ok"     : action.ok,
             "swipes" : action.get("swipes", 0),
             "node"   : node.to_node() if node else None
         }
@@ -356,6 +360,7 @@ class Combo(object):
                 data["clicked"] = False
                 return SemanticResult(
                     text="已找到目标元素，但缺少可点击坐标。",
+                    ok=False,
                     data=data
                 ).to_dict()
 
@@ -376,6 +381,7 @@ class Combo(object):
                 text = "滚动查找失败。"
             return SemanticResult(
                 text=text,
+                ok=False,
                 data=data
             ).to_dict()
 
@@ -386,6 +392,7 @@ class Combo(object):
 
         return SemanticResult(
             text=text,
+            ok=True,
             data=data
         ).to_dict()
 
@@ -407,7 +414,8 @@ class Combo(object):
         if not (wm := await self.phone.wm_size()):
             return SemanticResult(
                 text="获取屏幕尺寸失败。",
-                data={"ok": False, "swipes": 0}
+                ok=False,
+                data={"swipes": 0}
             ).to_dict()
 
         w, h = wm
@@ -444,7 +452,8 @@ class Combo(object):
                 if n >= min_swipes_before_stop and stable_hits >= stable_required:
                     return SemanticResult(
                         text="屏幕已稳定（内容未变化），停止滑动。",
-                        data={"ok": True, "swipes": n}
+                        ok=True,
+                        data={"swipes": n}
                     ).to_dict()
 
                 prev, cur = cur, prev
@@ -452,7 +461,8 @@ class Combo(object):
 
             return SemanticResult(
                 text="已达到最大滑动次数，停止滑动。",
-                data={"ok": True, "swipes": max_swipes}
+                ok=True,
+                data={"swipes": max_swipes}
             ).to_dict()
 
     async def swipe_unlock(self) -> dict[str, typing.Any]:
@@ -462,7 +472,8 @@ class Combo(object):
         if not (wm := await self.phone.wm_size()):
             return SemanticResult(
                 text="获取屏幕尺寸失败。",
-                data={"ok": False}
+                ok=False,
+                data={}
             ).to_dict()
 
         w, h = wm
@@ -474,7 +485,8 @@ class Combo(object):
         await asyncio.sleep(0.2)
         return SemanticResult(
             text="已执行上滑解锁。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     async def screenshot(self, local: str) -> dict[str, typing.Any]:
@@ -482,6 +494,7 @@ class Combo(object):
         saved = await self.save_screenshot(local)
         return SemanticResult(
             text=f"截图已保存到 {saved}",
+            ok=True,
             attachments=[
                 Attachment(
                     kind="image",
@@ -490,7 +503,7 @@ class Combo(object):
                     mime_type="image/png"
                 )
             ],
-            data={"ok": True, "path": saved}
+            data={"path": saved}
         ).to_dict()
 
 

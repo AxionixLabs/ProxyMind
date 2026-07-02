@@ -60,10 +60,6 @@ LocatorArg = typing.Annotated[
     str,
     Field(description="一条完整 locator 表达式，用于愈合诊断。")
 ]
-WaitArg = typing.Annotated[
-    float,
-    Field(description="额外等待时间，单位秒。")
-]
 WaitStateArg = typing.Annotated[
     typing.Literal["exists", "gone"],
     Field(description="等待目标状态，是出现还是消失。")

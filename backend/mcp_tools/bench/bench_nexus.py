@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.middlewares.mid_task import task_middleware
@@ -54,7 +53,7 @@ from backend.mcp_tools.bench.schemas.schema_nexus import (
 from backend.utilities.runtime import (
     AppContext, Idle
 )
-from backend.utilities.broadcast import broadcast
+from backend.utilities.tool_result import build_tool_result
 
 
 def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
@@ -77,6 +76,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         asserts: NexusAssertsArg = None,
         name: NexusNameArg = None
     ) -> CallToolResult:
+
         args = {
             "kind"          : kind,
             "request"       : request,
@@ -87,29 +87,23 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "env"           : env
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.render_request", args=args)
-            try:
-                return ctx.nexus.render_request(
-                    kind=kind,
-                    request=request_model(
-                        request=request,
-                        template_vars=template_vars,
-                        extract=extract,
-                        asserts=asserts,
-                        name=name
-                    ),
-                    env=dump_model(env)
-                )
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.render_request", args=args)
+        try:
+            raw = ctx.nexus.render_request(
+                kind=kind,
+                request=request_model(
+                    request=request,
+                    template_vars=template_vars,
+                    extract=extract,
+                    asserts=asserts,
+                    name=name
+                ),
+                env=dump_model(env)
+            )
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="nexus_render_request",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call, overrides=None
-        )
+        return build_tool_result(tool="nexus_render_request", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -129,6 +123,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         asserts: NexusAssertsArg = None,
         name: NexusNameArg = None
     ) -> CallToolResult:
+
         args = {
             "kind"          : kind,
             "request"       : request,
@@ -139,30 +134,23 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "env"           : env
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.validate_request", args=args)
-            try:
-                return ctx.nexus.validate_request(
-                    kind=kind,
-                    request=request_model(
-                        request=request,
-                        template_vars=template_vars,
-                        extract=extract,
-                        asserts=asserts,
-                        name=name
-                    ),
-                    env=dump_model(env)
-                )
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.validate_request", args=args)
+        try:
+            raw = ctx.nexus.validate_request(
+                kind=kind,
+                request=request_model(
+                    request=request,
+                    template_vars=template_vars,
+                    extract=extract,
+                    asserts=asserts,
+                    name=name
+                ),
+                env=dump_model(env)
+            )
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="nexus_validate_request",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="nexus_validate_request", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -181,6 +169,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
+
         args = generic_batch_args_payload(
             kind=kind,
             items=items,
@@ -190,29 +179,22 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             fail_fast=fail_fast
         )
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.render_batch", args=args)
-            try:
-                return ctx.nexus.render_batch(
-                    kind=kind,
-                    batch=batch_model(
-                        items=items,
-                        env=env,
-                        template_vars=template_vars,
-                        concurrency=concurrency,
-                        fail_fast=fail_fast
-                    )
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.render_batch", args=args)
+        try:
+            raw = ctx.nexus.render_batch(
+                kind=kind,
+                batch=batch_model(
+                    items=items,
+                    env=env,
+                    template_vars=template_vars,
+                    concurrency=concurrency,
+                    fail_fast=fail_fast
                 )
-            finally:
-                await idle.job_final(job_id)
+            )
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="nexus_render_batch",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="nexus_render_batch", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -231,6 +213,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
+
         args = generic_batch_args_payload(
             kind=kind,
             items=items,
@@ -240,29 +223,22 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             fail_fast=fail_fast
         )
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.validate_batch", args=args)
-            try:
-                return ctx.nexus.validate_batch(
-                    kind=kind,
-                    batch=batch_model(
-                        items=items,
-                        env=env,
-                        template_vars=template_vars,
-                        concurrency=concurrency,
-                        fail_fast=fail_fast
-                    )
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.validate_batch", args=args)
+        try:
+            raw = ctx.nexus.validate_batch(
+                kind=kind,
+                batch=batch_model(
+                    items=items,
+                    env=env,
+                    template_vars=template_vars,
+                    concurrency=concurrency,
+                    fail_fast=fail_fast
                 )
-            finally:
-                await idle.job_final(job_id)
+            )
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="nexus_validate_batch",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="nexus_validate_batch", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -280,6 +256,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         asserts: NexusAssertsArg = None,
         name: NexusNameArg = None
     ) -> CallToolResult:
+
         args = {
             "request"       : request,
             "template_vars" : template_vars,
@@ -288,29 +265,22 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "name"          : name
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
-            try:
-                return await ctx.nexus.execute_request(
-                    kind="http",
-                    request=request_model(
-                        request=request,
-                        template_vars=template_vars,
-                        extract=extract,
-                        asserts=asserts,
-                        name=name
-                    )
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
+        try:
+            raw = await ctx.nexus.execute_request(
+                kind="http",
+                request=request_model(
+                    request=request,
+                    template_vars=template_vars,
+                    extract=extract,
+                    asserts=asserts,
+                    name=name
                 )
-            finally:
-                await idle.job_final(job_id)
+            )
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="nexus_http_request",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="nexus_http_request", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -328,6 +298,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
+
         args = generic_batch_args_payload(
             kind="http",
             items=items,
@@ -337,29 +308,22 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             fail_fast=fail_fast
         )
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
-            try:
-                return await ctx.nexus.execute_batch(
-                    kind="http",
-                    batch=batch_model(
-                        items=items,
-                        env=env,
-                        template_vars=template_vars,
-                        concurrency=concurrency,
-                        fail_fast=fail_fast
-                    )
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
+        try:
+            raw = await ctx.nexus.execute_batch(
+                kind="http",
+                batch=batch_model(
+                    items=items,
+                    env=env,
+                    template_vars=template_vars,
+                    concurrency=concurrency,
+                    fail_fast=fail_fast
                 )
-            finally:
-                await idle.job_final(job_id)
+            )
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="nexus_http_batch",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="nexus_http_batch", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -377,6 +341,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         asserts: NexusAssertsArg = None,
         name: NexusNameArg = None
     ) -> CallToolResult:
+
         args = {
             "request"       : request,
             "template_vars" : template_vars,
@@ -385,29 +350,22 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "name"          : name
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
-            try:
-                return await ctx.nexus.execute_request(
-                    kind="sse",
-                    request=request_model(
-                        request=request,
-                        template_vars=template_vars,
-                        extract=extract,
-                        asserts=asserts,
-                        name=name
-                    )
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
+        try:
+            raw = await ctx.nexus.execute_request(
+                kind="sse",
+                request=request_model(
+                    request=request,
+                    template_vars=template_vars,
+                    extract=extract,
+                    asserts=asserts,
+                    name=name
                 )
-            finally:
-                await idle.job_final(job_id)
+            )
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="nexus_sse_request",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="nexus_sse_request", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -427,31 +385,32 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = generic_batch_args_payload(kind="sse", items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
-            try:
-                return await ctx.nexus.execute_batch(
-                    kind="sse",
-                    batch=batch_model(
-                        items=items,
-                        env=env,
-                        template_vars=template_vars,
-                        concurrency=concurrency,
-                        fail_fast=fail_fast
-                    )
-                )
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="nexus_sse_batch",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
+        args = generic_batch_args_payload(
+            kind="sse",
+            items=items,
+            env=env,
+            template_vars=template_vars,
+            concurrency=concurrency,
+            fail_fast=fail_fast
         )
+
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
+        try:
+            raw = await ctx.nexus.execute_batch(
+                kind="sse",
+                batch=batch_model(
+                    items=items,
+                    env=env,
+                    template_vars=template_vars,
+                    concurrency=concurrency,
+                    fail_fast=fail_fast
+                )
+            )
+        finally:
+            await idle.job_final(job_id)
+
+        return build_tool_result(tool="nexus_sse_batch", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -469,6 +428,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         asserts: NexusAssertsArg = None,
         name: NexusNameArg = None
     ) -> CallToolResult:
+
         args = {
             "request"       : request,
             "template_vars" : template_vars,
@@ -477,29 +437,22 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "name"          : name
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
-            try:
-                return await ctx.nexus.execute_request(
-                    kind="ws",
-                    request=request_model(
-                        request=request,
-                        template_vars=template_vars,
-                        extract=extract,
-                        asserts=asserts,
-                        name=name
-                    )
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
+        try:
+            raw = await ctx.nexus.execute_request(
+                kind="ws",
+                request=request_model(
+                    request=request,
+                    template_vars=template_vars,
+                    extract=extract,
+                    asserts=asserts,
+                    name=name
                 )
-            finally:
-                await idle.job_final(job_id)
+            )
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="nexus_ws_request",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="nexus_ws_request", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -517,31 +470,32 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = generic_batch_args_payload(kind="ws", items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
-            try:
-                return await ctx.nexus.execute_batch(
-                    kind="ws",
-                    batch=batch_model(
-                        items=items,
-                        env=env,
-                        template_vars=template_vars,
-                        concurrency=concurrency,
-                        fail_fast=fail_fast
-                    )
-                )
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="nexus_ws_batch",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
+        args = generic_batch_args_payload(
+            kind="ws",
+            items=items,
+            env=env,
+            template_vars=template_vars,
+            concurrency=concurrency,
+            fail_fast=fail_fast
         )
+
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
+        try:
+            raw = await ctx.nexus.execute_batch(
+                kind="ws",
+                batch=batch_model(
+                    items=items,
+                    env=env,
+                    template_vars=template_vars,
+                    concurrency=concurrency,
+                    fail_fast=fail_fast
+                )
+            )
+        finally:
+            await idle.job_final(job_id)
+
+        return build_tool_result(tool="nexus_ws_batch", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -559,6 +513,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         asserts: NexusAssertsArg = None,
         name: NexusNameArg = None
     ) -> CallToolResult:
+
         args = {
             "request"       : request,
             "template_vars" : template_vars,
@@ -567,29 +522,22 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "name"          : name
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
-            try:
-                return await ctx.nexus.execute_request(
-                    kind="graphql",
-                    request=request_model(
-                        request=request,
-                        template_vars=template_vars,
-                        extract=extract,
-                        asserts=asserts,
-                        name=name
-                    )
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
+        try:
+            raw = await ctx.nexus.execute_request(
+                kind="graphql",
+                request=request_model(
+                    request=request,
+                    template_vars=template_vars,
+                    extract=extract,
+                    asserts=asserts,
+                    name=name
                 )
-            finally:
-                await idle.job_final(job_id)
+            )
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="nexus_graphql_request",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="nexus_graphql_request", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -607,31 +555,32 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = generic_batch_args_payload(kind="graphql", items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
-            try:
-                return await ctx.nexus.execute_batch(
-                    kind="graphql",
-                    batch=batch_model(
-                        items=items,
-                        env=env,
-                        template_vars=template_vars,
-                        concurrency=concurrency,
-                        fail_fast=fail_fast
-                    )
-                )
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="nexus_graphql_batch",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
+        args = generic_batch_args_payload(
+            kind="graphql",
+            items=items,
+            env=env,
+            template_vars=template_vars,
+            concurrency=concurrency,
+            fail_fast=fail_fast
         )
+
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
+        try:
+            raw = await ctx.nexus.execute_batch(
+                kind="graphql",
+                batch=batch_model(
+                    items=items,
+                    env=env,
+                    template_vars=template_vars,
+                    concurrency=concurrency,
+                    fail_fast=fail_fast
+                )
+            )
+        finally:
+            await idle.job_final(job_id)
+
+        return build_tool_result(tool="nexus_graphql_batch", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -649,6 +598,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         asserts: NexusAssertsArg = None,
         name: NexusNameArg = None
     ) -> CallToolResult:
+
         args = {
             "request"       : request,
             "template_vars" : template_vars,
@@ -657,29 +607,22 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "name"          : name
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
-            try:
-                return await ctx.nexus.execute_request(
-                    kind="tcp",
-                    request=request_model(
-                        request=request,
-                        template_vars=template_vars,
-                        extract=extract,
-                        asserts=asserts,
-                        name=name
-                    )
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
+        try:
+            raw = await ctx.nexus.execute_request(
+                kind="tcp",
+                request=request_model(
+                    request=request,
+                    template_vars=template_vars,
+                    extract=extract,
+                    asserts=asserts,
+                    name=name
                 )
-            finally:
-                await idle.job_final(job_id)
+            )
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="nexus_tcp_request",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="nexus_tcp_request", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -697,31 +640,32 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = generic_batch_args_payload(kind="tcp", items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
-            try:
-                return await ctx.nexus.execute_batch(
-                    kind="tcp",
-                    batch=batch_model(
-                        items=items,
-                        env=env,
-                        template_vars=template_vars,
-                        concurrency=concurrency,
-                        fail_fast=fail_fast
-                    )
-                )
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="nexus_tcp_batch",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
+        args = generic_batch_args_payload(
+            kind="tcp",
+            items=items,
+            env=env,
+            template_vars=template_vars,
+            concurrency=concurrency,
+            fail_fast=fail_fast
         )
+
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
+        try:
+            raw = await ctx.nexus.execute_batch(
+                kind="tcp",
+                batch=batch_model(
+                    items=items,
+                    env=env,
+                    template_vars=template_vars,
+                    concurrency=concurrency,
+                    fail_fast=fail_fast
+                )
+            )
+        finally:
+            await idle.job_final(job_id)
+
+        return build_tool_result(tool="nexus_tcp_batch", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -739,6 +683,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         asserts: NexusAssertsArg = None,
         name: NexusNameArg = None
     ) -> CallToolResult:
+
         args = {
             "request"       : request,
             "template_vars" : template_vars,
@@ -747,29 +692,22 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "name"          : name
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
-            try:
-                return await ctx.nexus.execute_request(
-                    kind="udp",
-                    request=request_model(
-                        request=request,
-                        template_vars=template_vars,
-                        extract=extract,
-                        asserts=asserts,
-                        name=name
-                    )
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
+        try:
+            raw = await ctx.nexus.execute_request(
+                kind="udp",
+                request=request_model(
+                    request=request,
+                    template_vars=template_vars,
+                    extract=extract,
+                    asserts=asserts,
+                    name=name
                 )
-            finally:
-                await idle.job_final(job_id)
+            )
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="nexus_udp_request",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="nexus_udp_request", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -787,31 +725,32 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = generic_batch_args_payload(kind="udp", items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
-            try:
-                return await ctx.nexus.execute_batch(
-                    kind="udp",
-                    batch=batch_model(
-                        items=items,
-                        env=env,
-                        template_vars=template_vars,
-                        concurrency=concurrency,
-                        fail_fast=fail_fast
-                    )
-                )
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="nexus_udp_batch",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
+        args = generic_batch_args_payload(
+            kind="udp",
+            items=items,
+            env=env,
+            template_vars=template_vars,
+            concurrency=concurrency,
+            fail_fast=fail_fast
         )
+
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
+        try:
+            raw = await ctx.nexus.execute_batch(
+                kind="udp",
+                batch=batch_model(
+                    items=items,
+                    env=env,
+                    template_vars=template_vars,
+                    concurrency=concurrency,
+                    fail_fast=fail_fast
+                )
+            )
+        finally:
+            await idle.job_final(job_id)
+
+        return build_tool_result(tool="nexus_udp_batch", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -829,6 +768,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         asserts: NexusAssertsArg = None,
         name: NexusNameArg = None
     ) -> CallToolResult:
+
         args = {
             "request"       : request,
             "template_vars" : template_vars,
@@ -837,29 +777,22 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "name"          : name
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
-            try:
-                return await ctx.nexus.execute_request(
-                    kind="smtp",
-                    request=request_model(
-                        request=request,
-                        template_vars=template_vars,
-                        extract=extract,
-                        asserts=asserts,
-                        name=name
-                    )
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
+        try:
+            raw = await ctx.nexus.execute_request(
+                kind="smtp",
+                request=request_model(
+                    request=request,
+                    template_vars=template_vars,
+                    extract=extract,
+                    asserts=asserts,
+                    name=name
                 )
-            finally:
-                await idle.job_final(job_id)
+            )
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="nexus_smtp_request",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="nexus_smtp_request", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -877,31 +810,32 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = generic_batch_args_payload(kind="smtp", items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
-            try:
-                return await ctx.nexus.execute_batch(
-                    kind="smtp",
-                    batch=batch_model(
-                        items=items,
-                        env=env,
-                        template_vars=template_vars,
-                        concurrency=concurrency,
-                        fail_fast=fail_fast
-                    )
-                )
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="nexus_smtp_batch",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
+        args = generic_batch_args_payload(
+            kind="smtp",
+            items=items,
+            env=env,
+            template_vars=template_vars,
+            concurrency=concurrency,
+            fail_fast=fail_fast
         )
+
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
+        try:
+            raw = await ctx.nexus.execute_batch(
+                kind="smtp",
+                batch=batch_model(
+                    items=items,
+                    env=env,
+                    template_vars=template_vars,
+                    concurrency=concurrency,
+                    fail_fast=fail_fast
+                )
+            )
+        finally:
+            await idle.job_final(job_id)
+
+        return build_tool_result(tool="nexus_smtp_batch", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -919,6 +853,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         asserts: NexusAssertsArg = None,
         name: NexusNameArg = None
     ) -> CallToolResult:
+
         args = {
             "request"       : request,
             "template_vars" : template_vars,
@@ -927,29 +862,22 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "name"          : name
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
-            try:
-                return await ctx.nexus.execute_request(
-                    kind="imap",
-                    request=request_model(
-                        request=request,
-                        template_vars=template_vars,
-                        extract=extract,
-                        asserts=asserts,
-                        name=name
-                    )
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
+        try:
+            raw = await ctx.nexus.execute_request(
+                kind="imap",
+                request=request_model(
+                    request=request,
+                    template_vars=template_vars,
+                    extract=extract,
+                    asserts=asserts,
+                    name=name
                 )
-            finally:
-                await idle.job_final(job_id)
+            )
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="nexus_imap_request",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="nexus_imap_request", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -967,31 +895,32 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = generic_batch_args_payload(kind="imap", items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
-            try:
-                return await ctx.nexus.execute_batch(
-                    kind="imap",
-                    batch=batch_model(
-                        items=items,
-                        env=env,
-                        template_vars=template_vars,
-                        concurrency=concurrency,
-                        fail_fast=fail_fast
-                    )
-                )
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="nexus_imap_batch",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
+        args = generic_batch_args_payload(
+            kind="imap",
+            items=items,
+            env=env,
+            template_vars=template_vars,
+            concurrency=concurrency,
+            fail_fast=fail_fast
         )
+
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
+        try:
+            raw = await ctx.nexus.execute_batch(
+                kind="imap",
+                batch=batch_model(
+                    items=items,
+                    env=env,
+                    template_vars=template_vars,
+                    concurrency=concurrency,
+                    fail_fast=fail_fast
+                )
+            )
+        finally:
+            await idle.job_final(job_id)
+
+        return build_tool_result(tool="nexus_imap_batch", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -1009,6 +938,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         asserts: NexusAssertsArg = None,
         name: NexusNameArg = None
     ) -> CallToolResult:
+
         args = {
             "request"       : request,
             "template_vars" : template_vars,
@@ -1017,29 +947,22 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "name"          : name
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
-            try:
-                return await ctx.nexus.execute_request(
-                    kind="ftp",
-                    request=request_model(
-                        request=request,
-                        template_vars=template_vars,
-                        extract=extract,
-                        asserts=asserts,
-                        name=name
-                    )
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_request", args=args)
+        try:
+            raw = await ctx.nexus.execute_request(
+                kind="ftp",
+                request=request_model(
+                    request=request,
+                    template_vars=template_vars,
+                    extract=extract,
+                    asserts=asserts,
+                    name=name
                 )
-            finally:
-                await idle.job_final(job_id)
+            )
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="nexus_ftp_request",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="nexus_ftp_request", args=args, raw=raw, target=ctx.nexus.agent_id)
 
     @mcp.tool(
         description=(
@@ -1057,31 +980,32 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         concurrency: NexusConcurrencyArg = 1,
         fail_fast: NexusFailFastArg = True
     ) -> CallToolResult:
-        args = generic_batch_args_payload(kind="ftp", items=items, env=env, template_vars=template_vars, concurrency=concurrency, fail_fast=fail_fast)
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
-            try:
-                return await ctx.nexus.execute_batch(
-                    kind="ftp",
-                    batch=batch_model(
-                        items=items,
-                        env=env,
-                        template_vars=template_vars,
-                        concurrency=concurrency,
-                        fail_fast=fail_fast
-                    )
-                )
-            finally:
-                await idle.job_final(job_id)
-
-        return await broadcast(
-            tool="nexus_ftp_batch",
-            args=args,
-            target_list=[ctx.nexus],
-            call=call,
-            overrides=None
+        args = generic_batch_args_payload(
+            kind="ftp",
+            items=items,
+            env=env,
+            template_vars=template_vars,
+            concurrency=concurrency,
+            fail_fast=fail_fast
         )
+
+        job_id = await idle.job_begin(f"{ctx.nexus.agent_id}.execute_batch", args=args)
+        try:
+            raw = await ctx.nexus.execute_batch(
+                kind="ftp",
+                batch=batch_model(
+                    items=items,
+                    env=env,
+                    template_vars=template_vars,
+                    concurrency=concurrency,
+                    fail_fast=fail_fast
+                )
+            )
+        finally:
+            await idle.job_final(job_id)
+
+        return build_tool_result(tool="nexus_ftp_batch", args=args, raw=raw, target=ctx.nexus.agent_id)
 
 
 if __name__ == '__main__':

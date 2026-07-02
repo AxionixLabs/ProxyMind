@@ -25,10 +25,7 @@ def task_middleware(tool_name: str):
                 elapsed_ms = int((time.perf_counter() - t0) * 1000)
                 ok = None
                 if isinstance(result, dict):
-                    data = result.get("data")
-                    if isinstance(data, dict) and "ok" in data:
-                        ok = bool(data.get("ok"))
-                    elif "ok" in result:
+                    if "ok" in result:
                         ok = bool(result.get("ok"))
 
                 logger.debug(f"tool end tool={tool_name} ok={ok} elapsed_ms={elapsed_ms}")

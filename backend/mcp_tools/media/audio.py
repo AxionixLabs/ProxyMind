@@ -11,7 +11,7 @@ from backend.mcp_tools.media.schemas.schema_audio import (
 from backend.utilities.runtime import (
     AppContext, Idle
 )
-from backend.utilities.broadcast import broadcast
+from backend.utilities.tool_result import build_tool_result
 
 
 def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
@@ -25,27 +25,23 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         meta={"hidden": False, "domain": "media", "class": "audio"}
     )
     @task_middleware("audio_play")
-    async def audio_play(audio_file: AudioFileArg, volume: VolumeArg = 1.0) -> CallToolResult:
+    async def audio_play(
+        audio_file: AudioFileArg,
+        volume: VolumeArg = 1.0
+    ) -> CallToolResult:
 
         args = {
             "audio_file" : audio_file,
             "volume"     : volume
         }
 
-        async def call(*_) -> None:
-            job_id = await idle.job_begin(f"{ctx.player.agent_id}.audio_play", args=args)
-            try:
-                return await ctx.player.audio_play(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.player.agent_id}.audio_play", args=args)
+        try:
+            raw = await ctx.player.audio_play(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="audio_play",
-            args=args,
-            target_list=[ctx.player],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="audio_play", args=args, raw=raw, target=ctx.player.agent_id)
 
 
 if __name__ == '__main__':

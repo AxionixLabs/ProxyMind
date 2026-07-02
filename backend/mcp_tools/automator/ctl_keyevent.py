@@ -1,19 +1,17 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
-from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import DeviceManage
+from backend.utilities.tool_result import build_tool_result
 from backend.mcp_tools.automator.schemas.schema_keyevent import LongPressArg
-from backend.mcp_tools.shared import MatrixArg
+from backend.mcp_tools.shared import SerialArg
 from backend.middlewares.mid_task import task_middleware
 from backend.utilities.runtime import AppContext
-from backend.utilities.broadcast import broadcast
 
 
-def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
+def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
 
     @mcp.tool(
         description=(
@@ -26,22 +24,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     @task_middleware("go_home")
     async def go_home(
         longpress: LongPressArg = False,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "longpress" : longpress
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.key_event(keycode=3, **a)
+        device = manage.resolve(serial)
+        raw = await device.key_event(keycode=3, **args)
 
-        return await broadcast(
-            tool="go_home",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="go_home", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -54,22 +47,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     @task_middleware("go_back")
     async def go_back(
         longpress: LongPressArg = False,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "longpress" : longpress
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.key_event(keycode=4, **a)
+        device = manage.resolve(serial)
+        raw = await device.key_event(keycode=4, **args)
 
-        return await broadcast(
-            tool="go_back",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="go_back", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -82,22 +70,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     @task_middleware("open_recents")
     async def open_recents(
         longpress: LongPressArg = False,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "longpress" : longpress
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.key_event(keycode=187, **a)
+        device = manage.resolve(serial)
+        raw = await device.key_event(keycode=187, **args)
 
-        return await broadcast(
-            tool="open_recents",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="open_recents", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -110,22 +93,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     @task_middleware("press_power")
     async def press_power(
         longpress: LongPressArg = False,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "longpress" : longpress
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.key_event(keycode=26, **a)
+        device = manage.resolve(serial)
+        raw = await device.key_event(keycode=26, **args)
 
-        return await broadcast(
-            tool="press_power",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="press_power", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -138,22 +116,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     @task_middleware("press_enter")
     async def press_enter(
         longpress: LongPressArg = False,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "longpress" : longpress
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.key_event(keycode=66, **a)
+        device = manage.resolve(serial)
+        raw = await device.key_event(keycode=66, **args)
 
-        return await broadcast(
-            tool="press_enter",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="press_enter", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -166,22 +139,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     @task_middleware("press_delete")
     async def press_delete(
         longpress: LongPressArg = False,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "longpress" : longpress
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.key_event(keycode=67, **a)
+        device = manage.resolve(serial)
+        raw = await device.key_event(keycode=67, **args)
 
-        return await broadcast(
-            tool="press_delete",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="press_delete", args=args, raw=raw, target=device.serial)
 
 
 if __name__ == '__main__':

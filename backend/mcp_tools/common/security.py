@@ -1,12 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
-from mcp.types import (
-    CallToolResult,
-    TextContent
-)
+from mcp.types import CallToolResult
 from backend.mcp_hub.hub_nexus import SecurityService
 from backend.mcp_tools.common.schemas.schema_security import (
     OutputKeyArg,
@@ -63,23 +59,7 @@ from backend.mcp_tools.common.schemas.schema_security import (
     IncludeContentTypeArg
 )
 from backend.utilities.runtime import AppContext
-
-
-def _tool_result(agent_id: str, result: dict[str, typing.Any]) -> CallToolResult:
-    """把 security 服务结果包装成统一的 MCP 返回结构。"""
-    kind   = str(result["kind"])
-    output = str(result["output"])
-    text   = f"agent_id={agent_id} ok=True kind={kind} output={output}"
-
-    structured: dict[str, typing.Any] | None = {
-        "text" : text,
-        "data" : result
-    }
-
-    return CallToolResult(
-        content=[TextContent(type="text", text=text)],
-        structuredContent=structured
-    )
+from backend.utilities.tool_result import build_tool_result
 
 
 def bind(mcp: FastMCP, ctx: AppContext) -> None:
@@ -100,17 +80,16 @@ def bind(mcp: FastMCP, ctx: AppContext) -> None:
         encoding: EncodingArg = "utf-8",
         out_mode: DigestOutModeArg = "hex"
     ) -> CallToolResult:
-        return _tool_result(
-            "security_digest",
-            SecurityService.digest(
-                kind=kind,
-                output=output,
-                input_value=input_value,
-                secret=secret,
-                encoding=encoding,
-                out_mode=out_mode
-            )
-        )
+        args = {
+            "kind"        : kind,
+            "output"      : output,
+            "input_value" : input_value,
+            "secret"      : secret,
+            "encoding"    : encoding,
+            "out_mode"    : out_mode
+        }
+        raw = SecurityService.digest(**args)
+        return build_tool_result(tool="security_digest", args=args, raw=raw, target="security")
 
     @mcp.tool(
         description=(
@@ -131,20 +110,19 @@ def bind(mcp: FastMCP, ctx: AppContext) -> None:
         return_payload: ReturnPayloadArg = True,
         complete: JwtCompleteArg = False
     ) -> CallToolResult:
-        return _tool_result(
-            "security_jwt",
-            SecurityService.jwt_hs(
-                kind=kind,
-                output=output,
-                payload=payload,
-                secret=secret,
-                token=token,
-                headers=headers,
-                options=options,
-                return_payload=return_payload,
-                complete=complete
-            )
-        )
+        args = {
+            "kind"           : kind,
+            "output"         : output,
+            "payload"        : payload,
+            "secret"         : secret,
+            "token"          : token,
+            "headers"        : headers,
+            "options"        : options,
+            "return_payload" : return_payload,
+            "complete"       : complete
+        }
+        raw = SecurityService.jwt_hs(**args)
+        return build_tool_result(tool="security_jwt", args=args, raw=raw, target="security")
 
     @mcp.tool(
         description=(
@@ -165,20 +143,19 @@ def bind(mcp: FastMCP, ctx: AppContext) -> None:
         options: JwtOptionsArg = None,
         return_payload: ReturnPayloadArg = True
     ) -> CallToolResult:
-        return _tool_result(
-            "security_jwt_rs",
-            SecurityService.jwt_asymmetric(
-                kind=kind,
-                output=output,
-                payload=payload,
-                token=token,
-                private_key=private_key,
-                public_key=public_key,
-                headers=headers,
-                options=options,
-                return_payload=return_payload
-            )
-        )
+        args = {
+            "kind"           : kind,
+            "output"         : output,
+            "payload"        : payload,
+            "token"          : token,
+            "private_key"    : private_key,
+            "public_key"     : public_key,
+            "headers"        : headers,
+            "options"        : options,
+            "return_payload" : return_payload
+        }
+        raw = SecurityService.jwt_asymmetric(**args)
+        return build_tool_result(tool="security_jwt_rs", args=args, raw=raw, target="security")
 
     @mcp.tool(
         description=(
@@ -209,30 +186,29 @@ def bind(mcp: FastMCP, ctx: AppContext) -> None:
         label: RsaLabelArg = None,
         salt_length: SaltLengthArg = "max"
     ) -> CallToolResult:
-        return _tool_result(
-            "security_crypto",
-            SecurityService.crypto(
-                kind=kind,
-                output=output,
-                input_value=input_value,
-                private_key=private_key,
-                public_key=public_key,
-                signature=signature,
-                ciphertext=ciphertext,
-                encoding=encoding,
-                out_mode=out_mode,
-                signature_format=signature_format,
-                ciphertext_format=ciphertext_format,
-                encrypt_padding=encrypt_padding,
-                decrypt_padding=decrypt_padding,
-                sign_padding=sign_padding,
-                verify_padding=verify_padding,
-                algorithm=algorithm,
-                mgf_algorithm=mgf_algorithm,
-                label=label,
-                salt_length=salt_length
-            )
-        )
+        args = {
+            "kind"              : kind,
+            "output"            : output,
+            "input_value"       : input_value,
+            "private_key"       : private_key,
+            "public_key"        : public_key,
+            "signature"         : signature,
+            "ciphertext"        : ciphertext,
+            "encoding"          : encoding,
+            "out_mode"          : out_mode,
+            "signature_format"  : signature_format,
+            "ciphertext_format" : ciphertext_format,
+            "encrypt_padding"   : encrypt_padding,
+            "decrypt_padding"   : decrypt_padding,
+            "sign_padding"      : sign_padding,
+            "verify_padding"    : verify_padding,
+            "algorithm"         : algorithm,
+            "mgf_algorithm"     : mgf_algorithm,
+            "label"             : label,
+            "salt_length"       : salt_length
+        }
+        raw = SecurityService.crypto(**args)
+        return build_tool_result(tool="security_crypto", args=args, raw=raw, target="security")
 
     @mcp.tool(
         description=(
@@ -262,29 +238,28 @@ def bind(mcp: FastMCP, ctx: AppContext) -> None:
         encoding: EncodingArg = "utf-8",
         padding_mode: PaddingModeArg = "pkcs7"
     ) -> CallToolResult:
-        return _tool_result(
-            "security_aes",
-            SecurityService.aes(
-                kind=kind,
-                output=output,
-                input_value=input_value,
-                key=key,
-                iv=iv,
-                nonce=nonce,
-                aad=aad,
-                tag=tag,
-                mode=mode,
-                key_format=key_format,
-                input_format=input_format,
-                iv_format=iv_format,
-                nonce_format=nonce_format,
-                aad_format=aad_format,
-                tag_format=tag_format,
-                out_mode=out_mode,
-                encoding=encoding,
-                padding_mode=padding_mode
-            )
-        )
+        args = {
+            "kind"          : kind,
+            "output"        : output,
+            "input_value"   : input_value,
+            "key"           : key,
+            "iv"            : iv,
+            "nonce"         : nonce,
+            "aad"           : aad,
+            "tag"           : tag,
+            "mode"          : mode,
+            "key_format"    : key_format,
+            "input_format"  : input_format,
+            "iv_format"     : iv_format,
+            "nonce_format"  : nonce_format,
+            "aad_format"    : aad_format,
+            "tag_format"    : tag_format,
+            "out_mode"      : out_mode,
+            "encoding"      : encoding,
+            "padding_mode"  : padding_mode
+        }
+        raw = SecurityService.aes(**args)
+        return build_tool_result(tool="security_aes", args=args, raw=raw, target="security")
 
     @mcp.tool(
         description=(
@@ -308,23 +283,22 @@ def bind(mcp: FastMCP, ctx: AppContext) -> None:
         ignore_empty: IgnoreEmptyArg = True,
         ignore_keys: IgnoreKeysArg = None
     ) -> CallToolResult:
-        return _tool_result(
-            "security_sign_text",
-            SecurityService.sign_text(
-                kind=kind,
-                output=output,
-                data=data,
-                items=items,
-                secret=secret,
-                prefix=prefix,
-                suffix=suffix,
-                pair_sep=pair_sep,
-                kv_sep=kv_sep,
-                sort_keys=sort_keys,
-                ignore_empty=ignore_empty,
-                ignore_keys=ignore_keys
-            )
-        )
+        args = {
+            "kind"         : kind,
+            "output"       : output,
+            "data"         : data,
+            "items"        : items,
+            "secret"       : secret,
+            "prefix"       : prefix,
+            "suffix"       : suffix,
+            "pair_sep"     : pair_sep,
+            "kv_sep"       : kv_sep,
+            "sort_keys"    : sort_keys,
+            "ignore_empty" : ignore_empty,
+            "ignore_keys"  : ignore_keys
+        }
+        raw = SecurityService.sign_text(**args)
+        return build_tool_result(tool="security_sign_text", args=args, raw=raw, target="security")
 
     @mcp.tool(
         description=(
@@ -347,22 +321,21 @@ def bind(mcp: FastMCP, ctx: AppContext) -> None:
         use_filename_only: UseFilenameOnlyArg = True,
         include_content_type: IncludeContentTypeArg = False
     ) -> CallToolResult:
-        return _tool_result(
-            "security_multipart_sign",
-            SecurityService.multipart_sign(
-                kind=kind,
-                output=output,
-                fields=fields,
-                files=files,
-                pair_sep=pair_sep,
-                kv_sep=kv_sep,
-                sort_keys=sort_keys,
-                ignore_empty=ignore_empty,
-                ignore_keys=ignore_keys,
-                use_filename_only=use_filename_only,
-                include_content_type=include_content_type
-            )
-        )
+        args = {
+            "kind"                 : kind,
+            "output"               : output,
+            "fields"               : fields,
+            "files"                : files,
+            "pair_sep"             : pair_sep,
+            "kv_sep"               : kv_sep,
+            "sort_keys"            : sort_keys,
+            "ignore_empty"         : ignore_empty,
+            "ignore_keys"          : ignore_keys,
+            "use_filename_only"    : use_filename_only,
+            "include_content_type" : include_content_type
+        }
+        raw = SecurityService.multipart_sign(**args)
+        return build_tool_result(tool="security_multipart_sign", args=args, raw=raw, target="security")
 
 
 if __name__ == '__main__':

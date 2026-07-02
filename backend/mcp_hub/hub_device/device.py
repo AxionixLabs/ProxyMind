@@ -144,8 +144,8 @@ class Device(object):
 
         return SemanticResult(
             text=semantic["brief"],
+            ok=True,
             data={
-                "ok"          : True,
                 "serial"      : information.get("serial"),
                 "brand"       : information.get("brand"),
                 "model"       : information.get("model"),
@@ -166,7 +166,8 @@ class Device(object):
         raw = await self.phone.app_deep_link(url)
         return SemanticResult(
             text="深度链接已执行。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== App Control MCP Tool ====
@@ -175,7 +176,8 @@ class Device(object):
         raw = await self.phone.app_start(package, activity)
         return SemanticResult(
             text="应用启动命令已执行。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== App Control MCP Tool ====
@@ -184,7 +186,8 @@ class Device(object):
         raw = await self.phone.app_stop(package)
         return SemanticResult(
             text="应用停止命令已执行。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== App Control MCP Tool ====
@@ -199,7 +202,8 @@ class Device(object):
         raw = await self.phone.app_install(apk, replace, downgrade, test)
         return SemanticResult(
             text="APK 安装命令已执行。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== App Control MCP Tool ====
@@ -208,7 +212,8 @@ class Device(object):
         raw = await self.phone.app_uninstall(package, keep_data)
         return SemanticResult(
             text="应用卸载命令已执行。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== App Control MCP Tool ====
@@ -217,7 +222,8 @@ class Device(object):
         raw = await self.phone.app_clear(package)
         return SemanticResult(
             text="应用数据清理命令已执行。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== App Control MCP Tool ====
@@ -244,7 +250,8 @@ class Device(object):
 
         return SemanticResult(
             text=f"文件已拉取到 {destination}",
-            data={"ok": True, "raw": raw, "path": str(destination)}
+            ok=True,
+            data={"raw": raw, "path": str(destination)}
         ).to_dict()
 
     # workflow: ==== File Control MCP Tool ====
@@ -253,7 +260,8 @@ class Device(object):
         raw = await self.phone.file_push(local, remote)
         return SemanticResult(
             text="文件推送命令已执行。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== File Control MCP Tool ====
@@ -262,7 +270,8 @@ class Device(object):
         raw = await self.phone.file_remove(path)
         return SemanticResult(
             text="文件删除命令已执行。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     async def file_logcat_link(self) -> asyncio.subprocess.Process:
@@ -361,8 +370,8 @@ class Device(object):
         return SemanticResult(
             text=text,
             attachments=attachments,
+            ok=True,
             data={
-                "ok"      : True,
                 "count"   : len(all_lines),
                 "summary" : len(summary_lines),
                 "saved"   : saved_path,
@@ -376,7 +385,8 @@ class Device(object):
         raw = await self.phone.logcat_clean()
         return SemanticResult(
             text="logcat cleaned",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== Info Control MCP Tool ====
@@ -392,14 +402,16 @@ class Device(object):
             pkgs = self.phone.parse_package_list(resp)
             return SemanticResult(
                 text="\n".join(pkgs),
-                data={"ok": True, "count": len(pkgs), "packages": pkgs}
+                ok=True,
+                data={"count": len(pkgs), "packages": pkgs}
             ).to_dict()
 
         resp = await self.phone.grep_packages(kw, scope)
         pkgs = self.phone.parse_package_list(resp)
         return SemanticResult(
             text="\n".join(pkgs),
-            data={"ok": True, "count": len(pkgs), "packages": pkgs}
+            ok=True,
+                data={"count": len(pkgs), "packages": pkgs}
         ).to_dict()
 
     # workflow: ==== System Control MCP Tool ====
@@ -408,7 +420,8 @@ class Device(object):
         raw = await self.phone.open_notification()
         return SemanticResult(
             text="通知栏已打开。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== System Control MCP Tool ====
@@ -417,7 +430,8 @@ class Device(object):
         raw = await self.phone.open_quick_settings()
         return SemanticResult(
             text="快捷设置面板已打开。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== System Control MCP Tool ====
@@ -431,7 +445,8 @@ class Device(object):
         raw = await self.phone.set_service("bluetooth", enabled)
         return SemanticResult(
             text="蓝牙已打开。" if enabled else "蓝牙已关闭。",
-            data={"ok": True, "raw": raw, "enabled": enabled}
+            ok=True,
+            data={"raw": raw, "enabled": enabled}
         ).to_dict()
 
     # workflow: ==== System Control MCP Tool ====
@@ -440,7 +455,8 @@ class Device(object):
         raw = await self.phone.set_service("wifi", enabled)
         return SemanticResult(
             text="WiFi 已打开。" if enabled else "WiFi 已关闭。",
-            data={"ok": True, "raw": raw, "enabled": enabled}
+            ok=True,
+            data={"raw": raw, "enabled": enabled}
         ).to_dict()
 
     # workflow: ==== System Control MCP Tool ====
@@ -449,7 +465,8 @@ class Device(object):
         raw = await self.phone.set_service("data", enabled)
         return SemanticResult(
             text="移动数据已打开。" if enabled else "移动数据已关闭。",
-            data={"ok": True, "raw": raw, "enabled": enabled}
+            ok=True,
+            data={"raw": raw, "enabled": enabled}
         ).to_dict()
 
     # workflow: ==== System Control MCP Tool ====
@@ -458,13 +475,15 @@ class Device(object):
         if not others:
             return SemanticResult(
                 text="未提供组合键。",
-                data={"ok": False}
+                ok=False,
+                data={}
             ).to_dict()
 
         raw = await self.phone.combo_key(first, others)
         return SemanticResult(
             text="组合按键已执行。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== System Control MCP Tool ====
@@ -473,7 +492,8 @@ class Device(object):
         raw = await self.phone.ime_reset()
         return SemanticResult(
             text="输入法已重置。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== System Control MCP Tool ====
@@ -539,7 +559,8 @@ class Device(object):
 
         return SemanticResult(
             text=text_map[direction],
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== UI Interaction MCP Tool ====
@@ -571,20 +592,23 @@ class Device(object):
         if not (widget := await self.phone.find_ui_widget(by, value, match, ignore_case)):
             return SemanticResult(
                 text="未找到可点击的节点。",
-                data={"ok": False, "node": None, "clicked": False}
+                ok=False,
+                data={"node": None, "clicked": False}
             ).to_dict()
 
         if not widget.center:
             return SemanticResult(
                 text="找到节点但缺少可点击坐标（center）。",
-                data={"ok": False, "node": widget.to_node(), "clicked": False}
+                ok=False,
+                data={"node": widget.to_node(), "clicked": False}
             ).to_dict()
 
         raw = await self.phone.tap(*widget.center)
 
         return SemanticResult(
             text="点击完成。",
-            data={"ok": True, "raw": raw, "node": widget.to_node(), "clicked": True}
+            ok=True,
+            data={"raw": raw, "node": widget.to_node(), "clicked": True}
         ).to_dict()
 
     # workflow: ==== UI Interaction MCP Tool ====
@@ -593,7 +617,8 @@ class Device(object):
         raw = await self.phone.double_tap(x, y)
         return SemanticResult(
             text="双击已执行。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== UI Interaction MCP Tool ====
@@ -602,7 +627,8 @@ class Device(object):
         raw = await self.phone.send_keyevent(keycode, longpress)
         return SemanticResult(
             text="按键已发送。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== Info Control MCP Tool ====
@@ -615,13 +641,14 @@ class Device(object):
         """向当前焦点输入文本。"""
         ime = await self.combo.ensure_ime()
 
-        if not ime.get("data", {}).get("ok"):
+        if not ime.get("ok"):
             return ime
 
         raw = await self.phone.input_text("" if text is None else str(text))
         return SemanticResult(
             text="文本输入已执行。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== UI Interaction MCP Tool ====
@@ -629,13 +656,14 @@ class Device(object):
         """清空当前焦点输入框文本。"""
         ime = await self.combo.ensure_ime()
 
-        if not ime.get("data", {}).get("ok"):
+        if not ime.get("ok"):
             return ime
 
         raw = await self.phone.clear_text()
         return SemanticResult(
             text="文本已清空。",
-            data={"ok": True, "raw": raw}
+            ok=True,
+            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== UI Interaction MCP Tool ====
@@ -650,8 +678,8 @@ class Device(object):
 
         return SemanticResult(text=
             f"当前Focus：package={package or ''} activity={activity or ''}".strip(),
+            ok=ok,
             data={
-                "ok"       : ok,
                 "package"  : package,
                 "activity" : activity,
                 "raw"      : raw
@@ -678,14 +706,16 @@ class Device(object):
         if not (xml := await self.phone.ui_xml()):
             return SemanticResult(text=
                 "未获取到 UI XML。",
-                data={"ok": False, "count": 0}
+                ok=False,
+                data={"count": 0}
             ).to_dict()
 
         widget_list = self.phone.parse_widgets(xml)
         if not widget_list:
             return SemanticResult(text=
                 "当前页面没有可用控件。",
-                data={"ok": True, "count": 0}
+                ok=True,
+                data={"count": 0}
             ).to_dict()
 
         lines: list[str] = [
@@ -695,7 +725,8 @@ class Device(object):
 
         return SemanticResult(text=
             out if out else "未发现可用控件。",
-            data={"ok": True, "count": len(lines)}
+            ok=True,
+            data={"count": len(lines)}
         ).to_dict()
 
     # workflow: ==== UI Interaction MCP Tool ====
@@ -710,21 +741,23 @@ class Device(object):
         if by == "xpath":
             return SemanticResult(text=
                 "by=xpath 暂不支持（Android uiautomator dump 非标准 XPath）。",
-                data={"ok": False, "node": None}
+                ok=False,
+                data={"node": None}
             ).to_dict()
 
         if found_node := await self.phone.find_ui_widget(by, value, match, ignore_case):
             return SemanticResult(text=
                 "已找到目标控件。",
+                ok=True,
                 data={
-                    "ok"     : True,
                     "node"   : found_node.to_node()
                 }
             ).to_dict()
 
         return SemanticResult(text=
             "未找到目标控件。",
-            data={"ok": False, "node": None}
+            ok=False,
+                data={"node": None}
         ).to_dict()
 
     # workflow: ==== UI Interaction MCP Tool ====
@@ -783,8 +816,8 @@ printf 'stop_sent=1\\n'
         await self.phone.shell_script(script)
         return SemanticResult(
             text="停止命令已发送。",
+            ok=True,
             data={
-                "ok": True,
                 "reason": "stop_command_sent"
             }
         ).to_dict()

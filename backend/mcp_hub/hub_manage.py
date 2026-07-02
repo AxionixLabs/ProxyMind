@@ -27,6 +27,22 @@ class DeviceManage(object):
 
         return list(self.device_list)
 
+    def resolve(self, serial: str | None = None) -> Device:
+        device_list = self.snapshot
+
+        if serial:
+            for device in device_list:
+                if device.serial == serial:
+                    return device
+            serials = [device.serial for device in device_list]
+            raise RuntimeError(f"Device not found: {serial}; available={serials}")
+
+        if len(device_list) == 1:
+            return device_list[0]
+
+        serials = [device.serial for device in device_list]
+        raise RuntimeError(f"Multiple devices connected; specify serial. available={serials}")
+
     async def connect(self) -> list[Device]:
         if not shutil.which("adb"):
             raise RuntimeError("ADB not found in PATH")
@@ -74,8 +90,8 @@ class DeviceManage(object):
 
         return SemanticResult.from_text(
             f"refresh ok: devices={len(serials)}\n" + "\n".join(preview),
+            ok=True,
             data={
-                "ok"      : True,
                 "reason"  : None,
                 "ttl_sec" : ttl_sec,
                 "count"   : len(serials),

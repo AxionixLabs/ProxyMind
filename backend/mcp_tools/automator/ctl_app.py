@@ -1,30 +1,23 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
-from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.mcp_tools.automator.schemas.schema_app import (
     ActivityArg,
-    ApkPathArg,
-    DowngradeArg,
-    KeepDataArg,
-    ReplaceArg,
-    TestOnlyArg,
     UrlArg
 )
+from backend.utilities.tool_result import build_tool_result
 from backend.mcp_tools.shared import (
-    MatrixArg,
-    PackageArg
+    PackageArg,
+    SerialArg
 )
 from backend.middlewares.mid_task import task_middleware
 from backend.utilities.runtime import AppContext
-from backend.utilities.broadcast import broadcast
 
 
-def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
+def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
 
     @mcp.tool(
         description=(
@@ -37,22 +30,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     @task_middleware("app_deep_link")
     async def app_deep_link(
         url: UrlArg,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "url" : url
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.app_deep_link(**a)
+        device = manage.resolve(serial)
+        raw = await device.app_deep_link(**args)
 
-        return await broadcast(
-            tool="app_deep_link",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="app_deep_link", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -66,23 +54,18 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     async def app_start(
         package: PackageArg,
         activity: ActivityArg = None,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "package"  : package,
             "activity" : activity
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.app_start(**a)
+        device = manage.resolve(serial)
+        raw = await device.app_start(**args)
 
-        return await broadcast(
-            tool="app_start",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="app_start", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -95,86 +78,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     @task_middleware("app_stop")
     async def app_stop(
         package: PackageArg,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "package" : package
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.app_stop(**a)
+        device = manage.resolve(serial)
+        raw = await device.app_stop(**args)
 
-        return await broadcast(
-            tool="app_stop",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(
-        description=(
-            "安装本地 APK 到设备。"
-            " 该工具只负责安装，不会自动启动应用或处理签名兼容问题。"
-            " 本地文件不存在、设备策略限制、签名不兼容或降级未开启时会失败。"
-        ),
-        meta={"hidden": False, "domain": "device", "class": "app"}
-    )
-    @task_middleware("app_install")
-    async def app_install(
-        apk: ApkPathArg,
-        replace: ReplaceArg = True,
-        downgrade: DowngradeArg = False,
-        test: TestOnlyArg = False,
-        matrix: MatrixArg = None
-    ) -> CallToolResult:
-        args = {
-            "apk"       : apk,
-            "replace"   : replace,
-            "downgrade" : downgrade,
-            "test"      : test
-        }
-
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.app_install(**a)
-
-        return await broadcast(
-            tool="app_install",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(
-        description=(
-            "卸载指定应用。"
-            " `keep_data` 为 true 时保留应用数据目录，否则同时移除应用数据。"
-            " 系统应用、权限受限设备或被策略保护的包可能无法卸载。"
-        ),
-        meta={"hidden": False, "domain": "device", "class": "app"}
-    )
-    @task_middleware("app_uninstall")
-    async def app_uninstall(
-        package: PackageArg,
-        keep_data: KeepDataArg = False,
-        matrix: MatrixArg = None
-    ) -> CallToolResult:
-        args = {
-            "package"   : package,
-            "keep_data" : keep_data
-        }
-
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.app_uninstall(**a)
-
-        return await broadcast(
-            tool="app_uninstall",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="app_stop", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -187,22 +101,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     @task_middleware("app_clear")
     async def app_clear(
         package: PackageArg,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "package" : package
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.app_clear(**a)
+        device = manage.resolve(serial)
+        raw = await device.app_clear(**args)
 
-        return await broadcast(
-            tool="app_clear",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="app_clear", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -216,23 +125,18 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     async def app_foreground(
         package: PackageArg,
         activity: ActivityArg = None,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "package"  : package,
             "activity" : activity
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.app_foreground(**a)
+        device = manage.resolve(serial)
+        raw = await device.app_foreground(**args)
 
-        return await broadcast(
-            tool="app_foreground",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="app_foreground", args=args, raw=raw, target=device.serial)
 
 
 if __name__ == '__main__':

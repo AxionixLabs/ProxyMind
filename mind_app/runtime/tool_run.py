@@ -106,58 +106,15 @@ def _tool_result_data(fields: typing.Union[str, dict[str, typing.Any], typing.An
     return None
 
 
-def _native_broadcast_data(fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """提取原生工具广播结果中的 data 字段。"""
+def _tool_result_data_map(fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """提取工具结果中的 data 字段。"""
     data = fields.get("data")
     return data if isinstance(data, dict) else {}
 
 
-def _native_result_items(fields: dict[str, typing.Any]) -> list[dict[str, typing.Any]]:
-    """提取 broadcast 包装内的原生工具结果项。"""
-    data = _native_broadcast_data(fields)
-    results = data.get("results")
-    if not isinstance(results, list):
-        return []
-    return [item for item in results if isinstance(item, dict)]
-
-
-def _native_result_failed(item: dict[str, typing.Any]) -> bool:
-    """判断原生工具结果项是否表示失败。"""
-    if item.get("ok") is False:
-        return True
-    item_data = item.get("data")
-    return isinstance(item_data, dict) and item_data.get("ok") is False
-
-
-def _first_native_result_item(fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """优先取失败结果；没有失败时取第一个原生工具结果。"""
-    items = _native_result_items(fields)
-    if not items:
-        return {}
-    for item in items:
-        if _native_result_failed(item):
-            return item
-    return items[0]
-
-
-def _first_native_result_data(fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """从 broadcast 结果中取出代表性的原生编码执行数据。"""
-    item = _first_native_result_item(fields)
-    if item:
-        item_data = item.get("data")
-        if isinstance(item_data, dict):
-            return item_data
-
-    data = _native_broadcast_data(fields)
-
-    direct_keys = {
-        "ok",
-        "stdout",
-        "stderr",
-        "exit_code"
-    }
-
-    return data if any(key in data for key in direct_keys) else {}
+def _tool_payload(fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """从单次工具结果中取出业务 payload。"""
+    return _tool_result_data_map(fields)
 
 
 def _promote_if_present(
@@ -199,28 +156,19 @@ def normalize_tool_result_fields(
     if not isinstance(fields, dict):
         return fields
 
-    payload = _first_native_result_data(fields)
+    payload = _tool_payload(fields)
     if not payload:
         return fields
 
     normalized = dict(fields)
 
-    data = _native_broadcast_data(fields)
-    item = _first_native_result_item(fields)
+    if isinstance(fields.get("ok"), bool):
+        normalized["ok"] = fields["ok"]
 
-    if isinstance(data.get("ok"), bool):
-        normalized["ok"] = data["ok"]
-    elif isinstance(payload.get("ok"), bool):
-        normalized["ok"] = payload["ok"]
+    normalized["tool"] = str(fields.get("tool") or name)
 
-    normalized["tool"] = str(data.get("tool") or name)
-
-    if item.get("agent_id"):
-        normalized["agent_id"] = item["agent_id"]
-
-    summary = data.get("summary")
-    if isinstance(summary, dict):
-        normalized["result_summary"] = summary
+    if fields.get("target"):
+        normalized["target"] = fields["target"]
 
     _promote_if_present(normalized, payload, _COMMON_PROMOTED_RESULT_KEYS)
 
@@ -268,6 +216,7 @@ def _server_output_fields(event: dict[str, typing.Any]) -> typing.Union[str, dic
     if isinstance(data, dict):
         text = event.get("text")
         return {
+            "ok"          : bool(event["ok"]) if isinstance(event.get("ok"), bool) else True,
             "text"        : str(text) if text is not None else "",
             "attachments" : event.get("attachments") if isinstance(event.get("attachments"), list) else [],
             "data"        : data
@@ -278,6 +227,7 @@ def _server_output_fields(event: dict[str, typing.Any]) -> typing.Union[str, dic
         return str(text)
 
     return {
+        "ok"          : bool(event["ok"]) if isinstance(event.get("ok"), bool) else True,
         "text"        : "tool.output received",
         "attachments" : [],
         "data"        : {}
@@ -301,6 +251,10 @@ def _server_output_dict_fields(
         elif any(key in fields for key in ("ok", "stdout", "stderr", "exit_code", "results")):
             fields["data"] = dict(fields)
 
+    for key in ("ok", "tool", "args", "target"):
+        if key not in fields and key in event:
+            fields[key] = event[key]
+
     if "attachments" not in fields and isinstance(event.get("attachments"), list):
         fields["attachments"] = event.get("attachments")
 
@@ -317,9 +271,6 @@ def _server_output_ok(
     if isinstance(fields, dict):
         if isinstance(fields.get("ok"), bool):
             return bool(fields["ok"])
-        data = fields.get("data")
-        if isinstance(data, dict) and isinstance(data.get("ok"), bool):
-            return bool(data["ok"])
 
     return True
 

@@ -178,12 +178,14 @@ class Enhancer(object):
                         return parsed
 
             return {
+                "ok"          : True,
                 "text"        : fields,
                 "attachments" : [],
                 "data"        : {}
             }
 
         return {
+            "ok"          : True,
             "text"        : str(fields),
             "attachments" : [],
             "data"        : {}
@@ -204,17 +206,30 @@ class Enhancer(object):
                 normalized.append(item.to_dict())
 
         ok_raw = element.get("ok")
-        data   = element.get("data")
-
-        ok = ok_raw if isinstance(ok_raw, bool) else (
-            bool(data.get("ok")) if isinstance(data, dict) else False
-        )
+        ok = ok_raw if isinstance(ok_raw, bool) else False
 
         return {
             "ok"          : ok,
             "text"        : str(element.get("text") or ""),
             "attachments" : normalized
         }
+
+    @staticmethod
+    def tool_data(fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        """提取工具结果的结构化 data。"""
+        data = fields.get("data")
+        return data if isinstance(data, dict) else {}
+
+    @staticmethod
+    def tool_payload(fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        """提取单次工具结果中的业务载荷。"""
+        return Enhancer.tool_data(fields)
+
+    @staticmethod
+    def tool_target(fields: dict[str, typing.Any], payload: dict[str, typing.Any]) -> str:
+        """提取单次工具结果对应的目标标识。"""
+        target = fields.get("target") or payload.get("serial") or fields.get("tool")
+        return str(target or "default")
 
     @staticmethod
     async def upload_local(
@@ -271,78 +286,6 @@ class Enhancer(object):
 
         return attachments, uploads
 
-    async def __upload_tool_result(
-        self,
-        result: CallToolResult,
-        *,
-        bucket: str,
-        missing_text: str,
-        success_text: str,
-        partial_text: str
-    ) -> dict[str, typing.Any]:
-        """处理带附件产物的工具结果并汇总上传状态。"""
-        attachments: list[dict[str, typing.Any]] = []
-
-        fields = self.fields_map(result)
-
-        if not (results := fields.get("data", {}).get("results")):
-            return {
-                "text"        : missing_text,
-                "attachments" : attachments,
-                "data"        : {"ok": False, "upload_ok": False, "per_agent": {}, "fields": fields}
-            }
-
-        per_agent: dict[str, typing.Any] = {}
-
-        for element in results:
-            agent_id = element.get("agent_id", "unknown")
-
-            uploaded_attachments, payload = await self.__upload_tool_element(
-                element, agent_id, bucket=bucket
-            )
-            attachments.extend(uploaded_attachments)
-            per_agent[agent_id] = payload
-
-        ok = all(v.get("ok") for v in per_agent.values()) if per_agent else False
-
-        return {
-            "text"        : success_text if ok else partial_text,
-            "attachments" : attachments,
-            "data": {
-                "ok"        : ok,
-                "upload_ok" : ok,
-                "per_agent" : per_agent
-            }
-        }
-
-    async def __upload_tool_element(
-        self,
-        element: dict[str, typing.Any],
-        agent_id: str,
-        *,
-        bucket: str
-    ) -> tuple[list[dict[str, typing.Any]], dict[str, typing.Any]]:
-        """处理单个 agent 结果中的本地附件上传。"""
-        normalized = self.normalize_element(element)
-
-        if not normalized["ok"]:
-            return [], {
-                "ok"      : False,
-                "uploads" : [{"ok": False, "error": normalized["text"]}]
-            }
-
-        uploaded_attachments, uploads = await self.upload_attachments(
-            normalized["attachments"], agent_id, bucket=bucket
-        )
-
-        if not uploads:
-            uploads = [{"ok": False, "error": "missing uploadable attachments"}]
-
-        return uploaded_attachments, {
-            "ok"      : all(item.get("ok") for item in uploads),
-            "uploads" : uploads
-        }
-
     async def enhance(
         self,
         name: str,
@@ -379,6 +322,78 @@ class Enhancer(object):
 
         return fields
 
+    async def __upload_tool_result(
+        self,
+        result: CallToolResult,
+        *,
+        bucket: str,
+        missing_text: str,
+        success_text: str,
+        partial_text: str
+    ) -> dict[str, typing.Any]:
+        """处理带附件产物的工具结果并汇总上传状态。"""
+        attachments: list[dict[str, typing.Any]] = []
+
+        fields  = self.fields_map(result)
+        payload = self.tool_payload(fields)
+
+        if not payload and not fields.get("attachments"):
+            return {
+                "ok"          : False,
+                "text"        : missing_text,
+                "attachments" : attachments,
+                "data"        : {"upload_ok": False, "fields": fields}
+            }
+
+        target = self.tool_target(fields, payload)
+        element = dict(fields)
+        element["data"] = payload
+
+        uploaded_attachments, upload_payload = await self.__upload_tool_element(
+            element, target, bucket=bucket
+        )
+        attachments.extend(uploaded_attachments)
+        ok = bool(upload_payload.get("ok"))
+
+        return {
+            "ok"          : ok,
+            "text"        : success_text if ok else partial_text,
+            "target"      : target,
+            "attachments" : attachments,
+            "data": {
+                "upload_ok" : ok,
+                "uploads"   : upload_payload.get("uploads", [])
+            }
+        }
+
+    async def __upload_tool_element(
+        self,
+        element: dict[str, typing.Any],
+        agent_id: str,
+        *,
+        bucket: str
+    ) -> tuple[list[dict[str, typing.Any]], dict[str, typing.Any]]:
+        """处理单个 agent 结果中的本地附件上传。"""
+        normalized = self.normalize_element(element)
+
+        if not normalized["ok"]:
+            return [], {
+                "ok"      : False,
+                "uploads" : [{"ok": False, "error": normalized["text"]}]
+            }
+
+        uploaded_attachments, uploads = await self.upload_attachments(
+            normalized["attachments"], agent_id, bucket=bucket
+        )
+
+        if not uploads:
+            uploads = [{"ok": False, "error": "missing uploadable attachments"}]
+
+        return uploaded_attachments, {
+            "ok"      : all(item.get("ok") for item in uploads),
+            "uploads" : uploads
+        }
+
     async def __nexus(
         self,
         result: CallToolResult,
@@ -406,62 +421,64 @@ class Enhancer(object):
 
         attachments: list[dict[str, typing.Any]] = []
 
-        if not (results := fields.get("data", {}).get("results")):
+        payload = self.tool_payload(fields)
+        if not payload:
             return {
+                "ok"          : False,
                 "text"        : "未获取到提示词（自由规则）的结果",
                 "attachments" : attachments,
-                "data"        : {"ok": False}
+                "data"        : {}
             }
-
-        per_agent: dict[str, typing.Any] = {}
 
         if slog:
             await slog.open()
 
         try:
-            for element in results:
-                agent_id = element.get("agent_id", "unknown")
+            message = payload.get("message")
+            context = payload.get("context") or {}
 
-                message = element.get("data", {}).get("message")
-                context = element.get("data", {}).get("context") or {}
+            ok = True
+            error: typing.Optional[dict[str, typing.Any]] = None
+            chunks: list[str] = []
+            async for rule_event in request.stream_rule(
+                self.mode, self.pref_config, message, context, self.metadata
+            ):
+                if rule_event.get("type") == "turn.failed":
+                    ok = False
+                    error = rule_event
+                    continue
+                if rule_event.get("type") not in {"text.delta", "text.done"}:
+                    continue
 
-                chunks: list[str] = []
-                async for rule_event in request.stream_rule(
-                    self.mode, self.pref_config, message, context, self.metadata
-                ):
-                    if rule_event.get("type") == "turn.failed":
-                        per_agent[agent_id] = {"ok": False, "message": message, "error": rule_event}
-                        continue
-                    if rule_event.get("type") not in {"text.delta", "text.done"}:
-                        continue
-
-                    chunk = str(rule_event.get("text") or "")
-                    if not chunk:
-                        continue
-                    chunks.append(chunk)
-                    if slog:
-                        await slog.feed(chunk, display_chunk=StreamUI.STREAM)
-
-                per_agent[agent_id] = {"ok": True, "message": message, "chunks": chunks}
-
-            ok = all(v.get("ok") for v in per_agent.values()) if per_agent else False
+                chunk = str(rule_event.get("text") or "")
+                if not chunk:
+                    continue
+                chunks.append(chunk)
+                if slog:
+                    await slog.feed(chunk, display_chunk=StreamUI.STREAM)
 
             return {
+                "ok"          : ok,
                 "text"        : "free rule completed",
                 "attachments" : attachments,
                 "data": {
-                    "ok"        : ok,
-                    "mode"      : self.mode,
-                    "api"       : self.pref_config.get("api"),
-                    "model"     : self.pref_config.get("model"),
-                    "per_agent" : per_agent
+                    "mode"    : self.mode,
+                    "api"     : self.pref_config.get("api"),
+                    "model"   : self.pref_config.get("model"),
+                    "message" : message,
+                    "chunks"  : chunks,
+                    "error"   : error
                 }
             }
         finally:
             if slog:
                 await slog.stop()
 
-    async def __artifact_upload(self, name: str, result: CallToolResult) -> dict:
+    async def __artifact_upload(
+        self,
+        name: str,
+        result: CallToolResult
+    ) -> dict:
         """按工具名称选择附件上传配置。"""
         specs = {
             "ffmpeg_extract_snapshot": {
@@ -510,80 +527,92 @@ class Enhancer(object):
         heal_status = await Api.heal_license() or {}
         if not heal_status.get("enabled", False):
             return {
+                "ok"          : False,
                 "text"        : "远程元素自愈服务暂不可用",
                 "attachments" : attachments,
-                "data"        : {"ok": False, "fields": fields_map}
+                "data"        : {"fields": fields_map}
             }
 
-        if not (results := fields_map.get("data", {}).get("results")):
+        payload = self.tool_payload(fields_map)
+        if not payload:
             return {
+                "ok"          : False,
                 "text"        : "未获取到设备结果",
                 "attachments" : attachments,
-                "data"        : {"ok": False, "fields": fields_map}
+                "data"        : {"fields": fields_map}
             }
 
-        per_agent: dict[str, dict[str, typing.Any]] = {}
+        target = self.tool_target(fields_map, payload)
 
-        async def collect_heal_matrix() -> dict[str, dict[str, typing.Any]]:
-            """收集各设备的自愈定位矩阵。"""
-            for element in results:
-                data   = element["data"]
-                serial = data.pop("serial", "unknown")
+        async def collect_heal_locator() -> tuple[
+            typing.Optional[dict[str, typing.Any]],
+            dict[str, typing.Any]
+        ]:
+            """收集单个目标的自愈定位结果。"""
+            data = dict(payload)
+            data.pop("serial", None)
 
-                async for heal_event in request.stream_heal(
-                    self.pref_config,
-                    **data,
-                    slog=slog
-                ):
-                    if heal_event.get("type") == "heal.failed":
-                        per_agent[serial] = {"ok": False, "error": heal_event.get("error")}
-                        continue
+            result_data: dict[str, typing.Any] = {}
 
-                    if heal_event.get("type") != "heal.result":
-                        continue
+            async for heal_event in request.stream_heal(self.pref_config, **data, slog=slog):
+                if heal_event.get("type") == "heal.failed":
+                    result_data.update({
+                        "target" : target,
+                        "error"  : heal_event.get("error")
+                    })
+                    continue
 
-                    heal_result = heal_event.get("result")
-                    if not isinstance(heal_result, dict):
-                        continue
+                if heal_event.get("type") != "heal.result":
+                    continue
 
-                    reason = (heal_result.get("details") or {}).get("reason", "unknown")
+                heal_result = heal_event.get("result")
+                if not isinstance(heal_result, dict):
+                    continue
 
-                    if serial not in per_agent:
-                        selector = ((heal_result.get("new_selector") or {}).get("primary") or {})
-                        locator = {
-                            "by": selector.get("by"),
-                            "value": selector.get("value")
-                        }
-                        per_agent[serial] = {"ok": True, "locator": locator, "reason": reason}
+                reason   = (heal_result.get("details") or {}).get("reason", "unknown")
+                selector = ((heal_result.get("new_selector") or {}).get("primary") or {})
 
-                    if slog:
-                        await slog.update_heal_status_summary(reason)
-                        await slog.feed(reason, display=StreamUI.BLOCK)
+                heal_locator = {
+                    "by"    : selector.get("by"),
+                    "value" : selector.get("value")
+                }
+                result_data.update({
+                    "target"  : target,
+                    "locator" : heal_locator,
+                    "reason"  : reason
+                })
 
-            return {k: v["locator"] for k, v in per_agent.items() if v.get("locator")}
+                if slog:
+                    await slog.update_heal_status_summary(reason)
+                    await slog.feed(reason, display=StreamUI.BLOCK)
+                return heal_locator, result_data
+
+            return None, result_data
 
         if slog:
             await slog.begin_heal_status()
 
         try:
-            matrix = await collect_heal_matrix()
-
+            locator, heal_result_data = await collect_heal_locator()
         finally:
             if slog:
                 await slog.end_status()
 
-        if not matrix:
+        if not locator:
             return {
+                "ok"          : False,
                 "text"        : "元素定位失败",
+                "target"      : target,
                 "attachments" : attachments,
-                "data"        : {"ok": False, "per_agent": per_agent}
+                "data"        : heal_result_data
             }
 
-        ok = all(v.get("ok") for v in per_agent.values()) if per_agent else False
         return {
-            "text"        : "元素定位成功" if ok else "元素定位完成（存在失败）",
+            "ok"          : True,
+            "text"        : "元素定位成功",
+            "target"      : target,
             "attachments" : attachments,
-            "data"        : {"ok": ok, "per_agent": per_agent}
+            "data"        : heal_result_data
         }
 
     async def __loop_steps(
@@ -600,40 +629,26 @@ class Enhancer(object):
 
         fields = self.fields_map(result)
 
-        results: list[
-            dict[str, typing.Any]
-        ] = fields.get("data", {}).get("results", []) if isinstance(fields, dict) else []
-
-        payload: typing.Optional[dict[str, typing.Any]] = None
-
-        if not results or not isinstance(results, list):
+        payload = self.tool_payload(fields)
+        if not payload:
             return {
-                "text"        : "loop_steps: missing structured results",
+                "ok"          : False,
+                "text"        : "loop_steps: missing structured payload",
                 "attachments" : [],
-                "data"        : {"ok": False},
+                "data"        : {},
                 "logs"        : []
             }
 
-        for element in results:
-            if isinstance(element, dict) and isinstance(data := element.get("data"), dict):
-                payload = data
-                break
+        declaration_ok = bool(fields.get("ok")) if isinstance(fields.get("ok"), bool) else False
 
-        if not isinstance(payload, dict):
-            return {
-                "text"        : "loop_steps: missing payload in results[].data",
-                "attachments" : [],
-                "data"        : {"ok": False},
-                "logs"        : []
-            }
-
-        if not payload.get("ok", False):
+        if not declaration_ok:
             errs = payload.get("errors") or []
             text = (
                 f"loop_steps: invalid declaration\n"
                 f"errors={'; '.join([str(x) for x in errs[:8]])}" if errs else ""
             )
             return {
+                "ok"          : False,
                 "text"        : text,
                 "attachments" : [],
                 "data"        : payload | {"executed": False},
@@ -647,6 +662,7 @@ class Enhancer(object):
 
         if not steps or not isinstance(steps, list):
             return {
+                "ok"          : False,
                 "text"        : "loop_steps: empty steps",
                 "attachments" : [],
                 "data"        : payload | {"executed": False},
@@ -655,6 +671,7 @@ class Enhancer(object):
 
         if any(isinstance(step, dict) and (step.get("tool") == "loop_steps") for step in steps):
             return {
+                "ok"          : False,
                 "text"        : "loop_steps: nested loop_steps forbidden (runner guard)",
                 "attachments" : [],
                 "data"        : payload | {"executed": False},
@@ -738,10 +755,10 @@ class Enhancer(object):
 
         try:
             return {
+                "ok"          : final_ok,
                 "text"        : "\n".join(brief),
                 "attachments" : attachments,
                 "data": {
-                    "ok"           : final_ok,
                     "executed"     : True,
                     "loops"        : loops,
                     "steps"        : steps,

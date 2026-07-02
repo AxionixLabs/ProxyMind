@@ -211,19 +211,23 @@ class ShellBatchTools(NativeCodingComponent):
                         result = await self._shell_command.shell_command(**args)
                     else:
                         result = {
-                            "text"        : "shell command item not allowed",
-                            "attachments" : [],
-                            "data"        : {"ok": False, "tool": tool, "error": "tool_not_allowed"},
-                            "logs"        : []
+                            "ok": False,
+                            "text": "shell command item not allowed",
+                            "attachments": [],
+                            "data": {
+                                "item_tool" : tool,
+                                "error"     : "tool_not_allowed"
+                            },
+                            "logs": []
                         }
             except Exception as exc:
                 result = {
+                    "ok": False,
                     "text": "shell command item error",
                     "attachments": [],
                     "data": {
-                        "ok"    : False,
-                        "tool"  : tool,
-                        "error" : f"{type(exc).__name__}: {exc}"
+                        "item_tool" : tool,
+                        "error"     : f"{type(exc).__name__}: {exc}"
                     },
                     "logs": []
                 }
@@ -232,7 +236,7 @@ class ShellBatchTools(NativeCodingComponent):
                 "index"  : index,
                 "tool"   : tool,
                 "args"   : args,
-                "ok"     : bool((result.get("data") or {}).get("ok")) if isinstance(result, dict) else False,
+                "ok"     : bool(result.get("ok")) if isinstance(result, dict) else False,
                 "result" : result
             }
 
@@ -248,7 +252,6 @@ class ShellBatchTools(NativeCodingComponent):
         all_ok        = bool(results) and fail_count == 0
 
         data: dict[str, typing.Any] = {
-            "ok"              : all_ok,
             "mode"            : "batch",
             "requested_count" : requested_count,
             "total"           : len(results),
@@ -270,6 +273,7 @@ class ShellBatchTools(NativeCodingComponent):
         )
 
         return {
+            "ok"          : all_ok,
             "text"        : text,
             "attachments" : [],
             "data"        : data,

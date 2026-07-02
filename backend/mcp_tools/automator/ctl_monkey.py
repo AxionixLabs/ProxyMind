@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
-from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.mcp_hub.hub_monkey import Monkey
 from backend.mcp_tools.automator.schemas.schema_app import ActivityArg
@@ -23,17 +21,17 @@ from backend.mcp_tools.automator.schemas.schema_monkey import (
     TouchPctArg
 )
 from backend.mcp_tools.shared import (
-    MatrixArg,
-    PackageArg
+    PackageArg,
+    SerialArg
 )
 from backend.middlewares.mid_task import task_middleware
+from backend.utilities.tool_result import build_tool_result
 from backend.utilities.runtime import (
     AppContext, Idle
 )
-from backend.utilities.broadcast import broadcast
 
 
-def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> None:
+def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
 
     @mcp.tool(
         description=(
@@ -62,8 +60,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         guard_miss_threshold: GuardMissThresholdArg = 1,
         guard_action: GuardActionArg = "observe",
         saved: MonkeySavedPathArg = None,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "package"               : package,
             "seed"                  : seed,
@@ -81,19 +80,15 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
             "saved"                 : saved
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
-                return await sess.status(query_reason="already_running")
-            monkey = Monkey(device=device, idle=idle)
-            return await monkey.start(**a)
+        device = manage.resolve(serial)
 
-        return await broadcast(
-            tool="monkey_start",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
+            raw = await sess.status(query_reason="already_running")
+        else:
+            monkey = Monkey(device=device, idle=idle)
+            raw = await monkey.start(**args)
+
+        return build_tool_result(tool="monkey_start", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -104,21 +99,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
     )
     @task_middleware("monkey_status")
     async def monkey_status(
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
 
-        async def call(device: Device, *_) -> typing.Any:
-            if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
-                return await sess.status()
-            return Monkey.recent_pack(device.serial)
+        device = manage.resolve(serial)
 
-        return await broadcast(
-            tool="monkey_status",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
+            raw = await sess.status()
+        else:
+            raw = Monkey.recent_pack(device.serial)
+
+        return build_tool_result(tool="monkey_status", args={}, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -129,13 +120,14 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
     )
     @task_middleware("monkey_stop")
     async def monkey_stop(
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
 
-        async def call(device: Device, *_) -> typing.Any:
-            if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
-                return await sess.stop()
+        device = manage.resolve(serial)
 
+        if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
+            raw = await sess.stop()
+        else:
             remote_pack = await device.monkey_stop()
             remote_data = dict(remote_pack.get("data") or {})
             recent_pack = Monkey.recent_pack(device.serial, query_reason="no_active_session")
@@ -146,15 +138,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
                 f"{recent_pack.get('text') or '未找到活跃或最近一次 monkey 会话。'}"
                 " 已额外向设备发送 monkey 停止命令。"
             )
-            return recent_pack
+            raw = recent_pack
 
-        return await broadcast(
-            tool="monkey_stop",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="monkey_stop", args={}, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -165,33 +151,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
     )
     @task_middleware("monkey_clear")
     async def monkey_clear(
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
 
-        async def call(device: Device, *_) -> typing.Any:
-            if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
-                return await sess.status(query_reason="session_active_clear_blocked")
+        device = manage.resolve(serial)
 
-            cleared = Monkey.clear_recent(device.serial)
-            return {
-                "text"        : "Monkey 最近一次结果已清理。" if cleared else "未找到可清理的 monkey 最近结果。",
-                "attachments" : [],
-                "data": {
-                    "ok"      : True,
-                    "serial"  : device.serial,
-                    "cleared" : bool(cleared),
-                    "reason"  : "cleared" if cleared else "no_recent_result"
-                },
-                "logs": []
-            }
+        if sess := await idle.session_get_handle(f"monkey:{device.serial}"):
+            raw = await sess.status(query_reason="session_active_clear_blocked")
+        else:
+            raw = Monkey.clear_recent_pack(device.serial)
 
-        return await broadcast(
-            tool="monkey_clear",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="monkey_clear", args={}, raw=raw, target=device.serial)
 
 
 if __name__ == '__main__':

@@ -180,10 +180,10 @@ class Memrix(object):
             if self.is_start.is_set():
                 logger.info(f"[{self.prefix}] engine startup ok pid={self.__transports.pid}")
                 return {
+                    "ok"          : True,
                     "text"        : f"{self.agent_id.capitalize()}启动成功。",
                     "attachments" : [],
                     "data": {
-                        "ok"     : True,
                         "events" : self.tool_events.get(self.agent_id, {}),
                         "token"  : self.token
                     },
@@ -201,10 +201,10 @@ class Memrix(object):
                     f"rc={self.__transports.returncode} recent_logs={list(self.out_ring)}"
                 )
                 return {
+                    "ok"          : False,
                     "text"        : f"{self.agent_id.capitalize()}启动失败：进程提前退出。",
                     "attachments" : [],
                     "data": {
-                        "ok"         : False,
                         "result"     : "\n".join(map(str, list(self.out_ring))),
                         "events"     : self.tool_events.get(self.agent_id, {}),
                         "returncode" : self.__transports.returncode
@@ -219,10 +219,10 @@ class Memrix(object):
         )
 
         return {
+            "ok"          : False,
             "text"        : f"{self.agent_id.capitalize()}启动超时。",
             "attachments" : [],
             "data": {
-                "ok"     : False,
                 "result" : "\n".join(map(str, list(self.out_ring))),
                 "events" : self.tool_events.get(self.agent_id, {})
             },
@@ -278,10 +278,10 @@ class Memrix(object):
         cur_token = token or self.token
         if not cur_token:
             return {
+                "ok"          : False,
                 "text"        : f"{self.agent_id.capitalize()}结束失败：token为空。",
                 "attachments" : [],
                 "data": {
-                    "ok"     : False,
                     "events" : self.tool_events.get(self.agent_id, {})
                 },
                 "logs": []
@@ -301,10 +301,10 @@ class Memrix(object):
         )
 
         return {
+            "ok"          : True,
             "text"        : f"{self.agent_id.capitalize()}已结束。",
             "attachments" : [],
             "data": {
-                "ok"     : True,
                 "events" : self.tool_events.get(self.agent_id, {})
             },
             "logs": []
@@ -329,10 +329,10 @@ class Memrix(object):
         self.scene = time.strftime("%Y%m%d%H%M%S")
 
         return {
+            "ok"          : True,
             "text"        : f"{self.agent_id.capitalize()}报告任务完成。",
             "attachments" : [],
             "data": {
-                "ok"     : True,
                 "begin"  : begin.get("data", {}),
                 "events" : self.tool_events.get(self.agent_id, {})
             },
@@ -356,10 +356,10 @@ class Memrix(object):
         self.scene = time.strftime("%Y%m%d%H%M%S")
 
         return {
+            "ok"          : True,
             "text"        : f"{self.agent_id.capitalize()}报告任务完成。",
             "attachments" : [],
             "data": {
-                "ok"     : True,
                 "begin"  : begin.get("data", {}),
                 "events" : self.tool_events.get(self.agent_id, {}),
             },

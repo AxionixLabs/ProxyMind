@@ -185,10 +185,10 @@ class FFmpeg(object):
         attachments = [self.attach_of(out_p)] if ok else []
 
         return {
+            "ok"          : ok,
             "text"        : f"ffmpeg_extract_snapshot {'ok' if ok else 'ERROR'} output={out_p}",
             "attachments" : attachments,
             "data": {
-                "ok"           : ok,
                 "output_dir"   : str(out_dir),
                 "output_file"  : out_p,
                 "at_sec"       : float(at_sec),
@@ -271,13 +271,13 @@ class FFmpeg(object):
         ok = len(attachments) > 0
 
         return {
+            "ok": ok,
             "text": (
                 f"ffmpeg_extract_frames {'ok' if ok else 'ERROR'} "
                 f"frames={len(attachments)} out_dir={out_dir}"
             ),
             "attachments": attachments,
             "data": {
-                "ok"           : ok,
                 "output_dir"   : str(out_dir),
                 "pattern"      : pat,
                 "image_format" : str(image_format),
@@ -370,13 +370,13 @@ class FFmpeg(object):
         ok = len(attachments) > 0
 
         return {
+            "ok": ok,
             "text": (
                 f"ffmpeg_extract_keyframes {'ok' if ok else 'ERROR'} "
                 f"frames={len(attachments)} out_dir={out_dir}"
             ),
             "attachments" : attachments,
             "data": {
-                "ok"           : ok,
                 "output_dir"   : str(out_dir),
                 "count"        : len(attachments),
                 "duration_sec" : float(duration),
@@ -467,13 +467,13 @@ class FFmpeg(object):
         ok = len(attachments) > 0
 
         return {
+            "ok": ok,
             "text": (
                 f"ffmpeg_extract_scene {'ok' if ok else 'ERROR'} "
                 f"frames={len(attachments)} out_dir={out_dir}"
             ),
             "attachments": attachments,
             "data": {
-                "ok"           : ok,
                 "output_dir"   : str(out_dir),
                 "count"        : len(attachments),
                 "scene_th"     : scene_th,
@@ -570,10 +570,10 @@ class FFmpeg(object):
         attachments = [self.attach_of(out_p)] if ok else []
 
         return {
+            "ok"          : ok,
             "text"        : f"ffmpeg_trim_video {'ok' if ok else 'ERROR'} output={out_p}",
             "attachments" : attachments,
             "data": {
-                "ok"            : ok,
                 "output_dir"    : str(out_dir),
                 "output_file"   : out_p,
                 "input_video"   : input_video,
@@ -659,10 +659,10 @@ class FFmpeg(object):
         attachments = [self.attach_of(out_p)] if ok else []
 
         return {
+            "ok"          : ok,
             "text"        : f"ffmpeg_scale_video {'ok' if ok else 'ERROR'} output={out_p}",
             "attachments" : attachments,
             "data": {
-                "ok"            : ok,
                 "output_dir"    : str(out_dir),
                 "output_file"   : out_p,
                 "input_video"   : input_video,
@@ -739,10 +739,10 @@ class FFmpeg(object):
         attachments = [self.attach_of(out_p)] if ok else []
 
         return {
+            "ok"          : ok,
             "text"        : f"ffmpeg_convert_video {'ok' if ok else 'ERROR'} output={out_p}",
             "attachments" : attachments,
             "data": {
-                "ok"            : ok,
                 "output_dir"    : str(out_dir),
                 "output_file"   : out_p,
                 "input_video"   : input_video,
@@ -818,10 +818,10 @@ class FFmpeg(object):
         attachments = [self.attach_of(out_p)] if ok else []
 
         return {
+            "ok"          : ok,
             "text"        : f"ffmpeg_concat_video {'ok' if ok else 'ERROR'} output={out_p}",
             "attachments" : attachments,
             "data": {
-                "ok"            : ok,
                 "output_dir"    : str(out_dir),
                 "output_file"   : out_p,
                 "list_file"     : list_file,
@@ -888,10 +888,10 @@ class FFmpeg(object):
         attachments = [self.attach_of(out_p)] if ok else []
 
         return {
+            "ok"          : ok,
             "text"        : f"ffmpeg_remux_video {'ok' if ok else 'ERROR'} output={out_p}",
             "attachments" : attachments,
             "data": {
-                "ok"            : ok,
                 "output_dir"    : str(out_dir),
                 "output_file"   : out_p,
                 "input_video"   : input_video,
@@ -946,10 +946,10 @@ class FFmpeg(object):
         attachments = [self.attach_of(out_p)] if ok else []
 
         return {
+            "ok"          : ok,
             "text"        : f"ffmpeg_mute_video {'ok' if ok else 'ERROR'} output={out_p}",
             "attachments" : attachments,
             "data": {
-                "ok"            : ok,
                 "output_dir"    : str(out_dir),
                 "output_file"   : out_p,
                 "input_video"   : input_video,
@@ -988,10 +988,10 @@ class FFmpeg(object):
             resp = await self.switch(cmd)
         except Exception as e:
             return {
+                "ok"          : False,
                 "text"        : f"ffmpeg_probe_video ERROR {type(e).__name__}: {e}",
                 "attachments" : [],
                 "data": {
-                    "ok"           : False,
                     "input_file"   : input_file,
                     "duration_sec" : None,
                     "error"        : f"{type(e).__name__}: {e}"
@@ -1015,10 +1015,10 @@ class FFmpeg(object):
         ok = duration_sec is not None
 
         return {
+            "ok"          : ok,
             "text"        : f"ffmpeg_probe_video {'ok' if ok else 'done'} duration_sec={duration_sec}",
             "attachments" : [],
             "data": {
-                "ok"           : ok,
                 "input_file"   : input_file,
                 "duration_sec" : duration_sec,
                 "raw"          : (resp or "").strip()
@@ -1075,10 +1075,10 @@ class FFmpeg(object):
         attachments = [self.attach_of(out_p)] if ok else []
 
         return {
+            "ok"          : ok,
             "text"        : f"ffmpeg_extract_audio {'ok' if ok else 'ERROR'} output={out_p}",
             "attachments" : attachments,
             "data": {
-                "ok"           : ok,
                 "output_dir"   : str(out_dir),
                 "output_file"  : out_p,
                 "audio_format" : str(audio_format),
@@ -1144,10 +1144,10 @@ class FFmpeg(object):
         attachments = [self.attach_of(out_p)] if ok else []
 
         return {
+            "ok"          : ok,
             "text"        : f"ffmpeg_replace_audio {'ok' if ok else 'ERROR'} output={out_p}",
             "attachments" : attachments,
             "data": {
-                "ok"            : ok,
                 "output_dir"    : str(out_dir),
                 "output_file"   : out_p,
                 "input_video"   : input_video,
@@ -1221,10 +1221,10 @@ class FFmpeg(object):
         attachments = [self.attach_of(out_p)] if ok else []
 
         return {
+            "ok"          : ok,
             "text"        : f"ffmpeg_convert_audio {'ok' if ok else 'ERROR'} output={out_p}",
             "attachments" : attachments,
             "data": {
-                "ok"            : ok,
                 "output_dir"    : str(out_dir),
                 "output_file"   : out_p,
                 "input_file"    : input_file,
@@ -1245,7 +1245,7 @@ class Player(object):
 
     # workflow: ==== MCP Tool ====
     @staticmethod
-    async def audio_play(audio_file: str, volume: float = 1.0, *_, **__) -> None:
+    async def audio_play(audio_file: str, volume: float = 1.0, *_, **__) -> dict[str, typing.Any]:
         marked.ensure_f(
             audio_file, "audio_file 为空，无法播放，请传入有效的本地音频文件路径（如 .mp3/.wav）。"
         )
@@ -1260,6 +1260,17 @@ class Player(object):
 
             while pygame.mixer.music.get_busy():
                 await asyncio.sleep(0.1)
+
+            return {
+                "ok"          : True,
+                "text"        : f"audio_play ok file={audio_file}",
+                "attachments" : [],
+                "data": {
+                    "audio_file" : audio_file,
+                    "volume"     : volume_update
+                },
+                "logs": []
+            }
 
         except (pygame.error, OSError, ValueError) as e:
             logger.error(e)

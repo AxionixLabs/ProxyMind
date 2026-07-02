@@ -142,10 +142,6 @@ def _result_payload(data: typing.Any) -> dict[str, typing.Any]:
             if isinstance(item_data, dict):
                 return item_data
 
-    nested = data.get("data")
-    if isinstance(nested, dict):
-        return nested
-
     return data
 
 

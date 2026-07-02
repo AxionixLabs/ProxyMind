@@ -7,10 +7,10 @@ from backend.mcp_hub.hub_manage import DeviceManage
 from backend.mcp_tools.automator.schemas.schema_zest import RefreshTtlArg
 from backend.middlewares.mid_task import task_middleware
 from backend.utilities.runtime import AppContext
-from backend.utilities.broadcast import broadcast
+from backend.utilities.tool_result import build_tool_result
 
 
-def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
+def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
 
     @mcp.tool(
         description=(
@@ -21,21 +21,16 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
         meta={"hidden": False, "domain": "device", "class": "tool"}
     )
     @task_middleware("refresh")
-    async def refresh(ttl_sec: RefreshTtlArg = 1.0) -> CallToolResult:
+    async def refresh(
+        ttl_sec: RefreshTtlArg = 1.0
+    ) -> CallToolResult:
+
         args = {
             "ttl_sec" : ttl_sec
         }
 
-        async def call(*_) -> dict:
-            return await manage.refresh_summary(ttl_sec)
-
-        return await broadcast(
-            tool="refresh",
-            args=args,
-            target_list=[None],
-            call=call,
-            overrides=None
-        )
+        raw = await manage.refresh_summary(ttl_sec)
+        return build_tool_result(tool="refresh", args=args, raw=raw)
 
 
 if __name__ == '__main__':

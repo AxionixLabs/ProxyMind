@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
-from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import (
     DeviceManage, Requires
 )
@@ -14,12 +12,12 @@ from backend.mcp_tools.media.schemas.schema_screen import (
     RecordFpsArg,
     SilenceArg
 )
-from backend.mcp_tools.shared import MatrixArg
+from backend.mcp_tools.shared import SerialArg
 from backend.middlewares.mid_task import task_middleware
+from backend.utilities.tool_result import build_tool_result
 from backend.utilities.runtime import (
     AppContext, Idle
 )
-from backend.utilities.broadcast import broadcast
 
 
 def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> None:
@@ -28,38 +26,34 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         description=(
             "为目标设备启动一次 scrcpy 镜像会话。"
             "该工具只负责打开镜像会话，不负责收束；后续应调用 `scrcpy_close` 结束会话。"
-            "多设备执行时每台设备都会建立独立会话。"
+            "多设备连接时应通过 `serial` 指定目标设备。"
         ),
         meta={"hidden": False, "domain": "media", "class": "scrcpy"}
     )
     @task_middleware("scrcpy_mirror")
     async def scrcpy_mirror(
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
 
         version = await Requires.connect_scrcpy()
 
-        async def call(device: Device, *_) -> typing.Any:
-            record: Record = Record(
-                device=device,
-                idle=idle,
-                version=version,
-            )
-            return await record.scrcpy_mirror()
+        device = manage.resolve(serial)
 
-        return await broadcast(
-            tool="scrcpy_mirror",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
+        record = Record(
+            device=device,
+            idle=idle,
+            version=version,
         )
+
+        raw = await record.scrcpy_mirror()
+
+        return build_tool_result(tool="scrcpy_mirror", args={}, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
             "为目标设备启动一次 scrcpy 录屏会话。"
             "该工具只负责开始录制并返回会话信息；后续应调用 `scrcpy_close` 收束录制并释放资源。"
-            "多设备执行时每台设备会生成独立视频文件，`directory` 作为保存目录或基准路径使用。"
+            "多设备连接时应通过 `serial` 指定目标设备。"
         ),
         meta={"hidden": False, "domain": "media", "class": "scrcpy"}
     )
@@ -68,7 +62,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         directory: RecordDirectoryArg = None,
         fps: RecordFpsArg = 60,
         silence: SilenceArg = False,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
 
         version = await Requires.connect_scrcpy()
@@ -79,24 +73,19 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
             "silence"   : silence
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            record: Record = Record(
-                device=device,
-                idle=idle,
-                version=version,
-            )
-            mm_resp = await record.scrcpy_record(**a)
-            if video_temp := mm_resp.get("data", {}).get("path"):
-                await ctx.video_list_append(video_temp)
-            return mm_resp
+        device = manage.resolve(serial)
 
-        return await broadcast(
-            tool="scrcpy_record",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
+        record = Record(
+            device=device,
+            idle=idle,
+            version=version,
         )
+
+        raw = await record.scrcpy_record(**args)
+        if video_temp := raw.data.get("path"):
+            await ctx.video_list_append(video_temp)
+
+        return build_tool_result(tool="scrcpy_record", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -108,30 +97,16 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
     )
     @task_middleware("scrcpy_close")
     async def scrcpy_close(
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
 
-        async def call(device: Device, *_) -> typing.Any:
-            if not (sess := await idle.session_get_handle(f"scrcpy:{device.serial}")):
-                return {
-                    "text"        : "未找到活跃的 scrcpy 会话，无需关闭。",
-                    "attachments" : [],
-                    "data": {
-                        "ok"     : True,
-                        "serial" : device.serial,
-                        "reason" : "no_active_session",
-                    },
-                    "logs": []
-                }
-            return await sess.scrcpy_close()
+        device = manage.resolve(serial)
+        if not (sess := await idle.session_get_handle(f"scrcpy:{device.serial}")):
+            raw = Record.no_active_session(device.serial)
+        else:
+            raw = await sess.scrcpy_close()
 
-        return await broadcast(
-            tool="scrcpy_close",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="scrcpy_close", args={}, raw=raw, target=device.serial)
 
 
 if __name__ == '__main__':

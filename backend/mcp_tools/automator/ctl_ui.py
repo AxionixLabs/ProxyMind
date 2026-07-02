@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
-from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.mcp_tools.automator.schemas.schema_ui import (
     CoordArg,
@@ -23,15 +21,15 @@ from backend.mcp_tools.automator.schemas.schema_ui import (
     WaitStateArg,
     WidgetViewArg
 )
-from backend.mcp_tools.shared import MatrixArg
+from backend.mcp_tools.shared import SerialArg
 from backend.middlewares.mid_task import task_middleware
+from backend.utilities.tool_result import build_tool_result
 from backend.utilities.runtime import (
     AppContext, Idle
 )
-from backend.utilities.broadcast import broadcast
 
 
-def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> None:
+def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
 
     @mcp.tool(
         description=(
@@ -47,8 +45,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         x: CoordArg,
         y: CoordArg,
         duration: DurationArg = 300,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "direction" : direction,
             "x"         : x,
@@ -56,16 +55,10 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
             "duration"  : duration
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.scroll(**a)
+        device = manage.resolve(serial)
+        raw = await device.scroll(**args)
 
-        return await broadcast(
-            tool="scroll",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="scroll", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -78,26 +71,22 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
     @task_middleware("scroll_to_edge")
     async def scroll_to_edge(
         edge: EdgeArg,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "edge" : edge
         }
 
-        async def call(device: Device, a: dict) -> dict:
-            job_id = await idle.job_begin(f"ui.scroll_to_edge.{a.get('edge')}", args=a)
-            try:
-                return await device.scroll_to_edge(**a)
-            finally:
-                await idle.job_final(job_id)
+        device = manage.resolve(serial)
 
-        return await broadcast(
-            tool="scroll_to_edge",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        job_id = await idle.job_begin(f"ui.scroll_to_edge.{args.get('edge')}", args=args)
+        try:
+            raw = await device.scroll_to_edge(**args)
+        finally:
+            await idle.job_final(job_id)
+
+        return build_tool_result(tool="scroll_to_edge", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -117,8 +106,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         timeout: TimeoutArg = 12.0,
         max_swipes: MaxSwipesArg = 12,
         should_click: ShouldClickArg = False,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "by"           : by,
             "value"        : value,
@@ -130,16 +120,10 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
             "should_click" : should_click
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.scroll_into_view(**a)
+        device = manage.resolve(serial)
+        raw = await device.scroll_into_view(**args)
 
-        return await broadcast(
-            tool="scroll_into_view",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="scroll_into_view", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -155,8 +139,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         value: LocatorValueArg,
         match: MatchModeArg = "eq",
         ignore_case: IgnoreCaseArg = False,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "by"          : by,
             "value"       : value,
@@ -164,16 +149,10 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
             "ignore_case" : ignore_case
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.click(**a)
+        device = manage.resolve(serial)
+        raw = await device.click(**args)
 
-        return await broadcast(
-            tool="click",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="click", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -187,23 +166,18 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
     async def double_click(
         x: CoordArg,
         y: CoordArg,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "x" : x,
             "y" : y
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.double_click(**a)
+        device = manage.resolve(serial)
+        raw = await device.double_click(**args)
 
-        return await broadcast(
-            tool="double_click",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="double_click", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -216,22 +190,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
     @task_middleware("input_text")
     async def input_text(
         text: InputTextArg,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "text" : text
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.input_text(**a)
+        device = manage.resolve(serial)
+        raw = await device.input_text(**args)
 
-        return await broadcast(
-            tool="input_text",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="input_text", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -243,18 +212,12 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
     )
     @task_middleware("clear_text")
     async def clear_text(
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.clear_text()
+        device = manage.resolve(serial)
+        raw = await device.clear_text()
 
-        return await broadcast(
-            tool="clear_text",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="clear_text", args={}, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -266,18 +229,12 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
     )
     @task_middleware("current_focus")
     async def current_focus(
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.current_focus()
+        device = manage.resolve(serial)
+        raw = await device.current_focus()
 
-        return await broadcast(
-            tool="current_focus",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="current_focus", args={}, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -290,22 +247,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
     @task_middleware("current_widgets")
     async def current_widgets(
         view: WidgetViewArg = "all",
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "view" : view
         }
 
-        async def call(device: "Device", a: dict) -> typing.Any:
-            return await device.current_widgets(**a)
+        device = manage.resolve(serial)
+        raw = await device.current_widgets(**args)
 
-        return await broadcast(
-            tool="current_widgets",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="current_widgets", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -321,8 +273,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         value: LocatorValueArg,
         match: MatchModeArg = "eq",
         ignore_case: IgnoreCaseArg = False,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "by"          : by,
             "value"       : value,
@@ -330,16 +283,10 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
             "ignore_case" : ignore_case
         }
 
-        async def call(device: "Device", a: dict) -> typing.Any:
-            return await device.find_element(**a)
+        device = manage.resolve(serial)
+        raw = await device.find_element(**args)
 
-        return await broadcast(
-            tool="find_element",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="find_element", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -351,22 +298,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
     @task_middleware("heal_element")
     async def heal_element(
         locator: LocatorArg,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "locator" : locator
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.heal_element(**a)
+        device = manage.resolve(serial)
+        raw = await device.heal_element(**args)
 
-        return await broadcast(
-            tool="heal_element",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="heal_element", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -384,8 +326,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         ignore_case: IgnoreCaseArg = False,
         timeout: TimeoutArg = 10.0,
         state: WaitStateArg = "exists",
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "by"          : by,
             "value"       : value,
@@ -395,16 +338,10 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
             "state"       : state
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.wait_element(**a)
+        device = manage.resolve(serial)
+        raw = await device.wait_element(**args)
 
-        return await broadcast(
-            tool="wait_element",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="wait_element", args=args, raw=raw, target=device.serial)
 
 
 if __name__ == '__main__':

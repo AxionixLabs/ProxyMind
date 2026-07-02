@@ -190,42 +190,44 @@ class ShellCommandTools(NativeCodingComponent):
             timeout_sec=timeout_sec
         )
         if not policy["ok"]:
-            result = {
-                "text": "shell_command blocked by execution policy",
-                "attachments": [],
-                "data": {
-                    "ok": False,
-                    "command": cmd,
-                    "risk": policy.get("risk"),
-                    "category": policy.get("category"),
-                    "risk_signals": policy.get("reasons") or [],
-                    "approval_required": bool(policy.get("approval_required")),
-                    "project_types": policy.get("project_types") or [],
-                    "execution_target": policy.get("execution_target"),
-                    "requires_cloud_sandbox": bool(policy.get("requires_cloud_sandbox")),
-                    "execution": policy.get("execution"),
-                    "grant_id": policy.get("grant_id"),
-                    "error": "execution_policy_blocked"
-                },
-                "logs": []
+            data = {
+                "command": cmd,
+                "risk": policy.get("risk"),
+                "category": policy.get("category"),
+                "risk_signals": policy.get("reasons") or [],
+                "approval_required": bool(policy.get("approval_required")),
+                "project_types": policy.get("project_types") or [],
+                "execution_target": policy.get("execution_target"),
+                "requires_cloud_sandbox": bool(policy.get("requires_cloud_sandbox")),
+                "execution": policy.get("execution"),
+                "grant_id": policy.get("grant_id"),
+                "error": "execution_policy_blocked"
             }
-            self._record_shell_result(result.get("data") or {})
+            result = {
+                "ok"          : False,
+                "text"        : "shell_command blocked by execution policy",
+                "attachments" : [],
+                "data"        : data,
+                "logs"        : []
+            }
+            self._record_shell_result(data)
             return result
 
         workdir = self.resolve_path(cwd)
         if not workdir.is_dir():
-            result = {
-                "text": "shell_command cwd is not a directory",
-                "attachments": [],
-                "data": {
-                    "ok": False,
-                    "cwd": cwd,
-                    "command": cmd,
-                    "error": "cwd_not_directory"
-                },
-                "logs": []
+            data = {
+                "cwd": cwd,
+                "command": cmd,
+                "error": "cwd_not_directory"
             }
-            self._record_shell_result(result.get("data") or {})
+            result = {
+                "ok"          : False,
+                "text"        : "shell_command cwd is not a directory",
+                "attachments" : [],
+                "data"        : data,
+                "logs"        : []
+            }
+            self._record_shell_result(data)
             return result
 
         if policy.get("execution_target") == "cloud_sandbox":
@@ -320,7 +322,6 @@ class ShellCommandTools(NativeCodingComponent):
             f"cmd={summarize_command(cmd)}"
         )
         data = {
-            "ok": ok,
             "command": cmd,
             "resolved_command": exec_cmd,
             "cwd": self.relative_path(workdir),
@@ -357,6 +358,7 @@ class ShellCommandTools(NativeCodingComponent):
         self._record_shell_result(data)
 
         return {
+            "ok"          : ok,
             "text"        : f"shell_command {'ok' if ok else 'failed'} exit_code={exit_code} elapsed_ms={elapsed_ms}",
             "attachments" : [],
             "data"        : data,

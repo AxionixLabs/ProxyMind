@@ -30,7 +30,7 @@
 适合处理设备动作、多媒体证据链和端侧执行收束。
 
 - [设备域实战](playbook.device.md)  
-  适合看设备能力分层、多设备广播模型和稳定执行建议。
+  适合看设备能力分层、`serial` 设备选择和稳定执行建议。
 - [Playwright 外接工具实战](playbook.playwright.md)  
   适合看 --xtra 下浏览器协作、页面取证、交互动作和网络诊断。
 - [DBHub 外接工具实战](playbook.dbhub.md)  

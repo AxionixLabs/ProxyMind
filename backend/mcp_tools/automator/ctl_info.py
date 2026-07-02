@@ -1,51 +1,44 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
-from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import DeviceManage
+from backend.utilities.tool_result import build_tool_result
 from backend.mcp_tools.automator.schemas.schema_info import (
     PackageKeywordArg,
     PackageScopeArg,
     ScreenshotLocalArg
 )
-from backend.mcp_tools.shared import MatrixArg
+from backend.mcp_tools.shared import SerialArg
 from backend.middlewares.mid_task import task_middleware
 from backend.utilities.runtime import AppContext
-from backend.utilities.broadcast import broadcast
 
 
-def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
+def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
 
     @mcp.tool(
         description=(
             "采集设备当前状态快照，包括基础属性、联网状态、屏幕状态和电量等信息。"
             " 该工具只做观测，不会修改设备状态。"
-            " 多设备场景下逐台并发采集，单台失败不会阻断其他设备。"
+            " 多设备场景下应通过 `serial` 指定目标设备。"
         ),
         meta={"hidden": False, "domain": "device", "class": "info"}
     )
     @task_middleware("device_snapshot")
     async def device_snapshot(
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.device_snapshot()
 
-        return await broadcast(
-            tool="device_snapshot",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        device = manage.resolve(serial)
+        raw = await device.device_snapshot()
+
+        return build_tool_result(tool="device_snapshot", args={}, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
             "截取设备当前屏幕并返回本地附件路径。"
-            " 提供 `local` 时会作为保存目录或基准路径使用，多设备执行时会按 serial 区分文件名。"
+            " 提供 `local` 时会作为保存目录或基准路径使用。"
             " 设备不可用、截图失败或目标路径不可写时调用会失败。"
         ),
         meta={"hidden": False, "domain": "device", "class": "info"}
@@ -53,22 +46,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     @task_middleware("screenshot")
     async def screenshot(
         local: ScreenshotLocalArg = None,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "local" : local
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.screenshot(**a)
+        device = manage.resolve(serial)
+        raw = await device.screenshot(**args)
 
-        return await broadcast(
-            tool="screenshot",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="screenshot", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -82,23 +70,18 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     async def grep_packages(
         keyword: PackageKeywordArg = None,
         scope: PackageScopeArg = "user",
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "keyword" : keyword,
             "scope"   : scope
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.grep_packages(**a)
+        device = manage.resolve(serial)
+        raw = await device.grep_packages(**args)
 
-        return await broadcast(
-            tool="grep_packages",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="grep_packages", args=args, raw=raw, target=device.serial)
 
 
 if __name__ == '__main__':

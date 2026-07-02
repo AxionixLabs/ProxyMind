@@ -15,7 +15,7 @@ from backend.mcp_tools.coding.schemas.schema_native import (
 from backend.utilities.runtime import (
     AppContext, Idle
 )
-from backend.utilities.broadcast import broadcast
+from backend.utilities.tool_result import build_tool_result
 
 
 def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
@@ -43,20 +43,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "execution" : execution
         }
 
-        async def call(*_) -> dict:
-            job_id = await idle.job_begin("native_coding.shell_command.batch", args=args)
-            try:
-                return await ctx.native_coding.shell_command(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin("native_coding.shell_command.batch", args=args)
+        try:
+            raw = await ctx.native_coding.shell_command(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="shell_command",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="shell_command", args=args, raw=raw, target=ctx.native_coding.agent_id)
 
     @mcp.tool(
         description=(
@@ -81,16 +74,9 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "force"           : force
         }
 
-        async def call(*_) -> dict:
-            return ctx.native_coding.apply_patch(**args)
+        raw = ctx.native_coding.apply_patch(**args)
 
-        return await broadcast(
-            tool="apply_patch",
-            args=args,
-            target_list=[ctx.native_coding],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="apply_patch", args=args, raw=raw, target=ctx.native_coding.agent_id)
 
 
 if __name__ == '__main__':

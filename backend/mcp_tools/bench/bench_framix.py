@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.mcp_hub.hub_manage import Requires
@@ -15,7 +14,7 @@ from backend.mcp_tools.bench.schemas.schema_framix import (
 from backend.utilities.runtime import (
     AppContext, Idle
 )
-from backend.utilities.broadcast import broadcast
+from backend.utilities.tool_result import build_tool_result
 
 
 def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
@@ -43,20 +42,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "scale" : scale
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.framix.agent_id}.fx_frame_analysis", args=args)
-            try:
-                return await ctx.framix.fx_frame_analysis(video, total, scale)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.framix.agent_id}.fx_frame_analysis", args=args)
+        try:
+            raw = await ctx.framix.fx_frame_analysis(video, total, scale)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="fx_frame_analysis",
-            args=args,
-            target_list=[ctx.framix],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="fx_frame_analysis", args=args, raw=raw, target=ctx.framix.agent_id)
 
     @mcp.tool(
         description=(
@@ -84,20 +76,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "scale" : scale
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.framix.agent_id}.fx_frame_analyzer", args=args)
-            try:
-                return await ctx.framix.fx_frame_analyzer(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.framix.agent_id}.fx_frame_analyzer", args=args)
+        try:
+            raw = await ctx.framix.fx_frame_analyzer(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="fx_frame_analyzer",
-            args=args,
-            target_list=[ctx.framix],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="fx_frame_analyzer", args=args, raw=raw, target=ctx.framix.agent_id)
 
     @mcp.tool(
         description=(
@@ -108,7 +93,9 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         meta={"hidden": False, "domain": "bench", "class": "framix"}
     )
     @task_middleware("fx_frame_reporter")
-    async def fx_frame_reporter(total: ReportDirArg = None) -> CallToolResult:
+    async def fx_frame_reporter(
+        total: ReportDirArg = None
+    ) -> CallToolResult:
 
         await Requires.connect_framix()
 
@@ -116,20 +103,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "total" : total
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.framix.agent_id}.fx_frame_reporter", args=args)
-            try:
-                return await ctx.framix.fx_frame_reporter()
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.framix.agent_id}.fx_frame_reporter", args=args)
+        try:
+            raw = await ctx.framix.fx_frame_reporter()
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="fx_frame_reporter",
-            args=args,
-            target_list=[ctx.framix],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="fx_frame_reporter", args=args, raw=raw, target=ctx.framix.agent_id)
 
 
 if __name__ == '__main__':

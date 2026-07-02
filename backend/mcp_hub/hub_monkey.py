@@ -13,6 +13,7 @@ from backend.mcp_hub.hub_device import Device
 from backend.models.model_base import Attachment
 from backend.utilities.storage.output import mk_out_dir
 from backend.utilities.process import Flux
+from backend.utilities.tool_result import ToolOutput
 from backend.utilities import const
 
 if typing.TYPE_CHECKING:
@@ -40,114 +41,82 @@ _PATTERNS: dict[str, list[str]] = {
 
 
 class Monkey(object):
-    """Monkey 长任务入口。"""
+    """管理单设备 monkey 长任务会话。"""
 
     recent_runs: typing.ClassVar[dict[str, dict[str, typing.Any]]] = {}
 
     def __init__(self, device: Device, idle: "Idle"):
+        """初始化 monkey 会话状态。"""
         self.device: Device = device
-        self.idle: "Idle" = idle
-        self.agent_id: str = "monkey"
+        self.idle: "Idle"   = idle
+        self.agent_id: str  = "monkey"
 
         self.release_lock: asyncio.Lock = asyncio.Lock()
-        self.done_event: asyncio.Event = asyncio.Event()
+        self.done_event: asyncio.Event  = asyncio.Event()
 
         self.proc_logcat: typing.Optional[asyncio.subprocess.Process] = None
         self.proc_monkey: typing.Optional[asyncio.subprocess.Process] = None
+
         self.task_logcat: typing.Optional[asyncio.Task[None]] = None
         self.task_monkey: typing.Optional[asyncio.Task[None]] = None
         self.task_runner: typing.Optional[asyncio.Task[None]] = None
-        self.task_guard: typing.Optional[asyncio.Task[None]] = None
+        self.task_guard: typing.Optional[asyncio.Task[None]]  = None
 
         self.session_id: typing.Optional[str] = None
-        self.status_text: str = "idle"
-        self.stop_requested: bool = False
-        self.finalized: bool = False
+        self.status_text: str                 = "idle"
+        self.stop_requested: bool             = False
+        self.finalized: bool                  = False
 
-        self.start_ms: typing.Optional[int] = None
-        self.end_ms: typing.Optional[int] = None
+        self.start_ms: typing.Optional[int]    = None
+        self.end_ms: typing.Optional[int]      = None
         self.return_code: typing.Optional[int] = None
-        self.error: typing.Optional[str] = None
+        self.error: typing.Optional[str]       = None
+
         self.remote_stop: typing.Optional[dict[str, typing.Any]] = None
+
         self.logcat_saved: typing.Optional[str] = None
-        self.logcat_summary: int = 0
-        self.logcat_count: int = 0
+        self.logcat_summary: int                = 0
+        self.logcat_count: int                  = 0
+
         self.result_reason: typing.Optional[str] = None
 
-        self.config: dict[str, typing.Any] = {}
-        self.cmd_monkey: list[str] = []
+        self.config: dict[str, typing.Any]            = {}
+        self.cmd_monkey: list[str]                    = []
         self.attachments: list[dict[str, typing.Any]] = []
 
         self.guard_miss_count: int = 0
-        self.guard_hit_count: int = 0
+        self.guard_hit_count: int  = 0
+
         self.guard_last_focus: dict[str, typing.Any] = {"package": None, "activity": None, "raw": ""}
-        self.guard_last_ok_ms: typing.Optional[int] = None
+
+        self.guard_last_ok_ms: typing.Optional[int]   = None
         self.guard_last_miss_ms: typing.Optional[int] = None
+
         self.guard_armed: bool = False
+
         self.guard_grace_until_ms: typing.Optional[int] = None
         self.guard_trigger_reason: typing.Optional[str] = None
+
         self.foreground_lost_count: int = 0
 
-        self.events_done: int = 0
-        self.events_remaining: int = 0
-        self.segment_index: int = 0
-        self.segment_target_events: int = 0
+        self.events_done: int             = 0
+        self.events_remaining: int        = 0
+        self.segment_index: int           = 0
+        self.segment_target_events: int   = 0
         self.segment_observed_events: int = 0
         self.segment_reported_events: int = 0
-        self.segment_start_done: int = 0
+        self.segment_start_done: int      = 0
+
         self.segment_stop_requested: bool = False
+
         self.tail: deque[str] = deque(maxlen=500)
         self.stats: dict[str, int] = {key: 0 for key in _PATTERNS}
         self.evidence: dict[str, deque[str]] = {key: deque(maxlen=10) for key in _PATTERNS}
 
     @property
     def session_key(self) -> str:
+        """返回当前设备的会话键。"""
         return f"{self.agent_id}:{self.device.serial}"
-
-    def session_args(
-        self,
-        extra: typing.Mapping[str, typing.Any] | None = None
-    ) -> dict[str, typing.Any]:
-        return {
-            "serial" : self.device.serial,
-            "brand"  : self.device.device_props.get("brand"),
-            **dict(extra or {})
-        }
-
-    @classmethod
-    def recent_pack(
-        cls,
-        serial: str,
-        *,
-        query_reason: typing.Optional[str] = None
-    ) -> dict[str, typing.Any]:
-        if item := cls.recent_runs.get(serial):
-            data = dict(item.get("data") or {})
-            if query_reason:
-                data["query_reason"] = query_reason
-            return {
-                "text"        : item.get("text") or "Monkey 最近一次结果已返回。",
-                "attachments" : list(item.get("attachments") or []),
-                "data"        : data,
-                "logs"        : list(item.get("logs") or [])
-            }
-
-        return {
-            "text"        : "未找到活跃或最近一次 monkey 会话。",
-            "attachments" : [],
-            "data": {
-                "ok"           : True,
-                "serial"       : serial,
-                "status"       : "idle",
-                "reason"       : None,
-                "query_reason" : query_reason or "no_session"
-            },
-            "logs": []
-        }
-
-    @classmethod
-    def clear_recent(cls, serial: str) -> bool:
-        return cls.recent_runs.pop(serial, None) is not None
 
     @staticmethod
     def _build_monkey_config(
@@ -162,6 +131,7 @@ class Monkey(object):
         activity: typing.Optional[str],
         saved: typing.Optional[str]
     ) -> dict[str, typing.Any]:
+        """构造 monkey 基础配置。"""
         return {
             "package"     : package,
             "activity"    : activity,
@@ -183,6 +153,7 @@ class Monkey(object):
         guard_miss_threshold: int,
         guard_action: str
     ) -> dict[str, typing.Any]:
+        """构造前台守护配置。"""
         guard_action = str(guard_action or "observe").strip().lower()
         if guard_action not in {"observe", "stop", "fail"}:
             guard_action = "observe"
@@ -195,68 +166,93 @@ class Monkey(object):
             "guard_action"          : guard_action,
         }
 
-    def reset(self) -> None:
-        self.done_event.clear()
-        self.proc_logcat = None
-        self.proc_monkey = None
-        self.task_logcat = None
-        self.task_monkey = None
-        self.task_runner = None
-        self.task_guard  = None
-
-        self.session_id     = None
-        self.status_text    = "starting"
-        self.stop_requested = False
-        self.finalized      = False
-
-        self.start_ms       = int(time.time() * 1000)
-        self.end_ms         = None
-        self.return_code    = None
-        self.error          = None
-        self.remote_stop    = None
-        self.logcat_saved   = None
-        self.logcat_summary = 0
-        self.logcat_count   = 0
-        self.result_reason  = None
-
-        self.config      = {}
-        self.cmd_monkey  = []
-        self.attachments = []
-
-        self.guard_miss_count      = 0
-        self.guard_hit_count       = 0
-        self.guard_last_focus      = {"package": None, "activity": None, "raw": ""}
-        self.guard_last_ok_ms      = None
-        self.guard_last_miss_ms    = None
-        self.guard_armed           = False
-        self.guard_grace_until_ms  = None
-        self.guard_trigger_reason  = None
-        self.foreground_lost_count = 0
-
-        self.events_done      = 0
-        self.events_remaining = 0
-
-        self.segment_index           = 0
-        self.segment_target_events   = 0
-        self.segment_observed_events = 0
-        self.segment_reported_events = 0
-        self.segment_start_done      = 0
-        self.segment_stop_requested  = False
-
-        self.tail.clear()
-        self.stats = {key: 0 for key in _PATTERNS}
-        self.evidence = {key: deque(maxlen=10) for key in _PATTERNS}
-
-    def matcher(self, text: str) -> typing.Optional[str]:
-        for key, keywords in _PATTERNS.items():
-            for keyword in keywords:
-                if keyword in text:
-                    self.stats[key] += 1
-                    self.evidence[key].append(text)
-                    return key
+    @staticmethod
+    async def shutdown_proc(
+        proc: typing.Optional[asyncio.subprocess.Process],
+        *,
+        term_timeout: float = 1.0,
+        kill_timeout: float = 2.0
+    ) -> typing.Optional[int]:
+        """按超时策略关闭子进程。"""
+        if not proc or proc.returncode is not None:
+            return None
+        try:
+            proc.terminate()
+        except ProcessLookupError:
+            return None
+        try:
+            return await asyncio.wait_for(proc.wait(), timeout=term_timeout)
+        except asyncio.TimeoutError:
+            pass
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            return None
+        with contextlib.suppress(asyncio.TimeoutError):
+            return await asyncio.wait_for(proc.wait(), timeout=kill_timeout)
         return None
 
+    @classmethod
+    def recent_pack(
+        cls,
+        serial: str,
+        *,
+        query_reason: typing.Optional[str] = None
+    ) -> dict[str, typing.Any]:
+        """返回指定设备最近一次结果。"""
+        if item := cls.recent_runs.get(serial):
+            data = dict(item.get("data") or {})
+            if query_reason:
+                data["query_reason"] = query_reason
+            return {
+                "ok"          : bool(item.get("ok")),
+                "text"        : item.get("text") or "Monkey 最近一次结果已返回。",
+                "attachments" : list(item.get("attachments") or []),
+                "data"        : data,
+                "logs"        : list(item.get("logs") or [])
+            }
+
+        return {
+            "ok"          : True,
+            "text"        : "未找到活跃或最近一次 monkey 会话。",
+            "attachments" : [],
+            "data": {
+                "serial"       : serial,
+                "status"       : "idle",
+                "reason"       : None,
+                "query_reason" : query_reason or "no_session"
+            },
+            "logs": []
+        }
+
+    @classmethod
+    def clear_recent(
+        cls,
+        serial: str
+    ) -> bool:
+        """清理指定设备最近一次结果。"""
+        return cls.recent_runs.pop(serial, None) is not None
+
+    @classmethod
+    def clear_recent_pack(
+        cls,
+        serial: str
+    ) -> ToolOutput:
+        """清理最近一次结果并返回统一结果。"""
+        cleared = cls.clear_recent(serial)
+
+        return ToolOutput(
+            ok=True,
+            text="Monkey 最近一次结果已清理。" if cleared else "未找到可清理的 monkey 最近结果。",
+            data={
+                "serial"  : serial,
+                "cleared" : bool(cleared),
+                "reason"  : "cleared" if cleared else "no_recent_result"
+            }
+        )
+
     def _snapshot_timing(self) -> tuple[bool, bool, int]:
+        """计算当前快照的状态与耗时。"""
         now_ms = int(time.time() * 1000)
         end_ms = self.end_ms or now_ms
 
@@ -269,10 +265,10 @@ class Monkey(object):
         return ok, running, duration_ms
 
     def snapshot_data(self) -> dict[str, typing.Any]:
+        """返回当前会话状态快照。"""
         ok, running, duration_ms = self._snapshot_timing()
 
         data = {
-            "ok"                 : ok,
             "active"             : running,
             "done"               : bool(self.finalized),
             "status"             : self.status_text,
@@ -334,16 +330,93 @@ class Monkey(object):
             data["logcat_count"] = self.logcat_count
         return data
 
+    def reset(self) -> None:
+        """重置会话运行状态。"""
+        self.done_event.clear()
+        self.proc_logcat = None
+        self.proc_monkey = None
+        self.task_logcat = None
+        self.task_monkey = None
+        self.task_runner = None
+        self.task_guard  = None
+
+        self.session_id     = None
+        self.status_text    = "starting"
+        self.stop_requested = False
+        self.finalized      = False
+
+        self.start_ms       = int(time.time() * 1000)
+        self.end_ms         = None
+        self.return_code    = None
+        self.error          = None
+        self.remote_stop    = None
+        self.logcat_saved   = None
+        self.logcat_summary = 0
+        self.logcat_count   = 0
+        self.result_reason  = None
+
+        self.config      = {}
+        self.cmd_monkey  = []
+        self.attachments = []
+
+        self.guard_miss_count      = 0
+        self.guard_hit_count       = 0
+        self.guard_last_focus      = {"package": None, "activity": None, "raw": ""}
+        self.guard_last_ok_ms      = None
+        self.guard_last_miss_ms    = None
+        self.guard_armed           = False
+        self.guard_grace_until_ms  = None
+        self.guard_trigger_reason  = None
+        self.foreground_lost_count = 0
+
+        self.events_done      = 0
+        self.events_remaining = 0
+
+        self.segment_index           = 0
+        self.segment_target_events   = 0
+        self.segment_observed_events = 0
+        self.segment_reported_events = 0
+        self.segment_start_done      = 0
+        self.segment_stop_requested  = False
+
+        self.tail.clear()
+        self.stats = {key: 0 for key in _PATTERNS}
+        self.evidence = {key: deque(maxlen=10) for key in _PATTERNS}
+
+    def matcher(self, text: str) -> typing.Optional[str]:
+        """匹配日志文本中的异常模式。"""
+        for key, keywords in _PATTERNS.items():
+            for keyword in keywords:
+                if keyword in text:
+                    self.stats[key] += 1
+                    self.evidence[key].append(text)
+                    return key
+        return None
+
+    def session_args(
+        self,
+        extra: typing.Mapping[str, typing.Any] | None = None
+    ) -> dict[str, typing.Any]:
+        """构造会话参数。"""
+        return {
+            "serial" : self.device.serial,
+            "brand"  : self.device.device_props.get("brand"),
+            **dict(extra or {})
+        }
+
     def build_pack(
         self,
         text: str,
         *,
         query_reason: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
+        """构造统一结果字典。"""
+        ok, _, _ = self._snapshot_timing()
         data = self.snapshot_data()
         if query_reason:
             data["query_reason"] = query_reason
         return {
+            "ok"          : ok,
             "text"        : text,
             "attachments" : list(self.attachments),
             "data"        : data,
@@ -351,10 +424,13 @@ class Monkey(object):
         }
 
     def remember_recent(self, text: str) -> None:
+        """记录当前设备最近一次结果。"""
         self.recent_runs[self.device.serial] = self.build_pack(text)
 
     def build_monkey_cmd(self, events: int) -> list[str]:
+        """构造 monkey 命令参数。"""
         package = str(self.config.get("package") or "").strip()
+
         return [
             "adb", "-s", self.device.serial, "shell", "monkey", "-p", package,
             "-s", str(self.config.get("seed")),
@@ -372,34 +448,16 @@ class Monkey(object):
         ]
 
     def reset_guard_window(self) -> None:
+        """重置前台守护宽限窗口。"""
         now_ms   = int(time.time() * 1000)
         grace_ms = int(float(self.config.get("guard_startup_grace_s") or 0.0) * 1000)
 
-        self.guard_miss_count = 0
-        self.guard_last_miss_ms = None
+        self.guard_miss_count     = 0
+        self.guard_last_miss_ms   = None
         self.guard_grace_until_ms = now_ms + grace_ms
 
-    def mark_foreground_ok(
-        self,
-        focus: typing.Optional[dict[str, typing.Any]] = None,
-    ) -> None:
-        now_ms = int(time.time() * 1000)
-        package = str(self.config.get("package") or "").strip()
-        if focus:
-            self.guard_last_focus = {
-                "package"  : focus.get("package"),
-                "activity" : focus.get("activity"),
-                "raw"      : focus.get("raw", ""),
-            }
-        elif not self.guard_last_focus.get("package"):
-            self.guard_last_focus = {"package": package, "activity": None, "raw": ""}
-        self.guard_hit_count += 1
-        self.guard_miss_count = 0
-        self.guard_last_ok_ms = now_ms
-        self.guard_armed = True
-        self.reset_guard_window()
-
     def handle_monkey_output(self, text: str) -> None:
+        """处理 monkey 输出中的进度信息。"""
         if matched := _PROGRESS_RE.search(text):
             self.segment_reported_events = min(
                 self.segment_target_events,
@@ -411,11 +469,15 @@ class Monkey(object):
             )
             self.tail.append(f"[monkey.progress] reported={total_done}/{self.config.get('events')}")
             return None
+
         if not _EVENT_LINE_RE.match(text):
             return None
+
         if self.segment_observed_events >= self.segment_target_events:
             return None
+
         self.segment_observed_events += 1
+
         if self.segment_observed_events % 250 == 0:
             total_done = min(
                 int(self.config.get("events") or 0),
@@ -424,12 +486,38 @@ class Monkey(object):
             self.tail.append(f"[monkey.progress] observed={total_done}/{self.config.get('events')}")
 
     def segment_consumed_events(self, rc: typing.Optional[int]) -> int:
+        """计算当前分段已消耗事件数。"""
         consumed = max(self.segment_reported_events, self.segment_observed_events)
         if rc == 0 and not self.segment_stop_requested:
             consumed = max(consumed, self.segment_target_events)
         return max(0, min(self.segment_target_events, consumed))
 
+    def mark_foreground_ok(
+        self,
+        focus: typing.Optional[dict[str, typing.Any]] = None
+    ) -> None:
+        """标记前台检查通过。"""
+        now_ms  = int(time.time() * 1000)
+        package = str(self.config.get("package") or "").strip()
+
+        if focus:
+            self.guard_last_focus = {
+                "package"  : focus.get("package"),
+                "activity" : focus.get("activity"),
+                "raw"      : focus.get("raw", ""),
+            }
+        elif not self.guard_last_focus.get("package"):
+            self.guard_last_focus = {"package": package, "activity": None, "raw": ""}
+        self.guard_hit_count += 1
+
+        self.guard_miss_count = 0
+        self.guard_last_ok_ms = now_ms
+        self.guard_armed      = True
+
+        self.reset_guard_window()
+
     def _resolve_final_state(self) -> None:
+        """根据运行结果更新最终状态。"""
         if self.error:
             self.status_text = "failed"
             self.result_reason = self.result_reason or "runtime_error"
@@ -451,6 +539,7 @@ class Monkey(object):
         self.result_reason = self.result_reason or "monkey_exit_nonzero"
 
     def _build_final_summary(self) -> str:
+        """构造最终摘要文本。"""
         if self.error:
             return f"Monkey 运行失败：{self.error}" + (f" logcat={self.logcat_saved}" if self.logcat_saved else "")
         return (
@@ -478,6 +567,7 @@ class Monkey(object):
         guard_action: str,
         saved: typing.Optional[str]
     ) -> None:
+        """准备启动所需配置。"""
         self.config = {
             **self._build_monkey_config(
                 package=package,
@@ -507,8 +597,11 @@ class Monkey(object):
         current_package: typing.Optional[str],
         now_ms: int
     ) -> None:
+        """记录一次前台守护未命中。"""
         self.guard_armed = True
+
         self.guard_miss_count += 1
+
         self.guard_last_miss_ms = now_ms
         self.tail.append(
             f"[guard.miss] expected={self.config.get('package') or ''} "
@@ -524,6 +617,7 @@ class Monkey(object):
         stop_session: bool = True,
         error: typing.Optional[str] = None
     ) -> None:
+        """按守护策略触发停止流程。"""
         self.tail.append(f"[guard.trigger] action={action}")
         await self.stop_proc(
             reason=reason,
@@ -533,6 +627,7 @@ class Monkey(object):
         )
 
     async def _finalize_artifacts(self) -> None:
+        """收束进程并采集产物。"""
         if self.stop_requested and self.remote_stop is None:
             with contextlib.suppress(Exception):
                 self.remote_stop = await self.stop_remote_monkey()
@@ -540,7 +635,15 @@ class Monkey(object):
         await self.capture_logcat()
         await self.patch_session()
 
+    async def _start_logcat_capture(self) -> None:
+        """在 monkey 启动前开始采集 logcat。"""
+        await self.device.file_logcat_clean()
+        self.proc_logcat = await self.device.file_logcat_link()
+        self.task_logcat = asyncio.create_task(self.reader(self.proc_logcat, "logcat"))
+        await asyncio.sleep(0.2)
+
     async def acquire(self, session_name: str) -> str:
+        """登记当前会话。"""
         self.session_id = await self.idle.session_begin(
             key=self.session_key,
             name=session_name,
@@ -551,6 +654,7 @@ class Monkey(object):
         return self.session_id
 
     async def release(self) -> None:
+        """释放当前会话登记。"""
         async with self.release_lock:
             if self.finalized and self.session_id is None:
                 return None
@@ -565,6 +669,7 @@ class Monkey(object):
         guard_reason: typing.Optional[str] = None,
         stop_session: bool = True
     ) -> None:
+        """停止 monkey 子进程。"""
         if self.finalized:
             return None
         self.segment_stop_requested = True
@@ -582,9 +687,11 @@ class Monkey(object):
         await self.shutdown_proc(self.proc_monkey, term_timeout=2.0, kill_timeout=3.0)
 
     async def patch_session(self) -> None:
+        """更新会话参数快照。"""
         await self.idle.session_patch_args(self.session_key, self.snapshot_data())
 
     async def guard_foreground(self) -> None:
+        """按配置检查目标应用是否保持前台。"""
         package   = str(self.config.get("package") or "").strip()
         interval  = max(0.2, float(self.config.get("guard_interval_s") or 1.0))
         threshold = max(1, int(self.config.get("guard_miss_threshold") or 1))
@@ -653,11 +760,13 @@ class Monkey(object):
             return None
 
     async def reader(self, proc: asyncio.subprocess.Process, name: str) -> None:
+        """读取子进程输出并记录匹配日志。"""
 
         async def pump(
             stream: typing.Optional[typing.AsyncIterable[bytes]],
             stream_name: str
         ) -> None:
+            """读取单个输出流。"""
             if stream is None:
                 return None
             async for line in stream:
@@ -677,32 +786,8 @@ class Monkey(object):
         ]
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    @staticmethod
-    async def shutdown_proc(
-        proc: typing.Optional[asyncio.subprocess.Process],
-        *,
-        term_timeout: float = 1.0,
-        kill_timeout: float = 2.0
-    ) -> typing.Optional[int]:
-        if not proc or proc.returncode is not None:
-            return None
-        try:
-            proc.terminate()
-        except ProcessLookupError:
-            return None
-        try:
-            return await asyncio.wait_for(proc.wait(), timeout=term_timeout)
-        except asyncio.TimeoutError:
-            pass
-        try:
-            proc.kill()
-        except ProcessLookupError:
-            return None
-        with contextlib.suppress(asyncio.TimeoutError):
-            return await asyncio.wait_for(proc.wait(), timeout=kill_timeout)
-        return None
-
     async def finish_active_segment(self) -> None:
+        """收束当前活跃分段任务。"""
         if self.task_guard:
             if not self.task_guard.done():
                 self.task_guard.cancel()
@@ -716,6 +801,7 @@ class Monkey(object):
         self.proc_monkey = None
 
     async def shutdown(self) -> None:
+        """关闭当前会话关联进程与后台任务。"""
         await self.shutdown_proc(self.proc_monkey)
         await self.shutdown_proc(self.proc_logcat)
         await self.finish_active_segment()
@@ -728,31 +814,38 @@ class Monkey(object):
         self.proc_logcat = None
 
     async def stop_remote_monkey(self) -> dict[str, typing.Any]:
+        """向设备发送 monkey 停止命令并返回摘要。"""
         result_pack = await self.device.monkey_stop()
         result_data = dict(result_pack.get("data") or {})
+
         result = {
-            "ok"     : bool(result_data.get("ok")),
+            "ok"     : bool(result_pack.get("ok")),
             "reason" : result_data.get("reason") or "unknown"
         }
         self.tail.append(
             f"[remote.stop] ok={bool(result.get('ok'))} reason={result.get('reason') or 'unknown'}"
         )
+
         return result
 
     async def capture_logcat(self) -> None:
+        """按配置保存 logcat 产物。"""
         saved_root = str(self.config.get("saved") or "").strip()
         if not saved_root:
             return None
         try:
             out_dir = mk_out_dir(saved_root, engine="perf", tool="monkey_logcat")
-            result = await self.device.file_logcat_dump(level="W", saved=str(out_dir))
-            data = dict(result.get("data") or {})
+            result  = await self.device.file_logcat_dump(level="W", saved=str(out_dir))
+            data    = dict(result.get("data") or {})
+
             saved_path = str(data.get("saved") or "").strip()
             if not saved_path:
                 return None
-            self.logcat_saved = saved_path
+
+            self.logcat_saved   = saved_path
             self.logcat_summary = int(data.get("summary") or 0)
-            self.logcat_count = int(data.get("count") or 0)
+            self.logcat_count   = int(data.get("count") or 0)
+
             self.attachments.append(
                 Attachment(
                     kind="file",
@@ -773,6 +866,7 @@ class Monkey(object):
         rc: typing.Optional[int] = None,
         err: typing.Optional[str] = None
     ) -> None:
+        """完成会话收束并记录最终结果。"""
         if self.finalized:
             return None
         self.finalized = True
@@ -788,32 +882,39 @@ class Monkey(object):
         await self.release()
 
     async def launch_segment(self, events: int) -> None:
+        """启动一个 monkey 事件分段。"""
         self.segment_index += 1
-        self.segment_target_events = events
+
+        self.segment_target_events   = events
         self.segment_observed_events = 0
         self.segment_reported_events = 0
-        self.segment_start_done = self.events_done
-        self.segment_stop_requested = False
+        self.segment_start_done      = self.events_done
+        self.segment_stop_requested  = False
+
         self.reset_guard_window()
 
-        self.cmd_monkey = self.build_monkey_cmd(events)
+        self.cmd_monkey  = self.build_monkey_cmd(events)
         self.proc_monkey = await Flux.cmd_link(self.cmd_monkey)
         self.task_monkey = asyncio.create_task(self.reader(self.proc_monkey, "monkey"))
+
         if self.config.get("guard_foreground"):
             self.task_guard = asyncio.create_task(self.guard_foreground())
 
         self.status_text = "running"
+
         self.tail.append(
             f"[monkey.segment] index={self.segment_index} target={events} done={self.events_done}"
         )
         await self.patch_session()
 
     async def runner(self) -> None:
+        """执行 monkey 分段运行循环。"""
         err: typing.Optional[str] = None
         try:
             total_events = max(1, int(self.config.get("events") or 1))
 
             self.events_remaining = max(0, total_events - self.events_done)
+
             self.status_text = "running"
 
             await self.patch_session()
@@ -826,7 +927,8 @@ class Monkey(object):
                 await self.finish_active_segment()
 
                 consumed = self.segment_consumed_events(rc)
-                self.events_done = min(total_events, self.events_done + consumed)
+
+                self.events_done      = min(total_events, self.events_done + consumed)
                 self.events_remaining = max(0, total_events - self.events_done)
 
                 tail = (
@@ -849,13 +951,6 @@ class Monkey(object):
         finally:
             await self.finalize(rc=self.return_code, err=err)
 
-    async def _start_logcat_capture(self) -> None:
-        """Start logcat streaming before monkey launch so evidence covers the full run."""
-        await self.device.file_logcat_clean()
-        self.proc_logcat = await self.device.file_logcat_link()
-        self.task_logcat = asyncio.create_task(self.reader(self.proc_logcat, "logcat"))
-        await asyncio.sleep(0.2)
-
     async def start(
         self,
         package: str,
@@ -873,7 +968,9 @@ class Monkey(object):
         guard_action: str = "observe",
         saved: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
+        """启动 monkey 会话。"""
         self.reset()
+
         self._prepare_start_config(
             package=package,
             seed=seed,
@@ -902,7 +999,9 @@ class Monkey(object):
 
             self.task_runner = asyncio.create_task(self.runner())
             self.status_text = "running"
+
             await self.patch_session()
+
             return self.build_pack(
                 "Monkey 已启动。默认请先用 monkey_status 查询进度，或用 monkey_stop 主动停止。"
             )
@@ -912,6 +1011,7 @@ class Monkey(object):
             return self.build_pack("Monkey 启动失败。")
 
     async def status(self, *, query_reason: typing.Optional[str] = None) -> dict[str, typing.Any]:
+        """返回当前会话状态。"""
         text = (
             "Monkey 正在运行中。"
             if self.status_text in {"starting", "running", "stopping"} else
@@ -920,12 +1020,14 @@ class Monkey(object):
         return self.build_pack(text, query_reason=query_reason)
 
     async def stop(self) -> dict[str, typing.Any]:
+        """停止当前会话。"""
         if self.finalized:
             return await self.status(query_reason="already_finished")
 
         self.stop_requested = True
-        self.result_reason = self.result_reason or "stop_requested"
-        self.status_text = "stopping"
+        self.result_reason  = self.result_reason or "stop_requested"
+        self.status_text    = "stopping"
+
         await self.patch_session()
         await self.shutdown_proc(self.proc_monkey, term_timeout=2.0, kill_timeout=3.0)
 
@@ -936,6 +1038,7 @@ class Monkey(object):
         return self.build_pack("Monkey 已停止。", query_reason="stop_requested")
 
     async def wait(self) -> dict[str, typing.Any]:
+        """等待会话结束并返回最近结果。"""
         await self.done_event.wait()
         return self.recent_pack(self.device.serial)
 

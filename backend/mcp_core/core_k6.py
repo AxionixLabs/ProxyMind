@@ -255,7 +255,6 @@ class K6Base(object):
         text = f"{self.agent_id.upper()} {action}{'完成' if ok else '失败'}。exit_code={exit_code}"
 
         payload = {
-            "ok"                     : ok,
             "command"                : cmd,
             "cwd"                    : cwd,
             "exit_code"              : exit_code,
@@ -269,6 +268,7 @@ class K6Base(object):
 
         result = SemanticResult.from_text(
             text=text,
+            ok=ok,
             attachments=attachments or [],
             data=payload,
             logs=[item for item in [stdout_text, stderr_text] if item]

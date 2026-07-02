@@ -242,11 +242,7 @@ async def static_looper(
                         "ts"      : time.time()
                     })
 
-                    data    = tool_run.data
-                    data_ok = bool(data.get("ok")) if isinstance(data, dict) else False
-
-                    if not ok or not data_ok:
-                        step_context["data_ok"] = data_ok
+                    if not ok:
                         await finish_failure(
                             slog,
                             ev_report,

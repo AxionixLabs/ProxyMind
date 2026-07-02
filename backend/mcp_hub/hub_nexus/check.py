@@ -146,7 +146,7 @@ class CheckService(object):
         data["asserts"] = checked["asserts"]
         data["assert_summary"] = checked["summary"]
         data["assert_ok"] = bool(checked["ok"])
-        data["ok"] = bool(data.get("ok")) and bool(checked["ok"])
+        pack["ok"] = bool(pack.get("ok")) and bool(checked["ok"])
         logs.extend(checked["logs"])
 
         if extract or asserts:

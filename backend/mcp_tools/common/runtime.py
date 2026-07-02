@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
-import asyncio
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.middlewares.mid_task import task_middleware
@@ -13,12 +11,12 @@ from backend.mcp_tools.common.schemas.schema_runtime import (
     StopOnFailArg
 )
 from backend.utilities.runtime import (
-    AppContext, Idle
+    AppContext, Idle, loop_steps_output, sleep_output
 )
-from backend.utilities.broadcast import broadcast
+from backend.utilities.tool_result import build_tool_result
 
 
-def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
+def bind(mcp: FastMCP, idle: Idle, _: AppContext) -> None:
 
     @mcp.tool(
         description=(
@@ -30,24 +28,18 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     )
     @task_middleware("sleep")
     async def sleep(delay: DelayArg) -> CallToolResult:
+
         args = {
             "delay" : delay
         }
 
-        async def call(*_) -> None:
-            job_id = await idle.job_begin(f"runtime.sleep", args=args)
-            try:
-                return await asyncio.sleep(delay)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin("runtime.sleep", args=args)
+        try:
+            raw = await sleep_output(delay)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="sleep",
-            args=args,
-            target_list=[None],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="sleep", args=args, raw=raw)
 
     @mcp.tool(
         description=(
@@ -63,92 +55,20 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         steps: LoopStepsArg,
         stop_on_fail: StopOnFailArg = True
     ) -> CallToolResult:
+
         args = {
             "loops"        : loops,
             "steps"        : steps,
             "stop_on_fail" : stop_on_fail
         }
 
-        async def call(*_) -> dict:
-            max_loops = 50
-            max_steps = 50
-
-            try:
-                loops_i = int(args.get("loops") or 1)
-            except (TypeError, ValueError):
-                loops_i = 1
-            if loops_i < 1: loops_i = 1
-            if loops_i > max_loops: loops_i = max_loops
-
-            stop_on_fail_i = bool(args.get("stop_on_fail", True))
-
-            raw_steps = args.get("steps")
-            if not isinstance(raw_steps, list):
-                raw_steps = []
-
-            if len(raw_steps) > max_steps:
-                raw_steps = raw_steps[:max_steps]
-
-            errors: list[str] = []
-            normalized: list[dict[str, typing.Any]] = []
-
-            if not raw_steps:
-                errors.append("empty steps")
-
-            for idx, step in enumerate(raw_steps):
-                if not isinstance(step, dict):
-                    errors.append(f"steps[{idx}] not dict")
-                    continue
-
-                tool = step.get("tool", "").strip()
-                vals = step.get("args", {})
-
-                if not tool:
-                    errors.append(f"steps[{idx}] missing tool")
-                    continue
-
-                # 禁止嵌套：防递归
-                if tool == "loop_steps":
-                    errors.append(f"steps[{idx}] nested loop_steps forbidden")
-                    continue
-
-                if not isinstance(vals, dict):
-                    errors.append(f"steps[{idx}] args not dict")
-                    vals = {}
-
-                normalized.append({"tool": tool, "args": vals})
-
-            ok = (not errors) and bool(normalized)
-
-            payload = {
-                "ok"           : ok,
-                "executed"     : False,
-                "loops"        : loops_i,
-                "stop_on_fail" : stop_on_fail_i,
-                "steps"        : normalized,
-                "errors"       : errors,
-                "note"         : "declaration_only: runner_executes; per-step device routing via step.args.matrix"
-            }
-
-            text = (
-                f"tool=loop_steps ok={ok} loops={loops_i} steps={len(normalized)} stop_on_fail={stop_on_fail_i}"
-                + (f"\nerrors={'; '.join(errors[:8])}" if errors else "")
-            )
-
-            return {
-                "text"        : text,
-                "attachments" : [],
-                "data"        : payload,
-                "logs"        : []
-            }
-
-        return await broadcast(
-            tool="loop_steps",
-            args=args,
-            target_list=[None],
-            call=call,
-            overrides=None
+        raw = loop_steps_output(
+            loops=loops,
+            steps=steps,
+            stop_on_fail=stop_on_fail
         )
+
+        return build_tool_result(tool="loop_steps", args=args, raw=raw)
 
 
 if __name__ == '__main__':

@@ -18,10 +18,27 @@ from cryptography.hazmat.primitives.ciphers import (
     Cipher, algorithms, modes
 )
 from cryptography.hazmat.primitives import padding as sym_padding
+from backend.utilities.tool_result import ToolOutput
 
 
 class SecurityService(object):
-    """承载安全与签名相关的确定性实现，供 security 工具层做薄适配。"""
+    """提供安全与签名相关的确定性处理能力。"""
+
+    @staticmethod
+    def _result(
+        *,
+        kind: str,
+        output: str,
+        value: typing.Any
+    ) -> ToolOutput:
+        """按统一结构返回安全处理结果。"""
+        data = {"kind": kind, "output": output, "value": value, "data": {output: value}}
+
+        return ToolOutput(
+            ok=True,
+            text=f"kind={kind} output={output}",
+            data=data
+        )
 
     @staticmethod
     def digest(
@@ -32,16 +49,17 @@ class SecurityService(object):
         secret: typing.Any = None,
         encoding: str = "utf-8",
         out_mode: str = "hex"
-    ) -> dict[str, typing.Any]:
+    ) -> ToolOutput:
         """执行摘要或 HMAC 计算，并返回统一结果结构。"""
-
         tp   = str(kind or "").strip().lower()
         out  = str(output or "").strip()
         mode = str(out_mode or "hex").strip().lower()
+
         if not out:
             raise ValueError("output is required")
 
         def _to_bytes(v: typing.Any) -> bytes:
+            """按指定编码把输入转换为字节。"""
             if v is None:
                 return b""
             if isinstance(v, bytes):
@@ -53,6 +71,7 @@ class SecurityService(object):
             return str(v).encode(encoding)
 
         def _format_digest(d: bytes) -> typing.Any:
+            """按输出模式格式化摘要字节。"""
             if mode == "hex":
                 return d.hex()
             if mode == "base64":
@@ -70,13 +89,15 @@ class SecurityService(object):
         elif tp in {"hmac_md5", "hmac_sha1", "hmac_sha224", "hmac_sha256", "hmac_sha384", "hmac_sha512"}:
             if secret is None:
                 raise ValueError("secret is required")
-            algo = tp.replace("hmac_", "")
-            key = _to_bytes(secret)
+
+            algo  = tp.replace("hmac_", "")
+            key   = _to_bytes(secret)
             value = _format_digest(hmac.new(key, data_in, getattr(hashlib, algo)).digest())
+
         else:
             raise ValueError(f"unsupported kind: {kind}")
 
-        return {"kind": tp, "output": out, "value": value, "data": {out: value}}
+        return SecurityService._result(kind=tp, output=out, value=value)
 
     @staticmethod
     def jwt_hs(
@@ -90,10 +111,10 @@ class SecurityService(object):
         options: typing.Optional[dict[str, typing.Any]] = None,
         return_payload: bool = True,
         complete: bool = False
-    ) -> dict[str, typing.Any]:
+    ) -> ToolOutput:
         """处理 HS256 JWT 的生成、无验签解析与验签。"""
-
         tp  = str(kind or "").strip().lower()
+
         out = str(output or "").strip()
         if not out:
             raise ValueError("output is required")
@@ -119,13 +140,14 @@ class SecurityService(object):
                 raise ValueError("token is required")
             if not secret:
                 raise ValueError("secret is required")
+
             decoded = jwt.decode(token, secret, algorithms=["HS256"], options=options or {})
-            value = decoded if return_payload else True
+            value   = decoded if return_payload else True
 
         else:
             raise ValueError(f"unsupported kind: {kind}")
 
-        return {"kind": tp, "output": out, "value": value, "data": {out: value}}
+        return SecurityService._result(kind=tp, output=out, value=value)
 
     @staticmethod
     def jwt_asymmetric(
@@ -139,28 +161,34 @@ class SecurityService(object):
         headers: typing.Optional[dict[str, typing.Any]] = None,
         options: typing.Optional[dict[str, typing.Any]] = None,
         return_payload: bool = True
-    ) -> dict[str, typing.Any]:
+    ) -> ToolOutput:
         """处理 RS256 / ES256 JWT 的生成与验签。"""
-
         tp  = str(kind or "").strip().lower()
+
         out = str(output or "").strip()
         if not out:
             raise ValueError("output is required")
 
         def _normalize_pem_key(key_value: str, pem_types: list[str]) -> str:
+            """把密钥文本规范化为 PEM 格式。"""
             normalized = str(key_value or "").strip()
             if not normalized:
                 raise ValueError("key is required")
+
             if "-----BEGIN " in normalized and "-----END " in normalized:
                 return normalized
+
             body_only = "".join(normalized.split())
             if not body_only:
                 raise ValueError("key is empty")
+
             head_type = pem_types[0]
-            chunks = [body_only[i:i + 64] for i in range(0, len(body_only), 64)]
+            chunks    = [body_only[i:i + 64] for i in range(0, len(body_only), 64)]
+
             return f"-----BEGIN {head_type}-----\n" + "\n".join(chunks) + f"\n-----END {head_type}-----\n"
 
         def _normalize_rsa_private_key(key_value: str) -> str:
+            """规范化 RSA 私钥文本。"""
             last_error: Exception | None = None
             for pem_text in (
                 _normalize_pem_key(key_value, ["PRIVATE KEY"]),
@@ -174,6 +202,7 @@ class SecurityService(object):
             raise ValueError(f"private_key load failed: {last_error}")
 
         def _normalize_rsa_public_key(key_value: str) -> str:
+            """规范化 RSA 公钥文本。"""
             last_error: Exception | None = None
             for pem_text in (
                 _normalize_pem_key(key_value, ["PUBLIC KEY"]),
@@ -187,25 +216,33 @@ class SecurityService(object):
             raise ValueError(f"public_key load failed: {last_error}")
 
         def _normalize_ec_private_key(key_value: str) -> str:
+            """校验并返回 EC 私钥 PEM 文本。"""
             normalized = str(key_value or "").strip()
             if not normalized:
                 raise ValueError("private_key is required")
+
             if "-----BEGIN " not in normalized or "-----END " not in normalized:
                 raise ValueError("ec private_key must be full PEM")
+
             loaded_key = serialization.load_pem_private_key(normalized.encode("utf-8"), password=None)
             if not isinstance(loaded_key, ec.EllipticCurvePrivateKey):
                 raise ValueError("private_key is not EC private key")
+
             return normalized
 
         def _normalize_ec_public_key(key_value: str) -> str:
+            """校验并返回 EC 公钥 PEM 文本。"""
             normalized = str(key_value or "").strip()
             if not normalized:
                 raise ValueError("public_key is required")
+
             if "-----BEGIN " not in normalized or "-----END " not in normalized:
                 raise ValueError("ec public_key must be full PEM")
+
             loaded_key = serialization.load_pem_public_key(normalized.encode("utf-8"))
             if not isinstance(loaded_key, ec.EllipticCurvePublicKey):
                 raise ValueError("public_key is not EC public key")
+
             return normalized
 
         if tp == "jwt_rs256":
@@ -262,7 +299,7 @@ class SecurityService(object):
         else:
             raise ValueError(f"unsupported kind: {kind}")
 
-        return {"kind": tp, "output": out, "value": value, "data": {out: value}}
+        return SecurityService._result(kind=tp, output=out, value=value)
 
     @staticmethod
     def crypto(
@@ -286,15 +323,15 @@ class SecurityService(object):
         mgf_algorithm: str | None = None,
         label: str | None = None,
         salt_length: str = "max"
-    ) -> dict[str, typing.Any]:
+    ) -> ToolOutput:
         """执行 RSA 签名、验签、公钥加密和私钥解密。"""
-
         tp  = str(kind or "").strip().lower()
+
         out = str(output or "").strip()
         if not out:
             raise ValueError("output is required")
 
-        alias_config = {
+        alias_config: dict[str, dict[str, str]] = {
             "rsa_encrypt_oaep_sha256": {
                 "tp": "rsa_encrypt", "encrypt_padding": "oaep",
                 "algorithm": "sha256", "mgf_algorithm": "sha256"
@@ -312,20 +349,24 @@ class SecurityService(object):
                 "algorithm": "sha256", "mgf_algorithm": "sha256", "salt_length": "digest"
             }
         }
+
         alias = alias_config.get(tp)
         display_kind = tp
+
         if alias is not None:
             # 强语义别名先翻译为基础 RSA 动作，再走统一实现。
-            tp = typing.cast(str, alias["tp"])
-            encrypt_padding = typing.cast(str, alias.get("encrypt_padding", encrypt_padding))
-            decrypt_padding = typing.cast(str, alias.get("decrypt_padding", decrypt_padding))
-            sign_padding = typing.cast(str, alias.get("sign_padding", sign_padding))
-            verify_padding = typing.cast(str, alias.get("verify_padding", verify_padding))
-            algorithm = typing.cast(str, alias.get("algorithm", algorithm))
-            mgf_algorithm = typing.cast(str | None, alias.get("mgf_algorithm", mgf_algorithm))
-            salt_length = typing.cast(str, alias.get("salt_length", salt_length))
+            tp = alias["tp"]
+
+            encrypt_padding = alias.get("encrypt_padding", encrypt_padding)
+            decrypt_padding = alias.get("decrypt_padding", decrypt_padding)
+            sign_padding    = alias.get("sign_padding", sign_padding)
+            verify_padding  = alias.get("verify_padding", verify_padding)
+            algorithm       = alias.get("algorithm", algorithm)
+            mgf_algorithm   = alias.get("mgf_algorithm", mgf_algorithm)
+            salt_length     = alias.get("salt_length", salt_length)
 
         def _as_text(value_in: typing.Any) -> str:
+            """按指定编码把输入转换为文本。"""
             if value_in is None:
                 return ""
             if isinstance(value_in, str):
@@ -337,6 +378,7 @@ class SecurityService(object):
             return str(value_in)
 
         def _as_bytes(value_in: typing.Any) -> bytes:
+            """按指定编码把输入转换为字节。"""
             if value_in is None:
                 return b""
             if isinstance(value_in, bytes):
@@ -348,19 +390,25 @@ class SecurityService(object):
             return str(value_in).encode(encoding)
 
         def _normalize_pem_key(key_value: str, pem_types: list[str]) -> str:
+            """把密钥文本规范化为 PEM 格式。"""
             normalized = str(key_value or "").strip()
             if not normalized:
                 raise ValueError("key is required")
+
             if "-----BEGIN " in normalized and "-----END " in normalized:
                 return normalized
+
             body_only = "".join(normalized.split())
             if not body_only:
                 raise ValueError("key is empty")
+
             head_type = pem_types[0]
-            chunks = [body_only[i:i + 64] for i in range(0, len(body_only), 64)]
+            chunks    = [body_only[i:i + 64] for i in range(0, len(body_only), 64)]
+
             return f"-----BEGIN {head_type}-----\n" + "\n".join(chunks) + f"\n-----END {head_type}-----\n"
 
         def _load_rsa_private_key(key_value: str) -> rsa.RSAPrivateKey:
+            """加载 RSA 私钥对象。"""
             last_error: Exception | None = None
             for pem_text in (_normalize_pem_key(key_value, ["PRIVATE KEY"]), _normalize_pem_key(key_value, ["RSA PRIVATE KEY"])):
                 try:
@@ -373,6 +421,7 @@ class SecurityService(object):
             raise ValueError(f"private_key load failed: {last_error}")
 
         def _load_rsa_public_key(key_value: str) -> rsa.RSAPublicKey:
+            """加载 RSA 公钥对象。"""
             last_error: Exception | None = None
             for pem_text in (_normalize_pem_key(key_value, ["PUBLIC KEY"]), _normalize_pem_key(key_value, ["RSA PUBLIC KEY"])):
                 try:
@@ -385,6 +434,7 @@ class SecurityService(object):
             raise ValueError(f"public_key load failed: {last_error}")
 
         def _encode_result(binary_value: bytes, mode_value: str) -> typing.Any:
+            """按输出模式编码二进制结果。"""
             mode_norm = str(mode_value or "base64").strip().lower()
             if mode_norm == "bytes":
                 return binary_value
@@ -395,6 +445,7 @@ class SecurityService(object):
             raise ValueError(f"unsupported out_mode: {mode_value}")
 
         def _decode_result(input_data: typing.Any, mode_value: str) -> bytes:
+            """按输入模式解码为二进制数据。"""
             mode_norm = str(mode_value or "base64").strip().lower()
             if mode_norm == "bytes":
                 return _as_bytes(input_data)
@@ -405,6 +456,7 @@ class SecurityService(object):
             raise ValueError(f"unsupported input format: {mode_value}")
 
         def _resolve_hash(hash_name: str | None) -> hashes.HashAlgorithm:
+            """解析摘要算法名称。"""
             mapping: dict[str, type[hashes.HashAlgorithm]] = {
                 "sha1"   : hashes.SHA1,
                 "sha224" :  hashes.SHA224,
@@ -418,6 +470,7 @@ class SecurityService(object):
             return hash_cls()
 
         def _resolve_sign_salt_length(salt_value: str, hash_obj: hashes.HashAlgorithm) -> int:
+            """解析 RSA-PSS 签名盐长度。"""
             salt_norm = str(salt_value or "max").strip().lower()
             if salt_norm == "max":
                 return padding.PSS.MAX_LENGTH
@@ -431,6 +484,7 @@ class SecurityService(object):
             return salt_int
 
         def _resolve_verify_salt_length(salt_value: str, hash_obj: hashes.HashAlgorithm) -> int:
+            """解析 RSA-PSS 验签盐长度。"""
             salt_norm = str(salt_value or "max").strip().lower()
             if salt_norm == "max":
                 return padding.PSS.MAX_LENGTH
@@ -444,49 +498,77 @@ class SecurityService(object):
             return salt_int
 
         def _build_encrypt_pad() -> padding.AsymmetricPadding:
-            pad_norm = str(encrypt_padding or "oaep").strip().lower()
-            algo_obj = _resolve_hash(algorithm)
+            """构造 RSA 加密填充配置。"""
+            pad_norm     = str(encrypt_padding or "oaep").strip().lower()
+            algo_obj     = _resolve_hash(algorithm)
             mgf_algo_obj = _resolve_hash(mgf_algorithm or algorithm)
+
             if pad_norm == "oaep":
-                return padding.OAEP(mgf=padding.MGF1(algorithm=mgf_algo_obj), algorithm=algo_obj, label=None if label is None else _as_bytes(label))
+                return padding.OAEP(
+                    mgf=padding.MGF1(algorithm=mgf_algo_obj),
+                    algorithm=algo_obj,
+                    label=None if label is None else _as_bytes(label)
+                )
             if pad_norm == "pkcs1v15":
                 return padding.PKCS1v15()
+
             raise ValueError(f"unsupported encrypt_padding: {encrypt_padding}")
 
         def _build_decrypt_pad() -> padding.AsymmetricPadding:
-            pad_norm = str(decrypt_padding or "oaep").strip().lower()
-            algo_obj = _resolve_hash(algorithm)
+            """构造 RSA 解密填充配置。"""
+            pad_norm     = str(decrypt_padding or "oaep").strip().lower()
+            algo_obj     = _resolve_hash(algorithm)
             mgf_algo_obj = _resolve_hash(mgf_algorithm or algorithm)
+
             if pad_norm == "oaep":
-                return padding.OAEP(mgf=padding.MGF1(algorithm=mgf_algo_obj), algorithm=algo_obj, label=None if label is None else _as_bytes(label))
+                return padding.OAEP(
+                    mgf=padding.MGF1(algorithm=mgf_algo_obj),
+                    algorithm=algo_obj,
+                    label=None if label is None else _as_bytes(label)
+                )
             if pad_norm == "pkcs1v15":
                 return padding.PKCS1v15()
+
             raise ValueError(f"unsupported decrypt_padding: {decrypt_padding}")
 
         def _build_sign_pad() -> padding.AsymmetricPadding:
-            pad_norm = str(sign_padding or "pkcs1v15").strip().lower()
-            algo_obj = _resolve_hash(algorithm)
+            """构造 RSA 签名填充配置。"""
+            pad_norm     = str(sign_padding or "pkcs1v15").strip().lower()
+            algo_obj     = _resolve_hash(algorithm)
             mgf_algo_obj = _resolve_hash(mgf_algorithm or algorithm)
+
             if pad_norm == "pkcs1v15":
                 return padding.PKCS1v15()
             if pad_norm == "pss":
-                return padding.PSS(mgf=padding.MGF1(mgf_algo_obj), salt_length=_resolve_sign_salt_length(salt_length, algo_obj))
+                return padding.PSS(
+                    mgf=padding.MGF1(mgf_algo_obj),
+                    salt_length=_resolve_sign_salt_length(salt_length, algo_obj)
+                )
+
             raise ValueError(f"unsupported sign_padding: {sign_padding}")
 
         def _build_verify_pad() -> padding.AsymmetricPadding:
-            pad_norm = str(verify_padding or "pkcs1v15").strip().lower()
-            algo_obj = _resolve_hash(algorithm)
+            """构造 RSA 验签填充配置。"""
+            pad_norm     = str(verify_padding or "pkcs1v15").strip().lower()
+            algo_obj     = _resolve_hash(algorithm)
             mgf_algo_obj = _resolve_hash(mgf_algorithm or algorithm)
+
             if pad_norm == "pkcs1v15":
                 return padding.PKCS1v15()
             if pad_norm == "pss":
-                return padding.PSS(mgf=padding.MGF1(mgf_algo_obj), salt_length=_resolve_verify_salt_length(salt_length, algo_obj))
+                return padding.PSS(
+                    mgf=padding.MGF1(mgf_algo_obj),
+                    salt_length=_resolve_verify_salt_length(salt_length, algo_obj)
+                )
+
             raise ValueError(f"unsupported verify_padding: {verify_padding}")
 
         if tp == "rsa_sign":
             if not private_key:
                 raise ValueError("private_key is required")
-            signature_bytes = _load_rsa_private_key(private_key).sign(_as_bytes(input_value), _build_sign_pad(), _resolve_hash(algorithm))
+            signature_bytes = _load_rsa_private_key(private_key).sign(
+                _as_bytes(input_value), _build_sign_pad(), _resolve_hash(algorithm)
+            )
             value: typing.Any = _encode_result(signature_bytes, out_mode)
 
         elif tp == "rsa_verify":
@@ -500,7 +582,7 @@ class SecurityService(object):
                     _decode_result(signature, signature_format),
                     _as_bytes(input_value),
                     _build_verify_pad(),
-                    _resolve_hash(algorithm),
+                    _resolve_hash(algorithm)
                 )
                 value = True
             except InvalidSignature:
@@ -517,7 +599,9 @@ class SecurityService(object):
                 raise ValueError("private_key is required")
             if ciphertext is None:
                 raise ValueError("ciphertext is required")
-            plaintext_bytes = _load_rsa_private_key(private_key).decrypt(_decode_result(ciphertext, ciphertext_format), _build_decrypt_pad())
+            plaintext_bytes = _load_rsa_private_key(private_key).decrypt(
+                _decode_result(ciphertext, ciphertext_format), _build_decrypt_pad()
+            )
             try:
                 value = plaintext_bytes.decode(encoding)
             except UnicodeDecodeError:
@@ -526,7 +610,7 @@ class SecurityService(object):
         else:
             raise ValueError(f"unsupported kind: {kind}")
 
-        return {"kind": display_kind, "output": out, "value": value, "data": {out: value}}
+        return SecurityService._result(kind=display_kind, output=out, value=value)
 
     @staticmethod
     def aes(
@@ -549,19 +633,20 @@ class SecurityService(object):
         out_mode: str = "base64",
         encoding: str = "utf-8",
         padding_mode: str = "pkcs7"
-    ) -> dict[str, typing.Any]:
+    ) -> ToolOutput:
         """执行 AES 加密或解密，支持 CBC / ECB / GCM。"""
-
         tp     = str(kind or "").strip().lower()
         out    = str(output or "").strip()
         mode_v = str(mode or "cbc").strip().lower()
         pad_v  = str(padding_mode or "pkcs7").strip().lower()
+
         if not out:
             raise ValueError("output is required")
         if key is None:
             raise ValueError("key is required")
 
         def _to_text(v: typing.Any) -> str:
+            """按指定编码把输入转换为文本。"""
             if v is None:
                 return ""
             if isinstance(v, str):
@@ -573,6 +658,7 @@ class SecurityService(object):
             return str(v)
 
         def _to_bytes(v: typing.Any) -> bytes:
+            """按指定编码把输入转换为字节。"""
             if v is None:
                 return b""
             if isinstance(v, bytes):
@@ -584,6 +670,7 @@ class SecurityService(object):
             return str(v).encode(encoding)
 
         def _decode(v: typing.Any, fmt: str) -> bytes:
+            """按格式把输入解码为字节。"""
             fmt_v = str(fmt or "text").strip().lower()
             if fmt_v in {"bytes", "text"}:
                 return _to_bytes(v)
@@ -594,6 +681,7 @@ class SecurityService(object):
             raise ValueError(f"unsupported format: {fmt}")
 
         def _encode(v: bytes, fmt: str) -> typing.Any:
+            """按格式编码字节结果。"""
             fmt_v = str(fmt or "base64").strip().lower()
             if fmt_v == "bytes":
                 return v
@@ -606,6 +694,7 @@ class SecurityService(object):
             raise ValueError(f"unsupported out_mode: {fmt}")
 
         def _build_cipher(key_content: bytes, tag_content: bytes | None = None) -> Cipher:
+            """按 AES 模式构造 Cipher。"""
             if len(key_content) not in (16, 24, 32):
                 raise ValueError("AES key length must be 16/24/32 bytes")
             if mode_v == "cbc":
@@ -626,6 +715,7 @@ class SecurityService(object):
             raise ValueError(f"unsupported mode: {mode}")
 
         def _pad_plain(plain: bytes) -> bytes:
+            """按配置补齐明文字节。"""
             if mode_v == "gcm":
                 return plain
             if pad_v == "none":
@@ -638,6 +728,7 @@ class SecurityService(object):
             raise ValueError(f"unsupported padding_mode: {padding_mode}")
 
         def _unpad_plain(plain: bytes) -> bytes:
+            """按配置移除明文字节填充。"""
             if mode_v == "gcm":
                 return plain
             if pad_v == "none":
@@ -651,13 +742,17 @@ class SecurityService(object):
 
         if tp == "aes_encrypt":
             plain_bytes = _decode(input_value, input_format)
-            encryptor = _build_cipher(key_bytes).encryptor()
+            encryptor   = _build_cipher(key_bytes).encryptor()
+
             if mode_v == "gcm":
                 aad_bytes = _decode(aad, aad_format) if aad is not None else b""
                 if aad_bytes:
                     encryptor.authenticate_additional_data(aad_bytes)
                 cipher_bytes = encryptor.update(plain_bytes) + encryptor.finalize()
-                value: typing.Any = {"ciphertext": _encode(cipher_bytes, out_mode), "tag": _encode(encryptor.tag, out_mode)}
+                value: typing.Any = {
+                    "ciphertext": _encode(cipher_bytes, out_mode),
+                    "tag": _encode(encryptor.tag, out_mode)
+                }
             else:
                 cipher_bytes = encryptor.update(_pad_plain(plain_bytes)) + encryptor.finalize()
                 value = _encode(cipher_bytes, out_mode)
@@ -671,15 +766,19 @@ class SecurityService(object):
                 aad_bytes = _decode(aad, aad_format) if aad is not None else b""
                 if aad_bytes:
                     decryptor.authenticate_additional_data(aad_bytes)
-                plain_bytes = decryptor.update(_decode(input_value, input_format)) + decryptor.finalize()
+                plain_bytes = decryptor.update(
+                    _decode(input_value, input_format)
+                ) + decryptor.finalize()
             else:
-                plain_bytes = _unpad_plain(decryptor.update(_decode(input_value, input_format)) + decryptor.finalize())
+                plain_bytes = _unpad_plain(
+                    decryptor.update(_decode(input_value, input_format)) + decryptor.finalize()
+                )
             value = _encode(plain_bytes, out_mode)
 
         else:
             raise ValueError(f"unsupported kind: {kind}")
 
-        return {"kind": tp, "output": out, "value": value, "data": {out: value}}
+        return SecurityService._result(kind=tp, output=out, value=value)
 
     @staticmethod
     def sign_text(
@@ -696,19 +795,21 @@ class SecurityService(object):
         sort_keys: bool = True,
         ignore_empty: bool = True,
         ignore_keys: typing.Optional[list[str]] = None
-    ) -> dict[str, typing.Any]:
-        """按稳定规则拼装签名文本，供上层继续做摘要或签名。"""
-
+    ) -> ToolOutput:
+        """按稳定规则拼装签名文本，供后续摘要或签名处理使用。"""
         tp  = str(kind or "").strip().lower()
+
         out = str(output or "").strip()
         if not out:
             raise ValueError("output is required")
         ignore_key_set = {str(x) for x in (ignore_keys or [])}
 
         def _is_empty(v: typing.Any) -> bool:
+            """判断值是否按签名规则视为空。"""
             return v in (None, "", [], {}, ())
 
         def _normalize_pairs(obj: dict[str, typing.Any]) -> list[tuple[str, str]]:
+            """把字典数据展开为稳定键值对列表。"""
             pairs: list[tuple[str, str]] = []
             for k, v in obj.items():
                 key_s = "" if k is None else str(k)
@@ -752,7 +853,7 @@ class SecurityService(object):
         else:
             raise ValueError(f"unsupported kind: {kind}")
 
-        return {"kind": tp, "output": out, "value": value, "data": {out: value}}
+        return SecurityService._result(kind=tp, output=out, value=value)
 
     @staticmethod
     def multipart_sign(
@@ -768,19 +869,21 @@ class SecurityService(object):
         ignore_keys: typing.Optional[list[str]] = None,
         use_filename_only: bool = True,
         include_content_type: bool = False
-    ) -> dict[str, typing.Any]:
+    ) -> ToolOutput:
         """为 multipart 上传场景构造稳定可签名的文本表示。"""
-
         tp  = str(kind or "").strip().lower()
+
         out = str(output or "").strip()
         if not out:
             raise ValueError("output is required")
         ignore_key_set = {str(x) for x in (ignore_keys or [])}
 
         def _is_empty(v: typing.Any) -> bool:
+            """判断值是否按签名规则视为空。"""
             return v in (None, "", [], {}, ())
 
         def _normalize_field_pairs(obj: dict[str, typing.Any]) -> list[tuple[str, str]]:
+            """把 multipart 字段展开为稳定键值对列表。"""
             pairs: list[tuple[str, str]] = []
             for k, v in obj.items():
                 key_s = "" if k is None else str(k)
@@ -800,6 +903,7 @@ class SecurityService(object):
             return pairs
 
         def _normalize_file_pairs(file_items: list[dict[str, typing.Any]]) -> list[tuple[str, str]]:
+            """把 multipart 文件项展开为稳定键值对列表。"""
             pairs: list[tuple[str, str]] = []
             for one in file_items:
                 if not isinstance(one, dict):
@@ -807,15 +911,18 @@ class SecurityService(object):
                 field_name = "" if one.get("field") is None else str(one.get("field"))
                 if field_name in ignore_key_set:
                     continue
-                filename = "" if one.get("filename") is None else str(one.get("filename"))
+
+                filename     = "" if one.get("filename") is None else str(one.get("filename"))
                 content_type = "" if one.get("content_type") is None else str(one.get("content_type"))
-                _value = one.get("value")
-                file_text = filename if use_filename_only else ("" if _value is None else str(_value))
+                _value       = one.get("value")
+                file_text    = filename if use_filename_only else ("" if _value is None else str(_value))
+
                 if include_content_type:
                     file_text = f"{file_text}:{content_type}"
                 if ignore_empty and _is_empty(file_text):
                     continue
                 pairs.append((field_name, file_text))
+
             if sort_keys:
                 pairs.sort(key=lambda x: (x[0], x[1]))
             return pairs
@@ -838,7 +945,7 @@ class SecurityService(object):
         else:
             raise ValueError(f"unsupported kind: {kind}")
 
-        return {"kind": tp, "output": out, "value": value, "data": {out: value}}
+        return SecurityService._result(kind=tp, output=out, value=value)
 
 
 if __name__ == '__main__':

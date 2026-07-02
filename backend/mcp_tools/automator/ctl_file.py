@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
-from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import DeviceManage
+from backend.utilities.tool_result import build_tool_result
 from backend.mcp_tools.automator.schemas.schema_file import (
     DevicePathArg,
     LocalPathArg,
@@ -16,18 +15,17 @@ from backend.mcp_tools.automator.schemas.schema_file import (
     RemotePathArg,
     SavedPathArg
 )
-from backend.mcp_tools.shared import MatrixArg
+from backend.mcp_tools.shared import SerialArg
 from backend.middlewares.mid_task import task_middleware
 from backend.utilities.runtime import AppContext
-from backend.utilities.broadcast import broadcast
 
 
-def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
+def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
 
     @mcp.tool(
         description=(
             "从设备拉取单个文件到本地。"
-            " 多设备同时执行时会按设备 serial 区分落盘路径，避免互相覆盖。"
+            " 多设备连接时应通过 `serial` 指定目标设备。"
             " 远端路径不存在或本地目标不可写时会失败。"
         ),
         meta={"hidden": False, "domain": "device", "class": "file"}
@@ -36,23 +34,18 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     async def file_pull(
         remote: RemotePathArg,
         local: LocalPathArg,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "remote" : remote,
             "local"  : local
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.file_pull(**a)
+        device = manage.resolve(serial)
+        raw = await device.file_pull(**args)
 
-        return await broadcast(
-            tool="file_pull",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="file_pull", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -66,23 +59,18 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     async def file_push(
         local: LocalPathArg,
         remote: RemotePathArg,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "local"  : local,
             "remote" : remote
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.file_push(**a)
+        device = manage.resolve(serial)
+        raw = await device.file_push(**args)
 
-        return await broadcast(
-            tool="file_push",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="file_push", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -95,22 +83,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     @task_middleware("file_remove")
     async def file_remove(
         path: DevicePathArg,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "path" : path
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.file_remove(**a)
+        device = manage.resolve(serial)
+        raw = await device.file_remove(**args)
 
-        return await broadcast(
-            tool="file_remove",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="file_remove", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -127,8 +110,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
         level: LogLevelArg = "W",
         max_lines: MaxLinesArg = 200,
         saved: SavedPathArg = None,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "keywords"  : keywords,
             "tags"      : tags,
@@ -137,16 +121,10 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
             "saved"     : saved
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.file_logcat_dump(**a)
+        device = manage.resolve(serial)
+        raw = await device.file_logcat_dump(**args)
 
-        return await broadcast(
-            tool="file_logcat_dump",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="file_logcat_dump", args=args, raw=raw, target=device.serial)
 
 
 if __name__ == '__main__':

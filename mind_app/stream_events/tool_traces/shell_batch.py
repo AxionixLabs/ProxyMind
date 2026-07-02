@@ -106,7 +106,7 @@ def _shell_batch_tree_lines(
 
         item_payload = _shell_batch_item_payload(item)
 
-        ok     = bool(item.get("ok")) if "ok" in item else bool(item_payload.get("ok"))
+        ok     = bool(item.get("ok"))
         mark   = "✓" if ok else "✗"
         label  = _shell_batch_tree_label(item, item_payload)
         detail = _shell_batch_tree_detail(item, item_payload, ok=ok)
@@ -229,8 +229,7 @@ def _shell_batch_screen_lines(results: list[typing.Any]) -> tuple[list[str], int
 
 def _shell_batch_item_ok(item: dict[str, typing.Any]) -> bool:
     """判断 shell batch 子项是否成功。"""
-    payload = _shell_batch_item_payload(item)
-    return bool(item.get("ok")) if "ok" in item else bool(payload.get("ok"))
+    return bool(item.get("ok"))
 
 
 def _plural(count: int, singular: str, plural: str) -> str:

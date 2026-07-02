@@ -4,11 +4,10 @@
 import typing
 from pydantic import Field
 
-MatrixArg = typing.Annotated[
-    typing.Optional[dict[str, dict[str, typing.Any]]],
-    Field(description="多设备覆盖参数映射。键通常是设备标识，值是该设备专属参数。"),
+SerialArg = typing.Annotated[
+    typing.Optional[str],
+    Field(description="目标设备 serial。多设备连接时必须提供；单设备连接时可省略。"),
 ]
-
 PackageArg = typing.Annotated[
     str,
     Field(description="目标应用包名。"),

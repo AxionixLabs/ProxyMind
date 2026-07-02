@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.mcp_hub.hub_manage import Requires
@@ -47,7 +46,7 @@ from backend.mcp_tools.media.schemas.schema_ffmpeg import (
 from backend.utilities.runtime import (
     AppContext, Idle
 )
-from backend.utilities.broadcast import broadcast
+from backend.utilities.tool_result import build_tool_result
 
 
 def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
@@ -80,20 +79,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "overwrite"    : overwrite
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_extract_snapshot", args=args)
-            try:
-                return await ctx.ffmpeg.ffmpeg_extract_snapshot(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_extract_snapshot", args=args)
+        try:
+            raw = await ctx.ffmpeg.ffmpeg_extract_snapshot(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="ffmpeg_extract_snapshot",
-            args=args,
-            target_list=[ctx.ffmpeg],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="ffmpeg_extract_snapshot", args=args, raw=raw, target=ctx.ffmpeg.agent_id)
 
     @mcp.tool(
         description=(
@@ -133,20 +125,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "overwrite"    : overwrite
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_extract_frames", args=args)
-            try:
-                return await ctx.ffmpeg.ffmpeg_extract_frames(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_extract_frames", args=args)
+        try:
+            raw = await ctx.ffmpeg.ffmpeg_extract_frames(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="ffmpeg_extract_frames",
-            args=args,
-            target_list=[ctx.ffmpeg],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="ffmpeg_extract_frames", args=args, raw=raw, target=ctx.ffmpeg.agent_id)
 
     @mcp.tool(
         description=(
@@ -178,20 +163,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "overwrite"    : overwrite
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_extract_keyframes", args=args)
-            try:
-                return await ctx.ffmpeg.ffmpeg_extract_keyframes(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_extract_keyframes", args=args)
+        try:
+            raw = await ctx.ffmpeg.ffmpeg_extract_keyframes(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="ffmpeg_extract_keyframes",
-            args=args,
-            target_list=[ctx.ffmpeg],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="ffmpeg_extract_keyframes", args=args, raw=raw, target=ctx.ffmpeg.agent_id)
 
     @mcp.tool(
         description=(
@@ -233,20 +211,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "overwrite"    : overwrite
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_extract_scene", args=args)
-            try:
-                return await ctx.ffmpeg.ffmpeg_extract_scene(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_extract_scene", args=args)
+        try:
+            raw = await ctx.ffmpeg.ffmpeg_extract_scene(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="ffmpeg_extract_scene",
-            args=args,
-            target_list=[ctx.ffmpeg],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="ffmpeg_extract_scene", args=args, raw=raw, target=ctx.ffmpeg.agent_id)
 
     @mcp.tool(
         description=(
@@ -288,20 +259,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "overwrite"     : overwrite
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_trim_video", args=args)
-            try:
-                return await ctx.ffmpeg.ffmpeg_trim_video(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_trim_video", args=args)
+        try:
+            raw = await ctx.ffmpeg.ffmpeg_trim_video(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="ffmpeg_trim_video",
-            args=args,
-            target_list=[ctx.ffmpeg],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="ffmpeg_trim_video", args=args, raw=raw, target=ctx.ffmpeg.agent_id)
 
     @mcp.tool(
         description=(
@@ -341,20 +305,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "overwrite"     : overwrite
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_scale_video", args=args)
-            try:
-                return await ctx.ffmpeg.ffmpeg_scale_video(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_scale_video", args=args)
+        try:
+            raw = await ctx.ffmpeg.ffmpeg_scale_video(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="ffmpeg_scale_video",
-            args=args,
-            target_list=[ctx.ffmpeg],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="ffmpeg_scale_video", args=args, raw=raw, target=ctx.ffmpeg.agent_id)
 
     @mcp.tool(
         description=(
@@ -392,20 +349,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "overwrite"     : overwrite
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_convert_video", args=args)
-            try:
-                return await ctx.ffmpeg.ffmpeg_convert_video(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_convert_video", args=args)
+        try:
+            raw = await ctx.ffmpeg.ffmpeg_convert_video(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="ffmpeg_convert_video",
-            args=args,
-            target_list=[ctx.ffmpeg],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="ffmpeg_convert_video", args=args, raw=raw, target=ctx.ffmpeg.agent_id)
 
     @mcp.tool(
         description=(
@@ -443,20 +393,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "output_format" : output_format
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_concat_video", args=args)
-            try:
-                return await ctx.ffmpeg.ffmpeg_concat_video(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_concat_video", args=args)
+        try:
+            raw = await ctx.ffmpeg.ffmpeg_concat_video(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="ffmpeg_concat_video",
-            args=args,
-            target_list=[ctx.ffmpeg],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="ffmpeg_concat_video", args=args, raw=raw, target=ctx.ffmpeg.agent_id)
 
     @mcp.tool(
         description=(
@@ -484,20 +427,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "overwrite"     : overwrite
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_remux_video", args=args)
-            try:
-                return await ctx.ffmpeg.ffmpeg_remux_video(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_remux_video", args=args)
+        try:
+            raw = await ctx.ffmpeg.ffmpeg_remux_video(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="ffmpeg_remux_video",
-            args=args,
-            target_list=[ctx.ffmpeg],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="ffmpeg_remux_video", args=args, raw=raw, target=ctx.ffmpeg.agent_id)
 
     @mcp.tool(
         description=(
@@ -525,20 +461,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "overwrite"     : overwrite
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_mute_video", args=args)
-            try:
-                return await ctx.ffmpeg.ffmpeg_mute_video(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_mute_video", args=args)
+        try:
+            raw = await ctx.ffmpeg.ffmpeg_mute_video(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="ffmpeg_mute_video",
-            args=args,
-            target_list=[ctx.ffmpeg],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="ffmpeg_mute_video", args=args, raw=raw, target=ctx.ffmpeg.agent_id)
 
     @mcp.tool(
         description=(
@@ -559,20 +488,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "input_file" : input_file
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_probe_video", args=args)
-            try:
-                return await ctx.ffmpeg.ffmpeg_probe_video(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_probe_video", args=args)
+        try:
+            raw = await ctx.ffmpeg.ffmpeg_probe_video(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="ffmpeg_probe_video",
-            args=args,
-            target_list=[ctx.ffmpeg],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="ffmpeg_probe_video", args=args, raw=raw, target=ctx.ffmpeg.agent_id)
 
     @mcp.tool(
         description=(
@@ -602,20 +524,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "overwrite"    : overwrite
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_extract_audio", args=args)
-            try:
-                return await ctx.ffmpeg.ffmpeg_extract_audio(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_extract_audio", args=args)
+        try:
+            raw = await ctx.ffmpeg.ffmpeg_extract_audio(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="ffmpeg_extract_audio",
-            args=args,
-            target_list=[ctx.ffmpeg],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="ffmpeg_extract_audio", args=args, raw=raw, target=ctx.ffmpeg.agent_id)
 
     @mcp.tool(
         description=(
@@ -649,20 +564,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "overwrite"     : overwrite
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_replace_audio", args=args)
-            try:
-                return await ctx.ffmpeg.ffmpeg_replace_audio(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_replace_audio", args=args)
+        try:
+            raw = await ctx.ffmpeg.ffmpeg_replace_audio(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="ffmpeg_replace_audio",
-            args=args,
-            target_list=[ctx.ffmpeg],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="ffmpeg_replace_audio", args=args, raw=raw, target=ctx.ffmpeg.agent_id)
 
     @mcp.tool(
         description=(
@@ -698,20 +606,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "overwrite"     : overwrite
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_convert_audio", args=args)
-            try:
-                return await ctx.ffmpeg.ffmpeg_convert_audio(**args)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.ffmpeg.agent_id}.ffmpeg_convert_audio", args=args)
+        try:
+            raw = await ctx.ffmpeg.ffmpeg_convert_audio(**args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="ffmpeg_convert_audio",
-            args=args,
-            target_list=[ctx.ffmpeg],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="ffmpeg_convert_audio", args=args, raw=raw, target=ctx.ffmpeg.agent_id)
 
 
 if __name__ == '__main__':

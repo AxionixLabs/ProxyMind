@@ -70,10 +70,10 @@ class MissionService(object):
         """执行批量请求，负责模板渲染、并发控制、结果汇总与运行记录落库。"""
         if not batch.items:
             return {
+                "ok"          : False,
                 "text"        : f"kind={kind} invalid batch: items is empty",
                 "attachments" : [],
                 "data": {
-                    "ok"   : False,
                     "kind" : kind,
                     "summary": {
                         "total"   : 0,
@@ -271,10 +271,10 @@ class MissionService(object):
             )
 
         return {
+            "ok"          : ok_run,
             "text"        : f"kind={kind} total={len(step_results)} mission_id={mission_id}",
             "attachments" : attachments,
             "data": {
-                "ok"         : ok_run,
                 "mission_id" : mission_id,
                 "kind"       : kind,
                 "artifact"   : ArtifactService.to_dict(mission_artifact),
@@ -389,14 +389,14 @@ class MissionService(object):
                 artifact=artifact,
                 pack=pack,
                 step_name=name,
-                step_ok=bool(data.get("ok")),
+                step_ok=bool(pack.get("ok")),
                 elapsed_ms=elapsed_ms
             )
 
         return StepResult(
             name=name,
             type=kind,
-            ok=bool(data.get("ok")),
+            ok=bool(pack.get("ok")),
             elapsed_ms=elapsed_ms,
             detail={
                 "request"        : dict(executed_request or {}),

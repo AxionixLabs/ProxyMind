@@ -3,11 +3,6 @@
 
 from .schema_app import (
     ActivityArg,
-    ApkPathArg,
-    DowngradeArg,
-    KeepDataArg,
-    ReplaceArg,
-    TestOnlyArg,
     UrlArg
 )
 from .schema_file import (
@@ -41,8 +36,6 @@ from .schema_monkey import (
     TouchPctArg
 )
 from .schema_system import (
-    KeyCodeArg,
-    KeyCodeListArg,
     RebootModeArg,
     ToggleArg,
     WaitReconnectArg,
@@ -62,7 +55,6 @@ from .schema_ui import (
     ScrollDirectionArg,
     ShouldClickArg,
     TimeoutArg,
-    WaitArg,
     WaitStateArg,
     WidgetViewArg
 )

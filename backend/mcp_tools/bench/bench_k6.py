@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.mcp_hub.hub_manage import Requires
@@ -25,11 +24,10 @@ from backend.mcp_tools.bench.schemas.schema_k6 import (
 from backend.utilities.runtime import (
     AppContext, Idle
 )
-from backend.utilities.broadcast import broadcast
+from backend.utilities.tool_result import build_tool_result
 
 
 def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
-    """注册通用接口执行工具。"""
 
     @mcp.tool(
         description=(
@@ -50,7 +48,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         response_capture: ResponseCaptureArg = "auto",
         response_export: ResponseExportArg = None
     ) -> CallToolResult:
-        """执行一次压力测试。默认按压测语义使用。"""
+
         await Requires.connect_k6()
 
         args = {
@@ -64,29 +62,22 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "response_export"  : response_export
         }
 
-        async def call(*_) -> dict:
-            job_id = await idle.job_begin(f"{ctx.k6.agent_id}.perf_run", args=args)
-            try:
-                return await ctx.k6.run_inline(
-                    script_text=typing.cast(str, script_text),
-                    script_name=script_name,
-                    env=env,
-                    summary_export=summary_export,
-                    extra_args=extra_args,
-                    execution_mode=execution_mode,
-                    response_capture=response_capture,
-                    response_export=response_export
-                )
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.k6.agent_id}.perf_run", args=args)
+        try:
+            raw = await ctx.k6.run_inline(
+                script_text=script_text,
+                script_name=script_name,
+                env=env,
+                summary_export=summary_export,
+                extra_args=extra_args,
+                execution_mode=execution_mode,
+                response_capture=response_capture,
+                response_export=response_export
+            )
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="perf_run",
-            args=args,
-            target_list=[ctx.k6],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="perf_run", args=args, raw=raw, target=ctx.k6.agent_id)
 
     @mcp.tool(
         description=(
@@ -108,7 +99,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         summary_export: SummaryExportArg = None,
         extra_args: ExtraArgsArg = None
     ) -> CallToolResult:
-        """执行本地脚本文件。"""
+
         await Requires.connect_k6()
 
         args = {
@@ -123,31 +114,24 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "extra_args"     : extra_args
         }
 
-        async def call(*_) -> dict:
-            job_id = await idle.job_begin(f"{ctx.k6.agent_id}.perf_run_file", args=args)
-            try:
-                return await ctx.k6.run_file(
-                    script_file=typing.cast(str, script_file),
-                    workdir=workdir,
-                    vus=vus,
-                    duration=duration,
-                    iterations=iterations,
-                    env=env,
-                    tags=tags,
-                    summary_export=summary_export,
-                    extra_args=extra_args,
-                    tool="perf_run_file"
-                )
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.k6.agent_id}.perf_run_file", args=args)
+        try:
+            raw = await ctx.k6.run_file(
+                script_file=script_file,
+                workdir=workdir,
+                vus=vus,
+                duration=duration,
+                iterations=iterations,
+                env=env,
+                tags=tags,
+                summary_export=summary_export,
+                extra_args=extra_args,
+                tool="perf_run_file"
+            )
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="perf_run_file",
-            args=args,
-            target_list=[ctx.k6],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="perf_run_file", args=args, raw=raw, target=ctx.k6.agent_id)
 
 
 if __name__ == '__main__':

@@ -136,7 +136,7 @@ def render_shell_escape_summary(
         data=payload
     )
 
-    preview = render_tool_result_preview("shell_command", payload, arguments=arguments)
+    preview = render_tool_result_preview("shell_command", payload, arguments=arguments, ok=ok)
 
     parts = render_tool_trace_parts(
         title,

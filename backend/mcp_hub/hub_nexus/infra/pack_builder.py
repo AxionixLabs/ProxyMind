@@ -20,7 +20,6 @@ class PackBuilder(object):
     ) -> dict[str, typing.Any]:
         """组装协议执行后的统一返回包。"""
         data: dict[str, typing.Any] = {
-            "ok"       : ok,
             "request"  : request,
             "response" : response
         }
@@ -30,6 +29,7 @@ class PackBuilder(object):
             data.update(extra_data)
 
         return {
+            "ok"          : ok,
             "text"        : text,
             "attachments" : attachments or [],
             "data"        : data,

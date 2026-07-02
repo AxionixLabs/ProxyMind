@@ -98,6 +98,7 @@ class ActionResult:
 
 @dataclass(slots=True)
 class SemanticResult:
+    ok: bool = True
     text: str = ""
     attachments: list[Attachment] = field(default_factory=list)
     data: dict[str, typing.Any] | None = None
@@ -108,11 +109,13 @@ class SemanticResult:
         cls,
         text: str,
         *,
+        ok: bool = True,
         attachments: list[Attachment] | None = None,
         data: dict[str, typing.Any] | None = None,
         logs: list[str] | None = None,
     ) -> "SemanticResult":
         return cls(
+            ok=ok,
             text=text,
             attachments=attachments or [],
             data=data,
@@ -127,21 +130,16 @@ class SemanticResult:
         self.attachments.append(attachment)
 
     def to_dict(self) -> dict[str, typing.Any]:
-        payload: dict[str, typing.Any] = {"text": self.text}
-
-        if self.attachments:
-            payload["attachments"] = [
+        return {
+            "ok"          : self.ok,
+            "text"        : self.text,
+            "attachments" : [
                 item.to_dict() if isinstance(item, Attachment) else item
                 for item in self.attachments
-            ]
-
-        if self.data:
-            payload["data"] = self.data
-
-        if self.logs:
-            payload["logs"] = self.logs
-
-        return payload
+            ],
+            "data" : dict(self.data or {}),
+            "logs" : list(self.logs)
+        }
 
 
 if __name__ == '__main__':

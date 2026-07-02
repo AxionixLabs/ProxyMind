@@ -1,26 +1,22 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
-from backend.mcp_hub.hub_device import Device
 from backend.mcp_hub.hub_manage import DeviceManage
+from backend.utilities.tool_result import build_tool_result
 from backend.mcp_tools.automator.schemas.schema_system import (
-    KeyCodeArg,
-    KeyCodeListArg,
     RebootModeArg,
     ToggleArg,
     WaitReconnectArg,
     WaitTimeoutArg
 )
-from backend.mcp_tools.shared import MatrixArg
+from backend.mcp_tools.shared import SerialArg
 from backend.middlewares.mid_task import task_middleware
 from backend.utilities.runtime import AppContext
-from backend.utilities.broadcast import broadcast
 
 
-def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
+def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
 
     @mcp.tool(
         description=(
@@ -32,18 +28,13 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     )
     @task_middleware("open_notification")
     async def open_notification(
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.open_notification()
 
-        return await broadcast(
-            tool="open_notification",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        device = manage.resolve(serial)
+        raw = await device.open_notification()
+
+        return build_tool_result(tool="open_notification", args={}, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -55,71 +46,13 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     )
     @task_middleware("open_quick_settings")
     async def open_quick_settings(
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.open_quick_settings()
 
-        return await broadcast(
-            tool="open_quick_settings",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        device = manage.resolve(serial)
+        raw = await device.open_quick_settings()
 
-    @mcp.tool(
-        description=(
-            "发送一组组合按键。"
-            " `first` 会先进入按下状态，`others` 作为近同时追加触发的按键列表。"
-            " 是否被系统或应用识别取决于当前设备、输入上下文和 ROM 行为。"
-        ),
-        meta={"hidden": False, "domain": "device", "class": "system"}
-    )
-    @task_middleware("combo_key")
-    async def combo_key(
-        first: KeyCodeArg,
-        others: KeyCodeListArg,
-        matrix: MatrixArg = None
-    ) -> CallToolResult:
-        args = {
-            "first"  : first,
-            "others" : others
-        }
-
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.combo_key(**a)
-
-        return await broadcast(
-            tool="combo_key",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
-
-    @mcp.tool(
-        description=(
-            "重置设备当前输入法配置。"
-            " 该工具常用于输入法状态异常后的恢复，不会主动执行文本输入。"
-            " 是否生效取决于系统策略、当前权限和设备 ROM 行为。"
-        ),
-        meta={"hidden": False, "domain": "device", "class": "system"}
-    )
-    @task_middleware("ime_reset")
-    async def ime_reset(
-        matrix: MatrixArg = None
-    ) -> CallToolResult:
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.ime_reset()
-
-        return await broadcast(
-            tool="ime_reset",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="open_quick_settings", args={}, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -134,24 +67,19 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
         mode: RebootModeArg = "",
         wait: WaitReconnectArg = False,
         wait_timeout: WaitTimeoutArg = 120.0,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
+
         args = {
             "mode"         : mode,
             "wait"         : wait,
             "wait_timeout" : wait_timeout
         }
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.reboot(**a)
+        device = manage.resolve(serial)
+        raw = await device.reboot(**args)
 
-        return await broadcast(
-            tool="reboot",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="reboot", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -163,18 +91,13 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     )
     @task_middleware("swipe_unlock")
     async def swipe_unlock(
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
-        async def call(device: Device, *_) -> typing.Any:
-            return await device.swipe_unlock()
 
-        return await broadcast(
-            tool="swipe_unlock",
-            args={},
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        device = manage.resolve(serial)
+        raw = await device.swipe_unlock()
+
+        return build_tool_result(tool="swipe_unlock", args={}, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -187,46 +110,17 @@ def bind(mcp: FastMCP, manage: DeviceManage, ctx: AppContext) -> None:
     @task_middleware("set_screen")
     async def set_screen(
         on: ToggleArg,
-        matrix: MatrixArg = None
+        serial: SerialArg = None
     ) -> CallToolResult:
-        args = {"on": on}
 
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.set_screen(**a)
+        args = {
+            "on" : on
+        }
 
-        return await broadcast(
-            tool="set_screen",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        device = manage.resolve(serial)
+        raw = await device.set_screen(**args)
 
-    @mcp.tool(
-        description=(
-            "通过系统 `svc wifi` 打开或关闭 Wi-Fi。"
-            " 该工具直接操作系统服务，不依赖快捷设置面板。"
-            " 是否允许切换取决于设备系统版本、ROM 限制和 adb 权限。"
-        ),
-        meta={"hidden": False, "domain": "device", "class": "system"}
-    )
-    @task_middleware("set_wifi")
-    async def set_wifi(
-        enabled: ToggleArg,
-        matrix: MatrixArg = None
-    ) -> CallToolResult:
-        args = {"enabled": enabled}
-
-        async def call(device: Device, a: dict) -> typing.Any:
-            return await device.set_wifi(**a)
-
-        return await broadcast(
-            tool="set_wifi",
-            args=args,
-            target_list=manage.snapshot,
-            call=call,
-            overrides=matrix
-        )
+        return build_tool_result(tool="set_screen", args=args, raw=raw, target=device.serial)
 
 
 if __name__ == '__main__':

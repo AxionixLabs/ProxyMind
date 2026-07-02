@@ -12,7 +12,6 @@ from .common import (
     _result_payload,
     _short_text,
     _summary_lines,
-    _trace_code_preview_from_lines,
     _trace_preview_from_lines
 )
 from .native_helpers import (
@@ -29,7 +28,6 @@ from .shell_errors import (
     shell_output_lines
 )
 from .native_patch import (
-    _error_patch_preview_lines,
     _hunk_label,
     _line_delta_from_patch_files,
     _patch_error_diagnostic_lines,
@@ -82,7 +80,8 @@ def render_tool_result_preview(
     name: str,
     data: typing.Any = None,
     *,
-    arguments: dict[str, typing.Any] | None = None
+    arguments: dict[str, typing.Any] | None = None,
+    ok: bool | None = None
 ) -> TracePreview:
     """根据工具结果和参数生成结果预览。"""
     data = _result_payload(data)
@@ -91,7 +90,7 @@ def render_tool_result_preview(
     if not data:
         return TracePreview()
 
-    is_error = data.get("ok") is False
+    is_error = (not ok) if isinstance(ok, bool) else data.get("ok") is False
 
     if name == "apply_patch":
         if is_error:
@@ -145,7 +144,13 @@ def render_tool_result_preview(
                 return shell_batch_tree_preview(data)
             inner_args = inner.get("args") if isinstance(inner.get("args"), dict) else args
             inner_data = inner.get("data") if isinstance(inner.get("data"), dict) else {}
-            return render_tool_result_preview("shell_command", inner_data, arguments=inner_args)
+            inner_ok = bool(inner.get("ok")) if "ok" in inner else None
+            return render_tool_result_preview(
+                "shell_command",
+                inner_data,
+                arguments=inner_args,
+                ok=inner_ok
+            )
 
         if is_error:
             lines = _shell_command_error_context_lines(data)
@@ -193,7 +198,7 @@ def render_tool_result_entries(
 
                     inner_args = inner.get("args") if isinstance(inner.get("args"), dict) else {}
                     inner_data = inner.get("data") if isinstance(inner.get("data"), dict) else {}
-                    item_ok    = bool(item.get("ok")) if "ok" in item else bool(inner_data.get("ok"))
+                    item_ok    = bool(item.get("ok"))
 
                     entries.append(TraceEntry(
                         title=render_tool_trace(
@@ -205,7 +210,8 @@ def render_tool_result_entries(
                         preview=render_tool_result_preview(
                             "shell_command",
                             inner_data,
-                            arguments=inner_args
+                            arguments=inner_args,
+                            ok=item_ok
                         ),
                         ok=item_ok
                     ))
@@ -221,7 +227,7 @@ def render_tool_result_entries(
             data=data,
             cost_ms=cost_ms
         ),
-        preview=render_tool_result_preview(name, data, arguments=args),
+        preview=render_tool_result_preview(name, data, arguments=args, ok=ok),
         ok=ok
     )]
 

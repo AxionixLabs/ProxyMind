@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.mcp_hub.hub_manage import Requires
@@ -17,7 +16,7 @@ from backend.mcp_tools.bench.schemas.schema_memrix import (
 from backend.utilities.runtime import (
     AppContext, Idle
 )
-from backend.utilities.broadcast import broadcast
+from backend.utilities.tool_result import build_tool_result
 
 
 def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
@@ -45,37 +44,28 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "title" : title
         }
 
-        async def call(*_) -> typing.Any:
-            await idle.session_begin(
-                key=ctx.memrix.agent_id,
-                name=f"{ctx.memrix.agent_id}.mx_sample_mem",
-                args=args
-            )
-            try:
-                resp = await ctx.memrix.mx_task_begin("--storm", focus, imply, title)
-                resp = resp or {}
-
-                token = resp.get("data", {}).get("token")
-                if token:
-                    await idle.session_patch_args(ctx.memrix.agent_id, {"token": token})
-
-                ok = resp.get("data", {}).get("ok")
-                if not ok:
-                    await idle.session_final(ctx.memrix.agent_id)
-
-                return resp
-
-            except Exception as e:
-                await idle.session_final(ctx.memrix.agent_id)
-                raise e
-
-        return await broadcast(
-            tool="mx_sample_mem",
-            args=args,
-            target_list=[ctx.memrix],
-            call=call,
-            overrides=None
+        await idle.session_begin(
+            key=ctx.memrix.agent_id,
+            name=f"{ctx.memrix.agent_id}.mx_sample_mem",
+            args=args
         )
+        try:
+            raw = await ctx.memrix.mx_task_begin("--storm", focus, imply, title)
+            raw = raw or {}
+
+            token = raw.get("data", {}).get("token")
+            if token:
+                await idle.session_patch_args(ctx.memrix.agent_id, {"token": token})
+
+            ok = raw.get("ok")
+            if not ok:
+                await idle.session_final(ctx.memrix.agent_id)
+
+        except Exception as e:
+            await idle.session_final(ctx.memrix.agent_id)
+            raise e
+
+        return build_tool_result(tool="mx_sample_mem", args=args, raw=raw, target=ctx.memrix.agent_id)
 
     @mcp.tool(
         description=(
@@ -100,37 +90,28 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "title" : title
         }
 
-        async def call(*_) -> typing.Any:
-            await idle.session_begin(
-                key=ctx.memrix.agent_id,
-                name=f"{ctx.memrix.agent_id}.sample_gfx",
-                args=args
-            )
-            try:
-                resp = await ctx.memrix.mx_task_begin("--sleek", focus, imply, title)
-                resp = resp or {}
-
-                token = resp.get("data", {}).get("token")
-                if token:
-                    await idle.session_patch_args(ctx.memrix.agent_id, {"token": token})
-
-                ok = resp.get("data", {}).get("ok")
-                if not ok:
-                    await idle.session_final(ctx.memrix.agent_id)
-
-                return resp
-
-            except Exception as e:
-                await idle.session_final(ctx.memrix.agent_id)
-                raise e
-
-        return await broadcast(
-            tool="sample_gfx",
-            args=args,
-            target_list=[ctx.memrix],
-            call=call,
-            overrides=None
+        await idle.session_begin(
+            key=ctx.memrix.agent_id,
+            name=f"{ctx.memrix.agent_id}.sample_gfx",
+            args=args
         )
+        try:
+            raw = await ctx.memrix.mx_task_begin("--sleek", focus, imply, title)
+            raw = raw or {}
+
+            token = raw.get("data", {}).get("token")
+            if token:
+                await idle.session_patch_args(ctx.memrix.agent_id, {"token": token})
+
+            ok = raw.get("ok")
+            if not ok:
+                await idle.session_final(ctx.memrix.agent_id)
+
+        except Exception as e:
+            await idle.session_final(ctx.memrix.agent_id)
+            raise e
+
+        return build_tool_result(tool="sample_gfx", args=args, raw=raw, target=ctx.memrix.agent_id)
 
     @mcp.tool(
         description=(
@@ -147,19 +128,12 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
         await Requires.connect_memrix()
 
-        async def call(*_) -> typing.Any:
-            try:
-                return await ctx.memrix.mx_task_final(token)
-            finally:
-                await idle.session_final(ctx.memrix.agent_id)
+        try:
+            raw = await ctx.memrix.mx_task_final(token)
+        finally:
+            await idle.session_final(ctx.memrix.agent_id)
 
-        return await broadcast(
-            tool="mx_task_final",
-            args={},
-            target_list=[ctx.memrix],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="mx_task_final", args={}, raw=raw, target=ctx.memrix.agent_id)
 
     @mcp.tool(
         description=(
@@ -182,20 +156,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "layer" : layer
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.memrix.agent_id}.mx_mem_reporter", args=args)
-            try:
-                return await ctx.memrix.mx_mem_reporter(scene, layer)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.memrix.agent_id}.mx_mem_reporter", args=args)
+        try:
+            raw = await ctx.memrix.mx_mem_reporter(scene, layer)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="mx_mem_reporter",
-            args=args,
-            target_list=[ctx.memrix],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="mx_mem_reporter", args=args, raw=raw, target=ctx.memrix.agent_id)
 
     @mcp.tool(
         description=(
@@ -216,20 +183,13 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             "scene" : scene
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin(f"{ctx.memrix.agent_id}.mx_gfx_reporter", args=args)
-            try:
-                return await ctx.memrix.mx_gfx_reporter(scene)
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin(f"{ctx.memrix.agent_id}.mx_gfx_reporter", args=args)
+        try:
+            raw = await ctx.memrix.mx_gfx_reporter(scene)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="mx_gfx_reporter",
-            args=args,
-            target_list=[ctx.memrix],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="mx_gfx_reporter", args=args, raw=raw, target=ctx.memrix.agent_id)
 
 
 if __name__ == '__main__':

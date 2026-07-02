@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-import typing
 from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.middlewares.mid_task import task_middleware
@@ -10,12 +9,12 @@ from backend.mcp_tools.common.schemas.schema_inspect import (
     FreeRuleContextArg
 )
 from backend.utilities.runtime import (
-    AppContext, Idle
+    AppContext, Idle, free_rule_output
 )
-from backend.utilities.broadcast import broadcast
+from backend.utilities.tool_result import build_tool_result
 
 
-def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
+def bind(mcp: FastMCP, idle: Idle, _: AppContext) -> None:
 
     @mcp.tool(
         description=(
@@ -27,16 +26,15 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     )
     @task_middleware("query_idle")
     async def query_idle() -> CallToolResult:
-        async def call(*_) -> dict:
-            return await idle.snapshot()
-
-        return await broadcast(
-            tool="query_idle",
-            args={},
-            target_list=[idle],
-            call=call,
-            overrides=None
-        )
+        snapshot = await idle.snapshot()
+        raw = {
+            "ok"          : True,
+            "text"        : "idle snapshot",
+            "attachments" : [],
+            "data"        : snapshot,
+            "logs"        : []
+        }
+        return build_tool_result(tool="query_idle", args={}, raw=raw)
 
     @mcp.tool(
         description=(
@@ -51,25 +49,19 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         message: FreeRuleMessageArg,
         context: FreeRuleContextArg = None
     ) -> CallToolResult:
+
         args = {
             "message" : message,
             "context" : context
         }
 
-        async def call(*_) -> typing.Any:
-            job_id = await idle.job_begin("free_rule", args=args)
-            try:
-                return args
-            finally:
-                await idle.job_final(job_id)
+        job_id = await idle.job_begin("free_rule", args=args)
+        try:
+            raw = free_rule_output(args)
+        finally:
+            await idle.job_final(job_id)
 
-        return await broadcast(
-            tool="free_rule",
-            args=args,
-            target_list=[None],
-            call=call,
-            overrides=None
-        )
+        return build_tool_result(tool="free_rule", args=args, raw=raw)
 
 
 if __name__ == '__main__':

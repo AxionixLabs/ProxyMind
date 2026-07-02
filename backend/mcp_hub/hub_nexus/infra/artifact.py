@@ -125,6 +125,7 @@ class ArtifactService(object):
         data = dict(pack.get("data") or {})
 
         payload = {
+            "ok": step_ok,
             "artifact": ArtifactService.to_dict(artifact),
             "step": {
                 "name"       : step_name,

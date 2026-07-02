@@ -234,7 +234,9 @@ class NativeCodingBase(object):
         payload = {"ok": True, **data}
         if payload.get("ok") is False:
             NativeCodingBase.enrich_failure_facts(payload)
+        ok = bool(payload.pop("ok"))
         return {
+            "ok"          : ok,
             "text"        : text,
             "attachments" : [],
             "data"        : payload,
@@ -292,8 +294,10 @@ class NativeCodingBase(object):
     def fail_result(reason: str, **data: typing.Any) -> dict[str, typing.Any]:
         """构造统一的失败工具返回结构。"""
         payload = {"ok": False, "reason": reason, **data}
+        payload.pop("ok", None)
         NativeCodingBase.enrich_failure_facts(payload)
         return {
+            "ok"          : False,
             "text"        : f"native coding failed: {reason}",
             "attachments" : [],
             "data"        : payload,
