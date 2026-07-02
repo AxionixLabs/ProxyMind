@@ -33,7 +33,10 @@ class Enhancer(object):
         self.metadata    = metadata
 
     @staticmethod
-    def nexus_artifact(src: dict[str, typing.Any], default: str) -> dict[str, typing.Any]:
+    def nexus_artifact(
+        src: dict[str, typing.Any],
+        default: str
+    ) -> dict[str, typing.Any]:
         """为 nexus 参数补齐默认产物目录。"""
         item_reserved = {"name", "extract", "asserts", "request"}
 
