@@ -4,14 +4,6 @@
 import typing
 from pydantic import Field
 
-RemotePathArg = typing.Annotated[
-    str,
-    Field(description="设备侧文件路径。"),
-]
-LocalPathArg = typing.Annotated[
-    str,
-    Field(description="本地文件路径或目标目录。"),
-]
 LogKeywordsArg = typing.Annotated[
     typing.Optional[list[str]],
     Field(description="大小写不敏感的 OR 关键词列表；为空时不过滤关键词。"),
@@ -31,10 +23,6 @@ MaxLinesArg = typing.Annotated[
 SavedPathArg = typing.Annotated[
     typing.Optional[str],
     Field(description="完整日志落盘路径；为空时只返回摘要。"),
-]
-DevicePathArg = typing.Annotated[
-    str,
-    Field(description="设备上的目标文件路径。"),
 ]
 
 

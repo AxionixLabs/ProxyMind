@@ -20,6 +20,16 @@ from .tool_run import run_tool_step
 
 
 @dataclass(slots=True)
+class BatchToolResult:
+    """单个 batch 工具的本地展示结果。"""
+    name: str
+    arguments: dict[str, typing.Any]
+    ok: bool
+    text: str
+    cost_ms: int = 0
+
+
+@dataclass(slots=True)
 class PendingToolCall:
     """已下发但尚未执行的客户端工具调用。"""
     event: dict[str, typing.Any]
@@ -117,28 +127,35 @@ class ToolBatchExecutor:
             execution=execution
         )
 
-    async def execute_call(self, pending: PendingToolCall) -> None:
+    async def execute_call(
+        self,
+        pending: PendingToolCall,
+        *,
+        display: bool = True
+    ) -> BatchToolResult:
         """执行单个客户端工具并回填结果。"""
         event            = pending.event
         name             = pending.name
         arguments        = dict(pending.arguments)
         event_execution  = pending.execution
         use_coding_trace = pending.use_coding_trace
+        cost_ms          = 0
 
         try:
-            if not use_coding_trace:
-                await show_tool_start(
-                    self.stream_ui,
-                    name,
-                    arguments,
-                    call_id=str(event.get("call_id") or "")
-                )
-            else:
-                self.stream_ui.record_tool_arguments(
-                    name,
-                    arguments,
-                    call_id=str(event.get("call_id") or "")
-                )
+            if display:
+                if not use_coding_trace:
+                    await show_tool_start(
+                        self.stream_ui,
+                        name,
+                        arguments,
+                        call_id=str(event.get("call_id") or "")
+                    )
+                else:
+                    self.stream_ui.record_tool_arguments(
+                        name,
+                        arguments,
+                        call_id=str(event.get("call_id") or "")
+                    )
 
             arguments = exchange_arguments(name, arguments, self.report)
             if should_pass_execution_to_tool(name, event_execution):
@@ -162,20 +179,22 @@ class ToolBatchExecutor:
                 code_status=use_coding_trace
             )
 
-            ok     = tool_run.ok
-            fields = tool_run.fields
-            text   = tool_run.text
+            ok      = tool_run.ok
+            fields  = tool_run.fields
+            text    = tool_run.text
+            cost_ms = tool_run.cost_ms
 
-            await show_tool_result(
-                self.stream_ui,
-                name,
-                arguments,
-                tool_run,
-                ok=ok,
-                fields=fields,
-                text=text,
-                use_coding_trace=use_coding_trace
-            )
+            if display:
+                await show_tool_result(
+                    self.stream_ui,
+                    name,
+                    arguments,
+                    tool_run,
+                    ok=ok,
+                    fields=fields,
+                    text=text,
+                    use_coding_trace=use_coding_trace
+                )
 
         except Exception as exc:
             text = f"{type(exc).__name__}: {exc}"
@@ -194,22 +213,34 @@ class ToolBatchExecutor:
             fields,
             event_execution
         )
+        return BatchToolResult(
+            name=name,
+            arguments=arguments,
+            ok=ok,
+            text=str(text or ""),
+            cost_ms=cost_ms
+        )
 
-    async def execute_batch(self, batch: ToolCallBatch) -> None:
+    async def execute_batch(
+        self,
+        batch: ToolCallBatch,
+        *,
+        display_each: bool = True
+    ) -> list[BatchToolResult]:
         """按并发策略执行一批客户端工具。"""
         lock = AsyncRWLock()
 
-        async def run_one(pending: PendingToolCall) -> None:
+        async def run_one(pending: PendingToolCall) -> BatchToolResult:
             parallel = supports_parallel(pending.name, pending.meta)
             rw_ctx   = lock.read() if parallel else lock.write()
 
             async with rw_ctx:
-                await self.execute_call(pending)
+                return await self.execute_call(pending, display=display_each)
 
         if not batch.calls:
-            return
+            return []
 
-        await asyncio.gather(*(run_one(pending) for pending in batch.calls))
+        return list(await asyncio.gather(*(run_one(pending) for pending in batch.calls)))
 
 
 if __name__ == '__main__':

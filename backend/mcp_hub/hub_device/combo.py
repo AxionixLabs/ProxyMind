@@ -33,7 +33,7 @@ class Combo(object):
         await self.phone.screencap(remote)
 
         if (p := Path(local)).suffix:
-            destination = p.with_name(f"{p.stem}_{self.serial}{p.suffix}")
+            destination = p.with_name(f"{p.stem}_{self.serial}_{uuid.uuid4().hex[:6]}{p.suffix}")
         else:
             destination = p / f"screenshot_{self.serial}_{uuid.uuid4().hex[:6]}.png"
 

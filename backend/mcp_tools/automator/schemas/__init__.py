@@ -6,13 +6,10 @@ from .schema_app import (
     UrlArg
 )
 from .schema_file import (
-    DevicePathArg,
-    LocalPathArg,
     LogKeywordsArg,
     LogLevelArg,
     LogTagsArg,
     MaxLinesArg,
-    RemotePathArg,
     SavedPathArg
 )
 from .schema_info import (

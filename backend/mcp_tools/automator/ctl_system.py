@@ -24,7 +24,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 这是系统级入口操作，不依赖页面元素，也不需要通过坐标点击模拟。"
             " 适合先打开通知视图，再配合 UI 工具继续操作。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "system"}
+        meta={"hidden": False, "domain": "device", "class": "system", "supports_parallel": True}
     )
     @task_middleware("open_notification")
     async def open_notification(
@@ -42,7 +42,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 这是系统级入口操作，不依赖页面元素，也不需要通过坐标点击模拟。"
             " 适合先打开快捷设置，再配合 UI 工具定位具体开关。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "system"}
+        meta={"hidden": False, "domain": "device", "class": "system", "supports_parallel": True}
     )
     @task_middleware("open_quick_settings")
     async def open_quick_settings(
@@ -60,7 +60,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 只有在普通重启且 `wait` 为 true 时才会等待设备重新回到 adb online。"
             " 重启到特殊模式后通常不会回到正常 adb online，不建议开启等待。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "system"}
+        meta={"hidden": False, "domain": "device", "class": "system", "supports_parallel": True}
     )
     @task_middleware("reboot")
     async def reboot(
@@ -87,7 +87,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 该工具只覆盖无密码的滑动解锁场景。"
             " 不处理 PIN、图案、指纹或人脸等二次认证。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "system"}
+        meta={"hidden": False, "domain": "device", "class": "system", "supports_parallel": True}
     )
     @task_middleware("swipe_unlock")
     async def swipe_unlock(
@@ -105,7 +105,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 工具会先检查当前亮灭屏状态，只在状态不一致时才发送 POWER 键。"
             " 它保证的是目标状态收敛，不保证模拟一次原始电源键点击。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "system"}
+        meta={"hidden": False, "domain": "device", "class": "system", "supports_parallel": True}
     )
     @task_middleware("set_screen")
     async def set_screen(

@@ -370,13 +370,6 @@ class Phone(object):
         ]
         return await Flux.cmd_line(cmd)
 
-    async def file_push(self, local: str, remote: str) -> str | None:
-        """向设备推送文件。"""
-        cmd = self.prefix + [
-            "push", local, remote
-        ]
-        return await Flux.cmd_line(cmd)
-
     async def file_remove(self, path: str) -> str | None:
         """删除设备文件。"""
         cmd = self.prefix + [
@@ -506,14 +499,6 @@ class Phone(object):
             "wait-for-device"
         ]
         return await Flux.cmd_line(cmd)
-
-    async def double_tap(self, x: int, y: int) -> str | None:
-        """执行双击。"""
-        cmd = (
-            " ".join(self.prefix)
-            + f" shell input tap {x} {y}; sleep 0.08; input tap {x} {y}"
-        )
-        return await Flux.cmd_line_shell(cmd)
 
     async def input_text(self, text: str) -> str | None:
         """通过 ADB_INPUT_TEXT 广播输入文本。"""

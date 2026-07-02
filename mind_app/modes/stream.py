@@ -33,6 +33,11 @@ from ..runtime.tool_batch import (
     ToolCallBatch,
     batch_from_event
 )
+from ..runtime.tool_batch_display import (
+    should_group_batch,
+    show_tool_batch_completed,
+    show_tool_batch_start
+)
 from ..runtime.idle_status import IdleStatusTimer
 from ..stream_events.responses_builtin import (
     resolve_builtin_name,
@@ -162,7 +167,12 @@ async def stream_looper(
 
             if event_type == "turn.done":
                 if current_batch is not None:
-                    await tool_batch_executor.execute_batch(current_batch)
+                    if should_group_batch(current_batch):
+                        await show_tool_batch_start(slog, current_batch)
+                        results = await tool_batch_executor.execute_batch(current_batch, display_each=False)
+                        await show_tool_batch_completed(slog, results)
+                    else:
+                        await tool_batch_executor.execute_batch(current_batch)
                 break
 
             if event_type == "tool.builtin.call":
@@ -182,7 +192,12 @@ async def stream_looper(
 
             if event_type == "tool.calls.done":
                 if current_batch is not None:
-                    await tool_batch_executor.execute_batch(current_batch)
+                    if should_group_batch(current_batch):
+                        await show_tool_batch_start(slog, current_batch)
+                        results = await tool_batch_executor.execute_batch(current_batch, display_each=False)
+                        await show_tool_batch_completed(slog, results)
+                    else:
+                        await tool_batch_executor.execute_batch(current_batch)
                     current_batch = None
                 await slog.begin_reply_wait_status(delay_sec=0.75)
                 continue

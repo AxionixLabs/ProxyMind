@@ -25,7 +25,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 该工具只负责下发跳转命令，不保证目标应用一定打开到预期页面。"
             " 如果系统没有可处理该 URL 的 handler，调用可能无效果或直接失败。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "app"}
+        meta={"hidden": False, "domain": "device", "class": "app", "supports_parallel": True}
     )
     @task_middleware("app_deep_link")
     async def app_deep_link(
@@ -48,7 +48,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 该工具只下发启动命令，不校验应用是否最终进入前台。"
             " 提供 `activity` 时会按 package/activity 精确启动；不提供时使用系统解析到的默认入口。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "app"}
+        meta={"hidden": False, "domain": "device", "class": "app", "supports_parallel": True}
     )
     @task_middleware("app_start")
     async def app_start(
@@ -73,7 +73,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 该工具用于运行态归零，不会自动重启应用或校验最终前台状态。"
             " 适合在重启应用、清理残留状态或回归前清场时使用。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "app"}
+        meta={"hidden": False, "domain": "device", "class": "app", "supports_parallel": True}
     )
     @task_middleware("app_stop")
     async def app_stop(
@@ -96,7 +96,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 该工具适合重置登录态、首启状态或本地缓存，不会自动重启应用。"
             " 包名不存在或设备权限不足时会失败。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "app"}
+        meta={"hidden": False, "domain": "device", "class": "app", "supports_parallel": True}
     )
     @task_middleware("app_clear")
     async def app_clear(
@@ -119,7 +119,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 该工具会先检查当前前台，再执行启动并等待前台稳定命中。"
             " 首次拉起失败时会执行一次 force-stop 后重试，因此它比 `app_start` 更适合前台验收场景。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "app"}
+        meta={"hidden": False, "domain": "device", "class": "app", "supports_parallel": True}
     )
     @task_middleware("app_foreground")
     async def app_foreground(

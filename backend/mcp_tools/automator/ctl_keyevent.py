@@ -19,7 +19,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 该工具用于回到系统桌面，不依赖页面元素。"
             " 是否触发长按效果取决于设备和系统实现。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "keyevent"}
+        meta={"hidden": False, "domain": "device", "class": "keyevent", "supports_parallel": True}
     )
     @task_middleware("go_home")
     async def go_home(
@@ -42,7 +42,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 该工具常用于返回上一级页面、关闭弹窗或退出当前编辑态。"
             " 是否表现为普通返回还是长按行为取决于系统和当前前台上下文。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "keyevent"}
+        meta={"hidden": False, "domain": "device", "class": "keyevent", "supports_parallel": True}
     )
     @task_middleware("go_back")
     async def go_back(
@@ -65,7 +65,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 该工具用于打开系统最近任务视图，不依赖页面元素。"
             " 是否支持长按效果取决于设备和系统实现。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "keyevent"}
+        meta={"hidden": False, "domain": "device", "class": "keyevent", "supports_parallel": True}
     )
     @task_middleware("open_recents")
     async def open_recents(
@@ -88,7 +88,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 该工具常用于亮灭屏或触发系统电源键行为。"
             " 实际效果取决于当前锁屏状态、系统策略和设备实现。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "keyevent"}
+        meta={"hidden": False, "domain": "device", "class": "keyevent", "supports_parallel": True}
     )
     @task_middleware("press_power")
     async def press_power(
@@ -111,7 +111,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 该工具常用于输入框确认、表单提交或软键盘确认。"
             " 无输入焦点或前台不响应该键时可能无效果。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "keyevent"}
+        meta={"hidden": False, "domain": "device", "class": "keyevent", "supports_parallel": True}
     )
     @task_middleware("press_enter")
     async def press_enter(
@@ -134,7 +134,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 该工具主要用于删除当前输入焦点附近的文本内容。"
             " 无输入焦点或前台不接受键盘输入时可能无效果。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "keyevent"}
+        meta={"hidden": False, "domain": "device", "class": "keyevent", "supports_parallel": True}
     )
     @task_middleware("press_delete")
     async def press_delete(

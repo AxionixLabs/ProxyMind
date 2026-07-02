@@ -205,49 +205,6 @@ class Device(object):
         """确保应用位于前台。"""
         return await self.combo.app_foreground(package, activity)
 
-    # workflow: ==== File Control MCP Tool ====
-    async def file_pull(self, remote: str, local: str) -> dict[str, typing.Any]:
-        """从设备拉取文件。"""
-        unique = secrets.token_hex(6)
-
-        if (p := Path(local)).suffix:
-            destination = p.with_name(f"{p.stem}_{self.serial}_{unique}{p.suffix}")
-        else:
-            destination = p / f"pull_{self.serial}_{unique}.bin"
-
-        # 转成绝对路径（并规范化）
-        destination = destination.expanduser().resolve()
-        # 确保父目录存在
-        destination.parent.mkdir(parents=True, exist_ok=True)
-
-        raw = await self.phone.file_pull(remote, str(destination))
-
-        return SemanticResult(
-            ok=True,
-            text=f"文件已拉取到 {destination}",
-            data={"raw": raw, "path": str(destination)}
-        ).to_dict()
-
-    # workflow: ==== File Control MCP Tool ====
-    async def file_push(self, local: str, remote: str) -> typing.Any:
-        """向设备推送文件。"""
-        raw = await self.phone.file_push(local, remote)
-        return SemanticResult(
-            ok=True,
-            text="文件推送命令已执行。",
-            data={"raw": raw}
-        ).to_dict()
-
-    # workflow: ==== File Control MCP Tool ====
-    async def file_remove(self, path: str) -> typing.Any:
-        """删除设备文件。"""
-        raw = await self.phone.file_remove(path)
-        return SemanticResult(
-            ok=True,
-            text="文件删除命令已执行。",
-            data={"raw": raw}
-        ).to_dict()
-
     async def file_logcat_link(self) -> asyncio.subprocess.Process:
         """连接 logcat 流，供内部注入流程消费。"""
         return await self.phone.logcat_link()
@@ -528,16 +485,6 @@ class Device(object):
             ok=True,
             text="点击完成。",
             data={"raw": raw, "node": widget.to_node(), "clicked": True}
-        ).to_dict()
-
-    # workflow: ==== UI Interaction MCP Tool ====
-    async def double_click(self, x: int, y: int) -> typing.Any:
-        """在同一坐标执行双击。"""
-        raw = await self.phone.double_tap(x, y)
-        return SemanticResult(
-            ok=True,
-            text="双击已执行。",
-            data={"raw": raw}
         ).to_dict()
 
     # workflow: ==== UI Interaction MCP Tool ====
