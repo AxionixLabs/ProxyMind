@@ -49,7 +49,6 @@ async def show_tool_start(
     await stream_ui.feed(
         trace_start,
         display=StreamUI.BLOCK,
-        display_chunk=trace_start,
         display_parts=render_tool_trace_parts(
             trace_start,
             preview=render_tool_start_preview(arguments)

@@ -124,7 +124,7 @@ async def enhance_free_rule(
                 continue
             chunks.append(chunk)
             if slog:
-                await slog.feed(chunk, display_chunk=StreamUI.STREAM)
+                await slog.feed(chunk, display=StreamUI.STREAM)
 
         return {
             "ok"          : ok,
