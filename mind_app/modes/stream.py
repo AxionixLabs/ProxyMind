@@ -29,14 +29,7 @@ from ..runtime.execution_policy import (
 )
 from ..runtime.tool_batch import (
     PendingToolCall,
-    ToolBatchExecutor,
-    ToolCallBatch,
-    batch_from_event
-)
-from ..runtime.tool_batch_display import (
-    should_group_batch,
-    show_tool_batch_completed,
-    show_tool_batch_start
+    ToolBatchExecutor
 )
 from ..runtime.idle_status import IdleStatusTimer
 from ..stream_events.responses_builtin import (
@@ -87,8 +80,7 @@ async def stream_looper(
     approvals = ApprovalStore()
 
     idle_wait = IdleStatusTimer(
-        lambda: slog.begin_reply_wait_status(delay_sec=0.0),
-        delay_sec=0.9
+        lambda: slog.begin_reply_wait_status(delay_sec=0.0), delay_sec=0.9
     )
 
     try:
@@ -106,7 +98,6 @@ async def stream_looper(
             pref_config=pref_config,
             metadata=metadata
         )
-        current_batch: ToolCallBatch | None = None
         tool_batch_executor = ToolBatchExecutor(
             session=session,
             stream_ui=slog,
@@ -117,13 +108,7 @@ async def stream_looper(
             report=mind.report
         )
 
-        async for event in request.stream_chat(
-            mode,
-            pref_config,
-            message,
-            tools,
-            **kwargs
-        ):
+        async for event in request.stream_chat(mode, pref_config, message, tools, **kwargs):
             await idle_wait.cancel()
 
             if ev_report:
@@ -166,13 +151,6 @@ async def stream_looper(
                 continue
 
             if event_type == "turn.done":
-                if current_batch is not None:
-                    if should_group_batch(current_batch):
-                        await show_tool_batch_start(slog, current_batch)
-                        results = await tool_batch_executor.execute_batch(current_batch, display_each=False)
-                        await show_tool_batch_completed(slog, results)
-                    else:
-                        await tool_batch_executor.execute_batch(current_batch)
                 break
 
             if event_type == "tool.builtin.call":
@@ -186,19 +164,10 @@ async def stream_looper(
                 continue
 
             if event_type == "tool.calls.start":
-                current_batch = batch_from_event(event)
                 await slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                 continue
 
             if event_type == "tool.calls.done":
-                if current_batch is not None:
-                    if should_group_batch(current_batch):
-                        await show_tool_batch_start(slog, current_batch)
-                        results = await tool_batch_executor.execute_batch(current_batch, display_each=False)
-                        await show_tool_batch_completed(slog, results)
-                    else:
-                        await tool_batch_executor.execute_batch(current_batch)
-                    current_batch = None
                 await slog.begin_reply_wait_status(delay_sec=0.75)
                 continue
 
@@ -261,8 +230,9 @@ async def stream_looper(
                 continue
 
             if event_type == "tool.call":
-                name = str(event.get("name") or event.get("tool") or "").strip()
+                name      = str(event.get("name") or event.get("tool") or "").strip()
                 arguments = event.get("arguments", {})
+
                 if not name:
                     await request.post_tool_result(
                         event["cid"],
@@ -276,8 +246,9 @@ async def stream_looper(
                     await slog.begin_reply_wait_status()
                     continue
 
-                event_meta = event.get("meta") if isinstance(event.get("meta"), dict) else None
+                event_meta      = event.get("meta") if isinstance(event.get("meta"), dict) else None
                 event_execution = event.get("execution") if isinstance(event.get("execution"), dict) else None
+
                 if not isinstance(arguments, dict):
                     arguments = {}
 
@@ -328,12 +299,9 @@ async def stream_looper(
                     continue
 
                 use_coding_trace = coding_trace_tool(name)
+                local_tool_meta  = meta_for_tool(tools, name)
+                effective_meta   = {**(local_tool_meta or {}),**(event_meta or {})} or None
 
-                local_tool_meta = meta_for_tool(tools, name)
-                effective_meta = {
-                    **(local_tool_meta or {}),
-                    **(event_meta or {})
-                } or None
                 pending_call = PendingToolCall(
                     event=event,
                     name=name,
@@ -342,12 +310,6 @@ async def stream_looper(
                     execution=event_execution,
                     use_coding_trace=use_coding_trace
                 )
-
-                call_id = str(event.get("call_id") or "")
-                if current_batch is not None and current_batch.contains(call_id):
-                    current_batch.calls.append(pending_call)
-                    await slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
-                    continue
 
                 await tool_batch_executor.execute_call(pending_call)
                 await slog.begin_reply_wait_status(delay_sec=0.75)
