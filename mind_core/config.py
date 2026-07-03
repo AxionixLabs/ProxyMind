@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import os
 import copy
 import typing
 import tomllib
@@ -11,45 +12,13 @@ from mind_core.provider_config import (
 )
 from mind_nova import const
 
-
-def _default_model_slot(*, enabled: bool | None = None) -> dict[str, typing.Any]:
-    """返回默认模型槽位配置。"""
-    slot: dict[str, typing.Any] = {
-        "provider" : DEFAULT_PROVIDER_NAME,
-        "model"    : "",
-        "api_key"  : "",
-        "base_url" : "",
-        "route"    : DEFAULT_ROUTE_NAME
-    }
-    if enabled is not None:
-        slot["enabled"] = bool(enabled)
-    return slot
-
-
-def default_config() -> dict[str, typing.Any]:
-    """返回 Mind config.toml 的默认配置结构。"""
-    return {
-        "service" : {
-            "domain" : const.DOMAIN
-        },
-        "model"   : {
-            "primary"   : _default_model_slot(),
-            "secondary" : _default_model_slot(enabled=False)
-        },
-        "skills"  : {
-            "enabled"  : [],
-            "disabled" : []
-        }
-    }
-
-
 DEFAULT_CONFIG_TEXT = f"""[service]
 domain = "{const.DOMAIN}"
 
 [model.primary]
 provider = "{DEFAULT_PROVIDER_NAME}"
 model = ""
-api_key = ""
+apikey = ""
 base_url = ""
 route = "{DEFAULT_ROUTE_NAME}"
 
@@ -57,7 +26,7 @@ route = "{DEFAULT_ROUTE_NAME}"
 enabled = false
 provider = "{DEFAULT_PROVIDER_NAME}"
 model = ""
-api_key = ""
+apikey = ""
 base_url = ""
 route = "{DEFAULT_ROUTE_NAME}"
 
@@ -67,16 +36,16 @@ disabled = []
 """
 
 
-def _as_dict(value: typing.Any) -> dict[str, typing.Any]:
-    """返回 dict 副本；非 dict 时返回空字典。"""
-    return dict(value) if isinstance(value, dict) else {}
-
-
 def _as_str(value: typing.Any, default: str = "") -> str:
     """把配置值规范化为字符串。"""
     if value is None:
         return default
     return str(value)
+
+
+def _as_dict(value: typing.Any) -> dict[str, typing.Any]:
+    """返回 dict 副本；非 dict 时返回空字典。"""
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def _as_bool(value: typing.Any, default: bool = False) -> bool:
@@ -114,7 +83,7 @@ def _normalize_model_slot(
 
     slot["provider"] = _as_str(data.get("provider"), DEFAULT_PROVIDER_NAME).strip() or DEFAULT_PROVIDER_NAME
     slot["model"]    = _as_str(data.get("model")).strip()
-    slot["api_key"]  = _as_str(data.get("api_key")).strip()
+    slot["apikey"]   = _as_str(data.get("apikey")).strip()
     slot["base_url"] = _as_str(data.get("base_url")).strip()
     slot["route"]    = _as_str(data.get("route"), DEFAULT_ROUTE_NAME).strip() or DEFAULT_ROUTE_NAME
 
@@ -122,6 +91,43 @@ def _normalize_model_slot(
         slot["enabled"] = _as_bool(data.get("enabled"), default_enabled)
 
     return slot
+
+
+def _default_model_slot(*, enabled: bool | None = None) -> dict[str, typing.Any]:
+    """返回默认模型槽位配置。"""
+    slot: dict[str, typing.Any] = {
+        "provider" : DEFAULT_PROVIDER_NAME,
+        "model"    : "",
+        "apikey"   : "",
+        "base_url" : "",
+        "route"    : DEFAULT_ROUTE_NAME
+    }
+    if enabled is not None:
+        slot["enabled"] = bool(enabled)
+    return slot
+
+
+def default_config() -> dict[str, typing.Any]:
+    """返回 Mind config.toml 的默认配置结构。"""
+    return {
+        "service" : {
+            "domain" : const.DOMAIN
+        },
+        "model"   : {
+            "primary"   : _default_model_slot(),
+            "secondary" : _default_model_slot(enabled=False)
+        },
+        "skills"  : {
+            "enabled"  : [],
+            "disabled" : []
+        }
+    }
+
+
+def default_config_path() -> Path:
+    """返回默认配置文件路径。"""
+    root = Path(os.environ.get("MIND_HOME") or Path.home() / ".mind").expanduser()
+    return root / "config.toml"
 
 
 def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
@@ -179,7 +185,7 @@ def config_to_preferences(config: dict[str, typing.Any]) -> dict[str, typing.Any
         return {
             "api"      : _as_str(slot.get("provider"), DEFAULT_PROVIDER_NAME),
             "model"    : _as_str(slot.get("model")),
-            "apikey"   : _as_str(slot.get("api_key")),
+            "apikey"   : _as_str(slot.get("apikey")),
             "base_url" : _as_str(slot.get("base_url")),
             "route"    : _as_str(slot.get("route"), DEFAULT_ROUTE_NAME)
         }
@@ -194,7 +200,7 @@ def config_to_preferences(config: dict[str, typing.Any]) -> dict[str, typing.Any
     if (
         _as_bool(secondary.get("enabled"), False)
         and _as_str(secondary.get("model")).strip()
-        and _as_str(secondary.get("api_key")).strip()
+        and _as_str(secondary.get("apikey")).strip()
     ):
         prefs["secondary"] = convert_slot(secondary)
 

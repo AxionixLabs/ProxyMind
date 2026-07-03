@@ -277,15 +277,15 @@ async def mind_loop(mind: "Mind") -> None:
             continue
 
         if m := re_apikey.match(prompt_text):
-            if api_key_value := await exchange_pref_value(m, pref_command="apikey"):
+            if apikey_value := await exchange_pref_value(m, pref_command="apikey"):
                 saved_primary = await persist_primary_pref(
                     mind,
                     command_name="apikey",
                     field_name="apikey",
-                    field_value=api_key_value
+                    field_value=apikey_value
                 )
                 if saved_primary is not None:
-                    tail = str(saved_primary.get("apikey") or api_key_value)[-6:]
+                    tail = str(saved_primary.get("apikey") or apikey_value)[-6:]
                     Design.console.print(
                         f"[bold #AFC7D8]API key saved[/] "
                         f"[dim #7F8C9A]tail=...{tail}[/]"

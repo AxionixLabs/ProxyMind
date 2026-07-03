@@ -8,7 +8,7 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.utils import get_cwidth
-from mind_core.skills import available_skills
+from mind_core.skills import configured_skills
 
 SKILL_EYE_WIDTH = 16
 SKILL_PREFIX_RE = re.compile(r"^\$[A-Za-z0-9_.-]*$")
@@ -17,6 +17,15 @@ PASTE_PREFIX_RE = re.compile(r"\[Pasted Content \d+ chars](?: #\d+)?")
 
 class SkillTokenLexer(Lexer):
     """输入框 skill token 高亮。"""
+
+    @staticmethod
+    def _line_offsets(text: str) -> list[int]:
+        """返回每行在完整文档中的起始偏移。"""
+        offsets = [0]
+        for index, char in enumerate(text):
+            if char == "\n":
+                offsets.append(index + 1)
+        return offsets
 
     def lex_document(self, document: Document) -> typing.Callable[[int], StyleAndTextTuples]:
         """返回指定行的格式化文本。"""
@@ -44,19 +53,10 @@ class SkillTokenLexer(Lexer):
 
         return get_line
 
-    @staticmethod
-    def _line_offsets(text: str) -> list[int]:
-        """返回每行在完整文档中的起始偏移。"""
-        offsets = [0]
-        for index, char in enumerate(text):
-            if char == "\n":
-                offsets.append(index + 1)
-        return offsets
-
 
 def known_skill_names() -> frozenset[str]:
     """返回当前可用 skill 名称白名单。"""
-    return frozenset(skill.name.lower() for skill in available_skills())
+    return frozenset(skill.name.lower() for skill in configured_skills())
 
 
 def sorted_known_skill_names() -> tuple[str, ...]:
@@ -164,7 +164,7 @@ def skill_completions(text: str) -> typing.Iterator[Completion]:
     query = token[1:].strip().lower()
 
     skills = [
-        skill for skill in available_skills()
+        skill for skill in configured_skills()
         if not query or skill.name.lower().startswith(query)
     ]
 

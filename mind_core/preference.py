@@ -180,8 +180,11 @@ class Preferences(object):
 
     async def _load_config_pref(self) -> dict[str, typing.Any]:
         """读取本地 config.toml 并转换为运行时偏好结构。"""
-        target = ensure_config(self.config_file)
-        return config_to_preferences(load_config(target))
+        try:
+            target = ensure_config(self.config_file)
+            return config_to_preferences(load_config(target))
+        except (OSError, TypeError, ValueError):
+            return _default_prefs()
 
     async def load_pref(self) -> None:
         """优先读取本地配置，并用远端偏好补齐空字段。"""

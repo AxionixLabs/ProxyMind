@@ -5,6 +5,7 @@ import os
 import contextlib
 from pathlib import Path
 from engine.tinker import MindError
+from mind_core.config import default_config_path
 from mind_nova import const
 
 MD_HOME_ENV = "MIND_HOME"
@@ -28,7 +29,7 @@ def mind_mcp_servers_path() -> Path:
 
 def mind_config_path() -> Path:
     """返回 Mind 主配置文件路径。"""
-    return mind_home() / "config.toml"
+    return default_config_path()
 
 
 def mind_reports_dir() -> Path:

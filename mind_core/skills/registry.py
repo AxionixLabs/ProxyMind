@@ -3,6 +3,12 @@
 
 from pathlib import Path
 from functools import lru_cache
+from mind_core.config import (
+    default_config_path,
+    ensure_config,
+    load_config,
+    normalize_config
+)
 from .models import SkillSpec
 from .parser import parse_skill_frontmatter
 from .paths import (
@@ -77,12 +83,75 @@ def available_skills() -> tuple[SkillSpec, ...]:
         by_name[skill.name] = skill
 
     source_order = {"project": 0, "user": 1, "bundled": 2}
+
     return tuple(
         sorted(
             by_name.values(),
             key=lambda item: (source_order.get(item.source, 99), item.name.lower())
         )
     )
+
+
+def _skill_names(values: object) -> frozenset[str]:
+    """把配置中的 skill 名称列表规范化为小写集合。"""
+    if not isinstance(values, list):
+        return frozenset()
+    return frozenset(
+        name
+        for raw in values
+        if (name := str(raw or "").strip().lower())
+    )
+
+
+def _configured_skill_filters(config: dict | None = None) -> dict[str, list[str]]:
+    """读取配置中的 skills 过滤规则。"""
+    if config is None:
+        try:
+            config = load_config(ensure_config(default_config_path()))
+        except (OSError, TypeError, ValueError):
+            config = {}
+
+    normalized = normalize_config(config)
+
+    skills = normalized.get("skills") if isinstance(normalized, dict) else {}
+    if not isinstance(skills, dict):
+        return {"enabled": [], "disabled": []}
+
+    return {
+        "enabled"  : list(skills.get("enabled") or []),
+        "disabled" : list(skills.get("disabled") or [])
+    }
+
+
+def configured_skills(config: dict | None = None) -> tuple[SkillSpec, ...]:
+    """返回应用配置过滤后的可用 skills。"""
+    filters = _configured_skill_filters(config)
+    return filter_skills(
+        available_skills(),
+        enabled=filters.get("enabled"),
+        disabled=filters.get("disabled")
+    )
+
+
+def filter_skills(
+    skills: tuple[SkillSpec, ...],
+    *,
+    enabled: object = None,
+    disabled: object = None
+) -> tuple[SkillSpec, ...]:
+    """按 enabled 白名单和 disabled 黑名单过滤 skills。"""
+    enabled_names  = _skill_names(enabled)
+    disabled_names = _skill_names(disabled)
+
+    filtered = []
+    for skill in skills:
+        name = skill.name.strip().lower()
+        if enabled_names and name not in enabled_names:
+            continue
+        if name in disabled_names:
+            continue
+        filtered.append(skill)
+    return tuple(filtered)
 
 
 if __name__ == '__main__':
