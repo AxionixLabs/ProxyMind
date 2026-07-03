@@ -5,7 +5,7 @@ import os
 import typing
 from loguru import logger
 from mind_nova import const
-from mind_app.stream_state.spacing import segment_prefix
+from mind_app.stream_state.boundary import OutputBoundaryState
 
 
 class StreamRecordWriter(object):
@@ -17,9 +17,31 @@ class StreamRecordWriter(object):
 
         self.buffer: str                        = ""
         self.fp: typing.Optional[typing.TextIO] = None
-        self.at_line_start: bool                = True
-        self.trailing_newlines: int             = 0
-        self.last_display: str | None           = None
+        self.boundary: OutputBoundaryState      = OutputBoundaryState(stream_display="stream")
+
+    @property
+    def at_line_start(self) -> bool:
+        return self.boundary.at_line_start
+
+    @at_line_start.setter
+    def at_line_start(self, value: bool) -> None:
+        self.boundary.at_line_start = bool(value)
+
+    @property
+    def trailing_newlines(self) -> int:
+        return self.boundary.trailing_newlines
+
+    @trailing_newlines.setter
+    def trailing_newlines(self, value: int) -> None:
+        self.boundary.trailing_newlines = max(0, int(value or 0))
+
+    @property
+    def last_display(self) -> str | None:
+        return self.boundary.last_display
+
+    @last_display.setter
+    def last_display(self, value: str | None) -> None:
+        self.boundary.last_display = value
 
     async def open(self) -> None:
         """打开记录文件，失败时保持记录器可用。"""
@@ -63,9 +85,10 @@ class StreamRecordWriter(object):
             if self.fp:
                 self.fp.write(line)
 
-        self.at_line_start = delta.endswith("\n")
-        self.trailing_newlines = self._count_trailing_newlines(delta)
-        self.last_display = "block" if block else "stream"
+        self.boundary.observe_display(
+            display="block" if block else "stream",
+            text=delta
+        )
 
     def write_audit(self, line: typing.Optional[str]) -> None:
         """写入一行审计记录。"""
@@ -94,8 +117,7 @@ class StreamRecordWriter(object):
             if self.fp:
                 self.fp.write(line)
 
-        self.at_line_start     = text.endswith("\n")
-        self.trailing_newlines = self._count_trailing_newlines(text)
+        self.boundary.observe_raw(text)
 
     def flush(self) -> None:
         """把缓冲区中未成行的内容写入文件。"""
@@ -151,23 +173,7 @@ class StreamRecordWriter(object):
         incoming_text: str | None = None
     ) -> str:
         """返回下一段记录文本前需要补充的段间前缀。"""
-        return segment_prefix(
-            last_display=self.last_display,
-            trailing_newlines=self.trailing_newlines,
-            stream_display="stream",
-            for_display=for_display,
-            incoming_text=incoming_text
-        )
-
-    @staticmethod
-    def _count_trailing_newlines(text: str) -> int:
-        """统计文本尾部连续换行数量。"""
-        count = 0
-        for ch in reversed(text):
-            if ch != "\n":
-                break
-            count += 1
-        return count
+        return self.boundary.prefix(for_display=for_display, incoming_text=incoming_text)
 
 
 if __name__ == '__main__':

@@ -9,6 +9,7 @@ from loguru import logger
 from rich.text import Text
 from mind_core.design import Design
 from mind_app.stream_render.coordinator import RenderCoord
+from mind_app.stream_state.boundary import OutputBoundaryState
 from mind_app.stream_state.status import StatusFamily
 from mind_app.stream_state.text import TextState
 from mind_app.stream_io.output_record import StreamRecordWriter
@@ -115,8 +116,15 @@ class StreamUI(object):
             boundary_prefix,
             has_live_text=has_live_text
         )
+        if not boundary_prefix and not has_live_text:
+            boundary_prefix = self._external_boundary_prefix_from_text_state()
 
         await self._print_boundary_prefix(boundary_prefix)
+        if boundary_prefix:
+            self.coordinator.text_state.remember_external_spacing(
+                display=self.BLOCK,
+                text=boundary_prefix
+            )
 
     async def begin_builtin_status(
         self,
@@ -409,15 +417,17 @@ class StreamUI(object):
             return prefix
         return "\n"
 
-    @staticmethod
-    def _count_trailing_newlines(text: str) -> int:
-        """统计文本尾部连续换行数量。"""
-        count = 0
-        for char in reversed(str(text or "")):
-            if char != "\n":
-                break
-            count += 1
-        return count
+    def _external_boundary_prefix_from_text_state(self) -> str:
+        """根据上一段直接输出，为外部交互 UI 补足视觉空行。"""
+        boundary = self.coordinator.text_state.external_boundary
+        if not boundary or not boundary.get("has_text"):
+            return ""
+
+        trailing = max(0, int(boundary.get("trailing_newlines") or 0))
+        if trailing >= 2:
+            return ""
+
+        return "\n" * (2 - trailing)
 
     @staticmethod
     def _print_raw(text: str) -> None:
@@ -565,7 +575,7 @@ class StreamUI(object):
         if not source:
             return ""
 
-        trailing = self._count_trailing_newlines(source)
+        trailing = OutputBoundaryState.count_trailing_newlines(source)
         needed   = max(0, 1 - trailing)
 
         return "\n" * needed

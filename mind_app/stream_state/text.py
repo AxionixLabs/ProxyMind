@@ -5,12 +5,15 @@ import typing
 from rich.console import Group
 from rich.text import Text
 from mind_core.design import Design
+from mind_app.stream_state.boundary import (
+    ExternalOutputBoundary,
+    OutputBoundaryState
+)
 from mind_app.stream_state.markdown import render_markdown
-from mind_app.stream_state.spacing import segment_prefix
 
 
 class TextState(object):
-    """管理正文/块文本的可见内容和裁剪规则。"""
+    """管理正文、块文本、可见窗口和输出边界状态。"""
 
     STREAM          = "stream"
     BLOCK           = "block"
@@ -27,14 +30,62 @@ class TextState(object):
         self.display_segments: list[dict[str, typing.Any]]           = []
         self.visible_segments: list[dict[str, typing.Optional[str]]] = []
 
-        self.trailing_newlines: int = 0
-        self.display_text: str      = ""
-        self.raw_text: str          = ""
+        self.boundary = OutputBoundaryState(stream_display=self.STREAM)
 
-        self.at_line_start: bool      = True
-        self.last_display: str | None = None
+        self.display_text: str = ""
+        self.raw_text: str     = ""
 
-        self.external_boundary: dict[str, typing.Any] | None = None
+        self._external_boundary: ExternalOutputBoundary | None = None
+
+    @property
+    def trailing_newlines(self) -> int:
+        """返回当前输出边界末尾的连续换行数量。"""
+        return self.boundary.trailing_newlines
+
+    @trailing_newlines.setter
+    def trailing_newlines(self, value: int) -> None:
+        """设置当前输出边界末尾的连续换行数量。"""
+        self.boundary.trailing_newlines = max(0, int(value or 0))
+
+    @property
+    def at_line_start(self) -> bool:
+        """返回当前输出边界是否位于行首。"""
+        return self.boundary.at_line_start
+
+    @at_line_start.setter
+    def at_line_start(self, value: bool) -> None:
+        """设置当前输出边界是否位于行首。"""
+        self.boundary.at_line_start = bool(value)
+
+    @property
+    def last_display(self) -> str | None:
+        """返回上一段输出的显示模式。"""
+        return self.boundary.last_display
+
+    @last_display.setter
+    def last_display(self, value: str | None) -> None:
+        """设置上一段输出的显示模式。"""
+        self.boundary.last_display = value
+
+    @property
+    def external_boundary(self) -> dict[str, typing.Any] | None:
+        """返回外部直接输出边界的兼容字典表示。"""
+        if self._external_boundary is None:
+            return None
+        return self._external_boundary.as_dict()
+
+    @external_boundary.setter
+    def external_boundary(
+        self,
+        value: dict[str, typing.Any] | ExternalOutputBoundary | None
+    ) -> None:
+        """设置外部直接输出边界，兼容旧字典结构。"""
+        if value is None:
+            self._external_boundary = None
+        elif isinstance(value, ExternalOutputBoundary):
+            self._external_boundary = value
+        else:
+            self._external_boundary = ExternalOutputBoundary.from_dict(value)
 
     def append(
         self,
@@ -48,7 +99,7 @@ class TextState(object):
         preserve_display_parts: bool = False,
         echo: bool = True
     ) -> bool:
-        """追加一段文本并返回是否适合继续打字机动画。"""
+        """追加一段文本并返回是否适合继续增量渲染动画。"""
         if not echo or not chunk:
             return False
 
@@ -85,10 +136,8 @@ class TextState(object):
         visible = self._parts_text(self.visible_segments)
         animate = (display == self.STREAM and visible.startswith(self.display_text))
 
-        self.display_text      = visible
-        self.at_line_start     = visible_delta.endswith("\n")
-        self.trailing_newlines = self._count_trailing_newlines(visible_delta)
-        self.last_display      = display
+        self.display_text = visible
+        self.boundary.observe_display(display=display, text=visible_delta)
 
         return animate
 
@@ -144,15 +193,26 @@ class TextState(object):
         if not text:
             return None
 
-        self.at_line_start     = text.endswith("\n")
-        self.trailing_newlines = self._count_trailing_newlines(text)
-        self.last_display      = display
+        self.boundary.observe_display(display=display, text=text)
 
-        self.external_boundary = {
-            "display"           : display,
-            "trailing_newlines" : self.trailing_newlines,
-            "has_text"          : bool(str(text or "").strip())
-        }
+        self._external_boundary = ExternalOutputBoundary.from_output(
+            display=display,
+            text=text
+        )
+
+    def remember_external_spacing(self, *, display: str, text: str) -> None:
+        """记录外部 UI 前主动打印的空白边界。"""
+        if not text:
+            return None
+        if self._external_boundary is None:
+            self._external_boundary = ExternalOutputBoundary.from_output(
+                display=display,
+                text=text
+            )
+            return None
+
+        self._external_boundary = self._external_boundary.with_spacing(text)
+        self.boundary.observe_raw(text)
 
     def segment_prefix_for(
         self,
@@ -170,10 +230,8 @@ class TextState(object):
 
         self.display_text      = ""
         self.raw_text          = ""
-        self.at_line_start     = True
-        self.trailing_newlines = 0
-        self.last_display      = None
-        self.external_boundary = None
+        self.boundary.clear()
+        self._external_boundary = None
 
     def _markdown_final_enabled(self) -> bool:
         """判断最终落版是否可以使用 Markdown 渲染。"""
@@ -413,7 +471,7 @@ class TextState(object):
             body = raw_text.strip("\n")
             if not body:
                 return []
-            trailing = min(2, self._count_trailing_newlines(raw_text))
+            trailing = min(2, OutputBoundaryState.count_trailing_newlines(raw_text))
             if trailing <= 0:
                 trailing = 1
             prefix = self._segment_prefix(for_display=self.BLOCK)
@@ -457,13 +515,7 @@ class TextState(object):
         incoming_text: str | None = None
     ) -> str:
         """根据上一段输出状态生成段间换行。"""
-        return segment_prefix(
-            last_display=self.last_display,
-            trailing_newlines=self.trailing_newlines,
-            stream_display=self.STREAM,
-            for_display=for_display,
-            incoming_text=incoming_text
-        )
+        return self.boundary.prefix(for_display=for_display, incoming_text=incoming_text)
 
     @classmethod
     def _segment_markdown_enabled(
@@ -636,13 +688,13 @@ class TextState(object):
 
     def _has_external_boundary(self) -> bool:
         """判断当前最终落版前是否存在直接输出边界。"""
-        return bool(self.external_boundary and self.external_boundary.get("has_text"))
+        return bool(self._external_boundary and self._external_boundary.has_text)
 
     def _external_boundary_trailing_newlines(self) -> int:
         """返回直接输出边界尾部换行数。"""
-        if not self.external_boundary:
+        if self._external_boundary is None:
             return 0
-        return max(0, int(self.external_boundary.get("trailing_newlines") or 0))
+        return self._external_boundary.trailing_newlines
 
     @classmethod
     def _unit_renderable(
@@ -677,16 +729,6 @@ class TextState(object):
             out.pop(0)
 
         return out
-
-    @staticmethod
-    def _count_trailing_newlines(text: str) -> int:
-        """统计文本尾部连续换行数量。"""
-        count = 0
-        for ch in reversed(text):
-            if ch != "\n":
-                break
-            count += 1
-        return count
 
     @staticmethod
     def _visible_len(parts: list[dict[str, typing.Optional[str]]]) -> int:
