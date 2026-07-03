@@ -5,7 +5,6 @@ import typing
 from mind_core.design import Design
 from ..stream_ui import StreamUI
 from ..stream_events.tool_trace import (
-    render_generic_tool_result_parts,
     render_generic_tool_result_preview,
     render_tool_result_entries,
     render_tool_start_preview,
@@ -29,6 +28,18 @@ def _coding_trace_text(
             trace_text = f"{title}\n└ {indented_preview}"
         else:
             trace_text = f"{title}\n{preview.full}"
+    return trace_text
+
+
+def _generic_trace_text(
+    title: str,
+    preview: typing.Any
+) -> str:
+    """生成普通工具结果的文本轨迹。"""
+    trace_text = title
+    if preview.full:
+        indented_preview = preview.full.replace("\n", "\n  ")
+        trace_text = f"{title}\n└ {indented_preview}"
     return trace_text
 
 
@@ -101,11 +112,14 @@ async def show_tool_result(
     if not display_text:
         return None
 
+    title         = f"• Tool {str(name or 'tool').strip() or 'tool'}"
     trace_preview = render_generic_tool_result_preview(display_text)
+
     await stream_ui.feed(
-        display_text,
+        _generic_trace_text(title, trace_preview),
         display=StreamUI.BLOCK,
-        display_parts=render_generic_tool_result_parts(trace_preview, ok=display_ok)
+        display_parts=render_tool_trace_parts(title, preview=trace_preview, ok=display_ok),
+        preserve_display_parts=True
     )
 
 
