@@ -31,11 +31,6 @@ def mind_config_path() -> Path:
     return mind_home() / "config.toml"
 
 
-def mind_pref_path() -> Path:
-    """返回 Mind 本地偏好缓存文件路径。"""
-    return mind_home() / "mind_pref.json"
-
-
 def mind_reports_dir() -> Path:
     """返回 Mind 报告输出目录。"""
     return mind_home() / "reports"

@@ -32,7 +32,7 @@ from .modes.support.repl_prompt import fetch_runtime_workspace_root
 from .paths import (
     ensure_mcp_servers_file,
     ensure_mind_home,
-    mind_pref_path,
+    mind_config_path,
     mind_reports_dir,
     process_env
 )
@@ -222,8 +222,7 @@ async def _run_main(
     # Notes: ========== 激活日志 ==========
     Active.active(level := "DEBUG" if cmd_lines.reflection else "INFO")
 
-    pref_file = str(mind_pref_path())
-    pref = Preferences(pref_file)
+    pref = Preferences(str(mind_config_path()))
 
     # Notes: ========== 工具路径 ==========
     if platform == "win32":
