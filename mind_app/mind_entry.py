@@ -114,7 +114,7 @@ async def run_selected_mode(
     cli_attachments: typing.Optional[list[dict[str, typing.Any]]]
 ) -> None:
     """按命令行参数分派到单次调用、批处理、订阅或交互模式。"""
-    access_mode = cmd_lines.access
+    access_mode = "full" if cmd_lines.access else "safe"
 
     if cmd_lines.agent:
         await mind.agent_loop()

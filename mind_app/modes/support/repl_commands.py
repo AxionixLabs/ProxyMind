@@ -2,15 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from engine.tinker import (
-    FileAssist, MindError
-)
+from engine.tinker import MindError
 from mind_app.mcp import McpSessionLike
 from mind_app.runtime.mcp.service_runtime import start_service_runtime
 from mind_app.stream_events.failure_display import render_failure_text
 from mind_core.design import Design
 from mind_nova.modes import RunMode
-from mind_nova import const
 from .repl_tools import render_tools_summary
 
 if typing.TYPE_CHECKING:
@@ -49,22 +46,6 @@ async def start_helix_runtime(mind: "Mind") -> None:
         Design.console.print(f"[bold #FF5F5F]Helix start failed: {error}[/]")
         Design.console.print()
         return None
-
-
-async def open_pref_page() -> None:
-    """打开偏好配置页。"""
-    url = f"{const.BASE_URL.rstrip('/')}/pref"
-    Design.console.print(
-        f"[bold #AFC7D8]Preferences[/] [dim #7F8C9A]· {url}[/]"
-    )
-    try:
-        await FileAssist.open_url(url)
-    except Exception as open_error:
-        Design.console.print(
-            f"[bold #FF5F5F]Open preferences failed: "
-            f"{type(open_error).__name__}: {open_error}[/]"
-        )
-    Design.console.print()
 
 
 async def print_available_tools(

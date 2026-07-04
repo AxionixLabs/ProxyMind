@@ -52,11 +52,11 @@ class Parser(object):
         # )
 
         # major_group.add_argument(
-        #     "--pref", action="store_true",
+        #     "--", action="store_true",
         #     help=textwrap.dedent(f'''\
         #         \033[1;34m^* 基线协议 *^\033[0m
         #         -------------------------
-        #         - 指定/加载模型偏好或配置。
+        #         -
         #
         #     ''')
         # )
@@ -161,11 +161,11 @@ class Parser(object):
         )
 
         minor_group.add_argument(
-            "--access", choices=("safe", "full"), default="safe",
+            "--access", action="store_true",
             help=textwrap.dedent(f'''\
                 \033[1;36m^* 准入协议 *^\033[0m
                 -------------------------
-                - 设置本次运行的工具访问模式：safe 需要审批，full 使用完整访问权限。
+                - 开启本次运行的完整工具访问权限；不传时使用 Approval 审批模式。
 
             ''')
         )

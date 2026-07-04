@@ -15,7 +15,6 @@ from mind_nova.requests import (
     normalize_access_mode
 )
 from .support.repl_commands import (
-    open_pref_page,
     print_attach_gap,
     print_available_tools,
     print_pending_attachments,
@@ -65,7 +64,6 @@ async def mind_loop(mind: "Mind") -> None:
     tools_set: set[str]        = {"/tools"}
     helix_start_set: set[str]  = {"/helix-start"}
     helix_stop_set: set[str]   = {"/helix-stop"}
-    helix_pref_set: set[str]   = {"/helix-pref"}
     shutdown_set: set[str]     = {"/shutdown"}
 
     doc = """\
@@ -85,7 +83,6 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #AFD7FF]/mcp[/]                      查看外部 MCP runtime 状态
         [bold #AFD7FF]/helix-start[/]              启动本地 Helix 服务
         [bold #FF5F5F]/helix-stop[/]               停止本地 Helix 服务
-        [bold #AFD7FF]/helix-pref[/]               打开 Helix 偏好配置页
         [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
         [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
         [bold #FF5F5F]/shutdown[/]                 关闭前台并停止本地运行时
@@ -191,10 +188,6 @@ async def mind_loop(mind: "Mind") -> None:
                 Design.console.print()
                 continue
             Design.console.print()
-            continue
-
-        if command in helix_pref_set:
-            await open_pref_page()
             continue
 
         if command in shutdown_set:
