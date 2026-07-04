@@ -215,6 +215,7 @@ async def _run_main(
         raise MindError(f"{const.APP_DESC} is not supported on this platform: {platform}.")
 
     packaged = not software.endswith(".py")
+
     runtime_spec = resolve_service_runtime(
         platform=platform,
         supports=supports,
@@ -224,7 +225,6 @@ async def _run_main(
     service_runtime_context = ServiceRuntimeContext(
         spec=runtime_spec,
         platform=platform,
-        software=software,
         packaged=packaged,
         env_symbol=env_symbol,
         app_desc=const.APP_DESC

@@ -34,7 +34,6 @@ class ServiceRuntimeContext:
     """描述服务运行时在当前入口下的准备参数。"""
     spec: ServiceRuntimeSpec
     platform: str
-    software: str
     packaged: bool
     env_symbol: str
     app_desc: str
@@ -143,7 +142,7 @@ async def authorize_runtime_files(
 async def ensure_runtime_asset(
     spec: ServiceRuntimeSpec,
     *,
-    software: str,
+    packaged: bool,
     explicit_upgrade: bool,
     anim_manager: AsyncAnimManager
 ) -> bool:
@@ -151,7 +150,7 @@ async def ensure_runtime_asset(
     return await ensure_asset(
         asset=spec.executable,
         supports=spec.supports,
-        software=software,
+        packaged=packaged,
         explicit_upgrade=explicit_upgrade,
         anim_manager=anim_manager
     )
@@ -166,7 +165,7 @@ async def ensure_service_runtime_asset(
     """确认当前服务运行时资产存在，必要时执行升级流程。"""
     return await ensure_runtime_asset(
         context.spec,
-        software=context.software,
+        packaged=context.packaged,
         explicit_upgrade=explicit_upgrade,
         anim_manager=anim_manager
     )

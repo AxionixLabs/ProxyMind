@@ -29,13 +29,12 @@ async def ensure_asset(
     *,
     asset: str,
     supports: str,
-    software: str,
+    packaged: bool,
     explicit_upgrade: bool,
     anim_manager: AsyncAnimManager
 ) -> bool:
     """按入口场景确认所需资产存在，必要时触发升级流程。"""
-    package = not software.endswith(".py")
-    missing = package and not Path(asset).exists()
+    missing = packaged and not Path(asset).exists()
 
     if not explicit_upgrade and not missing:
         return False

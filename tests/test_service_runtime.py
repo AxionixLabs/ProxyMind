@@ -34,7 +34,6 @@ def runtime_context(
     return runtime.ServiceRuntimeContext(
         spec=spec,
         platform="win32",
-        software="mind.exe",
         packaged=packaged,
         env_symbol=";",
         app_desc="Mind"
