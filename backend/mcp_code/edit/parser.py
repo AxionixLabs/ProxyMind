@@ -21,22 +21,23 @@ class PatchParser(object):
         if lines[-1:] != ["*** End Patch"]:
             return {"ok": False, "reason": "native_patch_missing_end", "data": {}}
 
-        files: list[dict[str, typing.Any]]         = []
-        current: dict[str, typing.Any] | None      = None
-        current_hunk: dict[str, typing.Any] | None = None
+        files: list[dict[str, typing.Any]]    = []
+        current: dict[str, typing.Any] | None = None
+
+        hunk_state: dict[str, dict[str, typing.Any] | None] = {"current": None}
 
         seen_paths: set[str] = set()
 
         def close_hunk() -> None:
-            nonlocal current_hunk
+            current_hunk = hunk_state["current"]
             if current is not None and current_hunk is not None:
                 hunks = current.get("hunks")
                 if isinstance(hunks, list):
                     hunks.append(current_hunk)
-            current_hunk = None
+            hunk_state["current"] = None
 
         def ensure_hunk() -> dict[str, typing.Any]:
-            nonlocal current_hunk
+            current_hunk = hunk_state["current"]
             if current_hunk is None:
                 current_hunk = {
                     "header"             : "@@",
@@ -49,6 +50,7 @@ class PatchParser(object):
                     "count_corrected"    : False,
                     "lines"              : []
                 }
+                hunk_state["current"] = current_hunk
             return current_hunk
 
         for line in lines[1:-1]:
@@ -130,7 +132,7 @@ class PatchParser(object):
 
             if line.startswith("@@"):
                 close_hunk()
-                current_hunk = {
+                hunk_state["current"] = {
                     "header"             : line,
                     "old_start"          : 1,
                     "new_start"          : 1,
