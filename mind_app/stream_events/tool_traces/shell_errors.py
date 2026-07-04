@@ -186,7 +186,7 @@ def _posix_shell_diagnostic_block(lines: list[str]) -> list[str]:
 
 
 def _tool_error_diagnostic_block(lines: list[str]) -> list[str]:
-    """提取常见 CLI 工具错误块，如 rg regex parse error。"""
+    """提取常见命令行工具错误块。"""
     for index, line in enumerate(lines):
         stripped = str(line or "").strip()
         if not re.match(

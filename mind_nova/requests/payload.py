@@ -4,7 +4,7 @@
 import httpx
 import typing
 from loguru import logger
-from mind_app.runtime.exec_env import exec_env
+from mind_app.runtime.environment.exec_env import exec_env
 from mind_core.skills import skills_payload
 from mind_nova import const
 from .access import (
@@ -18,22 +18,35 @@ def resolve_transport_mode(mode: str) -> str:
     return str(mode or "").strip().lower()
 
 
-async def fetch_exec_env(timeout: float = 1.5) -> dict[str, typing.Any]:
-    """从本地运行时服务获取执行环境信息，失败时返回本进程兜底信息。"""
+async def fetch_helix_exec_env(timeout: float = 1.5) -> dict[str, typing.Any] | None:
+    """读取外部运行时环境，失败时返回空值。"""
     try:
         async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             resp = await client.get(f"{const.BASE_URL}/api/runtime/exec-env")
             resp.raise_for_status()
             body = resp.json()
-    except Exception as exc:
-        logger.debug(f"[Runtime] exec_env fallback: {type(exc).__name__}: {exc}")
-        return exec_env()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.debug(f"[Runtime] helix exec_env skipped: {type(exc).__name__}: {exc}")
+        return None
 
     if not isinstance(body, dict) or not body.get("ok"):
-        return exec_env()
+        return None
 
     data = body.get("data")
-    return data if isinstance(data, dict) else exec_env()
+    return data if isinstance(data, dict) else None
+
+
+async def fetch_exec_env(timeout: float = 1.5) -> dict[str, typing.Any]:
+    """返回本地执行环境，并按 provider 分类附加外部环境。"""
+    mind_env = dict(exec_env())
+    providers = dict(mind_env.get("providers") or {})
+
+    helix_env = await fetch_helix_exec_env(timeout=timeout)
+    if helix_env is not None:
+        providers["helix"] = helix_env
+
+    mind_env["providers"] = providers
+    return mind_env
 
 
 def ensure_default_skills(kwargs: dict[str, typing.Any]) -> None:

@@ -53,11 +53,7 @@ def _normalize_executable(value: str) -> str:
 
 def _display_command_head(value: str) -> str:
     """把内置工具的绝对路径压缩为稳定展示名。"""
-    text = str(value or "").strip()
-    if _normalize_executable(text) == "rg":
-        return "rg"
-
-    return text
+    return str(value or "").strip()
 
 
 def _display_command_text(value: str) -> str:
@@ -67,19 +63,6 @@ def _display_command_text(value: str) -> str:
         return text
 
     text = _hide_shell_wrapper_text(text)
-
-    if text[0] in {"'", "\""}:
-        quote = text[0]
-        end = text.find(quote, 1)
-        if end > 0:
-            head = text[1:end]
-            if _normalize_executable(head) == "rg":
-                return "rg" + text[end + 1:]
-        return text
-
-    parts = text.split(maxsplit=1)
-    if parts and _normalize_executable(parts[0]) == "rg":
-        return "rg" + (f" {parts[1]}" if len(parts) > 1 else "")
 
     return text
 

@@ -29,6 +29,8 @@ from mind_nova.modes import RunMode
 from .assets import ensure_asset
 from .mind_core import Mind
 from .modes.support.repl_prompt import fetch_runtime_workspace_root
+from .runtime.environment.exec_env import _cached_exec_env
+from .runtime.environment.shell_tools import route_shell_tools
 from .paths import (
     ensure_mcp_servers_file,
     ensure_mind_home,
@@ -233,6 +235,9 @@ async def _run_main(
         helix = os.path.join(supports, "helix.app", "Contents", "MacOS", "helix")
     else:
         raise MindError(f"{const.APP_DESC} is not supported on this platform: {platform}.")
+
+    route_shell_tools(supports)
+    _cached_exec_env.cache_clear()
 
     # Notes: ========== 升级流程 ==========
     if cmd_lines.upgrade:

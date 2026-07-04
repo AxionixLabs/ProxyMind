@@ -57,12 +57,6 @@ def register_common_tools(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     security.bind(mcp, ctx)
 
 
-def register_coding_tools(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
-    from backend.mcp_tools.coding import native
-
-    native.bind(mcp, idle, ctx)
-
-
 def register_media_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> None:
     from backend.mcp_tools.media import audio
     from backend.mcp_tools.media import ffmpeg
@@ -75,7 +69,7 @@ def register_media_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: Ap
 
 def initialize(
     tools: typing.Iterable[str] = (
-        "adb", "ast-grep", "ffmpeg", "ffprobe", "jq", "k6", "rg"
+        "adb", "ffmpeg", "ffprobe", "k6"
     )
 ) -> dict[str, typing.Any]:
     """
@@ -89,42 +83,30 @@ def initialize(
     requires_layout: dict[str, dict[str, list[str]]] = {
         "windows": {
             "adb"      : ["platform-tools"],
-            "ast-grep" : ["ast-grep"],
             "ffmpeg"   : ["ffmpeg", "bin"],
             "ffprobe"  : ["ffmpeg", "bin"],
-            "jq"       : ["jq"],
-            "k6"       : ["k6"],
-            "rg"       : ["ripgrep"]
+            "k6"       : ["k6"]
         },
         "macos": {
             "adb"      : ["platform-tools"],
-            "ast-grep" : ["ast-grep"],
             "ffmpeg"   : ["ffmpeg", "bin"],
             "ffprobe"  : ["ffmpeg", "bin"],
-            "jq"       : ["jq"],
-            "k6"       : ["k6"],
-            "rg"       : ["ripgrep"]
+            "k6"       : ["k6"]
         }
     }
 
     executable_names: dict[str, dict[str, str]] = {
         "windows": {
             "adb"      : "adb.exe",
-            "ast-grep" : "ast-grep.exe",
             "ffmpeg"   : "ffmpeg.exe",
             "ffprobe"  : "ffprobe.exe",
-            "jq"       : "jq.exe",
-            "k6"       : "k6.exe",
-            "rg"       : "rg.exe"
+            "k6"       : "k6.exe"
         },
         "macos": {
             "adb"      : "adb",
-            "ast-grep" : "ast-grep",
             "ffmpeg"   : "ffmpeg",
             "ffprobe"  : "ffprobe",
-            "jq"       : "jq",
-            "k6"       : "k6",
-            "rg"       : "rg"
+            "k6"       : "k6"
         }
     }
 
@@ -200,7 +182,6 @@ def register_all_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppC
     register_automator_tools(mcp, manage, idle, ctx)
     register_bench_tools(mcp, idle, ctx)
     register_common_tools(mcp, idle, ctx)
-    register_coding_tools(mcp, idle, ctx)
     register_media_tools(mcp, manage, idle, ctx)
 
 

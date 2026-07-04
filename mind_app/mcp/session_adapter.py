@@ -4,6 +4,7 @@
 import typing
 from loguru import logger
 from mcp import ClientSession, types as mcp_types
+from mind_app.client_tools import ClientToolRegistry
 from .config import truncate_text
 from .status import (
     should_reraise_external, summarize_exception
@@ -56,15 +57,27 @@ class MultiMcpSession:
         self,
         local_session: ClientSession,
         external_group: typing.Any = None,
+        client_registry: ClientToolRegistry | None = None,
     ) -> None:
         """保存本地会话和可选的外部工具分组。"""
         self.local_session = local_session
         self.external_group = external_group
+        self.client_registry = client_registry
 
     async def list_tools(self) -> mcp_types.ListToolsResult:
         """返回本地工具和外部工具合并后的工具列表。"""
+        client_names: set[str] = set()
+        tools: list[mcp_types.Tool] = []
+        if self.client_registry is not None:
+            client_result = self.client_registry.list_tools()
+            tools.extend(client_result.tools)
+            client_names.update(tool.name for tool in client_result.tools)
+
         local_result = await self.local_session.list_tools()
-        tools = list(local_result.tools)
+        tools.extend(
+            tool for tool in local_result.tools
+            if tool.name not in client_names
+        )
 
         if self.external_group is not None:
             try:
@@ -113,6 +126,16 @@ class MultiMcpSession:
     ) -> mcp_types.CallToolResult:
         """根据工具名称选择外部会话或本地会话执行调用。"""
         payload = arguments if args is None else args
+
+        if self.client_registry is not None and self.client_registry.has_tool(name):
+            return await self.client_registry.call_tool(
+                self,
+                name,
+                payload,
+                read_timeout_seconds=read_timeout_seconds,
+                progress_callback=progress_callback,
+                meta=meta
+            )
 
         if self.external_group is not None and name in self.external_group.tools:
             return await self.external_group.call_tool(

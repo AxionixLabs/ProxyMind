@@ -7,7 +7,7 @@ import asyncio
 from loguru import logger
 from engine.tinker import MindError
 from mind_nova.modes import RUN_MODE_SET, RunMode
-from ...runtime.agent_client import AgentClient
+from ...runtime.agent.client import AgentClient
 from .models import (
     AgentLiveStatus, AgentSessionRuntime
 )

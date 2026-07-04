@@ -5,7 +5,7 @@ import typing
 import asyncio
 import contextlib
 from loguru import logger
-from ...runtime.agent_client import AgentClient
+from ...runtime.agent.client import AgentClient
 from mind_core.provider_config import DEFAULT_ROUTE_NAME
 from .models import (
     AgentSessionRuntime, AgentLiveStatus

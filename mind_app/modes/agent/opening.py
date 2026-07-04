@@ -11,7 +11,7 @@ import asyncio
 import hashlib
 import platform
 from loguru import logger
-from ...runtime.agent_client import AgentClient
+from ...runtime.agent.client import AgentClient
 from .models import AgentConfig
 from mind_nova import const
 

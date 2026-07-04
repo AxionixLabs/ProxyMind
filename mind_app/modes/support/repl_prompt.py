@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import json
 import httpx
 import typing
 from pathlib import (
     Path, PurePath
 )
+from mind_app.runtime.environment.exec_env import exec_env
 from mind_nova import const
 
 WORKSPACE_LABEL_REFRESH: float = 5.0
@@ -74,21 +74,14 @@ def primary_model_from_config(
 async def fetch_runtime_workspace_root(
     timeout: float = 0.8
 ) -> typing.Optional[Path]:
-    """读取本地运行时当前 workspace 根目录。"""
-    try:
-        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-            response = await client.get(f"{const.BASE_URL}/api/runtime/exec-env")
-            response.raise_for_status()
-            body = response.json()
-    except (httpx.HTTPError, json.JSONDecodeError, ValueError):
-        return None
-
-    data      = body.get("data") if isinstance(body, dict) else None
+    """读取本地 workspace 根目录。"""
+    _ = timeout
+    data = exec_env()
     workspace = data.get("workspace") if isinstance(data, dict) else None
 
     root = workspace.get("root") if isinstance(workspace, dict) else None
     if not isinstance(root, str) or not root.strip():
-        return None
+        root = str(Path.cwd())
 
     try:
         return Path(root).expanduser().resolve()

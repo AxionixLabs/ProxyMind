@@ -26,17 +26,22 @@ from .modes.static import static_looper as run_static_looper
 from .modes.stream import stream_looper as run_stream_looper
 from .modes.batch import mind_pack as run_mind_pack
 from .modes.agent import run_agent_loop
-from .runtime.calling import (
+from .runtime.support.calling import (
     calling as run_calling,
     run_mode_lifecycle as run_mode_lifecycle_wrapper
 )
-from .runtime.keepalive import run_keepalive
-from .runtime.external_mcp import ExternalMcpRuntime
-from .runtime.conversation import ConversationState
-from .runtime.tool_runtime import (
+from .runtime.mcp.keepalive import run_keepalive
+from .runtime.mcp.external import ExternalMcpRuntime
+from .runtime.support.conversation import ConversationState
+from .runtime.mcp.tool_runtime import (
     HelixToolRuntime,
     ToolRuntime
 )
+from .client_tools import (
+    ClientToolRegistry,
+    default_registry as default_client_tool_registry
+)
+from .native_coding import NativeCoding
 from .history import (
     ConversationHistoryStore,
     HISTORY_LIMIT,
@@ -90,6 +95,7 @@ class Mind(object):
         self.keepalive_stop: typing.Optional[asyncio.Event]           = None
         self.keepalive_task: typing.Optional[asyncio.Task[None]]      = None
         self.external_mcp: typing.Optional[ExternalMcpRuntime]        = None
+        self.client_tools: ClientToolRegistry                         = self._build_client_tools()
         self.tool_runtime: ToolRuntime                                = HelixToolRuntime(self)
 
         self.exit_code: int = 0
@@ -249,7 +255,14 @@ class Mind(object):
         normalized = normalize_workspace(workspace)
         if normalized:
             self.history_workspace = normalized
+            self.client_tools = self._build_client_tools()
         return self.history_workspace
+
+    def _build_client_tools(self) -> ClientToolRegistry:
+        """按当前工作区构建客户端工具注册表。"""
+        return default_client_tool_registry(
+            NativeCoding(root=self.history_workspace)
+        )
 
     def _history_gravity(self) -> str:
         """返回 history 使用的归档标签。"""

@@ -19,7 +19,7 @@ from mind_core.design import Design
 from .code_sources import (
     CodeSourceResolved, resolve_code_sources
 )
-from ..runtime.calling import resolve_mode_runner
+from ..runtime.support.calling import resolve_mode_runner
 from mind_nova import const
 
 if typing.TYPE_CHECKING:

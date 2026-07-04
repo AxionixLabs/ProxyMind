@@ -77,17 +77,7 @@ def detect_shell() -> dict[str, typing.Any]:
 
 def detect_runtimes() -> dict[str, typing.Any]:
     """检测常见本地运行时。"""
-    return {
-        "python" : runtime_bin(["python", "python3", "py"]),
-        "node"   : runtime_bin(["node"]),
-        "npm"    : runtime_bin(["npm"]),
-        "java"   : runtime_bin(["java"]),
-        "javac"  : runtime_bin(["javac"]),
-        "maven"  : runtime_bin(["mvn"]),
-        "gradle" : runtime_bin(["gradle"]),
-        "go"     : runtime_bin(["go"]),
-        "git"    : runtime_bin(["git"])
-    }
+    return {}
 
 
 def detect_tools() -> dict[str, typing.Any]:
@@ -97,9 +87,6 @@ def detect_tools() -> dict[str, typing.Any]:
         "k6"       : tool_bin("k6"),
         "ffmpeg"   : tool_bin("ffmpeg"),
         "ffprobe"  : tool_bin("ffprobe"),
-        "ast-grep" : tool_bin("ast-grep"),
-        "rg"       : tool_bin("rg"),
-        "jq"       : tool_bin("jq"),
         "framix"   : tool_bin("framix"),
         "memrix"   : tool_bin("memrix")
     }
@@ -137,24 +124,6 @@ def tool_bin(
         "source"        : tool_source(executable)
     }
     return result
-
-
-def runtime_bin(
-    candidates: list[str]
-) -> dict[str, typing.Any]:
-    """解析运行时可执行文件。"""
-    for candidate in candidates:
-        executable = shutil.which(candidate)
-        if not executable:
-            continue
-
-        result: dict[str, typing.Any] = {
-            "available"  : True,
-            "executable" : executable
-        }
-        return result
-
-    return {"available": False}
 
 
 def detect_workspace() -> dict[str, typing.Any]:
@@ -240,11 +209,11 @@ def venv_python(root: Path) -> Path | None:
 
 
 def tool_source(executable: str | None) -> str:
-    """标记工具来自普通 PATH 还是随包 bundled requires。"""
+    """标记工具来自普通 PATH 还是外部提供方。"""
     if not executable:
         return "missing"
     parts = Path(executable).resolve().parts
-    return "bundled" if "requires" in parts else "path"
+    return "provider" if "requires" in parts else "path"
 
 
 def _shell_name(executable: str) -> str:

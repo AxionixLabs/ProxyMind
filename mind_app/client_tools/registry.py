@@ -6,7 +6,7 @@ from mcp import types as mcp_types
 from .types import (
     ClientTool, ClientToolRuntime
 )
-from .example import TOOLS as EXAMPLE_TOOLS
+from .coding import coding_tools
 
 
 class ClientToolRegistry:
@@ -61,10 +61,10 @@ class ClientToolRegistry:
         return await tool.handler(dict(arguments or {}), runtime)
 
 
-def default_registry() -> ClientToolRegistry:
+def default_registry(native_coding: typing.Any = None) -> ClientToolRegistry:
     """构建默认客户端工具注册表。"""
     return ClientToolRegistry([
-        *EXAMPLE_TOOLS,
+        *coding_tools(native_coding),
     ])
 
 

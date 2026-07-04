@@ -8,7 +8,7 @@ from mind_core.design.upload import UploadProgressLiveReporter
 from mind_nova.events import EventReport
 from mind_nova.modes import RunMode
 from engine.tinker import MindError
-from ...runtime.calling import resolve_mode_runner
+from ...runtime.support.calling import resolve_mode_runner
 
 if typing.TYPE_CHECKING:
     from ...mind_core import Mind

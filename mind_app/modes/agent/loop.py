@@ -11,7 +11,7 @@ from websockets.exceptions import (
     InvalidStatus,
     WebSocketException
 )
-from ...runtime.agent_client import AgentClient
+from ...runtime.agent.client import AgentClient
 from .models import (
     AgentConfig,
     AgentSessionRuntime,

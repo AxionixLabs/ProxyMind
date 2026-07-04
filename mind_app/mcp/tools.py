@@ -46,9 +46,14 @@ def build_wire_tools(
 async def build_tool_context(
     local_session: ClientSession,
     external_group: typing.Any = None,
+    client_registry: typing.Any = None,
 ) -> McpToolContext:
     """合并本地与外部 MCP 工具，并生成模型调用上下文。"""
-    active_session = MultiMcpSession(local_session, external_group)
+    active_session = MultiMcpSession(
+        local_session,
+        external_group,
+        client_registry=client_registry
+    )
     list_tools     = await active_session.list_tools()
     tools          = build_wire_tools(list_tools)
 
