@@ -32,52 +32,55 @@ class McpSessionLike(typing.Protocol):
         ...
 
 
-def tool_for_openai(
-    tool: mcp_types.Tool,
-    *,
-    display_name: str,
-    description: str,
-    meta: dict[str, typing.Any]
-) -> mcp_types.Tool:
-    """生成用于模型侧展示的工具对象，保留原始输入 schema。"""
-    return tool.model_copy(
-        update={
-            "name"        : display_name,
-            "description" : truncate_text(description, 2048),
-            "inputSchema" : tool.inputSchema,
-            "meta"        : meta
-        }
-    )
-
-
-class MultiMcpSession:
-    """合并本地与外部 MCP 会话，并按工具来源分发调用。"""
+class CompositeToolSession(McpSessionLike):
+    """合并客户端、外部和服务 MCP 会话，并按工具来源分发调用。"""
 
     def __init__(
         self,
-        local_session: ClientSession,
+        service_session: ClientSession | None = None,
         external_group: typing.Any = None,
         client_registry: ClientToolRegistry | None = None,
     ) -> None:
-        """保存本地会话和可选的外部工具分组。"""
-        self.local_session = local_session
-        self.external_group = external_group
+        """保存可选服务会话、外部工具分组和客户端工具。"""
+        self.service_session = service_session
+        self.external_group  = external_group
         self.client_registry = client_registry
 
+    @staticmethod
+    def tool_for_openai(
+        tool: mcp_types.Tool,
+        *,
+        display_name: str,
+        description: str,
+        meta: dict[str, typing.Any]
+    ) -> mcp_types.Tool:
+        """生成用于模型侧展示的工具对象，保留原始输入 schema。"""
+        return tool.model_copy(
+            update={
+                "name"        : display_name,
+                "description" : truncate_text(description, 2048),
+                "inputSchema" : tool.inputSchema,
+                "meta"        : meta
+            }
+        )
+
     async def list_tools(self) -> mcp_types.ListToolsResult:
-        """返回本地工具和外部工具合并后的工具列表。"""
-        client_names: set[str] = set()
+        """返回全部可用工具合并后的工具列表。"""
+        client_names: set[str]      = set()
         tools: list[mcp_types.Tool] = []
+
         if self.client_registry is not None:
             client_result = self.client_registry.list_tools()
             tools.extend(client_result.tools)
             client_names.update(tool.name for tool in client_result.tools)
 
-        local_result = await self.local_session.list_tools()
-        tools.extend(
-            tool for tool in local_result.tools
-            if tool.name not in client_names
-        )
+        if self.service_session is not None:
+            local_result = await self.service_session.list_tools()
+
+            tools.extend(
+                tool for tool in local_result.tools
+                if tool.name not in client_names
+            )
 
         if self.external_group is not None:
             try:
@@ -89,16 +92,16 @@ class MultiMcpSession:
                     )
 
                     meta = dict(tool.meta or {})
-                    meta["external"] = True
-                    meta["server"] = alias
+                    meta["external"]  = True
+                    meta["server"]    = alias
                     meta["transport"] = str(meta.get("transport") or "external").strip().lower()
 
-                    description = str(tool.description or "").strip()
-                    prefix = f"[External {alias}]"
+                    description      = str(tool.description or "").strip()
+                    prefix           = f"[External {alias}]"
                     full_description = f"{prefix} {description}".strip() if description else prefix
 
                     tools.append(
-                        tool_for_openai(
+                        self.tool_for_openai(
                             tool,
                             display_name=display_name,
                             description=full_description,
@@ -146,13 +149,16 @@ class MultiMcpSession:
                 meta=meta
             )
 
-        return await self.local_session.call_tool(
-            name,
-            payload,
-            read_timeout_seconds=read_timeout_seconds,
-            progress_callback=progress_callback,
-            meta=meta
-        )
+        if self.service_session is not None:
+            return await self.service_session.call_tool(
+                name,
+                payload,
+                read_timeout_seconds=read_timeout_seconds,
+                progress_callback=progress_callback,
+                meta=meta
+            )
+
+        raise KeyError(f"unknown tool: {name}")
 
 
 if __name__ == '__main__':

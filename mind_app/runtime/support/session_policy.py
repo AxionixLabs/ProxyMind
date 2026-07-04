@@ -3,41 +3,11 @@
 
 import json
 import httpx
-import typing
 import contextlib
-from engine.tinker import MindError
 from mind_app.mcp.errors import (
     exception_type_name, flatten_exceptions
 )
 from mind_nova import const
-
-
-def pick_mcp_bootstrap(exc: BaseException, *, mcp_url: str) -> BaseException:
-    """从异常组中提取最贴近 MCP bootstrap 的底层异常。"""
-    fallback: typing.Optional[BaseException] = None
-
-    for item in flatten_exceptions(exc):
-        if isinstance(item, httpx.HTTPStatusError):
-            req_url = str(item.request.url) if item.request else ""
-            if req_url.startswith(mcp_url):
-                return item
-            fallback = fallback or item
-            continue
-
-        if isinstance(
-            item,
-            (
-                httpx.ConnectError,
-                httpx.ProxyError,
-                httpx.TimeoutException,
-                httpx.RemoteProtocolError
-            )
-        ):
-            return item
-
-        fallback = fallback or item
-
-    return fallback or exc
 
 
 def is_transport_close_exception(exc: BaseException) -> bool:
@@ -123,47 +93,6 @@ def friendly_exception_text(exc: BaseException) -> str:
 
     text = str(exc).strip()
     return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
-
-
-def bootstrap_failure(exc: BaseException, *, mcp_url: str) -> MindError:
-    """把 MCP bootstrap 失败转换成用户可读的 CLI 错误。"""
-    root = pick_mcp_bootstrap(exc, mcp_url=mcp_url)
-
-    if isinstance(root, httpx.HTTPStatusError):
-        status_code = root.response.status_code if root.response else 0
-        detail = compact_error_text(response_body_text(root))
-        if detail:
-            return MindError(
-                f"MCP bootstrap failed: {status_code} from {const.MCP_ED} | {detail}"
-            )
-        return MindError(
-            f"MCP bootstrap failed: {status_code} from {const.MCP_ED}"
-        )
-
-    if isinstance(root, httpx.ConnectError):
-        return MindError(
-            f"MCP bootstrap failed: unable to connect to local service at {const.BASE_URL}"
-        )
-
-    if isinstance(root, httpx.TimeoutException):
-        return MindError(
-            f"MCP bootstrap failed: timeout while preparing local service session"
-        )
-
-    if isinstance(root, httpx.RemoteProtocolError):
-        return MindError(
-            f"MCP bootstrap failed: local service returned an invalid HTTP response"
-        )
-
-    if isinstance(root, httpx.ProxyError):
-        return MindError(
-            f"MCP bootstrap failed: proxy error while preparing local service session"
-        )
-
-    return MindError(
-        f"MCP bootstrap failed: {type(root).__name__}: {root}"
-    )
-
 
 if __name__ == '__main__':
     pass

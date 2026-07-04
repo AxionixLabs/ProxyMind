@@ -3,17 +3,18 @@
 
 import typing
 import inspect
+import asyncio
+import contextlib
+from loguru import logger
 from mind_app.mcp import (
     McpSessionLike,
     build_tool_context
 )
 from mind_nova import const
 from .local import open_local_mcp_session
-from ..support.session_policy import bootstrap_failure
 
 if typing.TYPE_CHECKING:
     from mind_app.mind_core import Mind
-
 
 SessionCallback = typing.Callable[
     [
@@ -37,17 +38,55 @@ class ToolRuntime(typing.Protocol):
         ...
 
 
-class HelixToolRuntime(object):
-    """通过本地服务提供工具会话。"""
+class ClientToolProvider(object):
+    """提供 Mind 内置客户端工具注册表。"""
+
+    def __init__(self, mind: "Mind") -> None:
+        """保存 Mind 上下文。"""
+        self._mind = mind
+
+    def registry(self) -> typing.Any:
+        """返回当前工作区对应的客户端工具注册表。"""
+        return self._mind.client_tools
+
+
+class ExternalMcpProvider(object):
+    """提供已启动的外部 MCP 工具分组。"""
+
+    def __init__(self, mind: "Mind") -> None:
+        """保存 Mind 上下文。"""
+        self._mind = mind
+
+    def group(self) -> typing.Any:
+        """返回外部 MCP 分组，未启动时返回空。"""
+        runtime = self._mind.external_mcp
+        return runtime.group if runtime else None
+
+
+class ServiceMcpProvider(object):
+    """提供可选的 Helix MCP 服务会话。"""
+
+    @staticmethod
+    def url() -> str:
+        """返回服务 MCP 地址。"""
+        return const.BASE_URL + const.MCP_ED
+
+    @staticmethod
+    def open_session() -> typing.Any:
+        """打开服务 MCP 会话上下文。"""
+        return open_local_mcp_session()
+
+
+class CompositeToolRuntime(object):
+    """组合多个工具来源并提供统一会话。"""
 
     def __init__(self, mind: "Mind") -> None:
         """保存运行所需的共享上下文。"""
         self._mind = mind
 
-    def external_group(self) -> typing.Any:
-        """返回已连接的外部工具分组。"""
-        runtime = self._mind.external_mcp
-        return runtime.group if runtime else None
+        self.client_provider   = ClientToolProvider(mind)
+        self.external_provider = ExternalMcpProvider(mind)
+        self.service_provider  = ServiceMcpProvider()
 
     @staticmethod
     async def run_before_user_flow(
@@ -61,6 +100,26 @@ class HelixToolRuntime(object):
         if inspect.isawaitable(callback_result):
             await callback_result
 
+    async def run_with_context(
+        self,
+        service_session: typing.Any,
+        function: SessionCallback,
+        before_user_flow: typing.Optional[typing.Callable[[], typing.Any]]
+    ) -> None:
+        """构建组合工具上下文并执行用户回调。"""
+        tool_context = await build_tool_context(
+            service_session,
+            self.external_provider.group(),
+            client_registry=self.client_provider.registry()
+        )
+
+        await self.run_before_user_flow(before_user_flow)
+
+        await function(
+            tool_context.session,
+            tool_context.tools
+        )
+
     async def with_session(
         self,
         pref_config: dict[str, typing.Any],
@@ -70,30 +129,34 @@ class HelixToolRuntime(object):
         """建立工具会话并执行回调。"""
         _ = pref_config
 
-        mcp_url        = const.BASE_URL + const.MCP_ED
-        bootstrap_done = False
+        service_stack = contextlib.AsyncExitStack()
 
         try:
-            async with open_local_mcp_session() as local_session:
-                tool_context = await build_tool_context(
-                    local_session,
-                    self.external_group(),
-                    client_registry=self._mind.client_tools
+            service_session = await service_stack.enter_async_context(
+                self.service_provider.open_session()
+            )
+        except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
+            raise
+        except Exception as exc:
+            await service_stack.aclose()
+            logger.debug(
+                f"[ToolRuntime] service provider skipped url={self.service_provider.url()} "
+                f"{type(exc).__name__}: {exc}"
+            )
+        else:
+            async with service_stack:
+                await self.run_with_context(
+                    service_session,
+                    function,
+                    before_user_flow
                 )
-                bootstrap_done = True
+                return None
 
-                await self.run_before_user_flow(before_user_flow)
-
-                await function(
-                    tool_context.session,
-                    tool_context.tools
-                )
-
-        except BaseException as exc:
-            if bootstrap_done:
-                raise
-
-            raise bootstrap_failure(exc, mcp_url=mcp_url) from None
+        await self.run_with_context(
+            None,
+            function,
+            before_user_flow
+        )
 
 
 if __name__ == '__main__':

@@ -3,19 +3,15 @@
 
 import os
 import sys
-import stat
-import shutil
 import typing
 import asyncio
-from pathlib import Path
 from loguru import logger
 from engine.animation import AsyncAnimManager
 from engine.signals import SignalHandler
 from engine.manage import ServerManage
 from engine.tinker import (
-    MindError, Active, FileAssist
+    MindError, Active
 )
-from engine.terminal import Terminal
 # from mind_core import authorize
 # from mind_core.api import Api
 from mind_core.design import Design
@@ -26,11 +22,18 @@ from mind_core.service_config import ServiceConfig
 from mind_nova import const
 from mind_nova.services import service_endpoints
 from mind_nova.modes import RunMode
-from .assets import ensure_asset
 from .mind_core import Mind
 from .modes.support.repl_prompt import fetch_runtime_workspace_root
-from .runtime.environment.exec_env import _cached_exec_env
+from .runtime.environment.exec_env import clear_exec_env_cache
 from .runtime.environment.shell_tools import route_shell_tools
+from .runtime.mcp.service_runtime import (
+    authorize_runtime_files,
+    ensure_runtime_asset,
+    prepend_runtime_paths,
+    resolve_service_runtime,
+    start_service_runtime,
+    verify_runtime_paths
+)
 from .paths import (
     ensure_mcp_servers_file,
     ensure_mind_home,
@@ -159,27 +162,6 @@ async def _run_main(
     handler: SignalHandler | None = None
 ) -> int:
     """执行入口主流程。"""
-    async def authorized() -> None:
-        if platform != "darwin":
-            return None
-
-        tools_set = [kit for kit in [helix] if Path(kit).exists()]
-
-        ensure = [
-            kit for kit in tools_set if not (Path(kit).stat().st_mode & stat.S_IXUSR)
-        ]
-
-        if not ensure:
-            return None
-
-        for auth in ensure:
-            logger.debug(f"Authorizing: {auth}")
-
-        for resp in await asyncio.gather(
-            *(Terminal.cmd_line(["chmod", "+x", kit]) for kit in ensure), return_exceptions=True
-        ):
-            logger.debug(f"Authorize: {resp}")
-
     # Notes: ========== Start from here ==========
     # await Design.particle_aggregate()
     Design.show_intro()
@@ -229,61 +211,50 @@ async def _run_main(
     # Notes: ========== 工具路径 ==========
     if platform == "win32":
         supports = os.path.join(turbo, "windows").format()
-        helix = os.path.join(supports, "helix.dist", "helix.exe")
     elif platform == "darwin":
         supports = os.path.join(turbo, "macos").format()
-        helix = os.path.join(supports, "helix.app", "Contents", "MacOS", "helix")
     else:
         raise MindError(f"{const.APP_DESC} is not supported on this platform: {platform}.")
 
+    runtime_spec = resolve_service_runtime(
+        platform=platform,
+        supports=supports,
+        level=level,
+        packaged=not software.endswith(".py")
+    )
+
     route_shell_tools(supports)
-    _cached_exec_env.cache_clear()
+    clear_exec_env_cache()
 
     # Notes: ========== 升级流程 ==========
     if cmd_lines.upgrade:
-        await ensure_asset(
-            asset=helix,
-            supports=supports,
+        await ensure_runtime_asset(
+            runtime_spec,
             software=software,
             explicit_upgrade=True,
             anim_manager=entry_anim_manager
         )
         return 0
 
-    await ensure_asset(
-        asset=helix,
-        supports=supports,
-        software=software,
-        explicit_upgrade=False,
-        anim_manager=entry_anim_manager
-    )
+    if cmd_lines.helix:
+        await ensure_runtime_asset(
+            runtime_spec,
+            software=software,
+            explicit_upgrade=False,
+            anim_manager=entry_anim_manager
+        )
 
-    for tls in (tools := [helix]):
-        os.environ["PATH"] = os.path.dirname(tls) + env_symbol + os.environ.get("PATH", "")
+        prepend_runtime_paths(runtime_spec, env_symbol=env_symbol)
 
-    # Notes: ========== 检查工具 ==========
-    if not software.endswith(".py"):
-        for tls in tools:
-            if not shutil.which((tls_name := os.path.basename(tls))):
-                raise MindError(f"{const.APP_DESC} missing files {tls_name}")
+        # Notes: ========== 检查工具 ==========
+        verify_runtime_paths(
+            runtime_spec,
+            packaged=not software.endswith(".py"),
+            app_desc=const.APP_DESC
+        )
 
-    # Notes: ========== 三方应用 ==========
-    await authorized()
-
-    # Notes: ========== 启动命令 ==========
-    if not software.endswith(".py"):
-        launch_cmd = [helix, "--level", level]
-    else:
-        launch_cmd = [sys.executable, "-m", "backend.helix", "--level", level]
-
-    # if cmd_lines.pref:
-    if cmd_lines.hello:
-        server: ServerManage = ServerManage(launch_cmd)
-        await server.ensure_running()
-        await server.close()
-        # return await FileAssist.open_url(f"{const.BASE_URL}/pref")
-        await FileAssist.open_url(const.BASE_URL)
-        return 0
+        # Notes: ========== 三方应用 ==========
+        await authorize_runtime_files(runtime_spec, platform=platform)
 
     # Notes: ========== 授权流程 ==========
     # lic_file = Path(src_opera_place) / const.LIC_FILE
@@ -310,8 +281,7 @@ async def _run_main(
     logger.debug(f"{'=' * 15} 环境变量 {'=' * 15}\n")
 
     logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}")
-    for tls in tools:
-        logger.debug(f"TLS: {tls}")
+    logger.debug(f"TLS: {runtime_spec.executable}")
     logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}\n")
 
     positions = (
@@ -328,7 +298,7 @@ async def _run_main(
     # remote = await global_config_task
     remote = {}
 
-    server: ServerManage = ServerManage(launch_cmd, env=process_env())
+    server: ServerManage = ServerManage(runtime_spec.launch_command, env=process_env())
     mind = Mind(wires, level, power, remote, *positions, **keywords)
     mind.bind_runtime(asyncio.get_running_loop(), asyncio.current_task())
     mind.bind_server_manager(server)
@@ -337,21 +307,12 @@ async def _run_main(
         handler.bind_delegate(mind.signal_processor)
 
     try:
-        inbuild_status: dict[str, typing.Any] = {"state": "starting", "error": ""}
-        await mind.start_inbuild_startup_anim(lambda: dict(inbuild_status))
-        try:
-            await server.ensure_running()
-            runtime_workspace_root = await fetch_runtime_workspace_root()
-            if runtime_workspace_root is not None:
-                mind.set_history_workspace(runtime_workspace_root)
-            inbuild_status["state"] = "ready"
-        except (MindError, Exception):
-            inbuild_status["state"] = "failed"
-            raise
-        finally:
-            await mind.await_cleanup(mind.stop_anim())
+        if cmd_lines.helix:
+            await start_service_runtime(mind)
 
-        mind.start_keepalive_supervisor()
+        runtime_workspace_root = await fetch_runtime_workspace_root()
+        if runtime_workspace_root is not None:
+            mind.set_history_workspace(runtime_workspace_root)
 
         pref_task = asyncio.create_task(
             pref.load_pref(),

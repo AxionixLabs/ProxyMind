@@ -40,7 +40,7 @@ class ServiceConfig(object):
 
     @property
     def service_config_api(self) -> str:
-        """返回本地服务配置接口地址。"""
+        """返回服务配置接口地址。"""
         return const.BASE_URL.rstrip("/") + "/api/service-config"
 
     def load_local_domain(self) -> str:
@@ -69,7 +69,7 @@ class ServiceConfig(object):
         return normalize_domain(service.get("domain"))
 
     async def load_remote_domain(self) -> str:
-        """读取远端配置中的服务域名。"""
+        """读取配置接口中的服务域名。"""
         try:
             async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
                 resp = await client.get(self.service_config_api)
@@ -88,11 +88,8 @@ class ServiceConfig(object):
         return normalize_domain(data.get("domain"))
 
     async def load_domain(self) -> str:
-        """优先读取本地配置，空值时使用远端配置补齐。"""
-        local = self.load_local_domain()
-        if local:
-            return local
-        return await self.load_remote_domain()
+        """读取本地服务域名配置。"""
+        return self.load_local_domain()
 
 
 if __name__ == '__main__':

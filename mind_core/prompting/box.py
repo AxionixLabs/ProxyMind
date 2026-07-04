@@ -34,12 +34,6 @@ class CommandAutoSuggest(AutoSuggest):
     """行内提示视图。"""
 
     SLASH_HINTS: dict[str, str] = {
-        "/model"     : " <model-name>",
-        "/model "    : "<model-name>",
-        "/apikey"    : " <api-key>",
-        "/apikey "   : "<api-key>",
-        "/base-url"  : " <url>",
-        "/base-url " : "<url>",
         "/attach"    : " <path>",
         "/attach "   : "<path>",
         "/detach"    : " <index-or-path>",
@@ -83,7 +77,7 @@ class PromptToolkitBox(object):
     """交互输入视图。"""
 
     PARAMETERIZED_COMMANDS: tuple[str, ...] = (
-        "/model ", "/apikey ", "/base-url ", "/attach ", "/detach "
+        "/attach ", "/detach "
     )
     SKILLS_COMMAND_TEXT: str = "$"
 

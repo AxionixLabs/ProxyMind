@@ -81,7 +81,7 @@ class Preferences(object):
 
     @property
     def pref_api(self) -> str:
-        """返回远端偏好接口地址。"""
+        """返回偏好配置接口地址。"""
         return const.BASE_URL.rstrip("/") + "/api/pref"
 
     @staticmethod
@@ -100,7 +100,7 @@ class Preferences(object):
         base: dict[str, typing.Any],
         supplement: dict[str, typing.Any]
     ) -> dict[str, typing.Any]:
-        """用 supplement 填充 base 中为空的槽位字段，不覆盖已有值。"""
+        """使用补充配置填充空字段，不覆盖已有值。"""
         merged = dict(base or {})
         for key in ("api", "model", "apikey", "base_url", "route"):
             current = str(merged.get(key) or "").strip()
@@ -145,7 +145,7 @@ class Preferences(object):
         base: dict[str, typing.Any],
         remote: dict[str, typing.Any]
     ) -> dict[str, typing.Any]:
-        """以本地配置为主，用远端偏好仅补齐空字段。"""
+        """以本地配置为主，使用补充配置填充空字段。"""
         normalized_remote = cls._normalize_pref_payload(remote)
 
         merged = copy.deepcopy(base or _default_prefs())
@@ -168,7 +168,7 @@ class Preferences(object):
         self.prefs = self._normalize_pref_payload(payload)
 
     async def _fetch_remote_pref(self) -> dict[str, typing.Any]:
-        """从本地服务拉取最新偏好配置。"""
+        """从配置接口读取偏好配置。"""
         async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
             resp = await client.get(self.pref_api)
             resp.raise_for_status()
@@ -187,17 +187,8 @@ class Preferences(object):
             return _default_prefs()
 
     async def load_pref(self) -> None:
-        """优先读取本地配置，并用远端偏好补齐空字段。"""
+        """读取本地配置并刷新运行时偏好。"""
         prefs = await self._load_config_pref()
-
-        try:
-            remote = await self._fetch_remote_pref()
-        except (httpx.HTTPError, TypeError, ValueError):
-            remote = {}
-
-        if isinstance(remote, dict) and remote:
-            prefs = self._merge_remote_supplement(prefs, remote)
-
         self.prefs = self._normalize_pref_payload(prefs)
 
 

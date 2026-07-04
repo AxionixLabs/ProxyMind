@@ -34,7 +34,7 @@ from .runtime.mcp.keepalive import run_keepalive
 from .runtime.mcp.external import ExternalMcpRuntime
 from .runtime.support.conversation import ConversationState
 from .runtime.mcp.tool_runtime import (
-    HelixToolRuntime,
+    CompositeToolRuntime,
     ToolRuntime
 )
 from .client_tools import (
@@ -94,12 +94,14 @@ class Mind(object):
         self.server_manager: typing.Optional[ServerManage]            = None
         self.keepalive_stop: typing.Optional[asyncio.Event]           = None
         self.keepalive_task: typing.Optional[asyncio.Task[None]]      = None
-        self.external_mcp: typing.Optional[ExternalMcpRuntime]        = None
-        self.client_tools: ClientToolRegistry                         = self._build_client_tools()
-        self.tool_runtime: ToolRuntime                                = HelixToolRuntime(self)
+
+        self.external_mcp: typing.Optional[ExternalMcpRuntime] = None
+        self.client_tools: ClientToolRegistry = self._build_client_tools()
+        self.tool_runtime: ToolRuntime = CompositeToolRuntime(self)
 
         self.exit_code: int = 0
         self.sig_count: int = 0
+
         self.stop_runtime_on_exit: bool = False
 
     @property
@@ -370,6 +372,14 @@ class Mind(object):
                 raise MindError("Server not ready after reboot")
         finally:
             self.start_keepalive_supervisor()
+
+    async def stop_service_runtime(self) -> None:
+        """停止已绑定的后台进程，并关闭对应保活任务。"""
+        if self.server_manager is None:
+            raise MindError("Server manager is not bound")
+
+        await self.stop_keepalive_supervisor()
+        await craft.kill_port(self.server_manager.port)
 
     async def stop_anim(self) -> None:
         """停止等待动画。"""

@@ -7,7 +7,7 @@ from loguru import logger
 from mcp import ClientSession
 from mcp import types as mcp_types
 from .session_adapter import (
-    McpSessionLike, MultiMcpSession
+    CompositeToolSession, McpSessionLike
 )
 
 
@@ -44,18 +44,19 @@ def build_wire_tools(
 
 
 async def build_tool_context(
-    local_session: ClientSession,
+    service_session: ClientSession | None = None,
     external_group: typing.Any = None,
     client_registry: typing.Any = None,
 ) -> McpToolContext:
-    """合并本地与外部 MCP 工具，并生成模型调用上下文。"""
-    active_session = MultiMcpSession(
-        local_session,
+    """合并可用工具来源，并生成模型调用上下文。"""
+    active_session = CompositeToolSession(
+        service_session,
         external_group,
         client_registry=client_registry
     )
-    list_tools     = await active_session.list_tools()
-    tools          = build_wire_tools(list_tools)
+
+    list_tools = await active_session.list_tools()
+    tools      = build_wire_tools(list_tools)
 
     return McpToolContext(
         session=active_session,

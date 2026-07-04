@@ -119,6 +119,7 @@ class DesignStatusLiveDriver(StatusRenderer):
         ]
     ) -> Text:
         state = str(snapshot.get("state") or "starting").strip().lower()
+        title = str(snapshot.get("label") or "Internal MCP").strip() or "Internal MCP"
 
         colors = {
             "spin"      : "#7DD3FC",
@@ -138,19 +139,19 @@ class DesignStatusLiveDriver(StatusRenderer):
         out = Text()
         if state == "ready":
             out.append("■", style=f"bold {colors['done']}")
-            out.append(" Internal MCP ready", style=f"bold {colors['text']}")
+            out.append(f" {title} ready", style=f"bold {colors['text']}")
             return out
 
         if state == "failed":
             out.append("■", style=f"bold {colors['fail']}")
-            out.append(" Internal MCP failed", style=f"bold {colors['fail_text']}")
+            out.append(f" {title} failed", style=f"bold {colors['fail_text']}")
             return out
 
         marker, marker_style = cls._external_mcp_link_marker(phase, colors)
         out.append(marker, style=marker_style)
         out.append(" ", style=f"bold {colors['spin_dim']}")
 
-        label = "Internal MCP starting"
+        label = f"{title} starting"
 
         cls._append_gradient_sweep_text(
             out,

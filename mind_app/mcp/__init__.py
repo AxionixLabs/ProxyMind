@@ -11,8 +11,8 @@ from .group import (
     open_optional_external_mcp_group
 )
 from .session_adapter import (
-    McpSessionLike,
-    MultiMcpSession
+    CompositeToolSession,
+    McpSessionLike
 )
 from .status import ExternalMcpStatus
 from .tools import (
@@ -28,7 +28,7 @@ __all__ = [
     "ExternalMcpStatus",
     "McpToolContext",
     "McpSessionLike",
-    "MultiMcpSession",
+    "CompositeToolSession",
     "load_mcp_servers_file",
     "mcp_servers_path",
     "open_optional_external_mcp_group",

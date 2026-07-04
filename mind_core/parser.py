@@ -41,16 +41,6 @@ class Parser(object):
 
         # Workflow: ======================== 参数互斥 ========================
 
-        major_group.add_argument(
-            "--hello", action="store_true",
-            help=textwrap.dedent(f'''\
-                \033[1;34m^* 中枢协议 *^\033[0m
-                -------------------------
-                - 拉起后台管理中心面板，统一管理模型配置、日志与服务状态。
-
-            ''')
-        )
-
         # major_group.add_argument(
         #     "--apply", type=str,
         #     help=textwrap.dedent(f'''\
@@ -137,6 +127,16 @@ class Parser(object):
             title="\033[1m^* Σ / SIGMA :: 协议矩阵 *^\033[0m",
             description=textwrap.dedent(f'''\
                 \033[1;32m兼容: P1 :: Context Injection\033[0m
+            ''')
+        )
+
+        minor_group.add_argument(
+            "--helix", action="store_true",
+            help=textwrap.dedent(f'''\
+                \033[1;36m^* 中枢协议 *^\033[0m
+                -------------------------
+                - 启动本地 Helix 服务，可与 --chat/--fast/--plan/--xtra/--agent 叠加启用 Helix MCP。
+
             ''')
         )
 

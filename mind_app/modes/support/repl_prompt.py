@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import httpx
 import typing
 from pathlib import (
     Path, PurePath
 )
 from mind_app.runtime.environment.exec_env import exec_env
-from mind_nova import const
 
 WORKSPACE_LABEL_REFRESH: float = 5.0
 WORKSPACE_LABEL_UNKNOWN: str   = "?"
@@ -87,40 +85,6 @@ async def fetch_runtime_workspace_root(
         return Path(root).expanduser().resolve()
     except (OSError, RuntimeError, ValueError):
         return None
-
-
-async def save_primary_pref_field(
-    field: typing.Literal["model", "apikey", "base_url"],
-    value: str,
-    timeout: float = 3.0
-) -> dict[str, typing.Any]:
-    """更新 primary 模型槽位的单个字段并持久化到本地偏好存储。"""
-    normalized = str(value or "").strip()
-    if not normalized:
-        raise ValueError(f"{field} is empty")
-
-    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-        load_resp = await client.get(f"{const.BASE_URL}/api/pref")
-        load_resp.raise_for_status()
-        body = load_resp.json()
-
-        prefs = body.get("data") if isinstance(body, dict) else None
-        if not isinstance(prefs, dict):
-            prefs = {}
-
-        primary = dict(prefs.get("primary") or {})
-        primary[field] = normalized
-
-        prefs["primary"] = primary
-
-        save_resp = await client.put(
-            f"{const.BASE_URL}/api/pref", json=prefs
-        )
-        save_resp.raise_for_status()
-        saved = save_resp.json()
-
-    data = saved.get("data") if isinstance(saved, dict) else None
-    return data if isinstance(data, dict) else prefs
 
 
 if __name__ == '__main__':

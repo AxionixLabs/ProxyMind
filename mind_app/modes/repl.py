@@ -15,12 +15,11 @@ from mind_nova.requests import (
     normalize_access_mode
 )
 from .support.repl_commands import (
-    exchange_pref_value,
     open_pref_page,
-    persist_primary_pref,
     print_attach_gap,
     print_available_tools,
-    print_pending_attachments
+    print_pending_attachments,
+    start_helix_runtime
 )
 from .support.repl_prompt import (
     WORKSPACE_LABEL_REFRESH,
@@ -61,11 +60,12 @@ async def mind_loop(mind: "Mind") -> None:
 
     attachments_set: set[str]  = {"/attachments"}
     attach_clear_set: set[str] = {"/attach-clear"}
-    reboot_set: set[str]       = {"/reboot"}
     resume_set: set[str]       = {"/resume"}
-    pref_set: set[str]         = {"/pref"}
     permissions_set: set[str]  = {"/permissions"}
     tools_set: set[str]        = {"/tools"}
+    helix_start_set: set[str]  = {"/helix-start"}
+    helix_stop_set: set[str]   = {"/helix-stop"}
+    helix_pref_set: set[str]   = {"/helix-pref"}
     shutdown_set: set[str]     = {"/shutdown"}
 
     doc = """\
@@ -83,26 +83,22 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #AFD7FF]/permissions[/]               切换权限模式
         [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
         [bold #AFD7FF]/mcp[/]                      查看外部 MCP runtime 状态
-        [bold #AFD7FF]/pref[/]                     打开偏好配置页
-        [bold #7F8C9A]/model <name>[/]             持久化主模型名称
-        [bold #7F8C9A]/base-url <url>[/]           持久化主模型 Base URL
-        [bold #7F8C9A]/apikey <key>[/]             持久化主模型访问密钥
+        [bold #AFD7FF]/helix-start[/]              启动本地 Helix 服务
+        [bold #FF5F5F]/helix-stop[/]               停止本地 Helix 服务
+        [bold #AFD7FF]/helix-pref[/]               打开 Helix 偏好配置页
         [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
         [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
-        [bold #AFD7FF]/reboot[/]                   重启本地后台服务
         [bold #FF5F5F]/shutdown[/]                 关闭前台并停止本地运行时
         [bold #FF5F5F]/quit, /q, quit, exit[/]     断开会话（安全退出）
         [/]"""
 
-    re_model    = re.compile(r"^\s*/model(?:\s+(.*))?\s*$", re.IGNORECASE)
-    re_apikey   = re.compile(r"^\s*/apikey(?:\s+(.*))?\s*$", re.IGNORECASE)
-    re_base_url = re.compile(r"^\s*/base-url(?:\s+(.*))?\s*$", re.IGNORECASE)
-    re_attach   = re.compile(r"^\s*/attach(?:\s+(.*))?\s*$", re.IGNORECASE)
-    re_detach   = re.compile(r"^\s*/detach(?:\s+(.*))?\s*$", re.IGNORECASE)
+    re_attach = re.compile(r"^\s*/attach(?:\s+(.*))?\s*$", re.IGNORECASE)
+    re_detach = re.compile(r"^\s*/detach(?:\s+(.*))?\s*$", re.IGNORECASE)
 
     pref_config = await mind.fresh_pref_config()
-    primary     = pref_config.get("primary") or {}
-    model       = primary.get("model", "")
+
+    primary = pref_config.get("primary") or {}
+    model   = primary.get("model", "")
 
     mode: RunMode = DEFAULT_RUN_MODE
     access_mode   = DEFAULT_ACCESS_MODE
@@ -186,16 +182,19 @@ async def mind_loop(mind: "Mind") -> None:
             print_attach_gap()
             continue
 
-        if command in reboot_set:
-            Design.console.print("[bold #AFC7D8]Runtime[/] [dim #7F8C9A]· reboot[/]")
+        if command in helix_stop_set:
+            Design.console.print("[bold #AFC7D8]Helix[/] [dim #7F8C9A]· stop[/]")
             try:
-                await mind.reboot_runtime()
+                await mind.stop_service_runtime()
             except MindError as error:
-                Design.console.print(f"[bold #FF5F5F]Runtime reboot failed: {error}[/]")
+                Design.console.print(f"[bold #FF5F5F]Helix stop failed: {error}[/]")
                 Design.console.print()
                 continue
-            workspace_label_refreshed_at = 0.0
             Design.console.print()
+            continue
+
+        if command in helix_pref_set:
+            await open_pref_page()
             continue
 
         if command in shutdown_set:
@@ -204,10 +203,6 @@ async def mind_loop(mind: "Mind") -> None:
             Design.console.print("[bold #AFC7D8]Shutdown[/] [dim #7F8C9A]· stop backend runtime[/]")
             Design.console.print()
             break
-
-        if command in pref_set:
-            await open_pref_page()
-            continue
 
         if command.split(maxsplit=1)[0] in permissions_set:
             selected_access_mode = await choose_permissions_mode(access_mode)
@@ -221,6 +216,11 @@ async def mind_loop(mind: "Mind") -> None:
         if command in tools_set:
             pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
             await print_available_tools(mind, run_mode=mode, pref_config=pref_config)
+            continue
+
+        if command in helix_start_set:
+            await start_helix_runtime(mind)
+            workspace_label_refreshed_at = 0.0
             continue
 
         if command == "/mcp":
@@ -257,57 +257,6 @@ async def mind_loop(mind: "Mind") -> None:
         if command in MODE_BY_COMMAND:
             Design.console.print()
             mode = MODE_BY_COMMAND[command]
-            continue
-
-        if m := re_model.match(prompt_text):
-            if model_value := await exchange_pref_value(m, pref_command="model"):
-                saved_primary = await persist_primary_pref(
-                    mind,
-                    command_name="model",
-                    field_name="model",
-                    field_value=model_value
-                )
-                if saved_primary is not None:
-                    model = str(saved_primary.get("model") or model_value)
-                    Design.console.print(
-                        f"[bold #AFC7D8]Model saved[/] "
-                        f"[bold #F4F7FA]{model}[/]"
-                    )
-                    Design.console.print()
-            continue
-
-        if m := re_apikey.match(prompt_text):
-            if apikey_value := await exchange_pref_value(m, pref_command="apikey"):
-                saved_primary = await persist_primary_pref(
-                    mind,
-                    command_name="apikey",
-                    field_name="apikey",
-                    field_value=apikey_value
-                )
-                if saved_primary is not None:
-                    tail = str(saved_primary.get("apikey") or apikey_value)[-6:]
-                    Design.console.print(
-                        f"[bold #AFC7D8]API key saved[/] "
-                        f"[dim #7F8C9A]tail=...{tail}[/]"
-                    )
-                    Design.console.print()
-            continue
-
-        if m := re_base_url.match(prompt_text):
-            if base_url_value := await exchange_pref_value(m, pref_command="base-url"):
-                saved_primary = await persist_primary_pref(
-                    mind,
-                    command_name="base-url",
-                    field_name="base_url",
-                    field_value=base_url_value
-                )
-                if saved_primary is not None:
-                    base_url = str(saved_primary.get("base_url") or base_url_value)
-                    Design.console.print(
-                        f"[bold #AFC7D8]Base URL saved[/] "
-                        f"[bold #F4F7FA]{base_url}[/]"
-                    )
-                    Design.console.print()
             continue
 
         if m := re_attach.match(prompt_text):

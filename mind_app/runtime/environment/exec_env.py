@@ -28,6 +28,11 @@ def exec_env() -> dict[str, typing.Any]:
     return _cached_exec_env()
 
 
+def clear_exec_env_cache() -> None:
+    """清理本地执行环境缓存。"""
+    _cached_exec_env.cache_clear()
+
+
 def detect_platform() -> dict[str, typing.Any]:
     """返回平台基础信息。"""
     return {
