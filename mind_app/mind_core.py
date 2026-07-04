@@ -21,7 +21,6 @@ from mind_nova.modes import (
 )
 from mind_nova.report import Report
 from .attach import Attach
-from .stream_ui import StreamUI
 from .modes.repl import mind_loop as run_mind_loop
 from .modes.static import static_looper as run_static_looper
 from .modes.stream import stream_looper as run_stream_looper
@@ -31,10 +30,13 @@ from .runtime.calling import (
     calling as run_calling,
     run_mode_lifecycle as run_mode_lifecycle_wrapper
 )
-from .runtime.session import with_mcp_session as run_with_mcp_session
 from .runtime.keepalive import run_keepalive
 from .runtime.external_mcp import ExternalMcpRuntime
 from .runtime.conversation import ConversationState
+from .runtime.tool_runtime import (
+    HelixToolRuntime,
+    ToolRuntime
+)
 from .history import (
     ConversationHistoryStore,
     HISTORY_LIMIT,
@@ -88,6 +90,7 @@ class Mind(object):
         self.keepalive_stop: typing.Optional[asyncio.Event]           = None
         self.keepalive_task: typing.Optional[asyncio.Task[None]]      = None
         self.external_mcp: typing.Optional[ExternalMcpRuntime]        = None
+        self.tool_runtime: ToolRuntime                                = HelixToolRuntime(self)
 
         self.exit_code: int = 0
         self.sig_count: int = 0
@@ -407,9 +410,8 @@ class Mind(object):
         ],
         before_user_flow: typing.Optional[typing.Callable[[], typing.Any]] = None
     ) -> None:
-        """MCP 会话入口：把共享连接与工具集构建委托给运行时模块。"""
-        return await run_with_mcp_session(
-            self,
+        """通过工具运行时建立会话并执行回调。"""
+        return await self.tool_runtime.with_session(
             pref_config,
             function,
             before_user_flow=before_user_flow
