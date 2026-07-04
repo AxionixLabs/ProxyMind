@@ -23,7 +23,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 该工具只做观测，不会修改设备状态。"
             " 多设备场景下应通过 `serial` 指定目标设备。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "info", "supports_parallel": True}
+        meta={"hidden": False, "domain": "device", "class": "info"}
     )
     @task_middleware("device_snapshot")
     async def device_snapshot(
@@ -41,7 +41,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 提供 `local` 时会作为保存目录或基准路径使用。"
             " 设备不可用、截图失败或目标路径不可写时调用会失败。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "info", "supports_parallel": True}
+        meta={"hidden": False, "domain": "device", "class": "info"}
     )
     @task_middleware("screenshot")
     async def screenshot(
@@ -64,7 +64,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " `keyword` 为空时按 `scope` 返回整类包，非空时做大小写不敏感的包含过滤。"
             " `scope` 只影响候选范围，不会检查应用当前运行状态。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "info", "supports_parallel": True}
+        meta={"hidden": False, "domain": "device", "class": "info"}
     )
     @task_middleware("grep_packages")
     async def grep_packages(

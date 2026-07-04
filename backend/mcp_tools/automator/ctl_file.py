@@ -25,7 +25,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
             " 该工具会先按 `tags` 和 `level` 从设备侧取日志，再按 `keywords` 做大小写不敏感的 OR 过滤。"
             " `saved` 为空时只返回摘要，非空时会把完整结果落盘并作为附件返回。"
         ),
-        meta={"hidden": False, "domain": "device", "class": "file", "supports_parallel": True}
+        meta={"hidden": False, "domain": "device", "class": "file"}
     )
     @task_middleware("file_logcat_dump")
     async def file_logcat_dump(
