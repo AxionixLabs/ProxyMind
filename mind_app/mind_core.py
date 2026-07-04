@@ -50,6 +50,9 @@ from .history import (
 from .history.ids import valid_session_ids
 from .mcp import McpSessionLike
 
+if typing.TYPE_CHECKING:
+    from .runtime.mcp.service_runtime import ServiceRuntimeContext
+
 
 class Mind(object):
     """Mind 核心对象：维护共享状态，并暴露稳定的应用接口。"""
@@ -92,6 +95,7 @@ class Mind(object):
         self.runtime_loop: typing.Optional[asyncio.AbstractEventLoop] = None
         self.root_task: typing.Optional[asyncio.Task[typing.Any]]     = None
         self.server_manager: typing.Optional[ServerManage]            = None
+        self.service_runtime_context: typing.Optional["ServiceRuntimeContext"] = None
         self.keepalive_stop: typing.Optional[asyncio.Event]           = None
         self.keepalive_task: typing.Optional[asyncio.Task[None]]      = None
 
@@ -282,6 +286,16 @@ class Mind(object):
     def bind_server_manager(self, server_manager: ServerManage) -> None:
         """绑定本地后台服务管理器。"""
         self.server_manager = server_manager
+
+    def bind_service_runtime_context(self, context: "ServiceRuntimeContext") -> None:
+        """绑定服务运行时准备上下文。"""
+        self.service_runtime_context = context
+
+    def require_service_runtime_context(self) -> "ServiceRuntimeContext":
+        """返回已绑定的服务运行时上下文，未绑定时抛出错误。"""
+        if self.service_runtime_context is None:
+            raise MindError("Service runtime context is not bound")
+        return self.service_runtime_context
 
     def start_keepalive_supervisor(self) -> None:
         """启动 Mind 生命周期内的本地后台服务保活任务。"""

@@ -27,12 +27,10 @@ from .modes.support.repl_prompt import fetch_runtime_workspace_root
 from .runtime.environment.exec_env import clear_exec_env_cache
 from .runtime.environment.shell_tools import route_shell_tools
 from .runtime.mcp.service_runtime import (
-    authorize_runtime_files,
-    ensure_runtime_asset,
-    prepend_runtime_paths,
+    ServiceRuntimeContext,
+    ensure_service_runtime_asset,
+    prepare_and_start_service_runtime,
     resolve_service_runtime,
-    start_service_runtime,
-    verify_runtime_paths
 )
 from .paths import (
     ensure_mcp_servers_file,
@@ -216,11 +214,20 @@ async def _run_main(
     else:
         raise MindError(f"{const.APP_DESC} is not supported on this platform: {platform}.")
 
+    packaged = not software.endswith(".py")
     runtime_spec = resolve_service_runtime(
         platform=platform,
         supports=supports,
         level=level,
-        packaged=not software.endswith(".py")
+        packaged=packaged
+    )
+    service_runtime_context = ServiceRuntimeContext(
+        spec=runtime_spec,
+        platform=platform,
+        software=software,
+        packaged=packaged,
+        env_symbol=env_symbol,
+        app_desc=const.APP_DESC
     )
 
     route_shell_tools(supports)
@@ -228,33 +235,12 @@ async def _run_main(
 
     # Notes: ========== 升级流程 ==========
     if cmd_lines.upgrade:
-        await ensure_runtime_asset(
-            runtime_spec,
-            software=software,
+        await ensure_service_runtime_asset(
+            service_runtime_context,
             explicit_upgrade=True,
             anim_manager=entry_anim_manager
         )
         return 0
-
-    if cmd_lines.helix:
-        await ensure_runtime_asset(
-            runtime_spec,
-            software=software,
-            explicit_upgrade=False,
-            anim_manager=entry_anim_manager
-        )
-
-        prepend_runtime_paths(runtime_spec, env_symbol=env_symbol)
-
-        # Notes: ========== 检查工具 ==========
-        verify_runtime_paths(
-            runtime_spec,
-            packaged=not software.endswith(".py"),
-            app_desc=const.APP_DESC
-        )
-
-        # Notes: ========== 三方应用 ==========
-        await authorize_runtime_files(runtime_spec, platform=platform)
 
     # Notes: ========== 授权流程 ==========
     # lic_file = Path(src_opera_place) / const.LIC_FILE
@@ -302,13 +288,17 @@ async def _run_main(
     mind = Mind(wires, level, power, remote, *positions, **keywords)
     mind.bind_runtime(asyncio.get_running_loop(), asyncio.current_task())
     mind.bind_server_manager(server)
+    mind.bind_service_runtime_context(service_runtime_context)
 
     if handler is not None:
         handler.bind_delegate(mind.signal_processor)
 
     try:
         if cmd_lines.helix:
-            await start_service_runtime(mind)
+            helix_started = await prepare_and_start_service_runtime(mind)
+            if not helix_started:
+                Design.console.print("[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]")
+                Design.console.print()
 
         runtime_workspace_root = await fetch_runtime_workspace_root()
         if runtime_workspace_root is not None:

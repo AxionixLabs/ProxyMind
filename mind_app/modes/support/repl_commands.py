@@ -4,7 +4,7 @@
 import typing
 from engine.tinker import MindError
 from mind_app.mcp import McpSessionLike
-from mind_app.runtime.mcp.service_runtime import start_service_runtime
+from mind_app.runtime.mcp.service_runtime import prepare_and_start_service_runtime
 from mind_app.stream_events.failure_display import render_failure_text
 from mind_core.design import Design
 from mind_nova.modes import RunMode
@@ -41,11 +41,15 @@ def print_attach_gap() -> None:
 async def start_helix_runtime(mind: "Mind") -> None:
     """确认本地服务已经启动。"""
     try:
-        await start_service_runtime(mind)
+        helix_started = await prepare_and_start_service_runtime(mind)
     except MindError as error:
         Design.console.print(f"[bold #FF5F5F]Helix start failed: {error}[/]")
         Design.console.print()
         return None
+
+    if not helix_started:
+        Design.console.print("[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]")
+        Design.console.print()
 
 
 async def print_available_tools(

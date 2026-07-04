@@ -14,6 +14,7 @@ from engine.manage import ServerManage
 from engine.terminal import Terminal
 from engine.tinker import MindError
 from mind_app.assets import ensure_asset
+from .download_prompt import choose_runtime_download
 
 if typing.TYPE_CHECKING:
     from mind_app.mind_core import Mind
@@ -26,6 +27,17 @@ class ServiceRuntimeSpec:
     executable: str
     launch_command: list[str]
     path_entries: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ServiceRuntimeContext:
+    """描述服务运行时在当前入口下的准备参数。"""
+    spec: ServiceRuntimeSpec
+    platform: str
+    software: str
+    packaged: bool
+    env_symbol: str
+    app_desc: str
 
 
 def runtime_status(server_manager: ServerManage | None) -> str:
@@ -68,8 +80,20 @@ def prepend_runtime_paths(
     env_symbol: str
 ) -> None:
     """把运行时依赖目录加入 PATH。"""
-    for entry in spec.path_entries:
-        os.environ["PATH"] = entry + env_symbol + os.environ.get("PATH", "")
+    current = os.environ.get("PATH", "")
+    existing = {
+        os.path.normcase(os.path.normpath(item))
+        for item in current.split(env_symbol)
+        if item
+    }
+    missing = [
+        entry for entry in spec.path_entries
+        if os.path.normcase(os.path.normpath(entry)) not in existing
+    ]
+    if not missing:
+        return None
+
+    os.environ["PATH"] = env_symbol.join([*missing, current] if current else missing)
 
 
 def verify_runtime_paths(
@@ -133,6 +157,72 @@ async def ensure_runtime_asset(
     )
 
 
+async def ensure_service_runtime_asset(
+    context: ServiceRuntimeContext,
+    *,
+    explicit_upgrade: bool,
+    anim_manager: AsyncAnimManager
+) -> bool:
+    """确认当前服务运行时资产存在，必要时执行升级流程。"""
+    return await ensure_runtime_asset(
+        context.spec,
+        software=context.software,
+        explicit_upgrade=explicit_upgrade,
+        anim_manager=anim_manager
+    )
+
+
+def service_runtime_asset_missing(context: ServiceRuntimeContext) -> bool:
+    """判断服务运行时资产是否缺失。"""
+    return not Path(context.spec.executable).exists()
+
+
+def can_prompt_runtime_download() -> bool:
+    """判断当前入口是否适合显示下载确认菜单。"""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+async def confirm_service_runtime_download(context: ServiceRuntimeContext) -> bool:
+    """在运行时资产缺失时向用户确认是否下载。"""
+    if not service_runtime_asset_missing(context):
+        return True
+
+    if not can_prompt_runtime_download():
+        raise MindError(
+            "Helix runtime missing. Run mind --upgrade in an interactive terminal before starting Helix."
+        )
+
+    return await choose_runtime_download(
+        executable=context.spec.executable,
+        supports=context.spec.supports
+    )
+
+
+async def prepare_service_runtime(
+    context: ServiceRuntimeContext,
+    *,
+    anim_manager: AsyncAnimManager,
+    confirm_download: bool = True
+) -> bool:
+    """准备服务运行时资产、环境变量和执行权限。"""
+    if confirm_download and not await confirm_service_runtime_download(context):
+        return False
+
+    await ensure_service_runtime_asset(
+        context,
+        explicit_upgrade=False,
+        anim_manager=anim_manager
+    )
+    prepend_runtime_paths(context.spec, env_symbol=context.env_symbol)
+    verify_runtime_paths(
+        context.spec,
+        packaged=context.packaged,
+        app_desc=context.app_desc
+    )
+    await authorize_runtime_files(context.spec, platform=context.platform)
+    return True
+
+
 async def ensure_runtime_started(server_manager: ServerManage | None) -> None:
     """确认本地服务已经启动并可用。"""
     if server_manager is None:
@@ -159,6 +249,20 @@ async def start_service_runtime(
         await mind.await_cleanup(mind.stop_anim())
 
     mind.start_keepalive_supervisor()
+
+
+async def prepare_and_start_service_runtime(
+    mind: "Mind",
+    *,
+    label: str = "Helix MCP"
+) -> bool:
+    """按统一流程准备并启动服务运行时。"""
+    context = mind.require_service_runtime_context()
+    prepared = await prepare_service_runtime(context, anim_manager=mind.anim_manager)
+    if not prepared:
+        return False
+    await start_service_runtime(mind, label=label)
+    return True
 
 
 if __name__ == '__main__':
