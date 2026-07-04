@@ -25,9 +25,9 @@ description: 协议与接口任务对象，覆盖单次校验、批量回放、�
 
 | 任务形态 | 推荐模式 |
 | --- | --- |
-| 单次接口验证 | `mind --fast` |
-| 批量回归、样本回放 | `mind --fast --code` |
-| 长链路巡检、要证据链 | `mind --plan` |
+| 单次接口验证 | `mind --fast --helix` |
+| 批量回归、样本回放 | `mind --fast --helix --code` |
+| 长链路接口编排 | `mind --fast --helix` |
 
 ## Core Rules
 
@@ -43,15 +43,15 @@ description: 协议与接口任务对象，覆盖单次校验、批量回放、�
 ## Good Examples
 
 ```bash
-mind --fast "对 https://api.example.com/login 做 POST，请求体包含 username 和 password，校验状态码 200，断言 response.body_json.ok=true，拿到 token、user_id 和 trace_id，并返回摘要。"
+mind --fast --helix "对 https://api.example.com/login 做 POST，请求体包含 username 和 password，校验状态码 200，断言 response.body_json.ok=true，拿到 token、user_id 和 trace_id，并返回摘要。"
 ```
 
 ```bash
-mind --fast "对 https://api.example.com/order 做压测，20 个虚拟用户持续 60 秒，失败率低于 1%，P95 小于 300ms，输出 summary。"
+mind --fast --helix "对 https://api.example.com/order 做压测，20 个虚拟用户持续 60 秒，失败率低于 1%，P95 小于 300ms，输出 summary。"
 ```
 
 ```bash
-mind --fast --code nexus_regression.md
+mind --fast --helix --code nexus_regression.md
 ```
 
 补充示例：
@@ -61,17 +61,17 @@ mind --fast --code nexus_regression.md
 ```
 
 ```bash
-mind --fast "对 https://api.example.com/login 做 POST，请求体包含 username 和 password；校验状态码 200 和业务成功标记；拿到 token、user_id、trace_id，并返回摘要。"
+mind --fast --helix "对 https://api.example.com/login 做 POST，请求体包含 username 和 password；校验状态码 200 和业务成功标记；拿到 token、user_id、trace_id，并返回摘要。"
 ```
 
 ```bash
-mind --chat "先只校验这组 HTTP 回归样本的结构是否完整：公共鉴权头放在共享层，每条样本只保留自己的差异内容；检查并发设置和失败策略是否合理，返回展开后的预览摘要，不实际发请求。"
+mind --fast --helix "先只校验这组 HTTP 回归样本的结构是否完整：公共鉴权头放在共享层，每条样本只保留自己的差异内容；检查并发设置和失败策略是否合理，返回展开后的预览摘要，不实际发请求。"
 ```
 
 ## Bad Examples
 
 ```bash
-mind --fast "测一下登录接口。"
+mind --fast --helix "测一下登录接口。"
 ```
 
 问题：

@@ -1,6 +1,6 @@
 ---
 name: mind-docs
-description: Mind 任务写法、运行模式、接口验证、设备巡检、媒体处理、性能采样、错误回退和星图协议文档。任务涉及 Mind 能力、CLI 模式、流程质量、接口校验、Android/设备操作、媒体处理、性能分析或失败恢复时使用。
+description: Mind 任务写法、领域执行入口、Helix provider、接口验证、设备巡检、媒体处理、性能采样、错误回退和星图协议文档。任务涉及 Mind 能力、CLI 入口、流程质量、接口校验、Android/设备操作、媒体处理、性能分析或失败恢复时使用。
 ---
 
 # Mind Docs
@@ -11,7 +11,7 @@ description: Mind 任务写法、运行模式、接口验证、设备巡检、�
 
 | 问题 | 先读什么 |
 | --- | --- |
-| 不确定该用 `--chat` / `--fast` / `--plan` / `--xtra` / `--agent` | [CLI 与运行模式](references/cli.md) |
+| 不确定该用哪个领域入口、Helix provider、`--code` 或 `--agent` | [CLI 与运行模式](references/cli.md) |
 | 不确定能力是本地还是云端 | [云端与本地边界](references/builtin-and-hosted.md) |
 | 失败后怎么报错和降级 | [错误与回退](references/errors-and-fallbacks.md) |
 | 写接口验证、回归、压测 | [Nexus 场景](references/nexus.md) |
@@ -32,11 +32,12 @@ description: Mind 任务写法、运行模式、接口验证、设备巡检、�
 - 不把内部工具名、事件名、MCP 名称作为用户侧稳定接口。
 - 一条任务尽量写明目标、范围、通过条件、产出。
 - 长任务、多轮任务、回归任务优先收束成 `--code`。
-- Helix 是 Mind 的本地后台服务，相关 JSON API 文档在 `helix-docs` skill，避免和 Mind 任务写法混淆。
+- 按任务领域选择入口：`chat` 负责 Android / Framix / Memrix，`fast` 负责接口 / 多媒体，`plan` 负责 Android 顺序规划，`xtra` 负责 coding 与外接 MCP。
+- Helix 是 Mind 的可选官方垂直领域 MCP provider，相关 JSON API 文档在 `helix-docs` skill，避免和 Mind 任务写法混淆。
 - 不要猜测尚未读取的参考文档细节。依赖某个规则、示例或契约前，先读取对应 Markdown 文件。
 
 ## Stable Template
 
 ```bash
-mind --fast "对 https://api.example.com/profile 做 GET，请求携带测试 token，校验状态码 200，断言 response.body_json.ok=true，提取 user_id、nickname 和 trace_id，并返回摘要。"
+mind --fast --helix "对 https://api.example.com/profile 做 GET，请求携带测试 token，校验状态码 200，提取 user_id、nickname 和 trace_id，并返回摘要。"
 ```

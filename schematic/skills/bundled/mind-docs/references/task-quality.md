@@ -39,17 +39,17 @@ description: 高质量任务的统一评分标准，定义目标、范围、通�
 ## Good Examples
 
 ```bash
-mind --fast "对 https://api.example.com/orders?page=1 做 GET，校验状态码 200，断言 list 为数组且 total_count 大于 0，提取 first_order_id、total_count 和 trace_id，并返回摘要。"
+mind --fast --helix "对 https://api.example.com/orders?page=1 做 GET，校验状态码 200，断言 list 为数组且 total_count 大于 0，提取 first_order_id、total_count 和 trace_id，并返回摘要。"
 ```
 
 ```bash
-mind --plan "启动 xx 应用，进入登录页，输入测试账号密码并点击登录；等待首页主标题出现；若失败立即截图并导出日志；返回通过/失败结论、失败步骤和证据路径。"
+mind --plan --helix "启动 xx 应用，进入登录页，输入测试账号密码并点击登录；等待首页主标题出现；若失败立即截图并导出日志；返回通过/失败结论、失败步骤和证据路径。"
 ```
 
 ## Bad Examples
 
 ```bash
-mind --chat "帮我看一下。"
+mind --xtra "帮我看一下。"
 ```
 
 问题：

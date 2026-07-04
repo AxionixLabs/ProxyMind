@@ -16,16 +16,14 @@ description: 解释本地执行能力与云端注入能力的边界，以及来�
 
 Builtin 事件名或 Hosted 工具名可以存在于系统内部，但不是对外稳定接口。
 
-当前项目本地注册能力主要包括：
+当前项目能力来源主要分三类：
 
-- Coding：批量 shell 命令、工作区文本写入、unified diff patch。
-- Common：固定等待、循环步骤声明、空闲状态快照、自由规则声明、摘要/HMAC、JWT、RSA、AES、签名文本拼装。
-- Nexus：HTTP、SSE、WebSocket、GraphQL、TCP、UDP、SMTP、IMAP、FTP 的单次执行、批量回放、预览和校验，以及 k6 压测。
-- Device：应用控制、文件操作、设备信息、系统键、系统面板、UI 交互、随机遍历和 Zest。
-- Media：ffmpeg 文件处理、scrcpy 镜像/录屏、本机音频播放。
-- Framix / Memrix：录屏帧分析、性能采样和报告。
+- Mind native：批量 shell 命令、工作区文本写入、unified diff patch，以及 Mind 侧内置 coding 工具。
+- External MCP：用户在 `mcp_servers.json` 配置并由 Mind 连接的第三方 MCP 服务。
+- Helix provider：官方垂直领域 MCP 服务，覆盖接口/设备/媒体/性能等执行面；需要 `--helix` 或 REPL `/helix-start` 后才挂载。
+- Xtra 只聚合 Mind native 与 External MCP，不包含 Helix MCP。
 
-随包路由的本地二进制工具包括 `adb`、`ast-grep`、`ffmpeg`、`jq`、`k6` 和 `rg`。
+Mind 顶层随包路由的本地二进制工具只按 Mind native 语义上报，例如 `rg`、`jq`、`ast-grep`。Helix provider 自身依赖的 `adb`、`ffmpeg`、`ffprobe`、`k6`、`framix`、`memrix` 不作为 Mind 顶层工具承诺。
 
 ## When To Use
 
@@ -49,6 +47,7 @@ Builtin 事件名或 Hosted 工具名可以存在于系统内部，但不是对�
 | 任务可以本地等价完成，但用户要求的是结果而非来源 | 仍然优先写意图，不强调内部来源 |
 | 任务明显需要远端执行环境、会话态或托管注入 | 把依赖条件写清，并补失败降级 |
 | 本地 shell 命令被策略判定需要云端沙箱 | 写清云端依赖、期望 stdout/产物和不可用时的回报 |
+| 任务需要官方垂直领域 MCP 能力 | 使用 `--helix` 或提示先 `/helix-start`，并说明 Helix 不可用时如何回报 |
 
 ## Core Rules
 
@@ -58,29 +57,30 @@ Builtin 事件名或 Hosted 工具名可以存在于系统内部，但不是对�
 - 云端依赖明显时，最好同时给出本地替代方案或失败回报。
 - 不要把“能不能用某个内部能力”写成主任务；主任务永远是业务意图和交付结果。
 - 说明依赖时，用“本地执行能力 / 云端注入能力”这组稳定语义。
+- 说明 Helix 时，用“官方垂直领域 MCP provider”这组稳定语义，不把它写成 Mind 默认执行前置条件。
 
 ## Good Examples
 
 ```bash
-mind --chat "查找 Mind CLI 的运行模式和常用命令，返回最短可执行示例。"
+mind --xtra "查找 Mind CLI 的运行模式和常用命令，返回最短可执行示例。"
 ```
 
 ```bash
-mind --chat "如果云端能力可用，执行一次远端 sandbox Python 数据分析；若不可用，明确说明依赖缺失并给出本地可替代做法。"
+mind --xtra "如果云端能力可用，执行一次远端 sandbox Python 数据分析；若不可用，明确说明依赖缺失并给出本地可替代做法。"
 ```
 
 ```bash
-mind --chat "查找关于 Mind 文档中心的模式选择规则；若云端文档能力不可用，则返回本地已知规则摘要和缺失项。"
+mind --xtra "查找关于 Mind 文档中心的模式选择规则；若云端文档能力不可用，则返回本地已知规则摘要和缺失项。"
 ```
 
 ## Bad Examples
 
 ```bash
-mind --chat "调用 hosted tool 查文档。"
+mind --xtra "调用 hosted tool 查文档。"
 ```
 
 ```bash
-mind --chat "用 builtin 搜索一下。"
+mind --xtra "用 builtin 搜索一下。"
 ```
 
 问题：
@@ -90,7 +90,7 @@ mind --chat "用 builtin 搜索一下。"
 - 云端不可用时没有降级路径。
 
 ```bash
-mind --chat "先确认能不能调用 builtin，再决定做什么。"
+mind --xtra "先确认能不能调用 builtin，再决定做什么。"
 ```
 
 问题：

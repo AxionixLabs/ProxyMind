@@ -52,21 +52,21 @@ description: 云端执行任务对象，覆盖脚本执行、小项目运行、�
 ## Good Examples
 
 ```bash
-mind --chat "在云端 sandbox 执行一段 Python 脚本，读取 sales.csv，按城市聚合成交额并输出 Top5；完成后返回运行状态、stdout 摘要和产物路径。"
+mind --xtra "在云端 sandbox 执行一段 Python 脚本，读取 sales.csv，按城市聚合成交额并输出 Top5；完成后返回运行状态、stdout 摘要和产物路径。"
 ```
 
 ```bash
-mind --chat "在云端 sandbox 运行一个多文件小项目，入口为命令行程序；完成后返回退出码、关键输出、产物路径和失败原因。"
+mind --xtra "在云端 sandbox 运行一个多文件小项目，入口为命令行程序；完成后返回退出码、关键输出、产物路径和失败原因。"
 ```
 
 ```bash
-mind --chat "在云端 sandbox 执行一段 Python 脚本，读取 logs.jsonl，按 error_type 聚合并输出 TOP10 错误分布；完成后返回状态、stdout 摘要和生成文件路径。"
+mind --xtra "在云端 sandbox 执行一段 Python 脚本，读取 logs.jsonl，按 error_type 聚合并输出 TOP10 错误分布；完成后返回状态、stdout 摘要和生成文件路径。"
 ```
 
 ## Bad Examples
 
 ```bash
-mind --chat "跑一下 python。"
+mind --xtra "跑一下 python。"
 ```
 
 问题：
@@ -76,7 +76,7 @@ mind --chat "跑一下 python。"
 - 没说产出。
 
 ```bash
-mind --chat "在云端跑一下这个项目，能跑就行。"
+mind --xtra "在云端跑一下这个项目，能跑就行。"
 ```
 
 问题：

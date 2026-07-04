@@ -28,7 +28,7 @@ description: 任务写法常见反模式库，帮助模型把空泛、越界、�
 ## Bad Examples
 
 ```bash
-mind --chat "看看这个项目。"
+mind --xtra "看看这个项目。"
 ```
 
 问题：
@@ -37,7 +37,7 @@ mind --chat "看看这个项目。"
 - 没有目标和产出。
 
 ```bash
-mind --chat "调用 hosted tool 查文档。"
+mind --xtra "调用 hosted tool 查文档。"
 ```
 
 问题：
@@ -46,7 +46,7 @@ mind --chat "调用 hosted tool 查文档。"
 - 不具备外部稳定语义。
 
 ```bash
-mind --fast "测一下接口。"
+mind --fast --helix "测一下接口。"
 ```
 
 问题：
@@ -56,15 +56,15 @@ mind --fast "测一下接口。"
 ## Good Rewrite
 
 ```bash
-mind --chat "梳理这个仓库的核心模块、入口文件和主要数据流；指出最可能的 3 个高风险改动点；不要改代码，只返回结构化摘要。"
+mind --xtra "梳理这个仓库的核心模块、入口文件和主要数据流；指出最可能的 3 个高风险改动点；不要改代码，只返回结构化摘要。"
 ```
 
 ```bash
-mind --chat "查找 Mind CLI 的运行模式和常用命令，返回最短可执行示例。"
+mind --xtra "查找 Mind CLI 的运行模式和常用命令，返回最短可执行示例。"
 ```
 
 ```bash
-mind --fast "对 https://api.example.com/profile 做 GET 请求，校验状态码 200，断言 response.body_json.ok=true，提取 user_id、nickname 和 trace_id，并返回摘要。"
+mind --fast --helix "对 https://api.example.com/profile 做 GET 请求，校验状态码 200，断言 response.body_json.ok=true，提取 user_id、nickname 和 trace_id，并返回摘要。"
 ```
 
 ## Checklist

@@ -28,7 +28,7 @@ description: `--code` 星图协议对象，定义多任务块、循环、回放�
 - 每个 `# name` 任务块都必须以单独一行的块结束线 `---` 结束，不要省略，也不要写成别的分隔符。
 - 任务块之间用块结束线 `---` 分隔；如果文件里只有一个任务块，这个任务块末尾也照样保留块结束线 `---`。
 - 每条任务都要包含目标、动作、通过条件、输出。
-- `--code` 必须附着在 `--chat/--fast/--plan/--xtra` 后面。
+- `--code` 必须附着在对应领域入口后面：接口/媒体用 `--fast --helix --code`，Android 顺序任务用 `--plan --helix --code`，coding/外接 MCP 用 `--xtra --code`。
 - `--code` 参数支持多个 source，按传入顺序顺序执行。
 - 本地文件不存在、URL 拉取失败、标准输入为空或 inline 内容为空时，按 [错误与回退](errors-and-fallbacks.md) 回报。
 - 生成星图时，先定块头和块结束线，再回填正文：先写 `# name`，再预留最后一行块结束线 `---`，中间再填任务内容。
@@ -48,13 +48,13 @@ description: `--code` 星图协议对象，定义多任务块、循环、回放�
 命令示例：
 
 ```bash
-mind --chat --code smoke.md
-mind --chat --code smoke.md regression.md
-mind --fast --code api_regression.md
-mind --plan --code nightly.md
+mind --fast --helix --code smoke.md
+mind --fast --helix --code smoke.md regression.md
+mind --fast --helix --code api_regression.md
+mind --plan --helix --code android_nightly.md
 mind --xtra --code investigation.md
-mind --chat --code -
-mind --chat --code https://example.com/packs/smoke.md
+mind --fast --helix --code -
+mind --fast --helix --code https://example.com/packs/smoke.md
 ```
 
 `inline:` 也可作为 source 使用，但内容必须包含真实换行，例如 `inline:<完整星图文本>`；如果命令行环境不便传多行文本，优先使用文件或 stdin。
@@ -208,7 +208,7 @@ mind --chat --code https://example.com/packs/smoke.md
 ### 示例 1：同一接口连续测 100 次（每轮不同 `session_id` 与 `query`）
 
 ```bash
-mind --chat --code api_loop_100.md
+mind --fast --helix --code api_loop_100.md
 ```
 
 ````md
@@ -236,7 +236,7 @@ query 建议从预设问题集按轮次顺序取值，不重复。
 ### 示例 2：100 组固定样本回放（推荐用于可复现回归）
 
 ```bash
-mind --chat --code api_dataset_100.md
+mind --fast --helix --code api_dataset_100.md
 ```
 
 ````md
@@ -263,7 +263,7 @@ global_rule: |
 ### 示例 3：单接口 `# loop: 30` 自动生成用例（不拆多个 `# name`）
 
 ```bash
-mind --chat --code api_loop_30_contract.md
+mind --fast --helix --code api_loop_30_contract.md
 ```
 
 ````md
@@ -293,7 +293,7 @@ global_rule: |
 ### 示例 4：策略版（热身窗口 + 计分公式）
 
 ```bash
-mind --chat --code chat_eval_weighted_30.md
+mind --fast --helix --code chat_eval_weighted_30.md
 ```
 
 ````md
@@ -319,7 +319,7 @@ global_rule: |
 ### 示例 5：并发策略版（`concurrency` + `fail_fast`）
 
 ```bash
-mind --fast --code chat_concurrency_30.md
+mind --fast --helix --code chat_concurrency_30.md
 ```
 
 ````md
@@ -345,7 +345,7 @@ global_rule: |
 ### 示例 6：可观测性策略版（trace/request 聚类）
 
 ```bash
-mind --chat --code chat_observability_30.md
+mind --fast --helix --code chat_observability_30.md
 ```
 
 ````md
@@ -369,7 +369,7 @@ global_rule: |
 ### 示例 7：漂移监控策略版（与基线对比）
 
 ```bash
-mind --chat --code chat_drift_guard_30.md
+mind --fast --helix --code chat_drift_guard_30.md
 ```
 
 ````md

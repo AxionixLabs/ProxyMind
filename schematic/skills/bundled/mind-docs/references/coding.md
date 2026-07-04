@@ -44,27 +44,27 @@ description: 代码修改任务对象，强调改动范围、约束、验证和�
 ## Good Examples
 
 ```bash
-mind --chat "只修改登录链路相关代码，修复空指针问题；保持接口字段和返回结构不变；补最小回归测试；完成后返回改动文件、验证结果和剩余风险。"
+mind --xtra "只修改登录链路相关代码，修复空指针问题；保持接口字段和返回结构不变；补最小回归测试；完成后返回改动文件、验证结果和剩余风险。"
 ```
 
 ```bash
-mind --chat "为 /mcp 文档接口补一组最小契约测试，覆盖匿名访问、tools/list、tools/call 和 resources/read；不要改无关路由。"
+mind --xtra "为 /mcp 文档接口补一组最小契约测试，覆盖匿名访问、tools/list、tools/call 和 resources/read；不要改无关路由。"
 ```
 
 补充示例：
 
 ```bash
-mind --chat "在当前工作区只修改登录链路相关代码；先用只读命令定位空指针来源，再用最小补丁修复；保持接口字段和返回结构不变；补最小回归测试；完成后返回改动文件、验证结果和剩余风险。"
+mind --xtra "在当前工作区只修改登录链路相关代码；先用只读命令定位空指针来源，再用最小补丁修复；保持接口字段和返回结构不变；补最小回归测试；完成后返回改动文件、验证结果和剩余风险。"
 ```
 
 ```bash
-mind --chat "在 /mcp 文档接口目录补最小契约测试，覆盖匿名访问、tools/list、tools/call 和 resources/read；不要改无关路由；完成后运行对应测试并给出验证结论和未覆盖风险。"
+mind --xtra "在 /mcp 文档接口目录补最小契约测试，覆盖匿名访问、tools/list、tools/call 和 resources/read；不要改无关路由；完成后运行对应测试并给出验证结论和未覆盖风险。"
 ```
 
 ## Bad Examples
 
 ```bash
-mind --chat "修一下登录。"
+mind --xtra "修一下登录。"
 ```
 
 问题：

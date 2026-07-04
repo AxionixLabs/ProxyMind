@@ -1,6 +1,6 @@
 ---
 name: cli
-description: 选择 Mind CLI 主模式和命令形态的决策对象，负责把任务路由到正确入口。
+description: 选择 Mind CLI 领域入口、Helix provider 和命令形态的决策对象，负责把任务路由到正确入口。
 ---
 
 # Mind CLI 与运行模式
@@ -11,79 +11,84 @@ description: 选择 Mind CLI 主模式和命令形态的决策对象，负责把
 
 你只需要记住的输出形态：
 
-- `mind --chat "..."`
-- `mind --fast "..."`
-- `mind --plan "..."`
+- `mind --chat "..." --helix`
+- `mind --fast "..." --helix`
+- `mind --plan "..." --helix`
 - `mind --xtra "..."`
 - `mind --agent`
-- `mind --chat --code <source...>`
-- `mind --fast --code <source...>`
-- `mind --plan --code <source...>`
+- `mind --fast --helix --code <source...>`
+- `mind --plan --helix --code <source...>`
 - `mind --xtra --code <source...>`
 
 ## When To Use
 
-- 你还没决定该用哪个主模式。
-- 你担心把探索性任务写成了单步命令。
+- 你还没决定该用哪个领域入口。
+- 你担心把接口、多媒体、Android、Framix、Memrix 或编码协作路由错。
 - 你要判断一段复杂任务是否应该升级成 `--code`。
 
 ## When Not To Use
 
-- 你已经在别的文档里确定了模式和输出形态，这时不需要回到这里重做选择。
+- 你已经在别的文档里确定了入口和输出形态，这时不需要回到这里重做选择。
 - 你想讨论某个具体场景的写法细节，例如接口断言或设备证据链，这时应转到对应 playbook。
 
 ## Decision Table
 
-| 输入特征 | 推荐模式 | 不推荐 |
+| 输入特征 | 推荐入口 | 不推荐 |
 | --- | --- | --- |
-| 目标不清、需要先澄清、要多轮探索 | `--chat` | 直接用 `--fast` |
-| 单次验证、单接口校验、一次性动作 | `--fast` | 写成长回归流程 |
-| 巡检、回归、批量回放、要证据链 | `--plan` | 把多步骤压成 `--fast` |
-| 增强探索、跨域串联、需要整理较宽证据 | `--xtra` | 强行压成单步 `--fast` |
-| 订阅式 Agent 会话、远端持续执行 | `--agent` | 用一次性模式代替 |
-| 同一命令里有多个任务块、循环、批量回放 | `--chat/--fast/--plan/--xtra` + `--code` | 直接堆成长段自然语言 |
-| 只是要先把问题讲清楚，还不能确定执行细节 | `--chat` | 抢先选 `--plan` |
-| 你已经知道验证目标、阈值和产出，而且只需单步完成 | `--fast` | 先写成长解释 |
-| 你需要“开始-执行-验收-收束”的完整闭环 | `--plan` | 只给单次命令 |
+| Android、设备 UI、Framix、Memrix 的单次探索或状态查询 | `--chat --helix` | `--xtra` |
+| Android / 设备 UI 需要按顺序执行多条指令 | `--plan --helix` | `--fast` |
+| 接口、协议、压测、媒体处理、多媒体文件任务 | `--fast --helix` | `--plan` |
+| 接口或媒体批量回归、样本回放 | `--fast --helix --code` | `--plan --code` |
+| Android 多步骤巡检需要固化为批跑材料 | `--plan --helix --code` | `--fast --code` |
+| 外接 MCP、Mind native coding、代码修改、第三方服务协作 | `--xtra` | `--chat/--fast/--plan` |
+| 外接 MCP 或编码任务需要批量执行 | `--xtra --code` | 叠加 `--helix` |
+| 订阅式 Agent 会话、远端持续执行 | `--agent` | 用一次性入口代替 |
 
 ## Core Rules
 
-- 一条命令只用一个主模式。
-- `--code` 不是独立模式，必须附着在 `--chat/--fast/--plan/--xtra` 上。
-- `--agent` 是独立主模式，用于订阅式会话；不要和 `--code` 或 `--attach` 混用。
+- `chat` 是 Android、Framix、Memrix 等 Helix MCP 执行面。
+- `fast` 是接口、协议、多媒体等 Helix MCP 执行面。
+- `plan` 是 `chat` 的规划模式，用于顺序执行多条 Android / 设备类指令，不用于接口或多媒体任务。
+- `xtra` 没有 Helix MCP；它只面向 Mind native coding tools 和已连接 external MCP tools。
+- `--helix` 只用于启动并挂载 Helix provider；不要和 `xtra` 绑定成默认写法。
+- 一条命令只用一个主入口。
+- `--code` 不是独立入口，必须附着在对应领域入口上。
+- `--agent` 是独立主入口，用于订阅式会话；不要和 `--code` 或 `--attach` 混用。
 - `--code` 可以接一个或多个 source：本地文件、`-` 标准输入、`inline:<内容>` 或 HTTP(S) URL。
 - `--attach` 只用于单次 `--chat` / `--fast` / `--xtra`，不和 `--plan` 或 `--code` 一起使用。
 - 对外输出的是任务意图，不是内部实现方式。
 - 先写目标对象、动作、通过条件、产出，再补边界。
 - 如果使用 `--code` 文件，任务块分隔规则统一按 [`--code` 星图写法](blueprint.md) 执行。
-- 模式选不准时，先澄清任务目标、边界和产出，再选择合适模式。
-- 如果任务里出现多步链路、失败分支、循环样本或夜间回归，优先考虑 `--plan` 或 `--code`。
-- 如果你无法一句话说明“通过条件是什么”，不要急着选 `--fast`。
+- 入口选不准时，先澄清任务目标、领域、边界和产出，再选择合适入口。
 
 ## Good Examples
 
 ```bash
-mind --chat "梳理这个仓库的核心模块、入口文件和主要数据流；指出最可能的 3 个高风险改动点；不要改代码，只返回结构化摘要。"
+mind --chat "读取当前 Android 前台页面状态，返回包名、页面摘要和关键可见元素。" --helix
 ```
 
 ```bash
-mind --fast "对 https://api.example.com/profile 做 GET 请求，校验状态码 200，断言 response.body_json.ok=true，提取 user_id、nickname 和 trace_id，并返回摘要。"
+mind --fast "对 https://api.example.com/profile 做 GET 请求，校验状态码 200，提取 user_id、nickname 和 trace_id，并返回摘要。" --helix
 ```
 
 ```bash
-mind --plan "执行一次登录到下单的巡检流程：启动 app，进入登录页，输入测试账号密码并提交，等待订单页主标题出现；若失败立即截图并导出日志；返回通过/失败结论、失败步骤和证据路径。"
+mind --plan "启动 xx 应用，进入登录页，输入测试账号密码并点击登录；等待首页主标题出现；若失败立即截图并导出日志；返回通过/失败结论、失败步骤和证据路径。" --helix
 ```
 
 ```bash
-mind --xtra "跨仓库梳理登录、鉴权和订单链路的关键接口、调用关系和高风险点；只返回结构化证据摘要、待确认问题和建议下一步。"
+mind --fast "从 demo.mp4 裁剪 00:00:05-00:00:12，提取 6 张关键帧，返回输出路径和摘要。" --helix
 ```
 
 ```bash
-mind --chat --code nightly_regression.md
+mind --xtra "梳理这个仓库的核心模块、入口文件和主要数据流；指出最可能的 3 个高风险改动点；不要改代码，只返回结构化摘要。"
 ```
 
 ```bash
-mind --chat --code smoke.md api_regression.md
+mind --fast --helix --code api_regression.md
+```
+
+```bash
+mind --xtra --code coding_refactor.md
 ```
 
 ```bash
@@ -93,50 +98,51 @@ mind --agent
 ## Bad Examples
 
 ```bash
-mind --chat "看看这个项目。"
+mind --plan "测一下登录接口。" --helix
 ```
 
 问题：
 
-- 目标对象太大且无边界。
-- 没有产出要求。
-- 无法判断是探索还是交付。
-
-```bash
-mind --fast "测一下接口。"
-```
-
-问题：
-
+- 接口属于 `fast` 领域，不属于 `plan`。
 - 没写方法、URL、阈值、提取字段。
-- `--fast` 被浪费在空泛描述上。
 
 ```bash
-mind --plan "对 https://api.example.com/profile 做 GET。"
+mind --xtra "启动 Android 应用并点击登录。"
 ```
 
 问题：
 
-- 目标像单步验证，却误用了重模式。
-- 没把 `--plan` 的证据链价值写出来。
+- Android 属于 `chat/plan` 的 Helix MCP 执行面。
+- `xtra` 没有 Helix MCP。
+
+```bash
+mind --fast "从首页点击到详情页，再返回首页并截图。" --helix
+```
+
+问题：
+
+- 设备 UI 顺序操作属于 `chat/plan`，不是接口/媒体的 `fast`。
+- 多步骤路径应优先使用 `plan`。
 
 ## Checklist
 
-- 是否已经选定唯一主模式。
+- 是否已经选定唯一主入口。
+- 是否明确任务领域：Android/Framix/Memrix、接口/媒体、外接 MCP/coding、订阅。
 - 是否明确目标对象、动作、通过条件、产出。
 - 是否需要 `--code` 承载多任务或循环。
+- 是否把 `xtra` 限定在 external MCP 与 coding，而不是拿它调用 Helix MCP。
 - 是否把边界写清楚，例如只读、只改某模块、失败即停。
 - 是否避免暴露内部工具名。
-- 所选模式是否和任务长度、证据要求、回归需求相匹配。
+- 所选入口是否和任务领域、任务长度、证据要求、回归需求相匹配。
 
 ## Failure Handling
 
-- 模式选不准时，先回到决策表重新确认任务目标、边界和产出。
+- 入口选不准时，先回到决策表重新确认任务领域、边界和产出。
 - 一行命令塞不下时，转成 [`--code` 星图写法](blueprint.md)。
 - 边界不清时，回读 [云端与本地边界](builtin-and-hosted.md)。
 - 失败回报和降级方式不清时，回读 [错误与回退](errors-and-fallbacks.md)。
 - 输出仍然空泛时，先回 [高质量任务 Rubric](task-quality.md) 和 [任务写法反模式](task-writing.md)。
-- 明显选错模式时，先纠正模式，再细化任务正文，不要在错误模式上继续加细节。
+- 明显选错入口时，先纠正入口，再细化任务正文，不要在错误入口上继续加细节。
 
 ## Related
 
@@ -146,4 +152,3 @@ mind --plan "对 https://api.example.com/profile 做 GET。"
 - [`--code` 星图写法](blueprint.md)
 - [云端与本地边界](builtin-and-hosted.md)
 - [错误与回退](errors-and-fallbacks.md)
-

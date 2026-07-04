@@ -51,7 +51,7 @@ description: 统一失败语义、回退顺序和失败回报写法，避免模�
 ```text
 本次执行失败：`nightly.md` 文件不存在，无法作为 `--code` 来源。
 已尝试：读取本地文件 `nightly.md`。
-建议下一步：确认文件路径是否正确，或改用 `mind --chat --code "inline:# name: smoke\n..."`。
+建议下一步：确认文件路径是否正确，或改用 `mind --fast --helix --code "inline:# name: smoke\n..."`。
 ```
 
 ```text
