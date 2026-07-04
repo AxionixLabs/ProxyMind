@@ -174,7 +174,7 @@ async def ensure_service_runtime_asset(
 
 def service_runtime_asset_missing(context: ServiceRuntimeContext) -> bool:
     """判断服务运行时资产是否缺失。"""
-    return not Path(context.spec.executable).exists()
+    return context.packaged and not Path(context.spec.executable).exists()
 
 
 def can_prompt_runtime_download() -> bool:
@@ -188,9 +188,7 @@ async def confirm_service_runtime_download(context: ServiceRuntimeContext) -> bo
         return True
 
     if not can_prompt_runtime_download():
-        raise MindError(
-            "Helix runtime missing. Run mind --upgrade in an interactive terminal before starting Helix."
-        )
+        return False
 
     return await choose_runtime_download(
         executable=context.spec.executable,
@@ -213,13 +211,16 @@ async def prepare_service_runtime(
         explicit_upgrade=False,
         anim_manager=anim_manager
     )
-    prepend_runtime_paths(context.spec, env_symbol=context.env_symbol)
-    verify_runtime_paths(
-        context.spec,
-        packaged=context.packaged,
-        app_desc=context.app_desc
-    )
-    await authorize_runtime_files(context.spec, platform=context.platform)
+
+    if context.packaged:
+        prepend_runtime_paths(context.spec, env_symbol=context.env_symbol)
+        verify_runtime_paths(
+            context.spec,
+            packaged=True,
+            app_desc=context.app_desc
+        )
+        await authorize_runtime_files(context.spec, platform=context.platform)
+
     return True
 
 
