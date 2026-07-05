@@ -16,7 +16,6 @@ from .manifest import fetch_manifest
 from .payload import (
     build_chat_payload,
     ensure_default_skills,
-    fetch_exec_env,
     resolve_transport_mode
 )
 from .reports import (
@@ -43,7 +42,6 @@ __all__ = [
     "cap_request",
     "cap_response",
     "ensure_default_skills",
-    "fetch_exec_env",
     "fetch_manifest",
     "open_report_session",
     "post_stream_event",

@@ -15,6 +15,7 @@ from engine.terminal import Terminal
 from engine.tinker import MindError
 from mind_app.assets import ensure_asset
 from .download_prompt import choose_runtime_download
+from .service_exec_env import fetch_service_exec_env
 
 if typing.TYPE_CHECKING:
     from mind_app.mind_core import Mind
@@ -267,7 +268,7 @@ async def prepare_and_start_service_runtime(
     await start_service_runtime(mind, label=label)
 
     if link_mcp:
-        mind.link_service_mcp()
+        mind.link_service_mcp(await fetch_service_exec_env())
     return True
 
 

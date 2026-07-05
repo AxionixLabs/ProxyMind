@@ -196,8 +196,9 @@ def test_prepare_and_start_service_runtime_links_mcp(
         def require_service_runtime_context(self) -> runtime.ServiceRuntimeContext:
             return context
 
-        def link_service_mcp(self) -> None:
+        def link_service_mcp(self, exec_env: dict | None = None) -> None:
             self.linked = True
+            assert exec_env == {"provider": "helix"}
             calls.append("link")
 
     async def prepare(*_: object, **__: object) -> bool:
@@ -207,15 +208,20 @@ def test_prepare_and_start_service_runtime_links_mcp(
     async def start(*_: object, **__: object) -> None:
         calls.append("start")
 
+    async def fetch_service_env(*_: object, **__: object) -> dict:
+        calls.append("fetch")
+        return {"provider": "helix"}
+
     monkeypatch.setattr(runtime, "prepare_service_runtime", prepare)
     monkeypatch.setattr(runtime, "start_service_runtime", start)
+    monkeypatch.setattr(runtime, "fetch_service_exec_env", fetch_service_env)
 
     mind = DummyMind()
     started = run_async(runtime.prepare_and_start_service_runtime(mind))
 
     assert started is True
     assert mind.linked is True
-    assert calls == ["prepare", "start", "link"]
+    assert calls == ["prepare", "start", "fetch", "link"]
 
 
 def test_prepare_and_start_service_runtime_can_skip_mcp_link(
@@ -232,7 +238,7 @@ def test_prepare_and_start_service_runtime_can_skip_mcp_link(
         def require_service_runtime_context(self) -> runtime.ServiceRuntimeContext:
             return context
 
-        def link_service_mcp(self) -> None:
+        def link_service_mcp(self, exec_env: dict | None = None) -> None:
             calls.append("link")
 
     async def prepare(*_: object, **__: object) -> bool:

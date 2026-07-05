@@ -3,6 +3,7 @@
 
 import os
 import sys
+import copy
 import shutil
 import typing
 import platform
@@ -31,6 +32,26 @@ def exec_env() -> dict[str, typing.Any]:
 def clear_exec_env_cache() -> None:
     """清理本地执行环境缓存。"""
     _cached_exec_env.cache_clear()
+
+
+def build_runtime_exec_env(
+    *,
+    service_exec_env: typing.Optional[dict[str, typing.Any]] = None
+) -> dict[str, typing.Any]:
+    """组合对外上报的执行环境，外部 provider 放在 providers 下。"""
+    data = copy.deepcopy(exec_env())
+
+    providers = data.get("providers")
+    if not isinstance(providers, dict):
+        providers = {}
+    else:
+        providers = copy.deepcopy(providers)
+
+    if isinstance(service_exec_env, dict):
+        providers["helix"] = copy.deepcopy(service_exec_env)
+
+    data["providers"] = providers
+    return data
 
 
 def detect_platform() -> dict[str, typing.Any]:

@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import sys
+import copy
 import time
 import typing
 import asyncio
@@ -100,6 +101,7 @@ class Mind(object):
         self.keepalive_task: typing.Optional[asyncio.Task[None]]      = None
 
         self.service_runtime_context: typing.Optional["ServiceRuntimeContext"] = None
+        self.service_exec_env: typing.Optional[dict[str, typing.Any]]          = None
 
         self.config_service: ConfigServiceRuntime = ConfigServiceRuntime(log_level=self.level)
 
@@ -302,17 +304,33 @@ class Mind(object):
             raise MindError("Service runtime context is not bound")
         return self.service_runtime_context
 
-    def link_service_mcp(self) -> None:
+    def link_service_mcp(
+        self,
+        exec_env: typing.Optional[dict[str, typing.Any]] = None
+    ) -> None:
         """把本地服务 MCP 挂入当前工具会话。"""
         self.service_mcp_linked = True
+
+        self.service_exec_env = (
+            copy.deepcopy(exec_env)
+            if isinstance(exec_env, dict)
+            else None
+        )
 
     def unlink_service_mcp(self) -> None:
         """从当前工具会话移除本地服务 MCP，不停止后台进程。"""
         self.service_mcp_linked = False
+        self.service_exec_env   = None
 
     def is_service_mcp_linked(self) -> bool:
         """判断当前工具会话是否挂载本地服务 MCP。"""
         return bool(self.service_mcp_linked)
+
+    def service_exec_env_snapshot(self) -> dict[str, typing.Any] | None:
+        """返回本地服务运行时环境快照。"""
+        if not isinstance(self.service_exec_env, dict):
+            return None
+        return copy.deepcopy(self.service_exec_env)
 
     def start_keepalive_supervisor(self) -> None:
         """启动 Mind 生命周期内的本地后台服务保活任务。"""

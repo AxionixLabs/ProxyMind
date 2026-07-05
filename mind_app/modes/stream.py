@@ -16,6 +16,7 @@ from mind_nova.events import EventReport
 from mind_nova import request
 from ..stream_ui import StreamUI
 from ..runtime.support.loop_support import finish_failure
+from ..runtime.environment.exec_env import build_runtime_exec_env
 from ..runtime.support.session_policy import friendly_exception_text
 from ..runtime.tools.run import (
     server_tool_output_result
@@ -70,7 +71,16 @@ async def stream_looper(
         raise ValueError(f"Invalid mode: {mode}")
 
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
+
     approval_input_func = kwargs.pop("approval_input_func", None)
+
+    if not isinstance(kwargs.get("exec_env"), dict):
+        service_env = (
+            mind.service_exec_env_snapshot()
+            if mind.is_service_mcp_linked()
+            else None
+        )
+        kwargs["exec_env"] = build_runtime_exec_env(service_exec_env=service_env)
 
     slog: StreamUI = StreamUI(mind.report.log_papers, design_level=mind.level)
 
