@@ -83,18 +83,5 @@ def tool_target(result_fields: dict[str, typing.Any], payload: dict[str, typing.
     return str(target or "default")
 
 
-def pref_slot_value(pref_config: dict[str, typing.Any], key: str) -> typing.Any:
-    """从顶层或 primary 模型槽位中容错读取偏好字段。"""
-    value = pref_config.get(key)
-    if value not in (None, ""):
-        return value
-
-    primary = pref_config.get("primary")
-    if isinstance(primary, dict):
-        return primary.get(key)
-
-    return value
-
-
 if __name__ == '__main__':
     pass

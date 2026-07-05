@@ -17,7 +17,6 @@ from mind_nova.requests import (
     stream_chat,
     stream_heal,
     stream_plan,
-    stream_rule,
     streaming,
     upload_file_stream,
 )
@@ -38,7 +37,6 @@ __all__ = [
     "stream_chat",
     "stream_heal",
     "stream_plan",
-    "stream_rule",
     "streaming",
     "upload_file_stream",
 ]

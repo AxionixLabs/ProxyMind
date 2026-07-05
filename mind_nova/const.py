@@ -82,7 +82,6 @@ TOOL_APPROVAL_URL = f"{DOMAIN}/tool-approval"
 STREAM_CHAT_URL   = f"{DOMAIN}/mind-chat"
 STREAM_PLAN_URL   = f"{DOMAIN}/mind-plan"
 STREAM_HEAL_URL   = f"{DOMAIN}/mind-heal"
-STREAM_RULE_URL   = f"{DOMAIN}/mind-rule"
 
 # ========【应用授权】========
 BOOTSTRAP_URL      = f"{DOMAIN}/bootstrap"

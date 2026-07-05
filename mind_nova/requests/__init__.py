@@ -10,8 +10,7 @@ from .access import (
 from .chat import (
     stream_chat,
     stream_heal,
-    stream_plan,
-    stream_rule
+    stream_plan
 )
 from .manifest import fetch_manifest
 from .payload import (
@@ -55,7 +54,6 @@ __all__ = [
     "stream_chat",
     "stream_heal",
     "stream_plan",
-    "stream_rule",
     "streaming",
     "upload_file_stream"
 ]

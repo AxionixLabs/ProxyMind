@@ -24,7 +24,6 @@ PERMISSION_OPTIONS: tuple[tuple[str, str, str], ...] = (
 PERMISSIONS_MENU_STYLE = Style.from_dict({
     "permissions.title"        : "bold #DCE6EE",
     "permissions.help"         : "#69727D",
-    "permissions.status"       : "#87919D",
     "permissions.index"        : "bold #8A949F",
     "permissions.index.active" : "bold #F4F7FA bg:#3A4651",
     "permissions.label"        : "bold #F4F7FA",
@@ -84,7 +83,7 @@ async def choose_permissions_mode(current_mode: typing.Any) -> str | None:
         layout=Layout(
             Window(
                 content=control,
-                height=6,
+                height=5,
                 always_hide_cursor=True
             ),
             focused_element=control
@@ -110,16 +109,18 @@ def _render_permissions_menu(selected: int) -> StyleAndTextTuples:
 
     for index, (_, label, detail) in enumerate(PERMISSION_OPTIONS):
         active = index == selected
+
         prefix_style = "class:permissions.index.active" if active else "class:permissions.index"
         row_style    = "class:permissions.active" if active else ""
+        marker       = ">" if active else " "
+
         lines.extend([
-            (prefix_style, f" {index + 1} "),
+            (prefix_style, f"{marker} {index + 1} "),
             (row_style or "class:permissions.label", f" {label}"),
             ("class:permissions.detail", f" · {detail}"),
             ("", "\n")
         ])
 
-    lines.append(("class:permissions.status", f"mode {selected + 1}/{len(PERMISSION_OPTIONS)}"))
     return lines
 
 

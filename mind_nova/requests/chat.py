@@ -130,33 +130,5 @@ async def stream_heal(
         yield event
 
 
-async def stream_rule(
-    mode: str,
-    pref_config: dict[str, typing.Any],
-    message: str,
-    context: dict[str, typing.Any],
-    metadata: dict[str, typing.Any],
-    timeout: float = 60.0
-) -> typing.AsyncGenerator[dict, None]:
-    """流式获取规则执行事件。"""
-    headers = Channel.make_headers()
-    payload = {
-        "mode"      : mode,
-        "llm_conf"  : pref_config,
-        "message"   : message,
-        "metadata"  : metadata,
-        "extras"    : {"context" : context}
-    }
-    apply_access_mode(payload, DEFAULT_ACCESS_MODE)
-
-    async for event in streaming(service_endpoints.endpoint("/mind-rule"), headers, payload, timeout):
-        event_type = str(event.get("type") or "")
-
-        if event_type in {"turn.thinking", "ping"}:
-            continue
-
-        yield event
-
-
 if __name__ == '__main__':
     pass

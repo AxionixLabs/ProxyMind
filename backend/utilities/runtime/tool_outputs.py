@@ -16,15 +16,6 @@ async def sleep_output(delay: float) -> ToolOutput:
     )
 
 
-def free_rule_output(args: dict[str, typing.Any]) -> ToolOutput:
-    """返回自由规则声明结果。"""
-    return ToolOutput(
-        ok=True,
-        text="free_rule declared",
-        data=args
-    )
-
-
 def loop_steps_output(
     *,
     loops: int,

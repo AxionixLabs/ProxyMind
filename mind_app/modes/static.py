@@ -46,17 +46,8 @@ async def static_looper(
         if ev_report:
             ev_report.begin_turn(round_no=1)
 
-        context: dict[str, typing.Any] = {
-            "goal"       : message,
-            "mode"       : mode,
-            "reasoning"  : "",
-            "loop_count" : 1,
-            "metadata"   : kwargs.get("metadata") or {},
-            "steps"      : [],
-            "current"    : None
-        }
-
-        first_frame = True
+        final_loop_count: int = 1
+        first_frame: bool     = True
 
         async for plan in request.stream_plan(
             mode,
@@ -125,9 +116,7 @@ async def static_looper(
                 continue
 
             reasoning = result.get("reasoning") or ""
-
-            context["reasoning"]  = reasoning
-            context["loop_count"] = loop_count
+            final_loop_count = loop_count
 
             await slog.feed(reasoning, display=StreamUI.BLOCK)
             if ev_report: ev_report.emit({
@@ -149,21 +138,9 @@ async def static_looper(
                     action = step["action"]
 
                     name, arguments = action["action"], action["args"]
-                    action_meta = action.get("meta") if isinstance(action.get("meta"), dict) else None
-                    display_arguments = arguments if isinstance(arguments, dict) else {}
 
-                    step_context: dict[str, typing.Any] = {
-                        "run"     : index,
-                        "index"   : step_idx,
-                        "total"   : len(steps),
-                        "name"    : name,
-                        "args"    : arguments,
-                        "ok"      : None,
-                        "text"    : "",
-                        "data"    : None,
-                        "cost_ms" : 0
-                    }
-                    context["current"] = step_context
+                    action_meta       = action.get("meta") if isinstance(action.get("meta"), dict) else None
+                    display_arguments = arguments if isinstance(arguments, dict) else {}
 
                     if ev_report: ev_report.emit({
                         "type"  : "exec.step.start",
@@ -184,22 +161,6 @@ async def static_looper(
                     )
 
                     arguments = exchange_arguments(name, arguments, mind.report)
-                    if name == "free_rule":
-                        arguments = {
-                            **arguments,
-                            "context": {
-                                **(arguments.get("context") or {}),
-                                "plan": {
-                                    "goal"       : context["goal"],
-                                    "mode"       : context["mode"],
-                                    "reasoning"  : context["reasoning"],
-                                    "loop_count" : context["loop_count"],
-                                    "metadata"   : context["metadata"],
-                                    "steps"      : context["steps"],
-                                    "current"    : context["current"]
-                                }
-                            }
-                        }
 
                     if ev_report: ev_report.emit({
                         "type"      : "exec.tool.call",
@@ -221,16 +182,8 @@ async def static_looper(
                         metadata=kwargs.get("metadata") or {}
                     )
 
-                    ok = tool_run.ok
+                    ok     = tool_run.ok
                     fields = tool_run.fields
-
-                    step_context["ok"]      = ok
-                    step_context["text"]    = tool_run.text
-                    step_context["data"]    = tool_run.data
-                    step_context["cost_ms"] = tool_run.cost_ms
-
-                    context["steps"].append(step_context)
-                    context["current"] = step_context
 
                     if ev_report: ev_report.emit({
                         "type"    : "exec.tool.output",
@@ -277,7 +230,7 @@ async def static_looper(
                     "ts"    : time.time()
                 })
         await finish_stream(
-            ev_report, phase="exec.done", status="completed", loop_count=context["loop_count"]
+            ev_report, phase="exec.done", status="completed", loop_count=final_loop_count
         )
     except asyncio.CancelledError:
         interrupted = True

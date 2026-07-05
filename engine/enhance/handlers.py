@@ -10,7 +10,6 @@ from mind_app.stream_ui import StreamUI
 from .fields import (
     fields,
     fields_map,
-    pref_slot_value,
     tool_payload,
     tool_target
 )
@@ -39,9 +38,6 @@ async def enhance_result(
 
     if name.startswith("nexus_"):
         return await enhance_nexus(result, slog)
-
-    if name == "free_rule":
-        return await enhance_free_rule(result, mode, pref_config, metadata, slog)
 
     if name in {
         "ffmpeg_extract_snapshot",
@@ -76,72 +72,6 @@ async def enhance_nexus(
         )
 
     return result_fields
-
-
-async def enhance_free_rule(
-    result: CallToolResult,
-    mode: str,
-    pref_config: dict[str, typing.Any],
-    metadata: dict[str, typing.Any],
-    slog: typing.Optional[StreamUI] = None
-) -> dict[str, typing.Any]:
-    """执行自由规则并汇总各 agent 输出。"""
-    result_fields = fields_map(result)
-
-    attachments: list[dict[str, typing.Any]] = []
-
-    payload = tool_payload(result_fields)
-    if not payload:
-        return {
-            "ok"          : False,
-            "text"        : "未获取到提示词（自由规则）的结果",
-            "attachments" : attachments,
-            "data"        : {}
-        }
-
-    if slog:
-        await slog.open()
-
-    try:
-        message = payload.get("message")
-        context = payload.get("context") or {}
-
-        ok = True
-        error: typing.Optional[dict[str, typing.Any]] = None
-        chunks: list[str] = []
-        async for rule_event in request.stream_rule(
-            mode, pref_config, message, context, metadata
-        ):
-            if rule_event.get("type") == "turn.failed":
-                ok = False
-                error = rule_event
-                continue
-            if rule_event.get("type") not in {"text.delta", "text.done"}:
-                continue
-
-            chunk = str(rule_event.get("text") or "")
-            if not chunk:
-                continue
-            chunks.append(chunk)
-            if slog:
-                await slog.feed(chunk, display=StreamUI.STREAM)
-
-        return {
-            "ok"          : ok,
-            "text"        : "free rule completed",
-            "attachments" : attachments,
-            "data": {
-                "mode"    : mode,
-                "api"     : pref_slot_value(pref_config, "api"),
-                "model"   : pref_slot_value(pref_config, "model"),
-                "message" : message,
-                "chunks"  : chunks,
-                "error"   : error
-            }
-        }
-    finally:
-        if slog:
-            await slog.stop()
 
 
 async def enhance_artifact_upload(

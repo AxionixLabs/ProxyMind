@@ -1,10 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
-from backend.mcp_tools.common.schemas.schema_inspect import (
-    FreeRuleMessageArg,
-    FreeRuleContextArg
-)
 from backend.mcp_tools.common.schemas.schema_runtime import (
     DelayArg,
     LoopCountArg,
@@ -67,8 +63,6 @@ from backend.mcp_tools.common.schemas.schema_security import (
 )
 
 __all__ = [
-    "FreeRuleMessageArg",
-    "FreeRuleContextArg",
     "DelayArg",
     "LoopCountArg",
     "LoopStepsArg",

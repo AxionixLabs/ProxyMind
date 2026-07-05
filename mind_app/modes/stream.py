@@ -77,7 +77,7 @@ async def stream_looper(
     interrupted: bool = False
     first_frame: bool = True
 
-    approvals = ApprovalStore()
+    approvals: ApprovalStore = ApprovalStore()
 
     idle_wait = IdleStatusTimer(
         lambda: slog.begin_reply_wait_status(delay_sec=0.0), delay_sec=0.9
