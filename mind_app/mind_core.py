@@ -110,6 +110,7 @@ class Mind(object):
         self.exit_code: int = 0
         self.sig_count: int = 0
 
+        self.service_mcp_linked: bool   = False
         self.stop_runtime_on_exit: bool = False
 
     @property
@@ -301,6 +302,18 @@ class Mind(object):
             raise MindError("Service runtime context is not bound")
         return self.service_runtime_context
 
+    def link_service_mcp(self) -> None:
+        """把本地服务 MCP 挂入当前工具会话。"""
+        self.service_mcp_linked = True
+
+    def unlink_service_mcp(self) -> None:
+        """从当前工具会话移除本地服务 MCP，不停止后台进程。"""
+        self.service_mcp_linked = False
+
+    def is_service_mcp_linked(self) -> bool:
+        """判断当前工具会话是否挂载本地服务 MCP。"""
+        return bool(self.service_mcp_linked)
+
     def start_keepalive_supervisor(self) -> None:
         """启动 Mind 生命周期内的本地后台服务保活任务。"""
         if self.keepalive_task and not self.keepalive_task.done():
@@ -405,6 +418,7 @@ class Mind(object):
         if self.server_manager is None:
             raise MindError("Server manager is not bound")
 
+        self.unlink_service_mcp()
         await self.stop_keepalive_supervisor()
         await craft.kill_port(self.server_manager.port)
 

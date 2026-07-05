@@ -135,7 +135,7 @@ class Parser(object):
             help=textwrap.dedent(f'''\
                 \033[1;36m^* 中枢协议 *^\033[0m
                 -------------------------
-                - 启动本地 Helix 服务，可与 --chat/--fast/--plan/--xtra/--agent 叠加启用 Helix MCP。
+                - 启动或复用本地 Helix 服务，并为本次运行接入 Helix MCP。
 
             ''')
         )

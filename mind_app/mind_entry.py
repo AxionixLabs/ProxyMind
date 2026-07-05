@@ -295,8 +295,8 @@ async def _run_main(
 
     try:
         if cmd_lines.helix:
-            helix_started = await prepare_and_start_service_runtime(mind)
-            if not helix_started:
+            helix_linked = await prepare_and_start_service_runtime(mind)
+            if not helix_linked:
                 Design.console.print("[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]")
                 Design.console.print()
 

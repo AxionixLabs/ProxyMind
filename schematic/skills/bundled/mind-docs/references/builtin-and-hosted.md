@@ -20,7 +20,7 @@ Builtin 事件名或 Hosted 工具名可以存在于系统内部，但不是对�
 
 - Mind native：批量 shell 命令、工作区文本写入、unified diff patch，以及 Mind 侧内置 coding 工具。
 - External MCP：用户在 `mcp_servers.json` 配置并由 Mind 连接的第三方 MCP 服务。
-- Helix provider：官方垂直领域 MCP 服务，覆盖接口/设备/媒体/性能等执行面；需要 `--helix` 或 REPL `/helix-start` 后才挂载。
+- Helix provider：官方垂直领域 MCP 服务，覆盖接口/设备/媒体/性能等执行面；需要 `--helix` 或 REPL `/helix-link` 后才挂载。
 - Xtra 只聚合 Mind native 与 External MCP，不包含 Helix MCP。
 
 Mind 顶层随包路由的本地二进制工具只按 Mind native 语义上报，例如 `rg`、`jq`、`ast-grep`。Helix provider 自身依赖的 `adb`、`ffmpeg`、`ffprobe`、`k6`、`framix`、`memrix` 不作为 Mind 顶层工具承诺。
@@ -47,7 +47,7 @@ Mind 顶层随包路由的本地二进制工具只按 Mind native 语义上报�
 | 任务可以本地等价完成，但用户要求的是结果而非来源 | 仍然优先写意图，不强调内部来源 |
 | 任务明显需要远端执行环境、会话态或托管注入 | 把依赖条件写清，并补失败降级 |
 | 本地 shell 命令被策略判定需要云端沙箱 | 写清云端依赖、期望 stdout/产物和不可用时的回报 |
-| 任务需要官方垂直领域 MCP 能力 | 使用 `--helix` 或提示先 `/helix-start`，并说明 Helix 不可用时如何回报 |
+| 任务需要官方垂直领域 MCP 能力 | 使用 `--helix` 或提示先 `/helix-link`，并说明 Helix 不可用时如何回报 |
 
 ## Core Rules
 

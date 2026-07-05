@@ -3,12 +3,14 @@
 
 import re
 import typing
-from engine.tinker import MindError
+from engine.tinker import (
+    MindError, FileAssist
+)
 from mind_app.mcp import McpSessionLike
 from mind_app.runtime.mcp.service_runtime import prepare_and_start_service_runtime
 from mind_app.stream_events.failure_display import render_failure_text
-from mind_core.design import Design
 from mind_nova import const
+from mind_core.design import Design
 from mind_nova.modes import RunMode
 from .repl_prompt import save_primary_pref_field
 from .repl_tools import render_tools_summary
@@ -91,18 +93,51 @@ def print_attach_gap() -> None:
     Design.console.print()
 
 
-async def start_helix_runtime(mind: "Mind") -> None:
-    """确认本地服务已经启动。"""
+async def link_helix_runtime(mind: "Mind") -> None:
+    """确认本地服务已经启动，并挂载到当前工具会话。"""
     try:
-        helix_started = await prepare_and_start_service_runtime(mind)
+        helix_linked = await prepare_and_start_service_runtime(mind)
     except MindError as error:
-        Design.console.print(f"[bold #FF5F5F]Helix start failed: {error}[/]")
+        Design.console.print(f"[bold #FF5F5F]Helix link failed: {error}[/]")
         Design.console.print()
         return None
 
-    if not helix_started:
+    if not helix_linked:
         Design.console.print("[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]")
         Design.console.print()
+
+
+def unlink_helix_runtime(mind: "Mind") -> None:
+    """从当前工具会话移除 Helix MCP，不停止本地服务。"""
+    was_linked = mind.is_service_mcp_linked()
+    mind.unlink_service_mcp()
+    state = "unlinked" if was_linked else "already unlinked"
+    Design.console.print(f"[bold #AFC7D8]Helix[/] [dim #7F8C9A]· {state}[/]")
+    Design.console.print()
+
+
+async def open_helix_home(mind: "Mind") -> None:
+    """启动或复用本地 Helix 服务，并打开首页。"""
+    try:
+        helix_ready = await prepare_and_start_service_runtime(
+            mind,
+            label="Helix Home",
+            link_mcp=False
+        )
+    except MindError as error:
+        Design.console.print(f"[bold #FF5F5F]Helix home failed: {error}[/]")
+        Design.console.print()
+        return None
+
+    if not helix_ready:
+        Design.console.print("[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]")
+        Design.console.print()
+        return None
+
+    url = const.BASE_URL.rstrip("/")
+    Design.console.print(f"[bold #AFC7D8]Helix Home[/] [dim #7F8C9A]· {url}[/]")
+    await FileAssist.open_url(url)
+    Design.console.print()
 
 
 async def print_available_tools(

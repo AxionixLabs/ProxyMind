@@ -177,3 +177,77 @@ def test_prepare_service_runtime_ignores_packaged_asset_for_source_launch(
 
     assert prepared is True
     assert calls == ["ensure"]
+
+
+def test_prepare_and_start_service_runtime_links_mcp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """服务运行时启动成功后挂载 Helix MCP。"""
+    context = runtime_context(tmp_path, packaged=False)
+    calls: list[str] = []
+
+    class DummyMind(object):
+        anim_manager = object()
+
+        def __init__(self) -> None:
+            self.linked = False
+
+        def require_service_runtime_context(self) -> runtime.ServiceRuntimeContext:
+            return context
+
+        def link_service_mcp(self) -> None:
+            self.linked = True
+            calls.append("link")
+
+    async def prepare(*_: object, **__: object) -> bool:
+        calls.append("prepare")
+        return True
+
+    async def start(*_: object, **__: object) -> None:
+        calls.append("start")
+
+    monkeypatch.setattr(runtime, "prepare_service_runtime", prepare)
+    monkeypatch.setattr(runtime, "start_service_runtime", start)
+
+    mind = DummyMind()
+    started = run_async(runtime.prepare_and_start_service_runtime(mind))
+
+    assert started is True
+    assert mind.linked is True
+    assert calls == ["prepare", "start", "link"]
+
+
+def test_prepare_and_start_service_runtime_can_skip_mcp_link(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """仅打开 Helix 页面时可启动服务但不挂载 MCP。"""
+    context = runtime_context(tmp_path, packaged=False)
+    calls: list[str] = []
+
+    class DummyMind(object):
+        anim_manager = object()
+
+        def require_service_runtime_context(self) -> runtime.ServiceRuntimeContext:
+            return context
+
+        def link_service_mcp(self) -> None:
+            calls.append("link")
+
+    async def prepare(*_: object, **__: object) -> bool:
+        calls.append("prepare")
+        return True
+
+    async def start(*_: object, **__: object) -> None:
+        calls.append("start")
+
+    monkeypatch.setattr(runtime, "prepare_service_runtime", prepare)
+    monkeypatch.setattr(runtime, "start_service_runtime", start)
+
+    started = run_async(
+        runtime.prepare_and_start_service_runtime(DummyMind(), link_mcp=False)
+    )
+
+    assert started is True
+    assert calls == ["prepare", "start"]

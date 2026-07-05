@@ -129,6 +129,14 @@ class CompositeToolRuntime(object):
         """建立工具会话并执行回调。"""
         _ = pref_config
 
+        if not self._mind.is_service_mcp_linked():
+            await self.run_with_context(
+                None,
+                function,
+                before_user_flow
+            )
+            return None
+
         service_stack = contextlib.AsyncExitStack()
 
         try:

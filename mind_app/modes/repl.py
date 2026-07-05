@@ -22,7 +22,9 @@ from .support.repl_commands import (
     print_attach_gap,
     print_available_tools,
     print_pending_attachments,
-    start_helix_runtime
+    link_helix_runtime,
+    open_helix_home,
+    unlink_helix_runtime
 )
 from .support.repl_prompt import (
     WORKSPACE_LABEL_REFRESH,
@@ -68,7 +70,9 @@ async def mind_loop(mind: "Mind") -> None:
     permissions_set: set[str]  = {"/permissions"}
     tools_set: set[str]        = {"/tools"}
     preferences_set: set[str]  = {"/preferences"}
-    helix_start_set: set[str]  = {"/helix-start"}
+    helix_link_set: set[str]   = {"/helix-link"}
+    helix_unlink_set: set[str] = {"/helix-unlink"}
+    helix_home_set: set[str]   = {"/helix-home"}
     helix_stop_set: set[str]   = {"/helix-stop"}
     shutdown_set: set[str]     = {"/shutdown"}
 
@@ -89,7 +93,9 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #AFD7FF]/preferences[/]              打开偏好配置页面
         [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
         [bold #AFD7FF]/mcp[/]                      查看外部 MCP runtime 状态
-        [bold #AFD7FF]/helix-start[/]              启动本地 Helix 服务
+        [bold #AFD7FF]/helix-link[/]               接入本地 Helix 服务
+        [bold #AFD7FF]/helix-unlink[/]             从当前会话移除 Helix MCP
+        [bold #AFD7FF]/helix-home[/]               打开 Helix 首页
         [bold #FF5F5F]/helix-stop[/]               停止本地 Helix 服务
         [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
         [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
@@ -199,6 +205,16 @@ async def mind_loop(mind: "Mind") -> None:
             Design.console.print()
             continue
 
+        if command in helix_unlink_set:
+            unlink_helix_runtime(mind)
+            workspace_label_refreshed_at = 0.0
+            continue
+
+        if command in helix_home_set:
+            await open_helix_home(mind)
+            workspace_label_refreshed_at = 0.0
+            continue
+
         if command in shutdown_set:
             mind.stop_runtime_on_exit = True
             mind.task_event.set()
@@ -244,8 +260,8 @@ async def mind_loop(mind: "Mind") -> None:
             Design.console.print()
             continue
 
-        if command in helix_start_set:
-            await start_helix_runtime(mind)
+        if command in helix_link_set:
+            await link_helix_runtime(mind)
             workspace_label_refreshed_at = 0.0
             continue
 

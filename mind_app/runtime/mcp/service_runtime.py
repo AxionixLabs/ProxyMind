@@ -254,14 +254,20 @@ async def start_service_runtime(
 async def prepare_and_start_service_runtime(
     mind: "Mind",
     *,
-    label: str = "Helix MCP"
+    label: str = "Helix MCP",
+    link_mcp: bool = True
 ) -> bool:
     """按统一流程准备并启动服务运行时。"""
     context = mind.require_service_runtime_context()
+
     prepared = await prepare_service_runtime(context, anim_manager=mind.anim_manager)
     if not prepared:
         return False
+
     await start_service_runtime(mind, label=label)
+
+    if link_mcp:
+        mind.link_service_mcp()
     return True
 
 
