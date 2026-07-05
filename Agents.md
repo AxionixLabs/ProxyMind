@@ -15,6 +15,7 @@
 ## 架构边界
 
 - `mind_app`、`mind_core`、`mind_nova` 等非 backend 模块不得导入 `backend` 包。
+- `backend` 包只允许导入 `backend` 内部模块、标准库和第三方依赖，不得导入非 backend 包。
 - 需要复用 backend 能力时，在 Mind 侧重写或迁移到 Mind 自己的模块。
 - Mind 是主程序控制侧，Helix 是外部 provider，不要把 Helix 逻辑混进 Mind 顶层结构。
 - `exec_env` 顶层以 Mind 为准；Helix 原始环境只放在 `providers.helix`。
