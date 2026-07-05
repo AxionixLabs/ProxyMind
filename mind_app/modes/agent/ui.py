@@ -8,7 +8,7 @@ from mind_core.design import Design
 from .models import (
     AgentLiveStatus, AgentSessionRuntime
 )
-from mind_nova import const
+from ...runtime.config_service import config_service_base_url
 
 if typing.TYPE_CHECKING:
     from ...mind_core import Mind
@@ -39,9 +39,10 @@ async def publish_external_access(runtime: AgentSessionRuntime) -> None:
         logger.debug("[Agent] credential missing")
 
     try:
+        base_url = config_service_base_url()
         async with httpx.AsyncClient(timeout=httpx.Timeout(3.0, connect=1.5)) as http:
             response = await http.put(
-                f"{const.BASE_URL}/api/agent",
+                f"{base_url}/api/agent",
                 headers={"Content-Type": "application/json"},
                 json={
                     "session_id" : runtime.session_id,
@@ -59,7 +60,7 @@ async def publish_external_access(runtime: AgentSessionRuntime) -> None:
 
 def show_external_access_link() -> None:
     """输出本地 agent 示例页面链接。"""
-    Design.console.print(f"🌐 Agent: {const.BASE_URL}/agent\n")
+    Design.console.print(f"🌐 Agent: {config_service_base_url()}/agent\n")
 
 
 if __name__ == '__main__':

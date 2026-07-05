@@ -300,6 +300,8 @@ async def _run_main(
                 Design.console.print("[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]")
                 Design.console.print()
 
+        await mind.start_config_service()
+
         runtime_workspace_root = await fetch_runtime_workspace_root()
         if runtime_workspace_root is not None:
             mind.set_history_workspace(runtime_workspace_root)

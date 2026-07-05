@@ -4,7 +4,9 @@
 import re
 import time
 import typing
-from engine.tinker import MindError
+from engine.tinker import (
+    MindError, FileAssist
+)
 from mind_core.design import Design
 from mind_nova.modes import (
     DEFAULT_RUN_MODE, RunMode
@@ -15,6 +17,8 @@ from mind_nova.requests import (
     normalize_access_mode
 )
 from .support.repl_commands import (
+    exchange_pref_value,
+    persist_primary_pref,
     print_attach_gap,
     print_available_tools,
     print_pending_attachments,
@@ -37,6 +41,7 @@ from .support.repl_turn import (
     print_turn_body_gap,
     run_repl_model_turn
 )
+from ..runtime.config_service import config_service_base_url
 from ..history.resume_menu import choose_history_session
 
 if typing.TYPE_CHECKING:
@@ -62,6 +67,7 @@ async def mind_loop(mind: "Mind") -> None:
     resume_set: set[str]       = {"/resume"}
     permissions_set: set[str]  = {"/permissions"}
     tools_set: set[str]        = {"/tools"}
+    preferences_set: set[str]  = {"/preferences"}
     helix_start_set: set[str]  = {"/helix-start"}
     helix_stop_set: set[str]   = {"/helix-stop"}
     shutdown_set: set[str]     = {"/shutdown"}
@@ -78,7 +84,9 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #AFD7FF]/attachments[/]              查看当前待发送附件
         [bold #AFD7FF]/detach <index|path>[/]      移除一个待发送附件
         [bold #AFD7FF]/attach-clear[/]             清空当前待发送附件
-        [bold #AFD7FF]/permissions[/]               切换权限模式
+        [bold #AFD7FF]/permissions[/]              切换权限模式
+        [bold #7F8C9A]/model <name>[/]             持久化主模型名称
+        [bold #AFD7FF]/preferences[/]              打开偏好配置页面
         [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
         [bold #AFD7FF]/mcp[/]                      查看外部 MCP runtime 状态
         [bold #AFD7FF]/helix-start[/]              启动本地 Helix 服务
@@ -91,6 +99,7 @@ async def mind_loop(mind: "Mind") -> None:
 
     re_attach = re.compile(r"^\s*/attach(?:\s+(.*))?\s*$", re.IGNORECASE)
     re_detach = re.compile(r"^\s*/detach(?:\s+(.*))?\s*$", re.IGNORECASE)
+    re_model  = re.compile(r"^\s*/model(?:\s+(.+))?\s*$", re.IGNORECASE)
 
     pref_config = await mind.fresh_pref_config()
 
@@ -209,6 +218,30 @@ async def mind_loop(mind: "Mind") -> None:
         if command in tools_set:
             pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
             await print_available_tools(mind, run_mode=mode, pref_config=pref_config)
+            continue
+
+        if m := re_model.match(prompt_text):
+            if model_value := await exchange_pref_value(m, pref_command="model"):
+                saved_primary = await persist_primary_pref(
+                    mind,
+                    command_name="model",
+                    field_name="model",
+                    field_value=model_value
+                )
+                if saved_primary is not None:
+                    model = str(saved_primary.get("model") or model_value)
+                    Design.console.print(
+                        f"[bold #AFC7D8]Model saved[/] "
+                        f"[bold #F4F7FA]{model}[/]"
+                    )
+                    Design.console.print()
+            continue
+
+        if command in preferences_set:
+            url = f"{config_service_base_url()}/pref"
+            Design.console.print(f"[bold #AFC7D8]Preferences[/] [dim #7F8C9A]· {url}[/]")
+            await FileAssist.open_url(url)
+            Design.console.print()
             continue
 
         if command in helix_start_set:

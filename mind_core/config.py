@@ -3,6 +3,7 @@
 
 import os
 import copy
+import json
 import typing
 import tomllib
 from pathlib import Path
@@ -171,9 +172,67 @@ def ensure_config(path: typing.Any) -> Path:
     """确保 config.toml 存在；已存在时不改写。"""
     target = Path(path).expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
+
     if not target.exists():
         target.write_text(DEFAULT_CONFIG_TEXT, encoding=const.CHARSET)
+
     return target
+
+
+def write_config(path: typing.Any, config: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """规范化并写入 config.toml。"""
+    target     = ensure_config(path)
+    normalized = normalize_config(config)
+
+    target.write_text(format_config(normalized), encoding=const.CHARSET)
+
+    return normalized
+
+
+def format_config(config: dict[str, typing.Any]) -> str:
+    """把 Mind 配置格式化为 TOML 文本。"""
+    normalized = normalize_config(config)
+    service    = normalized["service"]
+    model      = normalized["model"]
+    skills     = normalized["skills"]
+    primary    = model["primary"]
+    secondary  = model["secondary"]
+
+    return "\n".join([
+        "[service]",
+        f"domain = {toml_string(service.get('domain'))}",
+        "",
+        "[model.primary]",
+        f"provider = {toml_string(primary.get('provider'))}",
+        f"model = {toml_string(primary.get('model'))}",
+        f"apikey = {toml_string(primary.get('apikey'))}",
+        f"base_url = {toml_string(primary.get('base_url'))}",
+        f"route = {toml_string(primary.get('route'))}",
+        "",
+        "[model.secondary]",
+        f"enabled = {'true' if secondary.get('enabled') else 'false'}",
+        f"provider = {toml_string(secondary.get('provider'))}",
+        f"model = {toml_string(secondary.get('model'))}",
+        f"apikey = {toml_string(secondary.get('apikey'))}",
+        f"base_url = {toml_string(secondary.get('base_url'))}",
+        f"route = {toml_string(secondary.get('route'))}",
+        "",
+        "[skills]",
+        f"enabled = {toml_string_list(skills.get('enabled'))}",
+        f"disabled = {toml_string_list(skills.get('disabled'))}",
+        ""
+    ])
+
+
+def toml_string(value: typing.Any) -> str:
+    """返回 TOML 字符串字面量。"""
+    return json.dumps(str(value or ""), ensure_ascii=False)
+
+
+def toml_string_list(value: typing.Any) -> str:
+    """返回 TOML 字符串列表字面量。"""
+    items = value if isinstance(value, list) else []
+    return "[" + ", ".join(toml_string(item) for item in items) + "]"
 
 
 def config_to_preferences(config: dict[str, typing.Any]) -> dict[str, typing.Any]:

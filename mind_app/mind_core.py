@@ -32,6 +32,7 @@ from .runtime.support.calling import (
 )
 from .runtime.mcp.keepalive import run_keepalive
 from .runtime.mcp.external import ExternalMcpRuntime
+from .runtime.config_service import ConfigServiceRuntime
 from .runtime.support.conversation import ConversationState
 from .runtime.mcp.tool_runtime import (
     CompositeToolRuntime,
@@ -95,9 +96,12 @@ class Mind(object):
         self.runtime_loop: typing.Optional[asyncio.AbstractEventLoop] = None
         self.root_task: typing.Optional[asyncio.Task[typing.Any]]     = None
         self.server_manager: typing.Optional[ServerManage]            = None
-        self.service_runtime_context: typing.Optional["ServiceRuntimeContext"] = None
         self.keepalive_stop: typing.Optional[asyncio.Event]           = None
         self.keepalive_task: typing.Optional[asyncio.Task[None]]      = None
+
+        self.service_runtime_context: typing.Optional["ServiceRuntimeContext"] = None
+
+        self.config_service: ConfigServiceRuntime = ConfigServiceRuntime(log_level=self.level)
 
         self.external_mcp: typing.Optional[ExternalMcpRuntime] = None
         self.client_tools: ClientToolRegistry = self._build_client_tools()
@@ -312,6 +316,14 @@ class Mind(object):
         )
         self.keepalive_task.add_done_callback(self.keepalive_task_done)
 
+    async def start_config_service(self) -> None:
+        """启动 Mind 生命周期内的配置服务。"""
+        await self.config_service.start()
+
+    async def stop_config_service(self) -> None:
+        """停止 Mind 生命周期内的配置服务。"""
+        await self.config_service.stop()
+
     async def refresh_pref_if_stale(self, *, ttl_sec: typing.Optional[float] = None) -> None:
         """按 TTL 从后端刷新偏好配置，用于模型与密钥热更新。"""
         refresh_ttl = self.pref_refresh_ttl_sec if ttl_sec is None else max(0.0, float(ttl_sec))
@@ -362,6 +374,7 @@ class Mind(object):
     async def close_runtime_resources(self) -> None:
         """关闭 Mind 持有的运行时资源，并按退出策略处理本地后台进程。"""
         await self.stop_external_mcp_runtime()
+        await self.stop_config_service()
         await self.stop_keepalive_supervisor()
         server_manager = self.server_manager
         self.server_manager = None

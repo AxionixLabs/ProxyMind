@@ -3,25 +3,17 @@
 
 from fastapi import FastAPI
 
-from .rt_agent import agent_router
 from .rt_basic import basic_router
-from .rt_code import code_router
 from .rt_idle import idle_router
 from .rt_logs import logs_router
-from .rt_pref import pref_router
 from .rt_runtime import runtime_router
-from .rt_services import service_router
 
 
 def register_routers(app: FastAPI) -> None:
-    app.include_router(agent_router)
     app.include_router(basic_router)
-    app.include_router(code_router)
     app.include_router(idle_router)
     app.include_router(logs_router)
-    app.include_router(pref_router)
     app.include_router(runtime_router)
-    app.include_router(service_router)
 
 
 if __name__ == '__main__':

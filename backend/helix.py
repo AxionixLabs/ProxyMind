@@ -60,8 +60,7 @@ async def lifespan(web_app: FastAPI) -> typing.AsyncGenerator[None, None]:
     )
 
     web_app.state.idle = idle
-    web_app.state.ctx = app_ctx
-    web_app.state.agent_example = None
+    web_app.state.ctx  = app_ctx
 
     logger.debug("session manager and idle loop starting")
     async with mcp.session_manager.run():

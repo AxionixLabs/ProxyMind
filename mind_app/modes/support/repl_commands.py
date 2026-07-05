@@ -1,17 +1,70 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import re
 import typing
 from engine.tinker import MindError
 from mind_app.mcp import McpSessionLike
 from mind_app.runtime.mcp.service_runtime import prepare_and_start_service_runtime
 from mind_app.stream_events.failure_display import render_failure_text
 from mind_core.design import Design
+from mind_nova import const
 from mind_nova.modes import RunMode
+from .repl_prompt import save_primary_pref_field
 from .repl_tools import render_tools_summary
 
 if typing.TYPE_CHECKING:
     from ...mind_core import Mind
+
+
+async def exchange_pref_value(
+    matcher: re.Match[str],
+    pref_command: typing.Literal["model", "apikey", "base-url"]
+) -> typing.Optional[str]:
+    """解析模型偏好类指令，并给出交互提示。"""
+    if pref_name := matcher.group(1).strip() if matcher.group(1) else None:
+        return pref_name
+
+    styles: list[str] = []
+
+    match pref_command:
+        case "model":
+            styles = ["<model> (Model name or ID)"]
+        case "apikey":
+            styles = ["<apikey> (Provider API key)"]
+        case "base-url":
+            styles = ["<url> (Provider base URL)"]
+
+    for style in styles:
+        Design.console.print(f"[bold #AFC7D8]  • {style}[/]")
+    Design.console.print(
+        f"[bold #FF5F5F]\n {pref_command} invalid: /{pref_command} {const.ERR}{pref_name}"
+    )
+    Design.console.print()
+    return None
+
+
+async def persist_primary_pref(
+    mind: "Mind",
+    *,
+    command_name: typing.Literal["model", "apikey", "base-url"],
+    field_name: typing.Literal["model", "apikey", "base_url"],
+    field_value: str
+) -> typing.Optional[dict[str, typing.Any]]:
+    """把 REPL 偏好命令写入 primary slot，并刷新本地缓存。"""
+    try:
+        saved = await save_primary_pref_field(field_name, field_value)
+        await mind.refresh_pref_if_stale(ttl_sec=0.0)
+    except (OSError, TypeError, ValueError) as pref_save_error:
+        Design.console.print(
+            f"[bold #FF5F5F]{command_name} save failed: "
+            f"{type(pref_save_error).__name__}: {pref_save_error}[/]"
+        )
+        Design.console.print()
+        return None
+
+    saved_primary = saved.get("primary") if isinstance(saved, dict) else {}
+    return saved_primary if isinstance(saved_primary, dict) else {}
 
 
 def print_pending_attachments(mind: "Mind") -> None:

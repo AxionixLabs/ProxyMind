@@ -34,10 +34,12 @@ class CommandAutoSuggest(AutoSuggest):
     """行内提示视图。"""
 
     SLASH_HINTS: dict[str, str] = {
-        "/attach"    : " <path>",
-        "/attach "   : "<path>",
-        "/detach"    : " <index-or-path>",
-        "/detach "   : "<index-or-path>"
+        "/attach"  : " <path>",
+        "/attach " : "<path>",
+        "/detach"  : " <index-or-path>",
+        "/detach " : "<index-or-path>",
+        "/model"   : " <name>",
+        "/model "  : "<name>"
     }
 
     def __init__(self) -> None:
@@ -77,7 +79,7 @@ class PromptToolkitBox(object):
     """交互输入视图。"""
 
     PARAMETERIZED_COMMANDS: tuple[str, ...] = (
-        "/attach ", "/detach "
+        "/attach ", "/detach ", "/model "
     )
     SKILLS_COMMAND_TEXT: str = "$"
 

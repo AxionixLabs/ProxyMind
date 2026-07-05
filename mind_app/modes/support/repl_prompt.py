@@ -5,6 +5,13 @@ import typing
 from pathlib import (
     Path, PurePath
 )
+from mind_app.paths import mind_config_path
+from mind_core.config import (
+    config_to_preferences,
+    ensure_config,
+    load_config,
+    write_config
+)
 from mind_app.runtime.environment.exec_env import exec_env
 
 WORKSPACE_LABEL_REFRESH: float = 5.0
@@ -85,6 +92,28 @@ async def fetch_runtime_workspace_root(
         return Path(root).expanduser().resolve()
     except (OSError, RuntimeError, ValueError):
         return None
+
+
+async def save_primary_pref_field(
+    field: typing.Literal["model", "apikey", "base_url"],
+    value: str
+) -> dict[str, typing.Any]:
+    """更新 primary 模型槽位的单个字段并持久化到本地配置。"""
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise ValueError(f"{field} is empty")
+
+    target       = ensure_config(mind_config_path())
+    config       = load_config(target)
+    model_config = config.setdefault("model", {})
+
+    primary = dict(model_config.get("primary") or {})
+    primary[field] = normalized
+
+    model_config["primary"] = primary
+
+    written = write_config(target, config)
+    return config_to_preferences(written)
 
 
 if __name__ == '__main__':

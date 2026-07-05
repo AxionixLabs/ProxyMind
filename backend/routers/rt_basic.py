@@ -11,15 +11,7 @@ basic_router = APIRouter(tags=["Basic"])
 
 @basic_router.get(path="/", include_in_schema=False)
 async def api_root() -> Response:
-    """
-    返回服务首页 HTML。
-
-    请求参数:
-        无。
-
-    返回:
-        Response: text/html 响应，内容来自 index.html。
-    """
+    """返回运行时工作台页面。"""
     return render_page("index.html")
 
 
