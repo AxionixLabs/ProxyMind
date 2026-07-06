@@ -18,18 +18,18 @@ domain = "{const.DOMAIN}"
 
 [model.primary]
 provider = "{DEFAULT_PROVIDER_NAME}"
+route = "{DEFAULT_ROUTE_NAME}"
 model = ""
 apikey = ""
 base_url = ""
-route = "{DEFAULT_ROUTE_NAME}"
 
 [model.secondary]
 enabled = false
 provider = "{DEFAULT_PROVIDER_NAME}"
+route = "{DEFAULT_ROUTE_NAME}"
 model = ""
 apikey = ""
 base_url = ""
-route = "{DEFAULT_ROUTE_NAME}"
 
 [skills]
 enabled = []
@@ -83,10 +83,10 @@ def _normalize_model_slot(
     slot = _default_model_slot(enabled=default_enabled if include_enabled else None)
 
     slot["provider"] = _as_str(data.get("provider"), DEFAULT_PROVIDER_NAME).strip() or DEFAULT_PROVIDER_NAME
+    slot["route"]    = _as_str(data.get("route"), DEFAULT_ROUTE_NAME).strip() or DEFAULT_ROUTE_NAME
     slot["model"]    = _as_str(data.get("model")).strip()
     slot["apikey"]   = _as_str(data.get("apikey")).strip()
     slot["base_url"] = _as_str(data.get("base_url")).strip()
-    slot["route"]    = _as_str(data.get("route"), DEFAULT_ROUTE_NAME).strip() or DEFAULT_ROUTE_NAME
 
     if include_enabled:
         slot["enabled"] = _as_bool(data.get("enabled"), default_enabled)
@@ -98,10 +98,10 @@ def _default_model_slot(*, enabled: bool | None = None) -> dict[str, typing.Any]
     """返回默认模型槽位配置。"""
     slot: dict[str, typing.Any] = {
         "provider" : DEFAULT_PROVIDER_NAME,
+        "route"    : DEFAULT_ROUTE_NAME,
         "model"    : "",
         "apikey"   : "",
-        "base_url" : "",
-        "route"    : DEFAULT_ROUTE_NAME
+        "base_url" : ""
     }
     if enabled is not None:
         slot["enabled"] = bool(enabled)
@@ -204,18 +204,18 @@ def format_config(config: dict[str, typing.Any]) -> str:
         "",
         "[model.primary]",
         f"provider = {toml_string(primary.get('provider'))}",
+        f"route = {toml_string(primary.get('route'))}",
         f"model = {toml_string(primary.get('model'))}",
         f"apikey = {toml_string(primary.get('apikey'))}",
         f"base_url = {toml_string(primary.get('base_url'))}",
-        f"route = {toml_string(primary.get('route'))}",
         "",
         "[model.secondary]",
         f"enabled = {'true' if secondary.get('enabled') else 'false'}",
         f"provider = {toml_string(secondary.get('provider'))}",
+        f"route = {toml_string(secondary.get('route'))}",
         f"model = {toml_string(secondary.get('model'))}",
         f"apikey = {toml_string(secondary.get('apikey'))}",
         f"base_url = {toml_string(secondary.get('base_url'))}",
-        f"route = {toml_string(secondary.get('route'))}",
         "",
         "[skills]",
         f"enabled = {toml_string_list(skills.get('enabled'))}",
@@ -243,10 +243,10 @@ def config_to_preferences(config: dict[str, typing.Any]) -> dict[str, typing.Any
     def convert_slot(slot: dict[str, typing.Any]) -> dict[str, str]:
         return {
             "provider" : _as_str(slot.get("provider"), DEFAULT_PROVIDER_NAME),
+            "route"    : _as_str(slot.get("route"), DEFAULT_ROUTE_NAME),
             "model"    : _as_str(slot.get("model")),
             "apikey"   : _as_str(slot.get("apikey")),
-            "base_url" : _as_str(slot.get("base_url")),
-            "route"    : _as_str(slot.get("route"), DEFAULT_ROUTE_NAME)
+            "base_url" : _as_str(slot.get("base_url"))
         }
 
     primary   = _as_dict(model.get("primary"))

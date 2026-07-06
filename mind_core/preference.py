@@ -20,10 +20,10 @@ def _default_slot() -> dict[str, str]:
     """返回单个模型槽位的默认配置。"""
     return {
         "provider" : DEFAULT_PROVIDER_NAME,
+        "route"    : DEFAULT_ROUTE_NAME,
         "model"    : "",
         "apikey"   : "",
-        "base_url" : "",
-        "route"    : DEFAULT_ROUTE_NAME
+        "base_url" : ""
     }
 
 
@@ -57,10 +57,10 @@ class Preferences(object):
         self,
         *,
         provider: str = "",
+        route: str = "",
         model: str = "",
         apikey: str = "",
-        base_url: str = "",
-        route: str = ""
+        base_url: str = ""
     ) -> dict[str, typing.Any]:
         """基于当前配置生成运行时可用的配置副本。"""
         payload = copy.deepcopy(self.prefs)
@@ -68,14 +68,14 @@ class Preferences(object):
 
         if provider:
             primary["provider"] = provider
+        if route:
+            primary["route"] = route
         if model:
             primary["model"] = model
         if apikey:
             primary["apikey"] = apikey
         if base_url:
             primary["base_url"] = base_url
-        if route:
-            primary["route"] = route
 
         return payload
 
@@ -103,7 +103,7 @@ class Preferences(object):
         """使用补充配置填充空字段，不覆盖已有值。"""
         merged = dict(base or {})
 
-        for key in ("provider", "model", "apikey", "base_url", "route"):
+        for key in ("provider", "route", "model", "apikey", "base_url"):
             current = str(merged.get(key) or "").strip()
             incoming = str(supplement.get(key) or "").strip()
             if not current and incoming:
@@ -123,20 +123,20 @@ class Preferences(object):
         prefs = {
             "primary": {
                 "provider" : str(primary.get("provider", DEFAULT_PROVIDER_NAME)),
+                "route"    : str(primary.get("route", DEFAULT_ROUTE_NAME) or DEFAULT_ROUTE_NAME),
                 "model"    : str(primary.get("model", "")),
                 "apikey"   : str(primary.get("apikey", "")),
-                "base_url" : str(primary.get("base_url", "")),
-                "route"    : str(primary.get("route", DEFAULT_ROUTE_NAME) or DEFAULT_ROUTE_NAME)
+                "base_url" : str(primary.get("base_url", ""))
             }
         }
 
         if cls._slot_configured(secondary):
             prefs["secondary"] = {
                 "provider" : str(secondary.get("provider", DEFAULT_PROVIDER_NAME)),
+                "route"    : str(secondary.get("route", DEFAULT_ROUTE_NAME) or DEFAULT_ROUTE_NAME),
                 "model"    : str(secondary.get("model", "")),
                 "apikey"   : str(secondary.get("apikey", "")),
-                "base_url" : str(secondary.get("base_url", "")),
-                "route"    : str(secondary.get("route", DEFAULT_ROUTE_NAME) or DEFAULT_ROUTE_NAME)
+                "base_url" : str(secondary.get("base_url", ""))
             }
 
         return prefs

@@ -14,7 +14,8 @@ from mind_core.config import (
 )
 from mind_core.provider_config import (
     DEFAULT_PROVIDER_NAME,
-    DEFAULT_ROUTE_NAME
+    DEFAULT_ROUTE_NAME,
+    SUPPORTED_PROVIDER_OPTIONS
 )
 from mind_core.service_config import normalize_domain
 
@@ -31,6 +32,7 @@ def load_pref() -> dict[str, typing.Any]:
 
     return {
         "profile_key" : DEFAULT_PROFILE_KEY,
+        "providers"   : [dict(item) for item in SUPPORTED_PROVIDER_OPTIONS],
         "primary"     : config_slot_to_pref(primary),
         "secondary"   : config_slot_to_pref(secondary) if secondary_enabled(secondary) else None
     }
@@ -85,11 +87,11 @@ def config_slot_to_pref(slot: typing.Any) -> dict[str, typing.Any]:
 
     return {
         "provider" : clean_text(data.get("provider"), DEFAULT_PROVIDER_NAME),
-        "type"     : clean_text(data.get("type"), DEFAULT_MODEL_TYPE),
-        "base_url" : clean_text(data.get("base_url")),
         "route"    : clean_text(data.get("route"), DEFAULT_ROUTE_NAME),
-        "apikey"   : clean_text(data.get("apikey")),
         "model"    : clean_text(data.get("model")),
+        "apikey"   : clean_text(data.get("apikey")),
+        "base_url" : clean_text(data.get("base_url")),
+        "type"     : clean_text(data.get("type"), DEFAULT_MODEL_TYPE),
         "notes"    : clean_text(data.get("notes"))
     }
 
@@ -100,10 +102,10 @@ def pref_to_config_slot(slot: typing.Any, *, enabled: bool | None) -> dict[str, 
 
     result: dict[str, typing.Any] = {
         "provider" : clean_text(data.get("provider"), DEFAULT_PROVIDER_NAME),
+        "route"    : clean_text(data.get("route"), DEFAULT_ROUTE_NAME),
         "model"    : clean_text(data.get("model")),
         "apikey"   : clean_text(data.get("apikey")),
-        "base_url" : clean_text(data.get("base_url")),
-        "route"    : clean_text(data.get("route"), DEFAULT_ROUTE_NAME)
+        "base_url" : clean_text(data.get("base_url"))
     }
 
     if enabled is not None:

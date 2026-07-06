@@ -198,14 +198,22 @@ async def build_runtime_llm_conf(mind: "Mind") -> dict[str, typing.Any]:
     primary_raw = payload.get("primary")
     primary     = primary_raw if isinstance(primary_raw, dict) else {}
 
-    return {
-        "primary": {
-            "model"    : str(primary.get("model", "") or ""),
-            "apikey"   : str(primary.get("apikey", "") or ""),
-            "base_url" : str(primary.get("base_url", "") or ""),
-            "route"    : str(primary.get("route", DEFAULT_ROUTE_NAME) or DEFAULT_ROUTE_NAME)
-        }
-    }
+    primary_conf: dict[str, typing.Any] = {}
+
+    provider = str(primary.get("provider", "") or "").strip()
+    if provider:
+        primary_conf["provider"] = provider
+
+    route = str(primary.get("route", "") or "").strip()
+    if route and route != DEFAULT_ROUTE_NAME:
+        primary_conf["route"] = route
+
+    for key in ("model", "apikey", "base_url"):
+        value = str(primary.get(key, "") or "").strip()
+        if value:
+            primary_conf[key] = value
+
+    return {"primary": primary_conf}
 
 
 async def handle_server_message(
@@ -222,10 +230,13 @@ async def handle_server_message(
 
     if message_type == "ready":
         payload_raw = message.get("payload")
-        payload = payload_raw if isinstance(payload_raw, dict) else {}
+        payload     = payload_raw if isinstance(payload_raw, dict) else {}
+
         runtime.ready_received = True
         runtime.pre_ready_connect_failures = 0
+
         live_status.update("Subscription Online", "Handshake complete, waiting for tasks")
+
         logger.debug(
             "[Agent] ready "
             f"heartbeat_interval_sec={payload.get('heartbeat_interval_sec')} "
@@ -279,6 +290,7 @@ async def handle_server_message(
         payload      = payload_raw if isinstance(payload_raw, dict) else {}
         code         = str(payload.get("code") or "AGENT_RESUME_REJECTED").strip()
         message_text = str(payload.get("message") or "resume rejected").strip()
+
         logger.debug(
             f"[Agent] resume.rejected code={code} message={message_text}"
         )

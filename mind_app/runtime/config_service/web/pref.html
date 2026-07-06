@@ -1134,9 +1134,7 @@
                       <span class="hint">single source</span>
                     </div>
                     <div class="select-wrap">
-                      <select id="primary-provider" name="primary_provider">
-                        <option value="OpenAI">OpenAI</option>
-                      </select>
+                      <select id="primary-provider" name="primary_provider"></select>
                     </div>
                   </div>
                   <div class="pair-item">
@@ -1166,10 +1164,10 @@
                 </div>
                 <div class="field">
                   <div class="label-row">
-                    <label for="primary-base-url">Base URL</label>
-                    <span class="hint">optional override</span>
+                    <label for="primary-model">Model Name</label>
+                    <span class="hint">runtime target</span>
                   </div>
-                  <input id="primary-base-url" name="primary_base_url" placeholder="https://api.example.com/v1" />
+                  <input id="primary-model" name="primary_model" placeholder="model-id" />
                 </div>
                 <div class="field">
                   <div class="label-row">
@@ -1180,10 +1178,10 @@
                 </div>
                 <div class="field">
                   <div class="label-row">
-                    <label for="primary-model">Model Name</label>
-                    <span class="hint">runtime target</span>
+                    <label for="primary-base-url">Base URL</label>
+                    <span class="hint">optional override</span>
                   </div>
-                  <input id="primary-model" name="primary_model" placeholder="model-id" />
+                  <input id="primary-base-url" name="primary_base_url" placeholder="https://api.example.com/v1" />
                 </div>
               </div>
             </div>
@@ -1214,9 +1212,7 @@
                       <span class="hint">single source</span>
                     </div>
                     <div class="select-wrap">
-                      <select id="secondary-provider" name="secondary_provider">
-                        <option value="OpenAI">OpenAI</option>
-                      </select>
+                      <select id="secondary-provider" name="secondary_provider"></select>
                     </div>
                   </div>
                   <div class="pair-item">
@@ -1246,10 +1242,10 @@
                 </div>
                 <div class="field">
                   <div class="label-row">
-                    <label for="secondary-base-url">Base URL</label>
-                    <span class="hint">optional override</span>
+                    <label for="secondary-model">Model Name</label>
+                    <span class="hint">runtime target</span>
                   </div>
-                  <input id="secondary-base-url" name="secondary_base_url" placeholder="https://api.example.com/v1" />
+                  <input id="secondary-model" name="secondary_model" placeholder="model-id" />
                 </div>
                 <div class="field">
                   <div class="label-row">
@@ -1260,10 +1256,10 @@
                 </div>
                 <div class="field">
                   <div class="label-row">
-                    <label for="secondary-model">Model Name</label>
-                    <span class="hint">runtime target</span>
+                    <label for="secondary-base-url">Base URL</label>
+                    <span class="hint">optional override</span>
                   </div>
-                  <input id="secondary-model" name="secondary_model" placeholder="model-id" />
+                  <input id="secondary-base-url" name="secondary_base_url" placeholder="https://api.example.com/v1" />
                 </div>
               </div>
             </div>
@@ -1314,7 +1310,11 @@
     const toastStage = document.getElementById("toast-stage");
     const previewMode = location.protocol === "file:";
     const previewPref = {
-      primary   : {provider: "OpenAI", type: "Text", base_url: "", route: "responses", apikey: "", model: ""},
+      providers : [
+        {value: "openai_compatible", label: "OpenAI Compatible"},
+        {value: "OpenAI", label: "OpenAI"}
+      ],
+      primary   : {provider: "openai_compatible", route: "responses", model: "", apikey: "", base_url: "", type: "Text"},
       secondary : null
     };
     const previewServiceConfig = {
@@ -1409,6 +1409,34 @@
       if (target) target.value = value || "";
     }
 
+    function providerOptions(data) {
+      const providers = Array.isArray(data.providers) ? data.providers : [];
+      const normalized = providers
+        .map((item) => ({
+          value: String(item && item.value || "").trim(),
+          label: String(item && item.label || item && item.value || "").trim()
+        }))
+        .filter((item) => item.value);
+      return normalized.length ? normalized : [{value: "openai_compatible", label: "OpenAI Compatible"}];
+    }
+
+    function renderProviderSelect(id, providers, selected) {
+      const target = document.getElementById(id);
+      if (!target) return;
+      const selectedValue = String(selected || "openai_compatible");
+      target.innerHTML = providers.map((item) => `
+        <option value="${escapeHtml(item.value)}"${item.value === selectedValue ? " selected" : ""}>
+          ${escapeHtml(item.label || item.value)}
+        </option>
+      `).join("");
+      if (!providers.some((item) => item.value === selectedValue)) {
+        target.insertAdjacentHTML(
+          "beforeend",
+          `<option value="${escapeHtml(selectedValue)}" selected>${escapeHtml(selectedValue)}</option>`
+        );
+      }
+    }
+
     function fieldInputValue(id) {
       const target = document.getElementById(id);
       return target ? target.value.trim() : "";
@@ -1450,20 +1478,21 @@
     function applyPref(data) {
       const primary = data.primary || {};
       const secondary = data.secondary || {};
+      const providers = providerOptions(data);
 
-      fieldValue("primary-provider", primary.provider);
-      fieldValue("primary-type", primary.type || "Text");
-      fieldValue("primary-base-url", primary.base_url);
+      renderProviderSelect("primary-provider", providers, primary.provider);
       fieldValue("primary-route", primary.route || "responses");
-      fieldValue("primary-api-key", primary.apikey);
       fieldValue("primary-model", primary.model);
+      fieldValue("primary-api-key", primary.apikey);
+      fieldValue("primary-base-url", primary.base_url);
+      fieldValue("primary-type", primary.type || "Text");
 
-      fieldValue("secondary-provider", secondary.provider);
-      fieldValue("secondary-type", secondary.type || "Text");
-      fieldValue("secondary-base-url", secondary.base_url);
+      renderProviderSelect("secondary-provider", providers, secondary.provider);
       fieldValue("secondary-route", secondary.route || "responses");
-      fieldValue("secondary-api-key", secondary.apikey);
       fieldValue("secondary-model", secondary.model);
+      fieldValue("secondary-api-key", secondary.apikey);
+      fieldValue("secondary-base-url", secondary.base_url);
+      fieldValue("secondary-type", secondary.type || "Text");
       syncSelectStates();
       syncFieldStates();
     }
@@ -1475,12 +1504,12 @@
 
     function collectSlot(prefix) {
       return {
-        provider : fieldSelectValue(`${prefix}-provider`, "OpenAI"),
-        type     : fieldSelectValue(`${prefix}-type`, "Text"),
-        base_url : fieldInputValue(`${prefix}-base-url`),
+        provider : fieldSelectValue(`${prefix}-provider`, "openai_compatible"),
         route    : fieldSelectValue(`${prefix}-route`, "responses"),
+        model    : fieldInputValue(`${prefix}-model`),
         apikey   : fieldInputValue(`${prefix}-api-key`),
-        model    : fieldInputValue(`${prefix}-model`)
+        base_url : fieldInputValue(`${prefix}-base-url`),
+        type     : fieldSelectValue(`${prefix}-type`, "Text")
       };
     }
 
