@@ -127,6 +127,8 @@ class PromptToolkitBox(object):
             "prompt.access"                           : "bold #8FC7EA",
             "prompt.access.full"                      : "bold #D8B26E",
             "prompt.workspace"                        : "bold #8A929C",
+            "prompt.exec"                             : "bold #8FC7EA",
+            "prompt.exec.command"                     : "bold #A8B1BB",
             "placeholder"                             : "bold #727983",
             "auto-suggestion"                         : "#5A616A bg:#0A0D18",
             "skill-token"                             : "bold #8FD7FF",
@@ -295,7 +297,8 @@ class PromptToolkitBox(object):
         model: str,
         th: dict[str, str],
         workspace_label: str = "",
-        access_label: str = ""
+        access_label: str = "",
+        exec_status_label: str = ""
     ) -> HTML:
         """输入头部渲染。"""
         safe_model = html.escape(
@@ -324,6 +327,18 @@ class PromptToolkitBox(object):
             if safe_access
             else ""
         )
+
+        safe_exec_status = html.escape(str(exec_status_label or "").strip())
+
+        exec_status_parts = (
+            f"<prompt.exec>exec</prompt.exec> "
+            f"<prompt.kicker>{PromptToolkitBox.PROMPT_DOT}</prompt.kicker> "
+            f"<prompt.exec.command>{safe_exec_status}</prompt.exec.command>"
+            f"\n"
+            if safe_exec_status
+            else ""
+        )
+
         return HTML(
             f"<prompt>"
             f"<prompt.brand fg='{th['brand']}'>{html.escape(const.APP_DESC)}</prompt.brand> "
@@ -332,6 +347,7 @@ class PromptToolkitBox(object):
             f"{access_parts}"
             f"{workspace_parts}"
             f"\n"
+            f"{exec_status_parts}"
             f"<prompt.kicker>></prompt.kicker> "
             f"</prompt>"
         )
@@ -565,11 +581,19 @@ class PromptToolkitBox(object):
         mode: RunMode,
         model: str,
         workspace_label: str = "",
-        access_label: str = ""
+        access_label: str = "",
+        exec_status_label: str = ""
     ) -> str:
         """异步输入渲染入口。"""
-        th      = self._theme(mode)
-        message = self._render_message(model, th, workspace_label, access_label)
+        th = self._theme(mode)
+
+        message = self._render_message(
+            model,
+            th,
+            workspace_label,
+            access_label,
+            exec_status_label
+        )
 
         self.auto_suggest.set_mode(mode)
 

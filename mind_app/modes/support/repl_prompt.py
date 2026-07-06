@@ -16,6 +16,8 @@ from mind_app.runtime.environment.exec_env import exec_env
 
 WORKSPACE_LABEL_REFRESH: float = 5.0
 WORKSPACE_LABEL_UNKNOWN: str   = "?"
+EXEC_STATUS_COMMAND_MIN: int   = 12
+EXEC_STATUS_COMMAND_MAX: int   = 56
 
 
 def ignored_repl_input(raw: str) -> bool:
@@ -76,12 +78,87 @@ def primary_model_from_config(
     return str(primary.get("model") or "")
 
 
+def exec_status_display_label(
+    snapshot: typing.Any,
+    *,
+    command_limit: int | None = None,
+    line_width: int | None = None
+) -> str:
+    """生成 prompt 中展示的 exec 会话摘要。"""
+    if not isinstance(snapshot, dict):
+        return ""
+
+    items = snapshot.get("items")
+    if not isinstance(items, list) or not items:
+        return ""
+
+    first = next((item for item in items if isinstance(item, dict)), None)
+    if first is None:
+        return ""
+
+    count  = snapshot.get("count")
+    total  = int(count) if isinstance(count, int) else len(items)
+    extra  = max(0, total - 1)
+    suffix = f" · +{extra}" if extra else ""
+
+    limit = _exec_status_command_limit(
+        command_limit=command_limit,
+        line_width=line_width,
+        suffix=suffix
+    )
+    command = _clip_exec_status_command(first.get("command"), limit=limit)
+    if not command:
+        return ""
+
+    if extra:
+        return f"{command}{suffix}"
+    return command
+
+
+def _exec_status_command_limit(
+    *,
+    command_limit: int | None,
+    line_width: int | None,
+    suffix: str
+) -> int:
+    """计算 exec 状态命令的展示宽度上限。"""
+    if command_limit is not None:
+        return max(1, int(command_limit))
+
+    try:
+        width = int(line_width) if line_width is not None else 80
+    except (TypeError, ValueError):
+        width = 80
+
+    available = width - 7 - len(suffix)
+
+    return max(
+        EXEC_STATUS_COMMAND_MIN,
+        min(EXEC_STATUS_COMMAND_MAX, available)
+    )
+
+
+def _clip_exec_status_command(value: typing.Any, *, limit: int) -> str:
+    """裁剪 exec 状态中的命令文本。"""
+    text = " ".join(str(value or "").split())
+    if not text:
+        return ""
+
+    size = max(1, int(limit or 1))
+    if len(text) <= size:
+        return text
+    if size <= 1:
+        return "…"
+    return f"{text[:size - 1]}…"
+
+
 async def fetch_runtime_workspace_root(
     timeout: float = 0.8
 ) -> typing.Optional[Path]:
     """读取本地 workspace 根目录。"""
     _ = timeout
-    data = exec_env()
+
+    data      = exec_env()
     workspace = data.get("workspace") if isinstance(data, dict) else None
 
     root = workspace.get("root") if isinstance(workspace, dict) else None

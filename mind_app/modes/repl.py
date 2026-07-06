@@ -28,6 +28,7 @@ from .support.repl_commands import (
 )
 from .support.repl_prompt import (
     WORKSPACE_LABEL_REFRESH,
+    exec_status_display_label,
     fetch_runtime_workspace_root,
     ignored_repl_input,
     primary_model_from_config,
@@ -116,30 +117,35 @@ async def mind_loop(mind: "Mind") -> None:
     access_mode   = DEFAULT_ACCESS_MODE
 
     workspace_label = ""
-    workspace_label_refreshed_at = 0.0
+    refreshed_at    = 0.0
 
     while not mind.task_event.is_set():
         pref_config = await mind.fresh_pref_config()
-        model = primary_model_from_config(pref_config, model)
+        model       = primary_model_from_config(pref_config, model)
+        now         = time.monotonic()
 
-        now = time.monotonic()
         if (
-            workspace_label_refreshed_at <= 0.0
-            or now - workspace_label_refreshed_at >= WORKSPACE_LABEL_REFRESH
+            refreshed_at <= 0.0
+            or now - refreshed_at >= WORKSPACE_LABEL_REFRESH
         ):
             runtime_workspace_root = await fetch_runtime_workspace_root()
             if runtime_workspace_root is not None:
                 mind.set_history_workspace(runtime_workspace_root)
 
             workspace_label = workspace_display_label(runtime_workspace_root)
-            workspace_label_refreshed_at = now
+            refreshed_at = now
 
         try:
+            exec_status_label = exec_status_display_label(
+                await mind.native_coding.running_exec_sessions(),
+                line_width=getattr(Design.console, "width", None)
+            )
             prompt_text = await mind.prompt_box.prompt_async(
                 mode=mode,
                 model=model,
                 workspace_label=workspace_label,
-                access_label=access_mode_label(access_mode)
+                access_label=access_mode_label(access_mode),
+                exec_status_label=exec_status_label
             )
         except KeyboardInterrupt:
             mind.exit_code = 130
@@ -207,12 +213,12 @@ async def mind_loop(mind: "Mind") -> None:
 
         if command in helix_unlink_set:
             unlink_helix_runtime(mind)
-            workspace_label_refreshed_at = 0.0
+            refreshed_at = 0.0
             continue
 
         if command in helix_home_set:
             await open_helix_home(mind)
-            workspace_label_refreshed_at = 0.0
+            refreshed_at = 0.0
             continue
 
         if command in shutdown_set:
@@ -264,7 +270,7 @@ async def mind_loop(mind: "Mind") -> None:
 
         if command in helix_link_set:
             await link_helix_runtime(mind)
-            workspace_label_refreshed_at = 0.0
+            refreshed_at = 0.0
             continue
 
         if command == "/mcp":

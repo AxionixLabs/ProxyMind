@@ -316,6 +316,31 @@ class ExecCommandTools(NativeCodingComponent):
         self._record_shell_result(data)
         return self._result_from_data("write_stdin", data)
 
+    async def running_sessions_snapshot(self) -> dict[str, typing.Any]:
+        """返回当前仍在运行的命令会话摘要。"""
+        await self._cleanup_sessions()
+
+        items: list[dict[str, typing.Any]] = []
+
+        for session in self._sessions.values():
+            if session.process.returncode is not None:
+                continue
+            items.append({
+                "session_id"    : session.session_id,
+                "command"       : session.command,
+                "cwd"           : session.cwd,
+                "pid"           : session.process.pid,
+                "started_at"    : session.started_at,
+                "last_activity" : session.last_activity,
+            })
+
+        items.sort(key=lambda item: float(item.get("started_at") or 0.0))
+
+        return {
+            "count" : len(items),
+            "items" : items
+        }
+
     async def _apply_control_or_stdin(
         self,
         session: ExecSession,

@@ -90,6 +90,10 @@ class NativeCoding(NativeCodingBase):
             control=control
         )
 
+    async def running_exec_sessions(self) -> dict[str, typing.Any]:
+        """返回当前仍在运行的 exec_command 会话摘要。"""
+        return await self._exec_command.running_sessions_snapshot()
+
     def apply_patch(
         self,
         *args: typing.Any,

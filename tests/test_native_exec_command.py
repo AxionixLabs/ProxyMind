@@ -348,6 +348,54 @@ def test_write_stdin_can_poll_incremental_output(tmp_path: Path) -> None:
     run_async(scenario())
 
 
+def test_running_exec_sessions_snapshot_updates_after_terminate(tmp_path: Path) -> None:
+    """running exec 快照随会话启动和终止更新。"""
+    command = write_script(
+        tmp_path,
+        "snapshot_wait.py",
+        "\n".join(
+            [
+                "import time",
+                "print('snapshot-ready', flush=True)",
+                "time.sleep(30)",
+                "",
+            ]
+        ),
+    )
+
+    async def scenario() -> None:
+        coding = NativeCoding(root=tmp_path)
+        start = await coding.exec_command(
+            command=command,
+            cwd=".",
+            yield_time_ms=500,
+            timeout_sec=20,
+            idle_timeout_sec=20,
+            execution=approved_execution(),
+        )
+        session_id = start["data"].get("session_id")
+
+        try:
+            snapshot = await coding.running_exec_sessions()
+            assert snapshot["count"] == 1
+            assert snapshot["items"][0]["session_id"] == session_id
+            assert snapshot["items"][0]["command"] == command
+
+            stopped = await coding.write_stdin(
+                session_id=session_id,
+                control="terminate",
+                wait_ms=1000,
+            )
+            assert stopped["ok"] is True
+
+            empty = await coding.running_exec_sessions()
+            assert empty == {"count": 0, "items": []}
+        finally:
+            await terminate_session(coding, session_id)
+
+    run_async(scenario())
+
+
 def test_finalize_cancels_reader_after_drain_timeout() -> None:
     """进程已退出但 reader 不结束时，会在有限时间内取消 reader。"""
 
@@ -499,7 +547,7 @@ def test_write_stdin_reports_exited_session_before_write(tmp_path: Path) -> None
         assert start["ok"] is True
         assert start["data"]["status"] == "running"
 
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(1.0)
 
         result = await coding.write_stdin(
             session_id=session_id,

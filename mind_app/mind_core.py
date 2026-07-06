@@ -91,8 +91,10 @@ class Mind(object):
         self.history_store: ConversationHistoryStore = ConversationHistoryStore()
 
         self.report: Report = Report(self.src_total_place, self.gravity)
-        self.prompt_box: PromptToolkitBox = PromptToolkitBox()
         self.attach: Attach = Attach()
+
+        self.prompt_box: PromptToolkitBox = PromptToolkitBox()
+        self.native_coding: NativeCoding  = NativeCoding(root=self.history_workspace)
 
         self.runtime_loop: typing.Optional[asyncio.AbstractEventLoop] = None
         self.root_task: typing.Optional[asyncio.Task[typing.Any]]     = None
@@ -106,8 +108,9 @@ class Mind(object):
         self.config_service: ConfigServiceRuntime = ConfigServiceRuntime(log_level=self.level)
 
         self.external_mcp: typing.Optional[ExternalMcpRuntime] = None
+
         self.client_tools: ClientToolRegistry = self._build_client_tools()
-        self.tool_runtime: ToolRuntime = CompositeToolRuntime(self)
+        self.tool_runtime: ToolRuntime        = CompositeToolRuntime(self)
 
         self.exit_code: int = 0
         self.sig_count: int = 0
@@ -266,15 +269,16 @@ class Mind(object):
     def set_history_workspace(self, workspace: typing.Any) -> str:
         """更新 history 使用的真实工作区根目录。"""
         normalized = normalize_workspace(workspace)
-        if normalized:
+        if normalized and normalized != self.history_workspace:
             self.history_workspace = normalized
+            self.native_coding = NativeCoding(root=self.history_workspace)
             self.client_tools = self._build_client_tools()
         return self.history_workspace
 
     def _build_client_tools(self) -> ClientToolRegistry:
         """按当前工作区构建客户端工具注册表。"""
         return default_client_tool_registry(
-            NativeCoding(root=self.history_workspace)
+            self.native_coding
         )
 
     def _history_gravity(self) -> str:
