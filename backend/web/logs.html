@@ -13,49 +13,49 @@
   <link rel="manifest" href="/static/site.webmanifest" />
   <style>
     :root{
-      --bg:#0f100c;
-      --fg:#f1eadc;
-      --muted:#a79b83;
-      --line:rgba(255,241,214,.10);
-      --accent:#f0a04b;
-      --accent2:#7fb7a1;
-      --ok:#75c889;
-      --warn:#e0b85f;
-      --danger:#e46f61;
+      --bg:#05060a;
+      --fg:#d7f7ff;
+      --muted:#89a3ad;
+      --line:rgba(255,255,255,.08);
+      --accent:#5cffd6;
+      --accent2:#7aa7ff;
+      --ok:#5cff7a;
+      --warn:#ffd27a;
+      --danger:#ff5c9a;
       --shadow:0 30px 90px rgba(0,0,0,.65);
       --surface-top:rgba(255,255,255,.06);
       --surface-bottom:rgba(255,255,255,.03);
       --surface-hero-top:rgba(255,255,255,.05);
       --surface-hero-bottom:rgba(255,255,255,.02);
-      --surface-inset:rgba(240,160,75,.06);
-      --surface-inset-soft:rgba(240,160,75,.04);
-      --surface-border-soft:rgba(255,239,204,.12);
-      --surface-border-faint:rgba(255,241,214,.10);
+      --surface-inset:rgba(92,255,214,.06);
+      --surface-inset-soft:rgba(92,255,214,.04);
+      --surface-border-soft:rgba(255,255,255,.10);
+      --surface-border-faint:rgba(255,255,255,.08);
       --surface-fill:rgba(0,0,0,.16);
       --surface-fill-soft:rgba(0,0,0,.14);
       --surface-fill-strong:rgba(0,0,0,.18);
-      --surface-hover:rgba(255,239,204,.045);
-      --accent-fill:rgba(240,160,75,.08);
-      --accent-fill-strong:rgba(240,160,75,.10);
-      --accent-fill-solid:rgba(240,160,75,.9);
-      --accent-border:rgba(240,160,75,.32);
-      --accent-border-soft:rgba(240,160,75,.18);
-      --accent-ink:rgba(18,13,6,.92);
-      --accent-shadow:rgba(240,160,75,.25);
-      --accent2-fill:rgba(127,183,161,.10);
-      --accent2-fill-strong:rgba(127,183,161,.14);
-      --danger-fill:rgba(228,111,97,.10);
-      --danger-fill-strong:rgba(228,111,97,.16);
-      --title-text:rgba(241,234,220,.96);
+      --surface-hover:rgba(255,255,255,.04);
+      --accent-fill:rgba(92,255,214,.08);
+      --accent-fill-strong:rgba(92,255,214,.10);
+      --accent-fill-solid:rgba(92,255,214,.9);
+      --accent-border:rgba(92,255,214,.32);
+      --accent-border-soft:rgba(92,255,214,.18);
+      --accent-ink:rgba(0,0,0,.85);
+      --accent-shadow:rgba(92,255,214,.25);
+      --accent2-fill:rgba(122,167,255,.10);
+      --accent2-fill-strong:rgba(122,167,255,.14);
+      --danger-fill:rgba(255,92,154,.10);
+      --danger-fill-strong:rgba(255,92,154,.16);
+      --title-text:rgba(215,247,255,.96);
       --title-sheen:rgba(255,255,255,.92);
-      --title-glow:rgba(240,160,75,.22);
-      --title-beam-soft:rgba(127,183,161,.18);
-      --title-beam-strong:rgba(240,160,75,.88);
-      --grid-line:rgba(255,239,204,.045);
-      --dot-danger:#e46f61;
-      --dot-warn:#e0b85f;
-      --dot-ok:#75c889;
-      --footer-fg:rgba(167,155,131,.85);
+      --title-glow:rgba(92,255,214,.22);
+      --title-beam-soft:rgba(122,167,255,.18);
+      --title-beam-strong:rgba(92,255,214,.88);
+      --grid-line:rgba(255,255,255,.04);
+      --dot-danger:#ff6f98;
+      --dot-warn:#ffc86f;
+      --dot-ok:#6fffd1;
+      --footer-fg:rgba(137,163,173,.85);
       --log-console-max-lines:34;
       --log-console-line-height:1.45rem;
       --log-entry-max-lines:12;
@@ -86,7 +86,7 @@
       background:
         radial-gradient(900px 540px at 18% 8%, var(--accent2-fill), transparent 58%),
         radial-gradient(760px 480px at 82% 14%, var(--accent-fill), transparent 60%),
-        #0f100c;
+        #05060a;
       font:14px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
     }
     .grid{
@@ -373,11 +373,11 @@
       width:144px;
       min-height:32px;
       padding:0 14px;
-      border:1px solid rgba(255,239,204,.12);
+      border:1px solid rgba(255,255,255,.10);
       border-radius:999px;
       background:
-        linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,239,204,.045) 42%, rgba(255,255,255,0) 100%),
-        linear-gradient(135deg, rgba(255,239,204,.12), rgba(255,255,255,0) 48%),
+        linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.04) 42%, rgba(255,255,255,0) 100%),
+        linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,0) 48%),
         var(--accent-fill-solid);
       color:var(--accent-ink);
       text-decoration:none;
@@ -432,7 +432,7 @@
       outline:none;
       border-color:rgba(255,255,255,.22);
       box-shadow:
-        0 0 0 3px rgba(255,241,214,.10),
+        0 0 0 3px rgba(255,255,255,.08),
         0 0 0 1px rgba(255,255,255,.06) inset,
         0 16px 32px rgba(0,0,0,.2),
         0 0 22px var(--accent-shadow);
@@ -520,7 +520,7 @@
       max-width:14ch;
       min-height:34px;
       box-sizing:border-box;
-      border:1px solid rgba(255,241,214,.10);
+      border:1px solid rgba(255,255,255,.08);
       background:rgba(0,0,0,.14);
       color:var(--muted);
       border-radius:999px;
@@ -533,8 +533,8 @@
       overflow:hidden;
     }
     .filter-chip.active{
-      border-color:rgba(240,160,75,.22);
-      background:rgba(240,160,75,.10);
+      border-color:rgba(92,255,214,.22);
+      background:rgba(92,255,214,.10);
       color:var(--accent);
     }
     .console{
@@ -546,7 +546,7 @@
       border:1px solid rgba(255,255,255,.06);
       border-radius:16px;
       background:rgba(3,8,12,.82);
-      box-shadow:0 0 0 1px rgba(240,160,75,.05) inset;
+      box-shadow:0 0 0 1px rgba(92,255,214,.05) inset;
       font:12px/1.42 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       word-break:break-word;
       color:#dbe9ef;
@@ -571,7 +571,7 @@
       display:grid;
       gap:6px;
       padding:8px 10px 8px 14px;
-      border-bottom:1px solid rgba(255,239,204,.045);
+      border-bottom:1px solid rgba(255,255,255,.04);
       position:relative;
     }
     .entry:last-child{border-bottom:none}
@@ -583,7 +583,7 @@
       bottom:8px;
       width:2px;
       border-radius:999px;
-      background:rgba(255,241,214,.10);
+      background:rgba(255,255,255,.08);
     }
     .entry-head{
       display:grid;
@@ -593,7 +593,7 @@
     }
     .entry-no{
       font-size:11px;
-      color:rgba(167,155,131,.72);
+      color:rgba(137,163,173,.72);
       text-align:right;
       justify-self:end;
       user-select:none;
@@ -618,7 +618,7 @@
       min-width:64px;
       padding:1px 6px;
       border-radius:999px;
-      border:1px solid rgba(255,241,214,.10);
+      border:1px solid rgba(255,255,255,.08);
       background:rgba(255,255,255,.03);
       font-size:10px;
       letter-spacing:.06em;
@@ -639,27 +639,27 @@
       scrollbar-width:thin;
       scrollbar-color:rgba(255,255,255,.16) transparent;
     }
-    .entry[data-level="INFO"]::before{background:rgba(241,234,220,.16)}
+    .entry[data-level="INFO"]::before{background:rgba(215,247,255,.16)}
     .entry[data-level="DEBUG"]::before{background:rgba(154,215,255,.28)}
     .entry[data-level="WARNING"]::before{background:rgba(255,210,122,.38)}
     .entry[data-level="ERROR"]::before,
     .entry[data-level="CRITICAL"]::before{background:rgba(255,154,187,.44)}
-    .entry[data-level="INFO"] .entry-level{color:#f1eadc;border-color:rgba(241,234,220,.12)}
+    .entry[data-level="INFO"] .entry-level{color:#d7f7ff;border-color:rgba(215,247,255,.12)}
     .entry[data-level="DEBUG"] .entry-level{color:#9ad7ff;border-color:rgba(154,215,255,.18)}
-    .entry[data-level="WARNING"] .entry-level{color:#e0b85f;border-color:rgba(255,210,122,.18)}
+    .entry[data-level="WARNING"] .entry-level{color:#ffd27a;border-color:rgba(255,210,122,.18)}
     .entry[data-level="ERROR"] .entry-level,
     .entry[data-level="CRITICAL"] .entry-level{color:#ff9abb;border-color:rgba(255,154,187,.22)}
     .entry:hover{background:rgba(255,255,255,.02)}
     mark{
       padding:1px 4px;
       border-radius:6px;
-      background:rgba(240,160,75,.16);
+      background:rgba(92,255,214,.16);
       color:var(--fg);
-      box-shadow:0 0 0 1px rgba(240,160,75,.14) inset;
+      box-shadow:0 0 0 1px rgba(92,255,214,.14) inset;
     }
     .empty{
       padding:20px 16px;
-      border:1px dashed rgba(255,239,204,.12);
+      border:1px dashed rgba(255,255,255,.10);
       border-radius:14px;
       color:var(--muted);
       background:rgba(0,0,0,.10);
@@ -675,14 +675,14 @@
       border-radius:22px;
       transform:translate(-50%, -50%) scale(.98);
       z-index:20;
-      border:1px solid rgba(255,239,204,.12);
+      border:1px solid rgba(255,255,255,.10);
       background:
-        radial-gradient(520px 220px at 20% 0%, rgba(240,160,75,.14), transparent 60%),
-        radial-gradient(420px 200px at 100% 10%, rgba(127,183,161,.10), transparent 60%),
-        rgba(18,16,12,.90);
+        radial-gradient(520px 220px at 20% 0%, rgba(92,255,214,.14), transparent 60%),
+        radial-gradient(420px 200px at 100% 10%, rgba(122,167,255,.10), transparent 60%),
+        rgba(6,14,20,.90);
       box-shadow:
         0 28px 80px rgba(0,0,0,.48),
-        0 0 0 1px rgba(240,160,75,.08) inset;
+        0 0 0 1px rgba(92,255,214,.08) inset;
       color:var(--fg);
       opacity:0;
       pointer-events:none;
@@ -698,8 +698,8 @@
       position:absolute;
       inset:auto -12% 0 -12%;
       height:2px;
-      background:linear-gradient(90deg, transparent, rgba(240,160,75,.92), rgba(127,183,161,.55), transparent);
-      box-shadow:0 0 18px rgba(240,160,75,.28);
+      background:linear-gradient(90deg, transparent, rgba(92,255,214,.92), rgba(122,167,255,.55), transparent);
+      box-shadow:0 0 18px rgba(92,255,214,.28);
       opacity:.9;
       animation:bannerSweep 1.8s linear infinite;
     }
@@ -710,7 +710,7 @@
       width:26px;
       height:26px;
       border-radius:999px;
-      border:1px solid rgba(240,160,75,.30);
+      border:1px solid rgba(92,255,214,.30);
       transform:translate(-50%, -50%) scale(.24);
       opacity:0;
       pointer-events:none;
@@ -722,21 +722,21 @@
       animation:bannerConfirm .26s ease-out 1, bannerOkPulse 1s ease-in-out 1;
     }
     .banner.err{
-      border-color:rgba(228,111,97,.22);
+      border-color:rgba(255,92,154,.22);
       background:
-        radial-gradient(520px 220px at 20% 0%, rgba(228,111,97,.16), transparent 60%),
-        radial-gradient(420px 200px at 100% 10%, rgba(127,183,161,.10), transparent 60%),
+        radial-gradient(520px 220px at 20% 0%, rgba(255,92,154,.16), transparent 60%),
+        radial-gradient(420px 200px at 100% 10%, rgba(122,167,255,.10), transparent 60%),
         rgba(20,8,14,.92);
       box-shadow:
         0 28px 80px rgba(0,0,0,.48),
-        0 0 0 1px rgba(228,111,97,.10) inset;
+        0 0 0 1px rgba(255,92,154,.10) inset;
     }
     .banner.err::before{
-      background:linear-gradient(90deg, transparent, rgba(228,111,97,.92), rgba(127,183,161,.55), transparent);
-      box-shadow:0 0 18px rgba(228,111,97,.35);
+      background:linear-gradient(90deg, transparent, rgba(255,92,154,.92), rgba(122,167,255,.55), transparent);
+      box-shadow:0 0 18px rgba(255,92,154,.35);
     }
     .banner.err::after{
-      border-color:rgba(228,111,97,.34);
+      border-color:rgba(255,92,154,.34);
     }
     .banner.err.show{
       animation:bannerAlert .34s ease-out 1, bannerPulse 1.3s ease-in-out 2;
@@ -782,26 +782,26 @@
       0%,100%{
         box-shadow:
           0 28px 80px rgba(0,0,0,.48),
-          0 0 0 1px rgba(228,111,97,.10) inset;
+          0 0 0 1px rgba(255,92,154,.10) inset;
       }
       50%{
         box-shadow:
           0 28px 80px rgba(0,0,0,.48),
-          0 0 0 1px rgba(228,111,97,.16) inset,
-          0 0 28px rgba(228,111,97,.14);
+          0 0 0 1px rgba(255,92,154,.16) inset,
+          0 0 28px rgba(255,92,154,.14);
       }
     }
     @keyframes bannerOkPulse{
       0%,100%{
         box-shadow:
           0 28px 80px rgba(0,0,0,.48),
-          0 0 0 1px rgba(240,160,75,.08) inset;
+          0 0 0 1px rgba(92,255,214,.08) inset;
       }
       50%{
         box-shadow:
           0 28px 80px rgba(0,0,0,.48),
-          0 0 0 1px rgba(240,160,75,.14) inset,
-          0 0 26px rgba(240,160,75,.12);
+          0 0 0 1px rgba(92,255,214,.14) inset,
+          0 0 26px rgba(92,255,214,.12);
       }
     }
     @keyframes bannerRipple{

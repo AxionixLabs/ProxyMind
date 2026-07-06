@@ -84,7 +84,7 @@ def config_slot_to_pref(slot: typing.Any) -> dict[str, typing.Any]:
     data = slot if isinstance(slot, dict) else {}
 
     return {
-        "api"      : clean_text(data.get("provider"), DEFAULT_PROVIDER_NAME),
+        "provider" : clean_text(data.get("provider"), DEFAULT_PROVIDER_NAME),
         "type"     : clean_text(data.get("type"), DEFAULT_MODEL_TYPE),
         "base_url" : clean_text(data.get("base_url")),
         "route"    : clean_text(data.get("route"), DEFAULT_ROUTE_NAME),
@@ -99,7 +99,7 @@ def pref_to_config_slot(slot: typing.Any, *, enabled: bool | None) -> dict[str, 
     data = slot if isinstance(slot, dict) else {}
 
     result: dict[str, typing.Any] = {
-        "provider" : clean_text(data.get("api"), DEFAULT_PROVIDER_NAME),
+        "provider" : clean_text(data.get("provider"), DEFAULT_PROVIDER_NAME),
         "model"    : clean_text(data.get("model")),
         "apikey"   : clean_text(data.get("apikey")),
         "base_url" : clean_text(data.get("base_url")),

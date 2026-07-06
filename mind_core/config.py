@@ -236,13 +236,13 @@ def toml_string_list(value: typing.Any) -> str:
 
 
 def config_to_preferences(config: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """把 config.toml 结构转换为现有 Preferences 运行时结构。"""
+    """把 config.toml 结构转换为 Preferences 运行时结构。"""
     cfg   = normalize_config(copy.deepcopy(config))
     model = _as_dict(cfg.get("model"))
 
     def convert_slot(slot: dict[str, typing.Any]) -> dict[str, str]:
         return {
-            "api"      : _as_str(slot.get("provider"), DEFAULT_PROVIDER_NAME),
+            "provider" : _as_str(slot.get("provider"), DEFAULT_PROVIDER_NAME),
             "model"    : _as_str(slot.get("model")),
             "apikey"   : _as_str(slot.get("apikey")),
             "base_url" : _as_str(slot.get("base_url")),

@@ -10,10 +10,14 @@ from mind_app.client_tools.types import (
 )
 from .schemas import (
     APPLY_PATCH_INPUT_SCHEMA,
+    EXEC_COMMAND_INPUT_SCHEMA,
     SHELL_CALLS_INPUT_SCHEMA,
     SHELL_COMMAND_INPUT_SCHEMA,
+    WRITE_STDIN_INPUT_SCHEMA,
+    exec_command_payload,
     shell_command_items_payload,
-    shell_command_payload
+    shell_command_payload,
+    write_stdin_payload
 )
 
 
@@ -63,6 +67,7 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
     ) -> mcp_types.CallToolResult:
         """执行单条命令。"""
         _ = runtime
+
         args = {
             **shell_command_payload(
                 command=arguments.get("command"),
@@ -71,7 +76,9 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
             ),
             "execution": arguments.get("execution"),
         }
+
         raw = await coding.shell_command(**args)
+
         return build_coding_result(
             tool="shell_command",
             args=args,
@@ -85,11 +92,14 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
     ) -> mcp_types.CallToolResult:
         """执行批量命令。"""
         _ = runtime
+
         args = {
             "items": shell_command_items_payload(arguments.get("items")),
             "execution": arguments.get("execution"),
         }
+
         raw = await coding.shell_calls(**args)
+
         return build_coding_result(
             tool="shell_calls",
             args=args,
@@ -103,14 +113,69 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
     ) -> mcp_types.CallToolResult:
         """应用补丁。"""
         _ = runtime
+
         args = {
             "patch": str(arguments.get("patch") or ""),
             "expected_sha256": arguments.get("expected_sha256"),
             "force": bool(arguments.get("force", False)),
         }
+
         raw = coding.apply_patch(**args)
+
         return build_coding_result(
             tool="apply_patch",
+            args=args,
+            raw=raw,
+            target=coding.agent_id
+        )
+
+    async def exec_command_handler(
+        arguments: dict[str, typing.Any],
+        runtime: ClientToolRuntime
+    ) -> mcp_types.CallToolResult:
+        """启动可持续命令会话。"""
+        _ = runtime
+
+        args = {
+            **exec_command_payload(
+                command=arguments.get("command"),
+                cwd=arguments.get("cwd", "."),
+                yield_time_ms=arguments.get("yield_time_ms", 1000),
+                max_output_chars=arguments.get("max_output_chars", 24000),
+                timeout_sec=arguments.get("timeout_sec", 1800),
+                idle_timeout_sec=arguments.get("idle_timeout_sec", 300),
+            ),
+            "execution": arguments.get("execution"),
+        }
+
+        raw = await coding.exec_command(**args)
+
+        return build_coding_result(
+            tool="exec_command",
+            args=args,
+            raw=raw,
+            target=coding.agent_id
+        )
+
+    async def write_stdin_handler(
+        arguments: dict[str, typing.Any],
+        runtime: ClientToolRuntime
+    ) -> mcp_types.CallToolResult:
+        """写入或轮询命令会话。"""
+        _ = runtime
+
+        args = write_stdin_payload(
+            session_id=arguments.get("session_id"),
+            stdin=arguments.get("stdin", ""),
+            wait_ms=arguments.get("wait_ms", 1000),
+            max_output_chars=arguments.get("max_output_chars", 12000),
+            control=arguments.get("control", "none"),
+        )
+
+        raw = await coding.write_stdin(**args)
+
+        return build_coding_result(
+            tool="write_stdin",
             args=args,
             raw=raw,
             target=coding.agent_id
@@ -136,6 +201,25 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
             input_schema=SHELL_CALLS_INPUT_SCHEMA,
             meta={"hidden": False, "domain": "coding", "class": "shell"},
             handler=shell_calls_handler,
+        ),
+        ClientTool(
+            name="exec_command",
+            description=(
+                "启动可持续读写的本地 shell 命令会话。适合长耗时任务、交互式任务和持续输出。"
+                "该实现使用标准输入输出管道，不提供真实 PTY。"
+            ),
+            input_schema=EXEC_COMMAND_INPUT_SCHEMA,
+            meta={"hidden": False, "domain": "coding", "class": "shell"},
+            handler=exec_command_handler,
+        ),
+        ClientTool(
+            name="write_stdin",
+            description=(
+                "向 exec_command 创建的命令会话写入标准输入，或在 stdin 为空时轮询增量输出。"
+            ),
+            input_schema=WRITE_STDIN_INPUT_SCHEMA,
+            meta={"hidden": False, "domain": "coding", "class": "shell"},
+            handler=write_stdin_handler,
         ),
         ClientTool(
             name="apply_patch",

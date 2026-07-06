@@ -89,13 +89,13 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #AFD7FF]/detach <index|path>[/]      移除一个待发送附件
         [bold #AFD7FF]/attach-clear[/]             清空当前待发送附件
         [bold #AFD7FF]/permissions[/]              切换权限模式
-        [bold #7F8C9A]/model <name>[/]             持久化主模型名称
+        [bold #7F8C9A]/model [name][/]             持久化主模型名称；省略 name 表示清空
         [bold #AFD7FF]/preferences[/]              打开偏好配置页面
         [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
         [bold #AFD7FF]/mcp[/]                      查看外部 MCP runtime 状态
         [bold #AFD7FF]/helix-link[/]               接入本地 Helix 服务
         [bold #AFD7FF]/helix-unlink[/]             从当前会话移除 Helix MCP
-        [bold #AFD7FF]/helix-home[/]               打开 Helix 首页
+        [bold #AFD7FF]/helix-home[/]               接入 Helix 并打开首页
         [bold #FF5F5F]/helix-stop[/]               停止本地 Helix 服务
         [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
         [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
@@ -237,7 +237,8 @@ async def mind_loop(mind: "Mind") -> None:
             continue
 
         if m := re_model.match(prompt_text):
-            if model_value := await exchange_pref_value(m, pref_command="model"):
+            model_value = await exchange_pref_value(m, pref_command="model")
+            if model_value is not None:
                 saved_primary = await persist_primary_pref(
                     mind,
                     command_name="model",
@@ -246,9 +247,10 @@ async def mind_loop(mind: "Mind") -> None:
                 )
                 if saved_primary is not None:
                     model = str(saved_primary.get("model") or model_value)
+                    model_label = model or "(empty)"
                     Design.console.print(
                         f"[bold #AFC7D8]Model saved[/] "
-                        f"[bold #F4F7FA]{model}[/]"
+                        f"[bold #F4F7FA]{model_label}[/]"
                     )
                     Design.console.print()
             continue

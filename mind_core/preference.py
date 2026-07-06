@@ -19,7 +19,7 @@ from mind_nova import const
 def _default_slot() -> dict[str, str]:
     """返回单个模型槽位的默认配置。"""
     return {
-        "api"      : DEFAULT_PROVIDER_NAME,
+        "provider" : DEFAULT_PROVIDER_NAME,
         "model"    : "",
         "apikey"   : "",
         "base_url" : "",
@@ -56,7 +56,7 @@ class Preferences(object):
     def to_config(
         self,
         *,
-        api: str = "",
+        provider: str = "",
         model: str = "",
         apikey: str = "",
         base_url: str = "",
@@ -66,8 +66,8 @@ class Preferences(object):
         payload = copy.deepcopy(self.prefs)
         primary = payload.setdefault("primary", {})
 
-        if api:
-            primary["api"] = api
+        if provider:
+            primary["provider"] = provider
         if model:
             primary["model"] = model
         if apikey:
@@ -102,11 +102,13 @@ class Preferences(object):
     ) -> dict[str, typing.Any]:
         """使用补充配置填充空字段，不覆盖已有值。"""
         merged = dict(base or {})
-        for key in ("api", "model", "apikey", "base_url", "route"):
+
+        for key in ("provider", "model", "apikey", "base_url", "route"):
             current = str(merged.get(key) or "").strip()
             incoming = str(supplement.get(key) or "").strip()
             if not current and incoming:
                 merged[key] = incoming
+
         return merged
 
     @classmethod
@@ -120,7 +122,7 @@ class Preferences(object):
 
         prefs = {
             "primary": {
-                "api"      : str(primary.get("api", DEFAULT_PROVIDER_NAME)),
+                "provider" : str(primary.get("provider", DEFAULT_PROVIDER_NAME)),
                 "model"    : str(primary.get("model", "")),
                 "apikey"   : str(primary.get("apikey", "")),
                 "base_url" : str(primary.get("base_url", "")),
@@ -130,7 +132,7 @@ class Preferences(object):
 
         if cls._slot_configured(secondary):
             prefs["secondary"] = {
-                "api"      : str(secondary.get("api", DEFAULT_PROVIDER_NAME)),
+                "provider" : str(secondary.get("provider", DEFAULT_PROVIDER_NAME)),
                 "model"    : str(secondary.get("model", "")),
                 "apikey"   : str(secondary.get("apikey", "")),
                 "base_url" : str(secondary.get("base_url", "")),

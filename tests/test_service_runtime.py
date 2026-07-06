@@ -224,11 +224,11 @@ def test_prepare_and_start_service_runtime_links_mcp(
     assert calls == ["prepare", "start", "fetch", "link"]
 
 
-def test_prepare_and_start_service_runtime_can_skip_mcp_link(
+def test_prepare_and_start_service_runtime_has_single_link_flow(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """仅打开 Helix 页面时可启动服务但不挂载 MCP。"""
+    """服务运行时启动使用统一流程挂载 MCP。"""
     context = runtime_context(tmp_path, packaged=False)
     calls: list[str] = []
 
@@ -239,6 +239,7 @@ def test_prepare_and_start_service_runtime_can_skip_mcp_link(
             return context
 
         def link_service_mcp(self, exec_env: dict | None = None) -> None:
+            assert exec_env == {"provider": "helix"}
             calls.append("link")
 
     async def prepare(*_: object, **__: object) -> bool:
@@ -248,12 +249,15 @@ def test_prepare_and_start_service_runtime_can_skip_mcp_link(
     async def start(*_: object, **__: object) -> None:
         calls.append("start")
 
+    async def fetch_service_env(*_: object, **__: object) -> dict:
+        calls.append("fetch")
+        return {"provider": "helix"}
+
     monkeypatch.setattr(runtime, "prepare_service_runtime", prepare)
     monkeypatch.setattr(runtime, "start_service_runtime", start)
+    monkeypatch.setattr(runtime, "fetch_service_exec_env", fetch_service_env)
 
-    started = run_async(
-        runtime.prepare_and_start_service_runtime(DummyMind(), link_mcp=False)
-    )
+    started = run_async(runtime.prepare_and_start_service_runtime(DummyMind()))
 
     assert started is True
-    assert calls == ["prepare", "start"]
+    assert calls == ["prepare", "start", "fetch", "link"]

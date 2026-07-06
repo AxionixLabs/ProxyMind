@@ -1130,11 +1130,11 @@
                 <div class="inline-triplet">
                   <div class="pair-item">
                     <div class="label-row">
-                      <label for="primary-api">Provider</label>
+                      <label for="primary-provider">Provider</label>
                       <span class="hint">single source</span>
                     </div>
                     <div class="select-wrap">
-                      <select id="primary-api" name="primary_api">
+                      <select id="primary-provider" name="primary_provider">
                         <option value="OpenAI">OpenAI</option>
                       </select>
                     </div>
@@ -1210,11 +1210,11 @@
                 <div class="inline-triplet">
                   <div class="pair-item">
                     <div class="label-row">
-                      <label for="secondary-api">Provider</label>
+                      <label for="secondary-provider">Provider</label>
                       <span class="hint">single source</span>
                     </div>
                     <div class="select-wrap">
-                      <select id="secondary-api" name="secondary_api">
+                      <select id="secondary-provider" name="secondary_provider">
                         <option value="OpenAI">OpenAI</option>
                       </select>
                     </div>
@@ -1314,7 +1314,7 @@
     const toastStage = document.getElementById("toast-stage");
     const previewMode = location.protocol === "file:";
     const previewPref = {
-      primary   : {api: "OpenAI", type: "Text", base_url: "", route: "responses", apikey: "", model: ""},
+      primary   : {provider: "OpenAI", type: "Text", base_url: "", route: "responses", apikey: "", model: ""},
       secondary : null
     };
     const previewServiceConfig = {
@@ -1451,14 +1451,14 @@
       const primary = data.primary || {};
       const secondary = data.secondary || {};
 
-      fieldValue("primary-api", primary.api);
+      fieldValue("primary-provider", primary.provider);
       fieldValue("primary-type", primary.type || "Text");
       fieldValue("primary-base-url", primary.base_url);
       fieldValue("primary-route", primary.route || "responses");
       fieldValue("primary-api-key", primary.apikey);
       fieldValue("primary-model", primary.model);
 
-      fieldValue("secondary-api", secondary.api);
+      fieldValue("secondary-provider", secondary.provider);
       fieldValue("secondary-type", secondary.type || "Text");
       fieldValue("secondary-base-url", secondary.base_url);
       fieldValue("secondary-route", secondary.route || "responses");
@@ -1475,7 +1475,7 @@
 
     function collectSlot(prefix) {
       return {
-        api      : fieldSelectValue(`${prefix}-api`, "OpenAI"),
+        provider : fieldSelectValue(`${prefix}-provider`, "OpenAI"),
         type     : fieldSelectValue(`${prefix}-type`, "Text"),
         base_url : fieldInputValue(`${prefix}-base-url`),
         route    : fieldSelectValue(`${prefix}-route`, "responses"),

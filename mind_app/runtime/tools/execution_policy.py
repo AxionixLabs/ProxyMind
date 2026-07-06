@@ -4,7 +4,7 @@
 import typing
 
 EXECUTION_ALLOWED    = {"allowed", "approved"}
-POLICY_MANAGED_TOOLS = {"shell_command", "shell_calls"}
+POLICY_MANAGED_TOOLS = {"shell_command", "shell_calls", "exec_command"}
 
 
 def validate_execution_policy(
@@ -27,6 +27,8 @@ def validate_execution_policy(
         return _reject("shell_calls items missing")
     if name == "shell_command" and not str(arguments.get("command") or "").strip():
         return _reject("shell_command command missing")
+    if name == "exec_command" and not str(arguments.get("command") or "").strip():
+        return _reject("exec_command command missing")
 
     canonical = execution.get("canonicalArguments") or execution.get("canonical_arguments")
     if (
@@ -98,6 +100,8 @@ def _canonical_arguments(
         return {
             "items": [_canonical_shell_item(item) for item in value.get("items") or []]
         }
+    if name == "exec_command":
+        return _canonical_exec_command_item(value)
 
     return _canonical_shell_item(value)
 
@@ -112,6 +116,30 @@ def _canonical_shell_item(
         "cwd"         : str(item.get("cwd") or "."),
         "timeout_sec" : int(item.get("timeout_sec") or 60)
     }
+
+
+def _canonical_exec_command_item(
+    value: typing.Any
+) -> dict[str, typing.Any]:
+    """归一化 exec_command 参数。"""
+    item = value if isinstance(value, dict) else {}
+
+    return {
+        "command"          : str(item.get("command") or ""),
+        "cwd"              : str(item.get("cwd") or "."),
+        "yield_time_ms"    : _int_default(item.get("yield_time_ms"), 1000),
+        "max_output_chars" : int(item.get("max_output_chars") or 24000),
+        "timeout_sec"      : int(item.get("timeout_sec") or 1800),
+        "idle_timeout_sec" : int(item.get("idle_timeout_sec") or 300)
+    }
+
+
+def _int_default(value: typing.Any, default: int) -> int:
+    """转换整数并保留有效的 0 值。"""
+    try:
+        return int(value if value is not None else default)
+    except (TypeError, ValueError):
+        return default
 
 
 if __name__ == '__main__':

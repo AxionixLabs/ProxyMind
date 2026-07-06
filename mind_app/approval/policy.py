@@ -31,7 +31,12 @@ DECISION_SHORTCUT_LABELS: dict[str, str] = {
     "decline"          : "n/esc"
 }
 
-SHELL_TOOL_NAMES = {"shell_command", "shell_calls"}
+SHELL_TOOL_NAMES = {
+    "shell_command",
+    "shell_calls",
+    "exec_command",
+    "write_stdin"
+}
 
 
 @dataclass(slots=True)
@@ -303,6 +308,10 @@ def _canonical_tool_arguments(
         return _normalize_shell_command_arguments(arguments)
     if normalized_tool == "shell_calls":
         return _normalize_shell_calls_arguments(arguments)
+    if normalized_tool == "exec_command":
+        return _normalize_exec_command_arguments(arguments)
+    if normalized_tool == "write_stdin":
+        return _normalize_write_stdin_arguments(arguments)
 
     normalized = _normalize_value(arguments)
     return normalized if isinstance(normalized, dict) else {}
@@ -371,6 +380,45 @@ def _normalize_shell_command_item(
         "cwd"         : str(item.get("cwd") or "."),
         "timeout_sec" : int(item.get("timeout_sec") or 60)
     }
+
+
+def _normalize_exec_command_arguments(
+    arguments: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+    """规范化 exec_command 参数。"""
+    item = arguments if isinstance(arguments, dict) else {}
+
+    return {
+        "command"          : str(item.get("command") or ""),
+        "cwd"              : str(item.get("cwd") or "."),
+        "yield_time_ms"    : _int_default(item.get("yield_time_ms"), 1000),
+        "max_output_chars" : int(item.get("max_output_chars") or 24000),
+        "timeout_sec"      : int(item.get("timeout_sec") or 1800),
+        "idle_timeout_sec" : int(item.get("idle_timeout_sec") or 300)
+    }
+
+
+def _normalize_write_stdin_arguments(
+    arguments: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+    """规范化 write_stdin 参数。"""
+    item = arguments if isinstance(arguments, dict) else {}
+
+    return {
+        "session_id"       : str(item.get("session_id") or ""),
+        "stdin"            : str(item.get("stdin") or ""),
+        "wait_ms"          : _int_default(item.get("wait_ms"), 1000),
+        "max_output_chars" : int(item.get("max_output_chars") or 12000),
+        "control"          : str(item.get("control") or "none")
+    }
+
+
+def _int_default(value: typing.Any, default: int) -> int:
+    """转换整数并保留有效的 0 值。"""
+    try:
+        return int(value if value is not None else default)
+    except (TypeError, ValueError):
+        return default
 
 
 def _normalize_value(value: typing.Any) -> typing.Any:
@@ -445,10 +493,14 @@ def _approval_prompt_noun(
 ) -> str:
     """返回审批提示中使用的操作类型名称。"""
     tool = str(approval.get("tool") or "").strip()
+
     if tool in {"", "shell_command"}:
         return "command"
-    if tool == "shell_calls":
+    if tool in {"shell_calls", "exec_command"}:
         return "commands"
+    if tool == "write_stdin":
+        return "session input"
+
     return "tool action"
 
 

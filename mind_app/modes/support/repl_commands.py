@@ -24,6 +24,9 @@ async def exchange_pref_value(
     pref_command: typing.Literal["model", "apikey", "base-url"]
 ) -> typing.Optional[str]:
     """解析模型偏好类指令，并给出交互提示。"""
+    if pref_command == "model":
+        return matcher.group(1).strip() if matcher.group(1) else ""
+
     if pref_name := matcher.group(1).strip() if matcher.group(1) else None:
         return pref_name
 
@@ -117,13 +120,9 @@ def unlink_helix_runtime(mind: "Mind") -> None:
 
 
 async def open_helix_home(mind: "Mind") -> None:
-    """启动或复用本地 Helix 服务，并打开首页。"""
+    """启动或复用本地 Helix 服务，挂载 MCP 后打开首页。"""
     try:
-        helix_ready = await prepare_and_start_service_runtime(
-            mind,
-            label="Helix Home",
-            link_mcp=False
-        )
+        helix_ready = await prepare_and_start_service_runtime(mind)
     except MindError as error:
         Design.console.print(f"[bold #FF5F5F]Helix home failed: {error}[/]")
         Design.console.print()

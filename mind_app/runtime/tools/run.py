@@ -18,6 +18,9 @@ _COMMON_PROMOTED_RESULT_KEYS = (
     "command",
     "resolved_command",
     "error",
+    "session_id",
+    "status",
+    "pid",
     "exit_code",
     "timed_out",
     "elapsed_ms",
@@ -50,10 +53,13 @@ _COMMON_PROMOTED_RESULT_KEYS = (
 
 _OUTPUT_PROMOTED_TOOLS = {
     "shell_command",
-    "shell_calls"
+    "shell_calls",
+    "exec_command",
+    "write_stdin"
 }
 
 _OUTPUT_PROMOTED_RESULT_KEYS = (
+    "output",
     "stdout",
     "stderr"
 )

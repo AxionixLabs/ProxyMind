@@ -28,16 +28,17 @@ def test_save_primary_pref_field_updates_config_file(
     assert config["model"]["primary"]["model"] == "gpt-5-codex"
 
 
-def test_save_primary_pref_field_rejects_empty_name(
+def test_save_primary_pref_field_accepts_empty_model_name(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """空模型名称不会覆盖已有配置。"""
+    """空模型名称会被持久化为空字符串。"""
     monkeypatch.setenv("MIND_HOME", str(tmp_path))
 
-    try:
-        run_async(save_primary_pref_field("model", " "))
-    except ValueError as error:
-        assert "model is empty" in str(error)
-    else:
-        raise AssertionError("empty model name should be rejected")
+    run_async(save_primary_pref_field("model", "gpt-5-codex"))
+    snapshot = run_async(save_primary_pref_field("model", " "))
+    config_file = tmp_path / "config.toml"
+    config = load_config(config_file)
+
+    assert snapshot["primary"]["model"] == ""
+    assert config["model"]["primary"]["model"] == ""

@@ -100,7 +100,7 @@ async def save_primary_pref_field(
 ) -> dict[str, typing.Any]:
     """更新 primary 模型槽位的单个字段并持久化到本地配置。"""
     normalized = str(value or "").strip()
-    if not normalized:
+    if field != "model" and not normalized:
         raise ValueError(f"{field} is empty")
 
     target       = ensure_config(mind_config_path())

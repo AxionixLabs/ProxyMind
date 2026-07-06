@@ -13,51 +13,51 @@
   <link rel="manifest" href="/static/site.webmanifest" />
   <style>
     :root{
-      --bg:#0f100c;
-      --fg:#f1eadc;
-      --muted:#a79b83;
-      --line:rgba(255,241,214,.10);
-      --accent:#f0a04b;
-      --accent2:#7fb7a1;
-      --ok:#75c889;
-      --warn:#e0b85f;
-      --danger:#e46f61;
+      --bg:#05060a;
+      --fg:#d7f7ff;
+      --muted:#89a3ad;
+      --line:rgba(255,255,255,.08);
+      --accent:#5cffd6;
+      --accent2:#7aa7ff;
+      --ok:#5cff7a;
+      --warn:#ffd27a;
+      --danger:#ff5c9a;
       --shadow:0 30px 90px rgba(0,0,0,.65);
       --surface-top:rgba(255,255,255,.06);
       --surface-bottom:rgba(255,255,255,.03);
       --surface-hero-top:rgba(255,255,255,.05);
       --surface-hero-bottom:rgba(255,255,255,.02);
-      --surface-inset:rgba(240,160,75,.06);
-      --surface-inset-soft:rgba(240,160,75,.04);
-      --surface-border-soft:rgba(255,239,204,.12);
-      --surface-border-faint:rgba(255,241,214,.10);
+      --surface-inset:rgba(92,255,214,.06);
+      --surface-inset-soft:rgba(92,255,214,.04);
+      --surface-border-soft:rgba(255,255,255,.10);
+      --surface-border-faint:rgba(255,255,255,.08);
       --surface-fill:rgba(0,0,0,.16);
       --surface-fill-soft:rgba(0,0,0,.14);
       --surface-fill-strong:rgba(0,0,0,.18);
-      --surface-hover:rgba(255,239,204,.045);
-      --accent-fill:rgba(240,160,75,.08);
-      --accent-fill-strong:rgba(240,160,75,.10);
-      --accent-fill-solid:rgba(240,160,75,.9);
-      --accent-border:rgba(240,160,75,.32);
-      --accent-border-soft:rgba(240,160,75,.18);
-      --accent-ink:rgba(18,13,6,.92);
-      --accent-shadow:rgba(240,160,75,.25);
-      --accent2-fill:rgba(127,183,161,.12);
-      --accent2-fill-strong:rgba(127,183,161,.14);
-      --danger-fill:rgba(228,111,97,.08);
-      --danger-fill-strong:rgba(228,111,97,.16);
-      --overlay-backdrop:rgba(8,7,5,.76);
-      --surface-elevated:rgba(18,14,10,.96);
-      --title-text:rgba(241,234,220,.96);
+      --surface-hover:rgba(255,255,255,.04);
+      --accent-fill:rgba(92,255,214,.08);
+      --accent-fill-strong:rgba(92,255,214,.10);
+      --accent-fill-solid:rgba(92,255,214,.9);
+      --accent-border:rgba(92,255,214,.32);
+      --accent-border-soft:rgba(92,255,214,.18);
+      --accent-ink:rgba(0,0,0,.85);
+      --accent-shadow:rgba(92,255,214,.25);
+      --accent2-fill:rgba(122,167,255,.12);
+      --accent2-fill-strong:rgba(122,167,255,.14);
+      --danger-fill:rgba(255,92,154,.08);
+      --danger-fill-strong:rgba(255,92,154,.16);
+      --overlay-backdrop:rgba(3,7,12,.74);
+      --surface-elevated:rgba(6,12,18,.96);
+      --title-text:rgba(215,247,255,.96);
       --title-sheen:rgba(255,255,255,.92);
-      --title-glow:rgba(240,160,75,.22);
-      --title-beam-soft:rgba(127,183,161,.18);
-      --title-beam-strong:rgba(240,160,75,.88);
-      --grid-line:rgba(255,239,204,.045);
-      --dot-danger:#e46f61;
-      --dot-warn:#e0b85f;
-      --dot-ok:#75c889;
-      --footer-fg:rgba(167,155,131,.85);
+      --title-glow:rgba(92,255,214,.22);
+      --title-beam-soft:rgba(122,167,255,.18);
+      --title-beam-strong:rgba(92,255,214,.88);
+      --grid-line:rgba(255,255,255,.04);
+      --dot-danger:#ff6f98;
+      --dot-warn:#ffc86f;
+      --dot-ok:#6fffd1;
+      --footer-fg:rgba(137,163,173,.85);
     }
     *{box-sizing:border-box}
     html{
@@ -333,10 +333,10 @@
     }
     .status-card{
       padding:14px;
-      border:1px solid rgba(255,241,214,.10);
+      border:1px solid rgba(255,255,255,.08);
       border-radius:16px;
       background:rgba(0,0,0,.14);
-      box-shadow:0 0 0 1px rgba(240,160,75,.05) inset;
+      box-shadow:0 0 0 1px rgba(92,255,214,.05) inset;
       display:grid;
       gap:8px;
     }
@@ -424,11 +424,11 @@
       width:144px;
       min-height:32px;
       padding:0 14px;
-      border:1px solid rgba(255,239,204,.12);
+      border:1px solid rgba(255,255,255,.10);
       border-radius:999px;
       background:
-        linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,239,204,.045) 42%, rgba(255,255,255,0) 100%),
-        linear-gradient(135deg, rgba(255,239,204,.12), rgba(255,255,255,0) 48%),
+        linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.04) 42%, rgba(255,255,255,0) 100%),
+        linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,0) 48%),
         var(--accent-fill-solid);
       color:var(--accent-ink);
       text-decoration:none;
@@ -472,7 +472,7 @@
       outline:none;
       border-color:rgba(255,255,255,.22);
       box-shadow:
-        0 0 0 3px rgba(255,241,214,.10),
+        0 0 0 3px rgba(255,255,255,.08),
         0 0 0 1px rgba(255,255,255,.06) inset,
         0 16px 32px rgba(0,0,0,.2),
         0 0 22px var(--accent-shadow);
@@ -533,7 +533,7 @@
       min-height:34px;
       padding:8px 12px;
       box-sizing:border-box;
-      border:1px solid rgba(255,241,214,.10);
+      border:1px solid rgba(255,255,255,.08);
       border-radius:999px;
       background:rgba(0,0,0,.14);
       font-size:12px;
@@ -566,9 +566,9 @@
       max-width:min(420px, calc(100vw - 32px));
       padding:14px 16px;
       border-radius:14px;
-      border:1px solid rgba(255,239,204,.12);
-      background:rgba(18,16,12,.88);
-      box-shadow:0 18px 44px rgba(0,0,0,.35), 0 0 0 1px rgba(240,160,75,.08) inset;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(6,14,20,.88);
+      box-shadow:0 18px 44px rgba(0,0,0,.35), 0 0 0 1px rgba(92,255,214,.08) inset;
       backdrop-filter:blur(12px);
       opacity:0;
       transform:translate(-50%, -8px) scale(.98);
@@ -581,8 +581,8 @@
       transform:translate(-50%, 0) scale(1);
     }
     .toast.err{
-      border-color:rgba(228,111,97,.26);
-      box-shadow:0 18px 44px rgba(0,0,0,.35), 0 0 0 1px rgba(228,111,97,.12) inset;
+      border-color:rgba(255,92,154,.26);
+      box-shadow:0 18px 44px rgba(0,0,0,.35), 0 0 0 1px rgba(255,92,154,.12) inset;
     }
     .toast-title{
       display:block;

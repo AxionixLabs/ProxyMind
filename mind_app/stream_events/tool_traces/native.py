@@ -38,6 +38,8 @@ from .native_patch import (
 NATIVE_CODING_TRACE_TOOLS = {
     "shell_command",
     "shell_calls",
+    "exec_command",
+    "write_stdin",
     "apply_patch"
 }
 
@@ -137,7 +139,7 @@ def render_tool_result_preview(
 
             return _trace_preview_from_lines(lines)
 
-    if name in {"shell_command", "shell_calls"}:
+    if name in {"shell_command", "shell_calls", "exec_command", "write_stdin"}:
         results = data.get("results")
         if isinstance(results, list):
             inner = _single_shell_batch_payload(results)
@@ -158,7 +160,7 @@ def render_tool_result_preview(
         if is_error:
             lines = _shell_command_error_context_lines(data)
         else:
-            stdout_source = data.get("stdout")
+            stdout_source = data.get("output") or data.get("stdout")
             lines         = shell_output_lines(stdout_source)
             err_lines     = shell_output_lines(data.get("stderr"))
 
@@ -187,7 +189,7 @@ def render_tool_result_entries(
     args    = arguments if isinstance(arguments, dict) else {}
     payload = _result_payload(data)
 
-    if name in {"shell_command", "shell_calls"}:
+    if name in {"shell_command", "shell_calls", "exec_command", "write_stdin"}:
         results = payload.get("results")
         if isinstance(results, list):
             items = [item for item in results if isinstance(item, dict)]
@@ -266,7 +268,7 @@ def render_tool_trace(
         added, removed = _line_delta_from_patch_files(payload)
         return f"• {action} {target}{_format_delta(added, removed)}"
 
-    if name in {"shell_command", "shell_calls"}:
+    if name in {"shell_command", "shell_calls", "exec_command", "write_stdin"}:
         results = payload.get("results")
         if isinstance(results, list):
             inner = _single_shell_batch_payload(results)
@@ -284,8 +286,14 @@ def render_tool_trace(
                 cost_ms=cost_ms
             )
 
+        if name == "write_stdin":
+            session_id = str(payload.get("session_id") or args.get("session_id") or "").strip()
+            suffix     = f" {session_id}" if session_id else ""
+            return f"• Wrote stdin{suffix}".rstrip()
+
         command = _shell_command_title(payload.get("command") or args.get("command"))
-        return f"• Ran {command}".rstrip()
+        verb    = "Started" if name == "exec_command" and payload.get("status") == "running" else "Ran"
+        return f"• {verb} {command}".rstrip()
 
     summary = _short_text(args, 100)
     detail  = f" {summary}" if summary else ""

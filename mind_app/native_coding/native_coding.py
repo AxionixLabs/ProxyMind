@@ -6,6 +6,7 @@ from mind_app.native_coding.base import NativeCodingBase
 from mind_app.native_coding.exec.shell_batch import ShellBatchTools
 from mind_app.native_coding.edit.patch_engine import PatchEngine
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools
+from mind_app.native_coding.exec.exec_command import ExecCommandTools
 from mind_app.native_coding.exec.command_policy import CommandPolicy
 from mind_app.native_coding.exec.file_audit import FileAudit
 
@@ -22,6 +23,7 @@ class NativeCoding(NativeCodingBase):
         self._file_audit     = FileAudit(self)
         self._shell_command  = ShellCommandTools(self, command_policy=self._command_policy, file_audit=self._file_audit)
         self._shell_batch    = ShellBatchTools(self, shell_command=self._shell_command)
+        self._exec_command   = ExecCommandTools(self, command_policy=self._command_policy, file_audit=self._file_audit)
 
     async def shell_command(
         self,
@@ -47,6 +49,46 @@ class NativeCoding(NativeCodingBase):
     ) -> dict[str, typing.Any]:
         """批量执行 shell 命令。"""
         return await self._shell_batch.shell_calls(items=items, execution=execution)
+
+    async def exec_command(
+        self,
+        *,
+        command: str,
+        cwd: str = ".",
+        yield_time_ms: int = 1000,
+        max_output_chars: int = 24000,
+        timeout_sec: int = 1800,
+        idle_timeout_sec: int = 300,
+        execution: dict[str, typing.Any] | None = None
+    ) -> dict[str, typing.Any]:
+        """启动可持续读写的 shell 命令会话。"""
+        return await self._exec_command.exec_command(
+            command=command,
+            cwd=cwd,
+            yield_time_ms=yield_time_ms,
+            max_output_chars=max_output_chars,
+            timeout_sec=timeout_sec,
+            idle_timeout_sec=idle_timeout_sec,
+            execution=execution
+        )
+
+    async def write_stdin(
+        self,
+        *,
+        session_id: str,
+        stdin: str = "",
+        wait_ms: int = 1000,
+        max_output_chars: int = 12000,
+        control: str = "none"
+    ) -> dict[str, typing.Any]:
+        """向 shell 命令会话写入输入或轮询输出。"""
+        return await self._exec_command.write_stdin(
+            session_id=session_id,
+            stdin=stdin,
+            wait_ms=wait_ms,
+            max_output_chars=max_output_chars,
+            control=control
+        )
 
     def apply_patch(
         self,
