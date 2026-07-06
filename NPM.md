@@ -57,7 +57,7 @@ npm run sync:applications
 ```
 
 ```shell
-Remove-Item -LiteralPath "packages\mind-win32\applications\MindEngine\schematic\supports\windows" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath "packages\mind-win32\applications\MindEngine\schematic\supports\windows\helix.dist" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
 ### 🪟 Dry Run
@@ -116,7 +116,7 @@ npm run sync:applications
 ```
 
 ```bash
-rm -rf "packages/mind-darwin/applications/Mind.app/Contents/MacOS/schematic/supports/macos"
+rm -rf "packages/mind-darwin/applications/Mind.app/Contents/MacOS/schematic/supports/macos/helix.app"
 ```
 
 ### 🍎 Dry Run
