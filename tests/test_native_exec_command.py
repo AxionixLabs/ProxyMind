@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import gc
+import time
 from pathlib import Path
 
 from mind_app.client_tools.coding.native import coding_tools
 from mind_app.client_tools.types import ClientTool, ClientToolRuntime
 from mind_app.native_coding import NativeCoding
+from mind_app.native_coding.exec.exec_command import ExecCommandTools, ExecSession
 
 
 def approved_execution(**overrides: object) -> dict[str, object]:
@@ -24,7 +27,15 @@ def approved_execution(**overrides: object) -> dict[str, object]:
 
 def run_async(value: object) -> object:
     """同步测试中运行异步工具调用。"""
-    return asyncio.run(value)
+    async def runner() -> object:
+        try:
+            return await value
+        finally:
+            await asyncio.sleep(0)
+            gc.collect()
+            await asyncio.sleep(0)
+
+    return asyncio.run(runner())
 
 
 def write_script(root: Path, name: str, content: str) -> str:
@@ -52,6 +63,7 @@ async def terminate_session(coding: NativeCoding, session_id: object) -> None:
         control="terminate",
         wait_ms=1000,
     )
+    await asyncio.sleep(0.05)
 
 
 def test_exec_command_requires_execution_metadata(tmp_path: Path) -> None:
@@ -101,6 +113,99 @@ def test_exec_command_rejects_missing_cwd(tmp_path: Path) -> None:
     assert result["data"]["tool"] == "exec_command"
     assert result["data"]["reason"] == "cwd_not_directory"
     assert result["data"]["cwd"] == "missing"
+
+
+def test_exec_command_returns_cloud_sandbox_handoff(tmp_path: Path) -> None:
+    """云沙箱目标返回移交结果，不启动本地会话。"""
+    result = run_async(
+        NativeCoding(root=tmp_path).exec_command(
+            command="python --version",
+            cwd=".",
+            yield_time_ms=0,
+            timeout_sec=5,
+            execution=approved_execution(target="cloud_sandbox"),
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["data"]["tool"] == "exec_command"
+    assert result["data"]["execution_target"] == "cloud_sandbox"
+    assert result["data"]["requires_cloud_sandbox"] is True
+    assert result["data"]["grant_id"] == "test-grant"
+
+
+def test_exec_command_reports_timeout_during_initial_wait(tmp_path: Path) -> None:
+    """首轮等待超过 timeout 时终止会话并报告超时。"""
+    command = write_script(
+        tmp_path,
+        "slow_start.py",
+        "\n".join(
+            [
+                "import time",
+                "print('slow-ready', flush=True)",
+                "time.sleep(30)",
+                "",
+            ]
+        ),
+    )
+
+    result = run_async(
+        NativeCoding(root=tmp_path).exec_command(
+            command=command,
+            cwd=".",
+            yield_time_ms=1500,
+            timeout_sec=1,
+            idle_timeout_sec=20,
+            execution=approved_execution(),
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["data"]["tool"] == "exec_command"
+    assert result["data"]["status"] == "exited"
+    assert result["data"]["timed_out"] is True
+    assert result["data"]["reason"] == "command_timed_out"
+    assert "slow-ready" in result["data"]["stdout"]
+
+
+def test_exec_command_truncates_large_initial_output(tmp_path: Path) -> None:
+    """初始输出超过限制时返回截断标记。"""
+    command = write_script(
+        tmp_path,
+        "large_output.py",
+        "\n".join(
+            [
+                "import time",
+                "print('x' * 3000, flush=True)",
+                "time.sleep(30)",
+                "",
+            ]
+        ),
+    )
+
+    async def scenario() -> None:
+        coding = NativeCoding(root=tmp_path)
+        result = await coding.exec_command(
+            command=command,
+            cwd=".",
+            yield_time_ms=500,
+            max_output_chars=1024,
+            timeout_sec=20,
+            idle_timeout_sec=20,
+            execution=approved_execution(),
+        )
+        session_id = result["data"].get("session_id")
+
+        try:
+            assert result["ok"] is True
+            assert result["data"]["status"] == "running"
+            assert result["data"]["stdout_truncated"] is True
+            assert result["data"]["truncated"] is True
+            assert "...[truncated " in result["data"]["stdout"]
+        finally:
+            await terminate_session(coding, session_id)
+
+    run_async(scenario())
 
 
 def test_exec_command_starts_session_and_write_stdin_completes(tmp_path: Path) -> None:
@@ -239,6 +344,313 @@ def test_write_stdin_can_poll_incremental_output(tmp_path: Path) -> None:
             assert "second" in polled["data"]["stdout"]
         finally:
             await terminate_session(coding, session_id)
+
+    run_async(scenario())
+
+
+def test_finalize_cancels_reader_after_drain_timeout() -> None:
+    """进程已退出但 reader 不结束时，会在有限时间内取消 reader。"""
+
+    class ExitedProcess:
+        returncode = 0
+        pid = 12345
+
+    async def never_finishes() -> None:
+        await asyncio.Event().wait()
+
+    async def scenario() -> None:
+        original_timeout = ExecCommandTools.IO_DRAIN_TIMEOUT_SEC
+        ExecCommandTools.IO_DRAIN_TIMEOUT_SEC = 0.05
+        try:
+            session = ExecSession(
+                session_id="exec_test",
+                command="test",
+                cwd=".",
+                process=ExitedProcess(),
+                runtime={},
+                started_at=time.time(),
+                expires_at=time.time() + 10,
+                idle_timeout_sec=10,
+                audit_mode="off",
+                audit_before=None,
+            )
+            reader = asyncio.create_task(never_finishes())
+            session.stdout_task = reader
+
+            started = time.perf_counter()
+            await ExecCommandTools._finalize_if_exited(session)
+            elapsed = time.perf_counter() - started
+
+            assert session.finalized is True
+            assert reader.cancelled() is True
+            assert elapsed < 1
+        finally:
+            ExecCommandTools.IO_DRAIN_TIMEOUT_SEC = original_timeout
+
+    run_async(scenario())
+
+
+def test_terminate_kills_process_tree_with_inherited_output_pipe(tmp_path: Path) -> None:
+    """terminate 会处理仍持有输出管道的子进程。"""
+    write_script(
+        tmp_path,
+        "pipe_holder.py",
+        "\n".join(
+            [
+                "import time",
+                "print('child-ready', flush=True)",
+                "time.sleep(30)",
+                "",
+            ]
+        ),
+    )
+    command = write_script(
+        tmp_path,
+        "spawn_holder.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "import sys",
+                "import time",
+                "child = subprocess.Popen([sys.executable, '-u', 'pipe_holder.py'])",
+                "print(f'parent-ready:{child.pid}', flush=True)",
+                "time.sleep(30)",
+                "",
+            ]
+        ),
+    )
+
+    async def scenario() -> None:
+        coding = NativeCoding(root=tmp_path)
+        start = await coding.exec_command(
+            command=command,
+            cwd=".",
+            yield_time_ms=800,
+            timeout_sec=20,
+            idle_timeout_sec=20,
+            execution=approved_execution(),
+        )
+        session_id = start["data"].get("session_id")
+
+        try:
+            assert start["ok"] is True
+            assert start["data"]["status"] == "running"
+            assert "parent-ready" in start["data"]["stdout"]
+
+            started = time.perf_counter()
+            stopped = await asyncio.wait_for(
+                coding.write_stdin(
+                    session_id=session_id,
+                    control="terminate",
+                    wait_ms=1000,
+                ),
+                timeout=6,
+            )
+            elapsed = time.perf_counter() - started
+
+            assert stopped["ok"] is True
+            assert stopped["data"]["status"] == "exited"
+            assert stopped["data"]["control"] == "terminate"
+            assert elapsed < 6
+        finally:
+            try:
+                await asyncio.wait_for(
+                    coding.write_stdin(
+                        session_id=session_id,
+                        control="kill",
+                        wait_ms=0,
+                    ),
+                    timeout=6,
+                )
+            except (asyncio.TimeoutError, AssertionError):
+                pass
+
+    run_async(scenario())
+
+
+def test_write_stdin_reports_exited_session_before_write(tmp_path: Path) -> None:
+    """会话进程已退出但未被移除时，写入返回已退出原因。"""
+    command = write_script(
+        tmp_path,
+        "quick_exit.py",
+        "\n".join(
+            [
+                "import time",
+                "print('quick-ready', flush=True)",
+                "time.sleep(0.1)",
+                "print('quick-done', flush=True)",
+                "",
+            ]
+        ),
+    )
+
+    async def scenario() -> None:
+        coding = NativeCoding(root=tmp_path)
+        start = await coding.exec_command(
+            command=command,
+            cwd=".",
+            yield_time_ms=50,
+            timeout_sec=10,
+            idle_timeout_sec=10,
+            execution=approved_execution(),
+        )
+        session_id = start["data"].get("session_id")
+
+        assert start["ok"] is True
+        assert start["data"]["status"] == "running"
+
+        await asyncio.sleep(0.4)
+
+        result = await coding.write_stdin(
+            session_id=session_id,
+            stdin="after-exit\n",
+            wait_ms=0,
+        )
+
+        assert result["ok"] is False
+        assert result["data"]["reason"] == "exec_session_exited"
+        assert result["data"]["session_id"] == session_id
+        assert isinstance(result["data"]["exit_code"], int)
+
+    run_async(scenario())
+
+
+def test_write_stdin_reports_closed_stdin(tmp_path: Path) -> None:
+    """stdin 已关闭但进程仍运行时，写入返回 stdin closed。"""
+    command = write_script(
+        tmp_path,
+        "ignore_stdin.py",
+        "\n".join(
+            [
+                "import time",
+                "print('ignoring', flush=True)",
+                "time.sleep(30)",
+                "",
+            ]
+        ),
+    )
+
+    async def scenario() -> None:
+        coding = NativeCoding(root=tmp_path)
+        start = await coding.exec_command(
+            command=command,
+            cwd=".",
+            yield_time_ms=500,
+            timeout_sec=20,
+            idle_timeout_sec=20,
+            execution=approved_execution(),
+        )
+        session_id = start["data"].get("session_id")
+
+        try:
+            assert start["ok"] is True
+            assert start["data"]["status"] == "running"
+
+            closed = await coding.write_stdin(
+                session_id=session_id,
+                control="eof",
+                wait_ms=0,
+            )
+            assert closed["ok"] is True
+            assert closed["data"]["status"] == "running"
+
+            result = await coding.write_stdin(
+                session_id=session_id,
+                stdin="after-eof\n",
+                wait_ms=0,
+            )
+
+            assert result["ok"] is False
+            assert result["data"]["reason"] == "exec_stdin_closed"
+            assert result["data"]["session_id"] == session_id
+        finally:
+            await terminate_session(coding, session_id)
+
+    run_async(scenario())
+
+
+def test_write_stdin_kill_control_exits_session(tmp_path: Path) -> None:
+    """kill 控制会强制结束仍在运行的会话。"""
+    command = write_script(
+        tmp_path,
+        "kill_wait.py",
+        "\n".join(
+            [
+                "import time",
+                "print('kill-ready', flush=True)",
+                "time.sleep(30)",
+                "",
+            ]
+        ),
+    )
+
+    async def scenario() -> None:
+        coding = NativeCoding(root=tmp_path)
+        start = await coding.exec_command(
+            command=command,
+            cwd=".",
+            yield_time_ms=500,
+            timeout_sec=20,
+            idle_timeout_sec=20,
+            execution=approved_execution(),
+        )
+        session_id = start["data"].get("session_id")
+
+        stopped = await coding.write_stdin(
+            session_id=session_id,
+            control="kill",
+            wait_ms=1000,
+        )
+
+        assert stopped["ok"] is True
+        assert stopped["data"]["status"] == "exited"
+        assert stopped["data"]["control"] == "kill"
+        assert stopped["data"]["session_id"] == session_id
+
+    run_async(scenario())
+
+
+def test_write_stdin_idle_cleanup_removes_session(tmp_path: Path) -> None:
+    """空闲超时会在下一次访问时清理会话。"""
+    command = write_script(
+        tmp_path,
+        "idle_wait.py",
+        "\n".join(
+            [
+                "import time",
+                "print('idle-ready', flush=True)",
+                "time.sleep(30)",
+                "",
+            ]
+        ),
+    )
+
+    async def scenario() -> None:
+        coding = NativeCoding(root=tmp_path)
+        start = await coding.exec_command(
+            command=command,
+            cwd=".",
+            yield_time_ms=500,
+            timeout_sec=20,
+            idle_timeout_sec=1,
+            execution=approved_execution(),
+        )
+        session_id = start["data"].get("session_id")
+
+        assert start["ok"] is True
+        assert start["data"]["status"] == "running"
+
+        await asyncio.sleep(1.2)
+
+        result = await coding.write_stdin(
+            session_id=session_id,
+            stdin="after-idle\n",
+            wait_ms=0,
+        )
+
+        assert result["ok"] is False
+        assert result["data"]["reason"] == "exec_session_not_found"
+        assert result["data"]["session_id"] == session_id
 
     run_async(scenario())
 
@@ -431,4 +843,3 @@ def test_exec_command_and_write_stdin_client_tool_handlers(tmp_path: Path) -> No
             await terminate_session(coding, session_id)
 
     run_async(scenario())
-

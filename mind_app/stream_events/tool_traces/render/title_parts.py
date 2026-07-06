@@ -3,7 +3,6 @@
 
 import re
 import typing
-
 from ..command_parts import render_command_parts
 from ..common import (
     ACTION_EDIT_STYLE,
@@ -81,30 +80,30 @@ def _styled_action_body_parts(
     leading     = body[:leading_len]
     rest        = body[leading_len:]
 
-    action, sep, tail = rest.partition(" ")
+    action, tail = _split_action(rest)
 
     parts: list[dict[str, typing.Optional[str]]] = []
     if leading:
         parts.append(part(leading, base_style))
     if action:
         parts.append(part(action, action_style))
-    if action == "Ran":
-        parts.extend(_ran_command_parts(f"{sep}{tail}", base_style=base_style, ok=ok, part=part))
+    if action in {"Ran", "Started"}:
+        parts.extend(_command_tail_parts(tail, base_style=base_style, ok=ok, part=part))
         return parts
-    if sep or tail:
-        parts.extend(_plain_body_parts(f"{sep}{tail}", base_style=base_style, ok=ok, part=part))
+    if tail:
+        parts.extend(_plain_body_parts(tail, base_style=base_style, ok=ok, part=part))
 
     return parts
 
 
-def _ran_command_parts(
+def _command_tail_parts(
     body: str,
     *,
     base_style: str,
     ok: bool,
     part: typing.Callable[[str, str | None], dict[str, typing.Optional[str]]],
 ) -> list[dict[str, typing.Optional[str]]]:
-    """把 Ran 后面的命令拆成独立颜色。"""
+    """把动作词后面的命令拆成独立颜色。"""
     if not body:
         return []
 
@@ -136,18 +135,30 @@ def _plain_body_parts(
     return [part(body, base_style)]
 
 
+def _split_action(body: str) -> tuple[str, str]:
+    """拆分标题动作前缀和剩余文本。"""
+    for action in ("Wrote stdin",):
+        if body == action:
+            return action, ""
+        if body.startswith(f"{action} "):
+            return action, body[len(action):]
+
+    action, sep, tail = body.partition(" ")
+    return action, f"{sep}{tail}" if sep or tail else ""
+
+
 def _action_style_for_body(
     body: str
 ) -> str | None:
     """返回标题动作前缀的弱分类颜色。"""
     text  = body.lstrip()
-    first = text.split(" ", 1)[0] if text else ""
+    first, _tail = _split_action(text)
 
     if first in {"Added", "Edited", "Deleted", "Patch"}:
         return ACTION_EDIT_STYLE
-    if first in {"Explored", "Ran"}:
+    if first in {"Ran", "Started"}:
         return ACTION_RUN_STYLE
-    if first == "Tool":
+    if first in {"Tool", "Wrote stdin"}:
         return ACTION_TOOL_STYLE
 
     return None
