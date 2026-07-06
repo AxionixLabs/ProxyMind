@@ -128,7 +128,7 @@ class PromptToolkitBox(object):
             "prompt.access.full"                      : "bold #D8B26E",
             "prompt.workspace"                        : "bold #8A929C",
             "prompt.exec"                             : "bold #8FC7EA",
-            "prompt.exec.command"                     : "bold #A8B1BB",
+            "prompt.exec.command"                     : "dim #A8B1BB",
             "placeholder"                             : "bold #727983",
             "auto-suggestion"                         : "#5A616A bg:#0A0D18",
             "skill-token"                             : "bold #8FD7FF",

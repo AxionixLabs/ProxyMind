@@ -88,16 +88,16 @@ def exec_status_display_label(
     if not isinstance(snapshot, dict):
         return ""
 
-    items = snapshot.get("items")
-    if not isinstance(items, list) or not items:
+    raw_items = snapshot.get("items")
+    if not isinstance(raw_items, list) or not raw_items:
         return ""
 
-    first = next((item for item in items if isinstance(item, dict)), None)
-    if first is None:
+    items = [item for item in raw_items if isinstance(item, dict)]
+    if not items:
         return ""
 
     count  = snapshot.get("count")
-    total  = int(count) if isinstance(count, int) else len(items)
+    total  = int(count) if isinstance(count, int) and count >= len(items) else len(items)
     extra  = max(0, total - 1)
     suffix = f" · +{extra}" if extra else ""
 
@@ -106,7 +106,7 @@ def exec_status_display_label(
         line_width=line_width,
         suffix=suffix
     )
-    command = _clip_exec_status_command(first.get("command"), limit=limit)
+    command = _clip_exec_status_command(items[0].get("command"), limit=limit)
     if not command:
         return ""
 
@@ -132,10 +132,10 @@ def _exec_status_command_limit(
 
     available = width - 7 - len(suffix)
 
-    return max(
-        EXEC_STATUS_COMMAND_MIN,
-        min(EXEC_STATUS_COMMAND_MAX, available)
-    )
+    if available < EXEC_STATUS_COMMAND_MIN:
+        return max(1, available)
+
+    return min(EXEC_STATUS_COMMAND_MAX, available)
 
 
 def _clip_exec_status_command(value: typing.Any, *, limit: int) -> str:

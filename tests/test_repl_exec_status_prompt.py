@@ -41,7 +41,27 @@ def test_exec_status_display_label_uses_terminal_width() -> None:
         "items": [{"command": "python " + ("x" * 40)}],
     }
 
-    assert exec_status_display_label(snapshot, line_width=24) == "python xxxx… · +11"
+    assert exec_status_display_label(snapshot, line_width=24) == "python xxx… · +11"
+
+
+def test_exec_status_display_label_allows_very_narrow_width() -> None:
+    """极窄窗口下不强制撑到默认最小命令宽度。"""
+    snapshot = {
+        "count": 1,
+        "items": [{"command": "abcdef"}],
+    }
+
+    assert exec_status_display_label(snapshot, line_width=10) == "ab…"
+
+
+def test_exec_status_display_label_ignores_invalid_items_for_extra_count() -> None:
+    """无效 item 不影响首项选择和额外数量兜底。"""
+    snapshot = {
+        "count": 1,
+        "items": [None, {"command": "adb logcat"}, {"command": "npm run dev"}],
+    }
+
+    assert exec_status_display_label(snapshot) == "adb logcat · +1"
 
 
 def test_prompt_message_includes_exec_status_line_when_present() -> None:
