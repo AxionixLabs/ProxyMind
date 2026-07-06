@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from mind_app.runtime.config_service.storage import load_pref, save_pref
+from server.storage import load_pref, save_pref
 from mind_core.config import ensure_config, load_config
 
 

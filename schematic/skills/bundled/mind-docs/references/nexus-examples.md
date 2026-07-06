@@ -38,7 +38,7 @@ description: Nexus 稳定示例库，教模型把接口任务收束成可执行�
 自然语言写法：
 
 ```bash
-mind --fast --helix "对 https://api.example.com/login 做 POST，请求体包含 username 和 password，校验状态码 200，断言 response.body_json.ok=true，拿到 token、user_id 和 trace_id，并返回摘要。"
+mind --fast --mcp "对 https://api.example.com/login 做 POST，请求体包含 username 和 password，校验状态码 200，断言 response.body_json.ok=true，拿到 token、user_id 和 trace_id，并返回摘要。"
 ```
 
 稳定样例：
@@ -70,21 +70,21 @@ mind --fast --helix "对 https://api.example.com/login 做 POST，请求体包�
 补充示例：
 
 ```bash
-mind --fast --helix "先只校验这组 HTTP 回归样本的结构是否完整：公共鉴权头放在共享层，每条样本只保留自己的差异内容；检查并发设置和失败策略是否合理，返回展开后的预览摘要，不实际发请求。"
+mind --fast --mcp "先只校验这组 HTTP 回归样本的结构是否完整：公共鉴权头放在共享层，每条样本只保留自己的差异内容；检查并发设置和失败策略是否合理，返回展开后的预览摘要，不实际发请求。"
 ```
 
 ```bash
-mind --fast --helix "先发送登录请求并拿到 token；再用这个 token 访问 profile 和 order 接口；分别校验状态码和业务字段，返回每一步拿到的结果、最终结论和失败步骤。"
+mind --fast --mcp "先发送登录请求并拿到 token；再用这个 token 访问 profile 和 order 接口；分别校验状态码和业务字段，返回每一步拿到的结果、最终结论和失败步骤。"
 ```
 
 ```bash
-mind --fast --helix "对 websocket 地址建立连接，发送一条启动消息；拿到第一条返回里的 job_id，再校验最后一条消息里的状态为 success，返回消息摘要。"
+mind --fast --mcp "对 websocket 地址建立连接，发送一条启动消息；拿到第一条返回里的 job_id，再校验最后一条消息里的状态为 success，返回消息摘要。"
 ```
 
 ## Bad Examples
 
 ```bash
-mind --fast --helix "测一下登录接口。"
+mind --fast --mcp "测一下登录接口。"
 ```
 
 问题：
@@ -103,7 +103,7 @@ mind --fast --helix "测一下登录接口。"
 - 继续追加样本时，内容容易串块。
 
 ```bash
-mind --fast --helix "把这一批接口都跑一下，能跑就行。"
+mind --fast --mcp "把这一批接口都跑一下，能跑就行。"
 ```
 
 问题：
@@ -113,7 +113,7 @@ mind --fast --helix "把这一批接口都跑一下，能跑就行。"
 - 没写最终要返回逐条结果还是总体汇总。
 
 ```bash
-mind --fast --helix "先帮我看看请求长什么样，再顺手发出去。"
+mind --fast --mcp "先帮我看看请求长什么样，再顺手发出去。"
 ```
 
 问题：
@@ -178,11 +178,11 @@ mind --fast --helix "先帮我看看请求长什么样，再顺手发出去。"
 ### 自然语言版本举例
 
 ```bash
-mind --fast --helix "发登录请求，拿到 token 和 uid，供下一步访问用户资料接口使用。"
+mind --fast --mcp "发登录请求，拿到 token 和 uid，供下一步访问用户资料接口使用。"
 ```
 
 ```bash
-mind --fast --helix "连接 websocket，拿到第一条消息里的 job_id，并确认最后一条消息里的状态，返回消息摘要。"
+mind --fast --mcp "连接 websocket，拿到第一条消息里的 job_id，并确认最后一条消息里的状态，返回消息摘要。"
 ```
 
 ## 鉴权用法
@@ -206,13 +206,13 @@ mind --fast --helix "连接 websocket，拿到第一条消息里的 job_id，并
 ### 方式一：静态 Bearer Token
 
 ```bash
-mind --fast --helix "发送 GET https://api.example.com/profile，请求头带 Authorization: Bearer demo-token，校验状态码 200，并返回摘要。"
+mind --fast --mcp "发送 GET https://api.example.com/profile，请求头带 Authorization: Bearer demo-token，校验状态码 200，并返回摘要。"
 ```
 
 ### 方式二：动态 Bearer Token
 
 ```bash
-mind --fast --helix "先请求登录接口并拿到 token；再发送 GET https://api.example.com/profile，请求头带这个 token；校验状态码 200，并返回拿到的结果与摘要。"
+mind --fast --mcp "先请求登录接口并拿到 token；再发送 GET https://api.example.com/profile，请求头带这个 token；校验状态码 200，并返回拿到的结果与摘要。"
 ```
 
 这种方式适合：
@@ -224,19 +224,19 @@ mind --fast --helix "先请求登录接口并拿到 token；再发送 GET https:
 ### 方式三：Basic 认证
 
 ```bash
-mind --fast --helix "发送 GET https://api.example.com/profile，使用 Basic 认证；校验状态码 200，并返回摘要。"
+mind --fast --mcp "发送 GET https://api.example.com/profile，使用 Basic 认证；校验状态码 200，并返回摘要。"
 ```
 
 ### 方式四：Cookie / Session 鉴权
 
 ```bash
-mind --fast --helix "发送 GET https://api.example.com/profile，请求头带已有 Cookie 和 Session 信息，校验状态码 200，并返回摘要。"
+mind --fast --mcp "发送 GET https://api.example.com/profile，请求头带已有 Cookie 和 Session 信息，校验状态码 200，并返回摘要。"
 ```
 
 ### 方式五：API Key / 自定义头
 
 ```bash
-mind --fast --helix "发送 GET https://api.example.com/profile，请求头带 X-App-Id 和 X-Api-Key，校验状态码 200，并返回摘要。"
+mind --fast --mcp "发送 GET https://api.example.com/profile，请求头带 X-App-Id 和 X-Api-Key，校验状态码 200，并返回摘要。"
 ```
 
 ### 方式六：签名鉴权
@@ -250,13 +250,13 @@ mind --fast --helix "发送 GET https://api.example.com/profile，请求头带 X
 典型写法：
 
 ```bash
-mind --fast --helix "先准备时间戳、nonce 和签名原文；再生成 HMAC 签名；然后发送支付接口请求，请求头带 X-App-Id、X-Timestamp、X-Nonce、X-Sign；校验状态码 200 和支付状态为成功，并提取 trace_id。"
+mind --fast --mcp "先准备时间戳、nonce 和签名原文；再生成 HMAC 签名；然后发送支付接口请求，请求头带 X-App-Id、X-Timestamp、X-Nonce、X-Sign；校验状态码 200 和支付状态为成功，并提取 trace_id。"
 ```
 
 ### 方式七：JWT 鉴权
 
 ```bash
-mind --fast --helix "先生成 HS256 JWT；再发送 GET /profile，请求头带 Authorization: Bearer 这个 token；校验状态码 200，并返回摘要。"
+mind --fast --mcp "先生成 HS256 JWT；再发送 GET /profile，请求头带 Authorization: Bearer 这个 token；校验状态码 200，并返回摘要。"
 ```
 
 ### 鉴权最佳实践
@@ -303,11 +303,11 @@ mind --fast --helix "先生成 HS256 JWT；再发送 GET /profile，请求头带
 ### 自然语言版本举例
 
 ```bash
-mind --fast --helix "先只预览这份请求，确认 tenant、token 和请求 ID 都能被正确展开；返回展开后的请求摘要，不实际发请求。"
+mind --fast --mcp "先只预览这份请求，确认 tenant、token 和请求 ID 都能被正确展开；返回展开后的请求摘要，不实际发请求。"
 ```
 
 ```bash
-mind --fast --helix "校验这组批量样本里，每条样本是否都只保留自己的差异内容，共享 token 和公共头是否已经正确放在共享层；返回校验结论，不实际执行。"
+mind --fast --mcp "校验这组批量样本里，每条样本是否都只保留自己的差异内容，共享 token 和公共头是否已经正确放在共享层；返回校验结论，不实际执行。"
 ```
 
 ### SSE batch 特别注意
@@ -331,19 +331,19 @@ mind --fast --helix "校验这组批量样本里，每条样本是否都只保�
 ### 闭环一：登录后提取 token
 
 ```bash
-mind --fast --helix "发送 POST https://api.example.com/api/login，请求体带 username 和 password；断言状态码 200 和业务成功；拿到 token，返回摘要。"
+mind --fast --mcp "发送 POST https://api.example.com/api/login，请求体带 username 和 password；断言状态码 200 和业务成功；拿到 token，返回摘要。"
 ```
 
 ### 闭环二：带 Bearer token 访问受保护接口
 
 ```bash
-mind --fast --helix "先请求登录接口并拿到 token；再发送 GET https://api.example.com/profile，请求头带这个 token；断言状态码 200 和 ready 字段为 true；返回每一步摘要。"
+mind --fast --mcp "先请求登录接口并拿到 token；再发送 GET https://api.example.com/profile，请求头带这个 token；断言状态码 200 和 ready 字段为 true；返回每一步摘要。"
 ```
 
 ### 闭环三：签名请求
 
 ```bash
-mind --fast --helix "先准备 ts、nonce 和签名原文；再计算 HMAC 签名；然后发送支付接口请求，请求头带签名相关字段；断言状态码 200 和支付状态为成功，并拿到 trace_id。"
+mind --fast --mcp "先准备 ts、nonce 和签名原文；再计算 HMAC 签名；然后发送支付接口请求，请求头带签名相关字段；断言状态码 200 和支付状态为成功，并拿到 trace_id。"
 ```
 
 ## 最后再记一遍边界

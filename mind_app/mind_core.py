@@ -33,7 +33,7 @@ from .runtime.support.calling import (
 )
 from .runtime.mcp.keepalive import run_keepalive
 from .runtime.mcp.external import ExternalMcpRuntime
-from .runtime.config_service import ConfigServiceRuntime
+from server import ConfigServiceRuntime
 from .runtime.support.conversation import ConversationState
 from .runtime.mcp.tool_runtime import (
     CompositeToolRuntime,

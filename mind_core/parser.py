@@ -131,7 +131,7 @@ class Parser(object):
         )
 
         minor_group.add_argument(
-            "--helix", action="store_true",
+            "--mcp", action="store_true",
             help=textwrap.dedent(f'''\
                 \033[1;36m^* 中枢协议 *^\033[0m
                 -------------------------

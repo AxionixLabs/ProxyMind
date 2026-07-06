@@ -1,6 +1,6 @@
 {
   "name": "@craftline/mind-darwin",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Mind macOS runtime package.",
   "os": [
     "darwin"

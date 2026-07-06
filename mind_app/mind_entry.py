@@ -294,7 +294,7 @@ async def _run_main(
         handler.bind_delegate(mind.signal_processor)
 
     try:
-        if cmd_lines.helix:
+        if cmd_lines.mcp:
             helix_linked = await prepare_and_start_service_runtime(mind)
             if not helix_linked:
                 Design.console.print("[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]")

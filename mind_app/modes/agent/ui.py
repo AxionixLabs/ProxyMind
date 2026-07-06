@@ -8,7 +8,7 @@ from mind_core.design import Design
 from .models import (
     AgentLiveStatus, AgentSessionRuntime
 )
-from ...runtime.config_service import config_service_base_url
+from server import config_service_base_url
 
 if typing.TYPE_CHECKING:
     from ...mind_core import Mind

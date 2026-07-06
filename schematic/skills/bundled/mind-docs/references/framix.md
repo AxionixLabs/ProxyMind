@@ -30,8 +30,8 @@ description: 录屏真值分析对象，定位用户可见过程的最慢阶段�
 
 | 输入情况 | 推荐模式 |
 | --- | --- |
-| 已有录屏，直接分析 | `mind --chat --helix` |
-| 需要先录再分析 | `mind --plan --helix` |
+| 已有录屏，直接分析 | `mind --chat --mcp` |
+| 需要先录再分析 | `mind --plan --mcp` |
 | 只做文件处理，不做真值分析 | 转到 [Media 场景](media.md) |
 
 ## Core Rules
@@ -47,27 +47,27 @@ description: 录屏真值分析对象，定位用户可见过程的最慢阶段�
 ## Good Examples
 
 ```bash
-mind --chat --helix "分析本地录屏文件 ./artifacts/perf/home_to_detail.mp4，路径是首页到详情页。重点看端到端耗时、首字上屏和尾字上屏，定位最慢阶段，并生成阶段帧报告和证据路径。"
+mind --chat --mcp "分析本地录屏文件 ./artifacts/perf/home_to_detail.mp4，路径是首页到详情页。重点看端到端耗时、首字上屏和尾字上屏，定位最慢阶段，并生成阶段帧报告和证据路径。"
 ```
 
 ```bash
-mind --plan --helix "开始一段覆盖完整交互流程的录屏。打开 com.example.app 并进入目标页面。完成一次首页到详情页的典型操作。停止录制。基于这段录屏生成 Framix 阶段报告，重点看端到端耗时、首字上屏、尾字上屏和流式 tokens。"
+mind --plan --mcp "开始一段覆盖完整交互流程的录屏。打开 com.example.app 并进入目标页面。完成一次首页到详情页的典型操作。停止录制。基于这段录屏生成 Framix 阶段报告，重点看端到端耗时、首字上屏、尾字上屏和流式 tokens。"
 ```
 
 补充示例：
 
 ```bash
-mind --chat --helix "直接分析本地录屏 ./artifacts/perf/home_to_detail.mp4，重点看首页到详情页这条路径的端到端耗时、首字上屏和尾字上屏；返回最慢阶段、关键帧结论和证据路径。"
+mind --chat --mcp "直接分析本地录屏 ./artifacts/perf/home_to_detail.mp4，重点看首页到详情页这条路径的端到端耗时、首字上屏和尾字上屏；返回最慢阶段、关键帧结论和证据路径。"
 ```
 
 ```bash
-mind --chat --helix "基于已经完成的 Framix 分析结果生成最终报告，不重跑视频分析；输出阶段结论、最慢区间和可回看的证据路径。"
+mind --chat --mcp "基于已经完成的 Framix 分析结果生成最终报告，不重跑视频分析；输出阶段结论、最慢区间和可回看的证据路径。"
 ```
 
 ## Bad Examples
 
 ```bash
-mind --chat --helix "帮我看下这个视频。"
+mind --chat --mcp "帮我看下这个视频。"
 ```
 
 问题：
@@ -77,7 +77,7 @@ mind --chat --helix "帮我看下这个视频。"
 - 没说要什么结果形态。
 
 ```bash
-mind --chat --helix "分析这段首页到详情页的录屏，重点看端到端耗时、首字上屏和尾字上屏，定位最慢阶段，并生成阶段帧报告。" --attach ./artifacts/perf/home_to_detail.mp4
+mind --chat --mcp "分析这段首页到详情页的录屏，重点看端到端耗时、首字上屏和尾字上屏，定位最慢阶段，并生成阶段帧报告。" --attach ./artifacts/perf/home_to_detail.mp4
 ```
 
 问题：

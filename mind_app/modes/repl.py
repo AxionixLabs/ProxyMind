@@ -44,7 +44,7 @@ from .support.repl_turn import (
     print_turn_body_gap,
     run_repl_model_turn
 )
-from ..runtime.config_service import config_service_base_url
+from server import config_service_base_url
 from ..history.resume_menu import choose_history_session
 
 if typing.TYPE_CHECKING:

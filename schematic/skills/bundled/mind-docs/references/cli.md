@@ -11,13 +11,13 @@ description: 选择 Mind CLI 领域入口、Helix provider 和命令形态的决
 
 你只需要记住的输出形态：
 
-- `mind --chat "..." --helix`
-- `mind --fast "..." --helix`
-- `mind --plan "..." --helix`
+- `mind --chat "..." --mcp`
+- `mind --fast "..." --mcp`
+- `mind --plan "..." --mcp`
 - `mind --xtra "..."`
 - `mind --agent`
-- `mind --fast --helix --code <source...>`
-- `mind --plan --helix --code <source...>`
+- `mind --fast --mcp --code <source...>`
+- `mind --plan --mcp --code <source...>`
 - `mind --xtra --code <source...>`
 
 ## When To Use
@@ -35,13 +35,13 @@ description: 选择 Mind CLI 领域入口、Helix provider 和命令形态的决
 
 | 输入特征 | 推荐入口 | 不推荐 |
 | --- | --- | --- |
-| Android、设备 UI、Framix、Memrix 的单次探索或状态查询 | `--chat --helix` | `--xtra` |
-| Android / 设备 UI 需要按顺序执行多条指令 | `--plan --helix` | `--fast` |
-| 接口、协议、压测、媒体处理、多媒体文件任务 | `--fast --helix` | `--plan` |
-| 接口或媒体批量回归、样本回放 | `--fast --helix --code` | `--plan --code` |
-| Android 多步骤巡检需要固化为批跑材料 | `--plan --helix --code` | `--fast --code` |
+| Android、设备 UI、Framix、Memrix 的单次探索或状态查询 | `--chat --mcp` | `--xtra` |
+| Android / 设备 UI 需要按顺序执行多条指令 | `--plan --mcp` | `--fast` |
+| 接口、协议、压测、媒体处理、多媒体文件任务 | `--fast --mcp` | `--plan` |
+| 接口或媒体批量回归、样本回放 | `--fast --mcp --code` | `--plan --code` |
+| Android 多步骤巡检需要固化为批跑材料 | `--plan --mcp --code` | `--fast --code` |
 | 外接 MCP、Mind native coding、代码修改、第三方服务协作 | `--xtra` | `--chat/--fast/--plan` |
-| 外接 MCP 或编码任务需要批量执行 | `--xtra --code` | 叠加 `--helix` |
+| 外接 MCP 或编码任务需要批量执行 | `--xtra --code` | 叠加 `--mcp` |
 | 订阅式 Agent 会话、远端持续执行 | `--agent` | 用一次性入口代替 |
 
 ## Core Rules
@@ -50,7 +50,7 @@ description: 选择 Mind CLI 领域入口、Helix provider 和命令形态的决
 - `fast` 是接口、协议、多媒体等 Helix MCP 执行面。
 - `plan` 是 `chat` 的规划模式，用于顺序执行多条 Android / 设备类指令，不用于接口或多媒体任务。
 - `xtra` 没有 Helix MCP；它只面向 Mind native coding tools 和已连接 external MCP tools。
-- `--helix` 只用于启动并挂载 Helix provider；不要和 `xtra` 绑定成默认写法。
+- `--mcp` 只用于启动并挂载 Helix provider；不要和 `xtra` 绑定成默认写法。
 - 一条命令只用一个主入口。
 - `--code` 不是独立入口，必须附着在对应领域入口上。
 - `--agent` 是独立主入口，用于订阅式会话；不要和 `--code` 或 `--attach` 混用。
@@ -64,19 +64,19 @@ description: 选择 Mind CLI 领域入口、Helix provider 和命令形态的决
 ## Good Examples
 
 ```bash
-mind --chat "读取当前 Android 前台页面状态，返回包名、页面摘要和关键可见元素。" --helix
+mind --chat "读取当前 Android 前台页面状态，返回包名、页面摘要和关键可见元素。" --mcp
 ```
 
 ```bash
-mind --fast "对 https://api.example.com/profile 做 GET 请求，校验状态码 200，提取 user_id、nickname 和 trace_id，并返回摘要。" --helix
+mind --fast "对 https://api.example.com/profile 做 GET 请求，校验状态码 200，提取 user_id、nickname 和 trace_id，并返回摘要。" --mcp
 ```
 
 ```bash
-mind --plan "启动 xx 应用，进入登录页，输入测试账号密码并点击登录；等待首页主标题出现；若失败立即截图并导出日志；返回通过/失败结论、失败步骤和证据路径。" --helix
+mind --plan "启动 xx 应用，进入登录页，输入测试账号密码并点击登录；等待首页主标题出现；若失败立即截图并导出日志；返回通过/失败结论、失败步骤和证据路径。" --mcp
 ```
 
 ```bash
-mind --fast "从 demo.mp4 裁剪 00:00:05-00:00:12，提取 6 张关键帧，返回输出路径和摘要。" --helix
+mind --fast "从 demo.mp4 裁剪 00:00:05-00:00:12，提取 6 张关键帧，返回输出路径和摘要。" --mcp
 ```
 
 ```bash
@@ -84,7 +84,7 @@ mind --xtra "梳理这个仓库的核心模块、入口文件和主要数据流�
 ```
 
 ```bash
-mind --fast --helix --code api_regression.md
+mind --fast --mcp --code api_regression.md
 ```
 
 ```bash
@@ -98,7 +98,7 @@ mind --agent
 ## Bad Examples
 
 ```bash
-mind --plan "测一下登录接口。" --helix
+mind --plan "测一下登录接口。" --mcp
 ```
 
 问题：
@@ -116,7 +116,7 @@ mind --xtra "启动 Android 应用并点击登录。"
 - `xtra` 没有 Helix MCP。
 
 ```bash
-mind --fast "从首页点击到详情页，再返回首页并截图。" --helix
+mind --fast "从首页点击到详情页，再返回首页并截图。" --mcp
 ```
 
 问题：

@@ -46,7 +46,7 @@ mind --xtra "调用 hosted tool 查文档。"
 - 不具备外部稳定语义。
 
 ```bash
-mind --fast --helix "测一下接口。"
+mind --fast --mcp "测一下接口。"
 ```
 
 问题：
@@ -64,7 +64,7 @@ mind --xtra "查找 Mind CLI 的运行模式和常用命令，返回最短可执
 ```
 
 ```bash
-mind --fast --helix "对 https://api.example.com/profile 做 GET 请求，校验状态码 200，断言 response.body_json.ok=true，提取 user_id、nickname 和 trace_id，并返回摘要。"
+mind --fast --mcp "对 https://api.example.com/profile 做 GET 请求，校验状态码 200，断言 response.body_json.ok=true，提取 user_id、nickname 和 trace_id，并返回摘要。"
 ```
 
 ## Checklist

@@ -8,7 +8,7 @@ from mind_nova import const
 
 def web_dir() -> Path:
     """返回配置服务页面目录。"""
-    return Path(__file__).with_name("web")
+    return Path(__file__).resolve().parent.parent / "web"
 
 
 def render_page(name: str) -> Response:

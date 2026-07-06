@@ -39,5 +39,5 @@ description: Mind 任务写法、领域执行入口、Helix provider、接口验
 ## Stable Template
 
 ```bash
-mind --fast --helix "对 https://api.example.com/profile 做 GET，请求携带测试 token，校验状态码 200，提取 user_id、nickname 和 trace_id，并返回摘要。"
+mind --fast --mcp "对 https://api.example.com/profile 做 GET，请求携带测试 token，校验状态码 200，提取 user_id、nickname 和 trace_id，并返回摘要。"
 ```
