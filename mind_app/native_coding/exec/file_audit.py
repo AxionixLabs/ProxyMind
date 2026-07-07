@@ -30,7 +30,7 @@ class FileAudit(NativeCodingComponent):
             count += 1
             if len(files) >= limit:
                 truncated = True
-                continue
+                break
 
             try:
                 stat = item.stat()

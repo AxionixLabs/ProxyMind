@@ -23,6 +23,10 @@ class ShellCommandTools(NativeCodingComponent):
         "dir",
         "echo",
         "find",
+        "gc",
+        "gci",
+        "get-childitem",
+        "get-content",
         "git",
         "grep",
         "head",
@@ -30,6 +34,8 @@ class ShellCommandTools(NativeCodingComponent):
         "python",
         "python3",
         "py",
+        "select-string",
+        "sls",
         "tail",
         "type",
         "where"
@@ -175,7 +181,7 @@ class ShellCommandTools(NativeCodingComponent):
         cwd: str = ".",
         timeout_sec: int = 60,
         execution: dict[str, typing.Any] | None = None,
-        audit_files: bool = True
+        audit_files: bool = False
     ) -> dict[str, typing.Any]:
         """按执行元数据运行 shell 命令，必要时返回云端沙盒交接结果。"""
         cmd = str(command or "").strip()

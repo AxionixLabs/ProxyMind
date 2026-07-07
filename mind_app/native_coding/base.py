@@ -92,7 +92,7 @@ class NativeCodingBase(object):
         ".vue"
     }
 
-    def __init__(self, root: str | None = None) -> None:
+    def __init__(self, root: str | os.PathLike[str] | None = None) -> None:
         """初始化工作区根目录和默认读写输出限制。"""
         self.root = Path(root or os.getcwd()).resolve()
 

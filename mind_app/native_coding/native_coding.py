@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import os
 import typing
 from mind_app.native_coding.base import NativeCodingBase
 from mind_app.native_coding.exec.shell_batch import ShellBatchTools
@@ -14,7 +15,7 @@ from mind_app.native_coding.exec.file_audit import FileAudit
 class NativeCoding(NativeCodingBase):
     """由可组合工具组件支撑的原生编码服务入口。"""
 
-    def __init__(self, root: str | None = None) -> None:
+    def __init__(self, root: str | os.PathLike[str] | None = None) -> None:
         """初始化共享运行时状态并装配各能力组件。"""
         super().__init__(root=root)
 

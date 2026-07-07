@@ -10,6 +10,14 @@ def apply_patch_text(*lines: str) -> str:
     return "\n".join(["*** Begin Patch", *lines, "*** End Patch"])
 
 
+def single_delta_change(result: dict) -> dict:
+    """返回 apply_patch 结果中的唯一 delta change。"""
+    delta = result["data"]["delta"]
+    assert delta["exact"] is True
+    assert len(delta["changes"]) == 1
+    return delta["changes"][0]
+
+
 def test_missing_begin_returns_reason(tmp_path: Path) -> None:
     """缺少起始标记时返回稳定失败原因。"""
     patch = "*** Add File: demo.txt\n+hello\n*** End Patch"
@@ -34,6 +42,11 @@ def test_add_file_patch_writes_file(tmp_path: Path) -> None:
     assert target.read_text(encoding="utf-8") == "hello\n"
     assert result["data"]["file_count"] == 1
     assert result["data"]["created_files"][0]["path"] == "demo.txt"
+    change = single_delta_change(result)
+    assert change["action"] == "create"
+    assert change["path"] == "demo.txt"
+    assert change["old_content"] is None
+    assert change["new_content"] == "hello\n"
 
 
 def test_add_file_patch_creates_nested_parent(tmp_path: Path) -> None:
@@ -67,7 +80,7 @@ def test_add_file_patch_preserves_missing_final_newline(tmp_path: Path) -> None:
 def test_update_file_patch_modifies_existing_text(tmp_path: Path) -> None:
     """更新补丁会按上下文修改已有文件。"""
     target = tmp_path / "demo.txt"
-    target.write_text("alpha\nbeta\n", encoding="utf-8")
+    target.write_text("alpha\nbeta\n", encoding="utf-8", newline="")
     patch = apply_patch_text(
         "*** Update File: demo.txt",
         "@@",
@@ -83,6 +96,11 @@ def test_update_file_patch_modifies_existing_text(tmp_path: Path) -> None:
     assert result["data"]["updated_files"][0]["path"] == "demo.txt"
     assert result["data"]["added_lines"] == 1
     assert result["data"]["removed_lines"] == 1
+    change = single_delta_change(result)
+    assert change["action"] == "modify"
+    assert change["path"] == "demo.txt"
+    assert change["old_content"] == "alpha\nbeta\n"
+    assert change["new_content"] == "alpha\ngamma\n"
 
 
 def test_update_file_patch_relocates_unique_context(tmp_path: Path) -> None:
@@ -107,7 +125,7 @@ def test_update_file_patch_relocates_unique_context(tmp_path: Path) -> None:
 def test_delete_file_patch_removes_file(tmp_path: Path) -> None:
     """删除补丁会移除工作区内文件。"""
     target = tmp_path / "remove.txt"
-    target.write_text("gone\n", encoding="utf-8")
+    target.write_text("gone\n", encoding="utf-8", newline="")
     patch = apply_patch_text("*** Delete File: remove.txt")
 
     result = NativeCoding(root=tmp_path).apply_patch(patch=patch)
@@ -115,12 +133,17 @@ def test_delete_file_patch_removes_file(tmp_path: Path) -> None:
     assert result["ok"] is True
     assert not target.exists()
     assert result["data"]["deleted_files"][0]["path"] == "remove.txt"
+    change = single_delta_change(result)
+    assert change["action"] == "delete"
+    assert change["path"] == "remove.txt"
+    assert change["old_content"] == "gone\n"
+    assert change["new_content"] is None
 
 
 def test_rename_file_patch_moves_and_updates_file(tmp_path: Path) -> None:
     """重命名补丁会移动源文件并写入更新内容。"""
     source = tmp_path / "old.txt"
-    source.write_text("old\n", encoding="utf-8")
+    source.write_text("old\n", encoding="utf-8", newline="")
     patch = apply_patch_text(
         "*** Update File: old.txt",
         "*** Move to: new.txt",
@@ -136,6 +159,12 @@ def test_rename_file_patch_moves_and_updates_file(tmp_path: Path) -> None:
     assert (tmp_path / "new.txt").read_text(encoding="utf-8") == "new\n"
     assert result["data"]["changed_files"][0]["action"] == "rename"
     assert result["data"]["changed_files"][0]["source_path"] == "old.txt"
+    change = single_delta_change(result)
+    assert change["action"] == "rename"
+    assert change["path"] == "new.txt"
+    assert change["source_path"] == "old.txt"
+    assert change["old_content"] == "old\n"
+    assert change["new_content"] == "new\n"
 
 
 def test_patch_rejects_path_outside_workspace(tmp_path: Path) -> None:

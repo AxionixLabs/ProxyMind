@@ -4,6 +4,8 @@ import asyncio
 from pathlib import Path
 
 from mind_app.native_coding import NativeCoding
+from mind_app.native_coding.exec.file_audit import FileAudit
+from mind_app.native_coding.exec.shell_exec import ShellCommandTools
 
 
 def approved_execution(**overrides: object) -> dict[str, object]:
@@ -30,6 +32,31 @@ def write_script(root: Path, name: str, content: str) -> str:
     script = root / name
     script.write_text(content, encoding="utf-8")
     return f"python {script.name}"
+
+
+def test_shell_command_treats_powershell_read_commands_as_metadata_audit() -> None:
+    """PowerShell 只读命令不触发完整文件哈希审计。"""
+    assert ShellCommandTools.audit_mode_for_command(
+        "Get-Content -LiteralPath '.\\SKILL.md'",
+        audit_files=True,
+    ) == "metadata"
+    assert ShellCommandTools.audit_mode_for_command(
+        "Select-String -Path '.\\SKILL.md' -Pattern 'Mobile'",
+        audit_files=True,
+    ) == "metadata"
+
+
+def test_file_audit_stops_after_capture_limit(tmp_path: Path) -> None:
+    """文件审计达到采集上限后立即截断，避免继续遍历大目录。"""
+    for index in range(5):
+        (tmp_path / f"item_{index}.txt").write_text(str(index), encoding="utf-8")
+
+    audit = FileAudit(NativeCoding(root=tmp_path))
+    result = audit.capture_file_fingerprints(max_files=3, hash_files=False)
+
+    assert result["captured_count"] == 3
+    assert result["truncated"] is True
+    assert result["file_count"] == 4
 
 
 def test_shell_command_rejects_missing_execution_metadata(tmp_path: Path) -> None:
@@ -144,8 +171,8 @@ def test_shell_command_reports_timeout(tmp_path: Path) -> None:
     assert result["data"]["reason"] == "command_timed_out"
 
 
-def test_shell_command_audits_created_files(tmp_path: Path) -> None:
-    """写文件命令会在文件审计中标记新增文件。"""
+def test_shell_command_does_not_audit_created_files_by_default(tmp_path: Path) -> None:
+    """普通 shell 命令默认不做工作区文件变更审计。"""
     command = write_script(
         tmp_path,
         "write_file.py",
@@ -163,8 +190,10 @@ def test_shell_command_audits_created_files(tmp_path: Path) -> None:
 
     assert result["ok"] is True
     assert (tmp_path / "created.txt").read_text(encoding="utf-8") == "created"
-    assert result["data"]["shell_write_detected"] is True
-    assert "created.txt" in result["data"]["shell_file_changes"]["created"]
+    assert result["data"]["file_audit_enabled"] is False
+    assert result["data"]["file_audit_mode"] == "off"
+    assert result["data"]["shell_write_detected"] is False
+    assert result["data"]["shell_file_changes"]["changed"] is False
 
 
 def test_shell_command_returns_cloud_sandbox_handoff(tmp_path: Path) -> None:

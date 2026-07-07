@@ -85,6 +85,17 @@ class PatchPlanner(NativeCodingComponent):
             "replacements"    : item.get("replacements")
         }
 
+    @staticmethod
+    def _delta_exact_for_source(target: typing.Any) -> bool:
+        """判断源文件内容是否能用于精确 delta。"""
+        try:
+            if target.is_symlink():
+                return False
+            target.read_bytes().decode(const.CHARSET)
+            return True
+        except (OSError, UnicodeDecodeError):
+            return False
+
     def plan_patch(
         self,
         *,
@@ -154,11 +165,13 @@ class PatchPlanner(NativeCodingComponent):
             exists = target.is_file()
             if action == "create" and target.exists():
                 return {"ok": False, "reason": "file_already_exists", "data": {"path": rel}}
+
             if action == "rename":
                 if not source_target.is_file():
                     return {"ok": False, "reason": "file_not_found", "data": {"path": source_rel}}
                 if target.exists():
                     return {"ok": False, "reason": "file_already_exists", "data": {"path": rel}}
+
             if action in {"modify", "delete"} and not exists:
                 return {"ok": False, "reason": "file_not_found", "data": {"path": rel}}
 
@@ -172,7 +185,10 @@ class PatchPlanner(NativeCodingComponent):
                             "reason" : (conflict.get("data") or {}).get("reason") or "file_changed_since_read",
                             "data"   : conflict.get("data") or {}
                         }
-                    current = self._diagnostics.read_text_preserve_newlines(source_target)
+
+                    current     = self._diagnostics.read_text_preserve_newlines(source_target)
+                    delta_exact = self._delta_exact_for_source(source_target)
+
                 else:
                     if conflict := self.conflict_guard(target, expected_sha256=expected, force=force):
                         return {
@@ -180,9 +196,13 @@ class PatchPlanner(NativeCodingComponent):
                             "reason" : (conflict.get("data") or {}).get("reason") or "file_changed_since_read",
                             "data"   : conflict.get("data") or {}
                         }
-                    current = self._diagnostics.read_text_preserve_newlines(target)
+
+                    current     = self._diagnostics.read_text_preserve_newlines(target)
+                    delta_exact = self._delta_exact_for_source(target)
+
             else:
-                current = ""
+                current     = ""
+                delta_exact = True
 
             sha256_before = (
                 self.sha256_bytes(current.encode(const.CHARSET, const.IGNORE))
@@ -221,18 +241,22 @@ class PatchPlanner(NativeCodingComponent):
             sha256_content = self.sha256_bytes(content.encode(const.CHARSET, const.IGNORE))
 
             planned.append({
-                "path"            : rel,
-                "source_path"     : source_rel if action == "rename" else None,
-                "action"          : action,
-                "target"          : target,
-                "source_target"   : source_target if action == "rename" else None,
-                "content"         : content,
-                "hunks"           : len(item["hunks"]),
-                "relocated_hunks" : list(applied.get("relocated_hunks") or []),
-                "corrected_hunks" : [],
-                "sha256"          : sha256_content,
-                "sha256_before"   : sha256_before,
-                "sha256_after"    : None if action == "delete" else sha256_content,
+                "path"                : rel,
+                "source_path"         : source_rel if action == "rename" else None,
+                "action"              : action,
+                "target"              : target,
+                "source_target"       : source_target if action == "rename" else None,
+                "content"             : content,
+                "old_content"         : None if action == "create" else current,
+                "new_content"         : None if action == "delete" else content,
+                "overwritten_content" : None,
+                "delta_exact"         : delta_exact,
+                "hunks"               : len(item["hunks"]),
+                "relocated_hunks"     : list(applied.get("relocated_hunks") or []),
+                "corrected_hunks"     : [],
+                "sha256"              : sha256_content,
+                "sha256_before"       : sha256_before,
+                "sha256_after"        : None if action == "delete" else sha256_content,
                 **line_stats
             })
 

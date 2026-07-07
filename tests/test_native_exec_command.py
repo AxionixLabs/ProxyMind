@@ -284,8 +284,8 @@ def test_exec_command_starts_session_and_write_stdin_completes(tmp_path: Path) -
             assert finished["data"]["exit_code"] == 0
             assert "bye" in finished["data"]["stdout"]
             assert "done" in finished["data"]["stdout"]
-            assert finished["data"]["shell_write_detected"] is True
-            assert "from_exec.txt" in finished["data"]["shell_file_changes"]["created"]
+            assert finished["data"]["shell_write_detected"] is False
+            assert finished["data"]["shell_file_changes"]["changed"] is False
             assert coding.last_shell_result == finished["data"]
             assert coding.validation_history[-1] == finished["data"]
 

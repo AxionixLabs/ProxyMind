@@ -116,7 +116,7 @@ class ExecCommandTools(NativeCodingComponent):
         timeout_sec: int = 1800,
         idle_timeout_sec: int = 300,
         execution: dict[str, typing.Any] | None = None,
-        audit_files: bool = True
+        audit_files: bool = False
     ) -> dict[str, typing.Any]:
         """启动一个可持续读取和写入的 shell 命令会话。"""
         await self._cleanup_sessions()
@@ -667,6 +667,7 @@ class ExecCommandTools(NativeCodingComponent):
             return None
 
         signal_number = signal.SIGKILL if force else signal.SIGTERM
+
         signaled = cls._signal_posix_process_group(process, signal_number)
         if not signaled:
             cls._signal_top_process(process, force=force)
@@ -690,9 +691,11 @@ class ExecCommandTools(NativeCodingComponent):
             return None
 
         stdin_pipe.close()
+
         wait_closed = getattr(stdin_pipe, "wait_closed", None)
         if not callable(wait_closed):
             return None
+
         wait_closed_call = typing.cast(
             typing.Callable[[], typing.Awaitable[None]],
             wait_closed
@@ -831,13 +834,18 @@ class ExecCommandTools(NativeCodingComponent):
         async with session.lock:
             stdout = bytes(session.stdout)
             stderr = bytes(session.stderr)
+
             session.stdout.clear()
             session.stderr.clear()
+
             dropped_stdout = session.stdout_dropped
             dropped_stderr = session.stderr_dropped
+
             session.stdout_dropped = 0
             session.stderr_dropped = 0
+
             session.last_activity = time.time()
+
         return stdout, stderr, dropped_stdout, dropped_stderr
 
     @staticmethod

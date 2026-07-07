@@ -6,6 +6,7 @@ from mind_app.native_coding.base import (
     NativeCodingBase, NativeCodingComponent
 )
 from mind_nova import const
+from .delta import AppliedPatchDelta
 
 
 class TextPatchOperations(NativeCodingComponent):
@@ -41,17 +42,32 @@ class TextPatchOperations(NativeCodingComponent):
             return self.fail_result(planned_result["reason"], **data)
 
         planned = planned_result["planned"]
+        delta   = AppliedPatchDelta()
+
         for item in planned:
-            if item["action"] == "delete":
-                item["target"].unlink()
-                continue
-            item["target"].parent.mkdir(parents=True, exist_ok=True)
-            item["target"].write_text(item["content"], encoding=const.CHARSET, newline="")
+            try:
+                if item["action"] == "delete":
+                    item["target"].unlink()
+                    delta.add_planned_change(item)
+                    continue
 
-            self._diagnostics.refresh_written_file_mtime(item["target"])
+                item["target"].parent.mkdir(parents=True, exist_ok=True)
+                item["target"].write_text(item["content"], encoding=const.CHARSET, newline="")
 
-            if item["action"] == "rename" and item.get("source_target"):
-                item["source_target"].unlink()
+                self._diagnostics.refresh_written_file_mtime(item["target"])
+
+                if item["action"] == "rename" and item.get("source_target"):
+                    item["source_target"].unlink()
+                delta.add_planned_change(item)
+            except OSError as exc:
+                delta.mark_inexact()
+                return self.fail_result(
+                    "patch_write_failed",
+                    path=item.get("path"),
+                    action=item.get("action"),
+                    error=str(exc),
+                    delta=delta.payload()
+                )
 
         changed_files = [
             self._planner.public_patch_file(item) for item in planned
@@ -95,7 +111,8 @@ class TextPatchOperations(NativeCodingComponent):
             removed_lines=sum(item["removed_lines"] for item in planned),
             replacements=sum(item["replacements"] for item in planned),
             relocated_hunk_count=sum(len(item["relocated_hunks"]) for item in planned),
-            corrected_hunk_count=sum(len(item["corrected_hunks"]) for item in planned)
+            corrected_hunk_count=sum(len(item["corrected_hunks"]) for item in planned),
+            delta=delta.payload()
         )
 
 
