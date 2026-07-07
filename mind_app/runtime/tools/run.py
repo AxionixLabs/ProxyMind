@@ -61,7 +61,8 @@ _OUTPUT_PROMOTED_TOOLS = {
 _OUTPUT_PROMOTED_RESULT_KEYS = (
     "output",
     "stdout",
-    "stderr"
+    "stderr",
+    "output_lines"
 )
 
 

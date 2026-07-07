@@ -2,16 +2,14 @@
 # Notes: ==== Mind™ ====
 
 import os
-import time
 import shlex
 import typing
-import asyncio
 from loguru import logger
 from mind_app.native_coding.base import (
     NativeCodingBase, NativeCodingComponent
 )
+from mind_app.native_coding.exec.process_capture import ProcessCapture
 from mind_app.native_coding.exec.shell_runtime import ShellRuntimeResolver
-from mind_app.native_coding.process import Flux
 from mind_app.native_coding.trace import summarize_command
 
 
@@ -277,28 +275,17 @@ class ShellCommandTools(NativeCodingComponent):
 
         audit_mode   = self.audit_mode_for_command(cmd, audit_files=audit_files)
         audit_before = self._capture_shell_audit(audit_mode)
-        started      = time.perf_counter()
 
-        proc = await Flux.cmd_link_shell_exec(
+        capture = await ProcessCapture.run_shell(
             cmd,
             shell=runtime.prefix or None,
             cwd=str(workdir),
-            env=env
+            env=env,
+            timeout_sec=effective_timeout,
+            buffer_limit_bytes=max(output_limit * 2, output_limit + 4096)
         )
 
-        timed_out = False
-
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=max(1, effective_timeout)
-            )
-        except asyncio.TimeoutError:
-            timed_out = True
-            proc.kill()
-            stdout, stderr = await proc.communicate()
-
-        elapsed_ms  = int((time.perf_counter() - started) * 1000)
+        elapsed_ms  = capture.elapsed_ms
         audit_after = self._capture_shell_audit(audit_mode)
 
         shell_file_changes = self._file_audit.diff_file_fingerprints(
@@ -315,16 +302,16 @@ class ShellCommandTools(NativeCodingComponent):
             "truncated"      : False
         }
 
-        raw_stdout = self.decode_bytes(stdout or b"")
-        raw_stderr = self.decode_bytes(stderr or b"")
+        raw_stdout = self.decode_bytes(capture.stdout or b"")
+        raw_stderr = self.decode_bytes(capture.stderr or b"")
         out_text   = self.clip_output(raw_stdout, max_chars=output_limit)
         err_text   = self.clip_output(raw_stderr, max_chars=output_limit)
-        exit_code  = int(proc.returncode or 0)
+        exit_code  = int(capture.exit_code or 0)
 
-        ok = (exit_code == 0) and not timed_out
+        ok = (exit_code == 0) and not capture.timed_out
 
-        stdout_truncated = len(raw_stdout) > output_limit
-        stderr_truncated = len(raw_stderr) > output_limit
+        stdout_truncated = capture.stdout_dropped > 0 or len(raw_stdout) > output_limit
+        stderr_truncated = capture.stderr_dropped > 0 or len(raw_stderr) > output_limit
 
         logger.debug(
             f"native shell exit ok={ok} rc={exit_code} elapsed_ms={elapsed_ms} "
@@ -357,15 +344,17 @@ class ShellCommandTools(NativeCodingComponent):
             "shell_file_changes"     : shell_file_changes,
             "shell_write_detected"   : bool(shell_file_changes.get("changed")),
             "exit_code"              : exit_code,
-            "timed_out"              : timed_out,
+            "timed_out"              : capture.timed_out,
             "elapsed_ms"             : elapsed_ms,
             "stdout"                 : out_text,
-            "stderr"                 : err_text
+            "stderr"                 : err_text,
+            "output_lines"           : list(capture.output_lines)
         }
 
         if not ok:
-            data["reason"] = "command_timed_out" if timed_out else "command_failed"
+            data["reason"] = "command_timed_out" if capture.timed_out else "command_failed"
             self.core.enrich_failure_facts(data)
+
         self._record_shell_result(data)
 
         return {

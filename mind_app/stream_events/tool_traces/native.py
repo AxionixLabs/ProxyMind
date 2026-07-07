@@ -158,16 +158,20 @@ def render_tool_result_preview(
             )
 
         if is_error:
-            lines = _shell_command_error_context_lines(data)
+            lines = _shell_command_ordered_output_lines(data)
+            if not lines:
+                lines = _shell_command_error_context_lines(data)
         else:
-            stdout_source = data.get("output") or data.get("stdout")
-            lines         = shell_output_lines(stdout_source)
-            err_lines     = shell_output_lines(data.get("stderr"))
+            lines = _shell_command_ordered_output_lines(data)
+            if not lines:
+                stdout_source = data.get("output") or data.get("stdout")
+                lines         = shell_output_lines(stdout_source)
+                err_lines     = shell_output_lines(data.get("stderr"))
 
-            if lines and err_lines:
-                lines.extend(err_lines)
-            elif err_lines:
-                lines = err_lines
+                if lines and err_lines:
+                    lines.extend(err_lines)
+                elif err_lines:
+                    lines = err_lines
 
         if not lines:
             lines = _shell_command_empty_preview_lines(data, is_error=is_error)
@@ -334,6 +338,21 @@ def _shell_command_error_context_lines(
         ]
 
     return stream_lines
+
+
+def _shell_command_ordered_output_lines(
+    data: dict[str, typing.Any]
+) -> list[str]:
+    """读取按接收顺序保存的 shell 输出行。"""
+    values = data.get("output_lines")
+    if not isinstance(values, (list, tuple)):
+        return []
+
+    return [
+        str(item).rstrip()
+        for item in values
+        if str(item or "").strip()
+    ]
 
 
 def _shell_tail_preview_lines(lines: list[str], limit: int) -> list[str]:

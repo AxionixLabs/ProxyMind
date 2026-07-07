@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import time
 from pathlib import Path
 
 from mind_app.native_coding import NativeCoding
@@ -149,6 +150,36 @@ def test_shell_command_reports_nonzero_exit(tmp_path: Path) -> None:
     assert "before-fail" in result["data"]["stdout"]
 
 
+def test_shell_command_records_output_lines_in_receive_order(tmp_path: Path) -> None:
+    """stdout/stderr 分离字段之外保留接收顺序输出。"""
+    command = write_script(
+        tmp_path,
+        "ordered_output.py",
+        "\n".join([
+            "import sys",
+            "sys.stderr.write('stderr-first\\n')",
+            "sys.stderr.flush()",
+            "sys.stdout.write('stdout-second\\n')",
+            "sys.stdout.flush()",
+            "",
+        ]),
+    )
+
+    result = run_async(
+        NativeCoding(root=tmp_path).shell_command(
+            command=command,
+            cwd=".",
+            timeout_sec=5,
+            execution=approved_execution(),
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["stdout"].strip() == "stdout-second"
+    assert result["data"]["stderr"].strip() == "stderr-first"
+    assert result["data"]["output_lines"] == ["stderr-first", "stdout-second"]
+
+
 def test_shell_command_reports_timeout(tmp_path: Path) -> None:
     """超时命令会被终止并返回 command_timed_out。"""
     command = write_script(
@@ -169,6 +200,63 @@ def test_shell_command_reports_timeout(tmp_path: Path) -> None:
     assert result["ok"] is False
     assert result["data"]["timed_out"] is True
     assert result["data"]["reason"] == "command_timed_out"
+
+
+def test_shell_command_timeout_does_not_wait_for_inherited_output_pipe(tmp_path: Path) -> None:
+    """超时后不会等待持有输出管道的子进程自然退出。"""
+    command = write_script(
+        tmp_path,
+        "spawn_pipe_holder.py",
+        "\n".join([
+            "import subprocess",
+            "import sys",
+            "import time",
+            "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(8)'], stdout=sys.stdout, stderr=sys.stderr)",
+            "print('parent-finished', flush=True)",
+            "time.sleep(8)",
+            "",
+        ]),
+    )
+
+    started = time.monotonic()
+    result = run_async(
+        NativeCoding(root=tmp_path).shell_command(
+            command=command,
+            cwd=".",
+            timeout_sec=1,
+            execution=approved_execution(),
+        )
+    )
+    elapsed = time.monotonic() - started
+
+    assert result["ok"] is False
+    assert result["data"]["timed_out"] is True
+    assert result["data"]["reason"] == "command_timed_out"
+    assert "parent-finished" in result["data"]["stdout"]
+    assert elapsed < 6.0
+
+
+def test_shell_command_truncates_high_volume_output(tmp_path: Path) -> None:
+    """高频输出会按上限截断后返回。"""
+    command = write_script(
+        tmp_path,
+        "high_output.py",
+        "print('x' * 120000)\n",
+    )
+
+    result = run_async(
+        NativeCoding(root=tmp_path).shell_command(
+            command=command,
+            cwd=".",
+            timeout_sec=5,
+            execution=approved_execution(),
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["stdout_truncated"] is True
+    assert result["data"]["truncated"] is True
+    assert "...[truncated " in result["data"]["stdout"]
 
 
 def test_shell_command_does_not_audit_created_files_by_default(tmp_path: Path) -> None:
