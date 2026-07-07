@@ -4,6 +4,7 @@
 from mind_nova.requests import (
     ToolApprovalExpired,
     build_chat_payload,
+    build_compact_payload,
     cap_request,
     cap_response,
     ensure_default_skills,
@@ -14,6 +15,7 @@ from mind_nova.requests import (
     post_tool_result,
     resolve_transport_mode,
     stream_chat,
+    stream_compact_events,
     stream_heal,
     stream_plan,
     streaming,
@@ -23,6 +25,7 @@ from mind_nova.requests import (
 __all__ = [
     "ToolApprovalExpired",
     "build_chat_payload",
+    "build_compact_payload",
     "cap_request",
     "cap_response",
     "ensure_default_skills",
@@ -33,6 +36,7 @@ __all__ = [
     "post_tool_result",
     "resolve_transport_mode",
     "stream_chat",
+    "stream_compact_events",
     "stream_heal",
     "stream_plan",
     "streaming",

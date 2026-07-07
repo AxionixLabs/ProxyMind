@@ -12,6 +12,10 @@ from .chat import (
     stream_heal,
     stream_plan
 )
+from .compact import (
+    build_compact_payload,
+    stream_compact_events
+)
 from .manifest import fetch_manifest
 from .payload import (
     build_chat_payload,
@@ -39,6 +43,7 @@ __all__ = [
     "access_mode_label",
     "apply_access_mode",
     "build_chat_payload",
+    "build_compact_payload",
     "cap_request",
     "cap_response",
     "ensure_default_skills",
@@ -47,6 +52,7 @@ __all__ = [
     "post_stream_event",
     "post_tool_approval",
     "post_tool_result",
+    "stream_compact_events",
     "normalize_access_mode",
     "resolve_transport_mode",
     "stream_chat",

@@ -174,12 +174,13 @@ class DesignStatusLiveDriver(StatusRenderer):
         cls,
         snapshot: dict[str, typing.Any],
     ) -> tuple[str, list[dict[str, str]]]:
+        summary_override = str(snapshot.get("summary") or "").strip()
         items = [
             item for item in list(snapshot.get("items") or [])
             if isinstance(item, dict)
         ]
         if not items:
-            return "", []
+            return summary_override, []
 
         done = bool(snapshot.get("done", False))
 
@@ -222,7 +223,7 @@ class DesignStatusLiveDriver(StatusRenderer):
 
         show_details = done and bool(failed_names)
         if not show_details:
-            return " · ".join(parts), []
+            return summary_override or " · ".join(parts), []
 
         detail_items = [
             item for item in items
@@ -250,7 +251,7 @@ class DesignStatusLiveDriver(StatusRenderer):
                 }
             )
 
-        return " · ".join(parts), details
+        return summary_override or " · ".join(parts), details
 
     @classmethod
     def _external_mcp_details(

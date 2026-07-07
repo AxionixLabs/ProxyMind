@@ -7,6 +7,7 @@ import contextlib
 from loguru import logger
 from ...runtime.agent.client import AgentClient
 from mind_core.provider_config import DEFAULT_ROUTE_NAME
+from mind_nova.requests.payload import empty_primary_request_slot
 from .models import (
     AgentSessionRuntime, AgentLiveStatus
 )
@@ -200,7 +201,7 @@ async def build_runtime_llm_conf(mind: "Mind") -> dict[str, typing.Any]:
 
     primary_conf: dict[str, typing.Any] = {}
     if primary.get("enabled") is False:
-        return {"primary": primary_conf}
+        return {"primary": empty_primary_request_slot()}
 
     provider = str(primary.get("provider", "") or "").strip()
     if provider:

@@ -10,6 +10,7 @@ from mind_nova.requests.access import (
     apply_access_mode
 )
 from mind_nova.requests.payload import build_chat_payload
+from mind_nova.requests.payload import request_llm_conf
 from mind_nova.requests.streaming import streaming
 from mind_nova.services import service_endpoints
 from mind_nova import const
@@ -59,7 +60,7 @@ async def stream_plan(
     headers = Channel.make_headers()
     payload = {
         "mode"     : mode,
-        "llm_conf" : pref_config,
+        "llm_conf" : request_llm_conf(pref_config),
         "message"  : message,
         "tools"    : tools,
         "extras"   : extras,
@@ -92,7 +93,7 @@ async def stream_heal(
     """流式获取修复链路事件。"""
     headers = Channel.make_headers()
     payload = {
-        "llm_conf"   : pref_config,
+        "llm_conf"   : request_llm_conf(pref_config),
         "app_id"     : const.APP_DESC,
         "page_id"    : page_id,
         "platform"   : station,

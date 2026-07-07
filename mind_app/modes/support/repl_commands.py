@@ -3,6 +3,7 @@
 
 import re
 import typing
+from loguru import logger
 from engine.tinker import (
     MindError, FileAssist
 )
@@ -12,11 +13,60 @@ from mind_app.stream_events.failure_display import render_failure_text
 from mind_nova import const
 from mind_core.design import Design
 from mind_nova.modes import RunMode
+from mind_nova.requests import (
+    build_compact_payload,
+    stream_compact_events
+)
 from .repl_prompt import save_primary_pref_field
 from .repl_tools import render_tools_summary
 
 if typing.TYPE_CHECKING:
     from ...mind_core import Mind
+
+
+class CompactLiveStatus(object):
+    """记录上下文压缩的流式阶段状态。"""
+
+    def __init__(self) -> None:
+        self._message = "Context compacting..."
+        self._state   = "linking"
+        self._done    = False
+
+    def snapshot(self) -> dict[str, typing.Any]:
+        """返回可复用外部 MCP 动画渲染的状态快照。"""
+        return {
+            "summary" : self._message,
+            "done"    : self._done,
+            "items"   : [
+                {
+                    "name"  : "Compact",
+                    "state" : self._state,
+                }
+            ]
+        }
+
+    def running(self, message: str) -> None:
+        """更新压缩进行中的提示。"""
+        self._message = message or "Context compacting..."
+        self._state   = "linking"
+        self._done    = False
+
+    def completed(self, message: str, detail: str) -> None:
+        """更新压缩完成提示。"""
+        self._message = f"{message or 'Context compacted.'}{detail}"
+        self._state   = "ready"
+        self._done    = True
+
+    def failed(self, message: str) -> None:
+        """更新压缩失败提示。"""
+        self._message = message or "Context compaction failed. Please try again."
+        self._state   = "failed"
+        self._done    = True
+
+
+def compact_animation_enabled(mind: "Mind") -> bool:
+    """判断当前日志等级是否启用压缩动画。"""
+    return mind.level == const.SHOW_LEVEL
 
 
 async def exchange_pref_value(
@@ -70,6 +120,85 @@ async def persist_primary_pref(
 
     saved_primary = saved.get("primary") if isinstance(saved, dict) else {}
     return saved_primary if isinstance(saved_primary, dict) else {}
+
+
+async def compact_current_conversation(
+    mind: "Mind",
+    *,
+    run_mode: RunMode,
+    pref_config: dict[str, typing.Any]
+) -> None:
+    """压缩当前会话上下文。"""
+    metadata = mind.conversation.snapshot()
+
+    payload = build_compact_payload({
+        "mode"     : run_mode,
+        "cid"      : metadata["cid"],
+        "sid"      : metadata["sid"],
+        "llm_conf" : pref_config,
+        "strategy" : "memento"
+    })
+
+    animation_running = False
+    received          = False
+    status            = CompactLiveStatus()
+    animation_enabled = compact_animation_enabled(mind)
+
+    logger.debug(
+        f"[Compact] animation {'start' if animation_enabled else 'skip'} "
+        f"level={mind.level} cid={metadata['cid']} sid={metadata['sid']}"
+    )
+    if animation_enabled:
+        await mind.start_external_mcp_anim(status.snapshot)
+        animation_running = True
+
+    try:
+        async for event in stream_compact_events(payload):
+            received   = True
+            event_type = str(event.get("type") or "")
+            message    = str(event.get("message") or "").strip()
+
+            if event_type == "conversation.compact.started":
+                status.running(message)
+                logger.debug(f"[Compact] started message={status.snapshot()['summary']}")
+                continue
+
+            if event_type == "conversation.compact.failed":
+                status.failed(message)
+                logger.debug(f"[Compact] failed message={status.snapshot()['summary']}")
+                if animation_running:
+                    await mind.await_cleanup(mind.stop_anim())
+                    animation_running = False
+                return None
+
+            if event_type == "conversation.compact":
+                detail = compact_event_detail(event)
+                status.completed(message, detail)
+                logger.debug(f"[Compact] completed message={status.snapshot()['summary']}")
+                if animation_running:
+                    await mind.await_cleanup(mind.stop_anim())
+                    animation_running = False
+                return None
+
+        if not received:
+            status.failed("Context compaction failed. Please try again.")
+            logger.debug(f"[Compact] failed message={status.snapshot()['summary']}")
+            if animation_running:
+                await mind.await_cleanup(mind.stop_anim())
+                animation_running = False
+
+    finally:
+        if animation_running:
+            await mind.await_cleanup(mind.stop_anim())
+
+
+def compact_event_detail(event: dict[str, typing.Any]) -> str:
+    """返回压缩完成事件的简短统计。"""
+    before_items = event.get("before_items")
+    after_items  = event.get("after_items")
+    if isinstance(before_items, int) and isinstance(after_items, int):
+        return f" · {before_items} -> {after_items} items"
+    return ""
 
 
 def print_pending_attachments(mind: "Mind") -> None:

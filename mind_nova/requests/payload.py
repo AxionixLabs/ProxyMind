@@ -21,6 +21,59 @@ def ensure_default_skills(kwargs: dict[str, typing.Any]) -> None:
         kwargs["skills"] = skills_payload()
 
 
+def empty_primary_request_slot() -> dict[str, str]:
+    """返回请求协议要求的空 primary 配置。"""
+    return {
+        "provider" : "",
+        "route"    : "",
+        "model"    : "",
+        "apikey"   : "",
+        "base_url" : ""
+    }
+
+
+def normalize_request_slot(
+    name: typing.Any,
+    slot: dict[str, typing.Any]
+) -> dict[str, typing.Any] | None:
+    """规范化单个请求模型槽位。"""
+    if slot.get("enabled") is False:
+        return empty_primary_request_slot() if name == "primary" else None
+
+    result = {
+        key: value
+        for key, value in slot.items()
+        if key != "enabled"
+    }
+    if name == "primary":
+        empty_slot = empty_primary_request_slot()
+        empty_slot.update({
+            key: str(result.get(key) or "").strip()
+            for key in empty_slot
+        })
+        return empty_slot
+    return result
+
+
+def request_llm_conf(pref_config: typing.Any) -> dict[str, typing.Any]:
+    """生成请求侧模型配置，移除仅供本地偏好使用的字段。"""
+    if not isinstance(pref_config, dict):
+        return {"primary": empty_primary_request_slot()}
+
+    result: dict[str, typing.Any] = {}
+    for name, slot in pref_config.items():
+        if isinstance(slot, dict):
+            normalized_slot = normalize_request_slot(name, slot)
+            if normalized_slot is None:
+                continue
+            result[name] = normalized_slot
+        else:
+            result[name] = slot
+    if "primary" not in result:
+        result["primary"] = empty_primary_request_slot()
+    return result
+
+
 async def build_chat_payload(
     mode: str,
     pref_config: dict[str, typing.Any],
@@ -37,7 +90,7 @@ async def build_chat_payload(
 
     payload = {
         "mode"     : resolve_transport_mode(mode),
-        "llm_conf" : pref_config,
+        "llm_conf" : request_llm_conf(pref_config),
         "message"  : message,
         "tools"    : tools,
         "exec_env" : runtime_exec_env,

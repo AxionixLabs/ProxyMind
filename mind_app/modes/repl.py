@@ -18,6 +18,7 @@ from mind_nova.requests import (
 )
 from .support.repl_commands import (
     exchange_pref_value,
+    compact_current_conversation,
     persist_primary_pref,
     print_attach_gap,
     print_available_tools,
@@ -71,6 +72,7 @@ async def mind_loop(mind: "Mind") -> None:
     permissions_set: set[str]  = {"/permissions"}
     tools_set: set[str]        = {"/tools"}
     preferences_set: set[str]  = {"/preferences"}
+    compact_set: set[str]      = {"/compact"}
     helix_link_set: set[str]   = {"/helix-link"}
     helix_unlink_set: set[str] = {"/helix-unlink"}
     helix_home_set: set[str]   = {"/helix-home"}
@@ -92,6 +94,7 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #AFD7FF]/permissions[/]              切换权限模式
         [bold #7F8C9A]/model [name][/]             持久化主模型名称；省略 name 表示清空
         [bold #AFD7FF]/preferences[/]              打开偏好配置页面
+        [bold #AFD7FF]/compact[/]                  压缩当前对话上下文
         [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
         [bold #AFD7FF]/mcp[/]                      查看外部 MCP runtime 状态
         [bold #AFD7FF]/helix-link[/]               接入本地 Helix 服务
@@ -266,6 +269,15 @@ async def mind_loop(mind: "Mind") -> None:
             Design.console.print(f"[bold #AFC7D8]Preferences[/] [dim #7F8C9A]· {url}[/]")
             await FileAssist.open_url(url)
             Design.console.print()
+            continue
+
+        if command in compact_set:
+            pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
+            await compact_current_conversation(
+                mind,
+                run_mode=mode,
+                pref_config=pref_config
+            )
             continue
 
         if command in helix_link_set:

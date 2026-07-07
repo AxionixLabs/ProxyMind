@@ -67,8 +67,8 @@ def test_agent_runtime_llm_conf_keeps_explicit_non_default_route() -> None:
     assert list(result["primary"].keys()) == ["provider", "route", "model"]
 
 
-def test_agent_runtime_llm_conf_omits_disabled_primary() -> None:
-    """WS runtime.bind 不上报关闭的 primary 配置。"""
+def test_agent_runtime_llm_conf_uses_empty_slot_for_disabled_primary() -> None:
+    """WS runtime.bind 对关闭的 primary 使用完整空字段。"""
     result = run_async(build_runtime_llm_conf(DummyMind({
         "primary": {
             "enabled": False,
@@ -78,4 +78,12 @@ def test_agent_runtime_llm_conf_omits_disabled_primary() -> None:
         }
     })))
 
-    assert result == {"primary": {}}
+    assert result == {
+        "primary": {
+            "provider": "",
+            "route": "",
+            "model": "",
+            "apikey": "",
+            "base_url": ""
+        }
+    }
