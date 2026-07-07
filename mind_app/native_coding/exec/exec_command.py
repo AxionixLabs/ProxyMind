@@ -3,14 +3,13 @@
 
 import os
 import time
-import signal
 import typing
 import asyncio
 import secrets
-import subprocess
 from mind_app.native_coding.base import (
     NativeCodingBase, NativeCodingComponent
 )
+from mind_app.native_coding.exec.process_capture import ProcessCapture
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools
 from mind_app.native_coding.exec.shell_runtime import ShellRuntimeResolver
 
@@ -194,7 +193,7 @@ class ExecCommandTools(NativeCodingComponent):
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            **self._subprocess_process_group_kwargs()
+            **ProcessCapture.subprocess_process_group_kwargs()
         )
 
         session = ExecSession(
@@ -213,7 +212,7 @@ class ExecCommandTools(NativeCodingComponent):
         session.stderr_task = asyncio.create_task(self._read_stream(session, "stderr"))
         self._sessions[session.session_id] = session
 
-        await self._wait_for_process(process, yield_ms)
+        await ProcessCapture.wait_for_process(process, yield_ms)
 
         elapsed_ms = int((time.perf_counter() - started) * 1000)
 
@@ -296,7 +295,7 @@ class ExecCommandTools(NativeCodingComponent):
         if write_error is not None:
             return write_error
 
-        await self._wait_for_process(session.process, wait_time)
+        await ProcessCapture.wait_for_process(session.process, wait_time)
 
         elapsed_ms = int((time.perf_counter() - started) * 1000)
 
@@ -354,13 +353,13 @@ class ExecCommandTools(NativeCodingComponent):
         session.last_activity = time.time()
 
         if control == "terminate":
-            await self._terminate_process_tree(process, force=False)
+            await ProcessCapture.terminate_process_tree(process, force=False)
             return None
         if control == "kill":
-            await self._terminate_process_tree(process, force=True)
+            await ProcessCapture.terminate_process_tree(process, force=True)
             return None
         if control == "interrupt":
-            interrupted = await self._interrupt_process_tree(process)
+            interrupted = await ProcessCapture.interrupt_process_tree(process)
             if not interrupted:
                 return self.fail_result(
                     "exec_interrupt_failed",
@@ -427,8 +426,8 @@ class ExecCommandTools(NativeCodingComponent):
         timed_out = time.time() >= session.expires_at and exit_code is None
 
         if timed_out:
-            await self._terminate_process_tree(session.process, force=True)
-            await self._wait_for_process(session.process, 1000)
+            await ProcessCapture.terminate_process_tree(session.process, force=True)
+            await ProcessCapture.wait_for_process(session.process, 1000)
             await self._finalize_if_exited(session)
             exit_code = session.process.returncode
             status    = "exited" if exit_code is not None else "running"
@@ -523,8 +522,8 @@ class ExecCommandTools(NativeCodingComponent):
             idle    = now - session.last_activity >= session.idle_timeout_sec
 
             if session.process.returncode is None and (expired or idle):
-                await self._terminate_process_tree(session.process, force=expired)
-                await self._wait_for_process(session.process, 1000)
+                await ProcessCapture.terminate_process_tree(session.process, force=expired)
+                await ProcessCapture.wait_for_process(session.process, 1000)
 
             await self._finalize_if_exited(session)
 
@@ -609,7 +608,7 @@ class ExecCommandTools(NativeCodingComponent):
         if session.finalized or session.process.returncode is None:
             return None
 
-        await cls._close_stdin_pipe(session.process)
+        await ProcessCapture.close_stdin_pipe(session.process)
 
         tasks = [
             task for task in (session.stdout_task, session.stderr_task)
@@ -625,120 +624,13 @@ class ExecCommandTools(NativeCodingComponent):
                 for task in tasks:
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
-        cls._close_process_transport(session.process)
+        ProcessCapture.close_process_transport(session.process)
         session.finalized = True
-
-    @classmethod
-    async def _interrupt_process_tree(
-        cls,
-        process: asyncio.subprocess.Process
-    ) -> bool:
-        """向进程组发送中断信号。"""
-        if process.returncode is not None:
-            return True
-
-        if os.name == "nt":
-            break_signal = getattr(signal, "CTRL_BREAK_EVENT", None)
-            if break_signal is None:
-                return False
-            try:
-                process.send_signal(break_signal)
-                return True
-            except (ProcessLookupError, RuntimeError, ValueError, OSError):
-                return False
-
-        return cls._signal_posix_process_group(process, signal.SIGINT)
-
-    @classmethod
-    async def _terminate_process_tree(
-        cls,
-        process: asyncio.subprocess.Process,
-        *,
-        force: bool
-    ) -> None:
-        """终止进程组或进程树，并在必要时升级为强制结束。"""
-        if process.returncode is not None:
-            return None
-
-        await cls._close_stdin_pipe(process)
-
-        if os.name == "nt":
-            await cls._terminate_windows_process_tree(process, force=force)
-            return None
-
-        signal_number = signal.SIGKILL if force else signal.SIGTERM
-
-        signaled = cls._signal_posix_process_group(process, signal_number)
-        if not signaled:
-            cls._signal_top_process(process, force=force)
-
-        if not force:
-            await cls._wait_for_process(process, int(cls.TERMINATE_GRACE_SEC * 1000))
-            if process.returncode is None:
-                if not cls._signal_posix_process_group(process, signal.SIGKILL):
-                    cls._signal_top_process(process, force=True)
-
-        await cls._wait_for_process(process, 1000)
-
-    @classmethod
-    async def _close_stdin_pipe(
-        cls,
-        process: asyncio.subprocess.Process
-    ) -> None:
-        """关闭进程标准输入管道。"""
-        stdin_pipe = getattr(process, "stdin", None)
-        if stdin_pipe is None or stdin_pipe.is_closing():
-            return None
-
-        stdin_pipe.close()
-
-        wait_closed = getattr(stdin_pipe, "wait_closed", None)
-        if not callable(wait_closed):
-            return None
-
-        wait_closed_call = typing.cast(
-            typing.Callable[[], typing.Awaitable[None]],
-            wait_closed
-        )
-
-        try:
-            await asyncio.wait_for(wait_closed_call(), timeout=cls.TERMINATE_GRACE_SEC)
-        except (BrokenPipeError, ConnectionResetError, RuntimeError, ValueError):
-            return None
-        except asyncio.TimeoutError:
-            return None
-
-    @classmethod
-    async def _terminate_windows_process_tree(
-        cls,
-        process: asyncio.subprocess.Process,
-        *,
-        force: bool
-    ) -> None:
-        """在 Windows 上终止进程树。"""
-        if not force:
-            await cls._send_windows_ctrl_break(process)
-            await cls._wait_for_process(process, int(cls.TERMINATE_GRACE_SEC * 1000))
-            if process.returncode is not None:
-                return None
-
-        killed = await cls._taskkill_process_tree(process.pid, force=True)
-        if not killed:
-            cls._signal_top_process(process, force=True)
-        await cls._wait_for_process(process, 1000)
 
     @staticmethod
     def _new_session_id() -> str:
         """生成不可预测的本地会话 ID。"""
         return f"exec_{secrets.token_hex(8)}"
-
-    @staticmethod
-    def _subprocess_process_group_kwargs() -> dict[str, typing.Any]:
-        """返回建立进程组或会话所需的启动参数。"""
-        if os.name == "nt":
-            flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            return {"creationflags": flags} if flags else {}
-        return {"start_new_session": True}
 
     @staticmethod
     def _result_from_data(
@@ -767,49 +659,6 @@ class ExecCommandTools(NativeCodingComponent):
             "data"        : data,
             "logs"        : []
         }
-
-    @staticmethod
-    def _close_process_transport(
-        process: asyncio.subprocess.Process
-    ) -> None:
-        """关闭 asyncio 进程传输对象。"""
-        transport = getattr(process, "_transport", None)
-
-        close = getattr(transport, "close", None)
-        if not callable(close):
-            return None
-
-        try:
-            close()
-        except (RuntimeError, ValueError, OSError):
-            return None
-
-    @staticmethod
-    def _signal_posix_process_group(
-        process: asyncio.subprocess.Process,
-        signal_number: int
-    ) -> bool:
-        """向 POSIX 进程组发送信号。"""
-        try:
-            os.killpg(process.pid, signal_number)
-            return True
-        except (ProcessLookupError, PermissionError, RuntimeError, ValueError, OSError):
-            return False
-
-    @staticmethod
-    def _signal_top_process(
-        process: asyncio.subprocess.Process,
-        *,
-        force: bool
-    ) -> None:
-        """向顶层进程发送兜底终止信号。"""
-        try:
-            if force:
-                process.kill()
-            else:
-                process.terminate()
-        except (ProcessLookupError, RuntimeError, ValueError):
-            return None
 
     @staticmethod
     def _bounded_int(
@@ -847,65 +696,6 @@ class ExecCommandTools(NativeCodingComponent):
             session.last_activity = time.time()
 
         return stdout, stderr, dropped_stdout, dropped_stderr
-
-    @staticmethod
-    async def _wait_for_process(
-        process: asyncio.subprocess.Process,
-        timeout_ms: int
-    ) -> None:
-        """等待进程退出或达到等待时间。"""
-        if timeout_ms <= 0 or process.returncode is not None:
-            return None
-        try:
-            await asyncio.wait_for(process.wait(), timeout=timeout_ms / 1000)
-        except asyncio.TimeoutError:
-            return None
-
-    @staticmethod
-    async def _send_windows_ctrl_break(
-        process: asyncio.subprocess.Process
-    ) -> None:
-        """向 Windows 新进程组发送 CTRL_BREAK。"""
-        break_signal = getattr(signal, "CTRL_BREAK_EVENT", None)
-        if break_signal is None:
-            return None
-        try:
-            process.send_signal(break_signal)
-        except (ProcessLookupError, RuntimeError, ValueError, OSError):
-            return None
-
-    @staticmethod
-    async def _taskkill_process_tree(
-        pid: int,
-        *,
-        force: bool
-    ) -> bool:
-        """调用 taskkill 终止 Windows 进程树。"""
-        args = ["taskkill", "/PID", str(pid), "/T"]
-        if force:
-            args.append("/F")
-
-        task: asyncio.subprocess.Process | None = None
-        try:
-            task = await asyncio.create_subprocess_exec(
-                *args,
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-            await asyncio.wait_for(task.wait(), timeout=2)
-        except (OSError, RuntimeError, ValueError):
-            return False
-        except asyncio.TimeoutError:
-            if task is not None and task.returncode is None:
-                try:
-                    task.kill()
-                except (ProcessLookupError, RuntimeError, ValueError):
-                    pass
-                await asyncio.gather(task.wait(), return_exceptions=True)
-            return False
-
-        return task.returncode == 0
 
 
 if __name__ == '__main__':

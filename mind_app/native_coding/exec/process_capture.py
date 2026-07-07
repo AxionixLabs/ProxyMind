@@ -247,6 +247,8 @@ class ProcessCapture(object):
         if process.returncode is not None:
             return None
 
+        await cls.close_stdin_pipe(process)
+
         if os.name == "nt":
             await cls._terminate_windows_process_tree(process, force=force)
             return None
@@ -263,6 +265,55 @@ class ProcessCapture(object):
                     cls._signal_top_process(process, force=True)
 
         await cls.wait_for_process(process, 1000)
+
+    @classmethod
+    async def interrupt_process_tree(
+        cls,
+        process: asyncio.subprocess.Process
+    ) -> bool:
+        """向进程组发送中断信号。"""
+        if process.returncode is not None:
+            return True
+
+        if os.name == "nt":
+            break_signal = getattr(signal, "CTRL_BREAK_EVENT", None)
+            if break_signal is None:
+                return False
+            try:
+                process.send_signal(break_signal)
+                return True
+            except (ProcessLookupError, RuntimeError, ValueError, OSError):
+                return False
+
+        return cls._signal_posix_process_group(process, signal.SIGINT)
+
+    @classmethod
+    async def close_stdin_pipe(
+        cls,
+        process: asyncio.subprocess.Process
+    ) -> None:
+        """关闭进程标准输入管道。"""
+        stdin_pipe = getattr(process, "stdin", None)
+        if stdin_pipe is None or stdin_pipe.is_closing():
+            return None
+
+        stdin_pipe.close()
+
+        wait_closed = getattr(stdin_pipe, "wait_closed", None)
+        if not callable(wait_closed):
+            return None
+
+        wait_closed_call = typing.cast(
+            typing.Callable[[], typing.Awaitable[None]],
+            wait_closed
+        )
+
+        try:
+            await asyncio.wait_for(wait_closed_call(), timeout=cls.TERMINATE_GRACE_SEC)
+        except (BrokenPipeError, ConnectionResetError, RuntimeError, ValueError):
+            return None
+        except asyncio.TimeoutError:
+            return None
 
     @classmethod
     async def _terminate_windows_process_tree(
