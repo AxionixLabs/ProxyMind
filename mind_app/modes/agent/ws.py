@@ -199,6 +199,8 @@ async def build_runtime_llm_conf(mind: "Mind") -> dict[str, typing.Any]:
     primary     = primary_raw if isinstance(primary_raw, dict) else {}
 
     primary_conf: dict[str, typing.Any] = {}
+    if primary.get("enabled") is False:
+        return {"primary": primary_conf}
 
     provider = str(primary.get("provider", "") or "").strip()
     if provider:

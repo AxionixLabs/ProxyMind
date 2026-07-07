@@ -16,22 +16,39 @@ from mind_core.provider_config import (
 from mind_nova import const
 
 
-def _default_slot() -> dict[str, str]:
+def _default_slot() -> dict[str, typing.Any]:
     """返回单个模型槽位的默认配置。"""
     return {
-        "provider" : DEFAULT_PROVIDER_NAME,
-        "route"    : DEFAULT_ROUTE_NAME,
+        "provider" : "",
+        "route"    : "",
         "model"    : "",
         "apikey"   : "",
-        "base_url" : ""
+        "base_url" : "",
+        "enabled"  : False
     }
 
 
 def _default_prefs() -> dict[str, typing.Any]:
     """返回偏好配置的默认结构。"""
     return {
-        "primary" : _default_slot()
+        "primary"   : _default_slot(),
+        "secondary" : _default_slot()
     }
+
+
+def _as_bool(value: typing.Any, default: bool = False) -> bool:
+    """把输入值规范化为布尔值。"""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"1", "true", "yes", "on"}:
+            return True
+        if text in {"0", "false", "no", "off"}:
+            return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return default
 
 
 class Preferences(object):
@@ -68,14 +85,19 @@ class Preferences(object):
 
         if provider:
             primary["provider"] = provider
+            primary["enabled"] = True
         if route:
             primary["route"] = route
+            primary["enabled"] = True
         if model:
             primary["model"] = model
+            primary["enabled"] = True
         if apikey:
             primary["apikey"] = apikey
+            primary["enabled"] = True
         if base_url:
             primary["base_url"] = base_url
+            primary["enabled"] = True
 
         return payload
 
@@ -83,17 +105,6 @@ class Preferences(object):
     def pref_api(self) -> str:
         """返回偏好配置接口地址。"""
         return const.BASE_URL.rstrip("/") + "/api/pref"
-
-    @staticmethod
-    def _slot_configured(slot: typing.Any) -> bool:
-        """判断 secondary 是否满足有效写入条件。"""
-        if not isinstance(slot, dict):
-            return False
-
-        return bool(
-            str(slot.get("model", "")).strip()
-            and str(slot.get("apikey", "")).strip()
-        )
 
     @staticmethod
     def _merge_missing_slot(
@@ -112,6 +123,26 @@ class Preferences(object):
         return merged
 
     @classmethod
+    def _normalize_slot(
+        cls,
+        raw: typing.Any
+    ) -> dict[str, typing.Any]:
+        """规范化单个模型槽位配置。"""
+        slot = raw if isinstance(raw, dict) else {}
+        enabled = _as_bool(slot.get("enabled"), False)
+        if not enabled:
+            return _default_slot()
+
+        return {
+            "provider" : str(slot.get("provider", DEFAULT_PROVIDER_NAME) or DEFAULT_PROVIDER_NAME),
+            "route"    : str(slot.get("route", DEFAULT_ROUTE_NAME) or DEFAULT_ROUTE_NAME),
+            "model"    : str(slot.get("model", "")),
+            "apikey"   : str(slot.get("apikey", "")),
+            "base_url" : str(slot.get("base_url", "")),
+            "enabled"  : True
+        }
+
+    @classmethod
     def _normalize_pref_payload(
         cls,
         payload: dict[str, typing.Any]
@@ -121,23 +152,9 @@ class Preferences(object):
         secondary = payload.get("secondary")
 
         prefs = {
-            "primary": {
-                "provider" : str(primary.get("provider", DEFAULT_PROVIDER_NAME)),
-                "route"    : str(primary.get("route", DEFAULT_ROUTE_NAME) or DEFAULT_ROUTE_NAME),
-                "model"    : str(primary.get("model", "")),
-                "apikey"   : str(primary.get("apikey", "")),
-                "base_url" : str(primary.get("base_url", ""))
-            }
+            "primary"   : cls._normalize_slot(primary),
+            "secondary" : cls._normalize_slot(secondary)
         }
-
-        if cls._slot_configured(secondary):
-            prefs["secondary"] = {
-                "provider" : str(secondary.get("provider", DEFAULT_PROVIDER_NAME)),
-                "route"    : str(secondary.get("route", DEFAULT_ROUTE_NAME) or DEFAULT_ROUTE_NAME),
-                "model"    : str(secondary.get("model", "")),
-                "apikey"   : str(secondary.get("apikey", "")),
-                "base_url" : str(secondary.get("base_url", ""))
-            }
 
         return prefs
 

@@ -65,3 +65,17 @@ def test_agent_runtime_llm_conf_keeps_explicit_non_default_route() -> None:
         }
     }
     assert list(result["primary"].keys()) == ["provider", "route", "model"]
+
+
+def test_agent_runtime_llm_conf_omits_disabled_primary() -> None:
+    """WS runtime.bind 不上报关闭的 primary 配置。"""
+    result = run_async(build_runtime_llm_conf(DummyMind({
+        "primary": {
+            "enabled": False,
+            "provider": "openai_compatible",
+            "model": "custom-model",
+            "route": "chat_completions"
+        }
+    })))
+
+    assert result == {"primary": {}}

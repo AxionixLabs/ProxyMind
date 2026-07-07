@@ -186,6 +186,7 @@ async def save_primary_pref_field(
 
     primary = dict(model_config.get("primary") or {})
     primary[field] = normalized
+    primary["enabled"] = True
 
     model_config["primary"] = primary
 

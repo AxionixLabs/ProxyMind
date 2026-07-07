@@ -17,19 +17,20 @@ DEFAULT_CONFIG_TEXT = f"""[service]
 domain = "{const.DOMAIN}"
 
 [model.primary]
-provider = "{DEFAULT_PROVIDER_NAME}"
-route = "{DEFAULT_ROUTE_NAME}"
+provider = ""
+route = ""
 model = ""
 apikey = ""
 base_url = ""
+enabled = false
 
 [model.secondary]
-enabled = false
-provider = "{DEFAULT_PROVIDER_NAME}"
-route = "{DEFAULT_ROUTE_NAME}"
+provider = ""
+route = ""
 model = ""
 apikey = ""
 base_url = ""
+enabled = false
 
 [skills]
 enabled = []
@@ -75,12 +76,12 @@ def _as_str_list(value: typing.Any) -> list[str]:
 def _normalize_model_slot(
     raw: typing.Any,
     *,
-    include_enabled: bool = False,
     default_enabled: bool = False
 ) -> dict[str, typing.Any]:
     """规范化模型槽位配置。"""
     data = _as_dict(raw)
-    slot = _default_model_slot(enabled=default_enabled if include_enabled else None)
+    enabled = _as_bool(data.get("enabled"), default_enabled)
+    slot = _default_model_slot(enabled=enabled)
 
     slot["provider"] = _as_str(data.get("provider"), DEFAULT_PROVIDER_NAME).strip() or DEFAULT_PROVIDER_NAME
     slot["route"]    = _as_str(data.get("route"), DEFAULT_ROUTE_NAME).strip() or DEFAULT_ROUTE_NAME
@@ -88,8 +89,12 @@ def _normalize_model_slot(
     slot["apikey"]   = _as_str(data.get("apikey")).strip()
     slot["base_url"] = _as_str(data.get("base_url")).strip()
 
-    if include_enabled:
-        slot["enabled"] = _as_bool(data.get("enabled"), default_enabled)
+    if not enabled:
+        slot["provider"] = ""
+        slot["route"]    = ""
+        slot["model"]    = ""
+        slot["apikey"]   = ""
+        slot["base_url"] = ""
 
     return slot
 
@@ -97,8 +102,8 @@ def _normalize_model_slot(
 def _default_model_slot(*, enabled: bool | None = None) -> dict[str, typing.Any]:
     """返回默认模型槽位配置。"""
     slot: dict[str, typing.Any] = {
-        "provider" : DEFAULT_PROVIDER_NAME,
-        "route"    : DEFAULT_ROUTE_NAME,
+        "provider" : DEFAULT_PROVIDER_NAME if enabled else "",
+        "route"    : DEFAULT_ROUTE_NAME if enabled else "",
         "model"    : "",
         "apikey"   : "",
         "base_url" : ""
@@ -115,7 +120,7 @@ def default_config() -> dict[str, typing.Any]:
             "domain" : const.DOMAIN
         },
         "model"   : {
-            "primary"   : _default_model_slot(),
+            "primary"   : _default_model_slot(enabled=False),
             "secondary" : _default_model_slot(enabled=False)
         },
         "skills"  : {
@@ -140,21 +145,23 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
     skills   = _as_dict(data.get("skills"))
 
     return {
-        "service" : {
-            "domain" : _as_str(
+        "service": {
+            "domain": _as_str(
                 service.get("domain"),
                 defaults["service"]["domain"]
             ).strip() or defaults["service"]["domain"]
         },
-        "model"   : {
-            "primary"   : _normalize_model_slot(model.get("primary")),
-            "secondary" : _normalize_model_slot(
+        "model": {
+            "primary": _normalize_model_slot(
+                model.get("primary"),
+                default_enabled=False
+            ),
+            "secondary": _normalize_model_slot(
                 model.get("secondary"),
-                include_enabled=True,
                 default_enabled=False
             )
         },
-        "skills"  : {
+        "skills": {
             "enabled"  : _as_str_list(skills.get("enabled")),
             "disabled" : _as_str_list(skills.get("disabled"))
         }
@@ -208,14 +215,15 @@ def format_config(config: dict[str, typing.Any]) -> str:
         f"model = {toml_string(primary.get('model'))}",
         f"apikey = {toml_string(primary.get('apikey'))}",
         f"base_url = {toml_string(primary.get('base_url'))}",
+        f"enabled = {'true' if primary.get('enabled') else 'false'}",
         "",
         "[model.secondary]",
-        f"enabled = {'true' if secondary.get('enabled') else 'false'}",
         f"provider = {toml_string(secondary.get('provider'))}",
         f"route = {toml_string(secondary.get('route'))}",
         f"model = {toml_string(secondary.get('model'))}",
         f"apikey = {toml_string(secondary.get('apikey'))}",
         f"base_url = {toml_string(secondary.get('base_url'))}",
+        f"enabled = {'true' if secondary.get('enabled') else 'false'}",
         "",
         "[skills]",
         f"enabled = {toml_string_list(skills.get('enabled'))}",
@@ -240,30 +248,23 @@ def config_to_preferences(config: dict[str, typing.Any]) -> dict[str, typing.Any
     cfg   = normalize_config(copy.deepcopy(config))
     model = _as_dict(cfg.get("model"))
 
-    def convert_slot(slot: dict[str, typing.Any]) -> dict[str, str]:
+    def convert_slot(slot: dict[str, typing.Any]) -> dict[str, typing.Any]:
         return {
             "provider" : _as_str(slot.get("provider"), DEFAULT_PROVIDER_NAME),
             "route"    : _as_str(slot.get("route"), DEFAULT_ROUTE_NAME),
             "model"    : _as_str(slot.get("model")),
             "apikey"   : _as_str(slot.get("apikey")),
-            "base_url" : _as_str(slot.get("base_url"))
+            "base_url" : _as_str(slot.get("base_url")),
+            "enabled"  : _as_bool(slot.get("enabled"), False)
         }
 
     primary   = _as_dict(model.get("primary"))
     secondary = _as_dict(model.get("secondary"))
 
-    prefs: dict[str, typing.Any] = {
-        "primary" : convert_slot(primary)
+    return {
+        "primary"   : convert_slot(primary),
+        "secondary" : convert_slot(secondary)
     }
-
-    if (
-        _as_bool(secondary.get("enabled"), False)
-        and _as_str(secondary.get("model")).strip()
-        and _as_str(secondary.get("apikey")).strip()
-    ):
-        prefs["secondary"] = convert_slot(secondary)
-
-    return prefs
 
 
 if __name__ == "__main__":

@@ -25,7 +25,9 @@ def test_save_primary_pref_field_updates_config_file(
     config = load_config(config_file)
 
     assert snapshot["primary"]["model"] == "gpt-5-codex"
+    assert snapshot["primary"]["enabled"] is True
     assert config["model"]["primary"]["model"] == "gpt-5-codex"
+    assert config["model"]["primary"]["enabled"] is True
 
 
 def test_save_primary_pref_field_accepts_empty_model_name(
@@ -41,4 +43,6 @@ def test_save_primary_pref_field_accepts_empty_model_name(
     config = load_config(config_file)
 
     assert snapshot["primary"]["model"] == ""
+    assert snapshot["primary"]["enabled"] is True
     assert config["model"]["primary"]["model"] == ""
+    assert config["model"]["primary"]["enabled"] is True

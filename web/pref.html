@@ -704,6 +704,68 @@
         rgba(5,12,18,.94);
       transform:translateY(-1px);
     }
+    input:disabled, select:disabled, textarea:disabled{
+      opacity:.48;
+      cursor:not-allowed;
+      transform:none;
+    }
+    .slot-toggle{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:42px;
+      height:24px;
+      padding:0;
+      border:1px solid var(--surface-border-faint);
+      border-radius:999px;
+      background:rgba(255,255,255,.05);
+      color:var(--muted);
+      cursor:pointer;
+      user-select:none;
+      transition:border-color .14s ease, background .14s ease, box-shadow .14s ease;
+    }
+    .slot-toggle input{
+      position:absolute;
+      opacity:0;
+      width:1px;
+      height:1px;
+      pointer-events:none;
+    }
+    .slot-toggle-mark{
+      position:relative;
+      width:34px;
+      height:16px;
+      border-radius:999px;
+      background:rgba(255,255,255,.08);
+      transition:background .14s ease, box-shadow .14s ease;
+    }
+    .slot-toggle-mark::after{
+      content:"";
+      position:absolute;
+      top:2px;
+      left:2px;
+      width:12px;
+      height:12px;
+      border-radius:999px;
+      background:rgba(143,161,174,.9);
+      transition:transform .14s ease, background .14s ease;
+    }
+    .slot-toggle:hover{
+      border-color:var(--accent-border-soft);
+      background:var(--surface-hover);
+    }
+    .slot-toggle input:checked + .slot-toggle-mark{
+      background:var(--accent-fill);
+      box-shadow:0 0 0 1px var(--accent-border-soft) inset;
+    }
+    .slot-toggle input:checked + .slot-toggle-mark::after{
+      transform:translateX(18px);
+      background:var(--accent);
+    }
+    .slot-toggle:focus-within{
+      border-color:var(--accent-border);
+      box-shadow:0 0 0 3px rgba(142,202,230,.10);
+    }
     .field:focus-within .label-row,
     .pair-item:focus-within .label-row{
       transform:translateX(2px);
@@ -1116,6 +1178,10 @@
                 <div class="chip">Primary Model</div>
               </div>
               <div class="bar-end">
+                <label class="slot-toggle" for="primary-enabled">
+                  <input id="primary-enabled" name="primary_enabled" type="checkbox" />
+                  <span class="slot-toggle-mark" aria-hidden="true"></span>
+                </label>
                 <div class="chip">slot 1</div>
               </div>
             </div>
@@ -1156,6 +1222,7 @@
                     </div>
                     <div class="select-wrap">
                       <select id="primary-route" name="primary_route">
+                        <option value=""></option>
                         <option value="responses">Responses API</option>
                         <option value="chat_completions">Chat Completions API</option>
                       </select>
@@ -1194,6 +1261,10 @@
                 <div class="chip">Secondary Model</div>
               </div>
               <div class="bar-end">
+                <label class="slot-toggle" for="secondary-enabled">
+                  <input id="secondary-enabled" name="secondary_enabled" type="checkbox" />
+                  <span class="slot-toggle-mark" aria-hidden="true"></span>
+                </label>
                 <div class="chip">slot 2</div>
               </div>
             </div>
@@ -1234,6 +1305,7 @@
                     </div>
                     <div class="select-wrap">
                       <select id="secondary-route" name="secondary_route">
+                        <option value=""></option>
                         <option value="responses">Responses API</option>
                         <option value="chat_completions">Chat Completions API</option>
                       </select>
@@ -1314,8 +1386,8 @@
         {value: "openai_compatible", label: "OpenAI Compatible"},
         {value: "OpenAI", label: "OpenAI"}
       ],
-      primary   : {provider: "openai_compatible", route: "responses", model: "", apikey: "", base_url: "", type: "Text"},
-      secondary : null
+      primary   : {provider: "", route: "", model: "", apikey: "", base_url: "", type: "Text", enabled: false},
+      secondary : {provider: "", route: "", model: "", apikey: "", base_url: "", type: "Text", enabled: false}
     };
     const previewServiceConfig = {
       domain     : "",
@@ -1423,13 +1495,14 @@
     function renderProviderSelect(id, providers, selected) {
       const target = document.getElementById(id);
       if (!target) return;
-      const selectedValue = String(selected || "openai_compatible");
-      target.innerHTML = providers.map((item) => `
+      const selectedValue = selected === undefined || selected === null ? "openai_compatible" : String(selected);
+      const options = [{value: "", label: ""}, ...providers];
+      target.innerHTML = options.map((item) => `
         <option value="${escapeHtml(item.value)}"${item.value === selectedValue ? " selected" : ""}>
           ${escapeHtml(item.label || item.value)}
         </option>
       `).join("");
-      if (!providers.some((item) => item.value === selectedValue)) {
+      if (selectedValue && !providers.some((item) => item.value === selectedValue)) {
         target.insertAdjacentHTML(
           "beforeend",
           `<option value="${escapeHtml(selectedValue)}" selected>${escapeHtml(selectedValue)}</option>`
@@ -1445,6 +1518,53 @@
     function fieldSelectValue(id, fallback = "") {
       const target = document.getElementById(id);
       return target ? target.value : fallback;
+    }
+
+    function checkboxValue(id) {
+      const target = document.getElementById(id);
+      return Boolean(target && target.checked);
+    }
+
+    function setCheckboxValue(id, value) {
+      const target = document.getElementById(id);
+      if (target) target.checked = Boolean(value);
+    }
+
+    function slotFieldIds(prefix) {
+      return [
+        `${prefix}-provider`,
+        `${prefix}-type`,
+        `${prefix}-route`,
+        `${prefix}-model`,
+        `${prefix}-api-key`,
+        `${prefix}-base-url`
+      ];
+    }
+
+    function syncSlotEnabled(prefix) {
+      const enabled = checkboxValue(`${prefix}-enabled`);
+      if (enabled) {
+        if (!fieldSelectValue(`${prefix}-provider`, "")) {
+          fieldValue(`${prefix}-provider`, "openai_compatible");
+        }
+        if (!fieldSelectValue(`${prefix}-route`, "")) {
+          fieldValue(`${prefix}-route`, "responses");
+        }
+      } else {
+        fieldValue(`${prefix}-provider`, "");
+        fieldValue(`${prefix}-route`, "");
+        fieldValue(`${prefix}-model`, "");
+        fieldValue(`${prefix}-api-key`, "");
+        fieldValue(`${prefix}-base-url`, "");
+      }
+      slotFieldIds(prefix).forEach((id) => {
+        const target = document.getElementById(id);
+        if (target) target.disabled = !enabled;
+      });
+    }
+
+    function slotEnabled(slot) {
+      return Boolean(slot && slot.enabled);
     }
 
     function syncSelectWrapState(select) {
@@ -1479,20 +1599,26 @@
       const primary = data.primary || {};
       const secondary = data.secondary || {};
       const providers = providerOptions(data);
+      const primaryEnabled = slotEnabled(primary);
+      const secondaryEnabled = slotEnabled(secondary);
 
-      renderProviderSelect("primary-provider", providers, primary.provider);
-      fieldValue("primary-route", primary.route || "responses");
-      fieldValue("primary-model", primary.model);
-      fieldValue("primary-api-key", primary.apikey);
-      fieldValue("primary-base-url", primary.base_url);
+      setCheckboxValue("primary-enabled", primaryEnabled);
+      renderProviderSelect("primary-provider", providers, primaryEnabled ? primary.provider : "");
+      fieldValue("primary-route", primaryEnabled ? primary.route || "responses" : "");
+      fieldValue("primary-model", primaryEnabled ? primary.model : "");
+      fieldValue("primary-api-key", primaryEnabled ? primary.apikey : "");
+      fieldValue("primary-base-url", primaryEnabled ? primary.base_url : "");
       fieldValue("primary-type", primary.type || "Text");
+      syncSlotEnabled("primary");
 
-      renderProviderSelect("secondary-provider", providers, secondary.provider);
-      fieldValue("secondary-route", secondary.route || "responses");
-      fieldValue("secondary-model", secondary.model);
-      fieldValue("secondary-api-key", secondary.apikey);
-      fieldValue("secondary-base-url", secondary.base_url);
+      setCheckboxValue("secondary-enabled", secondaryEnabled);
+      renderProviderSelect("secondary-provider", providers, secondaryEnabled ? secondary.provider : "");
+      fieldValue("secondary-route", secondaryEnabled ? secondary.route || "responses" : "");
+      fieldValue("secondary-model", secondaryEnabled ? secondary.model : "");
+      fieldValue("secondary-api-key", secondaryEnabled ? secondary.apikey : "");
+      fieldValue("secondary-base-url", secondaryEnabled ? secondary.base_url : "");
       fieldValue("secondary-type", secondary.type || "Text");
+      syncSlotEnabled("secondary");
       syncSelectStates();
       syncFieldStates();
     }
@@ -1503,35 +1629,36 @@
     }
 
     function collectSlot(prefix) {
+      const enabled = checkboxValue(`${prefix}-enabled`);
+      if (!enabled) {
+        return {
+          provider : "",
+          route    : "",
+          model    : "",
+          apikey   : "",
+          base_url : "",
+          type     : fieldSelectValue(`${prefix}-type`, "Text"),
+          enabled
+        };
+      }
       return {
         provider : fieldSelectValue(`${prefix}-provider`, "openai_compatible"),
         route    : fieldSelectValue(`${prefix}-route`, "responses"),
         model    : fieldInputValue(`${prefix}-model`),
         apikey   : fieldInputValue(`${prefix}-api-key`),
         base_url : fieldInputValue(`${prefix}-base-url`),
-        type     : fieldSelectValue(`${prefix}-type`, "Text")
+        type     : fieldSelectValue(`${prefix}-type`, "Text"),
+        enabled
       };
-    }
-
-    function slotConfigured(slot) {
-      if (!slot) return false;
-      return Boolean(
-        String(slot.base_url || "").trim() ||
-        String(slot.apikey || "").trim() ||
-        String(slot.model || "").trim()
-      );
     }
 
     function collectPref() {
       const primary = collectSlot("primary");
       const secondary = collectSlot("secondary");
       const payload = {
-        primary
+        primary,
+        secondary
       };
-
-      if (slotConfigured(secondary)) {
-        payload.secondary = secondary;
-      }
 
       return payload;
     }
@@ -1628,6 +1755,15 @@
     document.querySelectorAll(".select-wrap select").forEach((select) => {
       select.addEventListener("change", () => syncSelectWrapState(select));
       select.addEventListener("blur", () => syncSelectWrapState(select));
+    });
+    ["primary", "secondary"].forEach((prefix) => {
+      const toggle = document.getElementById(`${prefix}-enabled`);
+      if (!toggle) return;
+      toggle.addEventListener("change", () => {
+        syncSlotEnabled(prefix);
+        syncSelectStates();
+        syncFieldStates();
+      });
     });
     document.querySelectorAll(".field input, .field textarea").forEach((input) => {
       input.addEventListener("input", () => syncFieldState(input));
