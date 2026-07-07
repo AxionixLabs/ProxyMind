@@ -10,6 +10,7 @@ from mind_app.native_coding.exec.shell_exec import ShellCommandTools
 from mind_app.native_coding.exec.exec_command import ExecCommandTools
 from mind_app.native_coding.exec.command_policy import CommandPolicy
 from mind_app.native_coding.exec.file_audit import FileAudit
+from mind_app.native_coding.edit.turn_diff import TurnDiffTracker
 
 
 class NativeCoding(NativeCodingBase):
@@ -22,6 +23,7 @@ class NativeCoding(NativeCodingBase):
         self._patch_engine   = PatchEngine(self)
         self._command_policy = CommandPolicy(self)
         self._file_audit     = FileAudit(self)
+        self._turn_diff      = TurnDiffTracker()
         self._shell_command  = ShellCommandTools(self, command_policy=self._command_policy, file_audit=self._file_audit)
         self._shell_batch    = ShellBatchTools(self, shell_command=self._shell_command)
         self._exec_command   = ExecCommandTools(self, command_policy=self._command_policy, file_audit=self._file_audit)
@@ -103,7 +105,21 @@ class NativeCoding(NativeCodingBase):
         """应用严格 apply_patch 补丁。"""
         return self._patch_engine.apply_patch(*args, **kwargs)
 
+    def reset_patch_diff(self) -> None:
+        """清空本轮 apply_patch 差异记录。"""
+        self._turn_diff = TurnDiffTracker()
+
+    def track_patch_delta(self, delta: typing.Any) -> str:
+        """记录一次 apply_patch delta 并返回当前净差异。"""
+        return self._turn_diff.track_delta(delta)
+
+    def patch_diff_snapshot(self) -> dict[str, typing.Any]:
+        """返回当前 apply_patch 净差异快照。"""
+        return {
+            "invalidated" : self._turn_diff.invalidated,
+            "diff"        : self._turn_diff.unified_diff
+        }
+
 
 if __name__ == '__main__':
     pass
-

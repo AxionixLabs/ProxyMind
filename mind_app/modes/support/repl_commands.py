@@ -144,11 +144,11 @@ async def compact_current_conversation(
     status            = CompactLiveStatus()
     animation_enabled = compact_animation_enabled(mind)
 
-    logger.debug(
-        f"[Compact] animation {'start' if animation_enabled else 'skip'} "
-        f"level={mind.level} cid={metadata['cid']} sid={metadata['sid']}"
-    )
     if animation_enabled:
+        logger.debug(
+            f"[Compact] animation start "
+            f"level={mind.level} cid={metadata['cid']} sid={metadata['sid']}"
+        )
         await mind.start_external_mcp_anim(status.snapshot)
         animation_running = True
 

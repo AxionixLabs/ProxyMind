@@ -27,6 +27,7 @@ from .support.repl_commands import (
     open_helix_home,
     unlink_helix_runtime
 )
+from .support.repl_diff import print_current_apply_patch_diff
 from .support.repl_prompt import (
     WORKSPACE_LABEL_REFRESH,
     exec_status_display_label,
@@ -71,6 +72,7 @@ async def mind_loop(mind: "Mind") -> None:
     resume_set: set[str]       = {"/resume"}
     permissions_set: set[str]  = {"/permissions"}
     tools_set: set[str]        = {"/tools"}
+    diff_set: set[str]         = {"/diff"}
     preferences_set: set[str]  = {"/preferences"}
     compact_set: set[str]      = {"/compact"}
     helix_link_set: set[str]   = {"/helix-link"}
@@ -96,6 +98,7 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #AFD7FF]/preferences[/]              打开偏好配置页面
         [bold #AFD7FF]/compact[/]                  压缩当前对话上下文
         [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
+        [bold #AFD7FF]/diff[/]                     查看当前 apply_patch 净差异
         [bold #AFD7FF]/mcp[/]                      查看外部 MCP runtime 状态
         [bold #AFD7FF]/helix-link[/]               接入本地 Helix 服务
         [bold #AFD7FF]/helix-unlink[/]             从当前会话移除 Helix MCP
@@ -245,6 +248,10 @@ async def mind_loop(mind: "Mind") -> None:
             await print_available_tools(mind, run_mode=mode, pref_config=pref_config)
             continue
 
+        if command in diff_set:
+            print_current_apply_patch_diff(mind)
+            continue
+
         if m := re_model.match(prompt_text):
             model_value = await exchange_pref_value(m, pref_command="model")
             if model_value is not None:
@@ -381,6 +388,7 @@ async def mind_loop(mind: "Mind") -> None:
 
         pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
         print_turn_body_gap()
+        mind.native_coding.reset_patch_diff()
 
         await run_repl_model_turn(
             mind,

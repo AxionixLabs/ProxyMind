@@ -120,7 +120,11 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
             "force": bool(arguments.get("force", False)),
         }
 
-        raw = coding.apply_patch(**args)
+        raw  = coding.apply_patch(**args)
+        data = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+
+        if "delta" in data:
+            coding.track_patch_delta(data.get("delta"))
 
         return build_coding_result(
             tool="apply_patch",
