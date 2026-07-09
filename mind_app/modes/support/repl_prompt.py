@@ -78,6 +78,24 @@ def primary_model_from_config(
     return str(primary.get("model") or "")
 
 
+def primary_model_prompt_label(
+    pref_config: dict[str, typing.Any],
+    fallback: str = ""
+) -> str:
+    """生成 prompt 中展示的主模型标签。"""
+    model = primary_model_from_config(pref_config, fallback).strip()
+    if not model:
+        return model
+
+    primary = pref_config.get("primary") or {}
+
+    effort = str(primary.get("reasoning_effort") or "").strip()
+    if not effort:
+        return model
+
+    return f"{model} {effort}"
+
+
 def exec_status_display_label(
     snapshot: typing.Any,
     *,

@@ -34,6 +34,7 @@ from .support.repl_prompt import (
     exec_status_display_label,
     fetch_runtime_workspace_root,
     ignored_repl_input,
+    primary_model_prompt_label,
     primary_model_from_config,
     workspace_display_label
 )
@@ -104,7 +105,7 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #AFD7FF]/detach <index|path>[/]      移除一个待发送附件
         [bold #AFD7FF]/attach-clear[/]             清空当前待发送附件
         [bold #AFD7FF]/permissions[/]              切换权限模式
-        [bold #7F8C9A]/model [name][/]             持久化主模型名称；省略 name 表示清空
+        [bold #7F8C9A]/model <model-id>[/]         持久化主模型 ID；省略 model-id 表示清空
         [bold #AFD7FF]/preferences[/]              打开偏好配置页面
         [bold #AFD7FF]/compact[/]                  压缩当前对话上下文
         [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
@@ -160,7 +161,7 @@ async def mind_loop(mind: "Mind") -> None:
             )
             prompt_text = await mind.prompt_box.prompt_async(
                 mode=mode,
-                model=model,
+                model=primary_model_prompt_label(pref_config, model),
                 workspace_label=workspace_label,
                 access_label=access_mode_label(access_mode),
                 exec_status_label=exec_status_label

@@ -38,8 +38,8 @@ class CommandAutoSuggest(AutoSuggest):
         "/attach " : "<path>",
         "/detach"  : " <index-or-path>",
         "/detach " : "<index-or-path>",
-        "/model"   : " <name>",
-        "/model "  : "<name>"
+        "/model"   : " <model-id>",
+        "/model "  : "<model-id>"
     }
 
     def __init__(self) -> None:

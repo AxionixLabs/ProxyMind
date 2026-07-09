@@ -26,7 +26,7 @@ class SlashCommandCompleter(Completer):
         {"text": "/detach ", "display": "/detach", "meta": "移除待发送附件"},
         {"text": "/attach-clear", "display": "/attach-clear", "meta": "清空待发送附件"},
         {"text": "/permissions", "display": "/permissions", "meta": "切换权限模式"},
-        {"text": "/model ", "display": "/model", "meta": "设置主模型名称"},
+        {"text": "/model ", "display": "/model", "meta": "设置主模型 ID"},
         {"text": "/preferences", "display": "/preferences", "meta": "打开偏好配置页面"},
         {"text": "/compact", "display": "/compact", "meta": "压缩当前对话上下文"},
         {"text": "/tools", "display": "/tools", "meta": "查看可用 MCP 工具"},
