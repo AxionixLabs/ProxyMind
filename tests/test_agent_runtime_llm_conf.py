@@ -24,14 +24,15 @@ class DummyMind(object):
         return self.pref_config
 
 
-def test_agent_runtime_llm_conf_omits_default_route() -> None:
-    """WS runtime.bind 不主动上报默认 route。"""
+def test_agent_runtime_llm_conf_keeps_default_route() -> None:
+    """WS runtime.bind 按配置上报默认 route。"""
     result = run_async(build_runtime_llm_conf(DummyMind({
         "primary": {
             "provider": "openai_compatible",
             "model": "custom-model",
             "apikey": "test-key",
             "base_url": "https://api.example.com/v1",
+            "reasoning_effort": "xhigh",
             "route": "responses"
         }
     })))
@@ -39,12 +40,14 @@ def test_agent_runtime_llm_conf_omits_default_route() -> None:
     assert result == {
         "primary": {
             "provider": "openai_compatible",
+            "route": "responses",
             "model": "custom-model",
             "apikey": "test-key",
-            "base_url": "https://api.example.com/v1"
+            "base_url": "https://api.example.com/v1",
+            "reasoning_effort": "xhigh"
         }
     }
-    assert list(result["primary"].keys()) == ["provider", "model", "apikey", "base_url"]
+    assert list(result["primary"].keys()) == ["provider", "route", "model", "apikey", "base_url", "reasoning_effort"]
 
 
 def test_agent_runtime_llm_conf_keeps_explicit_non_default_route() -> None:
@@ -84,6 +87,7 @@ def test_agent_runtime_llm_conf_uses_empty_slot_for_disabled_primary() -> None:
             "route": "",
             "model": "",
             "apikey": "",
-            "base_url": ""
+            "base_url": "",
+            "reasoning_effort": ""
         }
     }

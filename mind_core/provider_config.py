@@ -14,6 +14,9 @@ SUPPORTED_PROVIDER_OPTIONS = (
 DEFAULT_ROUTE_NAME    = "responses"
 SUPPORTED_ROUTE_NAMES = {"responses", "chat_completions"}
 
+DEFAULT_REASONING_EFFORT    = "medium"
+SUPPORTED_REASONING_EFFORTS = {"low", "medium", "high", "xhigh"}
+
 
 if __name__ == "__main__":
     pass

@@ -30,7 +30,8 @@ def test_build_compact_payload_defaults_strategy_and_mode() -> None:
                 "route": "",
                 "model": "custom-model",
                 "apikey": "",
-                "base_url": ""
+                "base_url": "",
+                "reasoning_effort": ""
             }
         },
         "strategy" : "memento"
@@ -58,7 +59,8 @@ def test_build_compact_payload_omits_disabled_slot_values() -> None:
             "route": "",
             "model": "",
             "apikey": "",
-            "base_url": ""
+            "base_url": "",
+            "reasoning_effort": ""
         }
     }
 

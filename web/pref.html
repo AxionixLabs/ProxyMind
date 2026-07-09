@@ -558,7 +558,7 @@
     }
     .inline-triplet{
       display:grid;
-      grid-template-columns:1fr 1fr 1fr;
+      grid-template-columns:repeat(4, minmax(0, 1fr));
       gap:18px;
     }
     .inline-pair + .field{
@@ -1189,7 +1189,7 @@
               <div class="section-head">
                 <div class="section-title-wrap model-copy">
                   <h3 class="section-title model-title">Primary Model</h3>
-                  <p class="section-desc model-desc">主工作模型。用于默认文本任务与常规请求。</p>
+                  <p class="section-desc model-desc">主工作模型。用于默认请求，可按模型类型承载文本或多模态任务。</p>
                 </div>
               </div>
               <div>
@@ -1210,6 +1210,7 @@
                     </div>
                     <div class="select-wrap">
                       <select id="primary-type" name="primary_type">
+                        <option value="Auto">Auto</option>
                         <option value="Text">Text</option>
                         <option value="Multimodal">Multimodal</option>
                       </select>
@@ -1222,9 +1223,22 @@
                     </div>
                     <div class="select-wrap">
                       <select id="primary-route" name="primary_route">
-                        <option value=""></option>
                         <option value="responses">Responses API</option>
                         <option value="chat_completions">Chat Completions API</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="pair-item">
+                    <div class="label-row">
+                      <label for="primary-reasoning-effort">Reasoning Effort</label>
+                      <span class="hint">optional</span>
+                    </div>
+                    <div class="select-wrap">
+                      <select id="primary-reasoning-effort" name="primary_reasoning_effort">
+                        <option value="low">low</option>
+                        <option value="medium" selected>medium</option>
+                        <option value="high">high</option>
+                        <option value="xhigh">xhigh</option>
                       </select>
                     </div>
                   </div>
@@ -1254,88 +1268,6 @@
             </div>
           </section>
 
-          <section class="card model-card main-panel-card">
-            <div class="bar">
-              <div class="bar-start">
-                <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
-                <div class="chip">Secondary Model</div>
-              </div>
-              <div class="bar-end">
-                <label class="slot-toggle" for="secondary-enabled">
-                  <input id="secondary-enabled" name="secondary_enabled" type="checkbox" />
-                  <span class="slot-toggle-mark" aria-hidden="true"></span>
-                </label>
-                <div class="chip">slot 2</div>
-              </div>
-            </div>
-            <div class="section">
-              <div class="section-head">
-                <div class="section-title-wrap model-copy">
-                  <h3 class="section-title model-title">Secondary Model</h3>
-                  <p class="section-desc model-desc">副工作模型。用于补充能力、备用线路或多模态任务。</p>
-                </div>
-              </div>
-              <div>
-                <div class="inline-triplet">
-                  <div class="pair-item">
-                    <div class="label-row">
-                      <label for="secondary-provider">Provider</label>
-                      <span class="hint">single source</span>
-                    </div>
-                    <div class="select-wrap">
-                      <select id="secondary-provider" name="secondary_provider"></select>
-                    </div>
-                  </div>
-                  <div class="pair-item">
-                    <div class="label-row">
-                      <label for="secondary-type">Model Type</label>
-                      <span class="hint">capability lane</span>
-                    </div>
-                    <div class="select-wrap">
-                      <select id="secondary-type" name="secondary_type">
-                        <option value="Text">Text</option>
-                        <option value="Multimodal">Multimodal</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div class="pair-item">
-                    <div class="label-row">
-                      <label for="secondary-route">Route</label>
-                      <span class="hint">delivery lane</span>
-                    </div>
-                    <div class="select-wrap">
-                      <select id="secondary-route" name="secondary_route">
-                        <option value=""></option>
-                        <option value="responses">Responses API</option>
-                        <option value="chat_completions">Chat Completions API</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-                <div class="field">
-                  <div class="label-row">
-                    <label for="secondary-model">Model Name</label>
-                    <span class="hint">runtime target</span>
-                  </div>
-                  <input id="secondary-model" name="secondary_model" placeholder="model-id" />
-                </div>
-                <div class="field">
-                  <div class="label-row">
-                    <label for="secondary-api-key">API Key</label>
-                    <span class="hint">local secret only</span>
-                  </div>
-                  <input id="secondary-api-key" name="secondary_apikey" type="password" placeholder="api-key" />
-                </div>
-                <div class="field">
-                  <div class="label-row">
-                    <label for="secondary-base-url">Base URL</label>
-                    <span class="hint">optional override</span>
-                  </div>
-                  <input id="secondary-base-url" name="secondary_base_url" placeholder="https://api.example.com/v1" />
-                </div>
-              </div>
-            </div>
-          </section>
         </div>
       </form>
     </section>
@@ -1386,8 +1318,7 @@
         {value: "openai_compatible", label: "OpenAI Compatible"},
         {value: "OpenAI", label: "OpenAI"}
       ],
-      primary   : {provider: "", route: "", model: "", apikey: "", base_url: "", type: "Text", enabled: false},
-      secondary : {provider: "", route: "", model: "", apikey: "", base_url: "", type: "Text", enabled: false}
+      primary   : {provider: "", route: "", model: "", apikey: "", base_url: "", reasoning_effort: "medium", type: "Auto", enabled: false}
     };
     const previewServiceConfig = {
       domain     : "",
@@ -1496,7 +1427,7 @@
       const target = document.getElementById(id);
       if (!target) return;
       const selectedValue = selected === undefined || selected === null ? "openai_compatible" : String(selected);
-      const options = [{value: "", label: ""}, ...providers];
+      const options = providers;
       target.innerHTML = options.map((item) => `
         <option value="${escapeHtml(item.value)}"${item.value === selectedValue ? " selected" : ""}>
           ${escapeHtml(item.label || item.value)}
@@ -1530,34 +1461,26 @@
       if (target) target.checked = Boolean(value);
     }
 
-    function slotFieldIds(prefix) {
-      return [
+    function syncSlotEnabled(prefix) {
+      const enabled = checkboxValue(`${prefix}-enabled`);
+      if (!fieldSelectValue(`${prefix}-provider`, "")) {
+        fieldValue(`${prefix}-provider`, "openai_compatible");
+      }
+      if (!fieldSelectValue(`${prefix}-route`, "")) {
+        fieldValue(`${prefix}-route`, "responses");
+      }
+      if (!fieldSelectValue(`${prefix}-reasoning-effort`, "")) {
+        fieldValue(`${prefix}-reasoning-effort`, "medium");
+      }
+      [
         `${prefix}-provider`,
         `${prefix}-type`,
         `${prefix}-route`,
+        `${prefix}-reasoning-effort`,
         `${prefix}-model`,
         `${prefix}-api-key`,
         `${prefix}-base-url`
-      ];
-    }
-
-    function syncSlotEnabled(prefix) {
-      const enabled = checkboxValue(`${prefix}-enabled`);
-      if (enabled) {
-        if (!fieldSelectValue(`${prefix}-provider`, "")) {
-          fieldValue(`${prefix}-provider`, "openai_compatible");
-        }
-        if (!fieldSelectValue(`${prefix}-route`, "")) {
-          fieldValue(`${prefix}-route`, "responses");
-        }
-      } else {
-        fieldValue(`${prefix}-provider`, "");
-        fieldValue(`${prefix}-route`, "");
-        fieldValue(`${prefix}-model`, "");
-        fieldValue(`${prefix}-api-key`, "");
-        fieldValue(`${prefix}-base-url`, "");
-      }
-      slotFieldIds(prefix).forEach((id) => {
+      ].forEach((id) => {
         const target = document.getElementById(id);
         if (target) target.disabled = !enabled;
       });
@@ -1597,28 +1520,19 @@
 
     function applyPref(data) {
       const primary = data.primary || {};
-      const secondary = data.secondary || {};
       const providers = providerOptions(data);
       const primaryEnabled = slotEnabled(primary);
-      const secondaryEnabled = slotEnabled(secondary);
 
       setCheckboxValue("primary-enabled", primaryEnabled);
-      renderProviderSelect("primary-provider", providers, primaryEnabled ? primary.provider : "");
-      fieldValue("primary-route", primaryEnabled ? primary.route || "responses" : "");
-      fieldValue("primary-model", primaryEnabled ? primary.model : "");
-      fieldValue("primary-api-key", primaryEnabled ? primary.apikey : "");
-      fieldValue("primary-base-url", primaryEnabled ? primary.base_url : "");
-      fieldValue("primary-type", primary.type || "Text");
+      renderProviderSelect("primary-provider", providers, primary.provider || "openai_compatible");
+      fieldValue("primary-route", primary.route || "responses");
+      fieldValue("primary-reasoning-effort", primary.reasoning_effort || "medium");
+      fieldValue("primary-model", primary.model);
+      fieldValue("primary-api-key", primary.apikey);
+      fieldValue("primary-base-url", primary.base_url);
+      fieldValue("primary-type", primary.type || "Auto");
       syncSlotEnabled("primary");
 
-      setCheckboxValue("secondary-enabled", secondaryEnabled);
-      renderProviderSelect("secondary-provider", providers, secondaryEnabled ? secondary.provider : "");
-      fieldValue("secondary-route", secondaryEnabled ? secondary.route || "responses" : "");
-      fieldValue("secondary-model", secondaryEnabled ? secondary.model : "");
-      fieldValue("secondary-api-key", secondaryEnabled ? secondary.apikey : "");
-      fieldValue("secondary-base-url", secondaryEnabled ? secondary.base_url : "");
-      fieldValue("secondary-type", secondary.type || "Text");
-      syncSlotEnabled("secondary");
       syncSelectStates();
       syncFieldStates();
     }
@@ -1630,34 +1544,22 @@
 
     function collectSlot(prefix) {
       const enabled = checkboxValue(`${prefix}-enabled`);
-      if (!enabled) {
-        return {
-          provider : "",
-          route    : "",
-          model    : "",
-          apikey   : "",
-          base_url : "",
-          type     : fieldSelectValue(`${prefix}-type`, "Text"),
-          enabled
-        };
-      }
       return {
         provider : fieldSelectValue(`${prefix}-provider`, "openai_compatible"),
         route    : fieldSelectValue(`${prefix}-route`, "responses"),
         model    : fieldInputValue(`${prefix}-model`),
         apikey   : fieldInputValue(`${prefix}-api-key`),
         base_url : fieldInputValue(`${prefix}-base-url`),
-        type     : fieldSelectValue(`${prefix}-type`, "Text"),
+        reasoning_effort : fieldSelectValue(`${prefix}-reasoning-effort`, "medium"),
+        type     : fieldSelectValue(`${prefix}-type`, "Auto"),
         enabled
       };
     }
 
     function collectPref() {
       const primary = collectSlot("primary");
-      const secondary = collectSlot("secondary");
       const payload = {
-        primary,
-        secondary
+        primary
       };
 
       return payload;
@@ -1756,7 +1658,7 @@
       select.addEventListener("change", () => syncSelectWrapState(select));
       select.addEventListener("blur", () => syncSelectWrapState(select));
     });
-    ["primary", "secondary"].forEach((prefix) => {
+    ["primary"].forEach((prefix) => {
       const toggle = document.getElementById(`${prefix}-enabled`);
       if (!toggle) return;
       toggle.addEventListener("change", () => {

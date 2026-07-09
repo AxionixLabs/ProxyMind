@@ -11,7 +11,9 @@ from mind_core.config import (
 )
 from mind_core.provider_config import (
     DEFAULT_PROVIDER_NAME,
-    DEFAULT_ROUTE_NAME
+    DEFAULT_REASONING_EFFORT,
+    DEFAULT_ROUTE_NAME,
+    SUPPORTED_REASONING_EFFORTS
 )
 from mind_nova import const
 
@@ -19,20 +21,20 @@ from mind_nova import const
 def _default_slot() -> dict[str, typing.Any]:
     """返回单个模型槽位的默认配置。"""
     return {
-        "provider" : "",
-        "route"    : "",
-        "model"    : "",
-        "apikey"   : "",
-        "base_url" : "",
-        "enabled"  : False
+        "provider"         : DEFAULT_PROVIDER_NAME,
+        "route"            : DEFAULT_ROUTE_NAME,
+        "model"            : "",
+        "apikey"           : "",
+        "base_url"         : "",
+        "reasoning_effort" : DEFAULT_REASONING_EFFORT,
+        "enabled"          : False
     }
 
 
 def _default_prefs() -> dict[str, typing.Any]:
     """返回偏好配置的默认结构。"""
     return {
-        "primary"   : _default_slot(),
-        "secondary" : _default_slot()
+        "primary" : _default_slot()
     }
 
 
@@ -49,6 +51,12 @@ def _as_bool(value: typing.Any, default: bool = False) -> bool:
     if isinstance(value, (int, float)):
         return bool(value)
     return default
+
+
+def _normalize_reasoning_effort(value: typing.Any) -> str:
+    """规范化 reasoning effort 档位。"""
+    text = str(value or "").strip().lower()
+    return text if text in SUPPORTED_REASONING_EFFORTS else DEFAULT_REASONING_EFFORT
 
 
 class Preferences(object):
@@ -77,7 +85,8 @@ class Preferences(object):
         route: str = "",
         model: str = "",
         apikey: str = "",
-        base_url: str = ""
+        base_url: str = "",
+        reasoning_effort: str = ""
     ) -> dict[str, typing.Any]:
         """基于当前配置生成运行时可用的配置副本。"""
         payload = copy.deepcopy(self.prefs)
@@ -85,19 +94,22 @@ class Preferences(object):
 
         if provider:
             primary["provider"] = provider
-            primary["enabled"] = True
+            primary["enabled"]  = True
         if route:
-            primary["route"] = route
+            primary["route"]   = route
             primary["enabled"] = True
         if model:
-            primary["model"] = model
+            primary["model"]   = model
             primary["enabled"] = True
         if apikey:
-            primary["apikey"] = apikey
+            primary["apikey"]  = apikey
             primary["enabled"] = True
         if base_url:
             primary["base_url"] = base_url
-            primary["enabled"] = True
+            primary["enabled"]  = True
+        if reasoning_effort:
+            primary["reasoning_effort"] = _normalize_reasoning_effort(reasoning_effort)
+            primary["enabled"]          = True
 
         return payload
 
@@ -114,9 +126,10 @@ class Preferences(object):
         """使用补充配置填充空字段，不覆盖已有值。"""
         merged = dict(base or {})
 
-        for key in ("provider", "route", "model", "apikey", "base_url"):
-            current = str(merged.get(key) or "").strip()
+        for key in ("provider", "route", "model", "apikey", "base_url", "reasoning_effort"):
+            current  = str(merged.get(key) or "").strip()
             incoming = str(supplement.get(key) or "").strip()
+
             if not current and incoming:
                 merged[key] = incoming
 
@@ -129,17 +142,15 @@ class Preferences(object):
     ) -> dict[str, typing.Any]:
         """规范化单个模型槽位配置。"""
         slot = raw if isinstance(raw, dict) else {}
-        enabled = _as_bool(slot.get("enabled"), False)
-        if not enabled:
-            return _default_slot()
 
         return {
-            "provider" : str(slot.get("provider", DEFAULT_PROVIDER_NAME) or DEFAULT_PROVIDER_NAME),
-            "route"    : str(slot.get("route", DEFAULT_ROUTE_NAME) or DEFAULT_ROUTE_NAME),
-            "model"    : str(slot.get("model", "")),
-            "apikey"   : str(slot.get("apikey", "")),
-            "base_url" : str(slot.get("base_url", "")),
-            "enabled"  : True
+            "provider"         : str(slot.get("provider", DEFAULT_PROVIDER_NAME) or DEFAULT_PROVIDER_NAME),
+            "route"            : str(slot.get("route", DEFAULT_ROUTE_NAME) or DEFAULT_ROUTE_NAME),
+            "model"            : str(slot.get("model", "")),
+            "apikey"           : str(slot.get("apikey", "")),
+            "base_url"         : str(slot.get("base_url", "")),
+            "reasoning_effort" : _normalize_reasoning_effort(slot.get("reasoning_effort")),
+            "enabled"          : _as_bool(slot.get("enabled"), False)
         }
 
     @classmethod
@@ -148,12 +159,10 @@ class Preferences(object):
         payload: dict[str, typing.Any]
     ) -> dict[str, typing.Any]:
         """将输入配置规范化为内部使用的偏好结构。"""
-        primary   = payload.get("primary") or {}
-        secondary = payload.get("secondary")
+        primary = payload.get("primary") or {}
 
         prefs = {
-            "primary"   : cls._normalize_slot(primary),
-            "secondary" : cls._normalize_slot(secondary)
+            "primary" : cls._normalize_slot(primary)
         }
 
         return prefs
@@ -173,12 +182,6 @@ class Preferences(object):
             dict(merged.get("primary") or {}),
             dict(normalized_remote.get("primary") or {})
         )
-
-        if isinstance(merged.get("secondary"), dict) and isinstance(normalized_remote.get("secondary"), dict):
-            merged["secondary"] = cls._merge_missing_slot(
-                dict(merged.get("secondary") or {}),
-                dict(normalized_remote.get("secondary") or {})
-            )
 
         return merged
 

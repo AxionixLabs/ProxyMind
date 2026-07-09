@@ -9,7 +9,9 @@ import tomllib
 from pathlib import Path
 from mind_core.provider_config import (
     DEFAULT_PROVIDER_NAME,
-    DEFAULT_ROUTE_NAME
+    DEFAULT_REASONING_EFFORT,
+    DEFAULT_ROUTE_NAME,
+    SUPPORTED_REASONING_EFFORTS
 )
 from mind_nova import const
 
@@ -17,19 +19,12 @@ DEFAULT_CONFIG_TEXT = f"""[service]
 domain = "{const.DOMAIN}"
 
 [model.primary]
-provider = ""
-route = ""
+provider = "{DEFAULT_PROVIDER_NAME}"
+route = "{DEFAULT_ROUTE_NAME}"
 model = ""
 apikey = ""
 base_url = ""
-enabled = false
-
-[model.secondary]
-provider = ""
-route = ""
-model = ""
-apikey = ""
-base_url = ""
+reasoning_effort = "{DEFAULT_REASONING_EFFORT}"
 enabled = false
 
 [skills]
@@ -79,22 +74,19 @@ def _normalize_model_slot(
     default_enabled: bool = False
 ) -> dict[str, typing.Any]:
     """规范化模型槽位配置。"""
-    data = _as_dict(raw)
+    data    = _as_dict(raw)
     enabled = _as_bool(data.get("enabled"), default_enabled)
-    slot = _default_model_slot(enabled=enabled)
+    slot    = _default_model_slot(enabled=enabled)
 
-    slot["provider"] = _as_str(data.get("provider"), DEFAULT_PROVIDER_NAME).strip() or DEFAULT_PROVIDER_NAME
-    slot["route"]    = _as_str(data.get("route"), DEFAULT_ROUTE_NAME).strip() or DEFAULT_ROUTE_NAME
-    slot["model"]    = _as_str(data.get("model")).strip()
-    slot["apikey"]   = _as_str(data.get("apikey")).strip()
-    slot["base_url"] = _as_str(data.get("base_url")).strip()
-
-    if not enabled:
-        slot["provider"] = ""
-        slot["route"]    = ""
-        slot["model"]    = ""
-        slot["apikey"]   = ""
-        slot["base_url"] = ""
+    slot["provider"]         = _as_str(data.get("provider"), DEFAULT_PROVIDER_NAME).strip() or DEFAULT_PROVIDER_NAME
+    slot["route"]            = _as_str(data.get("route"), DEFAULT_ROUTE_NAME).strip() or DEFAULT_ROUTE_NAME
+    slot["model"]            = _as_str(data.get("model")).strip()
+    slot["apikey"]           = _as_str(data.get("apikey")).strip()
+    slot["base_url"]         = _as_str(data.get("base_url")).strip()
+    slot["reasoning_effort"] = _normalize_reasoning_effort(
+        data.get("reasoning_effort"),
+        default=slot["reasoning_effort"]
+    )
 
     return slot
 
@@ -102,11 +94,12 @@ def _normalize_model_slot(
 def _default_model_slot(*, enabled: bool | None = None) -> dict[str, typing.Any]:
     """返回默认模型槽位配置。"""
     slot: dict[str, typing.Any] = {
-        "provider" : DEFAULT_PROVIDER_NAME if enabled else "",
-        "route"    : DEFAULT_ROUTE_NAME if enabled else "",
-        "model"    : "",
-        "apikey"   : "",
-        "base_url" : ""
+        "provider"         : DEFAULT_PROVIDER_NAME,
+        "route"            : DEFAULT_ROUTE_NAME,
+        "model"            : "",
+        "apikey"           : "",
+        "base_url"         : "",
+        "reasoning_effort" : DEFAULT_REASONING_EFFORT
     }
     if enabled is not None:
         slot["enabled"] = bool(enabled)
@@ -120,8 +113,7 @@ def default_config() -> dict[str, typing.Any]:
             "domain" : const.DOMAIN
         },
         "model"   : {
-            "primary"   : _default_model_slot(enabled=False),
-            "secondary" : _default_model_slot(enabled=False)
+            "primary" : _default_model_slot(enabled=False)
         },
         "skills"  : {
             "enabled"  : [],
@@ -154,10 +146,6 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
         "model": {
             "primary": _normalize_model_slot(
                 model.get("primary"),
-                default_enabled=False
-            ),
-            "secondary": _normalize_model_slot(
-                model.get("secondary"),
                 default_enabled=False
             )
         },
@@ -203,7 +191,6 @@ def format_config(config: dict[str, typing.Any]) -> str:
     model      = normalized["model"]
     skills     = normalized["skills"]
     primary    = model["primary"]
-    secondary  = model["secondary"]
 
     return "\n".join([
         "[service]",
@@ -215,15 +202,8 @@ def format_config(config: dict[str, typing.Any]) -> str:
         f"model = {toml_string(primary.get('model'))}",
         f"apikey = {toml_string(primary.get('apikey'))}",
         f"base_url = {toml_string(primary.get('base_url'))}",
+        f"reasoning_effort = {toml_string(primary.get('reasoning_effort'))}",
         f"enabled = {'true' if primary.get('enabled') else 'false'}",
-        "",
-        "[model.secondary]",
-        f"provider = {toml_string(secondary.get('provider'))}",
-        f"route = {toml_string(secondary.get('route'))}",
-        f"model = {toml_string(secondary.get('model'))}",
-        f"apikey = {toml_string(secondary.get('apikey'))}",
-        f"base_url = {toml_string(secondary.get('base_url'))}",
-        f"enabled = {'true' if secondary.get('enabled') else 'false'}",
         "",
         "[skills]",
         f"enabled = {toml_string_list(skills.get('enabled'))}",
@@ -250,21 +230,34 @@ def config_to_preferences(config: dict[str, typing.Any]) -> dict[str, typing.Any
 
     def convert_slot(slot: dict[str, typing.Any]) -> dict[str, typing.Any]:
         return {
-            "provider" : _as_str(slot.get("provider"), DEFAULT_PROVIDER_NAME),
-            "route"    : _as_str(slot.get("route"), DEFAULT_ROUTE_NAME),
-            "model"    : _as_str(slot.get("model")),
-            "apikey"   : _as_str(slot.get("apikey")),
-            "base_url" : _as_str(slot.get("base_url")),
-            "enabled"  : _as_bool(slot.get("enabled"), False)
+            "provider"         : _as_str(slot.get("provider"), DEFAULT_PROVIDER_NAME),
+            "route"            : _as_str(slot.get("route"), DEFAULT_ROUTE_NAME),
+            "model"            : _as_str(slot.get("model")),
+            "apikey"           : _as_str(slot.get("apikey")),
+            "base_url"         : _as_str(slot.get("base_url")),
+            "reasoning_effort" : _normalize_reasoning_effort(
+                slot.get("reasoning_effort"),
+                default=DEFAULT_REASONING_EFFORT
+            ),
+            "enabled"          : _as_bool(slot.get("enabled"), False)
         }
 
-    primary   = _as_dict(model.get("primary"))
-    secondary = _as_dict(model.get("secondary"))
+    primary = _as_dict(model.get("primary"))
 
     return {
-        "primary"   : convert_slot(primary),
-        "secondary" : convert_slot(secondary)
+        "primary" : convert_slot(primary)
     }
+
+
+def _normalize_reasoning_effort(value: typing.Any, *, default: str = "") -> str:
+    """规范化 reasoning effort 档位。"""
+    text = _as_str(value).strip().lower()
+
+    fallback = _as_str(default).strip().lower()
+    if fallback not in SUPPORTED_REASONING_EFFORTS:
+        fallback = ""
+
+    return text if text in SUPPORTED_REASONING_EFFORTS else fallback
 
 
 if __name__ == "__main__":

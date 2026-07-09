@@ -5,6 +5,12 @@ import asyncio
 
 import pytest
 from mind_core.config import load_config
+from mind_core.preference import Preferences
+from mind_core.provider_config import (
+    DEFAULT_PROVIDER_NAME,
+    DEFAULT_REASONING_EFFORT,
+    DEFAULT_ROUTE_NAME
+)
 from mind_app.modes.support.repl_prompt import save_primary_pref_field
 
 
@@ -46,3 +52,21 @@ def test_save_primary_pref_field_accepts_empty_model_name(
     assert snapshot["primary"]["enabled"] is True
     assert config["model"]["primary"]["model"] == ""
     assert config["model"]["primary"]["enabled"] is True
+
+
+def test_preferences_load_pref_uses_default_reasoning_effort(tmp_path: Path) -> None:
+    """运行时偏好读取新建配置中的默认 reasoning effort。"""
+    prefs = Preferences(tmp_path / "config.toml")
+
+    run_async(prefs.load_pref())
+
+    assert prefs.prefs["primary"]["reasoning_effort"] == "medium"
+
+
+def test_preferences_default_slot_uses_select_defaults(tmp_path: Path) -> None:
+    """运行时偏好默认槽位使用下拉字段默认值。"""
+    prefs = Preferences(tmp_path / "config.toml")
+
+    assert prefs.prefs["primary"]["provider"] == DEFAULT_PROVIDER_NAME
+    assert prefs.prefs["primary"]["route"] == DEFAULT_ROUTE_NAME
+    assert prefs.prefs["primary"]["reasoning_effort"] == DEFAULT_REASONING_EFFORT

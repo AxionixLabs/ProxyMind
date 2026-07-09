@@ -14,7 +14,8 @@ def test_preferences_to_config_keeps_llm_payload_field_order(tmp_path: Path) -> 
         route="chat_completions",
         model="custom-model",
         apikey="test-key",
-        base_url="https://api.example.com/v1"
+        base_url="https://api.example.com/v1",
+        reasoning_effort="high"
     )
 
     assert result == {
@@ -24,15 +25,10 @@ def test_preferences_to_config_keeps_llm_payload_field_order(tmp_path: Path) -> 
             "model": "custom-model",
             "apikey": "test-key",
             "base_url": "https://api.example.com/v1",
+            "reasoning_effort": "high",
             "enabled": True
-        },
-        "secondary": {
-            "provider": "",
-            "route": "",
-            "model": "",
-            "apikey": "",
-            "base_url": "",
-            "enabled": False
         }
     }
-    assert list(result["primary"].keys()) == ["provider", "route", "model", "apikey", "base_url", "enabled"]
+    assert list(result["primary"].keys()) == [
+        "provider", "route", "model", "apikey", "base_url", "reasoning_effort", "enabled"
+    ]

@@ -24,11 +24,12 @@ def ensure_default_skills(kwargs: dict[str, typing.Any]) -> None:
 def empty_primary_request_slot() -> dict[str, str]:
     """返回请求协议要求的空 primary 配置。"""
     return {
-        "provider" : "",
-        "route"    : "",
-        "model"    : "",
-        "apikey"   : "",
-        "base_url" : ""
+        "provider"         : "",
+        "route"            : "",
+        "model"            : "",
+        "apikey"           : "",
+        "base_url"         : "",
+        "reasoning_effort" : ""
     }
 
 
@@ -37,22 +38,25 @@ def normalize_request_slot(
     slot: dict[str, typing.Any]
 ) -> dict[str, typing.Any] | None:
     """规范化单个请求模型槽位。"""
+    if name != "primary":
+        return None
+
     if slot.get("enabled") is False:
-        return empty_primary_request_slot() if name == "primary" else None
+        return empty_primary_request_slot()
 
     result = {
         key: value
         for key, value in slot.items()
         if key != "enabled"
     }
-    if name == "primary":
-        empty_slot = empty_primary_request_slot()
-        empty_slot.update({
-            key: str(result.get(key) or "").strip()
-            for key in empty_slot
-        })
-        return empty_slot
-    return result
+    empty_slot = empty_primary_request_slot()
+
+    empty_slot.update({
+        key: str(result.get(key) or "").strip()
+        for key in empty_slot
+    })
+
+    return empty_slot
 
 
 def request_llm_conf(pref_config: typing.Any) -> dict[str, typing.Any]:
@@ -61,14 +65,16 @@ def request_llm_conf(pref_config: typing.Any) -> dict[str, typing.Any]:
         return {"primary": empty_primary_request_slot()}
 
     result: dict[str, typing.Any] = {}
+
     for name, slot in pref_config.items():
+        if name != "primary":
+            continue
         if isinstance(slot, dict):
             normalized_slot = normalize_request_slot(name, slot)
             if normalized_slot is None:
                 continue
             result[name] = normalized_slot
-        else:
-            result[name] = slot
+
     if "primary" not in result:
         result["primary"] = empty_primary_request_slot()
     return result

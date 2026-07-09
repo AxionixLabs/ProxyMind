@@ -14,45 +14,39 @@ from mind_core.config import (
 )
 from mind_core.provider_config import (
     DEFAULT_PROVIDER_NAME,
+    DEFAULT_REASONING_EFFORT,
     DEFAULT_ROUTE_NAME,
+    SUPPORTED_REASONING_EFFORTS,
     SUPPORTED_PROVIDER_OPTIONS
 )
 from mind_core.service_config import normalize_domain
 
 DEFAULT_PROFILE_KEY = "default"
-DEFAULT_MODEL_TYPE  = "Text"
+DEFAULT_MODEL_TYPE  = "Auto"
 
 
 def load_pref() -> dict[str, typing.Any]:
     """读取 Mind 模型偏好配置。"""
-    config    = _load_mind_config()
-    model     = config.get("model") if isinstance(config, dict) else {}
-    primary   = model.get("primary") if isinstance(model, dict) else {}
-    secondary = model.get("secondary") if isinstance(model, dict) else {}
+    config  = _load_mind_config()
+    model   = config.get("model") if isinstance(config, dict) else {}
+    primary = model.get("primary") if isinstance(model, dict) else {}
 
     return {
         "profile_key" : DEFAULT_PROFILE_KEY,
         "providers"   : [dict(item) for item in SUPPORTED_PROVIDER_OPTIONS],
-        "primary"     : config_slot_to_pref(primary),
-        "secondary"   : config_slot_to_pref(secondary)
+        "primary"     : config_slot_to_pref(primary)
     }
 
 
 def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
     """保存 Mind 模型偏好配置。"""
-    payload       = raw if isinstance(raw, dict) else {}
-    config        = _load_mind_config()
-    model         = config.setdefault("model", {})
-    secondary_raw = payload.get("secondary")
+    payload = raw if isinstance(raw, dict) else {}
+    config  = _load_mind_config()
+    model   = config.setdefault("model", {})
 
     model["primary"] = pref_to_config_slot(
         payload.get("primary"),
         enabled=pref_slot_enabled(payload.get("primary"))
-    )
-
-    model["secondary"] = pref_to_config_slot(
-        secondary_raw,
-        enabled=pref_slot_enabled(secondary_raw)
     )
 
     _write_mind_config(config)
@@ -91,14 +85,15 @@ def config_slot_to_pref(slot: typing.Any) -> dict[str, typing.Any]:
     is_enabled = bool(data.get("enabled"))
 
     return {
-        "provider" : clean_text(data.get("provider"), DEFAULT_PROVIDER_NAME) if is_enabled else "",
-        "route"    : clean_text(data.get("route"), DEFAULT_ROUTE_NAME) if is_enabled else "",
-        "model"    : clean_text(data.get("model")) if is_enabled else "",
-        "apikey"   : clean_text(data.get("apikey")) if is_enabled else "",
-        "base_url" : clean_text(data.get("base_url")) if is_enabled else "",
-        "enabled"  : is_enabled,
-        "type"     : clean_text(data.get("type"), DEFAULT_MODEL_TYPE),
-        "notes"    : clean_text(data.get("notes"))
+        "provider"         : clean_text(data.get("provider"), DEFAULT_PROVIDER_NAME),
+        "route"            : clean_text(data.get("route"), DEFAULT_ROUTE_NAME),
+        "model"            : clean_text(data.get("model")),
+        "apikey"           : clean_text(data.get("apikey")),
+        "base_url"         : clean_text(data.get("base_url")),
+        "reasoning_effort" : normalize_reasoning_effort(data.get("reasoning_effort")),
+        "enabled"          : is_enabled,
+        "type"             : clean_text(data.get("type"), DEFAULT_MODEL_TYPE),
+        "notes"            : clean_text(data.get("notes"))
     }
 
 
@@ -109,15 +104,22 @@ def pref_to_config_slot(slot: typing.Any, *, enabled: bool | None) -> dict[str, 
     is_enabled = bool(enabled)
 
     result: dict[str, typing.Any] = {
-        "provider" : clean_text(data.get("provider"), DEFAULT_PROVIDER_NAME) if is_enabled else "",
-        "route"    : clean_text(data.get("route"), DEFAULT_ROUTE_NAME) if is_enabled else "",
-        "model"    : clean_text(data.get("model")) if is_enabled else "",
-        "apikey"   : clean_text(data.get("apikey")) if is_enabled else "",
-        "base_url" : clean_text(data.get("base_url")) if is_enabled else "",
-        "enabled"  : is_enabled
+        "provider"         : clean_text(data.get("provider"), DEFAULT_PROVIDER_NAME),
+        "route"            : clean_text(data.get("route"), DEFAULT_ROUTE_NAME),
+        "model"            : clean_text(data.get("model")),
+        "apikey"           : clean_text(data.get("apikey")),
+        "base_url"         : clean_text(data.get("base_url")),
+        "reasoning_effort" : normalize_reasoning_effort(data.get("reasoning_effort")),
+        "enabled"          : is_enabled
     }
 
     return result
+
+
+def normalize_reasoning_effort(value: typing.Any) -> str:
+    """规范化 reasoning effort 档位。"""
+    text = str(value or "").strip().lower()
+    return text if text in SUPPORTED_REASONING_EFFORTS else DEFAULT_REASONING_EFFORT
 
 
 def pref_slot_enabled(slot: typing.Any) -> bool:

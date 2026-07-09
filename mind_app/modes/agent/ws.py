@@ -6,7 +6,6 @@ import asyncio
 import contextlib
 from loguru import logger
 from ...runtime.agent.client import AgentClient
-from mind_core.provider_config import DEFAULT_ROUTE_NAME
 from mind_nova.requests.payload import empty_primary_request_slot
 from .models import (
     AgentSessionRuntime, AgentLiveStatus
@@ -208,10 +207,10 @@ async def build_runtime_llm_conf(mind: "Mind") -> dict[str, typing.Any]:
         primary_conf["provider"] = provider
 
     route = str(primary.get("route", "") or "").strip()
-    if route and route != DEFAULT_ROUTE_NAME:
+    if route:
         primary_conf["route"] = route
 
-    for key in ("model", "apikey", "base_url"):
+    for key in ("model", "apikey", "base_url", "reasoning_effort"):
         value = str(primary.get(key, "") or "").strip()
         if value:
             primary_conf[key] = value

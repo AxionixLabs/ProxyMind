@@ -10,12 +10,15 @@ def test_build_chat_payload_strips_llm_enabled_fields() -> None:
     payload = asyncio.run(build_chat_payload(
         "chat",
         {
+            "profile_key": "default",
             "primary": {
                 "provider": "openai_compatible",
                 "route": "responses",
                 "model": "custom-model",
+                "reasoning_effort": "high",
                 "enabled": True
             },
+            "providers": [{"value": "openai_compatible"}],
             "secondary": {
                 "provider": "",
                 "route": "",
@@ -33,7 +36,8 @@ def test_build_chat_payload_strips_llm_enabled_fields() -> None:
             "route": "responses",
             "model": "custom-model",
             "apikey": "",
-            "base_url": ""
+            "base_url": "",
+            "reasoning_effort": "high"
         },
     }
 
@@ -60,6 +64,7 @@ def test_build_chat_payload_uses_empty_primary_when_disabled() -> None:
             "route": "",
             "model": "",
             "apikey": "",
-            "base_url": ""
+            "base_url": "",
+            "reasoning_effort": ""
         }
     }
