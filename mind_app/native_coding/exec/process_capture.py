@@ -48,12 +48,13 @@ class _CaptureBuffer(object):
         return bytes(self.data)
 
 
-class _OrderedOutputBuffer(object):
+class OrderedOutputBuffer(object):
     """按接收顺序保存有限数量的输出行。"""
 
     def __init__(self, *, max_lines: int = 800, max_line_chars: int = 1000) -> None:
-        self.max_lines        = max(1, int(max_lines or 1))
-        self.max_line_chars   = max(20, int(max_line_chars or 20))
+        self.max_lines      = max(1, int(max_lines or 1))
+        self.max_line_chars = max(20, int(max_line_chars or 20))
+
         self.lines: list[str] = []
 
         self.pending: dict[str, str] = {
@@ -97,6 +98,21 @@ class _OrderedOutputBuffer(object):
                     lines.append(self._clip_line(pending))
             return tuple(lines[-self.max_lines:])
 
+    async def drain(self, *, flush_pending: bool = False) -> tuple[str, ...]:
+        """返回并清空已完成输出行，可选同时收束未完成行。"""
+        async with self.lock:
+            lines = list(self.lines)
+            self.lines.clear()
+
+            if flush_pending:
+                for stream in ("stdout", "stderr"):
+                    pending = self.pending.get(stream, "")
+                    if pending:
+                        lines.append(self._clip_line(pending))
+                    self.pending[stream] = ""
+
+            return tuple(lines[-self.max_lines:])
+
     def _clip_line(self, value: str) -> str:
         text = str(value or "").rstrip()
         if len(text) <= self.max_line_chars:
@@ -134,7 +150,7 @@ class ProcessCapture(object):
 
         stdout_buffer = _CaptureBuffer(limit_bytes=buffer_limit_bytes)
         stderr_buffer = _CaptureBuffer(limit_bytes=buffer_limit_bytes)
-        output_buffer = _OrderedOutputBuffer()
+        output_buffer = OrderedOutputBuffer()
 
         stdout_task = asyncio.create_task(
             cls._read_stream(process.stdout, stdout_buffer, output_buffer, "stdout")
@@ -201,7 +217,7 @@ class ProcessCapture(object):
         cls,
         stream: asyncio.StreamReader | None,
         buffer: _CaptureBuffer,
-        output_buffer: _OrderedOutputBuffer,
+        output_buffer: OrderedOutputBuffer,
         stream_name: str
     ) -> None:
         """持续读取输出流。"""

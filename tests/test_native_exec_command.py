@@ -348,6 +348,42 @@ def test_write_stdin_can_poll_incremental_output(tmp_path: Path) -> None:
     run_async(scenario())
 
 
+def test_exec_command_records_output_lines_in_receive_order(tmp_path: Path) -> None:
+    """exec_command 按接收顺序保留 stdout/stderr 混合输出。"""
+    command = write_script(
+        tmp_path,
+        "ordered_exec_output.py",
+        "\n".join(
+            [
+                "import sys",
+                "sys.stderr.write('stderr-first\\n')",
+                "sys.stderr.flush()",
+                "sys.stdout.write('stdout-second\\n')",
+                "sys.stdout.flush()",
+                "",
+            ]
+        ),
+    )
+
+    async def scenario() -> None:
+        coding = NativeCoding(root=tmp_path)
+        result = await coding.exec_command(
+            command=command,
+            cwd=".",
+            yield_time_ms=1000,
+            timeout_sec=5,
+            execution=approved_execution(),
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["status"] == "exited"
+        assert result["data"]["stdout"].strip() == "stdout-second"
+        assert result["data"]["stderr"].strip() == "stderr-first"
+        assert result["data"]["output_lines"] == ["stderr-first", "stdout-second"]
+
+    run_async(scenario())
+
+
 def test_running_exec_sessions_snapshot_updates_after_terminate(tmp_path: Path) -> None:
     """running exec 快照随会话启动和终止更新。"""
     command = write_script(

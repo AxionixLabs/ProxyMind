@@ -9,7 +9,10 @@ import secrets
 from mind_app.native_coding.base import (
     NativeCodingBase, NativeCodingComponent
 )
-from mind_app.native_coding.exec.process_capture import ProcessCapture
+from mind_app.native_coding.exec.process_capture import (
+    OrderedOutputBuffer,
+    ProcessCapture
+)
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools
 from mind_app.native_coding.exec.shell_runtime import ShellRuntimeResolver
 
@@ -30,6 +33,7 @@ class ExecSession:
         "audit_before",
         "stdout",
         "stderr",
+        "output_buffer",
         "stdout_dropped",
         "stderr_dropped",
         "last_activity",
@@ -69,6 +73,8 @@ class ExecSession:
 
         self.stdout = bytearray()
         self.stderr = bytearray()
+
+        self.output_buffer = OrderedOutputBuffer()
 
         self.stdout_dropped = 0
         self.stderr_dropped = 0
@@ -408,7 +414,10 @@ class ExecCommandTools(NativeCodingComponent):
         """生成会话当前状态和增量输出。"""
         await self._finalize_if_exited(session)
 
-        stdout, stderr, dropped_stdout, dropped_stderr = await self._drain_output(session)
+        stdout, stderr, output_lines, dropped_stdout, dropped_stderr = await self._drain_output(
+            session,
+            flush_pending=session.finalized
+        )
 
         stdout_text = self.decode_bytes(stdout)
         stderr_text = self.decode_bytes(stderr)
@@ -451,6 +460,7 @@ class ExecCommandTools(NativeCodingComponent):
             "output"           : clipped_output,
             "stdout"           : clipped_stdout,
             "stderr"           : clipped_stderr,
+            "output_lines"     : list(output_lines),
             "output_truncated" : output_truncated,
             "stdout_truncated" : stdout_truncated,
             "stderr_truncated" : stderr_truncated,
@@ -510,6 +520,7 @@ class ExecCommandTools(NativeCodingComponent):
                     session.stdout_dropped += overflow
                 else:
                     session.stderr_dropped += overflow
+            await session.output_buffer.append(name, chunk)
             session.last_activity = time.time()
 
     async def _cleanup_sessions(self) -> None:
@@ -677,8 +688,10 @@ class ExecCommandTools(NativeCodingComponent):
 
     @staticmethod
     async def _drain_output(
-        session: ExecSession
-    ) -> tuple[bytes, bytes, int, int]:
+        session: ExecSession,
+        *,
+        flush_pending: bool = False
+    ) -> tuple[bytes, bytes, tuple[str, ...], int, int]:
         """取出并清空会话自上次读取后的输出。"""
         async with session.lock:
             stdout = bytes(session.stdout)
@@ -695,7 +708,9 @@ class ExecCommandTools(NativeCodingComponent):
 
             session.last_activity = time.time()
 
-        return stdout, stderr, dropped_stdout, dropped_stderr
+        output_lines = await session.output_buffer.drain(flush_pending=flush_pending)
+
+        return stdout, stderr, output_lines, dropped_stdout, dropped_stderr
 
 
 if __name__ == '__main__':
