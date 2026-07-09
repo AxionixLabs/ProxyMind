@@ -34,6 +34,7 @@ class ExecSession:
         "stdout",
         "stderr",
         "output_buffer",
+        "display_output_buffer",
         "stdout_dropped",
         "stderr_dropped",
         "last_activity",
@@ -75,6 +76,11 @@ class ExecSession:
         self.stderr = bytearray()
 
         self.output_buffer = OrderedOutputBuffer()
+
+        self.display_output_buffer = OrderedOutputBuffer(
+            max_lines=1000,
+            max_line_chars=1000
+        )
 
         self.stdout_dropped = 0
         self.stderr_dropped = 0
@@ -346,6 +352,43 @@ class ExecCommandTools(NativeCodingComponent):
             "items" : items
         }
 
+    async def session_output_snapshot(
+        self,
+        *,
+        session_id: str,
+        max_output_chars: int = 12000
+    ) -> dict[str, typing.Any]:
+        """返回命令会话的只读输出快照，不消费增量缓冲。"""
+        await self._cleanup_sessions()
+
+        sid = str(session_id or "").strip()
+        if not sid:
+            return {
+                "ok"         : False,
+                "reason"     : "session_id_empty",
+                "session_id" : sid
+            }
+
+        session = self._sessions.get(sid)
+        if session is None:
+            return {
+                "ok"         : False,
+                "reason"     : "exec_session_not_found",
+                "session_id" : sid
+            }
+
+        output_limit = self._bounded_int(
+            max_output_chars,
+            default=12000,
+            minimum=1024,
+            maximum=120000
+        )
+
+        return await self._readonly_session_result(
+            session,
+            output_limit=output_limit
+        )
+
     async def _apply_control_or_stdin(
         self,
         session: ExecSession,
@@ -486,6 +529,71 @@ class ExecCommandTools(NativeCodingComponent):
 
         return data
 
+    async def _readonly_session_result(
+        self,
+        session: ExecSession,
+        *,
+        output_limit: int
+    ) -> dict[str, typing.Any]:
+        """生成会话当前状态和只读输出快照。"""
+        await self._finalize_if_exited(session)
+
+        async with session.lock:
+            stdout = bytes(session.stdout)
+            stderr = bytes(session.stderr)
+
+            dropped_stdout = session.stdout_dropped
+            dropped_stderr = session.stderr_dropped
+
+        output_lines = await session.display_output_buffer.snapshot()
+
+        stdout_text = self.decode_bytes(stdout)
+        stderr_text = self.decode_bytes(stderr)
+
+        output_text = stdout_text
+        if stderr_text:
+            output_text = f"{output_text}{stderr_text}" if output_text else stderr_text
+        if not output_text and output_lines:
+            output_text = "\n".join(output_lines)
+
+        clipped_output = self.clip_output(output_text, max_chars=output_limit)
+        clipped_stdout = self.clip_output(stdout_text, max_chars=output_limit)
+        clipped_stderr = self.clip_output(stderr_text, max_chars=output_limit)
+
+        exit_code = session.process.returncode
+        status = "running" if exit_code is None else "exited"
+
+        truncated = (
+            len(output_text) > output_limit
+            or len(stdout_text) > output_limit
+            or len(stderr_text) > output_limit
+        )
+
+        return {
+            "ok"               : True,
+            "tool"             : "exec_session_snapshot",
+            "session_id"       : session.session_id,
+            "command"          : session.command,
+            "cwd"              : session.cwd,
+            "status"           : status,
+            "pid"              : session.process.pid,
+            "exit_code"        : exit_code,
+            "started_at"       : session.started_at,
+            "last_activity"    : session.last_activity,
+            "runtime"          : dict(session.runtime),
+            "runtime_name"     : session.runtime.get("name"),
+            "output"           : clipped_output,
+            "stdout"           : clipped_stdout,
+            "stderr"           : clipped_stderr,
+            "output_lines"     : list(output_lines),
+            "output_truncated" : len(output_text) > output_limit,
+            "stdout_truncated" : len(stdout_text) > output_limit,
+            "stderr_truncated" : len(stderr_text) > output_limit,
+            "truncated"        : truncated,
+            "stdout_dropped"   : dropped_stdout,
+            "stderr_dropped"   : dropped_stderr,
+        }
+
     async def _read_stream(
         self,
         session: ExecSession,
@@ -521,6 +629,7 @@ class ExecCommandTools(NativeCodingComponent):
                 else:
                     session.stderr_dropped += overflow
             await session.output_buffer.append(name, chunk)
+            await session.display_output_buffer.append(name, chunk)
             session.last_activity = time.time()
 
     async def _cleanup_sessions(self) -> None:

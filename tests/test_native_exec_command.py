@@ -348,6 +348,77 @@ def test_write_stdin_can_poll_incremental_output(tmp_path: Path) -> None:
     run_async(scenario())
 
 
+def test_exec_session_output_snapshot_does_not_drain_output(tmp_path: Path) -> None:
+    """只读快照查看输出时不消费 write_stdin 的增量缓冲。"""
+    command = write_script(
+        tmp_path,
+        "snapshot_tail.py",
+        "\n".join(
+            [
+                "import time",
+                "print('first', flush=True)",
+                "time.sleep(0.3)",
+                "print('second', flush=True)",
+                "time.sleep(2.0)",
+                "",
+            ]
+        ),
+    )
+
+    async def scenario() -> None:
+        coding = NativeCoding(root=tmp_path)
+        start = await coding.exec_command(
+            command=command,
+            cwd=".",
+            yield_time_ms=50,
+            timeout_sec=5,
+            execution=approved_execution(),
+        )
+        session_id = start["data"].get("session_id")
+
+        try:
+            assert start["ok"] is True
+            assert start["data"]["status"] == "running"
+
+            snapshot: dict[str, object] = {}
+            for _ in range(20):
+                snapshot = await coding.exec_session_output_snapshot(
+                    session_id=str(session_id),
+                    max_output_chars=12000,
+                )
+                display_text = "\n".join(
+                    str(line) for line in snapshot.get("output_lines") or []
+                )
+                if "second" in display_text:
+                    break
+                await asyncio.sleep(0.1)
+
+            assert snapshot["ok"] is True
+            display_text = "\n".join(str(line) for line in snapshot["output_lines"])
+            assert "first" in display_text
+            assert "second" in display_text
+
+            polled = await coding.write_stdin(
+                session_id=session_id,
+                stdin="",
+                wait_ms=0,
+            )
+            assert polled["ok"] is True
+            assert "second" in polled["data"]["stdout"]
+
+            after_poll = await coding.exec_session_output_snapshot(
+                session_id=str(session_id),
+                max_output_chars=12000,
+            )
+            after_poll_text = "\n".join(str(line) for line in after_poll["output_lines"])
+            assert "first" in after_poll_text
+            assert "second" in after_poll_text
+        finally:
+            await terminate_session(coding, session_id)
+
+    run_async(scenario())
+
+
 def test_exec_command_records_output_lines_in_receive_order(tmp_path: Path) -> None:
     """exec_command 按接收顺序保留 stdout/stderr 混合输出。"""
     command = write_script(

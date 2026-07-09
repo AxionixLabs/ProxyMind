@@ -97,6 +97,18 @@ class NativeCoding(NativeCodingBase):
         """返回当前仍在运行的 exec_command 会话摘要。"""
         return await self._exec_command.running_sessions_snapshot()
 
+    async def exec_session_output_snapshot(
+        self,
+        *,
+        session_id: str,
+        max_output_chars: int = 12000
+    ) -> dict[str, typing.Any]:
+        """返回 exec_command 会话的只读输出快照。"""
+        return await self._exec_command.session_output_snapshot(
+            session_id=session_id,
+            max_output_chars=max_output_chars
+        )
+
     def apply_patch(
         self,
         *args: typing.Any,

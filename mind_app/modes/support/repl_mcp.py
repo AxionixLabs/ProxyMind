@@ -28,11 +28,11 @@ MCP_MENU_STYLE = Style.from_dict({
 })
 
 MCP_MENU_ACTIONS: tuple[tuple[McpAction, str, str], ...] = (
-    ("start", "start", "enabled servers"),
-    ("force", "force", "all configured servers once"),
-    ("stop", "stop", "all external MCP connections"),
-    ("restart", "restart", "enabled servers"),
-    ("status", "status", "show current external MCP status")
+    ("start", "start", "启动 enabled=true 的外接 MCP 服务；已启动则保持当前连接。"),
+    ("force", "force", "本轮临时启动所有已配置的外接 MCP 服务，包括 enabled=false 的。不会修改配置文件。"),
+    ("stop", "stop", "断开当前所有外接 MCP 连接。HTTP/SSE 只是断开连接；stdio 类型会随连接释放关闭对应子进程。"),
+    ("restart", "restart", "先断开当前外接 MCP，再重新读取配置并启动 enabled=true 的服务。"),
+    ("status", "status", "查看状态，不启动、不停止。")
 )
 
 
@@ -82,12 +82,12 @@ def selectable_mcp_actions(summary: dict[str, typing.Any]) -> list[tuple[McpActi
 
     if bool(summary.get("started")):
         return [
-            ("stop", "stop", "all external MCP connections"),
-            ("status", "status", "show current external MCP status")
+            ("stop", "stop", "断开当前所有外接 MCP 连接。HTTP/SSE 只是断开连接；stdio 类型会随连接释放关闭对应子进程。"),
+            ("status", "status", "查看状态，不启动、不停止。")
         ]
 
     return [
-        ("status", "status", "show current external MCP status")
+        ("status", "status", "查看状态，不启动、不停止。")
     ]
 
 
@@ -96,8 +96,8 @@ def default_mcp_action_index(
     actions: list[tuple[McpAction, str, str]]
 ) -> int:
     """根据当前状态选择菜单默认高亮项。"""
-    configured = summary.get("configured")
-    servers = configured if isinstance(configured, list) else []
+    configured   = summary.get("configured")
+    servers      = configured if isinstance(configured, list) else []
     has_disabled = any(not bool(server.get("enabled", True)) for server in servers)
 
     preferred: McpAction = "status"
@@ -241,6 +241,11 @@ async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> None:
 
     if action == "force":
         await mind.restart_external_mcp_runtime(include_disabled=True)
+        render_mcp_status(mind)
+        return None
+
+    if action == "start":
+        await mind.start_external_mcp_runtime()
         render_mcp_status(mind)
         return None
 

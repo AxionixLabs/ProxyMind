@@ -20,9 +20,13 @@ from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
-from rich.text import Text
 from mind_core.design import Design
 from mind_core.terminal_input import clear_pending_input
+from mind_app.modes.support.repl_summary import (
+    CommandSummary,
+    command_summary_title_parts,
+    render_command_summary
+)
 from mind_app.stream_events.tool_traces.shell_errors import (
     shell_error_diagnostic_lines,
     shell_output_lines
@@ -581,27 +585,20 @@ def direct_command_args(command: str) -> list[str] | None:
 
 def render_shell_panel_summary(command: str, result: ShellRunResult) -> None:
     """渲染 REPL shell 前台面板的最终摘要。"""
-    lines          = shell_panel_summary_lines(result)
-    terminal_width = getattr(Design.console, "width", None)
+    render_command_summary(shell_panel_command_summary(command, result))
 
-    title_parts = shell_panel_summary_title_parts(
-        command,
-        result,
-        terminal_width=terminal_width if isinstance(terminal_width, int) else None
+
+def shell_panel_command_summary(
+    command: str,
+    result: ShellRunResult
+) -> CommandSummary:
+    """把 shell 面板结果转换为统一命令摘要。"""
+    return CommandSummary(
+        kind="Shell",
+        command=command,
+        suffix=shell_panel_status_suffix(result),
+        lines=tuple(shell_panel_summary_lines(result))
     )
-
-    renderable = Text()
-    for text, style in title_parts:
-        renderable.append(text, style=style)
-
-    for line in lines:
-        prefix = "  "
-        renderable.append("\n")
-        renderable.append(prefix, style="dim #7F8C9A")
-        renderable.append(line, style="dim #A8B1BB")
-
-    renderable.rstrip()
-    Design.console.print(renderable)
 
 
 def shell_panel_summary_title_parts(
@@ -611,25 +608,10 @@ def shell_panel_summary_title_parts(
     terminal_width: int | None = None
 ) -> list[tuple[str, str]]:
     """返回 shell 摘要标题的分段样式。"""
-    suffix = shell_panel_status_suffix(result)
-
-    command_text = shell_panel_summary_command_text(
-        command,
-        suffix=suffix,
+    return command_summary_title_parts(
+        shell_panel_command_summary(command, result),
         terminal_width=terminal_width
     )
-
-    parts = [
-        ("• ", "dim #7F8C9A"),
-        ("Shell", "bold #8FC7EA"),
-        (" ", "dim #7F8C9A"),
-        (command_text, "bold #F4F7FA"),
-    ]
-
-    if suffix:
-        parts.append((suffix, "dim #7F8C9A"))
-
-    return parts
 
 
 def shell_panel_title_fragments(

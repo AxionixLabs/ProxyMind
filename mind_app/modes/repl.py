@@ -44,6 +44,10 @@ from .support.repl_permissions import (
     choose_permissions_mode,
     render_permissions_status
 )
+from .support.repl_ps import (
+    choose_exec_session,
+    watch_exec_session
+)
 from .support.repl_shell import run_shell_escape
 from .support.repl_turn import (
     print_turn_body_gap,
@@ -76,6 +80,7 @@ async def mind_loop(mind: "Mind") -> None:
     permissions_set: set[str]  = {"/permissions"}
     tools_set: set[str]        = {"/tools"}
     diff_set: set[str]         = {"/diff"}
+    ps_set: set[str]           = {"/ps"}
     preferences_set: set[str]  = {"/preferences"}
     compact_set: set[str]      = {"/compact"}
     helix_link_set: set[str]   = {"/helix-link"}
@@ -102,6 +107,7 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #AFD7FF]/compact[/]                  压缩当前对话上下文
         [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
         [bold #AFD7FF]/diff[/]                     查看当前 apply_patch 净差异
+        [bold #AFD7FF]/ps[/]                       查看运行中的 exec_command
         [bold #AFD7FF]/mcp[/]                      管理外部 MCP runtime
         [bold #AFD7FF]/helix-link[/]               接入本地 Helix 服务
         [bold #AFD7FF]/helix-unlink[/]             从当前会话移除 Helix MCP
@@ -253,6 +259,12 @@ async def mind_loop(mind: "Mind") -> None:
 
         if command in diff_set:
             print_current_apply_patch_diff(mind)
+            continue
+
+        if command in ps_set:
+            session_id = await choose_exec_session(mind)
+            if await watch_exec_session(mind, session_id):
+                Design.console.print()
             continue
 
         if m := re_model.match(prompt_text):
