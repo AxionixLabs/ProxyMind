@@ -84,8 +84,9 @@ async def stream_looper(
 
     slog: StreamUI = StreamUI(mind.report.log_papers, design_level=mind.level)
 
-    interrupted: bool = False
-    first_frame: bool = True
+    interrupted: bool    = False
+    first_frame: bool    = True
+    turn_completed: bool = False
 
     approvals: ApprovalStore = ApprovalStore()
 
@@ -161,6 +162,7 @@ async def stream_looper(
                 continue
 
             if event_type == "turn.done":
+                turn_completed = True
                 break
 
             if event_type == "tool.builtin.call":
@@ -363,6 +365,8 @@ async def stream_looper(
         await finish_failure(slog, ev_report, phase="turn.failed", error=error)
 
     else:
+        if turn_completed:
+            mind.remember_last_assistant_reply(tracker.assistant_text())
         await slog.end_status()
         await slog.feed(build_sources_text(tracker), display=StreamUI.BLOCK)
 

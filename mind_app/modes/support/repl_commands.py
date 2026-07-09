@@ -9,6 +9,10 @@ from engine.tinker import (
 )
 from mind_app.mcp import McpSessionLike
 from mind_app.runtime.mcp.service_runtime import prepare_and_start_service_runtime
+from mind_app.runtime.support.clipboard import (
+    ClipboardError,
+    copy_text_to_clipboard
+)
 from mind_app.stream_events.failure_display import render_failure_text
 from mind_nova import const
 from mind_core.design import Design
@@ -222,6 +226,25 @@ def print_pending_attachments(mind: "Mind") -> None:
 
 
 def print_attach_gap() -> None:
+    Design.console.print()
+
+
+async def copy_last_assistant_reply(mind: "Mind") -> None:
+    """复制最近一次模型回复到剪贴板。"""
+    text = mind.last_assistant_reply_snapshot()
+    if not text:
+        Design.console.print("[bold #7F8C9A]No assistant message to copy.[/]")
+        Design.console.print()
+        return None
+
+    try:
+        await copy_text_to_clipboard(text)
+    except ClipboardError as error:
+        Design.console.print(f"[bold #FF5F5F]Copy failed: {error}[/]")
+        Design.console.print()
+        return None
+
+    Design.console.print("[bold #AFC7D8]Copied last message to clipboard[/]")
     Design.console.print()
 
 

@@ -118,6 +118,8 @@ class Mind(object):
         self.service_mcp_linked: bool   = False
         self.stop_runtime_on_exit: bool = False
 
+        self.last_assistant_reply: str = ""
+
     @property
     def remote(self) -> dict:
         """返回远程全局配置。"""
@@ -335,6 +337,16 @@ class Mind(object):
         if not isinstance(self.service_exec_env, dict):
             return None
         return copy.deepcopy(self.service_exec_env)
+
+    def remember_last_assistant_reply(self, text: str) -> None:
+        """记录最近一次完整模型回复原文。"""
+        value = str(text or "").strip()
+        if value:
+            self.last_assistant_reply = value
+
+    def last_assistant_reply_snapshot(self) -> str:
+        """返回最近一次完整模型回复原文。"""
+        return self.last_assistant_reply
 
     def start_keepalive_supervisor(self) -> None:
         """启动 Mind 生命周期内的本地后台服务保活任务。"""

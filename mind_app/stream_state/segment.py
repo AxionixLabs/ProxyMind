@@ -211,6 +211,26 @@ class SegmentTracker(object):
             for source in sources:
                 yield source
 
+    def assistant_text(self) -> str:
+        """返回当前回合模型正文原文。"""
+        parts = [
+            str((self.segments_by_key.get(key) or {}).get("text") or "")
+            for key in self.segment_order
+        ]
+        return _join_text_segments(parts).strip()
+
+
+def _join_text_segments(parts: list[str]) -> str:
+    """按流式段落边界拼接正文。"""
+    out = ""
+    for part in parts:
+        if not part:
+            continue
+        if out and not out.endswith("\n") and not part.startswith("\n"):
+            out += "\n"
+        out += part
+    return out
+
 
 def _source_value(source: typing.Any, *keys: str) -> typing.Optional[str]:
     if isinstance(source, dict):
