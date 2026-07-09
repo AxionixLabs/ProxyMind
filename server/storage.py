@@ -23,6 +23,7 @@ from mind_core.service_config import normalize_domain
 
 DEFAULT_PROFILE_KEY = "default"
 DEFAULT_MODEL_TYPE  = "Auto"
+HOSTED_TOOL_GROUPS  = ("perf_engine", "sandbox_cloud")
 
 
 def load_pref() -> dict[str, typing.Any]:
@@ -32,9 +33,10 @@ def load_pref() -> dict[str, typing.Any]:
     primary = model.get("primary") if isinstance(model, dict) else {}
 
     return {
-        "profile_key" : DEFAULT_PROFILE_KEY,
-        "providers"   : [dict(item) for item in SUPPORTED_PROVIDER_OPTIONS],
-        "primary"     : config_slot_to_pref(primary)
+        "profile_key"  : DEFAULT_PROFILE_KEY,
+        "providers"    : [dict(item) for item in SUPPORTED_PROVIDER_OPTIONS],
+        "primary"      : config_slot_to_pref(primary),
+        "hosted_tools" : hosted_tools_to_pref(config.get("hosted_tools"))
     }
 
 
@@ -48,6 +50,7 @@ def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
         payload.get("primary"),
         enabled=pref_slot_enabled(payload.get("primary"))
     )
+    config["hosted_tools"] = pref_to_hosted_tools(payload.get("hosted_tools"))
 
     _write_mind_config(config)
     return load_pref()
@@ -114,6 +117,32 @@ def pref_to_config_slot(slot: typing.Any, *, enabled: bool | None) -> dict[str, 
     }
 
     return result
+
+
+def hosted_tools_to_pref(raw: typing.Any) -> dict[str, typing.Any]:
+    """把配置中的托管工具开关转换为偏好接口结构。"""
+    data   = raw if isinstance(raw, dict) else {}
+    groups = data.get("groups") if isinstance(data.get("groups"), dict) else {}
+
+    return {
+        "groups": {
+            name: bool(groups.get(name, False))
+            for name in HOSTED_TOOL_GROUPS
+        }
+    }
+
+
+def pref_to_hosted_tools(raw: typing.Any) -> dict[str, typing.Any]:
+    """把偏好接口中的托管工具开关转换为配置结构。"""
+    data   = raw if isinstance(raw, dict) else {}
+    groups = data.get("groups") if isinstance(data.get("groups"), dict) else {}
+
+    return {
+        "groups": {
+            name: bool(groups.get(name, False))
+            for name in HOSTED_TOOL_GROUPS
+        }
+    }
 
 
 def normalize_reasoning_effort(value: typing.Any) -> str:

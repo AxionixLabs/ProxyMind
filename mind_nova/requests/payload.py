@@ -80,6 +80,22 @@ def request_llm_conf(pref_config: typing.Any) -> dict[str, typing.Any]:
     return result
 
 
+def request_hosted_tools(pref_config: typing.Any) -> dict[str, typing.Any]:
+    """生成请求侧托管工具配置。"""
+    config = pref_config if isinstance(pref_config, dict) else {}
+    hosted = config.get("hosted_tools") if isinstance(config.get("hosted_tools"), dict) else {}
+
+    groups = hosted.get("groups") if isinstance(hosted.get("groups"), dict) else {}
+
+    enabled_groups = [
+        name
+        for name in ("perf_engine", "sandbox_cloud")
+        if groups.get(name, False) is True
+    ]
+
+    return {"enabled_groups": enabled_groups}
+
+
 async def build_chat_payload(
     mode: str,
     pref_config: dict[str, typing.Any],
@@ -95,11 +111,12 @@ async def build_chat_payload(
     ensure_default_skills(kwargs)
 
     payload = {
-        "mode"     : resolve_transport_mode(mode),
-        "llm_conf" : request_llm_conf(pref_config),
-        "message"  : message,
-        "tools"    : tools,
-        "exec_env" : runtime_exec_env,
+        "mode"         : resolve_transport_mode(mode),
+        "llm_conf"     : request_llm_conf(pref_config),
+        "message"      : message,
+        "tools"        : tools,
+        "hosted_tools" : request_hosted_tools(pref_config),
+        "exec_env"     : runtime_exec_env,
         **kwargs
     }
 

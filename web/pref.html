@@ -535,6 +535,21 @@
       color:var(--muted);
       line-height:1.55;
     }
+    .hosted-tool-controls{
+      display:flex;
+      align-items:flex-start;
+      justify-content:flex-start;
+      gap:22px;
+      flex-wrap:wrap;
+    }
+    .hosted-tool-item{
+      display:grid;
+      grid-template-columns:auto auto;
+      align-items:center;
+      justify-content:flex-start;
+      gap:12px;
+      min-width:0;
+    }
     .field{
       display:grid;
       gap:10px;
@@ -762,7 +777,7 @@
       transform:translateX(18px);
       background:var(--accent);
     }
-    .slot-toggle:focus-within{
+    .slot-toggle:has(input:focus-visible){
       border-color:var(--accent-border);
       box-shadow:0 0 0 3px rgba(142,202,230,.10);
     }
@@ -1170,6 +1185,47 @@
             </div>
           </div>
         </section>
+        <section class="card model-card main-panel-card service-card">
+          <div class="bar">
+            <div class="bar-start">
+              <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+              <div class="chip">Hosted Tools</div>
+            </div>
+            <div class="bar-end">
+              <div class="chip">cloud</div>
+            </div>
+          </div>
+          <div class="section">
+            <div class="section-head">
+              <div class="section-title-wrap model-copy">
+                <h3 class="section-title model-title">Hosted Tools</h3>
+                <p class="section-desc model-desc">控制服务端托管工具分组。关闭后请求不会启用对应云端能力。</p>
+              </div>
+            </div>
+            <div class="hosted-tool-controls">
+              <div class="hosted-tool-item">
+                <div class="label-row">
+                  <label for="hosted-tools-perf-engine">Perf Engine</label>
+                  <span class="hint">performance runs</span>
+                </div>
+                <label class="slot-toggle" for="hosted-tools-perf-engine">
+                  <input id="hosted-tools-perf-engine" name="hosted_tools_perf_engine" type="checkbox" />
+                  <span class="slot-toggle-mark" aria-hidden="true"></span>
+                </label>
+              </div>
+              <div class="hosted-tool-item">
+                <div class="label-row">
+                  <label for="hosted-tools-sandbox-cloud">Sandbox Cloud</label>
+                  <span class="hint">remote command sandbox</span>
+                </div>
+                <label class="slot-toggle" for="hosted-tools-sandbox-cloud">
+                  <input id="hosted-tools-sandbox-cloud" name="hosted_tools_sandbox_cloud" type="checkbox" />
+                  <span class="slot-toggle-mark" aria-hidden="true"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
         <div class="page-content-grid page-content-grid--equal model-stack">
           <section class="card model-card main-panel-card">
             <div class="bar">
@@ -1318,7 +1374,10 @@
         {value: "openai_compatible", label: "OpenAI Compatible"},
         {value: "OpenAI", label: "OpenAI"}
       ],
-      primary   : {provider: "", route: "", model: "", apikey: "", base_url: "", reasoning_effort: "medium", type: "Auto", enabled: false}
+      primary   : {provider: "", route: "", model: "", apikey: "", base_url: "", reasoning_effort: "medium", type: "Auto", enabled: false},
+      hosted_tools : {
+        groups  : {perf_engine: false, sandbox_cloud: false}
+      }
     };
     const previewServiceConfig = {
       domain     : "",
@@ -1490,6 +1549,17 @@
       return Boolean(slot && slot.enabled);
     }
 
+    function hostedToolsConfig(data) {
+      const hosted = data && data.hosted_tools && typeof data.hosted_tools === "object" ? data.hosted_tools : {};
+      const groups = hosted.groups && typeof hosted.groups === "object" ? hosted.groups : {};
+      return {
+        groups  : {
+          perf_engine   : groups.perf_engine === true,
+          sandbox_cloud : groups.sandbox_cloud === true
+        }
+      };
+    }
+
     function syncSelectWrapState(select) {
       if (!select) return;
       const wrap = select.closest(".select-wrap");
@@ -1522,6 +1592,7 @@
       const primary = data.primary || {};
       const providers = providerOptions(data);
       const primaryEnabled = slotEnabled(primary);
+      const hostedTools = hostedToolsConfig(data);
 
       setCheckboxValue("primary-enabled", primaryEnabled);
       renderProviderSelect("primary-provider", providers, primary.provider || "openai_compatible");
@@ -1532,6 +1603,8 @@
       fieldValue("primary-base-url", primary.base_url);
       fieldValue("primary-type", primary.type || "Auto");
       syncSlotEnabled("primary");
+      setCheckboxValue("hosted-tools-perf-engine", hostedTools.groups.perf_engine);
+      setCheckboxValue("hosted-tools-sandbox-cloud", hostedTools.groups.sandbox_cloud);
 
       syncSelectStates();
       syncFieldStates();
@@ -1559,7 +1632,13 @@
     function collectPref() {
       const primary = collectSlot("primary");
       const payload = {
-        primary
+        primary,
+        hosted_tools : {
+          groups  : {
+            perf_engine   : checkboxValue("hosted-tools-perf-engine"),
+            sandbox_cloud : checkboxValue("hosted-tools-sandbox-cloud")
+          }
+        }
       };
 
       return payload;

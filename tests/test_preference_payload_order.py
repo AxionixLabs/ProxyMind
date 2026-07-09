@@ -27,6 +27,12 @@ def test_preferences_to_config_keeps_llm_payload_field_order(tmp_path: Path) -> 
             "base_url": "https://api.example.com/v1",
             "reasoning_effort": "high",
             "enabled": True
+        },
+        "hosted_tools": {
+            "groups": {
+                "perf_engine": False,
+                "sandbox_cloud": False
+            }
         }
     }
     assert list(result["primary"].keys()) == [

@@ -30,6 +30,10 @@ enabled = false
 [skills]
 enabled = []
 disabled = []
+
+[hosted_tools.groups]
+perf_engine = false
+sandbox_cloud = false
 """
 
 
@@ -66,6 +70,19 @@ def _as_str_list(value: typing.Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for raw in value if (item := str(raw or "").strip())]
+
+
+def _normalize_hosted_tools(raw: typing.Any) -> dict[str, typing.Any]:
+    """规范化云端托管工具配置。"""
+    data   = _as_dict(raw)
+    groups = _as_dict(data.get("groups"))
+
+    return {
+        "groups": {
+            "perf_engine"   : _as_bool(groups.get("perf_engine"), False),
+            "sandbox_cloud" : _as_bool(groups.get("sandbox_cloud"), False)
+        }
+    }
 
 
 def _normalize_model_slot(
@@ -118,6 +135,12 @@ def default_config() -> dict[str, typing.Any]:
         "skills"  : {
             "enabled"  : [],
             "disabled" : []
+        },
+        "hosted_tools": {
+            "groups": {
+                "perf_engine": False,
+                "sandbox_cloud": False
+            }
         }
     }
 
@@ -135,6 +158,7 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
     service  = _as_dict(data.get("service"))
     model    = _as_dict(data.get("model"))
     skills   = _as_dict(data.get("skills"))
+    hosted   = _as_dict(data.get("hosted_tools"))
 
     return {
         "service": {
@@ -152,7 +176,8 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
         "skills": {
             "enabled"  : _as_str_list(skills.get("enabled")),
             "disabled" : _as_str_list(skills.get("disabled"))
-        }
+        },
+        "hosted_tools": _normalize_hosted_tools(hosted)
     }
 
 
@@ -190,7 +215,9 @@ def format_config(config: dict[str, typing.Any]) -> str:
     service    = normalized["service"]
     model      = normalized["model"]
     skills     = normalized["skills"]
+    hosted     = normalized["hosted_tools"]
     primary    = model["primary"]
+    groups     = _as_dict(hosted.get("groups"))
 
     return "\n".join([
         "[service]",
@@ -208,6 +235,10 @@ def format_config(config: dict[str, typing.Any]) -> str:
         "[skills]",
         f"enabled = {toml_string_list(skills.get('enabled'))}",
         f"disabled = {toml_string_list(skills.get('disabled'))}",
+        "",
+        "[hosted_tools.groups]",
+        f"perf_engine = {'true' if groups.get('perf_engine') else 'false'}",
+        f"sandbox_cloud = {'true' if groups.get('sandbox_cloud') else 'false'}",
         ""
     ])
 
@@ -225,8 +256,9 @@ def toml_string_list(value: typing.Any) -> str:
 
 def config_to_preferences(config: dict[str, typing.Any]) -> dict[str, typing.Any]:
     """把 config.toml 结构转换为 Preferences 运行时结构。"""
-    cfg   = normalize_config(copy.deepcopy(config))
-    model = _as_dict(cfg.get("model"))
+    cfg    = normalize_config(copy.deepcopy(config))
+    model  = _as_dict(cfg.get("model"))
+    hosted = _as_dict(cfg.get("hosted_tools"))
 
     def convert_slot(slot: dict[str, typing.Any]) -> dict[str, typing.Any]:
         return {
@@ -245,7 +277,8 @@ def config_to_preferences(config: dict[str, typing.Any]) -> dict[str, typing.Any
     primary = _as_dict(model.get("primary"))
 
     return {
-        "primary" : convert_slot(primary)
+        "primary"      : convert_slot(primary),
+        "hosted_tools" : _normalize_hosted_tools(hosted)
     }
 
 

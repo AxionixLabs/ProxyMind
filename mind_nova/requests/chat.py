@@ -10,7 +10,10 @@ from mind_nova.requests.access import (
     apply_access_mode
 )
 from mind_nova.requests.payload import build_chat_payload
-from mind_nova.requests.payload import request_llm_conf
+from mind_nova.requests.payload import (
+    request_hosted_tools,
+    request_llm_conf
+)
 from mind_nova.requests.streaming import streaming
 from mind_nova.services import service_endpoints
 from mind_nova import const
@@ -59,11 +62,12 @@ async def stream_plan(
     """流式获取静态规划事件。"""
     headers = Channel.make_headers()
     payload = {
-        "mode"     : mode,
-        "llm_conf" : request_llm_conf(pref_config),
-        "message"  : message,
-        "tools"    : tools,
-        "extras"   : extras,
+        "mode"         : mode,
+        "llm_conf"     : request_llm_conf(pref_config),
+        "message"      : message,
+        "tools"        : tools,
+        "hosted_tools" : request_hosted_tools(pref_config),
+        "extras"       : extras,
         **kwargs
     }
     apply_access_mode(payload, payload.pop("access_mode", DEFAULT_ACCESS_MODE))

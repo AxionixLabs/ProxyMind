@@ -34,7 +34,8 @@ def _default_slot() -> dict[str, typing.Any]:
 def _default_prefs() -> dict[str, typing.Any]:
     """返回偏好配置的默认结构。"""
     return {
-        "primary" : _default_slot()
+        "primary"      : _default_slot(),
+        "hosted_tools" : _default_hosted_tools()
     }
 
 
@@ -51,6 +52,29 @@ def _as_bool(value: typing.Any, default: bool = False) -> bool:
     if isinstance(value, (int, float)):
         return bool(value)
     return default
+
+
+def _default_hosted_tools() -> dict[str, typing.Any]:
+    """返回默认托管工具配置。"""
+    return {
+        "groups": {
+            "perf_engine"   : False,
+            "sandbox_cloud" : False
+        }
+    }
+
+
+def _normalize_hosted_tools(value: typing.Any) -> dict[str, typing.Any]:
+    """规范化托管工具偏好。"""
+    data   = value if isinstance(value, dict) else {}
+    groups = data.get("groups") if isinstance(data.get("groups"), dict) else {}
+
+    return {
+        "groups": {
+            "perf_engine"   : _as_bool(groups.get("perf_engine"), False),
+            "sandbox_cloud" : _as_bool(groups.get("sandbox_cloud"), False)
+        }
+    }
 
 
 def _normalize_reasoning_effort(value: typing.Any) -> str:
@@ -162,7 +186,8 @@ class Preferences(object):
         primary = payload.get("primary") or {}
 
         prefs = {
-            "primary" : cls._normalize_slot(primary)
+            "primary"      : cls._normalize_slot(primary),
+            "hosted_tools" : _normalize_hosted_tools(payload.get("hosted_tools"))
         }
 
         return prefs
@@ -181,6 +206,9 @@ class Preferences(object):
         merged["primary"] = cls._merge_missing_slot(
             dict(merged.get("primary") or {}),
             dict(normalized_remote.get("primary") or {})
+        )
+        merged["hosted_tools"] = _normalize_hosted_tools(
+            merged.get("hosted_tools") or normalized_remote.get("hosted_tools")
         )
 
         return merged

@@ -41,6 +41,12 @@ def test_config_service_pref_supports_openai_compatible_provider(
     assert loaded["primary"]["provider"] == "openai_compatible"
     assert loaded["primary"]["enabled"] is True
     assert loaded["primary"]["reasoning_effort"] == "high"
+    assert loaded["hosted_tools"] == {
+        "groups": {
+            "perf_engine": False,
+            "sandbox_cloud": False
+        }
+    }
     assert config["model"]["primary"]["provider"] == "openai_compatible"
     assert config["model"]["primary"]["enabled"] is True
     assert config["model"]["primary"]["reasoning_effort"] == "high"
@@ -68,6 +74,12 @@ def test_config_service_pref_defaults_to_disabled_slots(
     assert loaded["primary"]["provider"] == "openai_compatible"
     assert loaded["primary"]["route"] == "responses"
     assert loaded["primary"]["reasoning_effort"] == "medium"
+    assert loaded["hosted_tools"] == {
+        "groups": {
+            "perf_engine": False,
+            "sandbox_cloud": False
+        }
+    }
     assert "secondary" not in loaded
     assert config["model"]["primary"]["enabled"] is False
     assert config["model"]["primary"]["provider"] == "openai_compatible"
@@ -87,6 +99,9 @@ def test_default_config_file_writes_select_defaults(tmp_path: Path) -> None:
     assert f'provider = "{DEFAULT_PROVIDER_NAME}"' in text
     assert f'route = "{DEFAULT_ROUTE_NAME}"' in text
     assert f'reasoning_effort = "{DEFAULT_REASONING_EFFORT}"' in text
+    assert "[hosted_tools.groups]" in text
+    assert "perf_engine = false" in text
+    assert "sandbox_cloud = false" in text
 
 
 def test_config_service_pref_disabled_primary_keeps_model_fields(
@@ -153,3 +168,30 @@ def test_config_service_pref_ignores_secondary_payload(
 
     assert "secondary" not in saved
     assert "secondary" not in config["model"]
+
+
+def test_config_service_pref_saves_hosted_tool_groups(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """偏好配置保存托管工具分组开关。"""
+    monkeypatch.setenv("MIND_HOME", str(tmp_path))
+
+    saved = save_pref({
+        "primary": {"enabled": False},
+        "hosted_tools": {
+            "groups": {
+                "perf_engine": True,
+                "sandbox_cloud": False
+            }
+        }
+    })
+    config = load_config(tmp_path / "config.toml")
+
+    assert saved["hosted_tools"] == {
+        "groups": {
+            "perf_engine": True,
+            "sandbox_cloud": False
+        }
+    }
+    assert config["hosted_tools"] == saved["hosted_tools"]

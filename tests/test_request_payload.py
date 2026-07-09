@@ -40,6 +40,9 @@ def test_build_chat_payload_strips_llm_enabled_fields() -> None:
             "reasoning_effort": "high"
         },
     }
+    assert payload["hosted_tools"] == {
+        "enabled_groups": []
+    }
 
 
 def test_build_chat_payload_uses_empty_primary_when_disabled() -> None:
@@ -67,4 +70,48 @@ def test_build_chat_payload_uses_empty_primary_when_disabled() -> None:
             "base_url": "",
             "reasoning_effort": ""
         }
+    }
+
+
+def test_build_chat_payload_maps_hosted_tool_groups() -> None:
+    """请求载荷按偏好配置发送托管工具分组 allowlist。"""
+    payload = asyncio.run(build_chat_payload(
+        "chat",
+        {
+            "primary": {"enabled": False},
+            "hosted_tools": {
+                "groups": {
+                    "perf_engine": True,
+                    "sandbox_cloud": False
+                }
+            }
+        },
+        "hello",
+        []
+    ))
+
+    assert payload["hosted_tools"] == {
+        "enabled_groups": ["perf_engine"]
+    }
+
+
+def test_build_chat_payload_disables_all_hosted_tools_by_groups() -> None:
+    """关闭全部托管工具分组时请求侧发送空分组。"""
+    payload = asyncio.run(build_chat_payload(
+        "chat",
+        {
+            "primary": {"enabled": False},
+            "hosted_tools": {
+                "groups": {
+                    "perf_engine": False,
+                    "sandbox_cloud": False
+                }
+            }
+        },
+        "hello",
+        []
+    ))
+
+    assert payload["hosted_tools"] == {
+        "enabled_groups": []
     }
