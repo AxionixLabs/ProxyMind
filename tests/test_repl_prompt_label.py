@@ -4,7 +4,7 @@ from mind_app.modes.support.repl_prompt import primary_model_prompt_label
 
 
 def test_primary_model_prompt_label_includes_effort_when_model_exists() -> None:
-    """模型不为空时 prompt 标签包含 reasoning effort。"""
+    """模型不为空时 prompt 标签包含推理强度。"""
     assert primary_model_prompt_label({
         "primary": {
             "model": "gpt-5.5",

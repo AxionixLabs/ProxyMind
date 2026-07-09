@@ -54,8 +54,40 @@ def test_save_primary_pref_field_accepts_empty_model_name(
     assert config["model"]["primary"]["enabled"] is True
 
 
+def test_save_primary_pref_field_updates_reasoning_effort(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`/effort` 底层写入推理强度。"""
+    monkeypatch.setenv("MIND_HOME", str(tmp_path))
+
+    snapshot = run_async(save_primary_pref_field("reasoning_effort", "high"))
+    config_file = tmp_path / "config.toml"
+    config = load_config(config_file)
+
+    assert snapshot["primary"]["reasoning_effort"] == "high"
+    assert snapshot["primary"]["enabled"] is True
+    assert config["model"]["primary"]["reasoning_effort"] == "high"
+    assert config["model"]["primary"]["enabled"] is True
+
+
+def test_save_primary_pref_field_normalizes_reasoning_effort(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """非法推理强度会按默认档位持久化。"""
+    monkeypatch.setenv("MIND_HOME", str(tmp_path))
+
+    snapshot = run_async(save_primary_pref_field("reasoning_effort", "invalid"))
+    config_file = tmp_path / "config.toml"
+    config = load_config(config_file)
+
+    assert snapshot["primary"]["reasoning_effort"] == DEFAULT_REASONING_EFFORT
+    assert config["model"]["primary"]["reasoning_effort"] == DEFAULT_REASONING_EFFORT
+
+
 def test_preferences_load_pref_uses_default_reasoning_effort(tmp_path: Path) -> None:
-    """运行时偏好读取新建配置中的默认 reasoning effort。"""
+    """运行时偏好读取新建配置中的默认推理强度。"""
     prefs = Preferences(tmp_path / "config.toml")
 
     run_async(prefs.load_pref())

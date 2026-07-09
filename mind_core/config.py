@@ -283,7 +283,7 @@ def config_to_preferences(config: dict[str, typing.Any]) -> dict[str, typing.Any
 
 
 def _normalize_reasoning_effort(value: typing.Any, *, default: str = "") -> str:
-    """规范化 reasoning effort 档位。"""
+    """规范化推理强度档位。"""
     text = _as_str(value).strip().lower()
 
     fallback = _as_str(default).strip().lower()

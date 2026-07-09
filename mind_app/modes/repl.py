@@ -42,6 +42,10 @@ from .support.repl_mcp import (
     choose_mcp_action,
     run_mcp_action
 )
+from .support.repl_model import (
+    choose_model_effort,
+    render_model_effort_status
+)
 from .support.repl_permissions import (
     choose_permissions_mode,
     render_permissions_status
@@ -83,6 +87,7 @@ async def mind_loop(mind: "Mind") -> None:
     tools_set: set[str]        = {"/tools"}
     diff_set: set[str]         = {"/diff"}
     copy_set: set[str]         = {"/copy"}
+    effort_set: set[str]       = {"/effort"}
     ps_set: set[str]           = {"/ps"}
     preferences_set: set[str]  = {"/preferences"}
     compact_set: set[str]      = {"/compact"}
@@ -106,6 +111,7 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #AFD7FF]/attach-clear[/]             清空当前待发送附件
         [bold #AFD7FF]/permissions[/]              切换权限模式
         [bold #7F8C9A]/model <model-id>[/]         持久化主模型 ID；省略 model-id 表示清空
+        [bold #7F8C9A]/effort[/]                   设置模型推理强度
         [bold #AFD7FF]/preferences[/]              打开偏好配置页面
         [bold #AFD7FF]/compact[/]                  压缩当前对话上下文
         [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
@@ -267,6 +273,30 @@ async def mind_loop(mind: "Mind") -> None:
 
         if command in copy_set:
             await copy_last_assistant_reply(mind)
+            continue
+
+        if command in effort_set:
+            pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
+            primary     = pref_config.get("primary") or {}
+
+            selected_effort = await choose_model_effort(
+                primary.get("reasoning_effort")
+            )
+
+            if selected_effort is None:
+                Design.console.print()
+                continue
+
+            saved_primary = await persist_primary_pref(
+                mind,
+                command_name="model-effort",
+                field_name="reasoning_effort",
+                field_value=selected_effort
+            )
+            if saved_primary is not None:
+                render_model_effort_status(
+                    saved_primary.get("reasoning_effort") or selected_effort
+                )
             continue
 
         if command in ps_set:

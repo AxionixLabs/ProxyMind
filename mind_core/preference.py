@@ -78,7 +78,7 @@ def _normalize_hosted_tools(value: typing.Any) -> dict[str, typing.Any]:
 
 
 def _normalize_reasoning_effort(value: typing.Any) -> str:
-    """规范化 reasoning effort 档位。"""
+    """规范化推理强度档位。"""
     text = str(value or "").strip().lower()
     return text if text in SUPPORTED_REASONING_EFFORTS else DEFAULT_REASONING_EFFORT
 

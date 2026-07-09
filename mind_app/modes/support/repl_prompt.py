@@ -12,6 +12,10 @@ from mind_core.config import (
     load_config,
     write_config
 )
+from mind_core.provider_config import (
+    DEFAULT_REASONING_EFFORT,
+    SUPPORTED_REASONING_EFFORTS
+)
 from mind_app.runtime.environment.exec_env import exec_env
 
 WORKSPACE_LABEL_REFRESH: float = 5.0
@@ -94,6 +98,14 @@ def primary_model_prompt_label(
         return model
 
     return f"{model} {effort}"
+
+
+def normalize_reasoning_effort(value: typing.Any) -> str:
+    """规范化推理强度展示和写入值。"""
+    text = str(value or "").strip().lower()
+    if text in SUPPORTED_REASONING_EFFORTS:
+        return text
+    return DEFAULT_REASONING_EFFORT
 
 
 def exec_status_display_label(
@@ -190,7 +202,7 @@ async def fetch_runtime_workspace_root(
 
 
 async def save_primary_pref_field(
-    field: typing.Literal["model", "apikey", "base_url"],
+    field: typing.Literal["model", "apikey", "base_url", "reasoning_effort"],
     value: str
 ) -> dict[str, typing.Any]:
     """更新 primary 模型槽位的单个字段并持久化到本地配置。"""
@@ -203,6 +215,10 @@ async def save_primary_pref_field(
     model_config = config.setdefault("model", {})
 
     primary = dict(model_config.get("primary") or {})
+
+    if field == "reasoning_effort":
+        normalized = normalize_reasoning_effort(normalized)
+
     primary[field] = normalized
     primary["enabled"] = True
 

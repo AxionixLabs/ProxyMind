@@ -106,8 +106,8 @@ async def exchange_pref_value(
 async def persist_primary_pref(
     mind: "Mind",
     *,
-    command_name: typing.Literal["model", "apikey", "base-url"],
-    field_name: typing.Literal["model", "apikey", "base_url"],
+    command_name: typing.Literal["model", "apikey", "base-url", "model-effort"],
+    field_name: typing.Literal["model", "apikey", "base_url", "reasoning_effort"],
     field_value: str
 ) -> typing.Optional[dict[str, typing.Any]]:
     """把 REPL 偏好命令写入 primary slot，并刷新本地缓存。"""
