@@ -31,7 +31,7 @@ class SlashCommandCompleter(Completer):
         {"text": "/compact", "display": "/compact", "meta": "压缩当前对话上下文"},
         {"text": "/tools", "display": "/tools", "meta": "查看可用 MCP 工具"},
         {"text": "/diff", "display": "/diff", "meta": "查看当前 apply_patch 净差异"},
-        {"text": "/mcp", "display": "/mcp", "meta": "查看外部 MCP 状态"},
+        {"text": "/mcp", "display": "/mcp", "meta": "管理外部 MCP runtime"},
         {"text": "/helix-link", "display": "/helix-link", "meta": "接入本地 Helix 服务"},
         {"text": "/helix-unlink", "display": "/helix-unlink", "meta": "移除当前会话 Helix MCP"},
         {"text": "/helix-home", "display": "/helix-home", "meta": "打开 Helix 首页"},

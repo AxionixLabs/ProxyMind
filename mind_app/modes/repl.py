@@ -36,7 +36,10 @@ from .support.repl_prompt import (
     primary_model_from_config,
     workspace_display_label
 )
-from .support.repl_mcp import render_mcp_status
+from .support.repl_mcp import (
+    choose_mcp_action,
+    run_mcp_action
+)
 from .support.repl_permissions import (
     choose_permissions_mode,
     render_permissions_status
@@ -99,7 +102,7 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #AFD7FF]/compact[/]                  压缩当前对话上下文
         [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
         [bold #AFD7FF]/diff[/]                     查看当前 apply_patch 净差异
-        [bold #AFD7FF]/mcp[/]                      查看外部 MCP runtime 状态
+        [bold #AFD7FF]/mcp[/]                      管理外部 MCP runtime
         [bold #AFD7FF]/helix-link[/]               接入本地 Helix 服务
         [bold #AFD7FF]/helix-unlink[/]             从当前会话移除 Helix MCP
         [bold #AFD7FF]/helix-home[/]               接入 Helix 并打开首页
@@ -293,7 +296,8 @@ async def mind_loop(mind: "Mind") -> None:
             continue
 
         if command == "/mcp":
-            render_mcp_status(mind)
+            mcp_action = await choose_mcp_action(mind)
+            await run_mcp_action(mind, mcp_action)
             continue
 
         if command in resume_set:

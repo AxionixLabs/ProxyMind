@@ -35,13 +35,23 @@ class ExternalMcpRuntime(object):
         """返回外部 MCP 启动流程是否已执行过。"""
         return self._started
 
-    async def start(self) -> None:
+    async def start(self, *, include_disabled: bool = False) -> None:
         """读取外部 MCP 配置并启动一次生命周期级连接。"""
         if self._started:
             return None
 
         self._started = True
+
         servers = load_mcp_servers_file(self._mind.src_opera_place)
+
+        if include_disabled:
+            servers = [
+                {
+                    **server,
+                    "enabled": True
+                }
+                for server in servers
+            ]
         if servers:
             logger.debug(f"[MCP] external configured count={len(servers)}")
 
@@ -71,15 +81,15 @@ class ExternalMcpRuntime(object):
 
         self._context = None
         self._group   = None
+        self._started = False
 
         if context is not None:
             await context.__aexit__(None, None, None)
 
-    async def restart(self) -> None:
+    async def restart(self, *, include_disabled: bool = False) -> None:
         """重新读取配置并刷新外部 MCP 连接。"""
         await self.stop()
-        self._started = False
-        await self.start()
+        await self.start(include_disabled=include_disabled)
 
 
 if __name__ == '__main__':
