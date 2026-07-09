@@ -16,7 +16,7 @@ from mind_core.provider_config import (
 from mind_nova import const
 
 DEFAULT_CONFIG_TEXT = f"""[service]
-domain = "{const.DOMAIN}"
+domain = ""
 
 [model.primary]
 provider = "{DEFAULT_PROVIDER_NAME}"
@@ -127,7 +127,7 @@ def default_config() -> dict[str, typing.Any]:
     """返回 Mind config.toml 的默认配置结构。"""
     return {
         "service" : {
-            "domain" : const.DOMAIN
+            "domain" : ""
         },
         "model"   : {
             "primary" : _default_model_slot(enabled=False)

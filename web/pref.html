@@ -731,9 +731,9 @@
       width:42px;
       height:24px;
       padding:0;
-      border:1px solid var(--surface-border-faint);
+      border:1px solid rgba(224,122,122,.24);
       border-radius:999px;
-      background:rgba(255,255,255,.05);
+      background:rgba(224,122,122,.05);
       color:var(--muted);
       cursor:pointer;
       user-select:none;
@@ -751,7 +751,8 @@
       width:34px;
       height:16px;
       border-radius:999px;
-      background:rgba(255,255,255,.08);
+      background:rgba(224,122,122,.16);
+      box-shadow:0 0 0 1px rgba(224,122,122,.16) inset;
       transition:background .14s ease, box-shadow .14s ease;
     }
     .slot-toggle-mark::after{
@@ -762,7 +763,7 @@
       width:12px;
       height:12px;
       border-radius:999px;
-      background:rgba(143,161,174,.9);
+      background:rgba(224,122,122,.88);
       transition:transform .14s ease, background .14s ease;
     }
     .slot-toggle:hover{
@@ -770,12 +771,16 @@
       background:var(--surface-hover);
     }
     .slot-toggle input:checked + .slot-toggle-mark{
-      background:var(--accent-fill);
-      box-shadow:0 0 0 1px var(--accent-border-soft) inset;
+      background:rgba(142,202,230,.28);
+      box-shadow:0 0 0 1px rgba(142,202,230,.42) inset;
     }
     .slot-toggle input:checked + .slot-toggle-mark::after{
       transform:translateX(18px);
       background:var(--accent);
+    }
+    .slot-toggle:has(input:checked){
+      border-color:rgba(142,202,230,.38);
+      background:rgba(142,202,230,.08);
     }
     .slot-toggle:has(input:focus-visible){
       border-color:var(--accent-border);
@@ -1256,7 +1261,10 @@
                       <span class="hint">single source</span>
                     </div>
                     <div class="select-wrap">
-                      <select id="primary-provider" name="primary_provider"></select>
+                      <select id="primary-provider" name="primary_provider">
+                        <option value="openai_compatible">OpenAI Compatible</option>
+                        <option value="openai">OpenAI</option>
+                      </select>
                     </div>
                   </div>
                   <div class="pair-item">
@@ -1370,10 +1378,6 @@
     const toastStage = document.getElementById("toast-stage");
     const previewMode = location.protocol === "file:";
     const previewPref = {
-      providers : [
-        {value: "openai_compatible", label: "OpenAI Compatible"},
-        {value: "OpenAI", label: "OpenAI"}
-      ],
       primary   : {provider: "", route: "", model: "", apikey: "", base_url: "", reasoning_effort: "medium", type: "Auto", enabled: false},
       hosted_tools : {
         groups  : {perf_engine: false, sandbox_cloud: false}
@@ -1471,35 +1475,6 @@
       if (target) target.value = value || "";
     }
 
-    function providerOptions(data) {
-      const providers = Array.isArray(data.providers) ? data.providers : [];
-      const normalized = providers
-        .map((item) => ({
-          value: String(item && item.value || "").trim(),
-          label: String(item && item.label || item && item.value || "").trim()
-        }))
-        .filter((item) => item.value);
-      return normalized.length ? normalized : [{value: "openai_compatible", label: "OpenAI Compatible"}];
-    }
-
-    function renderProviderSelect(id, providers, selected) {
-      const target = document.getElementById(id);
-      if (!target) return;
-      const selectedValue = selected === undefined || selected === null ? "openai_compatible" : String(selected);
-      const options = providers;
-      target.innerHTML = options.map((item) => `
-        <option value="${escapeHtml(item.value)}"${item.value === selectedValue ? " selected" : ""}>
-          ${escapeHtml(item.label || item.value)}
-        </option>
-      `).join("");
-      if (selectedValue && !providers.some((item) => item.value === selectedValue)) {
-        target.insertAdjacentHTML(
-          "beforeend",
-          `<option value="${escapeHtml(selectedValue)}" selected>${escapeHtml(selectedValue)}</option>`
-        );
-      }
-    }
-
     function fieldInputValue(id) {
       const target = document.getElementById(id);
       return target ? target.value.trim() : "";
@@ -1590,12 +1565,11 @@
 
     function applyPref(data) {
       const primary = data.primary || {};
-      const providers = providerOptions(data);
       const primaryEnabled = slotEnabled(primary);
       const hostedTools = hostedToolsConfig(data);
 
       setCheckboxValue("primary-enabled", primaryEnabled);
-      renderProviderSelect("primary-provider", providers, primary.provider || "openai_compatible");
+      fieldValue("primary-provider", primary.provider || "openai_compatible");
       fieldValue("primary-route", primary.route || "responses");
       fieldValue("primary-reasoning-effort", primary.reasoning_effort || "medium");
       fieldValue("primary-model", primary.model);

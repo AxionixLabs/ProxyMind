@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from server.storage import load_pref, save_pref
+from server.storage import (
+    load_pref,
+    load_service_config,
+    save_pref,
+    save_service_config
+)
 from mind_core.config import ensure_config, load_config
 from mind_core.provider_config import (
     DEFAULT_PROVIDER_NAME,
@@ -96,6 +101,7 @@ def test_default_config_file_writes_select_defaults(tmp_path: Path) -> None:
 
     text = target.read_text(encoding="utf-8")
 
+    assert 'domain = ""' in text
     assert f'provider = "{DEFAULT_PROVIDER_NAME}"' in text
     assert f'route = "{DEFAULT_ROUTE_NAME}"' in text
     assert f'reasoning_effort = "{DEFAULT_REASONING_EFFORT}"' in text
@@ -195,3 +201,31 @@ def test_config_service_pref_saves_hosted_tool_groups(
         }
     }
     assert config["hosted_tools"] == saved["hosted_tools"]
+
+
+def test_service_config_keeps_empty_domain_for_default_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """服务域名未配置时保持为空，由运行时回退默认域名。"""
+    monkeypatch.setenv("MIND_HOME", str(tmp_path))
+
+    ensure_config(tmp_path / "config.toml")
+
+    loaded = load_service_config()
+    config = load_config(tmp_path / "config.toml")
+
+    assert loaded == {
+        "domain": "",
+        "configured": False
+    }
+    assert config["service"]["domain"] == ""
+
+    saved = save_service_config({"domain": " "})
+    config = load_config(tmp_path / "config.toml")
+
+    assert saved == {
+        "domain": "",
+        "configured": False
+    }
+    assert config["service"]["domain"] == ""
