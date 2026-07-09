@@ -10,6 +10,46 @@ import platform
 from pathlib import Path
 from functools import lru_cache
 
+WORKSPACE_MARKERS = [
+    ".git",
+    "pyproject.toml",
+    "requirements.txt",
+    "setup.py",
+    "setup.cfg",
+    "Pipfile",
+    "poetry.lock",
+    "uv.lock",
+    "pdm.lock",
+    "environment.yml",
+    "environment.yaml",
+    "package.json",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "bun.lock",
+    "bun.lockb",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "settings.gradle",
+    "settings.gradle.kts",
+    "mvnw",
+    "mvnw.cmd",
+    "gradlew",
+    "gradlew.bat",
+    "go.mod",
+    "go.work",
+    "Cargo.toml",
+    "Cargo.lock",
+    "global.json",
+    "composer.json",
+    "composer.lock",
+    "Gemfile",
+    "Gemfile.lock",
+    "CMakeLists.txt",
+    "Makefile"
+]
+
 
 @lru_cache(maxsize=1)
 def _cached_exec_env() -> dict[str, typing.Any]:
@@ -81,6 +121,7 @@ def detect_shell() -> dict[str, typing.Any]:
             }
 
         comspec = _clean_env("COMSPEC") or "cmd.exe"
+
         return {
             "name"       : "cmd",
             "syntax"     : "cmd",
@@ -180,30 +221,203 @@ def runtime_bin(
 def detect_workspace() -> dict[str, typing.Any]:
     """返回当前进程工作目录和项目标记。"""
     root = Path.cwd().resolve()
-    marker_names = [
-        ".git",
+    return {
+        "root"     : str(root),
+        "markers"  : existing_names(root, WORKSPACE_MARKERS),
+        "projects" : detect_workspace_projects(root),
+        "source"   : "client_process_cwd"
+    }
+
+
+def detect_workspace_projects(root: Path) -> dict[str, dict[str, typing.Any]]:
+    """按项目标记返回当前工作区的项目环境。"""
+    detectors = [
+        ("python", detect_python_project),
+        ("node", detect_node_project),
+        ("java", detect_java_project),
+        ("go", detect_go_project),
+        ("rust", detect_rust_project),
+        ("dotnet", detect_dotnet_project),
+        ("php", detect_php_project),
+        ("ruby", detect_ruby_project),
+        ("cpp", detect_cpp_project)
+    ]
+    projects: dict[str, dict[str, typing.Any]] = {}
+
+    for name, detector in detectors:
+        data = detector(root)
+        if data:
+            projects[name] = data
+
+    return projects
+
+
+def detect_python_project(root: Path) -> dict[str, typing.Any]:
+    """返回 Python 项目的工作区环境。"""
+    markers = existing_names(root, [
         "pyproject.toml",
         "requirements.txt",
         "setup.py",
+        "setup.cfg",
+        "Pipfile",
+        "poetry.lock",
+        "uv.lock",
+        "pdm.lock",
+        "environment.yml",
+        "environment.yaml"
+    ])
+
+    virtualenvs = detect_python_virtualenvs(root)
+    active_env  = active_python_environment(root)
+
+    if not markers and not virtualenvs and not active_env:
+        return {}
+
+    result: dict[str, typing.Any] = {
+        "markers"     : markers,
+        "virtualenvs" : virtualenvs
+    }
+    if active_env:
+        result["active_environment"] = active_env
+    return result
+
+
+def detect_node_project(root: Path) -> dict[str, typing.Any]:
+    """返回 Node 项目的工作区环境。"""
+    markers = existing_names(root, [
         "package.json",
         "package-lock.json",
         "pnpm-lock.yaml",
         "yarn.lock",
         "bun.lock",
-        "bun.lockb",
+        "bun.lockb"
+    ])
+    if not markers:
+        return {}
+
+    return {
+        "markers"         : markers,
+        "package_manager" : detect_package_manager(root),
+        "node_modules"    : directory_info(root, "node_modules")
+    }
+
+
+def detect_java_project(root: Path) -> dict[str, typing.Any]:
+    """返回 Java 项目的工作区环境。"""
+    markers = existing_names(root, [
         "pom.xml",
         "build.gradle",
         "build.gradle.kts",
-        "go.mod",
-        "Cargo.toml"
-    ]
-    markers = [name for name in marker_names if (root / name).exists()]
+        "settings.gradle",
+        "settings.gradle.kts",
+        "mvnw",
+        "mvnw.cmd",
+        "gradlew",
+        "gradlew.bat"
+    ])
+    if not markers:
+        return {}
+
+    build_tools: list[str] = []
+    if "pom.xml" in markers or "mvnw" in markers or "mvnw.cmd" in markers:
+        build_tools.append("maven")
+
+    if any(name in markers for name in (
+        "build.gradle",
+        "build.gradle.kts",
+        "settings.gradle",
+        "settings.gradle.kts",
+        "gradlew",
+        "gradlew.bat"
+    )):
+        build_tools.append("gradle")
+
     return {
-        "root"               : str(root),
-        "markers"            : markers,
-        "package_manager"    : detect_package_manager(root),
-        "python_virtualenvs" : detect_python_virtualenvs(root),
-        "source"             : "client_process_cwd"
+        "markers"        : markers,
+        "build_tools"    : build_tools,
+        "maven_wrapper"  : first_file_info(root, ["mvnw", "mvnw.cmd"]),
+        "gradle_wrapper" : first_file_info(root, ["gradlew", "gradlew.bat"])
+    }
+
+
+def detect_go_project(root: Path) -> dict[str, typing.Any]:
+    """返回 Go 项目的工作区环境。"""
+    markers = existing_names(root, ["go.mod", "go.work"])
+    if not markers:
+        return {}
+
+    return {
+        "markers"        : markers,
+        "module_file"    : file_info(root, "go.mod"),
+        "workspace_file" : file_info(root, "go.work")
+    }
+
+
+def detect_rust_project(root: Path) -> dict[str, typing.Any]:
+    """返回 Rust 项目的工作区环境。"""
+    markers = existing_names(root, ["Cargo.toml", "Cargo.lock"])
+    if not markers:
+        return {}
+
+    return {
+        "markers"  : markers,
+        "manifest" : file_info(root, "Cargo.toml"),
+        "lockfile" : file_info(root, "Cargo.lock")
+    }
+
+
+def detect_dotnet_project(root: Path) -> dict[str, typing.Any]:
+    """返回 .NET 项目的工作区环境。"""
+    project_files = root_glob_names(root, ["*.sln", "*.csproj", "*.fsproj", "*.vbproj"])
+
+    markers = existing_names(root, ["global.json"]) + project_files
+    if not markers:
+        return {}
+
+    return {
+        "markers"       : markers,
+        "global_json"   : file_info(root, "global.json"),
+        "project_files" : [file_info(root, name) for name in project_files]
+    }
+
+
+def detect_php_project(root: Path) -> dict[str, typing.Any]:
+    """返回 PHP 项目的工作区环境。"""
+    markers = existing_names(root, ["composer.json", "composer.lock"])
+    if not markers:
+        return {}
+
+    return {
+        "markers"    : markers,
+        "manifest"   : file_info(root, "composer.json"),
+        "lockfile"   : file_info(root, "composer.lock"),
+        "vendor_dir" : directory_info(root, "vendor")
+    }
+
+
+def detect_ruby_project(root: Path) -> dict[str, typing.Any]:
+    """返回 Ruby 项目的工作区环境。"""
+    markers = existing_names(root, ["Gemfile", "Gemfile.lock"])
+    if not markers:
+        return {}
+
+    return {
+        "markers"  : markers,
+        "gemfile"  : file_info(root, "Gemfile"),
+        "lockfile" : file_info(root, "Gemfile.lock")
+    }
+
+
+def detect_cpp_project(root: Path) -> dict[str, typing.Any]:
+    """返回 C/C++ 项目的工作区环境。"""
+    markers = existing_names(root, ["CMakeLists.txt", "Makefile"])
+    if not markers:
+        return {}
+
+    return {
+        "markers"    : markers,
+        "cmake_file" : file_info(root, "CMakeLists.txt"),
+        "makefile"   : file_info(root, "Makefile")
     }
 
 
@@ -229,6 +443,7 @@ def detect_python_virtualenvs(root: Path) -> list[dict[str, typing.Any]]:
         if executable is None:
             continue
         relative_python = executable.relative_to(root).as_posix()
+
         out.append({
             "name"            : name,
             "path"            : str(path),
@@ -237,7 +452,31 @@ def detect_python_virtualenvs(root: Path) -> list[dict[str, typing.Any]]:
             "relative_python" : relative_python,
             "available"       : True
         })
+
     return out
+
+
+def active_python_environment(root: Path) -> dict[str, typing.Any]:
+    """返回当前激活的 Python 环境。"""
+    for env_name, kind in (("VIRTUAL_ENV", "virtualenv"), ("CONDA_PREFIX", "conda")):
+        value = _clean_env(env_name)
+        if not value:
+            continue
+
+        path = Path(value).expanduser()
+
+        result: dict[str, typing.Any] = {
+            "kind"   : kind,
+            "env"    : env_name,
+            "path"   : str(path),
+            "inside_workspace": is_relative_to(path, root)
+        }
+
+        if result["inside_workspace"]:
+            result["relative_path"] = path.resolve().relative_to(root).as_posix()
+        return result
+
+    return {}
 
 
 def venv_python(root: Path) -> Path | None:
@@ -256,7 +495,64 @@ def venv_python(root: Path) -> Path | None:
             executable = folder / name
             if executable.exists():
                 return executable
+
     return None
+
+
+def existing_names(root: Path, names: list[str]) -> list[str]:
+    """返回根目录下存在的指定文件或目录名。"""
+    return [name for name in names if (root / name).exists()]
+
+
+def root_glob_names(root: Path, patterns: list[str]) -> list[str]:
+    """返回根目录下匹配模式的文件名。"""
+    out: list[str] = []
+    for pattern in patterns:
+        out.extend(path.name for path in root.glob(pattern) if path.exists())
+    return sorted(set(out))
+
+
+def file_info(root: Path, name: str) -> dict[str, typing.Any]:
+    """返回根目录下文件的路径信息。"""
+    path = root / name
+    if not path.exists():
+        return {}
+
+    return {
+        "path"          : str(path),
+        "relative_path" : name
+    }
+
+
+def first_file_info(root: Path, names: list[str]) -> dict[str, typing.Any]:
+    """返回第一个存在文件的路径信息。"""
+    for name in names:
+        data = file_info(root, name)
+        if data:
+            return data
+
+    return {}
+
+
+def directory_info(root: Path, name: str) -> dict[str, typing.Any]:
+    """返回根目录下目录的可用状态。"""
+    path = root / name
+
+    return {
+        "available"     : path.is_dir(),
+        "path"          : str(path) if path.is_dir() else "",
+        "relative_path" : name
+    }
+
+
+def is_relative_to(path: Path, root: Path) -> bool:
+    """判断路径是否位于根目录内。"""
+    try:
+        path.resolve().relative_to(root)
+    except ValueError:
+        return False
+
+    return True
 
 
 def tool_source(executable: str | None) -> str:
@@ -266,6 +562,7 @@ def tool_source(executable: str | None) -> str:
     parts = Path(executable).resolve().parts
     if "schematic" in parts and "supports" in parts:
         return "bundled"
+
     return "path"
 
 
