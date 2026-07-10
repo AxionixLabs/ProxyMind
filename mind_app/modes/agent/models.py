@@ -35,6 +35,16 @@ class AgentSessionRuntime:
     pending_tasks: set[asyncio.Task[None]] | None = None
 
 
+@dataclass(slots=True)
+class AgentForwardRequest:
+    """服务端下发的本地执行请求。"""
+    message_id: str
+    call_id: str
+    cid: str
+    sid: str
+    payload: dict[str, typing.Any]
+
+
 @dataclass
 class AgentLiveStatus:
     """订阅模式等待动画的共享状态。"""

@@ -6,15 +6,36 @@ import typing
 import asyncio
 from loguru import logger
 from engine.tinker import MindError
-from mind_nova.modes import RUN_MODE_SET, RunMode
+from mind_nova.modes import (
+    RUN_MODE_SET,
+    RunMode
+)
 from ...runtime.agent.client import AgentClient
 from .models import (
-    AgentLiveStatus, AgentSessionRuntime
+    AgentForwardRequest,
+    AgentLiveStatus,
+    AgentSessionRuntime
 )
 from .ui import start_status_animation
 
 if typing.TYPE_CHECKING:
     from ...mind_core import Mind
+
+
+class AgentForwardHandler(typing.Protocol):
+    """处理一条服务端 forward 请求。"""
+
+    async def handle(
+        self,
+        mind: "Mind",
+        client: AgentClient,
+        connection: typing.Any,
+        runtime: AgentSessionRuntime,
+        request: AgentForwardRequest,
+        live_status: AgentLiveStatus
+    ) -> None:
+        """处理一条服务端 forward 请求。"""
+        ...
 
 
 def normalize_forward_profiles(payload: dict[str, typing.Any]) -> list[str] | None:
@@ -111,6 +132,13 @@ def resolve_forward_timeout_sec(payload: dict[str, typing.Any]) -> float | None:
     return timeout_sec
 
 
+def get_runtime_message_cache(runtime: AgentSessionRuntime) -> set[str]:
+    """返回订阅运行态中的转发消息去重集合。"""
+    if runtime.forwarded_message_ids is None:
+        runtime.forwarded_message_ids = set()
+    return runtime.forwarded_message_ids
+
+
 async def execute_forward(
     mind: "Mind",
     *,
@@ -199,6 +227,7 @@ def spawn_forward_task(
 ) -> None:
     """以后台任务方式执行 `mind.forward`，避免阻塞 WS 心跳处理。"""
     tasks = runtime.pending_tasks if runtime.pending_tasks is not None else set()
+
     runtime.pending_tasks = tasks
 
     async def runner() -> None:
@@ -251,6 +280,58 @@ def spawn_forward_task(
     task = asyncio.create_task(runner(), name=f"agent-forward-{call_id or 'unknown'}")
     tasks.add(task)
     task.add_done_callback(tasks.discard)
+
+
+class AutoForwardHandler(object):
+    """收到服务端请求后立即执行本地任务。"""
+
+    @staticmethod
+    async def handle(
+        mind: "Mind",
+        client: AgentClient,
+        connection: typing.Any,
+        runtime: AgentSessionRuntime,
+        request: AgentForwardRequest,
+        live_status: AgentLiveStatus
+    ) -> None:
+        """确认收到请求并启动本地任务。"""
+        live_status.update(
+            "Task Accepted", f"Validated {request.call_id}, stopping live status"
+        )
+        await mind.await_cleanup(mind.stop_anim())
+
+        await client.send_mind_received(
+            connection,
+            session_id=runtime.session_id,
+            cid=request.cid,
+            sid=request.sid,
+            call_id=request.call_id,
+            acked_message_id=request.message_id
+        )
+        logger.debug(
+            f"[Agent] mind.received sent call_id={request.call_id} message_id={request.message_id}"
+        )
+
+        seen = get_runtime_message_cache(runtime)
+        if request.message_id in seen:
+            logger.debug(
+                f"[Agent] mind.forward replay skipped message_id={request.message_id}"
+            )
+            return None
+
+        seen.add(request.message_id)
+
+        spawn_forward_task(
+            mind,
+            client,
+            connection,
+            runtime,
+            call_id=request.call_id,
+            cid=request.cid,
+            sid=request.sid,
+            payload=request.payload,
+            live_status=live_status
+        )
 
 
 if __name__ == '__main__':

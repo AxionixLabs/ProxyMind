@@ -8,9 +8,14 @@ from loguru import logger
 from ...runtime.agent.client import AgentClient
 from mind_nova.requests.payload import empty_primary_request_slot
 from .models import (
-    AgentSessionRuntime, AgentLiveStatus
+    AgentForwardRequest,
+    AgentSessionRuntime,
+    AgentLiveStatus
 )
-from .forwarding import spawn_forward_task
+from .forwarding import (
+    AgentForwardHandler,
+    AutoForwardHandler
+)
 
 if typing.TYPE_CHECKING:
     from ...mind_core import Mind
@@ -60,13 +65,6 @@ def update_last_acked_seq(runtime: AgentSessionRuntime, seq: int | None) -> None
     """仅在消息被成功处理后推进恢复水位。"""
     if isinstance(seq, int) and seq > runtime.last_acked_seq:
         runtime.last_acked_seq = seq
-
-
-def get_runtime_message_cache(runtime: AgentSessionRuntime) -> set[str]:
-    """返回订阅运行态中的转发消息去重集合。"""
-    if runtime.forwarded_message_ids is None:
-        runtime.forwarded_message_ids = set()
-    return runtime.forwarded_message_ids
 
 
 async def cancel_runtime_tasks(runtime: AgentSessionRuntime) -> None:
@@ -218,13 +216,69 @@ async def build_runtime_llm_conf(mind: "Mind") -> dict[str, typing.Any]:
     return {"primary": primary_conf}
 
 
+def parse_forward_request(
+    runtime: AgentSessionRuntime,
+    message: dict[str, typing.Any]
+) -> AgentForwardRequest | None:
+    """解析并校验服务端下发的 forward 请求。"""
+    payload_raw    = message.get("payload")
+    payload        = payload_raw if isinstance(payload_raw, dict) else {}
+    session_id_raw = message.get("session_id")
+    session_id     = session_id_raw if isinstance(session_id_raw, str) else ""
+
+    message_id_raw = message.get("message_id")
+    message_id     = message_id_raw if isinstance(message_id_raw, str) else ""
+
+    call_id_raw = payload.get("call_id")
+    call_id     = call_id_raw if isinstance(call_id_raw, str) else ""
+
+    cid_raw = message.get("cid")
+    cid     = cid_raw if isinstance(cid_raw, str) else None
+    sid_raw = message.get("sid")
+    sid     = sid_raw if isinstance(sid_raw, str) else None
+
+    if not message_id:
+        logger.debug(
+            "[Agent] mind.forward ignored: message_id missing"
+        )
+        return None
+    if not session_id or session_id != runtime.session_id:
+        raise AgentWsProtocolError(
+            "AGENT_WS_SESSION_MISMATCH",
+            f"mind.forward session_id mismatch expected={runtime.session_id} actual={session_id or '-'}",
+            action="reopen"
+        )
+    if not call_id:
+        logger.debug(
+            f"[Agent] mind.forward ignored: call_id missing message_id={message_id}"
+        )
+        return None
+    if not cid or not sid:
+        logger.debug(
+            f"[Agent] mind.forward ignored: cid/sid missing call_id={call_id} message_id={message_id}"
+        )
+        return None
+
+    logger.debug(
+        f"[Agent] mind.forward accepted call_id={call_id} message_id={message_id} cid={cid} sid={sid}"
+    )
+    return AgentForwardRequest(
+        message_id=message_id,
+        call_id=call_id,
+        cid=cid,
+        sid=sid,
+        payload=payload
+    )
+
+
 async def handle_server_message(
     mind: "Mind",
     client: AgentClient,
     connection: typing.Any,
     runtime: AgentSessionRuntime,
     message: dict[str, typing.Any],
-    live_status: AgentLiveStatus
+    live_status: AgentLiveStatus,
+    forward_handler: AgentForwardHandler | None = None
 ) -> int | None:
     """按订阅协议处理一条服务端消息。"""
     current_seq  = extract_message_seq(message)
@@ -274,7 +328,8 @@ async def handle_server_message(
                     connection,
                     runtime,
                     replay_message,
-                    live_status
+                    live_status,
+                    forward_handler
                 )
                 if isinstance(replay_seq, int):
                     handled_seq = replay_seq if handled_seq is None else max(handled_seq, replay_seq)
@@ -299,82 +354,18 @@ async def handle_server_message(
         raise AgentWsProtocolError(code, message_text, action="reopen")
 
     if message_type == "mind.forward":
-        payload_raw = message.get("payload")
-        payload     = payload_raw if isinstance(payload_raw, dict) else {}
-        session_id_raw = message.get("session_id")
-        session_id     = session_id_raw if isinstance(session_id_raw, str) else ""
-
-        message_id_raw = message.get("message_id")
-        message_id     = message_id_raw if isinstance(message_id_raw, str) else ""
-
-        call_id_raw = payload.get("call_id")
-        call_id     = call_id_raw if isinstance(call_id_raw, str) else ""
-
-        cid_raw = message.get("cid")
-        cid     = cid_raw if isinstance(cid_raw, str) else None
-        sid_raw = message.get("sid")
-        sid     = sid_raw if isinstance(sid_raw, str) else None
-
-        if not message_id:
-            logger.debug(
-                "[Agent] mind.forward ignored: message_id missing"
-            )
-            return current_seq
-        if not session_id or session_id != runtime.session_id:
-            raise AgentWsProtocolError(
-                "AGENT_WS_SESSION_MISMATCH",
-                f"mind.forward session_id mismatch expected={runtime.session_id} actual={session_id or '-'}",
-                action="reopen"
-            )
-        if not call_id:
-            logger.debug(
-                f"[Agent] mind.forward ignored: call_id missing message_id={message_id}"
-            )
-            return current_seq
-        if not cid or not sid:
-            logger.debug(
-                f"[Agent] mind.forward ignored: cid/sid missing call_id={call_id} message_id={message_id}"
-            )
+        request = parse_forward_request(runtime, message)
+        if request is None:
             return current_seq
 
-        logger.debug(
-            f"[Agent] mind.forward accepted call_id={call_id} message_id={message_id} cid={cid} sid={sid}"
-        )
-        live_status.update(
-            "Task Accepted", f"Validated {call_id}, stopping live status"
-        )
-        await mind.await_cleanup(mind.stop_anim())
-
-        await client.send_mind_received(
-            connection,
-            session_id=runtime.session_id,
-            cid=cid,
-            sid=sid,
-            call_id=call_id,
-            acked_message_id=message_id
-        )
-        logger.debug(
-            f"[Agent] mind.received sent call_id={call_id} message_id={message_id}"
-        )
-
-        seen = get_runtime_message_cache(runtime)
-        if message_id in seen:
-            logger.debug(
-                f"[Agent] mind.forward replay skipped message_id={message_id}"
-            )
-            return current_seq
-
-        seen.add(message_id)
-        spawn_forward_task(
+        handler = forward_handler or AutoForwardHandler()
+        await handler.handle(
             mind,
             client,
             connection,
             runtime,
-            call_id=call_id,
-            cid=cid,
-            sid=sid,
-            payload=payload,
-            live_status=live_status
+            request,
+            live_status
         )
         return current_seq
 
@@ -410,7 +401,8 @@ async def connect_once(
     mind: "Mind",
     client: AgentClient,
     runtime: AgentSessionRuntime,
-    live_status: AgentLiveStatus
+    live_status: AgentLiveStatus,
+    forward_handler: AgentForwardHandler | None = None
 ) -> None:
     """建立一次 WS 连接生命周期，并持续处理消息直到断开。"""
     async with await client.connect_ws(
@@ -468,7 +460,7 @@ async def connect_once(
                 f"[Agent] recv {summarize_ws_message(message)}"
             )
             handled_seq = await handle_server_message(
-                mind, client, connection, runtime, message, live_status
+                mind, client, connection, runtime, message, live_status, forward_handler
             )
             update_last_acked_seq(runtime, handled_seq)
 
