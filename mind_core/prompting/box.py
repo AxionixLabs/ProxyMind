@@ -163,11 +163,6 @@ class PromptToolkitBox(object):
                 "soft"  : "#2E7D5B",
                 "label" : "Fast"
             },
-            "plan": {
-                "brand" : "#866FD1",
-                "soft"  : "#6B57B8",
-                "label" : "Plan"
-            },
             "xtra": {
                 "brand" : "#2DAA9E",
                 "soft"  : "#1E7F78",

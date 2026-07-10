@@ -28,7 +28,7 @@ description: `--code` 星图协议对象，定义多任务块、循环、回放�
 - 每个 `# name` 任务块都必须以单独一行的块结束线 `---` 结束，不要省略，也不要写成别的分隔符。
 - 任务块之间用块结束线 `---` 分隔；如果文件里只有一个任务块，这个任务块末尾也照样保留块结束线 `---`。
 - 每条任务都要包含目标、动作、通过条件、输出。
-- `--code` 必须附着在对应领域入口后面：接口/媒体用 `--fast --mcp --code`，Android 顺序任务用 `--plan --mcp --code`，coding/外接 MCP 用 `--xtra --code`。
+- `--code` 必须附着在对应领域入口后面：接口/媒体用 `--fast --mcp --code`，Android 顺序任务用 `--chat --mcp --code`，coding/外接 MCP 用 `--xtra --code`。
 - `--code` 参数支持多个 source，按传入顺序顺序执行。
 - 本地文件不存在、URL 拉取失败、标准输入为空或 inline 内容为空时，按 [错误与回退](errors-and-fallbacks.md) 回报。
 - 生成星图时，先定块头和块结束线，再回填正文：先写 `# name`，再预留最后一行块结束线 `---`，中间再填任务内容。
@@ -51,7 +51,7 @@ description: `--code` 星图协议对象，定义多任务块、循环、回放�
 mind --fast --mcp --code smoke.md
 mind --fast --mcp --code smoke.md regression.md
 mind --fast --mcp --code api_regression.md
-mind --plan --mcp --code android_nightly.md
+mind --chat --mcp --code android_nightly.md
 mind --xtra --code investigation.md
 mind --fast --mcp --code -
 mind --fast --mcp --code https://example.com/packs/smoke.md

@@ -7,7 +7,6 @@ from mind_core.design import Design
 from mind_core.design.upload import UploadProgressLiveReporter
 from mind_nova.events import EventReport
 from mind_nova.modes import RunMode
-from engine.tinker import MindError
 from ...runtime.support.calling import resolve_mode_runner
 
 if typing.TYPE_CHECKING:
@@ -38,14 +37,6 @@ async def run_repl_model_turn(
         runner = resolve_mode_runner(mind, run_mode)
 
         uploaded_attachments: typing.Optional[list[dict[str, typing.Any]]] = None
-
-        if run_mode == "plan" and mind.attach.has_pending_attachments():
-            Design.console.print(
-                "[bold #FF5F5F]Pending attachments are not supported in /plan. "
-                "Switch to /chat, /fast, or /xtra, or run /attach-clear.[/]"
-            )
-            print_attach_gap()
-            return None
 
         if mind.attach.has_pending_attachments():
             uploaded_attachments = await upload_pending_repl_attachments(mind)

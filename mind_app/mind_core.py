@@ -23,7 +23,6 @@ from mind_nova.modes import (
 from mind_nova.report import Report
 from .attach import Attach
 from .modes.repl import mind_loop as run_mind_loop
-from .modes.static import static_looper as run_static_looper
 from .modes.stream import stream_looper as run_stream_looper
 from .modes.batch import mind_pack as run_mind_pack
 from .modes.agent import run_agent_loop
@@ -560,27 +559,6 @@ class Mind(object):
     ) -> None:
         """流式执行入口：委托给流式模式模块。"""
         return await run_stream_looper(
-            self,
-            session,
-            mode,
-            pref_config,
-            message,
-            tools,
-            **kwargs
-        )
-
-    async def static_looper(
-        self,
-        session: McpSessionLike,
-        mode: typing.Literal["plan"],
-        pref_config: dict[str, typing.Any],
-        message: str,
-        tools: list[dict[str, typing.Any]],
-        *_,
-        **kwargs
-    ) -> None:
-        """静态执行入口：委托给编排模式模块。"""
-        return await run_static_looper(
             self,
             session,
             mode,

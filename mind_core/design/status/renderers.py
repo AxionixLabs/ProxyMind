@@ -429,7 +429,6 @@ class StatusRenderer(StatusSpec):
         labels = {
             "chat" : "Chat Stream",
             "fast" : "Fast Stream",
-            "plan" : "Plan Stream",
             "xtra" : "Xtra Stream",
         }
         return labels.get(normalized, "Mind Stream")

@@ -89,7 +89,7 @@ def normalize_forward_target(
         raise ValueError("mind.forward payload.mode must be a string")
     mode = mode_raw.strip().lower()
     if mode not in RUN_MODE_SET:
-        raise ValueError("mind.forward payload.mode must be chat, fast, plan, or xtra")
+        raise ValueError("mind.forward payload.mode must be chat, fast, or xtra")
 
     mode = typing.cast(RunMode, mode)
 

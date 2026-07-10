@@ -9,8 +9,7 @@ from .access import (
 )
 from .chat import (
     stream_chat,
-    stream_heal,
-    stream_plan
+    stream_heal
 )
 from .compact import (
     build_compact_payload,
@@ -57,7 +56,6 @@ __all__ = [
     "resolve_transport_mode",
     "stream_chat",
     "stream_heal",
-    "stream_plan",
     "streaming",
     "upload_file_stream"
 ]

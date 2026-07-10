@@ -80,7 +80,6 @@ FILE_STREAM_URL   = f"{DOMAIN}/upload"
 TOOL_RESULT_URL   = f"{DOMAIN}/tool-result"
 TOOL_APPROVAL_URL = f"{DOMAIN}/tool-approval"
 STREAM_CHAT_URL   = f"{DOMAIN}/mind-chat"
-STREAM_PLAN_URL   = f"{DOMAIN}/mind-plan"
 STREAM_HEAL_URL   = f"{DOMAIN}/mind-heal"
 
 # ========【应用授权】========

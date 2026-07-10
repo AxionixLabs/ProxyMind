@@ -17,7 +17,6 @@ class Parser(object):
         --------------------------------------------
         \033[1;35m{const.APP_NAME}\033[0m --chat "Unlock the device"
         \033[1;35m{const.APP_NAME}\033[0m --fast "Extract keyframes from /path/to/demo.mp4 and return evidence"
-        \033[1;35m{const.APP_NAME}\033[0m --plan "Unlock, wait 1 second, then tap 500,1000"
         \033[1;35m{const.APP_NAME}\033[0m --xtra "Open DBHub and query the users table"
         """
         self.__parse_engine = argparse.ArgumentParser(
@@ -87,16 +86,6 @@ class Parser(object):
                 \033[1;34m^* 边界协议 *^\033[0m
                 -------------------------
                 - 快速执行通道，适合接口、文本与媒体类短链路任务。
-
-            ''')
-        )
-
-        major_group.add_argument(
-            "--plan", nargs="?", const="", default=None,
-            help=textwrap.dedent(f'''\
-                \033[1;34m^* 推演协议 *^\033[0m
-                -------------------------
-                - 启用行动规划通道，生成可执行步骤轨迹。
 
             ''')
         )
@@ -177,7 +166,7 @@ class Parser(object):
                 -------------------------
                 - 装载批量执行蓝本（.md/.txt）
                 - 支持 cfg、case、前后置、循环、规则后置等编排结构
-                - 必须与 --chat/--fast/--plan/--xtra 叠加：选择批跑协议
+                - 必须与 --chat/--fast/--xtra 叠加：选择批跑协议
 
             ''')
         )

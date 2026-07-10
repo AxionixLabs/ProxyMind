@@ -32,7 +32,7 @@ description: Mind 任务写法、领域执行入口、Helix provider、接口验
 - 不把内部工具名、事件名、MCP 名称作为用户侧稳定接口。
 - 一条任务尽量写明目标、范围、通过条件、产出。
 - 长任务、多轮任务、回归任务优先收束成 `--code`。
-- 按任务领域选择入口：`chat` 负责 Android / Framix / Memrix，`fast` 负责接口 / 多媒体，`plan` 负责 Android 顺序规划，`xtra` 负责 coding 与外接 MCP。
+- 按任务领域选择入口：`chat` 负责 Android / Framix / Memrix，`fast` 负责接口 / 多媒体，`chat` 负责 Android 顺序规划，`xtra` 负责 coding 与外接 MCP。
 - Helix 是 Mind 的可选官方垂直领域 MCP provider，相关 JSON API 文档在 `helix-docs` skill，避免和 Mind 任务写法混淆。
 - 不要猜测尚未读取的参考文档细节。依赖某个规则、示例或契约前，先读取对应 Markdown 文件。
 

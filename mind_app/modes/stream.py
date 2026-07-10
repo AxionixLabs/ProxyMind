@@ -5,6 +5,7 @@ import typing
 import asyncio
 from mind_app.mcp import McpSessionLike
 from mind_app.mcp.tool_store import meta_for_tool
+from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_app.approval import (
     ApprovalStore,
     approval_from_event,
@@ -32,6 +33,7 @@ from ..runtime.tools.batch import (
     PendingToolCall,
     ToolBatchExecutor
 )
+from ..runtime.tools.plan_steps import StepPlanExecutor
 from ..runtime.support.idle_status import IdleStatusTimer
 from ..stream_events.responses_builtin import (
     resolve_builtin_name,
@@ -66,7 +68,7 @@ async def stream_looper(
     *_,
     **kwargs
 ) -> None:
-    """流式模式执行器：处理 chat/fast/xtra 的事件流、工具调用和输出上报。"""
+    """流式模式执行器：处理流式事件、工具调用和输出上报。"""
     if mode not in {"chat", "fast", "xtra"}:
         raise ValueError(f"Invalid mode: {mode}")
 
@@ -110,6 +112,15 @@ async def stream_looper(
             metadata=metadata
         )
         tool_batch_executor = ToolBatchExecutor(
+            session=session,
+            stream_ui=slog,
+            tools=tools,
+            mode=mode,
+            pref_config=pref_config,
+            metadata=metadata,
+            report=mind.report
+        )
+        step_plan_executor = StepPlanExecutor(
             session=session,
             stream_ui=slog,
             tools=tools,
@@ -313,6 +324,14 @@ async def stream_looper(
                 use_coding_trace = coding_trace_tool(name)
                 local_tool_meta  = meta_for_tool(tools, name)
                 effective_meta   = {**(local_tool_meta or {}),**(event_meta or {})} or None
+
+                if name == PLAN_STEPS_TOOL:
+                    await step_plan_executor.execute_tool_call(
+                        event=event,
+                        arguments=arguments
+                    )
+                    await slog.begin_reply_wait_status(delay_sec=0.75)
+                    continue
 
                 pending_call = PendingToolCall(
                     event=event,

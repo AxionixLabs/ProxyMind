@@ -31,7 +31,7 @@ description: 录屏真值分析对象，定位用户可见过程的最慢阶段�
 | 输入情况 | 推荐模式 |
 | --- | --- |
 | 已有录屏，直接分析 | `mind --chat --mcp` |
-| 需要先录再分析 | `mind --plan --mcp` |
+| 需要先录再分析 | `mind --chat --mcp` |
 | 只做文件处理，不做真值分析 | 转到 [Media 场景](media.md) |
 
 ## Core Rules
@@ -51,7 +51,7 @@ mind --chat --mcp "分析本地录屏文件 ./artifacts/perf/home_to_detail.mp4�
 ```
 
 ```bash
-mind --plan --mcp "开始一段覆盖完整交互流程的录屏。打开 com.example.app 并进入目标页面。完成一次首页到详情页的典型操作。停止录制。基于这段录屏生成 Framix 阶段报告，重点看端到端耗时、首字上屏、尾字上屏和流式 tokens。"
+mind --chat --mcp "开始一段覆盖完整交互流程的录屏。打开 com.example.app 并进入目标页面。完成一次首页到详情页的典型操作。停止录制。基于这段录屏生成 Framix 阶段报告，重点看端到端耗时、首字上屏、尾字上屏和流式 tokens。"
 ```
 
 补充示例：

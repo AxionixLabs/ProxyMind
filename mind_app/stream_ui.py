@@ -500,7 +500,7 @@ class StreamUI(object):
         summary: typing.Optional[str]
     ) -> str:
         """组合循环步骤状态的显示文本。"""
-        base_title = "loop steps"
+        base_title = "plan steps"
         normalized = " ".join(str(summary or "").split())
         if not normalized:
             return base_title
@@ -519,7 +519,7 @@ class StreamUI(object):
     ) -> tuple[typing.Optional[str], StatusFamily]:
         """组合内置状态文本与状态类别。"""
         normalized = " ".join(str(text or "").split())
-        if normalized.lower() in {"chat", "fast", "plan", "xtra"}:
+        if normalized.lower() in {"chat", "fast", "xtra"}:
             return Design.mode_status_text(normalized), "mode"
         return text, "builtin"
 

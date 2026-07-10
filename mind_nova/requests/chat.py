@@ -49,38 +49,6 @@ async def stream_chat(
         yield event
 
 
-async def stream_plan(
-    mode: str,
-    pref_config: dict[str, typing.Any],
-    message: str,
-    tools: list[dict],
-    extras: typing.Optional[dict[str, typing.Any]] = None,
-    timeout: float = 60.0,
-    *_,
-    **kwargs
-) -> typing.AsyncGenerator[dict, None]:
-    """流式获取静态规划事件。"""
-    headers = Channel.make_headers()
-    payload = {
-        "mode"         : mode,
-        "llm_conf"     : request_llm_conf(pref_config),
-        "message"      : message,
-        "tools"        : tools,
-        "hosted_tools" : request_hosted_tools(pref_config),
-        "extras"       : extras,
-        **kwargs
-    }
-    apply_access_mode(payload, payload.pop("access_mode", DEFAULT_ACCESS_MODE))
-
-    async for event in streaming(service_endpoints.endpoint("/mind-plan"), headers, payload, timeout):
-        event_type = str(event.get("type") or "")
-
-        if event_type in ["plan.done", "ping"]:
-            continue
-
-        yield event
-
-
 async def stream_heal(
     pref_config: dict[str, typing.Any],
     page_id: str,

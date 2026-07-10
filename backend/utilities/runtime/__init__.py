@@ -9,7 +9,7 @@ from .pipeline import (
     Active, HelixError
 )
 from .tool_outputs import (
-    loop_steps_output, sleep_output
+    sleep_output
 )
 
 

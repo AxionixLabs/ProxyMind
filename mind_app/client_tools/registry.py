@@ -7,6 +7,7 @@ from .types import (
     ClientTool, ClientToolRuntime
 )
 from .coding import coding_tools
+from .planning import planning_tools
 
 
 class ClientToolRegistry:
@@ -47,8 +48,9 @@ class ClientToolRegistry:
         meta: dict[str, typing.Any] | None = None,
     ) -> mcp_types.CallToolResult:
         """分发一次客户端工具调用。"""
-        key = str(name or "").strip()
+        key  = str(name or "").strip()
         tool = self._tools.get(key)
+
         if tool is None:
             raise KeyError(f"unknown client tool: {name}")
 
@@ -64,6 +66,7 @@ class ClientToolRegistry:
 def default_registry(native_coding: typing.Any = None) -> ClientToolRegistry:
     """构建默认客户端工具注册表。"""
     return ClientToolRegistry([
+        *planning_tools(),
         *coding_tools(native_coding),
     ])
 

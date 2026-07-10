@@ -21,8 +21,6 @@ def resolve_mode_runner(
     """根据单次调用模式选择底层执行器。"""
     if mode in {"chat", "fast", "xtra"}:
         return mind.stream_looper
-    if mode == "plan":
-        return mind.static_looper
     raise ValueError(f"Unsupported mode: {mode}")
 
 

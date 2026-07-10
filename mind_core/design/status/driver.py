@@ -684,40 +684,6 @@ class DesignStatusLiveDriver(StatusRenderer):
                     "pilot_amp"    : 1.5
                 }
             },
-            "plan": {
-                "glyphs": {
-                    "spin"     : "◴◷◶◵",
-                    "done"     : "◆",
-                    "active"   : "◉",
-                    "next"     : "◇",
-                    "idle"     : "○",
-                    "beam_a"   : "═",
-                    "beam_b"   : "─",
-                    "progress" : "▸",
-                    "pulse"    : "•",
-                    "echo"     : "·"
-                },
-                "colors": {
-                    "prefix"     : "#34D399",
-                    "core"       : "#D1FAE5",
-                    "near"       : "#6EE7B7",
-                    "beam"       : "#A7F3D0",
-                    "beam_dim"   : "#4E9F8A",
-                    "dust"       : "#31403D",
-                    "sweep_core" : "#10B981",
-                    "sweep_tail" : "#34D399",
-                    "shell"      : "#1F4D45",
-                    "shell_dim"  : "#203733",
-                    "orbit_a"    : "#A7F3D0",
-                    "orbit_b"    : "#93C5FD",
-                    "orbit_c"    : "#C4B5FD"
-                },
-                "motion": {
-                    "phase_div"   : 7.2,
-                    "active_freq" : 0.8,
-                    "bridge_freq" : 1.2
-                }
-            },
             "xtra": {
                 "glyphs": {
                     "spin"       : "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏",
@@ -1168,8 +1134,6 @@ class DesignStatusLiveDriver(StatusRenderer):
                 chars, styles = build_xtra(i)
             elif theme == "fast":
                 chars, styles = build_fast(i)
-            elif theme == "plan":
-                chars, styles = build_plan(i)
             else:
                 chars, styles = build_chat(i)
 

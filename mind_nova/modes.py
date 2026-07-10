@@ -3,7 +3,7 @@
 
 import typing
 
-RunMode = typing.Literal["chat", "fast", "plan", "xtra"]
+RunMode = typing.Literal["chat", "fast", "xtra"]
 
 MODES: tuple[RunMode, ...] = typing.get_args(RunMode)
 

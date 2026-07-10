@@ -46,12 +46,10 @@ def resolve_code_mode(cmd_lines: typing.Any) -> RunMode:
         return "chat"
     if cmd_lines.fast is not None:
         return "fast"
-    if cmd_lines.plan is not None:
-        return "plan"
     if cmd_lines.xtra is not None:
         return "xtra"
 
-    raise MindError("--code requires --chat, --fast, --plan, or --xtra")
+    raise MindError("--code requires --chat, --fast, or --xtra")
 
 
 async def resolve_cli_attachments(
@@ -64,9 +62,6 @@ async def resolve_cli_attachments(
 
     if cmd_lines.code:
         raise MindError("--attach is not supported together with --code yet")
-
-    if cmd_lines.plan is not None:
-        raise MindError("--attach is not supported with --plan")
 
     if cmd_lines.chat is None and cmd_lines.fast is None and cmd_lines.xtra is None:
         raise MindError("--attach requires --chat, --fast, or --xtra")
@@ -120,8 +115,6 @@ async def run_selected_mode(
         await mind.calling(message=chat, mode="chat", attachments=cli_attachments, access_mode=access_mode)
     elif fast := cmd_lines.fast:
         await mind.calling(message=fast, mode="fast", attachments=cli_attachments, access_mode=access_mode)
-    elif plan := cmd_lines.plan:
-        await mind.calling(message=plan, mode="plan", access_mode=access_mode)
     elif xtra := cmd_lines.xtra:
         await mind.calling(message=xtra, mode="xtra", attachments=cli_attachments, access_mode=access_mode)
     elif code := cmd_lines.code:
@@ -271,7 +264,7 @@ async def _run_main(
     logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}\n")
 
     positions = (
-        cmd_lines.chat, cmd_lines.fast, cmd_lines.plan, cmd_lines.xtra,
+        cmd_lines.chat, cmd_lines.fast, cmd_lines.xtra,
         cmd_lines.gravity, cmd_lines.reflection, cmd_lines.code
     )
     keywords = {

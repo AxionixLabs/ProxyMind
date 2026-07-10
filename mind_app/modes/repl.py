@@ -68,7 +68,6 @@ if typing.TYPE_CHECKING:
 MODE_BY_COMMAND: dict[str, RunMode] = {
     "/chat": "chat",
     "/fast": "fast",
-    "/plan": "plan",
     "/xtra": "xtra"
 }
 
@@ -101,7 +100,6 @@ async def mind_loop(mind: "Mind") -> None:
         [bold]
         [bold #FFD75F]/chat[/]                     对话模式（交互能力协作/自然语言交互）
         [bold #FFD75F]/fast[/]                     高速模式（高吞吐任务流/数据媒体直达）
-        [bold #FFD75F]/plan[/]                     编排模式（结构任务拆解/确定路径执行）
         [bold #FFD75F]/xtra[/]                     外接模式（外部 MCP 工具 + 通用工具 + 编码工具）
         [bold #AFD7FF]/new[/]                      开始新对话（保留模式、模型和待发送附件）
         [bold #AFD7FF]/resume[/]                   从当前模式最近 24 小时会话中恢复

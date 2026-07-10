@@ -5,13 +5,10 @@ from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.middlewares.mid_task import task_middleware
 from backend.mcp_tools.common.schemas.schema_runtime import (
-    DelayArg,
-    LoopCountArg,
-    LoopStepsArg,
-    StopOnFailArg
+    DelayArg
 )
 from backend.utilities.runtime import (
-    AppContext, Idle, loop_steps_output, sleep_output
+    AppContext, Idle, sleep_output
 )
 from backend.utilities.tool_result import build_tool_result
 
@@ -40,35 +37,6 @@ def bind(mcp: FastMCP, idle: Idle, _: AppContext) -> None:
             await idle.job_final(job_id)
 
         return build_tool_result(tool="sleep", args=args, raw=raw)
-
-    @mcp.tool(
-        description=(
-            "声明一个可循环执行的步骤列表。"
-            " 该工具只校验并返回标准化声明，不会真的执行 `steps`。"
-            " `steps` 中每一项应包含 `tool` 和 `args`，且不允许嵌套 `loop_steps`。"
-        ),
-        meta={"hidden": False, "domain": "common", "class": "runtime"}
-    )
-    @task_middleware("loop_steps")
-    async def loop_steps(
-        loops: LoopCountArg,
-        steps: LoopStepsArg,
-        stop_on_fail: StopOnFailArg = True
-    ) -> CallToolResult:
-
-        args = {
-            "loops"        : loops,
-            "steps"        : steps,
-            "stop_on_fail" : stop_on_fail
-        }
-
-        raw = loop_steps_output(
-            loops=loops,
-            steps=steps,
-            stop_on_fail=stop_on_fail
-        )
-
-        return build_tool_result(tool="loop_steps", args=args, raw=raw)
 
 
 if __name__ == '__main__':

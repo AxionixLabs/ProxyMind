@@ -17,7 +17,6 @@ class SlashCommandCompleter(Completer):
     COMMANDS: tuple[dict[str, str], ...] = (
         {"text": "/chat", "display": "/chat", "meta": "切换到 Chat 模式"},
         {"text": "/fast", "display": "/fast", "meta": "切换到 Fast 模式"},
-        {"text": "/plan", "display": "/plan", "meta": "切换到 Plan 模式"},
         {"text": "/xtra", "display": "/xtra", "meta": "切换到 Xtra 模式"},
         {"text": "/new", "display": "/new", "meta": "开始新对话"},
         {"text": "/resume", "display": "/resume", "meta": "恢复最近会话"},
@@ -52,7 +51,6 @@ class SlashCommandCompleter(Completer):
     TOP_LEVEL: tuple[str, ...] = (
         "/chat",
         "/fast",
-        "/plan",
         "/xtra",
         "/new",
         "/resume",
