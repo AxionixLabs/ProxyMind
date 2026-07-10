@@ -45,7 +45,8 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
     @mcp.tool(
         description=(
             "尝试把目标应用带到前台，并返回是否成功进入前台。"
-            " 该工具会先检查当前前台，再执行启动并等待前台稳定命中。"
+            " 该工具会先检查当前前台；`activity` 非空时会把指定 Activity 作为验收目标。"
+            " 未稳定命中时会执行启动并等待前台稳定命中。"
             " 首次拉起失败时会执行一次 force-stop 后重试，因此它适合前台验收场景。"
         ),
         meta={"hidden": False, "domain": "device", "class": "app"}

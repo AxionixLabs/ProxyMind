@@ -10,7 +10,7 @@ UrlArg = typing.Annotated[
 ]
 ActivityArg = typing.Annotated[
     typing.Optional[str],
-    Field(description="目标 Activity；为空时使用应用默认入口。")
+    Field(description="目标 Activity；非空时作为 app_foreground 的前台验收目标。")
 ]
 
 

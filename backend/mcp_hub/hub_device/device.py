@@ -161,6 +161,57 @@ class Device(object):
             return "已达到最大滑动次数，仍未找到目标元素。"
         return "滚动查找失败。"
 
+    @staticmethod
+    def _activity_candidates(package: str, activity: typing.Optional[str]) -> set[str]:
+        """生成 Activity 等价匹配集合。"""
+        raw = str(activity or "").strip()
+        if not raw:
+            return set()
+
+        candidates: set[str] = {raw}
+        if "/" in raw:
+            owner, name = raw.split("/", 1)
+            if name:
+                candidates.add(name)
+                if name.startswith("."):
+                    candidates.add(f"{owner}{name}")
+                    candidates.add(f"{package}{name}")
+            return {item for item in candidates if item}
+
+        candidates.add(f"{package}/{raw}")
+        if raw.startswith("."):
+            candidates.add(f"{package}{raw}")
+
+        return {item for item in candidates if item}
+
+    @classmethod
+    def _focus_matches(
+        cls,
+        focus: dict[str, typing.Any],
+        package: str,
+        activity: typing.Optional[str] = None
+    ) -> bool:
+        """判断前台焦点是否命中目标包名和可选 Activity。"""
+        if focus.get("package") != package:
+            return False
+
+        candidates = cls._activity_candidates(package, activity)
+        if not candidates:
+            return True
+
+        current = str(focus.get("activity") or "").strip()
+        if not current:
+            return False
+
+        values = {current}
+        if "/" in current:
+            _, name = current.split("/", 1)
+            values.add(name)
+            if name.startswith("."):
+                values.add(f"{package}{name}")
+
+        return bool(values & candidates)
+
     async def _save_screenshot(self, local: str) -> str:
         """保存截图到本地路径。"""
         filename = f"screenshot_{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
@@ -186,6 +237,7 @@ class Device(object):
     async def _wait_foreground(
         self,
         package: str,
+        activity: typing.Optional[str],
         wait_s: float,
         poll: float,
         stable_hits: int
@@ -199,15 +251,14 @@ class Device(object):
         deadline = time.time() + float(wait_s)
         while time.time() < deadline:
             focus = await self.phone.focus_info()
-            current_package = focus.get("package")
 
             last_focus = {
-                "package"  : current_package,
+                "package"  : focus.get("package"),
                 "activity" : focus.get("activity"),
                 "raw"      : focus.get("raw", "")
             }
 
-            if current_package == package:
+            if self._focus_matches(last_focus, package, activity):
                 hit += 1
                 if hit >= int(stable_hits):
                     return True, last_focus, hit
@@ -227,7 +278,7 @@ class Device(object):
         t0 = time.time()
         poll = 0.25
 
-        ok0, focus0, _ = await self._wait_foreground(package, 0.8, poll, 1)
+        ok0, focus0, _ = await self._wait_foreground(package, activity, 0.8, poll, 1)
         if ok0:
             return ActionResult.success(
                 stage="already",
@@ -237,7 +288,7 @@ class Device(object):
 
         await self.phone.app_start(package, activity)
 
-        ok1, focus1, _ = await self._wait_foreground(package, 8.0, poll, 2)
+        ok1, focus1, _ = await self._wait_foreground(package, activity, 8.0, poll, 2)
         if ok1:
             return ActionResult.success(
                 stage="start",
@@ -248,7 +299,7 @@ class Device(object):
         await self.phone.app_stop(package)
         await self.phone.app_start(package, activity)
 
-        ok2, focus2, _ = await self._wait_foreground(package, 5.0, poll, 2)
+        ok2, focus2, _ = await self._wait_foreground(package, activity, 5.0, poll, 2)
         if ok2:
             return ActionResult.success(
                 stage="retry",

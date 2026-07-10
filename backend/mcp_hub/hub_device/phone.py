@@ -101,6 +101,14 @@ class Phone(object):
         return "'" + text.replace("'", r"'\''") + "'"
 
     @staticmethod
+    def _activity_component(package: str, activity: str) -> str:
+        """生成 Activity component。"""
+        activity = str(activity or "").strip()
+        if "/" in activity:
+            return activity
+        return f"{package}/{activity}"
+
+    @staticmethod
     def _match_widget(
         widget_list: list[Widget],
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
@@ -283,14 +291,13 @@ class Phone(object):
 
     async def app_start(self, package: str, activity: typing.Optional[str] = None) -> str | None:
         """执行应用启动命令。"""
-        action   = "android.intent.action.MAIN"
-        category = "android.intent.category.LAUNCHER"
-
         if activity:
             cmd = self.prefix + [
-                "shell", "am", "start", "-a", action, "-c", category, "-n", f"{package}/{activity}"
+                "shell", "am", "start", "-n", self._activity_component(package, activity)
             ]
             return await Flux.cmd_line(cmd)
+
+        category = "android.intent.category.LAUNCHER"
 
         cmd = self.prefix + [
             "shell", "monkey", "-p", package, "-c", category, "1"
