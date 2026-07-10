@@ -5,8 +5,6 @@ from mcp.server import FastMCP
 from mcp.types import CallToolResult
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.mcp_tools.automator.schemas.schema_ui import (
-    CoordArg,
-    DurationArg,
     EdgeArg,
     IgnoreCaseArg,
     InputTextArg,
@@ -15,10 +13,12 @@ from backend.mcp_tools.automator.schemas.schema_ui import (
     LocatorValueArg,
     MatchModeArg,
     MaxSwipesArg,
+    OptionalLocatorByArg,
+    OptionalLocatorValueArg,
+    ReplaceTextArg,
+    ScrollBeforeClickArg,
     ScrollDirectionArg,
-    ShouldClickArg,
     TimeoutArg,
-    WaitStateArg,
     WidgetViewArg
 )
 from backend.mcp_tools.shared import SerialArg
@@ -30,35 +30,6 @@ from backend.utilities.runtime import (
 
 
 def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
-
-    @mcp.tool(
-        description=(
-            "在给定坐标附近执行一次滚动手势。"
-            " `direction` 表示内容移动方向，不是手指滑动方向；工具内部会自动换算轨迹。"
-            " 是否真的发生滚动取决于当前位置是否存在可滚动容器。"
-        ),
-        meta={"hidden": False, "domain": "device", "class": "ui"}
-    )
-    @task_middleware("scroll")
-    async def scroll(
-        direction: ScrollDirectionArg,
-        x: CoordArg,
-        y: CoordArg,
-        duration: DurationArg = 300,
-        serial: SerialArg = None
-    ) -> CallToolResult:
-
-        args = {
-            "direction" : direction,
-            "x"         : x,
-            "y"         : y,
-            "duration"  : duration
-        }
-
-        device = await manage.resolve_fresh(serial)
-        raw = await device.scroll(**args)
-
-        return build_tool_result(tool="scroll", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(
@@ -91,7 +62,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
     @mcp.tool(
         description=(
             "持续滚动当前页面，直到目标元素出现在视口内，或达到超时和滑动上限。"
-            " 命中后会返回节点摘要；`should_click` 为 true 时会继续点击该节点中心点。"
+            " 命中后会返回节点摘要，不会点击目标；需要点击时请使用 `click` 并开启 `scroll`。"
             " `match` 和 `ignore_case` 仅对字符串类定位生效，`bbox` 走坐标匹配。"
         ),
         meta={"hidden": False, "domain": "device", "class": "ui"}
@@ -105,7 +76,6 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
         direction: ScrollDirectionArg = "down",
         timeout: TimeoutArg = 12.0,
         max_swipes: MaxSwipesArg = 12,
-        should_click: ShouldClickArg = False,
         serial: SerialArg = None
     ) -> CallToolResult:
 
@@ -116,8 +86,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
             "ignore_case"  : ignore_case,
             "direction"    : direction,
             "timeout"      : timeout,
-            "max_swipes"   : max_swipes,
-            "should_click" : should_click
+            "max_swipes"   : max_swipes
         }
 
         device = await manage.resolve_fresh(serial)
@@ -127,8 +96,8 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "在当前页面查找第一个匹配节点，并点击其中心点。"
-            " 该工具只查找当前可见层级，不会自动滚动页面。"
+            "等待目标节点出现在当前页面，并点击其中心点。"
+            " `scroll` 为 true 时，当前页面等待未命中后会继续滚动查找并点击。"
             " `match` 和 `ignore_case` 仅对字符串类定位生效，`bbox` 走坐标匹配。"
         ),
         meta={"hidden": False, "domain": "device", "class": "ui"}
@@ -139,6 +108,10 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
         value: LocatorValueArg,
         match: MatchModeArg = "eq",
         ignore_case: IgnoreCaseArg = False,
+        timeout: TimeoutArg = 3.0,
+        scroll: ScrollBeforeClickArg = False,
+        direction: ScrollDirectionArg = "down",
+        max_swipes: MaxSwipesArg = 12,
         serial: SerialArg = None
     ) -> CallToolResult:
 
@@ -146,7 +119,11 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
             "by"          : by,
             "value"       : value,
             "match"       : match,
-            "ignore_case" : ignore_case
+            "ignore_case" : ignore_case,
+            "timeout"     : timeout,
+            "scroll"      : scroll,
+            "direction"   : direction,
+            "max_swipes"  : max_swipes
         }
 
         device = await manage.resolve_fresh(serial)
@@ -156,8 +133,9 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "向当前已有焦点的输入框注入文本。"
-            " 该工具不会主动选中输入框，调用前应先把焦点放到目标控件。"
+            "向输入框注入文本。"
+            " 传入定位参数时会先等待并点击目标控件；不传定位参数时使用当前输入焦点。"
+            " `replace` 为 true 时会在输入前清空当前输入焦点内容。"
             " 依赖 AdbIME 可用，输入法未安装、未启用或系统限制时会失败。"
         ),
         meta={"hidden": False, "domain": "device", "class": "ui"}
@@ -165,11 +143,23 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
     @task_middleware("input_text")
     async def input_text(
         text: InputTextArg,
+        by: OptionalLocatorByArg = None,
+        value: OptionalLocatorValueArg = None,
+        match: MatchModeArg = "eq",
+        ignore_case: IgnoreCaseArg = False,
+        timeout: TimeoutArg = 3.0,
+        replace: ReplaceTextArg = False,
         serial: SerialArg = None
     ) -> CallToolResult:
 
         args = {
-            "text" : text
+            "text"        : text,
+            "by"          : by,
+            "value"       : value,
+            "match"       : match,
+            "ignore_case" : ignore_case,
+            "timeout"     : timeout,
+            "replace"     : replace
         }
 
         device = await manage.resolve_fresh(serial)
@@ -233,68 +223,6 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, _: AppContext) -> None:
         raw = await device.current_widgets(**args)
 
         return build_tool_result(tool="current_widgets", args=args, raw=raw, target=device.serial)
-
-    @mcp.tool(
-        description=(
-            "在当前页面中查找第一个匹配控件，并返回该控件的摘要信息。"
-            " 该工具只基于当前一次层级快照查找，不会自动滚动页面。"
-            " `xpath` 当前不作为稳定能力使用，优先使用 `id`、`desc`、`text` 或 `bbox`。"
-        ),
-        meta={"hidden": False, "domain": "device", "class": "ui"}
-    )
-    @task_middleware("find_element")
-    async def find_element(
-        by: LocatorByArg,
-        value: LocatorValueArg,
-        match: MatchModeArg = "eq",
-        ignore_case: IgnoreCaseArg = False,
-        serial: SerialArg = None
-    ) -> CallToolResult:
-
-        args = {
-            "by"          : by,
-            "value"       : value,
-            "match"       : match,
-            "ignore_case" : ignore_case
-        }
-
-        device = await manage.resolve_fresh(serial)
-        raw = await device.find_element(**args)
-
-        return build_tool_result(tool="find_element", args=args, raw=raw, target=device.serial)
-
-    @mcp.tool(
-        description=(
-            "按固定轮询间隔等待元素出现或消失。"
-            " `state` 用来指定等待目标是 `exists` 还是 `gone`。"
-            " 超时后仍未满足目标状态会返回超时结果，且不会自动滚动页面。"
-        ),
-        meta={"hidden": False, "domain": "device", "class": "ui"}
-    )
-    @task_middleware("wait_element")
-    async def wait_element(
-        by: LocatorByArg,
-        value: LocatorValueArg,
-        match: MatchModeArg = "eq",
-        ignore_case: IgnoreCaseArg = False,
-        timeout: TimeoutArg = 10.0,
-        state: WaitStateArg = "exists",
-        serial: SerialArg = None
-    ) -> CallToolResult:
-
-        args = {
-            "by"          : by,
-            "value"       : value,
-            "match"       : match,
-            "ignore_case" : ignore_case,
-            "timeout"     : timeout,
-            "state"       : state
-        }
-
-        device = await manage.resolve_fresh(serial)
-        raw = await device.wait_element(**args)
-
-        return build_tool_result(tool="wait_element", args=args, raw=raw, target=device.serial)
 
     @mcp.tool(
         description=(

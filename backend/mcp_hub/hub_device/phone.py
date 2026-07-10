@@ -267,18 +267,6 @@ class Phone(object):
 
         return await Flux.cmd_line(cmd)
 
-    async def set_service(
-        self,
-        service: typing.Literal["bluetooth", "wifi", "data"],
-        enabled: bool
-    ) -> str | None:
-        """设置系统服务开关状态。"""
-        status: typing.Literal["enable", "disable"] = "enable" if enabled else "disable"
-        cmd = self.prefix + [
-            "shell", "svc", service, status
-        ]
-        return await Flux.cmd_line(cmd)
-
     async def tap(self, x: int, y: int) -> str | None:
         """点击指定坐标。"""
         cmd = self.prefix + [
@@ -329,32 +317,6 @@ class Phone(object):
             "shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url
         ]
         return await Flux.cmd_line_shell(" ".join(cmd))
-
-    async def app_install(
-        self,
-        apk: str,
-        replace: bool = True,
-        downgrade: bool = False,
-        test: bool = False
-    ) -> str | None:
-        """执行 APK 安装命令。"""
-        cmd = self.prefix + ["install"]
-        if replace:
-            cmd.append("-r")
-        if downgrade:
-            cmd.append("-d")
-        if test:
-            cmd.append("-t")
-        cmd.append(apk)
-        return await Flux.cmd_line(cmd)
-
-    async def app_uninstall(self, package: str, keep_data: bool = False) -> str | None:
-        """执行应用卸载命令。"""
-        cmd = self.prefix + ["shell", "pm", "uninstall"]
-        if keep_data:
-            cmd.append("-k")
-        cmd.append(package)
-        return await Flux.cmd_line(cmd)
 
     async def app_clear(self, package: str) -> str | None:
         """执行应用数据清理命令。"""
@@ -444,23 +406,6 @@ class Phone(object):
         """打开快捷设置。"""
         cmd = self.prefix + [
             "shell", "cmd", "statusbar", "expand-settings"
-        ]
-        return await Flux.cmd_line(cmd)
-
-    async def combo_key(self, first: int, others: list[int]) -> str | None:
-        """执行组合按键。"""
-        commands = [
-            f"input keyevent {other}" for other in others
-        ]
-        shell_cmd = " ".join(
-            self.prefix + ["shell", "input", "keyevent"]
-        ) + f" --longpress {first} & sleep 0.03; " + "; ".join(commands)
-        return await Flux.cmd_line_shell(shell_cmd)
-
-    async def ime_reset(self) -> str | None:
-        """重置输入法。"""
-        cmd = self.prefix + [
-            "shell", "ime", "reset"
         ]
         return await Flux.cmd_line(cmd)
 

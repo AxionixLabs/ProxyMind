@@ -8,7 +8,6 @@ import typing
 import asyncio
 from loguru import logger
 from backend.mcp_hub.hub_device import Device
-from backend.models.model_device import SemanticResult
 from backend.utilities.process import Flux
 
 
@@ -87,22 +86,6 @@ class DeviceManage(object):
 
         async with self.lock:
             return await self.connect()
-
-    async def refresh_summary(self, ttl_sec: float = 1.0) -> dict[str, typing.Any]:
-        device_list = await self.refresh(ttl_sec)
-        preview = [(await device.device_snapshot()).get("text", "") for device in device_list]
-        serials = [device.serial for device in device_list]
-
-        return SemanticResult.from_text(
-            f"refresh ok: devices={len(serials)}\n" + "\n".join(preview),
-            ok=True,
-            data={
-                "reason"  : None,
-                "ttl_sec" : ttl_sec,
-                "count"   : len(serials),
-                "serials" : serials
-            }
-        ).to_dict()
 
 
 class Requires(object):

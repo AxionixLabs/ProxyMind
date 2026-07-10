@@ -55,7 +55,8 @@ class Combo(object):
         stable_hits: int
     ) -> tuple[bool, dict[str, typing.Any], int]:
         """等待指定应用稳定进入前台。"""
-        hit = 0
+        hit: int = 0
+
         last_focus: dict[str, typing.Any] = {
             "package": None, "activity": None, "raw": ""
         }
@@ -64,6 +65,7 @@ class Combo(object):
         while time.time() < deadline:
             focus = await self.phone.focus_info()
             current_package = focus.get("package")
+
             last_focus = {
                 "package"  : current_package,
                 "activity" : focus.get("activity"),
@@ -104,6 +106,7 @@ class Combo(object):
             ).to_dict()
 
         await self.phone.app_start(package, activity)
+
         ok1, focus1, _ = await self.wait_foreground(package, 8.0, poll, 2)
         if ok1:
             result = {
@@ -119,6 +122,7 @@ class Combo(object):
 
         await self.phone.app_stop(package)
         await self.phone.app_start(package, activity)
+
         ok2, focus2, _ = await self.wait_foreground(package, 5.0, poll, 2)
         if ok2:
             result = {
@@ -201,43 +205,30 @@ class Combo(object):
             data={}
         ).to_dict()
 
-    async def wait_element(
+    async def locate_element(
         self,
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
         value: str | list,
         match: typing.Literal["eq", "contains", "regex"] = "eq",
         ignore_case: bool = False,
-        timeout: float = 10.0,
-        state: typing.Literal["exists", "gone"] = "exists"
-    ) -> dict[str, typing.Any]:
-        """等待节点出现或消失。"""
-        want_exists = (state == "exists")
-        deadline    = time.monotonic() + float(timeout)
+        timeout: float = 0.0
+    ) -> ActionResult:
+        """在当前页面定位目标节点，支持短轮询等待。"""
+        if by == "xpath":
+            return ActionResult.fail("xpath_not_supported", found=False, widget=None)
+
+        wait_s   = max(0.0, float(timeout or 0.0))
+        deadline = time.monotonic() + wait_s
 
         while True:
-            node  = await self.phone.find_ui_widget(by, value, match, ignore_case)
-            found = bool(node)
-            if found == want_exists:
-                result = {
-                    "found"  : found,
-                    "node"   : node.to_node() if node else None
-                }
-                return SemanticResult(
-                    ok=True,
-                    text="等待节点成功（已出现）。" if state == "exists" else "等待节点成功（已消失）。",
-                    data=result
-                ).to_dict()
+            if widget := await self.phone.find_ui_widget(by, value, match, ignore_case):
+                return ActionResult.success(found=True, widget=widget)
+
+            if wait_s <= 0.0:
+                return ActionResult.fail("not_found", found=False, widget=None)
 
             if time.monotonic() >= deadline:
-                result = {
-                    "found"  : found,
-                    "node"   : None
-                }
-                return SemanticResult(
-                    ok=False,
-                    text="等待节点超时（未出现）。" if state == "exists" else "等待节点超时（未消失）。",
-                    data=result
-                ).to_dict()
+                return ActionResult.fail("timeout", found=False, widget=None)
 
             await asyncio.sleep(0.25)
 
@@ -307,7 +298,7 @@ class Combo(object):
                         prev_ok = False
                     else:
                         cur_path = cur_saved
-                        sim = float(similarity(prev_path, cur_path))
+                        sim      = float(similarity(prev_path, cur_path))
                         last_sim = sim
 
                         stable_hits = stable_hits + 1 if sim >= float(similarity_threshold) else 0
@@ -331,8 +322,7 @@ class Combo(object):
         ignore_case: bool = False,
         direction: typing.Literal["down", "up", "left", "right"] = "down",
         timeout: float = 12.0,
-        max_swipes: int = 12,
-        should_click: bool = False
+        max_swipes: int = 12
     ) -> dict[str, typing.Any]:
         """将目标元素滚动到可见区域。"""
         action = await self.scroll_until(
@@ -350,19 +340,6 @@ class Combo(object):
             "swipes" : action.get("swipes", 0),
             "node"   : node.to_node() if node else None
         }
-
-        if action.ok and should_click and node:
-            center = getattr(node, "center", None)
-            if center and isinstance(center, (list, tuple)) and len(center) == 2:
-                await self.phone.tap(int(center[0]), int(center[1]))
-                data["clicked"] = True
-            else:
-                data["clicked"] = False
-                return SemanticResult(
-                    ok=False,
-                    text="已找到目标元素，但缺少可点击坐标。",
-                    data=data
-                ).to_dict()
 
         if not action.ok:
             if action.reason == "xpath_not_supported":
@@ -385,14 +362,9 @@ class Combo(object):
                 data=data
             ).to_dict()
 
-        if should_click:
-            text = "已找到目标元素并完成点击。"
-        else:
-            text = "已找到目标元素。"
-
         return SemanticResult(
             ok=True,
-            text=text,
+            text="已找到目标元素。",
             data=data
         ).to_dict()
 

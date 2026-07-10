@@ -23,7 +23,6 @@ def register_automator_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx
     from backend.mcp_tools.automator import ctl_monkey
     from backend.mcp_tools.automator import ctl_system
     from backend.mcp_tools.automator import ctl_ui
-    from backend.mcp_tools.automator import ctl_zest
 
     ctl_app.bind(mcp, manage, ctx)
     ctl_file.bind(mcp, manage, ctx)
@@ -32,7 +31,6 @@ def register_automator_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx
     ctl_monkey.bind(mcp, manage, idle, ctx)
     ctl_system.bind(mcp, manage, ctx)
     ctl_ui.bind(mcp, manage, idle, ctx)
-    ctl_zest.bind(mcp, manage, ctx)
 
 
 def register_bench_tools(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:

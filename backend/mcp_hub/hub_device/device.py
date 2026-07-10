@@ -34,10 +34,6 @@ class Device(object):
     def device_props(self) -> dict[str, typing.Any]:
         return self.phone.device_props
 
-    @staticmethod
-    def _sh_quote_single(text: str) -> str:
-        return "'" + str(text or "").replace("'", r"'\''") + "'"
-
     def __str__(self):
         """返回调试展示文本。"""
         props = self.device_props
@@ -167,16 +163,6 @@ class Device(object):
         return SemanticResult(
             ok=True,
             text="深度链接已执行。",
-            data={"raw": raw}
-        ).to_dict()
-
-    # workflow: ==== App Control MCP Tool ====
-    async def app_start(self, package: str, activity: typing.Optional[str] = None) -> typing.Any:
-        """启动指定应用。"""
-        raw = await self.phone.app_start(package, activity)
-        return SemanticResult(
-            ok=True,
-            text="应用启动命令已执行。",
             data={"raw": raw}
         ).to_dict()
 
@@ -416,30 +402,6 @@ class Device(object):
         return await self.combo.swipe_unlock()
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def scroll(
-        self,
-        direction: typing.Literal["up", "down", "left", "right"],
-        x: int,
-        y: int,
-        duration: int = 300
-    ) -> dict[str, typing.Any]:
-        """按方向滚动。"""
-        raw = await self.phone.scroll_by_direction(direction, x, y, duration)
-
-        text_map = {
-            "up"    : "向上滚动已执行。",
-            "down"  : "向下滚动已执行。",
-            "left"  : "向左滚动已执行。",
-            "right" : "向右滚动已执行。"
-        }
-
-        return SemanticResult(
-            ok=True,
-            text=text_map[direction],
-            data={"raw": raw}
-        ).to_dict()
-
-    # workflow: ==== UI Interaction MCP Tool ====
     async def scroll_into_view(
         self,
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
@@ -449,11 +411,10 @@ class Device(object):
         direction: typing.Literal["down", "up", "left", "right"] = "down",
         timeout: float = 12.0,
         max_swipes: int = 12,
-        should_click: bool = False
     ) -> dict[str, typing.Any]:
         """将目标元素滚动到可见区域。"""
         return await self.combo.scroll_into_view(
-            by, value, match, ignore_case, direction, timeout, max_swipes, should_click
+            by, value, match, ignore_case, direction, timeout, max_swipes
         )
 
     # workflow: ==== UI Interaction MCP Tool ====
@@ -462,21 +423,56 @@ class Device(object):
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
         value: str | list,
         match: typing.Literal["eq", "contains", "regex"] = "eq",
-        ignore_case: bool = False
+        ignore_case: bool = False,
+        timeout: float = 3.0,
+        scroll: bool = False,
+        direction: typing.Literal["down", "up", "left", "right"] = "down",
+        max_swipes: int = 12
     ) -> dict[str, typing.Any]:
         """点击匹配到的目标元素。"""
-        if not (widget := await self.phone.find_ui_widget(by, value, match, ignore_case)):
+        located = await self.combo.locate_element(by, value, match, ignore_case, timeout)
+        if not located.ok and scroll:
+            action = await self.combo.scroll_until(
+                by=by,
+                value=value,
+                match=match,
+                ignore_case=ignore_case,
+                direction=direction,
+                timeout=max(12.0, float(timeout or 0.0)),
+                max_swipes=max_swipes
+            )
+            if not action.ok:
+                return SemanticResult(
+                    ok=False,
+                    text="滚动查找后仍未找到可点击的节点。",
+                    data={
+                        "node"    : None,
+                        "clicked" : False,
+                        "reason"  : action.reason,
+                        "swipes"  : action.get("swipes", 0)
+                    }
+                ).to_dict()
+            located = action
+
+        if not located.ok:
+            message = (
+                "by=xpath 暂不支持（Android uiautomator dump 非标准 XPath）。"
+                if located.reason == "xpath_not_supported"
+                else "未找到可点击的节点。"
+            )
             return SemanticResult(
                 ok=False,
-                text="未找到可点击的节点。",
-                data={"node": None, "clicked": False}
+                text=message,
+                data={"node": None, "clicked": False, "reason": located.reason}
             ).to_dict()
 
-        if not widget.center:
+        widget = located.get("widget")
+
+        if not widget or not widget.center:
             return SemanticResult(
                 ok=False,
                 text="找到节点但缺少可点击坐标（center）。",
-                data={"node": widget.to_node(), "clicked": False}
+                data={"node": widget.to_node() if widget else None, "clicked": False}
             ).to_dict()
 
         raw = await self.phone.tap(*widget.center)
@@ -503,18 +499,74 @@ class Device(object):
         return await self.combo.screenshot(local)
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def input_text(self, text: str) -> typing.Any:
+    async def input_text(
+        self,
+        text: str,
+        by: typing.Literal["id", "desc", "text", "bbox", "xpath"] | None = None,
+        value: str | list | None = None,
+        match: typing.Literal["eq", "contains", "regex"] = "eq",
+        ignore_case: bool = False,
+        timeout: float = 3.0,
+        replace: bool = False
+    ) -> typing.Any:
         """向当前焦点输入文本。"""
+        node: dict[str, typing.Any] | None = None
+        tap_raw: typing.Any = None
+
+        if (by is None) != (value is None):
+            return SemanticResult(
+                ok=False,
+                text="输入目标定位参数不完整。",
+                data={"node": None, "input": False}
+            ).to_dict()
+
+        if by is not None:
+            located = await self.combo.locate_element(by, value, match, ignore_case, timeout)
+            if not located.ok:
+                message = (
+                    "by=xpath 暂不支持（Android uiautomator dump 非标准 XPath）。"
+                    if located.reason == "xpath_not_supported"
+                    else "未找到输入目标控件。"
+                )
+                return SemanticResult(
+                    ok=False,
+                    text=message,
+                    data={"node": None, "input": False, "reason": located.reason}
+                ).to_dict()
+
+            widget = located.get("widget")
+            if not widget or not widget.center:
+                return SemanticResult(
+                    ok=False,
+                    text="找到输入目标但缺少可点击坐标（center）。",
+                    data={"node": widget.to_node() if widget else None, "input": False}
+                ).to_dict()
+
+            tap_raw = await self.phone.tap(*widget.center)
+            node = widget.to_node()
+
         ime = await self.combo.ensure_ime()
 
         if not ime.get("ok"):
             return ime
 
+        clear_raw = None
+        if replace:
+            clear_raw = await self.phone.clear_text()
+
         raw = await self.phone.input_text("" if text is None else str(text))
         return SemanticResult(
             ok=True,
             text="文本输入已执行。",
-            data={"raw": raw}
+            data={
+                "raw"       : raw,
+                "tap_raw"   : tap_raw,
+                "clear_raw" : clear_raw,
+                "node"      : node,
+                "focused"   : node is not None,
+                "replaced"  : bool(replace),
+                "input"     : True
+            }
         ).to_dict()
 
     # workflow: ==== UI Interaction MCP Tool ====
@@ -596,37 +648,6 @@ class Device(object):
         ).to_dict()
 
     # workflow: ==== UI Interaction MCP Tool ====
-    async def find_element(
-        self,
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
-        value: str | list,
-        match: typing.Literal["eq", "contains", "regex"] = "eq",
-        ignore_case: bool = False
-    ) -> dict[str, typing.Any]:
-        """查找当前页面中的目标控件。"""
-        if by == "xpath":
-            return SemanticResult(
-                ok=False,
-                text="by=xpath 暂不支持（Android uiautomator dump 非标准 XPath）。",
-                data={"node": None}
-            ).to_dict()
-
-        if found_node := await self.phone.find_ui_widget(by, value, match, ignore_case):
-            return SemanticResult(
-                ok=True,
-                text="已找到目标控件。",
-                data={
-                    "node"   : found_node.to_node()
-                }
-            ).to_dict()
-
-        return SemanticResult(
-            ok=False,
-            text="未找到目标控件。",
-            data={"node": None}
-        ).to_dict()
-
-    # workflow: ==== UI Interaction MCP Tool ====
     async def heal_element(self, locator: str, *_, **__) -> dict[str, typing.Any]:
         """执行元素自愈流程。"""
         page_id, page_dump, wm = await asyncio.gather(
@@ -656,18 +677,6 @@ class Device(object):
             text="元素定位诊断。",
             data=payload
         ).to_dict()
-
-    # workflow: ==== UI Interaction MCP Tool ====
-    async def wait_element(
-        self,
-        by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
-        value: str | list,
-        match: typing.Literal["eq", "contains", "regex"] = "eq",
-        ignore_case: bool = False,
-        timeout: float = 10.0,
-        state: typing.Literal["exists", "gone"] = "exists"
-    ) -> dict[str, typing.Any]:
-        return await self.combo.wait_element(by, value, match, ignore_case, timeout, state=state)
 
     # workflow: ==== UI Interaction MCP Tool ====
     async def scroll_to_edge(self, edge: typing.Literal["top", "bottom"]) -> dict[str, typing.Any]:

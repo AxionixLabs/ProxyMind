@@ -39,8 +39,6 @@ from .schema_system import (
     WaitTimeoutArg
 )
 from .schema_ui import (
-    CoordArg,
-    DurationArg,
     EdgeArg,
     IgnoreCaseArg,
     InputTextArg,
@@ -49,13 +47,14 @@ from .schema_ui import (
     LocatorValueArg,
     MatchModeArg,
     MaxSwipesArg,
+    OptionalLocatorByArg,
+    OptionalLocatorValueArg,
+    ReplaceTextArg,
+    ScrollBeforeClickArg,
     ScrollDirectionArg,
-    ShouldClickArg,
     TimeoutArg,
-    WaitStateArg,
     WidgetViewArg
 )
-from .schema_zest import RefreshTtlArg
 
 
 if __name__ == '__main__':
