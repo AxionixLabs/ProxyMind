@@ -816,26 +816,29 @@ class StatusRenderer(StatusSpec):
         idle_sec     = max(0.1, sweep_period_sec - converge_sec - linger_sec - release_sec)
 
         if cycle_sec < converge_sec:
-            stage = "converge"
+            stage          = "converge"
             stage_progress = cycle_sec / converge_sec
-            motion = 0.5 * cls._smoothstep(stage_progress)
+            motion         = 0.5 * cls._smoothstep(stage_progress)
+
         elif cycle_sec < converge_sec + linger_sec:
             stage = "linger"
             stage_progress = (cycle_sec - converge_sec) / linger_sec
             breath = math.sin(stage_progress * math.tau * 1.15)
             motion = 0.5 + (0.045 * breath)
+
         elif cycle_sec < converge_sec + linger_sec + release_sec:
             stage = "release"
             stage_progress = (
                 (cycle_sec - converge_sec - linger_sec) / release_sec
             )
             motion = 0.5 + (0.5 * cls._smoothstep(stage_progress))
+
         else:
             stage = "idle"
             stage_progress = (
                 (cycle_sec - converge_sec - linger_sec - release_sec) / idle_sec
             )
-            drift = 0.012 * math.sin(stage_progress * math.tau)
+            drift  = 0.012 * math.sin(stage_progress * math.tau)
             motion = 0.988 + drift
 
         return {
@@ -856,22 +859,22 @@ class StatusRenderer(StatusSpec):
             "core"      : "bold #EDE2CE",
             "pulse"     : "bold #DCC8AB",
             "dust"      : "bold #857866",
-            "text_peak" : "bold #E6D7BF",
-            "text_soft" : "bold #DFD0B8",
-            "text_near" : "bold #D7C7AF",
-            "text_mid"  : "bold #C5B094",
-            "text_fade" : "bold #AB967F",
-            "text_dim"  : "bold #8C7B6A"
+            "text_peak" : "bold #FFF4D8",
+            "text_soft" : "bold #F6DCA8",
+            "text_near" : "bold #D8B77F",
+            "text_mid"  : "bold #A48662",
+            "text_fade" : "bold #755F4E",
+            "text_dim"  : "bold #5A4B42"
         }
 
         text = cls.fit_status_text(text, kind="tool", fallback="function calling")
         span = max(1, len(text))
 
-        sweep = cls._sway_focus(
+        focus = cls._drift_focus(
             phase,
             span,
-            speed=spec.scan_speed,
-            pad=spec.scan_pad
+            entry_pad=spec.entry_pad,
+            exit_pad=spec.exit_pad
         )
 
         out = cls._tool_status_indicator(
@@ -880,22 +883,19 @@ class StatusRenderer(StatusSpec):
             frame_rate=0.12
         )
         out.append(cls.status_content_gap(), style=colors["edge"])
-        cls._append_sweep_text(
+
+        cls._append_forward_sweep_text(
             out,
             text,
-            focus=sweep,
+            focus=focus,
             peak_style=colors["text_peak"],
             soft_style=colors["text_soft"],
             near_style=colors["text_near"],
             mid_style=colors["text_mid"],
             fade_style=colors["text_fade"],
             dim_style=colors["text_dim"],
-            lead_span=spec.lead_span,
             tail_span=spec.tail_span,
-            peak_radius=spec.peak_radius,
-            soft_ratio=0.22,
-            near_ratio=spec.near_ratio,
-            mid_ratio=spec.mid_ratio
+            peak_radius=spec.peak_radius
         )
         return out
 
@@ -967,12 +967,14 @@ class StatusRenderer(StatusSpec):
 
         text = cls.fit_status_text(text, kind="mode", fallback="Mind Stream")
         span = max(1, len(text))
+
         focus = cls._drift_focus(
             phase,
             span,
             entry_pad=spec.entry_pad,
             exit_pad=spec.exit_pad
         )
+
         cls._append_forward_sweep_text(
             out,
             text,
@@ -1244,13 +1246,16 @@ class StatusRenderer(StatusSpec):
         out.append(cls.status_content_gap(), style=colors["edge"])
 
         span = max(1, len(text.rstrip()) or len(text))
+
         head = (
             (phase * spec.head_speed) % max(1.0, float((span * 2) + spec.cycle_padding))
         ) + spec.head_offset
+
         if head < float(span - 1):
             tail = spec.tail_reset
         else:
             tail = head - max(0.0, float(span - 1))
+
         cls._append_progressive_text(
             out,
             text,
@@ -1288,15 +1293,17 @@ class StatusRenderer(StatusSpec):
             pulse_freq=0.84,
             frame_rate=0.38
         )
-        text = cls.fit_status_text(text, kind="heal", fallback="restoring signal")
-        span = max(1, len(text))
-        travel = max(1.0, float(span - 1) + (spec.scan_pad * 2.0))
-        progress = 0.5 - (0.5 * math.cos(phase * spec.scan_speed))
+
+        text          = cls.fit_status_text(text, kind="heal", fallback="restoring signal")
+        span          = max(1, len(text))
+        travel        = max(1.0, float(span - 1) + (spec.scan_pad * 2.0))
+        progress      = 0.5 - (0.5 * math.cos(phase * spec.scan_speed))
         lock_progress = cls._smoothstep(progress)
-        focus = (lock_progress * travel) - spec.scan_pad
-        mirror_focus = max(0.0, float(span - 1) - focus)
+        focus         = (lock_progress * travel) - spec.scan_pad
+        mirror_focus  = max(0.0, float(span - 1) - focus)
 
         out.append(cls.status_content_gap(), style=colors["edge"])
+
         cls._append_repair_text(
             out,
             text,

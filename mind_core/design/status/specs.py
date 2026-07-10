@@ -3,12 +3,13 @@
 
 import typing
 from .types import (
-    ProgressiveStatusSpec, SweepStatusSpec
+    ProgressiveStatusSpec,
+    SweepStatusSpec
 )
 
 TOOL_STATUS_SPEC = SweepStatusSpec(
-    refresh_per_second=40,
-    phase_rate=14.4,
+    refresh_per_second=28,
+    phase_rate=15.8,
     text_limit=48,
     shell_freq=0.52,
     lead_span=3.1,
@@ -16,9 +17,12 @@ TOOL_STATUS_SPEC = SweepStatusSpec(
     peak_radius=0.74,
     near_ratio=0.56,
     mid_ratio=0.90,
-    scan_speed=0.2,
-    scan_pad=2.6
+    scan_speed=0.24,
+    scan_pad=2.6,
+    entry_pad=1.2,
+    exit_pad=8.2
 )
+
 CODE_STATUS_SPEC = SweepStatusSpec(
     refresh_per_second=28,
     phase_rate=11.2,
@@ -35,6 +39,7 @@ CODE_STATUS_SPEC = SweepStatusSpec(
     entry_pad=1.2,
     exit_pad=3.8
 )
+
 MODE_STATUS_SPEC = SweepStatusSpec(
     refresh_per_second=30,
     phase_rate=13.6,
@@ -50,6 +55,7 @@ MODE_STATUS_SPEC = SweepStatusSpec(
     entry_pad=1.0,
     exit_pad=3.0
 )
+
 BUILTIN_STATUS_SPEC = SweepStatusSpec(
     refresh_per_second=40,
     phase_rate=15.8,
@@ -66,6 +72,7 @@ BUILTIN_STATUS_SPEC = SweepStatusSpec(
     entry_pad=6.0,
     exit_pad=8.4
 )
+
 HEAL_STATUS_SPEC = SweepStatusSpec(
     refresh_per_second=34,
     phase_rate=16.8,
@@ -79,6 +86,7 @@ HEAL_STATUS_SPEC = SweepStatusSpec(
     scan_speed=0.28,
     scan_pad=2.2
 )
+
 LOOP_STATUS_SPEC = SweepStatusSpec(
     refresh_per_second=30,
     phase_rate=14.6,
@@ -92,6 +100,7 @@ LOOP_STATUS_SPEC = SweepStatusSpec(
     scan_speed=0.15,
     scan_pad=1.8
 )
+
 WAIT_STATUS_SPEC = ProgressiveStatusSpec(
     refresh_per_second=24,
     phase_rate=15.6,
@@ -104,6 +113,7 @@ WAIT_STATUS_SPEC = ProgressiveStatusSpec(
     lead_glow=0.36,
     tail_glow=1.0
 )
+
 STATUS_SPECS: dict[str, SweepStatusSpec | ProgressiveStatusSpec] = {
     "tool"    : TOOL_STATUS_SPEC,
     "code"    : CODE_STATUS_SPEC,
@@ -139,6 +149,10 @@ class StatusSpec(object):
 
     console: typing.Any | None = None
 
+    @staticmethod
+    def status_text_floor(kind: str) -> int:
+        return STATUS_TEXT_FLOOR.get(kind, STATUS_TEXT_FLOOR["builtin"])
+
     @classmethod
     def status_spec(cls, kind: str) -> SweepStatusSpec | ProgressiveStatusSpec:
         return STATUS_SPECS.get(kind, BUILTIN_STATUS_SPEC)
@@ -149,14 +163,11 @@ class StatusSpec(object):
         if cls.console is not None:
             console_width = max(24, int(cls.console.width))
 
-        spec = cls.status_spec(kind)
-        chrome_width = STATUS_TEXT_CHROME_WIDTH.get(kind, STATUS_TEXT_CHROME_WIDTH["builtin"])
+        spec          = cls.status_spec(kind)
+        chrome_width  = STATUS_TEXT_CHROME_WIDTH.get(kind, STATUS_TEXT_CHROME_WIDTH["builtin"])
         visible_limit = max(12, console_width - chrome_width)
-        return min(spec.text_limit, visible_limit)
 
-    @staticmethod
-    def status_text_floor(kind: str) -> int:
-        return STATUS_TEXT_FLOOR.get(kind, STATUS_TEXT_FLOOR["builtin"])
+        return min(spec.text_limit, visible_limit)
 
     @classmethod
     def status_refresh_per_second(cls, kind: str) -> int:
