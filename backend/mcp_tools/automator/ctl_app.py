@@ -44,6 +44,31 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
 
     @mcp.tool(
         description=(
+            "尝试把目标应用带到前台，并返回是否成功进入前台。"
+            " 该工具会先检查当前前台，再执行启动并等待前台稳定命中。"
+            " 首次拉起失败时会执行一次 force-stop 后重试，因此它适合前台验收场景。"
+        ),
+        meta={"hidden": False, "domain": "device", "class": "app"}
+    )
+    @task_middleware("app_foreground")
+    async def app_foreground(
+        package: PackageArg,
+        activity: ActivityArg = None,
+        serial: SerialArg = None
+    ) -> CallToolResult:
+
+        args = {
+            "package"  : package,
+            "activity" : activity
+        }
+
+        device = await manage.resolve_fresh(serial)
+        raw = await device.app_foreground(**args)
+
+        return build_tool_result(tool="app_foreground", args=args, raw=raw, target=device.serial)
+
+    @mcp.tool(
+        description=(
             "强制停止指定包名对应的应用进程。"
             " 该工具用于运行态归零，不会自动重启应用或校验最终前台状态。"
             " 适合在重启应用、清理残留状态或回归前清场时使用。"
@@ -87,31 +112,6 @@ def bind(mcp: FastMCP, manage: DeviceManage, _: AppContext) -> None:
         raw = await device.app_clear(**args)
 
         return build_tool_result(tool="app_clear", args=args, raw=raw, target=device.serial)
-
-    @mcp.tool(
-        description=(
-            "尝试把目标应用带到前台，并返回是否成功进入前台。"
-            " 该工具会先检查当前前台，再执行启动并等待前台稳定命中。"
-            " 首次拉起失败时会执行一次 force-stop 后重试，因此它适合前台验收场景。"
-        ),
-        meta={"hidden": False, "domain": "device", "class": "app"}
-    )
-    @task_middleware("app_foreground")
-    async def app_foreground(
-        package: PackageArg,
-        activity: ActivityArg = None,
-        serial: SerialArg = None
-    ) -> CallToolResult:
-
-        args = {
-            "package"  : package,
-            "activity" : activity
-        }
-
-        device = await manage.resolve_fresh(serial)
-        raw = await device.app_foreground(**args)
-
-        return build_tool_result(tool="app_foreground", args=args, raw=raw, target=device.serial)
 
 
 if __name__ == '__main__':

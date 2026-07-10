@@ -65,5 +65,6 @@ LocatorArg = typing.Annotated[
     Field(description="一条完整 locator 表达式，用于愈合诊断。")
 ]
 
+
 if __name__ == '__main__':
     pass
