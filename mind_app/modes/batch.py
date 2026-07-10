@@ -53,6 +53,17 @@ class PackRuntime:
     runner: typing.Callable[..., typing.Awaitable[None]]
 
 
+@dataclass(slots=True)
+class PackExecutionContext:
+    """批处理执行上下文：收敛源、配置、报告和运行态。"""
+    code_sources: list[CodeSourceResolved]
+    pref_config: dict[str, typing.Any]
+    metadata: dict[str, str]
+    report_url: str | None
+    event_report: EventReport
+    runtime: PackRuntime
+
+
 def _build_pack_config(cfg: dict[str, typing.Any]) -> PackConfig:
     """把 pack 配置字典标准化为结构化配置。"""
     try:
@@ -573,14 +584,44 @@ async def _run_pack_source(
         )
 
 
-async def mind_pack(
+async def _open_pack_report_url(
+    mode: RunMode,
+    metadata: dict[str, str]
+) -> str | None:
+    """打开批处理报告会话并返回可访问地址。"""
+    try:
+        report_data = await open_report_session(
+            mode,
+            metadata["cid"],
+            metadata["sid"],
+            proto=f"{const.APP_NAME}.batch"
+        )
+        report_url_raw = report_data.get("report_url")
+        report_url     = report_url_raw.strip() if isinstance(report_url_raw, str) else None
+        report_id      = str(report_data.get("report_id") or "").strip()
+
+        if not report_url:
+            logger.warning(
+                "[Batch] reports/open succeeded but report_url missing "
+                f"cid={metadata['cid']} sid={metadata['sid']} report_id={report_id or '-'}"
+            )
+        return report_url
+    except Exception as exc:
+        logger.warning(
+            "[Batch] reports/open failed "
+            f"cid={metadata['cid']} sid={metadata['sid']} "
+            f"error_type={type(exc).__name__} error={exc}"
+        )
+        return None
+
+
+async def _prepare_pack_context(
     mind: "Mind",
     code: list[typing.Any],
     mode: RunMode,
-    *_,
-    **kwargs
-) -> None:
-    """批处理入口：绑定会话、事件流和 pack 源执行流程。"""
+    kwargs: dict[str, typing.Any]
+) -> PackExecutionContext:
+    """准备批处理执行所需上下文。"""
     code_sources = await resolve_code_sources(code)
     pref_config  = await mind.fresh_pref_config(ttl_sec=0.0)
     runner       = resolve_mode_runner(mind, mode)
@@ -591,75 +632,104 @@ async def mind_pack(
 
     first_title = _first_pack_title(code_sources)
 
-    kwargs["metadata"] = meta = {
+    metadata = {
         **meta_in,
         **mind.begin_session(cid=cid, sid=sid, mode=mode, title=first_title, source="batch")
     }
+    kwargs["metadata"] = metadata
 
-    report_url: typing.Optional[str] = None
-    try:
-        report_data = await open_report_session(
-            mode,
-            meta["cid"],
-            meta["sid"],
-            proto=f"{const.APP_NAME}.batch"
-        )
-        report_url_raw = report_data.get("report_url")
-        report_url     = report_url_raw.strip() if isinstance(report_url_raw, str) else None
-        report_id      = str(report_data.get("report_id") or "").strip()
+    report_url = await _open_pack_report_url(mode, metadata)
 
-        if not report_url:
-            logger.warning(
-                "[Batch] reports/open succeeded but report_url missing "
-                f"cid={meta['cid']} sid={meta['sid']} report_id={report_id or '-'}"
-            )
-    except Exception as exc:
-        logger.warning(
-            "[Batch] reports/open failed "
-            f"cid={meta['cid']} sid={meta['sid']} "
-            f"error_type={type(exc).__name__} error={exc}"
-        )
+    event_report = EventReport(mode, metadata["cid"], metadata["sid"], proto=f"{const.APP_NAME}.batch")
 
-    event_report = EventReport(mode, meta["cid"], meta["sid"], proto=f"{const.APP_NAME}.batch")
     kwargs["ev_report"] = event_report
     await event_report.open()
+
     event_report.begin_turn(round_no=1)
 
-    runtime = PackRuntime(mode=mode, pref_config=pref_config, event_report=event_report, runner=runner)
+    runtime = PackRuntime(
+        mode=mode,
+        pref_config=pref_config,
+        event_report=event_report,
+        runner=runner
+    )
+    return PackExecutionContext(
+        code_sources=code_sources,
+        pref_config=pref_config,
+        metadata=metadata,
+        report_url=report_url,
+        event_report=event_report,
+        runtime=runtime
+    )
+
+
+async def _run_pack_sources(
+    mind: "Mind",
+    context: PackExecutionContext,
+    session: McpSessionLike,
+    tools: list[dict[str, typing.Any]],
+    kwargs: dict[str, typing.Any]
+) -> None:
+    """顺序执行批处理源。"""
+    for source in context.code_sources:
+        await _run_pack_source(
+            mind, context.runtime, source, session, tools, **kwargs
+        )
+
+
+async def _close_pack_report(
+    mind: "Mind",
+    event_report: EventReport
+) -> None:
+    """关闭批处理事件报告。"""
+    await mind.await_cleanup(event_report.flush())
+    await mind.await_cleanup(event_report.close())
+
+
+async def mind_pack(
+    mind: "Mind",
+    code: list[typing.Any],
+    mode: RunMode,
+    *_,
+    **kwargs
+) -> None:
+    """批处理入口：绑定会话、事件流和 pack 源执行流程。"""
+    context = await _prepare_pack_context(mind, code, mode, kwargs)
 
     def before_user_flow() -> None:
-        if report_url:
-            logger.info(f"🌐 Atlas: {report_url}")
+        if context.report_url:
+            logger.info(f"🌐 Atlas: {context.report_url}")
 
     async def function(
         session: McpSessionLike,
         tools: list[dict[str, typing.Any]],
     ) -> None:
         """在共享 MCP 会话中顺序执行多个 pack 文件。"""
-
-        for source in code_sources:
-            await _run_pack_source(
-                mind, runtime, source, session, tools, **kwargs
-            )
+        await _run_pack_sources(mind, context, session, tools, kwargs)
 
     try:
-        return await mind.with_mcp_session(pref_config, function, before_user_flow=before_user_flow)
+        return await mind.with_mcp_session(context.pref_config, function, before_user_flow=before_user_flow)
+
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
+
     except BaseException as exc:
         error = Pack.brief_err(exc)
+
         _emit_diagnostic(
-            event_report,
+            context.event_report,
             event_type="batch.failed",
             error=error
         )
+
         logger.error(f"❌ [Batch] failed: {error}\n")
         Design.console.print(render_failure_text("batch.failed", error))
         Design.console.print()
+
         return None
+
     finally:
-        await mind.await_cleanup(event_report.flush())
-        await mind.await_cleanup(event_report.close())
+        await _close_pack_report(mind, context.event_report)
 
 
 if __name__ == '__main__':

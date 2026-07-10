@@ -4,7 +4,6 @@
 import httpx
 import typing
 import asyncio
-import platform
 from loguru import logger
 from websockets.exceptions import (
     ConnectionClosed,
@@ -24,7 +23,6 @@ from .ui import (
     show_external_access_link
 )
 from .opening import (
-    build_device_id,
     normalize_open_payload,
     open_runtime,
     is_tls_certificate_error,
@@ -36,8 +34,7 @@ from .ws import (
     sleep_or_stop,
     connect_once
 )
-from mind_nova import const
-from mind_nova.services import service_endpoints
+from .forwarding import AgentForwardHandler
 
 if typing.TYPE_CHECKING:
     from ...mind_core import Mind
@@ -81,8 +78,9 @@ def get_disconnect_status_code(exc: BaseException) -> int | None:
     if not isinstance(exc, InvalidStatus):
         return None
 
-    response = getattr(exc, "response", None)
+    response    = getattr(exc, "response", None)
     status_code = getattr(response, "status_code", None)
+
     return status_code if isinstance(status_code, int) else None
 
 
@@ -99,385 +97,463 @@ def should_retry_ws_before_resume(runtime: AgentSessionRuntime, exc: BaseExcepti
     return True
 
 
-async def resume_or_reopen(
-    client: AgentClient,
-    runtime: AgentSessionRuntime,
-    config: AgentConfig,
-    live_status: AgentLiveStatus
-) -> AgentSessionRuntime:
-    """优先尝试 resume；如果服务端判定不可恢复，则重新打开新会话。"""
-    if not runtime.resume_token:
-        raise RuntimeError("resume_token missing")
+class AgentConnection(object):
+    """管理订阅会话打开、恢复和单次 WS 连接。"""
 
-    live_status.update(
-        "Attempting Resume", f"session={runtime.session_id}"
-    )
-    resume_resp = await client.resume_session(
-        session_id=runtime.session_id,
-        resume_token=runtime.resume_token,
-        last_acked_seq=runtime.last_acked_seq,
-        device_id=runtime.device_id,
-        agent_id=config.agent_id
-    )
+    def __init__(
+        self,
+        mind: "Mind",
+        client: AgentClient,
+        config: AgentConfig,
+        live_status: AgentLiveStatus,
+        forward_handler: AgentForwardHandler | None = None
+    ) -> None:
+        """保存连接控制所需依赖。"""
+        self.mind = mind
 
-    resume_data = client.unwrap_data(resume_resp)
-    resumable   = bool(resume_data.get("resumable"))
+        self.client          = client
+        self.config          = config
+        self.live_status     = live_status
+        self.forward_handler = forward_handler
 
-    logger.debug(
-        f"[Agent] resume status resumable={resumable} last_acked_seq={runtime.last_acked_seq}"
-    )
+    async def open_session_runtime(
+        self,
+        *,
+        previous: AgentSessionRuntime | None = None
+    ) -> AgentSessionRuntime:
+        """打开订阅会话，并复用本地去重与任务状态。"""
+        opened, device_id = await open_runtime(self.client, self.config)
 
-    if resumable:
         session_id, ws_token, ws_url, resume_token, credential, mind_call_example = normalize_open_payload(
-            client, resume_resp
+            self.client, opened
         )
-        live_status.update(
-            "Resume Succeeded", "Refreshing handshake and reusing session"
-        )
-        return AgentSessionRuntime(
+
+        runtime = AgentSessionRuntime(
             session_id=session_id,
             ws_token=ws_token,
             resume_token=resume_token,
-            credential=credential or runtime.credential,
-            mind_call_example=mind_call_example or runtime.mind_call_example,
+            credential=credential,
+            mind_call_example=mind_call_example,
             ws_url=ws_url,
-            device_id=runtime.device_id,
-            client_version=runtime.client_version,
+            device_id=device_id,
+            client_version=self.config.client_version,
+            forwarded_message_ids=None if previous is None else previous.forwarded_message_ids,
+            pending_tasks=None if previous is None else previous.pending_tasks
+        )
+        logger.debug(
+            f"[Agent] opened session_id={session_id} agent_id={self.config.agent_id} device_id={device_id}"
+        )
+        return runtime
+
+    async def resume_or_open(
+        self,
+        runtime: AgentSessionRuntime
+    ) -> AgentSessionRuntime:
+        """恢复订阅会话；不可恢复时再次打开订阅会话。"""
+        if not runtime.resume_token:
+            raise RuntimeError("resume_token missing")
+
+        self.live_status.update(
+            "Attempting Resume", f"session={runtime.session_id}"
+        )
+        resume_resp = await self.client.resume_session(
+            session_id=runtime.session_id,
+            resume_token=runtime.resume_token,
             last_acked_seq=runtime.last_acked_seq,
-            ready_received=runtime.ready_received,
-            pre_ready_connect_failures=runtime.pre_ready_connect_failures,
-            forwarded_message_ids=runtime.forwarded_message_ids,
-            pending_tasks=runtime.pending_tasks
+            device_id=runtime.device_id,
+            agent_id=self.config.agent_id
         )
 
-    live_status.update(
-        "Resume Expired", "Opening a fresh subscription session"
-    )
-
-    reopened = await open_new_runtime(client, config, previous=runtime)
-    logger.debug(
-        f"[Agent] reopened session_id={reopened.session_id} device_id={reopened.device_id}"
-    )
-    return reopened
-
-
-async def open_new_runtime(
-    client: AgentClient,
-    config: AgentConfig,
-    *,
-    previous: AgentSessionRuntime | None = None
-) -> AgentSessionRuntime:
-    """打开一个全新的订阅会话，并尽量复用本地去重与任务状态。"""
-    opened, device_id = await open_runtime(client, config)
-
-    session_id, ws_token, ws_url, resume_token, credential, mind_call_example = normalize_open_payload(client, opened)
-
-    runtime = AgentSessionRuntime(
-        session_id=session_id,
-        ws_token=ws_token,
-        resume_token=resume_token,
-        credential=credential,
-        mind_call_example=mind_call_example,
-        ws_url=ws_url,
-        device_id=device_id,
-        client_version=config.client_version,
-        forwarded_message_ids=None if previous is None else previous.forwarded_message_ids,
-        pending_tasks=None if previous is None else previous.pending_tasks
-    )
-    logger.debug(
-        f"[Agent] opened session_id={session_id} agent_id={config.agent_id} device_id={device_id}"
-    )
-    return runtime
-
-
-async def agent_loop(mind: "Mind") -> None:
-    """订阅模式主循环：创建会话、建立 WS，并持续处理协议消息。"""
-    config = AgentConfig(
-        base_url=service_endpoints.domain(),
-        device_id=build_device_id(),
-        agent_id=const.APP_NAME,
-        client_version=const.APP_VERSION,
-        platform=(platform.system().strip().lower() or "unknown"),
-        arch=(platform.machine().strip().lower() or "unknown")
-    )
-
-    client      = AgentClient(base_url=config.base_url)
-    live_status = AgentLiveStatus()
-
-    runtime: AgentSessionRuntime | None = None
-
-    try:
-        await start_connect_animation(mind, live_status)
-
-        live_status.update(
-            "Opening Session", "Requesting /agents/open"
-        )
-
-        runtime = await open_new_runtime(client, config)
+        resume_data = self.client.unwrap_data(resume_resp)
+        resumable   = bool(resume_data.get("resumable"))
 
         logger.debug(
-            f"[Agent] {config.base_url}"
-        )
-        live_status.update(
-            "Subscription Ready", "Rendering external call example"
+            f"[Agent] resume status resumable={resumable} last_acked_seq={runtime.last_acked_seq}"
         )
 
-        await mind.await_cleanup(mind.stop_anim())
+        if resumable:
+            session_id, ws_token, ws_url, resume_token, credential, mind_call_example = normalize_open_payload(
+                self.client, resume_resp
+            )
+            self.live_status.update(
+                "Resume Succeeded", "Refreshing handshake and reusing session"
+            )
+            return AgentSessionRuntime(
+                session_id=session_id,
+                ws_token=ws_token,
+                resume_token=resume_token,
+                credential=credential or runtime.credential,
+                mind_call_example=mind_call_example or runtime.mind_call_example,
+                ws_url=ws_url,
+                device_id=runtime.device_id,
+                client_version=runtime.client_version,
+                last_acked_seq=runtime.last_acked_seq,
+                ready_received=runtime.ready_received,
+                pre_ready_connect_failures=runtime.pre_ready_connect_failures,
+                forwarded_message_ids=runtime.forwarded_message_ids,
+                pending_tasks=runtime.pending_tasks
+            )
+
+        self.live_status.update(
+            "Resume Expired", "Opening a fresh subscription session"
+        )
+
+        reopened = await self.open_session_runtime(previous=runtime)
+        logger.debug(
+            f"[Agent] reopened session_id={reopened.session_id} device_id={reopened.device_id}"
+        )
+        return reopened
+
+    async def connect_once(self, runtime: AgentSessionRuntime) -> None:
+        """建立一次 WS 连接并处理连接生命周期内的消息。"""
+        await connect_once(
+            self.mind,
+            self.client,
+            runtime,
+            self.live_status,
+            self.forward_handler
+        )
+
+
+class AgentSupervisor(object):
+    """运行订阅连接生命周期和恢复流程。"""
+
+    def __init__(
+        self,
+        mind: "Mind",
+        connection: AgentConnection,
+        live_status: AgentLiveStatus
+    ) -> None:
+        """保存订阅运行所需依赖。"""
+        self.mind = mind
+
+        self.connection  = connection
+        self.live_status = live_status
+
+    async def run(self) -> None:
+        """运行订阅会话并处理连接恢复。"""
+        runtime: AgentSessionRuntime | None = None
+
+        try:
+            await start_connect_animation(self.mind, self.live_status)
+
+            self.live_status.update(
+                "Opening Session", "Requesting /agents/open"
+            )
+
+            runtime = await self.connection.open_session_runtime()
+
+            logger.debug(
+                f"[Agent] {self.connection.config.base_url}"
+            )
+            self.live_status.update(
+                "Subscription Ready", "Rendering external call example"
+            )
+
+            await self.mind.await_cleanup(self.mind.stop_anim())
+            await publish_external_access(runtime)
+
+            show_external_access_link()
+
+            if not self.mind.task_event.is_set():
+                await start_status_animation(self.mind, self.live_status)
+                self.live_status.update(
+                    "Waiting for Server Tasks", "Long link established and listening"
+                )
+
+            while not self.mind.task_event.is_set():
+                try:
+                    await self.connection.connect_once(runtime)
+                    return None
+                except asyncio.CancelledError:
+                    self.live_status.update(
+                        "Exiting Subscription", "Interrupting network wait"
+                    )
+                    raise
+                except AgentWsProtocolError as exc:
+                    runtime = await self.handle_protocol_error(runtime, exc)
+                    continue
+                except (
+                        ConnectionClosed,
+                        InvalidStatus,
+                        WebSocketException,
+                        OSError,
+                        httpx.HTTPError,
+                        asyncio.TimeoutError
+                ) as exc:
+                    runtime = await self.handle_disconnect(runtime, exc)
+                    continue
+
+        finally:
+            self.live_status.update(
+                "Exiting Subscription", "Cleaning tasks and stopping animation"
+            )
+            if runtime is not None:
+                await cancel_runtime_tasks(runtime)
+            await self.mind.await_cleanup(self.mind.stop_anim())
+
+    async def handle_protocol_error(
+        self,
+        runtime: AgentSessionRuntime,
+        exc: AgentWsProtocolError
+    ) -> AgentSessionRuntime:
+        """处理服务端协议错误并返回当前运行态。"""
+        logger.debug(
+            f"[Agent] ws protocol error code={exc.code} action={exc.action} message={exc.message_text}"
+        )
+        if exc.action == "abort":
+            self.live_status.update(
+                "Protocol Rejected", f"{exc.code} · stopping subscription"
+            )
+            raise exc
+
+        if exc.action == "reopen":
+            self.live_status.update(
+                "Server Rejected Session", f"{exc.code} · opening fresh session"
+            )
+            try:
+                runtime = await self.connection.open_session_runtime(previous=runtime)
+            except asyncio.CancelledError:
+                self.live_status.update(
+                    "Exiting Subscription", "Canceling reopen flow"
+                )
+                raise
+            except (OSError, httpx.HTTPError, asyncio.TimeoutError) as reopen_exc:
+                if is_tls_certificate_error(reopen_exc):
+                    detail = summarize_tls_certificate_error(reopen_exc)
+                    logger.debug(
+                        f"[Agent] reopen failed: non-retriable tls error {detail}"
+                    )
+                    self.live_status.update("TLS Verification Failed", detail)
+                    raise
+                logger.debug(
+                    f"[Agent] reopen failed: {type(reopen_exc).__name__}: {reopen_exc}"
+                )
+                self.live_status.update(
+                    "Reopen Failed", f"{type(reopen_exc).__name__} · retrying in 2s"
+                )
+                await sleep_or_stop(2.0, self.mind.task_event)
+                return runtime
+            except Exception as reopen_exc:
+                logger.debug(
+                    f"[Agent] reopen crashed: {type(reopen_exc).__name__}: {reopen_exc}"
+                )
+                self.live_status.update(
+                    "Reopen Crashed", f"{type(reopen_exc).__name__} · retrying in 2s"
+                )
+                await sleep_or_stop(2.0, self.mind.task_event)
+                return runtime
+
+            await self.mind.await_cleanup(self.mind.stop_anim())
+            await publish_external_access(runtime)
+
+            show_external_access_link()
+
+            if not self.mind.task_event.is_set():
+                await start_status_animation(self.mind, self.live_status)
+                self.live_status.update(
+                    "Reopened and Waiting", "Returning to listening state in 1s"
+                )
+            await sleep_or_stop(1.0, self.mind.task_event)
+            return runtime
+
+        self.live_status.update(
+            "Reconnecting", f"{exc.code} · reconnecting in 1s"
+        )
+        await sleep_or_stop(1.0, self.mind.task_event)
+        return runtime
+
+    async def handle_disconnect(
+        self,
+        runtime: AgentSessionRuntime,
+        exc: BaseException
+    ) -> AgentSessionRuntime:
+        """处理连接中断并返回当前运行态。"""
+        if is_tls_certificate_error(exc):
+            detail = summarize_tls_certificate_error(exc)
+            logger.debug(
+                f"[Agent] disconnected: non-retriable tls error {detail}"
+            )
+            self.live_status.update("TLS Verification Failed", detail)
+            raise exc
+
+        logger.debug(
+            f"[Agent] disconnected: {type(exc).__name__}: {exc}"
+        )
+
+        title, detail = summarize_ws_disconnect(exc)
+        self.live_status.update(title, detail)
+
+        status_code = get_disconnect_status_code(exc)
+
+        logger.debug(
+            "[Agent] recovery state "
+            f"session_id={runtime.session_id} "
+            f"ready_received={runtime.ready_received} "
+            f"last_acked_seq={runtime.last_acked_seq} "
+            f"pre_ready_connect_failures={runtime.pre_ready_connect_failures} "
+            f"resume_token={'yes' if runtime.resume_token else 'no'} "
+            f"status_code={status_code if status_code is not None else '-'}"
+        )
+
+        retry_ws_before_resume = should_retry_ws_before_resume(runtime, exc)
+        logger.debug(
+            "[Agent] recovery decision "
+            f"action={'ws_retry' if retry_ws_before_resume else 'resume_or_reopen'} "
+            f"reason={'pre-ready' if retry_ws_before_resume else 'ready-or-acked'}"
+        )
+
+        if retry_ws_before_resume:
+            return await self.handle_pre_ready_disconnect(runtime)
+
+        if not runtime.resume_token:
+            logger.debug(
+                "[Agent] resume skipped: resume_token missing "
+                f"session_id={runtime.session_id} "
+                f"ready_received={runtime.ready_received} "
+                f"last_acked_seq={runtime.last_acked_seq}"
+            )
+            self.live_status.update(
+                "Resume Token Missing", "Retrying session open in 2s"
+            )
+            await sleep_or_stop(2.0, self.mind.task_event)
+            return runtime
+
+        return await self.handle_resume(runtime)
+
+    async def handle_pre_ready_disconnect(
+        self,
+        runtime: AgentSessionRuntime
+    ) -> AgentSessionRuntime:
+        """处理 ready 前的连接中断。"""
+        runtime.pre_ready_connect_failures += 1
+
+        logger.debug(
+            "[Agent] pre-ready ws reconnect "
+            f"session_id={runtime.session_id} "
+            f"attempt={runtime.pre_ready_connect_failures}"
+        )
+
+        if runtime.pre_ready_connect_failures < 3:
+            self.live_status.update(
+                "Retrying Link", "Handshake not ready yet · retrying WS in 2s"
+            )
+            await sleep_or_stop(2.0, self.mind.task_event)
+            return runtime
+
+        self.live_status.update(
+            "Opening Fresh Session", "Handshake never became ready · reopening in 2s"
+        )
+        try:
+            runtime = await self.connection.open_session_runtime(previous=runtime)
+        except asyncio.CancelledError:
+            self.live_status.update(
+                "Exiting Subscription", "Canceling session reopen"
+            )
+            raise
+        except (OSError, httpx.HTTPError, asyncio.TimeoutError) as reopen_exc:
+            if is_tls_certificate_error(reopen_exc):
+                detail = summarize_tls_certificate_error(reopen_exc)
+                logger.debug(
+                    f"[Agent] pre-ready reopen failed: non-retriable tls error {detail}"
+                )
+                self.live_status.update("TLS Verification Failed", detail)
+                raise
+            logger.debug(
+                f"[Agent] pre-ready reopen failed: {type(reopen_exc).__name__}: {reopen_exc}"
+            )
+            self.live_status.update(
+                "Reopen Failed", f"{type(reopen_exc).__name__} · retrying in 2s"
+            )
+            await sleep_or_stop(2.0, self.mind.task_event)
+            return runtime
+        except Exception as reopen_exc:
+            logger.debug(
+                f"[Agent] pre-ready reopen crashed: {type(reopen_exc).__name__}: {reopen_exc}"
+            )
+            self.live_status.update(
+                "Reopen Crashed", f"{type(reopen_exc).__name__} · retrying in 2s"
+            )
+            await sleep_or_stop(2.0, self.mind.task_event)
+            return runtime
+
+        await self.mind.await_cleanup(self.mind.stop_anim())
         await publish_external_access(runtime)
 
         show_external_access_link()
 
-        if not mind.task_event.is_set():
-            await start_status_animation(mind, live_status)
-            live_status.update(
-                "Waiting for Server Tasks", "Long link established and listening"
+        if not self.mind.task_event.is_set():
+            await start_status_animation(self.mind, self.live_status)
+            self.live_status.update(
+                "Reopened and Waiting", "Returning to listening state in 1s"
             )
+        await sleep_or_stop(1.0, self.mind.task_event)
 
-        while not mind.task_event.is_set():
-            try:
-                await connect_once(mind, client, runtime, live_status)
-                return None
-            except asyncio.CancelledError:
-                live_status.update(
-                    "Exiting Subscription", "Interrupting network wait"
+        return runtime
+
+    async def handle_resume(
+        self,
+        runtime: AgentSessionRuntime
+    ) -> AgentSessionRuntime:
+        """处理连接恢复请求。"""
+        try:
+            logger.debug(
+                "[Agent] resume_or_reopen start "
+                f"session_id={runtime.session_id} "
+                f"last_acked_seq={runtime.last_acked_seq} "
+                f"ready_received={runtime.ready_received}"
+            )
+            runtime = await self.connection.resume_or_open(runtime)
+            logger.debug(
+                "[Agent] resume_or_reopen done "
+                f"session_id={runtime.session_id} "
+                f"last_acked_seq={runtime.last_acked_seq} "
+                f"ready_received={runtime.ready_received} "
+                f"resume_token={'yes' if runtime.resume_token else 'no'}"
+            )
+        except asyncio.CancelledError:
+            self.live_status.update(
+                "Exiting Subscription", "Canceling resume flow"
+            )
+            raise
+        except (OSError, httpx.HTTPError, asyncio.TimeoutError) as resume_exc:
+            if is_tls_certificate_error(resume_exc):
+                detail = summarize_tls_certificate_error(resume_exc)
+                logger.debug(
+                    f"[Agent] resume failed: non-retriable tls error {detail}"
                 )
+                self.live_status.update("TLS Verification Failed", detail)
                 raise
-            except AgentWsProtocolError as exc:
-                logger.debug(
-                    f"[Agent] ws protocol error code={exc.code} action={exc.action} message={exc.message_text}"
-                )
-                if exc.action == "abort":
-                    live_status.update(
-                        "Protocol Rejected", f"{exc.code} · stopping subscription"
-                    )
-                    raise
+            logger.debug(
+                f"[Agent] resume failed: {type(resume_exc).__name__}: {resume_exc}"
+            )
+            self.live_status.update(
+                "Resume Failed", f"{type(resume_exc).__name__} · retrying in 2s"
+            )
+            await sleep_or_stop(2.0, self.mind.task_event)
+            return runtime
+        except Exception as resume_exc:
+            logger.debug(
+                f"[Agent] resume crashed: {type(resume_exc).__name__}: {resume_exc}"
+            )
+            self.live_status.update(
+                "Resume Crashed", f"{type(resume_exc).__name__} · retrying in 2s"
+            )
+            await sleep_or_stop(2.0, self.mind.task_event)
+            return runtime
 
-                if exc.action == "reopen":
-                    live_status.update(
-                        "Server Rejected Session", f"{exc.code} · opening fresh session"
-                    )
-                    try:
-                        runtime = await open_new_runtime(client, config, previous=runtime)
-                    except asyncio.CancelledError:
-                        live_status.update(
-                            "Exiting Subscription", "Canceling reopen flow"
-                        )
-                        raise
-                    except (OSError, httpx.HTTPError, asyncio.TimeoutError) as reopen_exc:
-                        if is_tls_certificate_error(reopen_exc):
-                            detail = summarize_tls_certificate_error(reopen_exc)
-                            logger.debug(
-                                f"[Agent] reopen failed: non-retriable tls error {detail}"
-                            )
-                            live_status.update("TLS Verification Failed", detail)
-                            raise
-                        logger.debug(
-                            f"[Agent] reopen failed: {type(reopen_exc).__name__}: {reopen_exc}"
-                        )
-                        live_status.update(
-                            "Reopen Failed", f"{type(reopen_exc).__name__} · retrying in 2s"
-                        )
-                        await sleep_or_stop(2.0, mind.task_event)
-                        continue
-                    except Exception as reopen_exc:
-                        logger.debug(
-                            f"[Agent] reopen crashed: {type(reopen_exc).__name__}: {reopen_exc}"
-                        )
-                        live_status.update(
-                            "Reopen Crashed", f"{type(reopen_exc).__name__} · retrying in 2s"
-                        )
-                        await sleep_or_stop(2.0, mind.task_event)
-                        continue
-
-                    await mind.await_cleanup(mind.stop_anim())
-                    await publish_external_access(runtime)
-                    show_external_access_link()
-                    if not mind.task_event.is_set():
-                        await start_status_animation(mind, live_status)
-                        live_status.update(
-                            "Reopened and Waiting", "Returning to listening state in 1s"
-                        )
-                    await sleep_or_stop(1.0, mind.task_event)
-                    continue
-
-                live_status.update(
-                    "Reconnecting", f"{exc.code} · reconnecting in 1s"
-                )
-                await sleep_or_stop(1.0, mind.task_event)
-                continue
-            except (
-                    ConnectionClosed,
-                    InvalidStatus,
-                    WebSocketException,
-                    OSError,
-                    httpx.HTTPError,
-                    asyncio.TimeoutError
-            ) as exc:
-                if is_tls_certificate_error(exc):
-                    detail = summarize_tls_certificate_error(exc)
-                    logger.debug(
-                        f"[Agent] disconnected: non-retriable tls error {detail}"
-                    )
-                    live_status.update("TLS Verification Failed", detail)
-                    raise
-
-                logger.debug(
-                    f"[Agent] disconnected: {type(exc).__name__}: {exc}"
-                )
-                title, detail = summarize_ws_disconnect(exc)
-                live_status.update(title, detail)
-                status_code = get_disconnect_status_code(exc)
-                logger.debug(
-                    "[Agent] recovery state "
-                    f"session_id={runtime.session_id} "
-                    f"ready_received={runtime.ready_received} "
-                    f"last_acked_seq={runtime.last_acked_seq} "
-                    f"pre_ready_connect_failures={runtime.pre_ready_connect_failures} "
-                    f"resume_token={'yes' if runtime.resume_token else 'no'} "
-                    f"status_code={status_code if status_code is not None else '-'}"
-                )
-
-                retry_ws_before_resume = should_retry_ws_before_resume(runtime, exc)
-                logger.debug(
-                    "[Agent] recovery decision "
-                    f"action={'ws_retry' if retry_ws_before_resume else 'resume_or_reopen'} "
-                    f"reason={'pre-ready' if retry_ws_before_resume else 'ready-or-acked'}"
-                )
-
-                if retry_ws_before_resume:
-                    runtime.pre_ready_connect_failures += 1
-                    logger.debug(
-                        "[Agent] pre-ready ws reconnect "
-                        f"session_id={runtime.session_id} "
-                        f"attempt={runtime.pre_ready_connect_failures}"
-                    )
-
-                    if runtime.pre_ready_connect_failures < 3:
-                        live_status.update(
-                            "Retrying Link", "Handshake not ready yet · retrying WS in 2s"
-                        )
-                        await sleep_or_stop(2.0, mind.task_event)
-                        continue
-
-                    live_status.update(
-                        "Opening Fresh Session", "Handshake never became ready · reopening in 2s"
-                    )
-                    try:
-                        runtime = await open_new_runtime(client, config, previous=runtime)
-                    except asyncio.CancelledError:
-                        live_status.update(
-                            "Exiting Subscription", "Canceling session reopen"
-                        )
-                        raise
-                    except (OSError, httpx.HTTPError, asyncio.TimeoutError) as reopen_exc:
-                        if is_tls_certificate_error(reopen_exc):
-                            detail = summarize_tls_certificate_error(reopen_exc)
-                            logger.debug(
-                                f"[Agent] pre-ready reopen failed: non-retriable tls error {detail}"
-                            )
-                            live_status.update("TLS Verification Failed", detail)
-                            raise
-                        logger.debug(
-                            f"[Agent] pre-ready reopen failed: {type(reopen_exc).__name__}: {reopen_exc}"
-                        )
-                        live_status.update(
-                            "Reopen Failed", f"{type(reopen_exc).__name__} · retrying in 2s"
-                        )
-                        await sleep_or_stop(2.0, mind.task_event)
-                        continue
-                    except Exception as reopen_exc:
-                        logger.debug(
-                            f"[Agent] pre-ready reopen crashed: {type(reopen_exc).__name__}: {reopen_exc}"
-                        )
-                        live_status.update(
-                            "Reopen Crashed", f"{type(reopen_exc).__name__} · retrying in 2s"
-                        )
-                        await sleep_or_stop(2.0, mind.task_event)
-                        continue
-
-                    await mind.await_cleanup(mind.stop_anim())
-                    await publish_external_access(runtime)
-                    show_external_access_link()
-                    if not mind.task_event.is_set():
-                        await start_status_animation(mind, live_status)
-                        live_status.update(
-                            "Reopened and Waiting", "Returning to listening state in 1s"
-                        )
-                    await sleep_or_stop(1.0, mind.task_event)
-                    continue
-
-                if not runtime.resume_token:
-                    logger.debug(
-                        "[Agent] resume skipped: resume_token missing "
-                        f"session_id={runtime.session_id} "
-                        f"ready_received={runtime.ready_received} "
-                        f"last_acked_seq={runtime.last_acked_seq}"
-                    )
-                    live_status.update(
-                        "Resume Token Missing", "Retrying session open in 2s"
-                    )
-                    await sleep_or_stop(2.0, mind.task_event)
-                    continue
-
-                try:
-                    logger.debug(
-                        "[Agent] resume_or_reopen start "
-                        f"session_id={runtime.session_id} "
-                        f"last_acked_seq={runtime.last_acked_seq} "
-                        f"ready_received={runtime.ready_received}"
-                    )
-                    runtime = await resume_or_reopen(client, runtime, config, live_status)
-                    logger.debug(
-                        "[Agent] resume_or_reopen done "
-                        f"session_id={runtime.session_id} "
-                        f"last_acked_seq={runtime.last_acked_seq} "
-                        f"ready_received={runtime.ready_received} "
-                        f"resume_token={'yes' if runtime.resume_token else 'no'}"
-                    )
-                except asyncio.CancelledError:
-                    live_status.update(
-                        "Exiting Subscription", "Canceling resume flow"
-                    )
-                    raise
-                except (OSError, httpx.HTTPError, asyncio.TimeoutError) as resume_exc:
-                    if is_tls_certificate_error(resume_exc):
-                        detail = summarize_tls_certificate_error(resume_exc)
-                        logger.debug(
-                            f"[Agent] resume failed: non-retriable tls error {detail}"
-                        )
-                        live_status.update("TLS Verification Failed", detail)
-                        raise
-                    logger.debug(
-                        f"[Agent] resume failed: {type(resume_exc).__name__}: {resume_exc}"
-                    )
-                    live_status.update(
-                        "Resume Failed", f"{type(resume_exc).__name__} · retrying in 2s"
-                    )
-                    await sleep_or_stop(2.0, mind.task_event)
-                    continue
-                except Exception as resume_exc:
-                    logger.debug(
-                        f"[Agent] resume crashed: {type(resume_exc).__name__}: {resume_exc}"
-                    )
-                    live_status.update(
-                        "Resume Crashed", f"{type(resume_exc).__name__} · retrying in 2s"
-                    )
-                    await sleep_or_stop(2.0, mind.task_event)
-                    continue
-
-                live_status.update(
-                    "Resumed and Waiting", "Returning to listening state in 1s"
-                )
-                await publish_external_access(runtime)
-                await sleep_or_stop(1.0, mind.task_event)
-
-    finally:
-        live_status.update(
-            "Exiting Subscription", "Cleaning tasks and stopping animation"
+        self.live_status.update(
+            "Resumed and Waiting", "Returning to listening state in 1s"
         )
-        if runtime is not None:
-            await cancel_runtime_tasks(runtime)
-        await mind.await_cleanup(mind.stop_anim())
+        await publish_external_access(runtime)
+        await sleep_or_stop(1.0, self.mind.task_event)
+        return runtime
+
+
+async def agent_loop(mind: "Mind") -> None:
+    """运行无人值守订阅 worker。"""
+    from .runtime import AgentWorkerRuntime
+    return await AgentWorkerRuntime(mind).run()
 
 
 async def run_agent_loop(mind: "Mind") -> None:

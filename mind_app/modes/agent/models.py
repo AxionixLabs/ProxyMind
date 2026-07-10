@@ -45,6 +45,43 @@ class AgentForwardRequest:
     payload: dict[str, typing.Any]
 
 
+class AgentInboxItem:
+    """本地收件箱中的服务端请求。"""
+    request: AgentForwardRequest
+    status: typing.Literal["pending", "running", "completed", "declined", "failed"]
+    error: str | None
+
+    __slots__ = ("request", "status", "error")
+
+    def __init__(
+        self,
+        request: AgentForwardRequest,
+        status: typing.Literal["pending", "running", "completed", "declined", "failed"] = "pending",
+        error: str | None = None
+    ) -> None:
+        """初始化收件箱请求条目。"""
+        self.request = request
+        self.status  = status
+        self.error   = error
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, AgentInboxItem):
+            return NotImplemented
+        return (
+            self.request == other.request
+            and self.status == other.status
+            and self.error == other.error
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"AgentInboxItem("
+            f"request={self.request!r}, "
+            f"status={self.status!r}, "
+            f"error={self.error!r})"
+        )
+
+
 @dataclass
 class AgentLiveStatus:
     """订阅模式等待动画的共享状态。"""
