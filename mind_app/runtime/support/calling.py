@@ -82,7 +82,7 @@ async def calling(
         owns_event_report = True
 
     async def function(
-        session: McpSessionLike,
+        session: "McpSessionLike",
         tools: list[dict[str, typing.Any]],
     ) -> None:
         """在共享 MCP 会话中执行单次请求。"""
