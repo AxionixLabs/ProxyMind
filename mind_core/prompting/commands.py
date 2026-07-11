@@ -31,7 +31,7 @@ class SlashCommandCompleter(Completer):
         {"text": "/compact", "display": "/compact", "meta": "压缩当前对话上下文"},
         {"text": "/tools", "display": "/tools", "meta": "查看可用 MCP 工具"},
         {"text": "/diff", "display": "/diff", "meta": "查看当前 apply_patch 净差异"},
-        {"text": "/copy", "display": "/copy", "meta": "复制最近一次模型回复原文"},
+        {"text": "/copy", "display": "/copy", "meta": "复制最近一次 assistant 输出原文"},
         {"text": "/ps", "display": "/ps", "meta": "查看运行中 exec_command"},
         {"text": "/mcp", "display": "/mcp", "meta": "管理外部 MCP runtime"},
         {"text": "/helix-link", "display": "/helix-link", "meta": "接入本地 Helix 服务"},

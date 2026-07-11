@@ -50,6 +50,7 @@ from ..stream_events.lifecycle import (
     StreamEventContext,
     handle_lifecycle_event
 )
+from ..stream_events.assistant_boundary import is_assistant_output_boundary
 from ..stream_state.segment import (
     SegmentTracker, build_sources_text
 )
@@ -138,6 +139,9 @@ async def stream_looper(
                 first_frame = False
 
             event_type = str(event.get("type") or "")
+
+            if is_assistant_output_boundary(event_type, event):
+                tracker.commit_assistant_output()
 
             if event_type == "turn.start":
                 continue
@@ -382,7 +386,7 @@ async def stream_looper(
 
     else:
         if turn_completed:
-            mind.remember_last_assistant_reply(tracker.assistant_text())
+            mind.remember_last_assistant_reply(tracker.latest_assistant_output_text())
         await slog.end_status()
         await slog.feed(build_sources_text(tracker), display=StreamUI.BLOCK)
 

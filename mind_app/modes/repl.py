@@ -114,7 +114,7 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #AFD7FF]/compact[/]                  压缩当前对话上下文
         [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
         [bold #AFD7FF]/diff[/]                     查看当前 apply_patch 净差异
-        [bold #AFD7FF]/copy[/]                     复制最近一次模型回复原文
+        [bold #AFD7FF]/copy[/]                     复制最近一次 assistant 输出原文
         [bold #AFD7FF]/ps[/]                       查看运行中的 exec_command
         [bold #AFD7FF]/mcp[/]                      管理外部 MCP runtime
         [bold #AFD7FF]/helix-link[/]               接入本地 Helix 服务

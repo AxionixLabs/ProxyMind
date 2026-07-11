@@ -9,12 +9,41 @@ class SegmentTracker(object):
 
     def __init__(self) -> None:
         self.segment_seq = 0
+
         self.current_segment_key: typing.Optional[str] = None
-        self.segment_order: list[str] = []
+
+        self.segment_order: list[str]                          = []
         self.segments_by_key: dict[str, dict[str, typing.Any]] = {}
-        self.segments_by_remote_id: dict[str, str] = {}
-        self.pending_meta_by_segment_id: dict[str, dict[str, typing.Any]] = {}
+        self.segments_by_remote_id: dict[str, str]             = {}
+
+        self.pending_meta_by_segment_id: dict[str, dict[str, typing.Any]]    = {}
         self.pending_segment_sources: typing.Optional[dict[str, typing.Any]] = None
+        self.pending_output_segment_keys: list[str]                          = []
+
+        self.output_blocks: list[list[str]] = []
+
+    @staticmethod
+    def _merge_segment_meta(
+        segment: dict[str, typing.Any],
+        payload: typing.Optional[dict[str, typing.Any]]
+    ) -> None:
+        if not segment or not isinstance(payload, dict):
+            return None
+
+        if isinstance(payload.get("annotations"), list):
+            segment["annotations"] = payload["annotations"]
+
+        if isinstance(payload.get("citations"), list):
+            segment["citations"] = payload["citations"]
+
+        if isinstance(payload.get("sources"), list):
+            segment["sources"] = payload["sources"]
+
+        source_count = payload.get("source_count")
+        if isinstance(source_count, int) and source_count >= 0:
+            segment["source_count"] = source_count
+        elif isinstance(segment.get("sources"), list):
+            segment["source_count"] = len(segment["sources"])
 
     @staticmethod
     def _segment_sources_payload(payload: dict[str, typing.Any]) -> dict[str, typing.Any]:
@@ -41,29 +70,6 @@ class SegmentTracker(object):
         if isinstance(citations, list):
             data["citations"] = citations
         return data
-
-    @staticmethod
-    def _merge_segment_meta(
-        segment: dict[str, typing.Any],
-        payload: typing.Optional[dict[str, typing.Any]]
-    ) -> None:
-        if not segment or not isinstance(payload, dict):
-            return None
-
-        if isinstance(payload.get("annotations"), list):
-            segment["annotations"] = payload["annotations"]
-
-        if isinstance(payload.get("citations"), list):
-            segment["citations"] = payload["citations"]
-
-        if isinstance(payload.get("sources"), list):
-            segment["sources"] = payload["sources"]
-
-        source_count = payload.get("source_count")
-        if isinstance(source_count, int) and source_count >= 0:
-            segment["source_count"] = source_count
-        elif isinstance(segment.get("sources"), list):
-            segment["source_count"] = len(segment["sources"])
 
     def _apply_pending_meta(
         self,
@@ -134,6 +140,13 @@ class SegmentTracker(object):
 
         return segment
 
+    def _remember_output_segment(self, segment: dict[str, typing.Any]) -> None:
+        local_id = segment.get("local_id")
+        if not isinstance(local_id, str) or not local_id:
+            return None
+        if local_id not in self.pending_output_segment_keys:
+            self.pending_output_segment_keys.append(local_id)
+
     def _resolve_segment(
         self,
         remote_segment_id: typing.Optional[typing.Any] = None,
@@ -170,6 +183,7 @@ class SegmentTracker(object):
         segment = self._resolve_segment(event.get("segment_id"), create=True, prefer_current=True)
         if segment is not None:
             segment["text"] += text
+            self._remember_output_segment(segment)
 
     def on_text_done(self, event: dict[str, typing.Any]) -> None:
         if segment := self._resolve_segment(event.get("segment_id"), prefer_current=True):
@@ -202,6 +216,18 @@ class SegmentTracker(object):
             **meta
         }
 
+    def commit_assistant_output(self) -> None:
+        """提交当前待复制的 assistant 输出块。"""
+        keys = [
+            key for key in self.pending_output_segment_keys
+            if str((self.segments_by_key.get(key) or {}).get("text") or "").strip()
+        ]
+        if keys:
+            self.output_blocks.append(keys)
+
+        self.pending_output_segment_keys = []
+        self.current_segment_key = None
+
     def iter_sources(self) -> typing.Iterable[typing.Any]:
         for key in self.segment_order:
             segment = self.segments_by_key.get(key) or {}
@@ -216,6 +242,18 @@ class SegmentTracker(object):
         parts = [
             str((self.segments_by_key.get(key) or {}).get("text") or "")
             for key in self.segment_order
+        ]
+        return _join_text_segments(parts).strip()
+
+    def latest_assistant_output_text(self) -> str:
+        """返回最近一次 assistant 输出块原文。"""
+        self.commit_assistant_output()
+        if not self.output_blocks:
+            return ""
+
+        parts = [
+            str((self.segments_by_key.get(key) or {}).get("text") or "")
+            for key in self.output_blocks[-1]
         ]
         return _join_text_segments(parts).strip()
 
@@ -301,10 +339,10 @@ def _format_source_entry(index: int, source: typing.Any) -> str:
 
 
 def build_sources_text(tracker: "SegmentTracker") -> str:
-    max_items = 3
-    seen: set[str] = set()
+    max_items: int   = 3
+    seen: set[str]   = set()
     lines: list[str] = []
-    total = 0
+    total: int       = 0
 
     for source in tracker.iter_sources():
         url = _source_url(source)
@@ -324,6 +362,7 @@ def build_sources_text(tracker: "SegmentTracker") -> str:
 
     body = "\n".join(lines)
     return f"Sources:\n{body}"
+
 
 if __name__ == '__main__':
     pass
