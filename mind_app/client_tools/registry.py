@@ -8,6 +8,7 @@ from .types import (
 )
 from .coding import coding_tools
 from .planning import planning_tools
+from .view_image import view_image_tools
 
 
 class ClientToolRegistry:
@@ -68,6 +69,7 @@ def default_registry(native_coding: typing.Any = None) -> ClientToolRegistry:
     return ClientToolRegistry([
         *planning_tools(),
         *coding_tools(native_coding),
+        *view_image_tools(native_coding),
     ])
 
 
