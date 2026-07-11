@@ -10,7 +10,9 @@ from mind_app.modes.support.repl_shell import (
     ShellPanelRun,
     ShellRunResult,
     _split_direct_command,
+    blocked_interactive_shell_command,
     parse_shell_escape,
+    run_shell_escape,
     run_shell_command_panel,
     shell_panel_status_suffix,
     shell_panel_summary_command_text,
@@ -39,6 +41,29 @@ def test_parse_shell_escape_enter_shell() -> None:
     assert parsed is not None
     assert parsed.enter_shell is True
     assert parsed.command == ""
+
+
+def test_blocked_interactive_shell_command_detects_ssh() -> None:
+    """交互式 shell 命令会被识别为屏蔽对象。"""
+    assert blocked_interactive_shell_command("ssh -p 2033 test@192.168.2.81") == "ssh"
+    assert blocked_interactive_shell_command("ssh.exe test@example.com") == "ssh"
+
+
+def test_run_shell_escape_blocks_interactive_command(monkeypatch) -> None:
+    """命中屏蔽规则时不启动 shell 面板。"""
+    rendered: list[tuple[str, str]] = []
+
+    async def fail_panel(*args, **kwargs):
+        raise AssertionError("shell panel should not start")
+
+    def capture_render(command: str, name: str) -> None:
+        rendered.append((command, name))
+
+    monkeypatch.setattr(repl_shell, "run_shell_command_panel", fail_panel)
+    monkeypatch.setattr(repl_shell, "render_blocked_interactive_shell_command", capture_render)
+
+    assert run_async(run_shell_escape("!ssh -p 2033 test@192.168.2.81")) is True
+    assert rendered == [("ssh -p 2033 test@192.168.2.81", "ssh")]
 
 
 def test_run_shell_command_panel_returns_short_output(tmp_path: Path) -> None:

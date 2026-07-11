@@ -68,6 +68,21 @@ SHELL_BUILTIN_HEADS = {
     "where",
 }
 
+INTERACTIVE_SHELL_COMMANDS = frozenset({
+    "ftp",
+    "htop",
+    "less",
+    "more",
+    "nano",
+    "passwd",
+    "sftp",
+    "ssh",
+    "telnet",
+    "top",
+    "vi",
+    "vim",
+})
+
 
 @dataclass(frozen=True, slots=True)
 class ShellEscape(object):
@@ -367,6 +382,10 @@ async def run_shell_escape(value: str) -> bool:
 
     if parsed.enter_shell:
         await run_interactive_shell()
+        return True
+
+    if blocked_command := blocked_interactive_shell_command(parsed.command):
+        render_blocked_interactive_shell_command(parsed.command, blocked_command)
         return True
 
     result = await run_shell_command_panel(parsed.command)
@@ -703,6 +722,32 @@ def shell_panel_summary_lines(
     return fallback[:limit]
 
 
+def blocked_interactive_shell_command(command: str) -> str:
+    """返回需要屏蔽的交互命令名称。"""
+    parts = _split_command_parts(command)
+    if not parts:
+        return ""
+
+    name = _command_name(parts[0])
+    if name in INTERACTIVE_SHELL_COMMANDS:
+        return name
+
+    return ""
+
+
+def render_blocked_interactive_shell_command(command: str, name: str) -> None:
+    """渲染交互命令被屏蔽的提示。"""
+    render_command_summary(CommandSummary(
+        kind="Shell",
+        command=command,
+        suffix=" · blocked",
+        lines=(
+            f"Interactive command blocked: {name}",
+            "Run it in a terminal outside.",
+        )
+    ))
+
+
 def shell_escape_summary_lines(
     *,
     stdout: str,
@@ -732,6 +777,11 @@ def shell_escape_summary_lines(
 
 def _split_direct_command(command: str) -> list[str]:
     """按平台规则拆分简单外部命令。"""
+    return _split_command_parts(command)
+
+
+def _split_command_parts(command: str) -> list[str]:
+    """按平台规则拆分命令文本。"""
     text = str(command or "").strip()
     if not text:
         return []
@@ -743,6 +793,15 @@ def _split_direct_command(command: str) -> list[str]:
         return shlex.split(text, posix=True)
     except ValueError:
         return []
+
+
+def _command_name(value: str) -> str:
+    """返回命令名的小写规范形式。"""
+    text = str(value or "").replace("\\", "/").rsplit("/", 1)[-1].strip().lower()
+    stem, suffix = os.path.splitext(text)
+    if suffix in {".bat", ".cmd", ".com", ".exe"}:
+        return stem
+    return text
 
 
 def _windows_command_line_to_argv(command: str) -> list[str]:
