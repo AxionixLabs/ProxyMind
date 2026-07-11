@@ -279,7 +279,8 @@ class Mind(object):
     def _build_client_tools(self) -> ClientToolRegistry:
         """按当前工作区构建客户端工具注册表。"""
         return default_client_tool_registry(
-            self.native_coding
+            self.native_coding,
+            execution_root=self.history_workspace,
         )
 
     def _history_gravity(self) -> str:

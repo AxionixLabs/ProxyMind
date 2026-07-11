@@ -80,9 +80,9 @@ def _display_image_path(root: Path, image_path: Path) -> str:
         return str(image_path)
 
 
-def view_image_tools() -> list[ClientTool]:
+def view_image_tools(execution_root: str | Path) -> list[ClientTool]:
     """返回图片查看工具列表。"""
-    root = Path.cwd().resolve()
+    root = Path(execution_root).resolve()
 
     async def view_image_handler(
         arguments: dict[str, typing.Any],

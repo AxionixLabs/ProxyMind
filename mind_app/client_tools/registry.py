@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from pathlib import Path
 from mcp import types as mcp_types
 from .types import (
     ClientTool, ClientToolRuntime
@@ -64,12 +65,22 @@ class ClientToolRegistry:
         return await tool.handler(dict(arguments or {}), runtime)
 
 
-def default_registry(native_coding: typing.Any = None) -> ClientToolRegistry:
+def default_registry(
+    native_coding: typing.Any = None,
+    *,
+    execution_root: str | Path | None = None,
+) -> ClientToolRegistry:
     """构建默认客户端工具注册表。"""
+    root_source = execution_root
+    if root_source is None and native_coding is not None:
+        root_source = native_coding.root
+
+    root = Path(root_source or Path.cwd()).resolve()
+
     return ClientToolRegistry([
         *planning_tools(),
         *coding_tools(native_coding),
-        *view_image_tools(),
+        *view_image_tools(root),
     ])
 
 
