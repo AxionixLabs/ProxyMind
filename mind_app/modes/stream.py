@@ -327,7 +327,6 @@ async def stream_looper(
 
                 if name == PLAN_STEPS_TOOL:
                     await step_plan_executor.execute_tool_call(
-                        event=event,
                         arguments=arguments
                     )
                     await slog.begin_reply_wait_status(delay_sec=0.75)

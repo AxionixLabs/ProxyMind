@@ -154,8 +154,7 @@ def planning_tools() -> list[ClientTool]:
             meta={
                 "hidden": False,
                 "domain": "mind",
-                "class": "planning",
-                "plan_executor": True
+                "class": "tool"
             },
             handler=plan_steps_handler,
         )

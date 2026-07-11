@@ -87,7 +87,7 @@ async def choose_runtime_download(
         layout=Layout(
             Window(
                 content=control,
-                height=6,
+                height=5,
                 always_hide_cursor=True
             ),
             focused_element=control
@@ -115,8 +115,7 @@ def _render_download_menu(
     lines: StyleAndTextTuples = [
         ("class:download.kicker", "Helix"),
         ("class:download.title", " Runtime Setup"),
-        ("", "\n"),
-        ("class:download.meta", "Official vertical-domain MCP service"),
+        ("class:download.meta", " · Official vertical-domain MCP service"),
         ("", "\n"),
         ("class:download.help", "Up/Down select - Enter confirm - q cancel"),
         ("", "\n")

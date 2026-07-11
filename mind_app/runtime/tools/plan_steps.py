@@ -8,9 +8,7 @@ from mind_app.client_tools.planning import normalize_plan_arguments
 from mind_app.mcp import McpSessionLike
 from mind_app.mcp.tool_store import meta_for_tool
 from mind_app.stream_ui import StreamUI
-from mind_nova import (
-    craft, request
-)
+from mind_nova import craft
 from .display import (
     show_tool_result,
     show_tool_start
@@ -32,17 +30,6 @@ class PlanStepResult:
     ok: bool
     text: str
     cost_ms: int = 0
-
-    def to_dict(self) -> dict[str, typing.Any]:
-        """转换为可回传给模型的结构。"""
-        return {
-            "run": self.run,
-            "index": self.index,
-            "tool": self.tool,
-            "ok": self.ok,
-            "text": self.text,
-            "cost_ms": self.cost_ms
-        }
 
 
 class StepPlanExecutor:
@@ -70,31 +57,14 @@ class StepPlanExecutor:
     async def execute_tool_call(
         self,
         *,
-        event: dict[str, typing.Any],
         arguments: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
-        """执行一次 plan_steps 工具调用并回填汇总结果。"""
-        ok, plan, errors = normalize_plan_arguments(arguments)
+    ) -> list[PlanStepResult]:
+        """执行一次 plan_steps 工具调用。"""
+        ok, plan, _ = normalize_plan_arguments(arguments)
         if not ok:
-            fields = self._summary_fields(
-                ok=False,
-                plan=plan,
-                results=[],
-                errors=errors
-            )
-            await self._post_result(event, ok=False, fields=fields)
-            return fields
+            return []
 
-        results = await self.execute_plan(plan)
-        failed = [item for item in results if not item.ok]
-        fields = self._summary_fields(
-            ok=not failed,
-            plan=plan,
-            results=results,
-            errors=[item.text for item in failed if item.text]
-        )
-        await self._post_result(event, ok=not failed, fields=fields)
-        return fields
+        return await self.execute_plan(plan)
 
     async def execute_plan(
         self,
@@ -306,59 +276,6 @@ class StepPlanExecutor:
             tool=name,
             ok=False,
             text=text
-        )
-
-    @staticmethod
-    def _summary_fields(
-        *,
-        ok: bool,
-        plan: dict[str, typing.Any],
-        results: list[PlanStepResult],
-        errors: list[str]
-    ) -> dict[str, typing.Any]:
-        """构造 plan_steps 回填给模型的汇总结果。"""
-        ok_count = sum(1 for item in results if item.ok)
-        fail_count = sum(1 for item in results if not item.ok)
-        text = (
-            f"plan_steps executed ok={ok} loops={plan.get('loops')} "
-            f"steps={len(plan.get('steps') or [])} ok_count={ok_count} fail_count={fail_count}"
-        )
-        if errors:
-            text = f"{text}\nerrors={'; '.join(errors[:8])}"
-
-        return {
-            "ok": ok,
-            "tool": "plan_steps",
-            "text": text,
-            "attachments": [],
-            "data": {
-                "executed": True,
-                "loops": plan.get("loops"),
-                "stop_on_fail": plan.get("stop_on_fail"),
-                "steps": plan.get("steps"),
-                "results": [item.to_dict() for item in results],
-                "ok_count": ok_count,
-                "fail_count": fail_count,
-                "errors": errors
-            }
-        }
-
-    @staticmethod
-    async def _post_result(
-        event: dict[str, typing.Any],
-        *,
-        ok: bool,
-        fields: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
-        """把 plan_steps 汇总结果回填给服务端。"""
-        return await request.post_tool_result(
-            event["cid"],
-            event["sid"],
-            event["call_id"],
-            "plan_steps",
-            ok,
-            fields,
-            execution=event.get("execution") if isinstance(event.get("execution"), dict) else None
         )
 
 
