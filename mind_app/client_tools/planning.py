@@ -17,7 +17,6 @@ PLAN_STEPS_INPUT_SCHEMA: dict[str, typing.Any] = {
         "loops": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 50,
             "description": "循环执行 steps 的次数。"
         },
         "stop_on_fail": {
@@ -26,8 +25,7 @@ PLAN_STEPS_INPUT_SCHEMA: dict[str, typing.Any] = {
         },
         "steps": {
             "type": "array",
-            "maxItems": 50,
-            "description": "调用计划步骤。每项包含 tool 和 args，可选 meta。",
+            "description": "调用计划步骤。每项包含 tool 和 args。",
             "items": {
                 "type": "object",
                 "additionalProperties": False,
@@ -39,10 +37,6 @@ PLAN_STEPS_INPUT_SCHEMA: dict[str, typing.Any] = {
                     "args": {
                         "type": "object",
                         "description": "传给工具的参数。"
-                    },
-                    "meta": {
-                        "type": "object",
-                        "description": "可选工具元数据，用于覆盖或补充工具声明。"
                     }
                 },
                 "required": ["tool", "args"]
@@ -54,62 +48,83 @@ PLAN_STEPS_INPUT_SCHEMA: dict[str, typing.Any] = {
 }
 
 
+def _minimum_int(
+    value: typing.Any,
+    *,
+    default: int,
+    minimum: int
+) -> int:
+    """把输入值转换为具有最小值的整数。"""
+    try:
+        number = int(value if value is not None else default)
+    except (TypeError, ValueError):
+        number = default
+    return max(minimum, number)
+
+
+def _normalize_step(
+    index: int,
+    raw_step: typing.Any,
+    errors: list[str]
+) -> dict[str, typing.Any] | None:
+    """校验并标准化单个计划步骤。"""
+    if not isinstance(raw_step, dict):
+        errors.append(f"steps[{index}] not dict")
+        return None
+
+    tool = str(raw_step.get("tool") or "").strip()
+    if not tool:
+        errors.append(f"steps[{index}] missing tool")
+        return None
+    if tool == PLAN_STEPS_TOOL:
+        errors.append(f"steps[{index}] nested plan_steps forbidden")
+        return None
+
+    args = raw_step.get("args")
+    if not isinstance(args, dict):
+        args = {}
+        errors.append(f"steps[{index}] args not dict")
+
+    step: dict[str, typing.Any] = {"tool": tool, "args": dict(args)}
+
+    execution = raw_step.get("execution")
+    if isinstance(execution, dict):
+        step["execution"] = dict(execution)
+
+    return step
+
+
 def normalize_plan_arguments(
     arguments: dict[str, typing.Any] | None
 ) -> tuple[bool, dict[str, typing.Any], list[str]]:
     """校验并标准化模型提交的步骤计划。"""
     payload = dict(arguments or {})
+
     errors: list[str] = []
 
-    loops = _bounded_int(payload.get("loops"), default=1, minimum=1, maximum=50)
+    loops        = _minimum_int(payload.get("loops"), default=1, minimum=1)
     stop_on_fail = bool(payload.get("stop_on_fail", True))
 
     raw_steps = payload.get("steps")
     if not isinstance(raw_steps, list):
         raw_steps = []
         errors.append("steps not list")
-    if len(raw_steps) > 50:
-        raw_steps = raw_steps[:50]
-        errors.append("steps truncated to 50")
     if not raw_steps:
         errors.append("empty steps")
 
     steps: list[dict[str, typing.Any]] = []
     for index, raw_step in enumerate(raw_steps):
-        if not isinstance(raw_step, dict):
-            errors.append(f"steps[{index}] not dict")
-            continue
-
-        tool = str(raw_step.get("tool") or "").strip()
-        if not tool:
-            errors.append(f"steps[{index}] missing tool")
-            continue
-        if tool == PLAN_STEPS_TOOL:
-            errors.append(f"steps[{index}] nested plan_steps forbidden")
-            continue
-
-        args = raw_step.get("args")
-        if not isinstance(args, dict):
-            args = {}
-            errors.append(f"steps[{index}] args not dict")
-
-        item: dict[str, typing.Any] = {
-            "tool": tool,
-            "args": dict(args)
-        }
-        if isinstance(raw_step.get("meta"), dict):
-            item["meta"] = dict(raw_step["meta"])
-        if isinstance(raw_step.get("execution"), dict):
-            item["execution"] = dict(raw_step["execution"])
-
-        steps.append(item)
+        step = _normalize_step(index, raw_step, errors)
+        if step is not None:
+            steps.append(step)
 
     plan = {
-        "loops": loops,
-        "stop_on_fail": stop_on_fail,
-        "steps": steps
+        "loops"        : loops,
+        "stop_on_fail" : stop_on_fail,
+        "steps"        : steps
     }
     ok = bool(steps) and not errors
+
     return ok, plan, errors
 
 
@@ -122,7 +137,9 @@ def planning_tools() -> list[ClientTool]:
     ) -> mcp_types.CallToolResult:
         """返回标准化计划声明。"""
         _ = runtime
+
         ok, plan, errors = normalize_plan_arguments(arguments)
+
         text = (
             f"plan declared loops={plan['loops']} steps={len(plan['steps'])} "
             f"stop_on_fail={plan['stop_on_fail']}"
@@ -146,34 +163,19 @@ def planning_tools() -> list[ClientTool]:
         ClientTool(
             name=PLAN_STEPS_TOOL,
             description=(
-                "提交一个由 Mind 本地执行的工具调用计划。"
-                " steps 中每项包含 tool 和 args，可选 meta；不允许嵌套 plan_steps。"
-                " 该工具用于一次性声明多步计划，Mind 会按顺序执行并汇总结果。"
+                "宏步骤循环器。提交一个按顺序执行的工具调用计划。"
+                " steps 中每项包含 tool 和 args；不允许嵌套 plan_steps。"
+                " 支持重复执行整组步骤，并汇总执行结果。"
             ),
             input_schema=PLAN_STEPS_INPUT_SCHEMA,
             meta={
                 "hidden": False,
-                "domain": "mind",
+                "domain": "client",
                 "class": "tool"
             },
             handler=plan_steps_handler,
         )
     ]
-
-
-def _bounded_int(
-    value: typing.Any,
-    *,
-    default: int,
-    minimum: int,
-    maximum: int
-) -> int:
-    """把输入值转换为受限整数。"""
-    try:
-        number = int(value if value is not None else default)
-    except (TypeError, ValueError):
-        number = default
-    return max(minimum, min(maximum, number))
 
 
 if __name__ == '__main__':

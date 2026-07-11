@@ -33,7 +33,7 @@ from ..runtime.tools.batch import (
     PendingToolCall,
     ToolBatchExecutor
 )
-from ..runtime.tools.plan_steps import StepPlanExecutor
+from ..runtime.tools.plan_call import PlanToolCallRunner
 from ..runtime.support.idle_status import IdleStatusTimer
 from ..stream_events.responses_builtin import (
     resolve_builtin_name,
@@ -120,13 +120,10 @@ async def stream_looper(
             metadata=metadata,
             report=mind.report
         )
-        step_plan_executor = StepPlanExecutor(
+        plan_tool_runner = PlanToolCallRunner(
             session=session,
             stream_ui=slog,
             tools=tools,
-            mode=mode,
-            pref_config=pref_config,
-            metadata=metadata,
             report=mind.report
         )
 
@@ -269,11 +266,19 @@ async def stream_looper(
                     await slog.begin_reply_wait_status()
                     continue
 
-                event_meta      = event.get("meta") if isinstance(event.get("meta"), dict) else None
-                event_execution = event.get("execution") if isinstance(event.get("execution"), dict) else None
-
                 if not isinstance(arguments, dict):
                     arguments = {}
+
+                if name == PLAN_STEPS_TOOL:
+                    await plan_tool_runner.handle(
+                        event=event,
+                        arguments=arguments
+                    )
+                    await slog.begin_reply_wait_status(delay_sec=0.75)
+                    continue
+
+                event_meta      = event.get("meta") if isinstance(event.get("meta"), dict) else None
+                event_execution = event.get("execution") if isinstance(event.get("execution"), dict) else None
 
                 approval_decision = validate_tool_approval(
                     event=event,
@@ -324,13 +329,6 @@ async def stream_looper(
                 use_coding_trace = coding_trace_tool(name)
                 local_tool_meta  = meta_for_tool(tools, name)
                 effective_meta   = {**(local_tool_meta or {}),**(event_meta or {})} or None
-
-                if name == PLAN_STEPS_TOOL:
-                    await step_plan_executor.execute_tool_call(
-                        arguments=arguments
-                    )
-                    await slog.begin_reply_wait_status(delay_sec=0.75)
-                    continue
 
                 pending_call = PendingToolCall(
                     event=event,

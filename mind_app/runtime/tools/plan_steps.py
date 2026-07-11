@@ -1,24 +1,24 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import time
 import typing
 from dataclasses import dataclass
 from engine.enhance import exchange_arguments
+from loguru import logger
 from mind_app.client_tools.planning import normalize_plan_arguments
 from mind_app.mcp import McpSessionLike
-from mind_app.mcp.tool_store import meta_for_tool
+from mind_app.mcp.tool_store import has_tool
 from mind_app.stream_ui import StreamUI
-from mind_nova import craft
-from .display import (
-    show_tool_result,
-    show_tool_start
-)
 from .execution_policy import (
     is_execution_ignored,
     should_pass_execution_to_tool,
     validate_execution_policy
 )
-from .run import run_tool_step
+from .types import ToolDisplayResult
+
+FAILURE_PREVIEW_LIMIT = 8
+RESULT_TEXT_LIMIT     = 800
 
 
 @dataclass(slots=True)
@@ -32,6 +32,27 @@ class PlanStepResult:
     cost_ms: int = 0
 
 
+@dataclass(slots=True)
+class PlanExecutionReport(ToolDisplayResult):
+    """汇总计划执行结果并提供展示与回传字段。"""
+    ok: bool
+    text: str
+    data: dict[str, typing.Any]
+    cost_ms: int
+    results: list[PlanStepResult]
+
+    @property
+    def fields(self) -> dict[str, typing.Any]:
+        """返回标准工具结果字段。"""
+        return {
+            "ok"          : self.ok,
+            "tool"        : "plan_steps",
+            "text"        : self.text,
+            "attachments" : [],
+            "data"        : self.data
+        }
+
+
 class StepPlanExecutor:
     """执行模型通过 plan_steps 提交的本地工具计划。"""
 
@@ -41,42 +62,46 @@ class StepPlanExecutor:
         session: McpSessionLike,
         stream_ui: StreamUI,
         tools: list[dict[str, typing.Any]],
-        mode: str,
-        pref_config: dict[str, typing.Any],
-        metadata: dict[str, typing.Any],
         report: typing.Any
     ) -> None:
-        self.session     = session
-        self.stream_ui   = stream_ui
-        self.tools       = tools
-        self.mode        = mode
-        self.pref_config = pref_config
-        self.metadata    = metadata
-        self.report      = report
+        self.session   = session
+        self.stream_ui = stream_ui
+        self.tools     = tools
+        self.report    = report
 
     async def execute_tool_call(
         self,
         *,
         arguments: dict[str, typing.Any]
-    ) -> list[PlanStepResult]:
-        """执行一次 plan_steps 工具调用。"""
-        ok, plan, _ = normalize_plan_arguments(arguments)
-        if not ok:
-            return []
+    ) -> PlanExecutionReport:
+        """执行一次 plan_steps 工具调用并返回统一报告。"""
+        started_at = time.perf_counter()
 
-        return await self.execute_plan(plan)
+        valid, plan, errors = normalize_plan_arguments(arguments)
+
+        results = await self.execute_plan(plan) if valid else []
+        cost_ms = int((time.perf_counter() - started_at) * 1000)
+
+        return self._build_report(
+            plan=plan,
+            results=results,
+            errors=errors,
+            cost_ms=cost_ms
+        )
 
     async def execute_plan(
         self,
         plan: dict[str, typing.Any]
     ) -> list[PlanStepResult]:
         """按计划声明顺序执行所有步骤。"""
-        loops = int(plan.get("loops") or 1)
+        loops        = int(plan.get("loops") or 1)
         stop_on_fail = bool(plan.get("stop_on_fail", True))
-        steps = plan.get("steps") if isinstance(plan.get("steps"), list) else []
+        steps        = _plan_steps(plan)
 
         results: list[PlanStepResult] = []
-        stopped = False
+
+        stopped: bool = False
+
         await self.stream_ui.begin_loop_status(
             self._loop_summary(
                 run_index=1,
@@ -86,37 +111,39 @@ class StepPlanExecutor:
                 tool=""
             )
         )
-
-        for run_index in range(1, loops + 1):
-            if stopped:
-                break
-
-            for step_index, step in enumerate(steps, start=1):
-                await self.stream_ui.update_loop_status_summary(
-                    self._loop_summary(
-                        run_index=run_index,
-                        total_runs=loops,
-                        step_index=step_index,
-                        total_steps=len(steps),
-                        tool=str(step.get("tool") or "").strip()
-                    )
-                )
-                result = await self._execute_step(
-                    run_index,
-                    step_index,
-                    step,
-                    total_runs=loops,
-                    total_steps=len(steps)
-                )
-                results.append(result)
-
-                if stop_on_fail and not result.ok:
-                    stopped = True
+        try:
+            for run_index in range(1, loops + 1):
+                if stopped:
                     break
 
-        await self.stream_ui.update_loop_status_summary(
-            self._done_summary(results)
-        )
+                for step_index, step in enumerate(steps, start=1):
+                    await self.stream_ui.update_loop_status_summary(
+                        self._loop_summary(
+                            run_index=run_index,
+                            total_runs=loops,
+                            step_index=step_index,
+                            total_steps=len(steps),
+                            tool=str(step.get("tool") or "").strip()
+                        )
+                    )
+                    result = await self._execute_step(
+                        run_index,
+                        step_index,
+                        step,
+                        total_runs=loops,
+                        total_steps=len(steps)
+                    )
+                    results.append(result)
+                    if stop_on_fail and not result.ok:
+                        stopped = True
+                        break
+
+            await self.stream_ui.update_loop_status_summary(
+                self._done_summary(results)
+            )
+        finally:
+            await self.stream_ui.end_status(immediate=True)
+
         return results
 
     async def _execute_step(
@@ -129,67 +156,51 @@ class StepPlanExecutor:
         total_steps: int
     ) -> PlanStepResult:
         """执行计划中的单个步骤。"""
-        name = str(step.get("tool") or "").strip()
-        arguments = step.get("args") if isinstance(step.get("args"), dict) else {}
-        arguments = dict(arguments)
-        step_meta = step.get("meta") if isinstance(step.get("meta"), dict) else None
-        step_execution = step.get("execution") if isinstance(step.get("execution"), dict) else None
-        effective_meta = {**meta_for_tool(self.tools, name), **(step_meta or {})} or None
+        name          = str(step.get("tool") or "").strip()
+        raw_arguments = step.get("args")
+        arguments     = dict(raw_arguments) if isinstance(raw_arguments, dict) else {}
+        execution     = step.get("execution") if isinstance(step.get("execution"), dict) else None
+
+        logger.debug(
+            f"[PlanSteps] start run={run_index} step={step_index} tool={name}"
+        )
+
+        if not has_tool(self.tools, name):
+            return await self._failure(
+                run_index,
+                step_index,
+                name,
+                f"unknown plan tool: {name}",
+                total_runs=total_runs,
+                total_steps=total_steps
+            )
 
         policy_result = validate_execution_policy(
             name=name,
             arguments=arguments,
-            execution=step_execution
+            execution=execution
         )
         if policy_result:
-            result = self._policy_failure(run_index, step_index, name, policy_result)
-            await self.stream_ui.update_loop_status_summary(
-                self._loop_summary(
-                    run_index=run_index,
-                    total_runs=total_runs,
-                    step_index=step_index,
-                    total_steps=total_steps,
-                    tool=name,
-                    done=True
-                )
+            return await self._failure(
+                run_index,
+                step_index,
+                name,
+                self._policy_failure_text(policy_result),
+                total_runs=total_runs,
+                total_steps=total_steps
             )
-            return result
-
-        call_id = craft.short_uid()
-        await show_tool_start(
-            self.stream_ui,
-            name,
-            arguments,
-            call_id=call_id
-        )
 
         try:
             exchanged_args = exchange_arguments(name, arguments, self.report)
-            if should_pass_execution_to_tool(name, step_execution):
-                exchanged_args = {**exchanged_args, "execution": step_execution}
+            if not isinstance(exchanged_args, dict):
+                raise TypeError(f"invalid arguments for {name}")
+            if should_pass_execution_to_tool(name, execution):
+                exchanged_args = {**exchanged_args, "execution": execution}
 
-            tool_run = await run_tool_step(
-                self.session,
-                stream_ui=self.stream_ui,
-                tools=self.tools,
-                name=name,
-                arguments=exchanged_args,
-                meta=effective_meta,
-                mode=self.mode,
-                pref_config=self.pref_config,
-                metadata=self.metadata,
-                enable_progress_notify=True,
-                stream_callback=lambda text: self.stream_ui.feed(
-                    text, display=StreamUI.BLOCK
-                )
-            )
+            started_at = time.perf_counter()
 
-            await show_tool_result(
-                self.stream_ui,
-                name,
-                exchanged_args,
-                tool_run
-            )
+            result = await self.session.call_tool(name, exchanged_args)
+
             await self.stream_ui.update_loop_status_summary(
                 self._loop_summary(
                     run_index=run_index,
@@ -200,34 +211,237 @@ class StepPlanExecutor:
                     done=True
                 )
             )
-
-            return PlanStepResult(
+            step_result = PlanStepResult(
                 run=run_index,
                 index=step_index,
                 tool=name,
-                ok=tool_run.ok,
-                text=tool_run.text,
-                cost_ms=tool_run.cost_ms
+                ok=result.isError is not True,
+                text=self._result_text(result),
+                cost_ms=int((time.perf_counter() - started_at) * 1000)
             )
+            self._log_step_result(step_result)
+            return step_result
         except Exception as exc:
-            text = f"{type(exc).__name__}: {exc}"
-            await self.stream_ui.update_loop_status_summary(
-                self._loop_summary(
-                    run_index=run_index,
-                    total_runs=total_runs,
-                    step_index=step_index,
-                    total_steps=total_steps,
-                    tool=name,
-                    done=True
-                )
+            return await self._failure(
+                run_index,
+                step_index,
+                name,
+                f"{type(exc).__name__}: {exc}",
+                total_runs=total_runs,
+                total_steps=total_steps
             )
-            return PlanStepResult(
-                run=run_index,
-                index=step_index,
+
+    async def _failure(
+        self,
+        run_index: int,
+        step_index: int,
+        name: str,
+        text: str,
+        *,
+        total_runs: int,
+        total_steps: int
+    ) -> PlanStepResult:
+        """记录计划步骤失败并更新循环状态。"""
+        await self.stream_ui.update_loop_status_summary(
+            self._loop_summary(
+                run_index=run_index,
+                total_runs=total_runs,
+                step_index=step_index,
+                total_steps=total_steps,
                 tool=name,
-                ok=False,
-                text=text
+                done=True
             )
+        )
+        step_result = PlanStepResult(
+            run=run_index,
+            index=step_index,
+            tool=name,
+            ok=False,
+            text=text
+        )
+        self._log_step_result(step_result)
+        return step_result
+
+    @classmethod
+    def _build_report(
+        cls,
+        *,
+        plan: dict[str, typing.Any],
+        results: list[PlanStepResult],
+        errors: list[str],
+        cost_ms: int
+    ) -> PlanExecutionReport:
+        """根据计划和步骤结果生成有界汇总。"""
+        steps          = _plan_steps(plan)
+        requested_runs = int(plan.get("loops") or 1)
+        step_count     = len(steps)
+
+        calls_by_run: dict[int, int] = {}
+
+        results_by_step: dict[int, list[PlanStepResult]] = {
+            index: [] for index in range(1, step_count + 1)
+        }
+        failures: list[dict[str, typing.Any]] = []
+
+        ok_count: int = 0
+
+        for item in results:
+            calls_by_run[item.run] = calls_by_run.get(item.run, 0) + 1
+            results_by_step.setdefault(item.index, []).append(item)
+            if item.ok:
+                ok_count += 1
+            else:
+                failures.append({
+                    "run": item.run,
+                    "step": item.index,
+                    "tool": item.tool,
+                    "text": cls._bounded_text(item.text),
+                    "cost_ms": item.cost_ms
+                })
+
+        fail_count = len(results) - ok_count
+
+        completed_runs = sum(
+            1 for count in calls_by_run.values()
+            if 0 < step_count <= count
+        )
+        stopped = bool(fail_count and plan.get("stop_on_fail", True))
+        ok = not errors and fail_count == 0
+
+        step_results: list[dict[str, typing.Any]] = []
+        for step_index, step in enumerate(steps, start=1):
+            items = results_by_step[step_index]
+            last  = items[-1] if items else None
+
+            step_results.append({
+                "index"      : step_index,
+                "tool"       : str(step.get("tool") or ""),
+                "call_count" : len(items),
+                "ok_count"   : sum(1 for item in items if item.ok),
+                "fail_count" : sum(1 for item in items if not item.ok),
+                "last_text"  : cls._bounded_text(last.text if last else "")
+            })
+
+        text = cls._report_text(
+            errors=errors,
+            ok=ok,
+            stopped=stopped,
+            requested_runs=requested_runs,
+            completed_runs=completed_runs,
+            call_count=len(results),
+            ok_count=ok_count,
+            fail_count=fail_count,
+            cost_ms=cost_ms
+        )
+
+        data = {
+            "requested_runs"   : requested_runs,
+            "completed_runs"   : completed_runs,
+            "attempted_runs"   : max(calls_by_run, default=0),
+            "steps_per_run"    : step_count,
+            "call_count"       : len(results),
+            "ok_count"         : ok_count,
+            "fail_count"       : fail_count,
+            "stopped"          : stopped,
+            "elapsed_ms"       : cost_ms,
+            "step_results"     : step_results,
+            "failures"         : failures[:FAILURE_PREVIEW_LIMIT],
+            "omitted_failures" : max(0, len(failures) - FAILURE_PREVIEW_LIMIT),
+            "errors"           : errors[:FAILURE_PREVIEW_LIMIT]
+        }
+        return PlanExecutionReport(
+            ok=ok,
+            text=text,
+            data=data,
+            cost_ms=cost_ms,
+            results=results
+        )
+
+    @classmethod
+    def _report_text(
+        cls,
+        *,
+        errors: list[str],
+        ok: bool,
+        stopped: bool,
+        requested_runs: int,
+        completed_runs: int,
+        call_count: int,
+        ok_count: int,
+        fail_count: int,
+        cost_ms: int
+    ) -> str:
+        """生成计划执行的最终摘要。"""
+        if errors:
+            return f"plan rejected · {'; '.join(errors[:FAILURE_PREVIEW_LIMIT])}"
+        if ok:
+            return (
+                f"{completed_runs}/{requested_runs} runs · {call_count} calls · "
+                f"all succeeded · {cls._duration_text(cost_ms)}"
+            )
+
+        state = "stopped" if stopped else "completed with failures"
+        return (
+            f"{completed_runs}/{requested_runs} runs · {ok_count} succeeded · "
+            f"{fail_count} failed · {state} · {cls._duration_text(cost_ms)}"
+        )
+
+    @staticmethod
+    def _log_step_result(result: PlanStepResult) -> None:
+        """记录计划步骤的调试结果。"""
+        logger.debug(
+            f"[PlanSteps] result run={result.run} step={result.index} "
+            f"tool={result.tool} ok={result.ok} cost_ms={result.cost_ms}"
+        )
+
+    @staticmethod
+    def _done_summary(results: list[PlanStepResult]) -> str:
+        """生成计划完成状态摘要。"""
+        ok_count   = sum(1 for item in results if item.ok)
+        fail_count = sum(1 for item in results if not item.ok)
+        return f"done · ok {ok_count} · failed {fail_count}"
+
+    @staticmethod
+    def _result_text(result: typing.Any) -> str:
+        """从 MCP 工具结果中读取文本摘要。"""
+        structured = getattr(result, "structuredContent", None)
+        if isinstance(structured, dict) and structured.get("text") is not None:
+            return str(structured.get("text") or "")
+
+        content = getattr(result, "content", None)
+        if isinstance(content, list):
+            for item in content:
+                text = getattr(item, "text", None)
+                if text is not None:
+                    return str(text)
+        return ""
+
+    @staticmethod
+    def _bounded_text(value: typing.Any) -> str:
+        """把结果文本压缩为有界单行摘要。"""
+        text = " ".join(str(value or "").split())
+        if len(text) <= RESULT_TEXT_LIMIT:
+            return text
+        return f"{text[:RESULT_TEXT_LIMIT - 3]}..."
+
+    @staticmethod
+    def _duration_text(cost_ms: int) -> str:
+        """把毫秒耗时转换为紧凑文本。"""
+        elapsed_ms = max(0, int(cost_ms or 0))
+        if elapsed_ms < 1000:
+            return f"{elapsed_ms}ms"
+        elapsed_sec = elapsed_ms / 1000
+        if elapsed_sec < 60:
+            return f"{elapsed_sec:.1f}s"
+        minutes, seconds = divmod(int(elapsed_sec), 60)
+        return f"{minutes}m {seconds:02d}s"
+
+    @staticmethod
+    def _policy_failure_text(policy_result: dict[str, typing.Any]) -> str:
+        """返回执行策略拒绝对应的失败文本。"""
+        if is_execution_ignored(policy_result):
+            return str(policy_result.get("reason") or "execution ignored")
+        return str(policy_result.get("error") or "execution denied")
 
     @staticmethod
     def _loop_summary(
@@ -251,32 +465,13 @@ class StepPlanExecutor:
             parts.append("done")
         return " · ".join(parts)
 
-    @staticmethod
-    def _done_summary(results: list[PlanStepResult]) -> str:
-        """生成计划完成状态摘要。"""
-        ok_count = sum(1 for item in results if item.ok)
-        fail_count = sum(1 for item in results if not item.ok)
-        return f"done · ok {ok_count} · failed {fail_count}"
 
-    @staticmethod
-    def _policy_failure(
-        run_index: int,
-        step_index: int,
-        name: str,
-        policy_result: dict[str, typing.Any]
-    ) -> PlanStepResult:
-        """把执行策略拒绝转换为步骤失败。"""
-        if is_execution_ignored(policy_result):
-            text = str(policy_result.get("reason") or "execution ignored")
-        else:
-            text = str(policy_result.get("error") or "execution denied")
-        return PlanStepResult(
-            run=run_index,
-            index=step_index,
-            tool=name,
-            ok=False,
-            text=text
-        )
+def _plan_steps(plan: dict[str, typing.Any]) -> list[dict[str, typing.Any]]:
+    """读取已标准化计划中的步骤列表。"""
+    raw_steps = plan.get("steps")
+    if not isinstance(raw_steps, list):
+        return []
+    return [step for step in raw_steps if isinstance(step, dict)]
 
 
 if __name__ == '__main__':
