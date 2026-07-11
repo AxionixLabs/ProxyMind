@@ -5,7 +5,8 @@ from types import SimpleNamespace
 from mcp import types as mcp_types
 from mind_app.client_tools.planning import (
     PLAN_STEPS_INPUT_SCHEMA,
-    normalize_plan_arguments
+    normalize_plan_arguments,
+    planning_tools
 )
 from mind_app.runtime.tools import plan_call as plan_call_module
 from mind_app.runtime.tools import plan_steps as plan_steps_module
@@ -61,6 +62,14 @@ def build_executor(session: FakePlanSession, stream_ui: FakePlanUI) -> StepPlanE
         tools=[{"name": "test_tool", "meta": {}}],
         report=SimpleNamespace()
     )
+
+
+def test_plan_steps_is_classified_as_loop() -> None:
+    """计划步骤工具以循环类元数据上报。"""
+    tool = next(tool for tool in planning_tools() if tool.name == "plan_steps")
+
+    assert tool.meta["domain"] == "client"
+    assert tool.meta["class"] == "loop"
 
 
 def test_plan_steps_runs_in_internal_loop_and_cleans_status() -> None:

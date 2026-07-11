@@ -5,7 +5,6 @@ import base64
 import typing
 from pathlib import Path
 from mcp import types as mcp_types
-from mind_app.native_coding import NativeCoding
 from mind_app.client_tools.result import client_tool_result
 from mind_app.client_tools.types import (
     ClientTool,
@@ -73,9 +72,17 @@ def _resolve_image_path(root: Path, raw_path: str) -> Path:
     return candidate.resolve()
 
 
-def view_image_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
+def _display_image_path(root: Path, image_path: Path) -> str:
+    """生成相对执行目录的图片展示路径。"""
+    try:
+        return image_path.relative_to(root).as_posix()
+    except ValueError:
+        return str(image_path)
+
+
+def view_image_tools() -> list[ClientTool]:
     """返回图片查看工具列表。"""
-    coding = native_coding or NativeCoding()
+    root = Path.cwd().resolve()
 
     async def view_image_handler(
         arguments: dict[str, typing.Any],
@@ -93,7 +100,7 @@ def view_image_tools(native_coding: NativeCoding | None = None) -> list[ClientTo
             )
 
         try:
-            image_path = _resolve_image_path(coding.root, raw_path)
+            image_path = _resolve_image_path(root, raw_path)
         except (OSError, RuntimeError, ValueError):
             return _image_result(
                 ok=False,
@@ -149,7 +156,7 @@ def view_image_tools(native_coding: NativeCoding | None = None) -> list[ClientTo
                 data={"size": size},
             )
 
-        relative_path = coding.relative_path(image_path)
+        relative_path = _display_image_path(root, image_path)
 
         data_url = f"data:{mime_type};base64,{base64.b64encode(content).decode('ascii')}"
 
@@ -173,7 +180,7 @@ def view_image_tools(native_coding: NativeCoding | None = None) -> list[ClientTo
             name=VIEW_IMAGE_TOOL,
             description="读取当前执行环境中可访问的图片，并把图片作为附件提供给后续模型推理。",
             input_schema=VIEW_IMAGE_INPUT_SCHEMA,
-            meta={"hidden": False, "domain": "coding", "class": "view"},
+            meta={"hidden": False, "domain": "client", "class": "view"},
             handler=view_image_handler,
         ),
     ]
