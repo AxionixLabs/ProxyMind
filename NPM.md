@@ -57,11 +57,11 @@ npm run sync:applications
 ```
 
 ```shell
-Remove-Item -LiteralPath "packages\mind-win32\applications\MindEngine\schematic\supports\windows\helix.dist" -Recurse -Force -ErrorAction SilentlyContinue
+$target = "packages\mind-win32\applications\MindEngine\schematic\supports\windows\helix.dist"; if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop }
 ```
 
 ```shell
-if (Test-Path -LiteralPath "packages\mind-win32\applications\MindEngine\schematic\supports\windows\helix.dist") { throw "helix.dist still exists" }
+$target = "packages\mind-win32\applications\MindEngine\schematic\supports\windows\helix.dist"; if (Test-Path -LiteralPath $target) { throw "$target still exists" }
 ```
 
 ### 🪟 Dry Run
@@ -120,11 +120,11 @@ npm run sync:applications
 ```
 
 ```bash
-rm -rf "packages/mind-darwin/applications/Mind.app/Contents/MacOS/schematic/supports/macos/helix.app"
+target="packages/mind-darwin/applications/Mind.app/Contents/MacOS/schematic/supports/macos/helix.app"; rm -rf "$target"
 ```
 
 ```bash
-if [ -e "packages/mind-darwin/applications/Mind.app/Contents/MacOS/schematic/supports/macos/helix.app" ]; then echo "helix.app still exists" >&2; exit 1; fi
+target="packages/mind-darwin/applications/Mind.app/Contents/MacOS/schematic/supports/macos/helix.app"; test ! -e "$target" || { echo "$target still exists" >&2; exit 1; }
 ```
 
 ### 🍎 Dry Run
