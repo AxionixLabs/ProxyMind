@@ -17,14 +17,14 @@ from mind_core.terminal_input import clear_pending_input
 McpAction = typing.Literal["start", "force", "stop", "restart", "status"]
 
 MCP_MENU_STYLE = Style.from_dict({
-    "mcp.title"        : "bold #DCE6EE",
+    "mcp.title"        : "bold #E6F6FF",
     "mcp.help"         : "#69727D",
     "mcp.status"       : "#87919D",
     "mcp.index"        : "bold #8A949F",
-    "mcp.index.active" : "bold #F4F7FA bg:#3A4651",
+    "mcp.index.active" : "bold #101820 bg:#87D7FF",
     "mcp.action"       : "bold #F4F7FA",
     "mcp.detail"       : "#7F8C9A",
-    "mcp.active"       : "#F4F7FA bg:#26313A"
+    "mcp.active"       : "#F4F7FA bg:#1D2F3A"
 })
 
 MCP_MENU_ACTIONS: tuple[tuple[McpAction, str, str], ...] = (
@@ -255,7 +255,7 @@ async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> None:
 
 
 def render_mcp_status(mind: typing.Any) -> None:
-    """打印外部 MCP runtime 状态。"""
+    """打印外部 MCP 服务状态。"""
     summary     = summarize_external_runtime(mind)
     configured  = summary["configured"]
     tool_groups = summary["tool_groups"]
