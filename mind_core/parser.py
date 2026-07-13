@@ -100,6 +100,16 @@ class Parser(object):
             ''')
         )
 
+        # major_group.add_argument(
+        #     "--", nargs="?", const="", default=None,
+        #     help=textwrap.dedent(f'''\
+        #         \033[1;34m^* 推演协议 *^\033[0m
+        #         -------------------------
+        #         -
+        #
+        # 	''')
+        # )
+
         major_group.add_argument(
             "--agent", action="store_true",
             help=textwrap.dedent(f'''\
