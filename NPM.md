@@ -58,13 +58,15 @@ npm run sync:applications
 
 ```shell
 Remove-Item -LiteralPath "packages\mind-win32\applications\MindEngine\schematic\supports\windows\helix.dist" -Recurse -Force -ErrorAction SilentlyContinue
+```
+
+```shell
 if (Test-Path -LiteralPath "packages\mind-win32\applications\MindEngine\schematic\supports\windows\helix.dist") { throw "helix.dist still exists" }
 ```
 
 ### 🪟 Dry Run
 
 ```shell
-if (Test-Path -LiteralPath "packages\mind-win32\applications\MindEngine\schematic\supports\windows\helix.dist") { throw "helix.dist must be removed before dry-run" }
 npm publish -w @craftline/mind-win32 --dry-run --access public; if ($LASTEXITCODE -eq 0) { npm publish -w @craftline/mind --dry-run --access public }
 ```
 
@@ -119,13 +121,15 @@ npm run sync:applications
 
 ```bash
 rm -rf "packages/mind-darwin/applications/Mind.app/Contents/MacOS/schematic/supports/macos/helix.app"
+```
+
+```bash
 if [ -e "packages/mind-darwin/applications/Mind.app/Contents/MacOS/schematic/supports/macos/helix.app" ]; then echo "helix.app still exists" >&2; exit 1; fi
 ```
 
 ### 🍎 Dry Run
 
 ```bash
-if [ -e "packages/mind-darwin/applications/Mind.app/Contents/MacOS/schematic/supports/macos/helix.app" ]; then echo "helix.app must be removed before dry-run" >&2; exit 1; fi
 npm publish -w @craftline/mind-darwin --dry-run --access public && npm publish -w @craftline/mind --dry-run --access public
 ```
 
