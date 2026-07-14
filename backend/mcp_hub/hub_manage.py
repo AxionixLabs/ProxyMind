@@ -139,15 +139,6 @@ class Requires(object):
 
         return (await Flux.cmd_line([application, "--version"]) or "").strip()
 
-    @staticmethod
-    async def connect_mitmdump() -> typing.Optional[str]:
-        """检查 mitmdump 是否可用于自动化抓包。"""
-        if not shutil.which(application := "mitmdump"):
-            navigator = "https://mitmproxy.org/"
-            raise RuntimeError(f"Requires {application}. install it first, {navigator}.")
-
-        return (await Flux.cmd_line([application, "--version"]) or "").strip()
-
 
 if __name__ == '__main__':
     pass

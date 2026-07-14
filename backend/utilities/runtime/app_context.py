@@ -7,7 +7,6 @@ from backend.mcp_core.core_k6 import K6
 from backend.mcp_core.core_framix import Framix
 from backend.mcp_core.core_memrix import Memrix
 from backend.mcp_core.core_nexus import Nexus
-from backend.mcp_core.core_capture import Capture
 from backend.mcp_hub.hub_medias import (
     FFmpeg,
     Player
@@ -35,28 +34,25 @@ class AppContext(object):
             mx_report_store=self.mx_reports
         )
 
-        self.nexus: Nexus     = Nexus()
-        self.k6: K6           = K6()
-        self.capture: Capture = Capture()
+        self.nexus: Nexus = Nexus()
+        self.k6: K6       = K6()
 
         self.ffmpeg: FFmpeg = FFmpeg()
         self.player: Player = Player()
 
     async def instance_snapshots(self) -> dict[str, dict[str, typing.Any]]:
         """汇总当前运行上下文中的各类实例快照。"""
-        video_list, fx_report, mx_report, capture = await asyncio.gather(
+        video_list, fx_report, mx_report = await asyncio.gather(
             self.video_list_snapshot(),
             self.fx_report_snapshot(),
-            self.mx_report_snapshot(),
-            self.capture.snapshot()
+            self.mx_report_snapshot()
         )
 
         return {
             "instance": {
                 **video_list,
                 **fx_report,
-                **mx_report,
-                **capture
+                **mx_report
             }
         }
 
