@@ -9,6 +9,7 @@ from mcp.types import CallToolResult
 from engine.enhance import enhance_result
 from ...stream_ui import StreamUI
 from .router import execute_tool
+from .types import ToolDisplayResult
 
 _COMMON_PROMOTED_RESULT_KEYS = (
     "path",
@@ -67,7 +68,7 @@ _OUTPUT_PROMOTED_RESULT_KEYS = (
 
 
 @dataclass(slots=True)
-class ToolRunResult(object):
+class ToolRunResult(ToolDisplayResult):
     """统一描述单次工具执行的收束结果。"""
     result: CallToolResult
     ok: bool
@@ -78,7 +79,7 @@ class ToolRunResult(object):
 
 
 @dataclass(slots=True)
-class ServerToolOutputResult(object):
+class ServerToolOutputResult(ToolDisplayResult):
     """服务端已执行工具结果的本地展示适配对象。"""
     result: typing.Any
     ok: bool
@@ -298,9 +299,7 @@ async def run_tool_step(
     name: str,
     arguments: dict[str, typing.Any],
     meta: typing.Optional[dict[str, typing.Any]],
-    mode: str,
     pref_config: dict[str, typing.Any],
-    metadata: dict[str, typing.Any],
     enable_progress_notify: bool = False,
     stream_callback: typing.Optional[typing.Callable[[str], typing.Awaitable[None]]] = None,
     status_text: typing.Optional[str] = None,
@@ -328,10 +327,7 @@ async def run_tool_step(
         ok = not result.isError
 
         fields = await enhance_result(
-            session=session,
-            mode=mode,
             pref_config=pref_config,
-            metadata=metadata,
             name=name,
             result=result,
             ok=ok,

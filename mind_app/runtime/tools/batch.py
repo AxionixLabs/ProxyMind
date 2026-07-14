@@ -168,9 +168,7 @@ class ToolBatchExecutor:
                 name=name,
                 arguments=arguments,
                 meta=pending.meta,
-                mode=self.mode,
                 pref_config=self.pref_config,
-                metadata=self.metadata,
                 enable_progress_notify=True,
                 stream_callback=lambda x: self.stream_ui.feed(
                     x, display=StreamUI.BLOCK

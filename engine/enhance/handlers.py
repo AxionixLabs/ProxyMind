@@ -13,18 +13,10 @@ from .fields import (
     tool_payload,
     tool_target
 )
-from .uploads import upload_tool_result
-
-if typing.TYPE_CHECKING:
-    from mind_app.mcp import McpSessionLike
-
 
 async def enhance_result(
     *,
-    session: "McpSessionLike",
-    mode: str,
     pref_config: dict[str, typing.Any],
-    metadata: dict[str, typing.Any],
     name: str,
     result: CallToolResult,
     ok: bool,
@@ -38,15 +30,6 @@ async def enhance_result(
 
     if name.startswith("nexus_"):
         return await enhance_nexus(result, slog)
-
-    if name in {
-        "ffmpeg_extract_snapshot",
-        "ffmpeg_extract_keyframes",
-        "ffmpeg_extract_scene",
-        "file_logcat_dump",
-        "screenshot"
-    }:
-        return await enhance_artifact_upload(name, result)
 
     if name == "heal_element":
         return await enhance_heal_element(result, pref_config, slog)
@@ -69,46 +52,6 @@ async def enhance_nexus(
         )
 
     return result_fields
-
-
-async def enhance_artifact_upload(
-    name: str,
-    result: CallToolResult
-) -> dict:
-    """按工具名称选择附件上传配置。"""
-    specs = {
-        "ffmpeg_extract_snapshot": {
-            "bucket"       : "frames",
-            "missing_text" : "未获取到视频帧结果",
-            "success_text" : "视频帧上传成功",
-            "partial_text" : "视频帧上传完成（存在失败）"
-        },
-        "ffmpeg_extract_keyframes": {
-            "bucket"       : "frames",
-            "missing_text" : "未获取到视频帧结果",
-            "success_text" : "视频帧上传成功",
-            "partial_text" : "视频帧上传完成（存在失败）"
-        },
-        "ffmpeg_extract_scene": {
-            "bucket"       : "frames",
-            "missing_text" : "未获取到视频帧结果",
-            "success_text" : "视频帧上传成功",
-            "partial_text" : "视频帧上传完成（存在失败）"
-        },
-        "file_logcat_dump": {
-            "bucket"       : "logcat",
-            "missing_text" : "未获取到 logcat 结果",
-            "success_text" : "logcat 上传成功",
-            "partial_text" : "logcat 上传完成（存在失败）"
-        },
-        "screenshot": {
-            "bucket"       : "screenshots",
-            "missing_text" : "未获取到截图结果",
-            "success_text" : "屏幕截图上传成功",
-            "partial_text" : "屏幕截图上传完成（存在失败）"
-        }
-    }
-    return await upload_tool_result(result, **specs[name])
 
 
 async def enhance_heal_element(
@@ -211,6 +154,7 @@ async def enhance_heal_element(
         "attachments" : attachments,
         "data"        : heal_result_data
     }
+
 
 if __name__ == '__main__':
     pass
