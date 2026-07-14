@@ -160,9 +160,12 @@ def detect_runtimes() -> dict[str, typing.Any]:
 def detect_tools() -> dict[str, typing.Any]:
     """检测随本地运行时提供给远端感知的命令行工具。"""
     return {
+        "7z"       : tool_bin("7z"),
         "ast-grep" : tool_bin("ast-grep"),
         "rg"       : tool_bin("rg"),
-        "jq"       : tool_bin("jq")
+        "jq"       : tool_bin("jq"),
+        "sqlite3"  : tool_bin("sqlite3"),
+        "yq"       : tool_bin("yq")
     }
 
 
