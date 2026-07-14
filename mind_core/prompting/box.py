@@ -10,6 +10,7 @@ from prompt_toolkit.auto_suggest import (
     Suggestion
 )
 from prompt_toolkit.completion import CompleteEvent
+from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
@@ -118,6 +119,9 @@ class PromptToolkitBox(object):
 
         self.session: typing.Optional[PromptSession[str]] = None
         self.paste_store: dict[str, str]                  = {}
+        self._history_entries: tuple[str, ...]            = ()
+        self._history_index: typing.Optional[int]         = None
+        self._history_draft: typing.Optional[Document]    = None
 
         self.style: Style = Style.from_dict({
             "prompt": "bold #E2E5EA",
@@ -428,6 +432,57 @@ class PromptToolkitBox(object):
             restored = restored.replace(placeholder, original)
         return restored
 
+    def _reset_history_navigation(self) -> None:
+        """重置历史导航状态。"""
+        self._history_entries = ()
+        self._history_index   = None
+        self._history_draft   = None
+
+    def _start_history_navigation(self, buf) -> None:
+        """根据当前输入创建历史导航候选。"""
+        prefix = buf.document.text_before_cursor
+
+        self._history_draft = buf.document
+
+        self._history_entries = tuple(
+            entry
+            for entry in self.history.get_strings()
+            if entry.startswith(prefix)
+        )
+        self._history_index = len(self._history_entries)
+
+    def _history_navigation_matches_buffer(self, buf) -> bool:
+        """判断输入框是否仍处于当前历史导航状态。"""
+        if self._history_index is None or self._history_draft is None:
+            return False
+
+        if self._history_index == len(self._history_entries):
+            return buf.text == self._history_draft.text
+
+        return buf.text == self._history_entries[self._history_index]
+
+    def _navigate_history(self, buf, step: int, count: int) -> None:
+        """在真实历史条目和当前草稿之间导航。"""
+        if not self._history_navigation_matches_buffer(buf):
+            self._start_history_navigation(buf)
+
+        if self._history_index is None or self._history_draft is None:
+            return
+
+        target = min(
+            len(self._history_entries),
+            max(0, self._history_index + step * count)
+        )
+        if target == self._history_index:
+            return
+
+        self._history_index = target
+        if target == len(self._history_entries):
+            buf.document = self._history_draft
+            return
+
+        buf.document = Document(self._history_entries[target], cursor_position=0)
+
     def _build_key_bindings(self) -> KeyBindings:
         """按键绑定集合。"""
         kb = KeyBindings()
@@ -548,7 +603,11 @@ class PromptToolkitBox(object):
                 if self._select_completion(buf, -max(1, event.arg)):
                     event.app.invalidate()
                 return
-            buf.auto_up(count=event.arg, go_to_start_of_line_if_history_changes=True)
+            if buf.document.cursor_position_row > 0:
+                buf.cursor_up(count=max(1, event.arg))
+                return
+            if not buf.selection_state:
+                self._navigate_history(buf, step=-1, count=max(1, event.arg))
 
         @kb.add("down")
         def _(event) -> None:
@@ -557,7 +616,11 @@ class PromptToolkitBox(object):
                 if self._select_completion(buf, max(1, event.arg)):
                     event.app.invalidate()
                 return
-            buf.auto_down(count=event.arg, go_to_start_of_line_if_history_changes=True)
+            if buf.document.cursor_position_row < buf.document.line_count - 1:
+                buf.cursor_down(count=max(1, event.arg))
+                return
+            if not buf.selection_state:
+                self._navigate_history(buf, step=1, count=max(1, event.arg))
 
         return kb
 
@@ -591,6 +654,7 @@ class PromptToolkitBox(object):
         )
 
         self.auto_suggest.set_mode(mode)
+        self._reset_history_navigation()
 
         session = self._get_session()
 
@@ -618,6 +682,7 @@ class PromptToolkitBox(object):
             return self._restore_pasted_content(value).strip()
         finally:
             self.paste_store.clear()
+            self._reset_history_navigation()
 
 
 if __name__ == '__main__':

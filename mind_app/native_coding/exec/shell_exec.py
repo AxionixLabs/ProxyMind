@@ -8,13 +8,23 @@ from loguru import logger
 from mind_app.native_coding.base import (
     NativeCodingBase, NativeCodingComponent
 )
-from mind_app.native_coding.exec.process_capture import ProcessCapture
+from mind_app.native_coding.encoding import (
+    DecodedProcessOutput,
+    decode_process_output_details,
+    normalize_process_output_encoding
+)
+from mind_app.native_coding.exec.process_capture import (
+    CapturedOutputLine,
+    ProcessCapture
+)
 from mind_app.native_coding.exec.shell_runtime import ShellRuntimeResolver
 from mind_app.native_coding.trace import summarize_command
 
 
 class ShellCommandTools(NativeCodingComponent):
     """提供受控 shell 执行能力。"""
+
+    OUTPUT_LINE_MAX_CHARS = 1000
 
     AUDIT_METADATA_COMMANDS = {
         "cat",
@@ -172,12 +182,61 @@ class ShellCommandTools(NativeCodingComponent):
         history.append(record)
         del history[:-20]
 
+    @classmethod
+    def _decode_output_lines(
+        cls,
+        records: tuple[CapturedOutputLine, ...],
+        *,
+        encoding: str
+    ) -> tuple[list[str], tuple[str, ...], bool]:
+        """解码有序输出行并汇总编码信息。"""
+        lines: list[str]     = []
+        encodings: list[str] = []
+
+        ambiguous: bool = False
+
+        for record in records:
+            decoded = decode_process_output_details(record.data, encoding=encoding)
+            text = decoded.text.rstrip()
+            if not text:
+                continue
+            if len(text) > cls.OUTPUT_LINE_MAX_CHARS:
+                text = f"{text[:cls.OUTPUT_LINE_MAX_CHARS - 3]}..."
+            lines.append(text)
+            ambiguous = ambiguous or decoded.ambiguous
+            for item in decoded.encodings:
+                if item not in encodings:
+                    encodings.append(item)
+
+        return lines, tuple(encodings), ambiguous
+
+    @staticmethod
+    def _output_encoding_summary(
+        *decoded_values: DecodedProcessOutput,
+        line_encodings: tuple[str, ...],
+        line_ambiguous: bool
+    ) -> tuple[list[str], bool]:
+        """合并输出字段和有序行的编码信息。"""
+        encodings: list[str] = []
+
+        ambiguous = line_ambiguous
+        for decoded in decoded_values:
+            ambiguous = ambiguous or decoded.ambiguous
+            for item in decoded.encodings:
+                if item not in encodings:
+                    encodings.append(item)
+        for item in line_encodings:
+            if item not in encodings:
+                encodings.append(item)
+        return encodings, ambiguous
+
     async def shell_command(
         self,
         *,
         command: str,
         cwd: str = ".",
         timeout_sec: int = 60,
+        output_encoding: str = "auto",
         execution: dict[str, typing.Any] | None = None,
         audit_files: bool = False
     ) -> dict[str, typing.Any]:
@@ -185,6 +244,17 @@ class ShellCommandTools(NativeCodingComponent):
         cmd = str(command or "").strip()
         if not cmd:
             return self.fail_result("command_empty")
+
+        try:
+            normalized_output_encoding = normalize_process_output_encoding(output_encoding)
+        except ValueError:
+            result = self.fail_result(
+                "output_encoding_invalid",
+                command=cmd,
+                output_encoding=str(output_encoding or "")
+            )
+            self._record_shell_result(result.get("data") or {})
+            return result
 
         policy = self._command_policy.execution_metadata_policy(
             execution,
@@ -302,8 +372,27 @@ class ShellCommandTools(NativeCodingComponent):
             "truncated"      : False
         }
 
-        raw_stdout = self.decode_bytes(capture.stdout or b"")
-        raw_stderr = self.decode_bytes(capture.stderr or b"")
+        decoded_stdout = decode_process_output_details(
+            capture.stdout or b"",
+            encoding=normalized_output_encoding
+        )
+        decoded_stderr = decode_process_output_details(
+            capture.stderr or b"",
+            encoding=normalized_output_encoding
+        )
+        output_lines, line_encodings, line_ambiguous = self._decode_output_lines(
+            capture.output_records,
+            encoding=normalized_output_encoding
+        )
+        detected_encodings, encoding_ambiguous = self._output_encoding_summary(
+            decoded_stdout,
+            decoded_stderr,
+            line_encodings=line_encodings,
+            line_ambiguous=line_ambiguous
+        )
+
+        raw_stdout = decoded_stdout.text
+        raw_stderr = decoded_stderr.text
         out_text   = self.clip_output(raw_stdout, max_chars=output_limit)
         err_text   = self.clip_output(raw_stderr, max_chars=output_limit)
         exit_code  = int(capture.exit_code or 0)
@@ -319,36 +408,39 @@ class ShellCommandTools(NativeCodingComponent):
         )
 
         data = {
-            "command"                : cmd,
-            "resolved_command"       : exec_cmd,
-            "cwd"                    : self.relative_path(workdir),
-            "risk"                   : policy.get("risk"),
-            "category"               : policy.get("category"),
-            "risk_signals"           : policy.get("reasons") or [],
-            "approval_required"      : bool(policy.get("approval_required")),
-            "execution_target"       : policy.get("execution_target"),
-            "requires_cloud_sandbox" : bool(policy.get("requires_cloud_sandbox")),
-            "execution"              : policy.get("execution"),
-            "grant_id"               : policy.get("grant_id"),
-            "runtime"                : runtime_info,
-            "runtime_name"           : runtime.name,
-            "project_types"          : policy.get("project_types") or [],
-            "long_task"              : bool(policy.get("long_task")),
-            "timeout_sec"            : effective_timeout,
-            "output_limit"           : output_limit,
-            "stdout_truncated"       : stdout_truncated,
-            "stderr_truncated"       : stderr_truncated,
-            "truncated"              : stdout_truncated or stderr_truncated,
-            "file_audit_enabled"     : audit_mode != "off",
-            "file_audit_mode"        : audit_mode,
-            "shell_file_changes"     : shell_file_changes,
-            "shell_write_detected"   : bool(shell_file_changes.get("changed")),
-            "exit_code"              : exit_code,
-            "timed_out"              : capture.timed_out,
-            "elapsed_ms"             : elapsed_ms,
-            "stdout"                 : out_text,
-            "stderr"                 : err_text,
-            "output_lines"           : list(capture.output_lines)
+            "command"                   : cmd,
+            "resolved_command"          : exec_cmd,
+            "cwd"                       : self.relative_path(workdir),
+            "risk"                      : policy.get("risk"),
+            "category"                  : policy.get("category"),
+            "risk_signals"              : policy.get("reasons") or [],
+            "approval_required"         : bool(policy.get("approval_required")),
+            "execution_target"          : policy.get("execution_target"),
+            "requires_cloud_sandbox"    : bool(policy.get("requires_cloud_sandbox")),
+            "execution"                 : policy.get("execution"),
+            "grant_id"                  : policy.get("grant_id"),
+            "runtime"                   : runtime_info,
+            "runtime_name"              : runtime.name,
+            "project_types"             : policy.get("project_types") or [],
+            "long_task"                 : bool(policy.get("long_task")),
+            "timeout_sec"               : effective_timeout,
+            "output_limit"              : output_limit,
+            "stdout_truncated"          : stdout_truncated,
+            "stderr_truncated"          : stderr_truncated,
+            "truncated"                 : stdout_truncated or stderr_truncated,
+            "file_audit_enabled"        : audit_mode != "off",
+            "file_audit_mode"           : audit_mode,
+            "shell_file_changes"        : shell_file_changes,
+            "shell_write_detected"      : bool(shell_file_changes.get("changed")),
+            "exit_code"                 : exit_code,
+            "timed_out"                 : capture.timed_out,
+            "elapsed_ms"                : elapsed_ms,
+            "output_encoding"           : normalized_output_encoding,
+            "detected_output_encodings" : detected_encodings,
+            "output_encoding_ambiguous" : encoding_ambiguous,
+            "stdout"                    : out_text,
+            "stderr"                    : err_text,
+            "output_lines"              : output_lines
         }
 
         if not ok:
@@ -368,4 +460,3 @@ class ShellCommandTools(NativeCodingComponent):
 
 if __name__ == '__main__':
     pass
-

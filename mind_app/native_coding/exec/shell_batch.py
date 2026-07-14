@@ -27,7 +27,9 @@ class ShellBatchTools(NativeCodingComponent):
     ) -> tuple[str, dict[str, typing.Any]]:
         """归一化新版直接命令项。"""
         args = {
-            key: item[key] for key in ("command", "cwd", "timeout_sec") if key in item
+            key: item[key]
+            for key in ("command", "cwd", "timeout_sec", "output_encoding")
+            if key in item
         }
         return "shell_command", args
 

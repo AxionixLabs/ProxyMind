@@ -8,6 +8,15 @@ import typing
 import asyncio
 import subprocess
 from dataclasses import dataclass
+from mind_app.native_coding.encoding import decode_process_output
+
+
+@dataclass(frozen=True, slots=True)
+class CapturedOutputLine(object):
+    """记录一行原始进程输出及其来源。"""
+
+    stream: str
+    data: bytes
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,7 +25,7 @@ class CapturedProcessResult(object):
     exit_code: int
     stdout: bytes
     stderr: bytes
-    output_lines: tuple[str, ...]
+    output_records: tuple[CapturedOutputLine, ...]
     stdout_dropped: int
     stderr_dropped: int
     timed_out: bool
@@ -55,11 +64,11 @@ class OrderedOutputBuffer(object):
         self.max_lines      = max(1, int(max_lines or 1))
         self.max_line_chars = max(20, int(max_line_chars or 20))
 
-        self.lines: list[str] = []
+        self.lines: list[CapturedOutputLine] = []
 
-        self.pending: dict[str, str] = {
-            "stdout": "",
-            "stderr": "",
+        self.pending: dict[str, bytes] = {
+            "stdout": b"",
+            "stderr": b"",
         }
         self.lock = asyncio.Lock()
 
@@ -68,35 +77,44 @@ class OrderedOutputBuffer(object):
         if not chunk:
             return None
 
-        text       = chunk.decode(errors="replace")
-        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-
         async with self.lock:
-            combined = self.pending.get(stream, "") + normalized
-            if combined.endswith("\n"):
-                complete = combined.split("\n")[:-1]
-                self.pending[stream] = ""
-            else:
-                parts = combined.split("\n")
-                complete = parts[:-1]
-                self.pending[stream] = parts[-1] if parts else ""
+            combined = self.pending.get(stream, b"") + chunk
+            complete, pending = self._split_complete_lines(combined)
+            self.pending[stream] = pending
 
             for line in complete:
                 if line:
-                    self.lines.append(self._clip_line(line))
+                    self.lines.append(CapturedOutputLine(stream=stream, data=line))
 
             if len(self.lines) > self.max_lines:
                 del self.lines[:-self.max_lines]
 
-    async def snapshot(self) -> tuple[str, ...]:
-        """返回包含未完成行的输出快照。"""
+    async def finish_stream(self, stream: str) -> None:
+        """收束指定输出流的未完成行。"""
+        async with self.lock:
+            pending = self.pending.get(stream, b"")
+            self.pending[stream] = b""
+            if pending.endswith(b"\r"):
+                pending = pending[:-1]
+            if pending:
+                self.lines.append(CapturedOutputLine(stream=stream, data=pending))
+            if len(self.lines) > self.max_lines:
+                del self.lines[:-self.max_lines]
+
+    async def snapshot_records(self) -> tuple[CapturedOutputLine, ...]:
+        """返回包含未完成行的原始输出快照。"""
         async with self.lock:
             lines = list(self.lines)
             for stream in ("stdout", "stderr"):
-                pending = self.pending.get(stream, "")
+                pending = self._visible_pending(self.pending.get(stream, b""))
                 if pending:
-                    lines.append(self._clip_line(pending))
+                    lines.append(CapturedOutputLine(stream=stream, data=pending))
             return tuple(lines[-self.max_lines:])
+
+    async def snapshot(self) -> tuple[str, ...]:
+        """返回包含未完成行的输出快照。"""
+        records = await self.snapshot_records()
+        return tuple(self._decode_line(item.data) for item in records)
 
     async def drain(self, *, flush_pending: bool = False) -> tuple[str, ...]:
         """返回并清空已完成输出行，可选同时收束未完成行。"""
@@ -106,18 +124,55 @@ class OrderedOutputBuffer(object):
 
             if flush_pending:
                 for stream in ("stdout", "stderr"):
-                    pending = self.pending.get(stream, "")
+                    pending = self._visible_pending(self.pending.get(stream, b""))
                     if pending:
-                        lines.append(self._clip_line(pending))
-                    self.pending[stream] = ""
+                        lines.append(CapturedOutputLine(stream=stream, data=pending))
+                    self.pending[stream] = b""
 
-            return tuple(lines[-self.max_lines:])
+            return tuple(
+                self._decode_line(item.data)
+                for item in lines[-self.max_lines:]
+            )
 
-    def _clip_line(self, value: str) -> str:
-        text = str(value or "").rstrip()
+    def _decode_line(self, value: bytes) -> str:
+        text = decode_process_output(value).rstrip()
         if len(text) <= self.max_line_chars:
             return text
         return f"{text[:max(0, self.max_line_chars - 3)]}..."
+
+    @staticmethod
+    def _visible_pending(value: bytes) -> bytes:
+        """返回适合快照展示的未完成行字节。"""
+        return value[:-1] if value.endswith(b"\r") else value
+
+    @staticmethod
+    def _split_complete_lines(value: bytes) -> tuple[list[bytes], bytes]:
+        """从字节流中分离完整行并保留末尾片段。"""
+        lines: list[bytes] = []
+
+        start: int = 0
+        index: int = 0
+
+        while index < len(value):
+            byte = value[index]
+            if byte == 10:
+                line = value[start:index]
+                if line.endswith(b"\r"):
+                    line = line[:-1]
+                lines.append(line)
+                index += 1
+                start = index
+                continue
+            if byte == 13:
+                if index + 1 >= len(value):
+                    break
+                lines.append(value[start:index])
+                index += 2 if value[index + 1] == 10 else 1
+                start = index
+                continue
+            index += 1
+
+        return lines, value[start:]
 
 
 class ProcessCapture(object):
@@ -179,7 +234,7 @@ class ProcessCapture(object):
             exit_code=int(exit_code),
             stdout=stdout_buffer.bytes(),
             stderr=stderr_buffer.bytes(),
-            output_lines=await output_buffer.snapshot(),
+            output_records=await output_buffer.snapshot_records(),
             stdout_dropped=stdout_buffer.dropped,
             stderr_dropped=stderr_buffer.dropped,
             timed_out=timed_out,
@@ -199,11 +254,11 @@ class ProcessCapture(object):
         prefix = [str(item) for item in (shell or []) if str(item or "").strip()]
 
         kwargs = {
-            "cwd": cwd or None,
-            "env": env,
-            "stdin": asyncio.subprocess.DEVNULL,
-            "stdout": asyncio.subprocess.PIPE,
-            "stderr": asyncio.subprocess.PIPE,
+            "cwd"    : cwd or None,
+            "env"    : env,
+            "stdin"  : asyncio.subprocess.DEVNULL,
+            "stdout" : asyncio.subprocess.PIPE,
+            "stderr" : asyncio.subprocess.PIPE,
             **cls.subprocess_process_group_kwargs()
         }
 
@@ -224,15 +279,17 @@ class ProcessCapture(object):
         if stream is None:
             return None
 
-        while True:
-            try:
+        try:
+            while True:
                 chunk = await stream.read(cls.CHUNK_BYTES)
-            except (OSError, RuntimeError, ValueError):
-                return None
-            if not chunk:
-                return None
-            buffer.append(chunk)
-            await output_buffer.append(stream_name, chunk)
+                if not chunk:
+                    return None
+                buffer.append(chunk)
+                await output_buffer.append(stream_name, chunk)
+        except (OSError, RuntimeError, ValueError):
+            return None
+        finally:
+            await output_buffer.finish_stream(stream_name)
 
     @classmethod
     async def _drain_readers(

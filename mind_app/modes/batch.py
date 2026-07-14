@@ -634,7 +634,7 @@ async def _prepare_pack_context(
 
     metadata = {
         **meta_in,
-        **mind.begin_session(cid=cid, sid=sid, mode=mode, title=first_title, source="batch")
+        **mind.begin_session(cid=cid, sid=sid, title=first_title, source="batch")
     }
     kwargs["metadata"] = metadata
 

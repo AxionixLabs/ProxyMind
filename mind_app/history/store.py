@@ -20,7 +20,6 @@ SCHEMA_SQL = f"""
 CREATE TABLE IF NOT EXISTS {TABLE_SESSION_CURSORS} (
     cid            TEXT NOT NULL,
     sid            TEXT NOT NULL,
-    mode           TEXT NOT NULL DEFAULT '',
     title          TEXT NOT NULL DEFAULT '',
     workspace      TEXT NOT NULL DEFAULT '',
     gravity        TEXT NOT NULL DEFAULT '',
@@ -58,7 +57,6 @@ class ConversationHistoryStore(object):
         *,
         cid: str,
         sid: str,
-        mode: str = "",
         title: str = "",
         workspace: str = "",
         gravity: str = "",
@@ -77,7 +75,6 @@ class ConversationHistoryStore(object):
         record = {
             "cid"            : cid_text,
             "sid"            : sid_text,
-            "mode"           : _clean(mode),
             "title"          : _clean_title(title),
             "workspace"      : normalize_workspace(workspace),
             "gravity"        : _clean(gravity),
@@ -94,12 +91,11 @@ class ConversationHistoryStore(object):
                 conn.execute(
                     f"""
                     INSERT INTO {TABLE_SESSION_CURSORS} (
-                        cid, sid, mode, workspace, gravity, source,
+                        cid, sid, workspace, gravity, source,
                         title, created_at, updated_at, expires_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(cid, sid) DO UPDATE SET
-                        mode           = excluded.mode,
                         workspace      = excluded.workspace,
                         gravity        = excluded.gravity,
                         source         = excluded.source,
@@ -115,7 +111,6 @@ class ConversationHistoryStore(object):
                     (
                         record["cid"],
                         record["sid"],
-                        record["mode"],
                         record["workspace"],
                         record["gravity"],
                         record["source"],
@@ -134,7 +129,6 @@ class ConversationHistoryStore(object):
     def list_sessions(
         self,
         *,
-        mode: str = "",
         workspace: str = "",
         gravity: str = "",
         limit: int = HISTORY_MENU_LIMIT,
@@ -143,7 +137,6 @@ class ConversationHistoryStore(object):
         """返回当前 workspace/gravity 下最近未过期的会话游标列表。"""
         now = _now_ms() if now_ms is None else int(now_ms)
 
-        mode_text     = _clean(mode)
         workspace_key = normalize_workspace(workspace)
         gravity_text  = _clean(gravity)
         item_limit    = max(1, int(limit or HISTORY_MENU_LIMIT))
@@ -156,10 +149,6 @@ class ConversationHistoryStore(object):
             clauses.append("workspace = ?")
             params.append(workspace_key)
 
-        if mode_text:
-            clauses.append("mode = ?")
-            params.append(mode_text)
-
         if gravity_text:
             clauses.append("gravity = ?")
             params.append(gravity_text)
@@ -171,7 +160,7 @@ class ConversationHistoryStore(object):
                 self._prune_expired(conn, now_ms=now)
                 rows = conn.execute(
                     f"""
-                    SELECT cid, sid, mode, workspace, gravity, source,
+                    SELECT cid, sid, workspace, gravity, source,
                            title, created_at, updated_at, expires_at
                     FROM {TABLE_SESSION_CURSORS}
                     WHERE {" AND ".join(clauses)}

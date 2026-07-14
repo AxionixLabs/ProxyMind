@@ -152,7 +152,6 @@ def test_mind_pack_prepares_context_and_closes_report(monkeypatch) -> None:
     assert mind.sessions == [{
         "cid": None,
         "sid": None,
-        "mode": "chat",
         "title": "hello",
         "source": "batch",
     }]

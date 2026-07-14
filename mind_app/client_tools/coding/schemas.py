@@ -22,6 +22,11 @@ SHELL_COMMAND_INPUT_SCHEMA: dict[str, typing.Any] = {
             "default": 60,
             "description": "命令超时秒数。",
         },
+        "output_encoding": {
+            "type": "string",
+            "default": "auto",
+            "description": "输出文本编码；auto 自动判断，system 使用系统编码。",
+        },
         "execution": {
             "type": ["object", "null"],
             "additionalProperties": True,
@@ -50,6 +55,11 @@ SHELL_CALLS_INPUT_SCHEMA: dict[str, typing.Any] = {
                         "maximum": 600,
                         "default": 60,
                         "description": "命令超时秒数。",
+                    },
+                    "output_encoding": {
+                        "type": "string",
+                        "default": "auto",
+                        "description": "输出文本编码。",
                     },
                 },
                 "required": ["command"],
@@ -180,13 +190,15 @@ def shell_command_payload(
     *,
     command: typing.Any,
     cwd: typing.Any = ".",
-    timeout_sec: typing.Any = 60
+    timeout_sec: typing.Any = 60,
+    output_encoding: typing.Any = "auto"
 ) -> dict[str, typing.Any]:
     """把单条命令参数转换为执行参数。"""
     return {
-        "command": str(command or ""),
-        "cwd": str(cwd or "."),
-        "timeout_sec": normalize_timeout(timeout_sec),
+        "command"         : str(command or ""),
+        "cwd"             : str(cwd or "."),
+        "timeout_sec"     : normalize_timeout(timeout_sec),
+        "output_encoding" : str(output_encoding or "auto").strip() or "auto"
     }
 
 
@@ -203,6 +215,7 @@ def shell_command_items_payload(
                 command=item.get("command"),
                 cwd=item.get("cwd", "."),
                 timeout_sec=item.get("timeout_sec", 60),
+                output_encoding=item.get("output_encoding", "auto"),
             )
         )
     return payload

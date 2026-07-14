@@ -4,7 +4,9 @@
 import re
 import time
 import typing
-from engine.tinker import FileAssist
+from engine.tinker import (
+    FileAssist, MindError
+)
 from mind_core.design import Design
 from mind_nova.modes import (
     DEFAULT_RUN_MODE, RunMode
@@ -195,7 +197,6 @@ async def mind_loop(mind: "Mind") -> None:
         if command in new_set:
             new_conversation_metadata = mind.reset_conversation(
                 reason="command:/new",
-                mode=mode,
                 source="repl:new"
             )
             Design.console.print(
@@ -322,10 +323,10 @@ async def mind_loop(mind: "Mind") -> None:
             continue
 
         if command in resume_set:
-            records = mind.recent_conversation_sessions(mode=mode)
+            records = mind.recent_conversation_sessions()
             if not records:
                 Design.console.print(
-                    f"[bold #7F8C9A]No resumable {mode} conversations in the last 24 hours.[/]"
+                    "[bold #7F8C9A]No resumable conversations in the last 24 hours.[/]"
                 )
                 Design.console.print()
                 continue
@@ -335,7 +336,7 @@ async def mind_loop(mind: "Mind") -> None:
                 Design.console.print()
                 continue
 
-            resumed = mind.resume_conversation(selected_record, mode=mode, source="repl:resume")
+            resumed = mind.resume_conversation(selected_record, source="repl:resume")
             if resumed is None:
                 Design.console.print("[bold #FF5F5F]Resume failed: invalid session cursor.[/]")
                 Design.console.print()

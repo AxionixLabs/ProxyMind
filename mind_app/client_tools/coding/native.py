@@ -73,6 +73,7 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
                 command=arguments.get("command"),
                 cwd=arguments.get("cwd", "."),
                 timeout_sec=arguments.get("timeout_sec", 60),
+                output_encoding=arguments.get("output_encoding", "auto"),
             ),
             "execution": arguments.get("execution"),
         }

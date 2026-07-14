@@ -4,7 +4,7 @@ import asyncio
 from types import SimpleNamespace
 
 import mind_app.modes.support.repl_commands as repl_commands
-from mind_app.modes.stream import _is_assistant_output_boundary
+from mind_app.stream_events.assistant_boundary import is_assistant_output_boundary
 from mind_app.stream_state.segment import SegmentTracker
 
 
@@ -73,14 +73,14 @@ def test_segment_tracker_latest_output_keeps_previous_when_boundary_has_no_text(
 
 def test_stream_tool_event_is_assistant_output_boundary() -> None:
     """工具事件会结束当前 assistant 输出块。"""
-    assert _is_assistant_output_boundary("tool.call", {"type": "tool.call"})
+    assert is_assistant_output_boundary("tool.call", {"type": "tool.call"})
 
 
 def test_stream_display_event_is_assistant_output_boundary() -> None:
     """显式展示事件会结束当前 assistant 输出块。"""
     event = {"type": "custom.event", "display": {"message": "external output"}}
 
-    assert _is_assistant_output_boundary("custom.event", event)
+    assert is_assistant_output_boundary("custom.event", event)
 
 
 def test_copy_last_assistant_reply_uses_clipboard_helper(monkeypatch) -> None:

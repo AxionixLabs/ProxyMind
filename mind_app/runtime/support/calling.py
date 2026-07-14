@@ -67,7 +67,7 @@ async def calling(
 
     kwargs["metadata"] = meta = {
         **meta_in,
-        **mind.begin_session(cid=cid, sid=sid, mode=mode, title=message, source="calling")
+        **mind.begin_session(cid=cid, sid=sid, title=message, source="calling")
     }
 
     owns_event_report = False

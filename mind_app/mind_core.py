@@ -180,37 +180,33 @@ class Mind(object):
         cid: typing.Optional[str] = None,
         sid: typing.Optional[str] = None,
         *,
-        mode: typing.Optional[RunMode] = None,
         title: str = "",
         source: str = "begin"
     ) -> dict[str, str]:
         """初始化或续用当前会话标识。"""
         metadata = self.conversation.begin(cid=cid, sid=sid)
-        self._touch_history_session(metadata, mode=mode, title=title, source=source)
+        self._touch_history_session(metadata, title=title, source=source)
         return metadata
 
     def reset_conversation(
         self,
         *,
         reason: str = "manual",
-        mode: typing.Optional[RunMode] = None,
         source: str = "reset"
     ) -> dict[str, str]:
         """开始一个新的模型对话。"""
         metadata = self.conversation.reset(reason=reason)
-        self._touch_history_session(metadata, mode=mode, source=source)
+        self._touch_history_session(metadata, source=source)
         return metadata
 
     def recent_conversation_sessions(
         self,
         *,
-        mode: typing.Optional[RunMode] = None,
         limit: int = HISTORY_LIMIT
     ) -> list[dict[str, typing.Any]]:
-        """返回当前 mode/workspace/gravity 下可恢复的本地会话游标。"""
+        """返回当前 workspace/gravity 下可恢复的本地会话游标。"""
         try:
             records = self.history_store.list_sessions(
-                mode=str(mode or ""),
                 workspace=self.history_workspace,
                 gravity=self._history_gravity(),
                 limit=limit
@@ -228,7 +224,6 @@ class Mind(object):
         self,
         record: dict[str, typing.Any],
         *,
-        mode: typing.Optional[RunMode] = None,
         source: str = "resume"
     ) -> typing.Optional[dict[str, str]]:
         """把当前会话绑定到 history 中选中的 cid/sid。"""
@@ -241,7 +236,7 @@ class Mind(object):
         self.conversation = ConversationState(cid=cid, sid=sid)
 
         metadata = self.conversation.snapshot()
-        self._touch_history_session(metadata, mode=mode, source=source)
+        self._touch_history_session(metadata, source=source)
 
         return metadata
 
@@ -249,7 +244,6 @@ class Mind(object):
         self,
         metadata: dict[str, str],
         *,
-        mode: typing.Optional[RunMode] = None,
         title: str = "",
         source: str
     ) -> None:
@@ -258,7 +252,6 @@ class Mind(object):
             self.history_store.touch_session(
                 cid=metadata["cid"],
                 sid=metadata["sid"],
-                mode=str(mode or ""),
                 title=title,
                 workspace=self.history_workspace,
                 gravity=self._history_gravity(),

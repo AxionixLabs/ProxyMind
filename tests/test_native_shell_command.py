@@ -4,7 +4,13 @@ import asyncio
 import time
 from pathlib import Path
 
+import mind_app.native_coding.encoding as output_encoding
 from mind_app.native_coding import NativeCoding
+from mind_app.native_coding.exec.process_capture import (
+    CapturedOutputLine,
+    CapturedProcessResult,
+    ProcessCapture
+)
 from mind_app.native_coding.exec.file_audit import FileAudit
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools
 
@@ -180,6 +186,121 @@ def test_shell_command_records_output_lines_in_receive_order(tmp_path: Path) -> 
     assert result["data"]["output_lines"] == ["stderr-first", "stdout-second"]
 
 
+def test_shell_command_decodes_mixed_output_lines(
+    tmp_path: Path,
+    monkeypatch: object
+) -> None:
+    """stdout 和有序输出行使用同一套逐行编码策略。"""
+    stdout = "一\r\n".encode("utf-8") + bytes.fromhex("d6d0cec4b2e2cad40d0a")
+
+    async def fake_run_shell(*args: object, **kwargs: object) -> CapturedProcessResult:
+        _ = args, kwargs
+        return CapturedProcessResult(
+            exit_code=0,
+            stdout=stdout,
+            stderr=b"",
+            output_records=(
+                CapturedOutputLine("stdout", "一".encode("utf-8")),
+                CapturedOutputLine("stdout", bytes.fromhex("d6d0cec4b2e2cad4")),
+            ),
+            stdout_dropped=0,
+            stderr_dropped=0,
+            timed_out=False,
+            elapsed_ms=1
+        )
+
+    monkeypatch.setattr(
+        output_encoding,
+        "process_output_encodings",
+        lambda: ["utf-8", "gbk"]
+    )
+    monkeypatch.setattr(ProcessCapture, "run_shell", fake_run_shell)
+
+    result = run_async(
+        NativeCoding(root=tmp_path).shell_command(
+            command="Write-Output test",
+            cwd=".",
+            timeout_sec=5,
+            execution=approved_execution(),
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["stdout"] == "一\r\n中文测试\r\n"
+    assert result["data"]["output_lines"] == ["一", "中文测试"]
+    assert result["data"]["detected_output_encodings"] == ["utf-8", "gbk"]
+    assert result["data"]["output_encoding_ambiguous"] is False
+
+
+def test_shell_command_respects_explicit_output_encoding(
+    tmp_path: Path,
+    monkeypatch: object
+) -> None:
+    """显式输出编码同时应用于 stdout 和有序行。"""
+    raw = bytes.fromhex("d2bb0a")
+
+    async def fake_run_shell(*args: object, **kwargs: object) -> CapturedProcessResult:
+        _ = args, kwargs
+        return CapturedProcessResult(
+            exit_code=0,
+            stdout=raw,
+            stderr=b"",
+            output_records=(CapturedOutputLine("stdout", raw[:-1]),),
+            stdout_dropped=0,
+            stderr_dropped=0,
+            timed_out=False,
+            elapsed_ms=1
+        )
+
+    monkeypatch.setattr(ProcessCapture, "run_shell", fake_run_shell)
+
+    result = run_async(
+        NativeCoding(root=tmp_path).shell_command(
+            command="Write-Output test",
+            cwd=".",
+            timeout_sec=5,
+            output_encoding="utf-8",
+            execution=approved_execution(),
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["stdout"] == "һ\n"
+    assert result["data"]["output_lines"] == ["һ"]
+    assert result["data"]["output_encoding"] == "utf-8"
+    assert result["data"]["output_encoding_ambiguous"] is False
+
+
+def test_shell_command_rejects_unknown_output_encoding(tmp_path: Path) -> None:
+    """未知输出编码在启动进程前返回稳定错误。"""
+    result = run_async(
+        NativeCoding(root=tmp_path).shell_command(
+            command="Write-Output test",
+            output_encoding="not-a-codec",
+            execution=approved_execution(),
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["data"]["reason"] == "output_encoding_invalid"
+    assert result["data"]["output_encoding"] == "not-a-codec"
+
+
+def test_shell_command_rejects_non_byte_line_output_encoding(tmp_path: Path) -> None:
+    """非单字节换行编码不会进入进程捕获阶段。"""
+    result = run_async(
+        NativeCoding(root=tmp_path).shell_command(
+            command="Write-Output test",
+            output_encoding="utf-16",
+            execution=approved_execution(),
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["data"]["reason"] == "output_encoding_invalid"
+    assert result["data"]["output_encoding"] == "utf-16"
+
+
 def test_shell_command_reports_timeout(tmp_path: Path) -> None:
     """超时命令会被终止并返回 command_timed_out。"""
     command = write_script(
@@ -322,7 +443,12 @@ def test_shell_calls_runs_batch_and_preserves_order(tmp_path: Path) -> None:
     result = run_async(
         NativeCoding(root=tmp_path).shell_calls(
             items=[
-                {"command": first, "cwd": ".", "timeout_sec": 5},
+                {
+                    "command": first,
+                    "cwd": ".",
+                    "timeout_sec": 5,
+                    "output_encoding": "utf-8"
+                },
                 {"command": second, "cwd": ".", "timeout_sec": 5},
             ],
             execution=approved_execution(),
@@ -335,6 +461,7 @@ def test_shell_calls_runs_batch_and_preserves_order(tmp_path: Path) -> None:
     assert result["data"]["ok_count"] == 2
     assert [item["index"] for item in results] == [0, 1]
     assert results[0]["result"]["data"]["stdout"].strip() == "first"
+    assert results[0]["result"]["data"]["output_encoding"] == "utf-8"
     assert results[1]["result"]["data"]["stdout"].strip() == "second"
 
 

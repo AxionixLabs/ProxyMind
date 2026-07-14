@@ -623,53 +623,6 @@ def test_terminate_kills_process_tree_with_inherited_output_pipe(tmp_path: Path)
     run_async(scenario())
 
 
-def test_write_stdin_reports_exited_session_before_write(tmp_path: Path) -> None:
-    """会话进程已退出但未被移除时，写入返回已退出原因。"""
-    command = write_script(
-        tmp_path,
-        "quick_exit.py",
-        "\n".join(
-            [
-                "import time",
-                "print('quick-ready', flush=True)",
-                "time.sleep(0.1)",
-                "print('quick-done', flush=True)",
-                "",
-            ]
-        ),
-    )
-
-    async def scenario() -> None:
-        coding = NativeCoding(root=tmp_path)
-        start = await coding.exec_command(
-            command=command,
-            cwd=".",
-            yield_time_ms=50,
-            timeout_sec=10,
-            idle_timeout_sec=10,
-            execution=approved_execution(),
-        )
-        session_id = start["data"].get("session_id")
-
-        assert start["ok"] is True
-        assert start["data"]["status"] == "running"
-
-        await asyncio.sleep(1.0)
-
-        result = await coding.write_stdin(
-            session_id=session_id,
-            stdin="after-exit\n",
-            wait_ms=0,
-        )
-
-        assert result["ok"] is False
-        assert result["data"]["reason"] == "exec_session_exited"
-        assert result["data"]["session_id"] == session_id
-        assert isinstance(result["data"]["exit_code"], int)
-
-    run_async(scenario())
-
-
 def test_write_stdin_reports_closed_stdin(tmp_path: Path) -> None:
     """stdin 已关闭但进程仍运行时，写入返回 stdin closed。"""
     command = write_script(

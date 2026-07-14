@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from engine.tinker import MindError
 from mind_app.mcp import McpSessionLike
 from mind_core.design import Design
 from mind_core.design.upload import UploadProgressLiveReporter
@@ -43,7 +44,7 @@ async def run_repl_model_turn(
             if uploaded_attachments is None:
                 return None
 
-        turn_metadata = mind.begin_session(mode=run_mode, title=message_text, source="repl")
+        turn_metadata = mind.begin_session(title=message_text, source="repl")
         ev_report     = EventReport(run_mode, turn_metadata["cid"], turn_metadata["sid"])
 
         await ev_report.open()

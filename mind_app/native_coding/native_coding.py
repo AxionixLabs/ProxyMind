@@ -34,6 +34,7 @@ class NativeCoding(NativeCodingBase):
         command: str,
         cwd: str = ".",
         timeout_sec: int = 60,
+        output_encoding: str = "auto",
         execution: dict[str, typing.Any] | None = None
     ) -> dict[str, typing.Any]:
         """执行单条 shell 命令。"""
@@ -41,6 +42,7 @@ class NativeCoding(NativeCodingBase):
             command=command,
             cwd=cwd,
             timeout_sec=timeout_sec,
+            output_encoding=output_encoding,
             execution=execution
         )
 
