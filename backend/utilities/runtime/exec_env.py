@@ -83,12 +83,14 @@ def detect_runtimes() -> dict[str, typing.Any]:
 def detect_tools() -> dict[str, typing.Any]:
     """检测随本地运行时提供给远端感知的命令行工具。"""
     return {
-        "adb"      : tool_bin("adb"),
-        "k6"       : tool_bin("k6"),
-        "ffmpeg"   : tool_bin("ffmpeg"),
-        "ffprobe"  : tool_bin("ffprobe"),
-        "framix"   : tool_bin("framix"),
-        "memrix"   : tool_bin("memrix")
+        "adb"       : tool_bin("adb"),
+        "k6"        : tool_bin("k6"),
+        "ffmpeg"    : tool_bin("ffmpeg"),
+        "ffprobe"   : tool_bin("ffprobe"),
+        "framix"    : tool_bin("framix"),
+        "memrix"    : tool_bin("memrix"),
+        "mitmdump"  : tool_bin("mitmdump"),
+        "mitmproxy" : tool_bin("mitmproxy")
     }
 
 

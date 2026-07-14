@@ -70,6 +70,7 @@ async def lifespan(web_app: FastAPI) -> typing.AsyncGenerator[None, None]:
             yield
         finally:
             logger.info("runtime shutting down")
+            await app_ctx.capture.close_all()
             await idle.close_idle()
 
 

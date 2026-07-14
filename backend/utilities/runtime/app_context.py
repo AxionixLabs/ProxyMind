@@ -7,8 +7,10 @@ from backend.mcp_core.core_k6 import K6
 from backend.mcp_core.core_framix import Framix
 from backend.mcp_core.core_memrix import Memrix
 from backend.mcp_core.core_nexus import Nexus
+from backend.mcp_core.core_capture import Capture
 from backend.mcp_hub.hub_medias import (
-    FFmpeg, Player
+    FFmpeg,
+    Player
 )
 from backend.utilities.state import (
     VideoQueue,
@@ -23,6 +25,7 @@ class AppContext(object):
         """初始化全局运行上下文中的服务实例和共享状态仓库。"""
         self.fx_reports = PathSessionStore("fx_report_session")
         self.mx_reports = ItemSessionStore("mx_report_session")
+
         self.video_queue = VideoQueue()
 
         self.framix: Framix = Framix(
@@ -32,24 +35,28 @@ class AppContext(object):
             mx_report_store=self.mx_reports
         )
 
-        self.nexus: Nexus = Nexus()
-        self.k6: K6 = K6()
+        self.nexus: Nexus     = Nexus()
+        self.k6: K6           = K6()
+        self.capture: Capture = Capture()
 
         self.ffmpeg: FFmpeg = FFmpeg()
         self.player: Player = Player()
 
     async def instance_snapshots(self) -> dict[str, dict[str, typing.Any]]:
         """汇总当前运行上下文中的各类实例快照。"""
-        video_list, fx_report, mx_report = await asyncio.gather(
+        video_list, fx_report, mx_report, capture = await asyncio.gather(
             self.video_list_snapshot(),
             self.fx_report_snapshot(),
-            self.mx_report_snapshot()
+            self.mx_report_snapshot(),
+            self.capture.snapshot()
         )
+
         return {
             "instance": {
                 **video_list,
                 **fx_report,
-                **mx_report
+                **mx_report,
+                **capture
             }
         }
 

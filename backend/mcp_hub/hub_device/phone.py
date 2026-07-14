@@ -549,6 +549,26 @@ class Phone(object):
         widget_list = await self.ui_widgets()
         return self._match_widget(widget_list, by, value, match, ignore_case)
 
+    async def http_proxy_get(self) -> str:
+        """读取设备当前的全局 HTTP 代理设置。"""
+        resp = await Flux.cmd_line(self.prefix + [
+            "shell", "settings", "get", "global", "http_proxy"
+        ])
+        return str(resp or "").strip()
+
+    async def http_proxy_set(self, endpoint: str) -> None:
+        """设置设备全局 HTTP 代理地址。"""
+        value = str(endpoint or "").strip()
+        if not value:
+            raise ValueError("HTTP proxy endpoint is required")
+        await Flux.cmd_line(self.prefix + [
+            "shell", "settings", "put", "global", "http_proxy", value
+        ])
+
+    async def http_proxy_clear(self) -> None:
+        """清除设备全局 HTTP 代理设置。"""
+        await self.http_proxy_set(":0")
+
 
 if __name__ == '__main__':
     pass

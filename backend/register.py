@@ -11,7 +11,8 @@ from mcp.server.fastmcp import FastMCP
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.utilities.paths import resource_path
 from backend.utilities.runtime import (
-    AppContext, Idle
+    AppContext,
+    Idle
 )
 
 
@@ -65,9 +66,15 @@ def register_media_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: Ap
     screen.bind(mcp, manage, idle, ctx)
 
 
+def register_network_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> None:
+    from backend.mcp_tools.network import capture
+
+    capture.bind(mcp, manage, idle, ctx)
+
+
 def initialize(
     tools: typing.Iterable[str] = (
-        "adb", "ffmpeg", "ffprobe", "k6"
+        "adb", "ffmpeg", "ffprobe", "k6", "mitmdump", "mitmproxy"
     )
 ) -> dict[str, typing.Any]:
     """
@@ -80,31 +87,39 @@ def initialize(
     """
     requires_layout: dict[str, dict[str, list[str]]] = {
         "windows": {
-            "adb"      : ["platform-tools"],
-            "ffmpeg"   : ["ffmpeg", "bin"],
-            "ffprobe"  : ["ffmpeg", "bin"],
-            "k6"       : ["k6"]
+            "adb"       : ["platform-tools"],
+            "ffmpeg"    : ["ffmpeg", "bin"],
+            "ffprobe"   : ["ffmpeg", "bin"],
+            "k6"        : ["k6"],
+            "mitmdump"  : ["mitmproxy"],
+            "mitmproxy" : ["mitmproxy"]
         },
         "macos": {
-            "adb"      : ["platform-tools"],
-            "ffmpeg"   : ["ffmpeg", "bin"],
-            "ffprobe"  : ["ffmpeg", "bin"],
-            "k6"       : ["k6"]
+            "adb"       : ["platform-tools"],
+            "ffmpeg"    : ["ffmpeg", "bin"],
+            "ffprobe"   : ["ffmpeg", "bin"],
+            "k6"        : ["k6"],
+            "mitmdump"  : ["mitmproxy"],
+            "mitmproxy" : ["mitmproxy"]
         }
     }
 
     executable_names: dict[str, dict[str, str]] = {
         "windows": {
-            "adb"      : "adb.exe",
-            "ffmpeg"   : "ffmpeg.exe",
-            "ffprobe"  : "ffprobe.exe",
-            "k6"       : "k6.exe"
+            "adb"       : "adb.exe",
+            "ffmpeg"    : "ffmpeg.exe",
+            "ffprobe"   : "ffprobe.exe",
+            "k6"        : "k6.exe",
+            "mitmdump"  : "mitmdump.exe",
+            "mitmproxy" : "mitmproxy.exe"
         },
         "macos": {
-            "adb"      : "adb",
-            "ffmpeg"   : "ffmpeg",
-            "ffprobe"  : "ffprobe",
-            "k6"       : "k6"
+            "adb"       : "adb",
+            "ffmpeg"    : "ffmpeg",
+            "ffprobe"   : "ffprobe",
+            "k6"        : "k6",
+            "mitmdump"  : "mitmdump",
+            "mitmproxy" : "mitmproxy"
         }
     }
 
@@ -181,6 +196,7 @@ def register_all_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppC
     register_bench_tools(mcp, idle, ctx)
     register_common_tools(mcp, idle, ctx)
     register_media_tools(mcp, manage, idle, ctx)
+    register_network_tools(mcp, manage, idle, ctx)
 
 
 if __name__ == '__main__':
