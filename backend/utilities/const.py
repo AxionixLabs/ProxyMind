@@ -31,7 +31,7 @@ PRINT_HEAD   = f"[bold #8B8B8B]{APP_DESC} ::[/]"
 PRINT_FORMAT = f"<level>{{message}}</level>"
 
 # ========【错误提示】========
-HINT_HLT = "当前步骤可能无法得到有效结果，建议先暂停推进并检查输入/配置/环境后再继续。"
+HINT_HLT = "This step may not produce a valid result. Check the input, configuration, and environment before continuing."
 CODE_EXC = "EXC"
 
 # ========【运行时配置】========

@@ -10,11 +10,16 @@ import asyncio
 from collections import deque
 from loguru import logger
 from backend.mcp_core.core_buffer import (
-    LineBuffer, GateMachine, FX_SPEC
+    LineBuffer,
+    GateMachine,
+    FX_SPEC
 )
-from backend.utilities import const
-from backend.utilities.process import Flux, spawn_env
+from backend.utilities.process import (
+    Flux,
+    spawn_env
+)
 from backend.utilities.validation import marked
+from backend.utilities import const
 
 if typing.TYPE_CHECKING:
     from backend.utilities.state import PathSessionStore
@@ -161,7 +166,7 @@ class Framix(object):
 
         return {
             "ok"          : True,
-            "text"        : f"{self.agent_id.capitalize()}已输出结果。",
+            "text"        : f"{self.agent_id.capitalize()} results exported.",
             "attachments" : [],
             "data": {
                 "events" : self.tool_events.get(self.agent_id, {})
@@ -188,7 +193,6 @@ class Framix(object):
                 return None
             await self.__transports.wait()
 
-    # workflow: ==== MCP Tool ====
     async def fx_frame_analysis(
         self,
         video: list[str],
@@ -215,7 +219,6 @@ class Framix(object):
 
         return resp
 
-    # workflow: ==== MCP Tool ====
     async def fx_frame_analyzer(
         self,
         video: list[str],
@@ -251,8 +254,10 @@ class Framix(object):
 
         return resp
 
-    # workflow: ==== MCP Tool ====
-    async def fx_frame_reporter(self, total: typing.Optional[str] = None) -> dict[str, typing.Any]:
+    async def fx_frame_reporter(
+        self,
+        total: typing.Optional[str] = None
+    ) -> dict[str, typing.Any]:
         if total:
             final_dir = total
         else:

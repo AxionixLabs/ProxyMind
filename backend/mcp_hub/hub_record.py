@@ -57,6 +57,18 @@ class Record(object):
         return f"{self.prefix}:{self.device.serial}"
 
     @staticmethod
+    def no_active_session(serial: str) -> ToolOutput:
+        """返回无活跃 scrcpy 会话的统一结果。"""
+        return ToolOutput(
+            ok=True,
+            text="No active scrcpy session found; nothing to close.",
+            data={
+                "serial" : serial,
+                "reason" : "no_active_session"
+            }
+        )
+
+    @staticmethod
     def as_token(s: str, *, max_len: int = 32) -> str:
         s = (s or "unknown").strip()
         s = re.sub(r"[^a-zA-Z0-9_.-]+", "_", s)
@@ -78,18 +90,6 @@ class Record(object):
             "brand"  : self.device.device_props.get("brand"),
             **dict(extra or {})
         }
-
-    @staticmethod
-    def no_active_session(serial: str) -> ToolOutput:
-        """返回无活跃 scrcpy 会话的统一结果。"""
-        return ToolOutput(
-            ok=True,
-            text="未找到活跃的 scrcpy 会话，无需关闭。",
-            data={
-                "serial" : serial,
-                "reason" : "no_active_session"
-            }
-        )
 
     async def acquire(
         self,
@@ -202,7 +202,6 @@ class Record(object):
             self.transports = await Flux.cmd_link_pty(cmd)
             asyncio.create_task(self.merge_stream())
 
-    # workflow: ==== MCP Tool ====
     async def scrcpy_mirror(self) -> ToolOutput:
         await self.acquire("scrcpy.scrcpy_mirror")
         try:
@@ -213,7 +212,7 @@ class Record(object):
             await self.check_timer()
             return ToolOutput(
                 ok=True,
-                text="scrcpy 镜像已启动。",
+                text="scrcpy mirroring started.",
                 data={
                     "serial" : self.device.serial,
                     "status" : list(self.tail),
@@ -224,7 +223,7 @@ class Record(object):
             await self.release()
             return ToolOutput(
                 ok=False,
-                text=f"scrcpy 镜像启动失败：{type(e).__name__}: {e}",
+                text=f"Failed to start scrcpy mirroring: {type(e).__name__}: {e}",
                 data={
                     "serial" : self.device.serial,
                     "status" : list(self.tail),
@@ -232,7 +231,6 @@ class Record(object):
                 }
             )
 
-    # workflow: ==== MCP Tool ====
     async def scrcpy_record(self, directory: str, fps: int = 60, silence: bool = False) -> ToolOutput:
         await self.acquire(
             "scrcpy.scrcpy_record",
@@ -263,7 +261,7 @@ class Record(object):
 
             return ToolOutput(
                 ok=True,
-                text="scrcpy 录制已启动。",
+                text="scrcpy recording started.",
                 data={
                     "serial" : self.device.serial,
                     "status" : list(self.tail),
@@ -276,7 +274,7 @@ class Record(object):
             await self.release()
             return ToolOutput(
                 ok=False,
-                text=f"scrcpy 录制启动失败：{type(e).__name__}: {e}",
+                text=f"Failed to start scrcpy recording: {type(e).__name__}: {e}",
                 data={
                     "serial" : self.device.serial,
                     "status" : list(self.tail),
@@ -284,7 +282,6 @@ class Record(object):
                 }
             )
 
-    # workflow: ==== MCP Tool ====
     async def scrcpy_close(self) -> ToolOutput:
 
         async def win_stop_child(pid: typing.Union[str, int]) -> str:
@@ -301,7 +298,7 @@ class Record(object):
             await self.release()
             return ToolOutput(
                 ok=True,
-                text="scrcpy 已关闭（或已结束）。",
+                text="scrcpy is closed or has already ended.",
                 data={
                     "serial" : self.device.serial,
                     "status" : list(self.tail),
@@ -322,7 +319,7 @@ class Record(object):
                 if not (child_pids := await Flux.cmd_line(line)):
                     return ToolOutput(
                         ok=True,
-                        text="未发现可关闭的子进程（可能已退出）。",
+                        text="No child processes found to close; they may have already exited.",
                         data={
                             "serial" : self.device.serial,
                             "status" : list(self.tail),
@@ -339,7 +336,7 @@ class Record(object):
 
             return ToolOutput(
                 ok=True,
-                text="已尝试关闭 scrcpy。",
+                text="Attempted to close scrcpy.",
                 data={
                     "serial"    : self.device.serial,
                     "status"    : list(self.tail),
@@ -350,7 +347,7 @@ class Record(object):
         except Exception as e:
             return ToolOutput(
                 ok=False,
-                text=f"关闭 scrcpy 失败：{type(e).__name__}: {e}",
+                text=f"Failed to close scrcpy: {type(e).__name__}: {e}",
                 data={
                     "serial" : self.device.serial,
                     "status" : list(self.tail),
@@ -367,11 +364,11 @@ class Record(object):
             if self.start_event.is_set():
                 return video_temp
             elif self.error_event.is_set():
-                raise RuntimeError(self.err_message or "启动失败")
+                raise RuntimeError(self.err_message or "startup failed")
 
             await asyncio.sleep(0.5)
 
-        raise RuntimeError("启动失败")
+        raise RuntimeError("startup failed")
 
     async def clean_event(self) -> None:
         self.start_event.clear()

@@ -9,11 +9,17 @@ import asyncio
 from collections import deque
 from loguru import logger
 from backend.mcp_core.core_buffer import (
-    LineBuffer, GateMachine, MX_SPEC
+    LineBuffer,
+    GateMachine,
+    MX_SPEC
 )
-from backend.utilities import const
-from backend.utilities.process import Flux, port_listen, spawn_env
+from backend.utilities.process import (
+    Flux,
+    port_listen,
+    spawn_env
+)
 from backend.utilities.validation import marked
+from backend.utilities import const
 
 if typing.TYPE_CHECKING:
     from backend.utilities.state import ItemSessionStore
@@ -181,7 +187,7 @@ class Memrix(object):
                 logger.info(f"[{self.prefix}] engine startup ok pid={self.__transports.pid}")
                 return {
                     "ok"          : True,
-                    "text"        : f"{self.agent_id.capitalize()}启动成功。",
+                    "text"        : f"{self.agent_id.capitalize()} started.",
                     "attachments" : [],
                     "data": {
                         "events" : self.tool_events.get(self.agent_id, {}),
@@ -202,7 +208,7 @@ class Memrix(object):
                 )
                 return {
                     "ok"          : False,
-                    "text"        : f"{self.agent_id.capitalize()}启动失败：进程提前退出。",
+                    "text"        : f"{self.agent_id.capitalize()} failed to start: process exited early.",
                     "attachments" : [],
                     "data": {
                         "result"     : "\n".join(map(str, list(self.out_ring))),
@@ -220,7 +226,7 @@ class Memrix(object):
 
         return {
             "ok"          : False,
-            "text"        : f"{self.agent_id.capitalize()}启动超时。",
+            "text"        : f"{self.agent_id.capitalize()} startup timed out.",
             "attachments" : [],
             "data": {
                 "result" : "\n".join(map(str, list(self.out_ring))),
@@ -251,7 +257,6 @@ class Memrix(object):
                 return None
             await self.__transports.wait()
 
-    # workflow: ==== MCP Tool ====
     async def mx_task_begin(
         self,
         style: typing.Literal["--storm", "--sleek"],
@@ -273,13 +278,15 @@ class Memrix(object):
 
         return await self.__engine(*cmd)
 
-    # workflow: ==== MCP Tool ====
-    async def mx_task_final(self, token: typing.Optional[str] = None) -> dict[str, typing.Any]:
+    async def mx_task_final(
+        self,
+        token: typing.Optional[str] = None
+    ) -> dict[str, typing.Any]:
         cur_token = token or self.token
         if not cur_token:
             return {
                 "ok"          : False,
-                "text"        : f"{self.agent_id.capitalize()}结束失败：token为空。",
+                "text"        : f"{self.agent_id.capitalize()} cannot stop: token is empty.",
                 "attachments" : [],
                 "data": {
                     "events" : self.tool_events.get(self.agent_id, {})
@@ -302,7 +309,7 @@ class Memrix(object):
 
         return {
             "ok"          : True,
-            "text"        : f"{self.agent_id.capitalize()}已结束。",
+            "text"        : f"{self.agent_id.capitalize()} stopped.",
             "attachments" : [],
             "data": {
                 "events" : self.tool_events.get(self.agent_id, {})
@@ -310,7 +317,6 @@ class Memrix(object):
             "logs": []
         }
 
-    # workflow: ==== MCP Tool ====
     async def mx_mem_reporter(
         self,
         scene: typing.Optional[str] = None,
@@ -330,7 +336,7 @@ class Memrix(object):
 
         return {
             "ok"          : True,
-            "text"        : f"{self.agent_id.capitalize()}报告任务完成。",
+            "text"        : f"{self.agent_id.capitalize()} report completed.",
             "attachments" : [],
             "data": {
                 "begin"  : begin.get("data", {}),
@@ -339,7 +345,6 @@ class Memrix(object):
             "logs": []
         }
 
-    # workflow: ==== MCP Tool ====
     async def mx_gfx_reporter(
         self,
         scene: typing.Optional[str] = None
@@ -357,7 +362,7 @@ class Memrix(object):
 
         return {
             "ok"          : True,
-            "text"        : f"{self.agent_id.capitalize()}报告任务完成。",
+            "text"        : f"{self.agent_id.capitalize()} report completed.",
             "attachments" : [],
             "data": {
                 "begin"  : begin.get("data", {}),

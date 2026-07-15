@@ -4,8 +4,8 @@
 import os
 import re
 import time
-import base64
 import uuid
+import base64
 import typing
 import asyncio
 import secrets
@@ -13,7 +13,9 @@ import tempfile
 import contextlib
 from pathlib import Path
 from backend.models.model_device import (
-    ActionResult, Attachment, SemanticResult
+    ActionResult,
+    Attachment,
+    SemanticResult
 )
 from backend.mcp_hub.hub_device.phone import Phone
 from backend.mcp_hub.hub_device.vision import similarity
@@ -99,11 +101,11 @@ class Device(object):
 
         semantic_brief = (
             f"{device_snap.get('serial') or 'unknown'}: "
-            f"{'在线' if online else '离线'} / "
-            f"{'锁屏' if locked else '未锁屏'} / "
-            f"{'亮屏' if screen_on else '灭屏'} / "
-            f"电量{battery_s or 'unknown'} / "
-            f"屏幕{screen.replace('x', '×') if screen else 'unknown'} / "
+            f"{'online' if online else 'offline'} / "
+            f"{'locked' if locked else 'unlocked'} / "
+            f"{'screen on' if screen_on else 'screen off'} / "
+            f"battery={battery_s or 'unknown'} / "
+            f"screen={screen.replace('x', '×') if screen else 'unknown'} / "
             f"Android{device_snap.get('version') or '?'}(SDK{device_snap.get('sdk') or '?'}) / "
             f"{(device_snap.get('brand') or '').strip()} {(device_snap.get('model') or '').strip()}".strip()
         )
@@ -117,24 +119,25 @@ class Device(object):
     def _foreground_text(action: ActionResult) -> str:
         """生成前台切换结果文案。"""
         if not action.ok:
-            return "拉起应用超时（已重试一次仍失败）。"
+            return "App foregrounding timed out after one retry."
 
         stage = action.get("stage")
         if stage == "already":
-            return "应用已在前台，无需拉起。"
+            return "App is already in the foreground."
         if stage == "retry":
-            return "首次拉起未命中前台，重试后已进入前台。"
-        return "应用已成功进入前台。"
+            return "App reached the foreground after a retry."
+
+        return "App is in the foreground."
 
     @staticmethod
     def _ime_failure_result(action: ActionResult) -> dict[str, typing.Any]:
         """生成输入法失败结果。"""
         if action.reason == "ime_unavailable":
-            stage = action.get("stage", [])
-            detail = f"（失败阶段：{', '.join(stage)}）" if stage else ""
-            text = f"AdbIME 不可用{detail}。"
+            stage  = action.get("stage", [])
+            detail = f" (failed stages: {', '.join(stage)})" if stage else ""
+            text   = f"AdbIME is unavailable{detail}."
         else:
-            text = "AdbIME 未生效。"
+            text = "AdbIME is not active."
 
         return SemanticResult(
             ok=False,
@@ -146,20 +149,21 @@ class Device(object):
     def _scroll_into_view_text(action: ActionResult) -> str:
         """生成滚动查找结果文案。"""
         if action.ok:
-            return "已找到目标元素。"
+            return "Target element found."
         if action.reason == "xpath_not_supported":
-            return "by=xpath 暂不支持（Android uiautomator dump 非标准 XPath）。"
+            return "by=xpath is not supported because Android uiautomator dump is not standard XPath."
         if action.reason == "wm_size_unavailable":
-            return "获取屏幕尺寸失败。"
+            return "Unable to read screen dimensions."
         if action.reason == "timeout":
-            return "超时未找到目标元素。"
+            return "Timed out while searching for the target element."
         if action.reason == "scroll_fail":
-            return "滑动失败，已停止。"
+            return "Swipe failed; stopped searching."
         if action.reason == "stable_stop":
-            return "屏幕内容稳定（几乎不变），停止滑动，仍未找到目标元素。"
+            return "Screen content remained stable; stopped swiping without finding the target element."
         if action.reason == "max_swipes_reached":
-            return "已达到最大滑动次数，仍未找到目标元素。"
-        return "滚动查找失败。"
+            return "Maximum swipe count reached; target element was not found."
+
+        return "Failed to find the target element by scrolling."
 
     @staticmethod
     def _activity_candidates(package: str, activity: typing.Optional[str]) -> set[str]:
@@ -215,7 +219,7 @@ class Device(object):
     async def _save_screenshot(self, local: str) -> str:
         """保存截图到本地路径。"""
         filename = f"screenshot_{time.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}.png"
-        remote = "/data/local/tmp/" + filename
+        remote   = "/data/local/tmp/" + filename
 
         await self.phone.screencap(remote)
 
@@ -244,6 +248,7 @@ class Device(object):
     ) -> tuple[bool, dict[str, typing.Any], int]:
         """等待指定应用稳定进入前台。"""
         hit: int = 0
+
         last_focus: dict[str, typing.Any] = {
             "package": None, "activity": None, "raw": ""
         }
@@ -276,7 +281,8 @@ class Device(object):
     ) -> ActionResult:
         """确保应用位于前台。"""
         t0 = time.time()
-        poll = 0.25
+
+        poll: float = 0.25
 
         ok0, focus0, _ = await self._wait_foreground(package, activity, 0.8, poll, 1)
         if ok0:
@@ -358,7 +364,7 @@ class Device(object):
         if by == "xpath":
             return ActionResult.fail("xpath_not_supported", found=False, widget=None)
 
-        wait_s = max(0.0, float(timeout or 0.0))
+        wait_s   = max(0.0, float(timeout or 0.0))
         deadline = time.monotonic() + wait_s
 
         while True:
@@ -409,13 +415,14 @@ class Device(object):
         else:
             ax, ay = anchor
 
-        stable_hits = 0
+        stable_hits: int = 0
+
         last_sim: float | None = None
 
         with tempfile.TemporaryDirectory(prefix="scroll_until_caps_") as tmp:
-            tmp_dir = Path(tmp)
+            tmp_dir   = Path(tmp)
             prev_path = str(tmp_dir / "prev.png")
-            cur_path = str(tmp_dir / "cur.png")
+            cur_path  = str(tmp_dir / "cur.png")
 
             prev_ok = False
             if stop_on_stable:
@@ -454,18 +461,21 @@ class Device(object):
 
         return ActionResult.fail(reason="max_swipes_reached", **data)
 
-    async def _scroll_to_edge(self, edge: typing.Literal["top", "bottom"]) -> ActionResult:
+    async def _scroll_to_edge(
+        self,
+        edge: typing.Literal["top", "bottom"]
+    ) -> ActionResult:
         """滑动到页面边界。"""
-        max_swipes: int = 30
-
+        max_swipes: int  = 30
         duration_ms: int = 450
-        settle_ms: int = 450
+        settle_ms: int   = 450
 
         similarity_threshold: float = 0.992
-        stable_required: int = 3
+        stable_required: int        = 3
         min_swipes_before_stop: int = 2
 
         x_ratio: float = 0.5
+
         upper_ratio: float = 0.20
         lower_ratio: float = 0.80
 
@@ -531,7 +541,6 @@ class Device(object):
         """刷新并返回设备属性。"""
         return await self.phone.refresh_device_props()
 
-    # workflow: ==== Info Control MCP Tool ====
     async def device_snapshot(self) -> dict[str, typing.Any]:
         """返回设备当前快照。"""
         props = await self.phone.refresh_device_props()
@@ -571,38 +580,38 @@ class Device(object):
             }
         ).to_dict()
 
-    # workflow: ==== App Control MCP Tool ====
     async def app_deep_link(self, url: str) -> typing.Any:
         """通过深度链接启动应用。"""
         raw = await self.phone.app_deep_link(url)
         return SemanticResult(
             ok=True,
-            text="深度链接已执行。",
+            text="Deep link command executed.",
             data={"raw": raw}
         ).to_dict()
 
-    # workflow: ==== App Control MCP Tool ====
     async def app_stop(self, package: str) -> typing.Any:
         """强制停止指定应用。"""
         raw = await self.phone.app_stop(package)
         return SemanticResult(
             ok=True,
-            text="应用停止命令已执行。",
+            text="Application stop command executed.",
             data={"raw": raw}
         ).to_dict()
 
-    # workflow: ==== App Control MCP Tool ====
     async def app_clear(self, package: str) -> typing.Any:
         """清除指定应用的数据。"""
         raw = await self.phone.app_clear(package)
         return SemanticResult(
             ok=True,
-            text="应用数据清理命令已执行。",
+            text="Application data clear command executed.",
             data={"raw": raw}
         ).to_dict()
 
-    # workflow: ==== App Control MCP Tool ====
-    async def app_foreground(self, package: str, activity: typing.Optional[str] = None) -> dict[str, typing.Any]:
+    async def app_foreground(
+        self,
+        package: str,
+        activity: typing.Optional[str] = None
+    ) -> dict[str, typing.Any]:
         """确保应用位于前台。"""
         action = await self._ensure_foreground(package, activity)
         return SemanticResult(
@@ -615,7 +624,6 @@ class Device(object):
         """连接 logcat 流，供内部注入流程消费。"""
         return await self.phone.logcat_link()
 
-    # workflow: ==== File Control MCP Tool ====
     async def file_logcat_dump(
         self,
         keywords: typing.Optional[list[str]] = None,
@@ -716,7 +724,6 @@ class Device(object):
             }
         ).to_dict()
 
-    # workflow: ==== File Control MCP Tool ====
     async def file_logcat_clean(self, *_, **__) -> dict[str, typing.Any]:
         """清空 logcat 日志。"""
         raw = await self.phone.logcat_clean()
@@ -726,7 +733,6 @@ class Device(object):
             data={"raw": raw}
         ).to_dict()
 
-    # workflow: ==== Info Control MCP Tool ====
     async def grep_packages(
         self,
         keyword: typing.Optional[str] = None,
@@ -751,37 +757,33 @@ class Device(object):
             data={"count": len(pkgs), "packages": pkgs}
         ).to_dict()
 
-    # workflow: ==== System Control MCP Tool ====
     async def open_notification(self) -> typing.Any:
         """打开通知栏。"""
         raw = await self.phone.open_notification()
         return SemanticResult(
             ok=True,
-            text="通知栏已打开。",
+            text="Notification shade opened.",
             data={"raw": raw}
         ).to_dict()
 
-    # workflow: ==== System Control MCP Tool ====
     async def open_quick_settings(self) -> typing.Any:
         """打开快捷设置面板。"""
         raw = await self.phone.open_quick_settings()
         return SemanticResult(
             ok=True,
-            text="快捷设置面板已打开。",
+            text="Quick settings opened.",
             data={"raw": raw}
         ).to_dict()
 
-    # workflow: ==== System Control MCP Tool ====
     async def set_screen(self, on: bool) -> dict[str, typing.Any]:
         """设置屏幕开关。"""
         await self._screen_set(on)
         return SemanticResult(
             ok=True,
-            text="屏幕已点亮。" if on else "屏幕已关闭。",
+            text="Screen turned on." if on else "Screen turned off.",
             data={"on": on}
         ).to_dict()
 
-    # workflow: ==== System Control MCP Tool ====
     async def reboot(
         self,
         mode: typing.Literal["", "recovery", "bootloader", "edl"] = "",
@@ -801,7 +803,7 @@ class Device(object):
                 )
                 return SemanticResult(
                     ok=True,
-                    text="设备已触发重启，并已重新上线。",
+                    text="Device rebooted and reconnected.",
                     data=data
                 ).to_dict()
             except Exception as e:
@@ -810,35 +812,33 @@ class Device(object):
                 data["wait_timeout"] = wait_timeout
                 return SemanticResult(
                     ok=False,
-                    text=f"设备已触发重启，但等待重新上线失败：{err}",
+                    text=f"Device reboot command executed, but reconnect wait failed: {err}",
                     data=data
                 ).to_dict()
 
         # 不等待：只表示命令已下发
         return SemanticResult(
             ok=True,
-            text="已下发 adb reboot 指令。",
+            text="ADB reboot command sent.",
             data=data
         ).to_dict()
 
-    # workflow: ==== System Control MCP Tool ====
     async def swipe_unlock(self) -> dict[str, typing.Any]:
         """点亮屏幕并上滑解锁。"""
         action = await self._swipe_unlock()
         if not action.ok:
             return SemanticResult(
                 ok=False,
-                text="获取屏幕尺寸失败。" if action.reason == "wm_size_unavailable" else "解锁失败。",
+                text="Unable to read screen dimensions." if action.reason == "wm_size_unavailable" else "Unlock failed.",
                 data=action.data or {}
             ).to_dict()
 
         return SemanticResult(
             ok=True,
-            text="已执行上滑解锁。",
+            text="Swipe unlock executed.",
             data=action.data or {}
         ).to_dict()
 
-    # workflow: ==== UI Interaction MCP Tool ====
     async def scroll_into_view(
         self,
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
@@ -859,7 +859,9 @@ class Device(object):
             timeout=timeout,
             max_swipes=max_swipes
         )
+
         node = action.get("widget")
+
         return SemanticResult(
             ok=action.ok,
             text=self._scroll_into_view_text(action),
@@ -869,7 +871,6 @@ class Device(object):
             }
         ).to_dict()
 
-    # workflow: ==== UI Interaction MCP Tool ====
     async def click(
         self,
         by: typing.Literal["id", "desc", "text", "bbox", "xpath"],
@@ -896,7 +897,7 @@ class Device(object):
             if not action.ok:
                 return SemanticResult(
                     ok=False,
-                    text="滚动查找后仍未找到可点击的节点。",
+                    text="Clickable node was not found after scrolling.",
                     data={
                         "node"    : None,
                         "clicked" : False,
@@ -908,9 +909,9 @@ class Device(object):
 
         if not located.ok:
             message = (
-                "by=xpath 暂不支持（Android uiautomator dump 非标准 XPath）。"
+                "by=xpath is not supported because Android uiautomator dump is not standard XPath."
                 if located.reason == "xpath_not_supported"
-                else "未找到可点击的节点。"
+                else "Clickable node was not found."
             )
             return SemanticResult(
                 ok=False,
@@ -923,7 +924,7 @@ class Device(object):
         if not widget or not widget.center:
             return SemanticResult(
                 ok=False,
-                text="找到节点但缺少可点击坐标（center）。",
+                text="Target node has no clickable center coordinate.",
                 data={"node": widget.to_node() if widget else None, "clicked": False}
             ).to_dict()
 
@@ -931,27 +932,25 @@ class Device(object):
 
         return SemanticResult(
             ok=True,
-            text="点击完成。",
+            text="Tap completed.",
             data={"raw": raw, "node": widget.to_node(), "clicked": True}
         ).to_dict()
 
-    # workflow: ==== UI Interaction MCP Tool ====
     async def key_event(self, keycode: int, longpress: bool = False) -> dict[str, typing.Any]:
         """发送系统按键。"""
         raw = await self.phone.send_keyevent(keycode, longpress)
         return SemanticResult(
             ok=True,
-            text="按键已发送。",
+            text="Key event sent.",
             data={"raw": raw}
         ).to_dict()
 
-    # workflow: ==== Info Control MCP Tool ====
     async def screenshot(self, local: str) -> dict[str, typing.Any]:
         """保存截图到本地。"""
         saved = await self._save_screenshot(local)
         return SemanticResult(
             ok=True,
-            text=f"截图已保存到 {saved}",
+            text=f"Screenshot saved to {saved}",
             attachments=[
                 Attachment(
                     kind="image",
@@ -963,7 +962,6 @@ class Device(object):
             data={"path": saved}
         ).to_dict()
 
-    # workflow: ==== UI Interaction MCP Tool ====
     async def input_text(
         self,
         text: str,
@@ -981,7 +979,7 @@ class Device(object):
         if (by is None) != (value is None):
             return SemanticResult(
                 ok=False,
-                text="输入目标定位参数不完整。",
+                text="Input locator parameters are incomplete.",
                 data={"node": None, "input": False}
             ).to_dict()
 
@@ -989,9 +987,9 @@ class Device(object):
             located = await self._locate_element(by, value, match, ignore_case, timeout)
             if not located.ok:
                 message = (
-                    "by=xpath 暂不支持（Android uiautomator dump 非标准 XPath）。"
+                    "by=xpath is not supported because Android uiautomator dump is not standard XPath."
                     if located.reason == "xpath_not_supported"
-                    else "未找到输入目标控件。"
+                    else "Input target node was not found."
                 )
                 return SemanticResult(
                     ok=False,
@@ -1003,7 +1001,7 @@ class Device(object):
             if not widget or not widget.center:
                 return SemanticResult(
                     ok=False,
-                    text="找到输入目标但缺少可点击坐标（center）。",
+                    text="Input target node has no center coordinate.",
                     data={"node": widget.to_node() if widget else None, "input": False}
                 ).to_dict()
 
@@ -1022,7 +1020,7 @@ class Device(object):
         raw = await self.phone.input_text("" if text is None else str(text))
         return SemanticResult(
             ok=True,
-            text="文本输入已执行。",
+            text="Text input completed.",
             data={
                 "raw"       : raw,
                 "tap_raw"   : tap_raw,
@@ -1034,7 +1032,6 @@ class Device(object):
             }
         ).to_dict()
 
-    # workflow: ==== UI Interaction MCP Tool ====
     async def clear_text(self) -> typing.Any:
         """清空当前焦点输入框文本。"""
         ime = await self._ensure_ime()
@@ -1045,23 +1042,22 @@ class Device(object):
         raw = await self.phone.clear_text()
         return SemanticResult(
             ok=True,
-            text="文本已清空。",
+            text="Text cleared.",
             data={"raw": raw}
         ).to_dict()
 
-    # workflow: ==== UI Interaction MCP Tool ====
     async def current_focus(self) -> dict[str, typing.Any]:
         """获取当前前台焦点。"""
-        focus = await self.phone.focus_info()
-        package = focus.get("package")
+        focus    = await self.phone.focus_info()
+        package  = focus.get("package")
         activity = focus.get("activity")
-        raw = focus.get("raw", "")
+        raw      = focus.get("raw", "")
 
         ok = bool(package or activity)
 
         return SemanticResult(
             ok=ok,
-            text=f"当前Focus：package={package or ''} activity={activity or ''}".strip(),
+            text=f"Current focus: package={package or ''} activity={activity or ''}".strip(),
             data={
                 "package"  : package,
                 "activity" : activity,
@@ -1069,7 +1065,6 @@ class Device(object):
             }
         ).to_dict()
 
-    # workflow: ==== UI Interaction MCP Tool ====
     async def current_widgets(
         self,
         view: typing.Literal["interactive", "credible", "all"] = "all"
@@ -1089,7 +1084,7 @@ class Device(object):
         if not (xml := await self.phone.ui_xml()):
             return SemanticResult(
                 ok=False,
-                text="未获取到 UI XML。",
+                text="UI XML was not available.",
                 data={"count": 0}
             ).to_dict()
 
@@ -1097,7 +1092,7 @@ class Device(object):
         if not widget_list:
             return SemanticResult(
                 ok=True,
-                text="当前页面没有可用控件。",
+                text="No usable widgets are available on the current screen.",
                 data={"count": 0}
             ).to_dict()
 
@@ -1108,17 +1103,18 @@ class Device(object):
 
         return SemanticResult(
             ok=True,
-            text=out if out else "未发现可用控件。",
+            text=out if out else "No usable widgets found.",
             data={"count": len(lines)}
         ).to_dict()
 
-    # workflow: ==== UI Interaction MCP Tool ====
     async def heal_element(self, locator: str, *_, **__) -> dict[str, typing.Any]:
         """执行元素自愈流程。"""
         page_id, page_dump, wm = await asyncio.gather(
             self.current_focus(), self.phone.ui_xml(), self.phone.wm_size()
         )
+
         w, h = wm if wm else (0, 0)
+
         payload = {
             "serial"    : self.serial,
             "page_id"   : page_id.get("data", {}).get("package") or "",
@@ -1139,25 +1135,24 @@ class Device(object):
 
         return SemanticResult(
             ok=True,
-            text="元素定位诊断。",
+            text="Element locator diagnostics.",
             data=payload
         ).to_dict()
 
-    # workflow: ==== UI Interaction MCP Tool ====
     async def scroll_to_edge(self, edge: typing.Literal["top", "bottom"]) -> dict[str, typing.Any]:
         """滚动到边界。"""
         action = await self._scroll_to_edge(edge)
         if not action.ok:
             return SemanticResult(
                 ok=False,
-                text="获取屏幕尺寸失败。" if action.reason == "wm_size_unavailable" else "滚动到边界失败。",
+                text="Unable to read screen dimensions." if action.reason == "wm_size_unavailable" else "Failed to scroll to the edge.",
                 data={"swipes": action.get("swipes", 0)}
             ).to_dict()
 
         text = (
-            "屏幕已稳定（内容未变化），停止滑动。"
+            "Screen content remained stable; stopped swiping."
             if action.get("stop_reason") == "stable"
-            else "已达到最大滑动次数，停止滑动。"
+            else "Maximum swipe count reached; stopped swiping."
         )
         return SemanticResult(
             ok=True,
@@ -1165,7 +1160,6 @@ class Device(object):
             data={"swipes": action.get("swipes", 0)}
         ).to_dict()
 
-    # workflow: ==== Monkey ====
     async def monkey_stop(self) -> dict[str, typing.Any]:
         """向设备发送 monkey 停止命令，不等待确认结果。"""
         script = """
@@ -1177,7 +1171,7 @@ printf 'stop_sent=1\\n'
         await self.phone.shell_script(script)
         return SemanticResult(
             ok=True,
-            text="停止命令已发送。",
+            text="Monkey stop command sent.",
             data={
                 "reason": "stop_command_sent"
             }

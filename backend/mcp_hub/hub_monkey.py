@@ -206,7 +206,7 @@ class Monkey(object):
                 data["query_reason"] = query_reason
             return {
                 "ok"          : bool(item.get("ok")),
-                "text"        : item.get("text") or "Monkey 最近一次结果已返回。",
+                "text"        : item.get("text") or "Most recent Monkey result returned.",
                 "attachments" : list(item.get("attachments") or []),
                 "data"        : data,
                 "logs"        : list(item.get("logs") or [])
@@ -214,7 +214,7 @@ class Monkey(object):
 
         return {
             "ok"          : True,
-            "text"        : "未找到活跃或最近一次 monkey 会话。",
+            "text"        : "No active or recent Monkey session found.",
             "attachments" : [],
             "data": {
                 "serial"       : serial,
@@ -243,7 +243,7 @@ class Monkey(object):
 
         return ToolOutput(
             ok=True,
-            text="Monkey 最近一次结果已清理。" if cleared else "未找到可清理的 monkey 最近结果。",
+            text="Most recent Monkey result cleared." if cleared else "No recent Monkey result to clear.",
             data={
                 "serial"  : serial,
                 "cleared" : bool(cleared),
@@ -412,9 +412,12 @@ class Monkey(object):
     ) -> dict[str, typing.Any]:
         """构造统一结果字典。"""
         ok, _, _ = self._snapshot_timing()
+
         data = self.snapshot_data()
+
         if query_reason:
             data["query_reason"] = query_reason
+
         return {
             "ok"          : ok,
             "text"        : text,
@@ -541,9 +544,10 @@ class Monkey(object):
     def _build_final_summary(self) -> str:
         """构造最终摘要文本。"""
         if self.error:
-            return f"Monkey 运行失败：{self.error}" + (f" logcat={self.logcat_saved}" if self.logcat_saved else "")
+            return f"Monkey run failed: {self.error}" + (f" logcat={self.logcat_saved}" if self.logcat_saved else "")
+
         return (
-            "Monkey 已结束："
+            "Monkey finished: "
             f"status={self.status_text} rc={self.return_code} events={self.events_done}/{self.config.get('events')}"
             f" duration={self.snapshot_data().get('duration_ms')}ms"
             + (f" logcat={self.logcat_saved}" if self.logcat_saved else "")
@@ -713,7 +717,8 @@ class Monkey(object):
                 "activity" : focus.get("activity"),
                 "raw"      : focus.get("raw", "")
             }
-            now_ms = int(time.time() * 1000)
+
+            now_ms          = int(time.time() * 1000)
             current_package = self.guard_last_focus.get("package")
 
             if current_package == package:
@@ -805,6 +810,7 @@ class Monkey(object):
         await self.shutdown_proc(self.proc_monkey)
         await self.shutdown_proc(self.proc_logcat)
         await self.finish_active_segment()
+
         if self.task_logcat:
             if not self.task_logcat.done():
                 self.task_logcat.cancel()
@@ -1003,19 +1009,19 @@ class Monkey(object):
             await self.patch_session()
 
             return self.build_pack(
-                "Monkey 已启动。默认请先用 monkey_status 查询进度，或用 monkey_stop 主动停止。"
+                "Monkey started. Use monkey_status to check progress or monkey_stop to stop it."
             )
         except Exception as e:
             self.result_reason = self.result_reason or "start_failed"
             await self.finalize(err=f"{type(e).__name__}: {e}")
-            return self.build_pack("Monkey 启动失败。")
+            return self.build_pack("Failed to start Monkey.")
 
     async def status(self, *, query_reason: typing.Optional[str] = None) -> dict[str, typing.Any]:
         """返回当前会话状态。"""
         text = (
-            "Monkey 正在运行中。"
+            "Monkey is running."
             if self.status_text in {"starting", "running", "stopping"} else
-            f"Monkey 当前状态：{self.status_text}"
+            f"Current Monkey status: {self.status_text}"
         )
         return self.build_pack(text, query_reason=query_reason)
 
@@ -1035,7 +1041,7 @@ class Monkey(object):
             with contextlib.suppress(asyncio.CancelledError):
                 await self.task_runner
 
-        return self.build_pack("Monkey 已停止。", query_reason="stop_requested")
+        return self.build_pack("Monkey stopped.", query_reason="stop_requested")
 
     async def wait(self) -> dict[str, typing.Any]:
         """等待会话结束并返回最近结果。"""

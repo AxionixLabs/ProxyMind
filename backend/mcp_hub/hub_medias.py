@@ -141,7 +141,6 @@ class FFmpeg(object):
         logger.warning(f"ffmpeg fallback {fallback}")
         return fallback
 
-    # workflow: ==== MCP Tool ====
     async def ffmpeg_extract_snapshot(
         self,
         input_video: str,
@@ -197,7 +196,6 @@ class FFmpeg(object):
             "logs": [resp]
         }
 
-    # workflow: ==== MCP Tool ====
     async def ffmpeg_extract_frames(
         self,
         input_video: str,
@@ -293,7 +291,6 @@ class FFmpeg(object):
             "logs": [resp]
         }
 
-    # workflow: ==== MCP Tool ====
     async def ffmpeg_extract_keyframes(
         self,
         input_video: str,
@@ -388,7 +385,6 @@ class FFmpeg(object):
             "logs": []
         }
 
-    # workflow: ==== MCP Tool ====
     async def ffmpeg_extract_scene(
         self,
         input_video: str,
@@ -489,7 +485,6 @@ class FFmpeg(object):
             "logs": [resp]
         }
 
-    # workflow: ==== MCP Tool ====
     async def ffmpeg_trim_video(
         self,
         input_video: str,
@@ -589,7 +584,6 @@ class FFmpeg(object):
             "logs": [resp]
         }
 
-    # workflow: ==== MCP Tool ====
     async def ffmpeg_scale_video(
         self,
         input_video: str,
@@ -677,7 +671,6 @@ class FFmpeg(object):
             "logs": [resp]
         }
 
-    # workflow: ==== MCP Tool ====
     async def ffmpeg_convert_video(
         self,
         input_video: str,
@@ -756,7 +749,6 @@ class FFmpeg(object):
             "logs": [resp]
         }
 
-    # workflow: ==== MCP Tool ====
     async def ffmpeg_concat_video(
         self,
         list_file: str,
@@ -836,7 +828,6 @@ class FFmpeg(object):
             "logs": [resp]
         }
 
-    # workflow: ==== MCP Tool ====
     async def ffmpeg_remux_video(
         self,
         input_video: str,
@@ -903,7 +894,6 @@ class FFmpeg(object):
             "logs": [resp]
         }
 
-    # workflow: ==== MCP Tool ====
     async def ffmpeg_mute_video(
         self,
         input_video: str,
@@ -961,7 +951,6 @@ class FFmpeg(object):
             "logs": [resp]
         }
 
-    # workflow: ==== MCP Tool ====
     async def ffmpeg_probe_video(
         self,
         input_file: str
@@ -1026,7 +1015,6 @@ class FFmpeg(object):
             "logs": [resp]
         }
 
-    # workflow: ==== MCP Tool ====
     async def ffmpeg_extract_audio(
         self,
         input_video: str,
@@ -1087,7 +1075,6 @@ class FFmpeg(object):
             "logs": [resp]
         }
 
-    # workflow: ==== MCP Tool ====
     async def ffmpeg_replace_audio(
         self,
         input_video: str,
@@ -1159,7 +1146,6 @@ class FFmpeg(object):
             "logs": [resp]
         }
 
-    # workflow: ==== MCP Tool ====
     async def ffmpeg_convert_audio(
         self,
         input_file: str,
@@ -1243,11 +1229,10 @@ class Player(object):
     def __init__(self):
         self.agent_id = "player"
 
-    # workflow: ==== MCP Tool ====
     @staticmethod
     async def audio_play(audio_file: str, volume: float = 1.0, *_, **__) -> dict[str, typing.Any]:
         marked.ensure_f(
-            audio_file, "audio_file 为空，无法播放，请传入有效的本地音频文件路径（如 .mp3/.wav）。"
+            audio_file, "audio_file"
         )
 
         # ===== 播放（失败也不可重试：需要用户排查环境/文件）=====
@@ -1275,7 +1260,7 @@ class Player(object):
         except (pygame.error, OSError, ValueError) as e:
             logger.error(e)
             raise marked.except_tip(
-                "音频播放失败，请确认音频格式/编码是否受支持、文件是否损坏、以及运行环境是否具备可用的音频输出设备。", e
+                "Audio playback failed. Verify the audio format, file integrity, and available audio output device.", e
             )
         finally:
             # 释放资源，避免长期占用音频设备

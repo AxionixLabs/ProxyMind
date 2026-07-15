@@ -21,7 +21,7 @@ def ensure_f(path: os.PathLike[str] | str, field: str) -> str:
 
     if not p.exists():
         raise fail_tip(
-            f"{field} 不存在（需要文件路径）。",
+            f"{field} does not exist; a file path is required.",
             code=const.CODE_EXC,
             hint=const.HINT_HLT,
             field=field,
@@ -32,7 +32,7 @@ def ensure_f(path: os.PathLike[str] | str, field: str) -> str:
 
     if not p.is_file():
         raise fail_tip(
-            f"{field} 类型错误（需要文件）。",
+            f"{field} has an invalid type; a file is required.",
             code=const.CODE_EXC,
             hint=const.HINT_HLT,
             field=field,
@@ -44,7 +44,7 @@ def ensure_f(path: os.PathLike[str] | str, field: str) -> str:
     # 必须有扩展名（容器/类型明确）
     if not p.suffix:
         raise fail_tip(
-            f"{field} 缺少扩展名（无法确定文件类型/容器）。",
+            f"{field} requires a file extension to determine the file type.",
             code=const.CODE_EXC,
             hint=const.HINT_HLT,
             field=field,
@@ -62,7 +62,7 @@ def ensure_d(path: os.PathLike[str] | str, field: str) -> str:
 
     if not p.exists():
         raise fail_tip(
-            f"{field} 不存在（需要目录路径）。",
+            f"{field} does not exist; a directory path is required.",
             code=const.CODE_EXC,
             hint=const.HINT_HLT,
             field=field,
@@ -73,7 +73,7 @@ def ensure_d(path: os.PathLike[str] | str, field: str) -> str:
 
     if not p.is_dir():
         raise fail_tip(
-            f"{field} 类型错误（需要目录）。",
+            f"{field} has an invalid type; a directory is required.",
             code=const.CODE_EXC,
             hint=const.HINT_HLT,
             field=field,
@@ -117,7 +117,7 @@ def ensure_o(
 
     if not suf:
         raise fail_tip(
-            f"{field} 缺少扩展名（未提供 suffix 且 input_file 无扩展名）。",
+            f"{field} requires an extension; suffix was not provided and input_file has no extension.",
             code=const.CODE_EXC,
             hint=const.HINT_HLT,
             field=field,
@@ -146,7 +146,7 @@ def ensure_o(
             out_p = cand
             if not out_p.suffix:
                 raise fail_tip(
-                    f"{field} 缺少扩展名（无法确定输出容器）。",
+                    f"{field} requires an extension to determine the output container.",
                     code=const.CODE_EXC,
                     hint=const.HINT_HLT,
                     field=field,
@@ -160,7 +160,7 @@ def ensure_o(
     # 3) 父路径如果存在但不是目录：失败
     if parent.exists() and not parent.is_dir():
         raise fail_tip(
-            f"{field} 父路径类型错误（需要目录）。",
+            f"{field} parent path has an invalid type; a directory is required.",
             code=const.CODE_EXC,
             hint=const.HINT_HLT,
             field=field,
@@ -176,7 +176,7 @@ def ensure_o(
     # 5) 输出路径若已存在且是目录：失败
     if out_p.exists() and out_p.is_dir():
         raise fail_tip(
-            f"{field} 类型错误（需要文件路径）。",
+            f"{field} is a directory; a file path is required.",
             code=const.CODE_EXC,
             hint=const.HINT_HLT,
             field=field,
@@ -188,7 +188,7 @@ def ensure_o(
     # 6) 不允许覆盖：已存在即失败
     if out_p.exists() and (not overwrite):
         raise fail_tip(
-            f"{field} 已存在且 overwrite=False（拒绝覆盖）。",
+            f"{field} already exists and overwrite=False.",
             code=const.CODE_EXC,
             hint=const.HINT_HLT,
             field=field,
@@ -212,7 +212,7 @@ def ensure_i(state: typing.Optional[typing.Union[list, dict, set]], field: str, 
 
     if empty:
         raise fail_tip(
-            f"{field} 为空（内部状态未就绪/未回填）。",
+            f"{field} is empty; internal state is not ready.",
             code=const.CODE_EXC,
             hint=const.HINT_HLT,
             field=field,
@@ -233,7 +233,7 @@ def subproc_fail(*, source: str, out_ring: typing.Iterable[str], **meta: str) ->
     tail = "\n".join(list(out_ring)[-10:])
 
     return fail_tip(
-        "子进程检测到错误输出。",
+        "Subprocess reported an error.",
         code=const.CODE_EXC,
         hint=const.HINT_HLT,
         source=source,
@@ -262,7 +262,7 @@ def port_busy(port: int, field: str, *, host: str = "127.0.0.1", **meta: str) ->
     用法：raise port_busy(3300, "liveness_port", host="127.0.0.1")
     """
     return fail_tip(
-        f"{field} 端口已被占用（无法绑定）。",
+        f"{field} port is already in use and cannot be bound.",
         code=const.CODE_EXC,
         hint=const.HINT_HLT,
         field=field,

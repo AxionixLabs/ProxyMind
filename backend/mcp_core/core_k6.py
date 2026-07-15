@@ -95,7 +95,7 @@ class K6Base(object):
         """校验内联脚本文本，并返回可执行内容。"""
         if not isinstance(script_text, str):
             raise self._inline_script_fail(
-                "script_text 类型错误（需要字符串）。",
+                "script_text must be a string.",
                 field="script_text",
                 expect="str",
                 got=type(script_text).__name__
@@ -103,7 +103,7 @@ class K6Base(object):
 
         if not script_text.strip():
             raise self._inline_script_fail(
-                "script_text 为空。",
+                "script_text must not be empty.",
                 field="script_text",
                 expect="non_empty",
                 got=script_text
@@ -177,7 +177,9 @@ class K6Base(object):
     def extract_response_preview(cls, stdout_text: str) -> tuple[str, list[dict[str, typing.Any]]]:
         """从标准输出中提取响应预览标记，并返回清洗后的输出文本。"""
         previews: list[dict[str, typing.Any]] = []
+
         remain: list[str] = []
+
         prefix = cls.response_preview_prefix
 
         for line in (stdout_text or "").splitlines():
@@ -246,13 +248,14 @@ class K6Base(object):
 
         stdout_text = self._decode(stdout)
         stderr_text = self._decode(stderr)
+
         stdout_text, response_preview = self.extract_response_preview(stdout_text)
 
         exit_code = int(transports.returncode or 0)
 
         ok = (exit_code == 0)
 
-        text = f"{self.agent_id.upper()} {action}{'完成' if ok else '失败'}。exit_code={exit_code}"
+        text = f"{self.agent_id.upper()} {action} {'completed' if ok else 'failed'}. exit_code={exit_code}"
 
         payload = {
             "command"                : cmd,
@@ -331,10 +334,12 @@ class K6Base(object):
         cmd += ["--summary-export", final_summary]
 
         final_response_export = None
-        final_env = dict(env or {})
+        final_env: dict       = dict(env or {})
+
         final_execution_mode: typing.Optional[str] = None
-        response_capture_active = False
-        response_capture_reason = "local_script_passthrough"
+
+        response_capture_active    = False
+        response_capture_reason    = "local_script_passthrough"
         response_capture_supported = bool(response_protocol)
 
         if response_protocol:
@@ -346,7 +351,7 @@ class K6Base(object):
             )
             response_capture_active, response_capture_reason = self.resolve_response_capture(
                 response_capture,
-                execution_mode=typing.cast(str, final_execution_mode)
+                execution_mode=final_execution_mode
             )
             final_env.update({
                 "PERF_EXECUTION_MODE"         : final_execution_mode,
@@ -365,16 +370,16 @@ class K6Base(object):
         cmd.append(str(script_path))
 
         return {
-            "cmd"                     : cmd,
-            "env"                     : final_env,
-            "script_file"             : str(script_path),
-            "workdir"                 : final_workdir,
-            "summary_export"          : final_summary,
-            "execution_mode"          : final_execution_mode,
-            "response_capture_supported": response_capture_supported,
-            "response_capture_active" : response_capture_active,
-            "response_capture_rule"   : response_capture_reason,
-            "response_export"         : final_response_export
+            "cmd"                        : cmd,
+            "env"                        : final_env,
+            "script_file"                : str(script_path),
+            "workdir"                    : final_workdir,
+            "summary_export"             : final_summary,
+            "execution_mode"             : final_execution_mode,
+            "response_capture_supported" : response_capture_supported,
+            "response_capture_active"    : response_capture_active,
+            "response_capture_rule"      : response_capture_reason,
+            "response_export"            : final_response_export
         }
 
 
@@ -457,7 +462,7 @@ class K6(K6Base):
             plan["cmd"],
             cwd=plan["workdir"],
             env=plan["env"],
-            action="脚本执行",
+            action="script execution",
             data={
                 "script_file"                : plan["script_file"],
                 "summary_export"             : plan["summary_export"],
