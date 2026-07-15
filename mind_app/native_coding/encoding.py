@@ -10,6 +10,9 @@ import unicodedata
 from dataclasses import dataclass
 from mind_nova import const
 
+UTF8_ENCODING     = codecs.lookup("utf-8").name
+UTF8_SIG_ENCODING = codecs.lookup("utf-8-sig").name
+
 
 @dataclass(frozen=True, slots=True)
 class DecodedProcessOutput(object):
@@ -149,15 +152,17 @@ def _decode_auto_segment(data: bytes) -> DecodedProcessOutput:
 def _auto_output_encodings() -> list[str]:
     """返回自动解码使用的规范候选编码。"""
     encodings: list[str] = []
+
     for item in process_output_encodings():
         try:
             encoding = normalize_process_output_encoding(item)
         except ValueError:
             continue
-        if encoding == "utf-8-sig":
-            encoding = const.CHARSET
+        if encoding == UTF8_SIG_ENCODING:
+            encoding = UTF8_ENCODING
         if encoding not in encodings:
             encodings.append(encoding)
+
     return encodings
 
 
@@ -166,15 +171,20 @@ def _decoded_text_score(text: str, *, encoding: str, data: bytes) -> float:
     if not text:
         return 0.0
 
+    normalized_encoding = normalize_process_output_encoding(encoding)
+
     score = sum(_character_score(char) for char in text) / len(text)
-    if encoding == const.CHARSET:
+
+    if normalized_encoding == UTF8_ENCODING:
         score += _utf8_structure_score(data)
 
     preferred = normalize_process_output_encoding(
         locale.getpreferredencoding(False) or const.CHARSET
     )
-    if encoding == preferred:
+
+    if normalized_encoding == preferred:
         score += 0.25
+
     return score
 
 
@@ -199,6 +209,7 @@ def _character_score(char: str) -> float:
         return 0.2
     if category.startswith("S"):
         return -1.0
+
     return 0.0
 
 
@@ -231,14 +242,14 @@ def _split_line_ending(value: bytes) -> tuple[bytes, bytes]:
 def _bom_encoding(data: bytes) -> str:
     """根据字节顺序标记返回编码名称。"""
     if data.startswith(b"\xef\xbb\xbf"):
-        return "utf-8-sig"
+        return UTF8_SIG_ENCODING
     return ""
 
 
 def process_output_encodings() -> list[str]:
     """返回进程输出的候选解码顺序。"""
     candidates: list[typing.Any] = [
-        "utf-8-sig",
+        UTF8_SIG_ENCODING,
         const.CHARSET,
         sys.stdout.encoding,
         sys.stderr.encoding,
@@ -249,7 +260,7 @@ def process_output_encodings() -> list[str]:
         candidates.extend(["mbcs", "oem", "cp936", "gbk"])
 
     encodings: list[str] = []
-    seen: set[str] = set()
+    seen: set[str]       = set()
 
     for item in candidates:
         encoding = str(item or "").strip()
@@ -266,4 +277,3 @@ def process_output_encodings() -> list[str]:
 
 if __name__ == '__main__':
     pass
-

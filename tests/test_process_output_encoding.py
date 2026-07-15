@@ -75,6 +75,17 @@ def test_auto_decoding_prefers_structurally_strong_utf8(monkeypatch: object) -> 
         assert decoded.encodings == ("utf-8",)
 
 
+def test_auto_output_encodings_canonicalize_utf8_aliases(monkeypatch: object) -> None:
+    """UTF-8 别名在自动解码候选中合并为规范名称。"""
+    monkeypatch.setattr(
+        output_encoding,
+        "process_output_encodings",
+        lambda: ["utf-8-sig", "UTF-8", "utf_8", "gbk"]
+    )
+
+    assert output_encoding._auto_output_encodings() == ["utf-8", "gbk"]
+
+
 def test_ordered_output_buffer_preserves_split_multibyte_character() -> None:
     """跨 chunk 的 UTF-8 字符在完整行形成前保持原始字节。"""
     async def probe() -> tuple[str, ...]:
