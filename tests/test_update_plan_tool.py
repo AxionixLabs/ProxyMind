@@ -185,7 +185,7 @@ def test_incomplete_plan_dims_done_summary_and_pending_then_highlights_active() 
     }
     assert styles["Continue implementation."] == "dim #7E8FA3"
     assert styles["Completed step"] == "dim #A5B3C2"
-    assert styles["Active step"] == "#7DD3FC"
+    assert styles["Active step"] == "bold #5EEAD4"
     assert styles["Pending step"] == "dim #A5B3C2"
 
 

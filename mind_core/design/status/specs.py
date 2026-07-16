@@ -8,7 +8,7 @@ from .types import (
 )
 
 TOOL_STATUS_SPEC = SweepStatusSpec(
-    refresh_per_second=28,
+    refresh_per_second=30,
     phase_rate=15.8,
     text_limit=48,
     shell_freq=0.52,
@@ -24,7 +24,7 @@ TOOL_STATUS_SPEC = SweepStatusSpec(
 )
 
 CODE_STATUS_SPEC = SweepStatusSpec(
-    refresh_per_second=28,
+    refresh_per_second=30,
     phase_rate=11.2,
     text_limit=56,
     label_width=14,
@@ -57,7 +57,7 @@ MODE_STATUS_SPEC = SweepStatusSpec(
 )
 
 BUILTIN_STATUS_SPEC = SweepStatusSpec(
-    refresh_per_second=40,
+    refresh_per_second=30,
     phase_rate=15.8,
     text_limit=48,
     shell_freq=0.55,
@@ -74,7 +74,7 @@ BUILTIN_STATUS_SPEC = SweepStatusSpec(
 )
 
 HEAL_STATUS_SPEC = SweepStatusSpec(
-    refresh_per_second=34,
+    refresh_per_second=30,
     phase_rate=16.8,
     text_limit=56,
     shell_freq=0.68,
@@ -102,7 +102,7 @@ LOOP_STATUS_SPEC = SweepStatusSpec(
 )
 
 WAIT_STATUS_SPEC = ProgressiveStatusSpec(
-    refresh_per_second=24,
+    refresh_per_second=30,
     phase_rate=15.6,
     text_limit=48,
     shell_freq=0.48,

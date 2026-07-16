@@ -10,7 +10,7 @@ from mind_app.stream_events.tool_traces.common import (
 )
 
 PLAN_SUMMARY_STYLE       = PREVIEW_MORE_STYLE
-PLAN_ACTIVE_BODY_STYLE   = "#7DD3FC"
+PLAN_ACTIVE_BODY_STYLE   = "bold #5EEAD4"
 PLAN_INACTIVE_BODY_STYLE = PREVIEW_TEXT_STYLE
 
 
@@ -38,6 +38,7 @@ def _normalized_plan_data(
         return None
 
     plan: list[dict[str, str]] = []
+
     for raw_item in raw_plan:
         if not isinstance(raw_item, dict):
             return None
@@ -77,9 +78,11 @@ def render_plan_update(
         ])
 
     indent = "    " if explanation else "  "
+
     for item in plan:
         status = item["status"]
-        icon = "✔" if status == "completed" else "□"
+        icon   = "✔" if status == "completed" else "□"
+
         style = (
             PLAN_ACTIVE_BODY_STYLE
             if status == "in_progress"
@@ -87,6 +90,7 @@ def render_plan_update(
         )
 
         text_lines.append(f"{indent}{icon} {item['step']}")
+
         parts.extend([
             _part(f"\n{indent}{icon} ", style),
             _part(item["step"], style)
