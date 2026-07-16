@@ -1,8 +1,29 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import re
 
 from mind_nova.requests.payload import build_chat_payload
+
+
+def test_build_chat_payload_generates_turn_id() -> None:
+    """请求载荷自动生成客户端轮次标识。"""
+    payload = asyncio.run(build_chat_payload("chat", {}, "hello", []))
+
+    assert re.fullmatch(r"[a-z2-7]{12}", payload["turn_id"])
+
+
+def test_build_chat_payload_preserves_turn_id() -> None:
+    """请求载荷保留调用方已经生成的轮次标识。"""
+    payload = asyncio.run(build_chat_payload(
+        "chat",
+        {},
+        "hello",
+        [],
+        turn_id="turn-client-1"
+    ))
+
+    assert payload["turn_id"] == "turn-client-1"
 
 
 def test_build_chat_payload_strips_llm_enabled_fields() -> None:

@@ -66,8 +66,6 @@ class EventReport(object):
 
         if proto := event.get("proto"):
             self.proto = str(proto)
-        if turn_id := event.get("turn_id"):
-            self.turn_id = str(turn_id)
         self.set_round(event.get("round"))
 
     def emit(self, event: dict[str, typing.Any]) -> None:

@@ -75,6 +75,10 @@ async def stream_looper(
 
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
+    if ev_report:
+        request_turn_id = str(kwargs.get("turn_id") or "").strip()
+        kwargs["turn_id"] = ev_report.begin_turn(request_turn_id or None)
+
     approval_input_func = kwargs.pop("approval_input_func", None)
 
     if not isinstance(kwargs.get("exec_env"), dict):

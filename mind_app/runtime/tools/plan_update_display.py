@@ -3,14 +3,15 @@
 
 import typing
 from mind_app.stream_events.tool_traces.common import (
-    ACTION_TOOL_STYLE,
+    PREVIEW_MORE_STYLE,
     PREVIEW_TEXT_STYLE,
     SUCCESS_DOT_STYLE,
     TITLE_STYLE
 )
 
-PLAN_ACTIVE_BODY_STYLE    = ACTION_TOOL_STYLE
-PLAN_COMPLETED_BODY_STYLE = PREVIEW_TEXT_STYLE
+PLAN_SUMMARY_STYLE       = PREVIEW_MORE_STYLE
+PLAN_ACTIVE_BODY_STYLE   = "#7DD3FC"
+PLAN_INACTIVE_BODY_STYLE = PREVIEW_TEXT_STYLE
 
 
 def _part(
@@ -61,8 +62,6 @@ def render_plan_update(
 
     explanation, plan = normalized
 
-    all_completed = all(item["status"] == "completed" for item in plan)
-
     text_lines = ["• Updated Plan"]
 
     parts: list[dict[str, typing.Optional[str]]] = [
@@ -73,8 +72,8 @@ def render_plan_update(
     if explanation:
         text_lines.append(f"  └ {explanation}")
         parts.extend([
-            _part("\n  └ ", PLAN_COMPLETED_BODY_STYLE),
-            _part(explanation, PLAN_COMPLETED_BODY_STYLE)
+            _part("\n  └ ", PLAN_SUMMARY_STYLE),
+            _part(explanation, PLAN_SUMMARY_STYLE)
         ])
 
     indent = "    " if explanation else "  "
@@ -82,9 +81,9 @@ def render_plan_update(
         status = item["status"]
         icon = "✔" if status == "completed" else "□"
         style = (
-            PLAN_COMPLETED_BODY_STYLE
-            if all_completed or status == "pending"
-            else PLAN_ACTIVE_BODY_STYLE
+            PLAN_ACTIVE_BODY_STYLE
+            if status == "in_progress"
+            else PLAN_INACTIVE_BODY_STYLE
         )
 
         text_lines.append(f"{indent}{icon} {item['step']}")

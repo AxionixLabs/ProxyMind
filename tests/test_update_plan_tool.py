@@ -130,7 +130,7 @@ def test_update_plan_handler_returns_normalized_english_result() -> None:
 
 
 def test_completed_plan_body_is_dim_but_title_is_not() -> None:
-    """全部完成时计划正文变暗，标题保持正常强调。"""
+    """全部完成时摘要和步骤使用不同 dim 色，标题保持正常强调。"""
     rendered = render_plan_update(_valid_plan_data(all_completed=True))
 
     assert rendered is not None
@@ -142,18 +142,26 @@ def test_completed_plan_body_is_dim_but_title_is_not() -> None:
         "    ✔ Run regression tests"
     )
 
+    dot_part = next(part for part in parts if part["text"] == "•")
     title_part = next(part for part in parts if part["text"] == " Updated Plan")
+    summary_part = next(
+        part for part in parts
+        if part["text"] == "Update the execution boundary."
+    )
     step_parts = [
         part for part in parts
         if part["text"] in {"Inspect the current flow", "Run regression tests"}
     ]
-    assert "dim" not in str(title_part["style"])
+    assert dot_part["style"] == "bold #6EE7A8"
+    assert title_part["style"] == "bold #D7E7FF"
+    assert "dim" in str(summary_part["style"])
     assert step_parts
     assert all("dim" in str(part["style"]) for part in step_parts)
+    assert all(part["style"] != summary_part["style"] for part in step_parts)
 
 
-def test_incomplete_plan_highlights_done_and_active_then_dims_summary_and_pending() -> None:
-    """计划执行中高亮已完成和当前步骤，变暗摘要和后续步骤。"""
+def test_incomplete_plan_dims_done_summary_and_pending_then_highlights_active() -> None:
+    """计划执行中仅高亮当前步骤，摘要弱于其他非活动内容。"""
     rendered = render_plan_update({
         "explanation": "Continue implementation.",
         "plan": [
@@ -175,10 +183,10 @@ def test_incomplete_plan_highlights_done_and_active_then_dims_summary_and_pendin
             "Pending step"
         }
     }
-    assert "dim" in styles["Continue implementation."]
-    assert "dim" not in styles["Completed step"]
-    assert "dim" not in styles["Active step"]
-    assert "dim" in styles["Pending step"]
+    assert styles["Continue implementation."] == "dim #7E8FA3"
+    assert styles["Completed step"] == "dim #A5B3C2"
+    assert styles["Active step"] == "#7DD3FC"
+    assert styles["Pending step"] == "dim #A5B3C2"
 
 
 def test_update_plan_uses_special_display_and_preserves_audit() -> None:

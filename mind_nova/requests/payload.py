@@ -3,6 +3,7 @@
 
 import typing
 from mind_core.skills import skills_payload
+from mind_nova import craft
 from .access import (
     DEFAULT_ACCESS_MODE,
     apply_access_mode
@@ -108,9 +109,12 @@ async def build_chat_payload(
     if not isinstance(runtime_exec_env := kwargs.pop("exec_env", None), dict):
         runtime_exec_env = {}
 
+    turn_id = str(kwargs.pop("turn_id", "") or "").strip() or craft.short_uid(12)
+
     ensure_default_skills(kwargs)
 
     payload = {
+        "turn_id"      : turn_id,
         "mode"         : resolve_transport_mode(mode),
         "llm_conf"     : request_llm_conf(pref_config),
         "message"      : message,
