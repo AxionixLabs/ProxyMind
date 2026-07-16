@@ -1,6 +1,6 @@
 {
   "name": "@craftline/mind",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "description": "Mind command line launcher.",
   "type": "module",
   "bin": {
@@ -13,8 +13,8 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "@craftline/mind-win32": "1.1.5",
-    "@craftline/mind-darwin": "1.1.5"
+    "@craftline/mind-win32": "1.1.6",
+    "@craftline/mind-darwin": "1.1.6"
   },
   "engines": {
     "node": ">=18"
