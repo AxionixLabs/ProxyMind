@@ -106,25 +106,29 @@ class StreamUI(object):
 
     async def prepare_external_output(self) -> None:
         """落版当前 live 文本，并在外部 UI 输出前消费 text.done 边界。"""
-        has_live_text   = bool(self.coordinator.text_state.display_text.strip())
+        display_text    = self.coordinator.text_state.display_text
+        has_live_state  = bool(display_text)
+        has_live_text   = bool(display_text.strip())
         boundary_prefix = self._consume_stream_boundary_prefix()
 
-        await self.settle_stream()
-        await self.commit_live()
+        if has_live_state:
+            await self.settle_stream()
+            await self.commit_live()
 
-        boundary_prefix = self._external_output_boundary_prefix(
-            boundary_prefix,
-            has_live_text=has_live_text
-        )
+            boundary_prefix = self._external_output_boundary_prefix(
+                boundary_prefix,
+                has_live_text=has_live_text
+            )
         if not boundary_prefix and not has_live_text:
             boundary_prefix = self._external_boundary_prefix_from_text_state()
+        if not boundary_prefix:
+            return None
 
         await self._print_boundary_prefix(boundary_prefix)
-        if boundary_prefix:
-            self.coordinator.text_state.remember_external_spacing(
-                display=self.BLOCK,
-                text=boundary_prefix
-            )
+        self.coordinator.text_state.remember_external_spacing(
+            display=self.BLOCK,
+            text=boundary_prefix
+        )
 
     async def begin_builtin_status(
         self,

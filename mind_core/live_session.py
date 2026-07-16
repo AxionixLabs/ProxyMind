@@ -26,7 +26,7 @@ class LiveRenderSession(object):
 
     def _live_renderable(self) -> typing.Any:
         """返回当前 Live 使用的可渲染对象。"""
-        return self.renderable if self.renderable is not None else Text(self.out, style="bold")
+        return self.renderable if self.renderable is not None else Text(self.out)
 
     async def start(self) -> None:
         """启动 Live 渲染会话。"""
@@ -126,7 +126,7 @@ class TypewriterStreamSession(LiveRenderSession):
 
     def _live_renderable(self) -> typing.Any:
         """返回打字机窗口当前使用的可渲染对象。"""
-        return self.renderable if self.renderable is not None else Text(self._tail_text(self.out), style="bold")
+        return self.renderable if self.renderable is not None else Text(self._tail_text(self.out))
 
     async def stop(
         self,
@@ -153,7 +153,7 @@ class TypewriterStreamSession(LiveRenderSession):
                     final_renderable.rstrip()
                 Design.console.print(final_renderable)
             else:
-                Design.console.print(Text(final_text, style="bold"))
+                Design.console.print(Text(final_text))
             Design.console.print()
         self.renderable = None
 

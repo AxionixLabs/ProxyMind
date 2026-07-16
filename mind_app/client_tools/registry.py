@@ -9,6 +9,7 @@ from .types import (
 )
 from .coding import coding_tools
 from .planning import planning_tools
+from .update_plan import update_plan_tools
 from .view_image import view_image_tools
 
 
@@ -79,6 +80,7 @@ def default_registry(
 
     return ClientToolRegistry([
         *planning_tools(),
+        *update_plan_tools(),
         *coding_tools(native_coding),
         *view_image_tools(root),
     ])

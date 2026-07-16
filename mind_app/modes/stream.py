@@ -142,6 +142,7 @@ async def stream_looper(
 
             if is_assistant_output_boundary(event_type, event):
                 tracker.commit_assistant_output()
+                await slog.prepare_external_output()
 
             if event_type == "turn.start":
                 continue
@@ -198,7 +199,6 @@ async def stream_looper(
             if event_type == "tool.approval_required":
                 approval = approval_from_event(event)
                 await slog.end_status(immediate=True)
-                await slog.prepare_external_output()
 
                 decision = await prompt_tool_approval_decision(
                     approval,

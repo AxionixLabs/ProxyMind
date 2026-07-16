@@ -8,6 +8,7 @@ from mind_app.client_tools.types import (
     ClientTool,
     ClientToolRuntime
 )
+from mind_app.client_tools.update_plan import UPDATE_PLAN_TOOL
 
 PLAN_STEPS_TOOL = "plan_steps"
 
@@ -76,8 +77,8 @@ def _normalize_step(
     if not tool:
         errors.append(f"steps[{index}] missing tool")
         return None
-    if tool == PLAN_STEPS_TOOL:
-        errors.append(f"steps[{index}] nested plan_steps forbidden")
+    if tool in {PLAN_STEPS_TOOL, UPDATE_PLAN_TOOL}:
+        errors.append(f"steps[{index}] nested {tool} forbidden")
         return None
 
     args = raw_step.get("args")

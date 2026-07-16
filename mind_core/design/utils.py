@@ -134,7 +134,7 @@ async def typewriter(
     pending, last_flush = 0, loop.time()
 
     def default_renderer(text: str, cur_cursor: str) -> Text:
-        t = Text(text, style="bold", no_wrap=bool(max_lines), overflow="crop")
+        t = Text(text, no_wrap=bool(max_lines), overflow="crop")
         t.append(cur_cursor, style=TYPEWRITER_CURSOR_STYLE)
         return t
 
@@ -203,7 +203,7 @@ async def typewriter(
         if glitch and ch not in "\n\r\t" and ch.strip() and random.random() < glitch:
             if use_window:
                 live.update(
-                    Text(win.text(), style="bold")
+                    Text(win.text())
                     + Text(random.choice("▓▒░"), style="bold")
                     + Text(cursor, style=TYPEWRITER_CURSOR_STYLE)
                 )
@@ -211,7 +211,8 @@ async def typewriter(
                 render()
             else:
                 live.update(
-                    Text(out + random.choice("▓▒░"), style="bold")
+                    Text(out)
+                    + Text(random.choice("▓▒░"), style="bold")
                     + Text(cursor, style=TYPEWRITER_CURSOR_STYLE)
                 )
                 await asyncio.sleep(0.010)
@@ -259,7 +260,7 @@ async def cursor_blink(
         return "\n".join(parts[-max_lines:])
 
     def default_render(text: str, cursor_on: bool) -> Text:
-        base = Text(text, style="bold", no_wrap=bool(max_lines), overflow="crop")
+        base = Text(text, no_wrap=bool(max_lines), overflow="crop")
         if cursor_on:
             base += Text(cursor, style=TYPEWRITER_CURSOR_STYLE)
         return base

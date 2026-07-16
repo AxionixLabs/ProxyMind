@@ -163,6 +163,17 @@ def test_plan_steps_schema_does_not_expose_step_meta() -> None:
     assert set(properties) == {"tool", "args"}
 
 
+def test_plan_steps_rejects_nested_update_plan() -> None:
+    """计划循环不允许嵌套调用展示状态工具。"""
+    valid, plan, errors = normalize_plan_arguments({
+        "steps": [{"tool": "update_plan", "args": {"plan": []}}]
+    })
+
+    assert valid is False
+    assert plan["steps"] == []
+    assert errors == ["steps[0] nested update_plan forbidden"]
+
+
 def test_plan_steps_does_not_limit_loops_or_step_count() -> None:
     """计划工具不截断循环次数或步骤数量。"""
     valid, plan, errors = normalize_plan_arguments({
@@ -193,8 +204,7 @@ def test_plan_tool_handler_reuses_standard_display_and_posts_result(monkeypatch)
             return report
 
     class FakeStreamUI(object):
-        async def prepare_external_output(self) -> None:
-            events.append(("prepare", None))
+        pass
 
     async def fake_show_start(*args, **kwargs) -> None:
         events.append(("start", (args, kwargs)))
@@ -226,7 +236,7 @@ def test_plan_tool_handler_reuses_standard_display_and_posts_result(monkeypatch)
     )
 
     assert [name for name, _ in events] == [
-        "prepare", "start", "execute", "result", "post"
+        "start", "execute", "result", "post"
     ]
     post_args, _ = events[-1][1]
     assert post_args[3:6] == ("plan_steps", True, {"ok": True})

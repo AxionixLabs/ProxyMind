@@ -171,7 +171,7 @@ class TextState(object):
             text = str(part.get("text") or "")
             if not text:
                 continue
-            out.append(text, style=str(part.get("style") or "bold"))
+            out.append(text, style=part.get("style"))
 
         return out
 

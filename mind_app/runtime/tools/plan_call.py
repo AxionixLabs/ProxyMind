@@ -42,7 +42,6 @@ class PlanToolCallRunner:
         """处理一次完整的 plan_steps 工具调用。"""
         execution = event.get("execution")
 
-        await self.stream_ui.prepare_external_output()
         await show_tool_start(
             self.stream_ui,
             PLAN_STEPS_TOOL,

@@ -174,7 +174,7 @@ class RenderCoord(object):
             if self.text_state.has_styles():
                 out = self.text_state.renderable_for_text(base_text)
             else:
-                out = Text(base_text, style="bold")
+                out = Text(base_text)
         else:
             base_text = ""
             out = Text()

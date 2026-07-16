@@ -3,6 +3,7 @@
 
 import typing
 from mind_core.design import Design
+from mind_app.client_tools.update_plan import UPDATE_PLAN_TOOL
 from ...stream_ui import StreamUI
 from ...stream_events.tool_trace import (
     render_generic_tool_result_preview,
@@ -12,6 +13,7 @@ from ...stream_events.tool_trace import (
     render_tool_trace_parts
 )
 from .types import ToolDisplayResult
+from .plan_update_display import render_plan_update
 
 
 def _coding_trace_text(
@@ -53,6 +55,9 @@ async def show_tool_start(
     if audit:
         stream_ui.record_tool_arguments(name, arguments, call_id=call_id)
 
+    if name == UPDATE_PLAN_TOOL:
+        return None
+
     trace_start = render_tool_start_trace(name, arguments)
 
     await stream_ui.feed(
@@ -82,6 +87,18 @@ async def show_tool_result(
     _ = tool_run.fields if fields is None else fields
 
     display_text = tool_run.text if text is None else str(text or "")
+
+    if name == UPDATE_PLAN_TOOL and display_ok:
+        rendered = render_plan_update(tool_run.data)
+        if rendered is not None:
+            plan_text, plan_parts = rendered
+            await stream_ui.feed(
+                plan_text,
+                display=StreamUI.BLOCK,
+                display_parts=plan_parts,
+                preserve_display_parts=True
+            )
+            return None
 
     if use_coding_trace:
         await stream_ui.end_status()
