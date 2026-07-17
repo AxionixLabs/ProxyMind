@@ -26,7 +26,11 @@ class McpSessionLike(typing.Protocol):
         progress_callback: typing.Any = None,
         *,
         meta: dict[str, typing.Any] | None = None,
-        args: dict[str, typing.Any] | None = None
+        args: dict[str, typing.Any] | None = None,
+        execution: dict[str, typing.Any] | None = None,
+        cid: str | None = None,
+        sid: str | None = None,
+        call_id: str | None = None,
     ) -> mcp_types.CallToolResult:
         """调用指定 MCP 工具并返回执行结果。"""
         ...
@@ -125,7 +129,11 @@ class CompositeToolSession(McpSessionLike):
         progress_callback: typing.Any = None,
         *,
         meta: dict[str, typing.Any] | None = None,
-        args: dict[str, typing.Any] | None = None
+        args: dict[str, typing.Any] | None = None,
+        execution: dict[str, typing.Any] | None = None,
+        cid: str | None = None,
+        sid: str | None = None,
+        call_id: str | None = None,
     ) -> mcp_types.CallToolResult:
         """根据工具名称选择外部会话或本地会话执行调用。"""
         payload = arguments if args is None else args
@@ -137,7 +145,11 @@ class CompositeToolSession(McpSessionLike):
                 payload,
                 read_timeout_seconds=read_timeout_seconds,
                 progress_callback=progress_callback,
-                meta=meta
+                meta=meta,
+                execution=execution,
+                cid=cid,
+                sid=sid,
+                call_id=call_id,
             )
 
         if self.external_group is not None and name in self.external_group.tools:

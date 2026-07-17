@@ -19,10 +19,6 @@ from .native_helpers import (
     _short_sha,
     _patch_file_action
 )
-from .shell_batch import (
-    shell_batch_trace_title,
-    shell_batch_tree_preview
-)
 from .shell_errors import (
     shell_error_diagnostic_lines,
     shell_output_lines
@@ -37,14 +33,10 @@ from .native_patch import (
 
 NATIVE_CODING_TRACE_TOOLS = {
     "shell_command",
-    "shell_calls",
     "exec_command",
     "write_stdin",
     "apply_patch"
 }
-
-SMALL_SHELL_BATCH_TRACE_LIMIT = 2
-
 
 def coding_trace_tool(
     name: str
@@ -139,24 +131,7 @@ def render_tool_result_preview(
 
             return _trace_preview_from_lines(lines)
 
-    if name in {"shell_command", "shell_calls", "exec_command", "write_stdin"}:
-        results = data.get("results")
-        if isinstance(results, list):
-            inner = _single_shell_batch_payload(results)
-            if inner is None:
-                return shell_batch_tree_preview(data)
-
-            inner_args = inner.get("args") if isinstance(inner.get("args"), dict) else args
-            inner_data = inner.get("data") if isinstance(inner.get("data"), dict) else {}
-            inner_ok   = bool(inner.get("ok")) if "ok" in inner else None
-
-            return render_tool_result_preview(
-                "shell_command",
-                inner_data,
-                arguments=inner_args,
-                ok=inner_ok
-            )
-
+    if name in {"shell_command", "exec_command", "write_stdin"}:
         if is_error:
             lines = _shell_command_ordered_output_lines(data)
             if not lines:
@@ -190,43 +165,7 @@ def render_tool_result_entries(
     cost_ms: int | None = None
 ) -> list[TraceEntry]:
     """生成工具结果可独立展示的轨迹列表。"""
-    args    = arguments if isinstance(arguments, dict) else {}
-    payload = _result_payload(data)
-
-    if name in {"shell_command", "shell_calls", "exec_command", "write_stdin"}:
-        results = payload.get("results")
-        if isinstance(results, list):
-            items = [item for item in results if isinstance(item, dict)]
-            if 0 < len(items) <= SMALL_SHELL_BATCH_TRACE_LIMIT:
-                entries: list[TraceEntry] = []
-
-                for item in items:
-                    inner = _single_shell_batch_payload([item])
-                    if inner is None:
-                        break
-
-                    inner_args = inner.get("args") if isinstance(inner.get("args"), dict) else {}
-                    inner_data = inner.get("data") if isinstance(inner.get("data"), dict) else {}
-                    item_ok    = bool(item.get("ok"))
-
-                    entries.append(TraceEntry(
-                        title=render_tool_trace(
-                            "shell_command",
-                            inner_args,
-                            ok=item_ok,
-                            data=inner_data
-                        ),
-                        preview=render_tool_result_preview(
-                            "shell_command",
-                            inner_data,
-                            arguments=inner_args,
-                            ok=item_ok
-                        ),
-                        ok=item_ok
-                    ))
-
-                if len(entries) == len(items):
-                    return entries
+    args = arguments if isinstance(arguments, dict) else {}
 
     return [TraceEntry(
         title=render_tool_trace(
@@ -272,24 +211,7 @@ def render_tool_trace(
         added, removed = _line_delta_from_patch_files(payload)
         return f"• {action} {target}{_format_delta(added, removed)}"
 
-    if name in {"shell_command", "shell_calls", "exec_command", "write_stdin"}:
-        results = payload.get("results")
-        if isinstance(results, list):
-            inner = _single_shell_batch_payload(results)
-            if inner is None:
-                return shell_batch_trace_title(payload, cost_ms=cost_ms)
-
-            inner_args = inner.get("args") if isinstance(inner.get("args"), dict) else args
-            inner_data = inner.get("data") if isinstance(inner.get("data"), dict) else {}
-
-            return render_tool_trace(
-                "shell_command",
-                inner_args,
-                ok=ok,
-                data=inner_data,
-                cost_ms=cost_ms
-            )
-
+    if name in {"shell_command", "exec_command", "write_stdin"}:
         if name == "write_stdin":
             session_id = str(payload.get("session_id") or args.get("session_id") or "").strip()
             suffix     = f" {session_id}" if session_id else ""
@@ -442,24 +364,6 @@ def _argument_preview(value: typing.Any) -> str:
         return f"<{type(value).__name__}:{len(value)}>"
 
     return _short_text(value, MAX_PREVIEW_WIDTH)
-
-
-def _single_shell_batch_payload(
-    results: list[typing.Any]
-) -> dict[str, typing.Any] | None:
-    """从单条 shell_calls 批量结果中提取单命令参数和数据。"""
-    items = [item for item in results if isinstance(item, dict)]
-    if len(items) != 1:
-        return None
-
-    item   = items[0]
-    result = item.get("result") if isinstance(item.get("result"), dict) else {}
-    data   = _result_payload(result)
-
-    return {
-        "args" : item.get("args") if isinstance(item.get("args"), dict) else {},
-        "data" : data
-    }
 
 
 if __name__ == '__main__':

@@ -7,7 +7,8 @@ import typing
 import asyncio
 import secrets
 from mind_app.native_coding.base import (
-    NativeCodingBase, NativeCodingComponent
+    NativeCodingBase,
+    NativeCodingComponent
 )
 from mind_app.native_coding.exec.process_capture import (
     OrderedOutputBuffer,
@@ -15,6 +16,13 @@ from mind_app.native_coding.exec.process_capture import (
 )
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools
 from mind_app.native_coding.exec.shell_runtime import ShellRuntimeResolver
+from mind_app.native_coding.execution_authorization import (
+    ExecutionAuthorizationError,
+    canonical_arguments,
+    execution_expiration_timestamp,
+    validate_execution_authorization,
+    validate_runtime_identity,
+)
 
 
 class ExecSession:
@@ -22,6 +30,8 @@ class ExecSession:
 
     __slots__ = (
         "session_id",
+        "owner_cid",
+        "owner_sid",
         "command",
         "cwd",
         "process",
@@ -48,6 +58,8 @@ class ExecSession:
         self,
         *,
         session_id: str,
+        owner_cid: str,
+        owner_sid: str,
         command: str,
         cwd: str,
         process: asyncio.subprocess.Process,
@@ -60,6 +72,8 @@ class ExecSession:
     ) -> None:
         """初始化 shell 进程会话和增量输出缓冲区。"""
         self.session_id = session_id
+        self.owner_cid  = owner_cid
+        self.owner_sid  = owner_sid
         self.command    = command
         self.cwd        = cwd
         self.process    = process
@@ -116,6 +130,7 @@ class ExecCommandTools(NativeCodingComponent):
         self._file_audit     = file_audit
 
         self._sessions: dict[str, ExecSession] = {}
+        self._used_write_grants: dict[str, float] = {}
 
     async def exec_command(
         self,
@@ -127,13 +142,15 @@ class ExecCommandTools(NativeCodingComponent):
         timeout_sec: int = 1800,
         idle_timeout_sec: int = 300,
         execution: dict[str, typing.Any] | None = None,
+        cid: str = "",
+        sid: str = "",
         audit_files: bool = False
     ) -> dict[str, typing.Any]:
         """启动一个可持续读取和写入的 shell 命令会话。"""
         await self._cleanup_sessions()
 
-        cmd = str(command or "").strip()
-        if not cmd:
+        cmd = str(command or "")
+        if not cmd.strip():
             return self.fail_result("command_empty")
 
         policy = self._command_policy.execution_metadata_policy(
@@ -210,6 +227,8 @@ class ExecCommandTools(NativeCodingComponent):
 
         session = ExecSession(
             session_id=self._new_session_id(),
+            owner_cid=str(cid or ""),
+            owner_sid=str(sid or ""),
             command=cmd,
             cwd=self.relative_path(workdir),
             process=process,
@@ -262,22 +281,80 @@ class ExecCommandTools(NativeCodingComponent):
         stdin: str = "",
         wait_ms: int = 1000,
         max_output_chars: int = 12000,
-        control: str = "none"
+        control: str = "none",
+        execution: dict[str, typing.Any] | None = None,
+        cid: str = "",
+        sid: str = "",
+        call_id: str = "",
     ) -> dict[str, typing.Any]:
         """向已有 shell 会话写入输入，或轮询增量输出。"""
         await self._cleanup_sessions()
 
-        sid = str(session_id or "").strip()
-        if not sid:
+        exec_session_id = str(session_id or "").strip()
+        if not exec_session_id:
             return self.fail_result("session_id_empty", tool="write_stdin")
 
-        session = self._sessions.get(sid)
+        session = self._sessions.get(exec_session_id)
         if session is None:
             return self.fail_result(
                 "exec_session_not_found",
                 tool="write_stdin",
-                session_id=sid
+                session_id=exec_session_id
             )
+
+        owner_error = self._session_owner_error(session, cid=cid, sid=sid)
+        if owner_error is not None:
+            return owner_error
+
+        input_text: str      = str(stdin or "")
+        grant_id: str | None = None
+
+        grant_expires_at: float | None = None
+
+        if input_text:
+            try:
+                validate_runtime_identity(cid=cid, sid=sid, call_id=call_id)
+
+                grant_id = validate_execution_authorization(
+                    execution, require_grant=True
+                )
+
+                grant_expires_at = execution_expiration_timestamp(execution)
+
+                now = time.time()
+
+                self._used_write_grants = {
+                    used_grant: expires_at
+                    for used_grant, expires_at in self._used_write_grants.items()
+                    if expires_at > now
+                }
+
+                canonical = canonical_arguments(execution, tool="write_stdin")
+
+                expected = {
+                    "session_id"       : str(session_id or ""),
+                    "stdin"            : input_text,
+                    "wait_ms"          : wait_ms,
+                    "max_output_chars" : max_output_chars,
+                    "control"          : control
+                }
+                if canonical != expected:
+                    raise ExecutionAuthorizationError(
+                        "execution_canonical_arguments_mismatch",
+                        "write_stdin arguments do not match canonicalArguments",
+                    )
+                if grant_id in self._used_write_grants:
+                    raise ExecutionAuthorizationError(
+                        "execution_grant_reused", "grantId has already been used"
+                    )
+            except ExecutionAuthorizationError as exc:
+                return self.fail_result(
+                    exc.reason,
+                    tool="write_stdin",
+                    session_id=str(session_id or ""),
+                    error="execution_policy_blocked",
+                    detail=exc.detail,
+                )
 
         output_limit = self._bounded_int(
             max_output_chars,
@@ -293,15 +370,18 @@ class ExecCommandTools(NativeCodingComponent):
             return self.fail_result(
                 "exec_control_invalid",
                 tool="write_stdin",
-                session_id=sid,
+                session_id=exec_session_id,
                 control=control
             )
 
         started = time.perf_counter()
 
+        if grant_id is not None and grant_expires_at is not None:
+            self._used_write_grants[grant_id] = grant_expires_at
+
         write_error = await self._apply_control_or_stdin(
             session,
-            input_text=str(stdin or ""),
+            input_text=input_text,
             control=control_name
         )
         if write_error is not None:
@@ -326,6 +406,27 @@ class ExecCommandTools(NativeCodingComponent):
 
         self._record_shell_result(data)
         return self._result_from_data("write_stdin", data)
+
+    def _session_owner_error(
+        self,
+        session: ExecSession,
+        *,
+        cid: typing.Any,
+        sid: typing.Any,
+    ) -> dict[str, typing.Any] | None:
+        """校验命令会话是否属于当前服务端会话。"""
+        owner  = (session.owner_cid, session.owner_sid)
+        caller = (str(cid or ""), str(sid or ""))
+
+        if owner == caller:
+            return None
+
+        return self.fail_result(
+            "exec_session_owner_mismatch",
+            tool="write_stdin",
+            session_id=session.session_id,
+            error="execution_policy_blocked",
+        )
 
     async def running_sessions_snapshot(self) -> dict[str, typing.Any]:
         """返回当前仍在运行的命令会话摘要。"""

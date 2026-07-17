@@ -12,10 +12,8 @@ from mind_app.mcp.tool_store import has_tool
 from mind_app.stream_ui import StreamUI
 from .execution_policy import (
     is_execution_ignored,
-    should_pass_execution_to_tool,
     validate_execution_policy
 )
-from .types import ToolDisplayResult
 
 FAILURE_PREVIEW_LIMIT = 8
 RESULT_TEXT_LIMIT     = 800
@@ -33,7 +31,7 @@ class PlanStepResult:
 
 
 @dataclass(slots=True)
-class PlanExecutionReport(ToolDisplayResult):
+class PlanExecutionReport:
     """汇总计划执行结果并提供展示与回传字段。"""
     ok: bool
     text: str
@@ -72,14 +70,20 @@ class StepPlanExecutor:
     async def execute_tool_call(
         self,
         *,
-        arguments: dict[str, typing.Any]
+        arguments: dict[str, typing.Any],
+        cid: str | None = None,
+        sid: str | None = None,
+        call_id: str | None = None,
     ) -> PlanExecutionReport:
         """执行一次 plan_steps 工具调用并返回统一报告。"""
         started_at = time.perf_counter()
 
         valid, plan, errors = normalize_plan_arguments(arguments)
 
-        results = await self.execute_plan(plan) if valid else []
+        results = await self.execute_plan(
+            plan, cid=cid, sid=sid, call_id=call_id
+        ) if valid else []
+
         cost_ms = int((time.perf_counter() - started_at) * 1000)
 
         return self._build_report(
@@ -91,7 +95,11 @@ class StepPlanExecutor:
 
     async def execute_plan(
         self,
-        plan: dict[str, typing.Any]
+        plan: dict[str, typing.Any],
+        *,
+        cid: str | None = None,
+        sid: str | None = None,
+        call_id: str | None = None,
     ) -> list[PlanStepResult]:
         """按计划声明顺序执行所有步骤。"""
         loops        = int(plan.get("loops") or 1)
@@ -131,7 +139,10 @@ class StepPlanExecutor:
                         step_index,
                         step,
                         total_runs=loops,
-                        total_steps=len(steps)
+                        total_steps=len(steps),
+                        cid=cid,
+                        sid=sid,
+                        call_id=call_id,
                     )
                     results.append(result)
                     if stop_on_fail and not result.ok:
@@ -153,7 +164,10 @@ class StepPlanExecutor:
         step: dict[str, typing.Any],
         *,
         total_runs: int,
-        total_steps: int
+        total_steps: int,
+        cid: str | None,
+        sid: str | None,
+        call_id: str | None,
     ) -> PlanStepResult:
         """执行计划中的单个步骤。"""
         name          = str(step.get("tool") or "").strip()
@@ -177,7 +191,6 @@ class StepPlanExecutor:
 
         policy_result = validate_execution_policy(
             name=name,
-            arguments=arguments,
             execution=execution
         )
         if policy_result:
@@ -194,12 +207,19 @@ class StepPlanExecutor:
             exchanged_args = exchange_arguments(name, arguments, self.report)
             if not isinstance(exchanged_args, dict):
                 raise TypeError(f"invalid arguments for {name}")
-            if should_pass_execution_to_tool(name, execution):
-                exchanged_args = {**exchanged_args, "execution": execution}
 
             started_at = time.perf_counter()
 
-            result = await self.session.call_tool(name, exchanged_args)
+            runtime: dict[str, typing.Any] = {}
+            if execution is not None:
+                runtime = {
+                    "execution" : execution,
+                    "cid"       : cid,
+                    "sid"       : sid,
+                    "call_id"   : call_id
+                }
+
+            result = await self.session.call_tool(name, exchanged_args, **runtime)
 
             await self.stream_ui.update_loop_status_summary(
                 self._loop_summary(
@@ -281,6 +301,7 @@ class StepPlanExecutor:
         results_by_step: dict[int, list[PlanStepResult]] = {
             index: [] for index in range(1, step_count + 1)
         }
+
         failures: list[dict[str, typing.Any]] = []
 
         ok_count: int = 0
@@ -305,10 +326,12 @@ class StepPlanExecutor:
             1 for count in calls_by_run.values()
             if 0 < step_count <= count
         )
+
         stopped = bool(fail_count and plan.get("stop_on_fail", True))
-        ok = not errors and fail_count == 0
+        ok      = not errors and fail_count == 0
 
         step_results: list[dict[str, typing.Any]] = []
+
         for step_index, step in enumerate(steps, start=1):
             items = results_by_step[step_index]
             last  = items[-1] if items else None
@@ -381,6 +404,7 @@ class StepPlanExecutor:
             )
 
         state = "stopped" if stopped else "completed with failures"
+
         return (
             f"{completed_runs}/{requested_runs} runs · {ok_count} succeeded · "
             f"{fail_count} failed · {state} · {cls._duration_text(cost_ms)}"

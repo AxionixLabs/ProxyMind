@@ -199,8 +199,9 @@ def test_plan_tool_handler_reuses_standard_display_and_posts_result(monkeypatch)
     report = SimpleNamespace(ok=True, fields={"ok": True}, text="done")
 
     class FakeExecutor(object):
-        async def execute_tool_call(self, *, arguments: dict) -> object:
+        async def execute_tool_call(self, *, arguments: dict, **runtime: object) -> object:
             events.append(("execute", arguments))
+            events.append(("runtime", runtime))
             return report
 
     class FakeStreamUI(object):
@@ -236,7 +237,8 @@ def test_plan_tool_handler_reuses_standard_display_and_posts_result(monkeypatch)
     )
 
     assert [name for name, _ in events] == [
-        "start", "execute", "result", "post"
+        "start", "execute", "runtime", "result", "post"
     ]
+    assert events[2][1] == {"cid": "cid", "sid": "sid", "call_id": "call"}
     post_args, _ = events[-1][1]
     assert post_args[3:6] == ("plan_steps", True, {"ok": True})

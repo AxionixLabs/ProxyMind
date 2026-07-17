@@ -49,6 +49,10 @@ class ClientToolRegistry:
         read_timeout_seconds: typing.Any = None,
         progress_callback: typing.Any = None,
         meta: dict[str, typing.Any] | None = None,
+        execution: dict[str, typing.Any] | None = None,
+        cid: str | None = None,
+        sid: str | None = None,
+        call_id: str | None = None,
     ) -> mcp_types.CallToolResult:
         """分发一次客户端工具调用。"""
         key  = str(name or "").strip()
@@ -62,6 +66,10 @@ class ClientToolRegistry:
             read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
             meta=meta,
+            execution=execution,
+            cid=cid,
+            sid=sid,
+            call_id=call_id,
         )
         return await tool.handler(dict(arguments or {}), runtime)
 

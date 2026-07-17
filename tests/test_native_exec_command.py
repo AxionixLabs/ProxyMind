@@ -3,6 +3,7 @@
 import asyncio
 import gc
 import time
+import uuid
 from pathlib import Path
 
 from mind_app.client_tools.coding.native import coding_tools
@@ -20,9 +21,32 @@ def approved_execution(**overrides: object) -> dict[str, object]:
         "risk": "test",
         "category": "test",
         "reasons": [],
+        "policyVersion": "test-v1",
+        "expiresAt": time.time() + 60,
     }
     data.update(overrides)
     return data
+
+
+def write_execution(
+    *,
+    session_id: object,
+    stdin: str,
+    wait_ms: int = 1000,
+    max_output_chars: int = 12000,
+    control: str = "none",
+) -> dict[str, object]:
+    """生成非空会话写入使用的 canonical 授权。"""
+    return approved_execution(
+        grantId=f"write-{uuid.uuid4().hex}",
+        canonicalArguments={
+            "session_id": str(session_id or ""),
+            "stdin": stdin,
+            "wait_ms": wait_ms,
+            "max_output_chars": max_output_chars,
+            "control": control,
+        },
+    )
 
 
 def run_async(value: object) -> object:
@@ -53,15 +77,23 @@ def tool_by_name(tools: list[ClientTool], name: str) -> ClientTool:
     raise AssertionError(f"tool not found: {name}")
 
 
-async def terminate_session(coding: NativeCoding, session_id: object) -> None:
+async def terminate_session(
+    coding: NativeCoding,
+    session_id: object,
+    *,
+    cid: str = "",
+    sid: str = "",
+) -> None:
     """尽力终止测试创建的会话。"""
-    sid = str(session_id or "").strip()
-    if not sid:
+    exec_session_id = str(session_id or "").strip()
+    if not exec_session_id:
         return
     await coding.write_stdin(
-        session_id=sid,
+        session_id=exec_session_id,
         control="terminate",
         wait_ms=1000,
+        cid=cid,
+        sid=sid,
     )
     await asyncio.sleep(0.05)
 
@@ -188,7 +220,7 @@ def test_exec_command_truncates_large_initial_output(tmp_path: Path) -> None:
         result = await coding.exec_command(
             command=command,
             cwd=".",
-            yield_time_ms=500,
+            yield_time_ms=1000,
             max_output_chars=1024,
             timeout_sec=20,
             idle_timeout_sec=20,
@@ -236,6 +268,8 @@ def test_exec_command_starts_session_and_write_stdin_completes(tmp_path: Path) -
 
     async def scenario() -> None:
         coding = NativeCoding(root=tmp_path)
+        cid = "cid-main"
+        owner_sid = "sid-main"
         start = await coding.exec_command(
             command=command,
             cwd=".",
@@ -243,6 +277,8 @@ def test_exec_command_starts_session_and_write_stdin_completes(tmp_path: Path) -
             timeout_sec=10,
             idle_timeout_sec=10,
             execution=approved_execution(),
+            cid=cid,
+            sid=owner_sid,
         )
         session_id = start["data"].get("session_id")
 
@@ -258,6 +294,12 @@ def test_exec_command_starts_session_and_write_stdin_completes(tmp_path: Path) -
                 session_id=session_id,
                 stdin="hello\n",
                 wait_ms=500,
+                execution=write_execution(
+                    session_id=session_id, stdin="hello\n", wait_ms=500
+                ),
+                cid=cid,
+                sid=owner_sid,
+                call_id="call-hello",
             )
             assert echo["ok"] is True
             assert echo["data"]["tool"] == "write_stdin"
@@ -269,6 +311,12 @@ def test_exec_command_starts_session_and_write_stdin_completes(tmp_path: Path) -
                 session_id=session_id,
                 stdin="write\n",
                 wait_ms=500,
+                execution=write_execution(
+                    session_id=session_id, stdin="write\n", wait_ms=500
+                ),
+                cid=cid,
+                sid=owner_sid,
+                call_id="call-write",
             )
             assert wrote["ok"] is True
             assert "wrote-file" in wrote["data"]["stdout"]
@@ -278,6 +326,12 @@ def test_exec_command_starts_session_and_write_stdin_completes(tmp_path: Path) -
                 session_id=session_id,
                 stdin="quit\n",
                 wait_ms=1000,
+                execution=write_execution(
+                    session_id=session_id, stdin="quit\n", wait_ms=1000
+                ),
+                cid=cid,
+                sid=owner_sid,
+                call_id="call-quit",
             )
             assert finished["ok"] is True
             assert finished["data"]["status"] == "exited"
@@ -297,7 +351,7 @@ def test_exec_command_starts_session_and_write_stdin_completes(tmp_path: Path) -
             assert missing["ok"] is False
             assert missing["data"]["reason"] == "exec_session_not_found"
         finally:
-            await terminate_session(coding, session_id)
+            await terminate_session(coding, session_id, cid=cid, sid=owner_sid)
 
     run_async(scenario())
 
@@ -519,6 +573,8 @@ def test_finalize_cancels_reader_after_drain_timeout() -> None:
         try:
             session = ExecSession(
                 session_id="exec_test",
+                owner_cid="cid",
+                owner_sid="sid",
                 command="test",
                 cwd=".",
                 process=ExitedProcess(),
@@ -640,6 +696,8 @@ def test_write_stdin_reports_closed_stdin(tmp_path: Path) -> None:
 
     async def scenario() -> None:
         coding = NativeCoding(root=tmp_path)
+        cid = "cid-closed"
+        owner_sid = "sid-closed"
         start = await coding.exec_command(
             command=command,
             cwd=".",
@@ -647,6 +705,8 @@ def test_write_stdin_reports_closed_stdin(tmp_path: Path) -> None:
             timeout_sec=20,
             idle_timeout_sec=20,
             execution=approved_execution(),
+            cid=cid,
+            sid=owner_sid,
         )
         session_id = start["data"].get("session_id")
 
@@ -658,6 +718,8 @@ def test_write_stdin_reports_closed_stdin(tmp_path: Path) -> None:
                 session_id=session_id,
                 control="eof",
                 wait_ms=0,
+                cid=cid,
+                sid=owner_sid,
             )
             assert closed["ok"] is True
             assert closed["data"]["status"] == "running"
@@ -666,13 +728,19 @@ def test_write_stdin_reports_closed_stdin(tmp_path: Path) -> None:
                 session_id=session_id,
                 stdin="after-eof\n",
                 wait_ms=0,
+                execution=write_execution(
+                    session_id=session_id, stdin="after-eof\n", wait_ms=0
+                ),
+                cid=cid,
+                sid=owner_sid,
+                call_id="call-after-eof",
             )
 
             assert result["ok"] is False
             assert result["data"]["reason"] == "exec_stdin_closed"
             assert result["data"]["session_id"] == session_id
         finally:
-            await terminate_session(coding, session_id)
+            await terminate_session(coding, session_id, cid=cid, sid=owner_sid)
 
     run_async(scenario())
 
@@ -759,6 +827,131 @@ def test_write_stdin_idle_cleanup_removes_session(tmp_path: Path) -> None:
         assert result["ok"] is False
         assert result["data"]["reason"] == "exec_session_not_found"
         assert result["data"]["session_id"] == session_id
+
+    run_async(scenario())
+
+
+def test_write_stdin_rejects_poll_and_control_from_other_owner(tmp_path: Path) -> None:
+    """轮询和控制动作不能访问其他服务端会话创建的进程。"""
+    command = write_script(
+        tmp_path,
+        "owner_wait.py",
+        "import time\nprint('owner-ready', flush=True)\ntime.sleep(30)\n",
+    )
+
+    async def scenario() -> None:
+        coding = NativeCoding(root=tmp_path)
+        start = await coding.exec_command(
+            command=command,
+            yield_time_ms=500,
+            timeout_sec=20,
+            execution=approved_execution(),
+            cid="cid-owner",
+            sid="sid-owner",
+        )
+        session_id = start["data"].get("session_id")
+
+        try:
+            poll = await coding.write_stdin(
+                session_id=session_id,
+                cid="cid-other",
+                sid="sid-owner",
+                wait_ms=0,
+            )
+            assert poll["ok"] is False
+            assert poll["data"]["reason"] == "exec_session_owner_mismatch"
+
+            control = await coding.write_stdin(
+                session_id=session_id,
+                cid="cid-owner",
+                sid="sid-other",
+                control="terminate",
+                wait_ms=0,
+            )
+            assert control["ok"] is False
+            assert control["data"]["reason"] == "exec_session_owner_mismatch"
+            assert start["data"]["status"] == "running"
+        finally:
+            await terminate_session(
+                coding, session_id, cid="cid-owner", sid="sid-owner"
+            )
+
+    run_async(scenario())
+
+
+def test_nonempty_stdin_requires_canonical_grant_and_rejects_replay(tmp_path: Path) -> None:
+    """非空 stdin 在写入前校验 canonical、grant 和本地防重放状态。"""
+    command = write_script(
+        tmp_path,
+        "grant_wait.py",
+        "import sys\nprint('grant-ready', flush=True)\nfor line in sys.stdin:\n print(line, flush=True)\n",
+    )
+
+    async def scenario() -> None:
+        coding = NativeCoding(root=tmp_path)
+        start = await coding.exec_command(
+            command=command,
+            yield_time_ms=500,
+            timeout_sec=20,
+            execution=approved_execution(),
+            cid="cid-grant",
+            sid="sid-grant",
+        )
+        session_id = start["data"].get("session_id")
+
+        try:
+            missing = await coding.write_stdin(
+                session_id=session_id,
+                stdin="missing\n",
+                wait_ms=0,
+                cid="cid-grant",
+                sid="sid-grant",
+                call_id="call-missing",
+            )
+            assert missing["data"]["reason"] == "execution_metadata_required"
+
+            mismatch_execution = write_execution(
+                session_id=session_id, stdin="authorized\n", wait_ms=0
+            )
+            mismatch = await coding.write_stdin(
+                session_id=session_id,
+                stdin="tampered\n",
+                wait_ms=0,
+                execution=mismatch_execution,
+                cid="cid-grant",
+                sid="sid-grant",
+                call_id="call-mismatch",
+            )
+            assert mismatch["data"]["reason"] == "execution_canonical_arguments_mismatch"
+
+            execution = write_execution(
+                session_id=session_id, stdin="accepted\n", wait_ms=200
+            )
+            accepted = await coding.write_stdin(
+                session_id=session_id,
+                stdin="accepted\n",
+                wait_ms=200,
+                execution=execution,
+                cid="cid-grant",
+                sid="sid-grant",
+                call_id="call-accepted",
+            )
+            assert accepted["ok"] is True
+
+            replay = await coding.write_stdin(
+                session_id=session_id,
+                stdin="accepted\n",
+                wait_ms=200,
+                execution=execution,
+                cid="cid-grant",
+                sid="sid-grant",
+                call_id="call-replay",
+            )
+            assert replay["data"]["reason"] == "execution_grant_reused"
+        finally:
+            await terminate_session(
+                coding, session_id, cid="cid-grant", sid="sid-grant"
+            )
 
     run_async(scenario())
 
@@ -881,7 +1074,7 @@ def test_write_stdin_eof_closes_stdin_and_exits(tmp_path: Path) -> None:
 
 
 def test_exec_command_and_write_stdin_client_tool_handlers(tmp_path: Path) -> None:
-    """客户端内置工具入口会透传参数并返回结构化结果。"""
+    """客户端内置工具只执行可信 runtime 中的 canonical 参数。"""
     command = write_script(
         tmp_path,
         "tool_entry.py",
@@ -899,22 +1092,43 @@ def test_exec_command_and_write_stdin_client_tool_handlers(tmp_path: Path) -> No
     async def scenario() -> None:
         coding = NativeCoding(root=tmp_path)
         tools = coding_tools(coding)
+        assert [tool.name for tool in tools] == [
+            "shell_command",
+            "exec_command",
+            "write_stdin",
+            "apply_patch",
+        ]
         exec_tool = tool_by_name(tools, "exec_command")
         stdin_tool = tool_by_name(tools, "write_stdin")
-        runtime = ClientToolRuntime(session=None)
+        cid = "cid-handler"
+        owner_sid = "sid-handler"
+        runtime = ClientToolRuntime(
+            session=None,
+            execution=approved_execution(
+                grantId="exec-handler",
+                canonicalArguments={
+                    "command": command,
+                    "cwd": ".",
+                    "yield_time_ms": 500,
+                    "max_output_chars": 24000,
+                    "timeout_sec": 10,
+                    "idle_timeout_sec": 300,
+                },
+            ),
+            cid=cid,
+            sid=owner_sid,
+            call_id="call-exec",
+        )
         session_id: object = ""
 
         assert exec_tool.input_schema["required"] == ["command"]
         assert stdin_tool.input_schema["required"] == ["session_id"]
+        assert all("execution" not in tool.input_schema["properties"] for tool in tools)
 
         try:
             start = await exec_tool.handler(
                 {
-                    "command": command,
-                    "cwd": ".",
-                    "yield_time_ms": 500,
-                    "timeout_sec": 10,
-                    "execution": approved_execution(),
+                    "command": "model-command-is-not-executed",
                 },
                 runtime,
             )
@@ -926,15 +1140,21 @@ def test_exec_command_and_write_stdin_client_tool_handlers(tmp_path: Path) -> No
             assert start_structured["tool"] == "exec_command"
             assert start_structured["args"]["command"] == command
             assert start_structured["args"]["yield_time_ms"] == 500
-            assert start_structured["args"]["execution"]["grantId"] == "test-grant"
+            assert "execution" not in start_structured["args"]
             assert start_structured["data"]["status"] == "running"
             assert "tool-ready" in start_structured["data"]["stdout"]
 
+            runtime.execution = write_execution(
+                session_id=session_id,
+                stdin="handler\n",
+                wait_ms=2000,
+            )
+            runtime.call_id = "call-stdin"
             finished = await stdin_tool.handler(
                 {
                     "session_id": session_id,
-                    "stdin": "handler\n",
-                    "wait_ms": 1000,
+                    "stdin": "model-input-is-not-written\n",
+                    "wait_ms": 2000,
                 },
                 runtime,
             )
@@ -948,6 +1168,37 @@ def test_exec_command_and_write_stdin_client_tool_handlers(tmp_path: Path) -> No
             assert finished_structured["data"]["status"] == "exited"
             assert "tool-got:handler" in finished_structured["data"]["stdout"]
         finally:
-            await terminate_session(coding, session_id)
+            await terminate_session(coding, session_id, cid=cid, sid=owner_sid)
 
     run_async(scenario())
+
+
+def test_exec_command_handler_rejects_model_execution(tmp_path: Path) -> None:
+    """模型 arguments 中出现 execution 时拒绝启动进程。"""
+    command = write_script(tmp_path, "forbidden.py", "print('not-run')\n")
+    tool = tool_by_name(coding_tools(NativeCoding(root=tmp_path)), "exec_command")
+    runtime = ClientToolRuntime(
+        session=None,
+        execution=approved_execution(
+            grantId="exec-forbidden",
+            canonicalArguments={
+                "command": command,
+                "cwd": ".",
+                "yield_time_ms": 1000,
+                "max_output_chars": 24000,
+                "timeout_sec": 10,
+                "idle_timeout_sec": 300,
+            },
+        ),
+        cid="cid-forbidden",
+        sid="sid-forbidden",
+        call_id="call-forbidden",
+    )
+
+    result = run_async(
+        tool.handler({"command": command, "execution": {"grantId": "forged"}}, runtime)
+    )
+    structured = result.structuredContent or {}
+
+    assert result.isError is True
+    assert structured["data"]["reason"] == "model_execution_forbidden"

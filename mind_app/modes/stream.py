@@ -316,7 +316,6 @@ async def stream_looper(
 
                 if execution_policy_result := validate_execution_policy(
                     name=name,
-                    arguments=arguments,
                     execution=event_execution
                 ):
                     if is_execution_ignored(execution_policy_result):

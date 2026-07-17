@@ -4,7 +4,6 @@
 import os
 import typing
 from mind_app.native_coding.base import NativeCodingBase
-from mind_app.native_coding.exec.shell_batch import ShellBatchTools
 from mind_app.native_coding.edit.patch_engine import PatchEngine
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools
 from mind_app.native_coding.exec.exec_command import ExecCommandTools
@@ -25,7 +24,6 @@ class NativeCoding(NativeCodingBase):
         self._file_audit     = FileAudit(self)
         self._turn_diff      = TurnDiffTracker()
         self._shell_command  = ShellCommandTools(self, command_policy=self._command_policy, file_audit=self._file_audit)
-        self._shell_batch    = ShellBatchTools(self, shell_command=self._shell_command)
         self._exec_command   = ExecCommandTools(self, command_policy=self._command_policy, file_audit=self._file_audit)
 
     async def shell_command(
@@ -46,15 +44,6 @@ class NativeCoding(NativeCodingBase):
             execution=execution
         )
 
-    async def shell_calls(
-        self,
-        *,
-        items: list[dict[str, typing.Any]],
-        execution: dict[str, typing.Any] | None = None
-    ) -> dict[str, typing.Any]:
-        """批量执行 shell 命令。"""
-        return await self._shell_batch.shell_calls(items=items, execution=execution)
-
     async def exec_command(
         self,
         *,
@@ -64,7 +53,9 @@ class NativeCoding(NativeCodingBase):
         max_output_chars: int = 24000,
         timeout_sec: int = 1800,
         idle_timeout_sec: int = 300,
-        execution: dict[str, typing.Any] | None = None
+        execution: dict[str, typing.Any] | None = None,
+        cid: str = "",
+        sid: str = "",
     ) -> dict[str, typing.Any]:
         """启动可持续读写的 shell 命令会话。"""
         return await self._exec_command.exec_command(
@@ -74,7 +65,9 @@ class NativeCoding(NativeCodingBase):
             max_output_chars=max_output_chars,
             timeout_sec=timeout_sec,
             idle_timeout_sec=idle_timeout_sec,
-            execution=execution
+            execution=execution,
+            cid=cid,
+            sid=sid,
         )
 
     async def write_stdin(
@@ -84,7 +77,11 @@ class NativeCoding(NativeCodingBase):
         stdin: str = "",
         wait_ms: int = 1000,
         max_output_chars: int = 12000,
-        control: str = "none"
+        control: str = "none",
+        execution: dict[str, typing.Any] | None = None,
+        cid: str = "",
+        sid: str = "",
+        call_id: str = "",
     ) -> dict[str, typing.Any]:
         """向 shell 命令会话写入输入或轮询输出。"""
         return await self._exec_command.write_stdin(
@@ -92,7 +89,11 @@ class NativeCoding(NativeCodingBase):
             stdin=stdin,
             wait_ms=wait_ms,
             max_output_chars=max_output_chars,
-            control=control
+            control=control,
+            execution=execution,
+            cid=cid,
+            sid=sid,
+            call_id=call_id,
         )
 
     async def running_exec_sessions(self) -> dict[str, typing.Any]:

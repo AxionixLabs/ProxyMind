@@ -9,7 +9,6 @@ from mcp.types import CallToolResult
 from engine.enhance import enhance_result
 from ...stream_ui import StreamUI
 from .router import execute_tool
-from .types import ToolDisplayResult
 
 _COMMON_PROMOTED_RESULT_KEYS = (
     "path",
@@ -54,7 +53,6 @@ _COMMON_PROMOTED_RESULT_KEYS = (
 
 _OUTPUT_PROMOTED_TOOLS = {
     "shell_command",
-    "shell_calls",
     "exec_command",
     "write_stdin"
 }
@@ -68,7 +66,7 @@ _OUTPUT_PROMOTED_RESULT_KEYS = (
 
 
 @dataclass(slots=True)
-class ToolRunResult(ToolDisplayResult):
+class ToolRunResult:
     """统一描述单次工具执行的收束结果。"""
     result: CallToolResult
     ok: bool
@@ -79,7 +77,7 @@ class ToolRunResult(ToolDisplayResult):
 
 
 @dataclass(slots=True)
-class ServerToolOutputResult(ToolDisplayResult):
+class ServerToolOutputResult:
     """服务端已执行工具结果的本地展示适配对象。"""
     result: typing.Any
     ok: bool
@@ -128,26 +126,6 @@ def _promote_if_present(
             normalized[key] = payload[key]
 
 
-def _single_batch_result_data(
-    payload: dict[str, typing.Any]
-) -> dict[str, typing.Any]:
-    """单元素批量结果可沿用单命令顶层字段，方便模型读取 stdout/stderr。"""
-    results = payload.get("results")
-    if not isinstance(results, list) or len(results) != 1:
-        return {}
-
-    item = results[0]
-    if not isinstance(item, dict):
-        return {}
-
-    result = item.get("result")
-    if not isinstance(result, dict):
-        return {}
-
-    data = result.get("data")
-    return data if isinstance(data, dict) else {}
-
-
 def normalize_tool_result_fields(
     name: str,
     fields: typing.Union[str, dict[str, typing.Any]]
@@ -172,12 +150,8 @@ def normalize_tool_result_fields(
 
     _promote_if_present(normalized, payload, _COMMON_PROMOTED_RESULT_KEYS)
 
-    representative = _single_batch_result_data(payload)
-    if representative:
-        _promote_if_present(normalized, representative, _COMMON_PROMOTED_RESULT_KEYS)
-
     if name in _OUTPUT_PROMOTED_TOOLS:
-        _promote_if_present(normalized, representative or payload, _OUTPUT_PROMOTED_RESULT_KEYS)
+        _promote_if_present(normalized, payload, _OUTPUT_PROMOTED_RESULT_KEYS)
 
     return normalized
 
@@ -304,6 +278,10 @@ async def run_tool_step(
     stream_callback: typing.Optional[typing.Callable[[str], typing.Awaitable[None]]] = None,
     status_text: typing.Optional[str] = None,
     code_status: bool = False,
+    execution: dict[str, typing.Any] | None = None,
+    cid: str | None = None,
+    sid: str | None = None,
+    call_id: str | None = None,
 ) -> ToolRunResult:
     """统一执行工具、处理状态动画和结果增强。"""
     started_at = time.time()
@@ -322,7 +300,11 @@ async def run_tool_step(
             arguments=arguments,
             meta=meta,
             enable_progress_notify=enable_progress_notify,
-            stream_callback=stream_callback
+            stream_callback=stream_callback,
+            execution=execution,
+            cid=cid,
+            sid=sid,
+            call_id=call_id,
         )
         ok = not result.isError
 

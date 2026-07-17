@@ -49,7 +49,12 @@ class PlanToolCallRunner:
             call_id=str(event.get("call_id") or "")
         )
 
-        report = await self.executor.execute_tool_call(arguments=arguments)
+        report = await self.executor.execute_tool_call(
+            arguments=arguments,
+            cid=str(event.get("cid") or ""),
+            sid=str(event.get("sid") or ""),
+            call_id=str(event.get("call_id") or ""),
+        )
 
         await show_tool_result(
             self.stream_ui,

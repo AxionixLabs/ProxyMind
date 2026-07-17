@@ -4,6 +4,12 @@
 import typing
 from mcp import types as mcp_types
 from mind_app.native_coding import NativeCoding
+from mind_app.native_coding.execution_authorization import (
+    ExecutionAuthorizationError,
+    canonical_arguments,
+    validate_execution_authorization,
+    validate_runtime_identity,
+)
 from mind_app.client_tools.types import (
     ClientTool,
     ClientToolRuntime
@@ -11,13 +17,8 @@ from mind_app.client_tools.types import (
 from .schemas import (
     APPLY_PATCH_INPUT_SCHEMA,
     EXEC_COMMAND_INPUT_SCHEMA,
-    SHELL_CALLS_INPUT_SCHEMA,
     SHELL_COMMAND_INPUT_SCHEMA,
     WRITE_STDIN_INPUT_SCHEMA,
-    exec_command_payload,
-    shell_command_items_payload,
-    shell_command_payload,
-    write_stdin_payload
 )
 
 
@@ -57,6 +58,48 @@ def build_coding_result(
     )
 
 
+def authorization_failure_result(
+    coding: NativeCoding,
+    *,
+    tool: str,
+    arguments: dict[str, typing.Any],
+    error: ExecutionAuthorizationError,
+) -> mcp_types.CallToolResult:
+    """构造执行授权失败结果。"""
+    raw = coding.fail_result(
+        error.reason,
+        tool=tool,
+        error="execution_policy_blocked",
+        detail=error.detail,
+    )
+    return build_coding_result(
+        tool=tool,
+        args={key: value for key, value in arguments.items() if key != "execution"},
+        raw=raw,
+        target=coding.agent_id,
+    )
+
+
+def trusted_canonical(
+    runtime: ClientToolRuntime,
+    *,
+    tool: str,
+    require_grant: bool = True,
+) -> dict[str, typing.Any]:
+    """从可信运行上下文读取并校验 canonical 参数。"""
+    validate_runtime_identity(cid=runtime.cid, sid=runtime.sid, call_id=runtime.call_id)
+    validate_execution_authorization(runtime.execution, require_grant=require_grant)
+    return canonical_arguments(runtime.execution, tool=tool)
+
+
+def reject_model_execution(arguments: dict[str, typing.Any]) -> None:
+    """拒绝从模型工具参数传入执行授权。"""
+    if "execution" in arguments:
+        raise ExecutionAuthorizationError(
+            "model_execution_forbidden", "execution must come from the trusted tool event"
+        )
+
+
 def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
     """返回编码工具列表。"""
     coding = native_coding or NativeCoding()
@@ -66,43 +109,18 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
         runtime: ClientToolRuntime
     ) -> mcp_types.CallToolResult:
         """执行单条命令。"""
-        _ = runtime
+        try:
+            reject_model_execution(arguments)
+            args = trusted_canonical(runtime, tool="shell_command")
+        except ExecutionAuthorizationError as exc:
+            return authorization_failure_result(
+                coding, tool="shell_command", arguments=arguments, error=exc
+            )
 
-        args = {
-            **shell_command_payload(
-                command=arguments.get("command"),
-                cwd=arguments.get("cwd", "."),
-                timeout_sec=arguments.get("timeout_sec", 60),
-                output_encoding=arguments.get("output_encoding", "auto"),
-            ),
-            "execution": arguments.get("execution"),
-        }
-
-        raw = await coding.shell_command(**args)
+        raw = await coding.shell_command(**args, execution=runtime.execution)
 
         return build_coding_result(
             tool="shell_command",
-            args=args,
-            raw=raw,
-            target=coding.agent_id
-        )
-
-    async def shell_calls_handler(
-        arguments: dict[str, typing.Any],
-        runtime: ClientToolRuntime
-    ) -> mcp_types.CallToolResult:
-        """执行批量命令。"""
-        _ = runtime
-
-        args = {
-            "items": shell_command_items_payload(arguments.get("items")),
-            "execution": arguments.get("execution"),
-        }
-
-        raw = await coding.shell_calls(**args)
-
-        return build_coding_result(
-            tool="shell_calls",
             args=args,
             raw=raw,
             target=coding.agent_id
@@ -114,6 +132,13 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
     ) -> mcp_types.CallToolResult:
         """应用补丁。"""
         _ = runtime
+
+        try:
+            reject_model_execution(arguments)
+        except ExecutionAuthorizationError as exc:
+            return authorization_failure_result(
+                coding, tool="apply_patch", arguments=arguments, error=exc
+            )
 
         args = {
             "patch": str(arguments.get("patch") or ""),
@@ -139,21 +164,20 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
         runtime: ClientToolRuntime
     ) -> mcp_types.CallToolResult:
         """启动可持续命令会话。"""
-        _ = runtime
+        try:
+            reject_model_execution(arguments)
+            args = trusted_canonical(runtime, tool="exec_command")
+        except ExecutionAuthorizationError as exc:
+            return authorization_failure_result(
+                coding, tool="exec_command", arguments=arguments, error=exc
+            )
 
-        args = {
-            **exec_command_payload(
-                command=arguments.get("command"),
-                cwd=arguments.get("cwd", "."),
-                yield_time_ms=arguments.get("yield_time_ms", 1000),
-                max_output_chars=arguments.get("max_output_chars", 24000),
-                timeout_sec=arguments.get("timeout_sec", 1800),
-                idle_timeout_sec=arguments.get("idle_timeout_sec", 300),
-            ),
-            "execution": arguments.get("execution"),
-        }
-
-        raw = await coding.exec_command(**args)
+        raw = await coding.exec_command(
+            **args,
+            execution=runtime.execution,
+            cid=str(runtime.cid or ""),
+            sid=str(runtime.sid or ""),
+        )
 
         return build_coding_result(
             tool="exec_command",
@@ -167,17 +191,26 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
         runtime: ClientToolRuntime
     ) -> mcp_types.CallToolResult:
         """写入或轮询命令会话。"""
-        _ = runtime
+        try:
+            reject_model_execution(arguments)
+            validate_runtime_identity(
+                cid=runtime.cid, sid=runtime.sid, call_id=runtime.call_id
+            )
+            args = canonical_arguments(runtime.execution, tool="write_stdin")
+            if args["stdin"]:
+                validate_execution_authorization(runtime.execution, require_grant=True)
+        except ExecutionAuthorizationError as exc:
+            return authorization_failure_result(
+                coding, tool="write_stdin", arguments=arguments, error=exc
+            )
 
-        args = write_stdin_payload(
-            session_id=arguments.get("session_id"),
-            stdin=arguments.get("stdin", ""),
-            wait_ms=arguments.get("wait_ms", 1000),
-            max_output_chars=arguments.get("max_output_chars", 12000),
-            control=arguments.get("control", "none"),
+        raw = await coding.write_stdin(
+            **args,
+            execution=runtime.execution,
+            cid=str(runtime.cid or ""),
+            sid=str(runtime.sid or ""),
+            call_id=str(runtime.call_id or ""),
         )
-
-        raw = await coding.write_stdin(**args)
 
         return build_coding_result(
             tool="write_stdin",
@@ -196,16 +229,6 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
             input_schema=SHELL_COMMAND_INPUT_SCHEMA,
             meta={"hidden": False, "domain": "coding", "class": "shell"},
             handler=shell_command_handler,
-        ),
-        ClientTool(
-            name="shell_calls",
-            description=(
-                "在工作区内批量执行本地 shell 命令。每项包含 command，可包含 cwd 和 timeout_sec。"
-                "代码修改请使用 apply_patch。"
-            ),
-            input_schema=SHELL_CALLS_INPUT_SCHEMA,
-            meta={"hidden": False, "domain": "coding", "class": "shell"},
-            handler=shell_calls_handler,
         ),
         ClientTool(
             name="exec_command",

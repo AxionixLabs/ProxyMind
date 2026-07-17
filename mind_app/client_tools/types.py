@@ -16,6 +16,10 @@ class ClientToolRuntime:
     read_timeout_seconds: typing.Any = None
     progress_callback: typing.Any = None
     meta: dict[str, typing.Any] | None = None
+    execution: dict[str, typing.Any] | None = None
+    cid: str | None = None
+    sid: str | None = None
+    call_id: str | None = None
 
 
 ClientToolHandler = typing.Callable[

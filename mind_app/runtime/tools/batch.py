@@ -10,7 +10,6 @@ from engine.enhance import exchange_arguments
 from mind_app.mcp import McpSessionLike
 from mind_app.stream_ui import StreamUI
 from mind_nova import request
-from .execution_policy import should_pass_execution_to_tool
 from .display import (
     show_tool_result, show_tool_start
 )
@@ -158,8 +157,6 @@ class ToolBatchExecutor:
                     )
 
             arguments = exchange_arguments(name, arguments, self.report)
-            if should_pass_execution_to_tool(name, event_execution):
-                arguments = {**arguments, "execution": event_execution}
 
             tool_run = await run_tool_step(
                 self.session,
@@ -174,7 +171,11 @@ class ToolBatchExecutor:
                     x, display=StreamUI.BLOCK
                 ),
                 status_text="coding" if use_coding_trace else None,
-                code_status=use_coding_trace
+                code_status=use_coding_trace,
+                execution=event_execution,
+                cid=str(event.get("cid") or ""),
+                sid=str(event.get("sid") or ""),
+                call_id=str(event.get("call_id") or ""),
             )
 
             ok      = tool_run.ok

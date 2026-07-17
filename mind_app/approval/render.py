@@ -62,7 +62,6 @@ _APPROVAL_MENU_FIXED_WIDTH         = 104
 _APPROVAL_MENU_MAX_COMMAND_WIDTH   = _APPROVAL_MENU_FIXED_WIDTH - _APPROVAL_MENU_PADDING
 _APPROVAL_MENU_CONTINUATION_INDENT = 2
 _APPROVAL_MENU_TITLE_MIN_RULE      = 4
-_APPROVAL_BATCH_COMMAND_MAX_LINES  = 2
 
 
 def approval_menu_content_lines(
@@ -208,9 +207,6 @@ def _approval_command_lines(
 ) -> list[list[tuple[str, str]]]:
     """生成审批命令区域。"""
     commands = _approval_raw_commands(approval)
-    if len(commands) > 1:
-        return _approval_batch_command_lines(commands)
-
     if commands:
         return _approval_single_command_lines(commands[0])
 
@@ -224,7 +220,7 @@ def _approval_raw_commands(
     approval: dict[str, typing.Any]
 ) -> list[typing.Any]:
     """读取 shell 审批命令原文。"""
-    if str(approval.get("tool") or "").strip() not in {"shell_command", "shell_calls", "exec_command"}:
+    if str(approval.get("tool") or "").strip() not in {"shell_command", "exec_command"}:
         fallback = approval.get("command", approval.get("resolved_command"))
         if isinstance(fallback, list):
             return [fallback]
@@ -233,21 +229,6 @@ def _approval_raw_commands(
         return [text] if text else []
 
     return approval_shell_commands(approval)
-
-
-def _approval_batch_command_lines(
-    commands: list[typing.Any]
-) -> list[list[tuple[str, str]]]:
-    """按命令项原文生成批量命令审批树。"""
-    lines: list[list[tuple[str, str]]] = [
-        [("class:approval-prompt", "$ "), ("class:approval-command", f"{len(commands)} commands")]
-    ]
-    for index, command in enumerate(commands):
-        lines.extend(_approval_command_item_lines(
-            command, is_last=index == len(commands) - 1
-        ))
-
-    return lines
 
 
 def _approval_single_command_lines(command: typing.Any) -> list[list[tuple[str, str]]]:
@@ -265,35 +246,6 @@ def _approval_single_command_lines(command: typing.Any) -> list[list[tuple[str, 
 
     for raw_line in raw_lines[1:]:
         line: list[tuple[str, str]] = [("class:approval-prompt", "  ")]
-        if raw_line:
-            line.extend(_approval_command_prompt_parts(raw_line))
-        lines.append(line)
-
-    return lines
-
-
-def _approval_command_item_lines(
-    command: typing.Any,
-    *,
-    is_last: bool
-) -> list[list[tuple[str, str]]]:
-    """把单个命令项原文转换为树形展示行。"""
-    connector = "└─ " if is_last else "├─ "
-    prefix    = "   " if is_last else "│  "
-
-    raw_lines = _approval_command_raw_lines(command)
-    if not raw_lines:
-        return [[("class:approval-prompt", connector)]]
-
-    lines: list[list[tuple[str, str]]] = []
-
-    first_line: list[tuple[str, str]] = [("class:approval-prompt", connector)]
-    first_line.extend(_approval_command_prompt_parts(raw_lines[0]))
-
-    lines.append(first_line)
-
-    for raw_line in raw_lines[1:]:
-        line: list[tuple[str, str]] = [("class:approval-prompt", prefix)]
         if raw_line:
             line.extend(_approval_command_prompt_parts(raw_line))
         lines.append(line)
@@ -349,20 +301,6 @@ def _approval_command_omitted_line(omitted: int) -> list[tuple[str, str]]:
     """生成命令区截断提示行。"""
     noun = "command line" if omitted == 1 else "command lines"
     return [("class:approval-preview", f"… +{omitted} {noun}")]
-
-
-def _approval_command_item_omitted_line(
-    omitted: int,
-    *,
-    prefix: str
-) -> list[tuple[str, str]]:
-    """生成单条批量命令内部截断提示行。"""
-    noun = "line" if omitted == 1 else "lines"
-
-    return [
-        ("class:approval-prompt", prefix),
-        ("class:approval-preview", f"… +{omitted} {noun}")
-    ]
 
 
 def _approval_command_line_range(
@@ -421,16 +359,7 @@ def _wrap_approval_menu_lines(
     before  = _flatten_wrapped_lines(wrapped_by_line[:start])
     after   = _flatten_wrapped_lines(wrapped_by_line[end:])
 
-    command = (
-        _limited_batch_command_lines(
-            lines=lines,
-            wrapped_by_line=wrapped_by_line,
-            start=start,
-            end=end
-        )
-        if _is_batch_command_header(lines[start])
-        else _flatten_wrapped_lines(wrapped_by_line[start:end])
-    )
+    command = _flatten_wrapped_lines(wrapped_by_line[start:end])
 
     command_budget = _approval_command_line_budget(
         non_command_lines=len(before) + len(after),
@@ -449,83 +378,6 @@ def _wrap_approval_menu_lines(
         _approval_command_omitted_line(omitted),
         *after
     ]
-
-
-def _limited_batch_command_lines(
-    *,
-    lines: list[list[tuple[str, str]]],
-    wrapped_by_line: list[list[list[tuple[str, str]]]],
-    start: int,
-    end: int
-) -> list[list[tuple[str, str]]]:
-    """限制批量命令中每条命令的展示行数。"""
-    out = _flatten_wrapped_lines([wrapped_by_line[start]])
-
-    for item_start, item_end in _batch_command_item_ranges(lines, start=start, end=end):
-        item_lines = _flatten_wrapped_lines(wrapped_by_line[item_start:item_end])
-        if len(item_lines) <= _APPROVAL_BATCH_COMMAND_MAX_LINES:
-            out.extend(item_lines)
-            continue
-
-        out.extend(item_lines[:_APPROVAL_BATCH_COMMAND_MAX_LINES])
-        out.append(
-            _approval_command_item_omitted_line(
-                len(item_lines) - _APPROVAL_BATCH_COMMAND_MAX_LINES,
-                prefix=_batch_command_item_continuation_prefix(lines[item_start])
-            )
-        )
-
-    return out
-
-
-def _batch_command_item_ranges(
-    lines: list[list[tuple[str, str]]],
-    *,
-    start: int,
-    end: int
-) -> list[tuple[int, int]]:
-    """返回批量命令中每条命令的语义行范围。"""
-    ranges: list[tuple[int, int]] = []
-    item_start: int | None = None
-
-    for index in range(start + 1, end):
-        if _is_batch_command_item_start(lines[index]):
-            if item_start is not None:
-                ranges.append((item_start, index))
-            item_start = index
-
-    if item_start is not None:
-        ranges.append((item_start, end))
-
-    return ranges
-
-
-def _is_batch_command_header(line: list[tuple[str, str]]) -> bool:
-    """判断命令区首行是否为批量命令标题。"""
-    return bool(
-        line
-        and line[0] == ("class:approval-prompt", "$ ")
-        and any(
-            style == "class:approval-command"
-            and re.fullmatch(r"\d+\s+commands?", str(text or "").strip())
-            for style, text in line[1:]
-        )
-    )
-
-
-def _is_batch_command_item_start(line: list[tuple[str, str]]) -> bool:
-    """判断语义行是否为批量命令中一条命令的起始行。"""
-    return bool(
-        line
-        and line[0][0] == "class:approval-prompt"
-        and str(line[0][1] or "") in {"├─ ", "└─ "}
-    )
-
-
-def _batch_command_item_continuation_prefix(line: list[tuple[str, str]]) -> str:
-    """返回批量命令项省略提示使用的树形前缀。"""
-    marker = str(line[0][1] or "") if line else ""
-    return "│  " if marker == "├─ " else "   "
 
 
 def _flatten_wrapped_lines(

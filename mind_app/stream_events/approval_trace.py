@@ -22,7 +22,7 @@ APPROVAL_SUMMARY_MAX_CHARS = 72
 
 def approval_summary(approval: dict[str, typing.Any]) -> str:
     """生成审批请求的简短摘要。"""
-    command = _batch_command_summary(approval)
+    command = _approval_command_summary(approval)
     if not command:
         command = command_preview(approval.get("command")).title
     tool = str(approval.get("tool") or "").strip()
@@ -43,26 +43,10 @@ def _approval_arguments(approval: dict[str, typing.Any]) -> dict[str, typing.Any
 
 
 def approval_shell_commands(approval: dict[str, typing.Any]) -> list[typing.Any]:
-    """从审批参数里提取 shell 命令列表，兼容预览字段。"""
-    arguments = _approval_arguments(approval)
-    raw_items = arguments.get("items")
-    if not isinstance(raw_items, list):
-        raw_items = approval.get("items")
-
-    commands: list[str] = []
-    if isinstance(raw_items, list):
-        for item in raw_items:
-            if not isinstance(item, dict):
-                continue
-
-            command = str(item.get("command") or "").strip()
-            if command:
-                commands.append(command)
-
-    if commands:
-        return commands
-
+    """从审批参数里提取单条 shell 命令，兼容预览字段。"""
+    arguments        = _approval_arguments(approval)
     argument_command = arguments.get("command")
+
     text = str(argument_command or "").strip()
     if text:
         return [text]
@@ -75,20 +59,15 @@ def approval_shell_commands(approval: dict[str, typing.Any]) -> list[typing.Any]
     if text:
         return [text]
 
-    return commands
+    return []
 
 
-def _batch_command_summary(approval: dict[str, typing.Any]) -> str:
-    """为批量 shell_command 审批生成可读摘要。"""
+def _approval_command_summary(approval: dict[str, typing.Any]) -> str:
+    """生成 shell 命令审批摘要。"""
     commands = approval_shell_commands(approval)
     if not commands:
         return ""
-    if len(commands) == 1:
-        return command_preview(commands[0]).title or commands[0]
-
-    sample = "; ".join(command_preview(command).title or command for command in commands[:2])
-    suffix = f"; +{len(commands) - 2} more" if len(commands) > 2 else ""
-    return f"{len(commands)} commands: {sample}{suffix}"
+    return command_preview(commands[0]).title or commands[0]
 
 
 def render_approval_approved_trace(

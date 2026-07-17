@@ -18,7 +18,7 @@ Builtin 事件名或 Hosted 工具名可以存在于系统内部，但不是对�
 
 当前项目能力来源主要分三类：
 
-- Mind native：批量 shell 命令、工作区文本写入、unified diff patch，以及 Mind 侧内置 coding 工具。
+- Mind native：shell 命令、持续命令会话、工作区文本写入、unified diff patch，以及 Mind 侧内置 coding 工具。
 - External MCP：用户在 `mcp_servers.json` 配置并由 Mind 连接的第三方 MCP 服务。
 - Helix provider：官方垂直领域 MCP 服务，覆盖接口/设备/媒体/性能等执行面；需要 `--mcp` 或 REPL `/helix-link` 后才挂载。
 - Xtra 只聚合 Mind native 与 External MCP，不包含 Helix MCP。
@@ -118,4 +118,3 @@ mind --xtra "先确认能不能调用 builtin，再决定做什么。"
 - [Mind CLI 与运行模式](cli.md)
 - [Sandbox 场景](sandbox.md)
 - [错误与回退](errors-and-fallbacks.md)
-

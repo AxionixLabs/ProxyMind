@@ -241,8 +241,8 @@ class ShellCommandTools(NativeCodingComponent):
         audit_files: bool = False
     ) -> dict[str, typing.Any]:
         """按执行元数据运行 shell 命令，必要时返回云端沙盒交接结果。"""
-        cmd = str(command or "").strip()
-        if not cmd:
+        cmd = str(command or "")
+        if not cmd.strip():
             return self.fail_result("command_empty")
 
         try:

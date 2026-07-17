@@ -7,7 +7,7 @@ from mind_app.mcp.tool_store import has_tool
 from mcp.types import CallToolResult
 from .notify import (
     emit_tool_progress,
-    supports_tool_progress,
+    supports_tool_progress
 )
 
 
@@ -30,7 +30,11 @@ async def execute_tool(
     arguments: dict[str, typing.Any],
     meta: typing.Optional[dict[str, typing.Any]] = None,
     stream_callback: typing.Optional[typing.Callable[[str], typing.Awaitable[None]]] = None,
-    enable_progress_notify: bool = False
+    enable_progress_notify: bool = False,
+    execution: dict[str, typing.Any] | None = None,
+    cid: str | None = None,
+    sid: str | None = None,
+    call_id: str | None = None,
 ) -> CallToolResult:
     """统一工具执行入口。"""
     if is_hosted_tool(tools, name, meta=meta):
@@ -50,7 +54,11 @@ async def execute_tool(
     return await session.call_tool(
         name,
         arguments,
-        progress_callback=progress_callback
+        progress_callback=progress_callback,
+        execution=execution,
+        cid=cid,
+        sid=sid,
+        call_id=call_id,
     )
 
 

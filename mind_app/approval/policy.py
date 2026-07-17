@@ -33,7 +33,6 @@ DECISION_SHORTCUT_LABELS: dict[str, str] = {
 
 SHELL_TOOL_NAMES = {
     "shell_command",
-    "shell_calls",
     "exec_command",
     "write_stdin"
 }
@@ -306,8 +305,6 @@ def _canonical_tool_arguments(
     normalized_tool = str(tool or "").strip()
     if normalized_tool == "shell_command":
         return _normalize_shell_command_arguments(arguments)
-    if normalized_tool == "shell_calls":
-        return _normalize_shell_calls_arguments(arguments)
     if normalized_tool == "exec_command":
         return _normalize_exec_command_arguments(arguments)
     if normalized_tool == "write_stdin":
@@ -322,14 +319,10 @@ def _approval_argument_fallback(
     *,
     tool: str
 ) -> dict[str, typing.Any]:
-    """兼容审批事件只携带 command/items 摘要而缺少 arguments 的情况。"""
+    """兼容审批事件只携带 command 摘要而缺少 arguments 的情况。"""
     normalized_tool = str(tool or "").strip()
     if normalized_tool not in SHELL_TOOL_NAMES:
         return {}
-
-    raw_items = approval.get("items")
-    if normalized_tool == "shell_calls" and isinstance(raw_items, list):
-        return {"items": raw_items}
 
     command = str(approval.get("command") or "").strip()
     if not command:
@@ -341,8 +334,6 @@ def _approval_argument_fallback(
     if "timeout_sec" in approval:
         item["timeout_sec"] = approval.get("timeout_sec")
 
-    if normalized_tool == "shell_calls":
-        return {"items": [item]}
     return item
 
 
@@ -351,23 +342,6 @@ def _normalize_shell_command_arguments(
 ) -> dict[str, typing.Any]:
     """规范化单条 shell_command 参数。"""
     return _normalize_shell_command_item(arguments)
-
-
-def _normalize_shell_calls_arguments(
-    arguments: dict[str, typing.Any]
-) -> dict[str, typing.Any]:
-    """规范化批量 shell_calls 参数。"""
-    if not isinstance(arguments, dict):
-        return {"items": []}
-
-    raw_items = arguments.get("items")
-    if isinstance(raw_items, list):
-        return {"items": [_normalize_shell_command_item(item) for item in raw_items]}
-
-    if "command" in arguments:
-        return {"items": [_normalize_shell_command_item(arguments)]}
-
-    return {"items": []}
 
 
 def _normalize_shell_command_item(
@@ -494,10 +468,8 @@ def _approval_prompt_noun(
     """返回审批提示中使用的操作类型名称。"""
     tool = str(approval.get("tool") or "").strip()
 
-    if tool in {"", "shell_command"}:
+    if tool in {"", "shell_command", "exec_command"}:
         return "command"
-    if tool in {"shell_calls", "exec_command"}:
-        return "commands"
     if tool == "write_stdin":
         return "session input"
 

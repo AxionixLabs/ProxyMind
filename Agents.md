@@ -33,6 +33,6 @@
 ## Coding 工具
 
 - Mind 内置 coding 工具放在 `mind_app/native_coding` 和 `mind_app/client_tools/coding`。
-- `shell_command`、`shell_calls`、`apply_patch` 是 Mind 内置 client tools。
+- `shell_command`、`apply_patch` 是 Mind 内置 client tools。
 - backend 不再注册 coding 工具，但 backend 原有代码可保留为 provider 侧代码。
 - `apply_patch` 的失败原因必须通过工具结果返回，不在控制台打调试或 warning 日志。
