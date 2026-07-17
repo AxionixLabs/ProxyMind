@@ -9,7 +9,7 @@ from mind_app.stream_events.tool_traces.common import (
     TITLE_STYLE
 )
 
-PLAN_SUMMARY_STYLE       = PREVIEW_MORE_STYLE
+PLAN_SUMMARY_STYLE       = f"italic {PREVIEW_MORE_STYLE}"
 PLAN_ACTIVE_BODY_STYLE   = "bold #5EEAD4"
 PLAN_INACTIVE_BODY_STYLE = PREVIEW_TEXT_STYLE
 
