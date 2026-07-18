@@ -8,15 +8,9 @@ from loguru import logger
 from mind_app.native_coding.base import (
     NativeCodingBase, NativeCodingComponent
 )
-from mind_app.native_coding.encoding import (
-    DecodedProcessOutput,
-    decode_process_output_details,
-    normalize_process_output_encoding
-)
-from mind_app.native_coding.exec.process_capture import (
-    CapturedOutputLine,
-    ProcessCapture
-)
+from mind_app.native_coding.encoding import normalize_process_output_encoding
+from mind_app.native_coding.exec.output_decoder import CapturedOutputDecoder
+from mind_app.native_coding.exec.process_capture import ProcessCapture
 from mind_app.native_coding.exec.shell_runtime import ShellRuntimeResolver
 from mind_app.native_coding.trace import summarize_command
 
@@ -182,54 +176,6 @@ class ShellCommandTools(NativeCodingComponent):
         history.append(record)
         del history[:-20]
 
-    @classmethod
-    def _decode_output_lines(
-        cls,
-        records: tuple[CapturedOutputLine, ...],
-        *,
-        encoding: str
-    ) -> tuple[list[str], tuple[str, ...], bool]:
-        """解码有序输出行并汇总编码信息。"""
-        lines: list[str]     = []
-        encodings: list[str] = []
-
-        ambiguous: bool = False
-
-        for record in records:
-            decoded = decode_process_output_details(record.data, encoding=encoding)
-            text = decoded.text.rstrip()
-            if not text:
-                continue
-            if len(text) > cls.OUTPUT_LINE_MAX_CHARS:
-                text = f"{text[:cls.OUTPUT_LINE_MAX_CHARS - 3]}..."
-            lines.append(text)
-            ambiguous = ambiguous or decoded.ambiguous
-            for item in decoded.encodings:
-                if item not in encodings:
-                    encodings.append(item)
-
-        return lines, tuple(encodings), ambiguous
-
-    @staticmethod
-    def _output_encoding_summary(
-        *decoded_values: DecodedProcessOutput,
-        line_encodings: tuple[str, ...],
-        line_ambiguous: bool
-    ) -> tuple[list[str], bool]:
-        """合并输出字段和有序行的编码信息。"""
-        encodings: list[str] = []
-
-        ambiguous = line_ambiguous
-        for decoded in decoded_values:
-            ambiguous = ambiguous or decoded.ambiguous
-            for item in decoded.encodings:
-                if item not in encodings:
-                    encodings.append(item)
-        for item in line_encodings:
-            if item not in encodings:
-                encodings.append(item)
-        return encodings, ambiguous
-
     async def shell_command(
         self,
         *,
@@ -372,27 +318,17 @@ class ShellCommandTools(NativeCodingComponent):
             "truncated"      : False
         }
 
-        decoded_stdout = decode_process_output_details(
-            capture.stdout or b"",
-            encoding=normalized_output_encoding
-        )
-        decoded_stderr = decode_process_output_details(
-            capture.stderr or b"",
-            encoding=normalized_output_encoding
-        )
-        output_lines, line_encodings, line_ambiguous = self._decode_output_lines(
-            capture.output_records,
-            encoding=normalized_output_encoding
-        )
-        detected_encodings, encoding_ambiguous = self._output_encoding_summary(
-            decoded_stdout,
-            decoded_stderr,
-            line_encodings=line_encodings,
-            line_ambiguous=line_ambiguous
-        )
+        decoded_output = CapturedOutputDecoder(
+            encoding=normalized_output_encoding,
+            line_limit=self.OUTPUT_LINE_MAX_CHARS,
+        ).decode(capture)
+        detected_output_encodings_by_stream = {
+            stream: list(encodings)
+            for stream, encodings in decoded_output.stream_encodings.items()
+        }
 
-        raw_stdout = decoded_stdout.text
-        raw_stderr = decoded_stderr.text
+        raw_stdout = decoded_output.stdout
+        raw_stderr = decoded_output.stderr
         out_text   = self.clip_output(raw_stdout, max_chars=output_limit)
         err_text   = self.clip_output(raw_stderr, max_chars=output_limit)
         exit_code  = int(capture.exit_code or 0)
@@ -436,11 +372,12 @@ class ShellCommandTools(NativeCodingComponent):
             "timed_out"                 : capture.timed_out,
             "elapsed_ms"                : elapsed_ms,
             "output_encoding"           : normalized_output_encoding,
-            "detected_output_encodings" : detected_encodings,
-            "output_encoding_ambiguous" : encoding_ambiguous,
+            "detected_output_encodings"           : list(decoded_output.encodings),
+            "detected_output_encodings_by_stream" : detected_output_encodings_by_stream,
+            "output_encoding_ambiguous"           : decoded_output.ambiguous,
             "stdout"                    : out_text,
             "stderr"                    : err_text,
-            "output_lines"              : output_lines
+            "output_lines"              : list(decoded_output.output_lines)
         }
 
         if not ok:

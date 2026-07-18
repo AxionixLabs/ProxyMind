@@ -6,6 +6,7 @@ from pathlib import Path
 
 import mind_app.native_coding.encoding as output_encoding
 from mind_app.native_coding import NativeCoding
+from mind_app.native_coding.exec.output_decoder import CapturedOutputDecoder
 from mind_app.native_coding.exec.process_capture import (
     CapturedOutputLine,
     CapturedProcessResult,
@@ -191,7 +192,9 @@ def test_shell_command_decodes_mixed_output_lines(
     monkeypatch: object
 ) -> None:
     """stdout 和有序输出行使用同一套逐行编码策略。"""
-    stdout = "一\r\n".encode("utf-8") + bytes.fromhex("d6d0cec4b2e2cad40d0a")
+    first = "中文".encode("utf-8")
+    second = "目录".encode("gbk")
+    stdout = first + b"\r\n" + second + b"\r\n"
 
     async def fake_run_shell(*args: object, **kwargs: object) -> CapturedProcessResult:
         _ = args, kwargs
@@ -200,8 +203,8 @@ def test_shell_command_decodes_mixed_output_lines(
             stdout=stdout,
             stderr=b"",
             output_records=(
-                CapturedOutputLine("stdout", "一".encode("utf-8")),
-                CapturedOutputLine("stdout", bytes.fromhex("d6d0cec4b2e2cad4")),
+                CapturedOutputLine("stdout", first),
+                CapturedOutputLine("stdout", second),
             ),
             stdout_dropped=0,
             stderr_dropped=0,
@@ -213,6 +216,11 @@ def test_shell_command_decodes_mixed_output_lines(
         output_encoding,
         "process_output_encodings",
         lambda: ["utf-8", "gbk"]
+    )
+    monkeypatch.setattr(
+        CapturedOutputDecoder,
+        "_preferred_encoding",
+        staticmethod(lambda: "gbk"),
     )
     monkeypatch.setattr(ProcessCapture, "run_shell", fake_run_shell)
 
@@ -226,10 +234,62 @@ def test_shell_command_decodes_mixed_output_lines(
     )
 
     assert result["ok"] is True
-    assert result["data"]["stdout"] == "一\r\n中文测试\r\n"
-    assert result["data"]["output_lines"] == ["一", "中文测试"]
+    assert result["data"]["stdout"] == "中文\r\n目录\r\n"
+    assert result["data"]["output_lines"] == ["中文", "目录"]
     assert result["data"]["detected_output_encodings"] == ["utf-8", "gbk"]
-    assert result["data"]["output_encoding_ambiguous"] is False
+    assert result["data"]["output_encoding_ambiguous"] is True
+
+
+def test_shell_command_decodes_ambiguous_gbk_with_stream_policy(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    """完整 shell_command 对弱 UTF-8 结构优先采用系统中文编码。"""
+    raw = "目录\r\n".encode("gbk")
+
+    async def fake_run_shell(*args: object, **kwargs: object) -> CapturedProcessResult:
+        _ = args, kwargs
+        return CapturedProcessResult(
+            exit_code=0,
+            stdout=raw,
+            stderr=b"",
+            output_records=(CapturedOutputLine("stdout", raw[:-2]),),
+            stdout_dropped=0,
+            stderr_dropped=0,
+            timed_out=False,
+            elapsed_ms=1,
+        )
+
+    monkeypatch.setattr(
+        output_encoding,
+        "process_output_encodings",
+        lambda: ["utf-8", "gbk"],
+    )
+    monkeypatch.setattr(
+        CapturedOutputDecoder,
+        "_preferred_encoding",
+        staticmethod(lambda: "gbk"),
+    )
+    monkeypatch.setattr(ProcessCapture, "run_shell", fake_run_shell)
+
+    result = run_async(
+        NativeCoding(root=tmp_path).shell_command(
+            command="Write-Output test",
+            cwd=".",
+            timeout_sec=5,
+            execution=approved_execution(),
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["stdout"] == "目录\r\n"
+    assert result["data"]["output_lines"] == ["目录"]
+    assert result["data"]["detected_output_encodings"] == ["gbk"]
+    assert result["data"]["detected_output_encodings_by_stream"] == {
+        "stdout": ["gbk"],
+        "stderr": [],
+    }
+    assert result["data"]["output_encoding_ambiguous"] is True
 
 
 def test_shell_command_respects_explicit_output_encoding(

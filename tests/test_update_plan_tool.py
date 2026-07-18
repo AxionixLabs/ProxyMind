@@ -154,7 +154,7 @@ def test_completed_plan_body_is_dim_but_title_is_not() -> None:
     ]
     assert dot_part["style"] == "bold #6EE7A8"
     assert title_part["style"] == "bold #D7E7FF"
-    assert "dim" in str(summary_part["style"])
+    assert summary_part["style"] == "bold italic dim #7E8FA3"
     assert step_parts
     assert all("dim" in str(part["style"]) for part in step_parts)
     assert all(part["style"] != summary_part["style"] for part in step_parts)
@@ -183,7 +183,7 @@ def test_incomplete_plan_dims_done_summary_and_pending_then_highlights_active() 
             "Pending step"
         }
     }
-    assert styles["Continue implementation."] == "italic dim #7E8FA3"
+    assert styles["Continue implementation."] == "bold italic dim #7E8FA3"
     assert styles["Completed step"] == "dim #A5B3C2"
     assert styles["Active step"] == "bold #5EEAD4"
     assert styles["Pending step"] == "dim #A5B3C2"

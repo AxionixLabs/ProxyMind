@@ -17,6 +17,7 @@ class CapturedOutputLine(object):
 
     stream: str
     data: bytes
+    truncated: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,15 +31,18 @@ class CapturedProcessResult(object):
     stderr_dropped: int
     timed_out: bool
     elapsed_ms: int
+    stdout_prefix_partial: bool = False
+    stderr_prefix_partial: bool = False
 
 
 class _CaptureBuffer(object):
     """保存有限长度的进程输出尾部。"""
 
     def __init__(self, *, limit_bytes: int) -> None:
-        self.limit_bytes = max(1, int(limit_bytes or 1))
-        self.data        = bytearray()
-        self.dropped     = 0
+        self.limit_bytes: int     = max(1, int(limit_bytes or 1))
+        self.data: bytearray      = bytearray()
+        self.dropped: int         = 0
+        self.prefix_partial: bool = False
 
     def append(self, chunk: bytes) -> None:
         """追加输出并按限制丢弃头部。"""
@@ -49,8 +53,16 @@ class _CaptureBuffer(object):
             return None
 
         overflow = len(self.data) - self.limit_bytes
+        removed = bytes(self.data[:overflow])
         del self.data[:overflow]
         self.dropped += overflow
+
+        self.prefix_partial = bool(removed) and removed[-1] not in (10, 13)
+
+        if removed[-1:] == b"\r" and self.data[:1] == b"\n":
+            del self.data[:1]
+            self.dropped += 1
+            self.prefix_partial = False
 
     def bytes(self) -> bytes:
         """返回当前输出尾部。"""
@@ -60,15 +72,31 @@ class _CaptureBuffer(object):
 class OrderedOutputBuffer(object):
     """按接收顺序保存有限数量的输出行。"""
 
-    def __init__(self, *, max_lines: int = 800, max_line_chars: int = 1000) -> None:
+    def __init__(
+        self,
+        *,
+        max_lines: int = 800,
+        max_line_chars: int = 1000,
+        max_line_bytes: int | None = None,
+    ) -> None:
         self.max_lines      = max(1, int(max_lines or 1))
         self.max_line_chars = max(20, int(max_line_chars or 20))
+        default_line_bytes  = self.max_line_chars * 4 + 4
+
+        self.max_line_bytes = max(
+            self.max_line_chars,
+            int(max_line_bytes or default_line_bytes),
+        )
 
         self.lines: list[CapturedOutputLine] = []
 
         self.pending: dict[str, bytes] = {
             "stdout": b"",
             "stderr": b"",
+        }
+        self.pending_truncated: dict[str, bool] = {
+            "stdout": False,
+            "stderr": False,
         }
         self.lock = asyncio.Lock()
 
@@ -78,13 +106,29 @@ class OrderedOutputBuffer(object):
             return None
 
         async with self.lock:
-            combined = self.pending.get(stream, b"") + chunk
-            complete, pending = self._split_complete_lines(combined)
-            self.pending[stream] = pending
+            pending_truncated = self.pending_truncated.get(stream, False)
+            combined          = self.pending.get(stream, b"") + chunk
 
-            for line in complete:
+            complete, pending = self._split_complete_lines(combined)
+
+            for index, line in enumerate(complete):
                 if line:
-                    self.lines.append(CapturedOutputLine(stream=stream, data=line))
+                    truncated = (
+                        (index == 0 and pending_truncated)
+                        or len(line) > self.max_line_bytes
+                    )
+                    self.lines.append(CapturedOutputLine(
+                        stream=stream,
+                        data=line[:self.max_line_bytes],
+                        truncated=truncated,
+                    ))
+
+            carries_truncation   = pending_truncated and not complete
+            self.pending[stream] = pending[:self.max_line_bytes]
+
+            self.pending_truncated[stream] = (
+                carries_truncation or len(pending) > self.max_line_bytes
+            )
 
             if len(self.lines) > self.max_lines:
                 del self.lines[:-self.max_lines]
@@ -92,12 +136,20 @@ class OrderedOutputBuffer(object):
     async def finish_stream(self, stream: str) -> None:
         """收束指定输出流的未完成行。"""
         async with self.lock:
-            pending = self.pending.get(stream, b"")
+            pending              = self.pending.get(stream, b"")
             self.pending[stream] = b""
+            truncated            = self.pending_truncated.get(stream, False)
+
+            self.pending_truncated[stream] = False
+
             if pending.endswith(b"\r"):
                 pending = pending[:-1]
             if pending:
-                self.lines.append(CapturedOutputLine(stream=stream, data=pending))
+                self.lines.append(CapturedOutputLine(
+                    stream=stream,
+                    data=pending,
+                    truncated=truncated,
+                ))
             if len(self.lines) > self.max_lines:
                 del self.lines[:-self.max_lines]
 
@@ -108,13 +160,17 @@ class OrderedOutputBuffer(object):
             for stream in ("stdout", "stderr"):
                 pending = self._visible_pending(self.pending.get(stream, b""))
                 if pending:
-                    lines.append(CapturedOutputLine(stream=stream, data=pending))
+                    lines.append(CapturedOutputLine(
+                        stream=stream,
+                        data=pending,
+                        truncated=self.pending_truncated.get(stream, False),
+                    ))
             return tuple(lines[-self.max_lines:])
 
     async def snapshot(self) -> tuple[str, ...]:
         """返回包含未完成行的输出快照。"""
         records = await self.snapshot_records()
-        return tuple(self._decode_line(item.data) for item in records)
+        return tuple(self._decode_line(item) for item in records)
 
     async def drain(self, *, flush_pending: bool = False) -> tuple[str, ...]:
         """返回并清空已完成输出行，可选同时收束未完成行。"""
@@ -126,17 +182,22 @@ class OrderedOutputBuffer(object):
                 for stream in ("stdout", "stderr"):
                     pending = self._visible_pending(self.pending.get(stream, b""))
                     if pending:
-                        lines.append(CapturedOutputLine(stream=stream, data=pending))
+                        lines.append(CapturedOutputLine(
+                            stream=stream,
+                            data=pending,
+                            truncated=self.pending_truncated.get(stream, False),
+                        ))
                     self.pending[stream] = b""
+                    self.pending_truncated[stream] = False
 
             return tuple(
-                self._decode_line(item.data)
+                self._decode_line(item)
                 for item in lines[-self.max_lines:]
             )
 
-    def _decode_line(self, value: bytes) -> str:
-        text = decode_process_output(value).rstrip()
-        if len(text) <= self.max_line_chars:
+    def _decode_line(self, record: CapturedOutputLine) -> str:
+        text = decode_process_output(record.data).rstrip()
+        if len(text) <= self.max_line_chars and not record.truncated:
             return text
         return f"{text[:max(0, self.max_line_chars - 3)]}..."
 
@@ -238,7 +299,9 @@ class ProcessCapture(object):
             stdout_dropped=stdout_buffer.dropped,
             stderr_dropped=stderr_buffer.dropped,
             timed_out=timed_out,
-            elapsed_ms=elapsed_ms
+            elapsed_ms=elapsed_ms,
+            stdout_prefix_partial=stdout_buffer.prefix_partial,
+            stderr_prefix_partial=stderr_buffer.prefix_partial,
         )
 
     @classmethod
