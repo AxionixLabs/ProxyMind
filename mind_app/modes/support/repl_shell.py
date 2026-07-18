@@ -48,7 +48,7 @@ SHELL_PANEL_STYLE = Style.from_dict({
     "shell.help"          : "#69727D",
     "shell.status"        : "#87919D",
     "shell.stdout"        : "#D8DCE2",
-    "shell.stderr"        : "#FF9F8A",
+    "shell.stderr"        : "#B8C1CB",
 })
 
 SHELL_BUILTIN_HEADS = {

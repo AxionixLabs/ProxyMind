@@ -88,161 +88,72 @@ class Design(DesignStatusLiveDriver):
 
     @staticmethod
     def show_intro() -> None:
-        title     = const.APP_DESC
-        boot_line = "Starting"
+        """显示启动标识并保留最终版本行。"""
+        title = const.APP_DESC
 
-        theme = random.choice([
-            {
-                "title_idle"  : "#43515A",
-                "title_live"  : "#E4EFF4",
-                "cursor_live" : "#F4FBFF",
-                "status_live" : "#C7D9E1",
-                "status_fade" : "#5B6972",
-                "ready_live"  : "#C3D6DE",
-                "version_dim" : "#7B8991",
-                "sep_dim"     : "#56646C",
-            },
-            {
-                "title_idle"  : "#4A4F58",
-                "title_live"  : "#F0EADF",
-                "cursor_live" : "#FFF7EC",
-                "status_live" : "#D5C8B7",
-                "status_fade" : "#6A645C",
-                "ready_live"  : "#CDBEAB",
-                "version_dim" : "#918577",
-                "sep_dim"     : "#70675E",
-            },
-            {
-                "title_idle"  : "#3E5253",
-                "title_live"  : "#DEF4F1",
-                "cursor_live" : "#F2FFFC",
-                "status_live" : "#B9DED7",
-                "status_fade" : "#587071",
-                "ready_live"  : "#A9D4CC",
-                "version_dim" : "#728E8B",
-                "sep_dim"     : "#526A68",
-            },
-        ])
-        title_idle  = theme["title_idle"]
-        title_live  = theme["title_live"]
-        cursor_live = theme["cursor_live"]
-        status_live = theme["status_live"]
-        status_fade = theme["status_fade"]
-        ready_live  = theme["ready_live"]
-        version_dim = theme["version_dim"]
-        sep_dim     = theme["sep_dim"]
-
-        def blend(start: str, end: str, ratio: float) -> str:
-            return mix_hex_color(start, end, Design._smoothstep(ratio))
-
-        def boot_status_frame(ratio: float) -> Text:
-            line = Text()
-            line.append(boot_line, style=f"bold {blend(status_fade, status_live, ratio)}")
-            return line
-
-        def ready_status_frame(ratio: float) -> Text:
-            line = Text()
-            ready_ratio = max(0.0, min(1.0, float(ratio)))
-            version_ratio = max(0.0, min(1.0, (ready_ratio - 0.24) / 0.76))
-            sep_ratio = max(0.0, min(1.0, (ready_ratio - 0.10) / 0.90))
-
-            line.append("Ready", style=f"bold {blend(status_fade, ready_live, ready_ratio)}")
-            line.append(" · ", style=f"bold {blend(status_fade, sep_dim, sep_ratio)}")
-            line.append(
-                f"v{const.APP_VERSION}",
-                style=f"bold {blend(status_fade, version_dim, version_ratio)}"
-            )
-            return line
-
-        def frame(
-            visible: int,
-            *,
-            cursor_on: bool,
-            line: Text | None = None
-        ) -> Text:
+        def frame(*, prompt_on: bool, title_lit: int | None, version_visible: bool) -> Text:
             out = Text()
-            clamped = max(0, min(len(title), int(visible)))
-            shown = title[:clamped]
-            padding = " " * max(0, len(title) - clamped)
+            out.append(">_" if prompt_on else "> ", style="dim")
 
-            if shown:
-                title_color = mix_hex_color(title_idle, title_live, 0.92)
-                out.append(shown, style=f"bold {title_color}")
-            if padding:
-                out.append(padding, style=f"bold {title_idle}")
-            out.append("_" if cursor_on else " ", style=f"bold {cursor_live if cursor_on else title_idle}")
+            if title_lit is not None:
+                out.append(" ")
+                if title_lit:
+                    out.append(title[:title_lit], style="bold bright_white")
+                if title_lit < len(title):
+                    out.append(title[title_lit:], style="dim")
 
-            if line is not None:
-                out.append("\n")
-                out.append_text(line)
+            if version_visible:
+                out.append(f" (v{const.APP_VERSION})", style="dim")
 
             return out
 
         with Live(
-            frame(0, cursor_on=True),
+            frame(prompt_on=True, title_lit=None, version_visible=False),
             console=Design.console,
             refresh_per_second=30,
             transient=True
         ) as live:
-            for index in range(1, len(title) + 1):
-                live.update(frame(index, cursor_on=True))
-                if index == 1:
-                    time.sleep(0.052)
-                elif index == len(title):
-                    time.sleep(0.048)
-                else:
-                    time.sleep(0.036)
-
-            for cursor_visible, pause in (
-                (False, 0.050),
-                (True, 0.045),
-                (False, 0.040),
-                (True, 0.038),
-                (False, 0.052),
-            ):
-                live.update(frame(len(title), cursor_on=cursor_visible))
-                time.sleep(pause)
-
-            for boot_ratio in (0.22, 0.54, 0.86, 1.0):
-                live.update(
-                    frame(
-                        len(title),
-                        cursor_on=False,
-                        line=boot_status_frame(boot_ratio)
-                    )
-                )
-                time.sleep(0.036)
-
+            time.sleep(0.050)
+            live.update(frame(
+                prompt_on=False,
+                title_lit=None,
+                version_visible=False
+            ))
+            time.sleep(0.045)
+            live.update(frame(
+                prompt_on=True,
+                title_lit=None,
+                version_visible=False
+            ))
             time.sleep(0.060)
 
-            for fade_ratio in (0.62, 0.28, 0.0):
-                live.update(
-                    frame(
-                        len(title),
-                        cursor_on=False,
-                        line=boot_status_frame(fade_ratio)
-                    )
-                )
-                time.sleep(0.026)
+            live.update(frame(
+                prompt_on=True,
+                title_lit=0,
+                version_visible=False
+            ))
+            time.sleep(0.025)
 
-            for ready_phase in (0.18, 0.42, 0.74, 1.0):
-                live.update(
-                    frame(
-                        len(title),
-                        cursor_on=False,
-                        line=ready_status_frame(ready_phase)
-                    )
-                )
-                time.sleep(0.044)
+            for lit in range(1, len(title) + 1):
+                live.update(frame(
+                    prompt_on=True,
+                    title_lit=lit,
+                    version_visible=False
+                ))
+                time.sleep(0.030 if lit < len(title) else 0.050)
 
-            time.sleep(0.22)
+            live.update(frame(
+                prompt_on=True,
+                title_lit=len(title),
+                version_visible=True
+            ))
+            time.sleep(0.120)
 
-        final = Text()
-        final.append(title, style=f"bold {title_live}")
-        final.append(" · ", style=f"bold {sep_dim}")
-        final.append("Ready", style=f"bold {ready_live}")
-        final.append(" · ", style=f"bold {sep_dim}")
-        final.append(f"v{const.APP_VERSION}", style=f"bold {version_dim}")
+        final = frame(
+            prompt_on=True,
+            title_lit=len(title),
+            version_visible=True
+        )
         Design.console.print(final)
         Design.console.print()
 
@@ -298,6 +209,7 @@ class Design(DesignStatusLiveDriver):
 
         core_width = cell_len(title) + 4
         side_width = max(6, (width - core_width) // 2)
+
         aperture_offsets = {
             "upper" : random.choice((-3, -2, -1)),
             "lower" : random.choice((1, 2, 3)),

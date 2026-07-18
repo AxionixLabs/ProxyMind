@@ -7,6 +7,7 @@ from pathlib import Path
 
 import mind_app.modes.support.repl_shell as repl_shell
 from mind_app.modes.support.repl_shell import (
+    SHELL_PANEL_STYLE,
     ShellPanelRun,
     ShellRunResult,
     _split_direct_command,
@@ -23,6 +24,13 @@ from mind_app.modes.support.repl_shell import (
 def run_async(value: object) -> object:
     """同步运行异步测试目标。"""
     return asyncio.run(value)
+
+
+def test_shell_panel_stderr_uses_neutral_style() -> None:
+    """实时 stderr 使用中性色而不是错误红。"""
+    styles = dict(SHELL_PANEL_STYLE.style_rules)
+
+    assert styles["shell.stderr"] == "#B8C1CB"
 
 
 def test_parse_shell_escape_command() -> None:
