@@ -26,17 +26,21 @@ def resource_path(*parts: str) -> Path:
     """
     返回运行时资源路径。
 
-    优先命中打包后的分发根目录；源码模式下回退到 backend 目录。
+    打包入口优先命中分发根目录；源码模式优先命中 backend 目录。
     """
-    root = app_root()
-    direct = root.joinpath(*parts)
+    root           = app_root()
+    direct         = root.joinpath(*parts)
     backend_scoped = root.joinpath("backend", *parts)
 
-    if direct.exists():
+    software = Path(sys.argv[0]).name.strip().lower()
+    if software in APP_ENTRY_NAMES and direct.exists():
         return direct
 
     if backend_scoped.exists():
         return backend_scoped
+
+    if direct.exists():
+        return direct
 
     return direct
 

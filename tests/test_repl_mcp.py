@@ -2,6 +2,7 @@
 
 import asyncio
 
+from mind_app.modes.support import repl_commands
 from mind_app.modes.support import repl_mcp
 
 
@@ -46,3 +47,33 @@ def test_mcp_force_and_restart_actions_are_rebuilds(monkeypatch) -> None:
         ("restart", True),
         ("restart", False),
     ]
+
+
+class DummyServerManager(object):
+    """提供 Helix home 测试需要的服务管理器字段。"""
+
+    url = "http://127.0.0.1:3333"
+
+    async def probe_version(self) -> dict[str, str | bool]:
+        """返回 Helix 版本端点声明。"""
+        return {
+            "ok": True,
+            "service": "helix mcp",
+            "version": "1.0.0"
+        }
+
+
+def test_helix_home_url_uses_verified_server_manager() -> None:
+    """Helix home 打开服务管理器确认过的地址。"""
+    mind = type("MindStub", (), {"server_manager": DummyServerManager()})()
+
+    assert repl_commands.helix_runtime_home_url(mind) == "http://127.0.0.1:3333"
+
+
+def test_helix_home_identity_uses_version_endpoint() -> None:
+    """Helix home 打印版本端点声明的服务身份。"""
+    mind = type("MindStub", (), {"server_manager": DummyServerManager()})()
+
+    assert asyncio.run(repl_commands.helix_runtime_identity(mind)) == (
+        "service=helix mcp version=1.0.0"
+    )

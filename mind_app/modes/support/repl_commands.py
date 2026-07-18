@@ -285,9 +285,48 @@ async def open_helix_home(mind: "Mind") -> None:
         Design.console.print()
         return None
 
-    url = const.BASE_URL.rstrip("/")
-    Design.console.print(f"[bold #AFC7D8]Helix Home[/] [dim #7F8C9A]· {url}[/]")
+    url = helix_runtime_home_url(mind)
+    identity = await helix_runtime_identity(mind)
+    Design.console.print(
+        f"[bold #AFC7D8]Helix Home[/] "
+        f"[dim #7F8C9A]· {identity} · {url}[/]"
+    )
     await FileAssist.open_url(url)
+    Design.console.print()
+
+
+def helix_runtime_home_url(mind: "Mind") -> str:
+    """返回当前 Helix 服务管理器确认的首页地址。"""
+    server_manager = getattr(mind, "server_manager", None)
+    url = str(getattr(server_manager, "url", "") or "").strip()
+    return (url or const.BASE_URL).rstrip("/")
+
+
+async def helix_runtime_identity(mind: "Mind") -> str:
+    """返回当前 Helix 服务版本端点声明的身份。"""
+    server_manager = getattr(mind, "server_manager", None)
+    probe_version = getattr(server_manager, "probe_version", None)
+    if not callable(probe_version):
+        return "service=unknown"
+
+    version = await probe_version()
+    if not isinstance(version, dict):
+        return "service=unknown"
+
+    service = str(version.get("service") or "unknown")
+    app_version = str(version.get("version") or "-")
+    return f"service={service} version={app_version}"
+
+
+async def stop_helix_runtime(mind: "Mind") -> None:
+    """停止 Helix 服务并打印结果。"""
+    Design.console.print("[bold #AFC7D8]Helix[/] [dim #7F8C9A]· stop[/]")
+    try:
+        await mind.stop_service_runtime()
+    except MindError as error:
+        Design.console.print(f"[bold #FF5F5F]Helix stop failed: {error}[/]")
+        Design.console.print()
+        return None
     Design.console.print()
 
 

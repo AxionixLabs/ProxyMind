@@ -23,7 +23,11 @@ from .support.repl_commands import (
     print_attach_gap,
     print_available_tools,
     print_pending_attachments,
-    copy_last_assistant_reply
+    copy_last_assistant_reply,
+    link_helix_runtime,
+    open_helix_home,
+    stop_helix_runtime,
+    unlink_helix_runtime
 )
 from .support.repl_diff import print_current_apply_patch_diff
 from .support.repl_prompt import (
@@ -38,10 +42,6 @@ from .support.repl_prompt import (
 from .support.repl_mcp import (
     choose_mcp_action,
     run_mcp_action
-)
-from .support.repl_helix import (
-    choose_helix_action,
-    run_helix_action
 )
 from .support.repl_model import (
     choose_model_effort,
@@ -91,7 +91,10 @@ async def mind_loop(mind: "Mind") -> None:
     ps_set: set[str]           = {"/ps"}
     preferences_set: set[str]  = {"/preferences"}
     compact_set: set[str]      = {"/compact"}
-    helix_set: set[str]        = {"/helix"}
+    helix_link_set: set[str]   = {"/helix-link"}
+    helix_unlink_set: set[str] = {"/helix-unlink"}
+    helix_home_set: set[str]   = {"/helix-home"}
+    helix_stop_set: set[str]   = {"/helix-stop"}
     shutdown_set: set[str]     = {"/shutdown"}
 
     doc = """\
@@ -115,7 +118,10 @@ async def mind_loop(mind: "Mind") -> None:
         [bold #AFD7FF]/copy[/]                     复制最近一次助手回复原文
         [bold #5FD7AF]/ps[/]                       查看运行中的命令
         [bold #87D7FF]/mcp[/]                      管理外部 MCP 服务
-        [bold #5FD7AF]/helix[/]                    管理 Helix 服务
+        [bold #5FD7AF]/helix-link[/]               接入 Helix MCP
+        [bold #5FD7AF]/helix-unlink[/]             移除当前会话的 Helix MCP
+        [bold #5FD7AF]/helix-home[/]               打开 Helix 首页
+        [bold #5FD7AF]/helix-stop[/]               停止 Helix 服务
         [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
         [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
         [bold #FF5F5F]/shutdown[/]                 关闭前台并停止本地运行时
@@ -311,10 +317,24 @@ async def mind_loop(mind: "Mind") -> None:
             )
             continue
 
-        if command in helix_set:
-            helix_action = await choose_helix_action(mind)
-            if await run_helix_action(mind, helix_action):
-                refreshed_at = 0.0
+        if command in helix_link_set:
+            await link_helix_runtime(mind)
+            refreshed_at = 0.0
+            continue
+
+        if command in helix_unlink_set:
+            unlink_helix_runtime(mind)
+            refreshed_at = 0.0
+            continue
+
+        if command in helix_home_set:
+            await open_helix_home(mind)
+            refreshed_at = 0.0
+            continue
+
+        if command in helix_stop_set:
+            await stop_helix_runtime(mind)
+            refreshed_at = 0.0
             continue
 
         if command == "/mcp":
