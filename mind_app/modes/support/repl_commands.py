@@ -286,11 +286,8 @@ async def open_helix_home(mind: "Mind") -> None:
         return None
 
     url = helix_runtime_home_url(mind)
-    identity = await helix_runtime_identity(mind)
-    Design.console.print(
-        f"[bold #AFC7D8]Helix Home[/] "
-        f"[dim #7F8C9A]· {identity} · {url}[/]"
-    )
+
+    Design.console.print(f"[bold #AFC7D8]Helix Home[/] [dim #7F8C9A]· {url}[/]")
     await FileAssist.open_url(url)
     Design.console.print()
 
@@ -298,24 +295,9 @@ async def open_helix_home(mind: "Mind") -> None:
 def helix_runtime_home_url(mind: "Mind") -> str:
     """返回当前 Helix 服务管理器确认的首页地址。"""
     server_manager = getattr(mind, "server_manager", None)
-    url = str(getattr(server_manager, "url", "") or "").strip()
+    url            = str(getattr(server_manager, "url", "") or "").strip()
+
     return (url or const.BASE_URL).rstrip("/")
-
-
-async def helix_runtime_identity(mind: "Mind") -> str:
-    """返回当前 Helix 服务版本端点声明的身份。"""
-    server_manager = getattr(mind, "server_manager", None)
-    probe_version = getattr(server_manager, "probe_version", None)
-    if not callable(probe_version):
-        return "service=unknown"
-
-    version = await probe_version()
-    if not isinstance(version, dict):
-        return "service=unknown"
-
-    service = str(version.get("service") or "unknown")
-    app_version = str(version.get("version") or "-")
-    return f"service={service} version={app_version}"
 
 
 async def stop_helix_runtime(mind: "Mind") -> None:
@@ -345,7 +327,7 @@ async def print_available_tools(
 
         render_tools_summary(
             mode=run_mode,
-            tools=tools,
+            tools=tools
         )
 
     try:
