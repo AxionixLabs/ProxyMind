@@ -8,7 +8,6 @@ mcp==1.24.0
 # Notes: Logging
 # ====================================================
 rich==14.2.0
-markdown-it-py==4.0.0
 loguru==0.7.3
 prompt_toolkit==3.0.52
 Pygments==2.19.2
