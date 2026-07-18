@@ -91,16 +91,13 @@ class Design(DesignStatusLiveDriver):
         """显示启动标识并保留最终版本行。"""
         title = const.APP_DESC
 
-        def frame(*, prompt_on: bool, title_lit: int | None, version_visible: bool) -> Text:
+        def frame(*, prompt_on: bool, title_visible: int, version_visible: bool) -> Text:
             out = Text()
             out.append(">_" if prompt_on else "> ", style="dim")
 
-            if title_lit is not None:
+            if title_visible:
                 out.append(" ")
-                if title_lit:
-                    out.append(title[:title_lit], style="bold bright_white")
-                if title_lit < len(title):
-                    out.append(title[title_lit:], style="dim")
+                out.append(title[:title_visible], style="bold bright_white")
 
             if version_visible:
                 out.append(f" (v{const.APP_VERSION})", style="dim")
@@ -108,7 +105,7 @@ class Design(DesignStatusLiveDriver):
             return out
 
         with Live(
-            frame(prompt_on=True, title_lit=None, version_visible=False),
+            frame(prompt_on=True, title_visible=0, version_visible=False),
             console=Design.console,
             refresh_per_second=30,
             transient=True
@@ -116,42 +113,35 @@ class Design(DesignStatusLiveDriver):
             time.sleep(0.050)
             live.update(frame(
                 prompt_on=False,
-                title_lit=None,
+                title_visible=0,
                 version_visible=False
             ))
             time.sleep(0.045)
             live.update(frame(
                 prompt_on=True,
-                title_lit=None,
+                title_visible=0,
                 version_visible=False
             ))
             time.sleep(0.060)
 
-            live.update(frame(
-                prompt_on=True,
-                title_lit=0,
-                version_visible=False
-            ))
-            time.sleep(0.025)
-
-            for lit in range(1, len(title) + 1):
+            for visible in range(1, len(title) + 1):
                 live.update(frame(
                     prompt_on=True,
-                    title_lit=lit,
+                    title_visible=visible,
                     version_visible=False
                 ))
-                time.sleep(0.030 if lit < len(title) else 0.050)
+                time.sleep(0.045 if visible < len(title) else 0.080)
 
             live.update(frame(
                 prompt_on=True,
-                title_lit=len(title),
+                title_visible=len(title),
                 version_visible=True
             ))
-            time.sleep(0.120)
+            time.sleep(0.180)
 
         final = frame(
             prompt_on=True,
-            title_lit=len(title),
+            title_visible=len(title),
             version_visible=True
         )
         Design.console.print(final)
@@ -161,6 +151,7 @@ class Design(DesignStatusLiveDriver):
     def show_outro() -> None:
         """退场动画：系统解体风格，打字与 glitch 组合后定格。"""
         title = const.APP_DESC
+
         theme = random.choice([
             {
                 "title_dim"  : "#7A868E",
