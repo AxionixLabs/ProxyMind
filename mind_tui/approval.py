@@ -4,13 +4,15 @@
 import typing
 import asyncio
 from prompt_toolkit.application import (
-    Application, get_app
+    Application,
+    get_app
 )
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import (
-    ConditionalContainer, Window
+    ConditionalContainer,
+    Window
 )
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
@@ -49,7 +51,9 @@ class ApprovalOverlay:
             Window(
                 self.control,
                 width=Dimension(preferred=self.WIDTH),
-                height=Dimension(preferred=13, max=16),
+                height=self.content_height,
+                dont_extend_height=True,
+                style="class:approval.card",
                 always_hide_cursor=True
             ),
             filter=Condition(lambda: self.visible)
@@ -58,6 +62,10 @@ class ApprovalOverlay:
     def bind(self, application: Application[typing.Any]) -> None:
         """绑定拥有该浮层的应用。"""
         self._application = application
+
+    def content_height(self) -> int:
+        """返回审批卡当前内容需要的精确行数。"""
+        return len(self._content_lines())
 
     async def show(self, approval: dict[str, typing.Any]) -> ApprovalDecision:
         """显示审批卡并等待用户完成选择。"""
@@ -134,41 +142,46 @@ class ApprovalOverlay:
         return bindings
 
     def _render(self) -> StyleAndTextTuples:
-        """生成审批卡的无背景色格式化文本。"""
-        width = self.WIDTH
-        title = str(self.approval.get("title") or "Review command")
-        prompt = str(self.approval.get("prompt") or "Allow Mind to run this tool?")
-        command = str(
-            self.approval.get("command")
-            or self.approval.get("tool")
-            or "tool call"
-        )
+        """生成无边框的审批卡格式化文本。"""
+        lines = self._content_lines()
+        fragments: StyleAndTextTuples = []
+        for index, (style, line) in enumerate(lines):
+            fragments.append((style, _padded_line(line, self.WIDTH)))
+            if index < len(lines) - 1:
+                fragments.append(("", "\n"))
+        return fragments
 
+    def _content_lines(self) -> list[tuple[str, str]]:
+        """生成审批卡的内容行和局部样式。"""
+        approval_command = str(
+            self.approval.get("command")
+            or _approval_argument_command(self.approval)
+        )
+        if approval_command:
+            prompt = "Would you like to run the following command?"
+            command = approval_command
+        else:
+            prompt = str(
+                self.approval.get("prompt")
+                or "Would you like to run this tool?"
+            )
+            command = str(self.approval.get("tool") or "tool call")
         lines: list[tuple[str, str]] = [
-            ("class:approval.border", _top_border(title, width)),
-            ("class:approval.border", _card_line("", width)),
-            ("class:approval.title", _card_line(prompt, width)),
-            ("class:approval.command", _card_line(f"$ {command}", width)),
-            ("class:approval.border", _card_line("", width))
+            ("class:approval.title", f"  {prompt}"),
+            ("class:approval.card", "")
         ]
+        command_lines = _wrap_command(command, max_width=self.WIDTH - 4)
+        for index, line in enumerate(command_lines):
+            prefix = "  $ " if index == 0 else "    "
+            lines.append(("class:approval.command", prefix + line))
+        lines.append(("class:approval.card", ""))
 
         for index, decision in enumerate(self.decisions):
             marker = "›" if index == self.selected_index else " "
             label = _DECISION_LABELS[decision]
             style = "class:approval.selected" if index == self.selected_index else "class:approval.option"
-            lines.append((style, _card_line(f"{marker} {index + 1}. {label}", width)))
-
-        lines.extend([
-            ("class:approval.border", _card_line("", width)),
-            ("class:approval.border", "└" + "─" * (width - 2) + "┘")
-        ])
-
-        fragments: StyleAndTextTuples = []
-        for index, (style, line) in enumerate(lines):
-            fragments.append((style, line))
-            if index < len(lines) - 1:
-                fragments.append(("", "\n"))
-        return fragments
+            lines.append((style, f"  {marker} {index + 1}. {label}"))
+        return lines
 
 
 def _normalize_decisions(approval: dict[str, typing.Any]) -> list[ApprovalDecision]:
@@ -179,27 +192,38 @@ def _normalize_decisions(approval: dict[str, typing.Any]) -> list[ApprovalDecisi
     return decisions or ["accept", "decline"]
 
 
-def _top_border(title: str, width: int) -> str:
-    """生成带标题的审批卡上边框。"""
-    label = f" {title.strip()} "
-    available = max(0, width - 4)
-    if get_cwidth(label) > available:
-        label = label[: max(0, available - 1)] + "…"
-    rule = max(0, width - 2 - get_cwidth(label))
-    return "┌" + label + "─" * rule + "┐"
+def _approval_argument_command(approval: dict[str, typing.Any]) -> str:
+    """从审批参数中提取单条命令文本。"""
+    arguments = approval.get("arguments")
+    if not isinstance(arguments, dict):
+        return ""
+    return str(arguments.get("command") or "").strip()
 
 
-def _card_line(text: str, width: int) -> str:
-    """生成固定显示宽度的审批卡正文行。"""
-    available = max(1, width - 4)
-    original = str(text or "")
-    value = original
-    while value and get_cwidth(value) > available - 1:
-        value = value[:-1]
-    if get_cwidth(original) > available:
-        value += "…"
-    padding = max(0, available - get_cwidth(value))
-    return f"│ {value}{' ' * padding} │"
+def _wrap_command(text: str, *, max_width: int) -> list[str]:
+    """按终端显示宽度拆分命令文本。"""
+    limit = max(1, int(max_width))
+    lines: list[str] = []
+    current = ""
+    for character in str(text or ""):
+        if character == "\n":
+            lines.append(current)
+            current = ""
+            continue
+        if current and get_cwidth(current + character) > limit:
+            lines.append(current)
+            current = character
+        else:
+            current += character
+    lines.append(current)
+    return lines or [""]
+
+
+def _padded_line(text: str, width: int) -> str:
+    """将审批卡单行补齐到指定显示宽度。"""
+    value = str(text or "")
+    padding = max(0, int(width) - get_cwidth(value))
+    return value + " " * padding
 
 
 if __name__ == '__main__':

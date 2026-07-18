@@ -35,21 +35,19 @@ def test_intro_reveals_prompt_title_and_version(monkeypatch) -> None:
         ">_",
         "> ",
         ">_",
-        ">_ Mind",
-        ">_ Mind",
-        ">_ Mind",
-        ">_ Mind",
+        ">_ M",
+        ">_ Mi",
+        ">_ Min",
         ">_ Mind",
         ">_ Mind (v1.1.7)",
     ]
     assert [
         [(span.start, span.end, span.style) for span in frame.spans[1:]]
-        for frame in frames[3:8]
+        for frame in frames[3:7]
     ] == [
-        [(3, 7, "dim")],
-        [(3, 4, "bold bright_white"), (4, 7, "dim")],
-        [(3, 5, "bold bright_white"), (5, 7, "dim")],
-        [(3, 6, "bold bright_white"), (6, 7, "dim")],
+        [(3, 4, "bold bright_white")],
+        [(3, 5, "bold bright_white")],
+        [(3, 6, "bold bright_white")],
         [(3, 7, "bold bright_white")],
     ]
     assert printed[0].plain == ">_ Mind (v1.1.7)"
