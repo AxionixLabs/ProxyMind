@@ -6,10 +6,8 @@ from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_app.mcp import McpSessionLike
 from mind_app.stream_ui import StreamUI
 from mind_nova import request
-from .display import (
-    show_tool_result,
-    show_tool_start
-)
+from .display import show_tool_result
+from .plan_steps_display import render_plan_steps_start
 from .plan_steps import StepPlanExecutor
 
 
@@ -28,7 +26,6 @@ class PlanToolCallRunner:
 
         self.executor = StepPlanExecutor(
             session=session,
-            stream_ui=stream_ui,
             tools=tools,
             report=report
         )
@@ -42,19 +39,32 @@ class PlanToolCallRunner:
         """处理一次完整的 plan_steps 工具调用。"""
         execution = event.get("execution")
 
-        await show_tool_start(
-            self.stream_ui,
+        self.stream_ui.record_tool_arguments(
             PLAN_STEPS_TOOL,
             arguments,
             call_id=str(event.get("call_id") or "")
         )
 
-        report = await self.executor.execute_tool_call(
-            arguments=arguments,
-            cid=str(event.get("cid") or ""),
-            sid=str(event.get("sid") or ""),
-            call_id=str(event.get("call_id") or ""),
+        plan_text, plan_parts = render_plan_steps_start(arguments)
+
+        await self.stream_ui.feed(
+            plan_text,
+            display=StreamUI.BLOCK,
+            display_parts=plan_parts,
+            preserve_display_parts=True
         )
+
+        await self.stream_ui.begin_tool_status()
+
+        try:
+            report = await self.executor.execute_tool_call(
+                arguments=arguments,
+                cid=str(event.get("cid") or ""),
+                sid=str(event.get("sid") or ""),
+                call_id=str(event.get("call_id") or ""),
+            )
+        finally:
+            await self.stream_ui.end_status(immediate=True)
 
         await show_tool_result(
             self.stream_ui,

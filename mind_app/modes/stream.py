@@ -35,10 +35,7 @@ from ..runtime.tools.batch import (
 )
 from ..runtime.tools.plan_call import PlanToolCallRunner
 from ..runtime.support.idle_status import IdleStatusTimer
-from ..stream_events.responses_builtin import (
-    resolve_builtin_name,
-    consume_builtin_done
-)
+from ..stream_events.responses_builtin import consume_builtin_done
 from ..stream_events.approval_trace import (
     render_approval_approved_trace,
     render_approval_denied_trace,
@@ -183,8 +180,7 @@ async def stream_looper(
                 break
 
             if event_type == "tool.builtin.call":
-                builtin_name = resolve_builtin_name(event)
-                await slog.begin_builtin_status(builtin_name)
+                await slog.begin_tool_status()
                 continue
 
             if event_type == "tool.builtin.done":

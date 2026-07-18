@@ -20,8 +20,6 @@ from .utils import (
     build_file_tree as design_build_file_tree
 )
 from .fx import (
-    compile_animation as design_compile_animation,
-    particle_aggregate as design_particle_aggregate,
     download_animation as design_download_animation
 )
 from .upload import upload_progress_live as design_upload_progress_live
@@ -763,20 +761,6 @@ class Design(DesignStatusLiveDriver):
     @staticmethod
     def build_file_tree(file_path: str) -> None:
         return design_build_file_tree(file_path, console=Design.console)
-
-    @staticmethod
-    async def compile_animation(duration: float = 2, fps: int = 10) -> None:
-        return await design_compile_animation(
-            console=Design.console,
-            duration=duration,
-            fps=fps
-        )
-
-    @staticmethod
-    async def particle_aggregate() -> None:
-        return await design_particle_aggregate(
-            console=Design.console
-        )
 
     @staticmethod
     async def download_animation(state: dict[str, typing.Any], stop_event: asyncio.Event) -> None:

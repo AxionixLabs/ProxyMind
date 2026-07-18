@@ -12,8 +12,11 @@ from ...stream_events.tool_trace import (
     render_tool_start_trace,
     render_tool_trace_parts
 )
-from .types import ToolDisplayResult
 from .plan_update_display import render_plan_update
+from .plan_steps import PlanExecutionReport
+from .run import ToolRunResult
+
+ToolDisplayResult = ToolRunResult | PlanExecutionReport
 
 
 def _coding_trace_text(
@@ -74,7 +77,7 @@ async def show_tool_result(
     stream_ui: StreamUI,
     name: str,
     arguments: dict[str, typing.Any],
-    tool_run: "ToolDisplayResult",
+    tool_run: ToolDisplayResult,
     *,
     ok: typing.Optional[bool] = None,
     fields: typing.Optional[typing.Union[str, dict[str, typing.Any]]] = None,

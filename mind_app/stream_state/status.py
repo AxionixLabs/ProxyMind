@@ -16,26 +16,18 @@ from mind_core.design.status.elapsed import (
 )
 
 StatusFamily = typing.Literal[
-    "builtin",
     "tool",
-    "code",
     "mode",
     "wait",
-    "heal",
-    "loop",
 ]
 
 
 class StatusState(object):
     """管理状态行的渲染族与动画配置。"""
 
-    FAMILY_BUILTIN: typing.Final[StatusFamily] = "builtin"
-    FAMILY_TOOL: typing.Final[StatusFamily]    = "tool"
-    FAMILY_CODE: typing.Final[StatusFamily]    = "code"
-    FAMILY_MODE: typing.Final[StatusFamily]    = "mode"
-    FAMILY_WAIT: typing.Final[StatusFamily]    = "wait"
-    FAMILY_HEAL: typing.Final[StatusFamily]    = "heal"
-    FAMILY_LOOP: typing.Final[StatusFamily]    = "loop"
+    FAMILY_TOOL: typing.Final[StatusFamily] = "tool"
+    FAMILY_MODE: typing.Final[StatusFamily] = "mode"
+    FAMILY_WAIT: typing.Final[StatusFamily] = "wait"
 
     ELAPSED_VISIBLE_AFTER_SEC: typing.Final[float] = 0.65
     ELAPSED_FADE_IN_SEC: typing.Final[float]       = 0.16
@@ -51,7 +43,7 @@ class StatusState(object):
     def __init__(self) -> None:
         """初始化状态内容和动画过渡数据。"""
         self.text: str            = ""
-        self.family: StatusFamily = self.FAMILY_BUILTIN
+        self.family: StatusFamily = self.FAMILY_TOOL
         self.phase: float         = 0.0
         self.animated: bool       = True
         self.started_at: float    = 0.0
@@ -81,7 +73,7 @@ class StatusState(object):
         self,
         text: typing.Optional[str],
         *,
-        family: StatusFamily = FAMILY_BUILTIN,
+        family: StatusFamily = FAMILY_TOOL,
         animated: bool = True,
         reset_phase_on_text_change: bool = True
     ) -> bool:
@@ -122,7 +114,7 @@ class StatusState(object):
         was_visible = self.active
 
         self.text       = ""
-        self.family     = self.FAMILY_BUILTIN
+        self.family     = self.FAMILY_TOOL
         self.phase      = 0.0
         self.animated   = True
         self.started_at = 0.0
@@ -133,7 +125,7 @@ class StatusState(object):
     def reset(self) -> None:
         """立即清空状态。"""
         self.text       = ""
-        self.family     = self.FAMILY_BUILTIN
+        self.family     = self.FAMILY_TOOL
         self.phase      = 0.0
         self.animated   = True
         self.started_at = 0.0
@@ -226,18 +218,12 @@ class StatusState(object):
         """按状态族生成一致布局的状态行主体。"""
         if family == cls.FAMILY_TOOL:
             return Design.tool_status_renderable(phase, text)
-        if family == cls.FAMILY_CODE:
-            return Design.code_status_renderable(phase, text)
         if family == cls.FAMILY_MODE:
             return Design.mode_status_renderable(phase, text)
-        if family == cls.FAMILY_LOOP:
-            return Design.loop_status_renderable(phase, text)
-        if family == cls.FAMILY_HEAL:
-            return Design.heal_status_renderable(phase, text)
         if family == cls.FAMILY_WAIT:
             return Design.thinking_status_renderable(phase, text)
 
-        return Design.builtin_status_renderable(phase, text)
+        return Design.tool_status_renderable(phase, text)
 
     @staticmethod
     def _elapsed_slot() -> Text:

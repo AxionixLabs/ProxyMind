@@ -154,7 +154,6 @@ async def _run_main(
 ) -> int:
     """执行入口主流程。"""
     # Notes: ========== Start from here ==========
-    # await Design.particle_aggregate()
     Design.show_intro()
 
     # 解析命令行参数

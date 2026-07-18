@@ -68,7 +68,7 @@ async def enhance_heal_element(
     if not heal_status.get("enabled", False):
         return {
             "ok"          : False,
-            "text"        : "远程元素自愈服务暂不可用",
+            "text"        : "Remote element healing service is unavailable.",
             "attachments" : attachments,
             "data"        : {"fields": result_fields}
         }
@@ -77,7 +77,7 @@ async def enhance_heal_element(
     if not payload:
         return {
             "ok"          : False,
-            "text"        : "未获取到设备结果",
+            "text"        : "Device result is missing.",
             "attachments" : attachments,
             "data"        : {"fields": result_fields}
         }
@@ -123,14 +123,13 @@ async def enhance_heal_element(
             })
 
             if slog:
-                await slog.update_heal_status_summary(reason)
                 await slog.feed(reason, display=StreamUI.BLOCK)
             return heal_locator, result_data
 
         return None, result_data
 
     if slog:
-        await slog.begin_heal_status()
+        await slog.begin_tool_status()
 
     try:
         locator, heal_result_data = await collect_heal_locator()
@@ -141,7 +140,7 @@ async def enhance_heal_element(
     if not locator:
         return {
             "ok"          : False,
-            "text"        : "元素定位失败",
+            "text"        : "Element location failed.",
             "target"      : target,
             "attachments" : attachments,
             "data"        : heal_result_data
@@ -149,7 +148,7 @@ async def enhance_heal_element(
 
     return {
         "ok"          : True,
-        "text"        : "元素定位成功",
+        "text"        : "Element location succeeded.",
         "target"      : target,
         "attachments" : attachments,
         "data"        : heal_result_data

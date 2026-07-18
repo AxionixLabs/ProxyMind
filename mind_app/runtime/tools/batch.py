@@ -170,8 +170,7 @@ class ToolBatchExecutor:
                 stream_callback=lambda x: self.stream_ui.feed(
                     x, display=StreamUI.BLOCK
                 ),
-                status_text="coding" if use_coding_trace else None,
-                code_status=use_coding_trace,
+                status_text=None,
                 execution=event_execution,
                 cid=str(event.get("cid") or ""),
                 sid=str(event.get("sid") or ""),

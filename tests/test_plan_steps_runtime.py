@@ -12,25 +12,7 @@ from mind_app.runtime.tools import plan_call as plan_call_module
 from mind_app.runtime.tools import plan_steps as plan_steps_module
 from mind_app.runtime.tools.plan_call import PlanToolCallRunner
 from mind_app.runtime.tools.plan_steps import StepPlanExecutor
-
-
-class FakePlanUI(object):
-    """记录计划执行期间的状态和审计调用。"""
-
-    def __init__(self) -> None:
-        self.events: list[tuple[str, object]] = []
-
-    async def begin_loop_status(self, summary: str | None = None) -> None:
-        self.events.append(("begin", summary))
-
-    async def update_loop_status_summary(self, summary: str) -> None:
-        self.events.append(("update", summary))
-
-    async def end_status(self, *, immediate: bool = False) -> None:
-        self.events.append(("end", immediate))
-
-    def record_tool_arguments(self, name: str, arguments: dict) -> None:
-        self.events.append(("audit", (name, arguments)))
+from mind_app.runtime.tools.plan_steps_display import render_plan_steps_start
 
 
 class FakePlanSession(object):
@@ -54,11 +36,10 @@ def tool_result(*, ok: bool, text: str) -> mcp_types.CallToolResult:
     )
 
 
-def build_executor(session: FakePlanSession, stream_ui: FakePlanUI) -> StepPlanExecutor:
+def build_executor(session: FakePlanSession) -> StepPlanExecutor:
     """构造只包含 test_tool 的计划执行器。"""
     return StepPlanExecutor(
         session=session,
-        stream_ui=stream_ui,
         tools=[{"name": "test_tool", "meta": {}}],
         report=SimpleNamespace()
     )
@@ -72,16 +53,15 @@ def test_plan_steps_is_classified_as_loop() -> None:
     assert tool.meta["class"] == "loop"
 
 
-def test_plan_steps_runs_in_internal_loop_and_cleans_status() -> None:
-    """计划工具直接循环调用 session，并独占 loop 状态。"""
+def test_plan_steps_executor_does_not_update_status() -> None:
+    """计划执行器直接调用 session，不更新专属状态。"""
     session = FakePlanSession([
         tool_result(ok=True, text="one"),
         tool_result(ok=True, text="two")
     ])
-    stream_ui = FakePlanUI()
 
     report = asyncio.run(
-        build_executor(session, stream_ui).execute_tool_call(
+        build_executor(session).execute_tool_call(
             arguments={
                 "loops": 2,
                 "steps": [{"tool": "test_tool", "args": {"value": 1}}]
@@ -100,8 +80,6 @@ def test_plan_steps_runs_in_internal_loop_and_cleans_status() -> None:
     assert report.ok is True
     assert report.fields["data"]["completed_runs"] == 2
     assert report.fields["data"]["step_results"][0]["last_text"] == "two"
-    assert stream_ui.events[0][0] == "begin"
-    assert stream_ui.events[-1] == ("end", True)
 
 
 def test_plan_steps_stops_after_failed_step() -> None:
@@ -110,10 +88,9 @@ def test_plan_steps_stops_after_failed_step() -> None:
         tool_result(ok=False, text="failed"),
         tool_result(ok=True, text="unused")
     ])
-    stream_ui = FakePlanUI()
 
     report = asyncio.run(
-        build_executor(session, stream_ui).execute_tool_call(
+        build_executor(session).execute_tool_call(
             arguments={
                 "steps": [
                     {"tool": "test_tool", "args": {"value": 1}},
@@ -129,8 +106,6 @@ def test_plan_steps_stops_after_failed_step() -> None:
     assert report.results[0].text == "failed"
     assert report.fields["data"]["stopped"] is True
     assert report.fields["data"]["failures"][0]["text"] == "failed"
-    assert stream_ui.events[0][0] == "begin"
-    assert stream_ui.events[-1] == ("end", True)
 
 
 def test_plan_steps_logs_each_step_start_and_result(monkeypatch) -> None:
@@ -144,7 +119,7 @@ def test_plan_steps_logs_each_step_start_and_result(monkeypatch) -> None:
     session = FakePlanSession([tool_result(ok=True, text="done")])
 
     asyncio.run(
-        build_executor(session, FakePlanUI()).execute_tool_call(
+        build_executor(session).execute_tool_call(
             arguments={
                 "steps": [{"tool": "test_tool", "args": {}}]
             }
@@ -193,8 +168,42 @@ def test_plan_steps_does_not_limit_loops_or_step_count() -> None:
     assert "maxItems" not in schema["steps"]
 
 
-def test_plan_tool_handler_reuses_standard_display_and_posts_result(monkeypatch) -> None:
-    """计划工具复用标准开始和结果展示，并在执行后回传报告。"""
+def test_plan_steps_start_static_display_omits_step_numbers() -> None:
+    """计划步骤静态展示只列工具名，不带步骤序号。"""
+    text, _ = render_plan_steps_start({
+        "loops": 2,
+        "stop_on_fail": False,
+        "steps": [
+            {"tool": "shell_command", "args": {"command": "echo one"}},
+            {"tool": "apply_patch", "args": {"patch": "..."}}
+        ]
+    })
+
+    assert text == (
+        "• Plan Steps\n"
+        "  └ loops=2 · steps=2 · stop_on_fail=false\n"
+        "    - shell_command\n"
+        "    - apply_patch"
+    )
+
+
+def test_plan_steps_start_static_display_truncates_long_plans() -> None:
+    """计划步骤静态展示对长计划做有界截断。"""
+    text, _ = render_plan_steps_start({
+        "steps": [
+            {"tool": f"tool_{index}", "args": {}}
+            for index in range(10)
+        ]
+    })
+
+    assert "    - tool_0" in text
+    assert "    - tool_7" in text
+    assert "    - tool_8" not in text
+    assert "    ... 2 more" in text
+
+
+def test_plan_tool_handler_uses_static_display_tool_status_and_posts_result(monkeypatch) -> None:
+    """计划工具显示静态块，执行期间使用通用工具状态，并在执行后回传报告。"""
     events: list[tuple[str, object]] = []
     report = SimpleNamespace(ok=True, fields={"ok": True}, text="done")
 
@@ -205,10 +214,19 @@ def test_plan_tool_handler_reuses_standard_display_and_posts_result(monkeypatch)
             return report
 
     class FakeStreamUI(object):
-        pass
+        BLOCK = "block"
 
-    async def fake_show_start(*args, **kwargs) -> None:
-        events.append(("start", (args, kwargs)))
+        def record_tool_arguments(self, *args, **kwargs) -> None:
+            events.append(("audit", (args, kwargs)))
+
+        async def feed(self, *args, **kwargs) -> None:
+            events.append(("feed", (args, kwargs)))
+
+        async def begin_tool_status(self) -> None:
+            events.append(("begin_tool", None))
+
+        async def end_status(self, *, immediate: bool = False) -> None:
+            events.append(("end_status", immediate))
 
     async def fake_show_result(*args, **kwargs) -> None:
         events.append(("result", (args, kwargs)))
@@ -217,7 +235,6 @@ def test_plan_tool_handler_reuses_standard_display_and_posts_result(monkeypatch)
         events.append(("post", (args, kwargs)))
         return {}
 
-    monkeypatch.setattr(plan_call_module, "show_tool_start", fake_show_start)
     monkeypatch.setattr(plan_call_module, "show_tool_result", fake_show_result)
     monkeypatch.setattr(plan_call_module.request, "post_tool_result", fake_post_result)
 
@@ -237,8 +254,8 @@ def test_plan_tool_handler_reuses_standard_display_and_posts_result(monkeypatch)
     )
 
     assert [name for name, _ in events] == [
-        "start", "execute", "runtime", "result", "post"
+        "audit", "feed", "begin_tool", "execute", "runtime", "end_status", "result", "post"
     ]
-    assert events[2][1] == {"cid": "cid", "sid": "sid", "call_id": "call"}
+    assert events[4][1] == {"cid": "cid", "sid": "sid", "call_id": "call"}
     post_args, _ = events[-1][1]
     assert post_args[3:6] == ("plan_steps", True, {"ok": True})

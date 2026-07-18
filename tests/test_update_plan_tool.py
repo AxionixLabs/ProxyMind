@@ -15,6 +15,7 @@ from mind_app.runtime.tools.display import (
     show_tool_result,
     show_tool_start
 )
+from mind_app.runtime.tools.run import ToolRunResult
 from mind_app.runtime.tools.plan_update_display import render_plan_update
 from mind_app.stream_state.text import TextState
 
@@ -204,7 +205,8 @@ def test_update_plan_uses_special_display_and_preserves_audit() -> None:
     assert stream_ui.audits == [(UPDATE_PLAN_TOOL, arguments, "call-1")]
     assert stream_ui.feeds == []
 
-    tool_run = SimpleNamespace(
+    tool_run = ToolRunResult(
+        result={},
         ok=True,
         fields={},
         text="plan updated",
@@ -228,7 +230,8 @@ def test_update_plan_uses_special_display_and_preserves_audit() -> None:
 def test_update_plan_failure_uses_generic_tool_result() -> None:
     """计划校验失败时保留通用工具错误轨迹。"""
     stream_ui = FakeStreamUI()
-    tool_run = SimpleNamespace(
+    tool_run = ToolRunResult(
+        result={},
         ok=False,
         fields={},
         text="plan rejected errors=empty plan",

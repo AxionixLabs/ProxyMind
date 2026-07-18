@@ -9,7 +9,6 @@ from loguru import logger
 from mind_app.client_tools.planning import normalize_plan_arguments
 from mind_app.mcp import McpSessionLike
 from mind_app.mcp.tool_store import has_tool
-from mind_app.stream_ui import StreamUI
 from .execution_policy import (
     is_execution_ignored,
     validate_execution_policy
@@ -58,14 +57,12 @@ class StepPlanExecutor:
         self,
         *,
         session: McpSessionLike,
-        stream_ui: StreamUI,
         tools: list[dict[str, typing.Any]],
         report: typing.Any
     ) -> None:
-        self.session   = session
-        self.stream_ui = stream_ui
-        self.tools     = tools
-        self.report    = report
+        self.session = session
+        self.tools   = tools
+        self.report  = report
 
     async def execute_tool_call(
         self,
@@ -110,50 +107,23 @@ class StepPlanExecutor:
 
         stopped: bool = False
 
-        await self.stream_ui.begin_loop_status(
-            self._loop_summary(
-                run_index=1,
-                total_runs=loops,
-                step_index=0,
-                total_steps=len(steps),
-                tool=""
-            )
-        )
-        try:
-            for run_index in range(1, loops + 1):
-                if stopped:
+        for run_index in range(1, loops + 1):
+            if stopped:
+                break
+
+            for step_index, step in enumerate(steps, start=1):
+                result = await self._execute_step(
+                    run_index,
+                    step_index,
+                    step,
+                    cid=cid,
+                    sid=sid,
+                    call_id=call_id,
+                )
+                results.append(result)
+                if stop_on_fail and not result.ok:
+                    stopped = True
                     break
-
-                for step_index, step in enumerate(steps, start=1):
-                    await self.stream_ui.update_loop_status_summary(
-                        self._loop_summary(
-                            run_index=run_index,
-                            total_runs=loops,
-                            step_index=step_index,
-                            total_steps=len(steps),
-                            tool=str(step.get("tool") or "").strip()
-                        )
-                    )
-                    result = await self._execute_step(
-                        run_index,
-                        step_index,
-                        step,
-                        total_runs=loops,
-                        total_steps=len(steps),
-                        cid=cid,
-                        sid=sid,
-                        call_id=call_id,
-                    )
-                    results.append(result)
-                    if stop_on_fail and not result.ok:
-                        stopped = True
-                        break
-
-            await self.stream_ui.update_loop_status_summary(
-                self._done_summary(results)
-            )
-        finally:
-            await self.stream_ui.end_status(immediate=True)
 
         return results
 
@@ -163,8 +133,6 @@ class StepPlanExecutor:
         step_index: int,
         step: dict[str, typing.Any],
         *,
-        total_runs: int,
-        total_steps: int,
         cid: str | None,
         sid: str | None,
         call_id: str | None,
@@ -184,9 +152,7 @@ class StepPlanExecutor:
                 run_index,
                 step_index,
                 name,
-                f"unknown plan tool: {name}",
-                total_runs=total_runs,
-                total_steps=total_steps
+                f"unknown plan tool: {name}"
             )
 
         policy_result = validate_execution_policy(
@@ -198,9 +164,7 @@ class StepPlanExecutor:
                 run_index,
                 step_index,
                 name,
-                self._policy_failure_text(policy_result),
-                total_runs=total_runs,
-                total_steps=total_steps
+                self._policy_failure_text(policy_result)
             )
 
         try:
@@ -221,16 +185,6 @@ class StepPlanExecutor:
 
             result = await self.session.call_tool(name, exchanged_args, **runtime)
 
-            await self.stream_ui.update_loop_status_summary(
-                self._loop_summary(
-                    run_index=run_index,
-                    total_runs=total_runs,
-                    step_index=step_index,
-                    total_steps=total_steps,
-                    tool=name,
-                    done=True
-                )
-            )
             step_result = PlanStepResult(
                 run=run_index,
                 index=step_index,
@@ -246,9 +200,7 @@ class StepPlanExecutor:
                 run_index,
                 step_index,
                 name,
-                f"{type(exc).__name__}: {exc}",
-                total_runs=total_runs,
-                total_steps=total_steps
+                f"{type(exc).__name__}: {exc}"
             )
 
     async def _failure(
@@ -256,22 +208,9 @@ class StepPlanExecutor:
         run_index: int,
         step_index: int,
         name: str,
-        text: str,
-        *,
-        total_runs: int,
-        total_steps: int
+        text: str
     ) -> PlanStepResult:
-        """记录计划步骤失败并更新循环状态。"""
-        await self.stream_ui.update_loop_status_summary(
-            self._loop_summary(
-                run_index=run_index,
-                total_runs=total_runs,
-                step_index=step_index,
-                total_steps=total_steps,
-                tool=name,
-                done=True
-            )
-        )
+        """记录计划步骤失败。"""
         step_result = PlanStepResult(
             run=run_index,
             index=step_index,
@@ -419,13 +358,6 @@ class StepPlanExecutor:
         )
 
     @staticmethod
-    def _done_summary(results: list[PlanStepResult]) -> str:
-        """生成计划完成状态摘要。"""
-        ok_count   = sum(1 for item in results if item.ok)
-        fail_count = sum(1 for item in results if not item.ok)
-        return f"done · ok {ok_count} · failed {fail_count}"
-
-    @staticmethod
     def _result_text(result: typing.Any) -> str:
         """从 MCP 工具结果中读取文本摘要。"""
         structured = getattr(result, "structuredContent", None)
@@ -466,29 +398,6 @@ class StepPlanExecutor:
         if is_execution_ignored(policy_result):
             return str(policy_result.get("reason") or "execution ignored")
         return str(policy_result.get("error") or "execution denied")
-
-    @staticmethod
-    def _loop_summary(
-        *,
-        run_index: int,
-        total_runs: int,
-        step_index: int,
-        total_steps: int,
-        tool: str,
-        done: bool = False
-    ) -> str:
-        """生成循环步骤状态摘要。"""
-        parts = [
-            f"run {max(1, run_index)}/{max(1, total_runs)}",
-            f"step {max(0, step_index)}/{max(0, total_steps)}"
-        ]
-        clean_tool = str(tool or "").strip()
-        if clean_tool:
-            parts.append(clean_tool)
-        if done:
-            parts.append("done")
-        return " · ".join(parts)
-
 
 def _plan_steps(plan: dict[str, typing.Any]) -> list[dict[str, typing.Any]]:
     """读取已标准化计划中的步骤列表。"""

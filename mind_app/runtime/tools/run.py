@@ -5,7 +5,6 @@ import time
 import typing
 from dataclasses import dataclass
 from mind_app.mcp import McpSessionLike
-from mcp.types import CallToolResult
 from engine.enhance import enhance_result
 from ...stream_ui import StreamUI
 from .router import execute_tool
@@ -68,17 +67,6 @@ _OUTPUT_PROMOTED_RESULT_KEYS = (
 @dataclass(slots=True)
 class ToolRunResult:
     """统一描述单次工具执行的收束结果。"""
-    result: CallToolResult
-    ok: bool
-    fields: typing.Union[str, dict[str, typing.Any]]
-    text: str
-    data: typing.Any
-    cost_ms: int
-
-
-@dataclass(slots=True)
-class ServerToolOutputResult:
-    """服务端已执行工具结果的本地展示适配对象。"""
     result: typing.Any
     ok: bool
     fields: typing.Union[str, dict[str, typing.Any]]
@@ -159,7 +147,7 @@ def normalize_tool_result_fields(
 def server_tool_output_result(
     name: str,
     event: dict[str, typing.Any]
-) -> ServerToolOutputResult:
+) -> ToolRunResult:
     """把服务端回灌的 tool.output 事件转换成展示层结果对象。"""
     fields = _server_output_fields(event)
     fields = normalize_tool_result_fields(name, fields)
@@ -167,7 +155,7 @@ def server_tool_output_result(
     ok      = _server_output_ok(event, fields)
     cost_ms = _server_output_cost_ms(event)
 
-    return ServerToolOutputResult(
+    return ToolRunResult(
         result=fields,
         ok=ok,
         fields=fields,
@@ -277,7 +265,6 @@ async def run_tool_step(
     enable_progress_notify: bool = False,
     stream_callback: typing.Optional[typing.Callable[[str], typing.Awaitable[None]]] = None,
     status_text: typing.Optional[str] = None,
-    code_status: bool = False,
     execution: dict[str, typing.Any] | None = None,
     cid: str | None = None,
     sid: str | None = None,
@@ -286,9 +273,7 @@ async def run_tool_step(
     """统一执行工具、处理状态动画和结果增强。"""
     started_at = time.time()
 
-    if code_status:
-        await stream_ui.begin_code_status(status_text)
-    elif status_text:
+    if status_text:
         await stream_ui.begin_custom_tool_status(status_text)
     else:
         await stream_ui.begin_tool_status()

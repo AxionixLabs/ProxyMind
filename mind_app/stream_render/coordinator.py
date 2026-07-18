@@ -86,7 +86,7 @@ class RenderCoord(object):
         self,
         text: typing.Optional[str],
         *,
-        family: StatusFamily = StatusState.FAMILY_BUILTIN,
+        family: StatusFamily = StatusState.FAMILY_TOOL,
         animated: bool = True,
         reset_phase_on_text_change: bool = True
     ) -> None:
@@ -220,6 +220,7 @@ class RenderCoord(object):
             return True
 
         return len(last_line) >= 72 and last_line[:2].isdigit() and ". " in last_line
+
 
 if __name__ == '__main__':
     pass

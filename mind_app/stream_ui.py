@@ -30,18 +30,14 @@ class StreamUI(object):
         self.design_level = design_level
 
         self._pending_status_task: typing.Optional[asyncio.Task[None]] = None
-        self._pending_status_force_reveal = False
-        self._pending_status_revealed: typing.Optional[asyncio.Event] = None
+        self._pending_status_revealed: typing.Optional[asyncio.Event]  = None
+        self._pending_status_force_reveal: bool                        = False
+
 
         self._active_status_visible_at: typing.Optional[float] = None
-        self._active_status_min_visible_sec = 0.0
+        self._active_status_min_visible_sec: float             = 0.0
 
-        self._heal_status_text: str = ""
-        self._heal_status_pending_text: str = ""
-        self._heal_status_last_flush_at: float = 0.0
-        self._heal_status_flush_task: typing.Optional[asyncio.Task[None]] = None
-
-        self._stream_output_fact: bool = False
+        self._stream_output_fact: bool      = False
         self._stream_boundary_pending: bool = False
 
         self._reset_components()
@@ -54,7 +50,6 @@ class StreamUI(object):
 
     async def stop(self, *, blink: bool = True) -> None:
         """停止渲染与后台状态任务，并关闭记录。"""
-        await self._cancel_heal_status_flush_task()
         await self._cancel_pending_status_task()
         await self.coordinator.stop(blink=blink)
         await self.record_writer.close()
@@ -130,31 +125,6 @@ class StreamUI(object):
             text=boundary_prefix
         )
 
-    async def begin_builtin_status(
-        self,
-        text: typing.Optional[str],
-        *,
-        delay_sec: float = 0.12
-    ) -> None:
-        """显示 Responses builtin 名称，短延迟后露出，避免极短 builtin 闪屏。"""
-        if self.design_level != const.SHOW_LEVEL:
-            return None
-
-        if self._stream_output_fact:
-            return None
-
-        status_text, family = self._compose_builtin_status(text)
-
-        await self._schedule_status_task(
-            self._delayed_status_flow(
-                status_text,
-                show_delay_sec=delay_sec,
-                animate_after_sec=delay_sec,
-                family=family,
-                min_visible_sec=0.0
-            )
-        )
-
     async def begin_tool_status(self) -> None:
         """启动通用工具调用状态。"""
         await self.begin_custom_tool_status("function calling")
@@ -173,38 +143,6 @@ class StreamUI(object):
                 animate_after_sec=0.18,
                 family="tool",
                 initial_animated=True
-            )
-        )
-
-    async def begin_code_status(
-        self,
-        text: str,
-        *,
-        delay_sec: float = 0.18,
-        min_visible_sec: float = 0.32
-    ) -> None:
-        """启动代码执行状态显示。"""
-        if self.design_level != const.SHOW_LEVEL:
-            return None
-
-        self.coordinator.hold_status_slot()
-
-        if delay_sec <= 0:
-            await self._cancel_pending_status_task()
-            if str(text or "").strip().lower() == "coding":
-                text = "native coding"
-
-            await self.coordinator.set_status(text, family="code", animated=True)
-            self._mark_status_visible(min_visible_sec)
-            return None
-
-        await self._schedule_status_task(
-            self._delayed_status_flow(
-                "native coding" if str(text or "").strip().lower() == "coding" else text,
-                show_delay_sec=delay_sec,
-                animate_after_sec=delay_sec,
-                family="code",
-                min_visible_sec=min_visible_sec
             )
         )
 
@@ -230,108 +168,15 @@ class StreamUI(object):
             )
         )
 
-    async def begin_heal_status(
-        self,
-        summary: typing.Optional[str] = None,
-        *,
-        delay_sec: float = 0.0
-    ) -> None:
-        """启动恢复状态显示。"""
-        if self.design_level != const.SHOW_LEVEL:
-            return None
-
-        self.coordinator.hold_status_slot()
-
-        await self._cancel_pending_status_task()
-        await self._cancel_heal_status_flush_task()
-
-        text = self._compose_heal_status_text(summary)
-
-        self._heal_status_text          = text
-        self._heal_status_pending_text  = ""
-        self._heal_status_last_flush_at = time.perf_counter()
-
-        if delay_sec > 0:
-            await self._schedule_status_task(
-                self._delayed_status_flow(
-                    text,
-                    show_delay_sec=delay_sec,
-                    animate_after_sec=delay_sec,
-                    family="heal"
-                )
-            )
-            return None
-
-        await self.coordinator.set_status(text, family="heal", animated=True)
-        self._mark_status_visible(0.0)
-
-    async def begin_loop_status(
-        self,
-        summary: typing.Optional[str] = None
-    ) -> None:
-        """启动循环步骤状态显示。"""
-        if self.design_level != const.SHOW_LEVEL:
-            return None
-        self.coordinator.hold_status_slot()
-        await self._cancel_pending_status_task()
-        text = self._compose_loop_status_text(summary)
-        await self.coordinator.set_status(text, family="loop", animated=True)
-        self._mark_status_visible(0.0)
-
-    async def update_loop_status_summary(
-        self,
-        summary: typing.Optional[str]
-    ) -> None:
-        """更新循环步骤状态摘要。"""
-        if self.design_level != const.SHOW_LEVEL:
-            return None
-        self.coordinator.hold_status_slot()
-        await self._cancel_pending_status_task()
-        await self.coordinator.set_status(
-            self._compose_loop_status_text(summary),
-            family="loop",
-            animated=True,
-            reset_phase_on_text_change=False
-        )
-        self._mark_status_visible(0.0)
-
-    async def update_heal_status_summary(
-        self,
-        summary: typing.Optional[str]
-    ) -> None:
-        """更新恢复状态摘要。"""
-        if self.design_level != const.SHOW_LEVEL:
-            return None
-        text = self._compose_heal_status_text(summary)
-        if not text or text == self._heal_status_text:
-            return None
-
-        throttle  = 0.28
-        now       = time.perf_counter()
-        remaining = throttle - (now - self._heal_status_last_flush_at)
-
-        self._heal_status_pending_text = text
-
-        if remaining <= 0:
-            await self._flush_heal_status_text(text)
-            return None
-
-        if self._heal_status_flush_task is None:
-            self._heal_status_flush_task = asyncio.create_task(
-                self._flush_heal_status_after(remaining)
-            )
-
     async def end_status(self, *, immediate: bool = False) -> None:
         """结束当前状态显示并清理相关后台任务。"""
         if not immediate:
             await self._wait_status_visibility_if_needed()
-        await self._cancel_heal_status_flush_task()
         await self._cancel_pending_status_task()
         self.coordinator.release_status_slot()
         await self.coordinator.clear_status(immediate=immediate)
         self._active_status_visible_at = None
         self._active_status_min_visible_sec = 0.0
-        self._reset_heal_status_state()
 
     async def settle_stream(self) -> None:
         """同步当前流式正文到稳定显示状态。"""
@@ -480,53 +325,6 @@ class StreamUI(object):
                 separators=(",", ":")
             )
 
-    @classmethod
-    def _compose_heal_status_text(
-        cls,
-        summary: typing.Optional[str]
-    ) -> str:
-        """组合恢复状态的显示文本。"""
-        base_title = "restoring signal"
-        normalized = " ".join(str(summary or "").split())
-        if not normalized:
-            return base_title
-        lower = normalized.lower()
-        base_lower = base_title.lower()
-        if lower.startswith(f"{base_lower} · "):
-            return normalized
-        if lower == base_lower:
-            return base_title
-        return f"{base_title} · {normalized}"
-
-    @classmethod
-    def _compose_loop_status_text(
-        cls,
-        summary: typing.Optional[str]
-    ) -> str:
-        """组合循环步骤状态的显示文本。"""
-        base_title = "plan steps"
-        normalized = " ".join(str(summary or "").split())
-        if not normalized:
-            return base_title
-        lower = normalized.lower()
-        base_lower = base_title.lower()
-        if lower.startswith(f"{base_lower} · "):
-            return normalized
-        if lower == base_lower:
-            return base_title
-        return f"{base_title} · {normalized}"
-
-    @classmethod
-    def _compose_builtin_status(
-        cls,
-        text: typing.Optional[str]
-    ) -> tuple[typing.Optional[str], StatusFamily]:
-        """组合内置状态文本与状态类别。"""
-        normalized = " ".join(str(text or "").split())
-        if normalized.lower() in {"chat", "fast", "xtra"}:
-            return Design.mode_status_text(normalized), "mode"
-        return text, "builtin"
-
     def _reset_components(self) -> None:
         """重置渲染协调器、记录器和运行期状态。"""
         self._stream_output_fact            = False
@@ -536,8 +334,6 @@ class StreamUI(object):
         self._pending_status_revealed       = None
         self._active_status_visible_at      = None
         self._active_status_min_visible_sec = 0.0
-
-        self._reset_heal_status_state()
 
         refresh_per_second = 16
 
@@ -557,13 +353,6 @@ class StreamUI(object):
         """记录状态开始可见的时间和最短显示时长。"""
         self._active_status_visible_at = time.perf_counter()
         self._active_status_min_visible_sec = max(0.0, float(min_visible_sec))
-
-    def _reset_heal_status_state(self) -> None:
-        """重置恢复状态的缓存字段。"""
-        self._heal_status_text          = ""
-        self._heal_status_pending_text  = ""
-        self._heal_status_last_flush_at = 0.0
-        self._heal_status_flush_task    = None
 
     def _consume_stream_boundary_prefix(self, *, incoming_text: str | None = None) -> str:
         """消费待处理的流式边界，并返回需要补充的前缀。"""
@@ -592,43 +381,6 @@ class StreamUI(object):
             self.record_writer.write_raw(prefix)
         await self.coordinator.text_renderer.suspend(clear=True)
         self._print_raw(prefix)
-
-    async def _cancel_heal_status_flush_task(self) -> None:
-        """取消等待中的恢复状态刷新任务。"""
-        task = self._heal_status_flush_task
-        if task is None:
-            return None
-        self._heal_status_flush_task = None
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            return None
-
-    async def _flush_heal_status_after(self, delay_sec: float) -> None:
-        """在指定延迟后刷新恢复状态文本。"""
-        try:
-            await asyncio.sleep(max(0.0, float(delay_sec)))
-            if self._heal_status_pending_text:
-                await self._flush_heal_status_text(self._heal_status_pending_text)
-        except asyncio.CancelledError:
-            return None
-        finally:
-            self._heal_status_flush_task = None
-
-    async def _flush_heal_status_text(self, text: str) -> None:
-        """立即刷新恢复状态文本。"""
-        if self.design_level != const.SHOW_LEVEL:
-            return None
-        self._heal_status_pending_text = ""
-        self._heal_status_text = text
-        self._heal_status_last_flush_at = time.perf_counter()
-        await self.coordinator.set_status(
-            text,
-            family="heal",
-            animated=True,
-            reset_phase_on_text_change=False
-        )
 
     async def _wait_status_visibility_if_needed(self) -> None:
         """在结束状态前等待必要的最短可见时间。"""
