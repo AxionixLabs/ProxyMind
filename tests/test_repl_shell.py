@@ -4,6 +4,7 @@ import asyncio
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import mind_app.modes.support.repl_shell as repl_shell
 from mind_app.modes.support.repl_shell import (
@@ -60,17 +61,24 @@ def test_blocked_interactive_shell_command_detects_ssh() -> None:
 def test_run_shell_escape_blocks_interactive_command(monkeypatch) -> None:
     """命中屏蔽规则时不启动 shell 面板。"""
     rendered: list[tuple[str, str]] = []
+    application = SimpleNamespace(
+        viewport=SimpleNamespace(width=100, height=24),
+        emit=lambda view: None,
+    )
 
     async def fail_panel(*args, **kwargs):
         raise AssertionError("shell panel should not start")
 
-    def capture_render(command: str, name: str) -> None:
+    def capture_render(application_value, command: str, name: str) -> None:
+        assert application_value is application
         rendered.append((command, name))
 
     monkeypatch.setattr(repl_shell, "run_shell_command_panel", fail_panel)
     monkeypatch.setattr(repl_shell, "render_blocked_interactive_shell_command", capture_render)
 
-    assert run_async(run_shell_escape("!ssh -p 2033 test@192.168.2.81")) is True
+    assert run_async(
+        run_shell_escape(application, "!ssh -p 2033 test@192.168.2.81")
+    ) is True
     assert rendered == [("ssh -p 2033 test@192.168.2.81", "ssh")]
 
 

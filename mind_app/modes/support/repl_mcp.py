@@ -10,8 +10,8 @@ from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
+from mind_app.frontend import ApplicationView
 from mind_app.mcp.config import load_mcp_servers_file
-from mind_core.design import Design
 from mind_core.terminal_input import clear_pending_input
 
 McpAction = typing.Literal["start", "force", "stop", "restart", "status"]
@@ -34,6 +34,19 @@ MCP_MENU_ACTIONS: tuple[tuple[McpAction, str, str], ...] = (
     ("restart", "restart", "先断开当前外接 MCP，再重新读取配置并启动 enabled=true 的服务。"),
     ("status", "status", "查看状态，不启动、不停止。")
 )
+
+
+def _present(
+    mind: typing.Any,
+    renderable: typing.Any = None,
+    *,
+    view_type: str = "repl.mcp",
+) -> None:
+    """发送一项外部 MCP 展示。"""
+    mind.frontend.application.emit(ApplicationView(
+        type=view_type,
+        renderable=renderable,
+    ))
 
 
 def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
@@ -227,7 +240,7 @@ def external_status_line(summary: dict[str, typing.Any]) -> str:
 async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> None:
     """执行外部 MCP 菜单动作。"""
     if action is None:
-        Design.console.print()
+        _present(mind, view_type="repl.gap")
         return None
 
     if action == "status":
@@ -255,44 +268,47 @@ async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> None:
 
 
 def render_mcp_status(mind: typing.Any) -> None:
-    """打印外部 MCP 服务状态。"""
+    """展示外部 MCP 服务状态。"""
     summary     = summarize_external_runtime(mind)
     configured  = summary["configured"]
     tool_groups = summary["tool_groups"]
 
-    Design.console.print(
+    _present(
+        mind,
         f"[bold #AFC7D8]External MCP[/] "
         f"[dim #7F8C9A]· started={str(summary['started']).lower()} "
         f"configured={len(configured)} tools={summary['tool_count']}[/]"
     )
 
     if configured:
-        Design.console.print("[bold #F4F7FA]Configured servers[/]")
+        _present(mind, "[bold #F4F7FA]Configured servers[/]")
         for server in configured:
             name      = str(server.get("name") or "server")
             transport = str(server.get("transport") or "streamable_http")
             enabled   = bool(server.get("enabled", True))
             state     = "enabled" if enabled else "disabled"
 
-            Design.console.print(
+            _present(
+                mind,
                 f"[bold #AFC7D8]  •[/] [#DDE7EF]{name}[/] "
                 f"[dim #7F8C9A]({transport} · {state})[/]"
             )
     else:
-        Design.console.print("[bold #7F8C9A]No external MCP servers configured.[/]")
+        _present(mind, "[bold #7F8C9A]No external MCP servers configured.[/]")
 
     if tool_groups:
-        Design.console.print("[bold #F4F7FA]Connected tools[/]")
+        _present(mind, "[bold #F4F7FA]Connected tools[/]")
         for group in tool_groups:
             names = group["tools"]
-            Design.console.print(
+            _present(
+                mind,
                 f"[bold #AFC7D8]  •[/] [#DDE7EF]{group['server']}[/] "
                 f"[dim #7F8C9A]({group['transport']} · {len(names)} tools)[/]"
             )
     else:
-        Design.console.print("[bold #7F8C9A]No external MCP tools connected.[/]")
+        _present(mind, "[bold #7F8C9A]No external MCP tools connected.[/]")
 
-    Design.console.print()
+    _present(mind, view_type="repl.gap")
 
 
 if __name__ == '__main__':

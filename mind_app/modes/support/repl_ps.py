@@ -12,7 +12,10 @@ from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
-from mind_core.design import Design
+from mind_app.frontend import (
+    ApplicationSink,
+    ApplicationView
+)
 from mind_core.terminal_input import clear_pending_input
 from mind_app.modes.support.repl_summary import (
     CommandSummary,
@@ -48,12 +51,16 @@ PS_PANEL_STYLE = Style.from_dict({
 
 async def choose_exec_session(mind: typing.Any) -> str | None:
     """显示运行中 exec_command 会话菜单，并返回选中的会话 ID。"""
+    application = mind.frontend.application
     snapshot = await mind.native_coding.running_exec_sessions()
     sessions = _running_items(snapshot)
 
     if not sessions:
-        Design.console.print("[bold #7F8C9A]No running exec_command sessions.[/]")
-        Design.console.print()
+        application.emit(ApplicationView(
+            type="repl.exec.empty",
+            renderable="[bold #7F8C9A]No running exec_command sessions.[/]",
+        ))
+        application.emit(ApplicationView(type="repl.gap"))
         return None
 
     selected = [0]
@@ -96,7 +103,11 @@ async def choose_exec_session(mind: typing.Any) -> str | None:
         event.app.exit(result=None)
 
     control = FormattedTextControl(
-        lambda: render_exec_session_menu(sessions, selected[0]),
+        lambda: render_exec_session_menu(
+            sessions,
+            selected[0],
+            terminal_width=application.viewport.width,
+        ),
         focusable=True
     )
 
@@ -125,7 +136,8 @@ async def watch_exec_session(mind: typing.Any, session_id: str | None) -> bool:
     if not sid:
         return False
 
-    height = _ps_panel_height()
+    application = mind.frontend.application
+    height = _ps_panel_height(application.viewport.height)
 
     state: dict[str, typing.Any] = {
         "snapshot": {
@@ -148,7 +160,11 @@ async def watch_exec_session(mind: typing.Any, session_id: str | None) -> bool:
         event.app.exit(result=None)
 
     control = FormattedTextControl(
-        lambda: render_exec_session_panel(state, height=height),
+        lambda: render_exec_session_panel(
+            state,
+            height=height,
+            terminal_width=application.viewport.width,
+        ),
         focusable=True
     )
 
@@ -210,17 +226,19 @@ async def watch_exec_session(mind: typing.Any, session_id: str | None) -> bool:
             await asyncio.gather(*poll_tasks, return_exceptions=True)
 
     if isinstance(result, dict):
-        render_exec_session_summary(result)
+        render_exec_session_summary(application, result)
 
     return True
 
 
 def render_exec_session_menu(
     sessions: list[dict[str, typing.Any]],
-    selected: int
+    selected: int,
+    *,
+    terminal_width: int | None = None
 ) -> StyleAndTextTuples:
     """生成 exec_command 会话菜单内容。"""
-    width         = _terminal_width()
+    width         = _terminal_width(terminal_width)
     command_width = max(12, width - 30)
 
     start, visible = _visible_session_window(sessions, selected)
@@ -259,7 +277,8 @@ def render_exec_session_menu(
 def render_exec_session_panel(
     state: dict[str, typing.Any],
     *,
-    height: int
+    height: int,
+    terminal_width: int | None = None
 ) -> StyleAndTextTuples:
     """生成 exec_command 会话查看面板内容。"""
     snapshot = state.get("snapshot")
@@ -267,8 +286,9 @@ def render_exec_session_panel(
         snapshot = {}
 
     body_height = max(1, height - 4)
-    title       = _panel_title(snapshot)
-    meta        = _panel_meta(snapshot)
+    width       = _terminal_width(terminal_width)
+    title       = _panel_title(snapshot, terminal_width=width)
+    meta        = _panel_meta(snapshot, terminal_width=width)
 
     lines: StyleAndTextTuples = [
         ("class:ps.title", title),
@@ -288,7 +308,7 @@ def render_exec_session_panel(
     if visible:
         for line in visible:
             lines.append(("class:ps.meta", "  "))
-            lines.append(("class:ps.output", _clip_inline(line, _terminal_width() - 4)))
+            lines.append(("class:ps.output", _clip_inline(line, width - 4)))
             lines.append(("", "\n"))
     else:
         lines.append(("class:ps.waiting", "(waiting for output)"))
@@ -297,9 +317,12 @@ def render_exec_session_panel(
     return lines
 
 
-def render_exec_session_summary(snapshot: dict[str, typing.Any]) -> None:
+def render_exec_session_summary(
+    application: ApplicationSink,
+    snapshot: dict[str, typing.Any]
+) -> None:
     """渲染 exec_command 查看面板的最终摘要。"""
-    render_command_summary(exec_session_command_summary(snapshot))
+    render_command_summary(application, exec_session_command_summary(snapshot))
 
 
 def exec_session_command_summary(snapshot: dict[str, typing.Any]) -> CommandSummary:
@@ -383,22 +406,30 @@ def _session_menu_status(total: int, start: int, end: int) -> str:
     return f"running={total} · showing={start + 1}-{end}"
 
 
-def _panel_title(snapshot: dict[str, typing.Any]) -> str:
+def _panel_title(
+    snapshot: dict[str, typing.Any],
+    *,
+    terminal_width: int
+) -> str:
     """生成查看面板标题。"""
     sid    = str(snapshot.get("session_id") or "").strip()
     status = str(snapshot.get("status") or "unknown").strip()
 
-    command = _clip_inline(snapshot.get("command"), max(12, _terminal_width() - 32))
+    command = _clip_inline(snapshot.get("command"), max(12, terminal_width - 32))
     if command:
         return f"Exec {status} · {sid} · {command}"
 
     return f"Exec {status} · {sid}"
 
 
-def _panel_meta(snapshot: dict[str, typing.Any]) -> str:
+def _panel_meta(
+    snapshot: dict[str, typing.Any],
+    *,
+    terminal_width: int
+) -> str:
     """生成查看面板状态行。"""
     pid = snapshot.get("pid")
-    cwd = _clip_inline(snapshot.get("cwd"), max(8, _terminal_width() - 45))
+    cwd = _clip_inline(snapshot.get("cwd"), max(8, terminal_width - 45))
 
     exit_code = snapshot.get("exit_code")
 
@@ -443,17 +474,18 @@ def _panel_output_lines(
     return lines[-max(1, int(limit or 1)):]
 
 
-def _ps_panel_height() -> int:
+def _ps_panel_height(terminal_height: int | None = None) -> int:
     """根据终端高度计算查看面板高度。"""
-    size = shutil.get_terminal_size(fallback=(100, 24))
-    return max(8, min(28, size.lines - 4))
+    height = terminal_height
+    if not isinstance(height, int) or height <= 0:
+        height = shutil.get_terminal_size(fallback=(100, 24)).lines
+    return max(8, min(28, height - 4))
 
 
-def _terminal_width() -> int:
+def _terminal_width(terminal_width: int | None = None) -> int:
     """返回当前终端宽度。"""
-    width = getattr(Design.console, "width", None)
-    if isinstance(width, int) and width > 0:
-        return width
+    if isinstance(terminal_width, int) and terminal_width > 0:
+        return terminal_width
     return shutil.get_terminal_size(fallback=(100, 24)).columns
 
 

@@ -4,7 +4,10 @@
 import typing
 from dataclasses import dataclass
 from rich.text import Text
-from mind_core.design import Design
+from mind_app.frontend import (
+    ApplicationSink,
+    ApplicationView
+)
 
 COMMAND_SUMMARY_DEFAULT_WIDTH: int = 100
 COMMAND_SUMMARY_COMMAND_MAX: int   = 72
@@ -20,14 +23,20 @@ class CommandSummary(object):
     lines: tuple[str, ...] = ()
 
 
-def render_command_summary(summary: CommandSummary) -> None:
+def render_command_summary(
+    application: ApplicationSink,
+    summary: CommandSummary
+) -> None:
     """渲染命令面板最终摘要。"""
     renderable = command_summary_text(
         summary,
-        terminal_width=_console_width()
+        terminal_width=application.viewport.width
     )
     renderable.rstrip()
-    Design.console.print(renderable)
+    application.emit(ApplicationView(
+        type="repl.command_summary",
+        renderable=renderable,
+    ))
 
 
 def command_summary_text(
@@ -129,12 +138,6 @@ def _clip_inline(value: typing.Any, limit: int) -> str:
     if size <= 1:
         return "…"
     return f"{text[:size - 1]}…"
-
-
-def _console_width() -> int | None:
-    """读取当前控制台宽度。"""
-    width = getattr(Design.console, "width", None)
-    return width if isinstance(width, int) else None
 
 
 if __name__ == '__main__':

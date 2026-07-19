@@ -3,7 +3,7 @@
 
 import typing
 from rich.text import Text
-from mind_core.design import Design
+from mind_app.frontend import ApplicationView
 
 DIFF_DISPLAY_MAX_LINES = 300
 DIFF_DISPLAY_MAX_CHARS = 40_000
@@ -13,44 +13,61 @@ if typing.TYPE_CHECKING:
 
 
 def print_current_apply_patch_diff(mind: "Mind") -> None:
-    """打印当前 apply_patch 净差异。"""
+    """展示当前 apply_patch 净差异。"""
+    application = mind.frontend.application
     snapshot = mind.native_coding.patch_diff_snapshot()
     if bool(snapshot.get("invalidated")):
-        Design.console.print(
-            Text(
+        application.emit(ApplicationView(
+            type="repl.diff.unavailable",
+            renderable=Text(
                 "Diff unavailable: current apply_patch delta is not exact.",
                 style="dim #7F8C9A"
-            )
-        )
-        Design.console.print()
+            ),
+        ))
+        application.emit(ApplicationView(type="repl.gap"))
         return None
 
     diff_text = str(snapshot.get("diff") or "")
     if not diff_text.strip():
-        Design.console.print(
-            Text("No apply_patch diff in current turn.", style="dim #7F8C9A")
-        )
-        Design.console.print()
+        application.emit(ApplicationView(
+            type="repl.diff.empty",
+            renderable=Text(
+                "No apply_patch diff in current turn.",
+                style="dim #7F8C9A",
+            ),
+        ))
+        application.emit(ApplicationView(type="repl.gap"))
         return None
 
     display_text, truncated = truncate_diff_text(diff_text)
 
     files, added, removed = diff_stat(diff_text)
 
-    Design.console.print(
-        Text("Diff · current apply_patch changes", style="bold #AFC7D8")
-    )
-    Design.console.print(
-        Text(
+    application.emit(ApplicationView(
+        type="repl.diff.title",
+        renderable=Text(
+            "Diff · current apply_patch changes",
+            style="bold #AFC7D8",
+        ),
+    ))
+    application.emit(ApplicationView(
+        type="repl.diff.stat",
+        renderable=Text(
             f"{files} {'file' if files == 1 else 'files'} changed · +{added} -{removed}",
             style="#7F8C9A"
-        )
-    )
-    Design.console.print()
-    Design.console.print(render_diff_text(display_text))
+        ),
+    ))
+    application.emit(ApplicationView(type="repl.gap"))
+    application.emit(ApplicationView(
+        type="repl.diff.body",
+        renderable=render_diff_text(display_text),
+    ))
     if truncated:
-        Design.console.print(Text("... diff truncated", style="dim #7F8C9A"))
-    Design.console.print()
+        application.emit(ApplicationView(
+            type="repl.diff.truncated",
+            renderable=Text("... diff truncated", style="dim #7F8C9A"),
+        ))
+    application.emit(ApplicationView(type="repl.gap"))
 
 
 def render_diff_text(diff_text: str) -> Text:

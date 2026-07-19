@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from types import SimpleNamespace
 
 from mind_app.modes.support import repl_commands
 from mind_app.modes.support import repl_mcp
@@ -11,6 +12,10 @@ class DummyMind(object):
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, bool | None]] = []
+        self.views: list[object] = []
+        self.frontend = SimpleNamespace(
+            application=SimpleNamespace(emit=self.views.append),
+        )
 
     async def start_external_mcp_runtime(self) -> None:
         """记录非破坏性启动调用。"""
@@ -47,6 +52,15 @@ def test_mcp_force_and_restart_actions_are_rebuilds(monkeypatch) -> None:
         ("restart", True),
         ("restart", False),
     ]
+
+
+def test_mcp_cancel_emits_frontend_gap() -> None:
+    """取消 MCP 菜单时只向 Frontend 发送间距展示。"""
+    mind = DummyMind()
+
+    asyncio.run(repl_mcp.run_mcp_action(mind, None))
+
+    assert [view.type for view in mind.views] == ["repl.gap"]
 
 
 class DummyServerManager(object):

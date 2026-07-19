@@ -19,6 +19,7 @@ def test_exec_session_menu_truncates_long_command() -> None:
             }
         ],
         selected=0,
+        terminal_width=80,
     )
 
     text = "".join(part for _, part in rendered)
@@ -39,7 +40,11 @@ def test_exec_session_menu_shows_at_most_eight_items() -> None:
         for index in range(12)
     ]
 
-    rendered = render_exec_session_menu(sessions, selected=10)
+    rendered = render_exec_session_menu(
+        sessions,
+        selected=10,
+        terminal_width=80,
+    )
     text = "".join(part for _, part in rendered)
 
     assert "showing=5-12" in text

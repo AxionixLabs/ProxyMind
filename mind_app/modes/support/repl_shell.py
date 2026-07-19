@@ -20,7 +20,10 @@ from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
-from mind_core.design import Design
+from mind_app.frontend import (
+    ApplicationSink,
+    ApplicationView
+)
 from mind_core.terminal_input import clear_pending_input
 from mind_app.modes.support.repl_summary import (
     CommandSummary,
@@ -374,36 +377,46 @@ class ShellPanelRun(object):
         return lines[-SHELL_PANEL_MAX_LINES:]
 
 
-async def run_shell_escape(value: str) -> bool:
+async def run_shell_escape(application: ApplicationSink, value: str) -> bool:
     """执行 REPL shell escape；返回是否已处理。"""
     parsed = parse_shell_escape(value)
     if parsed is None:
         return False
 
     if parsed.enter_shell:
-        await run_interactive_shell()
+        await run_interactive_shell(application)
         return True
 
     if blocked_command := blocked_interactive_shell_command(parsed.command):
-        render_blocked_interactive_shell_command(parsed.command, blocked_command)
+        render_blocked_interactive_shell_command(
+            application,
+            parsed.command,
+            blocked_command,
+        )
         return True
 
     result = await run_shell_command_panel(parsed.command)
-    render_shell_panel_summary(parsed.command, result)
+    render_shell_panel_summary(application, parsed.command, result)
     return True
 
 
-async def run_interactive_shell() -> int:
+async def run_interactive_shell(application: ApplicationSink) -> int:
     """进入当前平台默认 shell，直到用户 exit。"""
     executable = default_shell_executable()
     if not executable:
-        Design.console.print("[bold #FF6B6B]Shell unavailable[/]")
+        application.emit(ApplicationView(
+            type="repl.shell.unavailable",
+            renderable="[bold #FF6B6B]Shell unavailable[/]",
+        ))
         return 1
 
     try:
         process = await asyncio.create_subprocess_exec(executable)
     except (OSError, RuntimeError, ValueError) as exc:
-        Design.console.print(f"[bold #FF6B6B]{exc}[/]")
+        application.emit(ApplicationView(
+            type="repl.shell.failed",
+            renderable=f"[bold #FF6B6B]{exc}[/]",
+        ))
         return 1
     return await process.wait()
 
@@ -602,9 +615,16 @@ def direct_command_args(command: str) -> list[str] | None:
     return [resolved, *parts[1:]]
 
 
-def render_shell_panel_summary(command: str, result: ShellRunResult) -> None:
+def render_shell_panel_summary(
+    application: ApplicationSink,
+    command: str,
+    result: ShellRunResult
+) -> None:
     """渲染 REPL shell 前台面板的最终摘要。"""
-    render_command_summary(shell_panel_command_summary(command, result))
+    render_command_summary(
+        application,
+        shell_panel_command_summary(command, result),
+    )
 
 
 def shell_panel_command_summary(
@@ -735,9 +755,13 @@ def blocked_interactive_shell_command(command: str) -> str:
     return ""
 
 
-def render_blocked_interactive_shell_command(command: str, name: str) -> None:
+def render_blocked_interactive_shell_command(
+    application: ApplicationSink,
+    command: str,
+    name: str
+) -> None:
     """渲染交互命令被屏蔽的提示。"""
-    render_command_summary(CommandSummary(
+    render_command_summary(application, CommandSummary(
         kind="Shell",
         command=command,
         suffix=" · blocked",
