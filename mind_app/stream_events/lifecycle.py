@@ -3,10 +3,9 @@
 
 import typing
 from dataclasses import dataclass
-from mind_app.output import (
-    BLOCK_OUTPUT, OutputPort
-)
-from .lifecycle_display import render_lifecycle_display_parts
+from mind_app.output import OutputPort
+from mind_app.presentation.contracts import PresentationSink
+from mind_app.presentation.lifecycle_views import build_lifecycle_view
 
 if typing.TYPE_CHECKING:
     from mind_app.mcp import McpSessionLike
@@ -21,6 +20,7 @@ class StreamEventContext:
     mind: "Mind"
     session: "McpSessionLike"
     slog: OutputPort
+    presentation: PresentationSink
     tracker: "SegmentTracker"
     mode: str
     pref_config: dict[str, typing.Any]
@@ -56,13 +56,11 @@ async def _display_event(
     if not (text := _display_text(display)):
         return False
 
-    title = f"• {text}"
+    view = build_lifecycle_view(text)
+    if view is None:
+        return False
 
-    await ctx.slog.feed(
-        title,
-        display=BLOCK_OUTPUT,
-        display_parts=render_lifecycle_display_parts(title)
-    )
+    await ctx.presentation.emit(view)
     await ctx.slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
 
     return True

@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from mind_app.presentation.rich import render_native_tool_result_view
+from mind_app.presentation.legacy import LegacyPresentationSink
 from mind_app.presentation.tool_views import build_native_tool_result_view
 from mind_app.runtime.tools.display import show_tool_result
 from mind_app.runtime.tools.run import ToolRunResult
@@ -180,8 +181,9 @@ def test_native_patch_keeps_diff_and_code_highlighting() -> None:
 
 
 def test_show_native_tool_result_uses_view_adapter() -> None:
-    """native 工具结果通过 View 适配器收束状态并输出。"""
+    """native 工具结果通过 View 适配器输出且不控制运行状态。"""
     output = FakeOutput()
+    presentation = LegacyPresentationSink(output)
     tool_run = ToolRunResult(
         result={},
         ok=True,
@@ -196,14 +198,14 @@ def test_show_native_tool_result_uses_view_adapter() -> None:
     )
 
     asyncio.run(show_tool_result(
-        output,
+        presentation,
         "shell_command",
         {"command": "printf hello"},
         tool_run,
         use_coding_trace=True,
     ))
 
-    assert output.end_count == 1
+    assert output.end_count == 0
     assert len(output.feeds) == 1
     assert output.feeds[0][0] == "• Ran printf hello\n└ hello"
     assert output.feeds[0][1]["preserve_display_parts"] is True

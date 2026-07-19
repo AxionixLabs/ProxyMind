@@ -3,11 +3,14 @@
 
 import time
 import typing
+import functools
 from dataclasses import dataclass
 from mind_app.mcp import McpSessionLike
+from mind_app.presentation.contracts import PresentationSink
 from engine.enhance import enhance_result
 from ...output import OutputPort
-from .enhance_reporter import OutputEnhanceReporter
+from .enhance_reporter import ToolEnhanceReporter
+from .progress import show_tool_progress
 from .router import execute_tool
 
 _COMMON_PROMOTED_RESULT_KEYS = (
@@ -258,13 +261,13 @@ async def run_tool_step(
     session: McpSessionLike,
     *,
     stream_ui: OutputPort,
+    presentation: PresentationSink,
     tools: list[dict[str, typing.Any]],
     name: str,
     arguments: dict[str, typing.Any],
     meta: typing.Optional[dict[str, typing.Any]],
     pref_config: dict[str, typing.Any],
     enable_progress_notify: bool = False,
-    stream_callback: typing.Optional[typing.Callable[[str], typing.Awaitable[None]]] = None,
     status_text: typing.Optional[str] = None,
     execution: dict[str, typing.Any] | None = None,
     cid: str | None = None,
@@ -286,7 +289,12 @@ async def run_tool_step(
             arguments=arguments,
             meta=meta,
             enable_progress_notify=enable_progress_notify,
-            stream_callback=stream_callback,
+            stream_callback=functools.partial(
+                show_tool_progress,
+                presentation,
+                source="tool",
+                tool_name=name,
+            ),
             execution=execution,
             cid=cid,
             sid=sid,
@@ -299,7 +307,11 @@ async def run_tool_step(
             name=name,
             result=result,
             ok=ok,
-            reporter=OutputEnhanceReporter(stream_ui)
+            reporter=ToolEnhanceReporter(
+                stream_ui,
+                presentation,
+                tool_name=name,
+            )
         )
         fields = normalize_tool_result_fields(name, fields)
 

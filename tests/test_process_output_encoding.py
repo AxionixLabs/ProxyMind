@@ -306,6 +306,28 @@ def test_captured_output_decoder_uses_gbk_segment_evidence(
     assert decoded.stream_encodings["stdout"] == ("gbk",)
 
 
+def test_captured_output_decoder_keeps_gbk_stream_hint_soft(
+    monkeypatch: object,
+) -> None:
+    """GBK 片段先验不会覆盖后续无歧义 UTF-8 片段。"""
+    use_utf8_and_gbk_candidates(monkeypatch)
+    first = "中文测试".encode("gbk")
+    second = "中文".encode("utf-8")
+    raw = first + b"\n" + second + b"\n"
+
+    decoded = CapturedOutputDecoder().decode(captured_output(
+        stdout=raw,
+        records=(
+            CapturedOutputLine("stdout", first),
+            CapturedOutputLine("stdout", second),
+        ),
+    ))
+
+    assert decoded.stdout == "中文测试\n中文\n"
+    assert decoded.output_lines == ("中文测试", "中文")
+    assert decoded.stream_encodings["stdout"] == ("gbk", "utf-8")
+
+
 def test_captured_output_decoder_rejects_false_utf8_stream_evidence(
     monkeypatch: object,
 ) -> None:

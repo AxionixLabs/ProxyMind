@@ -5,13 +5,23 @@ from mind_app.output import (
     BLOCK_OUTPUT,
     OutputPort
 )
+from mind_app.presentation.contracts import PresentationSink
+from .progress import show_tool_progress
 
 
-class OutputEnhanceReporter(object):
-    """把结果增强过程适配到当前输出端。"""
+class ToolEnhanceReporter(object):
+    """把结果增强过程适配到运行时输出边界。"""
 
-    def __init__(self, output: OutputPort) -> None:
-        self.output = output
+    def __init__(
+        self,
+        output: OutputPort,
+        presentation: PresentationSink,
+        *,
+        tool_name: str,
+    ) -> None:
+        self.output       = output
+        self.presentation = presentation
+        self.tool_name    = tool_name
 
     async def record(self, text: str) -> None:
         """记录不直接展示的增强内容。"""
@@ -19,7 +29,12 @@ class OutputEnhanceReporter(object):
 
     async def display(self, text: str) -> None:
         """展示增强过程产生的文本。"""
-        await self.output.feed(text, display=BLOCK_OUTPUT)
+        await show_tool_progress(
+            self.presentation,
+            text,
+            source="enhancement",
+            tool_name=self.tool_name,
+        )
 
     async def begin_status(self) -> None:
         """启动增强过程状态。"""

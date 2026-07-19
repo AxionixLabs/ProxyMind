@@ -8,6 +8,7 @@ import asyncio
 from loguru import logger
 from rich.text import Text
 from mind_core.design import Design
+from mind_app.output.contracts import OutputPort
 from mind_app.stream_render.coordinator import RenderCoord
 from mind_app.stream_state.boundary import OutputBoundaryState
 from mind_app.stream_state.status import StatusFamily
@@ -17,7 +18,7 @@ from mind_app.stream_sanitize import sanitize_value
 from mind_nova import const
 
 
-class StreamUI(object):
+class StreamUI(OutputPort):
     """流式终端 UI façade：统一封装 record、正文渲染与轻状态显示。"""
 
     BLOCK  = TextState.BLOCK

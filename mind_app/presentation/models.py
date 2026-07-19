@@ -10,6 +10,24 @@ PlanStatus = typing.Literal[
     "completed"
 ]
 
+ApprovalDecision = typing.Literal[
+    "accept",
+    "acceptForSession",
+    "decline",
+    "expired",
+]
+
+ApprovalState = typing.Literal[
+    "approved",
+    "denied",
+    "expired",
+]
+
+ProgressSource = typing.Literal[
+    "tool",
+    "enhancement",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class TracePreview(object):
@@ -119,6 +137,39 @@ class BatchCompletedView(object):
     """描述并行工具执行完成时的展示数据。"""
 
     results: tuple[BatchResultView, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FailureView(object):
+    """描述运行失败时的展示数据。"""
+
+    phase: str
+    error: str
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleView(object):
+    """描述服务端生命周期事件的展示数据。"""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalView(object):
+    """描述工具审批结果的展示数据。"""
+
+    approval: dict[str, typing.Any]
+    decision: ApprovalDecision
+    state: ApprovalState
+
+
+@dataclass(frozen=True, slots=True)
+class ProgressView(object):
+    """描述工具执行期间的可见进度。"""
+
+    text: str
+    source: ProgressSource
+    tool_name: str
 
 
 if __name__ == '__main__':

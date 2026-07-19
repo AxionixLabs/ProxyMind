@@ -8,9 +8,8 @@ from dataclasses import (
 )
 from engine.enhance import exchange_arguments
 from mind_app.mcp import McpSessionLike
-from mind_app.output import (
-    BLOCK_OUTPUT, OutputPort
-)
+from mind_app.output import OutputPort
+from mind_app.presentation.contracts import PresentationSink
 from mind_nova import request
 from .display import (
     show_tool_result, show_tool_start
@@ -87,19 +86,21 @@ class ToolBatchExecutor:
         *,
         session: McpSessionLike,
         stream_ui: OutputPort,
+        presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
         mode: str,
         pref_config: dict[str, typing.Any],
         metadata: dict[str, typing.Any],
         report: typing.Any
     ) -> None:
-        self.session     = session
-        self.stream_ui   = stream_ui
-        self.tools       = tools
-        self.mode        = mode
-        self.pref_config = pref_config
-        self.metadata    = metadata
-        self.report      = report
+        self.session      = session
+        self.stream_ui    = stream_ui
+        self.presentation = presentation
+        self.tools        = tools
+        self.mode         = mode
+        self.pref_config  = pref_config
+        self.metadata     = metadata
+        self.report       = report
 
     @staticmethod
     async def post_tool_result(
@@ -144,18 +145,16 @@ class ToolBatchExecutor:
 
         try:
             if display:
+                self.stream_ui.record_tool_arguments(
+                    name,
+                    arguments,
+                    call_id=str(event.get("call_id") or "")
+                )
                 if not use_coding_trace:
                     await show_tool_start(
-                        self.stream_ui,
+                        self.presentation,
                         name,
-                        arguments,
-                        call_id=str(event.get("call_id") or "")
-                    )
-                else:
-                    self.stream_ui.record_tool_arguments(
-                        name,
-                        arguments,
-                        call_id=str(event.get("call_id") or "")
+                        arguments
                     )
 
             arguments = exchange_arguments(name, arguments, self.report)
@@ -163,15 +162,13 @@ class ToolBatchExecutor:
             tool_run = await run_tool_step(
                 self.session,
                 stream_ui=self.stream_ui,
+                presentation=self.presentation,
                 tools=self.tools,
                 name=name,
                 arguments=arguments,
                 meta=pending.meta,
                 pref_config=self.pref_config,
                 enable_progress_notify=True,
-                stream_callback=lambda x: self.stream_ui.feed(
-                    x, display=BLOCK_OUTPUT
-                ),
                 status_text=None,
                 execution=event_execution,
                 cid=str(event.get("cid") or ""),
@@ -185,13 +182,14 @@ class ToolBatchExecutor:
             cost_ms = tool_run.cost_ms
 
             if display:
+                if use_coding_trace:
+                    await self.stream_ui.end_status()
                 await show_tool_result(
-                    self.stream_ui,
+                    self.presentation,
                     name,
                     arguments,
                     tool_run,
                     ok=ok,
-                    fields=fields,
                     text=text,
                     use_coding_trace=use_coding_trace
                 )

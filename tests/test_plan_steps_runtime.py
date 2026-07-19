@@ -13,6 +13,7 @@ from mind_app.runtime.tools import plan_steps as plan_steps_module
 from mind_app.runtime.tools.plan_call import PlanToolCallRunner
 from mind_app.runtime.tools.plan_steps import StepPlanExecutor
 from mind_app.runtime.tools.plan_steps_display import render_plan_steps_start
+from mind_app.presentation.legacy import LegacyPresentationSink
 
 
 class FakePlanSession(object):
@@ -238,9 +239,11 @@ def test_plan_tool_handler_uses_static_display_tool_status_and_posts_result(monk
     monkeypatch.setattr(plan_call_module, "show_tool_result", fake_show_result)
     monkeypatch.setattr(plan_call_module.request, "post_tool_result", fake_post_result)
 
+    stream_ui = FakeStreamUI()
     runner = PlanToolCallRunner(
         session=SimpleNamespace(),
-        stream_ui=FakeStreamUI(),
+        stream_ui=stream_ui,
+        presentation=LegacyPresentationSink(stream_ui),
         tools=[],
         report=SimpleNamespace()
     )

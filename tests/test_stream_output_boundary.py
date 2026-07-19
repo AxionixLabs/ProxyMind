@@ -5,6 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import mind_app.modes.stream as stream_module
+from mind_app.output.legacy_content import LegacyContentSink
+from mind_app.output.session import OutputSession
+from mind_app.presentation.legacy import LegacyPresentationSink
 from mind_app.stream_ui import StreamUI
 
 
@@ -143,7 +146,14 @@ def test_stream_tool_boundary_prepares_external_output(monkeypatch) -> None:
         yield {"type": "tool.calls.start"}
         yield {"type": "turn.done"}
 
-    monkeypatch.setattr(stream_module, "create_output", FakeStreamUI)
+    def output_session_factory(*_args, **_kwargs) -> OutputSession:
+        output = FakeStreamUI()
+        return OutputSession(
+            control=output,
+            content=LegacyContentSink(output),
+            presentation=LegacyPresentationSink(output),
+        )
+
     monkeypatch.setattr(stream_module.request, "stream_chat", fake_stream_chat)
 
     asyncio.run(stream_module.stream_looper(
@@ -153,7 +163,8 @@ def test_stream_tool_boundary_prepares_external_output(monkeypatch) -> None:
         {},
         "message",
         [],
-        exec_env={}
+        exec_env={},
+        output_session_factory=output_session_factory,
     ))
 
     assert calls.count("prepare") == 1

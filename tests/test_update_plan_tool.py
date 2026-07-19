@@ -17,6 +17,7 @@ from mind_app.runtime.tools.display import (
 )
 from mind_app.runtime.tools.run import ToolRunResult
 from mind_app.runtime.tools.plan_update_display import render_plan_update
+from mind_app.presentation.legacy import LegacyPresentationSink
 from mind_app.stream_state.text import TextState
 
 
@@ -193,13 +194,18 @@ def test_incomplete_plan_dims_done_summary_and_pending_then_highlights_active() 
 def test_update_plan_uses_special_display_and_preserves_audit() -> None:
     """更新计划不显示通用工具起始轨迹，但保留参数审计。"""
     stream_ui = FakeStreamUI()
+    presentation = LegacyPresentationSink(stream_ui)
     arguments = {"plan": [{"step": "Run tests", "status": "completed"}]}
 
-    asyncio.run(show_tool_start(
-        stream_ui,
+    stream_ui.record_tool_arguments(
         UPDATE_PLAN_TOOL,
         arguments,
         call_id="call-1"
+    )
+    asyncio.run(show_tool_start(
+        presentation,
+        UPDATE_PLAN_TOOL,
+        arguments
     ))
 
     assert stream_ui.audits == [(UPDATE_PLAN_TOOL, arguments, "call-1")]
@@ -214,7 +220,7 @@ def test_update_plan_uses_special_display_and_preserves_audit() -> None:
         cost_ms=0
     )
     asyncio.run(show_tool_result(
-        stream_ui,
+        presentation,
         UPDATE_PLAN_TOOL,
         arguments,
         tool_run
@@ -230,6 +236,7 @@ def test_update_plan_uses_special_display_and_preserves_audit() -> None:
 def test_update_plan_failure_uses_generic_tool_result() -> None:
     """计划校验失败时保留通用工具错误轨迹。"""
     stream_ui = FakeStreamUI()
+    presentation = LegacyPresentationSink(stream_ui)
     tool_run = ToolRunResult(
         result={},
         ok=False,
@@ -240,7 +247,7 @@ def test_update_plan_failure_uses_generic_tool_result() -> None:
     )
 
     asyncio.run(show_tool_result(
-        stream_ui,
+        presentation,
         UPDATE_PLAN_TOOL,
         {"plan": []},
         tool_run

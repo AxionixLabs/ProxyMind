@@ -4,6 +4,9 @@ import asyncio
 from types import SimpleNamespace
 
 import mind_app.modes.stream as stream_module
+from mind_app.output.legacy_content import LegacyContentSink
+from mind_app.output.session import OutputSession
+from mind_app.presentation.legacy import LegacyPresentationSink
 from mind_nova.events import EventReport
 
 
@@ -69,8 +72,15 @@ def test_stream_request_uses_event_report_turn_id(monkeypatch) -> None:
     report = EventReport("chat", "cid-test", "sid-test")
     initial_turn_id = report.turn_id
 
-    monkeypatch.setattr(stream_module, "create_output", FakeStreamUI)
     monkeypatch.setattr(stream_module.request, "stream_chat", fake_stream_chat)
+
+    def output_session_factory(*_args, **_kwargs) -> OutputSession:
+        output = FakeStreamUI()
+        return OutputSession(
+            control=output,
+            content=LegacyContentSink(output),
+            presentation=LegacyPresentationSink(output),
+        )
 
     asyncio.run(stream_module.stream_looper(
         FakeMind(),
@@ -80,7 +90,8 @@ def test_stream_request_uses_event_report_turn_id(monkeypatch) -> None:
         "hello",
         [],
         exec_env={},
-        ev_report=report
+        ev_report=report,
+        output_session_factory=output_session_factory,
     ))
 
     assert report.turn_id != initial_turn_id

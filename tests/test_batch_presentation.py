@@ -10,6 +10,7 @@ from mind_app.presentation.rich import (
     render_batch_completed_view,
     render_batch_start_view,
 )
+from mind_app.presentation.legacy import LegacyPresentationSink
 from mind_app.runtime.tools.batch import (
     BatchToolResult,
     PendingToolCall,
@@ -122,7 +123,11 @@ def test_batch_runtime_keeps_grouping_and_audit_behavior() -> None:
     output = FakeOutput()
 
     assert should_group_batch(batch) is True
-    asyncio.run(show_tool_batch_start(output, batch))
+    asyncio.run(show_tool_batch_start(
+        LegacyPresentationSink(output),
+        output,
+        batch,
+    ))
 
     assert output.audits == [
         ("first_tool", {"value": 1}, "call-1"),
@@ -145,6 +150,9 @@ def test_single_batch_result_still_skips_grouped_display() -> None:
     )
     output = FakeOutput()
 
-    asyncio.run(show_tool_batch_completed(output, [result]))
+    asyncio.run(show_tool_batch_completed(
+        LegacyPresentationSink(output),
+        [result],
+    ))
 
     assert output.feeds == []

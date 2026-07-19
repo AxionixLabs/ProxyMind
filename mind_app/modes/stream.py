@@ -16,11 +16,13 @@ from mind_app.approval import (
 from mind_nova.events import EventReport
 from mind_nova import request
 from ..output import (
-    BLOCK_OUTPUT,
-    STREAM_OUTPUT,
-    OutputPort
+    AssistantTextDelta,
+    OutputPort,
+    SourcesOutput
 )
-from ..output.factory import create_output
+from ..output.factory import create_output_session
+from ..output.session import OutputSession
+from ..presentation.approval_views import build_approval_view
 from ..runtime.support.loop_support import finish_failure
 from ..runtime.environment.exec_env import build_runtime_exec_env
 from ..runtime.support.session_policy import friendly_exception_text
@@ -37,22 +39,13 @@ from ..runtime.tools.batch import (
 from ..runtime.tools.plan_call import PlanToolCallRunner
 from ..runtime.support.idle_status import IdleStatusTimer
 from ..stream_events.responses_builtin import consume_builtin_done
-from ..stream_events.approval_trace import (
-    render_approval_approved_trace,
-    render_approval_denied_trace,
-    render_approval_expired_trace,
-    render_approval_trace_parts
-)
 from ..stream_events.tool_trace import coding_trace_tool
 from ..stream_events.lifecycle import (
     StreamEventContext,
     handle_lifecycle_event
 )
 from ..stream_events.assistant_boundary import is_assistant_output_boundary
-from ..stream_state.segment import (
-    SegmentTracker,
-    build_sources_text
-)
+from ..stream_state.segment import SegmentTracker
 
 if typing.TYPE_CHECKING:
     from ..mind_core import Mind
@@ -88,11 +81,18 @@ async def stream_looper(
         )
         kwargs["exec_env"] = build_runtime_exec_env(service_exec_env=service_env)
 
-    output_factory = kwargs.pop("output_factory", create_output)
-    slog: OutputPort = output_factory(
+    output_session_factory = kwargs.pop(
+        "output_session_factory",
+        create_output_session,
+    )
+    output_session: OutputSession = output_session_factory(
         mind.report.log_papers,
         design_level=mind.level,
     )
+
+    slog: OutputPort = output_session.control
+    presentation     = output_session.presentation
+    content          = output_session.content
 
     interrupted: bool    = False
     first_frame: bool    = True
@@ -114,6 +114,7 @@ async def stream_looper(
             mind=mind,
             session=session,
             slog=slog,
+            presentation=presentation,
             tracker=tracker,
             mode=mode,
             pref_config=pref_config,
@@ -122,6 +123,7 @@ async def stream_looper(
         tool_batch_executor = ToolBatchExecutor(
             session=session,
             stream_ui=slog,
+            presentation=presentation,
             tools=tools,
             mode=mode,
             pref_config=pref_config,
@@ -131,6 +133,7 @@ async def stream_looper(
         plan_tool_runner = PlanToolCallRunner(
             session=session,
             stream_ui=slog,
+            presentation=presentation,
             tools=tools,
             report=mind.report
         )
@@ -160,13 +163,19 @@ async def stream_looper(
 
             if event_type == "turn.failed":
                 error = str(event.get("error") or "unknown error")
-                await finish_failure(slog, None, phase="turn.failed", error=error)
+                await finish_failure(
+                    slog,
+                    presentation,
+                    None,
+                    phase="turn.failed",
+                    error=error,
+                )
                 continue
 
             if event_type == "text.delta":
                 text = str(event.get("text") or "")
                 tracker.on_text_delta(event)
-                await slog.feed(text, display=STREAM_OUTPUT)
+                await content.emit(AssistantTextDelta(text))
                 idle_wait.reschedule()
                 continue
 
@@ -212,15 +221,10 @@ async def stream_looper(
                 )
 
                 if decision == "expired":
-                    expired_title = render_approval_expired_trace(approval)
-                    expired_parts = [
-                        *render_approval_trace_parts(
-                            expired_title, approval=approval, state="denied"
-                        )
-                    ]
-                    await slog.print_block(
-                        expired_title, display_parts=expired_parts
-                    )
+                    await presentation.emit(build_approval_view(
+                        approval,
+                        decision=decision,
+                    ))
                     await slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                     continue
 
@@ -232,18 +236,10 @@ async def stream_looper(
                     call_id=str(event.get("call_id") or ""), approval=approval, decision=decision
                 )
 
-                done_title = (
-                    render_approval_approved_trace(approval, decision=decision)
-                    if approved else render_approval_denied_trace(approval)
-                )
-                done_parts = [
-                    *render_approval_trace_parts(
-                        done_title, approval=approval, state="approved" if approved else "denied"
-                    )
-                ]
-                await slog.print_block(
-                    done_title, display_parts=done_parts
-                )
+                await presentation.emit(build_approval_view(
+                    approval,
+                    decision=decision,
+                ))
                 try:
                     await request.post_tool_approval(
                         event["cid"],
@@ -364,8 +360,11 @@ async def stream_looper(
                 use_coding_trace = coding_trace_tool(name)
                 tool_run         = server_tool_output_result(name, event)
 
+                if use_coding_trace:
+                    await slog.end_status()
+
                 await show_tool_result(
-                    slog,
+                    presentation,
                     name,
                     arguments,
                     tool_run,
@@ -387,13 +386,19 @@ async def stream_looper(
     except Exception as e:
         error = friendly_exception_text(e)
         await mind.await_cleanup(mind.stop_anim())
-        await finish_failure(slog, ev_report, phase="turn.failed", error=error)
+        await finish_failure(
+            slog,
+            presentation,
+            ev_report,
+            phase="turn.failed",
+            error=error
+        )
 
     else:
         if turn_completed:
             mind.remember_last_assistant_reply(tracker.latest_assistant_output_text())
         await slog.end_status()
-        await slog.feed(build_sources_text(tracker), display=BLOCK_OUTPUT)
+        await content.emit(SourcesOutput(tuple(tracker.iter_sources())))
 
     finally:
         await idle_wait.cancel()

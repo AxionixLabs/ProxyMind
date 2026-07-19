@@ -4,12 +4,11 @@
 import typing
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_app.mcp import McpSessionLike
-from mind_app.output import (
-    BLOCK_OUTPUT, OutputPort
-)
+from mind_app.output import OutputPort
+from mind_app.presentation.contracts import PresentationSink
+from mind_app.presentation.plan_views import build_plan_steps_start_view
 from mind_nova import request
 from .display import show_tool_result
-from .plan_steps_display import render_plan_steps_start
 from .plan_steps import StepPlanExecutor
 
 
@@ -21,10 +20,12 @@ class PlanToolCallRunner:
         *,
         session: McpSessionLike,
         stream_ui: OutputPort,
+        presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
         report: typing.Any
     ) -> None:
-        self.stream_ui = stream_ui
+        self.stream_ui    = stream_ui
+        self.presentation = presentation
 
         self.executor = StepPlanExecutor(
             session=session,
@@ -47,13 +48,8 @@ class PlanToolCallRunner:
             call_id=str(event.get("call_id") or "")
         )
 
-        plan_text, plan_parts = render_plan_steps_start(arguments)
-
-        await self.stream_ui.feed(
-            plan_text,
-            display=BLOCK_OUTPUT,
-            display_parts=plan_parts,
-            preserve_display_parts=True
+        await self.presentation.emit(
+            build_plan_steps_start_view(arguments)
         )
 
         await self.stream_ui.begin_tool_status()
@@ -69,7 +65,7 @@ class PlanToolCallRunner:
             await self.stream_ui.end_status(immediate=True)
 
         await show_tool_result(
-            self.stream_ui,
+            self.presentation,
             PLAN_STEPS_TOOL,
             arguments,
             report

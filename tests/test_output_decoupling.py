@@ -8,7 +8,8 @@ from mcp import types as mcp_types
 
 from engine.enhance import handlers as enhance_handlers
 from mind_app.output import BLOCK_OUTPUT
-from mind_app.runtime.tools.enhance_reporter import OutputEnhanceReporter
+from mind_app.presentation.models import ProgressView
+from mind_app.runtime.tools.enhance_reporter import ToolEnhanceReporter
 from mind_nova.requests import chat as chat_request
 
 
@@ -52,7 +53,12 @@ def test_output_enhance_reporter_preserves_stream_ui_behavior() -> None:
         begin_tool_status=AsyncMock(),
         end_status=AsyncMock(),
     )
-    reporter = OutputEnhanceReporter(output)
+    presentation = SimpleNamespace(emit=AsyncMock())
+    reporter = ToolEnhanceReporter(
+        output,
+        presentation,
+        tool_name="heal_element",
+    )
 
     async def run() -> None:
         await reporter.record("audit")
@@ -64,8 +70,12 @@ def test_output_enhance_reporter_preserves_stream_ui_behavior() -> None:
 
     assert output.feed.await_args_list == [
         (("audit",), {"echo": False, "display": BLOCK_OUTPUT}),
-        (("visible",), {"display": BLOCK_OUTPUT}),
     ]
+    presentation.emit.assert_awaited_once_with(ProgressView(
+        text="visible",
+        source="enhancement",
+        tool_name="heal_element",
+    ))
     output.begin_tool_status.assert_awaited_once_with()
     output.end_status.assert_awaited_once_with()
 

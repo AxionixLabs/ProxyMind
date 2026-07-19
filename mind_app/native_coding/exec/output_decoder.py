@@ -8,7 +8,7 @@ from mind_app.native_coding.encoding import (
     UTF8_ENCODING,
     UTF8_SIG_ENCODING,
     decode_process_output_details,
-    normalize_process_output_encoding,
+    normalize_process_output_encoding
 )
 from .process_capture import CapturedProcessResult
 
@@ -26,6 +26,14 @@ class DecodedCapturedOutput(object):
     encodings: tuple[str, ...]
     stream_encodings: dict[str, tuple[str, ...]]
     ambiguous: bool
+
+
+@dataclass(frozen=True, slots=True)
+class StreamEncodingHint(object):
+    """保存流级编码提示及其是否具有强制性。"""
+
+    encoding: str = ""
+    authoritative: bool = False
 
 
 class CapturedOutputDecoder(object):
@@ -85,7 +93,7 @@ class CapturedOutputDecoder(object):
         for record in capture.output_records:
             decoded = self._decode_segment(
                 record.data,
-                hint=hints.get(record.stream, ""),
+                hint=hints.get(record.stream, StreamEncodingHint()),
             )
             text = decoded.text.rstrip()
             if not text:
@@ -128,18 +136,34 @@ class CapturedOutputDecoder(object):
         *,
         raw: bytes,
         prefix_partial: bool,
-    ) -> str:
-        """根据显式编码或 UTF-8 BOM 返回流编码提示。"""
+    ) -> StreamEncodingHint:
+        """根据显式编码、BOM 或片段证据返回流编码提示。"""
         if self.encoding != "auto":
-            return self.encoding
+            return StreamEncodingHint(
+                encoding=self.encoding,
+                authoritative=True,
+            )
 
         if not prefix_partial and raw.startswith(UTF8_BOM):
-            return UTF8_ENCODING
+            return StreamEncodingHint(
+                encoding=UTF8_ENCODING,
+                authoritative=True,
+            )
         if records and records[0].startswith(UTF8_BOM):
-            return UTF8_ENCODING
-        return ""
+            return StreamEncodingHint(
+                encoding=UTF8_ENCODING,
+                authoritative=True,
+            )
+        return StreamEncodingHint(
+            encoding=self._segment_evidence_encoding(records),
+        )
 
-    def _decode_stream(self, data: bytes, *, hint: str) -> DecodedProcessOutput:
+    def _decode_stream(
+        self,
+        data: bytes,
+        *,
+        hint: StreamEncodingHint,
+    ) -> DecodedProcessOutput:
         """按行解码完整输出流并保留换行符。"""
         if not data:
             return DecodedProcessOutput(text="", encodings=(), ambiguous=False)
@@ -163,15 +187,20 @@ class CapturedOutputDecoder(object):
             ambiguous=ambiguous,
         )
 
-    def _decode_segment(self, data: bytes, *, hint: str) -> DecodedProcessOutput:
+    def _decode_segment(
+        self,
+        data: bytes,
+        *,
+        hint: StreamEncodingHint,
+    ) -> DecodedProcessOutput:
         """使用流提示和本地编码偏好解码单个片段。"""
         if not data:
             return DecodedProcessOutput(text="", encodings=(), ambiguous=False)
         if self.encoding != "auto":
             return decode_process_output_details(data, encoding=self.encoding)
 
-        normalized_hint = self._normalized_hint(hint)
-        if normalized_hint:
+        normalized_hint = self._normalized_hint(hint.encoding)
+        if normalized_hint and hint.authoritative:
             hinted_encoding = (
                 UTF8_SIG_ENCODING
                 if normalized_hint == UTF8_ENCODING and data.startswith(UTF8_BOM)
@@ -186,6 +215,14 @@ class CapturedOutputDecoder(object):
         automatic = decode_process_output_details(data)
         if not automatic.ambiguous:
             return automatic
+
+        hinted_text = self._strict_decode(data, normalized_hint)
+        if normalized_hint and hinted_text is not None:
+            return DecodedProcessOutput(
+                text=hinted_text,
+                encodings=(normalized_hint,),
+                ambiguous=True,
+            )
 
         preferred      = self._preferred_encoding()
         preferred_text = self._strict_decode(data, preferred)
@@ -207,6 +244,28 @@ class CapturedOutputDecoder(object):
             )
 
         return automatic
+
+    def _segment_evidence_encoding(self, records: tuple[bytes, ...]) -> str:
+        """从无歧义非 UTF-8 片段中提取一致的流级编码证据。"""
+        evidence: list[str] = []
+
+        for data in records:
+            if not data or not any(byte >= 0x80 for byte in data):
+                continue
+
+            decoded = decode_process_output_details(data)
+            if decoded.ambiguous or len(decoded.encodings) != 1:
+                continue
+
+            encoding = self._normalized_hint(decoded.encodings[0])
+            if not encoding or encoding == UTF8_ENCODING:
+                continue
+            if self._strict_decode(data, encoding) is None:
+                continue
+            if encoding not in evidence:
+                evidence.append(encoding)
+
+        return evidence[0] if len(evidence) == 1 else ""
 
     @staticmethod
     def _stream_source(
