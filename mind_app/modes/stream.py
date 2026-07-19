@@ -19,7 +19,7 @@ from ..output import (
     OutputControlPort,
     SourcesOutput
 )
-from ..output.factory import create_output_session
+from ..output.rich import create_rich_output_session
 from ..output.session import OutputSession
 from ..presentation.approval_views import build_approval_view
 from ..presentation.run_views import (
@@ -88,7 +88,7 @@ async def stream_looper(
         frontend = getattr(mind, "frontend", None)
         session_factory = getattr(frontend, "session_factory", None)
     if session_factory is None:
-        session_factory = create_output_session
+        session_factory = create_rich_output_session
 
     output_session: OutputSession = session_factory(
         mind.report.log_papers,

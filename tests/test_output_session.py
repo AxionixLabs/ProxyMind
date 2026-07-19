@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import mind_app.stream_ui as stream_ui_module
+import mind_app.output.rich as rich_output_module
 from rich.console import Console
 from engine.tinker import MindError
 from mind_app.mind_entry import (
@@ -16,13 +16,17 @@ from mind_app.mind_entry import (
     resolve_cli_interaction,
     resolve_cli_output_mode
 )
-from mind_app.output.factory import create_output_session
-from mind_app.output.factory import resolve_session_factory
+from mind_app.output.factory import (
+    output_mode_uses_animation,
+    resolve_session_factory
+)
 from mind_app.output.contracts import OutputControlPort, OutputPort
 from mind_app.output.jsonl import JsonOutputControl
 from mind_app.output.jsonl import create_json_output_session
 from mind_app.output.legacy_content import LegacyContentSink
+from mind_app.output.rich import create_rich_output_session
 from mind_app.output.text import TextOutputControl, create_text_output_session
+from mind_app.output.tui import create_tui_output_session
 from mind_app.presentation.legacy import LegacyPresentationSink
 from mind_app.interaction.noninteractive import NonInteractiveInteraction
 from mind_app.interaction.legacy import LegacyInteraction
@@ -46,11 +50,11 @@ class FakeStreamUI(object):
         self.animate = animate
 
 
-def test_default_output_session_shares_one_control(monkeypatch) -> None:
-    """默认正文和展示适配器共享同一个控制输出端。"""
-    monkeypatch.setattr(stream_ui_module, "StreamUI", FakeStreamUI)
+def test_rich_output_session_shares_one_control(monkeypatch) -> None:
+    """Rich 正文和展示适配器共享同一个控制输出端。"""
+    monkeypatch.setattr(rich_output_module, "StreamUI", FakeStreamUI)
 
-    output_session = create_output_session("run.log")
+    output_session = create_rich_output_session("run.log")
 
     assert isinstance(output_session.control, FakeStreamUI)
     assert output_session.control.log_file == "run.log"
@@ -71,8 +75,8 @@ def test_output_controls_use_nominal_abstract_boundaries() -> None:
     assert not inspect.isabstract(JsonOutputControl)
 
 
-def test_tui_output_session_uses_one_injected_console(tmp_path) -> None:
-    """单轮 TUI 控制、协调器和 Live 会话共享同一 Console。"""
+def test_rich_output_session_uses_one_injected_console(tmp_path) -> None:
+    """单轮 Rich 控制、协调器和 Live 会话共享同一 Console。"""
     console = Console(
         file=io.StringIO(),
         width=112,
@@ -80,7 +84,7 @@ def test_tui_output_session_uses_one_injected_console(tmp_path) -> None:
         force_terminal=False,
     )
 
-    session = create_output_session(
+    session = create_rich_output_session(
         str(tmp_path / "stream.log"),
         console=console,
     )
@@ -95,8 +99,8 @@ def test_tui_output_session_uses_one_injected_console(tmp_path) -> None:
     assert control.coordinator.text_state.width_provider() == 112
 
 
-def test_tui_output_chain_has_no_global_console_dependency() -> None:
-    """单轮 TUI 输出链不再读取 Design 全局控制台。"""
+def test_rich_output_chain_has_no_global_console_dependency() -> None:
+    """单轮 Rich 输出链不再读取 Design 全局控制台。"""
     paths = [
         "mind_app/stream_ui.py",
         "mind_app/stream_render/coordinator.py",
@@ -109,6 +113,20 @@ def test_tui_output_chain_has_no_global_console_dependency() -> None:
     for relative_path in paths:
         source = (ROOT / relative_path).read_text(encoding="utf-8")
         assert "Design.console" not in source
+
+
+def test_tui_output_adapter_has_independent_factory(tmp_path) -> None:
+    """预留 TUI 模式通过独立工厂适配当前 Rich 会话。"""
+    console = Console(file=io.StringIO(), force_terminal=False)
+
+    session = create_tui_output_session(
+        str(tmp_path / "tui.log"),
+        console=console,
+    )
+
+    assert isinstance(session.control, StreamUI)
+    assert session.control.console is console
+    assert create_tui_output_session is not create_rich_output_session
 
 
 def test_stream_runtime_only_assembles_output_session() -> None:
@@ -170,9 +188,14 @@ def test_mind_owns_frontend_boundary() -> None:
 
 def test_output_mode_resolves_without_changing_default_factory() -> None:
     """输出模式只选择会话工厂，不改变默认装配。"""
-    assert resolve_session_factory("tui") is create_output_session
+    assert resolve_session_factory("tui") is create_tui_output_session
+    assert resolve_session_factory("rich") is create_rich_output_session
     assert resolve_session_factory("text") is create_text_output_session
     assert resolve_session_factory("json") is create_json_output_session
+    assert output_mode_uses_animation("tui") is True
+    assert output_mode_uses_animation("rich") is True
+    assert output_mode_uses_animation("text") is False
+    assert output_mode_uses_animation("json") is False
 
 
 def test_cli_output_mode_follows_execution_entry() -> None:
@@ -186,9 +209,9 @@ def test_cli_output_mode_follows_execution_entry() -> None:
         "json": False,
     }
 
-    assert resolve_cli_output_mode(SimpleNamespace(**base)) == "tui"
+    assert resolve_cli_output_mode(SimpleNamespace(**base)) == "rich"
     assert resolve_cli_output_mode(SimpleNamespace(**{**base, "chat": "hello"})) == "text"
-    assert resolve_cli_output_mode(SimpleNamespace(**{**base, "agent": True})) == "text"
+    assert resolve_cli_output_mode(SimpleNamespace(**{**base, "agent": True})) == "rich"
     assert resolve_cli_output_mode(SimpleNamespace(
         **{**base, "fast": "check", "json": True}
     )) == "json"
@@ -218,6 +241,11 @@ def test_cli_frontend_aggregates_application_interaction_and_sessions() -> None:
     }
 
     tui = resolve_cli_frontend(SimpleNamespace(**base), "tui")
+    rich = resolve_cli_frontend(SimpleNamespace(**base), "rich")
+    agent = resolve_cli_frontend(
+        SimpleNamespace(**{**base, "agent": True}),
+        "rich",
+    )
     text = resolve_cli_frontend(
         SimpleNamespace(**{**base, "chat": "hello"}),
         "text",
@@ -227,22 +255,29 @@ def test_cli_frontend_aggregates_application_interaction_and_sessions() -> None:
         "json",
     )
 
+    assert isinstance(rich.application, ConsoleApplicationSink)
+    assert isinstance(rich.interaction, LegacyInteraction)
+    assert isinstance(rich.session_factory, functools.partial)
+    assert rich.session_factory.func is create_rich_output_session
+    assert rich.session_factory.keywords["console"] is rich.application.console
     assert isinstance(tui.application, ConsoleApplicationSink)
     assert isinstance(tui.interaction, LegacyInteraction)
     assert isinstance(tui.session_factory, functools.partial)
-    assert tui.session_factory.func is create_output_session
+    assert tui.session_factory.func is create_tui_output_session
     assert tui.session_factory.keywords["console"] is tui.application.console
+    assert isinstance(agent.session_factory, functools.partial)
+    assert agent.session_factory.func is create_rich_output_session
     assert isinstance(text.interaction, NonInteractiveInteraction)
     assert text.session_factory is create_text_output_session
     assert isinstance(json_frontend.application, SilentApplicationSink)
     assert isinstance(json_frontend.interaction, NonInteractiveInteraction)
     assert json_frontend.session_factory is create_json_output_session
 
-    tui_design = resolve_cli_design(tui)
+    rich_design = resolve_cli_design(rich)
     json_design = resolve_cli_design(json_frontend)
 
-    assert tui_design.console is tui.application.console
-    assert json_design.console is not tui_design.console
+    assert rich_design.console is rich.application.console
+    assert json_design.console is not rich_design.console
 
 
 @pytest.mark.parametrize(

@@ -20,8 +20,11 @@ from .session import (
 )
 from .text import create_text_output_session
 from .jsonl import create_json_output_session
+from .tui import create_tui_output_session
+from .rich import create_rich_output_session
 from .factory import (
     OutputMode,
+    output_mode_uses_animation,
     resolve_session_factory
 )
 
@@ -39,7 +42,10 @@ __all__ = [
     "SessionFactory",
     "SourcesOutput",
     "create_json_output_session",
+    "create_tui_output_session",
+    "create_rich_output_session",
     "create_text_output_session",
+    "output_mode_uses_animation",
     "resolve_session_factory"
 ]
 

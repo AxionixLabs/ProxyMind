@@ -90,7 +90,9 @@ class Mind(object):
 
         output_mode = kwargs.get("output_mode")
         self.output_mode: OutputMode = (
-            output_mode if output_mode in {"tui", "text", "json"} else "tui"
+            output_mode
+            if output_mode in {"tui", "rich", "text", "json"}
+            else "rich"
         )
 
         self.design: Design = kwargs["design"]

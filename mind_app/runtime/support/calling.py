@@ -41,7 +41,7 @@ async def run_mode_lifecycle(
     finally:
         await mind.await_cleanup(mind.stop_anim())
 
-    if getattr(mind, "output_mode", "tui") != "json":
+    if getattr(mind, "output_mode", "rich") != "json":
         emit_worked_footer(
             mind.frontend.application,
             time.perf_counter() - started_at,

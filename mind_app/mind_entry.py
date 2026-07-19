@@ -38,7 +38,7 @@ from .frontend import (
 )
 from .output.factory import (
     OutputMode,
-    create_output_session,
+    output_mode_uses_animation,
     resolve_session_factory
 )
 from .modes.support.repl_prompt import fetch_runtime_workspace_root
@@ -92,10 +92,12 @@ def resolve_cli_output_mode(cmd_lines: typing.Any) -> OutputMode:
         if cmd_lines.code or not direct_stream_selected(cmd_lines):
             raise MindError("--json requires --chat, --fast, or --xtra")
         return "json"
-    if direct_execution or cmd_lines.agent:
+    if cmd_lines.agent:
+        return "rich"
+    if direct_execution:
         return "text"
 
-    return "tui"
+    return "rich"
 
 
 def resolve_cli_interaction(cmd_lines: typing.Any) -> InteractionPort | None:
@@ -111,15 +113,21 @@ def resolve_cli_frontend(
 ) -> Frontend:
     """根据命令入口装配应用前端边界。"""
     interaction = resolve_cli_interaction(cmd_lines) or LegacyInteraction()
+
     application = (
         SilentApplicationSink()
         if output_mode == "json"
         else ConsoleApplicationSink()
     )
+
     session_factory = resolve_session_factory(output_mode)
-    if output_mode == "tui" and isinstance(application, ConsoleApplicationSink):
+
+    if output_mode_uses_animation(output_mode) and isinstance(
+        application,
+        ConsoleApplicationSink,
+    ):
         session_factory = functools.partial(
-            create_output_session,
+            session_factory,
             console=application.console,
         )
     return Frontend(
@@ -392,7 +400,7 @@ async def _run_main(
         "src_total_place" : src_total_place,
         "pref"            : pref,
         "anim_manager"    : entry_anim_manager,
-        "animate"         : output_mode == "tui",
+        "animate"         : output_mode_uses_animation(output_mode),
         "output_mode"     : output_mode,
         "frontend"        : frontend,
         "design"          : design,
