@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 from .models import RenderedBlock
+from .native_views import render_native_tool_result_view
 from .batch_views import (
     render_batch_completed_view,
     render_batch_start_view,
@@ -17,6 +18,7 @@ from .tool_views import (
 
 __all__ = [
     "RenderedBlock",
+    "render_native_tool_result_view",
     "render_batch_completed_view",
     "render_batch_start_view",
     "render_plan_steps_start_view",

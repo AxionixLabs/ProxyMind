@@ -4,11 +4,13 @@
 import typing
 from mind_app.stream_events.tool_traces.generic import render_generic_tool_result_preview
 from mind_app.stream_events.tool_traces.native import (
+    render_tool_result_entries,
     render_tool_start_preview,
     render_tool_start_trace,
 )
 from .models import (
     GenericToolResultView,
+    NativeToolResultView,
     ToolStartView
 )
 
@@ -44,6 +46,35 @@ def build_generic_tool_result_view(
         ok=bool(ok),
         title=f"• Tool {normalized_name}",
         preview=render_generic_tool_result_preview(normalized_text),
+    )
+
+
+def build_native_tool_result_view(
+    name: str,
+    arguments: dict[str, typing.Any],
+    *,
+    ok: bool,
+    data: typing.Any = None,
+    cost_ms: int | None = None,
+) -> NativeToolResultView:
+    """构建原生编码工具执行结果的展示数据。"""
+    normalized_name = str(name or "tool").strip() or "tool"
+    normalized_arguments = dict(arguments) if isinstance(arguments, dict) else {}
+    normalized_data = dict(data) if isinstance(data, dict) else data
+
+    return NativeToolResultView(
+        name=normalized_name,
+        arguments=normalized_arguments,
+        ok=bool(ok),
+        data=normalized_data,
+        cost_ms=cost_ms,
+        entries=tuple(render_tool_result_entries(
+            normalized_name,
+            normalized_arguments,
+            ok=bool(ok),
+            data=normalized_data,
+            cost_ms=cost_ms,
+        )),
     )
 
 

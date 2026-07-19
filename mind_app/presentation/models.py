@@ -52,6 +52,18 @@ class GenericToolResultView(object):
 
 
 @dataclass(frozen=True, slots=True)
+class NativeToolResultView(object):
+    """描述原生编码工具执行结果的展示数据。"""
+
+    name: str
+    arguments: dict[str, typing.Any]
+    ok: bool
+    data: typing.Any
+    cost_ms: int | None
+    entries: tuple[TraceEntry, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class PlanItemView(object):
     """描述计划中的单个步骤。"""
 

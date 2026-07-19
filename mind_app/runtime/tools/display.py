@@ -2,23 +2,20 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_core.design import Design
 from mind_app.client_tools.update_plan import UPDATE_PLAN_TOOL
 from mind_app.presentation.rich import (
     RenderedBlock,
     render_generic_tool_result_view,
+    render_native_tool_result_view,
     render_tool_start_view,
 )
 from mind_app.presentation.tool_views import (
     build_generic_tool_result_view,
+    build_native_tool_result_view,
     build_tool_start_view,
 )
 from ...output import (
     BLOCK_OUTPUT, OutputPort
-)
-from ...stream_events.tool_trace import (
-    render_tool_result_entries,
-    render_tool_trace_parts
 )
 from .plan_update_display import render_plan_update
 from .plan_steps import PlanExecutionReport
@@ -27,26 +24,11 @@ from .run import ToolRunResult
 ToolDisplayResult = ToolRunResult | PlanExecutionReport
 
 
-def _coding_trace_text(
-    title: str,
-    preview: typing.Any
-) -> str:
-    """生成用于记录的编码工具轨迹文本。"""
-    trace_text = title
-    if preview.full:
-        if preview.kind != "tree":
-            indented_preview = preview.full.replace("\n", "\n  ")
-            trace_text = f"{title}\n└ {indented_preview}"
-        else:
-            trace_text = f"{title}\n{preview.full}"
-    return trace_text
-
-
 async def _show_rendered_tool_block(
     stream_ui: OutputPort,
     rendered: RenderedBlock,
 ) -> None:
-    """通过当前输出端展示已渲染的普通工具块。"""
+    """通过当前输出端展示已渲染的工具块。"""
     await stream_ui.feed(
         rendered.text,
         display=BLOCK_OUTPUT,
@@ -108,25 +90,18 @@ async def show_tool_result(
 
     if use_coding_trace:
         await stream_ui.end_status()
-        trace_entries = render_tool_result_entries(
+        view = build_native_tool_result_view(
             name,
             arguments,
             ok=display_ok,
             data=tool_run.data,
-            cost_ms=tool_run.cost_ms
+            cost_ms=tool_run.cost_ms,
         )
 
-        for entry in trace_entries:
-            await stream_ui.feed(
-                _coding_trace_text(entry.title, entry.preview),
-                display=BLOCK_OUTPUT,
-                display_parts=render_tool_trace_parts(
-                    entry.title,
-                    preview=entry.preview,
-                    ok=entry.ok,
-                    terminal_width=getattr(Design.console, "width", None)
-                ),
-                preserve_display_parts=True
+        for rendered in render_native_tool_result_view(view):
+            await _show_rendered_tool_block(
+                stream_ui,
+                rendered,
             )
         return None
 
