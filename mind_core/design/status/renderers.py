@@ -44,14 +44,16 @@ class StatusRenderer(StatusSpec):
         if cell_len(normalized) <= width_limit:
             return normalized
 
-        ellipsis_char = "…"
+        ellipsis_char  = "…"
         ellipsis_width = cell_len(ellipsis_char)
+
         if width_limit <= ellipsis_width:
             return ellipsis_char
 
         body_limit = width_limit - ellipsis_width
+
         body_chars: list[str] = []
-        used_width = 0
+        used_width: int       = 0
 
         for char in normalized:
             char_width = cell_len(char)
@@ -130,7 +132,7 @@ class StatusRenderer(StatusSpec):
         tail_span: float,
         peak_radius: float
     ) -> None:
-        tail_span = max(0.001, float(tail_span))
+        tail_span   = max(0.001, float(tail_span))
         peak_radius = max(0.0, float(peak_radius))
 
         for pos, char in enumerate(text):
@@ -182,13 +184,15 @@ class StatusRenderer(StatusSpec):
 
         for pos, char in enumerate(text):
             distance = abs(pos - focus)
-            span = lead_span if pos >= focus else tail_span
+            span     = lead_span if pos >= focus else tail_span
+
             if distance <= peak_radius:
                 intensity = 1.0
             else:
-                falloff = max(0.001, span)
+                falloff    = max(0.001, span)
                 normalized = min(1.0, (distance - peak_radius) / falloff)
-                intensity = 1.0 - cls._smoothstep(normalized)
+                intensity  = 1.0 - cls._smoothstep(normalized)
+
                 if pos < focus:
                     intensity *= 0.95
 
@@ -203,9 +207,11 @@ class StatusRenderer(StatusSpec):
         entry_pad: float,
         exit_pad: float
     ) -> float:
-        left_pad = max(0.0, float(entry_pad))
+
+        left_pad  = max(0.0, float(entry_pad))
         right_pad = max(0.0, float(exit_pad))
-        travel = max(1.0, float(max(0, span - 1)) + left_pad + right_pad)
+        travel    = max(1.0, float(max(0, span - 1)) + left_pad + right_pad)
+
         return (phase % travel) - left_pad
 
     @classmethod
@@ -220,12 +226,15 @@ class StatusRenderer(StatusSpec):
 
         for index in range(1, len(stops)):
             end_level, end_color = stops[index]
+
             start_level, start_color = stops[index - 1]
+
             if level <= end_level:
-                span = max(0.0001, end_level - start_level)
+                span  = max(0.0001, end_level - start_level)
                 local = (level - start_level) / span
                 eased = cls._smoothstep(local)
                 color = mix_hex_color(start_color, end_color, eased)
+
                 return f"bold {color}"
 
         return f"bold {stops[-1][1]}"
@@ -233,14 +242,10 @@ class StatusRenderer(StatusSpec):
     @classmethod
     def status_line_renderable(
         cls,
-        renderable: Text,
-        *,
-        prefix_style: str = "bold #46545C"
+        renderable: Text
     ) -> Text:
+        """生成状态行的完整可渲染文本。"""
         out = Text()
-        prefix = cls.status_line_prefix()
-        if prefix:
-            out.append(prefix, style=prefix_style)
         out.append_text(renderable)
         return out
 
@@ -253,7 +258,7 @@ class StatusRenderer(StatusSpec):
         speed: float,
         pad: float = 0.0
     ) -> float:
-        travel = max(1.0, float(span - 1) + (pad * 2.0))
+        travel   = max(1.0, float(span - 1) + (pad * 2.0))
         progress = 0.5 - (0.5 * math.cos(phase * speed))
         return (progress * travel) - pad
 
@@ -308,13 +313,13 @@ class StatusRenderer(StatusSpec):
         peak_radius: float,
         lock_radius: float
     ) -> None:
-        center = (max(0, len(text) - 1)) / 2.0
+        center    = (max(0, len(text) - 1)) / 2.0
         focus_gap = abs(right_focus - left_focus)
 
         for pos, char in enumerate(text):
-            left_distance = abs(pos - left_focus)
-            right_distance = abs(pos - right_focus)
-            distance = min(left_distance, right_distance)
+            left_distance   = abs(pos - left_focus)
+            right_distance  = abs(pos - right_focus)
+            distance        = min(left_distance, right_distance)
             center_distance = abs(pos - center)
 
             if distance <= peak_radius:
@@ -340,21 +345,15 @@ class StatusRenderer(StatusSpec):
         return clamped * clamped * (3.0 - (2.0 * clamped))
 
     @staticmethod
-    def status_content_gap() -> str:
-        return "  "
-
-    @staticmethod
-    def status_line_prefix() -> str:
-        return " "
-
-    @staticmethod
     def status_elapsed_separator() -> str:
+        """返回状态耗时文本前的分隔内容。"""
         return "  · "
 
     @classmethod
     def status_elapsed_renderable(cls, elapsed_sec: float) -> Text:
         elapsed = max(0.0, float(elapsed_sec or 0.0))
-        key = elapsed_format_key(elapsed)
+        key     = elapsed_format_key(elapsed)
+
         label = pad_elapsed_label(
             format_elapsed(elapsed),
             key=key,
@@ -390,6 +389,7 @@ class StatusRenderer(StatusSpec):
         peak_color: str,
         breathe_freq: float
     ) -> Text:
+        """生成随阶段切换的轻呼吸状态点。"""
         breathe = 0.5 + (0.5 * math.sin(phase * breathe_freq))
         color   = mix_hex_color(dim_color, peak_color, cls._smoothstep(breathe) * 0.72)
         dot     = "•" if breathe > 0.58 else "◦"
@@ -407,6 +407,7 @@ class StatusRenderer(StatusSpec):
         breathe_freq: float = 0.52,
         frame_rate: float = 0.72
     ) -> Text:
+        """生成工具状态的前缀指示。"""
         _ = subtle, frame_rate
 
         return cls._breathing_status_dot(
@@ -418,6 +419,7 @@ class StatusRenderer(StatusSpec):
 
     @classmethod
     def _mode_status_indicator(cls, phase: float) -> Text:
+        """生成模式状态的前缀指示。"""
         return cls._breathing_status_dot(
             phase,
             dim_color="#2F4C5A",
@@ -427,6 +429,7 @@ class StatusRenderer(StatusSpec):
 
     @classmethod
     def tool_status_renderable(cls, phase: float, text: str) -> Text:
+        """生成工具状态的动态文本。"""
         spec = cls.status_spec("tool")
 
         colors = {
@@ -458,7 +461,7 @@ class StatusRenderer(StatusSpec):
             breathe_freq=0.30,
             frame_rate=0.12
         )
-        out.append(cls.status_content_gap(), style=colors["edge"])
+        out.append(" ", style=colors["edge"])
 
         cls._append_forward_sweep_text(
             out,
@@ -477,6 +480,7 @@ class StatusRenderer(StatusSpec):
 
     @classmethod
     def mode_status_renderable(cls, phase: float, text: str) -> Text:
+        """生成模式状态的动态文本。"""
         spec = cls.status_spec("mode")
 
         colors = {
@@ -490,7 +494,7 @@ class StatusRenderer(StatusSpec):
         }
 
         out = cls._mode_status_indicator(phase)
-        out.append(cls.status_content_gap(), style=colors["edge"])
+        out.append(" ", style=colors["edge"])
 
         text = cls.fit_status_text(text, kind="mode", fallback="Mind Stream")
         span = max(1, len(text))
@@ -519,6 +523,7 @@ class StatusRenderer(StatusSpec):
 
     @classmethod
     def thinking_status_renderable(cls, phase: float, text: str) -> Text:
+        """生成等待状态的动态文本。"""
         spec = cls.status_spec("wait")
 
         status_shell_motion_scale = 0.52
@@ -542,7 +547,7 @@ class StatusRenderer(StatusSpec):
             peak_color="#B5CAC4",
             breathe_freq=spec.shell_freq * status_shell_motion_scale
         )
-        out.append(cls.status_content_gap(), style=colors["edge"])
+        out.append(" ", style=colors["edge"])
 
         span = max(1, len(text.rstrip()) or len(text))
 
