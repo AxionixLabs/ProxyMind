@@ -110,7 +110,7 @@ def test_plan_steps_stops_after_failed_step() -> None:
 
 
 def test_plan_steps_logs_each_step_start_and_result(monkeypatch) -> None:
-    """计划步骤记录可由 reflection 显示的调试日志。"""
+    """计划步骤记录开始和结果调试日志。"""
     messages: list[str] = []
     monkeypatch.setattr(
         plan_steps_module.logger,

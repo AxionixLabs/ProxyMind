@@ -10,7 +10,7 @@ from mind_core.live_session import TypewriterStreamSession
 
 
 def is_bold(renderable, offset: int) -> bool:
-    """判断 Rich 文本指定位置是否启用了粗体。"""
+    """判断文本指定位置是否启用了粗体。"""
     return renderable.get_style_at_offset(Design.console, offset).bold is True
 
 

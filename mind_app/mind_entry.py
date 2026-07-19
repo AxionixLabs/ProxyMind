@@ -23,6 +23,14 @@ from mind_nova import const
 from mind_nova.services import service_endpoints
 from mind_nova.modes import RunMode
 from .mind_core import Mind
+from .interaction import (
+    InteractionPort,
+    NonInteractiveInteraction
+)
+from .output.factory import (
+    OutputMode,
+    resolve_session_factory
+)
 from .modes.support.repl_prompt import fetch_runtime_workspace_root
 from .runtime.environment.exec_env import clear_exec_env_cache
 from .runtime.environment.shell_tools import route_shell_tools
@@ -50,6 +58,41 @@ def resolve_code_mode(cmd_lines: typing.Any) -> RunMode:
         return "xtra"
 
     raise MindError("--code requires --chat, --fast, or --xtra")
+
+
+def direct_execution_selected(cmd_lines: typing.Any) -> bool:
+    """判断当前命令是否包含直接执行任务。"""
+    return bool(
+        cmd_lines.chat
+        or cmd_lines.fast
+        or cmd_lines.xtra
+        or cmd_lines.code
+    )
+
+
+def direct_stream_selected(cmd_lines: typing.Any) -> bool:
+    """判断当前命令是否包含直接流式请求。"""
+    return bool(cmd_lines.chat or cmd_lines.fast or cmd_lines.xtra)
+
+
+def resolve_cli_output_mode(cmd_lines: typing.Any) -> OutputMode:
+    """根据命令入口选择输出模式。"""
+    direct_execution = direct_execution_selected(cmd_lines)
+    if cmd_lines.json:
+        if cmd_lines.code or not direct_stream_selected(cmd_lines):
+            raise MindError("--json requires --chat, --fast, or --xtra")
+        return "json"
+    if direct_execution or cmd_lines.agent:
+        return "text"
+
+    return "tui"
+
+
+def resolve_cli_interaction(cmd_lines: typing.Any) -> InteractionPort | None:
+    """为直接执行选择非交互输入策略。"""
+    if direct_execution_selected(cmd_lines):
+        return NonInteractiveInteraction()
+    return None
 
 
 async def resolve_cli_attachments(
@@ -87,7 +130,11 @@ async def resolve_cli_attachments(
         uploaded = await mind.attach.upload_pending_attachments(progress_callback=capture_progress)
     except MindError as error:
         failure_reason = str(getattr(error, "display_reason", "") or error)
-        Design.console.print(reporter.render_failure(message=failure_reason, event=reporter.last_event))
+        if mind.output_mode != "json":
+            Design.console.print(reporter.render_failure(
+                message=failure_reason,
+                event=reporter.last_event,
+            ))
         raise
 
     finally:
@@ -95,7 +142,7 @@ async def resolve_cli_attachments(
 
     mind.attach.clear_pending_attachments()
 
-    if reporter.last_event is not None:
+    if reporter.last_event is not None and mind.output_mode != "json":
         Design.console.print(reporter.render_summary(reporter.last_event))
 
     return uploaded
@@ -153,12 +200,15 @@ async def _run_main(
     handler: SignalHandler | None = None
 ) -> int:
     """执行入口主流程。"""
-    # Notes: ========== Start from here ==========
-    Design.show_intro()
-
     # 解析命令行参数
     parser = Parser()
-    cmd_lines = parser.parse_cmd
+
+    cmd_lines   = parser.parse_cmd
+    output_mode = resolve_cli_output_mode(cmd_lines)
+
+    # Notes: ========== Start from here ==========
+    if output_mode != "json":
+        Design.show_intro()
 
     # 获取命令行参数
     wires = sys.argv[1:]
@@ -194,7 +244,8 @@ async def _run_main(
     ensure_mcp_servers_file()
 
     # Notes: ========== 激活日志 ==========
-    Active.active(level := "DEBUG" if cmd_lines.reflection else "INFO")
+    level = const.SHOW_LEVEL
+    Active.active(level, stderr=output_mode == "json")
 
     pref = Preferences(str(mind_config_path()))
 
@@ -264,13 +315,17 @@ async def _run_main(
 
     positions = (
         cmd_lines.chat, cmd_lines.fast, cmd_lines.xtra,
-        cmd_lines.gravity, cmd_lines.reflection, cmd_lines.code
+        cmd_lines.gravity, cmd_lines.code
     )
     keywords = {
         "src_opera_place" : src_opera_place,
         "src_total_place" : src_total_place,
         "pref"            : pref,
-        "anim_manager"    : entry_anim_manager
+        "anim_manager"    : entry_anim_manager,
+        "animate"         : output_mode == "tui",
+        "output_mode"     : output_mode,
+        "interaction"     : resolve_cli_interaction(cmd_lines),
+        "session_factory" : resolve_session_factory(output_mode),
     }
 
     # remote = await global_config_task
@@ -288,7 +343,7 @@ async def _run_main(
     try:
         if cmd_lines.mcp:
             helix_linked = await prepare_and_start_service_runtime(mind)
-            if not helix_linked:
+            if not helix_linked and output_mode != "json":
                 Design.console.print("[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]")
                 Design.console.print()
 

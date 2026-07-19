@@ -4,15 +4,17 @@
 import typing
 import asyncio
 from dataclasses import (
-    dataclass, field
+    dataclass,
+    field
 )
 from engine.enhance import exchange_arguments
 from mind_app.mcp import McpSessionLike
-from mind_app.output import OutputPort
+from mind_app.output import OutputControlPort
 from mind_app.presentation.contracts import PresentationSink
 from mind_nova import request
 from .display import (
-    show_tool_result, show_tool_start
+    show_tool_result,
+    show_tool_start
 )
 from .policy import supports_parallel
 from ..support.rwlock import AsyncRWLock
@@ -27,6 +29,7 @@ class BatchToolResult:
     ok: bool
     text: str
     cost_ms: int = 0
+    call_id: str = ""
 
 
 @dataclass(slots=True)
@@ -85,7 +88,7 @@ class ToolBatchExecutor:
         self,
         *,
         session: McpSessionLike,
-        stream_ui: OutputPort,
+        stream_ui: OutputControlPort,
         presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
         mode: str,
@@ -142,6 +145,7 @@ class ToolBatchExecutor:
         event_execution  = pending.execution
         use_coding_trace = pending.use_coding_trace
         cost_ms          = 0
+        call_id          = str(event.get("call_id") or "")
 
         try:
             if display:
@@ -154,7 +158,8 @@ class ToolBatchExecutor:
                     await show_tool_start(
                         self.presentation,
                         name,
-                        arguments
+                        arguments,
+                        call_id=call_id,
                     )
 
             arguments = exchange_arguments(name, arguments, self.report)
@@ -191,7 +196,8 @@ class ToolBatchExecutor:
                     tool_run,
                     ok=ok,
                     text=text,
-                    use_coding_trace=use_coding_trace
+                    use_coding_trace=use_coding_trace,
+                    call_id=call_id,
                 )
 
         except Exception as exc:
@@ -216,7 +222,8 @@ class ToolBatchExecutor:
             arguments=arguments,
             ok=ok,
             text=str(text or ""),
-            cost_ms=cost_ms
+            cost_ms=cost_ms,
+            call_id=call_id,
         )
 
     async def execute_batch(

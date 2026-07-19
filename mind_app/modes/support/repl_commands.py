@@ -69,8 +69,8 @@ class CompactLiveStatus(object):
 
 
 def compact_animation_enabled(mind: "Mind") -> bool:
-    """判断当前日志等级是否启用压缩动画。"""
-    return mind.level == const.SHOW_LEVEL
+    """返回当前运行是否启用压缩动画。"""
+    return mind.animate
 
 
 async def exchange_pref_value(
@@ -151,7 +151,7 @@ async def compact_current_conversation(
     if animation_enabled:
         logger.debug(
             f"[Compact] animation start "
-            f"level={mind.level} cid={metadata['cid']} sid={metadata['sid']}"
+            f"cid={metadata['cid']} sid={metadata['sid']}"
         )
         await mind.start_external_mcp_anim(status.snapshot)
         animation_running = True

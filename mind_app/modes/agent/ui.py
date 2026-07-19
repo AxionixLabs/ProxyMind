@@ -16,6 +16,8 @@ if typing.TYPE_CHECKING:
 
 async def start_connect_animation(mind: "Mind", live_status: AgentLiveStatus) -> None:
     """启动建连等待动画。"""
+    if not mind.animate:
+        return None
     await mind.anim_manager.start(
         lambda stop_event: mind.design.agent_connect_live(stop_event, live_status.snapshot)
     )
@@ -23,6 +25,8 @@ async def start_connect_animation(mind: "Mind", live_status: AgentLiveStatus) ->
 
 async def start_status_animation(mind: "Mind", live_status: AgentLiveStatus) -> None:
     """启动订阅读取状态动画。"""
+    if not mind.animate:
+        return None
     await mind.anim_manager.start(
         lambda stop_event: mind.design.agent_wait_live(stop_event, live_status.snapshot)
     )

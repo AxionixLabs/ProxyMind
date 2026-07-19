@@ -10,19 +10,22 @@ from mind_app.approval import (
     ApprovalStore,
     approval_from_event,
     approval_id_from_event,
-    prompt_tool_approval_decision,
     validate_tool_approval
 )
 from mind_nova.events import EventReport
 from mind_nova import request
 from ..output import (
     AssistantTextDelta,
-    OutputPort,
+    OutputControlPort,
     SourcesOutput
 )
 from ..output.factory import create_output_session
 from ..output.session import OutputSession
 from ..presentation.approval_views import build_approval_view
+from ..presentation.run_views import (
+    build_run_completed_view,
+    build_run_started_view,
+)
 from ..runtime.support.loop_support import finish_failure
 from ..runtime.environment.exec_env import build_runtime_exec_env
 from ..runtime.support.session_policy import friendly_exception_text
@@ -71,8 +74,6 @@ async def stream_looper(
         request_turn_id = str(kwargs.get("turn_id") or "").strip()
         kwargs["turn_id"] = ev_report.begin_turn(request_turn_id or None)
 
-    approval_input_func = kwargs.pop("approval_input_func", None)
-
     if not isinstance(kwargs.get("exec_env"), dict):
         service_env = (
             mind.service_exec_env_snapshot()
@@ -81,22 +82,29 @@ async def stream_looper(
         )
         kwargs["exec_env"] = build_runtime_exec_env(service_exec_env=service_env)
 
-    output_session_factory = kwargs.pop(
-        "output_session_factory",
-        create_output_session,
-    )
-    output_session: OutputSession = output_session_factory(
+    session_factory = kwargs.pop("session_factory", None)
+
+    if session_factory is None:
+        session_factory = getattr(mind, "session_factory", None)
+    if session_factory is None:
+        session_factory = create_output_session
+
+    output_session: OutputSession = session_factory(
         mind.report.log_papers,
-        design_level=mind.level,
+        animate=bool(getattr(mind, "animate", True)),
     )
 
-    slog: OutputPort = output_session.control
-    presentation     = output_session.presentation
-    content          = output_session.content
+    slog: OutputControlPort = output_session.control
+
+    presentation = output_session.presentation
+    content      = output_session.content
 
     interrupted: bool    = False
     first_frame: bool    = True
     turn_completed: bool = False
+    turn_failed: bool    = False
+
+    turn_usage: dict[str, typing.Any] = {}
 
     approvals: ApprovalStore = ApprovalStore()
 
@@ -109,6 +117,16 @@ async def stream_looper(
 
         tracker  = SegmentTracker()
         metadata = kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {}
+
+        await presentation.emit(build_run_started_view(
+            metadata=metadata,
+            message=message,
+            mode=mode,
+            pref_config=pref_config,
+            workdir=str(getattr(mind, "history_workspace", "") or ""),
+            sandbox=str(kwargs.get("access_mode") or ""),
+            turn_id=str(kwargs.get("turn_id") or ""),
+        ))
 
         event_ctx = StreamEventContext(
             mind=mind,
@@ -162,6 +180,7 @@ async def stream_looper(
                 continue
 
             if event_type == "turn.failed":
+                turn_failed = True
                 error = str(event.get("error") or "unknown error")
                 await finish_failure(
                     slog,
@@ -192,6 +211,7 @@ async def stream_looper(
 
             if event_type == "turn.done":
                 turn_completed = True
+                turn_usage = event.get("usage") if isinstance(event.get("usage"), dict) else {}
                 break
 
             if event_type == "tool.builtin.call":
@@ -215,10 +235,7 @@ async def stream_looper(
                 approval = approval_from_event(event)
                 await slog.end_status(immediate=True)
 
-                decision = await prompt_tool_approval_decision(
-                    approval,
-                    input_func=approval_input_func
-                )
+                decision = await mind.interaction.request_approval(approval)
 
                 if decision == "expired":
                     await presentation.emit(build_approval_view(
@@ -368,7 +385,8 @@ async def stream_looper(
                     name,
                     arguments,
                     tool_run,
-                    use_coding_trace=use_coding_trace
+                    use_coding_trace=use_coding_trace,
+                    call_id=str(event.get("call_id") or ""),
                 )
 
                 await slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
@@ -397,8 +415,12 @@ async def stream_looper(
     else:
         if turn_completed:
             mind.remember_last_assistant_reply(tracker.latest_assistant_output_text())
+
         await slog.end_status()
         await content.emit(SourcesOutput(tuple(tracker.iter_sources())))
+
+        if turn_completed and not turn_failed:
+            await presentation.emit(build_run_completed_view(turn_usage))
 
     finally:
         await idle_wait.cancel()

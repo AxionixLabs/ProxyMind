@@ -3,7 +3,7 @@
 
 import typing
 from dataclasses import dataclass
-from mind_app.output import OutputPort
+from mind_app.output import OutputControlPort
 from mind_app.presentation.contracts import PresentationSink
 from mind_app.presentation.lifecycle_views import build_lifecycle_view
 
@@ -19,7 +19,7 @@ class StreamEventContext:
 
     mind: "Mind"
     session: "McpSessionLike"
-    slog: OutputPort
+    slog: OutputControlPort
     presentation: PresentationSink
     tracker: "SegmentTracker"
     mode: str

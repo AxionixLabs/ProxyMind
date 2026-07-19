@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from mind_app.mcp import McpSessionLike
 from mind_app.presentation.contracts import PresentationSink
 from engine.enhance import enhance_result
-from ...output import OutputPort
+from ...output import OutputControlPort
 from .enhance_reporter import ToolEnhanceReporter
 from .progress import show_tool_progress
 from .router import execute_tool
@@ -260,7 +260,7 @@ def _server_output_cost_ms(event: dict[str, typing.Any]) -> int:
 async def run_tool_step(
     session: McpSessionLike,
     *,
-    stream_ui: OutputPort,
+    stream_ui: OutputControlPort,
     presentation: PresentationSink,
     tools: list[dict[str, typing.Any]],
     name: str,

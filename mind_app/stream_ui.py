@@ -8,27 +8,29 @@ import asyncio
 from loguru import logger
 from rich.text import Text
 from mind_core.design import Design
-from mind_app.output.contracts import OutputPort
+from mind_app.output.contracts import (
+    BLOCK_OUTPUT,
+    STREAM_OUTPUT,
+    OutputDisplay,
+    OutputPort
+)
 from mind_app.stream_render.coordinator import RenderCoord
 from mind_app.stream_state.boundary import OutputBoundaryState
 from mind_app.stream_state.status import StatusFamily
-from mind_app.stream_state.text import TextState
 from mind_app.stream_io.output_record import StreamRecordWriter
 from mind_app.stream_sanitize import sanitize_value
-from mind_nova import const
 
 
 class StreamUI(OutputPort):
-    """流式终端 UI façade：统一封装 record、正文渲染与轻状态显示。"""
+    """统一管理流式记录、正文渲染和状态显示。"""
 
-    BLOCK  = TextState.BLOCK
-    STREAM = TextState.STREAM
+    BLOCK: OutputDisplay  = BLOCK_OUTPUT
+    STREAM: OutputDisplay = STREAM_OUTPUT
 
-    def __init__(self, log_file: str, *, design_level: str = const.SHOW_LEVEL) -> None:
+    def __init__(self, log_file: str, *, animate: bool = True) -> None:
         """初始化流式终端 UI 的记录、渲染和状态组件。"""
         self.log_file = log_file
-
-        self.design_level = design_level
+        self.animate  = bool(animate)
 
         self._pending_status_task: typing.Optional[asyncio.Task[None]] = None
         self._pending_status_revealed: typing.Optional[asyncio.Event]  = None
@@ -61,7 +63,7 @@ class StreamUI(OutputPort):
         chunk: typing.Optional[str],
         *,
         echo: bool = True,
-        display: str = STREAM,
+        display: OutputDisplay = STREAM_OUTPUT,
         display_chunk: typing.Optional[str] = None,
         display_style: typing.Optional[str] = None,
         display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None,
@@ -132,9 +134,8 @@ class StreamUI(OutputPort):
 
     async def begin_custom_tool_status(self, text: typing.Optional[str]) -> None:
         """启动自定义工具状态显示。"""
-        if self.design_level != const.SHOW_LEVEL:
+        if not self.animate:
             return None
-
         self.coordinator.hold_status_slot()
 
         await self._schedule_status_task(
@@ -155,9 +156,8 @@ class StreamUI(OutputPort):
         animate_after_sec: float | None = None
     ) -> None:
         """启动等待模型回复的状态显示。"""
-        if self.design_level != const.SHOW_LEVEL:
+        if not self.animate:
             return None
-
         animate_after = delay_sec if animate_after_sec is None else max(0.0, float(animate_after_sec))
 
         await self._schedule_status_task(
@@ -200,7 +200,7 @@ class StreamUI(OutputPort):
         *,
         display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None
     ) -> None:
-        """直接打印块文本，不启动 live renderer。"""
+        """直接打印块文本，不启动动态渲染器。"""
         if not chunk:
             return None
 
@@ -240,6 +240,15 @@ class StreamUI(OutputPort):
         """标记下一段输出前需要处理流式边界。"""
         self._stream_boundary_pending = True
 
+    async def record_hidden_output(self, text: str) -> None:
+        """记录不直接展示的块输出。"""
+        if not text:
+            return None
+
+        value = str(text)
+        self._consume_stream_boundary_prefix(incoming_text=value)
+        self.record_writer.write(value, block=True)
+
     def record_tool_arguments(
         self,
         name: str,
@@ -257,7 +266,7 @@ class StreamUI(OutputPort):
 
     @staticmethod
     def _print_direct(renderable: typing.Any) -> None:
-        """直接向终端打印一个 Rich 可渲染对象。"""
+        """直接向终端打印一个可渲染对象。"""
         Design.console.print(renderable)
 
     @staticmethod
@@ -286,7 +295,7 @@ class StreamUI(OutputPort):
 
     @staticmethod
     def _parts_renderable(parts: list[dict[str, typing.Optional[str]]]) -> Text:
-        """把带样式片段转换为 Rich 文本对象。"""
+        """把带样式片段转换为终端文本对象。"""
         renderable = Text()
         for part in parts:
             part_text = str(part.get("text") or "")

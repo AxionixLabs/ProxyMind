@@ -13,11 +13,15 @@ from .models import (
     PlanStepsStartView,
     PlanUpdateView,
     ProgressView,
+    RunCompletedView,
+    RunStartedView,
     ToolStartView
 )
 
 PresentationView: typing.TypeAlias = (
-    ApprovalView
+    RunStartedView
+    | RunCompletedView
+    | ApprovalView
     | ToolStartView
     | GenericToolResultView
     | NativeToolResultView

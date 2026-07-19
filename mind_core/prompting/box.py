@@ -194,7 +194,7 @@ class PromptToolkitBox(object):
 
     @staticmethod
     def _clip_workspace_label(label: str, limit: int) -> str:
-        """workspace 展示名按 Codex 风格裁剪，保留根前缀和末尾目录信息。"""
+        """裁剪工作区展示名，并保留根前缀和末尾目录信息。"""
         if limit <= 0:
             return ""
         if len(label) <= limit:

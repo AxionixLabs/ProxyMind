@@ -59,7 +59,7 @@ class FakeOutput(object):
 
 
 def test_tool_display_sends_views_without_rendering() -> None:
-    """工具展示入口只发送 View，不接触具体终端 renderer。"""
+    """工具展示入口只发送结构化数据，不接触具体终端渲染器。"""
     presentation = RecordingPresentationSink()
     result = ToolRunResult(
         result={},
@@ -146,7 +146,7 @@ def test_native_executor_keeps_audit_and_status_outside_presentation(
 
 
 def test_tool_runtime_does_not_import_rich_presentation() -> None:
-    """工具运行时不再选择 Rich renderer 或 Design console。"""
+    """工具运行时不再选择具体渲染器或控制台对象。"""
     sources = [
         (ROOT / "mind_app/runtime/tools/display.py").read_text(encoding="utf-8"),
         (ROOT / "mind_app/runtime/tools/batch_display.py").read_text(encoding="utf-8"),

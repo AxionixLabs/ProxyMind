@@ -16,6 +16,7 @@ from mind_nova.requests import (
     access_mode_label,
     normalize_access_mode
 )
+from mind_app.interaction import PromptContext
 from .support.repl_commands import (
     exchange_pref_value,
     compact_current_conversation,
@@ -164,13 +165,13 @@ async def mind_loop(mind: "Mind") -> None:
                 await mind.native_coding.running_exec_sessions(),
                 line_width=getattr(Design.console, "width", None)
             )
-            prompt_text = await mind.prompt_box.prompt_async(
+            prompt_text = await mind.interaction.read_message(PromptContext(
                 mode=mode,
                 model=primary_model_prompt_label(pref_config, model),
                 workspace_label=workspace_label,
                 access_label=access_mode_label(access_mode),
                 exec_status_label=exec_status_label
-            )
+            ))
         except KeyboardInterrupt:
             mind.exit_code = 130
             mind.task_event.set()

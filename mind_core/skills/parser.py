@@ -11,7 +11,7 @@ FRONTMATTER_RE = re.compile(
 
 
 def parse_skill_frontmatter(path: Path) -> dict[str, str]:
-    """读取 SKILL.md 的 Codex-like frontmatter。"""
+    """读取技能文档的头部元数据。"""
     text = path.read_text(encoding="utf-8", errors="replace")
 
     match = FRONTMATTER_RE.match(text)

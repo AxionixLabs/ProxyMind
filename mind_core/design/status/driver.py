@@ -15,14 +15,13 @@ from .agent_frames import (
 from .renderers import StatusRenderer
 from .types import AgentLiveTheme
 from mind_nova.modes import (
-    DEFAULT_RUN_MODE, RunMode
+    DEFAULT_RUN_MODE,
+    RunMode
 )
-from mind_nova import const
 
 
 class DesignStatusLiveDriver(StatusRenderer):
 
-    design_level: str
     console: Console | None = None
 
     STARTUP_SWEEP_ENTRY_PAD: float     = 5.2
@@ -410,9 +409,6 @@ class DesignStatusLiveDriver(StatusRenderer):
         snapshot: typing.Callable[[], dict[str, typing.Any]]
     ) -> None:
         """内置运行时启动状态，最终保留为单行。"""
-        if self.design_level != const.SHOW_LEVEL:
-            return None
-
         fps        = 30
         loop       = asyncio.get_running_loop()
         started_at = loop.time()
@@ -440,9 +436,6 @@ class DesignStatusLiveDriver(StatusRenderer):
         snapshot: typing.Callable[[], dict[str, typing.Any]]
     ) -> None:
         """外部 MCP 启动状态。"""
-        if self.design_level != const.SHOW_LEVEL:
-            return None
-
         fps           = 30
         loop          = asyncio.get_running_loop()
         started_at    = loop.time()
@@ -477,10 +470,8 @@ class DesignStatusLiveDriver(StatusRenderer):
         snapshot: typing.Callable[[], tuple[str, str]]
     ) -> None:
         """订阅模式呼吸等待动画。"""
-        if self.design_level != const.SHOW_LEVEL:
-            return None
-
         width = min(34, max(24, self.console.width - 22))
+
         theme = AgentLiveTheme(
             refresh_per_second=32,
             text_width=min(56, max(28, self.console.width - 10)),
@@ -520,10 +511,8 @@ class DesignStatusLiveDriver(StatusRenderer):
         snapshot: typing.Callable[[], tuple[str, str]]
     ) -> None:
         """订阅模式建连等待动画。"""
-        if self.design_level != const.SHOW_LEVEL:
-            return None
-
         width = min(34, max(24, self.console.width - 22))
+
         theme = AgentLiveTheme(
             refresh_per_second=30,
             text_width=min(56, max(28, self.console.width - 10)),
@@ -560,9 +549,6 @@ class DesignStatusLiveDriver(StatusRenderer):
         mode: RunMode = DEFAULT_RUN_MODE
     ) -> None:
         """主请求模式等待动画。"""
-        if self.design_level != const.SHOW_LEVEL:
-            return None
-
         kind = "mode"
 
         label    = self.mode_status_text(mode)

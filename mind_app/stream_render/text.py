@@ -6,7 +6,7 @@ from mind_core.live_session import TypewriterStreamSession
 
 
 class TextRenderer(object):
-    """单一正文 live renderer，同时承载正文和轻量状态 renderable。"""
+    """统一渲染正文和轻量状态。"""
 
     def __init__(self, *, refresh_per_second: int = 16) -> None:
         self.default_refresh_per_second = max(1, int(refresh_per_second))

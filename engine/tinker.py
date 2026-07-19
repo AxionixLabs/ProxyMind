@@ -76,10 +76,11 @@ class Active(object):
             )
 
     @staticmethod
-    def active(log_level: str) -> None:
+    def active(log_level: str, *, stderr: bool = False) -> None:
         logger.remove()
+        console = Console(stderr=True) if stderr else Design.console
         logger.add(
-            Active._RichSink(Design.console), level=log_level, format=const.PRINT_FORMAT
+            Active._RichSink(console), level=log_level, format=const.PRINT_FORMAT
         )
 
 

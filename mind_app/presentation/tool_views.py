@@ -18,6 +18,8 @@ from .models import (
 def build_tool_start_view(
     name: str,
     arguments: dict[str, typing.Any],
+    *,
+    call_id: str = "",
 ) -> ToolStartView:
     """构建普通工具开始执行时的展示数据。"""
     normalized_arguments = dict(arguments) if isinstance(arguments, dict) else {}
@@ -27,6 +29,7 @@ def build_tool_start_view(
         arguments=normalized_arguments,
         title=render_tool_start_trace(name, normalized_arguments),
         preview=render_tool_start_preview(normalized_arguments),
+        call_id=str(call_id or ""),
     )
 
 
@@ -35,6 +38,7 @@ def build_generic_tool_result_view(
     text: typing.Any,
     *,
     ok: bool,
+    call_id: str = "",
 ) -> GenericToolResultView:
     """构建普通工具执行结果的展示数据。"""
     normalized_name = str(name or "tool").strip() or "tool"
@@ -46,6 +50,7 @@ def build_generic_tool_result_view(
         ok=bool(ok),
         title=f"• Tool {normalized_name}",
         preview=render_generic_tool_result_preview(normalized_text),
+        call_id=str(call_id or ""),
     )
 
 
@@ -56,6 +61,7 @@ def build_native_tool_result_view(
     ok: bool,
     data: typing.Any = None,
     cost_ms: int | None = None,
+    call_id: str = "",
 ) -> NativeToolResultView:
     """构建原生编码工具执行结果的展示数据。"""
     normalized_name = str(name or "tool").strip() or "tool"
@@ -75,6 +81,7 @@ def build_native_tool_result_view(
             data=normalized_data,
             cost_ms=cost_ms,
         )),
+        call_id=str(call_id or ""),
     )
 
 

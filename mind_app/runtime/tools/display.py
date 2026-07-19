@@ -20,13 +20,15 @@ async def show_tool_start(
     presentation: PresentationSink,
     name: str,
     arguments: dict[str, typing.Any],
+    *,
+    call_id: str = "",
 ) -> None:
     """发送普通工具开始执行的结构化展示数据。"""
     if name == UPDATE_PLAN_TOOL:
         return None
 
     await presentation.emit(
-        build_tool_start_view(name, arguments)
+        build_tool_start_view(name, arguments, call_id=call_id)
     )
 
 
@@ -38,7 +40,8 @@ async def show_tool_result(
     *,
     ok: typing.Optional[bool] = None,
     text: typing.Optional[str] = None,
-    use_coding_trace: bool = False
+    use_coding_trace: bool = False,
+    call_id: str = "",
 ) -> None:
     """发送工具结果的结构化展示数据。"""
     display_ok   = tool_run.ok if ok is None else ok
@@ -57,6 +60,7 @@ async def show_tool_result(
             ok=display_ok,
             data=tool_run.data,
             cost_ms=tool_run.cost_ms,
+            call_id=call_id,
         ))
         return None
 
@@ -67,6 +71,7 @@ async def show_tool_result(
         name,
         display_text,
         ok=display_ok,
+        call_id=call_id,
     ))
 
 

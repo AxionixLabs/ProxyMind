@@ -50,7 +50,7 @@ class LeftHeading(Heading):
         console: Console,
         options: ConsoleOptions
     ) -> RenderResult:
-        """生成标题的 Rich 控制台片段。"""
+        """生成标题的控制台片段。"""
         _ = console, options
 
         text = self.text or Text()
@@ -103,7 +103,7 @@ class PlainCodeBlock(CodeBlock):
         console: Console,
         options: ConsoleOptions
     ) -> RenderResult:
-        """生成代码块的 Rich 控制台片段。"""
+        """生成代码块的控制台片段。"""
         _ = console, options
 
         code = str(self.text).rstrip()

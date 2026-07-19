@@ -4,7 +4,7 @@
 import typing
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_app.mcp import McpSessionLike
-from mind_app.output import OutputPort
+from mind_app.output import OutputControlPort
 from mind_app.presentation.contracts import PresentationSink
 from mind_app.presentation.plan_views import build_plan_steps_start_view
 from mind_nova import request
@@ -19,7 +19,7 @@ class PlanToolCallRunner:
         self,
         *,
         session: McpSessionLike,
-        stream_ui: OutputPort,
+        stream_ui: OutputControlPort,
         presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
         report: typing.Any
@@ -68,7 +68,8 @@ class PlanToolCallRunner:
             self.presentation,
             PLAN_STEPS_TOOL,
             arguments,
-            report
+            report,
+            call_id=str(event.get("call_id") or ""),
         )
 
         await request.post_tool_result(

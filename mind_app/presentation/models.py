@@ -30,6 +30,26 @@ ProgressSource = typing.Literal[
 
 
 @dataclass(frozen=True, slots=True)
+class RunStartedView(object):
+    """描述一次非交互输出任务的启动信息。"""
+
+    thread_id: str
+    turn_id: str
+    message: str
+    mode: str
+    model: str
+    workdir: str
+    sandbox: str
+
+
+@dataclass(frozen=True, slots=True)
+class RunCompletedView(object):
+    """描述一次非交互输出任务的完成信息。"""
+
+    usage: dict[str, typing.Any]
+
+
+@dataclass(frozen=True, slots=True)
 class TracePreview(object):
     """保存完整预览、屏幕预览和省略行数。"""
 
@@ -56,6 +76,7 @@ class ToolStartView(object):
     arguments: dict[str, typing.Any]
     title: str
     preview: TracePreview
+    call_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +88,7 @@ class GenericToolResultView(object):
     ok: bool
     title: str
     preview: TracePreview
+    call_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +101,7 @@ class NativeToolResultView(object):
     data: typing.Any
     cost_ms: int | None
     entries: tuple[TraceEntry, ...]
+    call_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)

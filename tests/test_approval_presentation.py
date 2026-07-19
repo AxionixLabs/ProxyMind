@@ -140,6 +140,9 @@ def test_stream_approval_result_uses_injected_presentation(monkeypatch) -> None:
         report = SimpleNamespace(log_papers="unused")
         level = "show"
 
+        def __init__(self) -> None:
+            self.interaction = SimpleNamespace(request_approval=fake_prompt)
+
         def is_service_mcp_linked(self) -> bool:
             return False
 
@@ -171,7 +174,6 @@ def test_stream_approval_result_uses_injected_presentation(monkeypatch) -> None:
         events.append("post")
 
     monkeypatch.setattr(stream_module.request, "stream_chat", fake_stream_chat)
-    monkeypatch.setattr(stream_module, "prompt_tool_approval_decision", fake_prompt)
     monkeypatch.setattr(stream_module.request, "post_tool_approval", fake_post)
 
     asyncio.run(stream_module.stream_looper(
@@ -182,17 +184,19 @@ def test_stream_approval_result_uses_injected_presentation(monkeypatch) -> None:
         "message",
         [],
         exec_env={},
-        output_session_factory=lambda *_args, **_kwargs: OutputSession(
+        session_factory=lambda *_args, **_kwargs: OutputSession(
             control=output,
             content=content,
             presentation=presentation,
         ),
     ))
 
-    assert isinstance(presentation.views[0], ApprovalView)
-    assert presentation.views[0].decision == "decline"
-    assert presentation.views[0].state == "denied"
-    assert events[:4] == ["end", "prompt", "emit", "post"]
+    approval_view = next(
+        view for view in presentation.views if isinstance(view, ApprovalView)
+    )
+    assert approval_view.decision == "decline"
+    assert approval_view.state == "denied"
+    assert events[1:5] == ["end", "prompt", "emit", "post"]
     assert posted == [{"decision": "decline", "reason": "user denied"}]
     assert output.blocks == []
     assert output.wait_calls == [(0.15, 0.85)]

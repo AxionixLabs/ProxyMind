@@ -150,11 +150,12 @@ class Parser(object):
         )
 
         minor_group.add_argument(
-            "--reflection", action="store_true",
+            "--json", action="store_true",
             help=textwrap.dedent(f'''\
                 \033[1;36m^* 反射协议 *^\033[0m
                 -------------------------
-                - 开启详细调试视角输出运行轨迹与关键决策信息。
+                - 以逐行 JSON 事件输出运行过程，供程序、Agent 和 CI 消费。
+                - 必须与 --chat/--fast/--xtra 组合使用。
 
             ''')
         )

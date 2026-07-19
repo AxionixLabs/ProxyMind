@@ -2,7 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import mind_app.modes.stream as stream_module
 from mind_app.output.legacy_content import LegacyContentSink
@@ -30,7 +30,7 @@ class FakeTextState(object):
 
 
 def build_stream_ui(display_text: str = "") -> tuple[StreamUI, FakeTextState]:
-    """构造不启动真实终端 renderer 的流式 UI。"""
+    """构造不启动真实终端渲染器的流式界面。"""
     ui = StreamUI.__new__(StreamUI)
     state = FakeTextState(display_text)
 
@@ -47,7 +47,7 @@ def build_stream_ui(display_text: str = "") -> tuple[StreamUI, FakeTextState]:
 
 
 def test_prepare_external_output_is_noop_without_content_or_spacing() -> None:
-    """没有正文和外部间距时不触碰 renderer。"""
+    """没有正文和外部间距时不触发终端渲染。"""
     ui, _ = build_stream_ui()
 
     asyncio.run(ui.prepare_external_output())
@@ -85,6 +85,21 @@ def test_prepare_external_output_preserves_required_external_spacing() -> None:
     ui.commit_live.assert_not_awaited()
     ui._print_boundary_prefix.assert_awaited_once_with("\n")
     assert state.spacings == [(StreamUI.BLOCK, "\n")]
+
+
+def test_hidden_output_records_without_touching_live_text() -> None:
+    """隐藏输出只写记录并消费已有流式边界。"""
+    ui, state = build_stream_ui("assistant reply")
+    ui.record_writer = SimpleNamespace(write=Mock())
+    ui._stream_boundary_pending = True
+
+    asyncio.run(ui.record_hidden_output("audit"))
+
+    ui.record_writer.write.assert_called_once_with("audit", block=True)
+    assert ui._stream_boundary_pending is False
+    assert state.display_text == "assistant reply"
+    ui.settle_stream.assert_not_awaited()
+    ui.commit_live.assert_not_awaited()
 
 
 def test_stream_tool_boundary_prepares_external_output(monkeypatch) -> None:
@@ -146,7 +161,7 @@ def test_stream_tool_boundary_prepares_external_output(monkeypatch) -> None:
         yield {"type": "tool.calls.start"}
         yield {"type": "turn.done"}
 
-    def output_session_factory(*_args, **_kwargs) -> OutputSession:
+    def session_factory(*_args, **_kwargs) -> OutputSession:
         output = FakeStreamUI()
         return OutputSession(
             control=output,
@@ -164,7 +179,7 @@ def test_stream_tool_boundary_prepares_external_output(monkeypatch) -> None:
         "message",
         [],
         exec_env={},
-        output_session_factory=output_session_factory,
+        session_factory=session_factory,
     ))
 
     assert calls.count("prepare") == 1

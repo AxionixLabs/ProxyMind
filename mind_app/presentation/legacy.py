@@ -20,6 +20,8 @@ from .models import (
     PlanStepsStartView,
     PlanUpdateView,
     ProgressView,
+    RunCompletedView,
+    RunStartedView,
     ToolStartView
 )
 from .rich import (
@@ -39,7 +41,7 @@ from .rich import (
 
 
 class LegacyPresentationSink(PresentationSink):
-    """使用当前 Rich 和 StreamUI 行为展示结构化数据。"""
+    """使用当前终端渲染能力展示结构化数据。"""
 
     def __init__(self, output: OutputPort) -> None:
         self.output = output
@@ -70,7 +72,9 @@ class LegacyPresentationSink(PresentationSink):
 
     @staticmethod
     def _render(view: PresentationView) -> tuple[RenderedBlock, ...]:
-        """选择与展示数据对应的当前终端 renderer。"""
+        """选择与展示数据对应的终端渲染器。"""
+        if isinstance(view, (RunStartedView, RunCompletedView)):
+            return ()
         if isinstance(view, ApprovalView):
             return (render_approval_view(view),)
         if isinstance(view, ToolStartView):

@@ -94,6 +94,11 @@ def test_stream_looper_sends_content_to_injected_sink(monkeypatch) -> None:
 
         def __init__(self) -> None:
             self.last_reply = ""
+            self.session_factory = lambda *_args, **_kwargs: OutputSession(
+                control=output,
+                content=content,
+                presentation=LegacyPresentationSink(output),
+            )
 
         def is_service_mcp_linked(self) -> bool:
             return False
@@ -129,11 +134,6 @@ def test_stream_looper_sends_content_to_injected_sink(monkeypatch) -> None:
         "message",
         [],
         exec_env={},
-        output_session_factory=lambda *_args, **_kwargs: OutputSession(
-            control=output,
-            content=content,
-            presentation=LegacyPresentationSink(output),
-        ),
     ))
 
     assert len(content.outputs) == 2
@@ -145,7 +145,7 @@ def test_stream_looper_sends_content_to_injected_sink(monkeypatch) -> None:
     assert output.end_count == 1
     assert output.stop_count == 1
     assert mind.last_reply == "answer"
-    assert "output_session_factory" not in request_kwargs
+    assert "session_factory" not in request_kwargs
 
 
 if __name__ == '__main__':

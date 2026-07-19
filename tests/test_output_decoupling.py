@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock
 from mcp import types as mcp_types
 
 from engine.enhance import handlers as enhance_handlers
-from mind_app.output import BLOCK_OUTPUT
 from mind_app.presentation.models import ProgressView
 from mind_app.runtime.tools.enhance_reporter import ToolEnhanceReporter
 from mind_nova.requests import chat as chat_request
@@ -49,7 +48,7 @@ def test_stream_heal_only_filters_transport_events(monkeypatch) -> None:
 def test_output_enhance_reporter_preserves_stream_ui_behavior() -> None:
     """增强适配器保持静默记录、可见块输出和状态调用。"""
     output = SimpleNamespace(
-        feed=AsyncMock(),
+        record_hidden_output=AsyncMock(),
         begin_tool_status=AsyncMock(),
         end_status=AsyncMock(),
     )
@@ -68,9 +67,7 @@ def test_output_enhance_reporter_preserves_stream_ui_behavior() -> None:
 
     asyncio.run(run())
 
-    assert output.feed.await_args_list == [
-        (("audit",), {"echo": False, "display": BLOCK_OUTPUT}),
-    ]
+    output.record_hidden_output.assert_awaited_once_with("audit")
     presentation.emit.assert_awaited_once_with(ProgressView(
         text="visible",
         source="enhancement",

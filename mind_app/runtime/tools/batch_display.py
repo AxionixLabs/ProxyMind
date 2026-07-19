@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_app.output import OutputPort
+from mind_app.output import OutputControlPort
 from mind_app.presentation.batch_views import (
     build_batch_completed_view,
     build_batch_start_view
@@ -19,7 +19,7 @@ def should_group_batch(batch: ToolCallBatch) -> bool:
 
 async def show_tool_batch_start(
     presentation: PresentationSink,
-    audit_output: OutputPort,
+    audit_output: OutputControlPort,
     batch: ToolCallBatch,
 ) -> None:
     """展示一批工具调用的聚合开始块。"""

@@ -4,6 +4,7 @@
 from .contracts import (
     BLOCK_OUTPUT,
     STREAM_OUTPUT,
+    OutputControlPort,
     OutputDisplay,
     OutputPort
 )
@@ -13,6 +14,16 @@ from .content import (
     ContentSink,
     SourcesOutput
 )
+from .session import (
+    OutputSession,
+    SessionFactory
+)
+from .text import create_text_output_session
+from .jsonl import create_json_output_session
+from .factory import (
+    OutputMode,
+    resolve_session_factory
+)
 
 __all__ = [
     "BLOCK_OUTPUT",
@@ -20,9 +31,16 @@ __all__ = [
     "AssistantTextDelta",
     "ContentOutput",
     "ContentSink",
+    "OutputControlPort",
     "OutputDisplay",
     "OutputPort",
-    "SourcesOutput"
+    "OutputMode",
+    "OutputSession",
+    "SessionFactory",
+    "SourcesOutput",
+    "create_json_output_session",
+    "create_text_output_session",
+    "resolve_session_factory"
 ]
 
 

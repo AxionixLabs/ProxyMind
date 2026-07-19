@@ -52,7 +52,7 @@ class UploadProgressLiveReporter(object):
         self.last_event: typing.Optional[dict[str, typing.Any]] = None
 
     def __enter__(self) -> "UploadProgressLiveReporter":
-        """启动 Rich Live 渲染并返回当前视图对象。"""
+        """启动动态输出并返回当前视图对象。"""
         self.live = Live(
             self.render_idle(),
             console=self.console,
@@ -63,7 +63,7 @@ class UploadProgressLiveReporter(object):
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
-        """关闭 Rich Live 渲染并保留异常传播语义。"""
+        """关闭动态输出并保留异常传播语义。"""
         if self.live is not None:
             self.live.__exit__(exc_type, exc, tb)
             self.live = None

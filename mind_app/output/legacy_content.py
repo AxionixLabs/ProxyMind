@@ -16,7 +16,7 @@ from .source_text import render_sources_text
 
 
 class LegacyContentSink(ContentSink):
-    """使用当前 OutputPort 行为输出正文内容。"""
+    """使用当前终端输出能力展示正文内容。"""
 
     def __init__(self, output: OutputPort) -> None:
         self.output = output

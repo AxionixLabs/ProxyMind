@@ -1,10 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_app.output import (
-    BLOCK_OUTPUT,
-    OutputPort
-)
+from mind_app.output import OutputControlPort
 from mind_app.presentation.contracts import PresentationSink
 from .progress import show_tool_progress
 
@@ -14,7 +11,7 @@ class ToolEnhanceReporter(object):
 
     def __init__(
         self,
-        output: OutputPort,
+        output: OutputControlPort,
         presentation: PresentationSink,
         *,
         tool_name: str,
@@ -25,7 +22,7 @@ class ToolEnhanceReporter(object):
 
     async def record(self, text: str) -> None:
         """记录不直接展示的增强内容。"""
-        await self.output.feed(text, echo=False, display=BLOCK_OUTPUT)
+        await self.output.record_hidden_output(text)
 
     async def display(self, text: str) -> None:
         """展示增强过程产生的文本。"""

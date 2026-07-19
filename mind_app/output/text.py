@@ -1,0 +1,330 @@
+# -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
+
+import sys
+import typing
+from dataclasses import dataclass
+from mind_nova import const
+from mind_app.presentation.contracts import (
+    PresentationSink,
+    PresentationView
+)
+from mind_app.presentation.models import (
+    ApprovalView,
+    BatchCompletedView,
+    BatchStartView,
+    FailureView,
+    GenericToolResultView,
+    LifecycleView,
+    NativeToolResultView,
+    PlanStepsStartView,
+    PlanUpdateView,
+    ProgressView,
+    RunCompletedView,
+    RunStartedView,
+    ToolStartView
+)
+from ..stream_io.output_record import StreamRecordWriter
+from .content import (
+    AssistantTextDelta,
+    ContentOutput,
+    ContentSink,
+    SourcesOutput
+)
+from .contracts import OutputControlPort
+from .session import OutputSession
+
+
+def _write(stream: typing.TextIO, text: str) -> None:
+    """写入并刷新一个文本块。"""
+    if not text:
+        return None
+    stream.write(text)
+    stream.flush()
+
+
+def _line(value: typing.Any) -> str:
+    """把值转换为单行文本。"""
+    return str(value or "").replace("\r", "").strip()
+
+
+def _tool_label(name: str) -> str:
+    """根据工具名称生成展示标签。"""
+    normalized = _line(name).lower()
+    if normalized in {"web_search", "search_query"} or normalized.startswith("web_"):
+        return "web search:"
+    return f"mcp: {normalized or 'tool'}"
+
+
+def _payload(data: typing.Any) -> dict[str, typing.Any]:
+    """提取工具结果中的字典载荷。"""
+    return data if isinstance(data, dict) else {}
+
+
+def _tool_output(data: typing.Any) -> str:
+    """提取工具结果中的标准输出文本。"""
+    payload = _payload(data)
+    combined = payload.get("output")
+    if combined is not None and str(combined):
+        return str(combined).rstrip("\n")
+
+    values = [
+        str(payload[key]).rstrip("\n")
+        for key in ("stdout", "stderr")
+        if payload.get(key) is not None and str(payload[key])
+    ]
+    return "\n".join(values)
+
+
+@dataclass(slots=True)
+class TextOutputState:
+    """保存文本输出所需的流和记录状态。"""
+
+    record_writer: StreamRecordWriter
+    stdout: typing.TextIO
+    stderr: typing.TextIO
+    assistant_open: bool = False
+
+    async def open(self) -> None:
+        """打开文本记录。"""
+        await self.record_writer.open()
+
+    async def close(self) -> None:
+        """关闭文本记录。"""
+        await self.record_writer.close()
+
+    def process(self, text: str) -> None:
+        """输出面向操作者的过程文本。"""
+        _write(self.stderr, text)
+        self.record_writer.write(text, block=True)
+
+    def assistant(self, text: str) -> None:
+        """输出 assistant 正文。"""
+        if not text:
+            return None
+        if not self.assistant_open:
+            self.process("codex\n")
+            self.assistant_open = True
+        _write(self.stdout, text)
+        self.record_writer.write(text)
+
+    def settle_assistant(self) -> None:
+        """结束一段 assistant 正文。"""
+        if not self.assistant_open:
+            return None
+        if self.record_writer.trailing_newlines < 1:
+            _write(self.stdout, "\n")
+            self.record_writer.write("\n")
+        self.assistant_open = False
+
+
+class TextOutputControl(OutputControlPort):
+    """提供无动画的文本输出控制。"""
+
+    def __init__(self, state: TextOutputState) -> None:
+        self.state = state
+
+    async def open(self) -> None:
+        """打开文本输出。"""
+        await self.state.open()
+
+    async def stop(self, *, blink: bool = True) -> None:
+        """停止文本输出。"""
+        _ = blink
+        self.state.settle_assistant()
+        await self.state.close()
+
+    async def prepare_external_output(self) -> None:
+        """准备新的外部块输出。"""
+        self.state.settle_assistant()
+
+    async def begin_tool_status(self) -> None:
+        """文本模式不显示动态工具状态。"""
+        return None
+
+    async def begin_custom_tool_status(self, text: typing.Optional[str]) -> None:
+        """文本模式输出一次自定义状态标题。"""
+        if text:
+            self.state.process(f"{text}\n")
+
+    async def begin_reply_wait_status(
+        self,
+        text: typing.Optional[str] = "thinking",
+        *,
+        delay_sec: float = 0.28,
+        animate_after_sec: float | None = None,
+    ) -> None:
+        """文本模式不显示等待动画。"""
+        _ = text, delay_sec, animate_after_sec
+        return None
+
+    async def end_status(self, *, immediate: bool = False) -> None:
+        """结束文本状态。"""
+        _ = immediate
+        return None
+
+    async def settle_stream(self) -> None:
+        """结束当前 assistant 文本段。"""
+        self.state.settle_assistant()
+
+    async def record_hidden_output(self, text: str) -> None:
+        """记录不直接展示的文本。"""
+        if text:
+            self.state.record_writer.write(str(text), block=True)
+
+    def mark_stream_boundary(self) -> None:
+        """标记文本流边界。"""
+        self.state.settle_assistant()
+
+    def record_tool_arguments(
+        self,
+        name: str,
+        arguments: dict[str, typing.Any],
+        *,
+        call_id: typing.Optional[str] = None,
+    ) -> None:
+        """输出工具调用标题和参数摘要。"""
+        self.state.settle_assistant()
+        tool = _line(name) or "tool"
+        args = arguments if isinstance(arguments, dict) else {}
+        if tool in {"shell_command", "exec_command", "write_stdin"}:
+            command = _line(args.get("command") or args.get("cmd") or tool)
+            cwd = _line(args.get("cwd") or ".")
+            self.state.process(f"exec\n{command} in {cwd}\n")
+        elif tool == "apply_patch":
+            self.state.process("apply patch\n")
+        else:
+            self.state.process(f"{_tool_label(tool)}\n")
+        if call_id:
+            self.state.record_writer.write_audit(f"tool {tool} call_id={call_id}")
+
+    def flush(self) -> None:
+        """刷新文本记录。"""
+        self.state.record_writer.flush()
+
+
+class TextContentSink(ContentSink):
+    """把结构化正文写入文本输出流。"""
+
+    def __init__(self, state: TextOutputState) -> None:
+        self.state = state
+
+    async def emit(self, output: ContentOutput) -> None:
+        """输出正文或忽略来源元数据。"""
+        if isinstance(output, AssistantTextDelta):
+            self.state.assistant(output.text)
+            return None
+        if isinstance(output, SourcesOutput):
+            return None
+        raise TypeError(f"Unsupported content output: {type(output).__name__}")
+
+
+class TextPresentationSink(PresentationSink):
+    """把结构化展示数据输出为人类可读文本。"""
+
+    def __init__(self, state: TextOutputState) -> None:
+        self.state = state
+
+    async def emit(self, view: PresentationView) -> None:
+        """输出一项结构化展示。"""
+        if isinstance(view, RunStartedView):
+            self.state.process(
+                f"{const.APP_DESC} v{const.APP_VERSION}\n"
+                "--------\n"
+                f"workdir: {view.workdir}\n"
+                f"model: {view.model}\n"
+                f"sandbox: {view.sandbox}\n"
+                "--------\n"
+                "user\n"
+                f"{view.message}\n"
+            )
+            return None
+        if isinstance(view, RunCompletedView):
+            self.state.settle_assistant()
+            return None
+        if isinstance(view, ToolStartView):
+            return None
+        if isinstance(view, NativeToolResultView):
+            self._native_result(view)
+            return None
+        if isinstance(view, GenericToolResultView):
+            status = "succeeded" if view.ok else "failed"
+            self.state.process(f"{_tool_label(view.name)} {status}:\n{view.text}\n")
+            return None
+        if isinstance(view, FailureView):
+            self.state.process(f"ERROR:\n{view.error}\n")
+            return None
+        if isinstance(view, LifecycleView):
+            self.state.process(f"mcp:\n{view.text}\n")
+            return None
+        if isinstance(view, ProgressView):
+            self.state.process(f"mcp: {view.tool_name}\n{view.text}\n")
+            return None
+        if isinstance(view, ApprovalView):
+            self.state.process(f"warning:\n{view.decision}\n")
+            return None
+        if isinstance(view, PlanStepsStartView):
+            self.state.process(f"todo: {view.step_count} steps\n")
+            return None
+        if isinstance(view, PlanUpdateView):
+            self.state.process("todo:\n" + "\n".join(
+                f"{item.status}: {item.step}" for item in view.items
+            ) + "\n")
+            return None
+        if isinstance(view, BatchStartView):
+            self.state.process(f"mcp: batch ({len(view.calls)} calls)\n")
+            return None
+        if isinstance(view, BatchCompletedView):
+            self.state.process(f"mcp: batch completed ({len(view.results)} results)\n")
+            return None
+        raise TypeError(f"Unsupported presentation view: {type(view).__name__}")
+
+    def _native_result(self, view: NativeToolResultView) -> None:
+        """输出原生 coding 工具结果。"""
+        data = _payload(view.data)
+        if view.name == "apply_patch":
+            label = "completed" if view.ok else "failed"
+            self.state.process(f"patch: {label}\n")
+            for item in data.get("files", []) if isinstance(data.get("files"), list) else []:
+                if isinstance(item, dict) and item.get("path"):
+                    self.state.process(f"{item.get('path')}\n")
+            return None
+
+        elapsed = max(0, int(view.cost_ms or 0))
+        if view.ok:
+            status = f" succeeded in {elapsed}ms:"
+        else:
+            exit_code = data.get("exit_code")
+
+            status = (
+                f" exited {exit_code} in {elapsed}ms:"
+                if exit_code is not None
+                else f" failed in {elapsed}ms:"
+            )
+        self.state.process(status + "\n")
+        output = _tool_output(data)
+        if output:
+            self.state.process(output + "\n")
+
+
+def create_text_output_session(
+    log_file: str,
+    *,
+    animate: bool = True,
+) -> OutputSession:
+    """创建无动画的人类可读文本输出会话。"""
+    _ = animate
+    state = TextOutputState(
+        record_writer=StreamRecordWriter(log_file),
+        stdout=sys.stdout,
+        stderr=sys.stderr,
+    )
+    return OutputSession(
+        control=TextOutputControl(state),
+        content=TextContentSink(state),
+        presentation=TextPresentationSink(state),
+    )
+
+
+if __name__ == '__main__':
+    pass

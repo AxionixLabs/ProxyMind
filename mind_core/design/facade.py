@@ -31,9 +31,6 @@ class Design(DesignStatusLiveDriver):
 
     console: Console = DESIGN_CONSOLE
 
-    def __init__(self, design_level: str = const.SHOW_LEVEL):
-        self.design_level = design_level
-
     Doc = DesignDoc
 
     @staticmethod

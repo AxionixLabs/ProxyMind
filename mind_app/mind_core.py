@@ -15,10 +15,10 @@ from engine.animation import AsyncAnimManager
 from engine.tinker import MindError
 from mind_nova import craft
 from mind_core.design import Design
-from mind_core.prompting import PromptToolkitBox
 from mind_core.preference import Preferences
 from mind_nova.modes import (
-    DEFAULT_RUN_MODE, RunMode
+    DEFAULT_RUN_MODE,
+    RunMode
 )
 from mind_nova.report import Report
 from .attach import Attach
@@ -43,6 +43,10 @@ from .client_tools import (
     default_registry as default_client_tool_registry
 )
 from .native_coding import NativeCoding
+from .output.factory import OutputMode, create_output_session
+from .output.session import SessionFactory
+from .interaction.contracts import InteractionPort
+from .interaction.legacy import LegacyInteraction
 from .history import (
     ConversationHistoryStore,
     HISTORY_LIMIT,
@@ -67,7 +71,7 @@ class Mind(object):
 
         self.remote: dict = remote or {}
 
-        *_, self.gravity, self.reflection, _ = args
+        *_, self.gravity, _ = args
 
         self.src_opera_place: str = kwargs["src_opera_place"]
         self.src_total_place: str = kwargs["src_total_place"]
@@ -84,7 +88,14 @@ class Mind(object):
 
         self.anim_manager: AsyncAnimManager = kwargs.get("anim_manager") or AsyncAnimManager()
 
-        self.design: Design = Design(self.level)
+        self.animate: bool = bool(kwargs.get("animate", True))
+
+        output_mode = kwargs.get("output_mode")
+        self.output_mode: OutputMode = (
+            output_mode if output_mode in {"tui", "text", "json"} else "tui"
+        )
+
+        self.design: Design = Design()
 
         self.conversation: ConversationState         = ConversationState()
         self.history_store: ConversationHistoryStore = ConversationHistoryStore()
@@ -92,7 +103,16 @@ class Mind(object):
         self.report: Report = Report(self.src_total_place, self.gravity)
         self.attach: Attach = Attach()
 
-        self.prompt_box: PromptToolkitBox = PromptToolkitBox()
+        interaction = kwargs.get("interaction")
+
+        if interaction is not None:
+            self.interaction: InteractionPort = interaction
+        else:
+            self.interaction = LegacyInteraction()
+        self.session_factory: SessionFactory = (
+            kwargs.get("session_factory") or create_output_session
+        )
+
         self.native_coding: NativeCoding  = NativeCoding(root=self.history_workspace)
 
         self.runtime_loop: typing.Optional[asyncio.AbstractEventLoop] = None
@@ -464,6 +484,8 @@ class Mind(object):
         mode: RunMode = DEFAULT_RUN_MODE
     ) -> None:
         """启动指定模式的等待动画。"""
+        if not self.animate:
+            return None
         await self.anim_manager.start(
             lambda stop_event: self.design.stream_mode_live(stop_event, mode)
         )
@@ -473,6 +495,8 @@ class Mind(object):
         snapshot: typing.Callable[[], dict[str, typing.Any]]
     ) -> None:
         """启动附件上传动画，并复用统一动画管理器避免冲突。"""
+        if not self.animate:
+            return None
         await self.anim_manager.start(
             lambda stop_event: self.design.upload_progress_live(stop_event, snapshot)
         )
@@ -482,6 +506,8 @@ class Mind(object):
         snapshot: typing.Callable[[], dict[str, typing.Any]]
     ) -> None:
         """启动内置运行时启动状态动画。"""
+        if not self.animate:
+            return None
         await self.anim_manager.start(
             lambda stop_event: self.design.inbuild_startup_live(stop_event, snapshot)
         )
@@ -491,6 +517,8 @@ class Mind(object):
         snapshot: typing.Callable[[], dict[str, typing.Any]]
     ) -> None:
         """启动外部 MCP 启动状态动画。"""
+        if not self.animate:
+            return None
         await self.anim_manager.start(
             lambda stop_event: self.design.external_mcp_live(stop_event, snapshot)
         )

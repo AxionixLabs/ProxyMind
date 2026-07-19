@@ -74,7 +74,7 @@ def test_stream_request_uses_event_report_turn_id(monkeypatch) -> None:
 
     monkeypatch.setattr(stream_module.request, "stream_chat", fake_stream_chat)
 
-    def output_session_factory(*_args, **_kwargs) -> OutputSession:
+    def session_factory(*_args, **_kwargs) -> OutputSession:
         output = FakeStreamUI()
         return OutputSession(
             control=output,
@@ -91,7 +91,7 @@ def test_stream_request_uses_event_report_turn_id(monkeypatch) -> None:
         [],
         exec_env={},
         ev_report=report,
-        output_session_factory=output_session_factory,
+        session_factory=session_factory,
     ))
 
     assert report.turn_id != initial_turn_id

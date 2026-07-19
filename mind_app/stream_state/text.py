@@ -142,17 +142,17 @@ class TextState(object):
         return animate
 
     def renderable(self) -> Text:
-        """返回当前可见文本的 Rich Text。"""
+        """返回当前可见文本对象。"""
         return self.renderable_for_text(self.display_text)
 
     def final_renderable(self) -> typing.Any:
-        """返回最终落版 renderable；纯正文用 Markdown，结构化内容保留 Rich Text。"""
+        """返回最终落版对象；纯正文使用 Markdown，结构化内容保留样式文本。"""
         if self._markdown_final_enabled():
             return render_markdown(self.raw_text.rstrip("\n"))
         return self._mixed_final_renderable()
 
     def renderable_for_text(self, text: str) -> Text:
-        """按给定文本窗口生成对应的 Rich Text。"""
+        """按给定文本窗口生成对应的样式文本。"""
         if text == self.display_text:
             parts = self.visible_segments or [{"text": self.display_text, "style": None}]
         else:
@@ -189,7 +189,7 @@ class TextState(object):
         return "\n"
 
     def remember_external_output(self, *, display: str, text: str) -> None:
-        """记录非 live renderer 直接输出的段落边界。"""
+        """记录动态渲染器之外直接输出的段落边界。"""
         if not text:
             return None
 
@@ -658,7 +658,7 @@ class TextState(object):
         self,
         units: list[dict[str, typing.Any]]
     ) -> list[typing.Any]:
-        """按可见段落边界生成最终落版 renderable。"""
+        """按可见段落边界生成最终落版对象。"""
         renderables: list[typing.Any] = []
 
         for unit in units:
@@ -701,7 +701,7 @@ class TextState(object):
         cls,
         unit: dict[str, typing.Any]
     ) -> typing.Any:
-        """把最终落版单元转换为 Rich 可渲染对象。"""
+        """把最终落版单元转换为可渲染对象。"""
         kind = str(unit.get("kind") or "")
         if kind == "markdown":
             text = str(unit.get("text") or "").lstrip("\n").rstrip("\n")
@@ -752,7 +752,7 @@ class TextState(object):
 
     @staticmethod
     def _parts_renderable(parts: list[dict[str, typing.Optional[str]]]) -> Text:
-        """把带样式片段转换为 Rich 文本对象。"""
+        """把带样式片段转换为终端文本对象。"""
         out = Text()
         for part in parts:
             text = str(part.get("text") or "")
