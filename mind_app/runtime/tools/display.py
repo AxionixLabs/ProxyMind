@@ -4,7 +4,9 @@
 import typing
 from mind_core.design import Design
 from mind_app.client_tools.update_plan import UPDATE_PLAN_TOOL
-from ...stream_ui import StreamUI
+from ...output import (
+    BLOCK_OUTPUT, OutputPort
+)
 from ...stream_events.tool_trace import (
     render_generic_tool_result_preview,
     render_tool_result_entries,
@@ -47,7 +49,7 @@ def _generic_trace_text(
 
 
 async def show_tool_start(
-    stream_ui: StreamUI,
+    stream_ui: OutputPort,
     name: str,
     arguments: dict[str, typing.Any],
     *,
@@ -65,7 +67,7 @@ async def show_tool_start(
 
     await stream_ui.feed(
         trace_start,
-        display=StreamUI.BLOCK,
+        display=BLOCK_OUTPUT,
         display_parts=render_tool_trace_parts(
             trace_start,
             preview=render_tool_start_preview(arguments)
@@ -74,7 +76,7 @@ async def show_tool_start(
 
 
 async def show_tool_result(
-    stream_ui: StreamUI,
+    stream_ui: OutputPort,
     name: str,
     arguments: dict[str, typing.Any],
     tool_run: ToolDisplayResult,
@@ -97,7 +99,7 @@ async def show_tool_result(
             plan_text, plan_parts = rendered
             await stream_ui.feed(
                 plan_text,
-                display=StreamUI.BLOCK,
+                display=BLOCK_OUTPUT,
                 display_parts=plan_parts,
                 preserve_display_parts=True
             )
@@ -116,7 +118,7 @@ async def show_tool_result(
         for entry in trace_entries:
             await stream_ui.feed(
                 _coding_trace_text(entry.title, entry.preview),
-                display=StreamUI.BLOCK,
+                display=BLOCK_OUTPUT,
                 display_parts=render_tool_trace_parts(
                     entry.title,
                     preview=entry.preview,
@@ -135,7 +137,7 @@ async def show_tool_result(
 
     await stream_ui.feed(
         _generic_trace_text(title, trace_preview),
-        display=StreamUI.BLOCK,
+        display=BLOCK_OUTPUT,
         display_parts=render_tool_trace_parts(title, preview=trace_preview, ok=display_ok),
         preserve_display_parts=True
     )

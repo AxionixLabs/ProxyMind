@@ -6,7 +6,8 @@ import typing
 from dataclasses import dataclass
 from mind_app.mcp import McpSessionLike
 from engine.enhance import enhance_result
-from ...stream_ui import StreamUI
+from ...output import OutputPort
+from .enhance_reporter import OutputEnhanceReporter
 from .router import execute_tool
 
 _COMMON_PROMOTED_RESULT_KEYS = (
@@ -256,7 +257,7 @@ def _server_output_cost_ms(event: dict[str, typing.Any]) -> int:
 async def run_tool_step(
     session: McpSessionLike,
     *,
-    stream_ui: StreamUI,
+    stream_ui: OutputPort,
     tools: list[dict[str, typing.Any]],
     name: str,
     arguments: dict[str, typing.Any],
@@ -298,7 +299,7 @@ async def run_tool_step(
             name=name,
             result=result,
             ok=ok,
-            slog=stream_ui
+            reporter=OutputEnhanceReporter(stream_ui)
         )
         fields = normalize_tool_result_fields(name, fields)
 

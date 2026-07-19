@@ -3,16 +3,17 @@
 
 import json
 import typing
+from loguru import logger
 from mcp.types import CallToolResult
 from mind_core.api import Api
 from mind_nova import request
-from mind_app.stream_ui import StreamUI
 from .fields import (
     fields,
     fields_map,
     tool_payload,
     tool_target
 )
+from .reporter import EnhanceReporter
 
 async def enhance_result(
     *,
@@ -20,7 +21,7 @@ async def enhance_result(
     name: str,
     result: CallToolResult,
     ok: bool,
-    slog: typing.Optional[StreamUI] = None
+    reporter: typing.Optional[EnhanceReporter] = None
 ) -> typing.Union[str, dict[str, typing.Any]]:
     """按工具名称增强成功结果。"""
     result_fields = fields(result)
@@ -29,26 +30,24 @@ async def enhance_result(
         return result_fields
 
     if name.startswith("nexus_"):
-        return await enhance_nexus(result, slog)
+        return await enhance_nexus(result, reporter)
 
     if name == "heal_element":
-        return await enhance_heal_element(result, pref_config, slog)
+        return await enhance_heal_element(result, pref_config, reporter)
 
     return result_fields
 
 
 async def enhance_nexus(
     result: CallToolResult,
-    slog: typing.Optional[StreamUI] = None
+    reporter: typing.Optional[EnhanceReporter] = None
 ) -> typing.Union[str, dict[str, typing.Any]]:
     """Nexus: 全量静默落盘并返回原始 fields。"""
     result_fields = fields(result)
 
-    if slog and isinstance(result_fields, dict):
-        await slog.feed(
-            json.dumps(result_fields, ensure_ascii=False, indent=2) + "\n",
-            echo=False,
-            display=StreamUI.BLOCK
+    if reporter and isinstance(result_fields, dict):
+        await reporter.record(
+            json.dumps(result_fields, ensure_ascii=False, indent=2) + "\n"
         )
 
     return result_fields
@@ -57,7 +56,7 @@ async def enhance_nexus(
 async def enhance_heal_element(
     result: CallToolResult,
     pref_config: dict[str, typing.Any],
-    slog: typing.Optional[StreamUI] = None
+    reporter: typing.Optional[EnhanceReporter] = None
 ) -> typing.Optional[dict[str, typing.Any]]:
     """调用远程元素自愈服务并汇总定位结果。"""
     result_fields = fields_map(result)
@@ -94,15 +93,31 @@ async def enhance_heal_element(
 
         result_data: dict[str, typing.Any] = {}
 
-        async for heal_event in request.stream_heal(pref_config, **data, slog=slog):
-            if heal_event.get("type") == "heal.failed":
+        async for heal_event in request.stream_heal(pref_config, **data):
+            event_type = heal_event.get("type")
+
+            if event_type == "heal.step":
+                message = str(heal_event.get("message") or "")
+                if message:
+                    if reporter:
+                        await reporter.display(message)
+                    else:
+                        logger.debug(message)
+                continue
+
+            if event_type == "heal.failed":
+                error = str(heal_event.get("error") or "unknown heal error")
+                if reporter:
+                    await reporter.display(error)
+                else:
+                    logger.debug(error)
                 result_data.update({
                     "target" : target,
                     "error"  : heal_event.get("error")
                 })
                 continue
 
-            if heal_event.get("type") != "heal.result":
+            if event_type != "heal.result":
                 continue
 
             heal_result = heal_event.get("result")
@@ -122,20 +137,20 @@ async def enhance_heal_element(
                 "reason"  : reason
             })
 
-            if slog:
-                await slog.feed(reason, display=StreamUI.BLOCK)
+            if reporter:
+                await reporter.display(reason)
             return heal_locator, result_data
 
         return None, result_data
 
-    if slog:
-        await slog.begin_tool_status()
+    if reporter:
+        await reporter.begin_status()
 
     try:
         locator, heal_result_data = await collect_heal_locator()
     finally:
-        if slog:
-            await slog.end_status()
+        if reporter:
+            await reporter.end_status()
 
     if not locator:
         return {

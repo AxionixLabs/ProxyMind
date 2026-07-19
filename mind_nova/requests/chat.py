@@ -2,9 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from loguru import logger
 from engine.channel import Channel
-from mind_app.stream_ui import StreamUI
 from mind_nova.requests.payload import (
     build_chat_payload,
     request_llm_conf
@@ -53,7 +51,6 @@ async def stream_heal(
     screenshot_base64: str,
     wm_size: dict,
     timeout: float = 60.0,
-    slog: typing.Optional[StreamUI] = None,
     *_,
     **kwargs
 ) -> typing.AsyncGenerator[dict, None]:
@@ -72,26 +69,11 @@ async def stream_heal(
     }
 
     async for event in streaming(service_endpoints.endpoint("/mind-heal"), headers, payload, timeout):
-        match event.get("type"):
-            case "ping":
-                continue
+        if event.get("type") == "ping":
+            continue
 
-            case "heal.step":
-                message = str(event.get("message") or "")
-                if not message:
-                    continue
-                if slog:
-                    await slog.feed(message, display=StreamUI.BLOCK)
-                else:
-                    logger.debug(message)
-                continue
-
-            case "heal.failed":
-                error = str(event.get("error") or "unknown heal error")
-                if slog:
-                    await slog.feed(error, display=StreamUI.BLOCK)
-                else:
-                    logger.debug(error)
+        if event.get("type") == "heal.step" and not str(event.get("message") or ""):
+            continue
 
         yield event
 

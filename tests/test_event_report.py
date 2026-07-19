@@ -69,7 +69,7 @@ def test_stream_request_uses_event_report_turn_id(monkeypatch) -> None:
     report = EventReport("chat", "cid-test", "sid-test")
     initial_turn_id = report.turn_id
 
-    monkeypatch.setattr(stream_module, "StreamUI", FakeStreamUI)
+    monkeypatch.setattr(stream_module, "create_output", FakeStreamUI)
     monkeypatch.setattr(stream_module.request, "stream_chat", fake_stream_chat)
 
     asyncio.run(stream_module.stream_looper(

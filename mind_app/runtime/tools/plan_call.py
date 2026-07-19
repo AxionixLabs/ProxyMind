@@ -4,7 +4,9 @@
 import typing
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
 from mind_app.mcp import McpSessionLike
-from mind_app.stream_ui import StreamUI
+from mind_app.output import (
+    BLOCK_OUTPUT, OutputPort
+)
 from mind_nova import request
 from .display import show_tool_result
 from .plan_steps_display import render_plan_steps_start
@@ -18,7 +20,7 @@ class PlanToolCallRunner:
         self,
         *,
         session: McpSessionLike,
-        stream_ui: StreamUI,
+        stream_ui: OutputPort,
         tools: list[dict[str, typing.Any]],
         report: typing.Any
     ) -> None:
@@ -49,7 +51,7 @@ class PlanToolCallRunner:
 
         await self.stream_ui.feed(
             plan_text,
-            display=StreamUI.BLOCK,
+            display=BLOCK_OUTPUT,
             display_parts=plan_parts,
             preserve_display_parts=True
         )

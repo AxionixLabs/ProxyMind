@@ -3,12 +3,14 @@
 
 import typing
 from dataclasses import dataclass
+from mind_app.output import (
+    BLOCK_OUTPUT, OutputPort
+)
 from .lifecycle_display import render_lifecycle_display_parts
 
 if typing.TYPE_CHECKING:
     from mind_app.mcp import McpSessionLike
     from mind_app.mind_core import Mind
-    from mind_app.stream_ui import StreamUI
     from mind_app.stream_state.segment import SegmentTracker
 
 
@@ -18,7 +20,7 @@ class StreamEventContext:
 
     mind: "Mind"
     session: "McpSessionLike"
-    slog: "StreamUI"
+    slog: OutputPort
     tracker: "SegmentTracker"
     mode: str
     pref_config: dict[str, typing.Any]
@@ -58,7 +60,7 @@ async def _display_event(
 
     await ctx.slog.feed(
         title,
-        display=ctx.slog.BLOCK,
+        display=BLOCK_OUTPUT,
         display_parts=render_lifecycle_display_parts(title)
     )
     await ctx.slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)

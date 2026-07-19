@@ -8,7 +8,9 @@ from dataclasses import (
 )
 from engine.enhance import exchange_arguments
 from mind_app.mcp import McpSessionLike
-from mind_app.stream_ui import StreamUI
+from mind_app.output import (
+    BLOCK_OUTPUT, OutputPort
+)
 from mind_nova import request
 from .display import (
     show_tool_result, show_tool_start
@@ -84,7 +86,7 @@ class ToolBatchExecutor:
         self,
         *,
         session: McpSessionLike,
-        stream_ui: StreamUI,
+        stream_ui: OutputPort,
         tools: list[dict[str, typing.Any]],
         mode: str,
         pref_config: dict[str, typing.Any],
@@ -168,7 +170,7 @@ class ToolBatchExecutor:
                 pref_config=self.pref_config,
                 enable_progress_notify=True,
                 stream_callback=lambda x: self.stream_ui.feed(
-                    x, display=StreamUI.BLOCK
+                    x, display=BLOCK_OUTPUT
                 ),
                 status_text=None,
                 execution=event_execution,

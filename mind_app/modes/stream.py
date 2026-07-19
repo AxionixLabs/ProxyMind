@@ -15,16 +15,17 @@ from mind_app.approval import (
 )
 from mind_nova.events import EventReport
 from mind_nova import request
-from ..stream_ui import StreamUI
+from ..output import (
+    BLOCK_OUTPUT,
+    STREAM_OUTPUT,
+    OutputPort
+)
+from ..output.factory import create_output
 from ..runtime.support.loop_support import finish_failure
 from ..runtime.environment.exec_env import build_runtime_exec_env
 from ..runtime.support.session_policy import friendly_exception_text
-from ..runtime.tools.run import (
-    server_tool_output_result
-)
-from ..runtime.tools.display import (
-    show_tool_result,
-)
+from ..runtime.tools.run import server_tool_output_result
+from ..runtime.tools.display import show_tool_result
 from ..runtime.tools.execution_policy import (
     is_execution_ignored,
     validate_execution_policy
@@ -49,7 +50,8 @@ from ..stream_events.lifecycle import (
 )
 from ..stream_events.assistant_boundary import is_assistant_output_boundary
 from ..stream_state.segment import (
-    SegmentTracker, build_sources_text
+    SegmentTracker,
+    build_sources_text
 )
 
 if typing.TYPE_CHECKING:
@@ -86,7 +88,11 @@ async def stream_looper(
         )
         kwargs["exec_env"] = build_runtime_exec_env(service_exec_env=service_env)
 
-    slog: StreamUI = StreamUI(mind.report.log_papers, design_level=mind.level)
+    output_factory = kwargs.pop("output_factory", create_output)
+    slog: OutputPort = output_factory(
+        mind.report.log_papers,
+        design_level=mind.level,
+    )
 
     interrupted: bool    = False
     first_frame: bool    = True
@@ -160,7 +166,7 @@ async def stream_looper(
             if event_type == "text.delta":
                 text = str(event.get("text") or "")
                 tracker.on_text_delta(event)
-                await slog.feed(text, display=StreamUI.STREAM)
+                await slog.feed(text, display=STREAM_OUTPUT)
                 idle_wait.reschedule()
                 continue
 
@@ -387,7 +393,7 @@ async def stream_looper(
         if turn_completed:
             mind.remember_last_assistant_reply(tracker.latest_assistant_output_text())
         await slog.end_status()
-        await slog.feed(build_sources_text(tracker), display=StreamUI.BLOCK)
+        await slog.feed(build_sources_text(tracker), display=BLOCK_OUTPUT)
 
     finally:
         await idle_wait.cancel()

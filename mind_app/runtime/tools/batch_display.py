@@ -2,7 +2,9 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.stream_ui import StreamUI
+from mind_app.output import (
+    BLOCK_OUTPUT, OutputPort
+)
 from mind_app.stream_events.tool_traces.common import (
     ACTION_TOOL_STYLE,
     ERROR_DOT_STYLE,
@@ -25,7 +27,7 @@ def should_group_batch(batch: ToolCallBatch) -> bool:
 
 
 async def show_tool_batch_start(
-    stream_ui: StreamUI,
+    stream_ui: OutputPort,
     batch: ToolCallBatch
 ) -> None:
     """展示一批工具调用的聚合开始块。"""
@@ -54,14 +56,14 @@ async def show_tool_batch_start(
     text = "\n".join(lines)
     await stream_ui.feed(
         text,
-        display=StreamUI.BLOCK,
+        display=BLOCK_OUTPUT,
         display_parts=_start_parts(batch),
         preserve_display_parts=True
     )
 
 
 async def show_tool_batch_completed(
-    stream_ui: StreamUI,
+    stream_ui: OutputPort,
     results: list[BatchToolResult]
 ) -> None:
     """展示一批工具调用的聚合完成块。"""
@@ -83,7 +85,7 @@ async def show_tool_batch_completed(
     text = "\n".join(lines)
     await stream_ui.feed(
         text,
-        display=StreamUI.BLOCK,
+        display=BLOCK_OUTPUT,
         display_parts=_completed_parts(results),
         preserve_display_parts=True
     )

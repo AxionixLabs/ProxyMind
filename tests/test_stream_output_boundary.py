@@ -143,7 +143,7 @@ def test_stream_tool_boundary_prepares_external_output(monkeypatch) -> None:
         yield {"type": "tool.calls.start"}
         yield {"type": "turn.done"}
 
-    monkeypatch.setattr(stream_module, "StreamUI", FakeStreamUI)
+    monkeypatch.setattr(stream_module, "create_output", FakeStreamUI)
     monkeypatch.setattr(stream_module.request, "stream_chat", fake_stream_chat)
 
     asyncio.run(stream_module.stream_looper(
