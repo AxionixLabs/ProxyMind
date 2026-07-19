@@ -63,6 +63,22 @@ def emit_entry_failure(
     application.emit(ApplicationView(type="error", renderable=str(error)))
 
 
+def emit_entry_interruption(
+    application: ApplicationSink,
+    *,
+    json_output: bool,
+) -> None:
+    """通过应用级输出端发送入口中断。"""
+    if not json_output:
+        return None
+    emit_entry_failure(
+        application,
+        "interrupted",
+        phase="interrupt",
+        json_output=True,
+    )
+
+
 async def main(handler: SignalHandler | None = None) -> int:
     """兼容入口：转交到 `mind_app` 的应用入口。"""
     return await _main(entry_file=__file__, handler=handler)
@@ -99,20 +115,16 @@ if __name__ == "__main__":
                 main_loop.run_until_complete(main_task)
             except (asyncio.CancelledError, KeyboardInterrupt):
                 pass
-        emit_entry_failure(
+        emit_entry_interruption(
             entry_sink,
-            "interrupted",
-            phase="interrupt",
             json_output=json_output_enabled,
         )
         entry_sink.emit(ApplicationView(type="outro"))
         sys.exit(130)
 
     except asyncio.CancelledError:
-        emit_entry_failure(
+        emit_entry_interruption(
             entry_sink,
-            "interrupted",
-            phase="interrupt",
             json_output=json_output_enabled,
         )
         entry_sink.emit(ApplicationView(type="outro"))

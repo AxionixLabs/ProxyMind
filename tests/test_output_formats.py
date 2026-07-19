@@ -161,5 +161,29 @@ def test_cli_json_failure_is_one_complete_event() -> None:
     assert not mind_module.json_output_requested(["--chat", "run"])
 
 
+def test_entry_interruption_is_silent_for_console_output() -> None:
+    """终端入口中断不渲染为错误。"""
+    stdout = io.StringIO()
+    with contextlib.redirect_stdout(stdout):
+        sink = mind_module.entry_application(False)
+        mind_module.emit_entry_interruption(sink, json_output=False)
+
+    assert stdout.getvalue() == ""
+
+
+def test_entry_interruption_preserves_json_terminal_event() -> None:
+    """JSON 入口中断保留可解析的终止事件。"""
+    stdout = io.StringIO()
+    with contextlib.redirect_stdout(stdout):
+        sink = mind_module.entry_application(True)
+        mind_module.emit_entry_interruption(sink, json_output=True)
+
+    assert json.loads(stdout.getvalue()) == {
+        "type": "turn.failed",
+        "error": "interrupted",
+        "phase": "interrupt",
+    }
+
+
 if __name__ == '__main__':
     pass
