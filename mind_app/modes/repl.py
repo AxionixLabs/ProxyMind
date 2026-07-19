@@ -165,7 +165,7 @@ async def mind_loop(mind: "Mind") -> None:
                 await mind.native_coding.running_exec_sessions(),
                 line_width=getattr(Design.console, "width", None)
             )
-            prompt_text = await mind.interaction.read_message(PromptContext(
+            prompt_text = await mind.frontend.interaction.read_message(PromptContext(
                 mode=mode,
                 model=primary_model_prompt_label(pref_config, model),
                 workspace_label=workspace_label,

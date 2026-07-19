@@ -85,7 +85,8 @@ async def stream_looper(
     session_factory = kwargs.pop("session_factory", None)
 
     if session_factory is None:
-        session_factory = getattr(mind, "session_factory", None)
+        frontend = getattr(mind, "frontend", None)
+        session_factory = getattr(frontend, "session_factory", None)
     if session_factory is None:
         session_factory = create_output_session
 
@@ -235,7 +236,7 @@ async def stream_looper(
                 approval = approval_from_event(event)
                 await slog.end_status(immediate=True)
 
-                decision = await mind.interaction.request_approval(approval)
+                decision = await mind.frontend.interaction.request_approval(approval)
 
                 if decision == "expired":
                     await presentation.emit(build_approval_view(

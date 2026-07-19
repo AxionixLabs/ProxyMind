@@ -141,7 +141,9 @@ def test_stream_approval_result_uses_injected_presentation(monkeypatch) -> None:
         level = "show"
 
         def __init__(self) -> None:
-            self.interaction = SimpleNamespace(request_approval=fake_prompt)
+            self.frontend = SimpleNamespace(
+                interaction=SimpleNamespace(request_approval=fake_prompt)
+            )
 
         def is_service_mcp_linked(self) -> bool:
             return False

@@ -25,7 +25,13 @@ from mind_nova.modes import RunMode
 from .mind_core import Mind
 from .interaction import (
     InteractionPort,
+    LegacyInteraction,
     NonInteractiveInteraction
+)
+from .frontend import (
+    ConsoleApplicationSink,
+    Frontend,
+    SilentApplicationSink
 )
 from .output.factory import (
     OutputMode,
@@ -93,6 +99,24 @@ def resolve_cli_interaction(cmd_lines: typing.Any) -> InteractionPort | None:
     if direct_execution_selected(cmd_lines):
         return NonInteractiveInteraction()
     return None
+
+
+def resolve_cli_frontend(
+    cmd_lines: typing.Any,
+    output_mode: OutputMode,
+) -> Frontend:
+    """根据命令入口装配应用前端边界。"""
+    interaction = resolve_cli_interaction(cmd_lines) or LegacyInteraction()
+    application = (
+        SilentApplicationSink()
+        if output_mode == "json"
+        else ConsoleApplicationSink(Design.console)
+    )
+    return Frontend(
+        application=application,
+        interaction=interaction,
+        session_factory=resolve_session_factory(output_mode),
+    )
 
 
 async def resolve_cli_attachments(
@@ -205,6 +229,7 @@ async def _run_main(
 
     cmd_lines   = parser.parse_cmd
     output_mode = resolve_cli_output_mode(cmd_lines)
+    frontend    = resolve_cli_frontend(cmd_lines, output_mode)
 
     # Notes: ========== Start from here ==========
     if output_mode != "json":
@@ -324,8 +349,7 @@ async def _run_main(
         "anim_manager"    : entry_anim_manager,
         "animate"         : output_mode == "tui",
         "output_mode"     : output_mode,
-        "interaction"     : resolve_cli_interaction(cmd_lines),
-        "session_factory" : resolve_session_factory(output_mode),
+        "frontend"        : frontend,
     }
 
     # remote = await global_config_task

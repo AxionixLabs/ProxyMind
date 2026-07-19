@@ -8,6 +8,7 @@ import pytest
 import mind_app.stream_ui as stream_ui_module
 from engine.tinker import MindError
 from mind_app.mind_entry import (
+    resolve_cli_frontend,
     resolve_cli_interaction,
     resolve_cli_output_mode
 )
@@ -20,6 +21,12 @@ from mind_app.output.legacy_content import LegacyContentSink
 from mind_app.output.text import TextOutputControl, create_text_output_session
 from mind_app.presentation.legacy import LegacyPresentationSink
 from mind_app.interaction.noninteractive import NonInteractiveInteraction
+from mind_app.interaction.legacy import LegacyInteraction
+from mind_app.frontend import (
+    ConsoleApplicationSink,
+    Frontend,
+    SilentApplicationSink
+)
 from mind_app.mind_core import Mind
 from mind_app.stream_ui import StreamUI
 
@@ -88,10 +95,16 @@ def test_runtime_control_does_not_depend_on_legacy_render_port() -> None:
         assert ".feed(" not in source
 
 
-def test_mind_owns_injectable_session_factory() -> None:
-    """Mind 保存可替换的输出会话装配入口。"""
+def test_mind_owns_frontend_boundary() -> None:
+    """Mind 只持有聚合后的前端边界。"""
     def factory(*_args, **_kwargs):
         return None
+
+    frontend = Frontend(
+        application=SilentApplicationSink(),
+        interaction=LegacyInteraction(),
+        session_factory=factory,
+    )
 
     mind = Mind(
         [],
@@ -103,10 +116,10 @@ def test_mind_owns_injectable_session_factory() -> None:
         src_opera_place="/tmp/mind",
         src_total_place="/tmp/reports",
         pref=SimpleNamespace(),
-        session_factory=factory,
+        frontend=frontend,
     )
 
-    assert mind.session_factory is factory
+    assert mind.frontend is frontend
 
 
 def test_output_mode_resolves_without_changing_default_factory() -> None:
@@ -145,6 +158,37 @@ def test_cli_output_mode_follows_execution_entry() -> None:
     assert isinstance(json_interaction, NonInteractiveInteraction)
     assert resolve_cli_interaction(SimpleNamespace(**base)) is None
     assert resolve_cli_interaction(SimpleNamespace(**{**base, "agent": True})) is None
+
+
+def test_cli_frontend_aggregates_application_interaction_and_sessions() -> None:
+    """CLI 在构造 Mind 前完成前端能力装配。"""
+    base = {
+        "chat": None,
+        "fast": None,
+        "xtra": None,
+        "agent": False,
+        "code": None,
+        "json": False,
+    }
+
+    tui = resolve_cli_frontend(SimpleNamespace(**base), "tui")
+    text = resolve_cli_frontend(
+        SimpleNamespace(**{**base, "chat": "hello"}),
+        "text",
+    )
+    json_frontend = resolve_cli_frontend(
+        SimpleNamespace(**{**base, "fast": "check", "json": True}),
+        "json",
+    )
+
+    assert isinstance(tui.application, ConsoleApplicationSink)
+    assert isinstance(tui.interaction, LegacyInteraction)
+    assert tui.session_factory is create_output_session
+    assert isinstance(text.interaction, NonInteractiveInteraction)
+    assert text.session_factory is create_text_output_session
+    assert isinstance(json_frontend.application, SilentApplicationSink)
+    assert isinstance(json_frontend.interaction, NonInteractiveInteraction)
+    assert json_frontend.session_factory is create_json_output_session
 
 
 @pytest.mark.parametrize(

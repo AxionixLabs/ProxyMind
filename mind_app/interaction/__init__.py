@@ -6,9 +6,11 @@ from .contracts import (
     PromptContext
 )
 from .noninteractive import NonInteractiveInteraction
+from .legacy import LegacyInteraction
 
 __all__ = [
     "InteractionPort",
+    "LegacyInteraction",
     "NonInteractiveInteraction",
     "PromptContext",
 ]

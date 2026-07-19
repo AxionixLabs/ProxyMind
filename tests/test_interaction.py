@@ -78,9 +78,9 @@ def test_runtime_uses_interaction_port_instead_of_prompt_implementations() -> No
     assert "prompt_tool_approval_decision" not in stream_source
     assert "approval_input_func" not in stream_source
     assert "self.prompt_box" not in mind_source
-    assert "self.interaction: InteractionPort" in mind_source
+    assert "self.frontend: Frontend" in mind_source
     assert "NonInteractiveInteraction" not in mind_source
-    assert "self.interaction = LegacyInteraction()" in mind_source
+    assert "LegacyInteraction" not in mind_source
 
 
 def test_noninteractive_interaction_declines_approval() -> None:

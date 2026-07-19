@@ -43,10 +43,8 @@ from .client_tools import (
     default_registry as default_client_tool_registry
 )
 from .native_coding import NativeCoding
-from .output.factory import OutputMode, create_output_session
-from .output.session import SessionFactory
-from .interaction.contracts import InteractionPort
-from .interaction.legacy import LegacyInteraction
+from .output.factory import OutputMode
+from .frontend import Frontend
 from .history import (
     ConversationHistoryStore,
     HISTORY_LIMIT,
@@ -103,15 +101,7 @@ class Mind(object):
         self.report: Report = Report(self.src_total_place, self.gravity)
         self.attach: Attach = Attach()
 
-        interaction = kwargs.get("interaction")
-
-        if interaction is not None:
-            self.interaction: InteractionPort = interaction
-        else:
-            self.interaction = LegacyInteraction()
-        self.session_factory: SessionFactory = (
-            kwargs.get("session_factory") or create_output_session
-        )
+        self.frontend: Frontend = kwargs["frontend"]
 
         self.native_coding: NativeCoding  = NativeCoding(root=self.history_workspace)
 
