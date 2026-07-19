@@ -6,7 +6,6 @@ from mind_app.stream_events.command_preview import command_text
 from .common import (
     MAX_PREVIEW_WIDTH,
     SCREEN_PREVIEW_LINES,
-    TraceEntry,
     TracePreview,
     _plain_trace_preview_from_lines,
     _result_payload,
@@ -14,6 +13,7 @@ from .common import (
     _summary_lines,
     _trace_preview_from_lines
 )
+from mind_app.presentation.models import TraceEntry
 from .native_helpers import (
     _format_delta,
     _short_sha,

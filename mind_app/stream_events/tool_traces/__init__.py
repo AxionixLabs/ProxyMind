@@ -26,9 +26,9 @@ from .common import (
     PREVIEW_TEXT_STYLE,
     SUCCESS_DOT_STYLE,
     TITLE_STYLE,
-    TraceEntry,
     TracePreview
 )
+from mind_app.presentation.models import TraceEntry
 from .generic import (
     render_generic_tool_result_parts,
     render_generic_tool_result_preview

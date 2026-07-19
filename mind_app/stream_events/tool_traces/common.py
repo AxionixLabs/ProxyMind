@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from dataclasses import dataclass
+from mind_app.presentation.models import TracePreview
 
 MISSING = object()
 
@@ -46,23 +46,6 @@ SCREEN_PREVIEW_LINES      = 5
 MAX_PREVIEW_WIDTH         = 120
 MAX_CODE_PREVIEW_LINES    = 48
 SCREEN_CODE_PREVIEW_LINES = 18
-
-
-@dataclass(frozen=True, slots=True)
-class TracePreview(object):
-    """保存完整预览、屏幕预览和省略行数。"""
-    full: str          = ""
-    screen: str        = ""
-    omitted_lines: int = 0
-    kind: str          = "text"
-
-
-@dataclass(frozen=True, slots=True)
-class TraceEntry(object):
-    """保存一条可独立展示的工具轨迹。"""
-    title: str
-    preview: TracePreview
-    ok: bool = True
 
 
 def _short_text(value: typing.Any, limit: int = 120) -> str:

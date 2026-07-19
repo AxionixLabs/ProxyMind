@@ -4,14 +4,20 @@
 import typing
 from mind_core.design import Design
 from mind_app.client_tools.update_plan import UPDATE_PLAN_TOOL
+from mind_app.presentation.rich import (
+    RenderedBlock,
+    render_generic_tool_result_view,
+    render_tool_start_view,
+)
+from mind_app.presentation.tool_views import (
+    build_generic_tool_result_view,
+    build_tool_start_view,
+)
 from ...output import (
     BLOCK_OUTPUT, OutputPort
 )
 from ...stream_events.tool_trace import (
-    render_generic_tool_result_preview,
     render_tool_result_entries,
-    render_tool_start_preview,
-    render_tool_start_trace,
     render_tool_trace_parts
 )
 from .plan_update_display import render_plan_update
@@ -36,16 +42,17 @@ def _coding_trace_text(
     return trace_text
 
 
-def _generic_trace_text(
-    title: str,
-    preview: typing.Any
-) -> str:
-    """生成普通工具结果的文本轨迹。"""
-    trace_text = title
-    if preview.full:
-        indented_preview = preview.full.replace("\n", "\n  ")
-        trace_text = f"{title}\n└ {indented_preview}"
-    return trace_text
+async def _show_rendered_tool_block(
+    stream_ui: OutputPort,
+    rendered: RenderedBlock,
+) -> None:
+    """通过当前输出端展示已渲染的普通工具块。"""
+    await stream_ui.feed(
+        rendered.text,
+        display=BLOCK_OUTPUT,
+        display_parts=list(rendered.display_parts),
+        preserve_display_parts=rendered.preserve_display_parts,
+    )
 
 
 async def show_tool_start(
@@ -63,15 +70,9 @@ async def show_tool_start(
     if name == UPDATE_PLAN_TOOL:
         return None
 
-    trace_start = render_tool_start_trace(name, arguments)
-
-    await stream_ui.feed(
-        trace_start,
-        display=BLOCK_OUTPUT,
-        display_parts=render_tool_trace_parts(
-            trace_start,
-            preview=render_tool_start_preview(arguments)
-        )
+    await _show_rendered_tool_block(
+        stream_ui,
+        render_tool_start_view(build_tool_start_view(name, arguments)),
     )
 
 
@@ -132,14 +133,15 @@ async def show_tool_result(
     if not display_text:
         return None
 
-    title         = f"• Tool {str(name or 'tool').strip() or 'tool'}"
-    trace_preview = render_generic_tool_result_preview(display_text)
-
-    await stream_ui.feed(
-        _generic_trace_text(title, trace_preview),
-        display=BLOCK_OUTPUT,
-        display_parts=render_tool_trace_parts(title, preview=trace_preview, ok=display_ok),
-        preserve_display_parts=True
+    await _show_rendered_tool_block(
+        stream_ui,
+        render_generic_tool_result_view(
+            build_generic_tool_result_view(
+                name,
+                display_text,
+                ok=display_ok,
+            )
+        ),
     )
 
 
