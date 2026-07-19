@@ -9,7 +9,10 @@ from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
-from mind_core.design import Design
+from mind_app.frontend import (
+    ApplicationSink,
+    ApplicationView
+)
 from mind_core.provider_config import DEFAULT_REASONING_EFFORT
 from mind_core.terminal_input import clear_pending_input
 from .repl_prompt import normalize_reasoning_effort
@@ -125,14 +128,22 @@ def render_model_effort_menu(current_effort: typing.Any, selected: int) -> Style
     return lines
 
 
-def render_model_effort_status(effort: typing.Any) -> None:
+def render_model_effort_status(
+    application: ApplicationSink,
+    effort: typing.Any,
+) -> None:
     """打印当前推理强度状态。"""
     normalized = normalize_reasoning_effort(effort)
-    Design.console.print(
-        f"[bold #AFC7D8]Reasoning Effort[/] "
-        f"[bold #F4F7FA]· {normalized}[/]"
-    )
-    Design.console.print()
+
+    application.emit(ApplicationView(
+        type="repl.model_effort",
+        renderable=(
+            f"[bold #AFC7D8]Reasoning Effort[/] "
+            f"[bold #F4F7FA]· {normalized}[/]"
+        ),
+    ))
+
+    application.emit(ApplicationView(type="repl.gap"))
 
 
 def _default_effort_index(current_effort: str) -> int:

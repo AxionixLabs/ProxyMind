@@ -3,7 +3,10 @@
 
 import typing
 from collections import defaultdict
-from mind_core.design import Design
+from mind_app.frontend import (
+    ApplicationSink,
+    ApplicationView
+)
 from mind_nova.modes import RunMode
 
 GROUP_DISPLAY_LIMIT = 12
@@ -53,6 +56,7 @@ def summarize_tool_groups(
 
 def render_tools_summary(
     *,
+    application: ApplicationSink,
     mode: RunMode,
     tools: list[dict[str, typing.Any]],
     limit: int = GROUP_DISPLAY_LIMIT
@@ -66,14 +70,20 @@ def render_tools_summary(
         if item["source"] == "external"
     )
 
-    Design.console.print(
-        f"[bold #AFC7D8]Tools[/] "
-        f"[dim #7F8C9A]· mode={mode} total={total} external={external_total}[/]"
-    )
+    application.emit(ApplicationView(
+        type="repl.tools.summary",
+        renderable=(
+            f"[bold #AFC7D8]Tools[/] "
+            f"[dim #7F8C9A]· mode={mode} total={total} external={external_total}[/]"
+        ),
+    ))
 
     if not groups:
-        Design.console.print("[bold #7F8C9A]No visible tools.[/]")
-        Design.console.print()
+        application.emit(ApplicationView(
+            type="repl.tools.empty",
+            renderable="[bold #7F8C9A]No visible tools.[/]",
+        ))
+        application.emit(ApplicationView(type="repl.gap"))
         return None
 
     for group in groups:
@@ -83,16 +93,25 @@ def render_tools_summary(
         source = group["source"]
         marker = "external" if source == "external" else "local"
 
-        Design.console.print(
-            f"[bold #F4F7FA]{label}[/] "
-            f"[dim #7F8C9A]({marker} · {detail} · {len(names)})[/]"
-        )
+        application.emit(ApplicationView(
+            type="repl.tools.group",
+            renderable=(
+                f"[bold #F4F7FA]{label}[/] "
+                f"[dim #7F8C9A]({marker} · {detail} · {len(names)})[/]"
+            ),
+        ))
         for name in names[:limit]:
-            Design.console.print(f"[bold #AFC7D8]  •[/] [#DDE7EF]{name}[/]")
+            application.emit(ApplicationView(
+                type="repl.tools.item",
+                renderable=f"[bold #AFC7D8]  •[/] [#DDE7EF]{name}[/]",
+            ))
         if len(names) > limit:
-            Design.console.print(f"[#7F8C9A]  ... and {len(names) - limit} more[/]")
+            application.emit(ApplicationView(
+                type="repl.tools.more",
+                renderable=f"[#7F8C9A]  ... and {len(names) - limit} more[/]",
+            ))
 
-    Design.console.print()
+    application.emit(ApplicationView(type="repl.gap"))
     return None
 
 

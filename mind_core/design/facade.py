@@ -12,8 +12,6 @@ from rich.text import Text
 from rich.console import Console
 from .status import DesignStatusLiveDriver
 from .utils import (
-    DESIGN_CONSOLE,
-    DesignDoc,
     mix_hex_color,
     typewriter as design_typewriter,
     cursor_blink as design_cursor_blink,
@@ -29,12 +27,12 @@ from mind_nova import const
 class Design(DesignStatusLiveDriver):
     """对外保留的设计门面。"""
 
-    console: Console = DESIGN_CONSOLE
-
-    Doc = DesignDoc
+    def __init__(self, console: Console | None = None) -> None:
+        """绑定当前设计实例使用的终端控制台。"""
+        self.console: Console = console or Console()
 
     @staticmethod
-    def startup_logo() -> None:
+    def startup_logo(console: Console) -> None:
         color = random.choice([
             "#7C3AED",
             "#A855F7",
@@ -78,11 +76,11 @@ class Design(DesignStatusLiveDriver):
         """)
         banner = random.choice([banner_standard, banner_speed])
 
-        Design.console.print(f"[bold {color}]{banner}")
-        Design.console.print(const.DECLARE)
+        console.print(f"[bold {color}]{banner}")
+        console.print(const.DECLARE)
 
     @staticmethod
-    def show_intro() -> None:
+    def show_intro(console: Console) -> None:
         """显示启动标识并保留最终版本行。"""
         title = const.APP_DESC
 
@@ -101,7 +99,7 @@ class Design(DesignStatusLiveDriver):
 
         with Live(
             frame(prompt_on=True, title_visible=0, version_visible=False),
-            console=Design.console,
+            console=console,
             refresh_per_second=30,
             transient=True
         ) as live:
@@ -139,11 +137,11 @@ class Design(DesignStatusLiveDriver):
             title_visible=len(title),
             version_visible=True
         )
-        Design.console.print(final)
-        Design.console.print()
+        console.print(final)
+        console.print()
 
     @staticmethod
-    def show_outro() -> None:
+    def show_outro(console: Console) -> None:
         """退场动画：系统解体风格，打字与 glitch 组合后定格。"""
         title = const.APP_DESC
 
@@ -453,7 +451,7 @@ class Design(DesignStatusLiveDriver):
 
             for cell_index in range(side_width):
                 core_distance = (side_width - 1 - cell_index) if profile["anchor"] >= 0.5 else cell_index
-                core_ratio = 1.0 - (core_distance / max(1, side_width - 1))
+                core_ratio    = 1.0 - (core_distance / max(1, side_width - 1))
                 in_core_guard = core_distance < profile["core_guard"]
 
                 if start <= cell_index < end:
@@ -474,6 +472,7 @@ class Design(DesignStatusLiveDriver):
                             inject += 0.36
                         else:
                             inject += 0.28
+
                     energy[cell_index] = min(1.0, max(energy[cell_index], inject))
                     glyph[cell_index]  = weighted_pick(profile["weighted_chars"])
 
@@ -496,6 +495,7 @@ class Design(DesignStatusLiveDriver):
 
         def build_side(field_key: str, *, frame_tick: int, upper: bool, activity: float) -> Text:
             profile = side_profiles[field_key]
+
             energy, glyph = refresh_field(
                 field_key, frame_tick=frame_tick, activity=activity, upper=upper
             )
@@ -511,12 +511,14 @@ class Design(DesignStatusLiveDriver):
                 if cell_level < 0.10:
                     part.append(" ", style=f"bold {theme['noise_dim']}")
                     continue
+
                 core_ratio = 1.0 - (core_distance / max(1, side_width - 1))
                 glow_level = max(0.0, min(1.0, cell_level * (profile["glow_bias"] + (core_ratio * 0.12))))
 
                 char  = glyph[cell_index] if glyph[cell_index] != " " else random.choice(profile["dust_chars"])
                 color = mix_hex_color(theme["noise_dim"], theme["noise_live"], glow_level)
                 part.append(char, style=f"bold {color}")
+
             return part
 
         def build_scanline(activity: float, *, frame_tick: int, upper: bool) -> Text:
@@ -528,9 +530,11 @@ class Design(DesignStatusLiveDriver):
 
             line = Text()
             line.append_text(left)
+
             aperture_width = max(
                 0, core_width + (aperture_offsets["upper"] if upper else aperture_offsets["lower"])
             )
+
             line.append(" " * aperture_width, style=f"bold {theme['noise_dim']}")
             line.append_text(right)
             return center_text(line, pad_style=f"bold {theme['noise_dim']}")
@@ -542,9 +546,10 @@ class Design(DesignStatusLiveDriver):
             glitch_map: dict[int, str] | None = None
         ) -> Text:
             title_color = mix_hex_color(theme["title_dim"], theme["title_live"], max(0.0, min(1.0, glow)))
-            chars: list[tuple[str, str]] = []
 
-            glitch_map = glitch_map or {}
+            chars: list[tuple[str, str]] = []
+            glitch_map: dict[int, str]   = glitch_map or {}
+
             for char_index, char_value in enumerate(title):
                 if char_index < visible:
                     rendered = char_value
@@ -594,7 +599,7 @@ class Design(DesignStatusLiveDriver):
             build_scanline(0.12, frame_tick=3, upper=False),
         )
 
-        with Live(last_frame, console=Design.console, refresh_per_second=30, transient=True) as live:
+        with Live(last_frame, console=console, refresh_per_second=30, transient=True) as live:
             current_tick = 0
 
             for top_intensity, bottom_intensity, pause in (
@@ -674,46 +679,34 @@ class Design(DesignStatusLiveDriver):
                 time.sleep(pause)
                 current_tick += 1
 
-        Design.console.print(last_frame)
+        console.print(last_frame)
 
-    @staticmethod
-    def show_done() -> None:
+    def show_done(self) -> None:
         task_done = textwrap.dedent(f"""\
             [bold #00FF88]
             ╭────────────────────────────────────────╮
             │             {const.APP_DESC} Task Done             │
             ╰────────────────────────────────────────╯
         """)
-        Design.console.print(task_done)
+        self.console.print(task_done)
 
-    @staticmethod
-    def show_exit() -> None:
+    def show_exit(self) -> None:
         task_exit = textwrap.dedent(f"""\
             [bold #FFEE55]
             ╭────────────────────────────────────────╮
             │             {const.APP_DESC} Task Exit             │
             ╰────────────────────────────────────────╯
         """)
-        Design.console.print(task_exit)
+        self.console.print(task_exit)
 
-    @staticmethod
-    def show_fail() -> None:
+    def show_fail(self) -> None:
         task_fail = textwrap.dedent(f"""\
             [bold #FF4444]
             ╭────────────────────────────────────────╮
             │             {const.APP_DESC} Task Fail             │
             ╰────────────────────────────────────────╯
         """)
-        Design.console.print(task_fail)
-
-    @staticmethod
-    def notify_update(local: dict[str, typing.Any], remote: dict[str, typing.Any]) -> None:
-        Design.console.print(
-            f"\n[bold]╭────── update available ──────╮\n"
-            f"current:  [bold #AFFFFF]{local.get('version') or '-'}[/]\n"
-            f"latest :  [bold #AFFFFF]{remote.get('version') or '-'}[/]\n"
-            f"notes  :  [bold #8A8A8A]{remote.get('notes') or '-'}[/]\n"
-        )
+        self.console.print(task_fail)
 
     @staticmethod
     async def typewriter(
@@ -755,25 +748,27 @@ class Design(DesignStatusLiveDriver):
             renderer=renderer
         )
 
-    @staticmethod
-    def build_file_tree(file_path: str) -> None:
-        return design_build_file_tree(file_path, console=Design.console)
+    def build_file_tree(self, file_path: str) -> None:
+        return design_build_file_tree(file_path, console=self.console)
 
-    @staticmethod
-    async def download_animation(state: dict[str, typing.Any], stop_event: asyncio.Event) -> None:
+    async def download_animation(
+        self,
+        state: dict[str, typing.Any],
+        stop_event: asyncio.Event
+    ) -> None:
         return await design_download_animation(
-            console=Design.console,
+            console=self.console,
             state=state,
             stop_event=stop_event
         )
 
-    @staticmethod
     async def upload_progress_live(
+        self,
         stop_event: asyncio.Event,
         snapshot: typing.Callable[[], dict[str, typing.Any]]
     ) -> None:
         return await design_upload_progress_live(
-            console=Design.console,
+            console=self.console,
             stop_event=stop_event,
             snapshot=snapshot
         )

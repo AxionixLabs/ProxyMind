@@ -6,8 +6,8 @@ import time
 import typing
 import asyncio
 from loguru import logger
+from rich.console import Console
 from rich.text import Text
-from mind_core.design import Design
 from mind_app.output.contracts import (
     BLOCK_OUTPUT,
     STREAM_OUTPUT,
@@ -27,10 +27,17 @@ class StreamUI(OutputPort):
     BLOCK: OutputDisplay  = BLOCK_OUTPUT
     STREAM: OutputDisplay = STREAM_OUTPUT
 
-    def __init__(self, log_file: str, *, animate: bool = True) -> None:
+    def __init__(
+        self,
+        log_file: str,
+        *,
+        animate: bool = True,
+        console: Console | None = None,
+    ) -> None:
         """初始化流式终端 UI 的记录、渲染和状态组件。"""
         self.log_file = log_file
         self.animate  = bool(animate)
+        self.console  = console or Console()
 
         self._pending_status_task: typing.Optional[asyncio.Task[None]] = None
         self._pending_status_revealed: typing.Optional[asyncio.Event]  = None
@@ -46,6 +53,18 @@ class StreamUI(OutputPort):
         self._reset_components()
 
         self.record_writer: StreamRecordWriter
+
+    @property
+    def terminal_width(self) -> int | None:
+        """返回当前终端宽度。"""
+        width = getattr(self.console, "width", None)
+        return width if isinstance(width, int) else None
+
+    @property
+    def terminal_height(self) -> int | None:
+        """返回当前终端高度。"""
+        height = getattr(self.console, "height", None)
+        return height if isinstance(height, int) else None
 
     async def open(self) -> None:
         """打开流式输出记录。"""
@@ -264,10 +283,9 @@ class StreamUI(OutputPort):
             f"# tool_args tool={name}{call_part} arguments={payload}"
         )
 
-    @staticmethod
-    def _print_direct(renderable: typing.Any) -> None:
+    def _print_direct(self, renderable: typing.Any) -> None:
         """直接向终端打印一个可渲染对象。"""
-        Design.console.print(renderable)
+        self.console.print(renderable)
 
     @staticmethod
     def _external_output_boundary_prefix(prefix: str, *, has_live_text: bool) -> str:
@@ -288,10 +306,9 @@ class StreamUI(OutputPort):
 
         return "\n" * (2 - trailing)
 
-    @staticmethod
-    def _print_raw(text: str) -> None:
+    def _print_raw(self, text: str) -> None:
         """直接向终端写入原始文本。"""
-        Design.console.print("", end=text)
+        self.console.print("", end=text)
 
     @staticmethod
     def _parts_renderable(parts: list[dict[str, typing.Optional[str]]]) -> Text:
@@ -349,6 +366,7 @@ class StreamUI(OutputPort):
 
         self.record_writer = StreamRecordWriter(self.log_file)
         self.coordinator = RenderCoord(
+            console=self.console,
             refresh_per_second=refresh_per_second
         )
 

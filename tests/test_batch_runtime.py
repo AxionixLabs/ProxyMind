@@ -3,6 +3,7 @@
 import asyncio
 import typing
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 from mind_app.modes import batch
 
@@ -59,6 +60,10 @@ class DummyMind(object):
         self.sessions: list[dict[str, typing.Any]] = []
         self.session_calls: list[dict[str, typing.Any]] = []
         self.cleanup_count = 0
+        self.views: list[typing.Any] = []
+        self.frontend = SimpleNamespace(
+            application=SimpleNamespace(emit=self.views.append),
+        )
 
     async def fresh_pref_config(self, *, ttl_sec: float | None = None) -> dict[str, typing.Any]:
         """返回测试偏好配置。"""
@@ -174,3 +179,44 @@ def test_mind_pack_prepares_context_and_closes_report(monkeypatch) -> None:
         "sid": "sid_batch",
     }
     assert source_calls[0]["kwargs"]["ev_report"] is event_report
+
+
+def test_mind_pack_failure_emits_frontend_view(monkeypatch) -> None:
+    """批处理顶层失败通过 Frontend 展示并关闭报告。"""
+    mind = DummyMind()
+    event_report = DummyEventReport(
+        "chat",
+        "cid_batch",
+        "sid_batch",
+        "mind.batch",
+    )
+    context = batch.PackExecutionContext(
+        code_sources=[],
+        pref_config={},
+        metadata={"cid": "cid_batch", "sid": "sid_batch"},
+        report_url=None,
+        event_report=event_report,
+        runtime=batch.PackRuntime(
+            mode="chat",
+            pref_config={},
+            event_report=event_report,
+            runner=typing.cast(typing.Any, None),
+        ),
+    )
+
+    async def fake_prepare(*args: typing.Any, **kwargs: typing.Any) -> batch.PackExecutionContext:
+        return context
+
+    async def fail_sources(*args: typing.Any, **kwargs: typing.Any) -> None:
+        raise RuntimeError("batch exploded")
+
+    monkeypatch.setattr(batch, "_prepare_pack_context", fake_prepare)
+    monkeypatch.setattr(batch, "_run_pack_sources", fail_sources)
+
+    asyncio.run(batch.mind_pack(mind, ["case.md"], "chat"))
+
+    assert [view.type for view in mind.views] == ["batch.failed", "repl.gap"]
+    assert "batch exploded" in mind.views[0].renderable
+    assert any(event.get("type") == "batch.failed" for event in event_report.events)
+    assert event_report.flush_count == 1
+    assert event_report.close_count == 1

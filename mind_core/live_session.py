@@ -4,6 +4,7 @@
 import random
 import typing
 from collections import deque
+from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 from mind_core.design import Design
@@ -11,10 +12,19 @@ from mind_core.design import Design
 
 class LiveRenderSession(object):
 
-    def __init__(self, refresh_per_second: int = 12) -> None:
+    def __init__(
+        self,
+        refresh_per_second: int = 12,
+        *,
+        console: Console | None = None,
+    ) -> None:
+        self.console  = console or Console()
         self.out: str = ""
+
         self.renderable: typing.Optional[typing.Any] = None
+
         self.refresh_per_second: int = max(1, int(refresh_per_second))
+
         self.live: typing.Optional[Live] = None
 
     def set_refresh_per_second(self, refresh_per_second: int) -> None:
@@ -35,7 +45,7 @@ class LiveRenderSession(object):
 
         self.live = Live(
             self._live_renderable(),
-            console=Design.console,
+            console=self.console,
             refresh_per_second=self.refresh_per_second,
             transient=True,
             vertical_overflow="crop"
@@ -89,9 +99,15 @@ class TypewriterStreamSession(LiveRenderSession):
     MAX_VIEW_LINES = 32
     VIEW_MARGIN    = 6
 
-    def __init__(self, max_lines: int = MAX_VIEW_LINES, refresh_per_second: int = 12) -> None:
+    def __init__(
+        self,
+        max_lines: int = MAX_VIEW_LINES,
+        refresh_per_second: int = 12,
+        *,
+        console: Console | None = None,
+    ) -> None:
         """初始化打字机窗口状态。"""
-        super().__init__(refresh_per_second=refresh_per_second)
+        super().__init__(refresh_per_second=refresh_per_second, console=console)
 
         self.lines: deque = deque(maxlen=max_lines)
         self.col: int     = 0
@@ -100,7 +116,7 @@ class TypewriterStreamSession(LiveRenderSession):
 
     def _viewport_lines(self) -> int:
         """根据当前终端高度计算正文可见行数。"""
-        height   = max(0, int(getattr(Design.console, "height", 0) or 0))
+        height   = max(0, int(getattr(self.console, "height", 0) or 0))
         line_cap = min(int(self.lines.maxlen), self.MAX_VIEW_LINES)
 
         if height <= 0:
@@ -151,10 +167,10 @@ class TypewriterStreamSession(LiveRenderSession):
                 if isinstance(final_renderable, Text):
                     final_renderable = final_renderable.copy()
                     final_renderable.rstrip()
-                Design.console.print(final_renderable)
+                self.console.print(final_renderable)
             else:
-                Design.console.print(Text(final_text))
-            Design.console.print()
+                self.console.print(Text(final_text))
+            self.console.print()
         self.renderable = None
 
     async def feed(self, delta: str) -> None:

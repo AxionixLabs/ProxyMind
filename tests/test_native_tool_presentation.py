@@ -18,6 +18,14 @@ class FakeOutput(object):
         self.end_count = 0
         self.feeds: list[tuple[str, dict]] = []
 
+    @property
+    def terminal_width(self) -> int:
+        return 100
+
+    @property
+    def terminal_height(self) -> int:
+        return 30
+
     async def end_status(self, *, immediate: bool = False) -> None:
         _ = immediate
         self.end_count += 1

@@ -70,8 +70,7 @@ class LegacyPresentationSink(PresentationSink):
                 preserve_display_parts=rendered.preserve_display_parts,
             )
 
-    @staticmethod
-    def _render(view: PresentationView) -> tuple[RenderedBlock, ...]:
+    def _render(self, view: PresentationView) -> tuple[RenderedBlock, ...]:
         """选择与展示数据对应的终端渲染器。"""
         if isinstance(view, (RunStartedView, RunCompletedView)):
             return ()
@@ -82,7 +81,10 @@ class LegacyPresentationSink(PresentationSink):
         if isinstance(view, GenericToolResultView):
             return (render_generic_tool_result_view(view),)
         if isinstance(view, NativeToolResultView):
-            return render_native_tool_result_view(view)
+            return render_native_tool_result_view(
+                view,
+                terminal_width=self.output.terminal_width,
+            )
         if isinstance(view, PlanUpdateView):
             return (render_plan_update_view(view),)
         if isinstance(view, PlanStepsStartView):

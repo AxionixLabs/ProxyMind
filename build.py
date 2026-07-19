@@ -9,7 +9,7 @@ import typing
 import asyncio
 import plistlib
 from pathlib import Path
-from rich.text import Text
+from loguru import logger
 from rich.progress import (
     BarColumn, TimeElapsedColumn,
     Progress, SpinnerColumn, TextColumn,
@@ -28,9 +28,9 @@ try:
 except ImportError:
     raise MindError(f"Use Nuitka {nuitka_version} for stable builds")
 
-compile_log: typing.Any = lambda x: Design.console.print(
-    const.PRINT_HEAD, Text(x, style="bold #ADD8E6")
-)
+def compile_log(value: typing.Any) -> None:
+    """输出一条构建日志。"""
+    logger.info(str(value))
 
 
 async def is_virtual_env() -> None:
@@ -313,7 +313,7 @@ async def packaging() -> tuple[
     return ops, app, site_packages, target, rename, compile_cmd, launch, arch_info, support
 
 
-async def post_build() -> None:
+async def post_build(design: Design) -> None:
     """
     应用打包后的自动依赖检查与部署流程。
     """
@@ -352,7 +352,7 @@ async def post_build() -> None:
         """
         拷贝所有依赖文件与目录至编译产物路径，并执行重命名与缓存清理。
         """
-        bar_width = int(Design.console.width * 0.3)
+        bar_width = int(design.console.width * 0.3)
 
         with Progress(
                 TextColumn(text_format=f"[bold #80C0FF]{const.APP_DESC} | {{task.description}}", justify="right"),
@@ -391,11 +391,11 @@ async def post_build() -> None:
         await edit_plist_fields(ops, rename[-1], {"CFBundleExecutable": launch[0].name})
 
     # Notes: ==== Start from here ====
-    await Design.compile_animation()
+    await design.compile_animation()
 
     build_start_time = time.time()
 
-    Active.active("INFO")
+    Active.active("INFO", console=design.console)
 
     compiles = await packaging()
     ops, app, site_packages, target, rename, *_ = compiles
@@ -436,13 +436,14 @@ async def post_build() -> None:
 
 
 if __name__ == "__main__":
+    build_design = Design()
     try:
-        asyncio.run(post_build())
+        asyncio.run(post_build(build_design))
     except MindError as _e:
         compile_log(_e)
-        Design.show_fail()
+        build_design.show_fail()
         sys.exit(1)
     except KeyboardInterrupt:
-        sys.exit(Design.show_exit())
+        sys.exit(build_design.show_exit())
     else:
-        sys.exit(Design.show_done())
+        sys.exit(build_design.show_done())

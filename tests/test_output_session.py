@@ -1,13 +1,17 @@
 # -*- coding: utf-8 -*-
 
+import functools
 import inspect
+import io
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import mind_app.stream_ui as stream_ui_module
+from rich.console import Console
 from engine.tinker import MindError
 from mind_app.mind_entry import (
+    resolve_cli_design,
     resolve_cli_frontend,
     resolve_cli_interaction,
     resolve_cli_output_mode
@@ -29,6 +33,7 @@ from mind_app.frontend import (
 )
 from mind_app.mind_core import Mind
 from mind_app.stream_ui import StreamUI
+from mind_core.design import Design
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -64,6 +69,46 @@ def test_output_controls_use_nominal_abstract_boundaries() -> None:
     assert not inspect.isabstract(StreamUI)
     assert not inspect.isabstract(TextOutputControl)
     assert not inspect.isabstract(JsonOutputControl)
+
+
+def test_tui_output_session_uses_one_injected_console(tmp_path) -> None:
+    """单轮 TUI 控制、协调器和 Live 会话共享同一 Console。"""
+    console = Console(
+        file=io.StringIO(),
+        width=112,
+        height=36,
+        force_terminal=False,
+    )
+
+    session = create_output_session(
+        str(tmp_path / "stream.log"),
+        console=console,
+    )
+    control = session.control
+
+    assert isinstance(control, StreamUI)
+    assert control.console is console
+    assert control.coordinator.console is console
+    assert control.coordinator.text_renderer.session.console is console
+    assert control.terminal_width == 112
+    assert control.terminal_height == 36
+    assert control.coordinator.text_state.width_provider() == 112
+
+
+def test_tui_output_chain_has_no_global_console_dependency() -> None:
+    """单轮 TUI 输出链不再读取 Design 全局控制台。"""
+    paths = [
+        "mind_app/stream_ui.py",
+        "mind_app/stream_render/coordinator.py",
+        "mind_app/stream_render/text.py",
+        "mind_app/stream_state/text.py",
+        "mind_app/presentation/rich/native_views.py",
+        "mind_core/live_session.py",
+    ]
+
+    for relative_path in paths:
+        source = (ROOT / relative_path).read_text(encoding="utf-8")
+        assert "Design.console" not in source
 
 
 def test_stream_runtime_only_assembles_output_session() -> None:
@@ -117,6 +162,7 @@ def test_mind_owns_frontend_boundary() -> None:
         src_total_place="/tmp/reports",
         pref=SimpleNamespace(),
         frontend=frontend,
+        design=Design(),
     )
 
     assert mind.frontend is frontend
@@ -183,12 +229,20 @@ def test_cli_frontend_aggregates_application_interaction_and_sessions() -> None:
 
     assert isinstance(tui.application, ConsoleApplicationSink)
     assert isinstance(tui.interaction, LegacyInteraction)
-    assert tui.session_factory is create_output_session
+    assert isinstance(tui.session_factory, functools.partial)
+    assert tui.session_factory.func is create_output_session
+    assert tui.session_factory.keywords["console"] is tui.application.console
     assert isinstance(text.interaction, NonInteractiveInteraction)
     assert text.session_factory is create_text_output_session
     assert isinstance(json_frontend.application, SilentApplicationSink)
     assert isinstance(json_frontend.interaction, NonInteractiveInteraction)
     assert json_frontend.session_factory is create_json_output_session
+
+    tui_design = resolve_cli_design(tui)
+    json_design = resolve_cli_design(json_frontend)
+
+    assert tui_design.console is tui.application.console
+    assert json_design.console is not tui_design.console
 
 
 @pytest.mark.parametrize(

@@ -7,7 +7,7 @@ from mind_nova.events import EventReport
 from mind_nova.modes import (
     DEFAULT_RUN_MODE, RunMode
 )
-from ...stream_events.worked import print_worked_footer
+from ...stream_events.worked import emit_worked_footer
 
 if typing.TYPE_CHECKING:
     from mind_app.mcp import McpSessionLike
@@ -42,7 +42,10 @@ async def run_mode_lifecycle(
         await mind.await_cleanup(mind.stop_anim())
 
     if getattr(mind, "output_mode", "tui") != "json":
-        print_worked_footer(time.perf_counter() - started_at)
+        emit_worked_footer(
+            mind.frontend.application,
+            time.perf_counter() - started_at,
+        )
 
 
 async def calling(

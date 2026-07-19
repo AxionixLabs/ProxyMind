@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_core.design import Design
 from mind_app.stream_events.tool_traces.render import render_tool_trace_parts
 from ..models import (
     NativeToolResultView,
@@ -16,12 +15,6 @@ def render_native_tool_result_view(
     terminal_width: int | None = None,
 ) -> tuple[RenderedBlock, ...]:
     """把原生编码工具结果视图转换为当前终端展示。"""
-    width = (
-        getattr(Design.console, "width", None)
-        if terminal_width is None
-        else terminal_width
-    )
-
     return tuple(
         RenderedBlock(
             text=_coding_trace_text(entry.title, entry.preview),
@@ -29,7 +22,7 @@ def render_native_tool_result_view(
                 entry.title,
                 preview=entry.preview,
                 ok=entry.ok,
-                terminal_width=width,
+                terminal_width=terminal_width,
             )),
             preserve_display_parts=True,
         )

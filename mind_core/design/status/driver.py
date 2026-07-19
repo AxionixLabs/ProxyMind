@@ -6,7 +6,6 @@ import typing
 import asyncio
 from rich.live import Live
 from rich.text import Text
-from rich.console import Console
 from ..utils import mix_hex_color
 from .agent_frames import (
     render_agent_connect_frame,
@@ -21,9 +20,6 @@ from mind_nova.modes import (
 
 
 class DesignStatusLiveDriver(StatusRenderer):
-
-    console: Console | None = None
-
     STARTUP_SWEEP_ENTRY_PAD: float     = 5.2
     STARTUP_SWEEP_EXIT_PAD: float      = 7.8
     STARTUP_SWEEP_CHARS_PER_SEC: float = 18.0

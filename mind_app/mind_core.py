@@ -93,7 +93,7 @@ class Mind(object):
             output_mode if output_mode in {"tui", "text", "json"} else "tui"
         )
 
-        self.design: Design = Design()
+        self.design: Design = kwargs["design"]
 
         self.conversation: ConversationState         = ConversationState()
         self.history_store: ConversationHistoryStore = ConversationHistoryStore()

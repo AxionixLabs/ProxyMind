@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from rich.console import Console
 from .session import (
     OutputSession,
     SessionFactory
@@ -14,13 +15,18 @@ def create_output_session(
     log_file: str,
     *,
     animate: bool = True,
+    console: Console | None = None,
 ) -> OutputSession:
     """创建使用当前终端行为的单轮输出会话。"""
     from mind_app.output.legacy_content import LegacyContentSink
     from mind_app.presentation.legacy import LegacyPresentationSink
     from mind_app.stream_ui import StreamUI
 
-    control = StreamUI(log_file, animate=animate)
+    control = (
+        StreamUI(log_file, animate=animate, console=console)
+        if console is not None
+        else StreamUI(log_file, animate=animate)
+    )
 
     return OutputSession(
         control=control,

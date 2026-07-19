@@ -12,6 +12,7 @@ import hashlib
 import platform
 from pathlib import Path
 from copy import deepcopy
+from loguru import logger
 from datetime import (
     datetime, timezone
 )
@@ -22,8 +23,9 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from engine.channel import Channel
 from engine.terminal import Terminal
 from engine.tinker import MindError
-from mind_core.design import Design
 from mind_nova import const
+
+AuthorizationDataEmitter = typing.Callable[[dict[str, typing.Any]], None]
 
 
 def mask_fields(data: dict, keys: list[str], mask_char: str = "*", keep: int = 4) -> dict:
@@ -103,7 +105,7 @@ def network_time() -> typing.Optional["datetime"]:
                     t -= ntp_epoch
                     return datetime.fromtimestamp(t, timezone.utc)
         except Exception as e:
-            Design.Doc.wrn(e)
+            logger.debug(f"[Authorize] NTP failed server={server}: {type(e).__name__}: {e}")
             continue
 
     return None
@@ -135,13 +137,15 @@ def verify_signature(lic_input: typing.Union["Path", dict]) -> dict:
     return auth_info
 
 
-async def verify_license(lic_file: "Path") -> typing.Any:
+async def verify_license(
+    lic_file: "Path",
+    *,
+    emit_data: AuthorizationDataEmitter | None = None
+) -> typing.Any:
     """
     验证本地授权文件是否合法、未过期，并视情况进行更新续签。
     """
-    Design.Doc.log(
-        f"[bold #FFAF5F]Initiating license checkpoint ..."
-    )
+    logger.info("Initiating license checkpoint ...")
 
     if not lic_file.exists():
         raise MindError(f"❌ 需要申请通行证 ...")
@@ -157,15 +161,13 @@ async def verify_license(lic_file: "Path") -> typing.Any:
     if now_time > expire:
         raise MindError(f"⚠️ 通行证过期 -> {exp}")
 
-    Design.Doc.log(
-        f"[bold #87FF87]License verified. Access granted until [bold #5FD7FF]{exp}.\n"
-    )
+    logger.info(f"License verified. Access granted until {exp}.")
 
     code, issued, interval = auth_info["code"], auth_info["issued"], auth_info["interval"]
 
     delta_seconds = (now_time - datetime.fromisoformat(issued)).total_seconds()
     if delta_seconds > interval:
-        return await receive_license(code, lic_file)
+        return await receive_license(code, lic_file, emit_data=emit_data)
 
     return auth_info
 
@@ -202,7 +204,12 @@ async def send(
         raise MindError(f"❌ {e}")
 
 
-async def receive_license(code: str, lic_file: "Path") -> typing.Optional["Path"]:
+async def receive_license(
+    code: str,
+    lic_file: "Path",
+    *,
+    emit_data: AuthorizationDataEmitter | None = None
+) -> typing.Optional["Path"]:
     """
     使用激活码从远程授权服务器获取授权文件，并保存至本地路径。
     """
@@ -216,33 +223,29 @@ async def receive_license(code: str, lic_file: "Path") -> typing.Optional["Path"
         auth_info = verify_signature(lic_file)
         payload["license_id"] = auth_info["license_id"]
 
-    Design.Doc.log(
-        f"[bold #FFAF5F]Transmitting glyph to central authority ..."
-    )
+    logger.info("Transmitting glyph to central authority ...")
 
     async with httpx.AsyncClient(headers=headers, timeout=30) as client:
         bs_lic_data = await send(client, "GET", const.BOOTSTRAP_URL, params=params)
-        auth_info = verify_signature(bs_lic_data)
-        Design.console.print_json(
-            data=mask_fields(
+        auth_info   = verify_signature(bs_lic_data)
+
+        if emit_data is not None:
+            emit_data(mask_fields(
                 auth_info, keys=["url"], keep=5
-            )
-        )
+            ))
         activation_url = auth_info["url"]
 
         ac_lic_data = await send(client, "POST", activation_url, json=payload)
-        auth_info = verify_signature(ac_lic_data)
-        Design.console.print_json(
-            data=mask_fields(
+        auth_info   = verify_signature(ac_lic_data)
+
+        if emit_data is not None:
+            emit_data(mask_fields(
                 auth_info, keys=["code", "castle", "license_id"], keep=10
-            )
-        )
+            ))
 
         await save_lic_file(lic_file, ac_lic_data)
 
-        Design.Doc.log(
-            f"[bold #87FF87]Validation succeeded. activation seal embedded.\n"
-        )
+        logger.info("Validation succeeded. activation seal embedded.")
         return lic_file
 
 

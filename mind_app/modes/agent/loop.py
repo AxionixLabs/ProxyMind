@@ -253,7 +253,7 @@ class AgentSupervisor(object):
             await self.mind.await_cleanup(self.mind.stop_anim())
             await publish_external_access(runtime)
 
-            show_external_access_link()
+            show_external_access_link(self.mind)
 
             if not self.mind.task_event.is_set():
                 await start_status_animation(self.mind, self.live_status)
@@ -347,7 +347,7 @@ class AgentSupervisor(object):
             await self.mind.await_cleanup(self.mind.stop_anim())
             await publish_external_access(runtime)
 
-            show_external_access_link()
+            show_external_access_link(self.mind)
 
             if not self.mind.task_event.is_set():
                 await start_status_animation(self.mind, self.live_status)
@@ -480,7 +480,7 @@ class AgentSupervisor(object):
         await self.mind.await_cleanup(self.mind.stop_anim())
         await publish_external_access(runtime)
 
-        show_external_access_link()
+        show_external_access_link(self.mind)
 
         if not self.mind.task_event.is_set():
             await start_status_animation(self.mind, self.live_status)

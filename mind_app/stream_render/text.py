@@ -2,15 +2,24 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from rich.console import Console
 from mind_core.live_session import TypewriterStreamSession
 
 
 class TextRenderer(object):
     """统一渲染正文和轻量状态。"""
 
-    def __init__(self, *, refresh_per_second: int = 16) -> None:
+    def __init__(
+        self,
+        *,
+        console: Console | None = None,
+        refresh_per_second: int = 16,
+    ) -> None:
         self.default_refresh_per_second = max(1, int(refresh_per_second))
-        self.session = TypewriterStreamSession(refresh_per_second=self.default_refresh_per_second)
+        self.session = TypewriterStreamSession(
+            console=console,
+            refresh_per_second=self.default_refresh_per_second,
+        )
 
     async def show(
         self,

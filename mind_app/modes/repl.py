@@ -7,7 +7,6 @@ import typing
 from engine.tinker import (
     FileAssist, MindError
 )
-from mind_core.design import Design
 from mind_nova.modes import (
     DEFAULT_RUN_MODE, RunMode
 )
@@ -17,11 +16,11 @@ from mind_nova.requests import (
     normalize_access_mode
 )
 from mind_app.interaction import PromptContext
+from mind_app.frontend import ApplicationView
 from .support.repl_commands import (
     exchange_pref_value,
     compact_current_conversation,
     persist_primary_pref,
-    print_attach_gap,
     print_available_tools,
     print_pending_attachments,
     copy_last_assistant_reply,
@@ -57,10 +56,7 @@ from .support.repl_ps import (
     watch_exec_session
 )
 from .support.repl_shell import run_shell_escape
-from .support.repl_turn import (
-    print_turn_body_gap,
-    run_repl_model_turn
-)
+from .support.repl_turn import run_repl_model_turn
 from server import config_service_base_url
 from ..history.resume_menu import choose_history_session
 
@@ -76,6 +72,18 @@ MODE_BY_COMMAND: dict[str, RunMode] = {
 
 async def mind_loop(mind: "Mind") -> None:
     """交互式循环入口：处理命令切换、参数更新和模式调度。"""
+    application = mind.frontend.application
+
+    def present(
+        renderable: typing.Any = None,
+        *,
+        view_type: str = "repl.output",
+    ) -> None:
+        application.emit(ApplicationView(
+            type=view_type,
+            renderable=renderable,
+        ))
+
     quit_set: set[str] = {"/quit", "/q", "quit", "exit"}
     help_set: set[str] = {"/help", "/h"}
     seal_set: set[str] = {"/license", "/lic"}
@@ -163,7 +171,7 @@ async def mind_loop(mind: "Mind") -> None:
         try:
             exec_status_label = exec_status_display_label(
                 await mind.native_coding.running_exec_sessions(),
-                line_width=getattr(Design.console, "width", None)
+                line_width=application.viewport.width
             )
             prompt_text = await mind.frontend.interaction.read_message(PromptContext(
                 mode=mode,
@@ -180,11 +188,11 @@ async def mind_loop(mind: "Mind") -> None:
             continue
 
         if ignored_repl_input(prompt_text):
-            Design.console.print()
+            present()
             continue
 
-        if await run_shell_escape(prompt_text):
-            Design.console.print()
+        if await run_shell_escape(application, prompt_text):
+            present()
             continue
 
         command = prompt_text.strip().lower()
@@ -194,11 +202,11 @@ async def mind_loop(mind: "Mind") -> None:
             break
 
         if command in help_set:
-            Design.console.print(doc)
+            present(doc, view_type="repl.help")
             continue
 
         if command in seal_set:
-            Design.startup_logo()
+            present(view_type="startup_logo")
             continue
 
         if command in new_set:
@@ -206,12 +214,12 @@ async def mind_loop(mind: "Mind") -> None:
                 reason="command:/new",
                 source="repl:new"
             )
-            Design.console.print(
+            present(
                 f"[bold #AFC7D8]New conversation[/] "
                 f"[dim #7F8C9A]· cid={new_conversation_metadata['cid']} "
                 f"sid={new_conversation_metadata['sid']}[/]"
             )
-            Design.console.print()
+            present()
             continue
 
         if command in attachments_set:
@@ -220,24 +228,24 @@ async def mind_loop(mind: "Mind") -> None:
 
         if command in attach_clear_set:
             count = mind.attach.clear_pending_attachments()
-            Design.console.print(f"[bold #AFC7D8]Cleared {count} pending attachment(s).[/]")
-            print_attach_gap()
+            present(f"[bold #AFC7D8]Cleared {count} pending attachment(s).[/]")
+            present()
             continue
 
         if command in shutdown_set:
             mind.stop_runtime_on_exit = True
             mind.task_event.set()
-            Design.console.print("[bold #AFC7D8]Shutdown[/] [dim #7F8C9A]· stop backend runtime[/]")
-            Design.console.print()
+            present("[bold #AFC7D8]Shutdown[/] [dim #7F8C9A]· stop backend runtime[/]")
+            present()
             break
 
         if command.split(maxsplit=1)[0] in permissions_set:
             selected_access_mode = await choose_permissions_mode(access_mode)
             if selected_access_mode is not None:
                 access_mode = normalize_access_mode(selected_access_mode)
-                render_permissions_status(access_mode)
+                render_permissions_status(application, access_mode)
             else:
-                Design.console.print()
+                present()
             continue
 
         if command in tools_set:
@@ -262,7 +270,7 @@ async def mind_loop(mind: "Mind") -> None:
             )
 
             if selected_effort is None:
-                Design.console.print()
+                present()
                 continue
 
             saved_primary = await persist_primary_pref(
@@ -273,6 +281,7 @@ async def mind_loop(mind: "Mind") -> None:
             )
             if saved_primary is not None:
                 render_model_effort_status(
+                    application,
                     saved_primary.get("reasoning_effort") or selected_effort
                 )
             continue
@@ -280,11 +289,15 @@ async def mind_loop(mind: "Mind") -> None:
         if command in ps_set:
             session_id = await choose_exec_session(mind)
             if await watch_exec_session(mind, session_id):
-                Design.console.print()
+                present()
             continue
 
         if m := re_model.match(prompt_text):
-            model_value = await exchange_pref_value(m, pref_command="model")
+            model_value = await exchange_pref_value(
+                application,
+                m,
+                pref_command="model",
+            )
             if model_value is not None:
                 saved_primary = await persist_primary_pref(
                     mind,
@@ -295,18 +308,18 @@ async def mind_loop(mind: "Mind") -> None:
                 if saved_primary is not None:
                     model = str(saved_primary.get("model") or model_value)
                     model_label = model or "(empty)"
-                    Design.console.print(
+                    present(
                         f"[bold #AFC7D8]Model saved[/] "
                         f"[bold #F4F7FA]{model_label}[/]"
                     )
-                    Design.console.print()
+                    present()
             continue
 
         if command in preferences_set:
             url = f"{config_service_base_url()}/pref"
-            Design.console.print(f"[bold #AFC7D8]Preferences[/] [dim #7F8C9A]· {url}[/]")
+            present(f"[bold #AFC7D8]Preferences[/] [dim #7F8C9A]· {url}[/]")
             await FileAssist.open_url(url)
-            Design.console.print()
+            present()
             continue
 
         if command in compact_set:
@@ -346,95 +359,95 @@ async def mind_loop(mind: "Mind") -> None:
         if command in resume_set:
             records = mind.recent_conversation_sessions()
             if not records:
-                Design.console.print(
+                present(
                     "[bold #7F8C9A]No resumable conversations in the last 24 hours.[/]"
                 )
-                Design.console.print()
+                present()
                 continue
 
             selected_record = await choose_history_session(records)
             if selected_record is None:
-                Design.console.print()
+                present()
                 continue
 
             resumed = mind.resume_conversation(selected_record, source="repl:resume")
             if resumed is None:
-                Design.console.print("[bold #FF5F5F]Resume failed: invalid session cursor.[/]")
-                Design.console.print()
+                present("[bold #FF5F5F]Resume failed: invalid session cursor.[/]")
+                present()
                 continue
 
-            Design.console.print(
+            present(
                 f"[bold #AFC7D8]Resumed[/] "
                 f"[dim #7F8C9A]· cid={resumed['cid']} sid={resumed['sid']}[/]"
             )
-            Design.console.print()
+            present()
             continue
 
         if command in MODE_BY_COMMAND:
-            Design.console.print()
+            present()
             mode = MODE_BY_COMMAND[command]
             continue
 
         if m := re_attach.match(prompt_text):
             value = m.group(1).strip() if m.group(1) else ""
             if not value:
-                Design.console.print("[bold #FF5F5F]attach invalid: /attach <path|dir|glob>[/]")
-                print_attach_gap()
+                present("[bold #FF5F5F]attach invalid: /attach <path|dir|glob>[/]")
+                present()
                 continue
             try:
                 result = mind.attach.add_pending_attachments(value)
             except MindError as attach_error:
-                Design.console.print(f"[bold #FF5F5F]{attach_error}[/]")
-                print_attach_gap()
+                present(f"[bold #FF5F5F]{attach_error}[/]")
+                present()
                 continue
 
             added    = result.get("added") or []
             existing = result.get("existing") or []
             skipped  = result.get("skipped") or []
 
-            Design.console.print(
+            present(
                 f"[bold #5FD7AF]Attach summary[/] "
                 f"[bold #F4F7FA]{len(added)} added[/] "
                 f"[#7F8C9A]· {len(existing)} existing · {len(skipped)} skipped[/]"
             )
             for added_attachment in added[:5]:
-                Design.console.print(
+                present(
                     f"[bold #AFC7D8]  +[/] "
                     f"[bold #F4F7FA]{added_attachment.get('filename') or '-'}[/] "
                     f"[#7F8C9A]({added_attachment.get('kind') or 'file'})[/]"
                 )
             if len(added) > 5:
-                Design.console.print(f"[#7F8C9A]  ... and {len(added) - 5} more added[/]")
+                present(f"[#7F8C9A]  ... and {len(added) - 5} more added[/]")
             if skipped:
-                Design.console.print(
+                present(
                     f"[#FFB86B]Skipped[/] "
                     f"{', '.join(str(skipped_attachment.get('filename') or '-') for skipped_attachment in skipped[:3])}"
                 )
-            print_attach_gap()
+            present()
             continue
 
         if m := re_detach.match(prompt_text):
             value = m.group(1).strip() if m.group(1) else ""
             if not value:
-                Design.console.print("[bold #FF5F5F]detach invalid: /detach <index|path>[/]")
-                print_attach_gap()
+                present("[bold #FF5F5F]detach invalid: /detach <index|path>[/]")
+                present()
                 continue
             try:
                 removed_attachment = mind.attach.remove_pending_attachment(value)
             except MindError as detach_error:
-                Design.console.print(f"[bold #FF5F5F]{detach_error}[/]")
-                print_attach_gap()
+                present(f"[bold #FF5F5F]{detach_error}[/]")
+                present()
                 continue
 
-            Design.console.print(
+            present(
                 f"[bold #AFC7D8]Detached[/] "
                 f"[bold #F4F7FA]{removed_attachment.get('filename') or '-'}[/]"
             )
-            print_attach_gap()
+            present()
             continue
 
         pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
-        print_turn_body_gap()
+        present()
         mind.native_coding.reset_patch_diff()
 
         await run_repl_model_turn(

@@ -4,9 +4,10 @@
 import httpx
 import typing
 from loguru import logger
-from mind_core.design import Design
+from mind_app.frontend import ApplicationView
 from .models import (
-    AgentLiveStatus, AgentSessionRuntime
+    AgentLiveStatus,
+    AgentSessionRuntime
 )
 from server import config_service_base_url
 
@@ -62,9 +63,13 @@ async def publish_external_access(runtime: AgentSessionRuntime) -> None:
         return None
 
 
-def show_external_access_link() -> None:
+def show_external_access_link(mind: "Mind") -> None:
     """输出本地 agent 示例页面链接。"""
-    Design.console.print(f"🌐 Agent: {config_service_base_url()}/agent\n")
+    mind.frontend.application.emit(ApplicationView(
+        type="agent.external_access",
+        renderable=f"🌐 Agent: {config_service_base_url()}/agent",
+        end="\n\n",
+    ))
 
 
 if __name__ == '__main__':

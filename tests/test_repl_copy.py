@@ -13,6 +13,16 @@ def run_async(value: object) -> object:
     return asyncio.run(value)
 
 
+def copy_mind(text: str, views: list[object]) -> SimpleNamespace:
+    """构造带应用输出边界的复制命令测试对象。"""
+    return SimpleNamespace(
+        last_assistant_reply_snapshot=lambda: text,
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append)
+        ),
+    )
+
+
 def test_segment_tracker_assistant_text_keeps_markdown_raw() -> None:
     """模型正文缓存保留 Markdown 原文。"""
     tracker = SegmentTracker()
@@ -86,30 +96,34 @@ def test_stream_display_event_is_assistant_output_boundary() -> None:
 def test_copy_last_assistant_reply_uses_clipboard_helper(monkeypatch) -> None:
     """复制命令使用剪贴板 helper 写入缓存原文。"""
     copied: list[str] = []
+    views: list[object] = []
 
     async def fake_copy(text: str) -> None:
         copied.append(text)
 
     monkeypatch.setattr(repl_commands, "copy_text_to_clipboard", fake_copy)
 
-    mind = SimpleNamespace(last_assistant_reply_snapshot=lambda: "**raw**")
+    mind = copy_mind("**raw**", views)
 
     run_async(repl_commands.copy_last_assistant_reply(mind))
 
     assert copied == ["**raw**"]
+    assert len(views) == 2
 
 
 def test_copy_last_assistant_reply_ignores_empty_message(monkeypatch) -> None:
     """空回复不会调用剪贴板 helper。"""
     copied: list[str] = []
+    views: list[object] = []
 
     async def fake_copy(text: str) -> None:
         copied.append(text)
 
     monkeypatch.setattr(repl_commands, "copy_text_to_clipboard", fake_copy)
 
-    mind = SimpleNamespace(last_assistant_reply_snapshot=lambda: "")
+    mind = copy_mind("", views)
 
     run_async(repl_commands.copy_last_assistant_reply(mind))
 
     assert copied == []
+    assert len(views) == 2

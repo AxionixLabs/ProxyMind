@@ -2,7 +2,10 @@
 # Notes: ==== Mind™ ====
 
 from rich.text import Text
-from mind_core.design import Design
+from mind_app.frontend import (
+    ApplicationSink,
+    ApplicationView
+)
 from mind_core.design.status.elapsed import format_elapsed
 from mind_app.stream_events.compact_rule import full_rule_width
 
@@ -39,12 +42,19 @@ def render_worked_footer(elapsed_sec: float, *, width: int | None = None) -> Tex
     return out
 
 
-def print_worked_footer(elapsed_sec: float) -> None:
-    """按当前终端宽度打印耗时页脚。"""
-    Design.console.print(
-        render_worked_footer(elapsed_sec, width=getattr(Design.console, "width", 80))
-    )
-    Design.console.print()
+def emit_worked_footer(
+    application: ApplicationSink,
+    elapsed_sec: float
+) -> None:
+    """按当前前端宽度发送耗时页脚。"""
+    application.emit(ApplicationView(
+        type="run.worked",
+        renderable=render_worked_footer(
+            elapsed_sec,
+            width=application.viewport.width,
+        ),
+    ))
+    application.emit(ApplicationView(type="run.gap"))
 
 
 if __name__ == '__main__':

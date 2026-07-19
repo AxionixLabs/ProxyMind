@@ -1,31 +1,31 @@
 from playwright.sync_api import sync_playwright
 
-# Example: Discovering buttons and other elements on a page
+# 示例：发现页面中的按钮和其他元素
 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
     page = browser.new_page()
 
-    # Navigate to page and wait for it to fully load
+    # 打开页面并等待加载完成
     page.goto('http://localhost:5173')
     page.wait_for_load_state('networkidle')
 
-    # Discover all buttons on the page
+    # 发现页面中的全部按钮
     buttons = page.locator('button').all()
     print(f"Found {len(buttons)} buttons:")
     for i, button in enumerate(buttons):
         text = button.inner_text() if button.is_visible() else "[hidden]"
         print(f"  [{i}] {text}")
 
-    # Discover links
+    # 发现链接
     links = page.locator('a[href]').all()
     print(f"\nFound {len(links)} links:")
-    for link in links[:5]:  # Show first 5
+    for link in links[:5]:  # 显示前五个链接
         text = link.inner_text().strip()
         href = link.get_attribute('href')
         print(f"  - {text} -> {href}")
 
-    # Discover input fields
+    # 发现输入字段
     inputs = page.locator('input, textarea, select').all()
     print(f"\nFound {len(inputs)} input fields:")
     for input_elem in inputs:
@@ -33,7 +33,7 @@ with sync_playwright() as p:
         input_type = input_elem.get_attribute('type') or 'text'
         print(f"  - {name} ({input_type})")
 
-    # Take screenshot for visual reference
+    # 截图以供视觉检查
     page.screenshot(path='/tmp/page_discovery.png', full_page=True)
     print("\nScreenshot saved to /tmp/page_discovery.png")
 

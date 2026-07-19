@@ -2,8 +2,10 @@
 
 import asyncio
 import typing
+from types import SimpleNamespace
 
 from mind_app.runtime.support import calling as calling_module
+from mind_app.stream_events.worked import emit_worked_footer
 
 
 class DummyMind(object):
@@ -11,6 +13,13 @@ class DummyMind(object):
 
     def __init__(self) -> None:
         self.session_called = False
+        self.views: list[typing.Any] = []
+        self.frontend = SimpleNamespace(
+            application=SimpleNamespace(
+                viewport=SimpleNamespace(width=48, height=24),
+                emit=self.views.append,
+            ),
+        )
 
     async def stream_looper(self, *_: typing.Any, **__: typing.Any) -> None:
         """占位流式执行器。"""
@@ -70,3 +79,14 @@ def test_calling_mcp_session_callback_annotations_are_runtime_safe(monkeypatch) 
     assert calls[0]["message"] == "你好"
     assert calls[0]["metadata"]["cid"] == "cid_test"
     assert calls[0]["metadata"]["sid"] == "sid_test"
+
+
+def test_emit_worked_footer_uses_frontend_viewport() -> None:
+    """耗时页脚按 Frontend 宽度发送应用展示。"""
+    mind = DummyMind()
+
+    emit_worked_footer(mind.frontend.application, 1.25)
+
+    assert [view.type for view in mind.views] == ["run.worked", "run.gap"]
+    assert "Worked for 1.2s" in mind.views[0].renderable.plain
+    assert len(mind.views[0].renderable.plain) == 48

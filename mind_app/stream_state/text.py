@@ -4,7 +4,6 @@
 import typing
 from rich.console import Group
 from rich.text import Text
-from mind_core.design import Design
 from mind_app.stream_state.boundary import (
     ExternalOutputBoundary,
     OutputBoundaryState
@@ -25,8 +24,12 @@ class TextState(object):
     MAX_BLOCK_LIMIT = 320
     BLOCK_LINES     = 2
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        width_provider: typing.Callable[[], int | None] | None = None,
+    ) -> None:
         """初始化文本段、可见文本和最终正文缓存。"""
+        self.width_provider = width_provider or (lambda: None)
         self.display_segments: list[dict[str, typing.Any]]           = []
         self.visible_segments: list[dict[str, typing.Optional[str]]] = []
 
@@ -436,7 +439,7 @@ class TextState(object):
 
     def _line_limit(self) -> int:
         """根据终端宽度计算流式行宽限制。"""
-        width = max(0, int(getattr(Design.console, "width", 0) or 0))
+        width = max(0, int(self.width_provider() or 0))
         limit = width - self.LINE_PADDING
         return max(self.MIN_LINE_LIMIT, min(self.MAX_LINE_LIMIT, limit))
 

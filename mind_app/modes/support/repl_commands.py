@@ -8,6 +8,10 @@ from engine.tinker import (
     MindError, FileAssist
 )
 from mind_app.mcp import McpSessionLike
+from mind_app.frontend import (
+    ApplicationSink,
+    ApplicationView
+)
 from mind_app.runtime.mcp.service_runtime import prepare_and_start_service_runtime
 from mind_app.runtime.support.clipboard import (
     ClipboardError,
@@ -15,7 +19,6 @@ from mind_app.runtime.support.clipboard import (
 )
 from mind_app.stream_events.failure_display import render_failure_text
 from mind_nova import const
-from mind_core.design import Design
 from mind_nova.modes import RunMode
 from mind_nova.requests import (
     build_compact_payload,
@@ -26,6 +29,19 @@ from .repl_tools import render_tools_summary
 
 if typing.TYPE_CHECKING:
     from ...mind_core import Mind
+
+
+def _present(
+    mind: "Mind",
+    renderable: typing.Any = None,
+    *,
+    view_type: str = "repl.command",
+) -> None:
+    """发送一项 REPL 命令展示。"""
+    mind.frontend.application.emit(ApplicationView(
+        type=view_type,
+        renderable=renderable,
+    ))
 
 
 class CompactLiveStatus(object):
@@ -74,6 +90,7 @@ def compact_animation_enabled(mind: "Mind") -> bool:
 
 
 async def exchange_pref_value(
+    application: ApplicationSink,
     matcher: re.Match[str],
     pref_command: typing.Literal["model", "apikey", "base-url"]
 ) -> typing.Optional[str]:
@@ -95,11 +112,18 @@ async def exchange_pref_value(
             styles = ["<url> (Provider base URL)"]
 
     for style in styles:
-        Design.console.print(f"[bold #AFC7D8]  • {style}[/]")
-    Design.console.print(
-        f"[bold #FF5F5F]\n {pref_command} invalid: /{pref_command} {const.ERR}{pref_name}"
-    )
-    Design.console.print()
+        application.emit(ApplicationView(
+            type="repl.preference.help",
+            renderable=f"[bold #AFC7D8]  • {style}[/]",
+        ))
+    application.emit(ApplicationView(
+        type="repl.preference.invalid",
+        renderable=(
+            f"[bold #FF5F5F]\n {pref_command} invalid: "
+            f"/{pref_command} {const.ERR}{pref_name}"
+        ),
+    ))
+    application.emit(ApplicationView(type="repl.gap"))
     return None
 
 
@@ -115,11 +139,12 @@ async def persist_primary_pref(
         saved = await save_primary_pref_field(field_name, field_value)
         await mind.refresh_pref_if_stale(ttl_sec=0.0)
     except (OSError, TypeError, ValueError) as pref_save_error:
-        Design.console.print(
+        _present(
+            mind,
             f"[bold #FF5F5F]{command_name} save failed: "
             f"{type(pref_save_error).__name__}: {pref_save_error}[/]"
         )
-        Design.console.print()
+        _present(mind, view_type="repl.gap")
         return None
 
     saved_primary = saved.get("primary") if isinstance(saved, dict) else {}
@@ -209,43 +234,40 @@ def print_pending_attachments(mind: "Mind") -> None:
     """打印当前待发送附件列表。"""
     attachments = mind.attach.pending_attachments_snapshot()
     if not attachments:
-        Design.console.print("[bold #7F8C9A]No pending attachments.[/]")
-        print_attach_gap()
+        _present(mind, "[bold #7F8C9A]No pending attachments.[/]")
+        _present(mind, view_type="repl.gap")
         return None
 
-    Design.console.print(f"[bold #AFC7D8]Pending attachments ({len(attachments)}):[/]")
+    _present(mind, f"[bold #AFC7D8]Pending attachments ({len(attachments)}):[/]")
     for index, attachment in enumerate(attachments, start=1):
         size = int(attachment.get("size") or 0)
-        Design.console.print(
+        _present(
+            mind,
             f"[bold #AFC7D8]  {index}.[/] "
             f"[bold #F4F7FA]{attachment.get('filename') or '-'}[/] "
             f"[#7F8C9A]({attachment.get('kind') or 'file'} · {size} bytes)[/]"
         )
-        Design.console.print(f"[#7F8C9A]     {attachment.get('local') or '-'}[/]")
-    print_attach_gap()
-
-
-def print_attach_gap() -> None:
-    Design.console.print()
+        _present(mind, f"[#7F8C9A]     {attachment.get('local') or '-'}[/]")
+    _present(mind, view_type="repl.gap")
 
 
 async def copy_last_assistant_reply(mind: "Mind") -> None:
     """复制最近一次模型回复到剪贴板。"""
     text = mind.last_assistant_reply_snapshot()
     if not text:
-        Design.console.print("[bold #7F8C9A]No assistant message to copy.[/]")
-        Design.console.print()
+        _present(mind, "[bold #7F8C9A]No assistant message to copy.[/]")
+        _present(mind, view_type="repl.gap")
         return None
 
     try:
         await copy_text_to_clipboard(text)
     except ClipboardError as error:
-        Design.console.print(f"[bold #FF5F5F]Copy failed: {error}[/]")
-        Design.console.print()
+        _present(mind, f"[bold #FF5F5F]Copy failed: {error}[/]")
+        _present(mind, view_type="repl.gap")
         return None
 
-    Design.console.print("[bold #AFC7D8]Copied last message to clipboard[/]")
-    Design.console.print()
+    _present(mind, "[bold #AFC7D8]Copied last message to clipboard[/]")
+    _present(mind, view_type="repl.gap")
 
 
 async def link_helix_runtime(mind: "Mind") -> None:
@@ -253,13 +275,13 @@ async def link_helix_runtime(mind: "Mind") -> None:
     try:
         helix_linked = await prepare_and_start_service_runtime(mind)
     except MindError as error:
-        Design.console.print(f"[bold #FF5F5F]Helix link failed: {error}[/]")
-        Design.console.print()
+        _present(mind, f"[bold #FF5F5F]Helix link failed: {error}[/]")
+        _present(mind, view_type="repl.gap")
         return None
 
     if not helix_linked:
-        Design.console.print("[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]")
-        Design.console.print()
+        _present(mind, "[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]")
+        _present(mind, view_type="repl.gap")
 
 
 def unlink_helix_runtime(mind: "Mind") -> None:
@@ -267,8 +289,8 @@ def unlink_helix_runtime(mind: "Mind") -> None:
     was_linked = mind.is_service_mcp_linked()
     mind.unlink_service_mcp()
     state = "unlinked" if was_linked else "already unlinked"
-    Design.console.print(f"[bold #AFC7D8]Helix[/] [dim #7F8C9A]· {state}[/]")
-    Design.console.print()
+    _present(mind, f"[bold #AFC7D8]Helix[/] [dim #7F8C9A]· {state}[/]")
+    _present(mind, view_type="repl.gap")
 
 
 async def open_helix_home(mind: "Mind") -> None:
@@ -276,20 +298,20 @@ async def open_helix_home(mind: "Mind") -> None:
     try:
         helix_ready = await prepare_and_start_service_runtime(mind)
     except MindError as error:
-        Design.console.print(f"[bold #FF5F5F]Helix home failed: {error}[/]")
-        Design.console.print()
+        _present(mind, f"[bold #FF5F5F]Helix home failed: {error}[/]")
+        _present(mind, view_type="repl.gap")
         return None
 
     if not helix_ready:
-        Design.console.print("[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]")
-        Design.console.print()
+        _present(mind, "[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]")
+        _present(mind, view_type="repl.gap")
         return None
 
     url = helix_runtime_home_url(mind)
 
-    Design.console.print(f"[bold #AFC7D8]Helix Home[/] [dim #7F8C9A]· {url}[/]")
+    _present(mind, f"[bold #AFC7D8]Helix Home[/] [dim #7F8C9A]· {url}[/]")
     await FileAssist.open_url(url)
-    Design.console.print()
+    _present(mind, view_type="repl.gap")
 
 
 def helix_runtime_home_url(mind: "Mind") -> str:
@@ -302,14 +324,14 @@ def helix_runtime_home_url(mind: "Mind") -> str:
 
 async def stop_helix_runtime(mind: "Mind") -> None:
     """停止 Helix 服务并打印结果。"""
-    Design.console.print("[bold #AFC7D8]Helix[/] [dim #7F8C9A]· stop[/]")
+    _present(mind, "[bold #AFC7D8]Helix[/] [dim #7F8C9A]· stop[/]")
     try:
         await mind.stop_service_runtime()
     except MindError as error:
-        Design.console.print(f"[bold #FF5F5F]Helix stop failed: {error}[/]")
-        Design.console.print()
+        _present(mind, f"[bold #FF5F5F]Helix stop failed: {error}[/]")
+        _present(mind, view_type="repl.gap")
         return None
-    Design.console.print()
+    _present(mind, view_type="repl.gap")
 
 
 async def print_available_tools(
@@ -326,6 +348,7 @@ async def print_available_tools(
         _ = session
 
         render_tools_summary(
+            application=mind.frontend.application,
             mode=run_mode,
             tools=tools
         )
@@ -340,8 +363,8 @@ async def print_available_tools(
         message = str(tool_error).strip()
         error   = f"{type(tool_error).__name__}: {message}" if message else type(tool_error).__name__
 
-        Design.console.print(render_failure_text("tools.failed", error))
-        Design.console.print()
+        _present(mind, render_failure_text("tools.failed", error))
+        _present(mind, view_type="repl.gap")
 
 
 if __name__ == '__main__':

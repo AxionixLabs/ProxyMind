@@ -2,8 +2,10 @@
 
 import asyncio
 import typing
+from types import SimpleNamespace
 
 from mind_app.modes.agent import loop as agent_loop_module
+from mind_app.modes.agent import ui as agent_ui_module
 from mind_app.modes.agent.loop import (
     AgentConnection,
     AgentSupervisor
@@ -21,6 +23,10 @@ class DummyMind(object):
     def __init__(self) -> None:
         self.task_event = asyncio.Event()
         self.stop_count = 0
+        self.views: list[typing.Any] = []
+        self.frontend = SimpleNamespace(
+            application=SimpleNamespace(emit=self.views.append),
+        )
 
     async def stop_anim(self) -> None:
         """记录停止动画调用。"""
@@ -79,6 +85,23 @@ def build_runtime() -> AgentSessionRuntime:
         forwarded_message_ids={"msg_seen"},
         pending_tasks=set(),
     )
+
+
+def test_external_access_link_emits_frontend_view(monkeypatch) -> None:
+    """Agent 示例链接通过 Frontend 应用端展示。"""
+    mind = DummyMind()
+    monkeypatch.setattr(
+        agent_ui_module,
+        "config_service_base_url",
+        lambda: "http://127.0.0.1:7777",
+    )
+
+    agent_ui_module.show_external_access_link(mind)
+
+    assert len(mind.views) == 1
+    assert mind.views[0].type == "agent.external_access"
+    assert mind.views[0].renderable == "🌐 Agent: http://127.0.0.1:7777/agent"
+    assert mind.views[0].end == "\n\n"
 
 
 def open_payload() -> dict[str, typing.Any]:
@@ -258,9 +281,9 @@ def test_agent_supervisor_run_initial_connection_lifecycle(monkeypatch) -> None:
         """记录外部调用示例发布。"""
         events.append(("publish", actual_runtime))
 
-    def fake_show_external_access_link() -> None:
+    def fake_show_external_access_link(actual_mind: DummyMind) -> None:
         """记录外部调用示例展示。"""
-        events.append(("show",))
+        events.append(("show", actual_mind))
 
     async def fake_cancel_runtime_tasks(actual_runtime: AgentSessionRuntime) -> None:
         """记录任务清理。"""
@@ -286,7 +309,7 @@ def test_agent_supervisor_run_initial_connection_lifecycle(monkeypatch) -> None:
     assert events == [
         ("connect_anim", mind, live_status),
         ("publish", runtime),
-        ("show",),
+        ("show", mind),
         ("status_anim", mind, live_status),
         ("cancel", runtime),
     ]

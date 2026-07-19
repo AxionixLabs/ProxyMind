@@ -87,6 +87,18 @@ class OutputControlPort(ABC):
 class OutputPort(OutputControlPort):
     """描述终端渲染适配器需要的完整输出能力。"""
 
+    @property
+    @abstractmethod
+    def terminal_width(self) -> int | None:
+        """返回当前终端宽度。"""
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def terminal_height(self) -> int | None:
+        """返回当前终端高度。"""
+        raise NotImplementedError
+
     @abstractmethod
     async def feed(
         self,

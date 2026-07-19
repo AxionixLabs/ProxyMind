@@ -14,10 +14,14 @@ from urllib.parse import urlparse
 from loguru import logger
 from mcp import types as mcp_types
 from engine.tinker import MindError
-from mind_core.design import Design
 from mind_nova import (
     authentic, const, request, craft
 )
+
+UpdateNotifier = typing.Callable[
+    [dict[str, typing.Any], dict[str, typing.Any]],
+    None
+]
 
 class ServerManage(object):
     """管理本地后台服务的启动、探测、重启和关闭。"""
@@ -26,12 +30,14 @@ class ServerManage(object):
         self,
         cmd: list[str],
         timeout: float = 0.6,
-        env: typing.Optional[dict[str, str]] = None
+        env: typing.Optional[dict[str, str]] = None,
+        on_update: UpdateNotifier | None = None
     ):
         """保存启动命令并初始化本地服务 HTTP 客户端。"""
-        self.cmd = cmd
-        self.env = dict(env or {})
-        self.url = const.BASE_URL.rstrip("/")
+        self.cmd       = cmd
+        self.env       = dict(env or {})
+        self.on_update = on_update
+        self.url       = const.BASE_URL.rstrip("/")
 
         parsed    = urlparse(self.url)
         self.port = int(parsed.port or 80)
@@ -70,7 +76,7 @@ class ServerManage(object):
         return rv > lv
 
     async def check_update(self) -> None:
-        """检查远端清单并在发现新版本时展示更新提示。"""
+        """检查远端清单并在发现新版本时发送通知。"""
         if not (local := await self.probe_version()):
             return None
 
@@ -78,7 +84,8 @@ class ServerManage(object):
             return None
 
         if self.has_new(local, remote):
-            Design.notify_update(local, remote)
+            if self.on_update is not None:
+                self.on_update(local, remote)
         else:
             logger.debug(
                 f"[Version] up to date: "

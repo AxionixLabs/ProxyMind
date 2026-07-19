@@ -1,17 +1,20 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from rich.console import Console
 
 from mind_app.stream_render.coordinator import RenderCoord
 from mind_app.stream_state.text import TextState
-from mind_core.design import Design
 from mind_core.design import utils as design_utils
 from mind_core.live_session import TypewriterStreamSession
 
 
+STYLE_CONSOLE = Console()
+
+
 def is_bold(renderable, offset: int) -> bool:
     """判断文本指定位置是否启用了粗体。"""
-    return renderable.get_style_at_offset(Design.console, offset).bold is True
+    return renderable.get_style_at_offset(STYLE_CONSOLE, offset).bold is True
 
 
 def test_typewriter_live_body_uses_regular_weight() -> None:

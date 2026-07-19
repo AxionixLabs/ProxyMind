@@ -3,11 +3,13 @@
 
 import typing
 import asyncio
+from rich.console import Console
 from rich.text import Text
 from mind_core.design import Design
 from mind_app.stream_render.animation import AnimDriver
 from mind_app.stream_state.status import (
-    StatusFamily, StatusState
+    StatusFamily,
+    StatusState
 )
 from mind_app.stream_render.text import TextRenderer
 from mind_app.stream_state.text import TextState
@@ -16,13 +18,20 @@ from mind_app.stream_state.text import TextState
 class RenderCoord(object):
     """用单一 typewriter live 合成正文与轻量状态动画。"""
 
-    def __init__(self, *, refresh_per_second: int = 16) -> None:
+    def __init__(
+        self,
+        *,
+        console: Console | None = None,
+        refresh_per_second: int = 16,
+    ) -> None:
         self.refresh_per_second = max(1, int(refresh_per_second))
 
-        self.text_state   = TextState()
+        self.console = console or Console()
+
+        self.text_state   = TextState(width_provider=lambda: self.console.width)
         self.status_state = StatusState()
 
-        self.reserve_status_slot = False
+        self.reserve_status_slot: bool = False
 
         self.status_driver = AnimDriver(
             is_active=lambda: self.status_state.animating,
@@ -30,7 +39,10 @@ class RenderCoord(object):
             get_phase_rate=self.status_state.phase_rate,
             on_tick=self._on_status_tick
         )
-        self.text_renderer = TextRenderer(refresh_per_second=self.refresh_per_second)
+        self.text_renderer = TextRenderer(
+            console=self.console,
+            refresh_per_second=self.refresh_per_second,
+        )
         self.render_lock: asyncio.Lock = asyncio.Lock()
 
     async def stop(self, *, blink: bool = True) -> None:

@@ -4,7 +4,7 @@
 import typing
 from engine.tinker import MindError
 from mind_app.mcp import McpSessionLike
-from mind_core.design import Design
+from mind_app.frontend import ApplicationView
 from mind_core.design.upload import UploadProgressLiveReporter
 from mind_nova.events import EventReport
 from mind_nova.modes import RunMode
@@ -12,14 +12,6 @@ from ...runtime.support.calling import resolve_mode_runner
 
 if typing.TYPE_CHECKING:
     from ...mind_core import Mind
-
-
-def print_turn_body_gap() -> None:
-    Design.console.print()
-
-
-def print_attach_gap() -> None:
-    Design.console.print()
 
 
 async def run_repl_model_turn(
@@ -78,7 +70,6 @@ async def upload_pending_repl_attachments(
 ) -> typing.Optional[list[dict[str, typing.Any]]]:
     """上传当前待发送附件；失败时打印错误并返回 None。"""
     attachments = mind.attach.pending_attachments_snapshot()
-    reporter    = UploadProgressLiveReporter(Design.console)
 
     upload_state: dict[str, typing.Any] = {
         "event"       : None,
@@ -87,7 +78,6 @@ async def upload_pending_repl_attachments(
     }
 
     async def capture_progress(event: dict[str, typing.Any]) -> None:
-        reporter.last_event = dict(event)
         upload_state["event"] = dict(event)
 
     try:
@@ -97,18 +87,25 @@ async def upload_pending_repl_attachments(
         )
     except MindError as upload_error:
         failure_reason = str(getattr(upload_error, "display_reason", "") or upload_error)
-        Design.console.print(
-            reporter.render_failure(message=failure_reason, event=reporter.last_event)
-        )
-        print_attach_gap()
+        mind.frontend.application.emit(ApplicationView(
+            type="repl.attachment.failure",
+            renderable=UploadProgressLiveReporter.render_failure(
+                message=failure_reason,
+                event=upload_state["event"],
+            ),
+        ))
+        mind.frontend.application.emit(ApplicationView(type="repl.gap"))
         return None
 
     finally:
         await mind.await_cleanup(mind.stop_anim())
 
-    if reporter.last_event is not None:
-        Design.console.print(reporter.render_summary(reporter.last_event))
-        print_attach_gap()
+    if upload_state["event"] is not None:
+        mind.frontend.application.emit(ApplicationView(
+            type="repl.attachment.completed",
+            renderable=UploadProgressLiveReporter.render_summary(upload_state["event"]),
+        ))
+        mind.frontend.application.emit(ApplicationView(type="repl.gap"))
 
     return uploaded_attachments
 

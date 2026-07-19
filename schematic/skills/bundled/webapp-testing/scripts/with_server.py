@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Start one or more servers, wait for them to be ready, run a command, then clean up.
+启动一个或多个服务，等待服务就绪后运行命令，最后清理服务进程。
 
-Usage:
-    # Single server
+用法：
+    # 单个服务
     python scripts/with_server.py --server "npm run dev" --port 5173 -- python automation.py
     python scripts/with_server.py --server "npm start" --port 3000 -- python test.py
 
-    # Multiple servers
+    # 多个服务
     python scripts/with_server.py \
       --server "cd backend && python server.py" --port 3000 \
       --server "cd frontend && npm run dev" --port 5173 \
@@ -21,7 +21,7 @@ import sys
 import argparse
 
 def is_server_ready(port, timeout=30):
-    """Wait for server to be ready by polling the port."""
+    """轮询端口并等待服务就绪。"""
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
@@ -41,7 +41,7 @@ def main():
 
     args = parser.parse_args()
 
-    # Remove the '--' separator if present
+    # 移除可选的“--”分隔符
     if args.command and args.command[0] == '--':
         args.command = args.command[1:]
 
@@ -49,7 +49,7 @@ def main():
         print("Error: No command specified to run")
         sys.exit(1)
 
-    # Parse server configurations
+    # 解析服务配置
     if len(args.servers) != len(args.ports):
         print("Error: Number of --server and --port arguments must match")
         sys.exit(1)
@@ -61,11 +61,11 @@ def main():
     server_processes = []
 
     try:
-        # Start all servers
+        # 启动全部服务
         for i, server in enumerate(servers):
             print(f"Starting server {i+1}/{len(servers)}: {server['cmd']}")
 
-            # Use shell=True to support commands with cd and &&
+            # 使用 shell=True 以支持包含 cd 和 && 的命令
             process = subprocess.Popen(
                 server['cmd'],
                 shell=True,
@@ -74,7 +74,7 @@ def main():
             )
             server_processes.append(process)
 
-            # Wait for this server to be ready
+            # 等待当前服务就绪
             print(f"Waiting for server on port {server['port']}...")
             if not is_server_ready(server['port'], timeout=args.timeout):
                 raise RuntimeError(f"Server failed to start on port {server['port']} within {args.timeout}s")
@@ -83,13 +83,13 @@ def main():
 
         print(f"\nAll {len(servers)} server(s) ready")
 
-        # Run the command
+        # 运行目标命令
         print(f"Running: {' '.join(args.command)}\n")
         result = subprocess.run(args.command)
         sys.exit(result.returncode)
 
     finally:
-        # Clean up all servers
+        # 清理全部服务进程
         print(f"\nStopping {len(server_processes)} server(s)...")
         for i, process in enumerate(server_processes):
             try:

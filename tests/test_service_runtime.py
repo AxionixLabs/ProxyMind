@@ -55,7 +55,11 @@ def test_prepare_service_runtime_skips_missing_asset_without_prompt(
     monkeypatch.setattr(runtime, "can_prompt_runtime_download", lambda: False)
     monkeypatch.setattr(runtime, "ensure_service_runtime_asset", ensure_asset)
 
-    prepared = run_async(runtime.prepare_service_runtime(context, anim_manager=object()))
+    prepared = run_async(runtime.prepare_service_runtime(
+        context,
+        anim_manager=object(),
+        design=object(),
+    ))
 
     assert prepared is False
     assert called["ensure"] is False
@@ -80,7 +84,11 @@ def test_prepare_service_runtime_skips_when_user_declines(
     monkeypatch.setattr(runtime, "choose_runtime_download", decline)
     monkeypatch.setattr(runtime, "ensure_service_runtime_asset", ensure_asset)
 
-    prepared = run_async(runtime.prepare_service_runtime(context, anim_manager=object()))
+    prepared = run_async(runtime.prepare_service_runtime(
+        context,
+        anim_manager=object(),
+        design=object(),
+    ))
 
     assert prepared is False
     assert called["ensure"] is False
@@ -112,7 +120,11 @@ def test_prepare_service_runtime_downloads_after_user_accepts(
     monkeypatch.setattr(runtime, "verify_runtime_paths", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(runtime, "prepend_runtime_paths", lambda *_args, **_kwargs: calls.append("path"))
 
-    prepared = run_async(runtime.prepare_service_runtime(context, anim_manager=object()))
+    prepared = run_async(runtime.prepare_service_runtime(
+        context,
+        anim_manager=object(),
+        design=object(),
+    ))
 
     assert prepared is True
     assert calls == ["prompt", "ensure", "path", "authorize"]
@@ -142,7 +154,11 @@ def test_prepare_service_runtime_skips_prompt_when_asset_exists(
     monkeypatch.setattr(runtime, "authorize_runtime_files", authorize)
     monkeypatch.setattr(runtime, "prepend_runtime_paths", lambda *_args, **_kwargs: calls.append("path"))
 
-    prepared = run_async(runtime.prepare_service_runtime(context, anim_manager=object()))
+    prepared = run_async(runtime.prepare_service_runtime(
+        context,
+        anim_manager=object(),
+        design=object(),
+    ))
 
     assert prepared is True
     assert calls == ["ensure", "path", "authorize"]
@@ -173,7 +189,11 @@ def test_prepare_service_runtime_ignores_packaged_asset_for_source_launch(
     monkeypatch.setattr(runtime, "verify_runtime_paths", lambda *_args, **_kwargs: calls.append("verify"))
     monkeypatch.setattr(runtime, "prepend_runtime_paths", lambda *_args, **_kwargs: calls.append("path"))
 
-    prepared = run_async(runtime.prepare_service_runtime(context, anim_manager=object()))
+    prepared = run_async(runtime.prepare_service_runtime(
+        context,
+        anim_manager=object(),
+        design=object(),
+    ))
 
     assert prepared is True
     assert calls == ["ensure"]
@@ -189,6 +209,7 @@ def test_prepare_and_start_service_runtime_links_mcp(
 
     class DummyMind(object):
         anim_manager = object()
+        design = object()
 
         def __init__(self) -> None:
             self.linked = False
@@ -234,6 +255,7 @@ def test_prepare_and_start_service_runtime_has_single_link_flow(
 
     class DummyMind(object):
         anim_manager = object()
+        design = object()
 
         def require_service_runtime_context(self) -> runtime.ServiceRuntimeContext:
             return context

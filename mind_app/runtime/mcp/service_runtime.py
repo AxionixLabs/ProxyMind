@@ -14,6 +14,7 @@ from engine.manage import ServerManage
 from engine.terminal import Terminal
 from engine.tinker import MindError
 from mind_app.assets import ensure_asset
+from mind_core.design import Design
 from .download_prompt import choose_runtime_download
 from .service_exec_env import fetch_service_exec_env
 
@@ -145,7 +146,8 @@ async def ensure_runtime_asset(
     *,
     packaged: bool,
     explicit_upgrade: bool,
-    anim_manager: AsyncAnimManager
+    anim_manager: AsyncAnimManager,
+    design: Design
 ) -> bool:
     """复用入口升级流程确认运行时资产。"""
     return await ensure_asset(
@@ -153,7 +155,8 @@ async def ensure_runtime_asset(
         supports=spec.supports,
         packaged=packaged,
         explicit_upgrade=explicit_upgrade,
-        anim_manager=anim_manager
+        anim_manager=anim_manager,
+        design=design,
     )
 
 
@@ -161,14 +164,16 @@ async def ensure_service_runtime_asset(
     context: ServiceRuntimeContext,
     *,
     explicit_upgrade: bool,
-    anim_manager: AsyncAnimManager
+    anim_manager: AsyncAnimManager,
+    design: Design
 ) -> bool:
     """确认当前服务运行时资产存在，必要时执行升级流程。"""
     return await ensure_runtime_asset(
         context.spec,
         packaged=context.packaged,
         explicit_upgrade=explicit_upgrade,
-        anim_manager=anim_manager
+        anim_manager=anim_manager,
+        design=design,
     )
 
 
@@ -200,6 +205,7 @@ async def prepare_service_runtime(
     context: ServiceRuntimeContext,
     *,
     anim_manager: AsyncAnimManager,
+    design: Design,
     confirm_download: bool = True
 ) -> bool:
     """准备服务运行时资产、环境变量和执行权限。"""
@@ -209,7 +215,8 @@ async def prepare_service_runtime(
     await ensure_service_runtime_asset(
         context,
         explicit_upgrade=False,
-        anim_manager=anim_manager
+        anim_manager=anim_manager,
+        design=design,
     )
 
     if context.packaged:
@@ -260,7 +267,11 @@ async def prepare_and_start_service_runtime(
     """按统一流程准备并启动服务运行时。"""
     context = mind.require_service_runtime_context()
 
-    prepared = await prepare_service_runtime(context, anim_manager=mind.anim_manager)
+    prepared = await prepare_service_runtime(
+        context,
+        anim_manager=mind.anim_manager,
+        design=mind.design,
+    )
     if not prepared:
         return False
 

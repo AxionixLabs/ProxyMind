@@ -16,7 +16,6 @@ from rich.logging import (
     LogRecord, RichHandler
 )
 from engine.terminal import Terminal
-from mind_core.design import Design
 from mind_nova import const
 
 
@@ -76,11 +75,19 @@ class Active(object):
             )
 
     @staticmethod
-    def active(log_level: str, *, stderr: bool = False) -> None:
+    def active(
+        log_level: str,
+        *,
+        console: Console | None = None,
+        stderr: bool = False
+    ) -> None:
+        """使用指定控制台激活应用日志输出。"""
         logger.remove()
-        console = Console(stderr=True) if stderr else Design.console
+        active_console = Console(stderr=True) if stderr else (console or Console())
         logger.add(
-            Active._RichSink(console), level=log_level, format=const.PRINT_FORMAT
+            Active._RichSink(active_console),
+            level=log_level,
+            format=const.PRINT_FORMAT,
         )
 
 

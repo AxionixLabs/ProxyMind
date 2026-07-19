@@ -9,7 +9,10 @@ from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
-from mind_core.design import Design
+from mind_app.frontend import (
+    ApplicationSink,
+    ApplicationView
+)
 from mind_core.terminal_input import clear_pending_input
 from mind_nova.requests import (
     access_mode_label,
@@ -124,7 +127,10 @@ def _render_permissions_menu(selected: int) -> StyleAndTextTuples:
     return lines
 
 
-def render_permissions_status(access_mode: typing.Any) -> None:
+def render_permissions_status(
+    application: ApplicationSink,
+    access_mode: typing.Any,
+) -> None:
     """打印当前权限模式。"""
     normalized = normalize_access_mode(access_mode)
     label      = access_mode_label(normalized)
@@ -136,12 +142,18 @@ def render_permissions_status(access_mode: typing.Any) -> None:
     )
     color = "#D8B26E" if normalized == "full" else "#8FC7EA"
 
-    Design.console.print(
-        f"[bold {color}]Permissions[/] "
-        f"[bold #F4F7FA]· {label}[/]"
-    )
-    Design.console.print(f"[dim #7F8C9A]└ {detail}[/]")
-    Design.console.print()
+    application.emit(ApplicationView(
+        type="repl.permissions.status",
+        renderable=(
+            f"[bold {color}]Permissions[/] "
+            f"[bold #F4F7FA]· {label}[/]"
+        ),
+    ))
+    application.emit(ApplicationView(
+        type="repl.permissions.detail",
+        renderable=f"[dim #7F8C9A]└ {detail}[/]",
+    ))
+    application.emit(ApplicationView(type="repl.gap"))
 
 
 if __name__ == '__main__':

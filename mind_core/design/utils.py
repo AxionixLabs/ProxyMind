@@ -11,9 +11,7 @@ from rich.live import Live
 from rich.text import Text
 from rich.tree import Tree
 from rich.console import Console
-from mind_nova import const
 
-DESIGN_CONSOLE: Console = Console()
 TYPEWRITER_CURSOR_STYLE = "bold #D7E7FF"
 
 
@@ -43,11 +41,9 @@ def ease_in_out_sine(
 def build_file_tree(
     file_path: str,
     *,
-    console: Console | None = None
+    console: Console
 ) -> None:
     """显示树状图。"""
-    active_console = console or DESIGN_CONSOLE
-
     color_schemes = {
         "Ocean Breeze": ["#AFD7FF", "#87D7FF", "#5FAFD7"],
         "Forest Pulse": ["#A8FFB0", "#87D75F", "#5FAF5F"],
@@ -101,7 +97,7 @@ def build_file_tree(
     ext = (file := Path(parts[-1])).suffix.lower()
     current_node.add(f"[bold {file_color}]{choice_icon(ext)} {file.name}[/]")
 
-    active_console.print(tree)
+    console.print(tree)
 
 
 async def typewriter(
@@ -275,26 +271,6 @@ async def cursor_blink(
         await asyncio.sleep(0.06)
 
     live.update(r(view, False))
-
-
-class DesignDoc(object):
-    """统一的终端输出门面。"""
-
-    @classmethod
-    def log(cls, text: typing.Any) -> None:
-        DESIGN_CONSOLE.print(const.PRINT_HEAD, f"[bold]{text}")
-
-    @classmethod
-    def suc(cls, text: typing.Any) -> None:
-        DESIGN_CONSOLE.print(const.PRINT_HEAD, f"{const.SUC}{text}")
-
-    @classmethod
-    def wrn(cls, text: typing.Any) -> None:
-        DESIGN_CONSOLE.print(const.PRINT_HEAD, f"{const.WRN}{text}")
-
-    @classmethod
-    def err(cls, text: typing.Any) -> None:
-        DESIGN_CONSOLE.print(const.PRINT_HEAD, f"{const.ERR}{text}")
 
 
 if __name__ == '__main__':

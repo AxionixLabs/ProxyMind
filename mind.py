@@ -2,15 +2,19 @@
 # Notes: ==== Mind™ ====
 
 import sys
-import json
 import typing
 import asyncio
-from mind_core.design import Design
 from engine.tinker import MindError
 from engine.signals import (
     SignalHandler, install_handler
 )
 from mind_app.mind_entry import main as _main
+from mind_app.frontend import (
+    ApplicationSink,
+    ApplicationView,
+    ConsoleApplicationSink,
+    JsonApplicationSink
+)
 
 
 def json_output_requested(arguments: typing.Iterable[str] | None = None) -> bool:
@@ -21,17 +25,42 @@ def json_output_requested(arguments: typing.Iterable[str] | None = None) -> bool
 
 def emit_json_failure(error: typing.Any, *, phase: str) -> None:
     """向标准输出写出一个结构化失败事件。"""
-    payload = {
-        "type": "turn.failed",
-        "error": str(error),
-        "phase": str(phase or "runtime"),
-    }
-    sys.stdout.write(json.dumps(
-        payload,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ) + "\n")
-    sys.stdout.flush()
+    JsonApplicationSink(sys.stdout).emit(ApplicationView(
+        type="json",
+        renderable={
+            "type": "turn.failed",
+            "error": str(error),
+            "phase": str(phase or "runtime"),
+        },
+    ))
+
+
+def entry_application(json_output: bool) -> ApplicationSink:
+    """创建兼容入口使用的应用级输出端。"""
+    if json_output:
+        return JsonApplicationSink(sys.stdout)
+    return ConsoleApplicationSink()
+
+
+def emit_entry_failure(
+    application: ApplicationSink,
+    error: typing.Any,
+    *,
+    phase: str,
+    json_output: bool,
+) -> None:
+    """通过应用级输出端发送入口失败。"""
+    if json_output:
+        application.emit(ApplicationView(
+            type="json",
+            renderable={
+                "type": "turn.failed",
+                "error": str(error),
+                "phase": str(phase or "runtime"),
+            },
+        ))
+        return None
+    application.emit(ApplicationView(type="error", renderable=str(error)))
 
 
 async def main(handler: SignalHandler | None = None) -> int:
@@ -40,8 +69,9 @@ async def main(handler: SignalHandler | None = None) -> int:
 
 
 if __name__ == "__main__":
-    main_loop   = asyncio.new_event_loop()
-    json_output = json_output_requested()
+    main_loop           = asyncio.new_event_loop()
+    json_output_enabled = json_output_requested()
+    entry_sink          = entry_application(json_output_enabled)
 
     main_task: asyncio.Task[int] | None = None
 
@@ -53,11 +83,13 @@ if __name__ == "__main__":
         exit_code = main_loop.run_until_complete(main_task)
 
     except MindError as _error:
-        if json_output:
-            emit_json_failure(_error, phase="runtime")
-        else:
-            Design.Doc.err(_error)
-            Design.show_outro()
+        emit_entry_failure(
+            entry_sink,
+            _error,
+            phase="runtime",
+            json_output=json_output_enabled,
+        )
+        entry_sink.emit(ApplicationView(type="outro"))
         sys.exit(1)
 
     except KeyboardInterrupt:
@@ -67,20 +99,25 @@ if __name__ == "__main__":
                 main_loop.run_until_complete(main_task)
             except (asyncio.CancelledError, KeyboardInterrupt):
                 pass
-        if json_output:
-            emit_json_failure("interrupted", phase="interrupt")
-        else:
-            Design.show_outro()
+        emit_entry_failure(
+            entry_sink,
+            "interrupted",
+            phase="interrupt",
+            json_output=json_output_enabled,
+        )
+        entry_sink.emit(ApplicationView(type="outro"))
         sys.exit(130)
 
     except asyncio.CancelledError:
-        if json_output:
-            emit_json_failure("interrupted", phase="interrupt")
-        else:
-            Design.show_outro()
+        emit_entry_failure(
+            entry_sink,
+            "interrupted",
+            phase="interrupt",
+            json_output=json_output_enabled,
+        )
+        entry_sink.emit(ApplicationView(type="outro"))
         sys.exit(130)
 
     else:
-        if not json_output:
-            Design.show_outro()
+        entry_sink.emit(ApplicationView(type="outro"))
         sys.exit(int(exit_code))

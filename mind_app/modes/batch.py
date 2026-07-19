@@ -14,8 +14,8 @@ from engine.scaling import (
 from mind_nova.events import EventReport
 from mind_nova.modes import RunMode
 from mind_nova.request import open_report_session
+from mind_app.frontend import ApplicationView
 from mind_app.stream_events.failure_display import render_failure_text
-from mind_core.design import Design
 from .code_sources import (
     CodeSourceResolved, resolve_code_sources
 )
@@ -723,8 +723,11 @@ async def mind_pack(
         )
 
         logger.error(f"❌ [Batch] failed: {error}\n")
-        Design.console.print(render_failure_text("batch.failed", error))
-        Design.console.print()
+        mind.frontend.application.emit(ApplicationView(
+            type="batch.failed",
+            renderable=render_failure_text("batch.failed", error),
+        ))
+        mind.frontend.application.emit(ApplicationView(type="repl.gap"))
 
         return None
 

@@ -5,6 +5,7 @@ import os
 import sys
 import typing
 import asyncio
+import functools
 from loguru import logger
 from engine.animation import AsyncAnimManager
 from engine.signals import SignalHandler
@@ -29,12 +30,15 @@ from .interaction import (
     NonInteractiveInteraction
 )
 from .frontend import (
+    ApplicationSink,
+    ApplicationView,
     ConsoleApplicationSink,
     Frontend,
     SilentApplicationSink
 )
 from .output.factory import (
     OutputMode,
+    create_output_session,
     resolve_session_factory
 )
 from .modes.support.repl_prompt import fetch_runtime_workspace_root
@@ -110,13 +114,41 @@ def resolve_cli_frontend(
     application = (
         SilentApplicationSink()
         if output_mode == "json"
-        else ConsoleApplicationSink(Design.console)
+        else ConsoleApplicationSink()
     )
+    session_factory = resolve_session_factory(output_mode)
+    if output_mode == "tui" and isinstance(application, ConsoleApplicationSink):
+        session_factory = functools.partial(
+            create_output_session,
+            console=application.console,
+        )
     return Frontend(
         application=application,
         interaction=interaction,
-        session_factory=resolve_session_factory(output_mode),
+        session_factory=session_factory,
     )
+
+
+def resolve_cli_design(frontend: Frontend) -> Design:
+    """为命令行前端创建共享终端控制台的设计实例。"""
+    if isinstance(frontend.application, ConsoleApplicationSink):
+        return Design(console=frontend.application.console)
+    return Design()
+
+
+def emit_runtime_update(
+    application: ApplicationSink,
+    local: dict[str, typing.Any],
+    remote: dict[str, typing.Any]
+) -> None:
+    """发送本地运行时更新提示。"""
+    application.emit(ApplicationView(
+        type="runtime.update_available",
+        payload={
+            "local": dict(local),
+            "remote": dict(remote),
+        },
+    ))
 
 
 async def resolve_cli_attachments(
@@ -137,7 +169,6 @@ async def resolve_cli_attachments(
         mind.attach.add_pending_attachments(raw_path)
 
     pending  = mind.attach.pending_attachments_snapshot()
-    reporter = UploadProgressLiveReporter(Design.console)
 
     upload_state: dict[str, typing.Any] = {
         "event"       : None,
@@ -146,7 +177,6 @@ async def resolve_cli_attachments(
     }
 
     async def capture_progress(event: dict[str, typing.Any]) -> None:
-        reporter.last_event = dict(event)
         upload_state["event"] = dict(event)
 
     try:
@@ -154,11 +184,13 @@ async def resolve_cli_attachments(
         uploaded = await mind.attach.upload_pending_attachments(progress_callback=capture_progress)
     except MindError as error:
         failure_reason = str(getattr(error, "display_reason", "") or error)
-        if mind.output_mode != "json":
-            Design.console.print(reporter.render_failure(
+        mind.frontend.application.emit(ApplicationView(
+            type="attachment.failure",
+            renderable=UploadProgressLiveReporter.render_failure(
                 message=failure_reason,
-                event=reporter.last_event,
-            ))
+                event=upload_state["event"],
+            ),
+        ))
         raise
 
     finally:
@@ -166,8 +198,11 @@ async def resolve_cli_attachments(
 
     mind.attach.clear_pending_attachments()
 
-    if reporter.last_event is not None and mind.output_mode != "json":
-        Design.console.print(reporter.render_summary(reporter.last_event))
+    if upload_state["event"] is not None:
+        mind.frontend.application.emit(ApplicationView(
+            type="attachment.completed",
+            renderable=UploadProgressLiveReporter.render_summary(upload_state["event"]),
+        ))
 
     return uploaded
 
@@ -230,10 +265,10 @@ async def _run_main(
     cmd_lines   = parser.parse_cmd
     output_mode = resolve_cli_output_mode(cmd_lines)
     frontend    = resolve_cli_frontend(cmd_lines, output_mode)
+    design      = resolve_cli_design(frontend)
 
     # Notes: ========== Start from here ==========
-    if output_mode != "json":
-        Design.show_intro()
+    frontend.application.emit(ApplicationView(type="intro"))
 
     # 获取命令行参数
     wires = sys.argv[1:]
@@ -270,7 +305,16 @@ async def _run_main(
 
     # Notes: ========== 激活日志 ==========
     level = const.SHOW_LEVEL
-    Active.active(level, stderr=output_mode == "json")
+    log_console = (
+        frontend.application.console
+        if isinstance(frontend.application, ConsoleApplicationSink)
+        else None
+    )
+    Active.active(
+        level,
+        console=log_console,
+        stderr=output_mode == "json",
+    )
 
     pref = Preferences(str(mind_config_path()))
 
@@ -306,7 +350,8 @@ async def _run_main(
         await ensure_service_runtime_asset(
             service_runtime_context,
             explicit_upgrade=True,
-            anim_manager=entry_anim_manager
+            anim_manager=entry_anim_manager,
+            design=design,
         )
         return 0
 
@@ -350,12 +395,20 @@ async def _run_main(
         "animate"         : output_mode == "tui",
         "output_mode"     : output_mode,
         "frontend"        : frontend,
+        "design"          : design,
     }
 
     # remote = await global_config_task
     remote = {}
 
-    server: ServerManage = ServerManage(runtime_spec.launch_command, env=process_env())
+    server: ServerManage = ServerManage(
+        runtime_spec.launch_command,
+        env=process_env(),
+        on_update=functools.partial(
+            emit_runtime_update,
+            frontend.application,
+        ),
+    )
     mind = Mind(wires, level, power, remote, *positions, **keywords)
     mind.bind_runtime(asyncio.get_running_loop(), asyncio.current_task())
     mind.bind_server_manager(server)
@@ -367,9 +420,12 @@ async def _run_main(
     try:
         if cmd_lines.mcp:
             helix_linked = await prepare_and_start_service_runtime(mind)
-            if not helix_linked and output_mode != "json":
-                Design.console.print("[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]")
-                Design.console.print()
+            if not helix_linked:
+                mind.frontend.application.emit(ApplicationView(
+                    type="helix.skipped",
+                    renderable="[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]",
+                ))
+                mind.frontend.application.emit(ApplicationView(type="spacer"))
 
         await mind.start_config_service()
 
@@ -396,8 +452,6 @@ async def _run_main(
                 if not task.done():
                     task.cancel()
             await asyncio.gather(*startup_tasks, return_exceptions=True)
-
-        # Design.Doc.log(f"[bold #0EA5E9]🌐 {const.BASE_URL}[/]\n")
 
         cli_attachments = await resolve_cli_attachments(mind, cmd_lines)
 
