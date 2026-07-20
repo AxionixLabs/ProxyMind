@@ -7,7 +7,7 @@ import asyncio
 import uvicorn
 import contextlib
 from loguru import logger
-from engine.tinker import MindError
+from engine.errors import MindError
 from engine.ports import port_available
 from .app import create_app
 from .endpoints import (

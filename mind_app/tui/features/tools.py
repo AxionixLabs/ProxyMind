@@ -7,7 +7,16 @@ from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
 )
+from mind_app.presentation.models import TextSpan
 from mind_nova.modes import RunMode
+from ..core.styles import (
+    ACCENT_STYLE,
+    BODY_STYLE,
+    BRIGHT_STYLE,
+    MUTED_STYLE,
+    fragment_block,
+    text_block,
+)
 
 GROUP_DISPLAY_LIMIT = 12
 
@@ -72,16 +81,19 @@ def render_tools_summary(
 
     application.emit(ApplicationView(
         type="tui.tools.summary",
-        renderable=(
-            f"[bold #AFC7D8]Tools[/] "
-            f"[dim #7F8C9A]· mode={mode} total={total} external={external_total}[/]"
+        renderable=fragment_block(
+            TextSpan("Tools ", ACCENT_STYLE),
+            TextSpan(
+                f"· mode={mode} total={total} external={external_total}",
+                MUTED_STYLE,
+            ),
         ),
     ))
 
     if not groups:
         application.emit(ApplicationView(
             type="tui.tools.empty",
-            renderable="[bold #7F8C9A]No visible tools.[/]",
+            renderable=text_block("No visible tools.", MUTED_STYLE),
         ))
         application.emit(ApplicationView(type="tui.gap"))
         return None
@@ -95,20 +107,26 @@ def render_tools_summary(
 
         application.emit(ApplicationView(
             type="tui.tools.group",
-            renderable=(
-                f"[bold #F4F7FA]{label}[/] "
-                f"[dim #7F8C9A]({marker} · {detail} · {len(names)})[/]"
+            renderable=fragment_block(
+                TextSpan(f"{label} ", BRIGHT_STYLE),
+                TextSpan(f"({marker} · {detail} · {len(names)})", MUTED_STYLE),
             ),
         ))
         for name in names[:limit]:
             application.emit(ApplicationView(
                 type="tui.tools.item",
-                renderable=f"[bold #AFC7D8]  •[/] [#DDE7EF]{name}[/]",
+                renderable=fragment_block(
+                    TextSpan("  • ", ACCENT_STYLE),
+                    TextSpan(name, BODY_STYLE),
+                ),
             ))
         if len(names) > limit:
             application.emit(ApplicationView(
                 type="tui.tools.more",
-                renderable=f"[#7F8C9A]  ... and {len(names) - limit} more[/]",
+                renderable=text_block(
+                    f"  ... and {len(names) - limit} more",
+                    MUTED_STYLE,
+                ),
             ))
 
     application.emit(ApplicationView(type="tui.gap"))

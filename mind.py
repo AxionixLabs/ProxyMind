@@ -4,14 +4,17 @@
 import sys
 import typing
 import asyncio
-from engine.tinker import MindError
+from engine.errors import MindError
 from engine.signals import (
-    SignalHandler, install_handler
+    SignalHandler,
+    install_handler
 )
-from mind_app.cli import main as _main
-from mind_app.frontend import (
+from mind_app.cli.entry import main as _main
+from mind_app.frontend.contracts import (
     ApplicationSink,
-    ApplicationView,
+    ApplicationView
+)
+from mind_app.frontend.sinks import (
     ConsoleApplicationSink,
     JsonApplicationSink
 )

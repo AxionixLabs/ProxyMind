@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from mind_app.presentation.models import TextSpan
 from .common import (
     TracePreview,
     _normalize_preview_lines,
@@ -19,7 +20,7 @@ def render_generic_tool_result_parts(
     preview: TracePreview,
     *,
     ok: bool
-) -> list[dict[str, typing.Optional[str]]]:
+) -> list[TextSpan]:
     """渲染普通工具结果预览片段；不解析工具内部语义。"""
     return render_tool_trace_parts("", preview=preview, ok=ok)
 

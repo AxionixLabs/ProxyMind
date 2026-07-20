@@ -2,13 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from rich.console import Group
-from rich.text import Text
+from mind_app.presentation.models import StyledBlock, TextSpan, TextStyle
 from mind_app.stream_state.boundary import (
     ExternalOutputBoundary,
     OutputBoundaryState
 )
-from mind_app.stream_state.markdown import render_markdown
+from mind_app.stream_state.text_models import TextFinalUnit
 
 
 class TextState(object):
@@ -30,8 +29,8 @@ class TextState(object):
     ) -> None:
         """初始化文本段、可见文本和最终正文缓存。"""
         self.width_provider = width_provider or (lambda: None)
-        self.display_segments: list[dict[str, typing.Any]]           = []
-        self.visible_segments: list[dict[str, typing.Optional[str]]] = []
+        self.display_segments: list[dict[str, typing.Any]] = []
+        self.visible_spans: list[TextSpan] = []
 
         self.boundary = OutputBoundaryState(stream_display=self.STREAM)
 
@@ -97,8 +96,8 @@ class TextState(object):
         display: str = STREAM,
         display_chunk: typing.Optional[str] = None,
         raw_chunk: typing.Optional[str] = None,
-        display_style: typing.Optional[str] = None,
-        display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None,
+        display_style: TextStyle | None = None,
+        display_parts: list[TextSpan] | None = None,
         preserve_display_parts: bool = False,
         echo: bool = True
     ) -> bool:
@@ -114,13 +113,13 @@ class TextState(object):
             visible_delta = self._normalize_display_text(visible_delta, display=display)
 
             visible_parts = [
-                {"text": visible_delta, "style": display_style}
+                TextSpan(visible_delta, display_style or TextStyle())
             ] if visible_delta else []
 
         if not visible_parts:
             return False
 
-        visible_delta = self._parts_text(visible_parts)
+        visible_delta = self._spans_text(visible_parts)
         if display == self.STREAM and display_parts is None and display_style is None and display_chunk is None:
             raw_delta = str(chunk)
         elif display == self.STREAM and raw_chunk is not None:
@@ -134,9 +133,9 @@ class TextState(object):
             preserve_display_parts=preserve_display_parts
         )
         self.raw_text += raw_delta
-        self.visible_segments = self._compose_visible_segments()
+        self.visible_spans = self._compose_visible_spans()
 
-        visible = self._parts_text(self.visible_segments)
+        visible = self._spans_text(self.visible_spans)
         animate = (display == self.STREAM and visible.startswith(self.display_text))
 
         self.display_text = visible
@@ -144,52 +143,34 @@ class TextState(object):
 
         return animate
 
-    def renderable(self) -> Text:
-        """返回当前可见文本对象。"""
-        return self.renderable_for_text(self.display_text)
-
-    def final_renderable(self) -> typing.Any:
-        """返回最终落版对象；纯正文使用 Markdown，结构化内容保留样式文本。"""
-        if self._markdown_final_enabled():
-            return render_markdown(self.raw_text.rstrip("\n"))
-        return self._mixed_final_renderable()
-
-    def renderable_for_text(self, text: str) -> Text:
-        """按给定文本窗口生成对应的样式文本。"""
-        if text == self.display_text:
-            parts = self.visible_segments or [{"text": self.display_text, "style": None}]
+    def visible_block(self, text: str | None = None) -> StyledBlock:
+        """返回全部或指定尾部窗口对应的中立展示块。"""
+        selected = self.display_text if text is None else str(text)
+        if selected == self.display_text:
+            spans = self.visible_spans or [TextSpan(self.display_text)]
         else:
-            start = self.display_text.rfind(text)
+            start = self.display_text.rfind(selected)
             if start < 0:
-                start = max(0, len(self.display_text) - len(text))
-            parts = self._slice_parts(
-                self.visible_segments or [{"text": self.display_text, "style": None}],
+                start = max(0, len(self.display_text) - len(selected))
+            spans = self._slice_spans(
+                self.visible_spans or [TextSpan(self.display_text)],
                 start,
-                len(self.display_text)
+                len(self.display_text),
             )
+        return StyledBlock(plain_text=selected, spans=tuple(spans))
 
-        out = Text()
-
-        for part in parts:
-            text = str(part.get("text") or "")
-            if not text:
-                continue
-            out.append(text, style=part.get("style"))
-
-        return out
+    def final_units(self) -> tuple[TextFinalUnit, ...]:
+        """返回最终落版所需的中立文本单元。"""
+        if self._markdown_final_enabled():
+            return (TextFinalUnit(
+                kind="markdown",
+                text=self.raw_text.rstrip("\n"),
+            ),)
+        return self._mixed_final_units()
 
     def has_styles(self) -> bool:
         """判断当前可见文本是否包含显式样式。"""
-        return any(bool(part.get("style")) for part in self.visible_segments)
-
-    def status_spacer(self) -> str:
-        """返回正文和状态行之间需要补充的换行。"""
-        if not self.display_text:
-            return ""
-        if self.display_text.endswith("\n"):
-            return ""
-
-        return "\n"
+        return any(span.style != TextStyle() for span in self.visible_spans)
 
     def remember_external_output(self, *, display: str, text: str) -> None:
         """记录动态渲染器之外直接输出的段落边界。"""
@@ -229,7 +210,7 @@ class TextState(object):
     def clear(self) -> None:
         """清空所有文本状态和缓存。"""
         self.display_segments.clear()
-        self.visible_segments.clear()
+        self.visible_spans.clear()
 
         self.display_text      = ""
         self.raw_text          = ""
@@ -247,18 +228,18 @@ class TextState(object):
         for segment in self.display_segments:
             if segment.get("mode") != self.STREAM:
                 return False
-            for part in segment.get("parts") or []:
-                if part.get("style"):
+            for span in segment.get("spans") or []:
+                if span.style != TextStyle():
                     return False
         return True
 
-    def _mixed_final_renderable(self) -> typing.Any:
-        """按 segment 类型分别生成最终落版，正文段保留 Markdown。"""
-        units: list[dict[str, typing.Any]]  = []
+    def _mixed_final_units(self) -> tuple[TextFinalUnit, ...]:
+        """按 segment 类型生成最终落版单元。"""
+        units: list[TextFinalUnit] = []
         pending_markdown_visible: list[str] = []
         pending_markdown_raw: list[str]     = []
 
-        pending_parts: list[dict[str, typing.Optional[str]]] = []
+        pending_spans: list[TextSpan] = []
 
         def flush_markdown() -> None:
             """把待合并的 Markdown 文本写入最终落版单元。"""
@@ -267,32 +248,37 @@ class TextState(object):
             pending_markdown_visible.clear()
             pending_markdown_raw.clear()
             if markdown_visible.strip() and markdown_raw.strip():
-                units.append({
-                    "kind"    : "markdown",
-                    "visible" : markdown_visible,
-                    "text"    : markdown_raw,
-                    "gap"     : self._should_gap_before_final_unit(markdown_visible, has_previous=bool(units))
-                })
+                units.append(TextFinalUnit(
+                    kind="markdown",
+                    text=markdown_raw.lstrip("\n"),
+                    gap_before=self._should_gap_before_final_unit(
+                        markdown_visible,
+                        has_previous=bool(units),
+                    ),
+                ))
 
-        def flush_parts() -> None:
+        def flush_spans() -> None:
             """把待合并的样式片段写入最终落版单元。"""
-            if not pending_parts:
+            if not pending_spans:
                 return None
-            parts = [dict(part) for part in pending_parts]
-            pending_parts.clear()
-            parts_visible = self._parts_text(parts)
+            spans_visible = self._spans_text(pending_spans)
+            spans = tuple(self._strip_spans_outer_newlines(pending_spans))
+            pending_spans.clear()
 
-            if parts_visible.strip():
-                units.append({
-                    "kind"    : "parts",
-                    "visible" : parts_visible,
-                    "parts"   : parts,
-                    "gap"     : self._should_gap_before_final_unit(parts_visible, has_previous=bool(units))
-                })
+            if spans_visible.strip():
+                units.append(TextFinalUnit(
+                    kind="spans",
+                    text=spans_visible.rstrip("\n"),
+                    spans=spans,
+                    gap_before=self._should_gap_before_final_unit(
+                        spans_visible,
+                        has_previous=bool(units),
+                    ),
+                ))
 
         for segment in self.display_segments:
             if self._segment_markdown_enabled(segment):
-                flush_parts()
+                flush_spans()
                 visible = str(segment.get("text") or "")
                 raw = str(segment.get("raw_text") or visible.lstrip("\n"))
                 pending_markdown_visible.append(visible)
@@ -300,25 +286,26 @@ class TextState(object):
                 continue
 
             flush_markdown()
-            segment_parts = segment.get("parts") or []
-            self._extend_parts(pending_parts, segment_parts)
+            segment_spans = segment.get("spans") or []
+            self._extend_spans(pending_spans, segment_spans)
 
         flush_markdown()
-        flush_parts()
+        flush_spans()
 
-        renderables = self._final_renderables_from_units(units)
-
-        if not renderables:
-            return self.renderable()
-        if len(renderables) == 1:
-            return renderables[0]
-        return Group(*renderables)
+        if units:
+            return tuple(units)
+        block = self.visible_block()
+        return (TextFinalUnit(
+            kind="spans",
+            text=block.plain_text.rstrip("\n"),
+            spans=tuple(self._strip_spans_outer_newlines(list(block.spans))),
+        ),)
 
     def _append_segment(
         self,
         display: str,
         delta: str,
-        parts: list[dict[str, typing.Optional[str]]],
+        spans: list[TextSpan],
         *,
         raw_delta: str = "",
         preserve_display_parts: bool = False
@@ -330,7 +317,7 @@ class TextState(object):
             and self.display_segments[-1]["mode"] == self.STREAM
         ):
             self.display_segments[-1]["text"] += delta
-            self.display_segments[-1]["parts"].extend(parts)
+            self.display_segments[-1]["spans"].extend(spans)
             self.display_segments[-1]["raw_text"] += raw_delta
             self.display_segments[-1]["preserve_display_parts"] = bool(
                 self.display_segments[-1].get("preserve_display_parts")
@@ -340,102 +327,38 @@ class TextState(object):
         self.display_segments.append({
             "mode"                   : display,
             "text"                   : delta,
-            "parts"                  : parts,
+            "spans"                  : spans,
             "raw_text"               : raw_delta,
             "preserve_display_parts" : preserve_display_parts
         })
 
-    def _compose_visible_text(self) -> str:
-        """组合当前可见文本。"""
-        return self._parts_text(self._compose_visible_segments())
-
-    def _compose_visible_segments(self) -> list[dict[str, typing.Optional[str]]]:
+    def _compose_visible_spans(self) -> list[TextSpan]:
         """根据所有显示段生成裁剪后的可见片段。"""
-        styled_parts: list[dict[str, typing.Optional[str]]] = []
+        styled_spans: list[TextSpan] = []
 
         line_limit  = self._line_limit()
         block_limit = self._block_limit(line_limit)
 
         for segment in self.display_segments:
             mode = segment["mode"]
-            segment_parts = segment.get("parts") or [
-                {"text": str(segment.get("text") or ""), "style": None}
+            segment_spans = segment.get("spans") or [
+                TextSpan(str(segment.get("text") or ""))
             ]
             if mode == self.BLOCK:
                 if segment.get("preserve_display_parts"):
-                    self._extend_parts(styled_parts, segment_parts)
+                    self._extend_spans(styled_spans, segment_spans)
                     continue
-                self._extend_parts(
-                    styled_parts,
-                    self._render_block_parts(segment_parts, block_limit)
+                self._extend_spans(
+                    styled_spans,
+                    self._render_block_spans(segment_spans, block_limit)
                 )
                 continue
-            self._extend_parts(
-                styled_parts,
-                self._render_stream_parts(segment_parts, line_limit)
+            self._extend_spans(
+                styled_spans,
+                self._render_stream_spans(segment_spans, line_limit)
             )
 
-        return styled_parts
-
-    def _render_block(self, delta: str, limit: int) -> str:
-        """按块文本限制裁剪单段纯文本。"""
-        parts: list[str] = []
-        visible = 0
-        trimmed = False
-
-        for ch in delta:
-            if ch == "\n":
-                parts.append(ch)
-                continue
-            if visible < limit:
-                parts.append(ch)
-                visible += 1
-                continue
-            trimmed = True
-            break
-
-        out = "".join(parts)
-        if trimmed:
-            self._trim_visible_tail(parts, limit, len(self.ELLIPSIS))
-            out = "".join(parts).rstrip("\n")
-            if not out.endswith(self.ELLIPSIS):
-                out = f"{out}{self.ELLIPSIS}"
-            if delta.endswith("\n") and not out.endswith("\n"):
-                out += "\n"
-        return out
-
-    def _render_stream(self, delta: str, limit: int) -> str:
-        """按行宽限制裁剪流式纯文本。"""
-        parts: list[str] = []
-
-        line_start = 0
-        line_len   = 0
-        line_cut   = False
-
-        for ch in delta:
-            if ch == "\n":
-                parts.append("\n")
-                line_start = len(parts)
-                line_len = 0
-                line_cut = False
-                continue
-
-            if line_cut:
-                continue
-
-            if line_len < limit:
-                parts.append(ch)
-                line_len += 1
-                continue
-
-            need = max(0, line_len - (limit - len(self.ELLIPSIS)))
-
-            removed = self._trim_tail(parts, line_start, need)
-            if removed == need:
-                parts.append(self.ELLIPSIS)
-            line_cut = True
-
-        return "".join(parts)
+        return styled_spans
 
     def _line_limit(self) -> int:
         """根据终端宽度计算流式行宽限制。"""
@@ -456,17 +379,17 @@ class TextState(object):
 
     def _normalize_display_parts(
         self,
-        parts: list[dict[str, typing.Optional[str]]],
+        parts: list[TextSpan],
         *,
         display: str
-    ) -> list[dict[str, typing.Optional[str]]]:
+    ) -> list[TextSpan]:
         """按显示模式归一化带样式的文本片段。"""
         clean = [
-            {"text": str(part.get("text") or ""), "style": part.get("style")}
+            TextSpan(str(part.text or ""), part.style)
             for part in parts
-            if str(part.get("text") or "")
+            if str(part.text or "")
         ]
-        raw_text = self._parts_text(clean)
+        raw_text = self._spans_text(clean)
         if not raw_text:
             return []
 
@@ -478,20 +401,25 @@ class TextState(object):
             if trailing <= 0:
                 trailing = 1
             prefix = self._segment_prefix(for_display=self.BLOCK)
-            out: list[dict[str, typing.Optional[str]]] = []
+            out: list[TextSpan] = []
             if prefix:
-                out.append({"text": prefix, "style": None})
-            self._extend_parts(
-                out, self._slice_parts(clean, raw_text.find(body), raw_text.find(body) + len(body))
+                out.append(TextSpan(prefix))
+            self._extend_spans(
+                out,
+                self._slice_spans(
+                    clean,
+                    raw_text.find(body),
+                    raw_text.find(body) + len(body),
+                ),
             )
-            out.append({"text": "\n" * trailing, "style": None})
+            out.append(TextSpan("\n" * trailing))
             return out
 
         prefix = self._segment_prefix(for_display=self.STREAM, incoming_text=raw_text)
         out = []
         if prefix:
-            out.append({"text": prefix, "style": None})
-        self._extend_parts(out, clean)
+            out.append(TextSpan(prefix))
+        self._extend_spans(out, clean)
         return out
 
     def _normalize_block_text(self, text: str) -> str:
@@ -530,110 +458,110 @@ class TextState(object):
             return False
         if not str(segment.get("raw_text") or segment.get("text") or "").strip():
             return False
-        for part in segment.get("parts") or []:
-            if part.get("style"):
+        for span in segment.get("spans") or []:
+            if span.style != TextStyle():
                 return False
 
         return True
 
     @classmethod
-    def _render_block_parts(
+    def _render_block_spans(
         cls,
-        parts: list[dict[str, typing.Optional[str]]],
+        spans: list[TextSpan],
         limit: int
-    ) -> list[dict[str, typing.Optional[str]]]:
+    ) -> list[TextSpan]:
         """按块文本限制裁剪带样式片段。"""
-        rendered = cls._take_visible_chars(parts, limit + 1)
+        rendered = cls._take_visible_chars(spans, limit + 1)
         if cls._visible_len(rendered) <= limit:
             return rendered
 
         keep = max(0, limit - len(cls.ELLIPSIS))
-        out  = cls._take_visible_chars(parts, keep)
+        out  = cls._take_visible_chars(spans, keep)
 
-        while out and str(out[-1].get("text") or "").endswith("\n"):
-            out[-1]["text"] = str(out[-1].get("text") or "").rstrip("\n")
-            if not out[-1]["text"]:
+        while out and out[-1].text.endswith("\n"):
+            trimmed = out[-1].text.rstrip("\n")
+            if trimmed:
+                out[-1] = TextSpan(trimmed, out[-1].style)
+            else:
                 out.pop()
 
-        cls._append_part(out, cls.ELLIPSIS, None)
-        if cls._parts_text(parts).endswith("\n"):
-            cls._append_part(out, "\n", None)
+        cls._append_span(out, cls.ELLIPSIS, TextStyle())
+        if cls._spans_text(spans).endswith("\n"):
+            cls._append_span(out, "\n", TextStyle())
 
         return out
 
     @classmethod
-    def _render_stream_parts(
+    def _render_stream_spans(
         cls,
-        parts: list[dict[str, typing.Optional[str]]],
+        spans: list[TextSpan],
         limit: int
-    ) -> list[dict[str, typing.Optional[str]]]:
+    ) -> list[TextSpan]:
         """按行宽限制裁剪流式带样式片段。"""
-        out: list[dict[str, typing.Optional[str]]]        = []
-        line_parts: list[dict[str, typing.Optional[str]]] = []
+        out: list[TextSpan] = []
+        line_spans: list[TextSpan] = []
 
         line_len: int  = 0
         line_cut: bool = False
 
-        for part in parts:
-            style = part.get("style")
-            for ch in str(part.get("text") or ""):
+        for span in spans:
+            for ch in span.text:
                 if ch == "\n":
-                    cls._extend_parts(out, line_parts)
-                    line_parts = []
-                    cls._append_part(out, "\n", style)
+                    cls._extend_spans(out, line_spans)
+                    line_spans = []
+                    cls._append_span(out, "\n", span.style)
                     line_len = 0
                     line_cut = False
                     continue
                 if line_cut:
                     continue
                 if line_len < limit:
-                    cls._append_part(line_parts, ch, style)
+                    cls._append_span(line_spans, ch, span.style)
                     line_len += 1
                     continue
                 keep = max(0, limit - len(cls.ELLIPSIS))
-                cls._extend_parts(out, cls._take_visible_chars(line_parts, keep))
-                cls._append_part(out, cls.ELLIPSIS, None)
-                line_parts = []
+                cls._extend_spans(out, cls._take_visible_chars(line_spans, keep))
+                cls._append_span(out, cls.ELLIPSIS, TextStyle())
+                line_spans = []
                 line_cut = True
 
-        cls._extend_parts(out, line_parts)
+        cls._extend_spans(out, line_spans)
         return out
 
     @classmethod
     def _take_visible_chars(
         cls,
-        parts: list[dict[str, typing.Optional[str]]],
+        spans: list[TextSpan],
         limit: int
-    ) -> list[dict[str, typing.Optional[str]]]:
+    ) -> list[TextSpan]:
         """从片段列表中按可见字符数截取前缀。"""
-        out: list[dict[str, typing.Optional[str]]] = []
+        out: list[TextSpan] = []
 
         visible: int = 0
 
-        for part in parts:
-            style = part.get("style")
-            for ch in str(part.get("text") or ""):
+        for span in spans:
+            for ch in span.text:
                 if ch != "\n":
                     if visible >= limit:
                         return out
                     visible += 1
-                cls._append_part(out, ch, style)
+                cls._append_span(out, ch, span.style)
 
         return out
 
     @classmethod
-    def _slice_parts(
+    def _slice_spans(
         cls,
-        parts: list[dict[str, typing.Optional[str]]],
+        spans: list[TextSpan],
         start: int,
         end: int
-    ) -> list[dict[str, typing.Optional[str]]]:
+    ) -> list[TextSpan]:
         """按字符串位置切取片段列表。"""
-        out: list[dict[str, typing.Optional[str]]] = []
+        out: list[TextSpan] = []
 
         pos: int = 0
-        for part in parts:
-            text = str(part.get("text") or "")
+        for span in spans:
+            text = span.text
             next_pos = pos + len(text)
             if next_pos <= start:
                 pos = next_pos
@@ -642,36 +570,20 @@ class TextState(object):
                 break
             chunk = text[max(0, start - pos):max(0, end - pos)]
             if chunk:
-                cls._append_part(out, chunk, part.get("style"))
+                cls._append_span(out, chunk, span.style)
             pos = next_pos
 
         return out
 
     @classmethod
-    def _extend_parts(
+    def _extend_spans(
         cls,
-        target: list[dict[str, typing.Optional[str]]],
-        source: list[dict[str, typing.Optional[str]]]
+        target: list[TextSpan],
+        source: list[TextSpan]
     ) -> None:
         """把源片段追加到目标片段列表。"""
-        for part in source:
-            cls._append_part(target, str(part.get("text") or ""), part.get("style"))
-
-    def _final_renderables_from_units(
-        self,
-        units: list[dict[str, typing.Any]]
-    ) -> list[typing.Any]:
-        """按可见段落边界生成最终落版对象。"""
-        renderables: list[typing.Any] = []
-
-        for unit in units:
-            if unit.get("gap"):
-                renderables.append(Text(""))
-            renderable = self._unit_renderable(unit)
-            if renderable is not None:
-                renderables.append(renderable)
-
-        return renderables
+        for span in source:
+            cls._append_span(target, span.text, span.style)
 
     def _should_gap_before_final_unit(
         self,
@@ -700,48 +612,46 @@ class TextState(object):
         return self._external_boundary.trailing_newlines
 
     @classmethod
-    def _unit_renderable(
+    def _strip_spans_leading_newlines(
         cls,
-        unit: dict[str, typing.Any]
-    ) -> typing.Any:
-        """把最终落版单元转换为可渲染对象。"""
-        kind = str(unit.get("kind") or "")
-        if kind == "markdown":
-            text = str(unit.get("text") or "").lstrip("\n").rstrip("\n")
-            return render_markdown(text)
-
-        parts = [
-            dict(part) for part in unit.get("parts") or []
-            if isinstance(part, dict)
-        ]
-        return cls._parts_renderable(cls._strip_parts_leading_newlines(parts))
-
-    @classmethod
-    def _strip_parts_leading_newlines(
-        cls,
-        parts: list[dict[str, typing.Optional[str]]]
-    ) -> list[dict[str, typing.Optional[str]]]:
+        spans: list[TextSpan]
+    ) -> list[TextSpan]:
         """移除片段列表开头的连续换行。"""
-        out = [dict(part) for part in parts]
+        out = list(spans)
 
-        while out and str(out[0].get("text") or "").startswith("\n"):
-            text = str(out[0].get("text") or "").lstrip("\n")
+        while out and out[0].text.startswith("\n"):
+            text = out[0].text.lstrip("\n")
             if text:
-                out[0]["text"] = text
+                out[0] = TextSpan(text, out[0].style)
                 break
             out.pop(0)
 
         return out
 
-    @staticmethod
-    def _visible_len(parts: list[dict[str, typing.Optional[str]]]) -> int:
-        """统计片段中的非换行字符数量。"""
-        return sum(1 for ch in TextState._parts_text(parts) if ch != "\n")
+    @classmethod
+    def _strip_spans_outer_newlines(
+        cls,
+        spans: list[TextSpan],
+    ) -> list[TextSpan]:
+        """移除片段列表两端由边界状态接管的连续换行。"""
+        out = cls._strip_spans_leading_newlines(spans)
+        while out and out[-1].text.endswith("\n"):
+            text = out[-1].text.rstrip("\n")
+            if text:
+                out[-1] = TextSpan(text, out[-1].style)
+                break
+            out.pop()
+        return out
 
     @staticmethod
-    def _parts_text(parts: list[dict[str, typing.Optional[str]]]) -> str:
+    def _visible_len(spans: list[TextSpan]) -> int:
+        """统计片段中的非换行字符数量。"""
+        return sum(1 for ch in TextState._spans_text(spans) if ch != "\n")
+
+    @staticmethod
+    def _spans_text(spans: list[TextSpan]) -> str:
         """把片段列表合并为纯文本。"""
-        return "".join(str(part.get("text") or "") for part in parts)
+        return "".join(span.text for span in spans)
 
     @staticmethod
     def _count_leading_newlines(text: str) -> int:
@@ -754,68 +664,19 @@ class TextState(object):
         return count
 
     @staticmethod
-    def _parts_renderable(parts: list[dict[str, typing.Optional[str]]]) -> Text:
-        """把带样式片段转换为终端文本对象。"""
-        out = Text()
-        for part in parts:
-            text = str(part.get("text") or "")
-            if not text:
-                continue
-            out.append(text, style=str(part.get("style") or "bold"))
-        out.rstrip()
-        return out
-
-    @staticmethod
-    def _append_part(
-        parts: list[dict[str, typing.Optional[str]]],
+    def _append_span(
+        spans: list[TextSpan],
         text: str,
-        style: typing.Optional[str]
+        style: TextStyle,
     ) -> None:
         """追加片段并合并相邻同样式内容。"""
         if not text:
             return None
-        if parts and parts[-1].get("style") == style:
-            parts[-1]["text"] = str(parts[-1].get("text") or "") + text
+        if spans and spans[-1].style == style:
+            previous = spans[-1]
+            spans[-1] = TextSpan(f"{previous.text}{text}", style)
             return None
-        parts.append({"text": text, "style": style})
-
-    @staticmethod
-    def _trim_tail(
-        parts: list[str],
-        line_start: int,
-        count: int
-    ) -> int:
-        """从行尾移除指定数量的字符。"""
-        removed = 0
-        while count > 0 and len(parts) > line_start:
-            parts.pop()
-            count -= 1
-            removed += 1
-        return removed
-
-    @staticmethod
-    def _trim_visible_tail(
-        parts: list[str],
-        limit: int,
-        reserve: int
-    ) -> None:
-        """保留指定可见字符数并为省略标记预留空间。"""
-        keep    = max(0, limit - reserve)
-        visible = 0
-
-        kept: list[str] = []
-
-        for ch in parts:
-            if ch == "\n":
-                kept.append(ch)
-                continue
-            if visible >= keep:
-                continue
-            kept.append(ch)
-            visible += 1
-
-        parts[:] = kept
-
+        spans.append(TextSpan(text, style))
 
 if __name__ == '__main__':
     pass

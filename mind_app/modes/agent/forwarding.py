@@ -5,7 +5,7 @@ import json
 import typing
 import asyncio
 from loguru import logger
-from engine.tinker import MindError
+from engine.errors import MindError
 from mind_nova.modes import (
     RUN_MODE_SET,
     RunMode

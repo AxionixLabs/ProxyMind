@@ -19,8 +19,14 @@ async def start_connect_animation(mind: "Mind", live_status: AgentLiveStatus) ->
     """启动建连等待动画。"""
     if not mind.animate:
         return None
+    if mind.frontend.runtime.active:
+        await mind.frontend.runtime.begin_external_mcp_status(
+            lambda: _agent_status_snapshot(live_status)
+        )
+        return None
+    design = mind.require_design()
     await mind.anim_manager.start(
-        lambda stop_event: mind.design.agent_connect_live(stop_event, live_status.snapshot)
+        lambda stop_event: design.agent_connect_live(stop_event, live_status.snapshot)
     )
 
 
@@ -28,9 +34,25 @@ async def start_status_animation(mind: "Mind", live_status: AgentLiveStatus) -> 
     """启动订阅读取状态动画。"""
     if not mind.animate:
         return None
+    if mind.frontend.runtime.active:
+        await mind.frontend.runtime.begin_external_mcp_status(
+            lambda: _agent_status_snapshot(live_status)
+        )
+        return None
+    design = mind.require_design()
     await mind.anim_manager.start(
-        lambda stop_event: mind.design.agent_wait_live(stop_event, live_status.snapshot)
+        lambda stop_event: design.agent_wait_live(stop_event, live_status.snapshot)
     )
+
+
+def _agent_status_snapshot(live_status: AgentLiveStatus) -> dict[str, typing.Any]:
+    """把 Agent 状态转换为通用 TUI 活动快照。"""
+    value = live_status.snapshot()
+    if isinstance(value, tuple):
+        title = str(value[0] or "") if value else ""
+        detail = str(value[1] or "") if len(value) > 1 else ""
+        return {"summary": title, "detail": detail}
+    return {"summary": str(value or "Agent")}
 
 
 async def publish_external_access(runtime: AgentSessionRuntime) -> None:

@@ -14,9 +14,8 @@ from rich.progress import (
     BarColumn, TimeElapsedColumn,
     Progress, SpinnerColumn, TextColumn,
 )
-from engine.tinker import (
-    Active, MindError
-)
+from engine.errors import MindError
+from engine.tinker import Active
 from engine.terminal import Terminal
 from mind_core.design import Design
 from mind_nova import const

@@ -2,11 +2,16 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from mind_app.presentation.models import (
+    StyledBlock,
+    TextSpan,
+    TextStyle
+)
 
-FAILURE_DOT_STYLE     = "bold #FF5F5F"
-FAILURE_TITLE_STYLE   = "bold #FF8A8A"
-FAILURE_BRANCH_STYLE  = "dim #8FA4B8"
-FAILURE_MESSAGE_STYLE = "#D98A8A"
+FAILURE_DOT_STYLE     = TextStyle(foreground="#FF5F5F", bold=True)
+FAILURE_TITLE_STYLE   = TextStyle(foreground="#FF8A8A", bold=True)
+FAILURE_BRANCH_STYLE  = TextStyle(foreground="#8FA4B8", dim=True)
+FAILURE_MESSAGE_STYLE = TextStyle(foreground="#D98A8A")
 
 
 def render_failure_title(phase: str) -> str:
@@ -25,22 +30,31 @@ def render_failure_text(phase: str, error: typing.Any) -> str:
 def render_failure_display_parts(
     phase: str,
     error: typing.Any
-) -> list[dict[str, typing.Optional[str]]]:
+) -> list[TextSpan]:
     """把 stream 生命周期失败块转换为显示片段。"""
     title = render_failure_title(phase)
     message = _failure_message(error)
 
-    parts: list[dict[str, typing.Optional[str]]] = [
-        {"text": "■", "style": FAILURE_DOT_STYLE},
-        {"text": title[1:], "style": FAILURE_TITLE_STYLE},
+    parts: list[TextSpan] = [
+        TextSpan("■", FAILURE_DOT_STYLE),
+        TextSpan(title[1:], FAILURE_TITLE_STYLE),
     ]
     if message:
         parts.extend([
-            {"text": "\n", "style": None},
-            {"text": "└ ", "style": FAILURE_BRANCH_STYLE},
-            {"text": message, "style": FAILURE_MESSAGE_STYLE},
+            TextSpan("\n"),
+            TextSpan("└ ", FAILURE_BRANCH_STYLE),
+            TextSpan(message, FAILURE_MESSAGE_STYLE),
         ])
     return parts
+
+
+def render_failure_block(phase: str, error: typing.Any) -> StyledBlock:
+    """生成中立的 stream 生命周期失败展示块。"""
+    parts = tuple(render_failure_display_parts(phase, error))
+    return StyledBlock(
+        plain_text="".join(part.text for part in parts),
+        spans=parts,
+    )
 
 
 def _failure_message(error: typing.Any) -> str:

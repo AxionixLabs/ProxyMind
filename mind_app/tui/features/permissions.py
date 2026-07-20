@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from mind_app.presentation.models import TextSpan, TextStyle
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
@@ -10,10 +11,11 @@ from ..core.models import (
     MenuOption,
     MenuRequest
 )
-from mind_nova.requests import (
+from mind_nova.requests.access import (
     access_mode_label,
     normalize_access_mode
 )
+from ..core.styles import BRIGHT_STYLE, MUTED_STYLE, fragment_block, text_block
 
 if typing.TYPE_CHECKING:
     from ..core.runtime import TuiRuntime
@@ -53,17 +55,20 @@ def render_permissions_status(
         if normalized == "safe"
         else "tool execution may run without approval"
     )
-    color = "#D8B26E" if normalized == "full" else "#8FC7EA"
+    title_style = TextStyle(
+        foreground="#D8B26E" if normalized == "full" else "#8FC7EA",
+        bold=True,
+    )
     application.emit(ApplicationView(
         type="tui.permissions.status",
-        renderable=(
-            f"[bold {color}]Permissions[/] "
-            f"[bold #F4F7FA]· {label}[/]"
+        renderable=fragment_block(
+            TextSpan("Permissions ", title_style),
+            TextSpan(f"· {label}", BRIGHT_STYLE),
         ),
     ))
     application.emit(ApplicationView(
         type="tui.permissions.detail",
-        renderable=f"[dim #7F8C9A]└ {detail}[/]",
+        renderable=text_block(f"└ {detail}", MUTED_STYLE),
     ))
     application.emit(ApplicationView(type="tui.gap"))
 

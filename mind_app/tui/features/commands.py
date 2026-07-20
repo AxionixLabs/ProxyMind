@@ -4,29 +4,37 @@
 import re
 import typing
 from loguru import logger
-from engine.tinker import (
-    MindError,
-    FileAssist
-)
+from engine.errors import MindError
+from engine.file_assist import FileAssist
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
 )
+from mind_app.presentation.models import TextSpan
 from mind_app.runtime.support.clipboard import (
     ClipboardError,
     copy_text_to_clipboard
 )
-from mind_app.stream_events.failure_display import render_failure_text
+from mind_app.stream_events.failure_display import render_failure_display_parts
 from mind_nova import const
 from mind_nova.modes import RunMode
-from mind_nova.requests import (
+from mind_nova.requests.compact import (
     build_compact_payload,
     stream_compact_events
 )
 from .context import save_primary_pref_field
 from .download import prepare_tui_service_runtime
 from .tools import render_tools_summary
+from ..core.models import FragmentBlock
+from ..core.styles import (
+    ACCENT_STYLE,
+    BRIGHT_STYLE,
+    MUTED_STYLE,
+    FAILURE_STYLE,
+    fragment_block,
+    text_block
+)
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
@@ -34,7 +42,7 @@ if typing.TYPE_CHECKING:
 
 def _present(
     mind: "Mind",
-    renderable: typing.Any = None,
+    renderable: FragmentBlock | None = None,
     *,
     view_type: str = "tui.command",
 ) -> None:
@@ -43,6 +51,19 @@ def _present(
         type=view_type,
         renderable=renderable,
     ))
+
+
+def _label_detail(label: str, detail: str) -> FragmentBlock:
+    """生成标题和次要详情组成的命令状态块。"""
+    return fragment_block(
+        TextSpan(f"{label} ", ACCENT_STYLE),
+        TextSpan(f"· {detail}", MUTED_STYLE),
+    )
+
+
+def _failure_block(message: str) -> FragmentBlock:
+    """生成单行命令错误块。"""
+    return text_block(message, FAILURE_STYLE)
 
 
 class CompactLiveStatus(object):
@@ -115,13 +136,13 @@ async def exchange_pref_value(
     for style in styles:
         application.emit(ApplicationView(
             type="tui.preference.help",
-            renderable=f"[bold #AFC7D8]  • {style}[/]",
+            renderable=text_block(f"  • {style}", ACCENT_STYLE),
         ))
     application.emit(ApplicationView(
         type="tui.preference.invalid",
-        renderable=(
-            f"[bold #FF5F5F]\n {pref_command} invalid: "
-            f"/{pref_command} {const.ERR}{pref_name}"
+        renderable=text_block(
+            f"{pref_command} invalid: /{pref_command} {pref_name or ''}",
+            FAILURE_STYLE,
         ),
     ))
     application.emit(ApplicationView(type="tui.gap"))
@@ -142,8 +163,11 @@ async def persist_primary_pref(
     except (OSError, TypeError, ValueError) as pref_save_error:
         _present(
             mind,
-            f"[bold #FF5F5F]{command_name} save failed: "
-            f"{type(pref_save_error).__name__}: {pref_save_error}[/]"
+            text_block(
+                f"{command_name} save failed: "
+                f"{type(pref_save_error).__name__}: {pref_save_error}",
+                FAILURE_STYLE,
+            )
         )
         _present(mind, view_type="tui.gap")
         return None
@@ -235,20 +259,31 @@ def print_pending_attachments(mind: "Mind") -> None:
     """打印当前待发送附件列表。"""
     attachments = mind.attach.pending_attachments_snapshot()
     if not attachments:
-        _present(mind, "[bold #7F8C9A]No pending attachments.[/]")
+        _present(mind, text_block("No pending attachments.", MUTED_STYLE))
         _present(mind, view_type="tui.gap")
         return None
 
-    _present(mind, f"[bold #AFC7D8]Pending attachments ({len(attachments)}):[/]")
+    _present(
+        mind,
+        text_block(f"Pending attachments ({len(attachments)}):", ACCENT_STYLE),
+    )
     for index, attachment in enumerate(attachments, start=1):
         size = int(attachment.get("size") or 0)
         _present(
             mind,
-            f"[bold #AFC7D8]  {index}.[/] "
-            f"[bold #F4F7FA]{attachment.get('filename') or '-'}[/] "
-            f"[#7F8C9A]({attachment.get('kind') or 'file'} · {size} bytes)[/]"
+            fragment_block(
+                TextSpan(f"  {index}. ", ACCENT_STYLE),
+                TextSpan(f"{attachment.get('filename') or '-'} ", BRIGHT_STYLE),
+                TextSpan(
+                    f"({attachment.get('kind') or 'file'} · {size} bytes)",
+                    MUTED_STYLE,
+                ),
+            )
         )
-        _present(mind, f"[#7F8C9A]     {attachment.get('local') or '-'}[/]")
+        _present(
+            mind,
+            text_block(f"     {attachment.get('local') or '-'}", MUTED_STYLE),
+        )
     _present(mind, view_type="tui.gap")
 
 
@@ -256,18 +291,18 @@ async def copy_last_assistant_reply(mind: "Mind") -> None:
     """复制最近一次模型回复到剪贴板。"""
     text = mind.last_assistant_reply_snapshot()
     if not text:
-        _present(mind, "[bold #7F8C9A]No assistant message to copy.[/]")
+        _present(mind, text_block("No assistant message to copy.", MUTED_STYLE))
         _present(mind, view_type="tui.gap")
         return None
 
     try:
         await copy_text_to_clipboard(text)
     except ClipboardError as error:
-        _present(mind, f"[bold #FF5F5F]Copy failed: {error}[/]")
+        _present(mind, _failure_block(f"Copy failed: {error}"))
         _present(mind, view_type="tui.gap")
         return None
 
-    _present(mind, "[bold #AFC7D8]Copied last message to clipboard[/]")
+    _present(mind, text_block("Copied last message to clipboard", ACCENT_STYLE))
     _present(mind, view_type="tui.gap")
 
 
@@ -276,12 +311,12 @@ async def link_helix_runtime(mind: "Mind") -> None:
     try:
         helix_linked = await prepare_tui_service_runtime(mind)
     except MindError as error:
-        _present(mind, f"[bold #FF5F5F]Helix link failed: {error}[/]")
+        _present(mind, _failure_block(f"Helix link failed: {error}"))
         _present(mind, view_type="tui.gap")
         return None
 
     if not helix_linked:
-        _present(mind, "[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]")
+        _present(mind, _label_detail("Helix", "skipped"))
         _present(mind, view_type="tui.gap")
 
 
@@ -290,7 +325,7 @@ def unlink_helix_runtime(mind: "Mind") -> None:
     was_linked = mind.is_service_mcp_linked()
     mind.unlink_service_mcp()
     state = "unlinked" if was_linked else "already unlinked"
-    _present(mind, f"[bold #AFC7D8]Helix[/] [dim #7F8C9A]· {state}[/]")
+    _present(mind, _label_detail("Helix", state))
     _present(mind, view_type="tui.gap")
 
 
@@ -299,18 +334,18 @@ async def open_helix_home(mind: "Mind") -> None:
     try:
         helix_ready = await prepare_tui_service_runtime(mind)
     except MindError as error:
-        _present(mind, f"[bold #FF5F5F]Helix home failed: {error}[/]")
+        _present(mind, _failure_block(f"Helix home failed: {error}"))
         _present(mind, view_type="tui.gap")
         return None
 
     if not helix_ready:
-        _present(mind, "[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]")
+        _present(mind, _label_detail("Helix", "skipped"))
         _present(mind, view_type="tui.gap")
         return None
 
     url = helix_runtime_home_url(mind)
 
-    _present(mind, f"[bold #AFC7D8]Helix Home[/] [dim #7F8C9A]· {url}[/]")
+    _present(mind, _label_detail("Helix Home", url))
     await FileAssist.open_url(url)
     _present(mind, view_type="tui.gap")
 
@@ -325,11 +360,11 @@ def helix_runtime_home_url(mind: "Mind") -> str:
 
 async def stop_helix_runtime(mind: "Mind") -> None:
     """停止 Helix 服务并打印结果。"""
-    _present(mind, "[bold #AFC7D8]Helix[/] [dim #7F8C9A]· stop[/]")
+    _present(mind, _label_detail("Helix", "stop"))
     try:
         await mind.stop_service_runtime()
     except MindError as error:
-        _present(mind, f"[bold #FF5F5F]Helix stop failed: {error}[/]")
+        _present(mind, _failure_block(f"Helix stop failed: {error}"))
         _present(mind, view_type="tui.gap")
         return None
     _present(mind, view_type="tui.gap")
@@ -364,7 +399,10 @@ async def print_available_tools(
         message = str(tool_error).strip()
         error   = f"{type(tool_error).__name__}: {message}" if message else type(tool_error).__name__
 
-        _present(mind, render_failure_text("tools.failed", error))
+        _present(
+            mind,
+            fragment_block(*render_failure_display_parts("tools.failed", error)),
+        )
         _present(mind, view_type="tui.gap")
 
 

@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from mind_app.presentation.models import TextSpan
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
@@ -12,6 +13,7 @@ from ..core.models import (
 )
 from mind_core.provider_config import DEFAULT_REASONING_EFFORT
 from .context import normalize_reasoning_effort
+from ..core.styles import ACCENT_STYLE, BRIGHT_STYLE, fragment_block
 
 if typing.TYPE_CHECKING:
     from ..core.runtime import TuiRuntime
@@ -50,9 +52,9 @@ def render_model_effort_status(
     normalized = normalize_reasoning_effort(effort)
     application.emit(ApplicationView(
         type="tui.model_effort",
-        renderable=(
-            "[bold #AFC7D8]Reasoning Effort[/] "
-            f"[bold #F4F7FA]· {normalized}[/]"
+        renderable=fragment_block(
+            TextSpan("Reasoning Effort ", ACCENT_STYLE),
+            TextSpan(f"· {normalized}", BRIGHT_STYLE),
         ),
     ))
     application.emit(ApplicationView(type="tui.gap"))

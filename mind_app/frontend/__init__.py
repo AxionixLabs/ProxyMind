@@ -9,21 +9,13 @@ from .contracts import (
     PassiveFrontendRuntime,
     Viewport
 )
-from .sinks import (
-    ConsoleApplicationSink,
-    JsonApplicationSink,
-    SilentApplicationSink
-)
 
 __all__ = [
     "ApplicationSink",
     "ApplicationView",
-    "ConsoleApplicationSink",
     "Frontend",
     "FrontendRuntime",
-    "JsonApplicationSink",
     "PassiveFrontendRuntime",
-    "SilentApplicationSink",
     "Viewport"
 ]
 

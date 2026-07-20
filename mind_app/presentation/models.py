@@ -30,6 +30,37 @@ ProgressSource = typing.Literal[
 
 
 @dataclass(frozen=True, slots=True)
+class TextStyle(object):
+    """描述与终端实现无关的文本样式。"""
+
+    foreground: str | None = None
+    background: str | None = None
+    bold: bool = False
+    dim: bool = False
+    italic: bool = False
+    underline: bool = False
+    reverse: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class TextSpan(object):
+    """保存一段文本及其中立样式。"""
+
+    text: str
+    style: TextStyle = TextStyle()
+
+
+@dataclass(frozen=True, slots=True)
+class StyledBlock(object):
+    """保存一个结构化文本块及其纯文本表示。"""
+
+    plain_text: str
+    spans: tuple[TextSpan, ...] = ()
+    preserve_spans: bool = False
+    direct: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class RunStartedView(object):
     """描述一次非交互输出任务的启动信息。"""
 

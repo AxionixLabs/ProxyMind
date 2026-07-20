@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from engine.tinker import MindError
+from engine.errors import MindError
 from mind_nova.modes import RunMode
 
 OutputMode = typing.Literal["tui", "rich", "text", "json"]

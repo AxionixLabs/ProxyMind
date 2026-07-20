@@ -5,24 +5,25 @@ import json
 import random
 import typing
 import asyncio
-from rich.text import Text
 from mind_app.output.contracts import (
     BLOCK_OUTPUT,
     STREAM_OUTPUT,
     OutputDisplay,
     OutputPort
 )
+from mind_app.presentation.models import StyledBlock, TextSpan, TextStyle
 from mind_app.stream_io.output_record import StreamRecordWriter
 from mind_app.stream_render.animation import AnimDriver
 from mind_app.stream_sanitize import sanitize_value
-from mind_app.stream_state.status import (
-    StatusFamily,
-    StatusState
-)
+from mind_app.stream_state.boundary import OutputBoundaryState
 from mind_app.stream_state.text import TextState
-from mind_core.design import Design
-from mind_core.design.utils import TYPEWRITER_CURSOR_STYLE
+from ..core.activity import StatusFamily, TuiStatusState
 from ..core.runtime import TuiRuntime
+from ..core.models import FragmentBlock
+from ..core.styles import prompt_style, styled_block_fragments
+from .markdown import render_tui_final
+
+TYPEWRITER_CURSOR_STYLE = TextStyle(foreground="#D7E7FF", bold=True)
 
 
 class TuiOutputControl(OutputPort):
@@ -44,7 +45,7 @@ class TuiOutputControl(OutputPort):
 
         self.text_state = TextState(width_provider=lambda: self.terminal_width)
         self.record_writer = StreamRecordWriter(log_file)
-        self.status_state = StatusState()
+        self.status_state = TuiStatusState()
         self.status_driver = AnimDriver(
             is_active=lambda: self.status_state.animating,
             get_interval=self.status_state.interval,
@@ -53,6 +54,7 @@ class TuiOutputControl(OutputPort):
         )
         self._pending_status_task: asyncio.Task[None] | None = None
         self._stream_boundary_pending = False
+        self._document_boundary = OutputBoundaryState(stream_display=self.STREAM)
         self._cursor = random.choice(("█", "▉", "▋"))
 
     @property
@@ -83,8 +85,8 @@ class TuiOutputControl(OutputPort):
         echo: bool = True,
         display: OutputDisplay = STREAM_OUTPUT,
         display_chunk: typing.Optional[str] = None,
-        display_style: typing.Optional[str] = None,
-        display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None,
+        display_style: TextStyle | None = None,
+        display_parts: list[TextSpan] | None = None,
         preserve_display_parts: bool = False,
     ) -> None:
         """向当前 TUI 内容块追加一段流式或块状文本。"""
@@ -92,21 +94,19 @@ class TuiOutputControl(OutputPort):
             return None
 
         text = str(chunk)
-        stream_boundary = self._stream_boundary_pending and display == self.STREAM
-        if stream_boundary:
-            self._stream_boundary_pending = False
-            if not self.text_state.display_text:
-                self.runtime.append_gap()
-            if (
-                self.record_writer.last_display == self.STREAM
-                and self.record_writer.trailing_newlines < 1
-                and not text.startswith("\n")
-            ):
-                self.record_writer.write_raw("\n")
+        boundary_prefix = self._consume_stream_boundary_prefix(incoming_text=text)
+        raw_chunk = None
+        if boundary_prefix and display == self.STREAM:
+            text = f"{boundary_prefix}{text}"
+            raw_chunk = text
 
         self.record_writer.write(text, block=(display == self.BLOCK))
         if display == self.STREAM:
             await self.end_status(immediate=True)
+
+        starts_document_block = not self.text_state.display_text
+        if echo and starts_document_block:
+            self._prepare_document_block(display)
 
         typewriter = bool(
             self.animate
@@ -118,6 +118,7 @@ class TuiOutputControl(OutputPort):
         )
         if typewriter:
             await self._append_typewriter(text)
+            self._observe_document_output(display)
             return None
 
         self.text_state.append(
@@ -125,16 +126,24 @@ class TuiOutputControl(OutputPort):
             echo=echo,
             display=display,
             display_chunk=display_chunk,
+            raw_chunk=raw_chunk,
             display_style=display_style,
             display_parts=display_parts,
             preserve_display_parts=preserve_display_parts,
         )
         if echo:
+            self._observe_document_output(display)
             self._render_active(cursor=False)
 
     async def prepare_external_output(self) -> None:
         """在外部展示前提交当前流式内容。"""
-        if self._commit_current():
+        self._consume_stream_boundary_prefix()
+        had_output = bool(
+            self.text_state.display_text
+            or self._document_boundary.last_display is not None
+        )
+        self._commit_current()
+        if had_output:
             self.runtime.append_gap()
 
     async def begin_tool_status(self) -> None:
@@ -180,12 +189,12 @@ class TuiOutputControl(OutputPort):
     async def record_hidden_output(self, text: str) -> None:
         """记录不直接展示的块状内容。"""
         if text:
-            self.record_writer.write(str(text), block=True)
+            value = str(text)
+            self._consume_stream_boundary_prefix(incoming_text=value)
+            self.record_writer.write(value, block=True)
 
     def mark_stream_boundary(self) -> None:
         """标记下一段流式内容边界。"""
-        self._commit_current()
-        self.runtime.append_gap()
         self._stream_boundary_pending = True
 
     def record_tool_arguments(
@@ -205,25 +214,42 @@ class TuiOutputControl(OutputPort):
         self,
         chunk: typing.Optional[str],
         *,
-        display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None,
+        display_parts: list[TextSpan] | None = None,
     ) -> None:
         """提交当前内容后追加一个直接展示块。"""
         if not chunk:
             return None
+        self._consume_stream_boundary_prefix(incoming_text=str(chunk))
         self._commit_current()
 
         text = str(chunk)
         self.record_writer.write(text, block=True)
-        if display_parts is None:
-            renderable = Text(text.rstrip("\n"), style="bold")
-        else:
-            renderable = Text()
-            for part in display_parts:
-                value = str(part.get("text") or "")
-                if value:
-                    renderable.append(value, style=part.get("style") or "bold")
-            renderable.rstrip()
+        self._prepare_document_block(self.BLOCK)
+        spans = tuple(display_parts or ())
+        block = StyledBlock(
+            plain_text=text.rstrip("\n"),
+            spans=spans,
+        )
+        self.runtime.append_block(FragmentBlock(styled_block_fragments(
+            block,
+            fallback_style=TextStyle(bold=True),
+        )))
+        self._observe_document_output(self.BLOCK)
+
+    async def append_styled_block(
+        self,
+        block: StyledBlock,
+        renderable: FragmentBlock,
+    ) -> None:
+        """记录并追加一个已由 TUI 适配器格式化的展示块。"""
+        if not block.plain_text:
+            return None
+        self._consume_stream_boundary_prefix(incoming_text=block.plain_text)
+        self._commit_current()
+        self.record_writer.write(block.plain_text, block=True)
+        self._prepare_document_block(self.BLOCK)
         self.runtime.append_block(renderable)
+        self._observe_document_output(self.BLOCK)
 
     def flush(self) -> None:
         """刷新当前输出记录。"""
@@ -234,9 +260,44 @@ class TuiOutputControl(OutputPort):
         if not self.text_state.display_text:
             self.runtime.clear_active_renderable()
             return False
-        self.runtime.commit_active_renderable(self.text_state.final_renderable())
+        self.runtime.commit_active_renderable(
+            render_tui_final(self.text_state.final_units())
+        )
         self.text_state.clear()
         return True
+
+    def _consume_stream_boundary_prefix(
+        self,
+        *,
+        incoming_text: str | None = None,
+    ) -> str:
+        """消费流式结束边界，并返回下一段正文需要补充的换行。"""
+        if not self._stream_boundary_pending:
+            return ""
+
+        self._stream_boundary_pending = False
+        if incoming_text and incoming_text.startswith("\n"):
+            return ""
+
+        source = self.text_state.display_text
+        if not source:
+            return ""
+
+        trailing = OutputBoundaryState.count_trailing_newlines(source)
+        return "\n" * max(0, 1 - trailing)
+
+    def _prepare_document_block(self, display: OutputDisplay) -> None:
+        """把共享输出边界转换为正文块前的视觉空行。"""
+        prefix = self._document_boundary.prefix(
+            for_display=display,
+            incoming_text="",
+        )
+        if prefix:
+            self.runtime.append_gap()
+
+    def _observe_document_output(self, display: OutputDisplay) -> None:
+        """记录正文块最后一种显示类型及其稳定行尾。"""
+        self._document_boundary.observe_display(display=display, text="\n")
 
     async def _append_typewriter(self, text: str) -> None:
         """按现有打字机节奏分批展示流式文本。"""
@@ -258,10 +319,10 @@ class TuiOutputControl(OutputPort):
 
     def _render_active(self, *, cursor: bool) -> None:
         """刷新当前流式内容并按需附加打字机光标。"""
-        renderable = self.text_state.renderable()
+        fragments = list(styled_block_fragments(self.text_state.visible_block()))
         if cursor:
-            renderable.append(self._cursor, style=TYPEWRITER_CURSOR_STYLE)
-        self.runtime.set_active_renderable(renderable)
+            fragments.append((prompt_style(TYPEWRITER_CURSOR_STYLE), self._cursor))
+        self.runtime.set_active_renderable(FragmentBlock(tuple(fragments)))
 
     async def _schedule_status(
         self,
@@ -305,9 +366,7 @@ class TuiOutputControl(OutputPort):
         if not self.status_state.visible:
             self.runtime.clear_status_renderable()
             return None
-        self.runtime.set_status_renderable(
-            Design.status_line_renderable(self.status_state.renderable())
-        )
+        self.runtime.set_status_renderable(self.status_state.render_block())
 
     @staticmethod
     def _audit_payload(arguments: dict[str, typing.Any]) -> str:

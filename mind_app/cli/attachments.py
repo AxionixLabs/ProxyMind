@@ -2,8 +2,11 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from engine.tinker import MindError
-from mind_core.design.upload import UploadProgressLiveReporter
+from engine.errors import MindError
+from mind_app.presentation.renderers.upload import (
+    upload_failure_block,
+    upload_summary_block
+)
 from ..frontend import ApplicationView
 
 if typing.TYPE_CHECKING:
@@ -46,7 +49,7 @@ async def resolve_cli_attachments(
         failure_reason = str(getattr(error, "display_reason", "") or error)
         mind.frontend.application.emit(ApplicationView(
             type="attachment.failure",
-            renderable=UploadProgressLiveReporter.render_failure(
+            renderable=upload_failure_block(
                 message=failure_reason,
                 event=upload_state["event"],
             ),
@@ -59,9 +62,7 @@ async def resolve_cli_attachments(
     if upload_state["event"] is not None:
         mind.frontend.application.emit(ApplicationView(
             type="attachment.completed",
-            renderable=UploadProgressLiveReporter.render_summary(
-                upload_state["event"]
-            ),
+            renderable=upload_summary_block(upload_state["event"]),
         ))
     return uploaded
 

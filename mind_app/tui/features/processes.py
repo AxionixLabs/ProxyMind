@@ -6,6 +6,7 @@ import shutil
 import typing
 import asyncio
 from prompt_toolkit.formatted_text import StyleAndTextTuples
+from mind_app.presentation.models import TextSpan
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
@@ -18,6 +19,11 @@ from .summary import (
     CommandSummary,
     command_summary_title_parts,
     render_command_summary
+)
+from ..core.styles import (
+    BRIGHT_STYLE,
+    MUTED_STYLE,
+    fragment_block
 )
 
 PS_PANEL_TICK_SEC: float   = 0.12
@@ -41,7 +47,11 @@ async def choose_exec_session(
     if not sessions:
         application.emit(ApplicationView(
             type="tui.exec.empty",
-            renderable="[bold #7F8C9A]No running exec_command sessions.[/]",
+            renderable=fragment_block(
+                TextSpan("Background terminals", BRIGHT_STYLE),
+                TextSpan("\n\n  • ", MUTED_STYLE),
+                TextSpan("No background terminals running.", MUTED_STYLE),
+            ),
         ))
         application.emit(ApplicationView(type="tui.gap"))
         return None

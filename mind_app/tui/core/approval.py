@@ -12,9 +12,9 @@ from mind_app.approval.models import ApprovalDecisionValue
 from mind_app.approval.policy import (
     approval_decisions,
     approval_expired,
-    approval_remaining_sec,
+    approval_remaining_sec
 )
-from mind_app.approval.render import approval_menu_content_lines
+from .approval_render import tui_approval_content_lines
 
 
 @dataclass(slots=True)
@@ -28,7 +28,7 @@ class ApprovalState(object):
 
 
 class TuiApproval(object):
-    """管理持久 TUI 内的无边框审批交互状态。"""
+    """管理持久 TUI 内的专属审批交互状态。"""
 
     def __init__(
         self,
@@ -87,12 +87,12 @@ class TuiApproval(object):
         await self._cancel_expiry()
 
     def fragments(self) -> StyleAndTextTuples:
-        """生成深灰背景无边框审批卡内容。"""
+        """生成浅灰背景审批面板内容。"""
         state = self.state
         if state is None:
             return []
 
-        lines = approval_menu_content_lines(
+        lines = tui_approval_content_lines(
             state.decisions,
             approval=state.approval,
             selected_index=state.selected,
@@ -100,7 +100,7 @@ class TuiApproval(object):
         out: StyleAndTextTuples = [("class:approval-card", "\n")]
         for line in lines:
             out.append(("class:approval-card", "  "))
-            out.extend(line or [("class:approval-card", " ")])
+            out.extend(line)
             out.append(("class:approval-card", "\n"))
         out.append(("class:approval-card", "\n"))
         return out

@@ -5,6 +5,8 @@ import json
 import typing
 from rich.console import Console
 from mind_core.design import Design
+from mind_app.presentation.models import StyledBlock
+from mind_app.presentation.rich.styles import rich_style
 from mind_nova import const
 from .contracts import (
     ApplicationSink,
@@ -41,18 +43,19 @@ class ConsoleApplicationSink(ApplicationSink):
         if view.type == "error":
             self.console.print(const.PRINT_HEAD, f"{const.ERR}{view.renderable}")
             return None
-        if view.type == "runtime.update_available":
-            local = view.payload.get("local") or {}
-            remote = view.payload.get("remote") or {}
-            self.console.print(
-                f"\n[bold]╭────── update available ──────╮\n"
-                f"current:  [bold #AFFFFF]{local.get('version') or '-'}[/]\n"
-                f"latest :  [bold #AFFFFF]{remote.get('version') or '-'}[/]\n"
-                f"notes  :  [bold #8A8A8A]{remote.get('notes') or '-'}[/]\n"
-            )
-            return None
         if view.type == "json" and isinstance(view.renderable, dict):
             self.console.print_json(data=view.renderable)
+            return None
+        if isinstance(view.renderable, StyledBlock):
+            from rich.text import Text
+
+            out = Text()
+            if view.renderable.spans:
+                for span in view.renderable.spans:
+                    out.append(span.text, style=rich_style(span.style))
+            else:
+                out.append(view.renderable.plain_text)
+            self.console.print(out, end=view.end)
             return None
         self.console.print(view.renderable or "", end=view.end)
 

@@ -9,7 +9,7 @@ import base64
 import typing
 import hashlib
 import secrets
-from engine.tinker import MindError
+from engine.errors import MindError
 from mind_nova import const
 
 

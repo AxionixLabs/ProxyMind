@@ -16,7 +16,7 @@ from mind_nova.events import EventReport
 from mind_nova.modes import RunMode
 from mind_nova.requests.reports import open_report_session
 from mind_app.frontend import ApplicationView
-from mind_app.stream_events.failure_display import render_failure_text
+from mind_app.stream_events.failure_display import render_failure_block
 from .code_sources import (
     CodeSourceResolved,
     resolve_code_sources
@@ -727,7 +727,7 @@ async def mind_pack(
         logger.error(f"❌ [Batch] failed: {error}\n")
         mind.frontend.application.emit(ApplicationView(
             type="batch.failed",
-            renderable=render_failure_text("batch.failed", error),
+            renderable=render_failure_block("batch.failed", error),
         ))
         mind.frontend.application.emit(ApplicationView(type="run.gap"))
 

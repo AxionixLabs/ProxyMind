@@ -2,13 +2,18 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from engine.tinker import MindError
+from engine.errors import MindError
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.frontend import ApplicationView
-from mind_core.design.upload import UploadProgressLiveReporter
+from mind_app.presentation.renderers.upload import (
+    upload_failure_block,
+    upload_summary_block,
+)
 from mind_nova.events import EventReport
 from mind_nova.modes import RunMode
 from ...runtime.support.calling import resolve_mode_runner
+from ..core.models import FragmentBlock
+from ..core.styles import styled_block_fragments
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
@@ -89,10 +94,10 @@ async def upload_pending_tui_attachments(
         failure_reason = str(getattr(upload_error, "display_reason", "") or upload_error)
         mind.frontend.application.emit(ApplicationView(
             type="tui.attachment.failure",
-            renderable=UploadProgressLiveReporter.render_failure(
+            renderable=FragmentBlock(styled_block_fragments(upload_failure_block(
                 message=failure_reason,
                 event=upload_state["event"],
-            ),
+            ))),
         ))
         mind.frontend.application.emit(ApplicationView(type="tui.gap"))
         return None
@@ -103,7 +108,9 @@ async def upload_pending_tui_attachments(
     if upload_state["event"] is not None:
         mind.frontend.application.emit(ApplicationView(
             type="tui.attachment.completed",
-            renderable=UploadProgressLiveReporter.render_summary(upload_state["event"]),
+            renderable=FragmentBlock(styled_block_fragments(
+                upload_summary_block(upload_state["event"])
+            )),
         ))
         mind.frontend.application.emit(ApplicationView(type="tui.gap"))
 

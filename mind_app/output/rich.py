@@ -5,7 +5,7 @@ from rich.console import Console
 from .terminal_content import TerminalContentSink
 from .session import OutputSession
 from .rich_control import RichOutputControl
-from mind_app.presentation.terminal import TerminalPresentationSink
+from mind_app.presentation.rich.sink import RichPresentationSink
 
 
 def create_rich_output_session(
@@ -24,7 +24,7 @@ def create_rich_output_session(
     return OutputSession(
         control=control,
         content=TerminalContentSink(control),
-        presentation=TerminalPresentationSink(control),
+        presentation=RichPresentationSink(control),
     )
 
 

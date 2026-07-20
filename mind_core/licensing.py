@@ -22,7 +22,7 @@ from cryptography.hazmat.primitives import (
 from cryptography.hazmat.primitives.asymmetric import padding
 from engine.channel import Channel
 from engine.terminal import Terminal
-from engine.tinker import MindError
+from engine.errors import MindError
 from mind_nova import const
 
 AuthorizationDataEmitter = typing.Callable[[dict[str, typing.Any]], None]

@@ -3,11 +3,13 @@
 
 import typing
 from dataclasses import dataclass
-from rich.text import Text
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
 )
+from mind_app.presentation.models import TextStyle
+from ..core.models import FragmentBlock
+from ..core.styles import prompt_style
 
 COMMAND_SUMMARY_DEFAULT_WIDTH: int = 100
 COMMAND_SUMMARY_COMMAND_MAX: int   = 72
@@ -32,7 +34,6 @@ def render_command_summary(
         summary,
         terminal_width=application.viewport.width
     )
-    renderable.rstrip()
     application.emit(ApplicationView(
         type="tui.command_summary",
         renderable=renderable,
@@ -43,25 +44,27 @@ def command_summary_text(
     summary: CommandSummary,
     *,
     terminal_width: int | None = None
-) -> Text:
+) -> FragmentBlock:
     """生成命令面板最终摘要文本。"""
-    renderable = Text()
+    fragments: list[tuple[str, str]] = []
 
     for text, style in command_summary_title_parts(
         summary,
         terminal_width=terminal_width
     ):
-        renderable.append(text, style=style)
+        fragments.append((style, text))
 
     for line in summary.lines:
-        renderable.append("\n")
-        renderable.append("  ", style="dim #7F8C9A")
-        renderable.append(
-            _summary_line_text(line, terminal_width=terminal_width),
-            style="dim #A8B1BB"
-        )
+        fragments.extend([
+            ("", "\n"),
+            (prompt_style(TextStyle(foreground="#7F8C9A", dim=True)), "  "),
+            (
+                prompt_style(TextStyle(foreground="#A8B1BB", dim=True)),
+                _summary_line_text(line, terminal_width=terminal_width),
+            ),
+        ])
 
-    return renderable
+    return FragmentBlock(tuple(fragments))
 
 
 def command_summary_title_parts(
@@ -81,14 +84,14 @@ def command_summary_title_parts(
     )
 
     parts = [
-        ("• ", "dim #7F8C9A"),
-        (kind, "bold #8FC7EA"),
-        (" ", "dim #7F8C9A"),
-        (command, "bold #F4F7FA"),
+        ("• ", prompt_style(TextStyle(foreground="#7F8C9A", dim=True))),
+        (kind, prompt_style(TextStyle(foreground="#8FC7EA", bold=True))),
+        (" ", prompt_style(TextStyle(foreground="#7F8C9A", dim=True))),
+        (command, prompt_style(TextStyle(foreground="#F4F7FA", bold=True))),
     ]
 
     if suffix:
-        parts.append((suffix, "dim #7F8C9A"))
+        parts.append((suffix, prompt_style(TextStyle(foreground="#7F8C9A", dim=True))))
 
     return parts
 

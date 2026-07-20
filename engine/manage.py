@@ -13,16 +13,10 @@ import contextlib
 from urllib.parse import urlparse
 from loguru import logger
 from mcp import types as mcp_types
-from engine.tinker import MindError
+from engine.errors import MindError
 from engine.ports import terminate_port_process
 from mind_nova import const
-from mind_nova.requests.manifest import fetch_manifest
 from mind_nova.service_auth import manufacture_token
-
-UpdateNotifier = typing.Callable[
-    [dict[str, typing.Any], dict[str, typing.Any]],
-    None
-]
 
 class ServerManage(object):
     """管理本地后台服务的启动、探测、重启和关闭。"""
@@ -32,12 +26,10 @@ class ServerManage(object):
         cmd: list[str],
         timeout: float = 0.6,
         env: typing.Optional[dict[str, str]] = None,
-        on_update: UpdateNotifier | None = None
     ):
         """保存启动命令并初始化本地服务 HTTP 客户端。"""
         self.cmd       = cmd
         self.env       = dict(env or {})
-        self.on_update = on_update
         self.url       = const.BASE_URL.rstrip("/")
 
         parsed    = urlparse(self.url)
@@ -48,67 +40,6 @@ class ServerManage(object):
         )
 
         self._lifecycle_lock: asyncio.Lock = asyncio.Lock()
-
-    @staticmethod
-    def has_new(local: dict[str, typing.Any], remote: dict[str, typing.Any]) -> bool:
-        """比较本地和远端版本，判断是否存在更新。"""
-
-        def parse_version(text: str, width: int = 3) -> tuple[int, ...]:
-            """把版本字符串转换为固定宽度的整数元组。"""
-            text = (text or "").strip().lower()
-            if text.startswith("v"):
-                text = text[1:]
-
-            parts: list[int] = []
-            for item in text.split("."):
-                try:
-                    parts.append(int(item))
-                except ValueError:
-                    parts.append(0)
-
-            if len(parts) < width:
-                parts.extend([0] * (width - len(parts)))
-
-            return tuple(parts[:width])
-
-        lv = parse_version(str(local.get("version") or "0"))
-        rv = parse_version(str(remote.get("version") or "0"))
-
-        return rv > lv
-
-    async def check_update(self) -> None:
-        """检查远端清单并在发现新版本时发送通知。"""
-        if not (local := await self.probe_version()):
-            return None
-
-        if not (remote := await fetch_manifest()):
-            return None
-
-        if self.has_new(local, remote):
-            if self.on_update is not None:
-                self.on_update(local, remote)
-        else:
-            logger.debug(
-                f"[Version] up to date: "
-                f"local=v{local.get('version') or '-'} remote=v{remote.get('version') or '-'}"
-            )
-
-    async def probe_version(self) -> typing.Optional[dict[str, typing.Any]]:
-        """读取本地服务版本信息；不可用时返回空值。"""
-        headers = {"accept": "application/json"}
-
-        try:
-            resp = await self._client.request("GET", "/version", headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-
-        except Exception as e:
-            return logger.debug(f"[Version] probe failed: {type(e).__name__}: {e}")
-
-        if not isinstance(data, dict) or not data.get("ok"):
-            return None
-
-        return data
 
     async def probe_healthz(self) -> bool:
         """检查本地服务健康端点是否返回有效状态。"""
@@ -304,13 +235,13 @@ class ServerManage(object):
         await self.spawn()
 
         if await self.wait_until_ready(wait_sec, interval):
-            return await self.check_update()
+            return None
 
         logger.debug("[Server] initial start did not pass MCP bootstrap probe, forcing restart")
         await self.restart_unlocked()
 
         if await self.wait_until_ready(wait_sec, interval):
-            return await self.check_update()
+            return None
 
         raise MindError("MCP not ready (bootstrap timeout)")
 

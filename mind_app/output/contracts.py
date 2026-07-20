@@ -2,6 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from mind_app.presentation.models import (
+    TextSpan,
+    TextStyle
+)
 from abc import (
     ABC,
     abstractmethod
@@ -107,8 +111,8 @@ class OutputPort(OutputControlPort):
         echo: bool = True,
         display: OutputDisplay = STREAM_OUTPUT,
         display_chunk: typing.Optional[str] = None,
-        display_style: typing.Optional[str] = None,
-        display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None,
+        display_style: TextStyle | None = None,
+        display_parts: list[TextSpan] | None = None,
         preserve_display_parts: bool = False,
     ) -> None:
         """追加一段流式或块状输出。"""
@@ -119,7 +123,7 @@ class OutputPort(OutputControlPort):
         self,
         chunk: typing.Optional[str],
         *,
-        display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None,
+        display_parts: list[TextSpan] | None = None,
     ) -> None:
         """直接输出块文本。"""
         ...

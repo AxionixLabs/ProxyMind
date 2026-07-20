@@ -5,24 +5,20 @@ import os
 import sys
 import typing
 import asyncio
-import functools
 from loguru import logger
 from engine.animation import AsyncAnimManager
 from engine.signals import SignalHandler
 from engine.manage import ServerManage
-from engine.tinker import (
-    MindError, Active
-)
+from engine.errors import MindError
+from engine.tinker import Active
 from mind_core.parser import Parser
 from mind_core.preference import Preferences
 from mind_core.service_config import ServiceConfig
 from mind_nova import const
 from mind_nova.services import service_endpoints
+from mind_app.presentation.models import StyledBlock, TextSpan, TextStyle
 from ..controller import Mind
-from ..frontend import (
-    ApplicationView,
-    ConsoleApplicationSink,
-)
+from ..frontend.contracts import ApplicationView
 from ..runtime.environment.exec_env import clear_exec_env_cache
 from ..runtime.environment.shell_tools import route_shell_tools
 from ..runtime.environment.workspace import fetch_runtime_workspace_root
@@ -42,7 +38,6 @@ from ..paths import (
 from .attachments import resolve_cli_attachments
 from .dispatch import run_selected_mode
 from .frontend import (
-    emit_runtime_update,
     resolve_cli_design,
     resolve_cli_frontend,
 )
@@ -84,7 +79,7 @@ async def _run_main(
     cmd_lines   = parser.parse_cmd
     output_mode = resolve_cli_output_mode(cmd_lines)
     frontend    = resolve_cli_frontend(output_mode)
-    design      = resolve_cli_design(frontend)
+    design      = resolve_cli_design(frontend, output_mode)
 
     # Notes: ========== Start from here ==========
     frontend.application.emit(ApplicationView(type="intro"))
@@ -124,11 +119,7 @@ async def _run_main(
 
     # Notes: ========== 激活日志 ==========
     level = const.SHOW_LEVEL
-    log_console = (
-        frontend.application.console
-        if isinstance(frontend.application, ConsoleApplicationSink)
-        else None
-    )
+    log_console = getattr(frontend.application, "console", None)
     Active.active(
         level,
         console=log_console,
@@ -166,12 +157,25 @@ async def _run_main(
 
     # Notes: ========== 升级流程 ==========
     if cmd_lines.upgrade:
-        await ensure_service_runtime_asset(
-            service_runtime_context,
-            explicit_upgrade=True,
-            anim_manager=entry_anim_manager,
-            design=design,
-        )
+        progress = None
+        if output_mode == "tui":
+            from ..tui.core.runtime import TuiRuntime
+            from ..tui.features.download import TuiUpgradeProgress
+
+            runtime = typing.cast(TuiRuntime, frontend.runtime)
+            await runtime.open()
+            progress = TuiUpgradeProgress(runtime)
+        try:
+            await ensure_service_runtime_asset(
+                service_runtime_context,
+                explicit_upgrade=True,
+                anim_manager=entry_anim_manager,
+                design=design,
+                progress=progress,
+            )
+        finally:
+            if output_mode == "tui":
+                await frontend.runtime.close()
         return 0
 
     logger.debug(f"{'=' * 15} 系统调试 {'=' * 15}")
@@ -213,10 +217,6 @@ async def _run_main(
     server: ServerManage = ServerManage(
         runtime_spec.launch_command,
         env=process_env(),
-        on_update=functools.partial(
-            emit_runtime_update,
-            frontend.application,
-        ),
     )
     mind = Mind(wires, level, power, remote, *positions, **keywords)
     mind.bind_runtime(asyncio.get_running_loop(), asyncio.current_task())
@@ -239,7 +239,19 @@ async def _run_main(
             if not helix_linked:
                 mind.frontend.application.emit(ApplicationView(
                     type="helix.skipped",
-                    renderable="[bold #AFC7D8]Helix[/] [dim #7F8C9A]· skipped[/]",
+                    renderable=StyledBlock(
+                        plain_text="Helix · skipped",
+                        spans=(
+                            TextSpan(
+                                "Helix ",
+                                TextStyle(foreground="#AFC7D8", bold=True),
+                            ),
+                            TextSpan(
+                                "· skipped",
+                                TextStyle(foreground="#7F8C9A", dim=True),
+                            ),
+                        ),
+                    ),
                 ))
                 mind.frontend.application.emit(ApplicationView(type="spacer"))
 

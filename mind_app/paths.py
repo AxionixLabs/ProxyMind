@@ -4,7 +4,7 @@
 import os
 import contextlib
 from pathlib import Path
-from engine.tinker import MindError
+from engine.errors import MindError
 from mind_core.config import default_config_path
 from mind_nova import const
 

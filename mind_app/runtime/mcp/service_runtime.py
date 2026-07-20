@@ -12,10 +12,10 @@ from loguru import logger
 from engine.animation import AsyncAnimManager
 from engine.manage import ServerManage
 from engine.terminal import Terminal
-from engine.tinker import MindError
+from engine.errors import MindError
 from engine.upgrade import UpgradeProgress
 from mind_app.assets import ensure_asset
-from mind_core.design import Design
+from mind_app.runtime.design import TerminalDesign
 from .service_exec_env import fetch_service_exec_env
 
 if typing.TYPE_CHECKING:
@@ -147,7 +147,7 @@ async def ensure_runtime_asset(
     packaged: bool,
     explicit_upgrade: bool,
     anim_manager: AsyncAnimManager,
-    design: Design,
+    design: TerminalDesign | None,
     progress: UpgradeProgress | None = None,
 ) -> bool:
     """复用入口升级流程确认运行时资产。"""
@@ -167,7 +167,8 @@ async def ensure_service_runtime_asset(
     *,
     explicit_upgrade: bool,
     anim_manager: AsyncAnimManager,
-    design: Design
+    design: TerminalDesign | None,
+    progress: UpgradeProgress | None = None,
 ) -> bool:
     """确认当前服务运行时资产存在，必要时执行升级流程。"""
     return await ensure_runtime_asset(
@@ -176,6 +177,7 @@ async def ensure_service_runtime_asset(
         explicit_upgrade=explicit_upgrade,
         anim_manager=anim_manager,
         design=design,
+        progress=progress,
     )
 
 
@@ -188,7 +190,7 @@ async def prepare_service_runtime(
     context: ServiceRuntimeContext,
     *,
     anim_manager: AsyncAnimManager,
-    design: Design,
+    design: TerminalDesign | None,
     progress: UpgradeProgress | None = None,
 ) -> bool:
     """准备服务运行时资产、环境变量和执行权限。"""

@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from dataclasses import replace
 from pygments import lex
 from pygments.lexers import (
     get_lexer_by_name,
@@ -9,8 +10,9 @@ from pygments.lexers import (
 )
 from pygments.token import Token
 from pygments.util import ClassNotFound
+from mind_app.presentation.models import TextSpan, TextStyle
 
-from ..common import (
+from mind_app.presentation.styles import (
     PREVIEW_CODE_COMMENT_STYLE,
     PREVIEW_CODE_KEYWORD_STYLE,
     PREVIEW_CODE_NAME_STYLE,
@@ -27,8 +29,8 @@ def code_parts(
     *,
     current_path: str,
     deleted: bool,
-    part: typing.Callable[[str, str | None], dict[str, typing.Optional[str]]],
-) -> list[dict[str, typing.Optional[str]]]:
+    part: typing.Callable[[str, TextStyle | None], TextSpan],
+) -> list[TextSpan]:
     """按当前文件路径对代码片段做语法高亮。"""
     if not code:
         return [part(code, PREVIEW_TEXT_STYLE)]
@@ -37,7 +39,7 @@ def code_parts(
     if lexer is None:
         return [part(code, _deleted_style(PREVIEW_CODE_TEXT_STYLE) if deleted else PREVIEW_CODE_TEXT_STYLE)]
 
-    parts: list[dict[str, typing.Optional[str]]] = []
+    parts: list[TextSpan] = []
     try:
         tokens = list(lex(code, lexer))
     except (TypeError, ValueError):
@@ -106,7 +108,7 @@ def _lexer_name_from_extension(path: str) -> str:
     }.get(suffix, "")
 
 
-def _token_style(token_type: typing.Any) -> str:
+def _token_style(token_type: typing.Any) -> TextStyle:
     """把 Pygments token 映射为预览显示样式。"""
     if token_type in Token.Keyword:
         return PREVIEW_CODE_KEYWORD_STYLE
@@ -124,9 +126,9 @@ def _token_style(token_type: typing.Any) -> str:
     return PREVIEW_CODE_TEXT_STYLE
 
 
-def _deleted_style(style: str) -> str:
+def _deleted_style(style: TextStyle) -> TextStyle:
     """让删除行里的 token 保持语义颜色但整体弱化。"""
-    return style if style.startswith("dim ") else f"dim {style}"
+    return style if style.dim else replace(style, dim=True)
 
 
 if __name__ == '__main__':

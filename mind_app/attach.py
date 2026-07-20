@@ -6,7 +6,7 @@ import time
 import typing
 import mimetypes
 from pathlib import Path
-from engine.tinker import MindError
+from engine.errors import MindError
 from mind_nova.attachments import upload_response_attachment
 from mind_nova.requests.upload import upload_file_stream
 

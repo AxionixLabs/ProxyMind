@@ -2,7 +2,9 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mcp import types as mcp_types
+
+if typing.TYPE_CHECKING:
+    from mcp import types as mcp_types
 
 
 class McpSessionLike(typing.Protocol):

@@ -3,7 +3,7 @@
 
 import typing
 from dataclasses import dataclass
-from engine.tinker import MindError
+from engine.errors import MindError
 
 
 @dataclass(slots=True)

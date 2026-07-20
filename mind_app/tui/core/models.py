@@ -4,6 +4,15 @@
 import typing
 from dataclasses import dataclass
 
+FormattedText: typing.TypeAlias = list[tuple[str, str]]
+
+
+@dataclass(frozen=True, slots=True)
+class FragmentBlock(object):
+    """保存无需再次转换的 prompt_toolkit 文本片段。"""
+
+    fragments: tuple[tuple[str, str], ...]
+
 
 @dataclass(frozen=True, slots=True)
 class MenuOption(object):

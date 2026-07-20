@@ -3,7 +3,7 @@
 
 import typing
 from loguru import logger
-from engine.tinker import MindError
+from engine.errors import MindError
 from mind_app.mcp.config import load_mcp_servers_file
 from mind_app.mcp.group import (
     ExternalMcpGroup,

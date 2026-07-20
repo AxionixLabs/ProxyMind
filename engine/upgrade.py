@@ -13,7 +13,7 @@ import zipfile
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
-from engine.tinker import MindError
+from engine.errors import MindError
 from engine import signals
 from engine.ports import port_available, terminate_port_process
 from mind_nova.requests.manifest import fetch_manifest

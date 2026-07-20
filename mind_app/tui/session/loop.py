@@ -4,19 +4,20 @@
 import re
 import time
 import typing
-from engine.tinker import (
-    FileAssist, MindError
-)
+from prompt_toolkit.utils import get_cwidth
+from engine.errors import MindError
+from engine.file_assist import FileAssist
 from mind_nova.modes import (
     DEFAULT_RUN_MODE, RunMode
 )
-from mind_nova.requests import (
+from mind_nova.requests.access import (
     DEFAULT_ACCESS_MODE,
     access_mode_label,
     normalize_access_mode
 )
 from mind_app.interaction import PromptContext
 from mind_app.frontend import ApplicationView
+from mind_app.presentation.models import TextSpan, TextStyle
 from mind_app.runtime.environment.workspace import fetch_runtime_workspace_root
 from ..features.commands import (
     exchange_pref_value,
@@ -61,6 +62,17 @@ from ..features.shell import (
 )
 from .turn import run_tui_model_turn
 from ..core.runtime import TuiRuntime
+from ..core.models import FragmentBlock
+from ..core.styles import (
+    ACCENT_STYLE,
+    BRIGHT_STYLE,
+    FAILURE_STYLE,
+    MUTED_STYLE,
+    SUCCESS_STYLE,
+    WARNING_STYLE,
+    fragment_block,
+    text_block,
+)
 from server import config_service_base_url
 from ..features.history import choose_history_session
 
@@ -72,6 +84,65 @@ MODE_BY_COMMAND: dict[str, RunMode] = {
     "/fast": "fast",
     "/xtra": "xtra"
 }
+
+HELP_ITEMS: tuple[tuple[str, str, TextStyle], ...] = (
+    ("/chat", "对话模式（交互能力协作/自然语言交互）", WARNING_STYLE),
+    ("/fast", "高速模式（高吞吐任务流/数据媒体直达）", WARNING_STYLE),
+    ("/xtra", "外接模式（外部 MCP 工具 + 通用工具 + 编码工具）", WARNING_STYLE),
+    ("/new", "开始新对话（保留模式、模型和待发送附件）", ACCENT_STYLE),
+    ("/resume", "从当前模式最近 24 小时会话中恢复", SUCCESS_STYLE),
+    ("/attach <path|dir|glob>", "添加本轮待发送附件（任意文件）", ACCENT_STYLE),
+    ("/attachments", "查看当前待发送附件", ACCENT_STYLE),
+    ("/detach <index|path>", "移除一个待发送附件", ACCENT_STYLE),
+    ("/attach-clear", "清空当前待发送附件", ACCENT_STYLE),
+    ("/permissions", "切换权限模式", SUCCESS_STYLE),
+    ("/model <model-id>", "持久化主模型 ID；省略 model-id 表示清空", MUTED_STYLE),
+    ("/effort", "设置主模型推理强度", SUCCESS_STYLE),
+    ("/preferences", "打开偏好配置页面", ACCENT_STYLE),
+    ("/compact", "压缩当前对话上下文", ACCENT_STYLE),
+    ("/tools", "查看当前可用 MCP 工具", ACCENT_STYLE),
+    ("/diff", "查看本轮补丁净差异", ACCENT_STYLE),
+    ("/copy", "复制最近一次助手回复原文", ACCENT_STYLE),
+    ("/ps", "查看运行中的命令", SUCCESS_STYLE),
+    ("/mcp", "管理外部 MCP 服务", TextStyle(foreground="#87D7FF", bold=True)),
+    ("/helix-link", "接入 Helix MCP", SUCCESS_STYLE),
+    ("/helix-unlink", "移除当前会话的 Helix MCP", SUCCESS_STYLE),
+    ("/helix-home", "打开 Helix 首页", SUCCESS_STYLE),
+    ("/helix-stop", "停止 Helix 服务", SUCCESS_STYLE),
+    ("/help, /h", "指令索引（用法/示例/约定）", ACCENT_STYLE),
+    ("/license, /lic", "授权许可（License/特性）", SUCCESS_STYLE),
+    ("/shutdown", "关闭前台并停止本地运行时", FAILURE_STYLE),
+    ("/quit, /q, quit, exit", "断开会话（安全退出）", FAILURE_STYLE),
+)
+
+
+def _help_block() -> FragmentBlock:
+    """生成 TUI 命令索引块。"""
+    command_width = max(get_cwidth(command) for command, _detail, _style in HELP_ITEMS) + 3
+    parts: list[TextSpan] = []
+    for index, (command, detail, style) in enumerate(HELP_ITEMS):
+        if index:
+            parts.append(TextSpan("\n"))
+        padding = " " * max(1, command_width - get_cwidth(command))
+        parts.extend([
+            TextSpan(command, style),
+            TextSpan(padding),
+            TextSpan(detail),
+        ])
+    return fragment_block(*parts)
+
+
+def _label_detail(label: str, detail: str) -> FragmentBlock:
+    """生成标题和次要详情组成的会话状态块。"""
+    return fragment_block(
+        TextSpan(f"{label} ", ACCENT_STYLE),
+        TextSpan(f"· {detail}", MUTED_STYLE),
+    )
+
+
+def _failure_block(message: typing.Any) -> FragmentBlock:
+    """生成单行会话错误块。"""
+    return text_block(str(message), FAILURE_STYLE)
 
 
 async def run_tui_loop(mind: "Mind") -> None:
@@ -86,7 +157,7 @@ async def run_tui_loop(mind: "Mind") -> None:
         return await runtime.run_modal(factory)
 
     def present(
-        renderable: typing.Any = None,
+        renderable: FragmentBlock | None = None,
         *,
         view_type: str = "tui.output",
     ) -> None:
@@ -120,36 +191,7 @@ async def run_tui_loop(mind: "Mind") -> None:
     helix_stop_set: set[str]   = {"/helix-stop"}
     shutdown_set: set[str]     = {"/shutdown"}
 
-    doc = """\
-        [bold]
-        [bold #FFD75F]/chat[/]                     对话模式（交互能力协作/自然语言交互）
-        [bold #FFD75F]/fast[/]                     高速模式（高吞吐任务流/数据媒体直达）
-        [bold #FFD75F]/xtra[/]                     外接模式（外部 MCP 工具 + 通用工具 + 编码工具）
-        [bold #AFD7FF]/new[/]                      开始新对话（保留模式、模型和待发送附件）
-        [bold #5FD7AF]/resume[/]                   从当前模式最近 24 小时会话中恢复
-        [bold #AFD7FF]/attach <path|dir|glob>[/]   添加本轮待发送附件（任意文件）
-        [bold #AFD7FF]/attachments[/]              查看当前待发送附件
-        [bold #AFD7FF]/detach <index|path>[/]      移除一个待发送附件
-        [bold #AFD7FF]/attach-clear[/]             清空当前待发送附件
-        [bold #5FD7AF]/permissions[/]              切换权限模式
-        [bold #7F8C9A]/model <model-id>[/]         持久化主模型 ID；省略 model-id 表示清空
-        [bold #5FD7AF]/effort[/]                   设置主模型推理强度
-        [bold #AFD7FF]/preferences[/]              打开偏好配置页面
-        [bold #AFD7FF]/compact[/]                  压缩当前对话上下文
-        [bold #AFD7FF]/tools[/]                    查看当前可用 MCP 工具
-        [bold #AFD7FF]/diff[/]                     查看本轮补丁净差异
-        [bold #AFD7FF]/copy[/]                     复制最近一次助手回复原文
-        [bold #5FD7AF]/ps[/]                       查看运行中的命令
-        [bold #87D7FF]/mcp[/]                      管理外部 MCP 服务
-        [bold #5FD7AF]/helix-link[/]               接入 Helix MCP
-        [bold #5FD7AF]/helix-unlink[/]             移除当前会话的 Helix MCP
-        [bold #5FD7AF]/helix-home[/]               打开 Helix 首页
-        [bold #5FD7AF]/helix-stop[/]               停止 Helix 服务
-        [bold #AFD7FF]/help, /h[/]                 指令索引（用法/示例/约定）
-        [bold #5FD7AF]/license, /lic[/]            授权许可（License/特性）
-        [bold #FF5F5F]/shutdown[/]                 关闭前台并停止本地运行时
-        [bold #FF5F5F]/quit, /q, quit, exit[/]     断开会话（安全退出）
-        [/]"""
+    doc = _help_block()
 
     re_attach = re.compile(r"^\s*/attach(?:\s+(.*))?\s*$", re.IGNORECASE)
     re_detach = re.compile(r"^\s*/detach(?:\s+(.*))?\s*$", re.IGNORECASE)
@@ -205,6 +247,7 @@ async def run_tui_loop(mind: "Mind") -> None:
             continue
 
         if prompt_text.startswith("!"):
+            present()
             shell_request = parse_shell_escape(prompt_text)
             if shell_request is not None and shell_request.enter_shell:
                 shell_handled = await run_modal(
@@ -217,6 +260,8 @@ async def run_tui_loop(mind: "Mind") -> None:
                 continue
 
         command = prompt_text.strip().lower()
+        if command.startswith("/"):
+            present()
 
         if command in quit_set:
             mind.task_event.set()
@@ -235,11 +280,11 @@ async def run_tui_loop(mind: "Mind") -> None:
                 reason="command:/new",
                 source="tui:new"
             )
-            present(
-                f"[bold #AFC7D8]New conversation[/] "
-                f"[dim #7F8C9A]· cid={new_conversation_metadata['cid']} "
-                f"sid={new_conversation_metadata['sid']}[/]"
-            )
+            present(_label_detail(
+                "New conversation",
+                f"cid={new_conversation_metadata['cid']} "
+                f"sid={new_conversation_metadata['sid']}",
+            ))
             present()
             continue
 
@@ -249,14 +294,17 @@ async def run_tui_loop(mind: "Mind") -> None:
 
         if command in attach_clear_set:
             count = mind.attach.clear_pending_attachments()
-            present(f"[bold #AFC7D8]Cleared {count} pending attachment(s).[/]")
+            present(text_block(
+                f"Cleared {count} pending attachment(s).",
+                ACCENT_STYLE,
+            ))
             present()
             continue
 
         if command in shutdown_set:
             mind.stop_runtime_on_exit = True
             mind.task_event.set()
-            present("[bold #AFC7D8]Shutdown[/] [dim #7F8C9A]· stop backend runtime[/]")
+            present(_label_detail("Shutdown", "stop backend runtime"))
             present()
             break
 
@@ -340,16 +388,16 @@ async def run_tui_loop(mind: "Mind") -> None:
                 if saved_primary is not None:
                     model = str(saved_primary.get("model") or model_value)
                     model_label = model or "(empty)"
-                    present(
-                        f"[bold #AFC7D8]Model saved[/] "
-                        f"[bold #F4F7FA]{model_label}[/]"
-                    )
+                    present(fragment_block(
+                        TextSpan("Model saved ", ACCENT_STYLE),
+                        TextSpan(model_label, BRIGHT_STYLE),
+                    ))
                     present()
             continue
 
         if command in preferences_set:
             url = f"{config_service_base_url()}/pref"
-            present(f"[bold #AFC7D8]Preferences[/] [dim #7F8C9A]· {url}[/]")
+            present(_label_detail("Preferences", url))
             await FileAssist.open_url(url)
             present()
             continue
@@ -394,9 +442,10 @@ async def run_tui_loop(mind: "Mind") -> None:
         if command in resume_set:
             records = mind.recent_conversation_sessions()
             if not records:
-                present(
-                    "[bold #7F8C9A]No resumable conversations in the last 24 hours.[/]"
-                )
+                present(text_block(
+                    "No resumable conversations in the last 24 hours.",
+                    MUTED_STYLE,
+                ))
                 present()
                 continue
 
@@ -410,14 +459,14 @@ async def run_tui_loop(mind: "Mind") -> None:
 
             resumed = mind.resume_conversation(selected_record, source="tui:resume")
             if resumed is None:
-                present("[bold #FF5F5F]Resume failed: invalid session cursor.[/]")
+                present(_failure_block("Resume failed: invalid session cursor."))
                 present()
                 continue
 
-            present(
-                f"[bold #AFC7D8]Resumed[/] "
-                f"[dim #7F8C9A]· cid={resumed['cid']} sid={resumed['sid']}[/]"
-            )
+            present(_label_detail(
+                "Resumed",
+                f"cid={resumed['cid']} sid={resumed['sid']}",
+            ))
             present()
             continue
 
@@ -429,13 +478,13 @@ async def run_tui_loop(mind: "Mind") -> None:
         if m := re_attach.match(prompt_text):
             value = m.group(1).strip() if m.group(1) else ""
             if not value:
-                present("[bold #FF5F5F]attach invalid: /attach <path|dir|glob>[/]")
+                present(_failure_block("attach invalid: /attach <path|dir|glob>"))
                 present()
                 continue
             try:
                 result = mind.attach.add_pending_attachments(value)
             except MindError as attach_error:
-                present(f"[bold #FF5F5F]{attach_error}[/]")
+                present(_failure_block(attach_error))
                 present()
                 continue
 
@@ -443,44 +492,64 @@ async def run_tui_loop(mind: "Mind") -> None:
             existing = result.get("existing") or []
             skipped  = result.get("skipped") or []
 
-            present(
-                f"[bold #5FD7AF]Attach summary[/] "
-                f"[bold #F4F7FA]{len(added)} added[/] "
-                f"[#7F8C9A]· {len(existing)} existing · {len(skipped)} skipped[/]"
-            )
+            present(fragment_block(
+                TextSpan("Attach summary ", SUCCESS_STYLE),
+                TextSpan(f"{len(added)} added ", BRIGHT_STYLE),
+                TextSpan(
+                    f"· {len(existing)} existing · {len(skipped)} skipped",
+                    MUTED_STYLE,
+                ),
+            ))
             for added_attachment in added[:5]:
-                present(
-                    f"[bold #AFC7D8]  +[/] "
-                    f"[bold #F4F7FA]{added_attachment.get('filename') or '-'}[/] "
-                    f"[#7F8C9A]({added_attachment.get('kind') or 'file'})[/]"
-                )
+                present(fragment_block(
+                    TextSpan("  + ", ACCENT_STYLE),
+                    TextSpan(
+                        f"{added_attachment.get('filename') or '-'} ",
+                        BRIGHT_STYLE,
+                    ),
+                    TextSpan(
+                        f"({added_attachment.get('kind') or 'file'})",
+                        MUTED_STYLE,
+                    ),
+                ))
             if len(added) > 5:
-                present(f"[#7F8C9A]  ... and {len(added) - 5} more added[/]")
+                present(text_block(
+                    f"  ... and {len(added) - 5} more added",
+                    MUTED_STYLE,
+                ))
             if skipped:
-                present(
-                    f"[#FFB86B]Skipped[/] "
-                    f"{', '.join(str(skipped_attachment.get('filename') or '-') for skipped_attachment in skipped[:3])}"
-                )
+                present(fragment_block(
+                    TextSpan("Skipped ", WARNING_STYLE),
+                    TextSpan(
+                        ", ".join(
+                            str(item.get("filename") or "-")
+                            for item in skipped[:3]
+                        )
+                    ),
+                ))
             present()
             continue
 
         if m := re_detach.match(prompt_text):
             value = m.group(1).strip() if m.group(1) else ""
             if not value:
-                present("[bold #FF5F5F]detach invalid: /detach <index|path>[/]")
+                present(_failure_block("detach invalid: /detach <index|path>"))
                 present()
                 continue
             try:
                 removed_attachment = mind.attach.remove_pending_attachment(value)
             except MindError as detach_error:
-                present(f"[bold #FF5F5F]{detach_error}[/]")
+                present(_failure_block(detach_error))
                 present()
                 continue
 
-            present(
-                f"[bold #AFC7D8]Detached[/] "
-                f"[bold #F4F7FA]{removed_attachment.get('filename') or '-'}[/]"
-            )
+            present(fragment_block(
+                TextSpan("Detached ", ACCENT_STYLE),
+                TextSpan(
+                    str(removed_attachment.get("filename") or "-"),
+                    BRIGHT_STYLE,
+                ),
+            ))
             present()
             continue
 
@@ -488,13 +557,17 @@ async def run_tui_loop(mind: "Mind") -> None:
         present()
         mind.native_coding.reset_patch_diff()
 
-        await run_tui_model_turn(
-            mind,
-            message_text=prompt_text,
-            run_mode=mode,
-            pref_config=pref_config,
-            access_mode=access_mode
-        )
+        runtime.set_execution_active(True)
+        try:
+            await run_tui_model_turn(
+                mind,
+                message_text=prompt_text,
+                run_mode=mode,
+                pref_config=pref_config,
+                access_mode=access_mode
+            )
+        finally:
+            runtime.set_execution_active(False)
 
     return None
 

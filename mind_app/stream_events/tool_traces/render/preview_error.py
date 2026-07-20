@@ -3,8 +3,9 @@
 
 import re
 import typing
+from mind_app.presentation.models import TextSpan, TextStyle
 
-from ..common import (
+from mind_app.presentation.styles import (
     ERROR_PREVIEW_HEAD_STYLE,
     ERROR_PREVIEW_LINE_STYLE,
     ERROR_PREVIEW_MESSAGE_STYLE,
@@ -17,8 +18,8 @@ from ..common import (
 def error_preview_line_parts(
     line: str,
     *,
-    part: typing.Callable[[str, str | None], dict[str, typing.Optional[str]]],
-) -> list[dict[str, typing.Optional[str]]] | None:
+    part: typing.Callable[[str, TextStyle | None], TextSpan],
+) -> list[TextSpan] | None:
     """按命令错误输出常见结构分层着色。"""
     stripped = line.strip()
     if not stripped:

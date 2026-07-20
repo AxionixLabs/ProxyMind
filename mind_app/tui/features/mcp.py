@@ -4,11 +4,20 @@
 import typing
 from collections import defaultdict
 from mind_app.frontend import ApplicationView
+from mind_app.presentation.models import TextSpan
 from ..core.models import (
     MenuOption,
     MenuRequest
 )
 from mind_app.mcp.config import load_mcp_servers_file
+from ..core.styles import (
+    ACCENT_STYLE,
+    BODY_STYLE,
+    BRIGHT_STYLE,
+    MUTED_STYLE,
+    fragment_block,
+    text_block,
+)
 
 if typing.TYPE_CHECKING:
     from ..core.runtime import TuiRuntime
@@ -184,13 +193,18 @@ def render_mcp_status(mind: typing.Any) -> None:
 
     _present(
         mind,
-        f"[bold #AFC7D8]External MCP[/] "
-        f"[dim #7F8C9A]· started={str(summary['started']).lower()} "
-        f"configured={len(configured)} tools={summary['tool_count']}[/]"
+        fragment_block(
+            TextSpan("External MCP ", ACCENT_STYLE),
+            TextSpan(
+                f"· started={str(summary['started']).lower()} "
+                f"configured={len(configured)} tools={summary['tool_count']}",
+                MUTED_STYLE,
+            ),
+        )
     )
 
     if configured:
-        _present(mind, "[bold #F4F7FA]Configured servers[/]")
+        _present(mind, text_block("Configured servers", BRIGHT_STYLE))
         for server in configured:
             name      = str(server.get("name") or "server")
             transport = str(server.get("transport") or "streamable_http")
@@ -199,23 +213,38 @@ def render_mcp_status(mind: typing.Any) -> None:
 
             _present(
                 mind,
-                f"[bold #AFC7D8]  •[/] [#DDE7EF]{name}[/] "
-                f"[dim #7F8C9A]({transport} · {state})[/]"
+                fragment_block(
+                    TextSpan("  • ", ACCENT_STYLE),
+                    TextSpan(f"{name} ", BODY_STYLE),
+                    TextSpan(f"({transport} · {state})", MUTED_STYLE),
+                )
             )
     else:
-        _present(mind, "[bold #7F8C9A]No external MCP servers configured.[/]")
+        _present(
+            mind,
+            text_block("No external MCP servers configured.", MUTED_STYLE),
+        )
 
     if tool_groups:
-        _present(mind, "[bold #F4F7FA]Connected tools[/]")
+        _present(mind, text_block("Connected tools", BRIGHT_STYLE))
         for group in tool_groups:
             names = group["tools"]
             _present(
                 mind,
-                f"[bold #AFC7D8]  •[/] [#DDE7EF]{group['server']}[/] "
-                f"[dim #7F8C9A]({group['transport']} · {len(names)} tools)[/]"
+                fragment_block(
+                    TextSpan("  • ", ACCENT_STYLE),
+                    TextSpan(f"{group['server']} ", BODY_STYLE),
+                    TextSpan(
+                        f"({group['transport']} · {len(names)} tools)",
+                        MUTED_STYLE,
+                    ),
+                )
             )
     else:
-        _present(mind, "[bold #7F8C9A]No external MCP tools connected.[/]")
+        _present(
+            mind,
+            text_block("No external MCP tools connected.", MUTED_STYLE),
+        )
 
     _present(mind, view_type="tui.gap")
 

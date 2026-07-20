@@ -11,7 +11,7 @@ import asyncio
 import hashlib
 from pathlib import Path
 from dataclasses import dataclass
-from engine.tinker import MindError
+from engine.errors import MindError
 from mind_nova import const
 from .models import (
     CodeSourcePayload,

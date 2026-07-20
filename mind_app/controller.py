@@ -13,8 +13,7 @@ from loguru import logger
 from engine.manage import ServerManage
 from engine.animation import AsyncAnimManager
 from engine.ports import terminate_port_process
-from engine.tinker import MindError
-from mind_core.design import Design
+from engine.errors import MindError
 from mind_core.preference import Preferences
 from mind_nova.modes import (
     DEFAULT_RUN_MODE,
@@ -22,9 +21,6 @@ from mind_nova.modes import (
 )
 from .reporting import RunReport
 from .attach import Attach
-from .modes.stream import stream_looper as run_stream_looper
-from .modes.batch import mind_pack as run_mind_pack
-from .modes.agent import run_agent_loop
 from .runtime.support.calling import (
     calling as run_calling,
     run_mode_lifecycle as run_mode_lifecycle_wrapper
@@ -42,7 +38,8 @@ from .client_tools import (
     default_registry as default_client_tool_registry
 )
 from .native_coding import NativeCoding
-from .frontend import Frontend
+from .frontend.contracts import Frontend
+from .runtime.design import TerminalDesign
 from .history import (
     ConversationHistoryStore,
     HISTORY_LIMIT,
@@ -86,7 +83,7 @@ class Mind(object):
 
         self.animate: bool = bool(kwargs.get("animate", True))
 
-        self.design: Design = kwargs["design"]
+        self.design: TerminalDesign | None = kwargs.get("design")
 
         self.conversation: ConversationState         = ConversationState()
         self.history_store: ConversationHistoryStore = ConversationHistoryStore()
@@ -465,6 +462,12 @@ class Mind(object):
             return None
         await self.anim_manager.stop()
 
+    def require_design(self) -> TerminalDesign:
+        """返回非 TUI 终端设计能力。"""
+        if self.design is None:
+            raise RuntimeError("terminal design is unavailable for this frontend")
+        return self.design
+
     async def start_anim(
         self,
         mode: RunMode = DEFAULT_RUN_MODE
@@ -475,8 +478,9 @@ class Mind(object):
         if self.frontend.runtime.active:
             await self.frontend.runtime.begin_mode_status(mode)
             return None
+        design = self.require_design()
         await self.anim_manager.start(
-            lambda stop_event: self.design.stream_mode_live(stop_event, mode)
+            lambda stop_event: design.stream_mode_live(stop_event, mode)
         )
 
     async def start_upload_anim(
@@ -489,8 +493,9 @@ class Mind(object):
         if self.frontend.runtime.active:
             await self.frontend.runtime.begin_upload_status(snapshot)
             return None
+        design = self.require_design()
         await self.anim_manager.start(
-            lambda stop_event: self.design.upload_progress_live(stop_event, snapshot)
+            lambda stop_event: design.upload_progress_live(stop_event, snapshot)
         )
 
     async def start_inbuild_startup_anim(
@@ -503,8 +508,9 @@ class Mind(object):
         if self.frontend.runtime.active:
             await self.frontend.runtime.begin_inbuild_status(snapshot)
             return None
+        design = self.require_design()
         await self.anim_manager.start(
-            lambda stop_event: self.design.inbuild_startup_live(stop_event, snapshot)
+            lambda stop_event: design.inbuild_startup_live(stop_event, snapshot)
         )
 
     async def start_external_mcp_anim(
@@ -517,8 +523,9 @@ class Mind(object):
         if self.frontend.runtime.active:
             await self.frontend.runtime.begin_external_mcp_status(snapshot)
             return None
+        design = self.require_design()
         await self.anim_manager.start(
-            lambda stop_event: self.design.external_mcp_live(stop_event, snapshot)
+            lambda stop_event: design.external_mcp_live(stop_event, snapshot)
         )
 
     async def with_mcp_session(
@@ -578,6 +585,8 @@ class Mind(object):
         **kwargs
     ) -> None:
         """流式执行入口：委托给流式模式模块。"""
+        from .modes.stream import stream_looper as run_stream_looper
+
         return await run_stream_looper(
             self,
             session,
@@ -596,10 +605,14 @@ class Mind(object):
         **kwargs
     ) -> None:
         """批处理入口：委托给批处理模块。"""
+        from .modes.batch import mind_pack as run_mind_pack
+
         return await run_mind_pack(self, code, mode, **kwargs)
 
     async def agent_loop(self) -> None:
         """订阅模式入口：委托给订阅模式模块。"""
+        from .modes.agent import run_agent_loop
+
         return await run_agent_loop(self)
 
 

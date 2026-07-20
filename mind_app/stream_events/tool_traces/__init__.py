@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from .common import (
+from mind_app.presentation.models import TraceEntry, TracePreview
+from mind_app.presentation.styles import (
     ACTION_EDIT_STYLE,
     ACTION_RUN_STYLE,
     ACTION_TOOL_STYLE,
@@ -26,9 +27,7 @@ from .common import (
     PREVIEW_TEXT_STYLE,
     SUCCESS_DOT_STYLE,
     TITLE_STYLE,
-    TracePreview
 )
-from mind_app.presentation.models import TraceEntry
 from .generic import (
     render_generic_tool_result_parts,
     render_generic_tool_result_preview

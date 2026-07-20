@@ -3,7 +3,8 @@
 
 import re
 import typing
-from ..common import (
+from mind_app.presentation.models import TextSpan, TextStyle, TracePreview
+from mind_app.presentation.styles import (
     DELTA_ADD_STYLE,
     DELTA_REMOVE_STYLE,
     PREVIEW_COUNT_STYLE,
@@ -13,9 +14,8 @@ from ..common import (
     PREVIEW_PATH_STYLE,
     PREVIEW_STYLE,
     PREVIEW_TEXT_STYLE,
-    TracePreview,
-    _preview_text
 )
+from ..common import _preview_text
 from .preview_code import code_parts
 from .preview_error import error_preview_line_parts
 from .preview_tree import tree_preview_line_parts
@@ -26,9 +26,9 @@ from .preview_wrap import (
 from .title_parts import title_parts
 
 
-def _part(text: str, style: str | None) -> dict[str, typing.Optional[str]]:
+def _part(text: str, style: TextStyle | None) -> TextSpan:
     """创建一段带样式的显示片段。"""
-    return {"text": text, "style": style}
+    return TextSpan(text, style or TextStyle())
 
 
 def render_tool_trace_parts(
@@ -36,20 +36,26 @@ def render_tool_trace_parts(
     *,
     preview: typing.Optional[typing.Union[str, TracePreview]] = None,
     ok: bool = True,
-    terminal_width: int | None = None
-) -> list[dict[str, typing.Optional[str]]]:
+    terminal_width: int | None = None,
+    measure_width: typing.Callable[[str], int] | None = None,
+) -> list[TextSpan]:
     """把轨迹标题和预览内容转换为带样式的文本片段。"""
     parts = title_parts(title, ok=ok, part=_part)
 
     preview_text = preview.screen if isinstance(preview, TracePreview) else _preview_text(preview)
     if preview_text:
-        title_wrapped = shell_title_needs_wrap(title, terminal_width=terminal_width)
+        title_wrapped = shell_title_needs_wrap(
+            title,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        )
         if title_wrapped:
             parts = wrap_title_parts(
                 parts,
                 terminal_width=max(1, int(terminal_width or 0)),
                 continuation_prefix="  │ ",
                 part=_part,
+                measure_width=measure_width,
             )
 
         if parts:
@@ -89,11 +95,11 @@ def _plain_preview_parts(
     preview_text: str,
     *,
     indent_prefix: str = "  "
-) -> list[dict[str, typing.Optional[str]]]:
+) -> list[TextSpan]:
     """把普通输出预览渲染为统一文本样式，不做路径等结构识别。"""
     lines = str(preview_text or "").split("\n")
 
-    parts: list[dict[str, typing.Optional[str]]] = []
+    parts: list[TextSpan] = []
 
     for index, line in enumerate(lines):
         if index:
@@ -108,10 +114,10 @@ def _preview_parts(
     *,
     ok: bool,
     indent_prefix: str = "  "
-) -> list[dict[str, typing.Optional[str]]]:
+) -> list[TextSpan]:
     """把预览摘要拆成路径、行号、内容和省略提示片段。"""
     lines = str(preview_text or "").split("\n")
-    parts: list[dict[str, typing.Optional[str]]] = []
+    parts: list[TextSpan] = []
 
     current_path: str = ""
     tree_error_detail = False
@@ -142,7 +148,7 @@ def _preview_line_parts(
     current_path: str = "",
     ok: bool = True,
     tree_error_detail: bool = False,
-) -> tuple[list[dict[str, typing.Optional[str]]], str, bool | None]:
+) -> tuple[list[TextSpan], str, bool | None]:
     """拆分单行预览摘要。"""
     tree_parts = tree_preview_line_parts(
         line,
@@ -254,12 +260,12 @@ def _looks_like_path(line: str) -> bool:
     return "/" in text or "\\" in text or bool(re.search(r"\.[A-Za-z0-9_+-]{1,12}$", text))
 
 
-def _diff_marker_style(marker: str) -> str:
+def _diff_marker_style(marker: str) -> TextStyle:
     """返回 diff 标记的显示样式。"""
     if marker == "+":
         return DELTA_ADD_STYLE
     if marker == "-":
-        return "dim #FF8A8A"
+        return TextStyle(foreground="#FF8A8A", dim=True)
 
     return PREVIEW_STYLE
 

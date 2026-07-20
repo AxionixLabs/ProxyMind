@@ -3,8 +3,9 @@
 
 import re
 import typing
+from mind_app.presentation.models import TextSpan, TextStyle
 from ..command_parts import render_command_parts
-from ..common import (
+from mind_app.presentation.styles import (
     ACTION_EDIT_STYLE,
     ACTION_RUN_STYLE,
     ACTION_TOOL_STYLE,
@@ -20,14 +21,14 @@ def title_parts(
     title: str,
     *,
     ok: bool,
-    part: typing.Callable[[str, str | None], dict[str, typing.Optional[str]]],
-) -> list[dict[str, typing.Optional[str]]]:
+    part: typing.Callable[[str, TextStyle | None], TextSpan],
+) -> list[TextSpan]:
     """把标题里的行数增删摘要拆成可独立着色的片段。"""
     base_style = TITLE_STYLE
     dot_style  = SUCCESS_DOT_STYLE if ok else ERROR_DOT_STYLE
     body       = title
 
-    parts: list[dict[str, typing.Optional[str]]] = []
+    parts: list[TextSpan] = []
     if body.startswith("•"):
         parts.append(part("•", dot_style))
         body = body[1:]
@@ -65,10 +66,10 @@ def title_parts(
 def _styled_action_body_parts(
     body: str,
     *,
-    base_style: str,
+    base_style: TextStyle,
     ok: bool,
-    part: typing.Callable[[str, str | None], dict[str, typing.Optional[str]]],
-) -> list[dict[str, typing.Optional[str]]]:
+    part: typing.Callable[[str, TextStyle | None], TextSpan],
+) -> list[TextSpan]:
     """把标题动作词拆出来，参数仍保留常规标题色。"""
     if not body:
         return []
@@ -82,7 +83,7 @@ def _styled_action_body_parts(
 
     action, tail = _split_action(rest)
 
-    parts: list[dict[str, typing.Optional[str]]] = []
+    parts: list[TextSpan] = []
     if leading:
         parts.append(part(leading, base_style))
     if action:
@@ -99,10 +100,10 @@ def _styled_action_body_parts(
 def _command_tail_parts(
     body: str,
     *,
-    base_style: str,
+    base_style: TextStyle,
     ok: bool,
-    part: typing.Callable[[str, str | None], dict[str, typing.Optional[str]]],
-) -> list[dict[str, typing.Optional[str]]]:
+    part: typing.Callable[[str, TextStyle | None], TextSpan],
+) -> list[TextSpan]:
     """把动作词后面的命令拆成独立颜色。"""
     if not body:
         return []
@@ -114,7 +115,7 @@ def _command_tail_parts(
     leading     = command_body[:leading_len]
     command     = command_body[leading_len:]
 
-    parts: list[dict[str, typing.Optional[str]]] = []
+    parts: list[TextSpan] = []
     if leading:
         parts.append(part(leading, base_style))
     if command:
@@ -126,10 +127,10 @@ def _command_tail_parts(
 def _plain_body_parts(
     body: str,
     *,
-    base_style: str,
+    base_style: TextStyle,
     ok: bool,
-    part: typing.Callable[[str, str | None], dict[str, typing.Optional[str]]],
-) -> list[dict[str, typing.Optional[str]]]:
+    part: typing.Callable[[str, TextStyle | None], TextSpan],
+) -> list[TextSpan]:
     """标题正文保持原文本，失败状态由状态点表达。"""
     _ = ok
     return [part(body, base_style)]
@@ -149,7 +150,7 @@ def _split_action(body: str) -> tuple[str, str]:
 
 def _action_style_for_body(
     body: str
-) -> str | None:
+) -> TextStyle | None:
     """返回标题动作前缀的弱分类颜色。"""
     text  = body.lstrip()
     first, _tail = _split_action(text)

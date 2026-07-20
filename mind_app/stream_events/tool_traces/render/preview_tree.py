@@ -3,9 +3,10 @@
 
 import re
 import typing
+from mind_app.presentation.models import TextSpan, TextStyle
 
 from ..command_parts import render_command_parts
-from ..common import (
+from mind_app.presentation.styles import (
     ERROR_DOT_STYLE,
     ERROR_PREVIEW_HEAD_STYLE,
     ERROR_PREVIEW_TEXT_STYLE,
@@ -20,8 +21,8 @@ def tree_preview_line_parts(
     line: str,
     *,
     is_error_detail: bool,
-    part: typing.Callable[[str, str | None], dict[str, typing.Optional[str]]],
-) -> tuple[list[dict[str, typing.Optional[str]]], str, bool | None] | None:
+    part: typing.Callable[[str, TextStyle | None], TextSpan],
+) -> tuple[list[TextSpan], str, bool | None] | None:
     """拆分树形预览行，并返回下一条 detail 是否应按错误渲染。"""
     omitted = re.match(r"^([├└]─ )(… \+)(\d+)( commands?)$", line)
     if omitted:
@@ -65,8 +66,8 @@ def tree_preview_line_parts(
 def error_summary_parts(
     body: str,
     *,
-    part: typing.Callable[[str, str | None], dict[str, typing.Optional[str]]],
-) -> list[dict[str, typing.Optional[str]]]:
+    part: typing.Callable[[str, TextStyle | None], TextSpan],
+) -> list[TextSpan]:
     """渲染紧凑错误摘要。"""
     text = str(body or "")
     head = re.match(r"^([A-Za-z][A-Za-z0-9_. -]*:)(\s*)(.*)$", text)

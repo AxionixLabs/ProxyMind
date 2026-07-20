@@ -8,6 +8,8 @@ import asyncio
 from loguru import logger
 from rich.console import Console
 from rich.text import Text
+from mind_app.presentation.models import TextSpan, TextStyle
+from mind_app.presentation.rich.styles import rich_style
 from mind_app.output.contracts import (
     BLOCK_OUTPUT,
     STREAM_OUTPUT,
@@ -15,6 +17,7 @@ from mind_app.output.contracts import (
     OutputPort
 )
 from mind_app.stream_render.coordinator import RenderCoord
+from mind_app.stream_render.text_render import render_rich_final
 from mind_app.stream_state.boundary import OutputBoundaryState
 from mind_app.stream_state.status import StatusFamily
 from mind_app.stream_io.output_record import StreamRecordWriter
@@ -84,8 +87,8 @@ class RichOutputControl(OutputPort):
         echo: bool = True,
         display: OutputDisplay = STREAM_OUTPUT,
         display_chunk: typing.Optional[str] = None,
-        display_style: typing.Optional[str] = None,
-        display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None,
+        display_style: TextStyle | None = None,
+        display_parts: list[TextSpan] | None = None,
         preserve_display_parts: bool = False
     ) -> None:
         """追加一段流式或块状文本到终端和记录。"""
@@ -205,7 +208,7 @@ class RichOutputControl(OutputPort):
     async def commit_live(self) -> None:
         """将当前 live 正文落版为普通终端输出。"""
         renderable = (
-            self.coordinator.text_state.final_renderable()
+            render_rich_final(self.coordinator.text_state.final_units())
             if self.coordinator.text_state.display_text else None
         )
         await self.coordinator.text_renderer.suspend(clear=True)
@@ -217,7 +220,7 @@ class RichOutputControl(OutputPort):
         self,
         chunk: typing.Optional[str],
         *,
-        display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None
+        display_parts: list[TextSpan] | None = None,
     ) -> None:
         """直接打印块文本，不启动动态渲染器。"""
         if not chunk:
@@ -311,13 +314,12 @@ class RichOutputControl(OutputPort):
         self.console.print("", end=text)
 
     @staticmethod
-    def _parts_renderable(parts: list[dict[str, typing.Optional[str]]]) -> Text:
+    def _parts_renderable(parts: list[TextSpan]) -> Text:
         """把带样式片段转换为终端文本对象。"""
         renderable = Text()
         for part in parts:
-            part_text = str(part.get("text") or "")
-            if part_text:
-                renderable.append(part_text, style=part.get("style") or "bold")
+            if part.text:
+                renderable.append(part.text, style=rich_style(part.style) or "bold")
         renderable.rstrip()
         return renderable
 

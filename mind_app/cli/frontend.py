@@ -2,27 +2,21 @@
 # Notes: ==== Mind™ ====
 
 import functools
-from mind_core.design import Design
-from ..frontend import (
-    ApplicationSink,
-    ApplicationView,
-    ConsoleApplicationSink,
-    Frontend,
-    SilentApplicationSink,
+from mind_app.frontend.contracts import Frontend
+from mind_app.interaction import NonInteractiveInteraction
+from mind_app.runtime.design import TerminalDesign
+from .selection import (
+    OutputMode,
+    output_mode_uses_animation
 )
-from ..interaction import NonInteractiveInteraction
-from ..output.jsonl import create_json_output_session
-from ..output.rich import create_rich_output_session
-from ..output.text import create_text_output_session
-from .selection import OutputMode, output_mode_uses_animation
 
 
 def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
     """根据输出模式装配命令行前端。"""
     if output_mode == "tui":
-        from ..tui.adapters.application import TuiApplicationSink
-        from ..tui.adapters.session import create_tui_output_session
-        from ..tui.core.runtime import TuiRuntime
+        from mind_app.tui.adapters.application import TuiApplicationSink
+        from mind_app.tui.adapters.session import create_tui_output_session
+        from mind_app.tui.core.runtime import TuiRuntime
 
         runtime = TuiRuntime()
         return Frontend(
@@ -35,6 +29,14 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
             runtime=runtime,
         )
 
+    from mind_app.frontend.sinks import (
+        ConsoleApplicationSink,
+        SilentApplicationSink,
+    )
+    from mind_app.output.jsonl import create_json_output_session
+    from mind_app.output.rich import create_rich_output_session
+    from mind_app.output.text import create_text_output_session
+
     session_factory = {
         "rich": create_rich_output_session,
         "text": create_text_output_session,
@@ -45,10 +47,7 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
         if output_mode == "json"
         else ConsoleApplicationSink()
     )
-    if output_mode_uses_animation(output_mode) and isinstance(
-        application,
-        ConsoleApplicationSink,
-    ):
+    if output_mode_uses_animation(output_mode):
         session_factory = functools.partial(
             session_factory,
             console=application.console,
@@ -60,26 +59,17 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
     )
 
 
-def resolve_cli_design(frontend: Frontend) -> Design:
-    """为命令行前端创建共享终端控制台的设计实例。"""
-    if isinstance(frontend.application, ConsoleApplicationSink):
-        return Design(console=frontend.application.console)
-    return Design()
+def resolve_cli_design(
+    frontend: Frontend,
+    output_mode: OutputMode,
+) -> TerminalDesign | None:
+    """按输出模式创建非 TUI 终端设计能力。"""
+    if output_mode == "tui":
+        return None
+    from mind_core.design import Design
 
-
-def emit_runtime_update(
-    application: ApplicationSink,
-    local: dict[str, object],
-    remote: dict[str, object],
-) -> None:
-    """发送本地运行时更新提示。"""
-    application.emit(ApplicationView(
-        type="runtime.update_available",
-        payload={
-            "local": dict(local),
-            "remote": dict(remote),
-        },
-    ))
+    console = getattr(frontend.application, "console", None)
+    return Design(console=console)
 
 
 if __name__ == '__main__':

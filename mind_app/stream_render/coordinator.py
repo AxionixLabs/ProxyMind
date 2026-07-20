@@ -5,6 +5,10 @@ import typing
 import asyncio
 from rich.console import Console
 from rich.text import Text
+from mind_app.presentation.models import (
+    TextSpan,
+    TextStyle
+)
 from mind_core.design import Design
 from mind_app.stream_render.animation import AnimDriver
 from mind_app.stream_state.status import (
@@ -12,6 +16,10 @@ from mind_app.stream_state.status import (
     StatusState
 )
 from mind_app.stream_render.live import TextRenderer
+from mind_app.stream_render.text_render import (
+    render_rich_block,
+    render_rich_final
+)
 from mind_app.stream_state.text import TextState
 
 
@@ -52,7 +60,7 @@ class RenderCoord(object):
 
         async with self.render_lock:
             if self.text_state.display_text:
-                final_renderable = self.text_state.final_renderable()
+                final_renderable = render_rich_final(self.text_state.final_units())
                 await self.text_renderer.show(
                     self.text_state.display_text,
                     animate=False,
@@ -74,8 +82,8 @@ class RenderCoord(object):
         display: str = TextState.STREAM,
         display_chunk: typing.Optional[str] = None,
         raw_chunk: typing.Optional[str] = None,
-        display_style: typing.Optional[str] = None,
-        display_parts: typing.Optional[list[dict[str, typing.Optional[str]]]] = None,
+        display_style: TextStyle | None = None,
+        display_parts: list[TextSpan] | None = None,
         preserve_display_parts: bool = False
     ) -> None:
         animate = self.text_state.append(
@@ -166,7 +174,7 @@ class RenderCoord(object):
             renderable = None
             if self.text_state.has_styles():
                 tail_text = self.text_renderer.tail_text(self.text_state.display_text)
-                renderable = self.text_state.renderable_for_text(tail_text)
+                renderable = render_rich_block(self.text_state.visible_block(tail_text))
             await self.text_renderer.show(
                 self.text_state.display_text,
                 animate=animate,
@@ -184,7 +192,7 @@ class RenderCoord(object):
                 reserve_lines=1
             )
             if self.text_state.has_styles():
-                out = self.text_state.renderable_for_text(base_text)
+                out = render_rich_block(self.text_state.visible_block(base_text))
             else:
                 out = Text(base_text)
         else:

@@ -2,8 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from rich.text import Text
 from mind_app.frontend import ApplicationView
+from mind_app.presentation.models import TextStyle
+from ..core.models import FragmentBlock
+from ..core.styles import prompt_style
 
 DIFF_DISPLAY_MAX_LINES = 300
 DIFF_DISPLAY_MAX_CHARS = 40_000
@@ -19,9 +21,9 @@ def print_current_apply_patch_diff(mind: "Mind") -> None:
     if bool(snapshot.get("invalidated")):
         application.emit(ApplicationView(
             type="tui.diff.unavailable",
-            renderable=Text(
+            renderable=_text_block(
                 "Diff unavailable: current apply_patch delta is not exact.",
-                style="dim #7F8C9A"
+                TextStyle(foreground="#7F8C9A", dim=True),
             ),
         ))
         application.emit(ApplicationView(type="tui.gap"))
@@ -31,9 +33,9 @@ def print_current_apply_patch_diff(mind: "Mind") -> None:
     if not diff_text.strip():
         application.emit(ApplicationView(
             type="tui.diff.empty",
-            renderable=Text(
+            renderable=_text_block(
                 "No apply_patch diff in current turn.",
-                style="dim #7F8C9A",
+                TextStyle(foreground="#7F8C9A", dim=True),
             ),
         ))
         application.emit(ApplicationView(type="tui.gap"))
@@ -45,16 +47,16 @@ def print_current_apply_patch_diff(mind: "Mind") -> None:
 
     application.emit(ApplicationView(
         type="tui.diff.title",
-        renderable=Text(
+        renderable=_text_block(
             "Diff · current apply_patch changes",
-            style="bold #AFC7D8",
+            TextStyle(foreground="#AFC7D8", bold=True),
         ),
     ))
     application.emit(ApplicationView(
         type="tui.diff.stat",
-        renderable=Text(
+        renderable=_text_block(
             f"{files} {'file' if files == 1 else 'files'} changed · +{added} -{removed}",
-            style="#7F8C9A"
+            TextStyle(foreground="#7F8C9A"),
         ),
     ))
     application.emit(ApplicationView(type="tui.gap"))
@@ -65,36 +67,39 @@ def print_current_apply_patch_diff(mind: "Mind") -> None:
     if truncated:
         application.emit(ApplicationView(
             type="tui.diff.truncated",
-            renderable=Text("... diff truncated", style="dim #7F8C9A"),
+            renderable=_text_block(
+                "... diff truncated",
+                TextStyle(foreground="#7F8C9A", dim=True),
+            ),
         ))
     application.emit(ApplicationView(type="tui.gap"))
 
 
-def render_diff_text(diff_text: str) -> Text:
+def render_diff_text(diff_text: str) -> FragmentBlock:
     """按 diff 语义生成彩色文本。"""
-    out = Text()
+    fragments: list[tuple[str, str]] = []
     for raw_line in str(diff_text or "").splitlines():
-        out.append(raw_line, style=diff_line_style(raw_line))
-        out.append("\n")
-    if out:
-        out.rstrip()
-    return out
+        fragments.append((prompt_style(diff_line_style(raw_line)), raw_line))
+        fragments.append(("", "\n"))
+    if fragments:
+        fragments.pop()
+    return FragmentBlock(tuple(fragments))
 
 
-def diff_line_style(line: str) -> str:
+def diff_line_style(line: str) -> TextStyle:
     """返回单行 diff 的终端显示样式。"""
     if line.startswith("diff --git "):
-        return "bold #7DD3FC"
+        return TextStyle(foreground="#7DD3FC", bold=True)
     if line.startswith("@@"):
-        return "bold #FACC15"
+        return TextStyle(foreground="#FACC15", bold=True)
     if line.startswith("+++"):
-        return "bold #6EE7A8"
+        return TextStyle(foreground="#6EE7A8", bold=True)
     if line.startswith("---"):
-        return "bold #FF8A8A"
+        return TextStyle(foreground="#FF8A8A", bold=True)
     if line.startswith("+"):
-        return "#6EE7A8"
+        return TextStyle(foreground="#6EE7A8")
     if line.startswith("-"):
-        return "#FF8A8A"
+        return TextStyle(foreground="#FF8A8A")
     if line.startswith((
         "index ",
         "new file mode ",
@@ -103,12 +108,17 @@ def diff_line_style(line: str) -> str:
         "rename to ",
         "similarity index "
     )):
-        return "dim #7F8C9A"
+        return TextStyle(foreground="#7F8C9A", dim=True)
 
     if line.startswith("diff omitted:"):
-        return "dim #FFB86B"
+        return TextStyle(foreground="#FFB86B", dim=True)
 
-    return "#CBD5E1"
+    return TextStyle(foreground="#CBD5E1")
+
+
+def _text_block(text: str, style: TextStyle) -> FragmentBlock:
+    """生成单样式 TUI 文本块。"""
+    return FragmentBlock(((prompt_style(style), text),))
 
 
 def truncate_diff_text(

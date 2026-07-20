@@ -18,6 +18,9 @@ from .models import (
     PlanUpdateView,
     ProgressSource,
     ProgressView,
+    StyledBlock,
+    TextSpan,
+    TextStyle,
     ToolStartView,
     TraceEntry,
     TracePreview
@@ -40,6 +43,9 @@ __all__ = [
     "PlanUpdateView",
     "ProgressSource",
     "ProgressView",
+    "StyledBlock",
+    "TextSpan",
+    "TextStyle",
     "ToolStartView",
     "TraceEntry",
     "TracePreview"

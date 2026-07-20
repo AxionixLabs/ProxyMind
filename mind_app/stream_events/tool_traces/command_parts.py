@@ -2,34 +2,36 @@
 # Notes: ==== Mind™ ====
 
 import re
-import typing
-from .common import (
+from mind_app.presentation.models import (
+    TextSpan,
+    TextStyle
+)
+from mind_app.presentation.styles import (
     COMMAND_FLAG_STYLE,
     COMMAND_HEAD_STYLE,
     COMMAND_NUMBER_STYLE,
     COMMAND_OPERATOR_STYLE,
     COMMAND_PATH_STYLE,
     COMMAND_STRING_STYLE,
-    COMMAND_STYLE,
+    COMMAND_STYLE
 )
-
 
 SHELL_OPERATORS = {
     "|", "||", "&&", ";"
 }
 
 
-def render_command_parts(command: str) -> list[dict[str, typing.Optional[str]]]:
+def render_command_parts(command: str) -> list[TextSpan]:
     """按展示语义拆分命令文本，不改变原始字符顺序。"""
     tokens          = _command_tokens(command)
     first_word_seen = False
 
-    parts: list[dict[str, typing.Optional[str]]] = []
+    parts: list[TextSpan] = []
 
     for token in tokens:
         style = COMMAND_STYLE
         if not token.strip():
-            style = None
+            style = TextStyle()
         elif token in SHELL_OPERATORS:
             style = COMMAND_OPERATOR_STYLE
             first_word_seen = False
@@ -46,7 +48,7 @@ def render_command_parts(command: str) -> list[dict[str, typing.Optional[str]]]:
             style = COMMAND_HEAD_STYLE
             first_word_seen = True
 
-        parts.append({"text": token, "style": style})
+        parts.append(TextSpan(token, style))
 
     return parts
 

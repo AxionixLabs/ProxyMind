@@ -1,12 +1,107 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import time
 import typing
 import asyncio
 import contextlib
-from rich.text import Text
-from mind_core.design import Design
-from mind_core.design.upload import UploadProgressLiveReporter
+from prompt_toolkit.utils import get_cwidth
+from mind_app.presentation.models import TextStyle
+from mind_app.presentation.renderers.upload import (
+    upload_idle_block,
+    upload_progress_block
+)
+from .models import FragmentBlock
+from .styles import (
+    prompt_style,
+    styled_block_fragments
+)
+from .status_frames import (
+    StatusFamily,
+    render_status_fragments,
+    status_interval,
+    status_phase_rate
+)
+
+SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+STATUS_MUTED   = TextStyle(foreground="#7F8C9A", dim=True)
+
+
+class TuiStatusState(object):
+    """管理 TUI 单轮状态内容和动画相位。"""
+
+    def __init__(self) -> None:
+        self.text: str            = ""
+        self.family: StatusFamily = "tool"
+        self.phase: float         = 0.0
+        self.animated: bool       = True
+        self.started_at: float    = 0.0
+
+    @property
+    def visible(self) -> bool:
+        """返回当前状态是否可见。"""
+        return bool(self.text)
+
+    @property
+    def animating(self) -> bool:
+        """返回当前状态是否需要持续刷新。"""
+        return self.visible and self.animated
+
+    def set_status(
+        self,
+        text: str | None,
+        *,
+        family: StatusFamily = "tool",
+        animated: bool = True,
+    ) -> None:
+        """更新状态文本并重置动画起点。"""
+        limit = 56 if family == "mode" else 48
+
+        self.text       = _truncate_display_text(str(text or "").strip(), limit=limit)
+        self.family     = family
+        self.animated   = bool(animated)
+        self.phase      = 0.0
+        self.started_at = time.perf_counter() if self.text else 0.0
+
+    def set_phase(self, phase: float) -> None:
+        """更新活动状态的动画相位。"""
+        if self.visible:
+            self.phase = float(phase or 0.0)
+
+    def reset(self) -> None:
+        """清空状态内容和动画数据。"""
+        self.text       = ""
+        self.family     = "tool"
+        self.phase      = 0.0
+        self.animated   = True
+        self.started_at = 0.0
+
+    def interval(self) -> float:
+        """返回 TUI 状态刷新间隔。"""
+        return status_interval(self.family)
+
+    def phase_rate(self) -> float:
+        """返回 TUI 状态动画相位速率。"""
+        return status_phase_rate(self.family)
+
+    def render_block(self) -> FragmentBlock:
+        """生成当前状态行的 prompt_toolkit 片段。"""
+        if not self.visible:
+            return FragmentBlock(())
+
+        fragments = render_status_fragments(
+            self.text,
+            family=self.family,
+            phase=self.phase,
+            animated=self.animated,
+        )
+
+        elapsed = max(0.0, time.perf_counter() - self.started_at)
+
+        if elapsed >= 0.65:
+            fragments.append((prompt_style(STATUS_MUTED), f" · {_elapsed_label(elapsed)}"))
+
+        return FragmentBlock(tuple(fragments))
 
 
 class TuiActivity(object):
@@ -15,7 +110,7 @@ class TuiActivity(object):
     def __init__(
         self,
         *,
-        set_renderable: typing.Callable[[typing.Any], None],
+        set_renderable: typing.Callable[[FragmentBlock], None],
         clear_renderable: typing.Callable[[], None],
     ) -> None:
         self.set_renderable = set_renderable
@@ -38,20 +133,14 @@ class TuiActivity(object):
         snapshot: typing.Callable[[], dict[str, typing.Any]],
     ) -> None:
         """启动内置运行时状态动画。"""
-        await self._replace(self._snapshot_loop(
-            snapshot,
-            label="starting runtime",
-        ))
+        await self._replace(self._snapshot_loop(snapshot, label="starting runtime"))
 
     async def begin_external_mcp(
         self,
         snapshot: typing.Callable[[], dict[str, typing.Any]],
     ) -> None:
         """启动外部 MCP 状态动画。"""
-        await self._replace(self._snapshot_loop(
-            snapshot,
-            label="starting external MCP",
-        ))
+        await self._replace(self._snapshot_loop(snapshot, label="starting external MCP"))
 
     async def stop(self) -> None:
         """停止当前活动动画并清理展示区域。"""
@@ -63,44 +152,53 @@ class TuiActivity(object):
                 await task
         self.clear_renderable()
 
-    async def _replace(self, coroutine: typing.Coroutine) -> None:
+    async def _replace(self, coroutine: typing.Coroutine[typing.Any, typing.Any, None]) -> None:
         """以新的活动动画替换已有动画。"""
         await self.stop()
         self.task = asyncio.create_task(coroutine)
 
     async def _mode_loop(self, mode: str) -> None:
         """持续生成模式等待动画帧。"""
-        family = "mode"
-        label = Design.mode_status_text(mode)
-        interval = Design.status_interval(family)
-        phase = 0.0
-        loop = asyncio.get_running_loop()
-        started = loop.time()
+        labels   = {"chat": "Mind Chat", "fast": "Mind Fast", "xtra": "Mind Xtra"}
+        label    = labels.get(str(mode or "").strip().lower(), "Mind Stream")
+        started  = time.perf_counter()
+        phase    = 0.0
+        interval = status_interval("mode")
 
         while True:
-            frame = Design.mode_status_renderable(phase, label)
-            frame.append_text(Design.status_elapsed_renderable(loop.time() - started))
-            self.set_renderable(frame)
+            self.set_renderable(_status_block(
+                label,
+                family="mode",
+                phase=phase,
+                started_at=started,
+            ))
             await asyncio.sleep(interval)
-            phase += Design.status_step(family) * interval
+            phase += status_phase_rate("mode") * interval
 
     async def _upload_loop(
         self,
         snapshot: typing.Callable[[], dict[str, typing.Any]],
     ) -> None:
         """持续生成附件上传状态帧。"""
+        phase    = 0.0
+        interval = 1 / 12
+
         while True:
-            data = snapshot() or {}
-            event = data.get("event")
+            data      = snapshot() or {}
+            event     = data.get("event")
+            indicator = _spinner_frame(phase)
+
             if isinstance(event, dict):
-                frame = UploadProgressLiveReporter.render_progress(event)
+                block = upload_progress_block(event, indicator=indicator)
             else:
-                frame = UploadProgressLiveReporter.render_idle_block(
+                block = upload_idle_block(
+                    indicator=indicator,
                     item_total=int(data.get("item_total") or 0),
                     total_bytes=int(data.get("total_bytes") or 0),
                 )
-            self.set_renderable(frame)
-            await asyncio.sleep(1 / 12)
+            self.set_renderable(FragmentBlock(styled_block_fragments(block)))
+            await asyncio.sleep(interval)
+            phase += 1.0
 
     async def _snapshot_loop(
         self,
@@ -109,20 +207,78 @@ class TuiActivity(object):
         label: str,
     ) -> None:
         """显示通用运行时快照状态。"""
+        phase    = 0.0
+        interval = status_interval("mode")
+
         while True:
-            data = snapshot() or {}
+            data    = snapshot() or {}
+            summary = str(data.get("summary") or label).strip() or label
+
             detail = str(
-                data.get("detail")
-                or data.get("stage")
-                or data.get("phase")
-                or ""
+                data.get("detail") or data.get("stage") or data.get("phase") or ""
             ).strip()
-            frame = Text(label, style="bold #AFC7D8")
-            if detail:
-                frame.append(" · ", style="dim #7F8C9A")
-                frame.append(detail, style="dim #7F8C9A")
-            self.set_renderable(frame)
-            await asyncio.sleep(0.08)
+
+            text = f"{summary} · {detail}" if detail else summary
+
+            self.set_renderable(_status_block(text, family="mode", phase=phase))
+
+            await asyncio.sleep(interval)
+            phase += status_phase_rate("mode") * interval
+
+
+def _status_block(
+    text: str,
+    *,
+    family: StatusFamily,
+    phase: float,
+    started_at: float = 0.0,
+) -> FragmentBlock:
+    """生成一行 TUI 活动状态。"""
+    fragments = render_status_fragments(
+        text,
+        family=family,
+        phase=phase,
+        animated=True,
+    )
+    if started_at:
+        elapsed = max(0.0, time.perf_counter() - started_at)
+        if elapsed >= 0.65:
+            fragments.append((prompt_style(STATUS_MUTED), f" · {_elapsed_label(elapsed)}"))
+    return FragmentBlock(tuple(fragments))
+
+
+def _spinner_frame(phase: float) -> str:
+    """按动画相位返回状态帧。"""
+    return SPINNER_FRAMES[int(max(0.0, phase)) % len(SPINNER_FRAMES)]
+
+
+def _elapsed_label(elapsed: float) -> str:
+    """把经过时间格式化为紧凑标签。"""
+    seconds = max(0.0, float(elapsed))
+    if seconds < 10:
+        return f"{seconds:.1f}s"
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    minutes, remaining = divmod(int(seconds), 60)
+    return f"{minutes}m {remaining:02d}s"
+
+
+def _truncate_display_text(text: str, *, limit: int) -> str:
+    """按终端显示宽度截断单行状态文本。"""
+    value       = " ".join(str(text or "").split())
+    width_limit = max(1, int(limit))
+
+    if get_cwidth(value) <= width_limit:
+        return value
+
+    out = ""
+
+    for char in value:
+        if get_cwidth(out + char + "…") > width_limit:
+            break
+        out += char
+
+    return f"{out.rstrip()}…"
 
 
 if __name__ == '__main__':

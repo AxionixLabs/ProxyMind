@@ -5,14 +5,13 @@ from mind_app.stream_events.approval_trace import (
     render_approval_approved_trace,
     render_approval_denied_trace,
     render_approval_expired_trace,
-    render_approval_trace_parts
+    render_approval_trace_parts,
 )
-from ..models import ApprovalView
-from .models import RenderedBlock
+from ..models import ApprovalView, StyledBlock
 
 
-def render_approval_view(view: ApprovalView) -> RenderedBlock:
-    """把工具审批结果视图转换为当前终端展示。"""
+def render_approval_view(view: ApprovalView) -> StyledBlock:
+    """把工具审批结果视图转换为中立展示块。"""
     if view.state == "expired":
         title = render_approval_expired_trace(view.approval)
         style_state = "denied"
@@ -26,9 +25,9 @@ def render_approval_view(view: ApprovalView) -> RenderedBlock:
         title = render_approval_denied_trace(view.approval)
         style_state = "denied"
 
-    return RenderedBlock(
-        text=title,
-        display_parts=tuple(render_approval_trace_parts(
+    return StyledBlock(
+        plain_text=title,
+        spans=tuple(render_approval_trace_parts(
             title,
             approval=view.approval,
             state=style_state,

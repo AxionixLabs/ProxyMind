@@ -1,32 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import io
 import math
 import typing
-from rich.console import Console
-from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.utils import get_cwidth
-
-FormattedText = list[tuple[str, str]]
-
-
-def renderable_fragments(
-    renderable: typing.Any,
-    *,
-    width: int,
-) -> FormattedText:
-    """把 Rich 可渲染对象转换为 prompt_toolkit 格式化片段。"""
-    stream = io.StringIO()
-    console = Console(
-        file=stream,
-        width=max(20, int(width)),
-        force_terminal=True,
-        color_system="truecolor",
-        legacy_windows=False,
-    )
-    console.print(renderable, end="")
-    return list(ANSI(stream.getvalue()).__pt_formatted_text__())
+from .models import FormattedText
 
 
 def fragments_text(parts: typing.Iterable[tuple[str, str]]) -> str:
@@ -73,6 +51,41 @@ def cursor_point(text: str, *, width: int) -> tuple[int, int]:
     _ = width
     logical_lines = text.split("\n")
     return len(logical_lines[-1]), max(0, len(logical_lines) - 1)
+
+
+def cursor_point_for_display_row(
+    text: str,
+    *,
+    width: int,
+    display_row: int,
+) -> tuple[int, int]:
+    """返回指定视觉行起点对应的逻辑光标位置。"""
+    line_width = max(1, int(width))
+    target = max(0, int(display_row))
+    visual_row = 0
+    logical_lines = text.split("\n")
+
+    for line_number, line in enumerate(logical_lines):
+        if target == visual_row:
+            return 0, line_number
+
+        used_width = 0
+        for index, char in enumerate(line):
+            char_width = max(0, get_cwidth(char))
+            if used_width + char_width > line_width:
+                visual_row += 1
+                used_width = 0
+                if visual_row >= target:
+                    return index, line_number
+            used_width += char_width
+
+        if line_number < len(logical_lines) - 1:
+            visual_row += 1
+            if visual_row >= target:
+                return 0, line_number + 1
+
+    last_line = logical_lines[-1]
+    return len(last_line), max(0, len(logical_lines) - 1)
 
 
 def _merge_fragments(parts: FormattedText) -> FormattedText:

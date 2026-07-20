@@ -16,6 +16,7 @@ from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
 )
+from ..core.styles import FAILURE_STYLE, text_block
 from .summary import (
     CommandSummary,
     command_summary_title_parts,
@@ -356,7 +357,7 @@ async def run_interactive_shell(application: ApplicationSink) -> int:
     if not executable:
         application.emit(ApplicationView(
             type="tui.shell.unavailable",
-            renderable="[bold #FF6B6B]Shell unavailable[/]",
+            renderable=text_block("Shell unavailable", FAILURE_STYLE),
         ))
         return 1
 
@@ -365,7 +366,7 @@ async def run_interactive_shell(application: ApplicationSink) -> int:
     except (OSError, RuntimeError, ValueError) as exc:
         application.emit(ApplicationView(
             type="tui.shell.failed",
-            renderable=f"[bold #FF6B6B]{exc}[/]",
+            renderable=text_block(str(exc), FAILURE_STYLE),
         ))
         return 1
     return await process.wait()

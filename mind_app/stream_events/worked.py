@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from rich.text import Text
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
 )
-from mind_core.design.status.elapsed import format_elapsed
+from mind_app.presentation.models import StyledBlock, TextSpan, TextStyle
 from mind_app.stream_events.compact_rule import full_rule_width
+from mind_app.presentation.formatting import format_elapsed
 
-WORKED_RULE_STYLE  = "dim #6F7A86"
-WORKED_LABEL_STYLE = "bold #AFC7D8"
+WORKED_RULE_STYLE  = TextStyle(foreground="#6F7A86", dim=True)
+WORKED_LABEL_STYLE = TextStyle(foreground="#AFC7D8", bold=True)
 WORKED_RULE_CHAR   = "─"
 
 
@@ -30,16 +30,30 @@ def worked_footer_width(label: str, *, terminal_width: int | None = None) -> int
     )
 
 
-def render_worked_footer(elapsed_sec: float, *, width: int | None = None) -> Text:
+def render_worked_footer(
+    elapsed_sec: float,
+    *,
+    width: int | None = None,
+) -> StyledBlock:
     """渲染耗时页脚。"""
     line  = worked_footer_text(elapsed_sec, width=width)
     label = f" Worked for {format_elapsed(max(0.0, float(elapsed_sec or 0.0)))} "
     start = line.find(label)
 
-    out = Text(line, style=WORKED_RULE_STYLE)
-    if start >= 0:
-        out.stylize(WORKED_LABEL_STYLE, start, start + len(label))
-    return out
+    if start < 0:
+        return StyledBlock(
+            plain_text=line,
+            spans=(TextSpan(line, WORKED_RULE_STYLE),),
+        )
+    end = start + len(label)
+    return StyledBlock(
+        plain_text=line,
+        spans=(
+            TextSpan(line[:start], WORKED_RULE_STYLE),
+            TextSpan(line[start:end], WORKED_LABEL_STYLE),
+            TextSpan(line[end:], WORKED_RULE_STYLE),
+        ),
+    )
 
 
 def emit_worked_footer(

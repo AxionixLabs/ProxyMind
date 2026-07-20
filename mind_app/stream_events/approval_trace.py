@@ -3,19 +3,23 @@
 
 import typing
 from mind_nova import const
+from mind_app.presentation.models import (
+    TextSpan,
+    TextStyle
+)
 from .command_preview import command_preview
 from .tool_trace import (
     TITLE_STYLE,
     ERROR_STYLE
 )
 
-APPROVAL_APPROVED_STYLE = "bold #6EE7A8"
+APPROVAL_APPROVED_STYLE = TextStyle(foreground="#6EE7A8", bold=True)
 APPROVAL_DENIED_STYLE   = ERROR_STYLE
 APPROVAL_COMMAND_STYLE  = TITLE_STYLE
-APPROVAL_TOOL_STYLE     = "bold #7DD3FC"
-APPROVAL_ARG_STYLE      = "bold #A7F3D0"
-APPROVAL_RES_STYLE      = "dim #8FA4B8"
-APPROVAL_SCOPE_STYLE    = "bold #A7F3D0"
+APPROVAL_TOOL_STYLE     = TextStyle(foreground="#7DD3FC", bold=True)
+APPROVAL_ARG_STYLE      = TextStyle(foreground="#A7F3D0", bold=True)
+APPROVAL_RES_STYLE      = TextStyle(foreground="#8FA4B8", dim=True)
+APPROVAL_SCOPE_STYLE    = TextStyle(foreground="#A7F3D0", bold=True)
 
 APPROVAL_SUMMARY_MAX_CHARS = 72
 
@@ -98,7 +102,7 @@ def render_approval_trace_parts(
     *,
     approval: dict[str, typing.Any] | None = None,
     state: typing.Literal["approved", "denied"] = "approved"
-) -> list[dict[str, typing.Optional[str]]]:
+) -> list[TextSpan]:
     """生成审批轨迹的分段样式内容。"""
     if state == "denied":
         title_style = APPROVAL_DENIED_STYLE
@@ -112,20 +116,20 @@ def _approval_title_parts(
     title: str,
     approval: dict[str, typing.Any],
     *,
-    base_style: str
-) -> list[dict[str, typing.Optional[str]]]:
+    base_style: TextStyle
+) -> list[TextSpan]:
     """把审批 trace 标题拆成状态文本、工具名和参数。"""
     summary = approval_summary(approval)
     if not summary or summary not in title:
-        return [{"text": title, "style": base_style}]
+        return [TextSpan(title, base_style)]
 
     start = title.find(summary)
     end   = start + len(summary)
 
-    parts: list[dict[str, typing.Optional[str]]] = []
+    parts: list[TextSpan] = []
 
     if start:
-        parts.append({"text": title[:start], "style": base_style})
+        parts.append(TextSpan(title[:start], base_style))
     parts.extend(_approval_summary_parts(summary, approval, base_style=base_style))
     if end < len(title):
         parts.extend(_approval_suffix_parts(title[end:], base_style=base_style))
@@ -135,45 +139,45 @@ def _approval_title_parts(
 def _approval_suffix_parts(
     suffix: str,
     *,
-    base_style: str
-) -> list[dict[str, typing.Optional[str]]]:
+    base_style: TextStyle
+) -> list[TextSpan]:
     """把审批通过后的作用域提示单独着色。"""
     if base_style != APPROVAL_APPROVED_STYLE:
-        return [{"text": suffix, "style": base_style}]
+        return [TextSpan(suffix, base_style)]
 
     for scope in ("for this session", "this time"):
         if suffix.endswith(scope):
             prefix = suffix[:-len(scope)]
-            parts: list[dict[str, typing.Optional[str]]] = []
+            parts: list[TextSpan] = []
             if prefix:
-                parts.append({"text": prefix, "style": base_style})
-            parts.append({"text": scope, "style": APPROVAL_SCOPE_STYLE})
+                parts.append(TextSpan(prefix, base_style))
+            parts.append(TextSpan(scope, APPROVAL_SCOPE_STYLE))
             return parts
 
-    return [{"text": suffix, "style": base_style}]
+    return [TextSpan(suffix, base_style)]
 
 
 def _approval_summary_parts(
     summary: str,
     approval: dict[str, typing.Any],
     *,
-    base_style: str
-) -> list[dict[str, typing.Optional[str]]]:
+    base_style: TextStyle
+) -> list[TextSpan]:
     """把审批摘要拆成工具名和参数片段。"""
     if base_style == APPROVAL_APPROVED_STYLE:
-        return [{"text": summary, "style": APPROVAL_RES_STYLE}]
+        return [TextSpan(summary, APPROVAL_RES_STYLE)]
 
     tool = str(approval.get("tool") or "").strip()
     if tool and summary.startswith(tool):
         rest = summary[len(tool):]
-        parts: list[dict[str, typing.Optional[str]]] = [
-            {"text": tool, "style": APPROVAL_TOOL_STYLE}
+        parts: list[TextSpan] = [
+            TextSpan(tool, APPROVAL_TOOL_STYLE)
         ]
         if rest:
-            parts.append({"text": rest, "style": APPROVAL_ARG_STYLE})
+            parts.append(TextSpan(rest, APPROVAL_ARG_STYLE))
         return parts
 
-    return [{"text": summary, "style": APPROVAL_COMMAND_STYLE}]
+    return [TextSpan(summary, APPROVAL_COMMAND_STYLE)]
 
 
 if __name__ == '__main__':
