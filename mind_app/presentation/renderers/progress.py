@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from ..models import ProgressView, StyledBlock
+from ..models import (
+    ProgressView,
+    StyledBlock
+)
 
 
 def render_progress_view(view: ProgressView) -> StyledBlock:

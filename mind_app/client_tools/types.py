@@ -3,7 +3,8 @@
 
 import typing
 from dataclasses import (
-    dataclass, field
+    dataclass,
+    field
 )
 from mcp import types as mcp_types
 

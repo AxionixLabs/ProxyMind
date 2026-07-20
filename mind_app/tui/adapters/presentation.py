@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_app.presentation.contracts import PresentationSink, PresentationView
+from mind_app.presentation.contracts import (
+    PresentationSink,
+    PresentationView
+)
 from mind_app.output import BLOCK_OUTPUT
 from mind_app.presentation.renderers.dispatch import render_presentation_view
 from prompt_toolkit.utils import get_cwidth

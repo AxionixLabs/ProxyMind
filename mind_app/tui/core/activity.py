@@ -244,6 +244,7 @@ def _status_block(
         elapsed = max(0.0, time.perf_counter() - started_at)
         if elapsed >= 0.65:
             fragments.append((prompt_style(STATUS_MUTED), f" · {_elapsed_label(elapsed)}"))
+
     return FragmentBlock(tuple(fragments))
 
 

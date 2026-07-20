@@ -10,7 +10,7 @@ from .noninteractive import NonInteractiveInteraction
 __all__ = [
     "InteractionPort",
     "NonInteractiveInteraction",
-    "PromptContext",
+    "PromptContext"
 ]
 
 

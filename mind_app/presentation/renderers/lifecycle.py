@@ -1,9 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_app.stream_events.failure_display import render_failure_display_parts, render_failure_text
+from mind_app.stream_events.failure_display import (
+    render_failure_display_parts,
+    render_failure_text
+)
 from mind_app.stream_events.lifecycle_display import render_lifecycle_display_parts
-from ..models import FailureView, LifecycleView, StyledBlock
+from ..models import (
+    FailureView,
+    LifecycleView,
+    StyledBlock
+)
 
 
 def render_failure_view(view: FailureView) -> StyledBlock:

@@ -8,7 +8,7 @@ from mind_app.native_coding.execution_authorization import (
     ExecutionAuthorizationError,
     canonical_arguments,
     validate_execution_authorization,
-    validate_runtime_identity,
+    validate_runtime_identity
 )
 from mind_app.client_tools.types import (
     ClientTool,
@@ -18,7 +18,7 @@ from .schemas import (
     APPLY_PATCH_INPUT_SCHEMA,
     EXEC_COMMAND_INPUT_SCHEMA,
     SHELL_COMMAND_INPUT_SCHEMA,
-    WRITE_STDIN_INPUT_SCHEMA,
+    WRITE_STDIN_INPUT_SCHEMA
 )
 
 
@@ -41,13 +41,13 @@ def build_coding_result(
     result_text = f"tool={tool} target={target} ok={ok} {text}"
 
     structured: dict[str, typing.Any] | None = {
-        "ok": ok,
-        "tool": tool,
-        "args": dict(args or {}),
-        "text": result_text,
-        "attachments": list(output.get("attachments") or []),
-        "data": data,
-        "target": target,
+        "ok"          : ok,
+        "tool"        : tool,
+        "args"        : dict(args or {}),
+        "text"        : result_text,
+        "attachments" : list(output.get("attachments") or []),
+        "data"        : data,
+        "target"      : target
     }
 
     return mcp_types.CallToolResult(
@@ -141,9 +141,9 @@ def coding_tools(native_coding: NativeCoding | None = None) -> list[ClientTool]:
             )
 
         args = {
-            "patch": str(arguments.get("patch") or ""),
-            "expected_sha256": arguments.get("expected_sha256"),
-            "force": bool(arguments.get("force", False)),
+            "patch"           : str(arguments.get("patch") or ""),
+            "expected_sha256" : arguments.get("expected_sha256"),
+            "force"           : bool(arguments.get("force", False))
         }
 
         raw  = coding.apply_patch(**args)

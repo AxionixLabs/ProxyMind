@@ -13,7 +13,11 @@ from ..core.models import (
 )
 from mind_core.provider_config import DEFAULT_REASONING_EFFORT
 from .context import normalize_reasoning_effort
-from ..core.styles import ACCENT_STYLE, BRIGHT_STYLE, fragment_block
+from ..core.styles import (
+    ACCENT_STYLE,
+    BRIGHT_STYLE,
+    fragment_block
+)
 
 if typing.TYPE_CHECKING:
     from ..core.runtime import TuiRuntime

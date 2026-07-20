@@ -9,17 +9,19 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
 
-from .models import MenuOption, MenuRequest
-
+from .models import (
+    MenuOption,
+    MenuRequest
+)
 
 TUI_MENU_STYLE = Style.from_dict({
-    "tui-menu.title": "bold #DCE6EE",
-    "tui-menu.status": "#87919D",
-    "tui-menu.help": "#69727D",
-    "tui-menu.index": "bold #8A949F",
-    "tui-menu.index.active": "bold #F4F7FA",
-    "tui-menu.label": "bold #F4F7FA",
-    "tui-menu.detail": "#7F8C9A",
+    "tui-menu.title"        : "bold #DCE6EE",
+    "tui-menu.status"       : "#87919D",
+    "tui-menu.help"         : "#69727D",
+    "tui-menu.index"        : "bold #8A949F",
+    "tui-menu.index.active" : "bold #F4F7FA",
+    "tui-menu.label"        : "bold #F4F7FA",
+    "tui-menu.detail"       : "#7F8C9A",
 })
 
 
@@ -44,10 +46,12 @@ class TuiMenu(object):
         focus_menu: typing.Callable[[], None],
         focus_input: typing.Callable[[], None],
     ) -> None:
-        self.invalidate = invalidate
-        self.focus_menu = focus_menu
+        self.invalidate  = invalidate
+        self.focus_menu  = focus_menu
         self.focus_input = focus_input
+
         self.state: MenuState | None = None
+
         self.key_bindings = self._build_key_bindings()
 
     @property
@@ -59,11 +63,14 @@ class TuiMenu(object):
         """显示菜单并等待用户选择。"""
         if not request.options and not request.body:
             return None
-        future = asyncio.get_running_loop().create_future()
-        selected = min(len(request.options) - 1, max(0, request.selected))
+
+        future     = asyncio.get_running_loop().create_future()
+        selected   = min(len(request.options) - 1, max(0, request.selected))
         self.state = MenuState(request=request, future=future, selected=selected)
+
         self.focus_menu()
         self.invalidate()
+
         try:
             return await future
         finally:
@@ -83,8 +90,11 @@ class TuiMenu(object):
         state = self.state
         if state is None:
             return []
+
         request = state.request
+
         start, options = self._visible_options(state)
+
         out: StyleAndTextTuples = [("class:tui-menu.title", request.title)]
         if request.status:
             out.append(("class:tui-menu.status", f" · {request.status}"))
@@ -93,15 +103,18 @@ class TuiMenu(object):
             ("class:tui-menu.help", request.help_text),
             ("", "\n"),
         ])
+
         for line in request.body:
             out.extend([
                 ("class:tui-menu.detail", line),
                 ("", "\n"),
             ])
+
         for offset, option in enumerate(options):
-            index = start + offset
+            index  = start + offset
             active = index == state.selected
             marker = "›" if active else " "
+
             index_style = (
                 "class:tui-menu.index.active"
                 if active
@@ -114,6 +127,7 @@ class TuiMenu(object):
             if option.detail:
                 out.append(("class:tui-menu.detail", f" · {option.detail}"))
             out.append(("", "\n"))
+
         return out
 
     def height(self) -> int:
@@ -168,8 +182,10 @@ class TuiMenu(object):
         options = state.request.options
         if len(options) <= self.VISIBLE_ROWS:
             return 0, options
-        half = self.VISIBLE_ROWS // 2
+
+        half  = self.VISIBLE_ROWS // 2
         start = max(0, min(state.selected - half, len(options) - self.VISIBLE_ROWS))
+
         return start, options[start:start + self.VISIBLE_ROWS]
 
     def _build_key_bindings(self) -> KeyBindings:

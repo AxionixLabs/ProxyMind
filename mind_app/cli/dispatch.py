@@ -15,6 +15,7 @@ async def run_selected_mode(
 ) -> None:
     """按命令行参数分派到直接执行或交互模式。"""
     access_mode = "full" if cmd_lines.access else "safe"
+
     if cmd_lines.agent:
         await mind.agent_loop()
     elif chat := cmd_lines.chat:

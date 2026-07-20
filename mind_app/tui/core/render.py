@@ -19,7 +19,8 @@ def clip_fragments(parts: FormattedText, *, width: int) -> FormattedText:
         return []
 
     out: FormattedText = []
-    used = 0
+
+    used: int = 0
 
     for style, text in parts:
         for char in str(text).replace("\n", " "):
@@ -38,11 +39,14 @@ def display_line_count(text: str, *, width: int) -> int:
         return 0
 
     line_width = max(1, int(width))
-    rows = 0
+
+    rows: int = 0
+
     for line in text.split("\n"):
         rows += max(1, math.ceil(get_cwidth(line) / line_width))
     if text.endswith("\n"):
         rows = max(0, rows - 1)
+
     return rows
 
 
@@ -60,9 +64,9 @@ def cursor_point_for_display_row(
     display_row: int,
 ) -> tuple[int, int]:
     """返回指定视觉行起点对应的逻辑光标位置。"""
-    line_width = max(1, int(width))
-    target = max(0, int(display_row))
-    visual_row = 0
+    line_width    = max(1, int(width))
+    target        = max(0, int(display_row))
+    visual_row    = 0
     logical_lines = text.split("\n")
 
     for line_number, line in enumerate(logical_lines):

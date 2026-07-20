@@ -9,7 +9,11 @@ from pygments import lex
 from pygments.lexers import get_lexer_by_name
 from pygments.token import Token
 from pygments.util import ClassNotFound
-from mind_app.presentation.models import StyledBlock, TextSpan, TextStyle
+from mind_app.presentation.models import (
+    StyledBlock,
+    TextSpan,
+    TextStyle
+)
 from mind_app.presentation.styles import (
     PREVIEW_CODE_COMMENT_STYLE,
     PREVIEW_CODE_KEYWORD_STYLE,
@@ -17,18 +21,18 @@ from mind_app.presentation.styles import (
     PREVIEW_CODE_NUMBER_STYLE,
     PREVIEW_CODE_OPERATOR_STYLE,
     PREVIEW_CODE_STRING_STYLE,
-    PREVIEW_CODE_TEXT_STYLE,
+    PREVIEW_CODE_TEXT_STYLE
 )
 from mind_app.stream_state.text_models import TextFinalUnit
 from ..core.models import FragmentBlock
 from ..core.styles import styled_block_fragments
 
 MARKDOWN_HEADING_STYLE = TextStyle(foreground="#D7E7FF", bold=True)
-MARKDOWN_MARKER_STYLE = TextStyle(foreground="#8FA4B8", dim=True)
-MARKDOWN_QUOTE_STYLE = TextStyle(foreground="#A5B3C2", dim=True)
-MARKDOWN_CODE_STYLE = TextStyle(foreground="#A8D5C2")
-MARKDOWN_LINK_STYLE = TextStyle(foreground="#7DD3FC", underline=True)
-MARKDOWN_RULE_STYLE = TextStyle(foreground="#6F7A86", dim=True)
+MARKDOWN_MARKER_STYLE  = TextStyle(foreground="#8FA4B8", dim=True)
+MARKDOWN_QUOTE_STYLE   = TextStyle(foreground="#A5B3C2", dim=True)
+MARKDOWN_CODE_STYLE    = TextStyle(foreground="#A8D5C2")
+MARKDOWN_LINK_STYLE    = TextStyle(foreground="#7DD3FC", underline=True)
+MARKDOWN_RULE_STYLE    = TextStyle(foreground="#6F7A86", dim=True)
 
 _MARKDOWN = MarkdownIt("commonmark")
 
@@ -61,13 +65,15 @@ def render_tui_final(units: tuple[TextFinalUnit, ...]) -> FragmentBlock:
         spans.pop()
 
     plain_text = "".join(span.text for span in spans)
-    block = StyledBlock(plain_text=plain_text, spans=tuple(spans))
+    block      = StyledBlock(plain_text=plain_text, spans=tuple(spans))
+
     return FragmentBlock(styled_block_fragments(block))
 
 
 def _markdown_spans(text: str) -> list[TextSpan]:
     """把 Markdown 文本解析为中立样式片段。"""
     root = SyntaxTreeNode(_MARKDOWN.parse(str(text or "")))
+
     lines = _render_blocks(root.children)
     while lines and not lines[-1]:
         lines.pop()
@@ -121,6 +127,7 @@ def _render_block(
         return _plain_lines(node.content)
     if node.type == "inline":
         return _inline_lines([node])
+
     return _render_blocks(node.children, list_depth=list_depth)
 
 
@@ -132,13 +139,15 @@ def _list_lines(
 ) -> list[list[TextSpan]]:
     """渲染有序或无序列表。"""
     lines: list[list[TextSpan]] = []
-    start = int(node.attrs.get("start") or 1) if ordered else 1
+
+    start  = int(node.attrs.get("start") or 1) if ordered else 1
     indent = "  " * depth
 
     for index, item in enumerate(node.children):
-        marker = f"{start + index}. " if ordered else "- "
+        marker       = f"{start + index}. " if ordered else "- "
         marker_width = len(marker)
-        item_lines: list[list[TextSpan]] = []
+
+        item_lines: list[list[TextSpan]]   = []
         nested_lines: list[list[TextSpan]] = []
 
         for child in item.children:
@@ -182,6 +191,7 @@ def _blockquote_lines(
 ) -> list[list[TextSpan]]:
     """渲染引用块并保留引用内换行。"""
     content = _render_blocks(node.children, list_depth=list_depth)
+
     return [
         [TextSpan("│ ", MARKDOWN_MARKER_STYLE), *(
             _apply_style(line, MARKDOWN_QUOTE_STYLE) if line else []
@@ -240,6 +250,7 @@ def _inline_spans(
             _extend_spans(spans, _inline_spans(node.children, style))
         elif node.content:
             _append_span(spans, node.content, style)
+
     return spans
 
 
@@ -250,6 +261,7 @@ def _code_lines(text: str, *, language: str) -> list[list[TextSpan]]:
         return [[]]
 
     lexer = None
+
     lexer_name = str(language or "").strip().split(maxsplit=1)[0]
     if lexer_name:
         try:
@@ -261,11 +273,13 @@ def _code_lines(text: str, *, language: str) -> list[list[TextSpan]]:
         return [[TextSpan(line, MARKDOWN_CODE_STYLE)] for line in code.split("\n")]
 
     spans: list[TextSpan] = []
+
     try:
         for token_type, value in lex(code, lexer):
             _append_span(spans, value, _code_style(token_type))
     except (TypeError, ValueError):
         return [[TextSpan(line, MARKDOWN_CODE_STYLE)] for line in code.split("\n")]
+
     return _split_lines(spans)
 
 
@@ -283,6 +297,7 @@ def _code_style(token_type: typing.Any) -> TextStyle:
         return PREVIEW_CODE_COMMENT_STYLE
     if token_type in Token.Operator or token_type in Token.Punctuation:
         return PREVIEW_CODE_OPERATOR_STYLE
+
     return PREVIEW_CODE_TEXT_STYLE
 
 
@@ -301,8 +316,10 @@ def _split_lines(spans: list[TextSpan]) -> list[list[TextSpan]]:
                 _append_span(lines[-1], chunk, span.style)
             if index < len(chunks) - 1:
                 lines.append([])
+
     if lines and not lines[-1]:
         lines.pop()
+
     return lines or [[]]
 
 

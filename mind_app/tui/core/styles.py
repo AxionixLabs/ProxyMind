@@ -8,10 +8,10 @@ from mind_app.presentation.models import (
 )
 from .models import FragmentBlock
 
-MUTED_STYLE = TextStyle(foreground="#7F8C9A", dim=True)
-ACCENT_STYLE = TextStyle(foreground="#AFC7D8", bold=True)
-BRIGHT_STYLE = TextStyle(foreground="#F4F7FA", bold=True)
-BODY_STYLE = TextStyle(foreground="#DDE7EF")
+MUTED_STYLE   = TextStyle(foreground="#7F8C9A", dim=True)
+ACCENT_STYLE  = TextStyle(foreground="#AFC7D8", bold=True)
+BRIGHT_STYLE  = TextStyle(foreground="#F4F7FA", bold=True)
+BODY_STYLE    = TextStyle(foreground="#DDE7EF")
 SUCCESS_STYLE = TextStyle(foreground="#5FD7AF", bold=True)
 WARNING_STYLE = TextStyle(foreground="#FFB86B", bold=True)
 FAILURE_STYLE = TextStyle(foreground="#FF6B6B", bold=True)
@@ -30,10 +30,12 @@ def prompt_style(style: TextStyle) -> str:
         )
         if enabled
     ]
+
     if style.foreground:
         parts.append(f"fg:{style.foreground}")
     if style.background:
         parts.append(f"bg:{style.background}")
+
     return " ".join(parts)
 
 
@@ -47,6 +49,7 @@ def styled_block_fragments(
     if not spans:
         style = prompt_style(fallback_style or TextStyle())
         return ((style, block.plain_text),) if block.plain_text else ()
+
     return tuple(
         (
             prompt_style(
@@ -72,6 +75,7 @@ def fragment_block(*parts: str | TextSpan) -> FragmentBlock:
         plain_text="".join(span.text for span in spans),
         spans=spans,
     )
+
     return FragmentBlock(styled_block_fragments(block))
 
 
@@ -82,10 +86,12 @@ def text_block(text: str, style: TextStyle = TextStyle()) -> FragmentBlock:
 
 def query_block(text: str) -> FragmentBlock:
     """按普通 query 或命令类型生成用户输入块。"""
-    value = str(text).strip()
-    lines = value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    value   = str(text).strip()
+    lines   = value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     command = value.startswith(("/", "!", "$", "\\"))
+
     fragments: list[tuple[str, str]] = []
+
     for index, line in enumerate(lines):
         if index:
             fragments.append(("", "\n"))
@@ -93,6 +99,7 @@ def query_block(text: str) -> FragmentBlock:
         if marker:
             fragments.append(("class:prompt.kicker", marker))
         fragments.append(("class:prompt", line))
+
     return FragmentBlock(tuple(fragments))
 
 

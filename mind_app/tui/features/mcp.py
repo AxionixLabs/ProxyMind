@@ -16,7 +16,7 @@ from ..core.styles import (
     BRIGHT_STYLE,
     MUTED_STYLE,
     fragment_block,
-    text_block,
+    text_block
 )
 
 if typing.TYPE_CHECKING:

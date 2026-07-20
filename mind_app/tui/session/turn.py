@@ -7,7 +7,7 @@ from mind_app.mcp.contracts import McpSessionLike
 from mind_app.frontend import ApplicationView
 from mind_app.presentation.renderers.upload import (
     upload_failure_block,
-    upload_summary_block,
+    upload_summary_block
 )
 from mind_nova.events import EventReport
 from mind_nova.modes import RunMode

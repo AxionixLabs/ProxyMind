@@ -19,6 +19,7 @@ async def resolve_cli_attachments(
 ) -> list[dict[str, typing.Any]] | None:
     """解析并上传直接执行命令携带的附件。"""
     raw_attachments = cmd_lines.attach or []
+
     if not raw_attachments:
         return None
     if cmd_lines.code:
@@ -32,9 +33,9 @@ async def resolve_cli_attachments(
     pending = mind.attach.pending_attachments_snapshot()
 
     upload_state: dict[str, typing.Any] = {
-        "event": None,
-        "item_total": len(pending),
-        "total_bytes": sum(int(item.get("size") or 0) for item in pending),
+        "event"       : None,
+        "item_total"  : len(pending),
+        "total_bytes" : sum(int(item.get("size") or 0) for item in pending)
     }
 
     async def capture_progress(event: dict[str, typing.Any]) -> None:
@@ -59,11 +60,13 @@ async def resolve_cli_attachments(
         await mind.await_cleanup(mind.stop_anim())
 
     mind.attach.clear_pending_attachments()
+
     if upload_state["event"] is not None:
         mind.frontend.application.emit(ApplicationView(
             type="attachment.completed",
             renderable=upload_summary_block(upload_state["event"]),
         ))
+
     return uploaded
 
 

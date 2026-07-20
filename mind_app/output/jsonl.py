@@ -49,6 +49,7 @@ def _plain(value: typing.Any) -> typing.Any:
         return {str(key): _plain(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_plain(item) for item in value]
+
     return str(value)
 
 
@@ -67,6 +68,7 @@ def _aggregated_output(data: dict[str, typing.Any]) -> str:
     combined = data.get("output")
     if combined is not None and str(combined):
         return str(combined)
+
     return "\n".join(
         str(data[key]) for key in ("stdout", "stderr")
         if data.get(key) is not None and str(data[key])
@@ -80,6 +82,7 @@ def _tool_item_type(name: str) -> str:
         return "web_search"
     if normalized.startswith("collab"):
         return "collab_tool_call"
+
     return "mcp_tool_call"
 
 

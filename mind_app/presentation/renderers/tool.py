@@ -8,7 +8,7 @@ from ..models import (
     NativeToolResultView,
     StyledBlock,
     ToolStartView,
-    TracePreview,
+    TracePreview
 )
 
 
@@ -60,6 +60,7 @@ def _generic_trace_text(title: str, preview: TracePreview) -> str:
     """生成普通工具结果的记录文本。"""
     if not preview.full:
         return title
+
     indented_preview = preview.full.replace("\n", "\n  ")
     return f"{title}\n└ {indented_preview}"
 
@@ -70,6 +71,7 @@ def _coding_trace_text(title: str, preview: TracePreview) -> str:
         return title
     if preview.kind == "tree":
         return f"{title}\n{preview.full}"
+
     indented_preview = preview.full.replace("\n", "\n  ")
     return f"{title}\n└ {indented_preview}"
 

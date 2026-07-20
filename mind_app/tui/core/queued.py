@@ -59,7 +59,9 @@ class TuiQueuedMessages(object):
 
         count = len(self._items)
         label = "Queued message" if count == 1 else f"Queued messages ({count})"
+
         lines: list[FormattedText] = [[("class:queue.label", f"• {label}")]]
+
         for item in self._items:
             preview = " ".join(item.visible_text.split())
             lines.append([

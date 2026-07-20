@@ -17,17 +17,26 @@ from ..models import (
     RunCompletedView,
     RunStartedView,
     StyledBlock,
-    ToolStartView,
+    ToolStartView
 )
 from .approval import render_approval_view
-from .batch import render_batch_completed_view, render_batch_start_view
-from .lifecycle import render_failure_view, render_lifecycle_view
-from .plan import render_plan_steps_start_view, render_plan_update_view
+from .batch import (
+    render_batch_completed_view,
+    render_batch_start_view
+)
+from .lifecycle import (
+    render_failure_view,
+    render_lifecycle_view
+)
+from .plan import (
+    render_plan_steps_start_view,
+    render_plan_update_view
+)
 from .progress import render_progress_view
 from .tool import (
     render_generic_tool_result_view,
     render_native_tool_result_view,
-    render_tool_start_view,
+    render_tool_start_view
 )
 
 
@@ -66,6 +75,7 @@ def render_presentation_view(
         return (render_lifecycle_view(view),)
     if isinstance(view, ProgressView):
         return (render_progress_view(view),)
+
     raise TypeError(f"Unsupported presentation view: {type(view).__name__}")
 
 

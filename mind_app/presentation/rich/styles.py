@@ -17,10 +17,12 @@ def rich_style(style: TextStyle) -> str | None:
         )
         if enabled
     ]
+
     if style.foreground:
         parts.append(style.foreground)
     if style.background:
         parts.extend(("on", style.background))
+
     return " ".join(parts) or None
 
 

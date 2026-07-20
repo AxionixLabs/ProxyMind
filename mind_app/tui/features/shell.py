@@ -16,7 +16,10 @@ from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
 )
-from ..core.styles import FAILURE_STYLE, text_block
+from ..core.styles import (
+    FAILURE_STYLE,
+    text_block
+)
 from .summary import (
     CommandSummary,
     command_summary_title_parts,
@@ -295,14 +298,15 @@ class ShellPanelRun(object):
     def _append_display_text(self, name: str, text: str, style: str) -> None:
         """把输出文本按完整行追加到展示缓冲。"""
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-        combined = self.pending_lines.get(name, "") + normalized
+        combined   = self.pending_lines.get(name, "") + normalized
 
         if combined.endswith("\n"):
-            complete_lines = combined.split("\n")[:-1]
+            complete_lines           = combined.split("\n")[:-1]
             self.pending_lines[name] = ""
+
         else:
-            parts = combined.split("\n")
-            complete_lines = parts[:-1]
+            parts                    = combined.split("\n")
+            complete_lines           = parts[:-1]
             self.pending_lines[name] = parts[-1] if parts else ""
 
         for line in complete_lines:
@@ -322,6 +326,7 @@ class ShellPanelRun(object):
             pending = self.pending_lines.get(name, "")
             if pending:
                 lines.append((style, _clip_inline(pending, 240)))
+
         return lines[-SHELL_PANEL_MAX_LINES:]
 
 
@@ -453,6 +458,7 @@ def shell_command_args(executable: str, command: str) -> list[str]:
         return [executable, "-NoLogo", "-NoProfile", "-Command", command]
     if name in {"cmd", "cmd.exe"}:
         return [executable, "/d", "/s", "/c", command]
+
     return [executable, "-lc", command]
 
 
@@ -690,7 +696,9 @@ def _split_command_parts(command: str) -> list[str]:
 def _command_name(value: str) -> str:
     """返回命令名的小写规范形式。"""
     text = str(value or "").replace("\\", "/").rsplit("/", 1)[-1].strip().lower()
+
     stem, suffix = os.path.splitext(text)
+
     if suffix in {".bat", ".cmd", ".com", ".exe"}:
         return stem
     return text
@@ -702,7 +710,7 @@ def _windows_command_line_to_argv(command: str) -> list[str]:
     if windll is None:
         return []
 
-    shell32 = getattr(windll, "shell32", None)
+    shell32  = getattr(windll, "shell32", None)
     kernel32 = getattr(windll, "kernel32", None)
 
     if shell32 is None or kernel32 is None:
@@ -721,7 +729,7 @@ def _windows_command_line_to_argv(command: str) -> list[str]:
     command_line_to_argv.restype = ctypes.POINTER(ctypes.c_wchar_p)
 
     local_free.argtypes = [ctypes.c_void_p]
-    local_free.restype = ctypes.c_void_p
+    local_free.restype  = ctypes.c_void_p
 
     argc = ctypes.c_int(0)
 

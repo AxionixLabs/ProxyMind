@@ -16,7 +16,11 @@ from mind_core.preference import Preferences
 from mind_core.service_config import ServiceConfig
 from mind_nova import const
 from mind_nova.services import service_endpoints
-from mind_app.presentation.models import StyledBlock, TextSpan, TextStyle
+from mind_app.presentation.models import (
+    StyledBlock,
+    TextSpan,
+    TextStyle
+)
 from ..controller import Mind
 from ..frontend.contracts import ApplicationView
 from ..runtime.environment.exec_env import clear_exec_env_cache
@@ -26,7 +30,7 @@ from ..runtime.mcp.service_runtime import (
     ServiceRuntimeContext,
     ensure_service_runtime_asset,
     prepare_and_start_service_runtime,
-    resolve_service_runtime,
+    resolve_service_runtime
 )
 from ..paths import (
     ensure_mcp_servers_file,
@@ -39,9 +43,12 @@ from .attachments import resolve_cli_attachments
 from .dispatch import run_selected_mode
 from .frontend import (
     resolve_cli_design,
-    resolve_cli_frontend,
+    resolve_cli_frontend
 )
-from .selection import output_mode_uses_animation, resolve_cli_output_mode
+from .selection import (
+    output_mode_uses_animation,
+    resolve_cli_output_mode
+)
 
 
 async def main(
@@ -90,6 +97,7 @@ async def _run_main(
     # 获取当前操作系统平台和应用名称
     platform = sys.platform.strip().lower()
     software = os.path.basename(os.path.abspath(sys.argv[0])).strip().lower()
+
     sys_symbol = os.sep
     env_symbol = os.path.pathsep
 
@@ -285,6 +293,7 @@ async def _run_main(
 
         await run_selected_mode(mind, cmd_lines, cli_attachments)
         return mind.exit_code
+
     finally:
         try:
             await mind.frontend.runtime.close()

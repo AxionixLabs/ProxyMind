@@ -22,6 +22,7 @@ PLAN_SUMMARY_STYLE = TextStyle(
     dim=True,
     italic=True,
 )
+
 PLAN_ACTIVE_BODY_STYLE   = TextStyle(foreground="#5EEAD4", bold=True)
 PLAN_INACTIVE_BODY_STYLE = PREVIEW_TEXT_STYLE
 
@@ -29,10 +30,12 @@ PLAN_INACTIVE_BODY_STYLE = PREVIEW_TEXT_STYLE
 def render_plan_update_view(view: PlanUpdateView) -> StyledBlock:
     """把计划更新视图转换为中立展示块。"""
     text_lines = ["• Updated Plan"]
+
     spans = [
         TextSpan("•", SUCCESS_DOT_STYLE),
         TextSpan(" Updated Plan", TITLE_STYLE),
     ]
+
     if view.explanation:
         text_lines.append(f"  └ {view.explanation}")
         spans.extend((
@@ -41,6 +44,7 @@ def render_plan_update_view(view: PlanUpdateView) -> StyledBlock:
         ))
 
     indent = "    " if view.explanation else "  "
+
     for item in view.items:
         icon = "✔" if item.status == "completed" else "□"
         style = PLAN_ACTIVE_BODY_STYLE if item.status == "in_progress" else PLAN_INACTIVE_BODY_STYLE
@@ -63,19 +67,23 @@ def render_plan_steps_start_view(view: PlanStepsStartView) -> StyledBlock:
         f"loops={view.loops} · steps={view.step_count} · "
         f"stop_on_fail={str(view.stop_on_fail).lower()}"
     )
+
     text_lines = ["• Plan Steps", f"  └ {summary}"]
+
     spans = [
         TextSpan("•", SUCCESS_DOT_STYLE),
         TextSpan(" Plan Steps", TITLE_STYLE),
         TextSpan("\n  └ ", PREVIEW_MORE_STYLE),
         TextSpan(summary, PREVIEW_MORE_STYLE),
     ]
+
     for tool in view.tools:
         text_lines.append(f"    - {tool}")
         spans.extend((
             TextSpan("\n    - ", PREVIEW_TEXT_STYLE),
             TextSpan(tool, COMMAND_HEAD_STYLE),
         ))
+
     if view.omitted_steps:
         more = f"... {view.omitted_steps} more"
         text_lines.append(f"    {more}")

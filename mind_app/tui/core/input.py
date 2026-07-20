@@ -9,7 +9,10 @@ from prompt_toolkit.auto_suggest import (
 )
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.completion import CompleteEvent
-from prompt_toolkit.filters import Condition, has_focus
+from prompt_toolkit.filters import (
+    Condition,
+    has_focus
+)
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
@@ -37,18 +40,18 @@ class TuiAutoSuggest(AutoSuggest):
     """生成 TUI 输入区的行内命令和模板建议。"""
 
     SLASH_HINTS: typing.Final[dict[str, str]] = {
-        "/attach": " <path>",
-        "/attach ": "<path>",
-        "/detach": " <index-or-path>",
-        "/detach ": "<index-or-path>",
-        "/model": " <model-id>",
-        "/model ": "<model-id>",
+        "/attach"  : " <path>",
+        "/attach " : "<path>",
+        "/detach"  : " <index-or-path>",
+        "/detach " : "<index-or-path>",
+        "/model"   : " <model-id>",
+        "/model "  : "<model-id>",
     }
 
     def __init__(self) -> None:
-        self.mode = "chat"
-        self.shell_mode = False
-        self.ghost_templates = iter_ghost_templates()
+        self.mode: str        = "chat"
+        self.shell_mode: bool = False
+        self.ghost_templates  = iter_ghost_templates()
 
     def set_mode(self, mode: str) -> None:
         """更新自动建议使用的运行模式。"""
@@ -60,8 +63,10 @@ class TuiAutoSuggest(AutoSuggest):
             return None
         if getattr(buffer, "complete_state", None) is not None:
             return None
-        text = document.text_before_cursor
+
+        text         = document.text_before_cursor
         current_line = text.splitlines()[-1] if text.splitlines() else text
+
         if text.endswith("\n"):
             current_line = ""
         if not current_line:
@@ -105,17 +110,22 @@ class TuiInputModel(object):
     PASTE_LINE_THRESHOLD: typing.Final[int] = 20
 
     def __init__(self) -> None:
-        self.history = TuiInputHistory()
-        self.completer = SlashCommandCompleter()
+        self.history      = TuiInputHistory()
+        self.completer    = SlashCommandCompleter()
         self.auto_suggest = TuiAutoSuggest()
-        self.lexer = SkillTokenLexer()
-        self.interrupt_handler: typing.Callable[[], None] | None = None
-        self.can_submit_queue: typing.Callable[[], bool] | None = None
-        self.can_rollback_queue: typing.Callable[[], bool] | None = None
+        self.lexer        = SkillTokenLexer()
+
+        self.interrupt_handler: typing.Callable[[], None] | None      = None
+        self.can_submit_queue: typing.Callable[[], bool] | None       = None
+        self.can_rollback_queue: typing.Callable[[], bool] | None     = None
         self.rollback_queue_handler: typing.Callable[[], bool] | None = None
+
         self.paste_store: dict[str, str] = {}
-        self.shell_mode = False
+
+        self.shell_mode: bool = False
+
         self.key_bindings = self._build_key_bindings()
+
         self.style = Style.from_dict({
             "prompt": "bold #E2E5EA",
             "prompt.kicker": "bold #7B838E",
@@ -149,9 +159,10 @@ class TuiInputModel(object):
 
     def new_placeholder(self, mode: str) -> str:
         """为新的输入轮次生成一次占位文案。"""
-        theme = self.theme(mode)
-        prompt = random.choice(self.PLACEHOLDER_PROMPTS)
+        theme   = self.theme(mode)
+        prompt  = random.choice(self.PLACEHOLDER_PROMPTS)
         command = random.choice(self.PLACEHOLDER_COMMANDS)
+
         return f"{theme['label']}, {prompt}, {command}"
 
     def set_mode(self, mode: str) -> None:
@@ -173,7 +184,7 @@ class TuiInputModel(object):
         handler: typing.Callable[[], bool],
     ) -> None:
         """绑定执行期待提交消息的可用状态和撤回处理。"""
-        self.can_rollback_queue = can_rollback
+        self.can_rollback_queue     = can_rollback
         self.rollback_queue_handler = handler
 
     def bind_queue_submission(self, can_submit: typing.Callable[[], bool]) -> None:
@@ -221,9 +232,11 @@ class TuiInputModel(object):
             for placeholder, original in self.paste_store.items()
             if placeholder in current_text
         }
-        index = len(self.paste_store) + 1
-        suffix = "" if index == 1 else f" #{index}"
+
+        index       = len(self.paste_store) + 1
+        suffix      = "" if index == 1 else f" #{index}"
         placeholder = f"[Pasted Content {len(text)} chars]{suffix}"
+
         self.paste_store[placeholder] = text
         return placeholder
 

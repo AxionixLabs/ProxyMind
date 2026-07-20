@@ -8,7 +8,8 @@ from prompt_toolkit.utils import get_cwidth
 from engine.errors import MindError
 from engine.file_assist import FileAssist
 from mind_nova.modes import (
-    DEFAULT_RUN_MODE, RunMode
+    DEFAULT_RUN_MODE,
+    RunMode
 )
 from mind_nova.requests.access import (
     DEFAULT_ACCESS_MODE,
@@ -17,7 +18,10 @@ from mind_nova.requests.access import (
 )
 from mind_app.interaction import PromptContext
 from mind_app.frontend import ApplicationView
-from mind_app.presentation.models import TextSpan, TextStyle
+from mind_app.presentation.models import (
+    TextSpan,
+    TextStyle
+)
 from mind_app.runtime.environment.workspace import fetch_runtime_workspace_root
 from ..features.commands import (
     exchange_pref_value,
@@ -148,7 +152,7 @@ def _failure_block(message: typing.Any) -> FragmentBlock:
 async def run_tui_loop(mind: "Mind") -> None:
     """运行 TUI 交互状态机并调度命令和模型轮次。"""
     application = mind.frontend.application
-    runtime = typing.cast(TuiRuntime, mind.frontend.runtime)
+    runtime     = typing.cast(TuiRuntime, mind.frontend.runtime)
 
     async def run_modal(
         factory: typing.Callable[[], typing.Awaitable[typing.Any]],
@@ -222,7 +226,7 @@ async def run_tui_loop(mind: "Mind") -> None:
                 mind.set_history_workspace(runtime_workspace_root)
 
             workspace_label = workspace_display_label(runtime_workspace_root)
-            refreshed_at = now
+            refreshed_at    = now
 
         try:
             exec_status_label = exec_status_display_label(

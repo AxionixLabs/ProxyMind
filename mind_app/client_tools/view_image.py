@@ -8,7 +8,7 @@ from mcp import types as mcp_types
 from mind_app.client_tools.result import client_tool_result
 from mind_app.client_tools.types import (
     ClientTool,
-    ClientToolRuntime,
+    ClientToolRuntime
 )
 
 VIEW_IMAGE_TOOL = "view_image"
@@ -37,6 +37,7 @@ def _image_mime_type(content: bytes) -> str:
         return "image/gif"
     if content.startswith(b"RIFF") and content[8:12] == b"WEBP":
         return "image/webp"
+
     return ""
 
 

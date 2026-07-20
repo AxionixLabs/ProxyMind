@@ -30,7 +30,7 @@ __all__ = [
     "OutputPort",
     "OutputSession",
     "SessionFactory",
-    "SourcesOutput",
+    "SourcesOutput"
 ]
 
 

@@ -81,8 +81,11 @@ def render_status_fragments(
 ) -> FormattedText:
     """生成带呼吸指示和逐字符扫光的状态片段。"""
     colors = STATUS_COLORS[family]
-    out = [_indicator_fragment(phase, family=family, animated=animated)]
-    out.append((_style(colors["dim"]), " "))
+
+    out = [
+        _indicator_fragment(phase, family=family, animated=animated),
+        (_style(colors["dim"]), " "),
+    ]
 
     if not animated:
         out.append((_style(colors["soft"]), text))
@@ -97,6 +100,7 @@ def render_status_fragments(
             spec=SWEEP_SPECS[family],
             colors=colors,
         ))
+
     return out
 
 
@@ -112,13 +116,15 @@ def _indicator_fragment(
         return _style(colors["soft"]), "•"
 
     frequency = {"tool": 0.30, "mode": 0.44, "wait": 0.25}[family]
-    breathe = 0.5 + (0.5 * math.sin(phase * frequency))
-    weight = _smoothstep(breathe) * 0.72
+    breathe   = 0.5 + (0.5 * math.sin(phase * frequency))
+    weight    = _smoothstep(breathe) * 0.72
+
     color = _mix_hex_color(
         colors["indicator_dim"],
         colors["indicator_peak"],
         weight,
     )
+
     return _style(color), "•" if breathe > 0.58 else "◦"
 
 
@@ -131,13 +137,16 @@ def _sweep_fragments(
 ) -> FormattedText:
     """生成从左向右移动并带衰减尾迹的扫光文字。"""
     cells = _character_cells(text)
+
     focus = _drift_focus(
         phase,
         _display_span(cells),
         entry_pad=spec.entry_pad,
         exit_pad=spec.exit_pad,
     )
+
     out: FormattedText = []
+
     for position, char in cells:
         delta = focus - position
         if 0.0 <= delta <= spec.peak_radius:
@@ -157,6 +166,7 @@ def _sweep_fragments(
         else:
             color = colors["dim"]
         out.append((_style(color), char))
+
     return out
 
 
@@ -168,10 +178,12 @@ def _progressive_fragments(
 ) -> FormattedText:
     """生成等待状态循环前进的渐进光带。"""
     cells = _character_cells(text)
-    span = max(1, _display_span(cells))
-    head = ((phase * 0.78) % max(1.0, float((span * 2) + 4.0))) - 1.2
-    tail = -1.6 if head < float(span - 1) else head - max(0.0, float(span - 1))
+    span  = max(1, _display_span(cells))
+    head  = ((phase * 0.78) % max(1.0, float((span * 2) + 4.0))) - 1.2
+    tail  = -1.6 if head < float(span - 1) else head - max(0.0, float(span - 1))
+
     out: FormattedText = []
+
     for position, char in cells:
         if char == " ":
             color = colors["dim"]
@@ -182,6 +194,7 @@ def _progressive_fragments(
         else:
             color = colors["peak"]
         out.append((_style(color), char))
+
     return out
 
 
@@ -199,12 +212,15 @@ def _drift_focus(
 
 def _character_cells(text: str) -> list[tuple[float, str]]:
     """返回每个字符在终端显示列中的中心位置。"""
-    cursor = 0
+    cursor: int = 0
+
     cells: list[tuple[float, str]] = []
+
     for char in text:
         width = max(0, get_cwidth(char))
         cells.append((cursor + (max(1, width) - 1) / 2, char))
         cursor += width
+
     return cells
 
 
@@ -219,9 +235,10 @@ def _display_span(cells: list[tuple[float, str]]) -> int:
 def _mix_hex_color(start: str, end: str, weight: float) -> str:
     """按给定权重混合两个十六进制颜色。"""
     ratio = max(0.0, min(1.0, float(weight)))
-    left = tuple(int(start[index:index + 2], 16) for index in (1, 3, 5))
+    left  = tuple(int(start[index:index + 2], 16) for index in (1, 3, 5))
     right = tuple(int(end[index:index + 2], 16) for index in (1, 3, 5))
     mixed = tuple(round(a + ((b - a) * ratio)) for a, b in zip(left, right))
+
     return "#" + "".join(f"{value:02X}" for value in mixed)
 
 

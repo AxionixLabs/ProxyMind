@@ -18,6 +18,7 @@ def build_progress_view(
     normalized_text = str(text or "")
     if not normalized_text:
         return None
+
     return ProgressView(
         text=normalized_text,
         source=source,

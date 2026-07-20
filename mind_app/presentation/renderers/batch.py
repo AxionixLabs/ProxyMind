@@ -58,18 +58,22 @@ def render_batch_start_view(view: BatchStartView) -> StyledBlock:
 def render_batch_completed_view(view: BatchCompletedView) -> StyledBlock:
     """把并行工具完成视图转换为中立展示块。"""
     all_ok = all(result.ok for result in view.results)
+
     lines = ["• Parallel tools completed"]
     spans = [
         TextSpan("•", SUCCESS_DOT_STYLE if all_ok else ERROR_DOT_STYLE),
         TextSpan(" Parallel tools completed", TITLE_STYLE),
     ]
+
     last_index = len(view.results) - 1
 
     for index, result in enumerate(view.results):
-        branch = "└" if index == last_index else "├"
+        branch        = "└" if index == last_index else "├"
         detail_prefix = "   " if index == last_index else "│  "
-        status = "ok" if result.ok else "failed"
+        status        = "ok" if result.ok else "failed"
+
         lines.append(f"{branch} {result.name}  {status}")
+
         spans.extend((
             TextSpan("\n"),
             TextSpan(branch, PREVIEW_STYLE),
@@ -78,6 +82,7 @@ def render_batch_completed_view(view: BatchCompletedView) -> StyledBlock:
             TextSpan("  ", PREVIEW_STYLE),
             TextSpan(status, SUCCESS_DOT_STYLE if result.ok else ERROR_DOT_STYLE),
         ))
+
         if result.text:
             lines.append(f"{detail_prefix}└ {result.text}")
             spans.extend((

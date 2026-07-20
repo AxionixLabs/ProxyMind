@@ -195,8 +195,10 @@ def truncate_display_width(text: str, limit: int) -> str:
         return text
 
     out: list[str] = []
-    used = 0
-    target = max(0, limit - 3)
+
+    used: int   = 0
+    target: int = max(0, limit - 3)
+
     for char in text:
         size = get_cwidth(char)
         if used + size > target:

@@ -25,23 +25,22 @@ from mind_app.presentation.styles import (
     COMMAND_STRING_STYLE
 )
 
-
 TUI_APPROVAL_STYLE = Style.from_dict({
-    "approval-card": "bg:#E2E5E8 #252A30",
-    "approval-title": "bg:#E2E5E8 bold #20262D",
-    "approval-context": "bg:#E2E5E8 #48515B",
-    "approval-meta": "bg:#E2E5E8 #626C77",
-    "approval-option": "bg:#E2E5E8 #424B55",
-    "approval-option-selected": "bg:#E2E5E8 bold #005F73",
-    "approval-shortcut": "bg:#E2E5E8 #68727D",
-    "approval-shortcut-selected": "bg:#E2E5E8 bold #006D77",
-    "approval-command": "bg:#E2E5E8 #252A30",
-    "approval-command-head": "bg:#E2E5E8 bold #164E63",
-    "approval-command-flag": "bg:#E2E5E8 #7C4A03",
-    "approval-command-path": "bg:#E2E5E8 #374151",
-    "approval-command-string": "bg:#E2E5E8 #166534",
-    "approval-command-number": "bg:#E2E5E8 #9A3412",
-    "approval-command-operator": "bg:#E2E5E8 #6D28D9",
+    "approval-card"              : "bg:#E2E5E8 #252A30",
+    "approval-title"             : "bg:#E2E5E8 bold #20262D",
+    "approval-context"           : "bg:#E2E5E8 #48515B",
+    "approval-meta"              : "bg:#E2E5E8 #626C77",
+    "approval-option"            : "bg:#E2E5E8 #424B55",
+    "approval-option-selected"   : "bg:#E2E5E8 bold #005F73",
+    "approval-shortcut"          : "bg:#E2E5E8 #68727D",
+    "approval-shortcut-selected" : "bg:#E2E5E8 bold #006D77",
+    "approval-command"           : "bg:#E2E5E8 #252A30",
+    "approval-command-head"      : "bg:#E2E5E8 bold #164E63",
+    "approval-command-flag"      : "bg:#E2E5E8 #7C4A03",
+    "approval-command-path"      : "bg:#E2E5E8 #374151",
+    "approval-command-string"    : "bg:#E2E5E8 #166534",
+    "approval-command-number"    : "bg:#E2E5E8 #9A3412",
+    "approval-command-operator"  : "bg:#E2E5E8 #6D28D9",
 })
 
 
@@ -115,6 +114,7 @@ def _approval_raw_commands(approval: dict[str, typing.Any]) -> list[typing.Any]:
 def _single_command_lines(command: typing.Any) -> list[list[tuple[str, str]]]:
     """把单项命令转换为多行审批预览。"""
     raw_lines = _command_raw_lines(command)
+
     lines: list[list[tuple[str, str]]] = []
     for index, raw_line in enumerate(raw_lines):
         line: list[tuple[str, str]] = [
@@ -141,12 +141,12 @@ def _command_raw_lines(command: typing.Any) -> list[str]:
 def _command_parts(command: str) -> list[tuple[str, str]]:
     """把命令片段映射为浅色审批面板样式。"""
     styles = {
-        COMMAND_HEAD_STYLE: "class:approval-command-head",
-        COMMAND_FLAG_STYLE: "class:approval-command-flag",
-        COMMAND_PATH_STYLE: "class:approval-command-path",
-        COMMAND_STRING_STYLE: "class:approval-command-string",
-        COMMAND_NUMBER_STYLE: "class:approval-command-number",
-        COMMAND_OPERATOR_STYLE: "class:approval-command-operator",
+        COMMAND_HEAD_STYLE     : "class:approval-command-head",
+        COMMAND_FLAG_STYLE     : "class:approval-command-flag",
+        COMMAND_PATH_STYLE     : "class:approval-command-path",
+        COMMAND_STRING_STYLE   : "class:approval-command-string",
+        COMMAND_NUMBER_STYLE   : "class:approval-command-number",
+        COMMAND_OPERATOR_STYLE : "class:approval-command-operator",
     }
     return [
         (styles.get(part.style, "class:approval-command"), part.text)
@@ -163,9 +163,10 @@ def _decision_parts(
     shortcut_style: str,
 ) -> list[tuple[str, str]]:
     """生成审批选项标签和快捷键片段。"""
-    label = approval_decision_label(approval, decision)
+    label    = approval_decision_label(approval, decision)
     shortcut = DECISION_SHORTCUT_LABELS.get(decision, "")
-    parts = [(label_style, label)]
+    parts    = [(label_style, label)]
+
     if shortcut:
         parts.extend([
             (label_style, "  "),

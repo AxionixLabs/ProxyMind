@@ -20,10 +20,10 @@ class TuiDocument(object):
     """管理稳定正文、动态正文和全局段间距。"""
 
     def __init__(self) -> None:
-        self.blocks: list[TranscriptBlock] = []
+        self.blocks: list[TranscriptBlock]      = []
         self.active_block: FragmentBlock | None = None
-        self.active_gap_before = False
-        self.pending_gap = False
+        self.active_gap_before: bool            = False
+        self.pending_gap: bool                  = False
 
     @property
     def has_content(self) -> bool:

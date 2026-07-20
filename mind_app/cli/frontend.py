@@ -42,20 +42,23 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
         "text": create_text_output_session,
         "json": create_json_output_session,
     }[output_mode]
+
     application = (
         SilentApplicationSink()
         if output_mode == "json"
         else ConsoleApplicationSink()
     )
+
     if output_mode_uses_animation(output_mode):
         session_factory = functools.partial(
             session_factory,
-            console=application.console,
+            console=application.console
         )
+
     return Frontend(
         application=application,
         interaction=NonInteractiveInteraction(),
-        session_factory=session_factory,
+        session_factory=session_factory
     )
 
 

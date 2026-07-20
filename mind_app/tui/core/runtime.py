@@ -12,11 +12,18 @@ from prompt_toolkit.application import (
 )
 from prompt_toolkit.application.current import create_app_session
 from prompt_toolkit.data_structures import Point
-from prompt_toolkit.filters import Condition, has_focus, to_filter
+from prompt_toolkit.filters import (
+    Condition,
+    has_focus,
+    to_filter
+)
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.input import DummyInput
 from prompt_toolkit.input.base import Input
-from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
+from prompt_toolkit.key_binding import (
+    KeyBindings,
+    merge_key_bindings
+)
 from prompt_toolkit.layout import (
     Dimension,
     Layout
@@ -24,13 +31,12 @@ from prompt_toolkit.layout import (
 from prompt_toolkit.layout.containers import (
     ConditionalContainer,
     HSplit,
-    ScrollOffsets,
     VerticalAlign,
     VSplit,
     Window
 )
 from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.layout.menus import CompletionsMenuControl
+from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.layout.processors import (
     AfterInput,
     ConditionalProcessor
@@ -45,26 +51,39 @@ from prompt_toolkit.styles import (
 from prompt_toolkit.widgets import TextArea
 from mind_app.approval.models import ApprovalDecisionValue
 from mind_app.interaction.contracts import PromptContext
-from .models import FormattedText, FragmentBlock, MenuRequest
+from .models import (
+    FormattedText,
+    FragmentBlock,
+    MenuRequest
+)
 from .terminal_input import clear_pending_input
 from mind_nova import const
 from .activity import TuiActivity
 from .approval import TuiApproval
 from .approval_render import TUI_APPROVAL_STYLE
 from .document import TuiDocument
-from .input import INPUT_BUFFER_NAME, TuiInputModel
-from .menu import TUI_MENU_STYLE, TuiMenu
-from .queued import TuiQueuedMessages, TuiSubmission
+from .input import (
+    INPUT_BUFFER_NAME,
+    TuiInputModel
+)
+from .menu import (
+    TUI_MENU_STYLE,
+    TuiMenu
+)
+from .queued import (
+    TuiQueuedMessages,
+    TuiSubmission
+)
 from .render import (
     clip_fragments,
     cursor_point,
     cursor_point_for_display_row,
     display_line_count,
-    fragments_text,
+    fragments_text
 )
 from .styles import query_block
 
-_QUEUE_END = object()
+_QUEUE_END       = object()
 _INPUT_INTERRUPT = object()
 
 
@@ -240,17 +259,10 @@ class TuiRuntime(object):
             ),
             filter=Condition(self._completion_visible),
         )
-        self.completion_menu = ConditionalContainer(
-            Window(
-                content=CompletionsMenuControl(),
-                width=Dimension(min=8),
-                height=Dimension(min=1, max=self.COMPLETION_MAX_HEIGHT),
-                scroll_offsets=ScrollOffsets(top=1, bottom=1),
-                dont_extend_width=True,
-                dont_extend_height=True,
-                style="class:completion-menu",
-            ),
-            filter=Condition(self._completion_visible),
+        self.completion_menu = CompletionsMenu(
+            max_height=self.COMPLETION_MAX_HEIGHT,
+            scroll_offset=1,
+            extra_filter=Condition(self._completion_visible),
         )
         self.input_footer = ConditionalContainer(
             HSplit(

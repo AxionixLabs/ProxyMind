@@ -5,7 +5,12 @@ import typing
 from engine.errors import MindError
 from mind_nova.modes import RunMode
 
-OutputMode = typing.Literal["tui", "rich", "text", "json"]
+OutputMode = typing.Literal[
+    "tui",
+    "rich",
+    "text",
+    "json"
+]
 
 
 def resolve_code_mode(cmd_lines: typing.Any) -> RunMode:
@@ -16,6 +21,7 @@ def resolve_code_mode(cmd_lines: typing.Any) -> RunMode:
         return "fast"
     if cmd_lines.xtra is not None:
         return "xtra"
+
     raise MindError("--code requires --chat, --fast, or --xtra")
 
 
@@ -44,6 +50,7 @@ def resolve_cli_output_mode(cmd_lines: typing.Any) -> OutputMode:
         return "rich"
     if direct_execution_selected(cmd_lines):
         return "text"
+
     return "tui"
 
 

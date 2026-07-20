@@ -4,7 +4,8 @@
 import time
 import typing
 from dataclasses import (
-    dataclass, field
+    dataclass,
+    field
 )
 from mind_app.stream_events.approval_trace import approval_summary
 from mind_nova import const
@@ -479,6 +480,7 @@ def _approval_prompt_noun(
 def _normalize_decision(value: typing.Any) -> ApprovalDecisionValue | None:
     """将输入的审批选项值转换为内部枚举。"""
     text = str(value or "").strip()
+
     aliases: dict[str, ApprovalDecisionValue] = {
         "accept"             : "accept",
         "approve"            : "accept",
@@ -492,6 +494,7 @@ def _normalize_decision(value: typing.Any) -> ApprovalDecisionValue | None:
         "denied"             : "decline",
         "no"                 : "decline"
     }
+
     return aliases.get(text.lower())
 
 
@@ -511,7 +514,7 @@ def approval_decision_label(
     decision: str
 ) -> str:
     """读取审批选项展示文案。"""
-    labels = {}
+    labels: dict = {}
     if isinstance(approval, dict):
         raw = approval.get("decision_labels", approval.get("decisionLabels"))
         labels = raw if isinstance(raw, dict) else {}

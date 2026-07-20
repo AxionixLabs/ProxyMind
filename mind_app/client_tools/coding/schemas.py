@@ -135,5 +135,7 @@ APPLY_PATCH_INPUT_SCHEMA: dict[str, typing.Any] = {
     "required": ["patch"],
     "additionalProperties": False,
 }
+
+
 if __name__ == '__main__':
     pass

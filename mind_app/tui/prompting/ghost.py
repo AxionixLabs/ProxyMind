@@ -128,6 +128,7 @@ def should_apply_ghost_prompt(text: str) -> bool:
         return False
     if any(marker in stripped for marker in GHOST_CODE_MARKERS):
         return False
+
     return not any(marker in stripped for marker in GHOST_OBJECT_MARKERS)
 
 

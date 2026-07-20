@@ -129,6 +129,7 @@ def _summary_line_text(
     """返回适合摘要正文展示的单行文本。"""
     width     = int(terminal_width or COMMAND_SUMMARY_DEFAULT_WIDTH)
     available = min(COMMAND_SUMMARY_LINE_MAX, max(12, width - 2))
+
     return _clip_inline(line, available)
 
 
@@ -136,10 +137,12 @@ def _clip_inline(value: typing.Any, limit: int) -> str:
     """裁剪单行文本。"""
     text = " ".join(str(value or "").split())
     size = max(1, int(limit or 1))
+
     if len(text) <= size:
         return text
     if size <= 1:
         return "…"
+
     return f"{text[:size - 1]}…"
 
 

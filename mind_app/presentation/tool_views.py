@@ -6,7 +6,7 @@ from mind_app.stream_events.tool_traces.generic import render_generic_tool_resul
 from mind_app.stream_events.tool_traces.native import (
     render_tool_result_entries,
     render_tool_start_preview,
-    render_tool_start_trace,
+    render_tool_start_trace
 )
 from .models import (
     GenericToolResultView,
@@ -64,9 +64,9 @@ def build_native_tool_result_view(
     call_id: str = "",
 ) -> NativeToolResultView:
     """构建原生编码工具执行结果的展示数据。"""
-    normalized_name = str(name or "tool").strip() or "tool"
+    normalized_name      = str(name or "tool").strip() or "tool"
     normalized_arguments = dict(arguments) if isinstance(arguments, dict) else {}
-    normalized_data = dict(data) if isinstance(data, dict) else data
+    normalized_data      = dict(data) if isinstance(data, dict) else data
 
     return NativeToolResultView(
         name=normalized_name,

@@ -41,8 +41,8 @@ async def choose_exec_session(
 ) -> str | None:
     """在主 TUI 中选择一个运行中的命令会话。"""
     application = mind.frontend.application
-    snapshot = await mind.native_coding.running_exec_sessions()
-    sessions = _running_items(snapshot)
+    snapshot    = await mind.native_coding.running_exec_sessions()
+    sessions    = _running_items(snapshot)
 
     if not sessions:
         application.emit(ApplicationView(
@@ -81,7 +81,7 @@ async def watch_exec_session(
         return False
 
     application = mind.frontend.application
-    height = _ps_panel_height(application.viewport.height)
+    height      = _ps_panel_height(application.viewport.height)
 
     state: dict[str, typing.Any] = {
         "snapshot": {
@@ -139,9 +139,10 @@ async def _watch_exec_session(
                 runtime.finish_menu(state.get("last_snapshot"))
                 return None
 
-            state["snapshot"] = snapshot
-            state["updated_at"] = time.time()
+            state["snapshot"]      = snapshot
+            state["updated_at"]    = time.time()
             state["last_snapshot"] = snapshot
+
             runtime.update_menu(request())
 
             if str(snapshot.get("status") or "").strip() == "exited":
@@ -150,6 +151,7 @@ async def _watch_exec_session(
             await asyncio.sleep(PS_PANEL_TICK_SEC)
 
     poll_task = asyncio.create_task(poll())
+
     try:
         result = await viewer_task
     finally:

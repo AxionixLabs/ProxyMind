@@ -199,7 +199,7 @@ async def save_primary_pref_field(
     if field == "reasoning_effort":
         normalized = normalize_reasoning_effort(normalized)
 
-    primary[field] = normalized
+    primary[field]     = normalized
     primary["enabled"] = True
 
     model_config["primary"] = primary

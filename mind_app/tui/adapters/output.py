@@ -11,16 +11,26 @@ from mind_app.output.contracts import (
     OutputDisplay,
     OutputPort
 )
-from mind_app.presentation.models import StyledBlock, TextSpan, TextStyle
+from mind_app.presentation.models import (
+    StyledBlock,
+    TextSpan,
+    TextStyle
+)
 from mind_app.stream_io.output_record import StreamRecordWriter
 from mind_app.stream_render.animation import AnimDriver
 from mind_app.stream_sanitize import sanitize_value
 from mind_app.stream_state.boundary import OutputBoundaryState
 from mind_app.stream_state.text import TextState
-from ..core.activity import StatusFamily, TuiStatusState
+from ..core.activity import (
+    StatusFamily,
+    TuiStatusState
+)
 from ..core.runtime import TuiRuntime
 from ..core.models import FragmentBlock
-from ..core.styles import prompt_style, styled_block_fragments
+from ..core.styles import (
+    prompt_style,
+    styled_block_fragments
+)
 from .markdown import render_tui_final
 
 TYPEWRITER_CURSOR_STYLE = TextStyle(foreground="#D7E7FF", bold=True)
@@ -29,7 +39,7 @@ TYPEWRITER_CURSOR_STYLE = TextStyle(foreground="#D7E7FF", bold=True)
 class TuiOutputControl(OutputPort):
     """把单轮流式内容和状态写入持久 TUI。"""
 
-    BLOCK: OutputDisplay = BLOCK_OUTPUT
+    BLOCK: OutputDisplay  = BLOCK_OUTPUT
     STREAM: OutputDisplay = STREAM_OUTPUT
 
     def __init__(
@@ -40,12 +50,13 @@ class TuiOutputControl(OutputPort):
         animate: bool = True,
     ) -> None:
         self.log_file = log_file
-        self.runtime = runtime
-        self.animate = bool(animate)
+        self.runtime  = runtime
+        self.animate  = bool(animate)
 
-        self.text_state = TextState(width_provider=lambda: self.terminal_width)
+        self.text_state    = TextState(width_provider=lambda: self.terminal_width)
         self.record_writer = StreamRecordWriter(log_file)
-        self.status_state = TuiStatusState()
+        self.status_state  = TuiStatusState()
+
         self.status_driver = AnimDriver(
             is_active=lambda: self.status_state.animating,
             get_interval=self.status_state.interval,
@@ -53,8 +64,10 @@ class TuiOutputControl(OutputPort):
             on_tick=self._on_status_tick,
         )
         self._pending_status_task: asyncio.Task[None] | None = None
-        self._stream_boundary_pending = False
+        self._stream_boundary_pending: bool                  = False
+
         self._document_boundary = OutputBoundaryState(stream_display=self.STREAM)
+
         self._cursor = random.choice(("█", "▉", "▋"))
 
     @property
@@ -93,9 +106,10 @@ class TuiOutputControl(OutputPort):
         if not chunk:
             return None
 
-        text = str(chunk)
+        text            = str(chunk)
         boundary_prefix = self._consume_stream_boundary_prefix(incoming_text=text)
-        raw_chunk = None
+        raw_chunk       = None
+
         if boundary_prefix and display == self.STREAM:
             text = f"{boundary_prefix}{text}"
             raw_chunk = text
@@ -170,6 +184,7 @@ class TuiOutputControl(OutputPort):
         _ = immediate
         task = self._pending_status_task
         self._pending_status_task = None
+
         if task is not None:
             task.cancel()
             try:
@@ -223,8 +238,10 @@ class TuiOutputControl(OutputPort):
         self._commit_current()
 
         text = str(chunk)
+
         self.record_writer.write(text, block=True)
         self._prepare_document_block(self.BLOCK)
+
         spans = tuple(display_parts or ())
         block = StyledBlock(
             plain_text=text.rstrip("\n"),
@@ -308,7 +325,8 @@ class TuiOutputControl(OutputPort):
             self._render_active(cursor=True)
 
             progress = index / max(1, size - 1)
-            delay = 0.010 + (0.0065 - 0.010) * progress
+            delay    = 0.010 + (0.0065 - 0.010) * progress
+
             if any(char in "。.!！?？" for char in delta):
                 delay += 0.035
             elif any(char in "；;：:" for char in delta):

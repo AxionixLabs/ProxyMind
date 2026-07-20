@@ -2,7 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.presentation.models import TextSpan, TextStyle
+from mind_app.presentation.models import (
+    TextSpan,
+    TextStyle
+)
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
@@ -15,7 +18,12 @@ from mind_nova.requests.access import (
     access_mode_label,
     normalize_access_mode
 )
-from ..core.styles import BRIGHT_STYLE, MUTED_STYLE, fragment_block, text_block
+from ..core.styles import (
+    BRIGHT_STYLE,
+    MUTED_STYLE,
+    fragment_block,
+    text_block
+)
 
 if typing.TYPE_CHECKING:
     from ..core.runtime import TuiRuntime
@@ -49,16 +57,19 @@ def render_permissions_status(
 ) -> None:
     """展示当前权限模式。"""
     normalized = normalize_access_mode(access_mode)
-    label = access_mode_label(normalized)
+    label      = access_mode_label(normalized)
+
     detail = (
         "tool execution requires approval"
         if normalized == "safe"
         else "tool execution may run without approval"
     )
+
     title_style = TextStyle(
         foreground="#D8B26E" if normalized == "full" else "#8FC7EA",
         bold=True,
     )
+
     application.emit(ApplicationView(
         type="tui.permissions.status",
         renderable=fragment_block(

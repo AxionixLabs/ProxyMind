@@ -1,9 +1,15 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_app.output import BLOCK_OUTPUT, OutputPort
+from mind_app.output import (
+    BLOCK_OUTPUT,
+    OutputPort
+)
 from rich.cells import cell_len
-from ..contracts import PresentationSink, PresentationView
+from ..contracts import (
+    PresentationSink,
+    PresentationView
+)
 from ..renderers.dispatch import render_presentation_view
 
 
@@ -33,5 +39,7 @@ class RichPresentationSink(PresentationSink):
                 display_parts=display_parts,
                 preserve_display_parts=block.preserve_spans,
             )
+
+
 if __name__ == '__main__':
     pass
