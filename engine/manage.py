@@ -14,9 +14,10 @@ from urllib.parse import urlparse
 from loguru import logger
 from mcp import types as mcp_types
 from engine.tinker import MindError
-from mind_nova import (
-    authentic, const, request, craft
-)
+from engine.ports import terminate_port_process
+from mind_nova import const
+from mind_nova.requests.manifest import fetch_manifest
+from mind_nova.service_auth import manufacture_token
 
 UpdateNotifier = typing.Callable[
     [dict[str, typing.Any], dict[str, typing.Any]],
@@ -80,7 +81,7 @@ class ServerManage(object):
         if not (local := await self.probe_version()):
             return None
 
-        if not (remote := await request.fetch_manifest()):
+        if not (remote := await fetch_manifest()):
             return None
 
         if self.has_new(local, remote):
@@ -157,7 +158,7 @@ class ServerManage(object):
         headers = {
             "accept"        : "application/json",
             "content-type"  : "application/json",
-            "authorization" : f"Bearer {authentic.manufacture_token()}"
+            "authorization" : f"Bearer {manufacture_token()}"
         }
         initialize_payload = {
             "jsonrpc" : "2.0",
@@ -257,7 +258,7 @@ class ServerManage(object):
                         const.MCP_ED,
                         headers={
                             "accept"               : "application/json",
-                            "authorization"        : f"Bearer {authentic.manufacture_token()}",
+                            "authorization"        : f"Bearer {manufacture_token()}",
                             "mcp-session-id"       : session_id,
                             "mcp-protocol-version" : str(mcp_types.LATEST_PROTOCOL_VERSION)
                         },
@@ -286,7 +287,7 @@ class ServerManage(object):
         """重启本地后台服务；调用方负责持有生命周期锁。"""
         logger.debug(f"[Server] restarting local service on port {self.port}")
         with contextlib.suppress(Exception):
-            await craft.kill_port(self.port)
+            await terminate_port_process(self.port)
         await asyncio.sleep(0.2)
         await self.spawn()
 

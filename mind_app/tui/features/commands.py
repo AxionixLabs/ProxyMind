@@ -8,7 +8,7 @@ from engine.tinker import (
     MindError,
     FileAssist
 )
-from mind_app.mcp import McpSessionLike
+from mind_app.mcp.contracts import McpSessionLike
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
@@ -29,7 +29,7 @@ from .download import prepare_tui_service_runtime
 from .tools import render_tools_summary
 
 if typing.TYPE_CHECKING:
-    from ...mind_core import Mind
+    from ...controller import Mind
 
 
 def _present(

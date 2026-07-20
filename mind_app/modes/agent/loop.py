@@ -37,7 +37,7 @@ from .ws import (
 from .forwarding import AgentForwardHandler
 
 if typing.TYPE_CHECKING:
-    from ...mind_core import Mind
+    from ...controller import Mind
 
 
 def summarize_ws_disconnect(exc: BaseException) -> tuple[str, str]:

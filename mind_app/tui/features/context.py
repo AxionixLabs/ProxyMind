@@ -16,7 +16,6 @@ from mind_core.provider_config import (
     DEFAULT_REASONING_EFFORT,
     SUPPORTED_REASONING_EFFORTS
 )
-from mind_app.runtime.environment.exec_env import exec_env
 
 WORKSPACE_LABEL_REFRESH: float = 5.0
 WORKSPACE_LABEL_UNKNOWN: str   = "?"
@@ -180,25 +179,6 @@ def _clip_exec_status_command(value: typing.Any, *, limit: int) -> str:
     if size <= 1:
         return "…"
     return f"{text[:size - 1]}…"
-
-
-async def fetch_runtime_workspace_root(
-    timeout: float = 0.8
-) -> typing.Optional[Path]:
-    """读取本地 workspace 根目录。"""
-    _ = timeout
-
-    data      = exec_env()
-    workspace = data.get("workspace") if isinstance(data, dict) else None
-
-    root = workspace.get("root") if isinstance(workspace, dict) else None
-    if not isinstance(root, str) or not root.strip():
-        root = str(Path.cwd())
-
-    try:
-        return Path(root).expanduser().resolve()
-    except (OSError, RuntimeError, ValueError):
-        return None
 
 
 async def save_primary_pref_field(

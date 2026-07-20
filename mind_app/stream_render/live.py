@@ -92,7 +92,7 @@ class LiveRenderSession(object):
         await self.render(content, renderable=renderable)
 
 
-class TypewriterStreamSession(LiveRenderSession):
+class TextRenderer(LiveRenderSession):
     """管理流式正文的打字机窗口和光标渲染。"""
 
     MIN_VIEW_LINES = 8
@@ -107,7 +107,11 @@ class TypewriterStreamSession(LiveRenderSession):
         console: Console | None = None,
     ) -> None:
         """初始化打字机窗口状态。"""
-        super().__init__(refresh_per_second=refresh_per_second, console=console)
+        self.default_refresh_per_second = max(1, int(refresh_per_second))
+        super().__init__(
+            refresh_per_second=self.default_refresh_per_second,
+            console=console,
+        )
 
         self.lines: deque = deque(maxlen=max_lines)
         self.col: int     = 0
@@ -143,6 +147,24 @@ class TypewriterStreamSession(LiveRenderSession):
     def _live_renderable(self) -> typing.Any:
         """返回打字机窗口当前使用的可渲染对象。"""
         return self.renderable if self.renderable is not None else Text(self._tail_text(self.out))
+
+    async def show(
+        self,
+        content: str,
+        *,
+        animate: bool = False,
+        renderable: typing.Optional[typing.Any] = None,
+        refresh_per_second: typing.Optional[int] = None,
+    ) -> None:
+        """启动正文 Live 并同步当前内容。"""
+        rate = (
+            self.default_refresh_per_second
+            if refresh_per_second is None
+            else max(1, int(refresh_per_second))
+        )
+        self.set_refresh_per_second(rate)
+        await self.start()
+        await self.sync(content, animate=animate, renderable=renderable)
 
     async def stop(
         self,

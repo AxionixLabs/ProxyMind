@@ -3,11 +3,11 @@
 
 import typing
 from mind_app.client_tools.planning import PLAN_STEPS_TOOL
-from mind_app.mcp import McpSessionLike
+from mind_app.mcp.contracts import McpSessionLike
 from mind_app.output import OutputControlPort
 from mind_app.presentation.contracts import PresentationSink
 from mind_app.presentation.plan_views import build_plan_steps_start_view
-from mind_nova import request
+from mind_nova.requests.tools import post_tool_result
 from .display import show_tool_result
 from .plan_steps import StepPlanExecutor
 
@@ -19,12 +19,12 @@ class PlanToolCallRunner:
         self,
         *,
         session: McpSessionLike,
-        stream_ui: OutputControlPort,
+        output_control: OutputControlPort,
         presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
         report: typing.Any
     ) -> None:
-        self.stream_ui    = stream_ui
+        self.output_control = output_control
         self.presentation = presentation
 
         self.executor = StepPlanExecutor(
@@ -42,7 +42,7 @@ class PlanToolCallRunner:
         """处理一次完整的 plan_steps 工具调用。"""
         execution = event.get("execution")
 
-        self.stream_ui.record_tool_arguments(
+        self.output_control.record_tool_arguments(
             PLAN_STEPS_TOOL,
             arguments,
             call_id=str(event.get("call_id") or "")
@@ -52,7 +52,7 @@ class PlanToolCallRunner:
             build_plan_steps_start_view(arguments)
         )
 
-        await self.stream_ui.begin_tool_status()
+        await self.output_control.begin_tool_status()
 
         try:
             report = await self.executor.execute_tool_call(
@@ -62,7 +62,7 @@ class PlanToolCallRunner:
                 call_id=str(event.get("call_id") or ""),
             )
         finally:
-            await self.stream_ui.end_status(immediate=True)
+            await self.output_control.end_status(immediate=True)
 
         await show_tool_result(
             self.presentation,
@@ -72,7 +72,7 @@ class PlanToolCallRunner:
             call_id=str(event.get("call_id") or ""),
         )
 
-        await request.post_tool_result(
+        await post_tool_result(
             event["cid"],
             event["sid"],
             event["call_id"],

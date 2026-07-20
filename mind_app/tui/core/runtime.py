@@ -47,7 +47,7 @@ from mind_app.approval.models import ApprovalDecisionValue
 from mind_app.approval.render import APPROVAL_MENU_STYLE
 from mind_app.interaction.contracts import PromptContext
 from .models import MenuRequest
-from mind_core.terminal_input import clear_pending_input
+from .terminal_input import clear_pending_input
 from mind_nova import const
 from .activity import TuiActivity
 from .approval import TuiApproval

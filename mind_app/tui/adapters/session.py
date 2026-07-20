@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+from mind_app.output.session import OutputSession
+from mind_app.output.terminal_content import TerminalContentSink
 from mind_app.presentation.terminal import TerminalPresentationSink
-from mind_app.tui.adapters.output import TuiOutputControl
-from mind_app.tui.core.runtime import TuiRuntime
-from .terminal_content import TerminalContentSink
-from .session import OutputSession
+from ..core.runtime import TuiRuntime
+from .output import TuiOutputControl
 
 
 def create_tui_output_session(

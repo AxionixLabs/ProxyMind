@@ -6,9 +6,8 @@ from dataclasses import dataclass
 from loguru import logger
 from mcp import ClientSession
 from mcp import types as mcp_types
-from .session_adapter import (
-    CompositeToolSession, McpSessionLike
-)
+from .contracts import McpSessionLike
+from .session_adapter import CompositeToolSession
 
 
 @dataclass(frozen=True)

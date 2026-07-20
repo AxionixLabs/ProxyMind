@@ -4,15 +4,15 @@
 import typing
 from loguru import logger
 from engine.tinker import MindError
-from mind_app.mcp import (
+from mind_app.mcp.config import load_mcp_servers_file
+from mind_app.mcp.group import (
     ExternalMcpGroup,
-    ExternalMcpStatus,
-    load_mcp_servers_file,
-    open_optional_external_mcp_group
+    open_optional_external_mcp_group,
 )
+from mind_app.mcp.status import ExternalMcpStatus
 
 if typing.TYPE_CHECKING:
-    from mind_app.mind_core import Mind
+    from mind_app.controller import Mind
 
 
 class ExternalMcpRuntime(object):

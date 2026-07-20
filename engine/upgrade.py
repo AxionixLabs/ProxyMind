@@ -15,9 +15,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 from engine.tinker import MindError
 from engine import signals
-from mind_nova import (
-    craft, request
-)
+from engine.ports import port_available, terminate_port_process
+from mind_nova.requests.manifest import fetch_manifest
 
 UpgradeProgressStarter = typing.Callable[
     [], typing.Coroutine[typing.Any, typing.Any, None]
@@ -526,14 +525,14 @@ class Upgrade(object):
         progress: UpgradeProgress | None = None
     ) -> None:
         """获取远端清单并执行后端运行时升级。"""
-        if not await craft.port_listen(port := 3333):
-            await craft.kill_port(port)
+        if not await port_available(port := 3333):
+            await terminate_port_process(port)
 
         remote: typing.Optional[dict] = None
 
         max_retries: int = 3
         for i in range(max_retries):
-            if remote := await request.fetch_manifest():
+            if remote := await fetch_manifest():
                 break
             if i < 2:
                 await asyncio.sleep(1.0)

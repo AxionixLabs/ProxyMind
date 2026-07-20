@@ -22,6 +22,77 @@
 - Mind 顶层 runtime 负责常见本地运行时和 shell/coding 工具。
 - Helix provider 负责设备、媒体、性能等自身工具。
 
+## Mind 分层
+
+```text
+mind.py
+    -> mind_app.cli                     参数选择、进程启动和前端装配
+        -> mind_app.controller.Mind     主程序状态与生命周期
+            -> mind_app.modes           chat、batch、agent 用例编排
+            -> mind_app.runtime         MCP、工具和本地运行时
+        -> mind_app.tui                 持久交互前端
+        -> mind_app.output              text、jsonl、rich 输出实现
+
+mind_app -> mind_core -> mind_nova
+mind_app -------------> mind_nova
+```
+
+- `mind_app` 是主程序控制和运行侧，可以依赖 `mind_core`、`mind_nova`。
+- `mind_core` 持有配置、偏好、skills、共享终端设计、许可证和远程服务元数据，
+  可以依赖 `mind_nova`，不得导入 `mind_app`。
+- `mind_nova` 只持有请求协议、远程传输、服务认证、事件和标识，不得导入
+  `mind_core` 或 `mind_app`，不得读取本地 skills/config。
+- `engine.ports` 负责本地端口探测和占用进程清理，这类进程能力不放入 `mind_nova`。
+- CLI 是具体前端的组合根。`Mind`、`modes`、`runtime` 不判断
+  `tui/rich/text/json`，只依赖前端和输出能力边界。
+
+### mind_app 目录
+
+- `cli`：命令行参数选择、启动编排和具体前端装配。
+- `controller.py`：Mind 主控制器，不使用与顶层 `mind_core` 冲突的模块名。
+- `frontend`、`interaction`：跨前端的应用展示与交互契约。
+- `output`、`presentation`：单轮输出控制、内容事件和展示模型。
+- `tui`：prompt_toolkit 应用、TUI 状态和交互功能。
+- `modes`：面向用户的运行模式，不持有具体终端实现。
+- `runtime`：工具执行、MCP 生命周期和运行环境。
+- `client_tools`、`native_coding`、`mcp`：可执行能力及其协议适配。
+- `approval`、`history`：独立领域状态与持久化。
+- `stream_events`、`stream_state`、`stream_render`、`stream_io`：分别持有流式事件、
+  状态、渲染和记录职责，共同服务 Rich 与 TUI 输出。
+
+### TUI 分层
+
+- `tui/core` 持有单一 prompt_toolkit Application、布局、正文、输入、菜单、审批和动画状态。
+- `tui/adapters` 把共享 frontend/output 契约接入 core，不分派命令，不创建第二个 Application。
+- `tui/features` 实现 shell、diff、history、MCP、permissions、tools 等用户功能，
+  不管理主 Application 生命周期，不直接修改正文内部状态。
+- `tui/session` 管理长期交互循环和单轮模型调用，可以依赖 features/core，其他层不得反向依赖 session。
+- `tui/prompting` 只持有 TUI 输入补全、ghost suggestion 和 skill token lexer。
+- `tui/core` 不得导入 `features`、`session` 或 Mind 主控制器。
+
+TUI 状态所有权：
+
+- 正文块和空行规则只属于 `TuiDocument`。
+- 输入 buffer、补全、历史和按键绑定只属于输入模型与主 TextArea。
+- footer 是布局最后一行，不进入正文换行状态。
+- 动画只写入专属状态区域，不追加正文块。
+- 菜单和审批各自持有 Future、选择位置和局部按键绑定。
+- 输入提交只写入消息队列，不启动新的 Application。
+
+### 模块规则
+
+- 包级 `__init__.py` 只导出稳定且轻量的契约，不聚合具体实现或启动运行时。
+- 实现工厂从所属模块显式导入，例如 `output.rich`、`output.text`、`output.jsonl`。
+- 类型契约与具体实现分离，导入协议不得加载工具注册表、终端实现或本地配置。
+- 不增加只转发一次调用的 display、factory、facade 或兼容模块。
+- 不按文件行数拆分；只有状态所有权、独立生命周期或依赖方向明确时才新增模块。
+- 多个输出模式共用的 ContentSink 或 PresentationSink 放在 `mind_app.output` 或
+  `mind_app.presentation`，不得复制 TUI 专用版本。
+- 新视觉块通过应用或输出适配器进入 `TuiDocument`，不得直接写 stdout。
+- 只有需要接管真实终端的外部交互程序可以通过 `run_modal()` 暂时让出终端。
+- 新 TUI 命令优先放入现有 `features` 域模块，避免继续扩大 `session/loop.py`。
+- `stream_events/state/render/io` 暂不增加共同父包，避免没有边界收益的机械移动。
+
 ## 工具与环境
 
 - Mind 侧 shell 工具只接 `rg`、`jq`、`ast-grep`。

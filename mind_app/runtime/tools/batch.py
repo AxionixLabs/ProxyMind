@@ -8,10 +8,10 @@ from dataclasses import (
     field
 )
 from engine.enhance import exchange_arguments
-from mind_app.mcp import McpSessionLike
+from mind_app.mcp.contracts import McpSessionLike
 from mind_app.output import OutputControlPort
 from mind_app.presentation.contracts import PresentationSink
-from mind_nova import request
+from mind_nova.requests.tools import post_tool_result
 from .display import (
     show_tool_result,
     show_tool_start
@@ -88,7 +88,7 @@ class ToolBatchExecutor:
         self,
         *,
         session: McpSessionLike,
-        stream_ui: OutputControlPort,
+        output_control: OutputControlPort,
         presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
         mode: str,
@@ -97,7 +97,7 @@ class ToolBatchExecutor:
         report: typing.Any
     ) -> None:
         self.session      = session
-        self.stream_ui    = stream_ui
+        self.output_control = output_control
         self.presentation = presentation
         self.tools        = tools
         self.mode         = mode
@@ -122,7 +122,7 @@ class ToolBatchExecutor:
         execution: dict[str, typing.Any] | None
     ) -> dict[str, typing.Any]:
         """回填工具结果并返回服务端状态。"""
-        return await request.post_tool_result(
+        return await post_tool_result(
             event["cid"],
             event["sid"],
             event["call_id"],
@@ -149,7 +149,7 @@ class ToolBatchExecutor:
 
         try:
             if display:
-                self.stream_ui.record_tool_arguments(
+                self.output_control.record_tool_arguments(
                     name,
                     arguments,
                     call_id=str(event.get("call_id") or "")
@@ -166,7 +166,7 @@ class ToolBatchExecutor:
 
             tool_run = await run_tool_step(
                 self.session,
-                stream_ui=self.stream_ui,
+                output_control=self.output_control,
                 presentation=self.presentation,
                 tools=self.tools,
                 name=name,
@@ -188,7 +188,7 @@ class ToolBatchExecutor:
 
             if display:
                 if use_coding_trace:
-                    await self.stream_ui.end_status()
+                    await self.output_control.end_status()
                 await show_tool_result(
                     self.presentation,
                     name,

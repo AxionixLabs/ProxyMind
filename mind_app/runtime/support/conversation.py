@@ -3,7 +3,7 @@
 
 import time
 import typing
-from mind_nova import craft
+from mind_nova.identifiers import new_cid, new_sid
 from mind_app.history.ids import valid_session_ids
 
 
@@ -55,8 +55,8 @@ class ConversationState(object):
 
     def reset(self, *, reason: str = "manual") -> dict[str, str]:
         """开始一个全新的对话。"""
-        self.cid = craft.new_cid()
-        self.sid = craft.new_sid(self.cid)
+        self.cid = new_cid()
+        self.sid = new_sid(self.cid)
 
         self.created_at = time.time()
         self.turn_count = 0
@@ -69,8 +69,8 @@ class ConversationState(object):
 
     def snapshot(self) -> dict[str, str]:
         """返回当前会话标识快照。"""
-        cid = self.cid or craft.new_cid()
-        sid = self.sid or craft.new_sid(cid)
+        cid = self.cid or new_cid()
+        sid = self.sid or new_sid(cid)
 
         self.cid = cid
         self.sid = sid
@@ -100,7 +100,7 @@ class ConversationState(object):
         """绑定外部请求带入的会话标识。"""
         if cid and cid != self.cid:
             self.cid = cid
-            self.sid = sid or craft.new_sid(cid)
+            self.sid = sid or new_sid(cid)
             self.created_at = time.time()
             self.turn_count = 0
             return None
@@ -108,9 +108,9 @@ class ConversationState(object):
         if cid:
             self.cid = cid
         elif not self.cid:
-            self.cid = craft.new_cid()
+            self.cid = new_cid()
 
-        self.sid = sid or self.sid or craft.new_sid(self.cid)
+        self.sid = sid or self.sid or new_sid(self.cid)
         if not self.created_at:
             self.created_at = time.time()
 

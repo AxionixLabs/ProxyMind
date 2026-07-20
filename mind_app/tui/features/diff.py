@@ -9,7 +9,7 @@ DIFF_DISPLAY_MAX_LINES = 300
 DIFF_DISPLAY_MAX_CHARS = 40_000
 
 if typing.TYPE_CHECKING:
-    from ...mind_core import Mind
+    from ...controller import Mind
 
 
 def print_current_apply_patch_diff(mind: "Mind") -> None:

@@ -13,246 +13,40 @@ from engine.manage import ServerManage
 from engine.tinker import (
     MindError, Active
 )
-# from mind_core import authorize
-# from mind_core.api import Api
-from mind_core.design import Design
-from mind_core.design.upload import UploadProgressLiveReporter
 from mind_core.parser import Parser
 from mind_core.preference import Preferences
 from mind_core.service_config import ServiceConfig
 from mind_nova import const
 from mind_nova.services import service_endpoints
-from mind_nova.modes import RunMode
-from .mind_core import Mind
-from .interaction import (
-    InteractionPort,
-    NonInteractiveInteraction
-)
-from .tui import (
-    TuiApplicationSink,
-    TuiRuntime,
-    fetch_runtime_workspace_root,
-    prepare_tui_service_runtime,
-    run_tui_loop,
-)
-from .frontend import (
-    ApplicationSink,
+from ..controller import Mind
+from ..frontend import (
     ApplicationView,
     ConsoleApplicationSink,
-    Frontend,
-    SilentApplicationSink
 )
-from .output.factory import (
-    OutputMode,
-    output_mode_uses_animation,
-    resolve_session_factory
-)
-from .runtime.environment.exec_env import clear_exec_env_cache
-from .runtime.environment.shell_tools import route_shell_tools
-from .runtime.mcp.service_runtime import (
+from ..runtime.environment.exec_env import clear_exec_env_cache
+from ..runtime.environment.shell_tools import route_shell_tools
+from ..runtime.environment.workspace import fetch_runtime_workspace_root
+from ..runtime.mcp.service_runtime import (
     ServiceRuntimeContext,
     ensure_service_runtime_asset,
     prepare_and_start_service_runtime,
     resolve_service_runtime,
 )
-from .paths import (
+from ..paths import (
     ensure_mcp_servers_file,
     ensure_mind_home,
     mind_config_path,
     mind_reports_dir,
     process_env
 )
-
-
-def resolve_code_mode(cmd_lines: typing.Any) -> RunMode:
-    if cmd_lines.chat is not None:
-        return "chat"
-    if cmd_lines.fast is not None:
-        return "fast"
-    if cmd_lines.xtra is not None:
-        return "xtra"
-
-    raise MindError("--code requires --chat, --fast, or --xtra")
-
-
-def direct_execution_selected(cmd_lines: typing.Any) -> bool:
-    """判断当前命令是否包含直接执行任务。"""
-    return bool(
-        cmd_lines.chat
-        or cmd_lines.fast
-        or cmd_lines.xtra
-        or cmd_lines.code
-    )
-
-
-def direct_stream_selected(cmd_lines: typing.Any) -> bool:
-    """判断当前命令是否包含直接流式请求。"""
-    return bool(cmd_lines.chat or cmd_lines.fast or cmd_lines.xtra)
-
-
-def resolve_cli_output_mode(cmd_lines: typing.Any) -> OutputMode:
-    """根据命令入口选择输出模式。"""
-    direct_execution = direct_execution_selected(cmd_lines)
-    if cmd_lines.json:
-        if cmd_lines.code or not direct_stream_selected(cmd_lines):
-            raise MindError("--json requires --chat, --fast, or --xtra")
-        return "json"
-    if cmd_lines.agent:
-        return "rich"
-    if direct_execution:
-        return "text"
-
-    return "tui"
-
-
-def resolve_cli_interaction(cmd_lines: typing.Any) -> InteractionPort | None:
-    """为直接执行选择非交互输入策略。"""
-    if direct_execution_selected(cmd_lines):
-        return NonInteractiveInteraction()
-    return None
-
-
-def resolve_cli_frontend(
-    cmd_lines: typing.Any,
-    output_mode: OutputMode,
-) -> Frontend:
-    """根据命令入口装配应用前端边界。"""
-    application = (
-        SilentApplicationSink()
-        if output_mode == "json"
-        else ConsoleApplicationSink()
-    )
-
-    session_factory = resolve_session_factory(output_mode)
-
-    if output_mode == "tui":
-        runtime = TuiRuntime()
-        return Frontend(
-            application=TuiApplicationSink(runtime),
-            interaction=runtime,
-            session_factory=functools.partial(
-                session_factory,
-                runtime=runtime,
-            ),
-            runtime=runtime,
-        )
-
-    interaction = resolve_cli_interaction(cmd_lines) or NonInteractiveInteraction()
-
-    if output_mode_uses_animation(output_mode) and isinstance(
-        application,
-        ConsoleApplicationSink,
-    ):
-        session_factory = functools.partial(
-            session_factory,
-            console=application.console,
-        )
-    return Frontend(
-        application=application,
-        interaction=interaction,
-        session_factory=session_factory,
-    )
-
-
-def resolve_cli_design(frontend: Frontend) -> Design:
-    """为命令行前端创建共享终端控制台的设计实例。"""
-    if isinstance(frontend.application, ConsoleApplicationSink):
-        return Design(console=frontend.application.console)
-    return Design()
-
-
-def emit_runtime_update(
-    application: ApplicationSink,
-    local: dict[str, typing.Any],
-    remote: dict[str, typing.Any]
-) -> None:
-    """发送本地运行时更新提示。"""
-    application.emit(ApplicationView(
-        type="runtime.update_available",
-        payload={
-            "local": dict(local),
-            "remote": dict(remote),
-        },
-    ))
-
-
-async def resolve_cli_attachments(
-    mind: Mind,
-    cmd_lines: typing.Any
-) -> typing.Optional[list[dict[str, typing.Any]]]:
-    raw_attachments = cmd_lines.attach or []
-    if not raw_attachments:
-        return None
-
-    if cmd_lines.code:
-        raise MindError("--attach is not supported together with --code yet")
-
-    if cmd_lines.chat is None and cmd_lines.fast is None and cmd_lines.xtra is None:
-        raise MindError("--attach requires --chat, --fast, or --xtra")
-
-    for raw_path in raw_attachments:
-        mind.attach.add_pending_attachments(raw_path)
-
-    pending  = mind.attach.pending_attachments_snapshot()
-
-    upload_state: dict[str, typing.Any] = {
-        "event"       : None,
-        "item_total"  : len(pending),
-        "total_bytes" : sum(int(item.get("size") or 0) for item in pending)
-    }
-
-    async def capture_progress(event: dict[str, typing.Any]) -> None:
-        upload_state["event"] = dict(event)
-
-    try:
-        await mind.start_upload_anim(lambda: dict(upload_state))
-        uploaded = await mind.attach.upload_pending_attachments(progress_callback=capture_progress)
-    except MindError as error:
-        failure_reason = str(getattr(error, "display_reason", "") or error)
-        mind.frontend.application.emit(ApplicationView(
-            type="attachment.failure",
-            renderable=UploadProgressLiveReporter.render_failure(
-                message=failure_reason,
-                event=upload_state["event"],
-            ),
-        ))
-        raise
-
-    finally:
-        await mind.await_cleanup(mind.stop_anim())
-
-    mind.attach.clear_pending_attachments()
-
-    if upload_state["event"] is not None:
-        mind.frontend.application.emit(ApplicationView(
-            type="attachment.completed",
-            renderable=UploadProgressLiveReporter.render_summary(upload_state["event"]),
-        ))
-
-    return uploaded
-
-
-async def run_selected_mode(
-    mind: Mind,
-    cmd_lines: typing.Any,
-    cli_attachments: typing.Optional[list[dict[str, typing.Any]]]
-) -> None:
-    """按命令行参数分派到单次调用、批处理、订阅或交互模式。"""
-    access_mode = "full" if cmd_lines.access else "safe"
-
-    if cmd_lines.agent:
-        await mind.agent_loop()
-    elif chat := cmd_lines.chat:
-        await mind.calling(message=chat, mode="chat", attachments=cli_attachments, access_mode=access_mode)
-    elif fast := cmd_lines.fast:
-        await mind.calling(message=fast, mode="fast", attachments=cli_attachments, access_mode=access_mode)
-    elif xtra := cmd_lines.xtra:
-        await mind.calling(message=xtra, mode="xtra", attachments=cli_attachments, access_mode=access_mode)
-    elif code := cmd_lines.code:
-        mode = resolve_code_mode(cmd_lines)
-        await mind.mind_pack(code, mode, access_mode=access_mode)
-    else:
-        await run_tui_loop(mind)
+from .attachments import resolve_cli_attachments
+from .dispatch import run_selected_mode
+from .frontend import (
+    emit_runtime_update,
+    resolve_cli_design,
+    resolve_cli_frontend,
+)
+from .selection import output_mode_uses_animation, resolve_cli_output_mode
 
 
 async def main(
@@ -289,7 +83,7 @@ async def _run_main(
 
     cmd_lines   = parser.parse_cmd
     output_mode = resolve_cli_output_mode(cmd_lines)
-    frontend    = resolve_cli_frontend(cmd_lines, output_mode)
+    frontend    = resolve_cli_frontend(output_mode)
     design      = resolve_cli_design(frontend)
 
     # Notes: ========== Start from here ==========
@@ -380,15 +174,6 @@ async def _run_main(
         )
         return 0
 
-    # Notes: ========== 授权流程 ==========
-    # lic_file = Path(src_opera_place) / const.LIC_FILE
-    # if apply_code := cmd_lines.apply:
-    #     return await authorize.receive_license(apply_code, lic_file)
-    # await authorize.verify_license(lic_file)
-
-    # Notes: ========== 远程配置 ==========
-    # global_config_task = asyncio.create_task(Api.remote_config())
-
     logger.debug(f"{'=' * 15} 系统调试 {'=' * 15}")
     logger.debug(f"操作系统: {platform}")
     logger.debug(f"核心数量: {(power := os.cpu_count())}")
@@ -418,7 +203,6 @@ async def _run_main(
         "pref"            : pref,
         "anim_manager"    : entry_anim_manager,
         "animate"         : output_mode_uses_animation(output_mode),
-        "output_mode"     : output_mode,
         "frontend"        : frontend,
         "design"          : design,
     }
@@ -442,14 +226,13 @@ async def _run_main(
     if handler is not None:
         handler.bind_delegate(mind.signal_processor)
 
-    tui_open = False
     try:
-        if output_mode == "tui":
-            await mind.frontend.runtime.open()
-            tui_open = True
+        await mind.frontend.runtime.open()
 
         if cmd_lines.mcp:
             if output_mode == "tui":
+                from ..tui.features.download import prepare_tui_service_runtime
+
                 helix_linked = await prepare_tui_service_runtime(mind)
             else:
                 helix_linked = await prepare_and_start_service_runtime(mind)
@@ -491,9 +274,10 @@ async def _run_main(
         await run_selected_mode(mind, cmd_lines, cli_attachments)
         return mind.exit_code
     finally:
-        if tui_open:
+        try:
             await mind.frontend.runtime.close()
-        await mind.close_runtime_resources()
+        finally:
+            await mind.close_runtime_resources()
 
 
 if __name__ == '__main__':

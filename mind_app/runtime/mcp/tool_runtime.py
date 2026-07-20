@@ -6,15 +6,13 @@ import inspect
 import asyncio
 import contextlib
 from loguru import logger
-from mind_app.mcp import (
-    McpSessionLike,
-    build_tool_context
-)
+from mind_app.mcp.contracts import McpSessionLike
+from mind_app.mcp.tools import build_tool_context
 from mind_nova import const
 from .local import open_local_mcp_session
 
 if typing.TYPE_CHECKING:
-    from mind_app.mind_core import Mind
+    from mind_app.controller import Mind
 
 SessionCallback = typing.Callable[
     [

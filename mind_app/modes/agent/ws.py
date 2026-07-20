@@ -18,7 +18,7 @@ from .forwarding import (
 )
 
 if typing.TYPE_CHECKING:
-    from ...mind_core import Mind
+    from ...controller import Mind
 
 
 _REOPEN_ERROR_CODES: typing.Final[set[str]] = {

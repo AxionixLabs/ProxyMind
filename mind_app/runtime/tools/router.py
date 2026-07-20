@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.mcp import McpSessionLike
+from mind_app.mcp.contracts import McpSessionLike
 from mind_app.mcp.tool_store import has_tool
 from mcp.types import CallToolResult
 from .notify import (

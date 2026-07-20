@@ -8,8 +8,8 @@ from mind_app.presentation.contracts import PresentationSink
 from mind_app.presentation.lifecycle_views import build_lifecycle_view
 
 if typing.TYPE_CHECKING:
-    from mind_app.mcp import McpSessionLike
-    from mind_app.mind_core import Mind
+    from mind_app.mcp.contracts import McpSessionLike
+    from mind_app.controller import Mind
     from mind_app.stream_state.segment import SegmentTracker
 
 
@@ -19,7 +19,7 @@ class StreamEventContext:
 
     mind: "Mind"
     session: "McpSessionLike"
-    slog: OutputControlPort
+    output_control: OutputControlPort
     presentation: PresentationSink
     tracker: "SegmentTracker"
     mode: str
@@ -61,7 +61,7 @@ async def _display_event(
         return False
 
     await ctx.presentation.emit(view)
-    await ctx.slog.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
+    await ctx.output_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
 
     return True
 

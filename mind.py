@@ -8,7 +8,7 @@ from engine.tinker import MindError
 from engine.signals import (
     SignalHandler, install_handler
 )
-from mind_app.mind_entry import main as _main
+from mind_app.cli import main as _main
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView,

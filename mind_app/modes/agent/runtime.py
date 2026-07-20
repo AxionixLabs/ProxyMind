@@ -27,7 +27,7 @@ from mind_nova import const
 from mind_nova.services import service_endpoints
 
 if typing.TYPE_CHECKING:
-    from ...mind_core import Mind
+    from ...controller import Mind
 
 
 @dataclass(slots=True)

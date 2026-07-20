@@ -8,7 +8,7 @@ import uvicorn
 import contextlib
 from loguru import logger
 from engine.tinker import MindError
-from mind_nova import craft
+from engine.ports import port_available
 from .app import create_app
 from .endpoints import (
     DEFAULT_CONFIG_SERVICE_HOST,
@@ -118,7 +118,7 @@ class ConfigServiceRuntime(object):
         """查找配置服务可用端口，不占用 Helix 默认端口 3333。"""
         end_port = self.preferred_port + self.port_scan_limit
         for port in range(self.preferred_port, end_port):
-            if await craft.port_listen(port, host=self.host):
+            if await port_available(port, host=self.host):
                 return port
 
         raise MindError(

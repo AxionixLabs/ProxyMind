@@ -19,7 +19,7 @@ from mind_core.design import Design
 from .service_exec_env import fetch_service_exec_env
 
 if typing.TYPE_CHECKING:
-    from mind_app.mind_core import Mind
+    from mind_app.controller import Mind
 
 
 @dataclass(frozen=True, slots=True)

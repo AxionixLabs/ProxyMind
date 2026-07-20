@@ -20,7 +20,7 @@ from .models import (
 from .ui import start_status_animation
 
 if typing.TYPE_CHECKING:
-    from ...mind_core import Mind
+    from ...controller import Mind
 
 
 class AgentForwardHandler(typing.Protocol):

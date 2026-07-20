@@ -12,12 +12,12 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
-from mind_core.prompting.commands import SlashCommandCompleter
-from mind_core.prompting.ghost import (
+from ..prompting.commands import SlashCommandCompleter
+from ..prompting.ghost import (
     apply_ghost_prompt,
     iter_ghost_templates
 )
-from mind_core.prompting.skills import SkillTokenLexer
+from ..prompting.skills import SkillTokenLexer
 
 
 class TuiAutoSuggest(AutoSuggest):

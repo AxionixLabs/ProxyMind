@@ -12,15 +12,15 @@ from pathlib import Path
 from loguru import logger
 from engine.manage import ServerManage
 from engine.animation import AsyncAnimManager
+from engine.ports import terminate_port_process
 from engine.tinker import MindError
-from mind_nova import craft
 from mind_core.design import Design
 from mind_core.preference import Preferences
 from mind_nova.modes import (
     DEFAULT_RUN_MODE,
     RunMode
 )
-from mind_nova.report import Report
+from .reporting import RunReport
 from .attach import Attach
 from .modes.stream import stream_looper as run_stream_looper
 from .modes.batch import mind_pack as run_mind_pack
@@ -42,7 +42,6 @@ from .client_tools import (
     default_registry as default_client_tool_registry
 )
 from .native_coding import NativeCoding
-from .output.factory import OutputMode
 from .frontend import Frontend
 from .history import (
     ConversationHistoryStore,
@@ -50,7 +49,7 @@ from .history import (
     normalize_workspace
 )
 from .history.ids import valid_session_ids
-from .mcp import McpSessionLike
+from .mcp.contracts import McpSessionLike
 
 if typing.TYPE_CHECKING:
     from .runtime.mcp.service_runtime import ServiceRuntimeContext
@@ -87,19 +86,12 @@ class Mind(object):
 
         self.animate: bool = bool(kwargs.get("animate", True))
 
-        output_mode = kwargs.get("output_mode")
-        self.output_mode: OutputMode = (
-            output_mode
-            if output_mode in {"tui", "rich", "text", "json"}
-            else "rich"
-        )
-
         self.design: Design = kwargs["design"]
 
         self.conversation: ConversationState         = ConversationState()
         self.history_store: ConversationHistoryStore = ConversationHistoryStore()
 
-        self.report: Report = Report(self.src_total_place, self.gravity)
+        self.report: RunReport = RunReport(self.src_total_place, self.gravity)
         self.attach: Attach = Attach()
 
         self.frontend: Frontend = kwargs["frontend"]
@@ -442,7 +434,7 @@ class Mind(object):
             finally:
                 if self.stop_runtime_on_exit:
                     with contextlib.suppress(Exception):
-                        await craft.kill_port(server_manager.port)
+                        await terminate_port_process(server_manager.port)
 
     async def reboot_runtime(self) -> None:
         """重启已绑定的后台进程，并在完成后恢复保活任务。"""
@@ -464,11 +456,11 @@ class Mind(object):
 
         self.unlink_service_mcp()
         await self.stop_keepalive_supervisor()
-        await craft.kill_port(self.server_manager.port)
+        await terminate_port_process(self.server_manager.port)
 
     async def stop_anim(self) -> None:
         """停止等待动画。"""
-        if self.output_mode == "tui" and self.frontend.runtime.active:
+        if self.frontend.runtime.active:
             await self.frontend.runtime.end_activity_status()
             return None
         await self.anim_manager.stop()
@@ -480,7 +472,7 @@ class Mind(object):
         """启动指定模式的等待动画。"""
         if not self.animate:
             return None
-        if self.output_mode == "tui" and self.frontend.runtime.active:
+        if self.frontend.runtime.active:
             await self.frontend.runtime.begin_mode_status(mode)
             return None
         await self.anim_manager.start(
@@ -494,7 +486,7 @@ class Mind(object):
         """启动附件上传动画，并复用统一动画管理器避免冲突。"""
         if not self.animate:
             return None
-        if self.output_mode == "tui" and self.frontend.runtime.active:
+        if self.frontend.runtime.active:
             await self.frontend.runtime.begin_upload_status(snapshot)
             return None
         await self.anim_manager.start(
@@ -508,7 +500,7 @@ class Mind(object):
         """启动内置运行时启动状态动画。"""
         if not self.animate:
             return None
-        if self.output_mode == "tui" and self.frontend.runtime.active:
+        if self.frontend.runtime.active:
             await self.frontend.runtime.begin_inbuild_status(snapshot)
             return None
         await self.anim_manager.start(
@@ -522,7 +514,7 @@ class Mind(object):
         """启动外部 MCP 启动状态动画。"""
         if not self.animate:
             return None
-        if self.output_mode == "tui" and self.frontend.runtime.active:
+        if self.frontend.runtime.active:
             await self.frontend.runtime.begin_external_mcp_status(snapshot)
             return None
         await self.anim_manager.start(

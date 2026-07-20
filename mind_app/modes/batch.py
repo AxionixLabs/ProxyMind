@@ -7,14 +7,14 @@ import typing
 import asyncio
 from dataclasses import dataclass
 from loguru import logger
-from mind_app.mcp import McpSessionLike
+from mind_app.mcp.contracts import McpSessionLike
 from engine.scaling import (
     PackItem,
     Pack
 )
 from mind_nova.events import EventReport
 from mind_nova.modes import RunMode
-from mind_nova.request import open_report_session
+from mind_nova.requests.reports import open_report_session
 from mind_app.frontend import ApplicationView
 from mind_app.stream_events.failure_display import render_failure_text
 from .code_sources import (
@@ -25,7 +25,7 @@ from ..runtime.support.calling import resolve_mode_runner
 from mind_nova import const
 
 if typing.TYPE_CHECKING:
-    from ..mind_core import Mind
+    from ..controller import Mind
 
 
 @dataclass(slots=True)

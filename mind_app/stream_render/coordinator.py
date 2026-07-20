@@ -11,7 +11,7 @@ from mind_app.stream_state.status import (
     StatusFamily,
     StatusState
 )
-from mind_app.stream_render.text import TextRenderer
+from mind_app.stream_render.live import TextRenderer
 from mind_app.stream_state.text import TextState
 
 

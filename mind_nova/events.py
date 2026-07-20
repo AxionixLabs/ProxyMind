@@ -5,11 +5,10 @@ import time
 import typing
 import asyncio
 from loguru import logger
+from mind_nova.identifiers import short_uid
 from mind_nova.modes import RunMode
-from mind_nova.request import post_stream_event
-from mind_nova import (
-    const, craft
-)
+from mind_nova.requests.reports import post_stream_event
+from mind_nova import const
 
 
 class EventReport(object):
@@ -36,7 +35,7 @@ class EventReport(object):
             proto, str
         ) and proto.strip() else self.default_proto(mode)
 
-        self.turn_id: str   = craft.short_uid(12)
+        self.turn_id: str   = short_uid(12)
         self.round: int     = 1
         self.timeout: float = 30.0
         self.seq: int       = 0
@@ -51,7 +50,7 @@ class EventReport(object):
         *,
         round_no: typing.Optional[int] = None
     ) -> str:
-        self.turn_id = str(turn_id or craft.short_uid(12))
+        self.turn_id = str(turn_id or short_uid(12))
         if isinstance(round_no, int) and round_no > 0:
             self.round = round_no
         return self.turn_id

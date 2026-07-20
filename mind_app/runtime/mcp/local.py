@@ -13,9 +13,9 @@ from mind_app.mcp.errors import (
     flatten_exceptions, summarize_exception
 )
 from ..support.session_policy import is_transport_close_exception
-from mind_nova import (
-    authentic, const, request
-)
+from mind_nova import const
+from mind_nova.requests.streaming import cap_response
+from mind_nova.service_auth import manufacture_token
 
 LOCAL_MCP_READ_TIMEOUT: timedelta = timedelta(minutes=30)
 
@@ -45,12 +45,12 @@ async def open_local_mcp_session() -> typing.AsyncIterator[ClientSession]:
         """为 MCP 请求注入短时 Bearer 凭证。"""
         now = int(time.time())
         if not token_cache["val"] or now - token_cache["ts"] >= 60:
-            token_cache["val"] = authentic.manufacture_token()
+            token_cache["val"] = manufacture_token()
             token_cache["ts"] = now
         req.headers["Authorization"] = f"Bearer {token_cache['val']}"
 
     timeout     = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
-    event_hooks = {"request": [inject_auth], "response": [request.cap_response]}
+    event_hooks = {"request": [inject_auth], "response": [cap_response]}
 
     async with httpx.AsyncClient(timeout=timeout, event_hooks=event_hooks, trust_env=False) as client:
         try:

@@ -21,8 +21,8 @@ from mind_app.stream_io.output_record import StreamRecordWriter
 from mind_app.stream_sanitize import sanitize_value
 
 
-class StreamUI(OutputPort):
-    """统一管理流式记录、正文渲染和状态显示。"""
+class RichOutputControl(OutputPort):
+    """管理 Rich 终端的流式记录、正文渲染和状态显示。"""
 
     BLOCK: OutputDisplay  = BLOCK_OUTPUT
     STREAM: OutputDisplay = STREAM_OUTPUT
@@ -331,7 +331,7 @@ class StreamUI(OutputPort):
         except asyncio.CancelledError:
             return None
         except Exception as e:
-            logger.debug(f"[StreamUI] status task failed: {type(e).__name__}: {e}")
+            logger.debug(f"[RichOutput] status task failed: {type(e).__name__}: {e}")
 
     @staticmethod
     def _tool_arguments_audit_payload(arguments: dict[str, typing.Any]) -> str:

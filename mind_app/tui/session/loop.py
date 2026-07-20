@@ -17,6 +17,7 @@ from mind_nova.requests import (
 )
 from mind_app.interaction import PromptContext
 from mind_app.frontend import ApplicationView
+from mind_app.runtime.environment.workspace import fetch_runtime_workspace_root
 from ..features.commands import (
     exchange_pref_value,
     compact_current_conversation,
@@ -33,7 +34,6 @@ from ..features.diff import print_current_apply_patch_diff
 from ..features.context import (
     WORKSPACE_LABEL_REFRESH,
     exec_status_display_label,
-    fetch_runtime_workspace_root,
     ignored_tui_input,
     primary_model_prompt_label,
     primary_model_from_config,
@@ -65,7 +65,7 @@ from server import config_service_base_url
 from ..features.history import choose_history_session
 
 if typing.TYPE_CHECKING:
-    from ...mind_core import Mind
+    from ...controller import Mind
 
 MODE_BY_COMMAND: dict[str, RunMode] = {
     "/chat": "chat",

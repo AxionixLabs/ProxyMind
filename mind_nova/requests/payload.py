@@ -2,8 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_core.skills import skills_payload
-from mind_nova import craft
+from mind_nova.identifiers import short_uid
 from .access import (
     DEFAULT_ACCESS_MODE,
     apply_access_mode
@@ -13,13 +12,6 @@ from .access import (
 def resolve_transport_mode(mode: str) -> str:
     """规范化传输模式，保持本地模式与服务端链路一一对应。"""
     return str(mode or "").strip().lower()
-
-
-def ensure_default_skills(kwargs: dict[str, typing.Any]) -> None:
-    """没有声明 skills 或声明为空时，补入本地可用 skills。"""
-    skills = kwargs.get("skills")
-    if skills is None or (isinstance(skills, (list, tuple)) and not skills):
-        kwargs["skills"] = skills_payload()
 
 
 def empty_primary_request_slot() -> dict[str, str]:
@@ -109,9 +101,7 @@ async def build_chat_payload(
     if not isinstance(runtime_exec_env := kwargs.pop("exec_env", None), dict):
         runtime_exec_env = {}
 
-    turn_id = str(kwargs.pop("turn_id", "") or "").strip() or craft.short_uid(12)
-
-    ensure_default_skills(kwargs)
+    turn_id = str(kwargs.pop("turn_id", "") or "").strip() or short_uid(12)
 
     payload = {
         "turn_id"      : turn_id,

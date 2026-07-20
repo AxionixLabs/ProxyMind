@@ -3,7 +3,16 @@
 
 import typing
 from pathlib import Path
-from mind_nova.report import Report
+
+
+class ReportPaths(typing.Protocol):
+    """描述工具参数增强需要的报告目录。"""
+
+    toolkit_path: str
+    log_path: str
+    rec_path: str
+    native_path: str
+    cap_path: str
 
 
 def nexus_artifact(
@@ -69,7 +78,7 @@ def nexus_artifact(
 def exchange_arguments(
     name: str,
     src_arguments: dict[str, typing.Any],
-    report: Report
+    report: ReportPaths
 ) -> typing.Union[dict[str, typing.Any], str]:
     """根据操作名称决定是否增强 arguments，返回增强后的参数或原始参数。"""
     if name.startswith("ffmpeg_") and name != "ffmpeg_probe_video":

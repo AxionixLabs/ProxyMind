@@ -10,8 +10,8 @@ from mind_nova.modes import (
 from ...stream_events.worked import emit_worked_footer
 
 if typing.TYPE_CHECKING:
-    from mind_app.mcp import McpSessionLike
-    from mind_app.mind_core import Mind
+    from mind_app.mcp.contracts import McpSessionLike
+    from mind_app.controller import Mind
 
 
 def resolve_mode_runner(
@@ -41,11 +41,10 @@ async def run_mode_lifecycle(
     finally:
         await mind.await_cleanup(mind.stop_anim())
 
-    if getattr(mind, "output_mode", "rich") != "json":
-        emit_worked_footer(
-            mind.frontend.application,
-            time.perf_counter() - started_at,
-        )
+    emit_worked_footer(
+        mind.frontend.application,
+        time.perf_counter() - started_at,
+    )
 
 
 async def calling(

@@ -15,7 +15,7 @@ from ..core.models import (
 from ..core.runtime import TuiRuntime
 
 if typing.TYPE_CHECKING:
-    from ...mind_core import Mind
+    from ...controller import Mind
 
 
 DOWNLOAD_OPTIONS: tuple[tuple[bool, str, str], ...] = (

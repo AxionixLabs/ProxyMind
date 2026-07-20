@@ -18,7 +18,6 @@ from .compact import (
 from .manifest import fetch_manifest
 from .payload import (
     build_chat_payload,
-    ensure_default_skills,
     resolve_transport_mode
 )
 from .reports import (
@@ -45,7 +44,6 @@ __all__ = [
     "build_compact_payload",
     "cap_request",
     "cap_response",
-    "ensure_default_skills",
     "fetch_manifest",
     "open_report_session",
     "post_stream_event",

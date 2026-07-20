@@ -5,8 +5,8 @@ import json
 import typing
 from loguru import logger
 from mcp.types import CallToolResult
-from mind_core.api import Api
-from mind_nova import request
+from mind_core.remote_services import RemoteServices
+from mind_nova.requests.chat import stream_heal
 from .fields import (
     fields,
     fields_map,
@@ -63,7 +63,7 @@ async def enhance_heal_element(
 
     attachments: list[dict[str, str]] = []
 
-    heal_status = await Api.heal_license() or {}
+    heal_status = await RemoteServices.heal_license() or {}
     if not heal_status.get("enabled", False):
         return {
             "ok"          : False,
@@ -93,7 +93,7 @@ async def enhance_heal_element(
 
         result_data: dict[str, typing.Any] = {}
 
-        async for heal_event in request.stream_heal(pref_config, **data):
+        async for heal_event in stream_heal(pref_config, **data):
             event_type = heal_event.get("type")
 
             if event_type == "heal.step":

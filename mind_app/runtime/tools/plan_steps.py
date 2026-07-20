@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from engine.enhance import exchange_arguments
 from loguru import logger
 from mind_app.client_tools.planning import normalize_plan_arguments
-from mind_app.mcp import McpSessionLike
+from mind_app.mcp.contracts import McpSessionLike
 from mind_app.mcp.tool_store import has_tool
 from .execution_policy import (
     is_execution_ignored,

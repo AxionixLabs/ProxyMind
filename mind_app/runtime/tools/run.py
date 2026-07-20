@@ -5,7 +5,7 @@ import time
 import typing
 import functools
 from dataclasses import dataclass
-from mind_app.mcp import McpSessionLike
+from mind_app.mcp.contracts import McpSessionLike
 from mind_app.presentation.contracts import PresentationSink
 from engine.enhance import enhance_result
 from ...output import OutputControlPort
@@ -260,7 +260,7 @@ def _server_output_cost_ms(event: dict[str, typing.Any]) -> int:
 async def run_tool_step(
     session: McpSessionLike,
     *,
-    stream_ui: OutputControlPort,
+    output_control: OutputControlPort,
     presentation: PresentationSink,
     tools: list[dict[str, typing.Any]],
     name: str,
@@ -278,9 +278,9 @@ async def run_tool_step(
     started_at = time.time()
 
     if status_text:
-        await stream_ui.begin_custom_tool_status(status_text)
+        await output_control.begin_custom_tool_status(status_text)
     else:
-        await stream_ui.begin_tool_status()
+        await output_control.begin_tool_status()
     try:
         result = await execute_tool(
             session,
@@ -308,7 +308,7 @@ async def run_tool_step(
             result=result,
             ok=ok,
             reporter=ToolEnhanceReporter(
-                stream_ui,
+                output_control,
                 presentation,
                 tool_name=name,
             )
@@ -316,7 +316,7 @@ async def run_tool_step(
         fields = normalize_tool_result_fields(name, fields)
 
     finally:
-        await stream_ui.end_status()
+        await output_control.end_status()
 
     return ToolRunResult(
         result=result,

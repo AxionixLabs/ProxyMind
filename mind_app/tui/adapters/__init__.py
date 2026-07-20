@@ -3,10 +3,12 @@
 
 from .application import TuiApplicationSink
 from .output import TuiOutputControl
+from .session import create_tui_output_session
 
 __all__ = [
     "TuiApplicationSink",
     "TuiOutputControl",
+    "create_tui_output_session",
 ]
 
 

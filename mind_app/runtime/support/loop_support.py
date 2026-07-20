@@ -10,7 +10,7 @@ from ...stream_events.finish import finish_stream
 
 
 async def finish_failure(
-    stream_ui: OutputControlPort,
+    output_control: OutputControlPort,
     presentation: PresentationSink,
     ev_report: typing.Optional[EventReport],
     *,
@@ -22,7 +22,7 @@ async def finish_failure(
     message = "" if error is None else str(error)
 
     await finish_stream(ev_report, phase=phase, error=message, **extra)
-    await stream_ui.end_status(immediate=True)
+    await output_control.end_status(immediate=True)
 
     await presentation.emit(build_failure_view(phase, message))
 

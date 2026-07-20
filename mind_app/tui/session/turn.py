@@ -3,7 +3,7 @@
 
 import typing
 from engine.tinker import MindError
-from mind_app.mcp import McpSessionLike
+from mind_app.mcp.contracts import McpSessionLike
 from mind_app.frontend import ApplicationView
 from mind_core.design.upload import UploadProgressLiveReporter
 from mind_nova.events import EventReport
@@ -11,7 +11,7 @@ from mind_nova.modes import RunMode
 from ...runtime.support.calling import resolve_mode_runner
 
 if typing.TYPE_CHECKING:
-    from ...mind_core import Mind
+    from ...controller import Mind
 
 
 async def run_tui_model_turn(

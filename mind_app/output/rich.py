@@ -4,8 +4,8 @@
 from rich.console import Console
 from .terminal_content import TerminalContentSink
 from .session import OutputSession
+from .rich_control import RichOutputControl
 from mind_app.presentation.terminal import TerminalPresentationSink
-from mind_app.stream_ui import StreamUI
 
 
 def create_rich_output_session(
@@ -16,9 +16,9 @@ def create_rich_output_session(
 ) -> OutputSession:
     """创建 Rich 终端单轮输出会话。"""
     control = (
-        StreamUI(log_file, animate=animate, console=console)
+        RichOutputControl(log_file, animate=animate, console=console)
         if console is not None
-        else StreamUI(log_file, animate=animate)
+        else RichOutputControl(log_file, animate=animate)
     )
 
     return OutputSession(

@@ -7,8 +7,8 @@ import typing
 import mimetypes
 from pathlib import Path
 from engine.tinker import MindError
-from mind_nova import request
 from mind_nova.attachments import upload_response_attachment
+from mind_nova.requests.upload import upload_file_stream
 
 UploadProgressCallback = typing.Callable[[dict[str, typing.Any]], typing.Awaitable[None]]
 
@@ -295,7 +295,7 @@ class Attach(object):
                 await progress_callback(event)
 
             try:
-                result = await request.upload_file_stream(
+                result = await upload_file_stream(
                     local,
                     agent_id,
                     prefix="prompt-attachments",

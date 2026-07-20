@@ -12,7 +12,7 @@ from .models import (
 from server import config_service_base_url
 
 if typing.TYPE_CHECKING:
-    from ...mind_core import Mind
+    from ...controller import Mind
 
 
 async def start_connect_animation(mind: "Mind", live_status: AgentLiveStatus) -> None:
