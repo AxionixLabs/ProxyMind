@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from rich.console import Console
-from .rich import create_rich_output_session
+from mind_app.presentation.terminal import TerminalPresentationSink
+from mind_app.tui.adapters.output import TuiOutputControl
+from mind_app.tui.core.runtime import TuiRuntime
+from .terminal_content import TerminalContentSink
 from .session import OutputSession
 
 
@@ -10,13 +12,18 @@ def create_tui_output_session(
     log_file: str,
     *,
     animate: bool = True,
-    console: Console | None = None,
+    runtime: TuiRuntime,
 ) -> OutputSession:
-    """创建预留 TUI 适配器对应的单轮输出会话。"""
-    return create_rich_output_session(
+    """创建持久终端 TUI 对应的单轮输出会话。"""
+    control = TuiOutputControl(
         log_file,
+        runtime=runtime,
         animate=animate,
-        console=console,
+    )
+    return OutputSession(
+        control=control,
+        content=TerminalContentSink(control),
+        presentation=TerminalPresentationSink(control),
     )
 
 

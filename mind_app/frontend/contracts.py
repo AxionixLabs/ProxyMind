@@ -47,6 +47,102 @@ class ApplicationSink(ABC):
         raise NotImplementedError
 
 
+class FrontendRuntime(typing.Protocol):
+    """描述交互前端的运行期生命周期和活动状态展示。"""
+
+    @property
+    def active(self) -> bool:
+        """返回前端运行期是否正在接管终端。"""
+        ...
+
+    async def open(self) -> None:
+        """启动交互前端运行期。"""
+        ...
+
+    async def close(self) -> None:
+        """停止交互前端运行期。"""
+        ...
+
+    async def begin_mode_status(self, mode: str) -> None:
+        """显示模式等待状态。"""
+        ...
+
+    async def begin_upload_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """显示附件上传状态。"""
+        ...
+
+    async def begin_inbuild_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """显示内置运行时启动状态。"""
+        ...
+
+    async def begin_external_mcp_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """显示外部 MCP 启动状态。"""
+        ...
+
+    async def end_activity_status(self) -> None:
+        """结束当前活动状态。"""
+        ...
+
+
+class PassiveFrontendRuntime(object):
+    """提供无需常驻前端运行期时的空实现。"""
+
+    @property
+    def active(self) -> bool:
+        """返回未接管终端状态。"""
+        return False
+
+    async def open(self) -> None:
+        """忽略启动请求。"""
+        return None
+
+    async def close(self) -> None:
+        """忽略停止请求。"""
+        return None
+
+    async def begin_mode_status(self, mode: str) -> None:
+        """忽略模式状态请求。"""
+        _ = mode
+        return None
+
+    async def begin_upload_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """忽略上传状态请求。"""
+        _ = snapshot
+        return None
+
+    async def begin_inbuild_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """忽略内置运行时状态请求。"""
+        _ = snapshot
+        return None
+
+    async def begin_external_mcp_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """忽略外部 MCP 状态请求。"""
+        _ = snapshot
+        return None
+
+    async def end_activity_status(self) -> None:
+        """忽略活动状态结束请求。"""
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class Frontend(object):
     """聚合应用级展示、交互和单轮输出装配能力。"""
@@ -54,6 +150,7 @@ class Frontend(object):
     application: ApplicationSink
     interaction: InteractionPort
     session_factory: SessionFactory
+    runtime: FrontendRuntime = field(default_factory=PassiveFrontendRuntime)
 
 
 if __name__ == '__main__':

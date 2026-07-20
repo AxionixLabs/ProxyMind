@@ -25,13 +25,9 @@ from .policy import (
     approval_show_timer,
     validate_tool_approval
 )
-from .prompt import prompt_tool_approval_decision
 from .render import (
     APPROVAL_MENU_STYLE,
     approval_menu_content_lines,
-    approval_menu_plain_text,
-    approval_title,
-    render_bordered_approval_menu
 )
 
 __all__ = [
@@ -51,15 +47,11 @@ __all__ = [
     "approval_from_event",
     "approval_id_from_event",
     "approval_menu_content_lines",
-    "approval_menu_plain_text",
     "approval_prompt",
     "approval_prompt_text",
     "approval_remaining_sec",
     "approval_required",
     "approval_show_timer",
-    "approval_title",
-    "prompt_tool_approval_decision",
-    "render_bordered_approval_menu",
     "validate_tool_approval",
 ]
 

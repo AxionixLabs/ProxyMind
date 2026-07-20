@@ -26,8 +26,14 @@ from mind_nova.modes import RunMode
 from .mind_core import Mind
 from .interaction import (
     InteractionPort,
-    LegacyInteraction,
     NonInteractiveInteraction
+)
+from .tui import (
+    TuiApplicationSink,
+    TuiRuntime,
+    fetch_runtime_workspace_root,
+    prepare_tui_service_runtime,
+    run_tui_loop,
 )
 from .frontend import (
     ApplicationSink,
@@ -41,7 +47,6 @@ from .output.factory import (
     output_mode_uses_animation,
     resolve_session_factory
 )
-from .modes.support.repl_prompt import fetch_runtime_workspace_root
 from .runtime.environment.exec_env import clear_exec_env_cache
 from .runtime.environment.shell_tools import route_shell_tools
 from .runtime.mcp.service_runtime import (
@@ -97,7 +102,7 @@ def resolve_cli_output_mode(cmd_lines: typing.Any) -> OutputMode:
     if direct_execution:
         return "text"
 
-    return "rich"
+    return "tui"
 
 
 def resolve_cli_interaction(cmd_lines: typing.Any) -> InteractionPort | None:
@@ -112,8 +117,6 @@ def resolve_cli_frontend(
     output_mode: OutputMode,
 ) -> Frontend:
     """根据命令入口装配应用前端边界。"""
-    interaction = resolve_cli_interaction(cmd_lines) or LegacyInteraction()
-
     application = (
         SilentApplicationSink()
         if output_mode == "json"
@@ -121,6 +124,20 @@ def resolve_cli_frontend(
     )
 
     session_factory = resolve_session_factory(output_mode)
+
+    if output_mode == "tui":
+        runtime = TuiRuntime()
+        return Frontend(
+            application=TuiApplicationSink(runtime),
+            interaction=runtime,
+            session_factory=functools.partial(
+                session_factory,
+                runtime=runtime,
+            ),
+            runtime=runtime,
+        )
+
+    interaction = resolve_cli_interaction(cmd_lines) or NonInteractiveInteraction()
 
     if output_mode_uses_animation(output_mode) and isinstance(
         application,
@@ -235,7 +252,7 @@ async def run_selected_mode(
         mode = resolve_code_mode(cmd_lines)
         await mind.mind_pack(code, mode, access_mode=access_mode)
     else:
-        await mind.mind_loop()
+        await run_tui_loop(mind)
 
 
 async def main(
@@ -425,9 +442,17 @@ async def _run_main(
     if handler is not None:
         handler.bind_delegate(mind.signal_processor)
 
+    tui_open = False
     try:
+        if output_mode == "tui":
+            await mind.frontend.runtime.open()
+            tui_open = True
+
         if cmd_lines.mcp:
-            helix_linked = await prepare_and_start_service_runtime(mind)
+            if output_mode == "tui":
+                helix_linked = await prepare_tui_service_runtime(mind)
+            else:
+                helix_linked = await prepare_and_start_service_runtime(mind)
             if not helix_linked:
                 mind.frontend.application.emit(ApplicationView(
                     type="helix.skipped",
@@ -466,6 +491,8 @@ async def _run_main(
         await run_selected_mode(mind, cmd_lines, cli_attachments)
         return mind.exit_code
     finally:
+        if tui_open:
+            await mind.frontend.runtime.close()
         await mind.close_runtime_resources()
 
 

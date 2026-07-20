@@ -3,7 +3,10 @@
 
 from pathlib import Path
 from engine.animation import AsyncAnimManager
-from engine.upgrade import Upgrade
+from engine.upgrade import (
+    Upgrade,
+    UpgradeProgress
+)
 from mind_core.design import Design
 
 
@@ -33,7 +36,8 @@ async def ensure_asset(
     packaged: bool,
     explicit_upgrade: bool,
     anim_manager: AsyncAnimManager,
-    design: Design
+    design: Design,
+    progress: UpgradeProgress | None = None,
 ) -> bool:
     """按入口场景确认所需资产存在，必要时触发升级流程。"""
     missing = packaged and not Path(asset).exists()
@@ -44,7 +48,7 @@ async def ensure_asset(
     up: Upgrade = Upgrade()
     await up.upgrade_app(
         supports,
-        progress=EntryUpgradeProgress(anim_manager, design),
+        progress=progress or EntryUpgradeProgress(anim_manager, design),
     )
 
     return True

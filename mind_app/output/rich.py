@@ -2,9 +2,9 @@
 # Notes: ==== Mind™ ====
 
 from rich.console import Console
-from .legacy_content import LegacyContentSink
+from .terminal_content import TerminalContentSink
 from .session import OutputSession
-from mind_app.presentation.legacy import LegacyPresentationSink
+from mind_app.presentation.terminal import TerminalPresentationSink
 from mind_app.stream_ui import StreamUI
 
 
@@ -23,8 +23,8 @@ def create_rich_output_session(
 
     return OutputSession(
         control=control,
-        content=LegacyContentSink(control),
-        presentation=LegacyPresentationSink(control),
+        content=TerminalContentSink(control),
+        presentation=TerminalPresentationSink(control),
     )
 
 

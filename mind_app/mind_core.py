@@ -22,7 +22,6 @@ from mind_nova.modes import (
 )
 from mind_nova.report import Report
 from .attach import Attach
-from .modes.repl import mind_loop as run_mind_loop
 from .modes.stream import stream_looper as run_stream_looper
 from .modes.batch import mind_pack as run_mind_pack
 from .modes.agent import run_agent_loop
@@ -469,6 +468,9 @@ class Mind(object):
 
     async def stop_anim(self) -> None:
         """停止等待动画。"""
+        if self.output_mode == "tui" and self.frontend.runtime.active:
+            await self.frontend.runtime.end_activity_status()
+            return None
         await self.anim_manager.stop()
 
     async def start_anim(
@@ -477,6 +479,9 @@ class Mind(object):
     ) -> None:
         """启动指定模式的等待动画。"""
         if not self.animate:
+            return None
+        if self.output_mode == "tui" and self.frontend.runtime.active:
+            await self.frontend.runtime.begin_mode_status(mode)
             return None
         await self.anim_manager.start(
             lambda stop_event: self.design.stream_mode_live(stop_event, mode)
@@ -489,6 +494,9 @@ class Mind(object):
         """启动附件上传动画，并复用统一动画管理器避免冲突。"""
         if not self.animate:
             return None
+        if self.output_mode == "tui" and self.frontend.runtime.active:
+            await self.frontend.runtime.begin_upload_status(snapshot)
+            return None
         await self.anim_manager.start(
             lambda stop_event: self.design.upload_progress_live(stop_event, snapshot)
         )
@@ -500,6 +508,9 @@ class Mind(object):
         """启动内置运行时启动状态动画。"""
         if not self.animate:
             return None
+        if self.output_mode == "tui" and self.frontend.runtime.active:
+            await self.frontend.runtime.begin_inbuild_status(snapshot)
+            return None
         await self.anim_manager.start(
             lambda stop_event: self.design.inbuild_startup_live(stop_event, snapshot)
         )
@@ -510,6 +521,9 @@ class Mind(object):
     ) -> None:
         """启动外部 MCP 启动状态动画。"""
         if not self.animate:
+            return None
+        if self.output_mode == "tui" and self.frontend.runtime.active:
+            await self.frontend.runtime.begin_external_mcp_status(snapshot)
             return None
         await self.anim_manager.start(
             lambda stop_event: self.design.external_mcp_live(stop_event, snapshot)
@@ -581,10 +595,6 @@ class Mind(object):
             tools,
             **kwargs
         )
-
-    async def mind_loop(self) -> None:
-        """交互循环入口：委托给模式调度模块。"""
-        return await run_mind_loop(self)
 
     async def mind_pack(
         self,

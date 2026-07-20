@@ -13,9 +13,9 @@ from engine.animation import AsyncAnimManager
 from engine.manage import ServerManage
 from engine.terminal import Terminal
 from engine.tinker import MindError
+from engine.upgrade import UpgradeProgress
 from mind_app.assets import ensure_asset
 from mind_core.design import Design
-from .download_prompt import choose_runtime_download
 from .service_exec_env import fetch_service_exec_env
 
 if typing.TYPE_CHECKING:
@@ -147,7 +147,8 @@ async def ensure_runtime_asset(
     packaged: bool,
     explicit_upgrade: bool,
     anim_manager: AsyncAnimManager,
-    design: Design
+    design: Design,
+    progress: UpgradeProgress | None = None,
 ) -> bool:
     """复用入口升级流程确认运行时资产。"""
     return await ensure_asset(
@@ -157,6 +158,7 @@ async def ensure_runtime_asset(
         explicit_upgrade=explicit_upgrade,
         anim_manager=anim_manager,
         design=design,
+        progress=progress,
     )
 
 
@@ -182,41 +184,20 @@ def service_runtime_asset_missing(context: ServiceRuntimeContext) -> bool:
     return context.packaged and not Path(context.spec.executable).exists()
 
 
-def can_prompt_runtime_download() -> bool:
-    """判断当前入口是否适合显示下载确认菜单。"""
-    return sys.stdin.isatty() and sys.stdout.isatty()
-
-
-async def confirm_service_runtime_download(context: ServiceRuntimeContext) -> bool:
-    """在运行时资产缺失时向用户确认是否下载。"""
-    if not service_runtime_asset_missing(context):
-        return True
-
-    if not can_prompt_runtime_download():
-        return False
-
-    return await choose_runtime_download(
-        executable=context.spec.executable,
-        supports=context.spec.supports
-    )
-
-
 async def prepare_service_runtime(
     context: ServiceRuntimeContext,
     *,
     anim_manager: AsyncAnimManager,
     design: Design,
-    confirm_download: bool = True
+    progress: UpgradeProgress | None = None,
 ) -> bool:
     """准备服务运行时资产、环境变量和执行权限。"""
-    if confirm_download and not await confirm_service_runtime_download(context):
-        return False
-
     await ensure_service_runtime_asset(
         context,
         explicit_upgrade=False,
         anim_manager=anim_manager,
         design=design,
+        progress=progress,
     )
 
     if context.packaged:
@@ -262,15 +243,25 @@ async def start_service_runtime(
 async def prepare_and_start_service_runtime(
     mind: "Mind",
     *,
-    label: str = "Helix MCP"
+    label: str = "Helix MCP",
+    confirm_download: typing.Callable[
+        [ServiceRuntimeContext],
+        typing.Awaitable[bool],
+    ] | None = None,
+    progress: UpgradeProgress | None = None,
 ) -> bool:
-    """按统一流程准备并启动服务运行时。"""
+    """确认下载授权后准备并启动服务运行时。"""
     context = mind.require_service_runtime_context()
+
+    if service_runtime_asset_missing(context):
+        if confirm_download is None or not await confirm_download(context):
+            return False
 
     prepared = await prepare_service_runtime(
         context,
         anim_manager=mind.anim_manager,
         design=mind.design,
+        progress=progress,
     )
     if not prepared:
         return False
