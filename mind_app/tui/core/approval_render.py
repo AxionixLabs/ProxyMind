@@ -24,7 +24,6 @@ from mind_app.presentation.styles import (
     COMMAND_PATH_STYLE,
     COMMAND_STRING_STYLE
 )
-
 TUI_APPROVAL_STYLE = Style.from_dict({
     "approval-card"              : "bg:#E2E5E8 #252A30",
     "approval-title"             : "bg:#E2E5E8 bold #20262D",

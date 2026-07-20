@@ -15,6 +15,8 @@ BODY_STYLE    = TextStyle(foreground="#DDE7EF")
 SUCCESS_STYLE = TextStyle(foreground="#5FD7AF", bold=True)
 WARNING_STYLE = TextStyle(foreground="#FFB86B", bold=True)
 FAILURE_STYLE = TextStyle(foreground="#FF6B6B", bold=True)
+ASSISTANT_PREFIX_CLASS = "class:assistant.prefix"
+ASSISTANT_PREFIX_STYLE = TextStyle(foreground="#7F8C9A", dim=True)
 
 
 def prompt_style(style: TextStyle) -> str:

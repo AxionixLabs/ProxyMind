@@ -44,6 +44,14 @@ class TextState(object):
         """返回当前输出边界末尾的连续换行数量。"""
         return self.boundary.trailing_newlines
 
+    @property
+    def stream_only(self) -> bool:
+        """返回当前可见内容是否全部来自流式正文。"""
+        return bool(self.display_segments) and all(
+            segment.get("mode") == self.STREAM
+            for segment in self.display_segments
+        )
+
     @trailing_newlines.setter
     def trailing_newlines(self, value: int) -> None:
         """设置当前输出边界末尾的连续换行数量。"""

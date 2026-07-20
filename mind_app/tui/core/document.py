@@ -38,6 +38,17 @@ class TuiDocument(object):
         ))
         return True
 
+    def discard_trailing_block(self, block: FragmentBlock) -> bool:
+        """移除与指定对象相同的末尾稳定正文块。"""
+        if (
+            self.active_block is not None
+            or not self.blocks
+            or self.blocks[-1].block is not block
+        ):
+            return False
+        self.blocks.pop()
+        return True
+
     def request_gap(self) -> None:
         """请求在下一项真实正文前保留一个视觉空行。"""
         if self.has_content:

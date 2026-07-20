@@ -28,6 +28,7 @@ from ..core.activity import (
 from ..core.runtime import TuiRuntime
 from ..core.models import FragmentBlock
 from ..core.styles import (
+    ASSISTANT_PREFIX_CLASS,
     prompt_style,
     styled_block_fragments
 )
@@ -117,6 +118,12 @@ class TuiOutputControl(OutputPort):
         self.record_writer.write(text, block=(display == self.BLOCK))
         if display == self.STREAM:
             await self.end_status(immediate=True)
+            if (
+                echo
+                and self.text_state.display_text
+                and not self.text_state.stream_only
+            ):
+                self._commit_current()
 
         starts_document_block = not self.text_state.display_text
         if echo and starts_document_block:
@@ -277,9 +284,11 @@ class TuiOutputControl(OutputPort):
         if not self.text_state.display_text:
             self.runtime.clear_active_renderable()
             return False
-        self.runtime.commit_active_renderable(
-            render_tui_final(self.text_state.final_units())
-        )
+        stream_only = self.text_state.stream_only
+        block = render_tui_final(self.text_state.final_units())
+        if stream_only:
+            block = _assistant_prefixed_block(block)
+        self.runtime.commit_active_renderable(block)
         self.text_state.clear()
         return True
 
@@ -338,6 +347,8 @@ class TuiOutputControl(OutputPort):
     def _render_active(self, *, cursor: bool) -> None:
         """刷新当前流式内容并按需附加打字机光标。"""
         fragments = list(styled_block_fragments(self.text_state.visible_block()))
+        if self.text_state.stream_only:
+            fragments = _assistant_prefixed_fragments(fragments)
         if cursor:
             fragments.append((prompt_style(TYPEWRITER_CURSOR_STYLE), self._cursor))
         self.runtime.set_active_renderable(FragmentBlock(tuple(fragments)))
@@ -404,6 +415,58 @@ class TuiOutputControl(OutputPort):
                 ensure_ascii=False,
                 separators=(",", ":"),
             )
+
+
+def _assistant_prefixed_block(block: FragmentBlock) -> FragmentBlock:
+    """给助手正文块添加单个项目符号前缀。"""
+    return FragmentBlock(tuple(_assistant_prefixed_fragments(list(block.fragments))))
+
+
+def _assistant_prefixed_fragments(
+    fragments: list[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    """移除正文前导换行并添加助手项目符号和续行缩进。"""
+    out = [(style, text) for style, text in fragments if text]
+    while out:
+        style, text = out[0]
+        trimmed = text.lstrip("\r\n")
+        if trimmed:
+            out[0] = style, trimmed
+            break
+        out.pop(0)
+    if not out:
+        return []
+    prefix_style = ASSISTANT_PREFIX_CLASS
+    return [
+        (prefix_style, "• "),
+        *_assistant_continuation_fragments(out, indent_style=prefix_style),
+    ]
+
+
+def _assistant_continuation_fragments(
+    fragments: list[tuple[str, str]],
+    *,
+    indent_style: str,
+) -> list[tuple[str, str]]:
+    """在助手正文每个显式续行前补充两个空格。"""
+    out: list[tuple[str, str]] = []
+    continuation = False
+
+    for style, text in fragments:
+        lines = text.split("\n")
+        last_index = len(lines) - 1
+        for index, line in enumerate(lines):
+            has_newline = index < last_index
+            if continuation and (line or has_newline):
+                out.append((indent_style, "  "))
+                continuation = False
+            if line:
+                out.append((style, line))
+            if has_newline:
+                out.append((style, "\n"))
+                continuation = True
+
+    return out
 
 
 if __name__ == '__main__':

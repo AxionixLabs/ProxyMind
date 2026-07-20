@@ -69,7 +69,6 @@ mind_app -------------> mind_nova
 - `tui/session` 管理长期交互循环和单轮模型调用，可以依赖 features/core，其他层不得反向依赖 session。
 - `tui/prompting` 只持有 TUI 输入补全、ghost suggestion 和 skill token lexer。
 - `tui/core` 不得导入 `features`、`session` 或 Mind 主控制器。
-- 实施 TUI 去 Rich 迁移前先阅读 `mind_app/tui/RICH_REMOVAL_HANDOFF.md`。
 
 TUI 状态所有权：
 

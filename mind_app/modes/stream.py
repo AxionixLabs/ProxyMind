@@ -176,7 +176,8 @@ async def stream_looper(
                 ev_report.bind_event(event)
 
             if first_frame:
-                await mind.stop_anim()
+                if not mind.frontend.runtime.active:
+                    await mind.stop_anim()
                 first_frame = False
 
             event_type = str(event.get("type") or "")

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from prompt_toolkit.utils import get_cwidth
 from .models import FormattedText
 
-StatusFamily = typing.Literal["tool", "mode", "wait"]
+StatusFamily = typing.Literal["tool", "wait"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,7 +24,6 @@ class SweepFrameSpec(object):
 
 SWEEP_SPECS: dict[StatusFamily, SweepFrameSpec] = {
     "tool": SweepFrameSpec(30, 15.8, 1.2, 8.2, 6.8, 0.74),
-    "mode": SweepFrameSpec(30, 13.6, 1.0, 3.0, 4.6, 0.52),
     "wait": SweepFrameSpec(30, 15.6, 1.2, 4.0, 5.2, 0.58),
 }
 
@@ -38,16 +37,6 @@ STATUS_COLORS: dict[StatusFamily, dict[str, str]] = {
         "mid": "#A48662",
         "fade": "#755F4E",
         "dim": "#5A4B42",
-    },
-    "mode": {
-        "indicator_dim": "#2F4C5A",
-        "indicator_peak": "#91D7ED",
-        "peak": "#EAF9FF",
-        "soft": "#C7EEF9",
-        "near": "#91D7ED",
-        "mid": "#4B8FA8",
-        "fade": "#335F72",
-        "dim": "#2F4C5A",
     },
     "wait": {
         "indicator_dim": "#465652",
@@ -83,7 +72,7 @@ def render_status_fragments(
     colors = STATUS_COLORS[family]
 
     out = [
-        _indicator_fragment(phase, family=family, animated=animated),
+        status_indicator_fragment(phase, family=family, animated=animated),
         (_style(colors["dim"]), " "),
     ]
 
@@ -104,7 +93,7 @@ def render_status_fragments(
     return out
 
 
-def _indicator_fragment(
+def status_indicator_fragment(
     phase: float,
     *,
     family: StatusFamily,
@@ -115,7 +104,7 @@ def _indicator_fragment(
     if not animated:
         return _style(colors["soft"]), "•"
 
-    frequency = {"tool": 0.30, "mode": 0.44, "wait": 0.25}[family]
+    frequency = {"tool": 0.30, "wait": 0.25}[family]
     breathe   = 0.5 + (0.5 * math.sin(phase * frequency))
     weight    = _smoothstep(breathe) * 0.72
 

@@ -9,8 +9,8 @@ from mind_app.presentation.models import StyledBlock, TextSpan, TextStyle
 from mind_app.stream_events.compact_rule import full_rule_width
 from mind_app.presentation.formatting import format_elapsed
 
-WORKED_RULE_STYLE  = TextStyle(foreground="#6F7A86", dim=True)
-WORKED_LABEL_STYLE = TextStyle(foreground="#AFC7D8", bold=True)
+WORKED_RULE_STYLE  = TextStyle(foreground="#414A54")
+WORKED_LABEL_STYLE = TextStyle(foreground="#626D78")
 WORKED_RULE_CHAR   = "─"
 
 

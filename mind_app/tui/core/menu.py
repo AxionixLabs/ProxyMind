@@ -106,14 +106,14 @@ class TuiMenu(object):
 
         for line in request.body:
             out.extend([
-                ("class:tui-menu.detail", line),
+                ("class:tui-menu.detail", f"  {line}"),
                 ("", "\n"),
             ])
 
         for offset, option in enumerate(options):
             index  = start + offset
             active = index == state.selected
-            marker = "›" if active else " "
+            marker = "  ›" if active else "   "
 
             index_style = (
                 "class:tui-menu.index.active"

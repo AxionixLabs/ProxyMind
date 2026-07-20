@@ -136,7 +136,7 @@ class TuiInputModel(object):
             "prompt.workspace": "bold #8A929C",
             "prompt.exec": "bold #8FC7EA",
             "prompt.exec.command": "dim #A8B1BB",
-            "placeholder": "bold #727983",
+            "placeholder": "#727983",
             "auto-suggestion": "#5A616A",
             "skill-token": "bold #8FD7FF",
             "shell-escape": "bold #FF6B6B",

@@ -26,8 +26,8 @@ async def choose_history_session(
         options=tuple(
             MenuOption(
                 value=record,
-                label=_record_title(record),
-                detail=_record_prefix(record),
+                label=_record_prefix(record),
+                detail=_record_title(record),
             )
             for record in records
         ),

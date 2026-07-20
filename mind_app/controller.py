@@ -476,7 +476,7 @@ class Mind(object):
         if not self.animate:
             return None
         if self.frontend.runtime.active:
-            await self.frontend.runtime.begin_mode_status(mode)
+            await self.frontend.runtime.begin_wait_status()
             return None
         design = self.require_design()
         await self.anim_manager.start(

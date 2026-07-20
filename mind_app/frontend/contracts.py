@@ -63,8 +63,8 @@ class FrontendRuntime(typing.Protocol):
         """停止交互前端运行期。"""
         ...
 
-    async def begin_mode_status(self, mode: str) -> None:
-        """显示模式等待状态。"""
+    async def begin_wait_status(self) -> None:
+        """显示覆盖当前交互周期的等待状态。"""
         ...
 
     async def begin_upload_status(
@@ -109,9 +109,8 @@ class PassiveFrontendRuntime(object):
         """忽略停止请求。"""
         return None
 
-    async def begin_mode_status(self, mode: str) -> None:
-        """忽略模式状态请求。"""
-        _ = mode
+    async def begin_wait_status(self) -> None:
+        """忽略等待状态请求。"""
         return None
 
     async def begin_upload_status(

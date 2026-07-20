@@ -545,7 +545,7 @@ class DesignStatusLiveDriver(StatusRenderer):
         mode: RunMode = DEFAULT_RUN_MODE
     ) -> None:
         """主请求模式等待动画。"""
-        kind = "mode"
+        kind = "wait"
 
         label    = self.mode_status_text(mode)
         fps      = self.status_refresh_per_second(kind)
@@ -553,7 +553,7 @@ class DesignStatusLiveDriver(StatusRenderer):
         phase    = 0.0
 
         def frame(sec: float) -> Text:
-            renderable = self.mode_status_renderable(phase, label)
+            renderable = self.thinking_status_renderable(phase, label)
             renderable.append_text(self.status_elapsed_renderable(sec))
             return renderable
 

@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from __future__ import annotations
-
 import typing
 
 if typing.TYPE_CHECKING:
@@ -12,7 +10,7 @@ if typing.TYPE_CHECKING:
 class McpSessionLike(typing.Protocol):
     """描述可被运行时使用的 MCP 会话接口。"""
 
-    async def list_tools(self) -> mcp_types.ListToolsResult:
+    async def list_tools(self) -> "mcp_types.ListToolsResult":
         """列出当前会话可用的 MCP 工具。"""
         ...
 
@@ -29,7 +27,7 @@ class McpSessionLike(typing.Protocol):
         cid: str | None = None,
         sid: str | None = None,
         call_id: str | None = None,
-    ) -> mcp_types.CallToolResult:
+    ) -> "mcp_types.CallToolResult":
         """调用指定 MCP 工具并返回执行结果。"""
         ...
 

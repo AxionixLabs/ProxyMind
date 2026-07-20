@@ -19,11 +19,11 @@ from .styles import (
 from .status_frames import (
     StatusFamily,
     render_status_fragments,
+    status_indicator_fragment,
     status_interval,
     status_phase_rate
 )
 
-SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 STATUS_MUTED   = TextStyle(foreground="#7F8C9A", dim=True)
 
 
@@ -55,9 +55,7 @@ class TuiStatusState(object):
         animated: bool = True,
     ) -> None:
         """更新状态文本并重置动画起点。"""
-        limit = 56 if family == "mode" else 48
-
-        self.text       = _truncate_display_text(str(text or "").strip(), limit=limit)
+        self.text       = _truncate_display_text(str(text or "").strip(), limit=48)
         self.family     = family
         self.animated   = bool(animated)
         self.phase      = 0.0
@@ -117,9 +115,9 @@ class TuiActivity(object):
         self.clear_renderable = clear_renderable
         self.task: asyncio.Task[None] | None = None
 
-    async def begin_mode(self, mode: str) -> None:
-        """启动模式等待动画。"""
-        await self._replace(self._mode_loop(mode))
+    async def begin_wait(self) -> None:
+        """启动覆盖当前交互周期的等待动画。"""
+        await self._replace(self._wait_loop())
 
     async def begin_upload(
         self,
@@ -157,23 +155,21 @@ class TuiActivity(object):
         await self.stop()
         self.task = asyncio.create_task(coroutine)
 
-    async def _mode_loop(self, mode: str) -> None:
-        """持续生成模式等待动画帧。"""
-        labels   = {"chat": "Mind Chat", "fast": "Mind Fast", "xtra": "Mind Xtra"}
-        label    = labels.get(str(mode or "").strip().lower(), "Mind Stream")
+    async def _wait_loop(self) -> None:
+        """持续生成覆盖当前交互周期的等待动画帧。"""
         started  = time.perf_counter()
         phase    = 0.0
-        interval = status_interval("mode")
+        interval = status_interval("wait")
 
         while True:
             self.set_renderable(_status_block(
-                label,
-                family="mode",
+                "thinking",
+                family="wait",
                 phase=phase,
                 started_at=started,
             ))
             await asyncio.sleep(interval)
-            phase += status_phase_rate("mode") * interval
+            phase += status_phase_rate("wait") * interval
 
     async def _upload_loop(
         self,
@@ -186,7 +182,11 @@ class TuiActivity(object):
         while True:
             data      = snapshot() or {}
             event     = data.get("event")
-            indicator = _spinner_frame(phase)
+            indicator = status_indicator_fragment(
+                phase,
+                family="wait",
+                animated=True,
+            )[1]
 
             if isinstance(event, dict):
                 block = upload_progress_block(event, indicator=indicator)
@@ -198,7 +198,7 @@ class TuiActivity(object):
                 )
             self.set_renderable(FragmentBlock(styled_block_fragments(block)))
             await asyncio.sleep(interval)
-            phase += 1.0
+            phase += status_phase_rate("wait") * interval
 
     async def _snapshot_loop(
         self,
@@ -208,7 +208,7 @@ class TuiActivity(object):
     ) -> None:
         """显示通用运行时快照状态。"""
         phase    = 0.0
-        interval = status_interval("mode")
+        interval = status_interval("wait")
 
         while True:
             data    = snapshot() or {}
@@ -220,10 +220,10 @@ class TuiActivity(object):
 
             text = f"{summary} · {detail}" if detail else summary
 
-            self.set_renderable(_status_block(text, family="mode", phase=phase))
+            self.set_renderable(_status_block(text, family="wait", phase=phase))
 
             await asyncio.sleep(interval)
-            phase += status_phase_rate("mode") * interval
+            phase += status_phase_rate("wait") * interval
 
 
 def _status_block(
@@ -246,11 +246,6 @@ def _status_block(
             fragments.append((prompt_style(STATUS_MUTED), f" · {_elapsed_label(elapsed)}"))
 
     return FragmentBlock(tuple(fragments))
-
-
-def _spinner_frame(phase: float) -> str:
-    """按动画相位返回状态帧。"""
-    return SPINNER_FRAMES[int(max(0.0, phase)) % len(SPINNER_FRAMES)]
 
 
 def _elapsed_label(elapsed: float) -> str:
