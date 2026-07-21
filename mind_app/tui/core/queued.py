@@ -3,6 +3,7 @@
 
 import collections
 from dataclasses import dataclass
+from prompt_toolkit.utils import get_cwidth
 from .models import FormattedText
 from .render import clip_fragments
 
@@ -52,29 +53,71 @@ class TuiQueuedMessages(object):
             return None
         return self._items.pop()
 
-    def fragments(self, *, width: int) -> FormattedText:
+    def fragments(self, *, width: int, max_rows: int = 6) -> FormattedText:
         """生成动画行下方的待提交消息列表。"""
         if not self._items:
             return []
 
-        count = len(self._items)
-        label = "Queued message" if count == 1 else f"Queued messages ({count})"
+        row_limit = max(1, int(max_rows))
+        lines: list[FormattedText] = [[(
+            "class:queue.label",
+            _queue_title(width),
+        )]]
+        available = max(0, row_limit - 1)
+        visible_count = min(len(self._items), available)
+        if len(self._items) > available:
+            visible_count = max(0, available - 1)
 
-        lines: list[FormattedText] = [[("class:queue.label", f"• {label}")]]
-
-        for item in self._items:
+        for item in list(self._items)[:visible_count]:
             preview = " ".join(item.visible_text.split())
             lines.append([
                 ("class:queue.marker", "  ↳ "),
                 ("class:queue.text", preview),
             ])
+        hidden_count = len(self._items) - visible_count
+        if hidden_count:
+            lines.append([(
+                "class:queue.more",
+                f"    … {hidden_count} more",
+            )])
 
         out: FormattedText = []
         for index, line in enumerate(lines):
             if index:
                 out.append(("", "\n"))
-            out.extend(clip_fragments(line, width=max(1, width)))
+            out.extend(_ellipsize_fragments(line, width=max(1, width)))
         return out
+
+
+def _queue_title(width: int) -> str:
+    """返回适合当前终端宽度的队列标题。"""
+    titles = (
+        "• Messages queued for the next turn (Esc edits latest)",
+        "• Queued for next turn (Esc edits latest)",
+        "• Queued for next turn",
+    )
+    limit = max(1, int(width))
+    for title in titles:
+        if get_cwidth(title) <= limit:
+            return title
+    return titles[-1]
+
+
+def _ellipsize_fragments(parts: FormattedText, *, width: int) -> FormattedText:
+    """按显示宽度裁剪单行片段并在末尾添加省略号。"""
+    limit = max(1, int(width))
+    if get_cwidth("".join(text for _, text in parts)) <= limit:
+        return parts
+
+    omit = "…"
+
+    clipped = clip_fragments(
+        parts,
+        width=max(0, limit - get_cwidth(omit)),
+    )
+
+    style = clipped[-1][0] if clipped else "class:queue.text"
+    return [*clipped, (style, omit)]
 
 
 if __name__ == '__main__':

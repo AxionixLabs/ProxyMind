@@ -89,15 +89,18 @@ from .styles import (
 
 _QUEUE_END       = object()
 _INPUT_INTERRUPT = object()
+
 _RUNNING_DISABLED_COMMANDS = frozenset({"/new", "/resume"})
 
 
 class TuiRuntime(object):
     """管理稳定画布上的会话内容、输入队列和审批交互。"""
 
-    INPUT_MAX_LINES: typing.Final[int]     = 8
-    QUEUED_MAX_HEIGHT: typing.Final[int]   = 6
-    COMPLETION_MAX_HEIGHT: typing.Final[int] = 8
+    INPUT_MAX_LINES: typing.Final[int]           = 8
+    QUEUED_MAX_HEIGHT: typing.Final[int]         = 6
+    COMPLETION_MAX_HEIGHT: typing.Final[int]     = 8
+    CONTENT_INPUT_GAP_HEIGHT: typing.Final[int]  = 1
+    ACTIVITY_INPUT_GAP_HEIGHT: typing.Final[int] = 2
 
     def __init__(
         self,
@@ -255,7 +258,7 @@ class TuiRuntime(object):
             filter=Condition(self._transcript_status_gap_visible),
         )
         self.content_input_gap = ConditionalContainer(
-            Window(height=Dimension.exact(1), char=" "),
+            Window(height=self._content_input_gap_dimension, char=" "),
             filter=Condition(self._content_input_gap_visible),
         )
         self.completion_gap = ConditionalContainer(
@@ -417,10 +420,7 @@ class TuiRuntime(object):
 
     async def read_message(self, context: PromptContext) -> str:
         """更新输入上下文并按提交顺序读取下一条消息。"""
-        self.context = context
-        self.placeholder_text = self.input_model.new_placeholder(context.mode)
-        self.input_model.set_mode(context.mode)
-        self.invalidate()
+        self.set_prompt_context(context)
 
         queued = self.queued_messages.pop_next()
         submission = queued if queued is not None else await self.message_queue.get()
@@ -447,12 +447,24 @@ class TuiRuntime(object):
         self._submitted_query_block = block
         return value
 
+    def set_prompt_context(self, context: PromptContext) -> None:
+        """在首帧或输入轮次前更新输入区展示上下文。"""
+        self.context = context
+        self.placeholder_text = self.input_model.new_placeholder(context.mode)
+        self.input_model.set_mode(context.mode)
+        self.invalidate()
+
     async def request_approval(
         self,
         approval: dict[str, typing.Any],
     ) -> ApprovalDecisionValue:
         """在唯一审批区域中读取工具执行决策。"""
-        return await self.approval.request(approval)
+        wait_paused = await self.activity.pause_wait()
+        try:
+            return await self.approval.request(approval)
+        finally:
+            if wait_paused:
+                await self.activity.resume_wait()
 
     async def select_menu(self, request: MenuRequest) -> typing.Any:
         """在主 Application 画布内读取菜单选择。"""
@@ -783,11 +795,13 @@ class TuiRuntime(object):
 
     def _assistant_line(self, target_line: int) -> bool:
         """判断指定正文逻辑行是否属于助手正文块。"""
-        line_number = 0
-        at_line_start = True
+        line_number: int    = 0
+        at_line_start: bool = True
+
         for style, text in self._transcript_fragments():
-            parts = text.split("\n")
+            parts      = text.split("\n")
             last_index = len(parts) - 1
+
             for index, part in enumerate(parts):
                 if line_number == target_line and at_line_start and part:
                     return style == ASSISTANT_PREFIX_CLASS
@@ -798,6 +812,7 @@ class TuiRuntime(object):
                         return False
                     line_number += 1
                     at_line_start = True
+
         return False
 
     def _status_fragments(self) -> FormattedText:
@@ -810,6 +825,7 @@ class TuiRuntime(object):
     def _queued_fragments(self) -> FormattedText:
         """生成动画区域下方的待提交消息。"""
         out: FormattedText = []
+
         for block in self.input_notice_blocks:
             if out:
                 out.append(("", "\n"))
@@ -817,23 +833,33 @@ class TuiRuntime(object):
                 list(block.fragments),
                 width=self.terminal_width,
             ))
-        queued = self.queued_messages.fragments(width=self.terminal_width)
+
+        queued = self.queued_messages.fragments(
+            width=self.terminal_width,
+            max_rows=self.QUEUED_MAX_HEIGHT,
+        )
+
         if out and queued:
             out.append(("", "\n"))
         out.extend(queued)
+
         return out
 
     def _footer_fragments(self) -> FormattedText:
         """生成单行 TUI 信息栏。"""
         theme = self.input_model.theme(self.context.mode)
+
         parts: FormattedText = [(f"fg:{theme['brand']}", const.APP_DESC)]
+
         values = [
             ("class:footer.model", self.context.model or "-"),
             ("class:footer.access", self.context.access_label),
             ("class:footer.workspace", self.context.workspace_label),
         ]
+
         if self.context.exec_status_label:
             values.append(("class:footer.exec", self.context.exec_status_label))
+
         for style, value in values:
             text = str(value or "").strip()
             if text:
@@ -841,6 +867,7 @@ class TuiRuntime(object):
                     ("class:footer.separator", " · "),
                     (style, text),
                 ])
+
         return clip_fragments(parts, width=self.terminal_width)
 
     def _transcript_cursor(self) -> Point:
@@ -879,13 +906,15 @@ class TuiRuntime(object):
         if not text:
             return None
 
-        total_rows = display_line_count(text, width=self.terminal_width)
+        total_rows  = display_line_count(text, width=self.terminal_width)
         render_info = self.transcript_window.render_info
+
         window_height = (
             render_info.window_height
             if render_info is not None
             else self._transcript_dimension().preferred
         )
+
         if total_rows <= window_height:
             self._transcript_view_row = None
             return None
@@ -896,8 +925,9 @@ class TuiRuntime(object):
             if self._transcript_view_row is None
             else min(self._transcript_view_row, last_row)
         )
-        page_rows = max(1, window_height - 1)
+        page_rows  = max(1, window_height - 1)
         target_row = max(0, min(last_row, current_row + direction * page_rows))
+
         self._transcript_view_row = None if target_row >= last_row else target_row
         self.invalidate()
 
@@ -921,7 +951,7 @@ class TuiRuntime(object):
             - self._queued_height()
             - self._menu_height()
             - int(self._transcript_status_gap_visible())
-            - int(self._content_input_gap_visible()),
+            - self._content_input_gap_height(),
         )
 
     def _status_dimension(self) -> Dimension:
@@ -1000,9 +1030,12 @@ class TuiRuntime(object):
         """计算无边框补全列表占用行数。"""
         if not self._completion_visible():
             return 0
+
         state = self.input.buffer.complete_state
         count = len(state.completions) if state is not None else 0
+
         available = max(1, self.terminal_height - self._input_height() - 1)
+
         return min(self.COMPLETION_MAX_HEIGHT, count, available)
 
     def _completion_section_height(self) -> int:
@@ -1030,8 +1063,10 @@ class TuiRuntime(object):
         """计算审批卡在当前画布中的显示高度。"""
         if not self.approval.active:
             return 0
+
         text = fragments_text(self.approval.fragments())
         rows = display_line_count(text, width=self.terminal_width)
+
         available = max(
             1,
             self.terminal_height
@@ -1039,22 +1074,25 @@ class TuiRuntime(object):
             - self._queued_height()
             - self._menu_height()
             - int(self._transcript_status_gap_visible())
-            - int(self._content_input_gap_visible()),
+            - self._content_input_gap_height(),
         )
+
         return min(rows, available)
 
     def _menu_height(self) -> int:
         """计算内嵌菜单在当前画布中的显示高度。"""
         if not self.menu.active:
             return 0
+
         available = max(
             1,
             self.terminal_height
             - self._interaction_height()
             - self._status_height()
             - self._queued_height()
-            - int(self._content_input_gap_visible()),
+            - self._content_input_gap_height(),
         )
+
         return min(self.menu.height(), available)
 
     def _interaction_height(self) -> int:
@@ -1073,10 +1111,24 @@ class TuiRuntime(object):
             + self._queued_height()
             + self._menu_height()
             + int(self._transcript_status_gap_visible())
-            + int(self._content_input_gap_visible())
+            + self._content_input_gap_height()
             + self._interaction_height()
         )
+
         return max(1, min(self.terminal_height, height))
+
+    def _content_input_gap_height(self) -> int:
+        """返回正文状态区与底部交互区域之间的间距高度。"""
+        if not self._content_input_gap_visible():
+            return 0
+        if self.activity_block is not None or self.status_block is not None:
+            return self.ACTIVITY_INPUT_GAP_HEIGHT
+
+        return self.CONTENT_INPUT_GAP_HEIGHT
+
+    def _content_input_gap_dimension(self) -> Dimension:
+        """返回正文状态区与底部交互区域之间的间距尺寸。"""
+        return Dimension.exact(self._content_input_gap_height())
 
     def _content_input_gap_visible(self) -> bool:
         """判断正文状态区与底部交互区域之间是否保留空行。"""
@@ -1102,23 +1154,26 @@ class TuiRuntime(object):
             with contextlib.suppress(Exception):
                 size = application.output.get_size()
                 return int(size.columns), int(size.rows)
+
         fallback = shutil.get_terminal_size(fallback=(100, 24))
         return fallback.columns, fallback.lines
 
     def _style(self):
         """创建 TUI 交互区域使用的组合样式。"""
         base = self.input_model.style
+
         overrides = Style.from_dict({
             "assistant.prefix": prompt_style(ASSISTANT_PREFIX_STYLE),
             "auto-suggestion": "bg:default #5A616A",
-            "completion-menu": "bg:default #D8DCE2",
-            "completion-menu.completion": "bg:default bold #D6DBE2",
-            "completion-menu.completion.current": "bg:default bold #F4F7FA",
-            "completion-menu.meta.completion": "bg:default #7D858F",
-            "completion-menu.meta.completion.current": "bg:default #AFC7D8",
+            "completion-menu": "bg:default #B8C0C9",
+            "completion-menu.completion": "bg:default bold #B8C0C9",
+            "completion-menu.completion.current": "bg:default bold #F4F8FB",
+            "completion-menu.meta.completion": "bg:default #707A84",
+            "completion-menu.meta.completion.current": "bg:default #8FC7EA",
             "queue.label": "bg:default #8A929C bold",
             "queue.marker": "bg:default #7B838E bold",
             "queue.text": "bg:default #DDE7EF",
+            "queue.more": "bg:default #7B838E",
             "input.notice.marker": "bg:default #FF5F5F bold",
             "input.notice": "bg:default #FF8A8A bold",
             "footer.separator": "fg:#7B838E",
@@ -1127,6 +1182,7 @@ class TuiRuntime(object):
             "footer.workspace": "fg:#8A929C",
             "footer.exec": "fg:#A8B1BB dim",
         })
+
         return merge_styles([
             base,
             TUI_APPROVAL_STYLE,

@@ -9,6 +9,7 @@ from prompt_toolkit.auto_suggest import (
 )
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.completion import CompleteEvent
+from prompt_toolkit.document import Document
 from prompt_toolkit.filters import (
     Condition,
     has_focus
@@ -123,6 +124,10 @@ class TuiInputModel(object):
         self.paste_store: dict[str, str] = {}
 
         self.shell_mode: bool = False
+        self._history_entries: tuple[str, ...] = ()
+        self._history_index: int | None = None
+        self._history_draft: Document | None = None
+        self._history_draft_shell_mode: bool = False
 
         self.key_bindings = self._build_key_bindings()
 
@@ -141,11 +146,11 @@ class TuiInputModel(object):
             "skill-token": "bold #8FD7FF",
             "shell-escape": "bold #FF6B6B",
             "paste-placeholder": "bold #D3C27C",
-            "completion-menu": "bg:default #D8DCE2",
-            "completion-menu.completion": "bg:default bold #D6DBE2",
-            "completion-menu.completion.current": "bg:default bold #F4F7FA",
-            "completion-menu.meta.completion": "#7D858F",
-            "completion-menu.meta.completion.current": "#AFC7D8",
+            "completion-menu": "bg:default #B8C0C9",
+            "completion-menu.completion": "bg:default bold #B8C0C9",
+            "completion-menu.completion.current": "bg:default bold #F4F8FB",
+            "completion-menu.meta.completion": "#707A84",
+            "completion-menu.meta.completion.current": "#8FC7EA",
         })
 
     def theme(self, mode: str) -> dict[str, str]:
@@ -218,6 +223,7 @@ class TuiInputModel(object):
         """清理一次提交关联的临时粘贴状态。"""
         self.paste_store.clear()
         self.set_shell_mode(False)
+        self._reset_history_navigation()
 
     def _display_paste(self, text: str, current_text: str) -> str:
         """按体积决定直接展示或折叠粘贴内容。"""
@@ -239,6 +245,78 @@ class TuiInputModel(object):
 
         self.paste_store[placeholder] = text
         return placeholder
+
+    def _reset_history_navigation(self) -> None:
+        """重置输入历史导航状态。"""
+        self._history_entries = ()
+        self._history_index = None
+        self._history_draft = None
+        self._history_draft_shell_mode = False
+
+    def _start_history_navigation(self, buffer) -> None:
+        """根据当前草稿创建输入历史导航快照。"""
+        prefix = buffer.document.text_before_cursor
+        if self.shell_mode:
+            prefix = f"! {prefix}" if prefix else "!"
+
+        self._history_draft = buffer.document
+        self._history_draft_shell_mode = self.shell_mode
+        self._history_entries = tuple(
+            entry
+            for entry in self.history.get_strings()
+            if entry.startswith(prefix)
+        )
+        self._history_index = len(self._history_entries)
+
+    def _history_navigation_matches_buffer(self, buffer) -> bool:
+        """判断输入框是否仍处于当前输入历史位置。"""
+        index = self._history_index
+        draft = self._history_draft
+        if index is None or draft is None:
+            return False
+
+        if index == len(self._history_entries):
+            return (
+                buffer.text == draft.text
+                and self.shell_mode == self._history_draft_shell_mode
+            )
+
+        text, shell_mode = self._history_entry_state(self._history_entries[index])
+        return buffer.text == text and self.shell_mode == shell_mode
+
+    def _navigate_history(self, buffer, *, step: int, count: int) -> None:
+        """在真实输入历史和当前草稿之间导航。"""
+        if not self._history_navigation_matches_buffer(buffer):
+            self._start_history_navigation(buffer)
+
+        index = self._history_index
+        draft = self._history_draft
+        if index is None or draft is None:
+            return None
+
+        target = min(
+            len(self._history_entries),
+            max(0, index + step * max(1, count)),
+        )
+        if target == index:
+            return None
+
+        self._history_index = target
+        if target == len(self._history_entries):
+            self.set_shell_mode(self._history_draft_shell_mode)
+            buffer.document = draft
+            return None
+
+        text, shell_mode = self._history_entry_state(self._history_entries[target])
+        self.set_shell_mode(shell_mode)
+        buffer.document = Document(text, cursor_position=len(text))
+
+    @staticmethod
+    def _history_entry_state(entry: str) -> tuple[str, bool]:
+        """把历史条目转换为输入文本和 Shell 前缀状态。"""
+        if entry.startswith("!"):
+            return entry[1:].lstrip(" "), True
+        return entry, False
 
     @staticmethod
     def _select_completion(buffer, step: int) -> bool:
@@ -400,8 +478,11 @@ class TuiInputModel(object):
             elif buffer.document.cursor_position_row > 0:
                 buffer.cursor_up(count=max(1, event.arg))
             elif not buffer.selection_state:
-                buffer.history_backward(count=max(1, event.arg))
-                self._restore_shell_history(buffer)
+                self._navigate_history(
+                    buffer,
+                    step=-1,
+                    count=max(1, event.arg),
+                )
 
         @bindings.add("down")
         def _(event) -> None:
@@ -411,20 +492,13 @@ class TuiInputModel(object):
             elif buffer.document.cursor_position_row < buffer.document.line_count - 1:
                 buffer.cursor_down(count=max(1, event.arg))
             elif not buffer.selection_state:
-                buffer.history_forward(count=max(1, event.arg))
-                self._restore_shell_history(buffer)
+                self._navigate_history(
+                    buffer,
+                    step=1,
+                    count=max(1, event.arg),
+                )
 
         return bindings
-
-    def _restore_shell_history(self, buffer) -> None:
-        """把历史中的 Shell 标记恢复为输入框前缀状态。"""
-        text = buffer.text
-        if text.startswith("!"):
-            self.set_shell_mode(True)
-            buffer.text = text[1:].lstrip(" ")
-            buffer.cursor_position = len(buffer.text)
-        else:
-            self.set_shell_mode(False)
 
 
 if __name__ == '__main__':

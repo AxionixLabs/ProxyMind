@@ -111,13 +111,22 @@ class TuiActivity(object):
         set_renderable: typing.Callable[[FragmentBlock], None],
         clear_renderable: typing.Callable[[], None],
     ) -> None:
-        self.set_renderable = set_renderable
+        self.set_renderable   = set_renderable
         self.clear_renderable = clear_renderable
+
         self.task: asyncio.Task[None] | None = None
+        self._kind: str | None               = None
+        self._wait_elapsed_sec: float        = 0.0
+        self._wait_started_at: float | None  = None
+        self._wait_phase: float              = 0.0
+        self._wait_paused: bool              = False
 
     async def begin_wait(self) -> None:
         """启动覆盖当前交互周期的等待动画。"""
-        await self._replace(self._wait_loop())
+        await self.stop()
+        self._kind = "wait"
+        self._wait_started_at = time.perf_counter()
+        self.task = asyncio.create_task(self._wait_loop())
 
     async def begin_upload(
         self,
@@ -142,13 +151,50 @@ class TuiActivity(object):
 
     async def stop(self) -> None:
         """停止当前活动动画并清理展示区域。"""
+        await self._cancel_task()
+
+        self._kind             = None
+        self._wait_elapsed_sec = 0.0
+        self._wait_started_at  = None
+        self._wait_phase       = 0.0
+        self._wait_paused      = False
+
+        self.clear_renderable()
+
+    async def pause_wait(self) -> bool:
+        """暂停当前等待动画和耗时统计。"""
+        if self._kind != "wait" or self.task is None:
+            return False
+
+        started_at = self._wait_started_at
+        if started_at is not None:
+            self._wait_elapsed_sec += max(0.0, time.perf_counter() - started_at)
+
+        self._wait_started_at = None
+        self._wait_paused     = True
+
+        await self._cancel_task()
+        self.clear_renderable()
+        return True
+
+    async def resume_wait(self) -> None:
+        """从暂停位置恢复等待动画和耗时统计。"""
+        if self._kind != "wait" or not self._wait_paused or self.task is not None:
+            return None
+
+        self._wait_paused     = False
+        self._wait_started_at = time.perf_counter()
+
+        self.task = asyncio.create_task(self._wait_loop())
+
+    async def _cancel_task(self) -> None:
+        """取消当前活动动画任务。"""
         task = self.task
         self.task = None
         if task is not None:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-        self.clear_renderable()
 
     async def _replace(self, coroutine: typing.Coroutine[typing.Any, typing.Any, None]) -> None:
         """以新的活动动画替换已有动画。"""
@@ -157,19 +203,24 @@ class TuiActivity(object):
 
     async def _wait_loop(self) -> None:
         """持续生成覆盖当前交互周期的等待动画帧。"""
-        started  = time.perf_counter()
-        phase    = 0.0
         interval = status_interval("wait")
 
         while True:
             self.set_renderable(_status_block(
                 "thinking",
                 family="wait",
-                phase=phase,
-                started_at=started,
+                phase=self._wait_phase,
+                elapsed_sec=self._wait_elapsed(),
             ))
             await asyncio.sleep(interval)
-            phase += status_phase_rate("wait") * interval
+            self._wait_phase += status_phase_rate("wait") * interval
+
+    def _wait_elapsed(self) -> float:
+        """返回不包含暂停时段的等待耗时。"""
+        started_at = self._wait_started_at
+        if started_at is None:
+            return self._wait_elapsed_sec
+        return self._wait_elapsed_sec + max(0.0, time.perf_counter() - started_at)
 
     async def _upload_loop(
         self,
@@ -232,6 +283,7 @@ def _status_block(
     family: StatusFamily,
     phase: float,
     started_at: float = 0.0,
+    elapsed_sec: float | None = None,
 ) -> FragmentBlock:
     """生成一行 TUI 活动状态。"""
     fragments = render_status_fragments(
@@ -240,8 +292,12 @@ def _status_block(
         phase=phase,
         animated=True,
     )
-    if started_at:
-        elapsed = max(0.0, time.perf_counter() - started_at)
+    if started_at or elapsed_sec is not None:
+        elapsed = (
+            max(0.0, float(elapsed_sec))
+            if elapsed_sec is not None
+            else max(0.0, time.perf_counter() - started_at)
+        )
         if elapsed >= 0.65:
             fragments.append((prompt_style(STATUS_MUTED), f" · {_elapsed_label(elapsed)}"))
 
@@ -255,6 +311,7 @@ def _elapsed_label(elapsed: float) -> str:
         return f"{seconds:.1f}s"
     if seconds < 60:
         return f"{int(seconds)}s"
+
     minutes, remaining = divmod(int(seconds), 60)
     return f"{minutes}m {remaining:02d}s"
 

@@ -235,6 +235,10 @@ async def _run_main(
         handler.bind_delegate(mind.signal_processor)
 
     try:
+        if output_mode == "tui":
+            from ..tui.session.loop import preload_tui_prompt_context
+
+            await preload_tui_prompt_context(mind)
         await mind.frontend.runtime.open()
 
         if cmd_lines.mcp:

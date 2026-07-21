@@ -8,6 +8,7 @@ from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
+from prompt_toolkit.utils import get_cwidth
 
 from .models import (
     MenuOption,
@@ -94,6 +95,11 @@ class TuiMenu(object):
         request = state.request
 
         start, options = self._visible_options(state)
+        label_width = max(
+            (get_cwidth(option.label) for option in request.options),
+            default=0,
+        )
+        index_width = len(str(max(1, len(request.options))))
 
         out: StyleAndTextTuples = [("class:tui-menu.title", request.title)]
         if request.status:
@@ -121,10 +127,12 @@ class TuiMenu(object):
                 else "class:tui-menu.index"
             )
             out.extend([
-                (index_style, f"{marker} {index + 1}. "),
+                (index_style, f"{marker} {str(index + 1).rjust(index_width)}. "),
                 ("class:tui-menu.label", option.label),
             ])
             if option.detail:
+                padding = " " * max(0, label_width - get_cwidth(option.label))
+                out.append(("class:tui-menu.label", padding))
                 out.append(("class:tui-menu.detail", f" · {option.detail}"))
             out.append(("", "\n"))
 

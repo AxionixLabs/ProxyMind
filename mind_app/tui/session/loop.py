@@ -4,6 +4,7 @@
 import re
 import time
 import typing
+import asyncio
 from prompt_toolkit.utils import get_cwidth
 from engine.errors import MindError
 from engine.file_assist import FileAssist
@@ -147,6 +148,37 @@ def _label_detail(label: str, detail: str) -> FragmentBlock:
 def _failure_block(message: typing.Any) -> FragmentBlock:
     """生成单行会话错误块。"""
     return text_block(str(message), FAILURE_STYLE)
+
+
+async def preload_tui_prompt_context(mind: "Mind") -> None:
+    """在 TUI 首帧前加载信息栏使用的本地上下文。"""
+    runtime = typing.cast(TuiRuntime, mind.frontend.runtime)
+    pref_result, workspace_result, exec_result = await asyncio.gather(
+        mind.fresh_pref_config(ttl_sec=0.0),
+        fetch_runtime_workspace_root(),
+        mind.native_coding.running_exec_sessions(),
+        return_exceptions=True,
+    )
+    pref_config = pref_result if isinstance(pref_result, dict) else {}
+    runtime_workspace_root = (
+        workspace_result
+        if not isinstance(workspace_result, BaseException)
+        else None
+    )
+    exec_snapshot = exec_result if isinstance(exec_result, dict) else {}
+    if runtime_workspace_root is not None:
+        mind.set_history_workspace(runtime_workspace_root)
+
+    runtime.set_prompt_context(PromptContext(
+        mode=DEFAULT_RUN_MODE,
+        model=primary_model_prompt_label(pref_config),
+        workspace_label=workspace_display_label(runtime_workspace_root),
+        access_label=access_mode_label(DEFAULT_ACCESS_MODE),
+        exec_status_label=exec_status_display_label(
+            exec_snapshot,
+            line_width=runtime.terminal_width,
+        ),
+    ))
 
 
 async def run_tui_loop(mind: "Mind") -> None:

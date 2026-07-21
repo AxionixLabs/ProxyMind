@@ -12,6 +12,14 @@
 - 拆模块不要用 mixin。
 - 非测试模块里的函数 docstring 使用中文中性描述，不绑定具体业务。
 
+## 测试原则
+
+- 所有测试用例使用 pytest 风格，不使用 `unittest.TestCase` 或 `unittest.main()`。
+- 异步测试使用 pytest 对应的异步标记；mock 可以使用 `unittest.mock`。
+- 小改动不要求机械新增测试；新增功能或复杂行为变化时才补测试。
+- 测试只覆盖核心主流程，不为实现细节或低风险边界穷举用例。
+- 修改后运行与影响范围匹配的现有测试；扩大测试范围应与改动风险相称。
+
 ## 架构边界
 
 - `mind_app`、`mind_core`、`mind_nova` 等非 backend 模块不得导入 `backend` 包。
