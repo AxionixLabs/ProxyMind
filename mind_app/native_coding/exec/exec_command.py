@@ -4,15 +4,15 @@
 import os
 import time
 import typing
-import asyncio
-import secrets
 from mind_app.native_coding.base import (
     NativeCodingBase,
     NativeCodingComponent
 )
-from mind_app.native_coding.exec.process_capture import (
-    OrderedOutputBuffer,
-    ProcessCapture
+from mind_app.native_coding.exec.process_capture import ProcessCapture
+from mind_app.native_coding.exec.process_session import (
+    ProcessSession as ExecSession,
+    ProcessSessionManager,
+    ProcessSessionSpec
 )
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools
 from mind_app.native_coding.exec.shell_runtime import ShellRuntimeResolver
@@ -25,103 +25,16 @@ from mind_app.native_coding.execution_authorization import (
 )
 
 
-class ExecSession:
-    """记录一个可持续读写的 shell 进程会话。"""
-
-    __slots__ = (
-        "session_id",
-        "owner_cid",
-        "owner_sid",
-        "command",
-        "cwd",
-        "process",
-        "runtime",
-        "started_at",
-        "expires_at",
-        "idle_timeout_sec",
-        "audit_mode",
-        "audit_before",
-        "stdout",
-        "stderr",
-        "output_buffer",
-        "display_output_buffer",
-        "stdout_dropped",
-        "stderr_dropped",
-        "last_activity",
-        "finalized",
-        "stdout_task",
-        "stderr_task",
-        "lock",
-    )
-
-    def __init__(
-        self,
-        *,
-        session_id: str,
-        owner_cid: str,
-        owner_sid: str,
-        command: str,
-        cwd: str,
-        process: asyncio.subprocess.Process,
-        runtime: dict[str, typing.Any],
-        started_at: float,
-        expires_at: float,
-        idle_timeout_sec: int,
-        audit_mode: str,
-        audit_before: dict[str, typing.Any] | None
-    ) -> None:
-        """初始化 shell 进程会话和增量输出缓冲区。"""
-        self.session_id = session_id
-        self.owner_cid  = owner_cid
-        self.owner_sid  = owner_sid
-        self.command    = command
-        self.cwd        = cwd
-        self.process    = process
-        self.runtime    = runtime
-        self.started_at = started_at
-        self.expires_at = expires_at
-
-        self.idle_timeout_sec = idle_timeout_sec
-
-        self.audit_mode   = audit_mode
-        self.audit_before = audit_before
-
-        self.stdout = bytearray()
-        self.stderr = bytearray()
-
-        self.output_buffer = OrderedOutputBuffer()
-
-        self.display_output_buffer = OrderedOutputBuffer(
-            max_lines=1000,
-            max_line_chars=1000
-        )
-
-        self.stdout_dropped = 0
-        self.stderr_dropped = 0
-
-        self.last_activity = time.time()
-
-        self.finalized = False
-
-        self.stdout_task: asyncio.Task[None] | None = None
-        self.stderr_task: asyncio.Task[None] | None = None
-
-        self.lock = asyncio.Lock()
-
-
 class ExecCommandTools(NativeCodingComponent):
     """提供可持续读写的 shell 会话工具。"""
-
-    BUFFER_LIMIT_BYTES   = 1_000_000
-    IO_DRAIN_TIMEOUT_SEC = 2.0
-    TERMINATE_GRACE_SEC  = 0.5
 
     def __init__(
         self,
         core: NativeCodingBase,
         *,
         command_policy: typing.Any,
-        file_audit: typing.Any
+        file_audit: typing.Any,
+        sessions: ProcessSessionManager
     ) -> None:
         """保存共享运行时、执行策略和会话表。"""
         super().__init__(core)
@@ -129,7 +42,9 @@ class ExecCommandTools(NativeCodingComponent):
         self._command_policy = command_policy
         self._file_audit     = file_audit
 
-        self._sessions: dict[str, ExecSession] = {}
+        self._session_manager = sessions
+        self._sessions        = sessions.sessions
+
         self._used_write_grants: dict[str, float] = {}
 
     async def exec_command(
@@ -147,7 +62,7 @@ class ExecCommandTools(NativeCodingComponent):
         audit_files: bool = False
     ) -> dict[str, typing.Any]:
         """启动一个可持续读取和写入的 shell 命令会话。"""
-        await self._cleanup_sessions()
+        await self._session_manager.cleanup()
 
         cmd = str(command or "")
         if not cmd.strip():
@@ -214,34 +129,23 @@ class ExecCommandTools(NativeCodingComponent):
         audit_before = self._capture_shell_audit(audit_mode)
         started      = time.perf_counter()
 
-        process = await asyncio.create_subprocess_exec(
-            *(runtime.prefix or []),
-            cmd,
+        session = await self._session_manager.start(ProcessSessionSpec(
+            command=cmd,
+            args=tuple([*(runtime.prefix or []), cmd]),
             cwd=str(workdir),
-            env=env,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            **ProcessCapture.subprocess_process_group_kwargs()
-        )
-
-        session = ExecSession(
-            session_id=self._new_session_id(),
+            display_cwd=self.relative_path(workdir),
+            runtime=runtime_info,
+            origin="tool",
+            timeout_sec=timeout,
+            idle_timeout_sec=idle_timeout,
             owner_cid=str(cid or ""),
             owner_sid=str(sid or ""),
-            command=cmd,
-            cwd=self.relative_path(workdir),
-            process=process,
-            runtime=runtime_info,
-            started_at=time.time(),
-            expires_at=time.time() + timeout,
-            idle_timeout_sec=idle_timeout,
             audit_mode=audit_mode,
-            audit_before=audit_before
-        )
-        session.stdout_task = asyncio.create_task(self._read_stream(session, "stdout"))
-        session.stderr_task = asyncio.create_task(self._read_stream(session, "stderr"))
-        self._sessions[session.session_id] = session
+            audit_before=audit_before,
+            env=env,
+        ))
+
+        process = session.process
 
         await ProcessCapture.wait_for_process(process, yield_ms)
 
@@ -288,7 +192,7 @@ class ExecCommandTools(NativeCodingComponent):
         call_id: str = "",
     ) -> dict[str, typing.Any]:
         """向已有 shell 会话写入输入，或轮询增量输出。"""
-        await self._cleanup_sessions()
+        await self._session_manager.cleanup()
 
         exec_session_id = str(session_id or "").strip()
         if not exec_session_id:
@@ -430,28 +334,7 @@ class ExecCommandTools(NativeCodingComponent):
 
     async def running_sessions_snapshot(self) -> dict[str, typing.Any]:
         """返回当前仍在运行的命令会话摘要。"""
-        await self._cleanup_sessions()
-
-        items: list[dict[str, typing.Any]] = []
-
-        for session in self._sessions.values():
-            if session.process.returncode is not None:
-                continue
-            items.append({
-                "session_id"    : session.session_id,
-                "command"       : session.command,
-                "cwd"           : session.cwd,
-                "pid"           : session.process.pid,
-                "started_at"    : session.started_at,
-                "last_activity" : session.last_activity,
-            })
-
-        items.sort(key=lambda item: float(item.get("started_at") or 0.0))
-
-        return {
-            "count" : len(items),
-            "items" : items
-        }
+        return await self._session_manager.running_snapshot()
 
     async def session_output_snapshot(
         self,
@@ -460,24 +343,7 @@ class ExecCommandTools(NativeCodingComponent):
         max_output_chars: int = 12000
     ) -> dict[str, typing.Any]:
         """返回命令会话的只读输出快照，不消费增量缓冲。"""
-        await self._cleanup_sessions()
-
         sid = str(session_id or "").strip()
-        if not sid:
-            return {
-                "ok"         : False,
-                "reason"     : "session_id_empty",
-                "session_id" : sid
-            }
-
-        session = self._sessions.get(sid)
-        if session is None:
-            return {
-                "ok"         : False,
-                "reason"     : "exec_session_not_found",
-                "session_id" : sid
-            }
-
         output_limit = self._bounded_int(
             max_output_chars,
             default=12000,
@@ -485,9 +351,9 @@ class ExecCommandTools(NativeCodingComponent):
             maximum=120000
         )
 
-        return await self._readonly_session_result(
-            session,
-            output_limit=output_limit
+        return await self._session_manager.output_snapshot(
+            sid,
+            max_output_chars=output_limit,
         )
 
     async def _apply_control_or_stdin(
@@ -498,53 +364,21 @@ class ExecCommandTools(NativeCodingComponent):
         control: str
     ) -> dict[str, typing.Any] | None:
         """应用控制动作或向会话写入标准输入。"""
-        process = session.process
+        reason = await self._session_manager.apply(
+            session,
+            input_text=input_text,
+            control=control,
+        )
 
-        session.last_activity = time.time()
-
-        if control == "terminate":
-            await ProcessCapture.terminate_process_tree(process, force=False)
-            return None
-        if control == "kill":
-            await ProcessCapture.terminate_process_tree(process, force=True)
-            return None
-        if control == "interrupt":
-            interrupted = await ProcessCapture.interrupt_process_tree(process)
-            if not interrupted:
-                return self.fail_result(
-                    "exec_interrupt_failed",
-                    tool="write_stdin",
-                    session_id=session.session_id
-            )
-            return None
-        if control == "eof":
-            stdin_pipe = process.stdin
-            if stdin_pipe is not None and not stdin_pipe.is_closing():
-                stdin_pipe.close()
+        if reason is None:
             return None
 
-        if not input_text:
-            return None
-
-        if process.returncode is not None:
-            return self.fail_result(
-                "exec_session_exited",
-                tool="write_stdin",
-                session_id=session.session_id,
-                exit_code=process.returncode
-            )
-
-        stdin_pipe = getattr(process, "stdin", None)
-        if stdin_pipe is None or stdin_pipe.is_closing():
-            return self.fail_result(
-                "exec_stdin_closed",
-                tool="write_stdin",
-                session_id=session.session_id
-            )
-
-        stdin_pipe.write(input_text.encode())
-        await stdin_pipe.drain()
-        return None
+        return self.fail_result(
+            reason,
+            tool="write_stdin",
+            session_id=session.session_id,
+            exit_code=session.process.returncode,
+        )
 
     async def _session_result(
         self,
@@ -556,9 +390,9 @@ class ExecCommandTools(NativeCodingComponent):
         extra: dict[str, typing.Any] | None = None
     ) -> dict[str, typing.Any]:
         """生成会话当前状态和增量输出。"""
-        await self._finalize_if_exited(session)
+        await self._session_manager.finalize_if_exited(session)
 
-        stdout, stderr, output_lines, dropped_stdout, dropped_stderr = await self._drain_output(
+        stdout, stderr, output_lines, dropped_stdout, dropped_stderr = await self._session_manager.drain(
             session,
             flush_pending=session.finalized
         )
@@ -581,7 +415,8 @@ class ExecCommandTools(NativeCodingComponent):
         if timed_out:
             await ProcessCapture.terminate_process_tree(session.process, force=True)
             await ProcessCapture.wait_for_process(session.process, 1000)
-            await self._finalize_if_exited(session)
+            await self._session_manager.finalize_if_exited(session)
+
             exit_code = session.process.returncode
             status    = "exited" if exit_code is not None else "running"
 
@@ -617,7 +452,7 @@ class ExecCommandTools(NativeCodingComponent):
         if session.finalized:
             data["shell_file_changes"] = self._final_file_changes(session)
             data["shell_write_detected"] = bool(data["shell_file_changes"].get("changed"))
-            self._sessions.pop(session.session_id, None)
+            self._session_manager.remove(session.session_id)
 
         controlled_stop = (
             tool == "write_stdin"
@@ -629,127 +464,6 @@ class ExecCommandTools(NativeCodingComponent):
             self.core.enrich_failure_facts(data)
 
         return data
-
-    async def _readonly_session_result(
-        self,
-        session: ExecSession,
-        *,
-        output_limit: int
-    ) -> dict[str, typing.Any]:
-        """生成会话当前状态和只读输出快照。"""
-        await self._finalize_if_exited(session)
-
-        async with session.lock:
-            stdout = bytes(session.stdout)
-            stderr = bytes(session.stderr)
-
-            dropped_stdout = session.stdout_dropped
-            dropped_stderr = session.stderr_dropped
-
-        output_lines = await session.display_output_buffer.snapshot()
-
-        stdout_text = self.decode_bytes(stdout)
-        stderr_text = self.decode_bytes(stderr)
-
-        output_text = stdout_text
-        if stderr_text:
-            output_text = f"{output_text}{stderr_text}" if output_text else stderr_text
-        if not output_text and output_lines:
-            output_text = "\n".join(output_lines)
-
-        clipped_output = self.clip_output(output_text, max_chars=output_limit)
-        clipped_stdout = self.clip_output(stdout_text, max_chars=output_limit)
-        clipped_stderr = self.clip_output(stderr_text, max_chars=output_limit)
-
-        exit_code = session.process.returncode
-        status = "running" if exit_code is None else "exited"
-
-        truncated = (
-            len(output_text) > output_limit
-            or len(stdout_text) > output_limit
-            or len(stderr_text) > output_limit
-        )
-
-        return {
-            "ok"               : True,
-            "tool"             : "exec_session_snapshot",
-            "session_id"       : session.session_id,
-            "command"          : session.command,
-            "cwd"              : session.cwd,
-            "status"           : status,
-            "pid"              : session.process.pid,
-            "exit_code"        : exit_code,
-            "started_at"       : session.started_at,
-            "last_activity"    : session.last_activity,
-            "runtime"          : dict(session.runtime),
-            "runtime_name"     : session.runtime.get("name"),
-            "output"           : clipped_output,
-            "stdout"           : clipped_stdout,
-            "stderr"           : clipped_stderr,
-            "output_lines"     : list(output_lines),
-            "output_truncated" : len(output_text) > output_limit,
-            "stdout_truncated" : len(stdout_text) > output_limit,
-            "stderr_truncated" : len(stderr_text) > output_limit,
-            "truncated"        : truncated,
-            "stdout_dropped"   : dropped_stdout,
-            "stderr_dropped"   : dropped_stderr,
-        }
-
-    async def _read_stream(
-        self,
-        session: ExecSession,
-        name: str
-    ) -> None:
-        """持续读取进程输出流并写入会话缓冲区。"""
-        stream = session.process.stdout if name == "stdout" else session.process.stderr
-        if stream is None:
-            return None
-
-        while True:
-            chunk = await stream.read(4096)
-            if not chunk:
-                return None
-            await self._append_output(session, name, chunk)
-
-    async def _append_output(
-        self,
-        session: ExecSession,
-        name: str,
-        chunk: bytes
-    ) -> None:
-        """把输出追加到指定缓冲区，并限制缓冲区大小。"""
-        async with session.lock:
-            target = session.stdout if name == "stdout" else session.stderr
-            target.extend(chunk)
-            dropped_key = "stdout_dropped" if name == "stdout" else "stderr_dropped"
-            if len(target) > self.BUFFER_LIMIT_BYTES:
-                overflow = len(target) - self.BUFFER_LIMIT_BYTES
-                del target[:overflow]
-                if dropped_key == "stdout_dropped":
-                    session.stdout_dropped += overflow
-                else:
-                    session.stderr_dropped += overflow
-            await session.output_buffer.append(name, chunk)
-            await session.display_output_buffer.append(name, chunk)
-            session.last_activity = time.time()
-
-    async def _cleanup_sessions(self) -> None:
-        """清理过期、空闲或已经退出的会话。"""
-        now = time.time()
-
-        sessions = list(self._sessions.values())
-        for session in sessions:
-            expired = now >= session.expires_at
-            idle    = now - session.last_activity >= session.idle_timeout_sec
-
-            if session.process.returncode is None and (expired or idle):
-                await ProcessCapture.terminate_process_tree(session.process, force=expired)
-                await ProcessCapture.wait_for_process(session.process, 1000)
-
-            await self._finalize_if_exited(session)
-
-            if session.finalized and (expired or idle):
-                self._sessions.pop(session.session_id, None)
 
     def _capture_shell_audit(self, mode: str) -> dict[str, typing.Any] | None:
         """按审计模式采集文件指纹。"""
@@ -780,6 +494,7 @@ class ExecCommandTools(NativeCodingComponent):
         if not isinstance(data, dict):
             return
         record = dict(data)
+
         self.core.last_shell_result = record
 
         history = getattr(self.core, "validation_history", None)
@@ -819,39 +534,6 @@ class ExecCommandTools(NativeCodingComponent):
             "data"        : data,
             "logs"        : []
         }
-
-    @classmethod
-    async def _finalize_if_exited(
-        cls,
-        session: ExecSession
-    ) -> None:
-        """进程退出后收束读取任务。"""
-        if session.finalized or session.process.returncode is None:
-            return None
-
-        await ProcessCapture.close_stdin_pipe(session.process)
-
-        tasks = [
-            task for task in (session.stdout_task, session.stderr_task)
-            if task is not None
-        ]
-        if tasks:
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(*tasks, return_exceptions=True),
-                    timeout=cls.IO_DRAIN_TIMEOUT_SEC
-                )
-            except asyncio.TimeoutError:
-                for task in tasks:
-                    task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
-        ProcessCapture.close_process_transport(session.process)
-        session.finalized = True
-
-    @staticmethod
-    def _new_session_id() -> str:
-        """生成不可预测的本地会话 ID。"""
-        return f"exec_{secrets.token_hex(8)}"
 
     @staticmethod
     def _result_from_data(
@@ -895,33 +577,6 @@ class ExecCommandTools(NativeCodingComponent):
         except (TypeError, ValueError):
             number = default
         return max(minimum, min(maximum, number))
-
-    @staticmethod
-    async def _drain_output(
-        session: ExecSession,
-        *,
-        flush_pending: bool = False
-    ) -> tuple[bytes, bytes, tuple[str, ...], int, int]:
-        """取出并清空会话自上次读取后的输出。"""
-        async with session.lock:
-            stdout = bytes(session.stdout)
-            stderr = bytes(session.stderr)
-
-            session.stdout.clear()
-            session.stderr.clear()
-
-            dropped_stdout = session.stdout_dropped
-            dropped_stderr = session.stderr_dropped
-
-            session.stdout_dropped = 0
-            session.stderr_dropped = 0
-
-            session.last_activity = time.time()
-
-        output_lines = await session.output_buffer.drain(flush_pending=flush_pending)
-
-        return stdout, stderr, output_lines, dropped_stdout, dropped_stderr
-
 
 if __name__ == '__main__':
     pass

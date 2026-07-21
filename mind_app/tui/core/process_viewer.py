@@ -1,0 +1,128 @@
+# -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
+
+import typing
+import asyncio
+from dataclasses import dataclass
+from prompt_toolkit.formatted_text import StyleAndTextTuples
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
+from .render import display_line_count
+
+ProcessViewerAction: typing.TypeAlias = typing.Literal[
+    "detach",
+    "interrupt",
+    "exited"
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessViewerRequest(object):
+    """描述主 TUI 中的进程输出查看内容。"""
+
+    fragments: tuple[tuple[str, str], ...]
+    max_height: int = 28
+
+
+@dataclass(slots=True)
+class ProcessViewerState(object):
+    """保存进程查看器的内容和等待结果。"""
+
+    request: ProcessViewerRequest
+    future: asyncio.Future[typing.Any]
+
+
+class TuiProcessViewer(object):
+    """管理主 TUI Application 内的进程输出查看器。"""
+
+    def __init__(
+        self,
+        *,
+        invalidate: typing.Callable[[], None],
+        focus_viewer: typing.Callable[[], None],
+        focus_input: typing.Callable[[], None],
+        get_width: typing.Callable[[], int],
+    ) -> None:
+        """初始化查看器的焦点、刷新和按键行为。"""
+        self.invalidate   = invalidate
+        self.focus_viewer = focus_viewer
+        self.focus_input  = focus_input
+        self.get_width    = get_width
+
+        self.state: ProcessViewerState | None = None
+
+        self.key_bindings = self._build_key_bindings()
+
+    @property
+    def active(self) -> bool:
+        """返回当前是否正在查看进程。"""
+        return self.state is not None
+
+    async def request(self, request: ProcessViewerRequest) -> typing.Any:
+        """显示进程内容并等待用户动作。"""
+        future = asyncio.get_running_loop().create_future()
+
+        self.state = ProcessViewerState(request=request, future=future)
+        self.focus_viewer()
+        self.invalidate()
+
+        try:
+            return await future
+        finally:
+            self.state = None
+            self.focus_input()
+            self.invalidate()
+
+    def update(self, request: ProcessViewerRequest) -> None:
+        """替换当前查看器内容。"""
+        if self.state is None:
+            return None
+        self.state.request = request
+        self.invalidate()
+
+    def finish(self, value: typing.Any) -> None:
+        """结束当前查看并返回动作。"""
+        state = self.state
+        if state is not None and not state.future.done():
+            state.future.set_result(value)
+
+    async def close(self) -> None:
+        """关闭当前查看器。"""
+        self.finish("detach")
+        self.state = None
+
+    def fragments(self) -> StyleAndTextTuples:
+        """返回当前查看器的格式化内容。"""
+        if self.state is None:
+            return []
+        return list(self.state.request.fragments)
+
+    def height(self) -> int:
+        """返回查看器占用的显示行数。"""
+        if self.state is None:
+            return 0
+
+        text = "".join(value for _style, value in self.state.request.fragments)
+        rows = display_line_count(text, width=max(1, self.get_width()))
+
+        return max(1, min(rows, self.state.request.max_height))
+
+    def _build_key_bindings(self) -> KeyBindings:
+        """创建进程查看器的局部按键绑定。"""
+        bindings = KeyBindings()
+
+        @bindings.add("enter")
+        @bindings.add(Keys.Escape, eager=True)
+        @bindings.add("q")
+        def _(event) -> None:
+            self.finish("detach")
+
+        @bindings.add("c-c")
+        def _(event) -> None:
+            self.finish("interrupt")
+
+        return bindings
+
+
+if __name__ == '__main__':
+    pass

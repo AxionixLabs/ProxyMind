@@ -15,7 +15,6 @@ class PromptContext(object):
     model: str
     workspace_label: str = ""
     access_label: str = ""
-    exec_status_label: str = ""
 
 
 class InteractionPort(typing.Protocol):

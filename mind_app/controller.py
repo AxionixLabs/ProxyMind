@@ -38,7 +38,10 @@ from .client_tools import (
     default_registry as default_client_tool_registry
 )
 from .native_coding import NativeCoding
-from .frontend.contracts import Frontend
+from .frontend.contracts import (
+    ActivityStatusKind,
+    Frontend
+)
 from .runtime.design import TerminalDesign
 from .history import (
     ConversationHistoryStore,
@@ -94,6 +97,8 @@ class Mind(object):
         self.frontend: Frontend = kwargs["frontend"]
 
         self.native_coding: NativeCoding  = NativeCoding(root=self.history_workspace)
+
+        self._native_coding_close_tasks: set[asyncio.Task[None]] = set()
 
         self.runtime_loop: typing.Optional[asyncio.AbstractEventLoop] = None
         self.root_task: typing.Optional[asyncio.Task[typing.Any]]     = None
@@ -264,10 +269,30 @@ class Mind(object):
         """更新 history 使用的真实工作区根目录。"""
         normalized = normalize_workspace(workspace)
         if normalized and normalized != self.history_workspace:
+            previous_native_coding = self.native_coding
             self.history_workspace = normalized
-            self.native_coding = NativeCoding(root=self.history_workspace)
-            self.client_tools = self._build_client_tools()
+            self.native_coding     = NativeCoding(root=self.history_workspace)
+            self.client_tools      = self._build_client_tools()
+
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None:
+                task = loop.create_task(
+                    previous_native_coding.close(),
+                    name="mind native coding workspace close",
+                )
+                self._native_coding_close_tasks.add(task)
+                task.add_done_callback(self._native_coding_close_done)
+
         return self.history_workspace
+
+    def _native_coding_close_done(self, task: asyncio.Task[None]) -> None:
+        """回收工作区切换时启动的进程清理任务。"""
+        self._native_coding_close_tasks.discard(task)
+        if not task.cancelled():
+            task.exception()
 
     def _build_client_tools(self) -> ClientToolRegistry:
         """按当前工作区构建客户端工具注册表。"""
@@ -419,19 +444,31 @@ class Mind(object):
 
     async def close_runtime_resources(self) -> None:
         """关闭 Mind 持有的运行时资源，并按退出策略处理本地后台进程。"""
-        await self.stop_external_mcp_runtime()
-        await self.stop_config_service()
-        await self.stop_keepalive_supervisor()
-        server_manager = self.server_manager
-        self.server_manager = None
+        try:
+            with contextlib.suppress(Exception):
+                await self.native_coding.close()
 
-        if server_manager is not None:
-            try:
-                await server_manager.close()
-            finally:
-                if self.stop_runtime_on_exit:
-                    with contextlib.suppress(Exception):
-                        await terminate_port_process(server_manager.port)
+            close_tasks = tuple(self._native_coding_close_tasks)
+            self._native_coding_close_tasks.clear()
+            if close_tasks:
+                await asyncio.gather(*close_tasks, return_exceptions=True)
+
+            await self.stop_external_mcp_runtime()
+            await self.stop_config_service()
+            await self.stop_keepalive_supervisor()
+
+            server_manager      = self.server_manager
+            self.server_manager = None
+
+            if server_manager is not None:
+                try:
+                    await server_manager.close()
+                finally:
+                    if self.stop_runtime_on_exit:
+                        with contextlib.suppress(Exception):
+                            await terminate_port_process(server_manager.port)
+        finally:
+            self.report.close()
 
     async def reboot_runtime(self) -> None:
         """重启已绑定的后台进程，并在完成后恢复保活任务。"""
@@ -455,10 +492,10 @@ class Mind(object):
         await self.stop_keepalive_supervisor()
         await terminate_port_process(self.server_manager.port)
 
-    async def stop_anim(self) -> None:
-        """停止等待动画。"""
+    async def stop_anim(self, kind: ActivityStatusKind | None = None) -> None:
+        """停止指定类型的活动动画。"""
         if self.frontend.runtime.active:
-            await self.frontend.runtime.end_activity_status()
+            await self.frontend.runtime.end_activity_status(kind)
             return None
         await self.anim_manager.stop()
 
@@ -515,15 +552,22 @@ class Mind(object):
 
     async def start_external_mcp_anim(
         self,
-        snapshot: typing.Callable[[], dict[str, typing.Any]]
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+        *,
+        persist_final: bool = False,
     ) -> None:
         """启动外部 MCP 启动状态动画。"""
         if not self.animate:
             return None
         if self.frontend.runtime.active:
-            await self.frontend.runtime.begin_external_mcp_status(snapshot)
+            await self.frontend.runtime.begin_external_mcp_status(
+                snapshot,
+                persist_final=persist_final,
+            )
             return None
+
         design = self.require_design()
+
         await self.anim_manager.start(
             lambda stop_event: design.external_mcp_live(stop_event, snapshot)
         )

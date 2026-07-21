@@ -59,6 +59,7 @@ from ..features.permissions import (
 )
 from ..features.processes import (
     choose_exec_session,
+    monitor_exec_status,
     watch_exec_session
 )
 from ..features.shell import (
@@ -66,7 +67,7 @@ from ..features.shell import (
     run_shell_escape
 )
 from .turn import run_tui_model_turn
-from ..core.runtime import TuiRuntime
+from ..core.runtime import require_tui_runtime
 from ..core.models import FragmentBlock
 from ..core.styles import (
     ACCENT_STYLE,
@@ -151,21 +152,26 @@ def _failure_block(message: typing.Any) -> FragmentBlock:
 
 
 async def preload_tui_prompt_context(mind: "Mind") -> None:
-    """在 TUI 首帧前加载信息栏使用的本地上下文。"""
-    runtime = typing.cast(TuiRuntime, mind.frontend.runtime)
+    """在 TUI 首帧前加载输入上下文和后台进程状态。"""
+    runtime = require_tui_runtime(mind.frontend.runtime)
+
     pref_result, workspace_result, exec_result = await asyncio.gather(
         mind.fresh_pref_config(ttl_sec=0.0),
         fetch_runtime_workspace_root(),
         mind.native_coding.running_exec_sessions(),
         return_exceptions=True,
     )
+
     pref_config = pref_result if isinstance(pref_result, dict) else {}
+
     runtime_workspace_root = (
         workspace_result
         if not isinstance(workspace_result, BaseException)
         else None
     )
+
     exec_snapshot = exec_result if isinstance(exec_result, dict) else {}
+
     if runtime_workspace_root is not None:
         mind.set_history_workspace(runtime_workspace_root)
 
@@ -174,17 +180,23 @@ async def preload_tui_prompt_context(mind: "Mind") -> None:
         model=primary_model_prompt_label(pref_config),
         workspace_label=workspace_display_label(runtime_workspace_root),
         access_label=access_mode_label(DEFAULT_ACCESS_MODE),
-        exec_status_label=exec_status_display_label(
-            exec_snapshot,
-            line_width=runtime.terminal_width,
-        ),
+    ))
+
+    runtime.set_process_status_label(exec_status_display_label(
+        exec_snapshot,
+        line_width=runtime.terminal_width,
     ))
 
 
 async def run_tui_loop(mind: "Mind") -> None:
     """运行 TUI 交互状态机并调度命令和模型轮次。"""
     application = mind.frontend.application
-    runtime     = typing.cast(TuiRuntime, mind.frontend.runtime)
+    runtime     = require_tui_runtime(mind.frontend.runtime)
+
+    runtime.start_background_task(
+        monitor_exec_status(runtime, mind),
+        name="mind process status",
+    )
 
     async def run_modal(
         factory: typing.Callable[[], typing.Awaitable[typing.Any]],
@@ -261,16 +273,11 @@ async def run_tui_loop(mind: "Mind") -> None:
             refreshed_at    = now
 
         try:
-            exec_status_label = exec_status_display_label(
-                await mind.native_coding.running_exec_sessions(),
-                line_width=application.viewport.width
-            )
             prompt_text = await mind.frontend.interaction.read_message(PromptContext(
                 mode=mode,
                 model=primary_model_prompt_label(pref_config, model),
                 workspace_label=workspace_label,
                 access_label=access_mode_label(access_mode),
-                exec_status_label=exec_status_label
             ))
         except KeyboardInterrupt:
             mind.exit_code = 130
@@ -287,10 +294,10 @@ async def run_tui_loop(mind: "Mind") -> None:
             shell_request = parse_shell_escape(prompt_text)
             if shell_request is not None and shell_request.enter_shell:
                 shell_handled = await run_modal(
-                    lambda: run_shell_escape(application, prompt_text)
+                    lambda: run_shell_escape(runtime, mind, prompt_text)
                 )
             else:
-                shell_handled = await run_shell_escape(application, prompt_text)
+                shell_handled = await run_shell_escape(runtime, mind, prompt_text)
             if shell_handled:
                 present()
                 continue

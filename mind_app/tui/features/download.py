@@ -12,7 +12,10 @@ from ..core.models import (
     MenuOption,
     MenuRequest
 )
-from ..core.runtime import TuiRuntime
+from ..core.runtime import (
+    TuiRuntime,
+    require_tui_runtime
+)
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
@@ -32,11 +35,11 @@ class TuiUpgradeProgress(object):
 
     async def start(self, state: dict[str, typing.Any]) -> None:
         """启动主 TUI 中的运行时下载状态。"""
-        await self.runtime.begin_inbuild_status(lambda: dict(state))
+        await self.runtime.begin_download_status(lambda: dict(state))
 
     async def stop(self) -> None:
         """停止主 TUI 中的运行时下载状态。"""
-        await self.runtime.end_activity_status()
+        await self.runtime.end_activity_status("download")
 
 
 async def confirm_runtime_download(
@@ -61,7 +64,8 @@ async def prepare_tui_service_runtime(
     label: str = "Helix MCP",
 ) -> bool:
     """通过当前 TUI 完成下载确认并启动 Helix 运行时。"""
-    runtime = typing.cast(TuiRuntime, mind.frontend.runtime)
+    runtime = require_tui_runtime(mind.frontend.runtime)
+
     return await prepare_and_start_service_runtime(
         mind,
         label=label,

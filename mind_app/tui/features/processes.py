@@ -15,8 +15,11 @@ from ..core.models import (
     MenuOption,
     MenuRequest
 )
+from ..core.process_viewer import ProcessViewerRequest
+from .context import exec_status_display_label
 from .summary import (
     CommandSummary,
+    command_summary_text,
     command_summary_title_parts,
     render_command_summary
 )
@@ -30,9 +33,39 @@ PS_PANEL_TICK_SEC: float   = 0.12
 PS_OUTPUT_LIMIT: int       = 60000
 PS_SUMMARY_MAX_LINES: int  = 8
 PS_MENU_VISIBLE_LIMIT: int = 8
+PROCESS_STATUS_ACTIVE_SEC: float = 0.5
+PROCESS_STATUS_IDLE_SEC: float = 1.0
 
 if typing.TYPE_CHECKING:
     from ..core.runtime import TuiRuntime
+
+
+async def monitor_exec_status(
+    runtime: "TuiRuntime",
+    mind: typing.Any,
+) -> None:
+    """同步后台命令会话摘要到 TUI 专属状态行。"""
+    try:
+        while not mind.task_event.is_set():
+            delay = PROCESS_STATUS_IDLE_SEC
+            try:
+                snapshot = await mind.native_coding.running_exec_sessions()
+                sessions = _running_items(snapshot)
+                label = exec_status_display_label(
+                    snapshot,
+                    line_width=runtime.terminal_width,
+                )
+                delay = (
+                    PROCESS_STATUS_ACTIVE_SEC
+                    if sessions
+                    else PROCESS_STATUS_IDLE_SEC
+                )
+                runtime.set_process_status_label(label)
+            except (OSError, RuntimeError, TypeError, ValueError):
+                pass
+            await asyncio.sleep(delay)
+    finally:
+        runtime.set_process_status_label("")
 
 
 async def choose_exec_session(
@@ -57,13 +90,16 @@ async def choose_exec_session(
         return None
 
     return await runtime.select_menu(MenuRequest(
-        title="Exec Commands",
+        title="Background Commands",
         status=f"running={len(sessions)}",
         options=tuple(
             MenuOption(
                 value=str(item.get("session_id") or "").strip() or None,
                 label=_clip_inline(item.get("command"), 80),
-                detail=f"pid={item.get('pid') or '-'}",
+                detail=(
+                    f"{_origin_label(item.get('origin'))} "
+                    f"pid={item.get('pid') or '-'}"
+                ),
             )
             for item in sessions
         ),
@@ -74,7 +110,9 @@ async def watch_exec_session(
     runtime: "TuiRuntime",
     mind: typing.Any,
     session_id: str | None,
-) -> bool:
+    *,
+    announce_detach: bool = False,
+) -> bool | str:
     """在主 TUI 中持续查看命令会话输出。"""
     sid = str(session_id or "").strip()
     if not sid:
@@ -82,15 +120,20 @@ async def watch_exec_session(
 
     application = mind.frontend.application
     height      = _ps_panel_height(application.viewport.height)
+    initial = await mind.native_coding.exec_session_output_snapshot(
+        session_id=sid,
+        max_output_chars=PS_OUTPUT_LIMIT,
+    )
+    runtime.cancel_background_session_task(sid)
+    if initial.get("ok") is False:
+        return False
+    if str(initial.get("status") or "").strip() == "exited":
+        render_exec_session_summary(application, initial)
+        return "exited"
 
     state: dict[str, typing.Any] = {
-        "snapshot": {
-            "ok"         : True,
-            "session_id" : sid,
-            "status"     : "running",
-            "output_lines": [],
-        },
-        "last_snapshot": None,
+        "snapshot": initial,
+        "last_snapshot": initial,
         "updated_at": time.time(),
     }
     return await _watch_exec_session(
@@ -99,6 +142,7 @@ async def watch_exec_session(
         state,
         runtime=runtime,
         height=height,
+        announce_detach=announce_detach,
     )
 
 
@@ -109,44 +153,42 @@ async def _watch_exec_session(
     *,
     runtime: "TuiRuntime",
     height: int,
-) -> bool:
+    announce_detach: bool,
+) -> bool | str:
     """轮询并更新主 TUI 中的命令会话面板。"""
     application = mind.frontend.application
 
-    def request() -> MenuRequest:
+    def request() -> ProcessViewerRequest:
         fragments = render_exec_session_panel(
             state,
             height=max(4, height - 1),
             terminal_width=application.viewport.width,
         )
-        text = "".join(value for _style, value in fragments)
-        return MenuRequest(
-            title="Exec Command",
-            status=session_id,
-            body=tuple(text.rstrip().splitlines()),
-            help_text="Esc/q close · read-only · output is tailed",
+        return ProcessViewerRequest(
+            fragments=tuple(fragments),
+            max_height=height,
         )
 
-    viewer_task = asyncio.create_task(runtime.select_menu(request()))
+    viewer_task = asyncio.create_task(runtime.view_process(request()))
 
     async def poll() -> None:
         while not viewer_task.done():
-            snapshot = await mind.native_coding.exec_session_output_snapshot(
+            current_snapshot = await mind.native_coding.exec_session_output_snapshot(
                 session_id=session_id,
                 max_output_chars=PS_OUTPUT_LIMIT,
             )
-            if snapshot.get("ok") is False:
-                runtime.finish_menu(state.get("last_snapshot"))
+            if current_snapshot.get("ok") is False:
+                runtime.finish_process_viewer(state.get("last_snapshot"))
                 return None
 
-            state["snapshot"]      = snapshot
+            state["snapshot"]      = current_snapshot
             state["updated_at"]    = time.time()
-            state["last_snapshot"] = snapshot
+            state["last_snapshot"] = current_snapshot
 
-            runtime.update_menu(request())
+            runtime.update_process_viewer(request())
 
-            if str(snapshot.get("status") or "").strip() == "exited":
-                runtime.finish_menu(snapshot)
+            if str(current_snapshot.get("status") or "").strip() == "exited":
+                runtime.finish_process_viewer(current_snapshot)
                 return None
             await asyncio.sleep(PS_PANEL_TICK_SEC)
 
@@ -159,8 +201,23 @@ async def _watch_exec_session(
             poll_task.cancel()
         await asyncio.gather(poll_task, return_exceptions=True)
 
+    if result == "interrupt":
+        result = await _interrupt_exec_session(mind, session_id)
+    elif result == "detach" and announce_detach:
+        snapshot = state.get("last_snapshot") or state.get("snapshot")
+        if isinstance(snapshot, dict):
+            render_exec_session_detached(application, snapshot)
     if isinstance(result, dict):
         render_exec_session_summary(application, result)
+        return "exited"
+    if result == "detach":
+        snapshot = state.get("last_snapshot") or state.get("snapshot")
+        if isinstance(snapshot, dict) and snapshot.get("origin") == "tui_shell":
+            runtime.start_background_session_task(
+                session_id,
+                _watch_detached_exec_session(runtime, mind, session_id),
+            )
+        return "detach"
     return True
 
 
@@ -179,7 +236,7 @@ def render_exec_session_menu(
     end = start + len(visible)
 
     lines: StyleAndTextTuples = [
-        ("class:ps.title", "Exec Commands"),
+        ("class:ps.title", "Background Commands"),
         ("", "\n"),
         ("class:ps.status", _session_menu_status(len(sessions), start, end)),
         ("", "\n"),
@@ -228,7 +285,10 @@ def render_exec_session_panel(
         ("", "\n"),
         ("class:ps.meta", meta),
         ("", "\n"),
-        ("class:ps.help", "Ctrl+C/Esc/q close · read-only · output is tailed"),
+        (
+            "class:ps.help",
+            "Enter/Esc/q background · Ctrl+C stop · output is tailed",
+        ),
         ("", "\n"),
     ]
 
@@ -258,10 +318,24 @@ def render_exec_session_summary(
     render_command_summary(application, exec_session_command_summary(snapshot))
 
 
+def render_exec_session_detached(
+    application: ApplicationSink,
+    snapshot: dict[str, typing.Any],
+) -> None:
+    """渲染进程会话已转入后台的摘要。"""
+    session_id = str(snapshot.get("session_id") or "").strip()
+    render_command_summary(application, CommandSummary(
+        kind=_session_kind(snapshot),
+        command=str(snapshot.get("command") or session_id or "command"),
+        suffix=f" · background · {session_id}",
+        lines=(),
+    ))
+
+
 def exec_session_command_summary(snapshot: dict[str, typing.Any]) -> CommandSummary:
     """把 exec_command 快照转换为统一命令摘要。"""
     return CommandSummary(
-        kind="Exec",
+        kind=_session_kind(snapshot),
         command=str(snapshot.get("command") or snapshot.get("session_id") or "exec_command"),
         suffix=_exec_session_status_suffix(snapshot),
         lines=tuple(exec_session_summary_lines(snapshot))
@@ -298,7 +372,9 @@ def exec_session_summary_lines(
 
     exit_code = snapshot.get("exit_code")
     if exit_code not in (None, 0):
-        return [f"exec_command exited with code {int(exit_code or 0)}"]
+        return [
+            f"{_session_kind(snapshot)} exited with code {int(exit_code or 0)}"
+        ]
     return []
 
 
@@ -312,6 +388,67 @@ def _running_items(snapshot: typing.Any) -> list[dict[str, typing.Any]]:
         return []
 
     return [item for item in raw_items if isinstance(item, dict)]
+
+
+async def _interrupt_exec_session(
+    mind: typing.Any,
+    session_id: str,
+) -> dict[str, typing.Any]:
+    """中断进程会话并返回收束后快照。"""
+    await mind.native_coding.control_exec_session(
+        session_id=session_id,
+        control="interrupt",
+    )
+    for _index in range(8):
+        await asyncio.sleep(0.1)
+        snapshot = await mind.native_coding.exec_session_output_snapshot(
+            session_id=session_id,
+            max_output_chars=PS_OUTPUT_LIMIT,
+        )
+        if snapshot.get("ok") is False:
+            return snapshot
+        if str(snapshot.get("status") or "") == "exited":
+            return snapshot
+    await mind.native_coding.control_exec_session(
+        session_id=session_id,
+        control="terminate",
+    )
+    return await mind.native_coding.exec_session_output_snapshot(
+        session_id=session_id,
+        max_output_chars=PS_OUTPUT_LIMIT,
+    )
+
+
+async def _watch_detached_exec_session(
+    runtime: "TuiRuntime",
+    mind: typing.Any,
+    session_id: str,
+) -> None:
+    """在后台会话退出后提交一次完成摘要。"""
+    while True:
+        snapshot = await mind.native_coding.exec_session_output_snapshot(
+            session_id=session_id,
+            max_output_chars=PS_OUTPUT_LIMIT,
+        )
+        if snapshot.get("ok") is False:
+            return None
+        if str(snapshot.get("status") or "").strip() == "exited":
+            runtime.queue_background_block(command_summary_text(
+                exec_session_command_summary(snapshot),
+                terminal_width=mind.frontend.application.viewport.width,
+            ))
+            return None
+        await asyncio.sleep(0.25)
+
+
+def _session_kind(snapshot: dict[str, typing.Any]) -> str:
+    """返回会话来源对应的展示名称。"""
+    return "Shell" if snapshot.get("origin") == "tui_shell" else "Exec"
+
+
+def _origin_label(origin: typing.Any) -> str:
+    """返回会话来源的简短标签。"""
+    return "shell" if str(origin or "") == "tui_shell" else "tool"
 
 
 def _visible_session_window(
@@ -348,11 +485,12 @@ def _panel_title(
     sid    = str(snapshot.get("session_id") or "").strip()
     status = str(snapshot.get("status") or "unknown").strip()
 
+    kind = _session_kind(snapshot)
     command = _clip_inline(snapshot.get("command"), max(12, terminal_width - 32))
     if command:
-        return f"Exec {status} · {sid} · {command}"
+        return f"{kind} {status} · {sid} · {command}"
 
-    return f"Exec {status} · {sid}"
+    return f"{kind} {status} · {sid}"
 
 
 def _panel_meta(

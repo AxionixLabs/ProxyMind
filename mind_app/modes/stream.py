@@ -177,7 +177,7 @@ async def stream_looper(
 
             if first_frame:
                 if not mind.frontend.runtime.active:
-                    await mind.stop_anim()
+                    await mind.stop_anim("wait")
                 first_frame = False
 
             event_type = str(event.get("type") or "")
@@ -417,7 +417,7 @@ async def stream_looper(
 
     except Exception as e:
         error = friendly_exception_text(e)
-        await mind.await_cleanup(mind.stop_anim())
+        await mind.await_cleanup(mind.stop_anim("wait"))
         await finish_failure(
             output_control,
             presentation,

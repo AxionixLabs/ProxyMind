@@ -77,12 +77,13 @@ class CompactLiveStatus(object):
     def snapshot(self) -> dict[str, typing.Any]:
         """返回可复用外部 MCP 动画渲染的状态快照。"""
         return {
-            "summary" : self._message,
-            "done"    : self._done,
-            "items"   : [
+            "summary": self._message,
+            "done": self._done,
+            "detail_limit": 0,
+            "items": [
                 {
                     "name"  : "Compact",
-                    "state" : self._state,
+                    "state" : self._state
                 }
             ]
         }
@@ -203,7 +204,10 @@ async def compact_current_conversation(
             f"[Compact] animation start "
             f"cid={metadata['cid']} sid={metadata['sid']}"
         )
-        await mind.start_external_mcp_anim(status.snapshot)
+        await mind.start_external_mcp_anim(
+            status.snapshot,
+            persist_final=True,
+        )
         animation_running = True
 
     try:
@@ -221,7 +225,7 @@ async def compact_current_conversation(
                 status.failed(message)
                 logger.debug(f"[Compact] failed message={status.snapshot()['summary']}")
                 if animation_running:
-                    await mind.await_cleanup(mind.stop_anim())
+                    await mind.await_cleanup(mind.stop_anim("external_mcp"))
                     animation_running = False
                 return None
 
@@ -230,7 +234,7 @@ async def compact_current_conversation(
                 status.completed(message, detail)
                 logger.debug(f"[Compact] completed message={status.snapshot()['summary']}")
                 if animation_running:
-                    await mind.await_cleanup(mind.stop_anim())
+                    await mind.await_cleanup(mind.stop_anim("external_mcp"))
                     animation_running = False
                 return None
 
@@ -238,18 +242,19 @@ async def compact_current_conversation(
             status.failed("Context compaction failed. Please try again.")
             logger.debug(f"[Compact] failed message={status.snapshot()['summary']}")
             if animation_running:
-                await mind.await_cleanup(mind.stop_anim())
+                await mind.await_cleanup(mind.stop_anim("external_mcp"))
                 animation_running = False
 
     finally:
         if animation_running:
-            await mind.await_cleanup(mind.stop_anim())
+            await mind.await_cleanup(mind.stop_anim("external_mcp"))
 
 
 def compact_event_detail(event: dict[str, typing.Any]) -> str:
     """返回压缩完成事件的简短统计。"""
     before_items = event.get("before_items")
     after_items  = event.get("after_items")
+
     if isinstance(before_items, int) and isinstance(after_items, int):
         return f" · {before_items} -> {after_items} items"
     return ""
@@ -353,7 +358,8 @@ async def open_helix_home(mind: "Mind") -> None:
 def helix_runtime_home_url(mind: "Mind") -> str:
     """返回当前 Helix 服务管理器确认的首页地址。"""
     server_manager = getattr(mind, "server_manager", None)
-    url            = str(getattr(server_manager, "url", "") or "").strip()
+
+    url = str(getattr(server_manager, "url", "") or "").strip()
 
     return (url or const.BASE_URL).rstrip("/")
 

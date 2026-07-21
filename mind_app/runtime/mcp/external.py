@@ -21,9 +21,11 @@ class ExternalMcpRuntime(object):
     def __init__(self, mind: "Mind") -> None:
         """绑定 Mind 实例，并初始化外部 MCP 运行时状态。"""
         self._mind = mind
-        self._context: typing.Any = None
+
         self._group: typing.Optional[ExternalMcpGroup] = None
-        self._started = False
+
+        self._context: typing.Any = None
+        self._started: bool       = False
 
     @property
     def group(self) -> typing.Optional[ExternalMcpGroup]:
@@ -57,9 +59,13 @@ class ExternalMcpRuntime(object):
 
         status = ExternalMcpStatus(servers)
 
-        external_anim_started = False
+        external_anim_started: bool = False
+
         if status.visible:
-            await self._mind.start_external_mcp_anim(status.snapshot)
+            await self._mind.start_external_mcp_anim(
+                status.snapshot,
+                persist_final=True,
+            )
             external_anim_started = True
 
         try:
@@ -73,7 +79,7 @@ class ExternalMcpRuntime(object):
             self._group = None
         finally:
             if external_anim_started:
-                await self._mind.await_cleanup(self._mind.stop_anim())
+                await self._mind.await_cleanup(self._mind.stop_anim("external_mcp"))
 
     async def stop(self) -> None:
         """关闭已建立的外部 MCP 连接，并清空运行时状态。"""

@@ -80,6 +80,8 @@ async def _run_main(
     handler: SignalHandler | None = None
 ) -> int:
     """执行入口主流程。"""
+    Active.silent()
+
     # 解析命令行参数
     parser = Parser()
 
@@ -127,12 +129,6 @@ async def _run_main(
 
     # Notes: ========== 激活日志 ==========
     level = const.SHOW_LEVEL
-    log_console = getattr(frontend.application, "console", None)
-    Active.active(
-        level,
-        console=log_console,
-        stderr=output_mode == "json",
-    )
 
     pref = Preferences(str(mind_config_path()))
 
@@ -167,10 +163,10 @@ async def _run_main(
     if cmd_lines.upgrade:
         progress = None
         if output_mode == "tui":
-            from ..tui.core.runtime import TuiRuntime
+            from ..tui.core.runtime import require_tui_runtime
             from ..tui.features.download import TuiUpgradeProgress
 
-            runtime = typing.cast(TuiRuntime, frontend.runtime)
+            runtime = require_tui_runtime(frontend.runtime)
             await runtime.open()
             progress = TuiUpgradeProgress(runtime)
         try:

@@ -13,6 +13,14 @@ from dataclasses import (
 from mind_app.interaction.contracts import InteractionPort
 from mind_app.output.session import SessionFactory
 
+ActivityStatusKind = typing.Literal[
+    "wait",
+    "upload",
+    "download",
+    "inbuild",
+    "external_mcp",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class ApplicationView(object):
@@ -74,6 +82,13 @@ class FrontendRuntime(typing.Protocol):
         """显示附件上传状态。"""
         ...
 
+    async def begin_download_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """显示运行时下载状态。"""
+        ...
+
     async def begin_inbuild_status(
         self,
         snapshot: typing.Callable[[], dict[str, typing.Any]],
@@ -84,11 +99,16 @@ class FrontendRuntime(typing.Protocol):
     async def begin_external_mcp_status(
         self,
         snapshot: typing.Callable[[], dict[str, typing.Any]],
+        *,
+        persist_final: bool = False,
     ) -> None:
         """显示外部 MCP 启动状态。"""
         ...
 
-    async def end_activity_status(self) -> None:
+    async def end_activity_status(
+        self,
+        kind: ActivityStatusKind | None = None,
+    ) -> None:
         """结束当前活动状态。"""
         ...
 
@@ -121,6 +141,14 @@ class PassiveFrontendRuntime(object):
         _ = snapshot
         return None
 
+    async def begin_download_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """忽略运行时下载状态请求。"""
+        _ = snapshot
+        return None
+
     async def begin_inbuild_status(
         self,
         snapshot: typing.Callable[[], dict[str, typing.Any]],
@@ -132,13 +160,19 @@ class PassiveFrontendRuntime(object):
     async def begin_external_mcp_status(
         self,
         snapshot: typing.Callable[[], dict[str, typing.Any]],
+        *,
+        persist_final: bool = False,
     ) -> None:
         """忽略外部 MCP 状态请求。"""
-        _ = snapshot
+        _ = snapshot, persist_final
         return None
 
-    async def end_activity_status(self) -> None:
+    async def end_activity_status(
+        self,
+        kind: ActivityStatusKind | None = None,
+    ) -> None:
         """忽略活动状态结束请求。"""
+        _ = kind
         return None
 
 

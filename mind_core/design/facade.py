@@ -10,7 +10,7 @@ from rich.cells import cell_len
 from rich.live import Live
 from rich.text import Text
 from rich.console import Console
-from .status import DesignStatusLiveDriver
+from .status.driver import DesignStatusLiveDriver
 from .utils import (
     mix_hex_color,
     typewriter as design_typewriter,

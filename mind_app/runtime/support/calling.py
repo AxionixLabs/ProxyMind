@@ -39,7 +39,7 @@ async def run_mode_lifecycle(
     try:
         await runner(mode=mode, **kwargs)
     finally:
-        await mind.await_cleanup(mind.stop_anim())
+        await mind.await_cleanup(mind.stop_anim("wait"))
 
     emit_worked_footer(
         mind.frontend.application,

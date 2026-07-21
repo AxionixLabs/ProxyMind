@@ -57,7 +57,7 @@ async def resolve_cli_attachments(
         ))
         raise
     finally:
-        await mind.await_cleanup(mind.stop_anim())
+        await mind.await_cleanup(mind.stop_anim("upload"))
 
     mind.attach.clear_pending_attachments()
 

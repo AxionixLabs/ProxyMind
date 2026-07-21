@@ -11,6 +11,11 @@ from .agent_frames import (
     render_agent_connect_frame,
     render_agent_wait_frame
 )
+from mind_core.mcp_status import (
+    McpStatusDetail,
+    external_mcp_status_view,
+    inbuild_status_view,
+)
 from .renderers import StatusRenderer
 from .types import AgentLiveTheme
 from mind_nova.modes import (
@@ -26,34 +31,6 @@ class DesignStatusLiveDriver(StatusRenderer):
     STARTUP_SWEEP_LEAD_SPAN: float     = 4.6
     STARTUP_SWEEP_TAIL_SPAN: float     = 9.4
     STARTUP_SWEEP_PEAK_RADIUS: float   = 0.92
-
-    @staticmethod
-    def _external_mcp_item_text(item: dict[str, typing.Any]) -> str:
-        name   = str(item.get("name") or "server").strip() or "server"
-        state  = str(item.get("state") or "queued").strip().lower()
-        detail = str(item.get("detail") or "").strip()
-
-        if state == "failed":
-            return f"{name}: {detail or 'failed'}"
-
-        if detail:
-            return f"{name} {detail}"
-
-        if state == "ready":
-            try:
-                tool_count = int(item.get("tools") or 0)
-            except (TypeError, ValueError, OverflowError):
-                tool_count = 0
-            return f"{name} {tool_count} tools"
-
-        if state == "empty":
-            return f"{name} 0 tools"
-        if state == "linking":
-            return f"{name} linking"
-        if state == "queued":
-            return f"{name} queued"
-
-        return name
 
     @staticmethod
     def _external_mcp_detail_color(state: str, detail: str, colors: dict[str, str]) -> str:
@@ -72,13 +49,6 @@ class DesignStatusLiveDriver(StatusRenderer):
             return colors["detail_warn"]
 
         return colors["detail"]
-
-    @staticmethod
-    def _external_mcp_detail_connector(index: int, count: int) -> str:
-        """返回外部 MCP 详情行连接符；单条详情保持轻量，列表详情使用树形线。"""
-        if count <= 1:
-            return "└ "
-        return "└─ " if index >= count - 1 else "├─ "
 
     @classmethod
     def _external_mcp_link_focus(
@@ -113,8 +83,7 @@ class DesignStatusLiveDriver(StatusRenderer):
         snapshot: dict[str, typing.Any
         ]
     ) -> Text:
-        state = str(snapshot.get("state") or "starting").strip().lower()
-        title = str(snapshot.get("label") or "Internal MCP").strip() or "Internal MCP"
+        view = inbuild_status_view(snapshot)
 
         colors = {
             "spin"      : "#7DD3FC",
@@ -132,21 +101,21 @@ class DesignStatusLiveDriver(StatusRenderer):
         }
 
         out = Text()
-        if state == "ready":
+        if view.level == "ready":
             out.append("■", style=f"bold {colors['done']}")
-            out.append(f" {title} ready", style=f"bold {colors['text']}")
+            out.append(f" {view.summary}", style=f"bold {colors['text']}")
             return out
 
-        if state == "failed":
+        if view.level == "failed":
             out.append("■", style=f"bold {colors['fail']}")
-            out.append(f" {title} failed", style=f"bold {colors['fail_text']}")
+            out.append(f" {view.summary}", style=f"bold {colors['fail_text']}")
             return out
 
         marker, marker_style = cls._external_mcp_link_marker(phase, colors)
         out.append(marker, style=marker_style)
         out.append(" ", style=f"bold {colors['spin_dim']}")
 
-        label = f"{title} starting"
+        label = view.summary
 
         cls._append_gradient_sweep_text(
             out,
@@ -165,94 +134,10 @@ class DesignStatusLiveDriver(StatusRenderer):
         return out
 
     @classmethod
-    def _external_mcp_status_parts(
-        cls,
-        snapshot: dict[str, typing.Any],
-    ) -> tuple[str, list[dict[str, str]]]:
-        summary_override = str(snapshot.get("summary") or "").strip()
-        items = [
-            item for item in list(snapshot.get("items") or [])
-            if isinstance(item, dict)
-        ]
-        if not items:
-            return summary_override, []
-
-        done = bool(snapshot.get("done", False))
-
-        ready_count: int     = 0
-        total_tools: int     = 0
-        connected_count: int = 0
-
-        failed_names: list[str] = []
-
-        for item in items:
-            state = str(item.get("state") or "").lower()
-            if state in {"ready", "empty"}:
-                connected_count += 1
-            elif state == "failed":
-                name = str(item.get("name") or "server").strip() or "server"
-                failed_names.append(name)
-            if state != "ready":
-                continue
-            try:
-                tool_count = int(item.get("tools") or 0)
-                if tool_count > 0:
-                    ready_count += 1
-                    total_tools += tool_count
-            except (TypeError, ValueError, OverflowError):
-                continue
-
-        if done:
-            if ready_count > 0:
-                prefix = "External MCP ready"
-            elif connected_count > 0:
-                prefix = "External MCP available"
-            else:
-                prefix = "External MCP failed"
-        else:
-            prefix = "External MCP linking"
-
-        parts = [prefix, f"{ready_count}/{len(items)} servers" if done else f"{len(items)} servers"]
-        if total_tools > 0:
-            parts.append(f"{total_tools} tools")
-
-        show_details = done and bool(failed_names)
-        if not show_details:
-            return summary_override or " · ".join(parts), []
-
-        detail_items = [
-            item for item in items
-            if str(item.get("state") or "").strip().lower() == "failed"
-        ]
-
-        detail_limit = min(5, len(detail_items))
-        visible_count = detail_limit + (1 if len(detail_items) > detail_limit else 0)
-        details      = []
-
-        for index, item in enumerate(detail_items[:detail_limit]):
-            connector = cls._external_mcp_detail_connector(index, visible_count)
-            details.append(
-                {
-                    "text"  : f"{connector}{cls._external_mcp_item_text(item)}",
-                    "state" : str(item.get("state") or "").strip().lower()
-                }
-            )
-        if len(detail_items) > detail_limit:
-            connector = cls._external_mcp_detail_connector(detail_limit, visible_count)
-            details.append(
-                {
-                    "text"  : f"{connector}... {len(detail_items) - detail_limit} more servers",
-                    "state" : "more"
-                }
-            )
-
-        return summary_override or " · ".join(parts), details
-
-    @classmethod
     def _external_mcp_details(
         cls,
         out: Text,
-        details: list[dict[str, str]],
+        details: tuple[McpStatusDetail, ...],
         colors: dict[str, str],
     ) -> None:
         if not details:
@@ -264,55 +149,20 @@ class DesignStatusLiveDriver(StatusRenderer):
         limit = max(12, min(72, console_width - 3))
 
         for detail in details:
-            fitted = cls.truncate_status_text(detail.get("text", ""), limit=limit)
+            fitted = cls.truncate_status_text(detail.text, limit=limit)
             out.append("\n", style=f"bold {colors['detail_dim']}")
-            style = cls._external_mcp_detail_color(detail.get("state", ""), fitted, colors)
+            style = cls._external_mcp_detail_color(detail.state, fitted, colors)
             out.append(fitted, style=f"bold {style}")
         return None
-
-    @classmethod
-    def _external_mcp_done_level(
-        cls,
-        snapshot: dict[str, typing.Any]
-    ) -> str:
-        items = [
-            item for item in list(snapshot.get("items") or [])
-            if isinstance(item, dict)
-        ]
-        if not items:
-            return "ready"
-
-        connected_count: int = 0
-        failed_count: int    = 0
-
-        for item in items:
-            state = str(item.get("state") or "").strip().lower()
-            if state in {"ready", "empty"}:
-                connected_count += 1
-            elif state == "failed":
-                failed_count += 1
-
-        if failed_count and connected_count <= 0:
-            return "failed"
-        if failed_count:
-            return "warn"
-
-        return "ready"
 
     @classmethod
     def external_mcp_status_text(
         cls,
         snapshot: dict[str, typing.Any]
     ) -> str:
-        summary, details = cls._external_mcp_status_parts(snapshot)
-
-        lines = [
-            str(detail.get("text") or "")
-            for detail in details
-            if str(detail.get("text") or "").strip()
-        ]
-
-        return "\n".join([summary, *lines]) if summary else ""
+        view  = external_mcp_status_view(snapshot)
+        lines = [detail.text for detail in view.details if detail.text]
+        return "\n".join([view.summary, *lines]) if view.summary else ""
 
     @classmethod
     def external_mcp_renderable(
@@ -320,9 +170,7 @@ class DesignStatusLiveDriver(StatusRenderer):
         phase: float,
         snapshot: dict[str, typing.Any]
     ) -> Text:
-        summary, details = cls._external_mcp_status_parts(snapshot)
-
-        done = bool(snapshot.get("done", False))
+        view = external_mcp_status_view(snapshot)
 
         colors = {
             "spin"         : "#7DD3FC",
@@ -344,11 +192,10 @@ class DesignStatusLiveDriver(StatusRenderer):
         }
 
         out = Text()
-        if done:
-            done_level = cls._external_mcp_done_level(snapshot)
-            if done_level == "failed":
+        if view.done:
+            if view.level == "failed":
                 out.append("■", style=f"bold {colors['fail']}")
-            elif done_level == "warn":
+            elif view.level == "warning":
                 out.append("■", style=f"bold {colors['warn']}")
             else:
                 out.append("■", style=f"bold {colors['done']}")
@@ -358,7 +205,7 @@ class DesignStatusLiveDriver(StatusRenderer):
 
         out.append(" ", style=f"bold {colors['spin_dim']}")
 
-        if not summary:
+        if not view.summary:
             return out
 
         console_width = 80
@@ -366,18 +213,18 @@ class DesignStatusLiveDriver(StatusRenderer):
             console_width = max(24, int(cls.console.width))
 
         fitted = cls.truncate_status_text(
-            summary,
+            view.summary,
             limit=max(12, min(72, console_width - 3))
         )
         span = max(1, len(fitted))
 
-        if done:
+        if view.done:
             for char in fitted:
                 if char == "·":
                     out.append(char, style=f"bold {colors['text_mid']}")
                 else:
                     out.append(char, style=f"bold {colors['text_soft']}")
-            cls._external_mcp_details(out, details, colors)
+            cls._external_mcp_details(out, view.details, colors)
             return out
 
         focus = cls._external_mcp_link_focus(phase, span)
@@ -396,7 +243,7 @@ class DesignStatusLiveDriver(StatusRenderer):
             tail_span=cls.STARTUP_SWEEP_TAIL_SPAN,
             peak_radius=cls.STARTUP_SWEEP_PEAK_RADIUS,
         )
-        cls._external_mcp_details(out, details, colors)
+        cls._external_mcp_details(out, view.details, colors)
         return out
 
     async def inbuild_startup_live(

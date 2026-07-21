@@ -36,12 +36,20 @@ class TuiApproval(object):
         invalidate: typing.Callable[[], None],
         focus_card: typing.Callable[[], None],
         focus_input: typing.Callable[[], None],
+        get_width: typing.Callable[[], int],
+        get_max_height: typing.Callable[[], int],
     ) -> None:
-        self.invalidate = invalidate
-        self.focus_card = focus_card
+        self.invalidate  = invalidate
+        self.focus_card  = focus_card
         self.focus_input = focus_input
+
+        self.get_width      = get_width
+        self.get_max_height = get_max_height
+
         self.state: ApprovalState | None = None
+
         self.expiry_task: asyncio.Task[None] | None = None
+
         self.key_bindings = self._build_key_bindings()
 
     @property
@@ -87,7 +95,7 @@ class TuiApproval(object):
         await self._cancel_expiry()
 
     def fragments(self) -> StyleAndTextTuples:
-        """生成浅灰背景审批面板内容。"""
+        """生成审批面板内容。"""
         state = self.state
         if state is None:
             return []
@@ -96,13 +104,15 @@ class TuiApproval(object):
             state.decisions,
             approval=state.approval,
             selected_index=state.selected,
+            width=max(1, self.get_width() - 4),
+            max_height=self.get_max_height(),
         )
-        out: StyleAndTextTuples = [("class:approval-card", "\n")]
-        for line in lines:
+        out: StyleAndTextTuples = []
+        for index, line in enumerate(lines):
             out.append(("class:approval-card", "  "))
             out.extend(line)
-            out.append(("class:approval-card", "\n"))
-        out.append(("class:approval-card", "\n"))
+            if index < len(lines) - 1:
+                out.append(("class:approval-card", "\n"))
         return out
 
     def finish(self, decision: ApprovalDecisionValue) -> None:

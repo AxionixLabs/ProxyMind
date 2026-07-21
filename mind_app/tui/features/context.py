@@ -3,8 +3,10 @@
 
 import typing
 from pathlib import (
-    Path, PurePath
+    Path,
+    PurePath
 )
+from prompt_toolkit.utils import get_cwidth
 from mind_app.paths import mind_config_path
 from mind_core.config import (
     config_to_preferences,
@@ -113,7 +115,7 @@ def exec_status_display_label(
     command_limit: int | None = None,
     line_width: int | None = None
 ) -> str:
-    """生成 prompt 中展示的 exec 会话摘要。"""
+    """生成后台进程状态行使用的 exec 会话摘要。"""
     if not isinstance(snapshot, dict):
         return ""
 
@@ -159,7 +161,7 @@ def _exec_status_command_limit(
     except (TypeError, ValueError):
         width = 80
 
-    available = width - 7 - len(suffix)
+    available = width - 7 - get_cwidth(suffix)
 
     if available < EXEC_STATUS_COMMAND_MIN:
         return max(1, available)
@@ -174,11 +176,22 @@ def _clip_exec_status_command(value: typing.Any, *, limit: int) -> str:
         return ""
 
     size = max(1, int(limit or 1))
-    if len(text) <= size:
+    if get_cwidth(text) <= size:
         return text
     if size <= 1:
         return "…"
-    return f"{text[:size - 1]}…"
+
+    available = size - get_cwidth("…")
+    used      = 0
+
+    chars: list[str] = []
+    for char in text:
+        char_width = max(0, get_cwidth(char))
+        if used + char_width > available:
+            break
+        chars.append(char)
+        used += char_width
+    return f"{''.join(chars)}…"
 
 
 async def save_primary_pref_field(

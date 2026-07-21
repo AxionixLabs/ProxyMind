@@ -9,56 +9,73 @@ from .models import FormattedText
 
 StatusFamily = typing.Literal["tool", "wait"]
 
+ColorStop = tuple[float, str]
+
+SWEEP_REFRESH_PER_SECOND = 30
+SWEEP_ENTRY_PAD          = 1.2
+SWEEP_PEAK_RADIUS        = 0.58
+SWEEP_LEAD_SPAN          = 1.25
+SWEEP_TAIL_SPAN          = 5.2
+SWEEP_MIN_DURATION       = 1.75
+SWEEP_MAX_DURATION       = 2.65
+
 
 @dataclass(frozen=True, slots=True)
-class SweepFrameSpec(object):
-    """描述 TUI 状态文字的扫光节奏。"""
+class SweepProfile(object):
+    """描述状态族的字符、配色和相对扫光速度。"""
 
-    refresh_per_second: int
-    phase_rate: float
-    entry_pad: float
-    exit_pad: float
-    tail_span: float
-    peak_radius: float
+    glyph: str
+    speed_factor: float
+    breathe_rate: float
+    indicator_dim: str
+    indicator_peak: str
+    color_stops: tuple[ColorStop, ...]
 
 
-SWEEP_SPECS: dict[StatusFamily, SweepFrameSpec] = {
-    "tool": SweepFrameSpec(30, 15.8, 1.2, 8.2, 6.8, 0.74),
-    "wait": SweepFrameSpec(30, 15.6, 1.2, 4.0, 5.2, 0.58),
-}
-
-STATUS_COLORS: dict[StatusFamily, dict[str, str]] = {
-    "tool": {
-        "indicator_dim": "#5A4B42",
-        "indicator_peak": "#DCC8AB",
-        "peak": "#FFF4D8",
-        "soft": "#F6DCA8",
-        "near": "#D8B77F",
-        "mid": "#A48662",
-        "fade": "#755F4E",
-        "dim": "#5A4B42",
-    },
-    "wait": {
-        "indicator_dim": "#465652",
-        "indicator_peak": "#B5CAC4",
-        "peak": "#DDE7E3",
-        "soft": "#C5D4CF",
-        "near": "#A4B5B0",
-        "mid": "#7C8F89",
-        "fade": "#667873",
-        "dim": "#465652",
-    },
+SWEEP_PROFILES: dict[StatusFamily, SweepProfile] = {
+    "tool": SweepProfile(
+        glyph="•",
+        speed_factor=1.08,
+        breathe_rate=4.7,
+        indicator_dim="#5A4B42",
+        indicator_peak="#DCC8AB",
+        color_stops=(
+            (0.00, "#5A4B42"),
+            (0.18, "#755F4E"),
+            (0.44, "#A48662"),
+            (0.72, "#D8B77F"),
+            (0.90, "#F6DCA8"),
+            (1.00, "#FFF4D8"),
+        ),
+    ),
+    "wait": SweepProfile(
+        glyph="•",
+        speed_factor=0.92,
+        breathe_rate=3.9,
+        indicator_dim="#465652",
+        indicator_peak="#B5CAC4",
+        color_stops=(
+            (0.00, "#465652"),
+            (0.18, "#667873"),
+            (0.44, "#7C8F89"),
+            (0.72, "#A4B5B0"),
+            (0.90, "#C5D4CF"),
+            (1.00, "#DDE7E3"),
+        ),
+    ),
 }
 
 
 def status_interval(family: StatusFamily) -> float:
-    """返回状态族的帧刷新间隔。"""
-    return 1 / SWEEP_SPECS[family].refresh_per_second
+    """返回状态族的统一刷新间隔。"""
+    _profile(family)
+    return 1 / SWEEP_REFRESH_PER_SECOND
 
 
 def status_phase_rate(family: StatusFamily) -> float:
-    """返回状态族每秒推进的相位。"""
-    return SWEEP_SPECS[family].phase_rate
+    """返回以真实秒数推进的动画相位速率。"""
+    _profile(family)
+    return 1.0
 
 
 def render_status_fragments(
@@ -68,28 +85,23 @@ def render_status_fragments(
     phase: float,
     animated: bool,
 ) -> FormattedText:
-    """生成带呼吸指示和逐字符扫光的状态片段。"""
-    colors = STATUS_COLORS[family]
+    """生成带固定指示符和连续扫光的状态片段。"""
+    profile = _profile(family)
 
     out = [
-        status_indicator_fragment(phase, family=family, animated=animated),
-        (_style(colors["dim"]), " "),
+        status_indicator_fragment(
+            phase,
+            family=family,
+            animated=animated,
+        ),
+        (_style(profile.color_stops[0][1]), " "),
     ]
 
     if not animated:
-        out.append((_style(colors["soft"]), text))
+        out.append((_style(_gradient_color(profile.color_stops, 0.82)), text))
         return out
 
-    if family == "wait":
-        out.extend(_progressive_fragments(text, phase=phase, colors=colors))
-    else:
-        out.extend(_sweep_fragments(
-            text,
-            phase=phase,
-            spec=SWEEP_SPECS[family],
-            colors=colors,
-        ))
-
+    out.extend(_sweep_fragments(text, phase=phase, profile=profile))
     return out
 
 
@@ -99,113 +111,124 @@ def status_indicator_fragment(
     family: StatusFamily,
     animated: bool,
 ) -> tuple[str, str]:
-    """生成与状态族配色一致的呼吸指示点。"""
-    colors = STATUS_COLORS[family]
-    if not animated:
-        return _style(colors["soft"]), "•"
+    """生成宽度固定且仅改变颜色的状态指示符。"""
+    profile = _profile(family)
 
-    frequency = {"tool": 0.30, "wait": 0.25}[family]
-    breathe   = 0.5 + (0.5 * math.sin(phase * frequency))
-    weight    = _smoothstep(breathe) * 0.72
+    if not animated:
+        color = _mix_hex_color(
+            profile.indicator_dim,
+            profile.indicator_peak,
+            0.72,
+        )
+        return _style(color), profile.glyph
+
+    breathe = 0.5 + (0.5 * math.sin(float(phase) * profile.breathe_rate))
 
     color = _mix_hex_color(
-        colors["indicator_dim"],
-        colors["indicator_peak"],
-        weight,
+        profile.indicator_dim,
+        profile.indicator_peak,
+        _smoothstep(breathe) * 0.72,
     )
-
-    return _style(color), "•" if breathe > 0.58 else "◦"
+    return _style(color), profile.glyph
 
 
 def _sweep_fragments(
     text: str,
     *,
     phase: float,
-    spec: SweepFrameSpec,
-    colors: dict[str, str],
+    profile: SweepProfile,
 ) -> FormattedText:
-    """生成从左向右移动并带衰减尾迹的扫光文字。"""
-    cells = _character_cells(text)
+    """按字符到光头的距离生成连续渐变光带。"""
+    cells     = _character_cells(text)
+    span      = max(1, _display_span(cells))
+    focus     = _sweep_focus(float(phase), span=span, profile=profile)
+    dim_color = profile.color_stops[0][1]
 
-    focus = _drift_focus(
-        phase,
-        _display_span(cells),
-        entry_pad=spec.entry_pad,
-        exit_pad=spec.exit_pad,
+    out: FormattedText = []
+
+    for position, char in cells:
+        if char.isspace():
+            out.append((_style(dim_color), char))
+            continue
+
+        intensity = _sweep_intensity(position, focus=focus)
+        color = _gradient_color(profile.color_stops, intensity)
+        out.append((_style(color), char))
+
+    return out
+
+
+def _sweep_focus(
+    elapsed: float,
+    *,
+    span: int,
+    profile: SweepProfile,
+) -> float:
+    """按文本宽度和真实时间计算循环光头位置。"""
+    width    = max(1, int(span))
+    exit_pad = SWEEP_PEAK_RADIUS + SWEEP_TAIL_SPAN
+
+    travel = max(
+        1.0,
+        float(max(0, width - 1)) + SWEEP_ENTRY_PAD + exit_pad,
     )
 
-    out: FormattedText = []
-
-    for position, char in cells:
-        delta = focus - position
-        if 0.0 <= delta <= spec.peak_radius:
-            color = colors["peak"]
-        elif delta > spec.peak_radius:
-            tail = (delta - spec.peak_radius) / max(0.001, spec.tail_span)
-            if tail <= 0.14:
-                color = colors["soft"]
-            elif tail <= 0.34:
-                color = colors["near"]
-            elif tail <= 0.62:
-                color = colors["mid"]
-            elif tail <= 1.0:
-                color = colors["fade"]
-            else:
-                color = colors["dim"]
-        else:
-            color = colors["dim"]
-        out.append((_style(color), char))
-
-    return out
+    speed = travel / _sweep_duration(width) * profile.speed_factor
+    return ((max(0.0, float(elapsed)) * speed) % travel) - SWEEP_ENTRY_PAD
 
 
-def _progressive_fragments(
-    text: str,
-    *,
-    phase: float,
-    colors: dict[str, str],
-) -> FormattedText:
-    """生成等待状态循环前进的渐进光带。"""
-    cells = _character_cells(text)
-    span  = max(1, _display_span(cells))
-    head  = ((phase * 0.78) % max(1.0, float((span * 2) + 4.0))) - 1.2
-    tail  = -1.6 if head < float(span - 1) else head - max(0.0, float(span - 1))
+def _sweep_duration(span: int) -> float:
+    """返回随文本宽度温和增长的基础扫光周期。"""
+    width = max(1, int(span))
 
-    out: FormattedText = []
-
-    for position, char in cells:
-        if char == " ":
-            color = colors["dim"]
-        elif position > head:
-            color = colors["near"] if position - head <= 0.36 else colors["dim"]
-        elif position < tail:
-            color = colors["fade"] if tail - position <= 1.0 else colors["dim"]
-        else:
-            color = colors["peak"]
-        out.append((_style(color), char))
-
-    return out
+    return max(
+        SWEEP_MIN_DURATION,
+        min(SWEEP_MAX_DURATION, 1.55 + (width * 0.035)),
+    )
 
 
-def _drift_focus(
-    phase: float,
-    span: int,
-    *,
-    entry_pad: float,
-    exit_pad: float,
-) -> float:
-    """计算包含进出留白的循环扫光焦点。"""
-    travel = max(1.0, float(max(0, span - 1)) + entry_pad + exit_pad)
-    return (phase % travel) - entry_pad
+def _sweep_intensity(position: float, *, focus: float) -> float:
+    """计算带短前沿和长尾迹的连续扫光强度。"""
+    delta = float(position) - float(focus)
+
+    distance = abs(delta)
+    if distance <= SWEEP_PEAK_RADIUS:
+        core = distance / max(0.001, SWEEP_PEAK_RADIUS)
+        return 1.0 - (0.06 * _smoothstep(core))
+
+    span       = SWEEP_LEAD_SPAN if delta >= 0.0 else SWEEP_TAIL_SPAN
+    normalized = (distance - SWEEP_PEAK_RADIUS) / max(0.001, span)
+    intensity  = 0.94 * (1.0 - _smoothstep(normalized))
+
+    return max(0.0, min(1.0, intensity))
+
+
+def _gradient_color(stops: tuple[ColorStop, ...], intensity: float) -> str:
+    """在颜色停靠点之间插值生成当前强度颜色。"""
+    level = max(0.0, min(1.0, float(intensity)))
+    if level <= stops[0][0]:
+        return stops[0][1]
+
+    for index in range(1, len(stops)):
+        end_level, end_color     = stops[index]
+        start_level, start_color = stops[index - 1]
+
+        if level <= end_level:
+            span  = max(0.0001, end_level - start_level)
+            local = _smoothstep((level - start_level) / span)
+
+            return _mix_hex_color(start_color, end_color, local)
+
+    return stops[-1][1]
 
 
 def _character_cells(text: str) -> list[tuple[float, str]]:
     """返回每个字符在终端显示列中的中心位置。"""
-    cursor: int = 0
+    cursor = 0
 
     cells: list[tuple[float, str]] = []
 
-    for char in text:
+    for char in str(text):
         width = max(0, get_cwidth(char))
         cells.append((cursor + (max(1, width) - 1) / 2, char))
         cursor += width
@@ -232,7 +255,7 @@ def _mix_hex_color(start: str, end: str, weight: float) -> str:
 
 
 def _smoothstep(value: float) -> float:
-    """把线性相位转换为平滑过渡权重。"""
+    """把线性输入转换为平滑过渡权重。"""
     clamped = max(0.0, min(1.0, float(value)))
     return clamped * clamped * (3.0 - (2.0 * clamped))
 
@@ -240,6 +263,11 @@ def _smoothstep(value: float) -> float:
 def _style(color: str) -> str:
     """生成 prompt_toolkit 使用的强调前景样式。"""
     return f"fg:{color} bold"
+
+
+def _profile(family: StatusFamily) -> SweepProfile:
+    """返回状态族对应的扫光配置。"""
+    return SWEEP_PROFILES[family]
 
 
 if __name__ == '__main__':

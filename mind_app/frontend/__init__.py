@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 from .contracts import (
+    ActivityStatusKind,
     ApplicationSink,
     ApplicationView,
     Frontend,
@@ -11,6 +12,7 @@ from .contracts import (
 )
 
 __all__ = [
+    "ActivityStatusKind",
     "ApplicationSink",
     "ApplicationView",
     "Frontend",

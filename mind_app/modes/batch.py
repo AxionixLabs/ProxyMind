@@ -199,7 +199,7 @@ async def _run_virtual_message(
         )
 
     finally:
-        await mind.await_cleanup(mind.stop_anim())
+        await mind.await_cleanup(mind.stop_anim("wait"))
 
     if failure_error:
         logger.error(
@@ -335,7 +335,7 @@ async def _run_pack_item(
                         wait_s=retry_backoff
                     )
             finally:
-                await mind.await_cleanup(mind.stop_anim())
+                await mind.await_cleanup(mind.stop_anim("wait"))
 
             if attempt_error:
                 logger.error(

@@ -8,6 +8,13 @@ from pathlib import Path
 from loguru import logger
 from mind_nova import const
 
+DEBUG_LOG_FILE = f"{const.APP_NAME}.debug.log"
+
+DEBUG_LOG_FORMAT = (
+    f"{const.APP_DESC} :: "
+    "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {message}"
+)
+
 
 class RunReport(object):
     """管理单次 Mind 进程的报告和日志目录。"""
@@ -27,7 +34,22 @@ class RunReport(object):
             reset_path.mkdir(parents=True, exist_ok=True)
 
         self.__log_papers: str = os.path.join(self.reset_path, const.R_LOG_FILE)
-        logger.add(self.__log_papers, level=const.NOTE_LEVEL, format=const.WRITE_FORMAT)
+
+        self.__debug_log: str = os.path.join(
+            self.reset_path,
+            DEBUG_LOG_FILE,
+        )
+
+        self.__log_sink_id: int | None = logger.add(
+            self.__debug_log,
+            level=const.NOTE_LEVEL,
+            format=DEBUG_LOG_FORMAT,
+            encoding=const.CHARSET,
+            colorize=False,
+            enqueue=True,
+            backtrace=False,
+            diagnose=False,
+        )
 
         # 创建分类文件夹：截图
         self.__cap_path: str = os.path.join(self.total_path, "caps")
@@ -54,9 +76,22 @@ class RunReport(object):
         if not (toolkit_dir := Path(self.__toolkit_path)).exists():
             toolkit_dir.mkdir(parents=True, exist_ok=True)
 
+    def close(self) -> None:
+        """刷新并关闭当前运行持有的诊断日志。"""
+        sink_id = self.__log_sink_id
+        if sink_id is None:
+            return None
+        self.__log_sink_id = None
+        logger.remove(sink_id)
+
     @property
     def log_papers(self) -> str:
         return self.__log_papers
+
+    @property
+    def debug_log(self) -> str:
+        """返回当前运行使用的诊断日志路径。"""
+        return self.__debug_log
 
     @property
     def cap_path(self) -> str:

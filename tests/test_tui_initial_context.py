@@ -40,6 +40,29 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
     assert not runtime.active
     assert runtime.context.model == "gpt-test high"
     assert runtime.context.access_label
-    assert runtime.context.exec_status_label == "pytest -q"
+    assert runtime.process_status.label == "pytest -q"
     assert workspace_updates == [Path("D:/workspace")]
     mind.fresh_pref_config.assert_awaited_once_with(ttl_sec=0.0)
+
+    preloaded_placeholder = runtime.placeholder_text
+    runtime.message_queue.put_nowait("hello")
+
+    value = await runtime.read_message(runtime.context)
+
+    assert value == "hello"
+    assert runtime.placeholder_text == preloaded_placeholder
+
+
+def test_successful_submission_prepares_next_placeholder() -> None:
+    runtime = TuiRuntime()
+    runtime.input.buffer.text = "hello"
+
+    with patch.object(
+        runtime.input_model,
+        "new_placeholder",
+        return_value="next placeholder",
+    ) as new_placeholder:
+        runtime._accept_input(runtime.input.buffer)
+
+    assert runtime.placeholder_text == "next placeholder"
+    new_placeholder.assert_called_once_with("chat")

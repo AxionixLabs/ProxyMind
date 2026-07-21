@@ -2,7 +2,9 @@
 
 from prompt_toolkit.utils import get_cwidth
 
+from mind_app.interaction.contracts import PromptContext
 from mind_app.tui.core.queued import TuiQueuedMessages, TuiSubmission
+from mind_app.tui.core.runtime import TuiRuntime
 
 
 def test_queue_uses_next_turn_title() -> None:
@@ -38,6 +40,53 @@ def test_queue_reserves_last_row_for_hidden_count() -> None:
     assert len(lines) == 6
     assert lines[-1] == "    … 3 more"
     assert "message 5" not in text
+
+
+def test_running_input_replaces_information_footer_with_queue_hint() -> None:
+    runtime = TuiRuntime()
+    runtime.context = PromptContext(
+        mode="chat",
+        model="gpt-test high",
+        access_label="Full access",
+        workspace_label="ProxyMind",
+    )
+    runtime.execution_active = True
+    runtime.queued_messages.append(_submission("already queued"))
+    runtime.input.buffer.text = "next task"
+
+    text = _fragments_text(runtime._footer_fragments())
+
+    assert runtime._footer_visible()
+    assert text == "tab to queue message"
+    assert runtime.context.model not in text
+    assert runtime.context.access_label not in text
+    assert runtime.context.workspace_label not in text
+
+
+def test_queued_submission_restores_information_footer() -> None:
+    runtime = TuiRuntime()
+    runtime.context = PromptContext(
+        mode="chat",
+        model="gpt-test high",
+        access_label="Full access",
+        workspace_label="ProxyMind",
+    )
+    runtime.execution_active = True
+    runtime.input.buffer.text = "queued task"
+
+    runtime._accept_input(runtime.input.buffer)
+
+    text = _fragments_text(runtime._footer_fragments())
+
+    assert runtime._footer_visible()
+    assert "tab to queue message" not in text
+    assert "gpt-test high" in text
+    assert "Full access" in text
+    assert "ProxyMind" in text
+
+    runtime.input.buffer.text = "another task"
+
+    assert _fragments_text(runtime._footer_fragments()) == "tab to queue message"
 
 
 def _submission(text: str) -> TuiSubmission:

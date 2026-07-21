@@ -7,6 +7,10 @@ from mind_app.native_coding.base import NativeCodingBase
 from mind_app.native_coding.edit.patch_engine import PatchEngine
 from mind_app.native_coding.exec.shell_exec import ShellCommandTools
 from mind_app.native_coding.exec.exec_command import ExecCommandTools
+from mind_app.native_coding.exec.process_session import (
+    ProcessSessionManager,
+    ProcessSessionSpec
+)
 from mind_app.native_coding.exec.command_policy import CommandPolicy
 from mind_app.native_coding.exec.file_audit import FileAudit
 from mind_app.native_coding.edit.turn_diff import TurnDiffTracker
@@ -19,12 +23,25 @@ class NativeCoding(NativeCodingBase):
         """初始化共享运行时状态并装配各能力组件。"""
         super().__init__(root=root)
 
+        self._process_sessions = ProcessSessionManager()
+
         self._patch_engine   = PatchEngine(self)
         self._command_policy = CommandPolicy(self)
         self._file_audit     = FileAudit(self)
         self._turn_diff      = TurnDiffTracker()
-        self._shell_command  = ShellCommandTools(self, command_policy=self._command_policy, file_audit=self._file_audit)
-        self._exec_command   = ExecCommandTools(self, command_policy=self._command_policy, file_audit=self._file_audit)
+
+        self._shell_command = ShellCommandTools(
+            self,
+            command_policy=self._command_policy,
+            file_audit=self._file_audit
+        )
+
+        self._exec_command = ExecCommandTools(
+            self,
+            command_policy=self._command_policy,
+            file_audit=self._file_audit,
+            sessions=self._process_sessions,
+        )
 
     async def shell_command(
         self,
@@ -97,8 +114,8 @@ class NativeCoding(NativeCodingBase):
         )
 
     async def running_exec_sessions(self) -> dict[str, typing.Any]:
-        """返回当前仍在运行的 exec_command 会话摘要。"""
-        return await self._exec_command.running_sessions_snapshot()
+        """返回当前仍在运行的本地进程会话摘要。"""
+        return await self._process_sessions.running_snapshot()
 
     async def exec_session_output_snapshot(
         self,
@@ -107,10 +124,79 @@ class NativeCoding(NativeCodingBase):
         max_output_chars: int = 12000
     ) -> dict[str, typing.Any]:
         """返回 exec_command 会话的只读输出快照。"""
-        return await self._exec_command.session_output_snapshot(
-            session_id=session_id,
-            max_output_chars=max_output_chars
+        return await self._process_sessions.output_snapshot(
+            session_id,
+            max_output_chars=max_output_chars,
         )
+
+    async def start_user_shell_session(
+        self,
+        *,
+        command: str,
+        args: typing.Sequence[str],
+        timeout_sec: int = 3600,
+        idle_timeout_sec: int = 1800,
+    ) -> dict[str, typing.Any]:
+        """启动由本地用户显式请求的 shell 会话。"""
+        cmd = str(command or "").strip()
+
+        resolved_args = tuple(str(item) for item in args if str(item or "").strip())
+
+        if not cmd or not resolved_args:
+            return {"ok": False, "reason": "command_empty"}
+
+        session = await self._process_sessions.start(ProcessSessionSpec(
+            command=cmd,
+            args=resolved_args,
+            cwd=str(self.root),
+            display_cwd=self.relative_path(self.root),
+            runtime={
+                "name": os.path.basename(resolved_args[0]),
+                "executable": resolved_args[0],
+                "source": "local_user",
+            },
+            origin="tui_shell",
+            timeout_sec=max(1, int(timeout_sec or 3600)),
+            idle_timeout_sec=max(1, int(idle_timeout_sec or 1800)),
+            stdin_enabled=False,
+        ))
+        return await self._process_sessions.output_snapshot(
+            session.session_id,
+            max_output_chars=12000,
+        )
+
+    async def control_exec_session(
+        self,
+        *,
+        session_id: str,
+        control: str,
+    ) -> dict[str, typing.Any]:
+        """对本地进程会话执行显式控制动作。"""
+        session = self._process_sessions.get(session_id)
+        if session is None:
+            return {
+                "ok": False,
+                "reason": "exec_session_not_found",
+                "session_id": str(session_id or "").strip(),
+            }
+
+        reason = await self._process_sessions.apply(session, control=control)
+
+        if reason is not None:
+            return {
+                "ok"         : False,
+                "reason"     : reason,
+                "session_id" : session.session_id
+            }
+
+        return await self._process_sessions.output_snapshot(
+            session.session_id,
+            max_output_chars=12000,
+        )
+
+    async def close(self) -> None:
+        """关闭全部本地进程会话。"""
+        await self._process_sessions.close()
 
     def apply_patch(
         self,

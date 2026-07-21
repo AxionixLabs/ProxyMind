@@ -40,7 +40,6 @@ R_LOG_FILE      = f"{APP_NAME}.log"
 
 # ========【日志与显示设置】========
 PRINT_HEAD = f"[bold #8B8B8B]{APP_DESC} ::[/]"
-OTHER_HEAD = f"{APP_DESC} ::"
 SHOW_LEVEL = r"INFO"
 NOTE_LEVEL = r"DEBUG"
 
@@ -49,7 +48,6 @@ WRN = f"[bold #000000 on #FFFF00]"
 ERR = f"[bold #FFFFFF on #FF6347]"
 
 PRINT_FORMAT = f"<level>{{level: <8}}</level> | <level>{{message}}</level>"
-WRITE_FORMAT = f"{OTHER_HEAD} <green>{{time:YYYY-MM-DD HH:mm:ss.SSS}}</green> | <level>{{level: <8}}</level> | <level>{{message}}</level>"
 
 # ========【运行时配置】========
 KEEPALIVE_SEC         = 300.0

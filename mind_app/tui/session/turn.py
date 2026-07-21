@@ -103,7 +103,7 @@ async def upload_pending_tui_attachments(
         return None
 
     finally:
-        await mind.await_cleanup(mind.stop_anim())
+        await mind.await_cleanup(mind.stop_anim("upload"))
 
     if upload_state["event"] is not None:
         mind.frontend.application.emit(ApplicationView(

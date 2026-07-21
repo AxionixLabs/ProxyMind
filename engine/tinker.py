@@ -11,6 +11,11 @@ class Active(object):
     """Active class."""
 
     @staticmethod
+    def silent() -> None:
+        """移除当前进程已注册的日志输出接收器。"""
+        logger.remove()
+
+    @staticmethod
     def active(
         log_level: str,
         *,
@@ -18,7 +23,7 @@ class Active(object):
         stderr: bool = False
     ) -> None:
         """使用指定控制台激活应用日志输出。"""
-        logger.remove()
+        Active.silent()
 
         if console is None and not stderr:
             return None
@@ -46,9 +51,9 @@ class Active(object):
                 "CRITICAL" : "bold #FF1493",
             }
 
-            def __init__(self, active_console: Console) -> None:
+            def __init__(self, sink_console: Console) -> None:
                 super().__init__(
-                    console=active_console,
+                    console=sink_console,
                     rich_tracebacks=True,
                     show_path=False,
                     show_time=False,
@@ -87,19 +92,26 @@ class Tooling(object):
         def short_value(raw_value: typing.Any) -> str:
             if isinstance(raw_value, str):
                 return short_text(raw_value)
+
             if isinstance(raw_value, bool):
                 return "true" if raw_value else "false"
+
             if raw_value is None:
                 return "null"
+
             if isinstance(raw_value, (int, float)):
                 return str(raw_value)
+
             if isinstance(raw_value, list):
                 return f"[{len(raw_value)} items]"
+
             if isinstance(raw_value, dict):
-                keys = list(raw_value.keys())
-                head = ", ".join(map(str, keys[:3]))
+                keys   = list(raw_value.keys())
+                head   = ", ".join(map(str, keys[:3]))
                 suffix = "" if len(keys) <= 3 else f", +{len(keys) - 3}"
+
                 return f"{{{head}{suffix}}}"
+
             return short_text(raw_value)
 
         if not isinstance(tool_args, dict):
