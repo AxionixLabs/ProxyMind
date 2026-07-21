@@ -114,17 +114,6 @@ class TuiDocument(object):
             ))
         return self._render_blocks(blocks)
 
-    def stable_prefix_fragments(self, count: int) -> FormattedText:
-        """生成指定数量稳定正文块的格式化片段。"""
-        limit = max(0, min(len(self.blocks), int(count)))
-        return self._render_blocks(self.blocks[:limit])
-
-    def discard_stable_prefix(self, count: int) -> None:
-        """移除已经提交到终端滚屏区的稳定正文前缀。"""
-        limit = max(0, min(len(self.blocks), int(count)))
-        if limit:
-            del self.blocks[:limit]
-
     def _render_blocks(self, blocks: list[TranscriptBlock]) -> FormattedText:
         """统一渲染一组正文块及其前置间距。"""
         out: FormattedText = []

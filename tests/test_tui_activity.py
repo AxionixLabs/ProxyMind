@@ -22,6 +22,7 @@ from mind_app.tui.core.status_frames import SPINNER_FRAMES
 from mind_app.tui.core.task_state import TuiTaskState
 from mind_app.tui.features.download import TuiUpgradeProgress
 from mind_app.tui.session.turn import upload_pending_tui_attachments
+from mind_app.runtime.support.calling import run_mode_lifecycle
 from mind_core.mcp_status import (
     external_mcp_status_view,
     inbuild_status_view,
@@ -44,52 +45,40 @@ def test_task_state_aggregates_turn_and_activity_sources() -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("method_name", "argument"),
-    (
-        ("begin_tool_status", None),
-        ("begin_custom_tool_status", "running shell_command"),
-    ),
-)
-async def test_tool_call_clears_wait_without_starting_tool_animation(
-    method_name: str,
-    argument: str | None,
-) -> None:
+async def test_tui_turn_keeps_one_wait_until_runner_finishes() -> None:
     runtime = TuiRuntime()
-    output = TuiOutputControl("", runtime=runtime, animate=True)
-    output.status_state.set_status("thinking", family="wait")
-    runtime.set_status_renderable(output.status_state.render_block())
-    await output.status_driver.start(reset_phase=True)
+    output = TuiOutputControl("", runtime=runtime, animate=False)
 
-    method = getattr(output, method_name)
-    if argument is None:
-        await method()
-    else:
-        await method(argument)
+    class MindStub(object):
+        animate = False
 
-    assert not output.status_state.visible
-    assert output.status_driver.task is None
-    assert output._pending_status_task is None
-    assert runtime.status_block is None
+        async def start_anim(self, mode: str) -> None:
+            _ = mode
+            await runtime.begin_wait_status()
 
+        async def stop_anim(self, kind: str | None = None) -> None:
+            await runtime.end_activity_status(kind)
 
-@pytest.mark.anyio
-async def test_default_reply_wait_does_not_enter_layout_immediately() -> None:
-    runtime = TuiRuntime()
-    output = TuiOutputControl("", runtime=runtime, animate=True)
-    output.assistant.text = "plain response"
-    output._render_active(cursor=False)
-    initial_height = runtime._visible_height()
+        async def await_cleanup(self, awaitable):
+            return await awaitable
 
-    try:
-        await output.begin_reply_wait_status()
-        await asyncio.sleep(0.01)
+    async def runner(*, mode: str) -> None:
+        _ = mode
+        assert runtime.activity.active
 
-        assert output._pending_status_task is not None
-        assert runtime.status_block is None
-        assert runtime._visible_height() == initial_height
-    finally:
+        await output.begin_reply_wait_status(delay_sec=0.0)
+        await output.begin_tool_status()
+        await output.append_assistant_delta("answer")
         await output.end_status()
+
+        status = _block_text(FragmentBlock(tuple(runtime._status_fragments())))
+        assert status.count("thinking") == 1
+        assert "\n" not in status
+
+    await run_mode_lifecycle(MindStub(), runner)
+
+    assert not runtime.activity.active
+    assert runtime._status_fragments() == []
 
 
 def test_infrastructure_activities_keep_rotating_spinner() -> None:
@@ -542,17 +531,6 @@ def test_download_and_upload_activity_rows_are_single_line() -> None:
 
     assert "\n" not in _block_text(download)
     assert "\n" not in _block_text(upload)
-
-
-def test_activity_and_tool_status_share_the_status_region() -> None:
-    runtime = TuiRuntime()
-
-    runtime.set_activity_renderable(FragmentBlock((("", "External MCP linking"),)))
-    runtime.set_status_renderable(FragmentBlock((("", "Running shell command"),)))
-
-    text = _block_text(FragmentBlock(tuple(runtime._status_fragments())))
-    assert text == "External MCP linking\nRunning shell command"
-    assert runtime._status_height() == 2
 
 
 def test_runtime_body_styles_do_not_use_bold() -> None:

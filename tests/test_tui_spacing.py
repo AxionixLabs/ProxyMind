@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 from unittest.mock import (
     AsyncMock,
     patch,
@@ -7,13 +8,19 @@ from unittest.mock import (
 
 import pytest
 from prompt_toolkit.data_structures import Size
+from prompt_toolkit.input.defaults import create_pipe_input
+from prompt_toolkit.output import DummyOutput
 
 from mind_app.output.content import (
     AssistantTextDelta,
     SourcesOutput,
 )
 from mind_app.presentation.approval_views import build_approval_view
-from mind_app.presentation.tool_views import build_tool_start_view
+from mind_app.presentation.tool_views import (
+    build_generic_tool_result_view,
+    build_native_tool_result_view,
+    build_tool_start_view,
+)
 from mind_app.tui.adapters.content import TuiContentSink
 from mind_app.tui.adapters.output import TuiOutputControl
 from mind_app.tui.adapters.presentation import TuiPresentationSink
@@ -97,7 +104,34 @@ def test_active_block_keeps_spacing_while_it_is_updated_and_committed() -> None:
 
 
 @pytest.mark.anyio
-async def test_presentation_commits_each_tool_as_compact_document_block() -> None:
+async def test_idle_turn_keeps_all_transcript_blocks_in_document() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.application.output,
+            "get_size",
+            return_value=Size(rows=10, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.set_execution_active(True)
+                for index in range(6):
+                    runtime.append_block(
+                        _block(f"block {index}\n" + "line\n" * 3),
+                        kind="operation",
+                    )
+
+                runtime.set_execution_active(False)
+                await asyncio.sleep(0.02)
+
+                assert len(runtime.document.blocks) == 6
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_presentation_separates_consecutive_tool_groups() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
     presentation = TuiPresentationSink(output)
@@ -123,9 +157,61 @@ async def test_presentation_commits_each_tool_as_compact_document_block() -> Non
     assert [item.gap_before for item in runtime.document.blocks] == [
         False,
         True,
-        False,
+        True,
     ]
     assert runtime.document.active_block is None
+
+
+@pytest.mark.anyio
+async def test_generic_tool_result_stays_with_its_start_block() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+
+    await presentation.emit(build_tool_start_view(
+        "remote_tool",
+        {"query": "one"},
+        call_id="one",
+    ))
+    await presentation.emit(build_generic_tool_result_view(
+        "remote_tool",
+        "result",
+        ok=True,
+        call_id="one",
+    ))
+    await presentation.emit(build_tool_start_view(
+        "remote_tool",
+        {"query": "two"},
+        call_id="two",
+    ))
+
+    assert [item.gap_before for item in runtime.document.blocks] == [
+        False,
+        False,
+        True,
+    ]
+
+
+@pytest.mark.anyio
+async def test_native_tool_results_start_separate_tool_groups() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+
+    for call_id, command in (("one", "echo one"), ("two", "echo two")):
+        await presentation.emit(build_native_tool_result_view(
+            "shell_command",
+            {"command": command},
+            ok=True,
+            data={"command": command, "output_lines": [call_id]},
+            call_id=call_id,
+        ))
+
+    assert [item.gap_before for item in runtime.document.blocks] == [
+        False,
+        True,
+    ]
+    assert _document_text(runtime.document).count("\n\n") == 1
 
 
 @pytest.mark.anyio

@@ -163,13 +163,11 @@ class TuiRuntime(object):
         )
         self.document = TuiDocument()
         self.activity_block: FragmentBlock | None = None
-        self.status_block: FragmentBlock | None = None
         self._submitted_query_block: FragmentBlock | None = None
         self._transcript_view_row: int | None = None
 
         self._application_task: asyncio.Task[None] | None = None
         self._application_error: BaseException | None = None
-        self._scrollback_task: asyncio.Task[None] | None = None
         self._background_tasks: set[asyncio.Task[None]] = set()
         self._background_session_tasks: dict[str, asyncio.Task[None]] = {}
         self._background_blocks: list[FragmentBlock] = []
@@ -508,7 +506,6 @@ class TuiRuntime(object):
         self._turn_interrupt_handler = None
         await self.activity.clear()
         self.task_state.clear()
-        self.clear_status_renderable()
         self.process_status.clear()
         await self.approval.close()
         await self.menu.close()
@@ -521,10 +518,6 @@ class TuiRuntime(object):
             task.cancel()
         if background_tasks:
             await asyncio.gather(*background_tasks, return_exceptions=True)
-        scrollback_task = self._scrollback_task
-        if scrollback_task is not None:
-            with contextlib.suppress(asyncio.CancelledError):
-                await scrollback_task
         await self._exit_application(erase=False)
 
     async def run_modal(
@@ -704,7 +697,6 @@ class TuiRuntime(object):
         self._submitted_query_block = None
         if self.document.append_block(block, kind=kind):
             self.invalidate()
-            self._schedule_scrollback_flush()
 
     def _discard_submitted_query(self) -> None:
         """在二级菜单接管交互时撤下刚提交的输入块。"""
@@ -733,97 +725,11 @@ class TuiRuntime(object):
         self.document.commit_active(block)
         self.invalidate()
         self._flush_background_blocks()
-        self._schedule_scrollback_flush()
 
     def clear_active_renderable(self) -> None:
         """清空当前流式展示块。"""
         self.document.clear_active()
         self._flush_background_blocks()
-        self.invalidate()
-
-    def _schedule_scrollback_flush(self) -> None:
-        """在稳定正文超过当前视口时安排终端滚屏提交。"""
-        task = self._scrollback_task
-        if (
-            self._closing
-            or not self.active
-            or self.execution_active
-            or self.document.active_block is not None
-            or (task is not None and not task.done())
-            or self._scrollback_prefix_count() <= 0
-        ):
-            return None
-
-        context = self.application.context
-        if context is None:
-            return None
-        self._scrollback_task = context.copy().run(
-            lambda: asyncio.create_task(
-                self._flush_scrollback(),
-                name="mind tui scrollback flush",
-            )
-        )
-
-    async def _flush_scrollback(self) -> None:
-        """把超出实时画布的稳定正文提交到终端原生滚屏区。"""
-        try:
-            while self.active and not self.execution_active:
-                count = self._scrollback_prefix_count()
-                if count <= 0:
-                    return None
-
-                fragments = self.document.stable_prefix_fragments(count)
-                retained = self.document.blocks[count:]
-                separator = (
-                    "\n\n"
-                    if not retained or retained[0].gap_before
-                    else "\n"
-                )
-                async with in_terminal(render_cli_done=False):
-                    self.application.print_text([
-                        *fragments,
-                        ("", separator),
-                    ])
-                    self.document.discard_stable_prefix(count)
-                    self._transcript_view_row = None
-        finally:
-            self._scrollback_task = None
-            self.invalidate()
-
-    def _scrollback_prefix_count(self) -> int:
-        """计算应提交到终端滚屏区的稳定正文块数量。"""
-        if self.document.active_block is not None:
-            return 0
-        blocks = self.document.blocks
-        if not blocks:
-            return 0
-
-        available = self._transcript_available_height()
-        kept_rows = 0
-        first_kept = len(blocks)
-        for index in range(len(blocks) - 1, -1, -1):
-            text = fragments_text(blocks[index].block.fragments).strip("\r\n")
-            block_rows = display_line_count(text, width=self.terminal_width)
-            separator_rows = (
-                1 if first_kept < len(blocks) and blocks[first_kept].gap_before
-                else 0
-            )
-            candidate = block_rows + separator_rows + kept_rows
-            if candidate > available:
-                break
-            kept_rows = candidate
-            first_kept = index
-
-        return first_kept
-
-    def set_status_renderable(self, block: FragmentBlock) -> None:
-        """替换临时输出状态内容。"""
-        self.status_block = block
-        self.invalidate()
-
-    def clear_status_renderable(self) -> None:
-        """清空临时输出状态内容。"""
-        self.status_block = None
         self.invalidate()
 
     def set_activity_renderable(self, block: FragmentBlock) -> None:
@@ -846,8 +752,6 @@ class TuiRuntime(object):
             self._commit_input_notices()
             self._flush_background_blocks()
         self.invalidate()
-        if not self.execution_active:
-            self._schedule_scrollback_flush()
 
     def bind_turn_interrupt(
         self,
@@ -1174,14 +1078,8 @@ class TuiRuntime(object):
 
     def _status_fragments(self) -> FormattedText:
         """生成动画专属区域的格式化片段。"""
-        out: FormattedText = []
-        for block in (self.activity_block, self.status_block):
-            if block is None or not block.fragments:
-                continue
-            if out:
-                out.append(("", "\n"))
-            out.extend(block.fragments)
-        return out
+        block = self.activity_block
+        return list(block.fragments) if block is not None else []
 
     def _queued_fragments(self) -> FormattedText:
         """生成动画区域下方的待提交消息。"""
@@ -1550,7 +1448,6 @@ class TuiRuntime(object):
         """判断正文状态区与底部交互区域之间是否保留空行。"""
         return bool(
             self.document.has_content
-            or self.status_block is not None
             or self.activity_block is not None
             or self.process_status.active
             or self._queued_content_visible()

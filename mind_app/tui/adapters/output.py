@@ -11,12 +11,7 @@ from mind_app.presentation.models import (
     TextStyle
 )
 from mind_app.stream_io.output_record import StreamRecordWriter
-from mind_app.stream_render.animation import AnimDriver
 from mind_app.stream_sanitize import sanitize_value
-from ..core.activity import (
-    StatusFamily,
-    TuiStatusState
-)
 from ..core.assistant import TuiAssistantStream
 from ..core.document import TuiBlockKind
 from ..core.runtime import TuiRuntime
@@ -36,7 +31,7 @@ TYPEWRITER_CURSOR_STYLE = TextStyle(foreground="#D7E7FF", bold=True)
 
 
 class TuiOutputControl(OutputControlPort):
-    """把单轮流式内容和状态写入持久 TUI。"""
+    """把单轮流式内容写入持久 TUI。"""
 
     def __init__(
         self,
@@ -51,15 +46,6 @@ class TuiOutputControl(OutputControlPort):
 
         self.assistant     = TuiAssistantStream()
         self.record_writer = StreamRecordWriter(log_file)
-        self.status_state  = TuiStatusState()
-
-        self.status_driver = AnimDriver(
-            is_active=lambda: self.status_state.animating,
-            get_interval=self.status_state.interval,
-            get_phase_rate=self.status_state.phase_rate,
-            on_tick=self._on_status_tick,
-        )
-        self._pending_status_task: asyncio.Task[None] | None = None
         self._cursor = random.choice(("█", "▉", "▋"))
 
     @property
@@ -77,9 +63,8 @@ class TuiOutputControl(OutputControlPort):
         await self.record_writer.open()
 
     async def stop(self, *, blink: bool = True) -> None:
-        """停止状态动画、提交当前内容并关闭记录。"""
+        """提交当前内容并关闭记录。"""
         _ = blink
-        await self.end_status(immediate=True)
         self._commit_current()
         await self.record_writer.close()
 
@@ -93,7 +78,6 @@ class TuiOutputControl(OutputControlPort):
 
         text = self.assistant.prepare_delta(str(chunk))
         self.record_writer.write(text)
-        await self.end_status(immediate=True)
 
         if self.animate:
             await self._append_typewriter(text)
@@ -108,13 +92,13 @@ class TuiOutputControl(OutputControlPort):
         self._commit_current()
 
     async def begin_tool_status(self) -> None:
-        """在工具调用开始时结束当前等待状态。"""
-        await self.begin_custom_tool_status(None)
+        """保持由 TUI 轮次生命周期管理的等待状态。"""
+        return None
 
     async def begin_custom_tool_status(self, text: typing.Optional[str]) -> None:
-        """在带状态说明的工具调用开始时结束当前等待状态。"""
+        """忽略共享流式链路中的局部工具状态。"""
         _ = text
-        await self.end_status(immediate=True)
+        return None
 
     async def begin_reply_wait_status(
         self,
@@ -123,26 +107,14 @@ class TuiOutputControl(OutputControlPort):
         delay_sec: float = 0.28,
         animate_after_sec: float | None = None,
     ) -> None:
-        """启动等待回复状态动画。"""
-        _ = animate_after_sec
-        await self._schedule_status(text, family="wait", delay_sec=delay_sec)
+        """忽略由 TUI 轮次生命周期统一持有的局部等待状态。"""
+        _ = text, delay_sec, animate_after_sec
+        return None
 
     async def end_status(self, *, immediate: bool = False) -> None:
-        """结束当前输出状态动画。"""
+        """忽略共享流式链路中的局部状态结束通知。"""
         _ = immediate
-        task = self._pending_status_task
-        self._pending_status_task = None
-
-        if task is not None:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-        self.status_state.reset()
-        await self.status_driver.stop(reset_phase=True)
-        self.runtime.clear_status_renderable()
+        return None
 
     async def settle_stream(self) -> None:
         """立即同步当前流式内容。"""
@@ -266,50 +238,6 @@ class TuiOutputControl(OutputControlPort):
             FragmentBlock(tuple(fragments)),
             kind="assistant",
         )
-
-    async def _schedule_status(
-        self,
-        text: typing.Optional[str],
-        *,
-        family: StatusFamily,
-        delay_sec: float,
-    ) -> None:
-        """按延迟策略注册状态动画。"""
-        if not self.animate:
-            return None
-        await self.end_status(immediate=True)
-        self._pending_status_task = asyncio.create_task(
-            self._delayed_status(text, family=family, delay_sec=delay_sec)
-        )
-
-    async def _delayed_status(
-        self,
-        text: typing.Optional[str],
-        *,
-        family: StatusFamily,
-        delay_sec: float,
-    ) -> None:
-        """等待后显示指定状态并启动节拍驱动。"""
-        try:
-            await asyncio.sleep(max(0.0, float(delay_sec)))
-            self.status_state.set_status(text, family=family, animated=True)
-            await self.status_driver.start(reset_phase=True)
-            await self._render_status()
-            self._pending_status_task = None
-        except asyncio.CancelledError:
-            return None
-
-    async def _on_status_tick(self, phase: float) -> None:
-        """更新状态动画相位。"""
-        self.status_state.set_phase(phase)
-        await self._render_status()
-
-    async def _render_status(self) -> None:
-        """把当前状态帧写入动画专属区域。"""
-        if not self.status_state.visible:
-            self.runtime.clear_status_renderable()
-            return None
-        self.runtime.set_status_renderable(self.status_state.render_block())
 
     @staticmethod
     def _audit_payload(arguments: dict[str, typing.Any]) -> str:

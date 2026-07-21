@@ -33,11 +33,16 @@ class TuiPresentationSink(PresentationSink):
     async def emit(self, view: PresentationView) -> None:
         """渲染并发送一项结构化展示数据。"""
         block_kind = _presentation_block_kind(view)
-        for block in render_presentation_view(
+        blocks = render_presentation_view(
             view,
             terminal_width=self.output.terminal_width,
             measure_width=get_cwidth,
-        ):
+        )
+        if not blocks:
+            return None
+        if isinstance(view, (ToolStartView, NativeToolResultView)):
+            self.output.runtime.append_gap()
+        for block in blocks:
             await self.output.append_presentation_block(
                 block,
                 block_kind=block_kind,
