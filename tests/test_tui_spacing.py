@@ -6,6 +6,7 @@ from unittest.mock import (
 )
 
 import pytest
+from prompt_toolkit.data_structures import Size
 
 from mind_app.output.content import (
     AssistantTextDelta,
@@ -278,6 +279,30 @@ async def test_animated_stream_uses_the_same_text_done_boundary() -> None:
     await output.settle_stream()
 
     assert _document_text(runtime.document) == "• first\n  second"
+
+
+def test_typewriter_cursor_does_not_create_a_transient_display_row() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=True)
+    output._cursor = "█"
+
+    with patch.object(
+        runtime.application.output,
+        "get_size",
+        return_value=Size(rows=24, columns=40),
+    ):
+        output.assistant.text = "short"
+        output._render_active(cursor=True)
+        assert _document_text(runtime.document).endswith("█")
+
+        output.assistant.text = "x" * 38
+        output._render_active(cursor=True)
+        active_height = runtime._visible_height()
+        active_text = _document_text(runtime.document)
+        output._render_active(cursor=False)
+
+        assert active_text == f"• {'x' * 38}"
+        assert runtime._visible_height() == active_height
 
 
 @pytest.mark.anyio

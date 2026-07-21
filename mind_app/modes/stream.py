@@ -216,7 +216,7 @@ async def stream_looper(
                 tracker.on_text_done(event)
                 await output_control.settle_stream()
                 output_control.mark_stream_boundary()
-                await output_control.begin_reply_wait_status(delay_sec=0.0)
+                await output_control.begin_reply_wait_status()
                 continue
 
             if event_type == "text.meta":

@@ -21,6 +21,10 @@ from ..core.assistant import TuiAssistantStream
 from ..core.document import TuiBlockKind
 from ..core.runtime import TuiRuntime
 from ..core.models import FragmentBlock
+from ..core.render import (
+    display_line_count,
+    fragments_text
+)
 from ..core.styles import (
     ASSISTANT_PREFIX_CLASS,
     prompt_style,
@@ -251,8 +255,13 @@ class TuiOutputControl(OutputControlPort):
         fragments = _assistant_prefixed_fragments(
             list(styled_block_fragments(block))
         )
-        if cursor:
+        if cursor and _cursor_keeps_display_height(
+            fragments,
+            self._cursor,
+            width=self.terminal_width,
+        ):
             fragments.append((prompt_style(TYPEWRITER_CURSOR_STYLE), self._cursor))
+
         self.runtime.set_active_renderable(
             FragmentBlock(tuple(fragments)),
             kind="assistant",
@@ -325,6 +334,25 @@ class TuiOutputControl(OutputControlPort):
 def _assistant_prefixed_block(block: FragmentBlock) -> FragmentBlock:
     """给助手正文块添加单个项目符号前缀。"""
     return FragmentBlock(tuple(_assistant_prefixed_fragments(list(block.fragments))))
+
+
+def _cursor_keeps_display_height(
+    fragments: list[tuple[str, str]],
+    cursor: str,
+    *,
+    width: int | None,
+) -> bool:
+    """判断打字机光标是否不会单独增加正文显示行。"""
+    if width is None:
+        return True
+
+    text       = fragments_text(fragments)
+    line_width = max(1, int(width))
+
+    return display_line_count(
+        f"{text}{cursor}",
+        width=line_width,
+    ) == display_line_count(text, width=line_width)
 
 
 def _assistant_prefixed_fragments(

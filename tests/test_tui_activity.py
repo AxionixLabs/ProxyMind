@@ -73,6 +73,25 @@ async def test_tool_call_clears_wait_without_starting_tool_animation(
     assert runtime.status_block is None
 
 
+@pytest.mark.anyio
+async def test_default_reply_wait_does_not_enter_layout_immediately() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=True)
+    output.assistant.text = "plain response"
+    output._render_active(cursor=False)
+    initial_height = runtime._visible_height()
+
+    try:
+        await output.begin_reply_wait_status()
+        await asyncio.sleep(0.01)
+
+        assert output._pending_status_task is not None
+        assert runtime.status_block is None
+        assert runtime._visible_height() == initial_height
+    finally:
+        await output.end_status()
+
+
 def test_infrastructure_activities_keep_rotating_spinner() -> None:
     inbuild = {"state": "starting", "label": "Helix MCP"}
     external = {
