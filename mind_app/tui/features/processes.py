@@ -16,6 +16,7 @@ from ..core.models import (
     MenuRequest
 )
 from ..core.process_viewer import ProcessViewerRequest
+from ..core.render import clip_text
 from .context import exec_status_display_label
 from .summary import (
     CommandSummary,
@@ -92,10 +93,11 @@ async def choose_exec_session(
     return await runtime.select_menu(MenuRequest(
         title="Background Commands",
         status=f"running={len(sessions)}",
+        help_text="Up/Down select · Enter view · Esc/q close",
         options=tuple(
             MenuOption(
                 value=str(item.get("session_id") or "").strip() or None,
-                label=_clip_inline(item.get("command"), 80),
+                label=_inline_text(item.get("command")) or "(unknown command)",
                 detail=(
                     f"{_origin_label(item.get('origin'))} "
                     f"pid={item.get('pid') or '-'}"
@@ -562,15 +564,12 @@ def _terminal_width(terminal_width: int | None = None) -> int:
 
 def _clip_inline(value: typing.Any, limit: int) -> str:
     """裁剪单行文本。"""
-    text = " ".join(str(value or "").split())
-    size = max(1, int(limit or 1))
+    return clip_text(_inline_text(value), width=max(1, int(limit or 1)))
 
-    if len(text) <= size:
-        return text
-    if size <= 1:
-        return "…"
 
-    return f"{text[:size - 1]}…"
+def _inline_text(value: typing.Any) -> str:
+    """把任意值整理为单行展示文本。"""
+    return " ".join(str(value or "").split())
 
 
 if __name__ == '__main__':

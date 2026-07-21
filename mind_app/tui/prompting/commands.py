@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import typing
+from dataclasses import dataclass
 from prompt_toolkit.completion import (
     Completer,
     Completion
@@ -11,77 +13,248 @@ from .skills import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class TuiCommandSpec(object):
+    """描述一项 TUI 命令的输入、帮助和别名信息。"""
+
+    key: str
+    command: str
+    completion_meta: str
+    help_detail: str
+    aliases: tuple[str, ...] = ()
+    completion_text: str | None = None
+    completion_match: str | None = None
+    help_usage: str | None = None
+    show_in_help: bool = True
+    parameterized: bool = False
+    disabled_while_running: bool = False
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        """返回规范命令及其全部可执行别名。"""
+        return self.command, *self.aliases
+
+    @property
+    def insertion_text(self) -> str:
+        """返回补全选中后写入输入框的文本。"""
+        return self.completion_text or self.command
+
+    @property
+    def usage(self) -> str:
+        """返回帮助视图使用的命令格式。"""
+        return self.help_usage or ", ".join(self.names)
+
+
+TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
+    TuiCommandSpec(
+        "chat", "/chat", "切换到 Chat 模式",
+        "对话模式（交互能力协作/自然语言交互）",
+    ),
+    TuiCommandSpec(
+        "fast", "/fast", "切换到 Fast 模式",
+        "高速模式（高吞吐任务流/数据媒体直达）",
+    ),
+    TuiCommandSpec(
+        "xtra", "/xtra", "切换到 Xtra 模式",
+        "外接模式（外部 MCP 工具 + 通用工具 + 编码工具）",
+    ),
+    TuiCommandSpec(
+        "new", "/new", "开始新对话",
+        "开始新对话（保留模式、模型和待发送附件）",
+        disabled_while_running=True,
+    ),
+    TuiCommandSpec(
+        "resume", "/resume", "恢复最近会话",
+        "从当前模式最近 24 小时会话中恢复",
+        disabled_while_running=True,
+    ),
+    TuiCommandSpec(
+        "attach", "/attach", "添加本轮待发送附件",
+        "添加本轮待发送附件（任意文件）",
+        completion_text="/attach ",
+        help_usage="/attach <path|dir|glob>",
+        parameterized=True,
+    ),
+    TuiCommandSpec(
+        "attachments", "/attachments", "查看待发送附件",
+        "查看当前待发送附件",
+    ),
+    TuiCommandSpec(
+        "detach", "/detach", "移除待发送附件",
+        "移除一个待发送附件",
+        completion_text="/detach ",
+        help_usage="/detach <index|path>",
+        parameterized=True,
+    ),
+    TuiCommandSpec(
+        "attach_clear", "/attach-clear", "清空待发送附件",
+        "清空当前待发送附件",
+    ),
+    TuiCommandSpec(
+        "permissions", "/permissions", "切换权限模式",
+        "切换权限模式",
+    ),
+    TuiCommandSpec(
+        "model", "/model", "设置主模型 ID",
+        "持久化主模型 ID；省略 model-id 表示清空",
+        completion_text="/model ",
+        help_usage="/model <model-id>",
+        parameterized=True,
+    ),
+    TuiCommandSpec(
+        "effort", "/effort", "设置主模型推理强度",
+        "设置主模型推理强度",
+    ),
+    TuiCommandSpec(
+        "preferences", "/preferences", "打开偏好配置页面",
+        "打开偏好配置页面",
+    ),
+    TuiCommandSpec(
+        "compact", "/compact", "压缩当前对话上下文",
+        "压缩当前对话上下文",
+    ),
+    TuiCommandSpec(
+        "tools", "/tools", "查看可用 MCP 工具",
+        "查看当前可用 MCP 工具",
+    ),
+    TuiCommandSpec(
+        "diff", "/diff", "查看本轮补丁净差异",
+        "查看本轮补丁净差异",
+    ),
+    TuiCommandSpec(
+        "copy", "/copy", "复制最近一次助手回复原文",
+        "复制最近一次助手回复原文",
+    ),
+    TuiCommandSpec(
+        "ps", "/ps", "查看运行中的命令",
+        "查看运行中的命令",
+    ),
+    TuiCommandSpec(
+        "mcp", "/mcp", "管理外部 MCP 服务",
+        "管理外部 MCP 服务",
+    ),
+    TuiCommandSpec(
+        "helix_link", "/helix-link", "接入 Helix MCP",
+        "接入 Helix MCP",
+    ),
+    TuiCommandSpec(
+        "helix_unlink", "/helix-unlink", "移除 Helix MCP",
+        "移除当前会话的 Helix MCP",
+    ),
+    TuiCommandSpec(
+        "helix_home", "/helix-home", "打开 Helix 首页",
+        "打开 Helix 首页",
+    ),
+    TuiCommandSpec(
+        "helix_stop", "/helix-stop", "停止 Helix 服务",
+        "停止 Helix 服务",
+    ),
+    TuiCommandSpec(
+        "skills", "/skills", "打开 skills 列表", "",
+        completion_text="$",
+        completion_match="/skills",
+        show_in_help=False,
+    ),
+    TuiCommandSpec(
+        "help", "/help", "查看帮助", "指令索引（用法/示例/约定）",
+        aliases=("/h",),
+    ),
+    TuiCommandSpec(
+        "license", "/license", "查看授权", "授权许可（License/特性）",
+        aliases=("/lic",),
+    ),
+    TuiCommandSpec(
+        "shutdown", "/shutdown", "停止本地后台服务并退出",
+        "关闭前台并停止本地运行时",
+    ),
+    TuiCommandSpec(
+        "quit", "/quit", "退出会话", "断开会话（安全退出）",
+        aliases=("/q", "quit", "exit"),
+    ),
+)
+
+_COMMAND_BY_KEY: typing.Final[dict[str, TuiCommandSpec]] = {
+    command.key: command for command in TUI_COMMANDS
+}
+_COMMAND_NAMES_BY_KEY: typing.Final[dict[str, frozenset[str]]] = {
+    key: frozenset(command.names)
+    for key, command in _COMMAND_BY_KEY.items()
+}
+
+
+def command_spec(key: str) -> TuiCommandSpec:
+    """返回指定标识对应的命令描述。"""
+    return _COMMAND_BY_KEY[key]
+
+
+def command_names(key: str) -> frozenset[str]:
+    """返回指定命令接受的规范名称和别名。"""
+    return _COMMAND_NAMES_BY_KEY[key]
+
+
+def matches_command(value: str, key: str) -> bool:
+    """判断输入值是否匹配指定命令。"""
+    return value in command_names(key)
+
+
+def parameterized_command_texts() -> tuple[str, ...]:
+    """返回选中补全后继续保留编辑状态的命令文本。"""
+    return tuple(
+        command.insertion_text
+        for command in TUI_COMMANDS
+        if command.parameterized
+    )
+
+
+def running_disabled_commands() -> frozenset[str]:
+    """返回模型轮次执行期间不可提交的命令名称。"""
+    return frozenset(
+        name
+        for command in TUI_COMMANDS
+        if command.disabled_while_running
+        for name in command.names
+    )
+
+
+def _completion_items() -> tuple[dict[str, str], ...]:
+    """生成补全器使用的有序命令条目。"""
+    items: list[dict[str, str]] = []
+    for command in TUI_COMMANDS:
+        item = {
+            "text"    : command.insertion_text,
+            "display" : command.command,
+            "meta"    : command.completion_meta
+        }
+
+        if command.completion_match:
+            item["match"] = command.completion_match
+        items.append(item)
+
+        items.extend(
+            {
+                "text"    : alias,
+                "display" : alias,
+                "meta"    : command.completion_meta
+            }
+            for alias in command.aliases
+            if alias.startswith("/")
+        )
+
+    return tuple(items)
+
+
 class SlashCommandCompleter(Completer):
     """命令补全视图。"""
 
-    COMMANDS: tuple[dict[str, str], ...] = (
-        {"text": "/chat", "display": "/chat", "meta": "切换到 Chat 模式"},
-        {"text": "/fast", "display": "/fast", "meta": "切换到 Fast 模式"},
-        {"text": "/xtra", "display": "/xtra", "meta": "切换到 Xtra 模式"},
-        {"text": "/new", "display": "/new", "meta": "开始新对话"},
-        {"text": "/resume", "display": "/resume", "meta": "恢复最近会话"},
-        {"text": "/attach ", "display": "/attach", "meta": "添加本轮待发送附件"},
-        {"text": "/attachments", "display": "/attachments", "meta": "查看待发送附件"},
-        {"text": "/detach ", "display": "/detach", "meta": "移除待发送附件"},
-        {"text": "/attach-clear", "display": "/attach-clear", "meta": "清空待发送附件"},
-        {"text": "/permissions", "display": "/permissions", "meta": "切换权限模式"},
-        {"text": "/model ", "display": "/model", "meta": "设置主模型 ID"},
-        {"text": "/effort", "display": "/effort", "meta": "设置主模型推理强度"},
-        {"text": "/preferences", "display": "/preferences", "meta": "打开偏好配置页面"},
-        {"text": "/compact", "display": "/compact", "meta": "压缩当前对话上下文"},
-        {"text": "/tools", "display": "/tools", "meta": "查看可用 MCP 工具"},
-        {"text": "/diff", "display": "/diff", "meta": "查看本轮补丁净差异"},
-        {"text": "/copy", "display": "/copy", "meta": "复制最近一次助手回复原文"},
-        {"text": "/ps", "display": "/ps", "meta": "查看运行中的命令"},
-        {"text": "/mcp", "display": "/mcp", "meta": "管理外部 MCP 服务"},
-        {"text": "/helix-link", "display": "/helix-link", "meta": "接入 Helix MCP"},
-        {"text": "/helix-unlink", "display": "/helix-unlink", "meta": "移除 Helix MCP"},
-        {"text": "/helix-home", "display": "/helix-home", "meta": "打开 Helix 首页"},
-        {"text": "/helix-stop", "display": "/helix-stop", "meta": "停止 Helix 服务"},
-        {"text": "$", "display": "/skills", "meta": "打开 skills 列表", "match": "/skills"},
-        {"text": "/help", "display": "/help", "meta": "查看帮助"},
-        {"text": "/h", "display": "/h", "meta": "查看帮助"},
-        {"text": "/license", "display": "/license", "meta": "查看授权"},
-        {"text": "/lic", "display": "/lic", "meta": "查看授权"},
-        {"text": "/shutdown", "display": "/shutdown", "meta": "停止本地后台服务并退出"},
-        {"text": "/quit", "display": "/quit", "meta": "退出会话"},
-        {"text": "/q", "display": "/q", "meta": "退出会话"}
-    )
+    COMMANDS: typing.Final[tuple[dict[str, str], ...]] = _completion_items()
 
-    TOP_LEVEL: tuple[str, ...] = (
-        "/chat",
-        "/fast",
-        "/xtra",
-        "/new",
-        "/resume",
-        "/attach",
-        "/attachments",
-        "/detach",
-        "/attach-clear",
-        "/permissions",
-        "/model",
-        "/effort",
-        "/preferences",
-        "/compact",
-        "/tools",
-        "/diff",
-        "/copy",
-        "/ps",
-        "/mcp",
-        "/helix-link",
-        "/helix-unlink",
-        "/helix-home",
-        "/helix-stop",
-        "/skills",
-        "/help",
-        "/license",
-        "/shutdown",
-        "/quit"
+    TOP_LEVEL: typing.Final[tuple[str, ...]] = tuple(
+        command.command for command in TUI_COMMANDS
     )
 
     def get_completions(self, document, complete_event):
         """根据当前输入内容生成补全项。"""
-        text = document.text_before_cursor
+        text     = document.text_before_cursor
         stripped = text.lstrip()
 
         if is_skill_token(text):

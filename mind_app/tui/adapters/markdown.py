@@ -23,7 +23,6 @@ from mind_app.presentation.styles import (
     PREVIEW_CODE_STRING_STYLE,
     PREVIEW_CODE_TEXT_STYLE
 )
-from mind_app.stream_state.text_models import TextFinalUnit
 from ..core.models import FragmentBlock
 from ..core.styles import styled_block_fragments
 
@@ -37,33 +36,9 @@ MARKDOWN_RULE_STYLE    = TextStyle(foreground="#6F7A86", dim=True)
 _MARKDOWN = MarkdownIt("commonmark")
 
 
-def render_tui_final(units: tuple[TextFinalUnit, ...]) -> FragmentBlock:
-    """把最终文本单元转换为 TUI 文本片段。"""
-    spans: list[TextSpan] = []
-    for unit in units:
-        if spans:
-            _append_span(spans, "\n\n" if unit.gap_before else "\n", TextStyle())
-        elif unit.gap_before:
-            _append_span(spans, "\n", TextStyle())
-
-        if unit.kind == "markdown":
-            _extend_spans(spans, _markdown_spans(unit.text))
-        else:
-            unit_spans = list(unit.spans) or [TextSpan(unit.text)]
-            _extend_spans(spans, [
-                span
-                if span.style != TextStyle()
-                else TextSpan(span.text, TextStyle(bold=True))
-                for span in unit_spans
-            ])
-
-    while spans and spans[-1].text.endswith("\n"):
-        text = spans[-1].text.rstrip("\n")
-        if text:
-            spans[-1] = TextSpan(text, spans[-1].style)
-            break
-        spans.pop()
-
+def render_tui_markdown(text: str) -> FragmentBlock:
+    """把完整 assistant Markdown 原文转换为 TUI 文本片段。"""
+    spans      = _markdown_spans(text)
     plain_text = "".join(span.text for span in spans)
     block      = StyledBlock(plain_text=plain_text, spans=tuple(spans))
 

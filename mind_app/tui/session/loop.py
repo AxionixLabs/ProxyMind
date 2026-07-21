@@ -18,7 +18,10 @@ from mind_nova.requests.access import (
     normalize_access_mode
 )
 from mind_app.interaction import PromptContext
-from mind_app.frontend import ApplicationView
+from mind_app.frontend import (
+    ApplicationSink,
+    ApplicationView
+)
 from mind_app.presentation.models import (
     TextSpan,
     TextStyle
@@ -67,7 +70,10 @@ from ..features.shell import (
     run_shell_escape
 )
 from .turn import run_tui_model_turn
-from ..core.runtime import require_tui_runtime
+from ..core.runtime import (
+    TuiRuntime,
+    require_tui_runtime,
+)
 from ..core.models import FragmentBlock
 from ..core.styles import (
     ACCENT_STYLE,
@@ -81,44 +87,52 @@ from ..core.styles import (
 )
 from server import config_service_base_url
 from ..features.history import choose_history_session
+from ..prompting.commands import (
+    TUI_COMMANDS,
+    command_spec,
+    matches_command,
+)
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
 
+_MODE_BY_KEY: typing.Final[dict[str, RunMode]] = {
+    "chat": "chat",
+    "fast": "fast",
+    "xtra": "xtra",
+}
 MODE_BY_COMMAND: dict[str, RunMode] = {
-    "/chat": "chat",
-    "/fast": "fast",
-    "/xtra": "xtra"
+    name: mode
+    for key, mode in _MODE_BY_KEY.items()
+    for name in command_spec(key).names
 }
 
-HELP_ITEMS: tuple[tuple[str, str, TextStyle], ...] = (
-    ("/chat", "对话模式（交互能力协作/自然语言交互）", WARNING_STYLE),
-    ("/fast", "高速模式（高吞吐任务流/数据媒体直达）", WARNING_STYLE),
-    ("/xtra", "外接模式（外部 MCP 工具 + 通用工具 + 编码工具）", WARNING_STYLE),
-    ("/new", "开始新对话（保留模式、模型和待发送附件）", ACCENT_STYLE),
-    ("/resume", "从当前模式最近 24 小时会话中恢复", SUCCESS_STYLE),
-    ("/attach <path|dir|glob>", "添加本轮待发送附件（任意文件）", ACCENT_STYLE),
-    ("/attachments", "查看当前待发送附件", ACCENT_STYLE),
-    ("/detach <index|path>", "移除一个待发送附件", ACCENT_STYLE),
-    ("/attach-clear", "清空当前待发送附件", ACCENT_STYLE),
-    ("/permissions", "切换权限模式", SUCCESS_STYLE),
-    ("/model <model-id>", "持久化主模型 ID；省略 model-id 表示清空", MUTED_STYLE),
-    ("/effort", "设置主模型推理强度", SUCCESS_STYLE),
-    ("/preferences", "打开偏好配置页面", ACCENT_STYLE),
-    ("/compact", "压缩当前对话上下文", ACCENT_STYLE),
-    ("/tools", "查看当前可用 MCP 工具", ACCENT_STYLE),
-    ("/diff", "查看本轮补丁净差异", ACCENT_STYLE),
-    ("/copy", "复制最近一次助手回复原文", ACCENT_STYLE),
-    ("/ps", "查看运行中的命令", SUCCESS_STYLE),
-    ("/mcp", "管理外部 MCP 服务", TextStyle(foreground="#87D7FF", bold=True)),
-    ("/helix-link", "接入 Helix MCP", SUCCESS_STYLE),
-    ("/helix-unlink", "移除当前会话的 Helix MCP", SUCCESS_STYLE),
-    ("/helix-home", "打开 Helix 首页", SUCCESS_STYLE),
-    ("/helix-stop", "停止 Helix 服务", SUCCESS_STYLE),
-    ("/help, /h", "指令索引（用法/示例/约定）", ACCENT_STYLE),
-    ("/license, /lic", "授权许可（License/特性）", SUCCESS_STYLE),
-    ("/shutdown", "关闭前台并停止本地运行时", FAILURE_STYLE),
-    ("/quit, /q, quit, exit", "断开会话（安全退出）", FAILURE_STYLE),
+_HELP_STYLE_BY_KEY: typing.Final[dict[str, TextStyle]] = {
+    "chat": WARNING_STYLE,
+    "fast": WARNING_STYLE,
+    "xtra": WARNING_STYLE,
+    "resume": SUCCESS_STYLE,
+    "permissions": SUCCESS_STYLE,
+    "model": MUTED_STYLE,
+    "effort": SUCCESS_STYLE,
+    "ps": SUCCESS_STYLE,
+    "mcp": TextStyle(foreground="#87D7FF", bold=True),
+    "helix_link": SUCCESS_STYLE,
+    "helix_unlink": SUCCESS_STYLE,
+    "helix_home": SUCCESS_STYLE,
+    "helix_stop": SUCCESS_STYLE,
+    "license": SUCCESS_STYLE,
+    "shutdown": FAILURE_STYLE,
+    "quit": FAILURE_STYLE,
+}
+HELP_ITEMS: tuple[tuple[str, str, TextStyle], ...] = tuple(
+    (
+        command.usage,
+        command.help_detail,
+        _HELP_STYLE_BY_KEY.get(command.key, ACCENT_STYLE),
+    )
+    for command in TUI_COMMANDS
+    if command.show_in_help
 )
 
 
@@ -149,6 +163,46 @@ def _label_detail(label: str, detail: str) -> FragmentBlock:
 def _failure_block(message: typing.Any) -> FragmentBlock:
     """生成单行会话错误块。"""
     return text_block(str(message), FAILURE_STYLE)
+
+
+def _interruption_block() -> FragmentBlock:
+    """生成当前响应被用户中断后的引导块。"""
+    return fragment_block(
+        TextSpan("■", FAILURE_STYLE),
+        TextSpan(" Response interrupted", BRIGHT_STYLE),
+        TextSpan(" · Tell Mind what to do differently.", MUTED_STYLE),
+    )
+
+
+async def _execute_tui_model_turn(
+    application: ApplicationSink,
+    runtime: TuiRuntime,
+    turn: typing.Coroutine[typing.Any, typing.Any, None],
+) -> None:
+    """执行可由主输入区定向取消的单个模型轮次。"""
+    task = asyncio.create_task(turn, name="mind tui model turn")
+    interrupted = False
+    runtime.set_execution_active(True)
+    runtime.bind_turn_interrupt(task.cancel)
+    try:
+        await task
+    except asyncio.CancelledError:
+        if not runtime.consume_turn_interrupt():
+            raise
+        interrupted = True
+    else:
+        interrupted = runtime.consume_turn_interrupt()
+    finally:
+        if not interrupted:
+            runtime.consume_turn_interrupt()
+        runtime.bind_turn_interrupt(None)
+        runtime.set_execution_active(False)
+
+    if interrupted:
+        application.emit(ApplicationView(
+            type="tui.interrupted",
+            renderable=_interruption_block(),
+        ))
 
 
 async def preload_tui_prompt_context(mind: "Mind") -> None:
@@ -217,35 +271,22 @@ async def run_tui_loop(mind: "Mind") -> None:
             renderable=renderable,
         ))
 
-    quit_set: set[str] = {"/quit", "/q", "quit", "exit"}
-    help_set: set[str] = {"/help", "/h"}
-    seal_set: set[str] = {"/license", "/lic"}
-    new_set: set[str]  = {"/new"}
-
-    attachments_set: set[str]  = {"/attachments"}
-    attach_clear_set: set[str] = {"/attach-clear"}
-    resume_set: set[str]       = {"/resume"}
-    permissions_set: set[str]  = {"/permissions"}
-    tools_set: set[str]        = {"/tools"}
-    diff_set: set[str]         = {"/diff"}
-    copy_set: set[str]         = {"/copy"}
-    effort_set: set[str]       = {"/effort"}
-    ps_set: set[str]           = {"/ps"}
-    preferences_set: set[str]  = {"/preferences"}
-    compact_set: set[str]      = {"/compact"}
-    helix_link_set: set[str]   = {"/helix-link"}
-    helix_unlink_set: set[str] = {"/helix-unlink"}
-    helix_home_set: set[str]   = {"/helix-home"}
-    helix_stop_set: set[str]   = {"/helix-stop"}
-    shutdown_set: set[str]     = {"/shutdown"}
-
     doc = _help_block()
 
-    re_attach = re.compile(r"^\s*/attach(?:\s+(.*))?\s*$", re.IGNORECASE)
-    re_detach = re.compile(r"^\s*/detach(?:\s+(.*))?\s*$", re.IGNORECASE)
-    re_model  = re.compile(r"^\s*/model(?:\s+(.+))?\s*$", re.IGNORECASE)
+    re_attach = re.compile(
+        rf"^\s*{re.escape(command_spec('attach').command)}(?:\s+(.*))?\s*$",
+        re.IGNORECASE,
+    )
+    re_detach = re.compile(
+        rf"^\s*{re.escape(command_spec('detach').command)}(?:\s+(.*))?\s*$",
+        re.IGNORECASE,
+    )
+    re_model = re.compile(
+        rf"^\s*{re.escape(command_spec('model').command)}(?:\s+(.+))?\s*$",
+        re.IGNORECASE,
+    )
 
-    pref_config = await mind.fresh_pref_config()
+    pref_config = mind.pref.to_config()
 
     primary = pref_config.get("primary") or {}
     model   = primary.get("model", "")
@@ -253,38 +294,52 @@ async def run_tui_loop(mind: "Mind") -> None:
     mode: RunMode = DEFAULT_RUN_MODE
     access_mode   = DEFAULT_ACCESS_MODE
 
-    workspace_label = ""
-    refreshed_at    = 0.0
+    workspace_label = runtime.context.workspace_label
+    refreshed_at    = time.monotonic()
 
     while not mind.task_event.is_set():
-        pref_config = await mind.fresh_pref_config()
-        model       = primary_model_from_config(pref_config, model)
-        now         = time.monotonic()
-
-        if (
-            refreshed_at <= 0.0
-            or now - refreshed_at >= WORKSPACE_LABEL_REFRESH
-        ):
-            runtime_workspace_root = await fetch_runtime_workspace_root()
-            if runtime_workspace_root is not None:
-                mind.set_history_workspace(runtime_workspace_root)
-
-            workspace_label = workspace_display_label(runtime_workspace_root)
-            refreshed_at    = now
-
+        prompt_task = asyncio.create_task(
+            mind.frontend.interaction.read_message(PromptContext(
+                mode=mode,
+                model=primary_model_prompt_label(pref_config, model),
+                workspace_label=workspace_label,
+                access_label=access_mode_label(access_mode),
+            )),
+            name="mind tui read message",
+        )
         try:
-            prompt_text = await mind.frontend.interaction.read_message(PromptContext(
+            pref_config = await mind.fresh_pref_config()
+            model       = primary_model_from_config(pref_config, model)
+            now         = time.monotonic()
+
+            if now - refreshed_at >= WORKSPACE_LABEL_REFRESH:
+                runtime_workspace_root = await fetch_runtime_workspace_root()
+                if runtime_workspace_root is not None:
+                    mind.set_history_workspace(runtime_workspace_root)
+
+                workspace_label = workspace_display_label(runtime_workspace_root)
+                refreshed_at    = now
+
+            runtime.set_prompt_context(PromptContext(
                 mode=mode,
                 model=primary_model_prompt_label(pref_config, model),
                 workspace_label=workspace_label,
                 access_label=access_mode_label(access_mode),
             ))
+            prompt_text = await prompt_task
         except KeyboardInterrupt:
             mind.exit_code = 130
             mind.task_event.set()
             break
-        except (EOFError, UnicodeDecodeError):
+        except EOFError:
+            mind.task_event.set()
+            break
+        except UnicodeDecodeError:
             continue
+        finally:
+            if not prompt_task.done():
+                prompt_task.cancel()
+            await asyncio.gather(prompt_task, return_exceptions=True)
 
         if ignored_tui_input(prompt_text):
             continue
@@ -306,19 +361,19 @@ async def run_tui_loop(mind: "Mind") -> None:
         if command.startswith("/"):
             present()
 
-        if command in quit_set:
+        if matches_command(command, "quit"):
             mind.task_event.set()
             break
 
-        if command in help_set:
+        if matches_command(command, "help"):
             present(doc, view_type="tui.help")
             continue
 
-        if command in seal_set:
+        if matches_command(command, "license"):
             present(view_type="startup_logo")
             continue
 
-        if command in new_set:
+        if matches_command(command, "new"):
             new_conversation_metadata = mind.reset_conversation(
                 reason="command:/new",
                 source="tui:new"
@@ -331,11 +386,11 @@ async def run_tui_loop(mind: "Mind") -> None:
             present()
             continue
 
-        if command in attachments_set:
+        if matches_command(command, "attachments"):
             print_pending_attachments(mind)
             continue
 
-        if command in attach_clear_set:
+        if matches_command(command, "attach_clear"):
             count = mind.attach.clear_pending_attachments()
             present(text_block(
                 f"Cleared {count} pending attachment(s).",
@@ -344,14 +399,14 @@ async def run_tui_loop(mind: "Mind") -> None:
             present()
             continue
 
-        if command in shutdown_set:
+        if matches_command(command, "shutdown"):
             mind.stop_runtime_on_exit = True
             mind.task_event.set()
             present(_label_detail("Shutdown", "stop backend runtime"))
             present()
             break
 
-        if command.split(maxsplit=1)[0] in permissions_set:
+        if matches_command(command.split(maxsplit=1)[0], "permissions"):
             selected_access_mode = await choose_permissions_mode(
                 runtime,
                 access_mode,
@@ -363,20 +418,20 @@ async def run_tui_loop(mind: "Mind") -> None:
                 present()
             continue
 
-        if command in tools_set:
+        if matches_command(command, "tools"):
             pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
             await print_available_tools(mind, run_mode=mode, pref_config=pref_config)
             continue
 
-        if command in diff_set:
+        if matches_command(command, "diff"):
             print_current_apply_patch_diff(mind)
             continue
 
-        if command in copy_set:
+        if matches_command(command, "copy"):
             await copy_last_assistant_reply(mind)
             continue
 
-        if command in effort_set:
+        if matches_command(command, "effort"):
             pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
             primary     = pref_config.get("primary") or {}
 
@@ -402,7 +457,7 @@ async def run_tui_loop(mind: "Mind") -> None:
                 )
             continue
 
-        if command in ps_set:
+        if matches_command(command, "ps"):
             session_id = await choose_exec_session(
                 runtime,
                 mind,
@@ -438,14 +493,14 @@ async def run_tui_loop(mind: "Mind") -> None:
                     present()
             continue
 
-        if command in preferences_set:
+        if matches_command(command, "preferences"):
             url = f"{config_service_base_url()}/pref"
             present(_label_detail("Preferences", url))
             await FileAssist.open_url(url)
             present()
             continue
 
-        if command in compact_set:
+        if matches_command(command, "compact"):
             pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
             await compact_current_conversation(
                 mind,
@@ -454,27 +509,27 @@ async def run_tui_loop(mind: "Mind") -> None:
             )
             continue
 
-        if command in helix_link_set:
+        if matches_command(command, "helix_link"):
             await link_helix_runtime(mind)
             refreshed_at = 0.0
             continue
 
-        if command in helix_unlink_set:
+        if matches_command(command, "helix_unlink"):
             unlink_helix_runtime(mind)
             refreshed_at = 0.0
             continue
 
-        if command in helix_home_set:
+        if matches_command(command, "helix_home"):
             await open_helix_home(mind)
             refreshed_at = 0.0
             continue
 
-        if command in helix_stop_set:
+        if matches_command(command, "helix_stop"):
             await stop_helix_runtime(mind)
             refreshed_at = 0.0
             continue
 
-        if command == "/mcp":
+        if matches_command(command, "mcp"):
             mcp_action = await choose_mcp_action(
                 runtime,
                 mind,
@@ -482,7 +537,7 @@ async def run_tui_loop(mind: "Mind") -> None:
             await run_mcp_action(mind, mcp_action)
             continue
 
-        if command in resume_set:
+        if matches_command(command, "resume"):
             records = mind.recent_conversation_sessions()
             if not records:
                 present(text_block(
@@ -600,17 +655,23 @@ async def run_tui_loop(mind: "Mind") -> None:
         present()
         mind.native_coding.reset_patch_diff()
 
-        runtime.set_execution_active(True)
-        try:
-            await run_tui_model_turn(
+        await _execute_tui_model_turn(
+            application,
+            runtime,
+            run_tui_model_turn(
                 mind,
                 message_text=prompt_text,
                 run_mode=mode,
                 pref_config=pref_config,
                 access_mode=access_mode
-            )
-        finally:
-            runtime.set_execution_active(False)
+            ),
+        )
+        exit_reason = runtime.consume_exit_request()
+        if exit_reason is not None:
+            if exit_reason == "interrupt":
+                mind.exit_code = 130
+            mind.task_event.set()
+            break
 
     return None
 

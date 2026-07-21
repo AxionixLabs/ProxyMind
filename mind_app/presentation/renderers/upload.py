@@ -8,11 +8,12 @@ from mind_app.presentation.models import (
     TextStyle
 )
 
-MUTED   = TextStyle(foreground="#7F8C9A", bold=True)
-ACCENT  = TextStyle(foreground="#AFC7D8", bold=True)
-BRIGHT  = TextStyle(foreground="#F4F7FA", bold=True)
-SUCCESS = TextStyle(foreground="#5FD7AF", bold=True)
-FAILURE = TextStyle(foreground="#FF6B6B", bold=True)
+MUTED     = TextStyle(foreground="#7F8C9A")
+ACCENT    = TextStyle(foreground="#AFC7D8")
+BRIGHT    = TextStyle(foreground="#F4F7FA")
+INDICATOR = TextStyle(foreground="#5FD7AF")
+SUCCESS   = TextStyle(foreground="#5FD7AF", bold=True)
+FAILURE   = TextStyle(foreground="#FF6B6B", bold=True)
 
 
 def format_bytes(value: float) -> str:
@@ -39,7 +40,7 @@ def upload_idle_block(
 ) -> StyledBlock:
     """生成尚未收到上传事件时的等待状态。"""
     spans = [
-        TextSpan(indicator, SUCCESS),
+        TextSpan(indicator, INDICATOR),
         TextSpan(" preparing attach", ACCENT),
     ]
 
@@ -59,32 +60,46 @@ def upload_progress_block(
     *,
     indicator: str,
 ) -> StyledBlock:
-    """生成单个上传事件对应的两行状态。"""
+    """生成单个上传事件对应的单行状态。"""
     phase      = str(event.get("phase") or "")
     item_index = int(event.get("item_index") or 1)
     item_total = int(event.get("item_total") or 1)
     filename   = str(event.get("filename") or "-")
     action     = "processing" if phase == "processing" else "attaching"
-    detail     = "waiting" if phase == "processing" else "sending"
 
     if bool(event.get("done")):
         action    = "attached"
-        detail    = "ready"
         indicator = "✓"
 
     spans = [
-        TextSpan(indicator, SUCCESS),
-        TextSpan(f" {action:<10} {item_index}/{item_total}", ACCENT),
+        TextSpan(indicator, INDICATOR),
+        TextSpan(f" {action} {item_index}/{item_total}", ACCENT),
         TextSpan(" · ", MUTED),
-        TextSpan(detail, ACCENT),
-        TextSpan("\n"),
         TextSpan(filename, BRIGHT),
     ]
+
+    uploaded = float(event.get("aggregate_uploaded_bytes") or 0.0)
+    total    = float(event.get("aggregate_total_bytes") or 0.0)
+    speed    = float(event.get("aggregate_speed_bytes_per_sec") or 0.0)
+
+    if phase != "processing" and (uploaded > 0 or total > 0):
+        transfer = format_bytes(uploaded)
+        if total > 0:
+            transfer = f"{transfer} / {format_bytes(total)}"
+        spans.extend([TextSpan(" · ", MUTED), TextSpan(transfer, ACCENT)])
+        if speed > 0 and not bool(event.get("done")):
+            spans.extend([
+                TextSpan(" · ", MUTED),
+                TextSpan(f"{format_bytes(speed)}/s", ACCENT),
+            ])
+    elif phase == "processing":
+        spans.extend([TextSpan(" · ", MUTED), TextSpan("processing", ACCENT)])
+
     return _styled_block(spans)
 
 
 def upload_summary_block(event: dict[str, typing.Any]) -> StyledBlock:
-    """生成上传完成后的两行摘要。"""
+    """生成上传完成后的单行摘要。"""
     item_total = int(event.get("item_total") or 0)
     total      = format_bytes(float(event.get("aggregate_total_bytes", 0.0) or 0.0))
     elapsed    = float(event.get("aggregate_elapsed_sec") or 0.0)
@@ -95,7 +110,7 @@ def upload_summary_block(event: dict[str, typing.Any]) -> StyledBlock:
         TextSpan("done", SUCCESS),
         TextSpan(" · ", MUTED),
         TextSpan(f"{item_total} file(s)", BRIGHT),
-        TextSpan("\n"),
+        TextSpan(" · ", MUTED),
         TextSpan(total, ACCENT),
         TextSpan(" · ", MUTED),
         TextSpan(f"{elapsed:.1f}s", ACCENT),

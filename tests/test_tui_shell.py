@@ -218,6 +218,10 @@ def test_background_completion_waits_for_stream_boundary() -> None:
 @pytest.mark.anyio
 async def test_runtime_process_viewer_replaces_input_area() -> None:
     runtime = TuiRuntime()
+    runtime.append_block(
+        FragmentBlock((("", "command query"),)),
+        kind="user",
+    )
     task = asyncio.create_task(runtime.view_process(ProcessViewerRequest(
         fragments=(("class:ps.title", "Shell running\noutput"),),
     )))
@@ -225,6 +229,7 @@ async def test_runtime_process_viewer_replaces_input_area() -> None:
 
     assert runtime.process_viewer.active
     assert runtime._process_viewer_height() == 2
+    assert runtime._content_input_gap_height() == 2
     assert runtime._interaction_height() == 0
     assert not runtime.input_area.filter()
 

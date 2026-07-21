@@ -111,7 +111,7 @@ def external_mcp_status_view(
 
     parts = [
         prefix,
-        f"{ready_count}/{len(items)} servers" if done else f"{len(items)} servers",
+        f"{connected_count}/{len(items)} servers",
     ]
     if total_tools > 0:
         parts.append(f"{total_tools} tools")

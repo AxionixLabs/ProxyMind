@@ -1,18 +1,36 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import typing
 from dataclasses import dataclass
 from .models import (
     FormattedText,
     FragmentBlock
 )
 
+TuiBlockKind = typing.Literal[
+    "user",
+    "assistant",
+    "operation",
+    "approval",
+    "notice",
+    "system"
+]
+
+_COMPACT_TRANSITIONS: typing.Final[set[tuple[TuiBlockKind, TuiBlockKind]]] = {
+    ("operation", "operation"),
+    ("approval", "approval"),
+    ("notice", "notice"),
+    ("system", "system"),
+}
+
 
 @dataclass(frozen=True, slots=True)
 class TranscriptBlock(object):
-    """保存一项稳定正文及其前置视觉间距。"""
+    """保存一项稳定正文、语义类型及其前置视觉间距。"""
 
     block: FragmentBlock
+    kind: TuiBlockKind
     gap_before: bool = False
 
 
@@ -22,6 +40,7 @@ class TuiDocument(object):
     def __init__(self) -> None:
         self.blocks: list[TranscriptBlock]      = []
         self.active_block: FragmentBlock | None = None
+        self.active_kind: TuiBlockKind | None   = None
         self.active_gap_before: bool            = False
         self.pending_gap: bool                  = False
 
@@ -30,11 +49,12 @@ class TuiDocument(object):
         """返回当前是否存在稳定或动态正文。"""
         return bool(self.blocks or self.active_block is not None)
 
-    def append_block(self, block: FragmentBlock) -> bool:
-        """追加一个稳定正文块并消费待处理间距。"""
+    def append_block(self, block: FragmentBlock, *, kind: TuiBlockKind) -> bool:
+        """追加一个稳定正文块并按语义边界计算间距。"""
         self.blocks.append(TranscriptBlock(
             block=block,
-            gap_before=self._consume_pending_gap(),
+            kind=kind,
+            gap_before=self._consume_gap(kind),
         ))
         return True
 
@@ -54,16 +74,22 @@ class TuiDocument(object):
         if self.has_content:
             self.pending_gap = True
 
-    def set_active(self, block: FragmentBlock) -> None:
-        """设置当前动态正文并在首次显示时消费间距。"""
+    def set_active(self, block: FragmentBlock, *, kind: TuiBlockKind) -> None:
+        """设置当前动态正文并在首次显示时计算语义间距。"""
         if self.active_block is None:
-            self.active_gap_before = self._consume_pending_gap()
+            self.active_kind = kind
+            self.active_gap_before = self._consume_gap(kind)
+        elif self.active_kind != kind:
+            raise ValueError("active TUI block kind cannot change before commit")
         self.active_block = block
 
     def commit_active(self, block: FragmentBlock) -> None:
         """把当前动态正文替换为相同位置的稳定块。"""
+        if self.active_kind is None:
+            raise ValueError("cannot commit an active TUI block without a kind")
         self.blocks.append(TranscriptBlock(
             block=block,
+            kind=self.active_kind,
             gap_before=self.active_gap_before,
         ))
         self.clear_active()
@@ -71,6 +97,7 @@ class TuiDocument(object):
     def clear_active(self) -> None:
         """清空当前动态正文及其间距状态。"""
         self.active_block = None
+        self.active_kind = None
         self.active_gap_before = False
 
     def fragments(self, *, width: int) -> FormattedText:
@@ -78,8 +105,11 @@ class TuiDocument(object):
         _ = width
         blocks = list(self.blocks)
         if self.active_block is not None:
+            if self.active_kind is None:
+                raise ValueError("active TUI block is missing its semantic kind")
             blocks.append(TranscriptBlock(
                 block=self.active_block,
+                kind=self.active_kind,
                 gap_before=self.active_gap_before,
             ))
         return self._render_blocks(blocks)
@@ -107,9 +137,15 @@ class TuiDocument(object):
             out.extend(parts)
         return out
 
-    def _consume_pending_gap(self) -> bool:
-        """消费待处理间距并避免首项正文产生前导空行。"""
-        gap_before = bool(self.blocks and self.pending_gap)
+    def _consume_gap(self, kind: TuiBlockKind) -> bool:
+        """消费显式间距，并按相邻块语义决定默认间距。"""
+        previous_kind = self.blocks[-1].kind if self.blocks else None
+
+        gap_before = previous_kind is not None and (
+            self.pending_gap
+            or (previous_kind, kind) not in _COMPACT_TRANSITIONS
+        )
+
         self.pending_gap = False
         return gap_before
 

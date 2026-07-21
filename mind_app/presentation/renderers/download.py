@@ -9,12 +9,13 @@ from mind_app.presentation.models import (
 )
 from .upload import format_bytes
 
-MUTED   = TextStyle(foreground="#7F8C9A", bold=True)
-ACCENT  = TextStyle(foreground="#AFC7D8", bold=True)
-BRIGHT  = TextStyle(foreground="#F4F7FA", bold=True)
-SUCCESS = TextStyle(foreground="#5FD7AF", bold=True)
-FAILURE = TextStyle(foreground="#FF6B6B", bold=True)
-WARNING = TextStyle(foreground="#FFD166", bold=True)
+MUTED     = TextStyle(foreground="#7F8C9A")
+ACCENT    = TextStyle(foreground="#AFC7D8")
+BRIGHT    = TextStyle(foreground="#F4F7FA")
+INDICATOR = TextStyle(foreground="#5FD7AF")
+SUCCESS   = TextStyle(foreground="#5FD7AF", bold=True)
+FAILURE   = TextStyle(foreground="#FF6B6B", bold=True)
+WARNING   = TextStyle(foreground="#FFD166", bold=True)
 
 
 def download_progress_block(
@@ -22,23 +23,26 @@ def download_progress_block(
     *,
     indicator: str,
 ) -> StyledBlock:
-    """生成运行时下载过程的两行状态。"""
+    """生成运行时下载过程的单行状态。"""
     stage = str(state.get("stage") or "warming").strip().lower()
 
     action, detail = _stage_labels(state, stage)
 
     spans = [
-        TextSpan(indicator, SUCCESS),
-        TextSpan(f" {action:<11}", ACCENT),
+        TextSpan(indicator, INDICATOR),
+        TextSpan(f" {action}", ACCENT),
         TextSpan(" · ", MUTED),
         TextSpan(detail, ACCENT),
-        TextSpan("\n"),
     ]
 
     if stage == "downloading":
+        spans.append(TextSpan(" · ", MUTED))
         spans.extend(_transfer_spans(state, include_speed=True))
     else:
-        spans.append(TextSpan(str(state.get("filename") or "runtime package"), BRIGHT))
+        spans.extend([
+            TextSpan(" · ", MUTED),
+            TextSpan(str(state.get("filename") or "runtime package"), BRIGHT),
+        ])
 
     return _styled_block(spans)
 
@@ -70,8 +74,9 @@ def download_summary_block(
     ]
 
     if int(state.get("done") or 0) > 0 or int(state.get("total") or 0) > 0:
-        spans.append(TextSpan("\n"))
+        spans.append(TextSpan(" · ", MUTED))
         spans.extend(_transfer_spans(state, include_speed=False))
+
     return _styled_block(spans)
 
 

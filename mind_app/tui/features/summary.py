@@ -87,7 +87,7 @@ def command_summary_title_parts(
         ("• ", prompt_style(TextStyle(foreground="#7F8C9A", dim=True))),
         (kind, prompt_style(TextStyle(foreground="#8FC7EA", bold=True))),
         (" ", prompt_style(TextStyle(foreground="#7F8C9A", dim=True))),
-        (command, prompt_style(TextStyle(foreground="#F4F7FA", bold=True))),
+        (command, prompt_style(TextStyle(foreground="#F4F7FA"))),
     ]
 
     if suffix:

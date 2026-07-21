@@ -41,10 +41,11 @@ async def run_mode_lifecycle(
     finally:
         await mind.await_cleanup(mind.stop_anim("wait"))
 
-    emit_worked_footer(
-        mind.frontend.application,
-        time.perf_counter() - started_at,
-    )
+    if mind.animate:
+        emit_worked_footer(
+            mind.frontend.application,
+            time.perf_counter() - started_at,
+        )
 
 
 async def calling(

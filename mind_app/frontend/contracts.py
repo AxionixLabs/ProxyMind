@@ -18,7 +18,7 @@ ActivityStatusKind = typing.Literal[
     "upload",
     "download",
     "inbuild",
-    "external_mcp",
+    "external_mcp"
 ]
 
 
@@ -99,8 +99,6 @@ class FrontendRuntime(typing.Protocol):
     async def begin_external_mcp_status(
         self,
         snapshot: typing.Callable[[], dict[str, typing.Any]],
-        *,
-        persist_final: bool = False,
     ) -> None:
         """显示外部 MCP 启动状态。"""
         ...
@@ -160,11 +158,9 @@ class PassiveFrontendRuntime(object):
     async def begin_external_mcp_status(
         self,
         snapshot: typing.Callable[[], dict[str, typing.Any]],
-        *,
-        persist_final: bool = False,
     ) -> None:
         """忽略外部 MCP 状态请求。"""
-        _ = snapshot, persist_final
+        _ = snapshot
         return None
 
     async def end_activity_status(

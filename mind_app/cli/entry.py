@@ -74,6 +74,62 @@ async def await_cleanup(awaitable: typing.Awaitable[None]) -> None:
         raise
 
 
+def _emit_helix_skipped(mind: Mind) -> None:
+    """输出 Helix 启动被跳过的状态。"""
+    mind.frontend.application.emit(ApplicationView(
+        type="helix.skipped",
+        renderable=StyledBlock(
+            plain_text="Helix · skipped",
+            spans=(
+                TextSpan(
+                    "Helix ",
+                    TextStyle(foreground="#AFC7D8", bold=True),
+                ),
+                TextSpan(
+                    "· skipped",
+                    TextStyle(foreground="#7F8C9A", dim=True),
+                ),
+            ),
+        ),
+    ))
+    mind.frontend.application.emit(ApplicationView(type="spacer"))
+
+
+def _emit_startup_failure(mind: Mind, label: str, error: BaseException) -> None:
+    """把后台基础设施启动失败写入应用展示。"""
+    mind.frontend.application.emit(ApplicationView(
+        type="tui.background.error",
+        renderable=f"{label} startup failed: {error}",
+    ))
+
+
+async def _start_tui_infrastructure(
+    mind: Mind,
+    *,
+    start_helix: bool,
+) -> None:
+    """在输入循环之外依次准备 Helix 和外部 MCP。"""
+    if start_helix:
+        from ..tui.features.download import prepare_tui_service_runtime
+
+        try:
+            await prepare_tui_service_runtime(
+                mind,
+                download_confirmed=True,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            _emit_startup_failure(mind, "Helix", error)
+
+    try:
+        await mind.start_external_mcp_runtime()
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        _emit_startup_failure(mind, "External MCP", error)
+
+
 async def _run_main(
     entry_file: typing.Optional[str],
     entry_anim_manager: AsyncAnimManager,
@@ -91,7 +147,8 @@ async def _run_main(
     design      = resolve_cli_design(frontend, output_mode)
 
     # Notes: ========== Start from here ==========
-    frontend.application.emit(ApplicationView(type="intro"))
+    if output_mode_uses_animation(output_mode):
+        frontend.application.emit(ApplicationView(type="intro"))
 
     # 获取命令行参数
     wires = sys.argv[1:]
@@ -235,33 +292,13 @@ async def _run_main(
             from ..tui.session.loop import preload_tui_prompt_context
 
             await preload_tui_prompt_context(mind)
-        await mind.frontend.runtime.open()
+        else:
+            await mind.frontend.runtime.open()
 
-        if cmd_lines.mcp:
-            if output_mode == "tui":
-                from ..tui.features.download import prepare_tui_service_runtime
-
-                helix_linked = await prepare_tui_service_runtime(mind)
-            else:
-                helix_linked = await prepare_and_start_service_runtime(mind)
+        if cmd_lines.mcp and output_mode != "tui":
+            helix_linked = await prepare_and_start_service_runtime(mind)
             if not helix_linked:
-                mind.frontend.application.emit(ApplicationView(
-                    type="helix.skipped",
-                    renderable=StyledBlock(
-                        plain_text="Helix · skipped",
-                        spans=(
-                            TextSpan(
-                                "Helix ",
-                                TextStyle(foreground="#AFC7D8", bold=True),
-                            ),
-                            TextSpan(
-                                "· skipped",
-                                TextStyle(foreground="#7F8C9A", dim=True),
-                            ),
-                        ),
-                    ),
-                ))
-                mind.frontend.application.emit(ApplicationView(type="spacer"))
+                _emit_helix_skipped(mind)
 
         await mind.start_config_service()
 
@@ -280,7 +317,8 @@ async def _run_main(
         startup_tasks = [pref_task, domain_task]
 
         try:
-            await mind.start_external_mcp_runtime()
+            if output_mode != "tui":
+                await mind.start_external_mcp_runtime()
             await pref_task
             service_endpoints.configure(await domain_task)
         finally:
@@ -290,6 +328,27 @@ async def _run_main(
             await asyncio.gather(*startup_tasks, return_exceptions=True)
 
         cli_attachments = await resolve_cli_attachments(mind, cmd_lines)
+
+        if output_mode == "tui":
+            from ..tui.core.runtime import require_tui_runtime
+            from ..tui.features.download import confirm_tui_service_runtime_startup
+
+            runtime = require_tui_runtime(mind.frontend.runtime)
+            await runtime.open()
+
+            start_helix = False
+            if cmd_lines.mcp:
+                start_helix = await confirm_tui_service_runtime_startup(mind)
+                if not start_helix:
+                    _emit_helix_skipped(mind)
+
+            runtime.start_background_task(
+                _start_tui_infrastructure(
+                    mind,
+                    start_helix=start_helix,
+                ),
+                name="mind tui infrastructure startup",
+            )
 
         await run_selected_mode(mind, cmd_lines, cli_attachments)
         return mind.exit_code

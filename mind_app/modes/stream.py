@@ -137,7 +137,7 @@ async def stream_looper(
             mode=mode,
             pref_config=pref_config,
             workdir=str(getattr(mind, "history_workspace", "") or ""),
-            sandbox=str(kwargs.get("access_mode") or ""),
+            access_mode=str(kwargs.get("access_mode") or ""),
             turn_id=str(kwargs.get("turn_id") or ""),
         ))
 

@@ -6,9 +6,8 @@ from mind_app.tui.features import commands
 
 
 @pytest.mark.anyio
-async def test_compact_empty_stream_persists_failed_final_status(monkeypatch) -> None:
+async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch) -> None:
     snapshots = []
-    starts = []
 
     async def empty_stream(_payload):
         if False:
@@ -22,9 +21,8 @@ async def test_compact_empty_stream_persists_failed_final_status(monkeypatch) ->
         animate = True
         conversation = ConversationStub()
 
-        async def start_external_mcp_anim(self, snapshot, *, persist_final=False):
+        async def start_external_mcp_anim(self, snapshot):
             snapshots.append(snapshot)
-            starts.append(persist_final)
 
         async def stop_anim(self, kind=None):
             snapshots.append((kind, snapshots[0]()))
@@ -41,7 +39,6 @@ async def test_compact_empty_stream_persists_failed_final_status(monkeypatch) ->
     )
 
     kind, final = snapshots[-1]
-    assert starts == [True]
     assert kind == "external_mcp"
     assert final["done"] is True
     assert final["summary"] == "Context compaction failed. Please try again."

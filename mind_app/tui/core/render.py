@@ -12,6 +12,32 @@ def fragments_text(parts: typing.Iterable[tuple[str, str]]) -> str:
     return "".join(text for _style, text in parts)
 
 
+def clip_text(text: typing.Any, *, width: int) -> str:
+    """按终端显示宽度裁剪单行文本并保留省略标记。"""
+    value = str(text or "").replace("\n", " ")
+    limit = max(0, int(width))
+    if limit <= 0:
+        return ""
+    if get_cwidth(value) <= limit:
+        return value
+
+    ellipsis = "…"
+    ellipsis_width = get_cwidth(ellipsis)
+    if limit <= ellipsis_width:
+        return ellipsis
+
+    available = limit - ellipsis_width
+    used = 0
+    chars: list[str] = []
+    for char in value:
+        char_width = max(0, get_cwidth(char))
+        if used + char_width > available:
+            break
+        chars.append(char)
+        used += char_width
+    return f"{''.join(chars)}{ellipsis}"
+
+
 def clip_fragments(parts: FormattedText, *, width: int) -> FormattedText:
     """按终端显示宽度裁剪单行格式化片段。"""
     limit = max(0, int(width))

@@ -18,7 +18,10 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
-from ..prompting.commands import SlashCommandCompleter
+from ..prompting.commands import (
+    SlashCommandCompleter,
+    parameterized_command_texts
+)
 from ..prompting.ghost import (
     apply_ghost_prompt,
     iter_ghost_templates
@@ -86,9 +89,7 @@ class TuiInputModel(object):
     """提供 TUI 独立的输入编辑、补全、历史和主题状态。"""
 
     PARAMETERIZED_COMMANDS: typing.Final[tuple[str, ...]] = (
-        "/attach ",
-        "/detach ",
-        "/model ",
+        parameterized_command_texts()
     )
     PLACEHOLDER_PROMPTS: typing.Final[tuple[str, ...]] = (
         "Ask anything",
@@ -117,6 +118,8 @@ class TuiInputModel(object):
         self.lexer        = SkillTokenLexer()
 
         self.interrupt_handler: typing.Callable[[], None] | None      = None
+        self.exit_handler: typing.Callable[[], None] | None           = None
+        self.can_exit: typing.Callable[[], bool] | None               = None
         self.can_submit_queue: typing.Callable[[], bool] | None       = None
         self.can_rollback_queue: typing.Callable[[], bool] | None     = None
         self.rollback_queue_handler: typing.Callable[[], bool] | None = None
@@ -182,6 +185,23 @@ class TuiInputModel(object):
     def bind_interrupt(self, handler: typing.Callable[[], None]) -> None:
         """绑定主运行时提供的输入中断处理函数。"""
         self.interrupt_handler = handler
+
+    def handle_interrupt(self, buffer) -> None:
+        """优先关闭补全，再把取消操作交给主运行时。"""
+        if buffer.complete_state is not None:
+            buffer.cancel_completion()
+            return None
+        if self.interrupt_handler is not None:
+            self.interrupt_handler()
+
+    def bind_exit(
+        self,
+        can_exit: typing.Callable[[], bool],
+        handler: typing.Callable[[], None],
+    ) -> None:
+        """绑定空输入状态下的直接退出判断和处理函数。"""
+        self.can_exit = can_exit
+        self.exit_handler = handler
 
     def bind_queue_rollback(
         self,
@@ -346,9 +366,23 @@ class TuiInputModel(object):
             filter=has_focus(INPUT_BUFFER_NAME),
         )
         def _(event) -> None:
-            event.app.current_buffer.cancel_completion()
-            if self.interrupt_handler is not None:
-                self.interrupt_handler()
+            self.handle_interrupt(event.app.current_buffer)
+
+        direct_exit = has_focus(INPUT_BUFFER_NAME) & Condition(
+            lambda: bool(
+                self.can_exit is not None
+                and self.can_exit()
+                and not get_app().current_buffer.text
+                and get_app().current_buffer.complete_state is None
+                and not self.shell_mode
+            )
+        )
+
+        @bindings.add("c-d", eager=True, filter=direct_exit)
+        def _(event) -> None:
+            _ = event
+            if self.exit_handler is not None:
+                self.exit_handler()
 
         @bindings.add("c-u", eager=True)
         def _(event) -> None:

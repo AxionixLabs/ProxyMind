@@ -2,8 +2,8 @@
 # Notes: ==== Mind™ ====
 
 from mind_app.output.session import OutputSession
-from mind_app.output.terminal_content import TerminalContentSink
 from ..core.runtime import TuiRuntime
+from .content import TuiContentSink
 from .output import TuiOutputControl
 from .presentation import TuiPresentationSink
 
@@ -22,7 +22,7 @@ def create_tui_output_session(
     )
     return OutputSession(
         control=control,
-        content=TerminalContentSink(control),
+        content=TuiContentSink(control),
         presentation=TuiPresentationSink(control),
     )
 

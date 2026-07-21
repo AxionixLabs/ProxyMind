@@ -7,10 +7,15 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from prompt_toolkit.utils import get_cwidth
 
+from mind_app.tui.core.process_status import TuiProcessStatus
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features.context import exec_status_display_label
 from mind_app.tui.features.processes import monitor_exec_status
+from mind_app.tui.features.summary import (
+    CommandSummary,
+    command_summary_title_parts,
+)
 
 
 def test_process_status_is_a_dedicated_optional_row() -> None:
@@ -21,9 +26,9 @@ def test_process_status_is_a_dedicated_optional_row() -> None:
     runtime.set_process_status_label("pytest -q · +2")
 
     assert runtime._process_status_height() == 1
-    assert fragments_text(runtime.process_status.fragments()) == (
-        "exec · pytest -q · +2"
-    )
+    rendered = fragments_text(runtime.process_status.fragments())
+    assert rendered[0] in {"◦", "•"}
+    assert rendered[1:] == " exec pytest -q · +2 · /ps to view"
     assert "pytest -q" not in fragments_text(runtime._footer_fragments())
     assert runtime.canvas.children.index(runtime.status_window) < (
         runtime.canvas.children.index(runtime.process_status_window)
@@ -43,8 +48,45 @@ def test_process_status_summary_respects_terminal_display_width() -> None:
         line_width=20,
     )
 
-    assert label.endswith(" · +1")
-    assert get_cwidth(f"exec · {label}") <= 20
+    status = TuiRuntime().process_status
+    status._get_width = lambda: 20
+    status.set_label(label)
+    rendered = fragments_text(status.fragments())
+
+    assert get_cwidth(rendered) <= 20
+    assert "/ps to view" in rendered
+
+
+def test_process_status_animates_without_changing_action_hint() -> None:
+    clock = [10.0]
+    status = TuiProcessStatus(
+        invalidate=lambda: None,
+        get_width=lambda: 80,
+    )
+
+    with patch(
+        "mind_app.tui.core.process_status.time.monotonic",
+        side_effect=lambda: clock[0],
+    ):
+        status.set_label("adb logcat · +2")
+        first = status.fragments()
+        clock[0] = 11.0
+        second = status.fragments()
+
+    assert fragments_text(first) == "• exec adb logcat · +2 · /ps to view"
+    assert fragments_text(second) == "◦ exec adb logcat · +2 · /ps to view"
+    assert first[:-3] != second[:-3]
+    assert first[-3:] == second[-3:]
+
+
+def test_command_summary_bolds_action_but_not_command() -> None:
+    parts = command_summary_title_parts(CommandSummary(
+        kind="Started",
+        command="adb logcat",
+    ))
+
+    assert any("bold" in style and text == "Started" for text, style in parts)
+    assert any("bold" not in style and text == "adb logcat" for text, style in parts)
 
 
 @pytest.mark.anyio

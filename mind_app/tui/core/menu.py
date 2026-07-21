@@ -14,14 +14,19 @@ from .models import (
     MenuOption,
     MenuRequest
 )
+from .render import (
+    clip_fragments,
+    clip_text
+)
 
 TUI_MENU_STYLE = Style.from_dict({
     "tui-menu.title"        : "bold #DCE6EE",
     "tui-menu.status"       : "#87919D",
     "tui-menu.help"         : "#69727D",
-    "tui-menu.index"        : "bold #8A949F",
-    "tui-menu.index.active" : "bold #F4F7FA",
-    "tui-menu.label"        : "bold #F4F7FA",
+    "tui-menu.index"        : "#8A949F",
+    "tui-menu.index.active" : "bg:#1D3A4D #8FC7EA",
+    "tui-menu.label"        : "#F4F7FA",
+    "tui-menu.label.active" : "bg:#1D3A4D bold #F4F7FA",
     "tui-menu.detail"       : "#7F8C9A",
 })
 
@@ -38,7 +43,10 @@ class MenuState(object):
 class TuiMenu(object):
     """管理主 TUI Application 内的无边框选择菜单。"""
 
-    VISIBLE_ROWS: typing.Final[int] = 10
+    VISIBLE_ROWS: typing.Final[int]       = 10
+    MIN_LABEL_WIDTH: typing.Final[int]    = 8
+    MIN_DETAIL_WIDTH: typing.Final[int]   = 12
+    MAX_DETAIL_RESERVE: typing.Final[int] = 24
 
     def __init__(
         self,
@@ -46,10 +54,12 @@ class TuiMenu(object):
         invalidate: typing.Callable[[], None],
         focus_menu: typing.Callable[[], None],
         focus_input: typing.Callable[[], None],
+        get_width: typing.Callable[[], int]
     ) -> None:
         self.invalidate  = invalidate
         self.focus_menu  = focus_menu
         self.focus_input = focus_input
+        self.get_width   = get_width
 
         self.state: MenuState | None = None
 
@@ -93,26 +103,44 @@ class TuiMenu(object):
             return []
 
         request = state.request
+        width   = max(1, self.get_width())
 
         start, options = self._visible_options(state)
-        label_width = max(
+
+        natural_label_width = max(
             (get_cwidth(option.label) for option in request.options),
             default=0,
         )
+
         index_width = len(str(max(1, len(request.options))))
 
-        out: StyleAndTextTuples = [("class:tui-menu.title", request.title)]
-        if request.status:
-            out.append(("class:tui-menu.status", f" · {request.status}"))
+        prefix_width = get_cwidth(
+            f"  › {str(max(1, len(request.options))).rjust(index_width)}. "
+        )
+
+        label_width = self._label_column_width(
+            request.options,
+            available=max(1, width - prefix_width),
+            natural_label_width=natural_label_width,
+        )
+
+        out: StyleAndTextTuples = self._header_fragments(request, width=width)
+
         out.extend([
             ("", "\n"),
-            ("class:tui-menu.help", request.help_text),
+            (
+                "class:tui-menu.help",
+                clip_text(request.help_text, width=width),
+            ),
             ("", "\n"),
         ])
 
         for line in request.body:
             out.extend([
-                ("class:tui-menu.detail", f"  {line}"),
+                (
+                    "class:tui-menu.detail",
+                    f"  {clip_text(line, width=max(1, width - 2))}",
+                ),
                 ("", "\n"),
             ])
 
@@ -126,17 +154,108 @@ class TuiMenu(object):
                 if active
                 else "class:tui-menu.index"
             )
-            out.extend([
+
+            prefix = f"{marker} {str(index + 1).rjust(index_width)}. "
+
+            row: StyleAndTextTuples = [
                 (index_style, f"{marker} {str(index + 1).rjust(index_width)}. "),
-                ("class:tui-menu.label", option.label),
-            ])
-            if option.detail:
-                padding = " " * max(0, label_width - get_cwidth(option.label))
-                out.append(("class:tui-menu.label", padding))
-                out.append(("class:tui-menu.detail", f" · {option.detail}"))
+            ]
+
+            row.extend(self._option_fragments(
+                option,
+                available=max(1, width - get_cwidth(prefix)),
+                label_width=label_width,
+                active=active,
+            ))
+            out.extend(clip_fragments(row, width=width))
             out.append(("", "\n"))
 
         return out
+
+    def _header_fragments(
+        self,
+        request: MenuRequest,
+        *,
+        width: int,
+    ) -> StyleAndTextTuples:
+        """生成优先保留标题的单行菜单头部。"""
+        title = clip_text(request.title, width=width)
+
+        out: StyleAndTextTuples = [("class:tui-menu.title", title)]
+
+        remaining = width - get_cwidth(title)
+
+        if request.status and remaining > get_cwidth(" · …"):
+            status = clip_text(
+                f" · {request.status}",
+                width=remaining,
+            )
+            out.append(("class:tui-menu.status", status))
+
+        return out
+
+    def _option_fragments(
+        self,
+        option: MenuOption,
+        *,
+        available: int,
+        label_width: int | None,
+        active: bool,
+    ) -> StyleAndTextTuples:
+        """按可用宽度分配选项主标签和辅助信息。"""
+        label_style = (
+            "class:tui-menu.label.active"
+            if active
+            else "class:tui-menu.label"
+        )
+        if not option.detail or label_width is None:
+            return [(
+                label_style,
+                clip_text(option.label, width=available),
+            )]
+
+        separator_width = get_cwidth(" · ")
+
+        label        = clip_text(option.label, width=label_width)
+        padding      = " " * max(0, label_width - get_cwidth(label))
+        detail_width = available - label_width - separator_width
+
+        return [
+            (label_style, f"{label}{padding}"),
+            (
+                "class:tui-menu.detail",
+                f" · {clip_text(option.detail, width=detail_width)}",
+            ),
+        ]
+
+    def _label_column_width(
+        self,
+        options: tuple[MenuOption, ...],
+        *,
+        available: int,
+        natural_label_width: int,
+    ) -> int | None:
+        """计算全部选项共用的主标签列宽。"""
+        detail_width = max(
+            (get_cwidth(option.detail) for option in options if option.detail),
+            default=0,
+        )
+        if detail_width <= 0:
+            return None
+
+        detail_reserve = min(
+            detail_width,
+            max(
+                self.MIN_DETAIL_WIDTH,
+                min(self.MAX_DETAIL_RESERVE, available // 3),
+            ),
+        )
+
+        max_label_width = available - get_cwidth(" · ") - detail_reserve
+        if max_label_width < self.MIN_LABEL_WIDTH:
+            return None
+
+        return min(natural_label_width, max_label_width)
 
     def height(self) -> int:
         """返回当前菜单占用的显示行数。"""

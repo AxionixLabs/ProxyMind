@@ -7,7 +7,6 @@ from mind_app.mcp.contracts import McpSessionLike
 from mind_app.frontend import ApplicationView
 from mind_app.presentation.renderers.upload import (
     upload_failure_block,
-    upload_summary_block
 )
 from mind_nova.events import EventReport
 from mind_nova.modes import RunMode
@@ -79,7 +78,8 @@ async def upload_pending_tui_attachments(
     upload_state: dict[str, typing.Any] = {
         "event"       : None,
         "item_total"  : len(attachments),
-        "total_bytes" : sum(int(attachment.get("size") or 0) for attachment in attachments)
+        "total_bytes" : sum(int(attachment.get("size") or 0) for attachment in attachments),
+        "failed"      : False,
     }
 
     async def capture_progress(event: dict[str, typing.Any]) -> None:
@@ -91,6 +91,7 @@ async def upload_pending_tui_attachments(
             progress_callback=capture_progress
         )
     except MindError as upload_error:
+        upload_state["failed"] = True
         failure_reason = str(getattr(upload_error, "display_reason", "") or upload_error)
         mind.frontend.application.emit(ApplicationView(
             type="tui.attachment.failure",
@@ -104,15 +105,6 @@ async def upload_pending_tui_attachments(
 
     finally:
         await mind.await_cleanup(mind.stop_anim("upload"))
-
-    if upload_state["event"] is not None:
-        mind.frontend.application.emit(ApplicationView(
-            type="tui.attachment.completed",
-            renderable=FragmentBlock(styled_block_fragments(
-                upload_summary_block(upload_state["event"])
-            )),
-        ))
-        mind.frontend.application.emit(ApplicationView(type="tui.gap"))
 
     return uploaded_attachments
 

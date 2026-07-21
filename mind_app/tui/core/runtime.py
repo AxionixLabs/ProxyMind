@@ -64,10 +64,21 @@ from mind_nova import const
 from .activity import TuiActivity
 from .approval import TuiApproval
 from .approval_render import TUI_APPROVAL_STYLE
-from .document import TuiDocument
+from .bottom_pane import (
+    BottomSurface,
+    TuiBottomPane,
+)
+from .document import (
+    TuiBlockKind,
+    TuiDocument,
+)
 from .input import (
     INPUT_BUFFER_NAME,
     TuiInputModel
+)
+from .interrupt import (
+    TuiExitReason,
+    TuiInterruptState,
 )
 from .menu import (
     TUI_MENU_STYLE,
@@ -95,11 +106,12 @@ from .styles import (
     prompt_style,
     query_block,
 )
+from .task_state import TuiTaskState
+from ..prompting.commands import running_disabled_commands
 
-_QUEUE_END       = object()
-_INPUT_INTERRUPT = object()
+_QUEUE_END = object()
 
-_RUNNING_DISABLED_COMMANDS = frozenset({"/new", "/resume"})
+_RUNNING_DISABLED_COMMANDS = running_disabled_commands()
 
 
 class TuiRuntime(object):
@@ -110,7 +122,10 @@ class TuiRuntime(object):
     COMPLETION_MAX_HEIGHT: typing.Final[int]     = 8
     CONTENT_INPUT_GAP_HEIGHT: typing.Final[int] = 2
     OVERLAY_INPUT_GAP_HEIGHT: typing.Final[int] = 1
+    COMMAND_SURFACE_GAP_HEIGHT: typing.Final[int] = 2
     FOOTER_GAP_HEIGHT: typing.Final[int]        = 1
+    EXIT_CONFIRM_TIMEOUT_SEC: typing.Final[float] = 2.0
+    ESCAPE_SEQUENCE_TIMEOUT_SEC: typing.Final[float] = 0.1
 
     def __init__(
         self,
@@ -124,12 +139,23 @@ class TuiRuntime(object):
         self.placeholder_text = self.input_model.new_placeholder(self.context.mode)
 
         self.message_queue: asyncio.Queue[typing.Any] = asyncio.Queue()
-        self._input_interrupt_pending = False
-        self.execution_active = False
+        self.interrupt_state = TuiInterruptState(
+            timeout_sec=self.EXIT_CONFIRM_TIMEOUT_SEC,
+        )
+        self._exit_event = asyncio.Event()
+        self._exit_expiry_handle: asyncio.TimerHandle | None = None
+        self._turn_interrupt_handler: typing.Callable[[], bool] | None = None
+        self.task_state = TuiTaskState(
+            activity_running=lambda: self.activity.active,
+        )
         self._queued_submission_text: str | None = None
         self.queued_messages = TuiQueuedMessages()
         self.input_notice_blocks: list[FragmentBlock] = []
         self.input_model.bind_interrupt(self._interrupt_input)
+        self.input_model.bind_exit(
+            lambda: not self.execution_active,
+            self._exit_input,
+        )
         self.input_model.bind_queue_submission(lambda: self.execution_active)
         self.input_model.bind_queue_rollback(
             lambda: self.execution_active and self.queued_messages.active,
@@ -199,10 +225,16 @@ class TuiRuntime(object):
         self.queued_control = FormattedTextControl(self._queued_fragments)
         self.footer_control = FormattedTextControl(self._footer_fragments)
 
+        self.bottom_pane = TuiBottomPane(
+            focus_surface=self._focus_bottom_surface,
+            focus_input=lambda: self.application.layout.focus(self.input),
+            invalidate=self.invalidate,
+        )
+
         self.approval = TuiApproval(
             invalidate=self.invalidate,
-            focus_card=lambda: self.application.layout.focus(self.approval_control),
-            focus_input=lambda: self.application.layout.focus(self.input),
+            focus_card=lambda: self.bottom_pane.activate("approval"),
+            focus_input=lambda: self.bottom_pane.deactivate("approval"),
             get_width=lambda: self.terminal_width,
             get_max_height=self._approval_available_height,
         )
@@ -214,8 +246,9 @@ class TuiRuntime(object):
         )
         self.menu = TuiMenu(
             invalidate=self.invalidate,
-            focus_menu=lambda: self.application.layout.focus(self.menu_control),
-            focus_input=lambda: self.application.layout.focus(self.input),
+            focus_menu=lambda: self.bottom_pane.activate("menu"),
+            focus_input=lambda: self.bottom_pane.deactivate("menu"),
+            get_width=lambda: self.terminal_width,
         )
         self.menu_control = FormattedTextControl(
             self.menu.fragments,
@@ -225,10 +258,8 @@ class TuiRuntime(object):
         )
         self.process_viewer = TuiProcessViewer(
             invalidate=self.invalidate,
-            focus_viewer=lambda: self.application.layout.focus(
-                self.process_viewer_control
-            ),
-            focus_input=lambda: self.application.layout.focus(self.input),
+            focus_viewer=lambda: self.bottom_pane.activate("process_viewer"),
+            focus_input=lambda: self.bottom_pane.deactivate("process_viewer"),
             get_width=lambda: self.terminal_width,
         )
         self.process_viewer_control = FormattedTextControl(
@@ -300,15 +331,17 @@ class TuiRuntime(object):
 
         self.approval_card = ConditionalContainer(
             self.approval_window,
-            filter=Condition(lambda: self.approval.active),
+            filter=Condition(lambda: self.bottom_pane.is_active("approval")),
         )
         self.menu_card = ConditionalContainer(
             self.menu_window,
-            filter=Condition(lambda: self.menu.active),
+            filter=Condition(lambda: self.bottom_pane.is_active("menu")),
         )
         self.process_viewer_card = ConditionalContainer(
             self.process_viewer_window,
-            filter=Condition(lambda: self.process_viewer.active),
+            filter=Condition(
+                lambda: self.bottom_pane.is_active("process_viewer")
+            ),
         )
         self.transcript_status_gap = ConditionalContainer(
             Window(height=Dimension.exact(1), char=" "),
@@ -360,11 +393,7 @@ class TuiRuntime(object):
         )
         self.input_area = ConditionalContainer(
             self.input_stack,
-            filter=Condition(
-                lambda: not self.approval.active
-                and not self.menu.active
-                and not self.process_viewer.active
-            ),
+            filter=Condition(lambda: self.bottom_pane.input_visible),
         )
         self.canvas = HSplit(
             [
@@ -405,12 +434,28 @@ class TuiRuntime(object):
             input=application_input,
             output=application_output,
         )
+        self.application.ttimeoutlen = self.ESCAPE_SEQUENCE_TIMEOUT_SEC
 
     @property
     def active(self) -> bool:
         """返回 TUI 应用是否正在运行。"""
         task = self._application_task
         return task is not None and not task.done()
+
+    @property
+    def execution_active(self) -> bool:
+        """返回模型轮次是否正在运行。"""
+        return self.task_state.turn_running
+
+    @execution_active.setter
+    def execution_active(self, active: bool) -> None:
+        """更新模型轮次运行状态。"""
+        self.task_state.set_turn_running(active)
+
+    @property
+    def task_running(self) -> bool:
+        """返回模型轮次或运行期活动是否正在执行。"""
+        return self.task_state.running
 
     @property
     def terminal_width(self) -> int:
@@ -456,12 +501,19 @@ class TuiRuntime(object):
     async def close(self) -> None:
         """停止输入应用和全部动态任务。"""
         self._closing = True
+        self._clear_exit_confirmation()
+        self._cancel_exit_expiry()
+        self.interrupt_state.clear()
+        self._exit_event.clear()
+        self._turn_interrupt_handler = None
         await self.activity.clear()
+        self.task_state.clear()
         self.clear_status_renderable()
         self.process_status.clear()
         await self.approval.close()
         await self.menu.close()
         await self.process_viewer.close()
+        self.bottom_pane.clear()
         background_tasks = tuple(self._background_tasks)
         self._background_tasks.clear()
         self._background_session_tasks.clear()
@@ -495,17 +547,15 @@ class TuiRuntime(object):
         """更新输入上下文并按提交顺序读取下一条消息。"""
         self.set_prompt_context(context)
 
+        self._raise_requested_exit()
+
         queued = self.queued_messages.pop_next()
-        submission = queued if queued is not None else await self.message_queue.get()
+        submission = queued if queued is not None else await self._read_input_event()
         self.invalidate()
         if submission is _QUEUE_END:
             if self._application_error is not None:
                 raise self._application_error
             raise EOFError
-        if submission is _INPUT_INTERRUPT:
-            self._input_interrupt_pending = False
-            raise KeyboardInterrupt
-
         if isinstance(submission, TuiSubmission):
             value = submission.value
             visible = submission.visible_text.strip() or value
@@ -513,12 +563,42 @@ class TuiRuntime(object):
             value = str(submission)
             visible = value
 
+        self._clear_exit_confirmation()
         self._transcript_view_row = None
-        self.append_gap()
         block = query_block(visible)
-        self.append_block(block)
+        self.append_block(block, kind="user")
         self._submitted_query_block = block
         return value
+
+    async def _read_input_event(self) -> typing.Any:
+        """等待下一次输入提交，并让退出请求拥有更高优先级。"""
+        submission_task = asyncio.create_task(self.message_queue.get())
+        exit_task = asyncio.create_task(self._exit_event.wait())
+        tasks = (submission_task, exit_task)
+        done: set[asyncio.Task[typing.Any]] = set()
+        try:
+            done, _pending = await asyncio.wait(
+                tasks,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            pending = [task for task in tasks if not task.done()]
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+
+        if exit_task in done:
+            self._raise_requested_exit()
+        return submission_task.result()
+
+    def _raise_requested_exit(self) -> None:
+        """按退出来源向主交互循环传播终止信号。"""
+        reason = self.consume_exit_request()
+        if reason == "interrupt":
+            raise KeyboardInterrupt
+        if reason == "eof":
+            raise EOFError
 
     def set_prompt_context(self, context: PromptContext) -> None:
         """在首帧或输入轮次前更新输入区展示上下文。"""
@@ -612,12 +692,17 @@ class TuiRuntime(object):
             self._background_blocks.append(block)
             return None
         self.append_gap()
-        self.append_block(block)
+        self.append_block(block, kind="notice")
 
-    def append_block(self, block: FragmentBlock) -> None:
+    def append_block(
+        self,
+        block: FragmentBlock,
+        *,
+        kind: TuiBlockKind = "system",
+    ) -> None:
         """向会话内容追加一个稳定展示块。"""
         self._submitted_query_block = None
-        if self.document.append_block(block):
+        if self.document.append_block(block, kind=kind):
             self.invalidate()
             self._schedule_scrollback_flush()
 
@@ -633,9 +718,14 @@ class TuiRuntime(object):
         """请求在下一项正文前保留一个视觉空行。"""
         self.document.request_gap()
 
-    def set_active_renderable(self, block: FragmentBlock) -> None:
+    def set_active_renderable(
+        self,
+        block: FragmentBlock,
+        *,
+        kind: TuiBlockKind = "assistant",
+    ) -> None:
         """替换当前流式展示块。"""
-        self.document.set_active(block)
+        self.document.set_active(block, kind=kind)
         self.invalidate()
 
     def commit_active_renderable(self, block: FragmentBlock) -> None:
@@ -759,6 +849,24 @@ class TuiRuntime(object):
         if not self.execution_active:
             self._schedule_scrollback_flush()
 
+    def bind_turn_interrupt(
+        self,
+        handler: typing.Callable[[], bool] | None,
+    ) -> None:
+        """绑定或清除当前模型轮次的取消函数。"""
+        self._turn_interrupt_handler = handler
+
+    def consume_turn_interrupt(self) -> bool:
+        """消费并返回当前轮次是否由用户主动中断。"""
+        return self.interrupt_state.consume_turn_interrupt()
+
+    def consume_exit_request(self) -> TuiExitReason | None:
+        """消费并返回主输入区是否已请求退出。"""
+        reason = self.interrupt_state.consume_exit_request()
+        if reason is not None:
+            self._exit_event.clear()
+        return reason
+
     async def begin_wait_status(self) -> None:
         """启动覆盖当前交互周期的等待动画。"""
         await self.activity.begin_wait()
@@ -787,29 +895,32 @@ class TuiRuntime(object):
     async def begin_external_mcp_status(
         self,
         snapshot: typing.Callable[[], dict[str, typing.Any]],
-        *,
-        persist_final: bool = False,
     ) -> None:
         """启动外部 MCP 状态动画。"""
-        await self.activity.begin_external_mcp(
-            snapshot,
-            persist_final=persist_final,
-        )
+        await self.activity.begin_external_mcp(snapshot)
 
     async def end_activity_status(
         self,
         kind: ActivityStatusKind | None = None,
     ) -> None:
-        """结束运行期活动动画，并提交可保留的最终状态。"""
-        final_blocks = await self.activity.stop(kind)
-        for block in final_blocks:
-            self.append_block(block)
+        """结束运行期活动动画。"""
+        await self.activity.stop(kind)
 
     def invalidate(self) -> None:
         """请求重新绘制当前稳定画布。"""
         if self.active and not self.application.is_done:
             with contextlib.suppress(Exception):
                 self.application.invalidate()
+
+    def _focus_bottom_surface(self, surface: BottomSurface) -> None:
+        """把焦点切换到指定的底部临时交互表面。"""
+        self._clear_exit_confirmation()
+        controls = {
+            "approval": self.approval_control,
+            "menu": self.menu_control,
+            "process_viewer": self.process_viewer_control,
+        }
+        self.application.layout.focus(controls[surface])
 
     async def _run_application(self) -> None:
         """运行输入应用并传播终端结束状态。"""
@@ -847,6 +958,7 @@ class TuiRuntime(object):
 
     def _accept_input(self, buffer) -> bool:
         """恢复折叠粘贴内容并把输入追加到队列。"""
+        self._clear_exit_confirmation()
         editable_text = buffer.text
         paste_store = self.input_model.submission_state()
         shell_mode = self.input_model.shell_mode
@@ -912,7 +1024,7 @@ class TuiRuntime(object):
             return None
         self.append_gap()
         for block in notices:
-            self.append_block(block)
+            self.append_block(block, kind="notice")
 
     def _flush_background_blocks(self) -> None:
         """在流式正文结束后提交已完成的后台摘要。"""
@@ -922,7 +1034,7 @@ class TuiRuntime(object):
         self._background_blocks.clear()
         for block in blocks:
             self.append_gap()
-            self.append_block(block)
+            self.append_block(block, kind="notice")
 
     def _background_task_done(self, task: asyncio.Task[None]) -> None:
         """回收已完成的 TUI 后台任务。"""
@@ -936,11 +1048,68 @@ class TuiRuntime(object):
             task.exception()
 
     def _interrupt_input(self) -> None:
-        """把输入区中断交给会话读取循环处理。"""
-        if self._input_interrupt_pending:
+        """按当前交互状态处理中断或连续按键退出请求。"""
+        if self.interrupt_state.exit_armed:
+            self.interrupt_state.request_exit()
+            self._cancel_exit_expiry()
+            self._exit_event.set()
+            self.invalidate()
             return None
-        self._input_interrupt_pending = True
-        self.message_queue.put_nowait(_INPUT_INTERRUPT)
+
+        if not self.execution_active:
+            buffer = self.input.buffer
+            if buffer.text or self.input_model.shell_mode:
+                buffer.text = ""
+                buffer.cursor_position = 0
+                self.input_model.clear_submission_state()
+
+        self.interrupt_state.arm_exit()
+        self._schedule_exit_expiry()
+
+        handler = self._turn_interrupt_handler
+        if self.execution_active and handler is not None:
+            if handler():
+                self.interrupt_state.request_turn_interrupt()
+        self.invalidate()
+
+    def _exit_input(self) -> None:
+        """请求从空闲且空白的主输入区正常退出。"""
+        self._clear_exit_confirmation()
+        self.interrupt_state.request_exit("eof")
+        self._exit_event.set()
+        self.invalidate()
+
+    def _schedule_exit_expiry(self) -> None:
+        """安排退出确认窗口到期后的界面恢复。"""
+        self._cancel_exit_expiry()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+        self._exit_expiry_handle = loop.call_later(
+            self.EXIT_CONFIRM_TIMEOUT_SEC,
+            self._expire_exit_confirmation,
+        )
+
+    def _cancel_exit_expiry(self) -> None:
+        """取消尚未触发的退出确认到期回调。"""
+        handle = self._exit_expiry_handle
+        self._exit_expiry_handle = None
+        if handle is not None:
+            handle.cancel()
+
+    def _expire_exit_confirmation(self) -> None:
+        """关闭已到期的退出确认并恢复信息栏。"""
+        self._exit_expiry_handle = None
+        self.interrupt_state.disarm_exit()
+        self.invalidate()
+
+    def _clear_exit_confirmation(self) -> None:
+        """在用户继续交互时关闭退出确认。"""
+        if not self.interrupt_state.exit_armed:
+            return None
+        self.interrupt_state.disarm_exit()
+        self._cancel_exit_expiry()
         self.invalidate()
 
     def _input_line_prefix(
@@ -961,6 +1130,7 @@ class TuiRuntime(object):
 
     def _on_input_text_changed(self, buffer) -> None:
         """在用户继续编辑时恢复执行期排队提示。"""
+        self._clear_exit_confirmation()
         submitted_text = self._queued_submission_text
         if submitted_text is not None and buffer.text != submitted_text:
             self._queued_submission_text = None
@@ -1004,10 +1174,14 @@ class TuiRuntime(object):
 
     def _status_fragments(self) -> FormattedText:
         """生成动画专属区域的格式化片段。"""
-        block = self.activity_block or self.status_block
-        if block is None:
-            return []
-        return list(block.fragments)
+        out: FormattedText = []
+        for block in (self.activity_block, self.status_block):
+            if block is None or not block.fragments:
+                continue
+            if out:
+                out.append(("", "\n"))
+            out.extend(block.fragments)
+        return out
 
     def _queued_fragments(self) -> FormattedText:
         """生成动画区域下方的待提交消息。"""
@@ -1034,6 +1208,11 @@ class TuiRuntime(object):
 
     def _footer_fragments(self) -> FormattedText:
         """生成单行 TUI 信息栏。"""
+        if self.interrupt_state.exit_armed:
+            return [
+                ("class:footer.exit-key", "ctrl+c"),
+                ("class:footer.exit-hint", " again to exit"),
+            ]
         if self._queue_submission_hint_visible():
             return [
                 ("class:footer.queue-hint", "tab to queue message"),
@@ -1179,16 +1358,16 @@ class TuiRuntime(object):
 
     def _status_height(self) -> int:
         """计算动画区域占用行数。"""
-        if self.approval.active:
+        if self.bottom_pane.is_active("approval"):
             return 0
         text = fragments_text(self._status_fragments())
         if not text:
             return 0
-        return min(3, max(1, display_line_count(text, width=self.terminal_width)))
+        return min(5, max(1, display_line_count(text, width=self.terminal_width)))
 
     def _queued_height(self) -> int:
         """计算待提交消息区域占用行数。"""
-        if self.approval.active:
+        if self.bottom_pane.is_active("approval"):
             return 0
         text = fragments_text(self._queued_fragments())
         if not text:
@@ -1198,11 +1377,7 @@ class TuiRuntime(object):
 
     def _process_status_height(self) -> int:
         """计算后台进程状态区域占用行数。"""
-        if (
-            self.approval.active
-            or self.menu.active
-            or self.process_viewer.active
-        ):
+        if self.bottom_pane.transient_active:
             return 0
         return 1 if self.process_status.active else 0
 
@@ -1232,9 +1407,7 @@ class TuiRuntime(object):
     def _overlay_active(self) -> bool:
         """判断补全、选择菜单或审批层是否正在显示。"""
         return bool(
-            self.approval.active
-            or self.menu.active
-            or self.process_viewer.active
+            self.bottom_pane.transient_active
             or self._completion_visible()
         )
 
@@ -1242,9 +1415,7 @@ class TuiRuntime(object):
         """判断输入框是否存在可展示的补全候选项。"""
         state = self.input.buffer.complete_state
         return bool(
-            not self.approval.active
-            and not self.menu.active
-            and not self.process_viewer.active
+            self.bottom_pane.input_visible
             and state is not None
             and state.completions
         )
@@ -1284,7 +1455,7 @@ class TuiRuntime(object):
 
     def _approval_height(self) -> int:
         """计算审批卡在当前画布中的显示高度。"""
-        if not self.approval.active:
+        if not self.bottom_pane.is_active("approval"):
             return 0
 
         text = fragments_text(self.approval.fragments())
@@ -1307,7 +1478,7 @@ class TuiRuntime(object):
 
     def _menu_height(self) -> int:
         """计算内嵌菜单在当前画布中的显示高度。"""
-        if not self.menu.active:
+        if not self.bottom_pane.is_active("menu"):
             return 0
 
         available = max(
@@ -1323,7 +1494,7 @@ class TuiRuntime(object):
 
     def _process_viewer_height(self) -> int:
         """计算进程查看器占用的高度。"""
-        if not self.process_viewer.active:
+        if not self.bottom_pane.is_active("process_viewer"):
             return 0
         available = max(
             1,
@@ -1336,11 +1507,9 @@ class TuiRuntime(object):
 
     def _interaction_height(self) -> int:
         """返回输入区或审批区当前占用的高度。"""
-        if self.approval.active:
+        if self.bottom_pane.is_active("approval"):
             return self._approval_height()
-        if self.menu.active:
-            return 0
-        if self.process_viewer.active:
+        if self.bottom_pane.transient_active:
             return 0
         return self._input_stack_height()
 
@@ -1364,7 +1533,12 @@ class TuiRuntime(object):
         """返回正文状态区与底部交互区域之间的间距高度。"""
         if not self._content_input_gap_visible():
             return 0
-        if self.approval.active or self.menu.active or self.process_viewer.active:
+        if (
+            self.bottom_pane.is_active("menu")
+            or self.bottom_pane.is_active("process_viewer")
+        ):
+            return self.COMMAND_SURFACE_GAP_HEIGHT
+        if self.bottom_pane.transient_active:
             return self.OVERLAY_INPUT_GAP_HEIGHT
         return self.CONTENT_INPUT_GAP_HEIGHT
 
@@ -1387,7 +1561,7 @@ class TuiRuntime(object):
         return bool(
             self.document.has_content
             and (self._status_height() or self._process_status_height())
-            and not self.menu.active
+            and not self.bottom_pane.is_active("menu")
         )
 
     def _output_size(self) -> tuple[int, int]:
@@ -1414,22 +1588,24 @@ class TuiRuntime(object):
             "completion-menu.meta.completion": "bg:default #707A84",
             "completion-menu.meta.completion.current": "bg:default #8FC7EA",
             "queue.label": "bg:default #8A929C bold",
-            "queue.marker": "bg:default #7B838E bold",
+            "queue.marker": "bg:default #7B838E",
             "queue.text": "bg:default #DDE7EF",
             "queue.more": "bg:default #7B838E",
             "input.notice.marker": "bg:default #FF5F5F bold",
-            "input.notice": "bg:default #FF8A8A bold",
-            "process-status.label": "fg:#8FC7EA bold",
+            "input.notice": "bg:default #FF8A8A",
             "process-status.separator": "fg:#7B838E",
-            "process-status.command": "fg:#A8B1BB dim",
+            "process-status.action": "fg:#8FC7EA bold",
+            "process-status.hint": "fg:#7B838E dim",
             "footer.separator": "fg:#7B838E",
             "footer.model": "fg:#F3F5F8",
             "footer.access": "fg:#8FC7EA",
             "footer.workspace": "fg:#8A929C",
             "footer.queue-hint": "fg:#7B838E dim",
+            "footer.exit-key": "fg:#FF6B6B bold",
+            "footer.exit-hint": "fg:#8A929C",
             "shell.title.dot": "fg:#7F8C9A",
             "shell.title.action": "fg:#8FC7EA bold",
-            "shell.title.command": "fg:#F4F7FA bold",
+            "shell.title.command": "fg:#F4F7FA",
             "shell.title.suffix": "fg:#7F8C9A",
             "shell.status": "fg:#87919D",
             "shell.stdout": "fg:#D8DCE2",
@@ -1439,7 +1615,7 @@ class TuiRuntime(object):
             "ps.help": "fg:#69727D",
             "ps.output": "fg:#D8DCE2",
             "ps.waiting": "fg:#87919D",
-            "ps.error": "fg:#FF6B6B bold",
+            "ps.error": "fg:#FF6B6B",
         })
 
         return merge_styles([

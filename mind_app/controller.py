@@ -108,6 +108,8 @@ class Mind(object):
 
         self.service_runtime_context: typing.Optional["ServiceRuntimeContext"] = None
         self.service_exec_env: typing.Optional[dict[str, typing.Any]]          = None
+        self._service_start_lock: asyncio.Lock = asyncio.Lock()
+        self._service_start_task: asyncio.Task[bool] | None = None
 
         self.config_service: ConfigServiceRuntime = ConfigServiceRuntime(log_level=self.level)
 
@@ -350,6 +352,42 @@ class Mind(object):
         """判断当前工具会话是否挂载本地服务 MCP。"""
         return bool(self.service_mcp_linked)
 
+    async def run_service_runtime_startup(
+        self,
+        operation: typing.Callable[
+            [],
+            typing.Coroutine[typing.Any, typing.Any, bool],
+        ],
+    ) -> bool:
+        """复用正在执行的本地服务准备任务。"""
+        async with self._service_start_lock:
+            task = self._service_start_task
+            if task is None:
+                task = asyncio.create_task(
+                    operation(),
+                    name="mind service runtime startup",
+                )
+                self._service_start_task = task
+
+        try:
+            return bool(await asyncio.shield(task))
+        finally:
+            if task.done():
+                async with self._service_start_lock:
+                    if self._service_start_task is task:
+                        self._service_start_task = None
+
+    async def cancel_service_runtime_startup(self) -> None:
+        """取消并回收尚未完成的本地服务准备任务。"""
+        async with self._service_start_lock:
+            task = self._service_start_task
+            self._service_start_task = None
+        if task is None:
+            return None
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
     def service_exec_env_snapshot(self) -> dict[str, typing.Any] | None:
         """返回本地服务运行时环境快照。"""
         if not isinstance(self.service_exec_env, dict):
@@ -445,6 +483,8 @@ class Mind(object):
     async def close_runtime_resources(self) -> None:
         """关闭 Mind 持有的运行时资源，并按退出策略处理本地后台进程。"""
         try:
+            await self.cancel_service_runtime_startup()
+
             with contextlib.suppress(Exception):
                 await self.native_coding.close()
 
@@ -553,17 +593,12 @@ class Mind(object):
     async def start_external_mcp_anim(
         self,
         snapshot: typing.Callable[[], dict[str, typing.Any]],
-        *,
-        persist_final: bool = False,
     ) -> None:
         """启动外部 MCP 启动状态动画。"""
         if not self.animate:
             return None
         if self.frontend.runtime.active:
-            await self.frontend.runtime.begin_external_mcp_status(
-                snapshot,
-                persist_final=persist_final,
-            )
+            await self.frontend.runtime.begin_external_mcp_status(snapshot)
             return None
 
         design = self.require_design()

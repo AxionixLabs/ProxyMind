@@ -11,7 +11,8 @@ from mind_app.frontend.contracts import ActivityStatusKind
 from mind_app.presentation.models import TextStyle
 from mind_app.presentation.renderers.upload import (
     upload_idle_block,
-    upload_progress_block
+    upload_progress_block,
+    upload_summary_block
 )
 from mind_app.presentation.renderers.download import (
     download_progress_block,
@@ -23,23 +24,39 @@ from mind_core.mcp_status import (
     inbuild_status_view,
 )
 from .models import FragmentBlock
+from .render import clip_fragments
 from .styles import (
     BODY_STYLE,
-    FAILURE_STYLE,
     SUCCESS_STYLE,
-    WARNING_STYLE,
     prompt_style,
     styled_block_fragments
 )
 from .status_frames import (
     StatusFamily,
     render_status_fragments,
-    status_indicator_fragment,
+    spinner_indicator_fragment,
     status_interval,
     status_phase_rate
 )
 
 STATUS_MUTED = TextStyle(foreground="#7F8C9A", dim=True)
+STATUS_WARNING = TextStyle(foreground="#FFB86B")
+STATUS_FAILURE = TextStyle(foreground="#FF6B6B")
+ACTIVITY_SETTLE_SEC: typing.Final[float] = 0.7
+ActivitySlotKey = typing.Literal[
+    "foreground",
+    "attachment",
+    "runtime",
+    "external_mcp",
+]
+
+_SLOT_KEYS: dict[ActivityStatusKind, ActivitySlotKey] = {
+    "wait": "foreground",
+    "upload": "attachment",
+    "download": "runtime",
+    "inbuild": "runtime",
+    "external_mcp": "external_mcp",
+}
 
 
 class TuiStatusState(object):
@@ -121,10 +138,12 @@ class TuiStatusState(object):
 class _ActivitySlot(object):
     """保存一项活动动画的渲染和完成状态。"""
 
+    key: ActivitySlotKey
     kind: ActivityStatusKind
     render: typing.Callable[[float], FragmentBlock]
     finalize: typing.Callable[[], FragmentBlock | None] | None = None
     phase: float = 0.0
+    expires_at: float | None = None
 
 
 class TuiActivity(object):
@@ -148,11 +167,15 @@ class TuiActivity(object):
         self._wait_phase: float             = 0.0
         self._wait_paused: bool             = False
 
-        self._slots: dict[ActivityStatusKind, _ActivitySlot] = {}
+        self._slots: dict[ActivitySlotKey, _ActivitySlot] = {}
+
+    @property
+    def active(self) -> bool:
+        """返回当前是否存在运行期活动槽位。"""
+        return any(slot.expires_at is None for slot in self._slots.values())
 
     async def begin_wait(self) -> None:
         """启动覆盖当前交互周期的等待动画。"""
-        await self._discard("upload")
         await self._discard("wait")
 
         self._wait_elapsed_sec = 0.0
@@ -161,6 +184,7 @@ class TuiActivity(object):
         self._wait_started_at  = time.perf_counter()
 
         await self._set_slot(_ActivitySlot(
+            key="foreground",
             kind="wait",
             render=lambda phase: _status_block(
                 "thinking",
@@ -175,11 +199,11 @@ class TuiActivity(object):
         snapshot: typing.Callable[[], dict[str, typing.Any]],
     ) -> None:
         """启动附件上传动画。"""
-        await self._discard("wait")
-        self._reset_wait()
         await self._set_slot(_ActivitySlot(
+            key="attachment",
             kind="upload",
             render=lambda phase: _upload_block(snapshot() or {}, phase=phase),
+            finalize=lambda: _upload_final_block(snapshot() or {}),
         ))
 
     async def begin_download(
@@ -187,9 +211,8 @@ class TuiActivity(object):
         snapshot: typing.Callable[[], dict[str, typing.Any]],
     ) -> None:
         """启动运行时下载动画。"""
-        await self._discard("wait")
-        self._reset_wait()
         await self._set_slot(_ActivitySlot(
+            key="runtime",
             kind="download",
             render=lambda phase: _download_block(snapshot() or {}, phase=phase),
             finalize=lambda: _download_final_block(snapshot() or {}),
@@ -201,6 +224,7 @@ class TuiActivity(object):
     ) -> None:
         """启动内置运行时状态动画。"""
         await self._set_slot(_ActivitySlot(
+            key="runtime",
             kind="inbuild",
             render=lambda phase: _mcp_activity_block(
                 inbuild_status_view(snapshot() or {}),
@@ -216,49 +240,47 @@ class TuiActivity(object):
     async def begin_external_mcp(
         self,
         snapshot: typing.Callable[[], dict[str, typing.Any]],
-        *,
-        persist_final: bool = False,
     ) -> None:
         """启动外部 MCP 状态动画。"""
         await self._set_slot(_ActivitySlot(
+            key="external_mcp",
             kind="external_mcp",
             render=lambda phase: _mcp_activity_block(
                 external_mcp_status_view(snapshot() or {}, detail_limit=0),
                 phase=phase,
                 width=self.get_width(),
             ),
-            finalize=(
-                lambda: _external_mcp_final_block(
-                    snapshot() or {},
-                    width=self.get_width(),
-                )
-                if persist_final
-                else None
+            finalize=lambda: _external_mcp_final_block(
+                snapshot() or {},
+                width=self.get_width(),
             ),
         ))
 
     async def stop(
         self,
         kind: ActivityStatusKind | None = None,
-    ) -> tuple[FragmentBlock, ...]:
-        """停止指定活动动画，并返回可稳定上屏的最终状态。"""
-        targets = tuple(self._slots) if kind is None else (kind,)
+    ) -> None:
+        """停止指定活动动画，并短暂保留可用的完成状态。"""
+        targets = tuple(
+            (key, slot)
+            for key, slot in self._slots.items()
+            if kind is None or slot.kind == kind
+        )
+        expires_at = asyncio.get_running_loop().time() + ACTIVITY_SETTLE_SEC
 
-        final_blocks: list[FragmentBlock] = []
-
-        for target in targets:
-            slot = self._slots.pop(target, None)
-            if slot is None:
-                continue
-            if slot.finalize is not None:
-                final = slot.finalize()
-                if final is not None:
-                    final_blocks.append(final)
-            if target == "wait":
+        for key, slot in targets:
+            if slot.kind == "wait":
                 self._reset_wait()
 
+            final = slot.finalize() if slot.finalize is not None else None
+            if final is None:
+                self._slots.pop(key, None)
+                continue
+
+            slot.render = lambda _phase, block=final: block
+            slot.expires_at = expires_at
+
         await self._refresh_task()
-        return tuple(final_blocks)
 
     async def clear(self) -> None:
         """停止全部活动动画且不生成最终状态。"""
@@ -269,9 +291,10 @@ class TuiActivity(object):
 
     async def pause_wait(self) -> bool:
         """暂停当前等待动画和耗时统计。"""
-        slot = self._slots.pop("wait", None)
-        if slot is None:
+        slot = self._slots.get("foreground")
+        if slot is None or slot.kind != "wait":
             return False
+        self._slots.pop("foreground", None)
 
         started_at = self._wait_started_at
         if started_at is not None:
@@ -286,13 +309,14 @@ class TuiActivity(object):
 
     async def resume_wait(self) -> None:
         """从暂停位置恢复等待动画和耗时统计。"""
-        if not self._wait_paused or "wait" in self._slots:
+        if not self._wait_paused or "foreground" in self._slots:
             return None
 
         self._wait_paused     = False
         self._wait_started_at = time.perf_counter()
 
         await self._set_slot(_ActivitySlot(
+            key="foreground",
             kind="wait",
             phase=self._wait_phase,
             render=lambda phase: _status_block(
@@ -314,14 +338,17 @@ class TuiActivity(object):
 
     async def _set_slot(self, slot: _ActivitySlot) -> None:
         """添加或替换一项活动动画。"""
-        self._slots[slot.kind] = slot
+        self._slots[slot.key] = slot
         self._render_slots()
         if self.task is None:
             self.task = asyncio.create_task(self._render_loop())
 
     async def _discard(self, kind: ActivityStatusKind) -> None:
         """移除一项活动动画但不生成最终状态。"""
-        self._slots.pop(kind, None)
+        key = _SLOT_KEYS[kind]
+        slot = self._slots.get(key)
+        if slot is not None and slot.kind == kind:
+            self._slots.pop(key, None)
         await self._refresh_task()
 
     async def _refresh_task(self) -> None:
@@ -351,6 +378,13 @@ class TuiActivity(object):
                     * status_phase_rate("wait")
                 )
                 previous_tick = current_tick
+                expired = tuple(
+                    key
+                    for key, slot in self._slots.items()
+                    if slot.expires_at is not None and current_tick >= slot.expires_at
+                )
+                for key in expired:
+                    self._slots.pop(key, None)
                 for slot in self._slots.values():
                     slot.phase += step
                 self._render_slots()
@@ -367,7 +401,10 @@ class TuiActivity(object):
                 continue
             if fragments:
                 fragments.append(("", "\n"))
-            fragments.extend(block.fragments)
+            fragments.extend(_clip_activity_fragments(
+                list(block.fragments),
+                width=max(1, int(self.get_width())),
+            ))
 
         if fragments:
             self.set_renderable(FragmentBlock(tuple(fragments)))
@@ -392,10 +429,9 @@ class TuiActivity(object):
 def _upload_block(data: dict[str, typing.Any], *, phase: float) -> FragmentBlock:
     """生成附件上传活动状态。"""
     event = data.get("event")
-    indicator = status_indicator_fragment(
+    indicator = spinner_indicator_fragment(
         phase,
         family="wait",
-        animated=True,
     )[1]
 
     if isinstance(event, dict):
@@ -410,12 +446,23 @@ def _upload_block(data: dict[str, typing.Any], *, phase: float) -> FragmentBlock
     return FragmentBlock(styled_block_fragments(block))
 
 
+def _upload_final_block(data: dict[str, typing.Any]) -> FragmentBlock | None:
+    """生成附件上传完成后的短暂状态。"""
+    event = data.get("event")
+    if (
+        bool(data.get("failed"))
+        or not isinstance(event, dict)
+        or not bool(event.get("done"))
+    ):
+        return None
+    return FragmentBlock(styled_block_fragments(upload_summary_block(event)))
+
+
 def _download_block(data: dict[str, typing.Any], *, phase: float) -> FragmentBlock:
     """生成运行时下载活动状态。"""
-    indicator = status_indicator_fragment(
+    indicator = spinner_indicator_fragment(
         phase,
         family="wait",
-        animated=True,
     )[1]
 
     block = download_progress_block(data, indicator=indicator)
@@ -423,7 +470,9 @@ def _download_block(data: dict[str, typing.Any], *, phase: float) -> FragmentBlo
 
 
 def _download_final_block(data: dict[str, typing.Any]) -> FragmentBlock | None:
-    """生成运行时下载完成后的稳定状态。"""
+    """生成运行时下载完成后的短暂状态。"""
+    if str(data.get("stage") or "").strip().lower() == "cancelled":
+        return None
     block = download_summary_block(data)
     if block is None:
         return None
@@ -441,21 +490,21 @@ def _mcp_activity_block(
         return _mcp_final_block(view, width=width) or FragmentBlock(())
 
     summary = _truncate_display_text(view.summary, limit=max(12, int(width) - 3))
-    return _status_block(summary, family="wait", phase=phase)
+    return _status_block(summary, family="wait", phase=phase, spinner=True)
 
 
 def _mcp_final_block(view: McpStatusView, *, width: int) -> FragmentBlock | None:
-    """生成可提交到正文的 MCP 最终状态。"""
+    """生成 MCP 活动区域使用的最终状态。"""
     if not view.done or not view.summary:
         return None
 
     marker_style = {
         "ready": SUCCESS_STYLE,
-        "warning": WARNING_STYLE,
-        "failed": FAILURE_STYLE,
+        "warning": STATUS_WARNING,
+        "failed": STATUS_FAILURE,
     }.get(view.level, BODY_STYLE)
 
-    summary_style = FAILURE_STYLE if view.level == "failed" else BODY_STYLE
+    summary_style = STATUS_FAILURE if view.level == "failed" else BODY_STYLE
     line_limit    = max(12, int(width) - 3)
 
     fragments: list[tuple[str, str]] = [
@@ -468,7 +517,7 @@ def _mcp_final_block(view: McpStatusView, *, width: int) -> FragmentBlock | None
     ]
 
     for detail in view.details:
-        detail_style = STATUS_MUTED if detail.state == "more" else WARNING_STYLE
+        detail_style = STATUS_MUTED if detail.state == "more" else STATUS_WARNING
 
         fragments.extend([
             ("", "\n"),
@@ -486,14 +535,9 @@ def _external_mcp_final_block(
     *,
     width: int,
 ) -> FragmentBlock | None:
-    """根据快照详情限制生成外部状态最终块。"""
-    try:
-        detail_limit = int(snapshot.get("detail_limit", 3))
-    except (TypeError, ValueError, OverflowError):
-        detail_limit = 3
-
+    """生成外部 MCP 活动区域使用的单行最终状态。"""
     return _mcp_final_block(
-        external_mcp_status_view(snapshot, detail_limit=max(0, detail_limit)),
+        external_mcp_status_view(snapshot, detail_limit=0),
         width=width,
     )
 
@@ -505,6 +549,7 @@ def _status_block(
     phase: float,
     started_at: float = 0.0,
     elapsed_sec: float | None = None,
+    spinner: bool = False,
 ) -> FragmentBlock:
     """生成一行 TUI 活动状态。"""
     fragments = render_status_fragments(
@@ -513,6 +558,8 @@ def _status_block(
         phase=phase,
         animated=True,
     )
+    if spinner:
+        fragments[0] = spinner_indicator_fragment(phase, family=family)
     if started_at or elapsed_sec is not None:
         elapsed = (
             max(0.0, float(elapsed_sec))
@@ -553,6 +600,26 @@ def _truncate_display_text(text: str, *, limit: int) -> str:
         out += char
 
     return f"{out.rstrip()}…"
+
+
+def _clip_activity_fragments(
+    fragments: list[tuple[str, str]],
+    *,
+    width: int,
+) -> list[tuple[str, str]]:
+    """把活动状态裁成单行，并对不完整内容补充省略符。"""
+    limit = max(1, int(width))
+    single_line = [
+        (style, str(text).replace("\n", " "))
+        for style, text in fragments
+        if text
+    ]
+    if get_cwidth("".join(text for _, text in single_line)) <= limit:
+        return single_line
+
+    clipped = clip_fragments(single_line, width=max(0, limit - 1))
+    ellipsis_style = clipped[-1][0] if clipped else ""
+    return [*clipped, (ellipsis_style, "…")]
 
 
 if __name__ == '__main__':

@@ -66,11 +66,16 @@ class RunStartedView(object):
 
     thread_id: str
     turn_id: str
+    session_id: str
     message: str
     mode: str
     model: str
+    provider: str
+    approval: str
     workdir: str
     sandbox: str
+    reasoning_effort: str
+    reasoning_summaries: str
 
 
 @dataclass(frozen=True, slots=True)

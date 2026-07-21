@@ -43,6 +43,7 @@ async def choose_permissions_mode(
     current = normalize_access_mode(current_mode)
     return await runtime.select_menu(MenuRequest(
         title="Permissions",
+        status=f"current={access_mode_label(current)}",
         options=tuple(
             MenuOption(value=value, label=label, detail=detail)
             for value, label, detail in PERMISSION_OPTIONS

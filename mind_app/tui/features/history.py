@@ -19,10 +19,11 @@ async def choose_history_session(
     """在主 TUI 中选择一项历史会话。"""
     if not records:
         return None
+
     return await runtime.select_menu(MenuRequest(
         title="Resume conversation",
         status=f"items={len(records)}",
-        help_text="Up/Down select · PgUp/PgDn jump · Enter resume · Esc cancel",
+        help_text="Up/Down select · PgUp/PgDn jump · Enter resume · Esc/q cancel",
         options=tuple(
             MenuOption(
                 value=record,

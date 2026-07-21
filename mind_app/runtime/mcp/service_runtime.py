@@ -251,26 +251,31 @@ async def prepare_and_start_service_runtime(
         typing.Awaitable[bool],
     ] | None = None,
     progress: UpgradeProgress | None = None,
+    download_confirmed: bool = False,
 ) -> bool:
     """确认下载授权后准备并启动服务运行时。"""
-    context = mind.require_service_runtime_context()
+    async def prepare() -> bool:
+        """在串行边界内完成本地服务准备和发布。"""
+        context = mind.require_service_runtime_context()
 
-    if service_runtime_asset_missing(context):
-        if confirm_download is None or not await confirm_download(context):
+        if service_runtime_asset_missing(context) and not download_confirmed:
+            if confirm_download is None or not await confirm_download(context):
+                return False
+
+        prepared = await prepare_service_runtime(
+            context,
+            anim_manager=mind.anim_manager,
+            design=mind.design,
+            progress=progress,
+        )
+        if not prepared:
             return False
 
-    prepared = await prepare_service_runtime(
-        context,
-        anim_manager=mind.anim_manager,
-        design=mind.design,
-        progress=progress,
-    )
-    if not prepared:
-        return False
+        await start_service_runtime(mind, label=label)
+        mind.link_service_mcp(await fetch_service_exec_env())
+        return True
 
-    await start_service_runtime(mind, label=label)
-    mind.link_service_mcp(await fetch_service_exec_env())
-    return True
+    return await mind.run_service_runtime_startup(prepare)
 
 
 if __name__ == '__main__':

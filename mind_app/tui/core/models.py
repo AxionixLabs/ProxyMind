@@ -32,7 +32,7 @@ class MenuRequest(object):
     body: tuple[str, ...] = ()
     selected: int = 0
     status: str = ""
-    help_text: str = "Up/Down select · Enter apply · Esc cancel"
+    help_text: str = "Up/Down select · Enter apply · Esc/q cancel"
 
 
 if __name__ == '__main__':

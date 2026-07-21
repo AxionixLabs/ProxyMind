@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import os
 import sys
 import typing
 from dataclasses import dataclass
@@ -34,6 +35,11 @@ from .content import (
 from .contracts import OutputControlPort
 from .session import OutputSession
 
+ANSI_RESET = "\x1b[0m"
+ANSI_BOLD = "\x1b[1m"
+ANSI_CYAN = "\x1b[1;96m"
+ANSI_MAGENTA = "\x1b[1;95m"
+
 
 def _write(stream: typing.TextIO, text: str) -> None:
     """写入并刷新一个文本块。"""
@@ -41,6 +47,16 @@ def _write(stream: typing.TextIO, text: str) -> None:
         return None
     stream.write(text)
     stream.flush()
+
+
+def _supports_color(stream: typing.TextIO) -> bool:
+    """判断输出流是否适合写入 ANSI 样式。"""
+    if "NO_COLOR" in os.environ:
+        return False
+    if os.environ.get("FORCE_COLOR") not in {None, "", "0"}:
+        return True
+    isatty = getattr(stream, "isatty", None)
+    return bool(callable(isatty) and isatty())
 
 
 def _line(value: typing.Any) -> str:
@@ -83,6 +99,7 @@ class TextOutputState:
     record_writer: StreamRecordWriter
     stdout: typing.TextIO
     stderr: typing.TextIO
+    color: bool = False
     assistant_open: bool = False
 
     async def open(self) -> None:
@@ -93,17 +110,27 @@ class TextOutputState:
         """关闭文本记录。"""
         await self.record_writer.close()
 
-    def process(self, text: str) -> None:
+    def process(self, text: str, *, style: str = "") -> None:
         """输出面向操作者的过程文本。"""
-        _write(self.stderr, text)
+        visible = (
+            f"{style}{text}{ANSI_RESET}"
+            if style and self.color
+            else text
+        )
+        _write(self.stderr, visible)
         self.record_writer.write(text, block=True)
+
+    def metadata(self, label: str, value: typing.Any) -> None:
+        """输出一行带高亮字段名的启动元数据。"""
+        self.process(f"{label}:", style=ANSI_BOLD)
+        self.process(f" {value}\n")
 
     def assistant(self, text: str) -> None:
         """输出 assistant 正文。"""
         if not text:
             return None
         if not self.assistant_open:
-            self.process("codex\n")
+            self.process(f"{const.APP_DESC.lower()}\n", style=ANSI_MAGENTA)
             self.assistant_open = True
         _write(self.stdout, text)
         self.record_writer.write(text)
@@ -228,16 +255,22 @@ class TextPresentationSink(PresentationSink):
     async def emit(self, view: PresentationView) -> None:
         """输出一项结构化展示。"""
         if isinstance(view, RunStartedView):
-            self.state.process(
-                f"{const.APP_DESC} v{const.APP_VERSION}\n"
-                "--------\n"
-                f"workdir: {view.workdir}\n"
-                f"model: {view.model}\n"
-                f"sandbox: {view.sandbox}\n"
-                "--------\n"
-                "user\n"
-                f"{view.message}\n"
+            self.state.process(f"{const.APP_DESC} v{const.APP_VERSION}\n")
+            self.state.process("--------\n")
+            self.state.metadata("workdir", view.workdir)
+            self.state.metadata("model", view.model)
+            self.state.metadata("provider", view.provider)
+            self.state.metadata("approval", view.approval)
+            self.state.metadata("sandbox", view.sandbox)
+            self.state.metadata("reasoning effort", view.reasoning_effort)
+            self.state.metadata(
+                "reasoning summaries",
+                view.reasoning_summaries,
             )
+            self.state.metadata("session id", view.session_id)
+            self.state.process("--------\n")
+            self.state.process("user\n", style=ANSI_CYAN)
+            self.state.process(f"{view.message}\n")
             return None
         if isinstance(view, RunCompletedView):
             self.state.settle_assistant()
@@ -318,6 +351,7 @@ def create_text_output_session(
         record_writer=StreamRecordWriter(log_file),
         stdout=sys.stdout,
         stderr=sys.stderr,
+        color=_supports_color(sys.stderr),
     )
     return OutputSession(
         control=TextOutputControl(state),

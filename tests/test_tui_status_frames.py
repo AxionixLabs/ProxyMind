@@ -4,12 +4,14 @@ import pytest
 from prompt_toolkit.utils import get_cwidth
 
 from mind_app.tui.core.status_frames import (
+    SPINNER_FRAMES,
     SWEEP_PROFILES,
     _character_cells,
     _display_span,
     _sweep_duration,
     _sweep_focus,
     render_status_fragments,
+    spinner_indicator_fragment,
     status_interval,
     status_phase_rate,
 )
@@ -45,13 +47,18 @@ def test_status_sweep_changes_text_colors_on_every_frame(
 
     assert all(left != right for left, right in zip(text_styles, text_styles[1:]))
     assert {
-        "".join(value for _style, value in frame)
+        "".join(value for _style, value in frame)[1:]
         for frame in frames
-    } == {f"• {text}"}
+    } == {f" {text}"}
+    assert {
+        frame[0][1]
+        for frame in frames
+    } == {"◦", "•"}
     assert all("bg:" not in style for frame in frames for style, _value in frame)
+    assert all("bold" not in style for frame in frames for style, _value in frame)
 
 
-def test_status_indicator_keeps_one_cell_glyph() -> None:
+def test_status_indicator_breathes_between_hollow_and_solid_glyphs() -> None:
     indicators = {
         family: {
             render_status_fragments(
@@ -65,8 +72,22 @@ def test_status_indicator_keeps_one_cell_glyph() -> None:
         for family in ("tool", "wait")
     }
 
-    assert indicators == {"tool": {"•"}, "wait": {"•"}}
-    assert get_cwidth(next(iter(indicators["tool"]))) == 1
+    assert indicators == {"tool": {"◦", "•"}, "wait": {"◦", "•"}}
+    assert all(
+        get_cwidth(glyph) == 1
+        for family in indicators.values()
+        for glyph in family
+    )
+
+
+def test_explicit_spinner_keeps_one_cell_and_rotates() -> None:
+    indicators = {
+        spinner_indicator_fragment(index / 10)[1]
+        for index in range(len(SPINNER_FRAMES))
+    }
+
+    assert indicators == set(SPINNER_FRAMES)
+    assert all(get_cwidth(glyph) == 1 for glyph in indicators)
 
 
 def test_status_sweep_uses_display_width_and_adaptive_speed() -> None:

@@ -204,10 +204,7 @@ async def compact_current_conversation(
             f"[Compact] animation start "
             f"cid={metadata['cid']} sid={metadata['sid']}"
         )
-        await mind.start_external_mcp_anim(
-            status.snapshot,
-            persist_final=True,
-        )
+        await mind.start_external_mcp_anim(status.snapshot)
         animation_running = True
 
     try:

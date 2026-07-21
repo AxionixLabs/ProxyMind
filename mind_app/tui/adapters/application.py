@@ -17,12 +17,13 @@ from ..core.runtime import TuiRuntime
 from ..core.styles import styled_block_fragments
 from ..core.styles import text_block
 
-MUTED   = TextStyle(foreground="#7F8C9A", dim=True)
-ACCENT  = TextStyle(foreground="#AFC7D8", bold=True)
-BRIGHT  = TextStyle(foreground="#F4F7FA", bold=True)
-SUCCESS = TextStyle(foreground="#5FD7AF", bold=True)
-WARNING = TextStyle(foreground="#FFD75F", bold=True)
-FAILURE = TextStyle(foreground="#FF6B6B", bold=True)
+MUTED        = TextStyle(foreground="#7F8C9A", dim=True)
+ACCENT       = TextStyle(foreground="#AFC7D8", bold=True)
+BRIGHT       = TextStyle(foreground="#F4F7FA", bold=True)
+SUCCESS      = TextStyle(foreground="#5FD7AF", bold=True)
+WARNING      = TextStyle(foreground="#FFD75F", bold=True)
+FAILURE      = TextStyle(foreground="#FF6B6B", bold=True)
+FAILURE_BODY = TextStyle(foreground="#FF6B6B")
 
 
 class TuiApplicationSink(ApplicationSink):
@@ -76,18 +77,24 @@ class TuiApplicationSink(ApplicationSink):
         if view.type == "error":
             self.runtime.append_block(_error_block(str(view.renderable or "")))
             return None
+        if view.type == "tui.background.error":
+            self.runtime.queue_background_block(
+                _error_block(str(view.renderable or ""))
+            )
+            return None
         if view.type == "run.worked":
             self.runtime.append_gap()
+        block_kind = "notice" if view.type == "tui.interrupted" else "system"
         if isinstance(view.renderable, FragmentBlock):
-            self.runtime.append_block(view.renderable)
+            self.runtime.append_block(view.renderable, kind=block_kind)
             return None
         if isinstance(view.renderable, StyledBlock):
             self.runtime.append_block(FragmentBlock(
                 styled_block_fragments(view.renderable)
-            ))
+            ), kind=block_kind)
             return None
         if isinstance(view.renderable, str):
-            self.runtime.append_block(text_block(view.renderable))
+            self.runtime.append_block(text_block(view.renderable), kind=block_kind)
             return None
         if view.renderable is not None:
             raise TypeError(
@@ -138,7 +145,7 @@ def _error_block(message: str) -> FragmentBlock:
     """生成 TUI 入口错误块。"""
     return _fragment_block([
         TextSpan(f"{const.APP_DESC} :: ", MUTED),
-        TextSpan(message, FAILURE),
+        TextSpan(message, FAILURE_BODY),
     ])
 
 

@@ -18,13 +18,16 @@ SWEEP_LEAD_SPAN          = 1.25
 SWEEP_TAIL_SPAN          = 5.2
 SWEEP_MIN_DURATION       = 1.75
 SWEEP_MAX_DURATION       = 2.65
+SPINNER_REFRESH_PER_SECOND = 10
+SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
 
 @dataclass(frozen=True, slots=True)
 class SweepProfile(object):
     """描述状态族的字符、配色和相对扫光速度。"""
 
-    glyph: str
+    dim_glyph: str
+    peak_glyph: str
     speed_factor: float
     breathe_rate: float
     indicator_dim: str
@@ -34,7 +37,8 @@ class SweepProfile(object):
 
 SWEEP_PROFILES: dict[StatusFamily, SweepProfile] = {
     "tool": SweepProfile(
-        glyph="•",
+        dim_glyph="◦",
+        peak_glyph="•",
         speed_factor=1.08,
         breathe_rate=4.7,
         indicator_dim="#5A4B42",
@@ -49,7 +53,8 @@ SWEEP_PROFILES: dict[StatusFamily, SweepProfile] = {
         ),
     ),
     "wait": SweepProfile(
-        glyph="•",
+        dim_glyph="◦",
+        peak_glyph="•",
         speed_factor=0.92,
         breathe_rate=3.9,
         indicator_dim="#465652",
@@ -111,7 +116,7 @@ def status_indicator_fragment(
     family: StatusFamily,
     animated: bool,
 ) -> tuple[str, str]:
-    """生成宽度固定且仅改变颜色的状态指示符。"""
+    """生成宽度固定的状态指示符。"""
     profile = _profile(family)
 
     if not animated:
@@ -120,7 +125,7 @@ def status_indicator_fragment(
             profile.indicator_peak,
             0.72,
         )
-        return _style(color), profile.glyph
+        return _style(color), profile.peak_glyph
 
     breathe = 0.5 + (0.5 * math.sin(float(phase) * profile.breathe_rate))
 
@@ -129,7 +134,26 @@ def status_indicator_fragment(
         profile.indicator_peak,
         _smoothstep(breathe) * 0.72,
     )
-    return _style(color), profile.glyph
+    glyph = profile.peak_glyph if breathe >= 0.5 else profile.dim_glyph
+    return _style(color), glyph
+
+
+def spinner_indicator_fragment(
+    phase: float,
+    *,
+    family: StatusFamily = "wait",
+) -> tuple[str, str]:
+    """生成显式长任务使用的单字符旋转指示符。"""
+    style, _glyph = status_indicator_fragment(
+        phase,
+        family=family,
+        animated=True,
+    )
+    frame = SPINNER_FRAMES[
+        int(max(0.0, float(phase)) * SPINNER_REFRESH_PER_SECOND)
+        % len(SPINNER_FRAMES)
+    ]
+    return style, frame
 
 
 def _sweep_fragments(
@@ -261,8 +285,8 @@ def _smoothstep(value: float) -> float:
 
 
 def _style(color: str) -> str:
-    """生成 prompt_toolkit 使用的强调前景样式。"""
-    return f"fg:{color} bold"
+    """生成 prompt_toolkit 使用的前景样式。"""
+    return f"fg:{color}"
 
 
 def _profile(family: StatusFamily) -> SweepProfile:

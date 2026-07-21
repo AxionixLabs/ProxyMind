@@ -25,11 +25,11 @@ if typing.TYPE_CHECKING:
 McpAction = typing.Literal["start", "force", "stop", "restart", "status"]
 
 MCP_MENU_ACTIONS: tuple[tuple[McpAction, str, str], ...] = (
-    ("start", "start", "启动 enabled=true 的外接 MCP 服务；已启动则保持当前连接。"),
-    ("force", "force", "本轮临时启动所有已配置的外接 MCP 服务，包括 enabled=false 的。不会修改配置文件。"),
-    ("stop", "stop", "断开当前所有外接 MCP 连接。HTTP/SSE 只是断开连接；stdio 类型会随连接释放关闭对应子进程。"),
-    ("restart", "restart", "先断开当前外接 MCP，再重新读取配置并启动 enabled=true 的服务。"),
-    ("status", "status", "查看状态，不启动、不停止。")
+    ("start", "Start enabled", "启动配置中已启用的服务"),
+    ("force", "Start all", "本轮包含已禁用服务，不修改配置"),
+    ("stop", "Stop", "断开全部外部 MCP 连接"),
+    ("restart", "Restart", "重载配置并启动已启用服务"),
+    ("status", "Status", "显示服务和工具状态"),
 )
 
 
@@ -92,13 +92,11 @@ def selectable_mcp_actions(summary: dict[str, typing.Any]) -> list[tuple[McpActi
 
     if bool(summary.get("started")):
         return [
-            ("stop", "stop", "断开当前所有外接 MCP 连接。HTTP/SSE 只是断开连接；stdio 类型会随连接释放关闭对应子进程。"),
-            ("status", "status", "查看状态，不启动、不停止。")
+            item for item in MCP_MENU_ACTIONS
+            if item[0] in {"stop", "status"}
         ]
 
-    return [
-        ("status", "status", "查看状态，不启动、不停止。")
-    ]
+    return [item for item in MCP_MENU_ACTIONS if item[0] == "status"]
 
 
 def default_mcp_action_index(
