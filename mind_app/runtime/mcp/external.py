@@ -50,8 +50,6 @@ class ExternalMcpRuntime(object):
         if self._started:
             return None
 
-        self._started = True
-
         servers = load_mcp_servers_file(self._mind.src_opera_place)
 
         if include_disabled:
@@ -68,14 +66,17 @@ class ExternalMcpRuntime(object):
         status = ExternalMcpStatus(servers)
 
         external_anim_started: bool = False
-
-        if status.visible:
-            await self._mind.start_external_mcp_anim(status.snapshot)
-            external_anim_started = True
+        self._started = True
 
         try:
+            if status.visible:
+                await self._mind.start_external_mcp_anim(status.snapshot)
+                external_anim_started = True
+
             self._context = open_optional_external_mcp_group(servers, status=status)
             self._group = await self._context.__aenter__()
+            if self._group is None:
+                await self._stop_unlocked()
         except BaseException as exc:
             await self._stop_unlocked()
             if isinstance(

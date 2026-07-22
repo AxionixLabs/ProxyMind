@@ -16,7 +16,7 @@ from mind_app.presentation.models import (
     PlanStepsStartView,
     PlanUpdateView,
     ProgressView,
-    ToolStartView,
+    ToolStartView
 )
 from mind_app.presentation.renderers.dispatch import render_presentation_view
 from prompt_toolkit.utils import get_cwidth
@@ -53,11 +53,9 @@ _OPERATION_VIEWS = (
     ToolStartView,
     GenericToolResultView,
     NativeToolResultView,
-    PlanUpdateView,
-    PlanStepsStartView,
     BatchStartView,
     BatchCompletedView,
-    ProgressView,
+    ProgressView
 )
 
 
@@ -65,6 +63,8 @@ def _presentation_block_kind(view: PresentationView) -> TuiBlockKind:
     """把共享展示类型映射为 TUI 正文语义。"""
     if isinstance(view, ApprovalView):
         return "approval"
+    if isinstance(view, (PlanUpdateView, PlanStepsStartView)):
+        return "plan"
     if isinstance(view, _OPERATION_VIEWS):
         return "operation"
     if isinstance(view, (FailureView, LifecycleView)):

@@ -9,6 +9,8 @@ from prompt_toolkit.layout.mouse_handlers import MouseHandlers
 from prompt_toolkit.layout.screen import Screen, WritePosition
 
 from mind_app.tui.adapters.output import TuiOutputControl
+from mind_app.tui.adapters.session import create_tui_output_session
+from mind_app.tui.adapters.status import TuiStreamStatusControl
 from mind_app.tui.core.activity import (
     TuiActivity,
     _download_block,
@@ -44,10 +46,21 @@ def test_task_state_aggregates_turn_and_activity_sources() -> None:
     assert not state.running
 
 
+def test_tui_output_session_separates_content_and_event_status() -> None:
+    runtime = TuiRuntime()
+    session = create_tui_output_session("", runtime=runtime, animate=False)
+
+    assert isinstance(session.control, TuiOutputControl)
+    assert isinstance(session.status, TuiStreamStatusControl)
+    assert session.status is not session.control
+    assert not hasattr(session.control, "begin_reply_wait_status")
+
+
 @pytest.mark.anyio
 async def test_tui_turn_keeps_one_wait_until_runner_finishes() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
+    status = TuiStreamStatusControl()
 
     class MindStub(object):
         animate = False
@@ -66,14 +79,14 @@ async def test_tui_turn_keeps_one_wait_until_runner_finishes() -> None:
         _ = mode
         assert runtime.activity.active
 
-        await output.begin_reply_wait_status(delay_sec=0.0)
-        await output.begin_tool_status()
+        await status.begin_reply_wait_status(delay_sec=0.0)
+        await status.begin_tool_status()
         await output.append_assistant_delta("answer")
-        await output.end_status()
+        await status.end_status()
 
-        status = _block_text(FragmentBlock(tuple(runtime._status_fragments())))
-        assert status.count("thinking") == 1
-        assert "\n" not in status
+        status_text = _block_text(FragmentBlock(tuple(runtime._status_fragments())))
+        assert status_text.count("thinking") == 1
+        assert "\n" not in status_text
 
     await run_mode_lifecycle(MindStub(), runner)
 

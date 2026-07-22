@@ -18,7 +18,7 @@ BLOCK_OUTPUT: typing.Final[OutputDisplay]  = "block"
 
 
 class OutputControlPort(ABC):
-    """描述单轮运行需要的生命周期、状态和审计能力。"""
+    """描述单轮运行需要的正文、边界和审计能力。"""
 
     @abstractmethod
     async def open(self) -> None:
@@ -33,32 +33,6 @@ class OutputControlPort(ABC):
     @abstractmethod
     async def prepare_external_output(self) -> None:
         """准备输出外部内容。"""
-        ...
-
-    @abstractmethod
-    async def begin_tool_status(self) -> None:
-        """启动通用工具状态。"""
-        ...
-
-    @abstractmethod
-    async def begin_custom_tool_status(self, text: typing.Optional[str]) -> None:
-        """启动自定义工具状态。"""
-        ...
-
-    @abstractmethod
-    async def begin_reply_wait_status(
-        self,
-        text: typing.Optional[str] = "thinking",
-        *,
-        delay_sec: float = 0.28,
-        animate_after_sec: float | None = None,
-    ) -> None:
-        """启动回复等待状态。"""
-        ...
-
-    @abstractmethod
-    async def end_status(self, *, immediate: bool = False) -> None:
-        """结束当前状态。"""
         ...
 
     @abstractmethod
@@ -88,7 +62,37 @@ class OutputControlPort(ABC):
         ...
 
 
-class OutputPort(OutputControlPort):
+class OutputStatusPort(ABC):
+    """描述单轮流式事件使用的局部状态展示能力。"""
+
+    @abstractmethod
+    async def begin_tool_status(self) -> None:
+        """启动通用工具状态。"""
+        ...
+
+    @abstractmethod
+    async def begin_custom_tool_status(self, text: typing.Optional[str]) -> None:
+        """启动自定义工具状态。"""
+        ...
+
+    @abstractmethod
+    async def begin_reply_wait_status(
+        self,
+        text: typing.Optional[str] = "thinking",
+        *,
+        delay_sec: float = 0.28,
+        animate_after_sec: float | None = None,
+    ) -> None:
+        """启动回复等待状态。"""
+        ...
+
+    @abstractmethod
+    async def end_status(self, *, immediate: bool = False) -> None:
+        """结束当前状态。"""
+        ...
+
+
+class OutputPort(OutputControlPort, OutputStatusPort):
     """描述终端渲染适配器需要的完整输出能力。"""
 
     @property

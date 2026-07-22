@@ -9,11 +9,15 @@ from ..core.models import (
     MenuOption,
     MenuRequest
 )
-from mind_app.mcp.config import load_mcp_servers_file
+from mind_app.mcp.config import (
+    McpConfigError,
+    load_mcp_servers_file
+)
 from ..core.styles import (
     ACCENT_STYLE,
     BODY_STYLE,
     BRIGHT_STYLE,
+    FAILURE_STYLE,
     MUTED_STYLE,
     fragment_block,
     text_block
@@ -25,11 +29,11 @@ if typing.TYPE_CHECKING:
 McpAction = typing.Literal["start", "force", "stop", "restart", "status"]
 
 MCP_MENU_ACTIONS: tuple[tuple[McpAction, str, str], ...] = (
-    ("start", "Start enabled", "启动配置中已启用的服务"),
-    ("force", "Start all", "本轮包含已禁用服务，不修改配置"),
-    ("stop", "Stop", "断开全部外部 MCP 连接"),
-    ("restart", "Restart", "重载配置并启动已启用服务"),
-    ("status", "Status", "显示服务和工具状态"),
+    ("start", "start", "启动 enabled=true 的外接 MCP 服务；已启动则保持当前连接。"),
+    ("force", "force", "本轮临时启动所有已配置的外接 MCP 服务，包括 enabled=false 的。不会修改配置文件。"),
+    ("stop", "stop", "断开当前所有外接 MCP 连接。HTTP/SSE 只是断开连接；stdio 类型会随连接释放关闭对应子进程。"),
+    ("restart", "restart", "先断开当前外接 MCP，再重新读取配置并启动 enabled=true 的服务。"),
+    ("status", "status", "查看状态，不启动、不停止。"),
 )
 
 
@@ -48,7 +52,12 @@ def _present(
 
 def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
     """汇总当前外部 MCP 配置与已连接工具状态。"""
-    configured = load_mcp_servers_file(getattr(mind, "src_opera_place", ""))
+    config_error = ""
+    try:
+        configured = load_mcp_servers_file(getattr(mind, "src_opera_place", ""))
+    except McpConfigError as error:
+        configured = []
+        config_error = str(error)
 
     runtime = getattr(mind, "external_mcp", None)
     group   = getattr(runtime, "group", None) if runtime is not None else None
@@ -77,26 +86,10 @@ def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
     return {
         "started"     : bool(getattr(runtime, "started", False)) if runtime is not None else False,
         "configured"  : configured,
+        "config_error": config_error,
         "tool_groups" : tool_groups,
         "tool_count"  : sum(len(item["tools"]) for item in tool_groups)
     }
-
-
-def selectable_mcp_actions(summary: dict[str, typing.Any]) -> list[tuple[McpAction, str, str]]:
-    """根据当前配置生成外部 MCP 操作列表。"""
-    configured = summary.get("configured")
-    has_config = bool(configured)
-
-    if has_config:
-        return list(MCP_MENU_ACTIONS)
-
-    if bool(summary.get("started")):
-        return [
-            item for item in MCP_MENU_ACTIONS
-            if item[0] in {"stop", "status"}
-        ]
-
-    return [item for item in MCP_MENU_ACTIONS if item[0] == "status"]
 
 
 def default_mcp_action_index(
@@ -131,10 +124,12 @@ async def choose_mcp_action(
 ) -> McpAction | None:
     """在主 TUI 中选择外部 MCP 操作。"""
     summary  = summarize_external_runtime(mind)
-    actions  = selectable_mcp_actions(summary)
+    actions  = list(MCP_MENU_ACTIONS)
+    config_error = str(summary.get("config_error") or "")
     return await runtime.select_menu(MenuRequest(
         title="External MCP",
         status=external_status_line(summary),
+        body=(config_error,) if config_error else (),
         options=tuple(
             MenuOption(value=action, label=label, detail=detail)
             for action, label, detail in actions
@@ -145,6 +140,9 @@ async def choose_mcp_action(
 
 def external_status_line(summary: dict[str, typing.Any]) -> str:
     """返回外部 MCP 状态摘要文本。"""
+    if summary.get("config_error"):
+        return "config=invalid"
+
     configured = summary.get("configured")
     return (
         f"started={str(bool(summary.get('started'))).lower()} "
@@ -163,22 +161,18 @@ async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> None:
         render_mcp_status(mind)
         return None
 
-    if action == "stop":
-        await mind.stop_external_mcp_runtime()
-        render_mcp_status(mind)
-        return None
+    try:
+        if action == "stop":
+            await mind.stop_external_mcp_runtime()
+        elif action == "force":
+            await mind.restart_external_mcp_runtime(include_disabled=True)
+        elif action == "start":
+            await mind.start_external_mcp_runtime()
+        else:
+            await mind.restart_external_mcp_runtime()
+    except McpConfigError:
+        pass
 
-    if action == "force":
-        await mind.restart_external_mcp_runtime(include_disabled=True)
-        render_mcp_status(mind)
-        return None
-
-    if action == "start":
-        await mind.start_external_mcp_runtime()
-        render_mcp_status(mind)
-        return None
-
-    await mind.restart_external_mcp_runtime()
     render_mcp_status(mind)
     return None
 
@@ -188,6 +182,11 @@ def render_mcp_status(mind: typing.Any) -> None:
     summary     = summarize_external_runtime(mind)
     configured  = summary["configured"]
     tool_groups = summary["tool_groups"]
+
+    if summary["config_error"]:
+        _present(mind, text_block(summary["config_error"], FAILURE_STYLE))
+        _present(mind, view_type="tui.gap")
+        return None
 
     _present(
         mind,

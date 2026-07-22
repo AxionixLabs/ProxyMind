@@ -23,6 +23,7 @@ def create_rich_output_session(
 
     return OutputSession(
         control=control,
+        status=control,
         content=TerminalContentSink(control),
         presentation=RichPresentationSink(control),
     )

@@ -17,7 +17,8 @@ from urllib.parse import urlsplit
 from mcp import types as mcp_types
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.session_group import (
-    SseServerParameters, StreamableHttpParameters
+    SseServerParameters,
+    StreamableHttpParameters
 )
 from mind_nova import const
 
@@ -26,6 +27,10 @@ ALLOWED_MCP_TRANSPORT = {"streamable_http", "sse", "stdio"}
 
 DEFAULT_MCP_REQ_TIMEOUT_SEC = 30 * 60
 DEFAULT_MCP_SSE_TIMEOUT_SEC = 30 * 60
+
+
+class McpConfigError(ValueError):
+    """表示外部 MCP 配置文件无法解析。"""
 
 
 def _positive_float(value: typing.Any, fallback: float) -> float:
@@ -113,7 +118,7 @@ def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
         url     = str(item.get("url", "") or "").strip()
         command = str(item.get("command", "") or "").strip()
 
-        inferred_transport = item.get("transport")
+        inferred_transport = item.get("transport") or item.get("type")
         if not inferred_transport:
             if command and not url:
                 inferred_transport = "stdio"
@@ -202,8 +207,11 @@ def load_mcp_servers_file(root_dir: typing.Any) -> list[dict[str, typing.Any]]:
 
     try:
         payload = json.loads(raw)
-    except json.JSONDecodeError:
-        return []
+    except json.JSONDecodeError as exc:
+        raise McpConfigError(
+            f"Invalid MCP config {target.name} at "
+            f"line {exc.lineno}, column {exc.colno}: {exc.msg}"
+        ) from exc
 
     try:
         return normalize_mcp_servers(payload)

@@ -6,6 +6,7 @@ from ..core.runtime import TuiRuntime
 from .content import TuiContentSink
 from .output import TuiOutputControl
 from .presentation import TuiPresentationSink
+from .status import TuiStreamStatusControl
 
 
 def create_tui_output_session(
@@ -22,6 +23,7 @@ def create_tui_output_session(
     )
     return OutputSession(
         control=control,
+        status=TuiStreamStatusControl(),
         content=TuiContentSink(control),
         presentation=TuiPresentationSink(control),
     )

@@ -3,14 +3,14 @@
 
 import typing
 from mind_nova.events import EventReport
-from ...output import OutputControlPort
+from ...output import OutputStatusPort
 from ...presentation.contracts import PresentationSink
 from ...presentation.lifecycle_views import build_failure_view
 from ...stream_events.finish import finish_stream
 
 
 async def finish_failure(
-    output_control: OutputControlPort,
+    status_control: OutputStatusPort,
     presentation: PresentationSink,
     ev_report: typing.Optional[EventReport],
     *,
@@ -22,7 +22,7 @@ async def finish_failure(
     message = "" if error is None else str(error)
 
     await finish_stream(ev_report, phase=phase, error=message, **extra)
-    await output_control.end_status(immediate=True)
+    await status_control.end_status(immediate=True)
 
     await presentation.emit(build_failure_view(phase, message))
 

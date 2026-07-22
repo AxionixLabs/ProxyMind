@@ -118,17 +118,13 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
 
 
 @pytest.mark.anyio
-async def test_tui_infrastructure_starts_helix_before_external_mcp(
+async def test_tui_starts_external_mcp_before_helix_background(
     monkeypatch,
 ) -> None:
     calls = []
-    release_helix = asyncio.Event()
-    helix_started = asyncio.Event()
 
     async def prepare_helix(_mind, *, download_confirmed=False):
         calls.append(("helix", download_confirmed))
-        helix_started.set()
-        await release_helix.wait()
         return True
 
     class MindStub(object):
@@ -137,18 +133,11 @@ async def test_tui_infrastructure_starts_helix_before_external_mcp(
 
     monkeypatch.setattr(download, "prepare_tui_service_runtime", prepare_helix)
 
-    task = asyncio.create_task(entry._start_tui_infrastructure(
-        MindStub(),
-        start_helix=True,
-    ))
-    await helix_started.wait()
+    mind = MindStub()
+    await entry._start_tui_external_mcp(mind)
+    await entry._start_tui_service_runtime(mind)
 
-    assert calls == [("helix", True)]
-
-    release_helix.set()
-    await task
-
-    assert calls == [("helix", True), ("external", True)]
+    assert calls == [("external", True), ("helix", True)]
 
 
 @pytest.mark.anyio
@@ -236,6 +225,51 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
     assert runtime.group is not None
 
     await runtime.stop()
+
+
+@pytest.mark.anyio
+async def test_external_mcp_without_connected_group_can_retry(monkeypatch) -> None:
+    enter_count = 0
+
+    class ExternalContext(object):
+        async def __aenter__(self):
+            nonlocal enter_count
+            enter_count += 1
+            return None
+
+        async def __aexit__(self, _type, _value, _traceback):
+            return None
+
+    class MindStub(object):
+        src_opera_place = ""
+
+        async def start_external_mcp_anim(self, _snapshot):
+            return None
+
+        async def stop_anim(self, _kind=None):
+            return None
+
+        async def await_cleanup(self, awaitable):
+            await awaitable
+
+    monkeypatch.setattr(
+        external,
+        "load_mcp_servers_file",
+        lambda _root: [{"name": "docs", "enabled": True}],
+    )
+    monkeypatch.setattr(
+        external,
+        "open_optional_external_mcp_group",
+        lambda _servers, status=None: ExternalContext(),
+    )
+
+    runtime = ExternalMcpRuntime(MindStub())
+    await runtime.start()
+    await runtime.start()
+
+    assert enter_count == 2
+    assert not runtime.started
+    assert runtime.group is None
 
 
 @pytest.mark.anyio

@@ -9,7 +9,10 @@ from dataclasses import (
 )
 from engine.enhance import exchange_arguments
 from mind_app.mcp.contracts import McpSessionLike
-from mind_app.output import OutputControlPort
+from mind_app.output import (
+    OutputControlPort,
+    OutputStatusPort
+)
 from mind_app.presentation.contracts import PresentationSink
 from mind_nova.requests.tools import post_tool_result
 from .display import (
@@ -89,6 +92,7 @@ class ToolBatchExecutor:
         *,
         session: McpSessionLike,
         output_control: OutputControlPort,
+        status_control: OutputStatusPort,
         presentation: PresentationSink,
         tools: list[dict[str, typing.Any]],
         mode: str,
@@ -98,6 +102,7 @@ class ToolBatchExecutor:
     ) -> None:
         self.session      = session
         self.output_control = output_control
+        self.status_control = status_control
         self.presentation = presentation
         self.tools        = tools
         self.mode         = mode
@@ -167,6 +172,7 @@ class ToolBatchExecutor:
             tool_run = await run_tool_step(
                 self.session,
                 output_control=self.output_control,
+                status_control=self.status_control,
                 presentation=self.presentation,
                 tools=self.tools,
                 name=name,
@@ -188,7 +194,7 @@ class ToolBatchExecutor:
 
             if display:
                 if use_coding_trace:
-                    await self.output_control.end_status()
+                    await self.status_control.end_status()
                 await show_tool_result(
                     self.presentation,
                     name,

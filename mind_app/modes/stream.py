@@ -108,6 +108,7 @@ async def stream_looper(
     )
 
     output_control: OutputControlPort = output_session.control
+    status_control = output_session.status
 
     presentation = output_session.presentation
     content      = output_session.content
@@ -122,7 +123,7 @@ async def stream_looper(
     approvals: ApprovalStore = ApprovalStore()
 
     idle_wait = IdleStatusTimer(
-        lambda: output_control.begin_reply_wait_status(delay_sec=0.0), delay_sec=0.9
+        lambda: status_control.begin_reply_wait_status(delay_sec=0.0), delay_sec=0.9
     )
 
     try:
@@ -145,6 +146,7 @@ async def stream_looper(
             mind=mind,
             session=session,
             output_control=output_control,
+            status_control=status_control,
             presentation=presentation,
             tracker=tracker,
             mode=mode,
@@ -154,6 +156,7 @@ async def stream_looper(
         tool_batch_executor = ToolBatchExecutor(
             session=session,
             output_control=output_control,
+            status_control=status_control,
             presentation=presentation,
             tools=tools,
             mode=mode,
@@ -164,6 +167,7 @@ async def stream_looper(
         plan_tool_runner = PlanToolCallRunner(
             session=session,
             output_control=output_control,
+            status_control=status_control,
             presentation=presentation,
             tools=tools,
             report=mind.report
@@ -190,14 +194,14 @@ async def stream_looper(
                 continue
 
             if event_type == "turn.thinking":
-                await output_control.begin_reply_wait_status()
+                await status_control.begin_reply_wait_status()
                 continue
 
             if event_type == "turn.failed":
                 turn_failed = True
                 error = str(event.get("error") or "unknown error")
                 await finish_failure(
-                    output_control,
+                    status_control,
                     presentation,
                     None,
                     phase="turn.failed",
@@ -216,7 +220,7 @@ async def stream_looper(
                 tracker.on_text_done(event)
                 await output_control.settle_stream()
                 output_control.mark_stream_boundary()
-                await output_control.begin_reply_wait_status()
+                await status_control.begin_reply_wait_status()
                 continue
 
             if event_type == "text.meta":
@@ -229,25 +233,25 @@ async def stream_looper(
                 break
 
             if event_type == "tool.builtin.call":
-                await output_control.begin_tool_status()
+                await status_control.begin_tool_status()
                 continue
 
             if event_type == "tool.builtin.done":
                 consume_builtin_done(event, tracker)
-                await output_control.end_status()
+                await status_control.end_status()
                 continue
 
             if event_type == "tool.calls.start":
-                await output_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
+                await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                 continue
 
             if event_type == "tool.calls.done":
-                await output_control.begin_reply_wait_status(delay_sec=0.75)
+                await status_control.begin_reply_wait_status(delay_sec=0.75)
                 continue
 
             if event_type == "tool.approval_required":
                 approval = approval_from_event(event)
-                await output_control.end_status(immediate=True)
+                await status_control.end_status(immediate=True)
 
                 decision = await mind.frontend.interaction.request_approval(approval)
 
@@ -256,7 +260,7 @@ async def stream_looper(
                         approval,
                         decision=decision,
                     ))
-                    await output_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
+                    await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                     continue
 
                 approved    = decision in {"accept", "acceptForSession"}
@@ -283,7 +287,7 @@ async def stream_looper(
                 except ToolApprovalExpired:
                     pass
                 if not approved:
-                    await output_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
+                    await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                 continue
 
             if event_type == "tool.call":
@@ -300,7 +304,7 @@ async def stream_looper(
                         {"error": "tool.call missing name/tool"},
                         execution=event.get("execution") if isinstance(event.get("execution"), dict) else None
                     )
-                    await output_control.begin_reply_wait_status()
+                    await status_control.begin_reply_wait_status()
                     continue
 
                 if not isinstance(arguments, dict):
@@ -311,7 +315,7 @@ async def stream_looper(
                         event=event,
                         arguments=arguments
                     )
-                    await output_control.begin_reply_wait_status(delay_sec=0.75)
+                    await status_control.begin_reply_wait_status(delay_sec=0.75)
                     continue
 
                 event_meta      = event.get("meta") if isinstance(event.get("meta"), dict) else None
@@ -327,7 +331,7 @@ async def stream_looper(
                 )
 
                 if approval_decision.action == "wait":
-                    await output_control.begin_reply_wait_status()
+                    await status_control.begin_reply_wait_status()
                     continue
 
                 if approval_decision.action == "reject":
@@ -340,7 +344,7 @@ async def stream_looper(
                         approval_decision.result or {},
                         execution=event_execution
                     )
-                    await output_control.begin_reply_wait_status()
+                    await status_control.begin_reply_wait_status()
                     continue
 
                 if execution_policy_result := validate_execution_policy(
@@ -348,7 +352,7 @@ async def stream_looper(
                     execution=event_execution
                 ):
                     if is_execution_ignored(execution_policy_result):
-                        await output_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
+                        await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                         continue
                     await post_tool_result(
                         event["cid"],
@@ -359,7 +363,7 @@ async def stream_looper(
                         execution_policy_result,
                         execution=event_execution
                     )
-                    await output_control.begin_reply_wait_status()
+                    await status_control.begin_reply_wait_status()
                     continue
 
                 use_coding_trace = coding_trace_tool(name)
@@ -376,7 +380,7 @@ async def stream_looper(
                 )
 
                 await tool_batch_executor.execute_call(pending_call)
-                await output_control.begin_reply_wait_status(delay_sec=0.75)
+                await status_control.begin_reply_wait_status(delay_sec=0.75)
                 continue
 
             if event_type == "tool.output":
@@ -392,7 +396,7 @@ async def stream_looper(
                 tool_run         = server_tool_output_result(name, event)
 
                 if use_coding_trace:
-                    await output_control.end_status()
+                    await status_control.end_status()
 
                 await show_tool_result(
                     presentation,
@@ -403,7 +407,7 @@ async def stream_looper(
                     call_id=str(event.get("call_id") or ""),
                 )
 
-                await output_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
+                await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                 continue
 
             if await handle_lifecycle_event(event_type, event, event_ctx):
@@ -419,7 +423,7 @@ async def stream_looper(
         error = friendly_exception_text(e)
         await mind.await_cleanup(mind.stop_anim("wait"))
         await finish_failure(
-            output_control,
+            status_control,
             presentation,
             ev_report,
             phase="turn.failed",
@@ -430,7 +434,7 @@ async def stream_looper(
         if turn_completed:
             mind.remember_last_assistant_reply(tracker.latest_assistant_output_text())
 
-        await output_control.end_status()
+        await status_control.end_status()
         await content.emit(SourcesOutput(tuple(tracker.iter_sources())))
 
         if turn_completed and not turn_failed:

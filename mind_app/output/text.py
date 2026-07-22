@@ -32,12 +32,15 @@ from .content import (
     ContentSink,
     SourcesOutput
 )
-from .contracts import OutputControlPort
+from .contracts import (
+    OutputControlPort,
+    OutputStatusPort
+)
 from .session import OutputSession
 
-ANSI_RESET = "\x1b[0m"
-ANSI_BOLD = "\x1b[1m"
-ANSI_CYAN = "\x1b[1;96m"
+ANSI_RESET   = "\x1b[0m"
+ANSI_BOLD    = "\x1b[1m"
+ANSI_CYAN    = "\x1b[1;96m"
 ANSI_MAGENTA = "\x1b[1;95m"
 
 
@@ -145,7 +148,7 @@ class TextOutputState:
         self.assistant_open = False
 
 
-class TextOutputControl(OutputControlPort):
+class TextOutputControl(OutputControlPort, OutputStatusPort):
     """提供无动画的文本输出控制。"""
 
     def __init__(self, state: TextOutputState) -> None:
@@ -353,8 +356,10 @@ def create_text_output_session(
         stderr=sys.stderr,
         color=_supports_color(sys.stderr),
     )
+    control = TextOutputControl(state)
     return OutputSession(
-        control=TextOutputControl(state),
+        control=control,
+        status=control,
         content=TextContentSink(state),
         presentation=TextPresentationSink(state),
     )

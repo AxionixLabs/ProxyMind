@@ -6,7 +6,8 @@ from .contracts import (
     STREAM_OUTPUT,
     OutputControlPort,
     OutputDisplay,
-    OutputPort
+    OutputPort,
+    OutputStatusPort
 )
 from .content import (
     AssistantTextDelta,
@@ -28,6 +29,7 @@ __all__ = [
     "OutputControlPort",
     "OutputDisplay",
     "OutputPort",
+    "OutputStatusPort",
     "OutputSession",
     "SessionFactory",
     "SourcesOutput"

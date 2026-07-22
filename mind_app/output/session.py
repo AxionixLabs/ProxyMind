@@ -5,7 +5,10 @@ import typing
 from dataclasses import dataclass
 from mind_app.presentation.contracts import PresentationSink
 from .content import ContentSink
-from .contracts import OutputControlPort
+from .contracts import (
+    OutputControlPort,
+    OutputStatusPort
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -13,6 +16,7 @@ class OutputSession(object):
     """聚合单轮运行所需的控制、正文和结构化展示边界。"""
 
     control: OutputControlPort
+    status: OutputStatusPort
     content: ContentSink
     presentation: PresentationSink
 

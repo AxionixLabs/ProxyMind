@@ -3,7 +3,10 @@
 
 import typing
 from dataclasses import dataclass
-from mind_app.output import OutputControlPort
+from mind_app.output import (
+    OutputControlPort,
+    OutputStatusPort,
+)
 from mind_app.presentation.contracts import PresentationSink
 from mind_app.presentation.lifecycle_views import build_lifecycle_view
 
@@ -20,6 +23,7 @@ class StreamEventContext:
     mind: "Mind"
     session: "McpSessionLike"
     output_control: OutputControlPort
+    status_control: OutputStatusPort
     presentation: PresentationSink
     tracker: "SegmentTracker"
     mode: str
@@ -61,7 +65,10 @@ async def _display_event(
         return False
 
     await ctx.presentation.emit(view)
-    await ctx.output_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
+    await ctx.status_control.begin_reply_wait_status(
+        delay_sec=0.15,
+        animate_after_sec=0.85,
+    )
 
     return True
 

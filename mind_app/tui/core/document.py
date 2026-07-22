@@ -12,6 +12,7 @@ TuiBlockKind = typing.Literal[
     "user",
     "assistant",
     "operation",
+    "plan",
     "approval",
     "notice",
     "system"
@@ -39,6 +40,7 @@ class TuiDocument(object):
 
     def __init__(self) -> None:
         self.blocks: list[TranscriptBlock]      = []
+        self.committed_prefix_count: int        = 0
         self.active_block: FragmentBlock | None = None
         self.active_kind: TuiBlockKind | None   = None
         self.active_gap_before: bool            = False
@@ -48,6 +50,19 @@ class TuiDocument(object):
     def has_content(self) -> bool:
         """返回当前是否存在稳定或动态正文。"""
         return bool(self.blocks or self.active_block is not None)
+
+    @property
+    def has_visible_content(self) -> bool:
+        """返回实时画布中是否仍有未提交正文。"""
+        return bool(
+            len(self.blocks) > self.committed_prefix_count
+            or self.active_block is not None
+        )
+
+    @property
+    def visible_blocks(self) -> list[TranscriptBlock]:
+        """返回尚未提交到终端滚屏区的稳定正文块。"""
+        return self.blocks[self.committed_prefix_count:]
 
     def append_block(self, block: FragmentBlock, *, kind: TuiBlockKind) -> bool:
         """追加一个稳定正文块并按语义边界计算间距。"""
@@ -62,7 +77,7 @@ class TuiDocument(object):
         """移除与指定对象相同的末尾稳定正文块。"""
         if (
             self.active_block is not None
-            or not self.blocks
+            or len(self.blocks) <= self.committed_prefix_count
             or self.blocks[-1].block is not block
         ):
             return False
@@ -102,6 +117,31 @@ class TuiDocument(object):
 
     def fragments(self, *, width: int) -> FormattedText:
         """生成统一处理块边界后的正文片段。"""
+        _ = width
+        blocks = self.visible_blocks
+        if self.active_block is not None:
+            if self.active_kind is None:
+                raise ValueError("active TUI block is missing its semantic kind")
+            blocks.append(TranscriptBlock(
+                block=self.active_block,
+                kind=self.active_kind,
+                gap_before=self.active_gap_before,
+            ))
+        return self._render_blocks(blocks)
+
+    def stable_prefix_fragments(self, count: int) -> FormattedText:
+        """生成下一批待提交稳定正文块的格式化片段。"""
+        start = self.committed_prefix_count
+        limit = max(0, min(len(self.blocks) - start, int(count)))
+        return self._render_blocks(self.blocks[start:start + limit])
+
+    def commit_stable_prefix(self, count: int) -> None:
+        """标记下一批稳定正文已经写入终端滚屏区。"""
+        remaining = len(self.blocks) - self.committed_prefix_count
+        self.committed_prefix_count += max(0, min(remaining, int(count)))
+
+    def all_fragments(self, *, width: int) -> FormattedText:
+        """生成包含已提交前缀在内的完整对话片段。"""
         _ = width
         blocks = list(self.blocks)
         if self.active_block is not None:

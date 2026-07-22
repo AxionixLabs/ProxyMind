@@ -16,6 +16,10 @@ from mind_app.output.content import (
     SourcesOutput,
 )
 from mind_app.presentation.approval_views import build_approval_view
+from mind_app.presentation.models import (
+    PlanItemView,
+    PlanUpdateView,
+)
 from mind_app.presentation.tool_views import (
     build_generic_tool_result_view,
     build_native_tool_result_view,
@@ -46,6 +50,9 @@ def _document_text(document: TuiDocument) -> str:
     [
         (("assistant", "operation"), "first\n\nsecond"),
         (("operation", "operation"), "first\nsecond"),
+        (("operation", "plan"), "first\n\nsecond"),
+        (("plan", "operation"), "first\n\nsecond"),
+        (("plan", "plan"), "first\n\nsecond"),
         (("operation", "approval"), "first\n\nsecond"),
         (("approval", "operation"), "first\n\nsecond"),
         (("approval", "approval"), "first\nsecond"),
@@ -103,6 +110,22 @@ def test_active_block_keeps_spacing_while_it_is_updated_and_committed() -> None:
     assert document.blocks[-1].kind == "assistant"
 
 
+def test_scrollback_commit_keeps_complete_document_archive() -> None:
+    document = TuiDocument()
+    document.append_block(_block("first"), kind="assistant")
+    document.append_block(_block("second"), kind="operation")
+
+    document.commit_stable_prefix(1)
+
+    assert len(document.blocks) == 2
+    assert document.committed_prefix_count == 1
+    assert "first" not in _document_text(document)
+    assert "second" in _document_text(document)
+    assert "".join(
+        text for _style, text in document.all_fragments(width=80)
+    ) == "first\n\nsecond"
+
+
 @pytest.mark.anyio
 async def test_idle_turn_keeps_all_transcript_blocks_in_document() -> None:
     with create_pipe_input() as pipe_input:
@@ -115,17 +138,184 @@ async def test_idle_turn_keeps_all_transcript_blocks_in_document() -> None:
         ):
             await runtime.open()
             try:
-                runtime.set_execution_active(True)
-                for index in range(6):
-                    runtime.append_block(
-                        _block(f"block {index}\n" + "line\n" * 3),
-                        kind="operation",
-                    )
+                with patch.object(
+                    runtime.application,
+                    "print_text",
+                    wraps=runtime.application.print_text,
+                ) as print_text:
+                    runtime.set_execution_active(True)
+                    for index in range(6):
+                        runtime.append_block(
+                            _block(f"block {index}\n" + "line\n" * 3),
+                            kind="operation",
+                        )
 
-                runtime.set_execution_active(False)
-                await asyncio.sleep(0.02)
+                    runtime.set_execution_active(False)
+                    await asyncio.sleep(0.02)
 
                 assert len(runtime.document.blocks) == 6
+                assert runtime.document.committed_prefix_count > 0
+                assert print_text.called
+                printed = "".join(
+                    text
+                    for call in print_text.call_args_list
+                    for _style, text in call.args[0]
+                )
+                assert "block 0" in printed
+                assert "block 0" in "".join(
+                    text
+                    for _style, text in runtime.document.all_fragments(width=40)
+                )
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                assert not runtime.application.full_screen
+                initial_height = runtime.canvas.preferred_height(40, 12)
+                assert initial_height.min == 3
+                assert initial_height.preferred == 3
+                assert initial_height.max == 3
+
+                initial_screen = runtime.application.renderer.last_rendered_screen
+                initial_input = initial_screen.visible_windows_to_write_positions[
+                    runtime.input.window
+                ]
+                initial_footer = initial_screen.visible_windows_to_write_positions[
+                    runtime.footer_window
+                ]
+                render_count = runtime.application.render_counter
+                runtime.set_activity_renderable(_block("thinking"))
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    if runtime.application.render_counter > render_count:
+                        break
+
+                active_screen = runtime.application.renderer.last_rendered_screen
+                active_input = active_screen.visible_windows_to_write_positions[
+                    runtime.input.window
+                ]
+                active_footer = active_screen.visible_windows_to_write_positions[
+                    runtime.footer_window
+                ]
+                assert initial_input.ypos == 0
+                assert initial_footer.ypos == 2
+                assert active_input.ypos > initial_input.ypos
+                assert active_footer.ypos > initial_footer.ypos
+
+                render_count = runtime.application.render_counter
+                runtime.append_block(_block("answer"), kind="assistant")
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    if runtime.application.render_counter > render_count:
+                        break
+
+                content_screen = runtime.application.renderer.last_rendered_screen
+                content_input = content_screen.visible_windows_to_write_positions[
+                    runtime.input.window
+                ]
+                content_footer = content_screen.visible_windows_to_write_positions[
+                    runtime.footer_window
+                ]
+
+                assert content_input.ypos > active_input.ypos
+                assert content_footer.ypos > active_footer.ypos
+
+                runtime.append_block(
+                    _block("line\n" * 20),
+                    kind="assistant",
+                )
+                await asyncio.sleep(0.02)
+                committed_count = runtime.document.committed_prefix_count
+                assert committed_count > 0
+                assert len(runtime.document.blocks) == 2
+                assert "line" in "".join(
+                    text
+                    for _style, text in runtime.document.all_fragments(width=40)
+                )
+
+                render_count = runtime.application.render_counter
+                runtime.append_block(_block("more\n" * 20), kind="operation")
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    if runtime.application.render_counter > render_count:
+                        break
+
+                assert runtime.document.committed_prefix_count > committed_count
+                assert len(runtime.document.blocks) == 3
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_multiline_input_grows_for_trailing_edit_line() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                render_count = runtime.application.render_counter
+                runtime.input.buffer.text = "first\nsecond\n"
+                runtime.input.buffer.cursor_position = len(runtime.input.buffer.text)
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                    if runtime.application.render_counter > render_count:
+                        break
+
+                screen = runtime.application.renderer.last_rendered_screen
+                input_position = screen.visible_windows_to_write_positions[
+                    runtime.input.window
+                ]
+
+                assert runtime._input_height() == 3
+                assert input_position.height == 3
+            finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_ctrl_l_hides_visible_transcript_without_losing_archive() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+
+        with patch.object(
+            runtime.application.output,
+            "get_size",
+            return_value=Size(rows=12, columns=40),
+        ):
+            await runtime.open()
+            try:
+                runtime.append_block(_block("previous answer"), kind="assistant")
+                runtime.input.buffer.text = "draft input"
+                pipe_input.send_text("\x0c")
+
+                for _ in range(100):
+                    await asyncio.sleep(0.01)
+                    if not runtime.document.has_visible_content:
+                        break
+
+                assert not runtime.document.has_visible_content
+                assert runtime.input.buffer.text == "draft input"
+                assert "previous answer" in "".join(
+                    text
+                    for _style, text in runtime.document.all_fragments(width=40)
+                )
             finally:
                 await runtime.close()
 
@@ -190,6 +380,35 @@ async def test_generic_tool_result_stays_with_its_start_block() -> None:
         False,
         True,
     ]
+
+
+@pytest.mark.anyio
+async def test_plan_update_is_separated_from_preceding_tool() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+
+    await presentation.emit(build_native_tool_result_view(
+        "shell_command",
+        {"command": "git status --short"},
+        ok=True,
+        data={"command": "git status --short", "output_lines": ["M file.py"]},
+        call_id="status",
+    ))
+    await presentation.emit(PlanUpdateView(
+        explanation="",
+        items=(PlanItemView(step="检查结果", status="completed"),),
+    ))
+
+    assert [item.kind for item in runtime.document.blocks] == [
+        "operation",
+        "plan",
+    ]
+    assert [item.gap_before for item in runtime.document.blocks] == [
+        False,
+        True,
+    ]
+    assert "\n\n• Updated Plan" in _document_text(runtime.document)
 
 
 @pytest.mark.anyio
@@ -383,12 +602,15 @@ def test_typewriter_cursor_does_not_create_a_transient_display_row() -> None:
 
         output.assistant.text = "x" * 38
         output._render_active(cursor=True)
-        active_height = runtime._visible_height()
         active_text = _document_text(runtime.document)
+        active_rows = display_line_count(active_text, width=40)
         output._render_active(cursor=False)
 
         assert active_text == f"• {'x' * 38}"
-        assert runtime._visible_height() == active_height
+        assert display_line_count(
+            _document_text(runtime.document),
+            width=40,
+        ) == active_rows
 
 
 @pytest.mark.anyio

@@ -8,7 +8,10 @@ from dataclasses import dataclass
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.presentation.contracts import PresentationSink
 from engine.enhance import enhance_result
-from ...output import OutputControlPort
+from ...output import (
+    OutputControlPort,
+    OutputStatusPort
+)
 from .enhance_reporter import ToolEnhanceReporter
 from .progress import show_tool_progress
 from .router import execute_tool
@@ -261,6 +264,7 @@ async def run_tool_step(
     session: McpSessionLike,
     *,
     output_control: OutputControlPort,
+    status_control: OutputStatusPort,
     presentation: PresentationSink,
     tools: list[dict[str, typing.Any]],
     name: str,
@@ -278,9 +282,9 @@ async def run_tool_step(
     started_at = time.time()
 
     if status_text:
-        await output_control.begin_custom_tool_status(status_text)
+        await status_control.begin_custom_tool_status(status_text)
     else:
-        await output_control.begin_tool_status()
+        await status_control.begin_tool_status()
     try:
         result = await execute_tool(
             session,
@@ -309,6 +313,7 @@ async def run_tool_step(
             ok=ok,
             reporter=ToolEnhanceReporter(
                 output_control,
+                status_control,
                 presentation,
                 tool_name=name,
             )
@@ -316,7 +321,7 @@ async def run_tool_step(
         fields = normalize_tool_result_fields(name, fields)
 
     finally:
-        await output_control.end_status()
+        await status_control.end_status()
 
     return ToolRunResult(
         result=result,

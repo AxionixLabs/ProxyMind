@@ -35,7 +35,10 @@ from .content import (
     ContentSink,
     SourcesOutput
 )
-from .contracts import OutputControlPort
+from .contracts import (
+    OutputControlPort,
+    OutputStatusPort
+)
 from .session import OutputSession
 
 
@@ -157,7 +160,7 @@ class JsonOutputState:
         self.assistant_buffer = ""
 
 
-class JsonOutputControl(OutputControlPort):
+class JsonOutputControl(OutputControlPort, OutputStatusPort):
     """提供逐行结构化事件的输出控制。"""
 
     def __init__(self, state: JsonOutputState) -> None:
@@ -405,8 +408,10 @@ def create_json_output_session(
         record_writer=StreamRecordWriter(log_file),
         stdout=sys.stdout,
     )
+    control = JsonOutputControl(state)
     return OutputSession(
-        control=JsonOutputControl(state),
+        control=control,
+        status=control,
         content=JsonContentSink(state),
         presentation=JsonPresentationSink(state),
     )

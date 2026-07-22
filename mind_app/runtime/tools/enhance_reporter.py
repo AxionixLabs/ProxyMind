@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_app.output import OutputControlPort
+from mind_app.output import (
+    OutputControlPort,
+    OutputStatusPort
+)
 from mind_app.presentation.contracts import PresentationSink
 from .progress import show_tool_progress
 
@@ -12,11 +15,13 @@ class ToolEnhanceReporter(object):
     def __init__(
         self,
         output: OutputControlPort,
+        status: OutputStatusPort,
         presentation: PresentationSink,
         *,
         tool_name: str,
     ) -> None:
         self.output       = output
+        self.status       = status
         self.presentation = presentation
         self.tool_name    = tool_name
 
@@ -35,11 +40,11 @@ class ToolEnhanceReporter(object):
 
     async def begin_status(self) -> None:
         """启动增强过程状态。"""
-        await self.output.begin_tool_status()
+        await self.status.begin_tool_status()
 
     async def end_status(self) -> None:
         """结束增强过程状态。"""
-        await self.output.end_status()
+        await self.status.end_status()
 
 
 if __name__ == '__main__':
