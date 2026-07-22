@@ -14,6 +14,7 @@ SHELL_TOOL_LAYOUT: dict[str, tuple[str, str]] = {
     "jq": ("jq", "jq"),
     "rg": ("ripgrep", "rg"),
     "sqlite3": ("sqlite3", "sqlite3"),
+    "xh": ("xh", "xh"),
     "yq": ("yq", "yq"),
 }
 

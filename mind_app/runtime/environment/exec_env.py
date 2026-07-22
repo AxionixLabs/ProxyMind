@@ -165,6 +165,7 @@ def detect_tools() -> dict[str, typing.Any]:
         "rg"       : tool_bin("rg"),
         "jq"       : tool_bin("jq"),
         "sqlite3"  : tool_bin("sqlite3"),
+        "xh"       : tool_bin("xh"),
         "yq"       : tool_bin("yq")
     }
 
