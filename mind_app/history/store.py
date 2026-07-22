@@ -11,10 +11,11 @@ from mind_app.paths import mind_history_db_path
 from .ids import valid_session_ids
 
 TABLE_SESSION_CURSORS = "conversation_session_cursors"
-HISTORY_TTL_MS        = 24 * 60 * 60 * 1000
-HISTORY_LIMIT         = 200
-TITLE_MAX_CHARS       = 80
-HISTORY_MENU_LIMIT    = 10
+
+HISTORY_TTL_MS     = 24 * 60 * 60 * 1000
+HISTORY_LIMIT      = 200
+TITLE_MAX_CHARS    = 80
+HISTORY_MENU_LIMIT = 10
 
 SCHEMA_SQL = f"""
 CREATE TABLE IF NOT EXISTS {TABLE_SESSION_CURSORS} (
@@ -22,7 +23,6 @@ CREATE TABLE IF NOT EXISTS {TABLE_SESSION_CURSORS} (
     sid            TEXT NOT NULL,
     title          TEXT NOT NULL DEFAULT '',
     workspace      TEXT NOT NULL DEFAULT '',
-    gravity        TEXT NOT NULL DEFAULT '',
     source         TEXT NOT NULL DEFAULT '',
     created_at     INTEGER NOT NULL,
     updated_at     INTEGER NOT NULL,
@@ -59,7 +59,6 @@ class ConversationHistoryStore(object):
         sid: str,
         title: str = "",
         workspace: str = "",
-        gravity: str = "",
         source: str = "",
         now_ms: typing.Optional[int] = None
     ) -> dict[str, typing.Any]:
@@ -73,14 +72,13 @@ class ConversationHistoryStore(object):
         now = _now_ms() if now_ms is None else int(now_ms)
 
         record = {
-            "cid"            : cid_text,
-            "sid"            : sid_text,
-            "title"          : _clean_title(title),
-            "workspace"      : normalize_workspace(workspace),
-            "gravity"        : _clean(gravity),
-            "source"         : _clean(source),
-            "updated_at"     : now,
-            "expires_at"     : now + self.ttl_ms
+            "cid"        : cid_text,
+            "sid"        : sid_text,
+            "title"      : _clean_title(title),
+            "workspace"  : normalize_workspace(workspace),
+            "source"     : _clean(source),
+            "updated_at" : now,
+            "expires_at" : now + self.ttl_ms
         }
 
         conn = self._connect()
@@ -91,13 +89,12 @@ class ConversationHistoryStore(object):
                 conn.execute(
                     f"""
                     INSERT INTO {TABLE_SESSION_CURSORS} (
-                        cid, sid, workspace, gravity, source,
+                        cid, sid, workspace, source,
                         title, created_at, updated_at, expires_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(cid, sid) DO UPDATE SET
                         workspace      = excluded.workspace,
-                        gravity        = excluded.gravity,
                         source         = excluded.source,
                         title          = CASE
                             WHEN {TABLE_SESSION_CURSORS}.title = ''
@@ -112,7 +109,6 @@ class ConversationHistoryStore(object):
                         record["cid"],
                         record["sid"],
                         record["workspace"],
-                        record["gravity"],
                         record["source"],
                         record["title"],
                         now,
@@ -130,15 +126,13 @@ class ConversationHistoryStore(object):
         self,
         *,
         workspace: str = "",
-        gravity: str = "",
         limit: int = HISTORY_MENU_LIMIT,
         now_ms: typing.Optional[int] = None
     ) -> list[dict[str, typing.Any]]:
-        """返回当前 workspace/gravity 下最近未过期的会话游标列表。"""
+        """返回当前 workspace 下最近未过期的会话游标列表。"""
         now = _now_ms() if now_ms is None else int(now_ms)
 
         workspace_key = normalize_workspace(workspace)
-        gravity_text  = _clean(gravity)
         item_limit    = max(1, int(limit or HISTORY_MENU_LIMIT))
 
         clauses = ["expires_at > ?"]
@@ -149,10 +143,6 @@ class ConversationHistoryStore(object):
             clauses.append("workspace = ?")
             params.append(workspace_key)
 
-        if gravity_text:
-            clauses.append("gravity = ?")
-            params.append(gravity_text)
-
         conn = self._connect()
         try:
             with conn:
@@ -160,7 +150,7 @@ class ConversationHistoryStore(object):
                 self._prune_expired(conn, now_ms=now)
                 rows = conn.execute(
                     f"""
-                    SELECT cid, sid, workspace, gravity, source,
+                    SELECT cid, sid, workspace, source,
                            title, created_at, updated_at, expires_at
                     FROM {TABLE_SESSION_CURSORS}
                     WHERE {" AND ".join(clauses)}

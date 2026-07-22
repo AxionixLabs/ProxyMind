@@ -153,8 +153,7 @@ class TuiRuntime(object):
         )
         self._queued_submission_text: str | None = None
 
-        self.queued_messages: TuiQueuedMessages       = TuiQueuedMessages()
-        self.input_notice_blocks: list[FragmentBlock] = []
+        self.queued_messages = TuiQueuedMessages()
 
         self.input_model.bind_interrupt(self._interrupt_input)
         self.input_model.bind_exit(
@@ -714,7 +713,6 @@ class TuiRuntime(object):
         if self.execution_active or self.document.active_block is not None:
             self._background_blocks.append(block)
             return None
-        self.append_gap()
         self.append_block(block, kind="notice")
 
     def append_block(
@@ -736,10 +734,6 @@ class TuiRuntime(object):
         if block is not None and self.document.discard_trailing_block(block):
             self._transcript_view_row = None
             self.invalidate()
-
-    def append_gap(self) -> None:
-        """请求在下一项正文前保留一个视觉空行。"""
-        self.document.request_gap()
 
     def set_active_renderable(
         self,
@@ -802,7 +796,7 @@ class TuiRuntime(object):
                     if count <= 0:
                         return None
 
-                    fragments = self.document.stable_prefix_fragments(count)
+                    fragments = self.document.scrollback_prefix_fragments(count)
                     retained = self.document.visible_blocks[count:]
                     separator = (
                         "\n\n"
@@ -813,7 +807,7 @@ class TuiRuntime(object):
                         *fragments,
                         ("", separator),
                     ])
-                    self.document.commit_stable_prefix(count)
+                    self.document.commit_scrollback_prefix(count)
                     self._transcript_view_row = None
         except (EOFError, OSError, RuntimeError):
             return None
@@ -868,7 +862,6 @@ class TuiRuntime(object):
             self._submitted_query_block = None
         else:
             self._queued_submission_text = None
-            self._commit_input_notices()
             self._flush_background_blocks()
         self.invalidate()
         if not self.execution_active:
@@ -1003,17 +996,16 @@ class TuiRuntime(object):
         command = value.casefold()
         if self.execution_active and command in _RUNNING_DISABLED_COMMANDS:
             self.input_model.rollback_submission_history(editable_text)
-            self.input_notice_blocks.append(FragmentBlock((
+            self.append_block(FragmentBlock((
                 ("class:input.notice.marker", "■"),
                 (
                     "class:input.notice",
                     f" '{command}' is disabled while a task is in progress.",
                 ),
-            )))
+            )), kind="notice")
             buffer.text = ""
             buffer.cursor_position = 0
             self.input_model.clear_submission_state()
-            self.invalidate()
             return False
         submission = TuiSubmission(
             value=value,
@@ -1047,16 +1039,6 @@ class TuiRuntime(object):
         self.invalidate()
         return True
 
-    def _commit_input_notices(self) -> None:
-        """把执行期间的输入提示按原顺序提交到正文。"""
-        notices = tuple(self.input_notice_blocks)
-        self.input_notice_blocks.clear()
-        if not notices:
-            return None
-        self.append_gap()
-        for block in notices:
-            self.append_block(block, kind="notice")
-
     def _flush_background_blocks(self) -> None:
         """在流式正文结束后提交已完成的后台摘要。"""
         if self.execution_active or self.document.active_block is not None:
@@ -1064,7 +1046,6 @@ class TuiRuntime(object):
         blocks = tuple(self._background_blocks)
         self._background_blocks.clear()
         for block in blocks:
-            self.append_gap()
             self.append_block(block, kind="notice")
 
     def _background_task_done(self, task: asyncio.Task[None]) -> None:
@@ -1210,26 +1191,10 @@ class TuiRuntime(object):
 
     def _queued_fragments(self) -> FormattedText:
         """生成动画区域下方的待提交消息。"""
-        out: FormattedText = []
-
-        for block in self.input_notice_blocks:
-            if out:
-                out.append(("", "\n"))
-            out.extend(clip_fragments(
-                list(block.fragments),
-                width=self.terminal_width,
-            ))
-
-        queued = self.queued_messages.fragments(
+        return self.queued_messages.fragments(
             width=self.terminal_width,
             max_rows=self.QUEUED_MAX_HEIGHT,
         )
-
-        if out and queued:
-            out.append(("", "\n"))
-        out.extend(queued)
-
-        return out
 
     def _footer_fragments(self) -> FormattedText:
         """生成单行 TUI 信息栏。"""
@@ -1300,7 +1265,7 @@ class TuiRuntime(object):
 
     def _clear_visible_transcript(self) -> None:
         """隐藏当前稳定正文并保留完整会话归档。"""
-        self.document.commit_stable_prefix(len(self.document.visible_blocks))
+        self.document.clear_visible_prefix()
         self._transcript_view_row = None
         self.application.renderer.clear()
         self.invalidate()
@@ -1441,7 +1406,7 @@ class TuiRuntime(object):
 
     def _queued_content_visible(self) -> bool:
         """判断待提交区域是否存在消息或输入提示。"""
-        return self.queued_messages.active or bool(self.input_notice_blocks)
+        return self.queued_messages.active
 
     def _overlay_active(self) -> bool:
         """判断补全、选择菜单或审批层是否正在显示。"""

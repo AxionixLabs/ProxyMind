@@ -14,15 +14,25 @@ ImplyArg = typing.Annotated[
 ]
 TaskTitleArg = typing.Annotated[
     typing.Optional[str],
-    Field(description="采样任务标题，用于结果目录或报告识别。"),
+    Field(description="采样任务标题，用于报告显示。"),
 ]
 TokenArg = typing.Annotated[
     typing.Optional[str],
     Field(description="要结束的 Memrix 采样任务 token；为空时使用当前会话中的最近任务。"),
 ]
-SceneArg = typing.Annotated[
-    typing.Optional[str],
-    Field(description="指定已有采样结果目录；为空时使用最近一次结果。"),
+SampleSceneArg = typing.Annotated[
+    str,
+    Field(
+        min_length=1,
+        description="Memrix 采样任务的输出目录或任务目录前缀。",
+    ),
+]
+ReportSceneArg = typing.Annotated[
+    str,
+    Field(
+        min_length=1,
+        description="采样工具返回的 `data.report_scene`，用于指定已有采样结果目录。",
+    ),
 ]
 LayerArg = typing.Annotated[
     bool,

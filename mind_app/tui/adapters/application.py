@@ -61,14 +61,11 @@ class TuiApplicationSink(ApplicationSink):
     def _emit_active(self, view: ApplicationView) -> None:
         """把单项应用展示写入已启动的 TUI。"""
         if view.type in {"tui.gap", "run.gap", "spacer"}:
-            self.runtime.append_gap()
             return None
         if view.type == "intro":
             self.runtime.append_block(_intro_block())
-            self.runtime.append_gap()
             return None
         if view.type == "outro":
-            self.runtime.append_gap()
             self.runtime.append_block(_outro_block())
             return None
         if view.type == "startup_logo":
@@ -82,8 +79,6 @@ class TuiApplicationSink(ApplicationSink):
                 _error_block(str(view.renderable or ""))
             )
             return None
-        if view.type == "run.worked":
-            self.runtime.append_gap()
         block_kind = "notice" if view.type == "tui.interrupted" else "system"
         if isinstance(view.renderable, FragmentBlock):
             self.runtime.append_block(view.renderable, kind=block_kind)

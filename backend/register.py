@@ -11,8 +11,7 @@ from mcp.server.fastmcp import FastMCP
 from backend.mcp_hub.hub_manage import DeviceManage
 from backend.utilities.paths import resource_path
 from backend.utilities.runtime import (
-    AppContext,
-    Idle
+    AppContext, Idle
 )
 
 
@@ -63,7 +62,7 @@ def register_media_tools(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: Ap
 
     audio.bind(mcp, idle, ctx)
     ffmpeg.bind(mcp, idle, ctx)
-    screen.bind(mcp, manage, idle, ctx)
+    screen.bind(mcp, manage, idle)
 
 
 def initialize(

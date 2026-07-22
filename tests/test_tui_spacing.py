@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from typing import get_args
 from unittest.mock import (
     AsyncMock,
     patch,
@@ -45,46 +46,16 @@ def _document_text(document: TuiDocument) -> str:
     return "".join(text for _style, text in document.fragments(width=80))
 
 
-@pytest.mark.parametrize(
-    ("kinds", "expected"),
-    [
-        (("assistant", "operation"), "first\n\nsecond"),
-        (("operation", "operation"), "first\nsecond"),
-        (("operation", "plan"), "first\n\nsecond"),
-        (("plan", "operation"), "first\n\nsecond"),
-        (("plan", "plan"), "first\n\nsecond"),
-        (("operation", "approval"), "first\n\nsecond"),
-        (("approval", "operation"), "first\n\nsecond"),
-        (("approval", "approval"), "first\nsecond"),
-        (("assistant", "approval"), "first\n\nsecond"),
-        (("approval", "assistant"), "first\n\nsecond"),
-        (("operation", "assistant"), "first\n\nsecond"),
-        (("user", "assistant"), "first\n\nsecond"),
-        (("assistant", "assistant"), "first\n\nsecond"),
-        (("user", "user"), "first\n\nsecond"),
-        (("operation", "notice"), "first\n\nsecond"),
-        (("notice", "notice"), "first\nsecond"),
-        (("system", "system"), "first\nsecond"),
-    ],
-)
-def test_document_spacing_follows_semantic_transition(
-    kinds: tuple[TuiBlockKind, TuiBlockKind],
-    expected: str,
+@pytest.mark.parametrize("first_kind", get_args(TuiBlockKind))
+@pytest.mark.parametrize("second_kind", get_args(TuiBlockKind))
+def test_document_separates_every_block_transition(
+    first_kind: TuiBlockKind,
+    second_kind: TuiBlockKind,
 ) -> None:
     document = TuiDocument()
 
-    document.append_block(_block("first"), kind=kinds[0])
-    document.append_block(_block("second"), kind=kinds[1])
-
-    assert _document_text(document) == expected
-
-
-def test_explicit_gap_overrides_compact_operation_transition() -> None:
-    document = TuiDocument()
-
-    document.append_block(_block("first"), kind="operation")
-    document.request_gap()
-    document.append_block(_block("second"), kind="operation")
+    document.append_block(_block("first"), kind=first_kind)
+    document.append_block(_block("second"), kind=second_kind)
 
     assert _document_text(document) == "first\n\nsecond"
 
@@ -95,7 +66,7 @@ def test_block_outer_newlines_do_not_duplicate_document_spacing() -> None:
     document.append_block(_block("\nfirst\n"), kind="operation")
     document.append_block(_block("\nsecond\n"), kind="operation")
 
-    assert _document_text(document) == "first\nsecond"
+    assert _document_text(document) == "first\n\nsecond"
 
 
 def test_active_block_keeps_spacing_while_it_is_updated_and_committed() -> None:
@@ -110,20 +81,99 @@ def test_active_block_keeps_spacing_while_it_is_updated_and_committed() -> None:
     assert document.blocks[-1].kind == "assistant"
 
 
-def test_scrollback_commit_keeps_complete_document_archive() -> None:
+def test_running_command_error_enters_document_after_active_block() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("approved"), kind="approval")
+    runtime.set_active_renderable(_block("streaming"), kind="assistant")
+    runtime.execution_active = True
+    runtime.input.buffer.text = "/new"
+
+    runtime._accept_input(runtime.input.buffer)
+
+    assert _document_text(runtime.document) == (
+        "approved\n\nstreaming\n\n"
+        "■ '/new' is disabled while a task is in progress."
+    )
+    assert runtime._queued_fragments() == []
+
+    runtime.commit_active_renderable(_block("completed"))
+
+    assert [item.kind for item in runtime.document.blocks] == [
+        "approval",
+        "assistant",
+        "notice",
+    ]
+    assert _document_text(runtime.document) == (
+        "approved\n\ncompleted\n\n"
+        "■ '/new' is disabled while a task is in progress."
+    )
+
+
+def test_scrollback_and_clear_boundaries_keep_complete_archive() -> None:
     document = TuiDocument()
     document.append_block(_block("first"), kind="assistant")
     document.append_block(_block("second"), kind="operation")
 
-    document.commit_stable_prefix(1)
+    document.commit_scrollback_prefix(1)
 
     assert len(document.blocks) == 2
-    assert document.committed_prefix_count == 1
+    assert document.scrollback_prefix_count == 1
+    assert document.cleared_prefix_count == 0
     assert "first" not in _document_text(document)
     assert "second" in _document_text(document)
+
+    document.clear_visible_prefix()
+
+    assert document.scrollback_prefix_count == 1
+    assert document.cleared_prefix_count == 2
+    assert _document_text(document) == ""
+
+    document.append_block(_block("third"), kind="assistant")
+
+    assert _document_text(document) == "third"
+    assert "".join(
+        text
+        for _style, text in document.scrollback_prefix_fragments(1)
+    ) == "third"
+
+    document.commit_scrollback_prefix(1)
+
+    assert document.scrollback_prefix_count == 3
     assert "".join(
         text for _style, text in document.all_fragments(width=80)
-    ) == "first\n\nsecond"
+    ) == "first\n\nsecond\n\nthird"
+
+
+def test_ctrl_l_clear_is_repeatable_and_keeps_active_block() -> None:
+    runtime = TuiRuntime()
+    runtime.append_block(_block("old history"), kind="operation")
+    runtime.set_active_renderable(_block("streaming"), kind="assistant")
+
+    with patch.object(runtime.application.renderer, "clear") as clear:
+        runtime._clear_visible_transcript()
+
+        assert _document_text(runtime.document) == "streaming"
+        assert runtime.document.scrollback_prefix_count == 0
+        assert runtime.document.cleared_prefix_count == 1
+
+        runtime.commit_active_renderable(_block("completed"))
+        runtime.append_block(_block("new result"), kind="operation")
+
+        assert _document_text(runtime.document) == "completed\n\nnew result"
+
+        runtime._clear_visible_transcript()
+
+        assert _document_text(runtime.document) == ""
+        assert runtime.document.scrollback_prefix_count == 0
+        assert runtime.document.cleared_prefix_count == 3
+        assert clear.call_count == 2
+
+    runtime.append_block(_block("after clear"), kind="assistant")
+
+    assert _document_text(runtime.document) == "after clear"
+    assert "".join(
+        text for _style, text in runtime.document.all_fragments(width=80)
+    ) == "old history\n\ncompleted\n\nnew result\n\nafter clear"
 
 
 @pytest.mark.anyio
@@ -154,7 +204,7 @@ async def test_idle_turn_keeps_all_transcript_blocks_in_document() -> None:
                     await asyncio.sleep(0.02)
 
                 assert len(runtime.document.blocks) == 6
-                assert runtime.document.committed_prefix_count > 0
+                assert runtime.document.scrollback_prefix_count > 0
                 assert print_text.called
                 printed = "".join(
                     text
@@ -237,7 +287,7 @@ async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> 
                     kind="assistant",
                 )
                 await asyncio.sleep(0.02)
-                committed_count = runtime.document.committed_prefix_count
+                committed_count = runtime.document.scrollback_prefix_count
                 assert committed_count > 0
                 assert len(runtime.document.blocks) == 2
                 assert "line" in "".join(
@@ -252,7 +302,7 @@ async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> 
                     if runtime.application.render_counter > render_count:
                         break
 
-                assert runtime.document.committed_prefix_count > committed_count
+                assert runtime.document.scrollback_prefix_count > committed_count
                 assert len(runtime.document.blocks) == 3
             finally:
                 await runtime.close()
@@ -290,7 +340,7 @@ async def test_multiline_input_grows_for_trailing_edit_line() -> None:
 
 
 @pytest.mark.anyio
-async def test_ctrl_l_hides_visible_transcript_without_losing_archive() -> None:
+async def test_ctrl_l_repeatedly_hides_new_transcript_without_losing_archive() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
@@ -311,8 +361,26 @@ async def test_ctrl_l_hides_visible_transcript_without_losing_archive() -> None:
                         break
 
                 assert not runtime.document.has_visible_content
+                assert runtime.document.cleared_prefix_count == 1
+                assert runtime.input.buffer.text == "draft input"
+
+                runtime.append_block(_block("new answer"), kind="assistant")
+                assert runtime.document.has_visible_content
+
+                pipe_input.send_text("\x0c")
+                for _ in range(100):
+                    await asyncio.sleep(0.01)
+                    if runtime.document.cleared_prefix_count == 2:
+                        break
+
+                assert not runtime.document.has_visible_content
+                assert runtime.document.cleared_prefix_count == 2
                 assert runtime.input.buffer.text == "draft input"
                 assert "previous answer" in "".join(
+                    text
+                    for _style, text in runtime.document.all_fragments(width=40)
+                )
+                assert "new answer" in "".join(
                     text
                     for _style, text in runtime.document.all_fragments(width=40)
                 )
@@ -353,7 +421,7 @@ async def test_presentation_separates_consecutive_tool_groups() -> None:
 
 
 @pytest.mark.anyio
-async def test_generic_tool_result_stays_with_its_start_block() -> None:
+async def test_generic_tool_result_starts_on_separate_visual_group() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
     presentation = TuiPresentationSink(output)
@@ -377,9 +445,10 @@ async def test_generic_tool_result_stays_with_its_start_block() -> None:
 
     assert [item.gap_before for item in runtime.document.blocks] == [
         False,
-        False,
+        True,
         True,
     ]
+    assert _document_text(runtime.document).count("\n\n") == 2
 
 
 @pytest.mark.anyio
@@ -434,6 +503,28 @@ async def test_native_tool_results_start_separate_tool_groups() -> None:
 
 
 @pytest.mark.anyio
+async def test_native_shell_result_strips_ansi_from_ordered_output() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+
+    await presentation.emit(build_native_tool_result_view(
+        "shell_command",
+        {"command": "Get-Item video.mp4 | Format-List"},
+        ok=True,
+        data={
+            "command": "Get-Item video.mp4 | Format-List",
+            "output_lines": ["\x1b[32;1mFullName : \x1b[0mvideo.mp4"],
+        },
+        call_id="ansi-output",
+    ))
+
+    document_text = _document_text(runtime.document)
+    assert "\x1b" not in document_text
+    assert "FullName : video.mp4" in document_text
+
+
+@pytest.mark.anyio
 async def test_approval_sequence_separates_resumed_operation() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
@@ -458,10 +549,10 @@ async def test_approval_sequence_separates_resumed_operation() -> None:
     ]
     assert [item.gap_before for item in runtime.document.blocks] == [
         False,
-        False,
+        True,
         True,
     ]
-    assert _document_text(runtime.document).count("\n\n") == 1
+    assert _document_text(runtime.document).count("\n\n") == 2
 
 
 @pytest.mark.anyio

@@ -15,12 +15,10 @@ from backend.mcp_tools.media.schemas.schema_screen import (
 from backend.mcp_tools.shared import SerialArg
 from backend.middlewares.mid_task import task_middleware
 from backend.utilities.tool_result import build_tool_result
-from backend.utilities.runtime import (
-    AppContext, Idle
-)
+from backend.utilities.runtime import Idle
 
 
-def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> None:
+def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle) -> None:
 
     @mcp.tool(
         description=(
@@ -53,6 +51,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         description=(
             "为目标设备启动一次 scrcpy 录屏会话。"
             "该工具只负责开始录制并返回会话信息；后续应调用 `scrcpy_close` 收束录制并释放资源。"
+            "开始结果中的视频路径尚未完成写入，应以关闭结果返回的最终路径作为后续分析输入。"
             "多设备连接时应通过 `serial` 指定目标设备。"
         ),
         meta={"hidden": False, "domain": "media", "class": "scrcpy"}
@@ -82,8 +81,6 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         )
 
         raw = await record.scrcpy_record(**args)
-        if video_temp := raw.data.get("path"):
-            await ctx.video_list_append(video_temp)
 
         return build_tool_result(tool="scrcpy_record", args=args, raw=raw, target=device.serial)
 
@@ -91,6 +88,7 @@ def bind(mcp: FastMCP, manage: DeviceManage, idle: Idle, ctx: AppContext) -> Non
         description=(
             "关闭目标设备当前活跃的 scrcpy 会话。"
             "该工具用于收束 `scrcpy_mirror` 或 `scrcpy_record` 打开的长会话，并释放相关资源。"
+            "关闭录屏时会返回最终视频路径及其完成状态，可直接传给后续媒体分析工具。"
             "若当前没有活跃会话，则按“无需关闭”处理，不会报错中断。"
         ),
         meta={"hidden": False, "domain": "media", "class": "scrcpy"}

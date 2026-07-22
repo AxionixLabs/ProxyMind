@@ -7,6 +7,8 @@ from backend.mcp_hub.hub_manage import Requires
 from backend.middlewares.mid_task import task_middleware
 from backend.mcp_tools.bench.schemas.schema_framix import (
     VideoListArg,
+    TotalDirArg,
+    LabelArg,
     ReportDirArg,
     ScaleArg,
     TitleArg
@@ -22,7 +24,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "对显式传入的 `video` 列表执行一次 Framix 帧分析。"
-            "该工具只使用当前参数中的视频路径，不读取内部视频队列。"
+            "该工具只使用当前参数中的视频路径，不读取其他工具状态。"
+            "`total` 必须显式指定 Framix 结果根目录。"
             "结果会按 Framix 规则输出分析产物与报告附件，成败以 `data.ok` 为准。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "framix"}
@@ -30,7 +33,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @task_middleware("fx_frame_analysis")
     async def fx_frame_analysis(
         video: VideoListArg,
-        total: ReportDirArg,
+        total: TotalDirArg,
         scale: ScaleArg = 0.3
     ) -> CallToolResult:
 
@@ -52,26 +55,29 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
     @mcp.tool(
         description=(
-            "对当前视频队列执行一次 Framix 帧分析。"
-            "输入视频来自当前内部视频队列，适合接在录制或视频入队链路之后，不需要再手动传视频路径。"
-            "执行完成后会清空视频队列；若要复用同一批视频，需要重新入队。"
+            "对显式传入的 `video` 列表执行一次带标题的 Framix 帧分析。"
+            "录屏场景应先结束录制，再传入 `scrcpy_record` 返回的视频路径。"
+            "`label` 必须是 YYYYMMDDhhmmss 格式的压缩时间戳，用于唯一标识任务。"
+            "执行结果会返回可传给 `fx_frame_reporter` 的 `report_dir`。"
+            "该工具不会读取或修改其他工具的内部状态。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "framix"}
     )
     @task_middleware("fx_frame_analyzer")
     async def fx_frame_analyzer(
+        video: VideoListArg,
         title: TitleArg,
-        total: ReportDirArg = None,
+        label: LabelArg,
+        total: TotalDirArg,
         scale: ScaleArg = 0.3
     ) -> CallToolResult:
 
         await Requires.connect_framix()
 
-        videos = await ctx.video_list_take_all()
-
         args = {
-            "video" : videos,
+            "video" : video,
             "title" : title,
+            "label" : label,
             "total" : total,
             "scale" : scale
         }
@@ -87,14 +93,14 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "基于已有 Framix 分析结果生成报告。"
-            "total 提供时使用指定目录；不提供时使用当前结果目录。"
+            "`total` 必须使用分析工具明确返回的 `report_dir`，不能省略。"
             "该工具只负责汇总和产出报告，不会重新执行视频分析。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "framix"}
     )
     @task_middleware("fx_frame_reporter")
     async def fx_frame_reporter(
-        total: ReportDirArg = None
+        total: ReportDirArg
     ) -> CallToolResult:
 
         await Requires.connect_framix()
@@ -105,7 +111,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
         job_id = await idle.job_begin(f"{ctx.framix.agent_id}.fx_frame_reporter", args=args)
         try:
-            raw = await ctx.framix.fx_frame_reporter()
+            raw = await ctx.framix.fx_frame_reporter(total)
         finally:
             await idle.job_final(job_id)
 

@@ -3,9 +3,11 @@
 
 from backend.mcp_tools.bench.schemas.schema_framix import (
     VideoListArg,
+    TotalDirArg,
+    LabelArg,
     ReportDirArg,
     ScaleArg,
-    TitleArg,
+    TitleArg
 )
 from backend.mcp_tools.bench.schemas.schema_k6 import (
     ScriptTextArg,
@@ -21,15 +23,16 @@ from backend.mcp_tools.bench.schemas.schema_k6 import (
     ExtraArgsArg,
     ExecutionModeArg,
     ResponseCaptureArg,
-    ResponseExportArg,
+    ResponseExportArg
 )
 from backend.mcp_tools.bench.schemas.schema_memrix import (
     FocusArg,
     ImplyArg,
     TaskTitleArg,
     TokenArg,
-    SceneArg,
-    LayerArg,
+    SampleSceneArg,
+    ReportSceneArg,
+    LayerArg
 )
 from backend.mcp_tools.bench.schemas.schema_nexus import (
     GenericSharedEnv,
@@ -89,11 +92,13 @@ from backend.mcp_tools.bench.schemas.schema_nexus import (
     ImapRequestArg,
     FtpRequestArg,
     NexusConcurrencyArg,
-    NexusFailFastArg,
+    NexusFailFastArg
 )
 
 __all__ = [
     "VideoListArg",
+    "TotalDirArg",
+    "LabelArg",
     "ReportDirArg",
     "ScaleArg",
     "TitleArg",
@@ -115,7 +120,8 @@ __all__ = [
     "ImplyArg",
     "TaskTitleArg",
     "TokenArg",
-    "SceneArg",
+    "SampleSceneArg",
+    "ReportSceneArg",
     "LayerArg",
     "GenericSharedEnv",
     "GenericBatchItem",
@@ -174,7 +180,7 @@ __all__ = [
     "ImapRequestArg",
     "FtpRequestArg",
     "NexusConcurrencyArg",
-    "NexusFailFastArg",
+    "NexusFailFastArg"
 ]
 
 

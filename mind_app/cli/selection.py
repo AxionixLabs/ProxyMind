@@ -42,6 +42,8 @@ def direct_stream_selected(cmd_lines: typing.Any) -> bool:
 
 def resolve_cli_output_mode(cmd_lines: typing.Any) -> OutputMode:
     """根据命令入口选择输出模式。"""
+    if cmd_lines.upgrade:
+        return "rich"
     if cmd_lines.json:
         if cmd_lines.code or not direct_stream_selected(cmd_lines):
             raise MindError("--json requires --chat, --fast, or --xtra")

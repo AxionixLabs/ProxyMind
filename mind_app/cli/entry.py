@@ -216,25 +216,12 @@ async def _run_main(
 
     # Notes: ========== 升级流程 ==========
     if cmd_lines.upgrade:
-        progress = None
-        if output_mode == "tui":
-            from ..tui.core.runtime import require_tui_runtime
-            from ..tui.features.download import TuiUpgradeProgress
-
-            runtime = require_tui_runtime(frontend.runtime)
-            await runtime.open()
-            progress = TuiUpgradeProgress(runtime)
-        try:
-            await ensure_service_runtime_asset(
-                service_runtime_context,
-                explicit_upgrade=True,
-                anim_manager=entry_anim_manager,
-                design=design,
-                progress=progress,
-            )
-        finally:
-            if output_mode == "tui":
-                await frontend.runtime.close()
+        await ensure_service_runtime_asset(
+            service_runtime_context,
+            explicit_upgrade=True,
+            anim_manager=entry_anim_manager,
+            design=design,
+        )
         return 0
 
     logger.debug(f"{'=' * 15} 系统调试 {'=' * 15}")
@@ -256,10 +243,6 @@ async def _run_main(
     logger.debug(f"TLS: {runtime_spec.executable}")
     logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}\n")
 
-    positions = (
-        cmd_lines.chat, cmd_lines.fast, cmd_lines.xtra,
-        cmd_lines.gravity, cmd_lines.code
-    )
     keywords = {
         "src_opera_place" : src_opera_place,
         "src_total_place" : src_total_place,
@@ -277,7 +260,9 @@ async def _run_main(
         runtime_spec.launch_command,
         env=process_env(),
     )
-    mind = Mind(wires, level, power, remote, *positions, **keywords)
+
+    mind = Mind(wires, level, power, remote, **keywords)
+
     mind.bind_runtime(asyncio.get_running_loop(), asyncio.current_task())
     mind.bind_server_manager(server)
     mind.bind_service_runtime_context(service_runtime_context)

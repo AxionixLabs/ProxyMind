@@ -10,7 +10,8 @@ from backend.mcp_tools.bench.schemas.schema_memrix import (
     ImplyArg,
     TaskTitleArg,
     TokenArg,
-    SceneArg,
+    SampleSceneArg,
+    ReportSceneArg,
     LayerArg
 )
 from backend.utilities.runtime import (
@@ -25,6 +26,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         description=(
             "启动一次 Memrix 内存采样任务。"
             "该工具只负责开始采样，不负责结束采样或生成报告。"
+            "`scene` 必须显式指定 Memrix 输出目录或任务目录前缀。"
+            "结果中的 `data.report_scene` 是后续生成报告所需的结果目录。"
             "一次会话只对应一个采样任务；后续需用 `mx_task_final` 收束，再按需调用 reporter 生成报告。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "memrix"}
@@ -32,6 +35,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @task_middleware("mx_sample_mem")
     async def mx_sample_mem(
         focus: FocusArg,
+        scene: SampleSceneArg,
         imply: ImplyArg = None,
         title: TaskTitleArg = None
     ) -> CallToolResult:
@@ -40,6 +44,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
         args = {
             "focus" : focus,
+            "scene" : scene,
             "imply" : imply,
             "title" : title
         }
@@ -50,12 +55,23 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             args=args
         )
         try:
-            raw = await ctx.memrix.mx_task_begin("--storm", focus, imply, title)
+            raw = await ctx.memrix.mx_task_begin(
+                "--storm",
+                focus,
+                scene,
+                imply,
+                title,
+            )
             raw = raw or {}
 
-            token = raw.get("data", {}).get("token")
-            if token:
-                await idle.session_patch_args(ctx.memrix.agent_id, {"token": token})
+            data = raw.get("data", {})
+            session_patch = {
+                key: data[key]
+                for key in ("token", "report_scene")
+                if data.get(key)
+            }
+            if session_patch:
+                await idle.session_patch_args(ctx.memrix.agent_id, session_patch)
 
             ok = raw.get("ok")
             if not ok:
@@ -71,6 +87,8 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
         description=(
             "启动一次 Memrix 图形性能采样任务，用于后续 FPS、jank、流畅度分析。"
             "该工具只负责开始采样，不负责结束采样或生成报告。"
+            "`scene` 必须显式指定 Memrix 输出目录或任务目录前缀。"
+            "结果中的 `data.report_scene` 是后续生成报告所需的结果目录。"
             "一次会话只对应一个采样任务；后续需用 `mx_task_final` 收束，再按需调用 reporter 生成报告。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "memrix"}
@@ -78,6 +96,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @task_middleware("mx_sample_gfx")
     async def mx_sample_gfx(
         focus: FocusArg,
+        scene: SampleSceneArg,
         imply: ImplyArg = None,
         title: TaskTitleArg = None
     ) -> CallToolResult:
@@ -86,6 +105,7 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
 
         args = {
             "focus" : focus,
+            "scene" : scene,
             "imply" : imply,
             "title" : title
         }
@@ -96,12 +116,23 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
             args=args
         )
         try:
-            raw = await ctx.memrix.mx_task_begin("--sleek", focus, imply, title)
+            raw = await ctx.memrix.mx_task_begin(
+                "--sleek",
+                focus,
+                scene,
+                imply,
+                title,
+            )
             raw = raw or {}
 
-            token = raw.get("data", {}).get("token")
-            if token:
-                await idle.session_patch_args(ctx.memrix.agent_id, {"token": token})
+            data = raw.get("data", {})
+            session_patch = {
+                key: data[key]
+                for key in ("token", "report_scene")
+                if data.get(key)
+            }
+            if session_patch:
+                await idle.session_patch_args(ctx.memrix.agent_id, session_patch)
 
             ok = raw.get("ok")
             if not ok:
@@ -138,14 +169,14 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "基于已有 Memrix 内存采样结果生成报告。"
-            "scene 提供时使用指定结果目录；不提供时使用当前保存的最近一次采样结果。"
+            "scene 必须使用 `mx_sample_mem` 明确返回的 `data.report_scene`。"
             "layer=True 会输出更细的分层视图；未明确需要分层时保持 False 更稳妥。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "memrix"}
     )
     @task_middleware("mx_mem_reporter")
     async def mx_mem_reporter(
-        scene: SceneArg = None,
+        scene: ReportSceneArg,
         layer: LayerArg = False
     ) -> CallToolResult:
 
@@ -167,14 +198,14 @@ def bind(mcp: FastMCP, idle: Idle, ctx: AppContext) -> None:
     @mcp.tool(
         description=(
             "基于已有 Memrix 图形采样结果生成流畅度报告。"
-            "scene 提供时使用指定结果目录；不提供时使用当前保存的最近一次采样结果。"
+            "scene 必须使用 `mx_sample_gfx` 明确返回的 `data.report_scene`。"
             "报告面向 FPS、掉帧、jank 等图形指标分析，不会重新启动采样任务。"
         ),
         meta={"hidden": False, "domain": "bench", "class": "memrix"}
     )
     @task_middleware("mx_gfx_reporter")
     async def mx_gfx_reporter(
-        scene: SceneArg = None
+        scene: ReportSceneArg
     ) -> CallToolResult:
 
         await Requires.connect_memrix()

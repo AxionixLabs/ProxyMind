@@ -491,14 +491,6 @@
       align-items:start;
       align-content:start;
     }
-    .page-content-grid--equal{
-      display:grid;
-      grid-template-columns:repeat(2, minmax(0, 1fr));
-      align-items:stretch;
-    }
-    .page-content-grid--equal > .card{
-      height:100%;
-    }
     .section-head{
       display:flex;
       align-items:flex-start;
@@ -841,8 +833,7 @@
     @media (max-width: 980px){
       .hero-tools{grid-template-columns:1fr}
       .hero-tools-group--status{justify-content:flex-start}
-      .page-summary-grid,
-      .page-content-grid--equal{
+      .page-summary-grid{
         grid-template-columns:1fr;
       }
       .section-head{
@@ -904,7 +895,7 @@
 
     <section class="page-summary-grid" id="overview"></section>
 
-    <section class="page-content-grid page-content-grid--equal">
+    <section class="page-content-grid">
       <section class="card main-panel-card">
         <div class="bar">
           <div class="bar-start">
@@ -963,51 +954,6 @@
         </div>
       </section>
 
-      <section class="card main-panel-card">
-        <div class="bar">
-          <div class="bar-start">
-            <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
-            <div class="chip">app context videos</div>
-          </div>
-          <div class="bar-end">
-            <div class="chip">snapshot</div>
-          </div>
-        </div>
-        <div class="section">
-          <div class="section-head">
-            <div class="section-title-wrap">
-              <h2 class="section-title">Video Snapshot</h2>
-            </div>
-            <div class="section-tools tool-strip">
-              <input class="search" id="video-search" type="search" placeholder="Search videos" />
-            </div>
-          </div>
-          <div class="stack" id="video-list"></div>
-        </div>
-      </section>
-
-      <section class="card main-panel-card">
-        <div class="bar">
-          <div class="bar-start">
-            <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
-            <div class="chip">app context reports</div>
-          </div>
-          <div class="bar-end">
-            <div class="chip">snapshot</div>
-          </div>
-        </div>
-        <div class="section">
-          <div class="section-head">
-            <div class="section-title-wrap">
-              <h2 class="section-title">Report Snapshots</h2>
-            </div>
-            <div class="section-tools tool-strip">
-              <input class="search" id="reports-search" type="search" placeholder="Search reports" />
-            </div>
-          </div>
-          <div class="stack" id="reports-list"></div>
-        </div>
-      </section>
     </section>
 
     <div class="page-footer-slot" id="page-footer"></div>
@@ -1062,13 +1008,9 @@
     const overviewHost = document.getElementById("overview");
     const jobsHost = document.getElementById("jobs-list");
     const sessionsHost = document.getElementById("sessions-list");
-    const videoHost = document.getElementById("video-list");
-    const reportsHost = document.getElementById("reports-list");
     const banner = document.getElementById("banner");
     const jobsSearch = document.getElementById("jobs-search");
     const sessionsSearch = document.getElementById("sessions-search");
-    const videoSearch = document.getElementById("video-search");
-    const reportsSearch = document.getElementById("reports-search");
     const refreshButton = document.getElementById("refresh-idle");
     const refreshTime = document.getElementById("refresh-time");
     const autoRefresh = document.getElementById("auto-refresh");
@@ -1094,11 +1036,6 @@
       ],
       sessions            : {
         "sess-preview-01": {job_id: "job-preview-01", name: "runtime.preview", age_sec: 12.1}
-      },
-      instance            : {
-        video_list        : {fp: "preview", count: 2, head: [{parent: "shots", name: "frame_001.png"}], parent_stats: [{parent: "shots", count: 2}]},
-        fx_report_session : {fp: "preview", count: 1, head: [{id: "fx-01", parent: "reports", name: "fx_head.json"}], parent_stats: [{parent: "reports", count: 1}], tail: []},
-        mx_report_session : {fp: "preview", count: 1, head: [{id: "mx-01", item: {type: "scene", n: 1, scene: ["preview lane"], repr: "preview summary"}}], tail: []}
       }
     };
     function fmtSec(v){
@@ -1142,11 +1079,6 @@
           <b>Sessions</b>
           <div class="value">${sessions.length}</div>
           <div class="meta">stable runtime handles</div>
-        </div>
-        <div class="metric">
-          <b>App Context</b>
-          <div class="value">${Object.keys(data.instance || {}).length}</div>
-          <div class="meta">snapshot groups</div>
         </div>
       `;
     }
@@ -1207,8 +1139,6 @@
       if(text.startsWith("bench.") || text.includes("bench")) return "bench";
       if(text.startsWith("nexus.") || text.includes("nexus")) return "nexus";
       if(text.startsWith("ui.") || text.includes("scroll") || text.includes("tap")) return "ui";
-      if(text.startsWith("memrix.") || text.includes("memrix")) return "memrix";
-      if(text.startsWith("framix.") || text.includes("framix")) return "framix";
       if(text.startsWith("idle.") || text.includes("idle")) return "idle";
       const head = raw.split(".")[0].split(":")[0].split("/")[0].trim().toLowerCase();
       return head || "uncategorized";
@@ -1321,159 +1251,6 @@
       `).join("") : `<div class="empty">${allSessions.length ? "No sessions match current search." : "No mapped sessions."}</div>`;
     }
 
-    function renderScene(scene){
-      return Array.isArray(scene) && scene.length
-        ? `<div class="scene">${scene.map((item) => `<span>${item}</span>`).join("")}</div>`
-        : `<div class="pill">scene: empty</div>`;
-    }
-
-    function renderSummaryItem(item, query = ""){
-      const scene = Array.isArray((item.item || {}).scene) ? (item.item || {}).scene : [];
-      const type = (item.item || {}).type || "unknown";
-      const n = (item.item || {}).n;
-      const repr = (item.item || {}).repr;
-      return `
-        <div class="item">
-          <div class="item-head">
-            <div>
-              <div class="item-title">${highlightText(item.id, query)}</div>
-              <div class="item-id">${highlightText(type, query)}</div>
-            </div>
-            ${n !== undefined ? `<div class="pill">n ${n}</div>` : `<div class="pill">scene ${scene.length}</div>`}
-          </div>
-          ${scene.length ? renderScene(scene.map((one) => highlightText(one, query))) : ""}
-          ${repr ? `<div class="pill">${highlightText(repr, query)}</div>` : ""}
-        </div>
-      `;
-    }
-
-    function renderVideo(instance){
-      const query = searchText(videoSearch.value).trim();
-      const video = (instance || {}).video_list || {};
-      const rows = [];
-      if (Array.isArray(video.head) && video.head.length){
-        const headItems = video.head.map((item) => `${item.parent}/${item.name}`).filter((item) => matchesQuery([item], query));
-        if (headItems.length){
-        rows.push(`
-          <div class="item">
-            <div class="item-head">
-              <div class="item-title">Head</div>
-              <div class="pill">${video.count || 0} files</div>
-            </div>
-            ${renderScene(headItems.map((item) => highlightText(item, query)))}
-          </div>
-        `);
-        }
-      }
-      if (Array.isArray(video.parent_stats) && video.parent_stats.length){
-        const parentItems = video.parent_stats.map((item) => `${item.parent}:${item.count}`).filter((item) => matchesQuery([item], query));
-        if (parentItems.length){
-        rows.push(`
-          <div class="item">
-            <div class="item-head">
-              <div class="item-title">Parent Stats</div>
-              <div class="pill">top folders</div>
-            </div>
-            ${renderScene(parentItems.map((item) => highlightText(item, query)))}
-          </div>
-        `);
-        }
-      }
-      videoHost.innerHTML = rows.length ? rows.join("") : `<div class="empty">${query ? "No video items match current search." : "No video snapshot yet."}</div>`;
-    }
-
-    function renderReports(instance){
-      const query = searchText(reportsSearch.value).trim();
-      const fx = (instance || {}).fx_report_session || {};
-      const mx = (instance || {}).mx_report_session || {};
-      const cards = [];
-      if (Array.isArray(fx.head) && fx.head.length){
-        const fxHead = fx.head.map((item) => `${item.id}:${item.parent}/${item.name}`).filter((item) => matchesQuery([item], query));
-        if (fxHead.length){
-        cards.push(`
-          <div class="item">
-            <div class="item-head">
-              <div class="item-title">FX Report Session</div>
-              <div class="pill">${fx.fp || "fp"}</div>
-            </div>
-            ${renderScene(fxHead.map((item) => highlightText(item, query)))}
-          </div>
-        `);
-        }
-      }
-      if (Array.isArray(fx.parent_stats) && fx.parent_stats.length){
-        const fxParents = fx.parent_stats.map((item) => `${item.parent}:${item.count}`).filter((item) => matchesQuery([item], query));
-        if (fxParents.length){
-        cards.push(`
-          <div class="item">
-            <div class="item-head">
-              <div class="item-title">FX Parent Stats</div>
-              <div class="pill">folders</div>
-            </div>
-            ${renderScene(fxParents.map((item) => highlightText(item, query)))}
-          </div>
-        `);
-        }
-      }
-      if (Array.isArray(fx.tail) && fx.tail.length){
-        const fxTail = fx.tail.map((item) => `${item.id}:${item.parent}/${item.name}`).filter((item) => matchesQuery([item], query));
-        if (fxTail.length){
-        cards.push(`
-          <div class="item">
-            <div class="item-head">
-              <div class="item-title">FX Tail</div>
-              <div class="pill">${fx.tail.length}</div>
-            </div>
-            ${renderScene(fxTail.map((item) => highlightText(item, query)))}
-          </div>
-        `);
-        }
-      }
-      if (Array.isArray(mx.head) && mx.head.length){
-        const mxHead = mx.head.filter((item) => matchesQuery([
-          item.id,
-          (item.item || {}).type,
-          ((item.item || {}).scene || []).join(" "),
-          (item.item || {}).repr
-        ], query));
-        if (mxHead.length){
-        cards.push(`
-          <div class="item">
-            <div class="item-head">
-              <div class="item-title">MX Report Session</div>
-              <div class="pill">${mx.fp || "fp"}</div>
-            </div>
-            <div class="stack">
-              ${mxHead.map((item) => renderSummaryItem(item, query)).join("")}
-            </div>
-          </div>
-        `);
-        }
-      }
-      if (Array.isArray(mx.tail) && mx.tail.length){
-        const mxTail = mx.tail.filter((item) => matchesQuery([
-          item.id,
-          (item.item || {}).type,
-          ((item.item || {}).scene || []).join(" "),
-          (item.item || {}).repr
-        ], query));
-        if (mxTail.length){
-        cards.push(`
-          <div class="item">
-            <div class="item-head">
-              <div class="item-title">MX Tail</div>
-              <div class="pill">${mx.tail.length}</div>
-            </div>
-            <div class="stack">
-              ${mxTail.map((item) => renderSummaryItem(item, query)).join("")}
-            </div>
-          </div>
-        `);
-        }
-      }
-      reportsHost.innerHTML = cards.length ? cards.join("") : `<div class="empty">${query ? "No report items match current search." : "No app context reports yet."}</div>`;
-    }
-
     async function loadIdle(options = {}){
       const {silent = false} = options;
       if(refreshTask) return refreshTask;
@@ -1483,8 +1260,6 @@
           renderOverview(idleData);
           renderJobs(idleData);
           renderSessions(idleData);
-          renderVideo(idleData.instance || {});
-          renderReports(idleData.instance || {});
           setRefreshStamp("preview mode");
           return;
         }
@@ -1497,8 +1272,6 @@
           renderOverview(idleData);
           renderJobs(idleData);
           renderSessions(idleData);
-          renderVideo(idleData.instance || {});
-          renderReports(idleData.instance || {});
           setRefreshStamp(`updated ${fmtClock(new Date())}`);
           if(!silent){
             const [title] = shellMessage("synced");
@@ -1549,14 +1322,6 @@
     sessionsSearch.addEventListener("input", rerenderFilters);
     jobsSort.addEventListener("change", rerenderFilters);
     sessionsSort.addEventListener("change", rerenderFilters);
-    videoSearch.addEventListener("input", () => {
-      if(!idleData) return;
-      renderVideo(idleData.instance || {});
-    });
-    reportsSearch.addEventListener("input", () => {
-      if(!idleData) return;
-      renderReports(idleData.instance || {});
-    });
     refreshButton.addEventListener("click", () => {
       loadIdle().catch(() => {
         const [title] = shellMessage("sync_failed");
@@ -1570,8 +1335,6 @@
       overviewHost.innerHTML = "";
       jobsHost.innerHTML = `<div class="empty">Unable to load jobs.</div>`;
       sessionsHost.innerHTML = `<div class="empty">Unable to load sessions.</div>`;
-      videoHost.innerHTML = `<div class="empty">Unable to load video snapshot.</div>`;
-      reportsHost.innerHTML = `<div class="empty">Unable to load report snapshots.</div>`;
     });
     scheduleRefresh();
   </script>

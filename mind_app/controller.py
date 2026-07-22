@@ -60,14 +60,12 @@ class Mind(object):
 
     __remote: dict = {}
 
-    def __init__(self, wires: list, level: str, power: int, remote: dict, *args, **kwargs):
+    def __init__(self, wires: list, level: str, power: int, remote: dict, **kwargs):
         self.wires = wires
         self.level = level
         self.power = power
 
         self.remote: dict = remote or {}
-
-        *_, self.gravity, _ = args
 
         self.src_opera_place: str = kwargs["src_opera_place"]
         self.src_total_place: str = kwargs["src_total_place"]
@@ -76,7 +74,7 @@ class Mind(object):
             kwargs.get("workspace_root") or Path.cwd()
         )
 
-        self.pref: Preferences = kwargs["pref"]
+        self.pref: Preferences           = kwargs["pref"]
         self.pref_refreshed_at: float    = time.monotonic()
         self.pref_refresh_ttl_sec: float = 1.0
 
@@ -91,7 +89,8 @@ class Mind(object):
         self.conversation: ConversationState         = ConversationState()
         self.history_store: ConversationHistoryStore = ConversationHistoryStore()
 
-        self.report: RunReport = RunReport(self.src_total_place, self.gravity)
+        self.report: RunReport = RunReport(self.src_total_place)
+
         self.attach: Attach = Attach()
 
         self.frontend: Frontend = kwargs["frontend"]
@@ -108,8 +107,9 @@ class Mind(object):
 
         self.service_runtime_context: typing.Optional["ServiceRuntimeContext"] = None
         self.service_exec_env: typing.Optional[dict[str, typing.Any]]          = None
+        self._service_start_task: asyncio.Task[bool] | None                    = None
+
         self._service_start_lock: asyncio.Lock = asyncio.Lock()
-        self._service_start_task: asyncio.Task[bool] | None = None
 
         self.config_service: ConfigServiceRuntime = ConfigServiceRuntime(log_level=self.level)
 
@@ -211,11 +211,10 @@ class Mind(object):
         *,
         limit: int = HISTORY_LIMIT
     ) -> list[dict[str, typing.Any]]:
-        """返回当前 workspace/gravity 下可恢复的本地会话游标。"""
+        """返回当前 workspace 下可恢复的本地会话游标。"""
         try:
             records = self.history_store.list_sessions(
                 workspace=self.history_workspace,
-                gravity=self._history_gravity(),
                 limit=limit
             )
         except (OSError, sqlite3.Error, ValueError) as exc:
@@ -261,7 +260,6 @@ class Mind(object):
                 sid=metadata["sid"],
                 title=title,
                 workspace=self.history_workspace,
-                gravity=self._history_gravity(),
                 source=source
             )
         except (OSError, sqlite3.Error, ValueError, KeyError) as exc:
@@ -270,7 +268,9 @@ class Mind(object):
     def set_history_workspace(self, workspace: typing.Any) -> str:
         """更新 history 使用的真实工作区根目录。"""
         normalized = normalize_workspace(workspace)
+
         if normalized and normalized != self.history_workspace:
+
             previous_native_coding = self.native_coding
             self.history_workspace = normalized
             self.native_coding     = NativeCoding(root=self.history_workspace)
@@ -280,6 +280,7 @@ class Mind(object):
                 loop = asyncio.get_running_loop()
             except RuntimeError:
                 loop = None
+
             if loop is not None:
                 task = loop.create_task(
                     previous_native_coding.close(),
@@ -302,10 +303,6 @@ class Mind(object):
             self.native_coding,
             execution_root=self.history_workspace,
         )
-
-    def _history_gravity(self) -> str:
-        """返回 history 使用的归档标签。"""
-        return str(self.gravity or "default")
 
     def bind_runtime(
         self,

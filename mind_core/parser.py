@@ -139,15 +139,15 @@ class Parser(object):
             ''')
         )
 
-        minor_group.add_argument(
-            "--gravity", type=str, default=None,
-            help=textwrap.dedent(f'''\
-                \033[1;36m^* 引力协议 *^\033[0m
-                -------------------------
-                - 设置报告“引力标签”，用于确定本次运行的日志/报告落盘根目录（同标签聚合到同一命名空间）。
-
-            ''')
-        )
+        # minor_group.add_argument(
+        #     "--", type=str, default=None,
+        #     help=textwrap.dedent(f'''\
+        #          \033[1;36m^* 引力协议 *^\033[0m
+        #          -------------------------
+        #          -
+        #
+        #      ''')
+        # )
 
         minor_group.add_argument(
             "--json", action="store_true",

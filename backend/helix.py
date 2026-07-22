@@ -43,8 +43,7 @@ mcp: FastMCP = FastMCP(
 )
 
 idle: Idle = Idle(
-    ttl_sec=const.IDLE_TTL_SEC,
-    snapshot_provider=app_ctx.instance_snapshots
+    ttl_sec=const.IDLE_TTL_SEC
 )
 
 

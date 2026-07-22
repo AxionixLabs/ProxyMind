@@ -43,7 +43,9 @@ class Record(object):
 
         self.transports: typing.Optional[asyncio.subprocess.Process] = None
 
-        self.released: bool = False
+        self.recording_path: str | None = None
+
+        self.released: bool             = False
         self.release_lock: asyncio.Lock = asyncio.Lock()
 
         self.tail: deque[str] = deque(maxlen=5)
@@ -89,6 +91,25 @@ class Record(object):
             "serial" : self.device.serial,
             "brand"  : self.device.device_props.get("brand"),
             **dict(extra or {})
+        }
+
+    def _recording_file_ready(self) -> bool:
+        """判断当前录制文件是否已经写入有效内容。"""
+        path = self.recording_path
+        if not path or not self.close_event.is_set() or not os.path.isfile(path):
+            return False
+        try:
+            return os.path.getsize(path) > 0
+        except OSError:
+            return False
+
+    def _recording_result_data(self, *, finalized: bool) -> dict[str, typing.Any]:
+        """返回当前录制路径及其完成状态。"""
+        if not self.recording_path:
+            return {}
+        return {
+            "path"      : self.recording_path,
+            "finalized" : finalized
         }
 
     async def acquire(
@@ -232,12 +253,15 @@ class Record(object):
             )
 
     async def scrcpy_record(self, directory: str, fps: int = 60, silence: bool = False) -> ToolOutput:
+        video_temp = os.path.join(directory, self.as_video())
+        self.recording_path = video_temp
         await self.acquire(
             "scrcpy.scrcpy_record",
             session_args={
                 "directory" : directory,
                 "fps"       : fps,
-                "silence"   : silence
+                "silence"   : silence,
+                "path"      : video_temp
             }
         )
         try:
@@ -252,7 +276,6 @@ class Record(object):
                     vs = 2.5
                 cmd += ["--no-display"] if vs <= 2.4 else ["--no-window"]
 
-            video_temp = os.path.join(directory, self.as_video())
             os.makedirs(os.path.dirname(video_temp), exist_ok=True)
             cmd += ["-r", video_temp]
 
@@ -263,10 +286,11 @@ class Record(object):
                 ok=True,
                 text="scrcpy recording started.",
                 data={
-                    "serial" : self.device.serial,
-                    "status" : list(self.tail),
-                    "path"   : video_temp,
-                    "cmd"    : cmd
+                    "serial"    : self.device.serial,
+                    "status"    : list(self.tail),
+                    "path"      : video_temp,
+                    "finalized" : False,
+                    "cmd"       : cmd
                 }
             )
 
@@ -278,7 +302,8 @@ class Record(object):
                 data={
                     "serial" : self.device.serial,
                     "status" : list(self.tail),
-                    "error"  : f"{type(e).__name__}: {e}"
+                    "error"  : f"{type(e).__name__}: {e}",
+                    **self._recording_result_data(finalized=False)
                 }
             )
 
@@ -302,7 +327,10 @@ class Record(object):
                 data={
                     "serial" : self.device.serial,
                     "status" : list(self.tail),
-                    "closed" : True
+                    "closed" : True,
+                    **self._recording_result_data(
+                        finalized=self._recording_file_ready()
+                    )
                 }
             )
 
@@ -324,7 +352,10 @@ class Record(object):
                             "serial" : self.device.serial,
                             "status" : list(self.tail),
                             "reason" : "no_child_process",
-                            "ppid"   : ppid
+                            "ppid"   : ppid,
+                            **self._recording_result_data(
+                                finalized=self._recording_file_ready()
+                            )
                         }
                     )
 
@@ -334,13 +365,15 @@ class Record(object):
             else:
                 off_state = await mac_stop_child(ppid)
 
+            finalized = await self._wait_recording_finalized()
             return ToolOutput(
                 ok=True,
                 text="Attempted to close scrcpy.",
                 data={
                     "serial"    : self.device.serial,
                     "status"    : list(self.tail),
-                    "off_state" : off_state
+                    "off_state" : off_state,
+                    **self._recording_result_data(finalized=finalized)
                 }
             )
 
@@ -351,13 +384,30 @@ class Record(object):
                 data={
                     "serial" : self.device.serial,
                     "status" : list(self.tail),
-                    "error"  : f"{type(e).__name__}: {e}"
+                    "error"  : f"{type(e).__name__}: {e}",
+                    **self._recording_result_data(
+                        finalized=self._recording_file_ready()
+                    )
                 }
             )
 
         finally:
             await self.clean_event()
             await self.release()
+
+    async def _wait_recording_finalized(self, timeout_sec: float = 5.0) -> bool:
+        """等待录制结束信号并确认输出文件已经写入。"""
+        if not self.recording_path:
+            return False
+        if not self.close_event.is_set():
+            try:
+                await asyncio.wait_for(
+                    self.close_event.wait(),
+                    timeout=max(0.0, timeout_sec),
+                )
+            except asyncio.TimeoutError:
+                return False
+        return self._recording_file_ready()
 
     async def check_timer(self, video_temp: typing.Optional[str] = None) -> typing.Optional[str]:
         for _ in range(10):

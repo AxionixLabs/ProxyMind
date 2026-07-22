@@ -2,7 +2,6 @@
 # Notes: ⦿ Helix License ⦿ Licensed runtime only — keep it private.
 
 import re
-import time
 import socket
 import typing
 import asyncio
@@ -21,9 +20,6 @@ from backend.utilities.process import (
 from backend.utilities.validation import marked
 from backend.utilities import const
 
-if typing.TYPE_CHECKING:
-    from backend.utilities.state import ItemSessionStore
-
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
@@ -38,13 +34,11 @@ class Memrix(object):
             cls.__instance = super(Memrix, cls).__new__(cls)
         return cls.__instance
 
-    def __init__(self, *, mx_report_store: "ItemSessionStore"):
+    def __init__(self):
         if not self.__initialized:
             self.__transports: typing.Optional[asyncio.subprocess.Process] = None
-            self.mx_report_store = mx_report_store
 
             self.token: typing.Optional[str] = None
-            self.style: typing.Optional[str] = None
 
             self.__prefix: str = "memrix"
 
@@ -55,11 +49,9 @@ class Memrix(object):
             self.host: str = "127.0.0.1"
             self.port: int = 8765
 
-            self.scene: str = time.strftime("%Y%m%d%H%M%S")
-
             self.is_start: typing.Optional[asyncio.Event] = None
             self.out_fail: typing.Optional[asyncio.Event] = None
-            self.out_ring: typing.Optional[deque[str]] = None
+            self.out_ring: typing.Optional[deque[str]]    = None
 
             self.lb_stdout: LineBuffer = LineBuffer()
             self.lb_stderr: LineBuffer = LineBuffer()
@@ -165,8 +157,7 @@ class Memrix(object):
         )
         self.__transports = await Flux.cmd_link_exec(cmd, env=env)
         logger.info(
-            f"[{self.prefix}] engine linked pid={self.__transports.pid} "
-            f"scene={self.scene} style={self.style}"
+            f"[{self.prefix}] engine linked pid={self.__transports.pid}"
         )
 
         gates = [GateMachine(MX_SPEC)]
@@ -238,7 +229,6 @@ class Memrix(object):
     async def shutdown(self) -> None:
         """统一退出/清理。"""
         self.token = None
-        self.style = None
 
         if self.__transports and self.__transports.returncode is not None:
             return None
@@ -261,22 +251,37 @@ class Memrix(object):
         self,
         style: typing.Literal["--storm", "--sleek"],
         focus: str,
+        scene: str,
         imply: typing.Optional[str] = None,
         title: typing.Optional[str] = None
     ) -> dict[str, typing.Any]:
+
+        if not isinstance(scene, str) or not scene.strip():
+            raise marked.fail_tip(
+                "scene must be a non-empty output target.",
+                code=const.CODE_EXC,
+                hint=const.HINT_HLT,
+                field="scene",
+                expect="non-empty string",
+                got=repr(scene),
+            )
 
         if not await port_listen(self.port):
             logger.error(f"Port {self.port} is liveness.")
             raise marked.port_busy(self.port, "liveness", host=self.host)
 
-        self.style = style.removeprefix("--")
+        scene        = scene.strip()
+        style_name   = style.removeprefix("--")
+        report_scene = f"{scene}_{style_name.capitalize()}"
 
-        cmd = [style, "--scene", self.scene, "--focus", focus]
+        cmd = [style, "--scene", scene, "--focus", focus]
         if imply: cmd += ["--imply", imply]
         if title: cmd += ["--title", title]
         cmd += ["--watch"]
 
-        return await self.__engine(*cmd)
+        result = await self.__engine(*cmd)
+        result["data"]["report_scene"] = report_scene
+        return result
 
     async def mx_task_final(
         self,
@@ -302,11 +307,6 @@ class Memrix(object):
 
         await self.__transports.wait()
 
-        await self.mx_report_store.set(
-            f"mx_{self.scene}",
-            self.scene + "_" + self.style.capitalize()
-        )
-
         return {
             "ok"          : True,
             "text"        : f"{self.agent_id.capitalize()} stopped.",
@@ -319,46 +319,15 @@ class Memrix(object):
 
     async def mx_mem_reporter(
         self,
-        scene: typing.Optional[str] = None,
+        scene: str,
         layer: bool = False
     ) -> dict[str, typing.Any]:
 
-        final_scene = scene if scene else self.scene + "_" + "Storm"
-
-        cmd = ["--forge", final_scene, "--watch"]
+        cmd = ["--forge", scene, "--watch"]
         if layer: cmd += ["--layer"]
         begin = await self.__engine(*cmd)
 
         await self.__transports.wait()
-
-        await self.mx_report_store.pop(f"mx_{final_scene}")
-        self.scene = time.strftime("%Y%m%d%H%M%S")
-
-        return {
-            "ok"          : True,
-            "text"        : f"{self.agent_id.capitalize()} report completed.",
-            "attachments" : [],
-            "data": {
-                "begin"  : begin.get("data", {}),
-                "events" : self.tool_events.get(self.agent_id, {})
-            },
-            "logs": []
-        }
-
-    async def mx_gfx_reporter(
-        self,
-        scene: typing.Optional[str] = None
-    ) -> dict[str, typing.Any]:
-
-        final_scene = scene if scene else self.scene + "_" + "Sleek"
-
-        cmd = ["--forge", final_scene, "--watch"]
-        begin = await self.__engine(*cmd)
-
-        await self.__transports.wait()
-
-        await self.mx_report_store.pop(f"mx_{final_scene}")
-        self.scene = time.strftime("%Y%m%d%H%M%S")
 
         return {
             "ok"          : True,
@@ -367,6 +336,29 @@ class Memrix(object):
             "data": {
                 "begin"  : begin.get("data", {}),
                 "events" : self.tool_events.get(self.agent_id, {}),
+                "scene"  : scene
+            },
+            "logs": []
+        }
+
+    async def mx_gfx_reporter(
+        self,
+        scene: str
+    ) -> dict[str, typing.Any]:
+
+        cmd = ["--forge", scene, "--watch"]
+        begin = await self.__engine(*cmd)
+
+        await self.__transports.wait()
+
+        return {
+            "ok"          : True,
+            "text"        : f"{self.agent_id.capitalize()} report completed.",
+            "attachments" : [],
+            "data": {
+                "begin"  : begin.get("data", {}),
+                "events" : self.tool_events.get(self.agent_id, {}),
+                "scene"  : scene
             },
             "logs": []
         }

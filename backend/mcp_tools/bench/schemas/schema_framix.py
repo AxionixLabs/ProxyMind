@@ -8,9 +8,20 @@ VideoListArg = typing.Annotated[
     list[str],
     Field(description="待分析的视频文件路径列表。"),
 ]
+TotalDirArg = typing.Annotated[
+    str,
+    Field(description="Framix 结果根目录。"),
+]
+LabelArg = typing.Annotated[
+    str,
+    Field(
+        pattern=r"^\d{14}$",
+        description="压缩时间戳（格式：YYYYMMDDhhmmss），用于唯一标识任务。",
+    ),
+]
 ReportDirArg = typing.Annotated[
-    typing.Optional[str],
-    Field(description="Framix 结果目录或报告目录；为空时使用当前默认结果目录。"),
+    str,
+    Field(description="待生成汇总报告的 Framix 分析结果目录。"),
 ]
 ScaleArg = typing.Annotated[
     float,
@@ -18,7 +29,7 @@ ScaleArg = typing.Annotated[
 ]
 TitleArg = typing.Annotated[
     str,
-    Field(description="本次分析任务标题，用于结果目录或报告标识。"),
+    Field(description="本次分析任务标题，用于报告展示。"),
 ]
 
 

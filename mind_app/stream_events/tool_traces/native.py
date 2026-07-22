@@ -21,7 +21,8 @@ from .native_helpers import (
 )
 from .shell_errors import (
     shell_error_diagnostic_lines,
-    shell_output_lines
+    shell_output_lines,
+    strip_ansi_shell_output
 )
 from .native_patch import (
     _hunk_label,
@@ -270,11 +271,12 @@ def _shell_command_ordered_output_lines(
     if not isinstance(values, (list, tuple)):
         return []
 
-    return [
-        str(item).rstrip()
-        for item in values
-        if str(item or "").strip()
-    ]
+    lines: list[str] = []
+    for item in values:
+        text = strip_ansi_shell_output(item).rstrip()
+        if text.strip():
+            lines.append(text)
+    return lines
 
 
 def _shell_tail_preview_lines(lines: list[str], limit: int) -> list[str]:
