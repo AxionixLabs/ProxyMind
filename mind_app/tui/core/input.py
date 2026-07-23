@@ -90,12 +90,20 @@ class TuiAutoSuggest(AutoSuggest):
 class TuiInputModel(object):
     """提供 TUI 独立的输入编辑、补全、历史和主题状态。"""
 
-    SHELL_COMMAND_HINT: typing.Final[str] = (
-        "Prefix a command with ! to run it locally  Example: !ls"
+    SHELL_COMMAND_HINT_TEXT: typing.Final[str] = (
+        "Prefix a command with ! to run it locally"
     )
+
+    SHELL_COMMAND_HINT_EXAMPLE: typing.Final[str] = "Example: !ls"
+
+    SHELL_COMMAND_HINT: typing.Final[str] = (
+        f"{SHELL_COMMAND_HINT_TEXT}  {SHELL_COMMAND_HINT_EXAMPLE}"
+    )
+
     PARAMETERIZED_COMMANDS: typing.Final[tuple[str, ...]] = (
         parameterized_command_texts()
     )
+
     PLACEHOLDER_PROMPTS: typing.Final[tuple[str, ...]] = (
         "Ask anything",
         "Describe a goal",
@@ -103,6 +111,7 @@ class TuiInputModel(object):
         "Request a change",
         "Inspect something",
     )
+
     PLACEHOLDER_COMMANDS: typing.Final[tuple[str, ...]] = (
         "/ opens commands",
         "$ opens skills",
@@ -111,11 +120,13 @@ class TuiInputModel(object):
         "/new starts fresh",
         SHELL_COMMAND_HINT,
     )
+
     PASTE_CHAR_THRESHOLD: typing.Final[int] = 1200
     PASTE_LINE_THRESHOLD: typing.Final[int] = 20
 
     def __init__(self) -> None:
         self.paste_store: dict[str, str] = {}
+
         self._paste_sequence: int = 0
 
         self.history      = TuiInputHistory()

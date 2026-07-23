@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from engine.errors import MindError
 from mind_app.mcp.config import McpConfigError, load_mcp_servers_file
 from mind_app.tui.features import mcp
 
@@ -216,6 +217,110 @@ async def test_mcp_cancellation_is_rendered_as_interrupted() -> None:
     assert "".join(
         text for _style, text in status.renderable.fragments
     ) == "External MCP · start interrupted"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("started", "expected"),
+    [
+        (True, "■ External MCP stopped"),
+        (False, "■ External MCP already stopped"),
+    ],
+)
+async def test_mcp_stop_commits_compact_final_status(started, expected) -> None:
+    views = []
+    mind = SimpleNamespace(
+        external_mcp=(SimpleNamespace(started=True) if started else None),
+        stop_external_mcp_runtime=AsyncMock(),
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+
+    await mcp.run_mcp_action(mind, "stop")
+
+    status = next(
+        view for view in views
+        if view.type == "tui.external_mcp.status"
+    )
+    assert status.renderable.plain_text == expected
+    assert not any(
+        view.type == "tui.external_mcp.interrupted"
+        for view in views
+    )
+
+
+@pytest.mark.anyio
+async def test_mcp_stop_failure_has_stop_specific_status() -> None:
+    views = []
+    mind = SimpleNamespace(
+        external_mcp=SimpleNamespace(started=True),
+        stop_external_mcp_runtime=AsyncMock(
+            side_effect=MindError("cleanup failed"),
+        ),
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+
+    await mcp.run_mcp_action(mind, "stop")
+
+    status = next(
+        view for view in views
+        if view.type == "tui.external_mcp.status"
+    )
+    assert status.renderable.plain_text == (
+        "■ External MCP stop failed\n└ cleanup failed"
+    )
+
+
+@pytest.mark.anyio
+async def test_completed_mcp_stop_is_not_reported_as_interrupted() -> None:
+    views = []
+    cleanup_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    cleanup_finished = asyncio.Event()
+
+    async def cleanup() -> None:
+        cleanup_started.set()
+        await release_cleanup.wait()
+        cleanup_finished.set()
+
+    async def stop_runtime() -> None:
+        mind.external_mcp = None
+        cleanup_task = asyncio.create_task(cleanup())
+        try:
+            await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError:
+            await cleanup_task
+            raise
+
+    mind = SimpleNamespace(
+        external_mcp=SimpleNamespace(started=True),
+        stop_external_mcp_runtime=stop_runtime,
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+    task = asyncio.create_task(mcp.run_mcp_action(mind, "stop"))
+    await cleanup_started.wait()
+    task.cancel()
+    assert not task.done()
+    release_cleanup.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert cleanup_finished.is_set()
+    status = next(
+        view for view in views
+        if view.type == "tui.external_mcp.status"
+    )
+    assert status.renderable.plain_text == "■ External MCP stopped"
+    assert not any(
+        view.type == "tui.external_mcp.interrupted"
+        for view in views
+    )
 
 
 @pytest.mark.parametrize(

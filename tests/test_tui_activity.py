@@ -385,16 +385,11 @@ async def test_compact_activity_does_not_replace_external_mcp_status() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("final_stage", "final_label"),
-    [
-        ("done", "Download complete"),
-        ("failed", "Download failed"),
-        ("cancelled", "Download cancelled"),
-    ],
+    "final_stage",
+    ["done", "failed", "cancelled"],
 )
-async def test_runtime_download_uses_progress_and_settles_in_activity_region(
+async def test_runtime_download_clears_without_transient_final_status(
     final_stage: str,
-    final_label: str,
 ) -> None:
     runtime = TuiRuntime()
     progress = TuiUpgradeProgress(runtime)
@@ -421,21 +416,10 @@ async def test_runtime_download_uses_progress_and_settles_in_activity_region(
     )
 
     state["stage"] = final_stage
-    with patch("mind_app.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.001):
-        await progress.stop()
+    await progress.stop()
 
-    assert runtime.screen.activity_block is not None
-    assert not runtime.document.blocks
-    final_text = _block_text(runtime.screen.activity_block)
-    assert final_label in final_text
-    assert "helix-runtime.zip" in final_text
-    assert any(
-        "bold" in style and text == final_label.removeprefix("Download ")
-        for style, text in runtime.screen.activity_block.fragments
-    )
-
-    await asyncio.sleep(0.1)
     assert runtime.screen.activity_block is None
+    assert not runtime.document.blocks
 
 
 @pytest.mark.anyio

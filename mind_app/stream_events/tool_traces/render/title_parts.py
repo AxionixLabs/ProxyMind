@@ -11,8 +11,8 @@ from ..command_parts import render_command_parts
 from mind_app.presentation.styles import (
     ACTION_EDIT_STYLE,
     ACTION_RUN_STYLE,
-    ACTION_TOOL_CALLED_STYLE,
     ACTION_TOOL_CALLING_STYLE,
+    ACTION_TOOL_INVOKED_STYLE,
     ACTION_TOOL_STYLE,
     DELTA_ADD_STYLE,
     DELTA_REMOVE_STYLE,
@@ -153,7 +153,7 @@ def _plain_body_parts(
 
 def _split_action(body: str) -> tuple[str, str]:
     """拆分标题动作前缀和剩余文本。"""
-    for action in ("Function Calling", "Function Called", "Wrote stdin"):
+    for action in ("Function Calling", "Function Invoked", "Wrote stdin"):
         if body == action:
             return action, ""
         if body.startswith(f"{action} "):
@@ -177,8 +177,8 @@ def _action_style_for_body(
         return ACTION_RUN_STYLE
     if first == "Function Calling":
         return ACTION_TOOL_CALLING_STYLE
-    if first == "Function Called":
-        return ACTION_TOOL_CALLED_STYLE
+    if first == "Function Invoked":
+        return ACTION_TOOL_INVOKED_STYLE
     if first in {"Tool", "Wrote stdin"}:
         return ACTION_TOOL_STYLE
 

@@ -461,7 +461,7 @@ class Mind(object):
         runtime = self.external_mcp
         self.external_mcp = None
         if runtime is not None:
-            await runtime.stop()
+            await self.await_cleanup(runtime.stop())
 
     async def stop_keepalive_supervisor(self) -> None:
         """停止 Mind 生命周期内的本地后台服务保活任务。"""

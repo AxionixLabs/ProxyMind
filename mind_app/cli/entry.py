@@ -95,14 +95,6 @@ def _emit_helix_skipped(mind: Mind) -> None:
     mind.frontend.application.emit(ApplicationView(type="spacer"))
 
 
-def _emit_startup_failure(mind: Mind, label: str, error: BaseException) -> None:
-    """把后台基础设施启动失败写入应用展示。"""
-    mind.frontend.application.emit(ApplicationView(
-        type="tui.background.error",
-        renderable=f"{label} startup failed: {error}",
-    ))
-
-
 async def _start_tui_external_mcp(mind: Mind) -> None:
     """在 TUI 进入交互循环前启动外部 MCP。"""
     from ..tui.features.mcp import render_external_mcp_start_status
@@ -122,17 +114,9 @@ async def _start_tui_external_mcp(mind: Mind) -> None:
 
 async def _start_tui_service_runtime(mind: Mind) -> None:
     """在 TUI 后台准备 Helix 服务运行时。"""
-    from ..tui.features.helix import prepare_tui_service_runtime
+    from ..tui.features.helix import link_helix_runtime
 
-    try:
-        await prepare_tui_service_runtime(
-            mind,
-            download_confirmed=True,
-        )
-    except asyncio.CancelledError:
-        raise
-    except Exception as error:
-        _emit_startup_failure(mind, "Helix", error)
+    await link_helix_runtime(mind, download_confirmed=True)
 
 
 async def _finalize_mind(

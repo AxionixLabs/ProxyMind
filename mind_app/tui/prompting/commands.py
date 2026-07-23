@@ -26,6 +26,7 @@ class TuiCommandSpec(object):
     completion_text: str | None = None
     completion_match: str | None = None
     parameterized: bool = False
+    subcommands: tuple[str, ...] = ()
     stream_policy: StreamCommandPolicy = "reject"
 
     @property
@@ -85,6 +86,7 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     ),
     TuiCommandSpec(
         "mcp", "/mcp", "管理外部 MCP 服务",
+        subcommands=("start", "force", "stop", "restart", "status"),
     ),
     TuiCommandSpec(
         "helix_link", "/helix-link", "接入 Helix MCP",
@@ -144,6 +146,50 @@ def matches_command(value: str, key: str) -> bool:
     return value in command_names(key)
 
 
+def resolve_slash_command(value: str) -> TuiCommandSpec | None:
+    """返回完整输入匹配的斜杠命令描述。"""
+    normalized = str(value or "").strip().casefold()
+    if not normalized.startswith("/"):
+        return None
+
+    direct = _COMMAND_BY_NAME.get(normalized)
+    if direct is not None:
+        return direct
+
+    head, separator, tail = normalized.partition(" ")
+
+    command  = _COMMAND_BY_NAME.get(head)
+    argument = tail.strip()
+
+    if command is None or not separator or not argument:
+        return None
+    if command.parameterized or argument in command.subcommands:
+        return command
+
+    return None
+
+
+def is_unrecognized_slash_command(value: str) -> bool:
+    """判断输入是否是非空且未注册的斜杠命令。"""
+    normalized = str(value or "").strip()
+
+    return bool(
+        normalized.startswith("/")
+        and normalized != "/"
+        and resolve_slash_command(normalized) is None
+    )
+
+
+def unrecognized_slash_command_message(value: str) -> str:
+    """生成未知斜杠命令提示。"""
+    command = str(value or "").strip().split(maxsplit=1)[0]
+
+    return (
+        f"Unrecognized command '{command}'. "
+        'Type "/" for a list of supported commands.'
+    )
+
+
 def parameterized_command_texts() -> tuple[str, ...]:
     """返回选中补全后继续保留编辑状态的命令文本。"""
     return tuple(
@@ -167,12 +213,14 @@ def stream_command_policy(value: str) -> StreamCommandPolicy | None:
 
     parts = normalized.split()
     head  = parts[0]
+
     if head in command_names("mcp") and len(parts) == 2:
         if parts[1] in {"start", "force"}:
             return "background_barrier"
         return "reject"
     if head.startswith("/"):
         return "reject"
+
     return None
 
 

@@ -17,8 +17,10 @@ from .queued import (
 from .styles import query_block
 from ..prompting.commands import (
     StreamCommandPolicy,
+    is_unrecognized_slash_command,
     stream_command_label,
-    stream_command_policy
+    stream_command_policy,
+    unrecognized_slash_command_message,
 )
 
 _INPUT_CLOSED = object()
@@ -117,13 +119,36 @@ class TuiSubmissionFlow(object):
 
         value = self.input_model.restore_submission(buffer.text)
         if not value:
-            if not shell_mode:
+            if shell_mode:
+                self._append_notice(FragmentBlock((
+                    ("class:input.notice.hint", "• "),
+                    (
+                        "class:input.notice.hint",
+                        f"{self.input_model.SHELL_COMMAND_HINT_TEXT}  ",
+                    ),
+                    (
+                        "class:input.notice.example",
+                        self.input_model.SHELL_COMMAND_HINT_EXAMPLE,
+                    ),
+                )))
+            else:
                 self.input_model.clear_submission_state()
             self._invalidate()
             return False
 
         if shell_mode:
             value = f"! {value}" if value else "!"
+
+        if is_unrecognized_slash_command(value):
+            self._append_notice(FragmentBlock((
+                ("class:input.notice.hint", "•"),
+                (
+                    "class:input.notice.hint",
+                    f" {unrecognized_slash_command_message(value)}",
+                ),
+            )))
+            self._invalidate()
+            return True
 
         submission = TuiSubmission(
             value=value,

@@ -16,7 +16,11 @@ from mind_app.runtime.mcp.service_runtime import (
     prepare_and_start_service_runtime,
     service_runtime_asset_missing
 )
-from mind_core.mcp_status import inbuild_status_view
+from mind_core.mcp_status import (
+    McpStatusDetail,
+    McpStatusView,
+    inbuild_status_view
+)
 from mind_nova import const
 from ..core.models import (
     FragmentBlock,
@@ -73,11 +77,26 @@ def _present_helix_result(
     error: str = "",
 ) -> None:
     """展示 Helix MCP 的最终状态。"""
-    view = inbuild_status_view({
-        "state": state,
-        "label": "Helix MCP",
-        "error": error,
-    })
+    if state == "stopped":
+        view = McpStatusView("Helix MCP stopped", "ready", True)
+    elif state == "stop_failed":
+        details = (
+            (McpStatusDetail(f"└ {error}", "failed"),)
+            if error
+            else ()
+        )
+        view = McpStatusView(
+            "Helix MCP stop failed",
+            "failed",
+            True,
+            details,
+        )
+    else:
+        view = inbuild_status_view({
+            "state": state,
+            "label": "Helix MCP",
+            "error": error,
+        })
 
     block = render_mcp_status_block(view)
 
@@ -85,6 +104,20 @@ def _present_helix_result(
         return None
     _present(mind, block, view_type="tui.helix.status")
     _present(mind, view_type="tui.gap")
+
+
+def _helix_error_detail(error: BaseException) -> str:
+    """返回 Helix 操作失败时使用的简短详情。"""
+    if isinstance(error, MindError):
+        return str(error.message)
+
+    message = str(error).strip()
+
+    return (
+        f"{type(error).__name__}: {message}"
+        if message
+        else type(error).__name__
+    )
 
 
 class TuiUpgradeProgress(object):
@@ -99,7 +132,7 @@ class TuiUpgradeProgress(object):
 
     async def stop(self) -> None:
         """停止主 TUI 中的运行时下载状态。"""
-        await self.runtime.end_activity_status("download")
+        await self.runtime.end_activity_status("download", settle=False)
 
 
 async def confirm_runtime_download(
@@ -146,22 +179,23 @@ async def confirm_tui_service_runtime_startup(mind: "Mind") -> bool:
     return await confirm_runtime_download(runtime, context)
 
 
-async def link_helix_runtime(mind: "Mind") -> None:
+async def link_helix_runtime(
+    mind: "Mind",
+    *,
+    download_confirmed: bool = False,
+) -> None:
     """确认本地服务已经启动，并挂载到当前工具会话。"""
     try:
-        helix_linked = await prepare_tui_service_runtime(mind)
-    except MindError as error:
-        _present_helix_result(mind, state="failed", error=str(error.message))
-        return None
-    except Exception as error:
-        message = str(error).strip()
-
-        detail = (
-            f"{type(error).__name__}: {message}"
-            if message
-            else type(error).__name__
+        helix_linked = await prepare_tui_service_runtime(
+            mind,
+            download_confirmed=download_confirmed,
         )
-        _present_helix_result(mind, state="failed", error=detail)
+    except (MindError, Exception) as error:
+        _present_helix_result(
+            mind,
+            state="failed",
+            error=_helix_error_detail(error),
+        )
         return None
 
     if not helix_linked:
@@ -230,19 +264,17 @@ def helix_runtime_home_url(mind: "Mind") -> str:
 
 async def stop_helix_runtime(mind: "Mind") -> None:
     """停止 Helix 服务并打印结果。"""
-    _present(mind, _label_detail("Helix", "stop"))
-
     try:
         await mind.stop_service_runtime()
-    except MindError as error:
-        _present(
+    except (MindError, Exception) as error:
+        _present_helix_result(
             mind,
-            text_block(f"Helix stop failed: {error}", FAILURE_STYLE),
+            state="stop_failed",
+            error=_helix_error_detail(error),
         )
-        _present(mind, view_type="tui.gap")
         return None
 
-    _present(mind, view_type="tui.gap")
+    _present_helix_result(mind, state="stopped")
 
 
 if __name__ == '__main__':

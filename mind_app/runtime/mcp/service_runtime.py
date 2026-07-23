@@ -237,7 +237,7 @@ async def start_service_runtime(
         status["error"] = str(error)
         raise
     finally:
-        await mind.await_cleanup(mind.stop_anim("inbuild"))
+        await mind.await_cleanup(mind.stop_anim("inbuild", settle=False))
 
     mind.start_keepalive_supervisor()
 

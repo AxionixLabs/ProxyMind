@@ -12,12 +12,16 @@ from mind_app.tui.features import helix
 from mind_app.tui.prompting.commands import (
     SlashCommandCompleter,
     command_names,
+    is_unrecognized_slash_command,
     parameterized_command_texts,
+    resolve_slash_command,
     stream_command_label,
     stream_command_policy,
 )
 from mind_app.tui.session.dispatch import (
+    DispatchAction,
     MODE_BY_COMMAND,
+    TuiCommandDispatcher,
 )
 
 
@@ -82,6 +86,55 @@ def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    "value",
+    ["/permissions", "/MODEL gpt-test", "/mcp start", "/q"],
+)
+def test_registered_slash_command_inputs_are_resolved(value) -> None:
+    assert resolve_slash_command(value) is not None
+    assert not is_unrecognized_slash_command(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["/今天天气", "/compact later", "/mcp unknown"],
+)
+def test_unknown_or_invalid_slash_command_inputs_are_rejected(value) -> None:
+    assert resolve_slash_command(value) is None
+    assert is_unrecognized_slash_command(value)
+
+
+def test_root_slash_only_opens_completion() -> None:
+    assert resolve_slash_command("/") is None
+    assert not is_unrecognized_slash_command("/")
+
+
+@pytest.mark.anyio
+async def test_dispatcher_never_sends_unknown_slash_command_to_model() -> None:
+    views = []
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+    dispatcher = TuiCommandDispatcher(
+        mind,
+        SimpleNamespace(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/今天天气")
+
+    assert action is DispatchAction.HANDLED
+    assert "".join(
+        text for _style, text in views[-1].renderable.fragments
+    ) == (
+        "Unrecognized command '/今天天气'. "
+        'Type "/" for a list of supported commands.'
+    )
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     ("result", "error", "expected"),
@@ -116,8 +169,36 @@ async def test_helix_link_result_is_committed_to_tui(
 
     await helix.link_helix_runtime(mind)
 
+    prepare.assert_awaited_once_with(mind, download_confirmed=False)
     status = next(view for view in views if view.type == "tui.helix.status")
     assert status.renderable.plain_text == expected
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (None, "■ Helix MCP stopped"),
+        (
+            MindError("port cleanup failed"),
+            "■ Helix MCP stop failed\n└ port cleanup failed",
+        ),
+    ],
+)
+async def test_helix_stop_commits_one_final_status(error, expected) -> None:
+    views = []
+    mind = SimpleNamespace(
+        stop_service_runtime=AsyncMock(side_effect=error),
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+
+    await helix.stop_helix_runtime(mind)
+
+    statuses = [view for view in views if view.type == "tui.helix.status"]
+    assert len(statuses) == 1
+    assert statuses[0].renderable.plain_text == expected
 
 
 def _completions(text: str):

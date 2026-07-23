@@ -2,6 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -9,6 +10,7 @@ from mind_app.cli import entry
 from mind_app.controller import Mind
 from mind_app.interaction.contracts import PromptContext
 from mind_app.runtime.mcp import external
+from mind_app.runtime.mcp import service_runtime
 from mind_app.runtime.mcp import tool_runtime
 from mind_app.runtime.mcp.external import ExternalMcpRuntime
 from mind_app.runtime.mcp.tool_runtime import CompositeToolRuntime
@@ -156,6 +158,27 @@ async def test_tui_starts_external_mcp_before_helix_background(
     assert status.renderable.plain_text == (
         "■ External MCP ready · 1/1 servers · 2 tools"
     )
+    helix_status = next(
+        view for view in views
+        if view.type == "tui.helix.status"
+    )
+    assert helix_status.renderable.plain_text == "■ Helix MCP ready"
+
+
+@pytest.mark.anyio
+async def test_service_runtime_activity_clears_without_settling() -> None:
+    mind = SimpleNamespace(
+        server_manager=SimpleNamespace(ensure_running=AsyncMock()),
+        start_inbuild_startup_anim=AsyncMock(),
+        stop_anim=AsyncMock(),
+        await_cleanup=lambda awaitable: awaitable,
+        start_keepalive_supervisor=Mock(),
+    )
+
+    await service_runtime.start_service_runtime(mind)
+
+    mind.stop_anim.assert_awaited_once_with("inbuild", settle=False)
+    mind.start_keepalive_supervisor.assert_called_once_with()
 
 
 @pytest.mark.anyio
@@ -344,6 +367,35 @@ async def test_external_mcp_stop_finishes_cleanup_when_cancelled() -> None:
     assert cleanup_finished.is_set()
     assert not runtime.started
     assert runtime.group is None
+
+
+@pytest.mark.anyio
+async def test_mind_external_stop_waits_for_runtime_cleanup_when_cancelled() -> None:
+    cleanup_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    cleanup_finished = asyncio.Event()
+
+    class RuntimeStub(object):
+        async def stop(self) -> None:
+            cleanup_started.set()
+            await release_cleanup.wait()
+            cleanup_finished.set()
+
+    mind = Mind.__new__(Mind)
+    mind.external_mcp = RuntimeStub()
+
+    stop_task = asyncio.create_task(mind.stop_external_mcp_runtime())
+    await cleanup_started.wait()
+    stop_task.cancel()
+
+    assert not stop_task.done()
+    release_cleanup.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await stop_task
+
+    assert cleanup_finished.is_set()
+    assert mind.external_mcp is None
 
 
 @pytest.mark.anyio

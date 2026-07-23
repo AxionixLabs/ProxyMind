@@ -13,16 +13,16 @@ from mind_app.presentation.models import (
 from mind_nova.modes import RunMode
 from mind_nova.requests.access import normalize_access_mode
 from server import config_service_base_url
-
 from ..core.models import FragmentBlock
 from ..core.runtime import TuiRuntime
 from ..core.styles import (
     ACCENT_STYLE,
+    BODY_STYLE,
     BRIGHT_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
     fragment_block,
-    text_block,
+    text_block
 )
 from ..features.context import ignored_tui_input
 from ..features.conversation import (
@@ -60,7 +60,9 @@ from ..features.shell import run_shell_escape
 from ..features.tools import print_available_tools
 from ..prompting.commands import (
     command_spec,
-    matches_command
+    is_unrecognized_slash_command,
+    matches_command,
+    unrecognized_slash_command_message
 )
 from .barriers import TuiForegroundTasks
 from .state import TuiSessionState
@@ -123,6 +125,14 @@ class TuiCommandDispatcher(object):
                 return DispatchAction.HANDLED
 
         command = prompt_text.strip().lower()
+
+        if is_unrecognized_slash_command(prompt_text):
+            self._present(text_block(
+                unrecognized_slash_command_message(prompt_text),
+                BODY_STYLE,
+            ))
+            return DispatchAction.HANDLED
+
         if command.startswith("/"):
             self._present()
 
@@ -149,7 +159,7 @@ class TuiCommandDispatcher(object):
             self._present()
             return DispatchAction.EXIT
 
-        if matches_command(command.split(maxsplit=1)[0], "permissions"):
+        if matches_command(command, "permissions"):
             selected = await choose_permissions_mode(
                 self.runtime,
                 self.state.access_mode,

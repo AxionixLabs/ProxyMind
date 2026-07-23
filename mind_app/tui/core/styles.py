@@ -12,6 +12,7 @@ from prompt_toolkit.styles import (
     Style,
     merge_styles,
 )
+from ..prompting.commands import resolve_slash_command
 from .models import FragmentBlock
 
 MUTED_STYLE   = TextStyle(foreground="#7F8C9A", dim=True)
@@ -38,6 +39,8 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "queue.more": "bg:default #7B838E",
     "input.notice.marker": "bg:default #FF5F5F bold",
     "input.notice": "bg:default #FF8A8A",
+    "input.notice.hint": "bg:default #DDE7EF",
+    "input.notice.example": "bg:default #7F8C9A dim",
     "process-status.exec": "fg:#D8B26E",
     "process-status.separator": "fg:#7B838E",
     "process-status.action": "fg:#8FC7EA bold",
@@ -158,10 +161,11 @@ def text_block(text: str, style: TextStyle = TextStyle()) -> FragmentBlock:
 
 def query_block(text: str) -> FragmentBlock:
     """按普通 query 或命令类型生成用户输入块。"""
-    value      = str(text).strip()
-    lines      = value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    command    = value.startswith(("/", "!", "$", "\\"))
-    text_style = "class:prompt.command.slash" if value.startswith("/") else "class:prompt"
+    value         = str(text).strip()
+    lines         = value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    slash_command = resolve_slash_command(value) is not None
+    command       = slash_command or value.startswith(("!", "$", "\\"))
+    text_style    = "class:prompt.command.slash" if slash_command else "class:prompt"
 
     fragments: list[tuple[str, str]] = []
 

@@ -224,6 +224,9 @@ async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> None:
         render_mcp_status(mind)
         return None
 
+    external_runtime = getattr(mind, "external_mcp", None)
+    was_started      = bool(getattr(external_runtime, "started", False))
+
     try:
         if action == "stop":
             await mind.stop_external_mcp_runtime()
@@ -238,16 +241,32 @@ async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> None:
         else:
             await mind.restart_external_mcp_runtime()
     except asyncio.CancelledError:
-        render_mcp_action_interrupted(mind, action)
+        if action == "stop" and getattr(mind, "external_mcp", None) is None:
+            render_external_mcp_stop_status(mind)
+        else:
+            render_mcp_action_interrupted(mind, action)
         raise
     except MindError as error:
-        render_external_mcp_start_status(mind, error=error)
+        if action == "stop":
+            render_external_mcp_stop_status(mind, error=error)
+        else:
+            render_external_mcp_start_status(mind, error=error)
         return None
     except Exception as error:
-        render_external_mcp_start_status(mind, error=error)
+        if action == "stop":
+            render_external_mcp_stop_status(mind, error=error)
+        else:
+            render_external_mcp_start_status(mind, error=error)
         return None
 
-    if action == "stop" or not render_external_mcp_start_status(mind):
+    if action == "stop":
+        render_external_mcp_stop_status(
+            mind,
+            already_stopped=not was_started,
+        )
+        return None
+
+    if not render_external_mcp_start_status(mind):
         render_mcp_status(mind)
     return None
 
@@ -289,6 +308,46 @@ def render_external_mcp_start_status(
             return False
         view = external_mcp_status_view(snapshot, detail_limit=5)
 
+    return _present_external_mcp_result(mind, view)
+
+
+def render_external_mcp_stop_status(
+    mind: typing.Any,
+    *,
+    already_stopped: bool = False,
+    error: BaseException | None = None,
+) -> None:
+    """展示外部 MCP 停止后的最终状态。"""
+    if error is not None:
+        detail = (
+            str(getattr(error, "message", error)).strip()
+            or type(error).__name__
+        )
+        view = McpStatusView(
+            summary="External MCP stop failed",
+            level="failed",
+            done=True,
+            details=(McpStatusDetail(f"└ {detail}", "failed"),),
+        )
+    else:
+        summary = (
+            "External MCP already stopped"
+            if already_stopped
+            else "External MCP stopped"
+        )
+        view = McpStatusView(summary=summary, level="ready", done=True)
+
+    _present_external_mcp_result(
+        mind,
+        view,
+    )
+
+
+def _present_external_mcp_result(
+    mind: typing.Any,
+    view: McpStatusView,
+) -> bool:
+    """提交一项外部 MCP 最终状态。"""
     block = render_mcp_status_block(view)
     if not block.plain_text:
         return False

@@ -48,7 +48,7 @@ def build_generic_tool_result_view(
         name=normalized_name,
         text=normalized_text,
         ok=bool(ok),
-        title=f"• Function Called {normalized_name}",
+        title=f"• Function Invoked {normalized_name}",
         preview=render_generic_tool_result_preview(normalized_text),
         call_id=str(call_id or ""),
     )
