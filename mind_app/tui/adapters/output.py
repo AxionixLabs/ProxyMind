@@ -2,8 +2,8 @@
 # Notes: ==== Mind™ ====
 
 import json
-import random
 import time
+import random
 import typing
 import asyncio
 from mind_app.output.contracts import OutputControlPort
@@ -28,9 +28,9 @@ from ..core.styles import (
 )
 from .markdown import render_tui_markdown
 
-TYPEWRITER_CURSOR_STYLE = TextStyle(foreground="#D7E7FF", bold=True)
-STREAM_RENDER_REGULAR_SEC = 1 / 20
-STREAM_RENDER_SLOW_SEC = 1 / 12
+TYPEWRITER_CURSOR_STYLE      = TextStyle(foreground="#D7E7FF", bold=True)
+STREAM_RENDER_REGULAR_SEC    = 1 / 20
+STREAM_RENDER_SLOW_SEC       = 1 / 12
 STREAM_RENDER_COST_LIMIT_SEC = STREAM_RENDER_REGULAR_SEC / 4
 STREAM_RENDER_LONG_TEXT_SIZE = 2000
 
@@ -51,9 +51,12 @@ class TuiOutputControl(OutputControlPort):
 
         self.assistant     = TuiAssistantStream()
         self.record_writer = StreamRecordWriter(log_file)
+
         self._cursor = random.choice(("█", "▉", "▋"))
+
         self._stream_render_handle: asyncio.TimerHandle | None = None
-        self._stream_rendered_at: float = 0.0
+
+        self._stream_rendered_at: float     = 0.0
         self._stream_render_cost_sec: float = 0.0
 
     @property
@@ -162,6 +165,7 @@ class TuiOutputControl(OutputControlPort):
         self.assistant.discard_boundary()
         self._commit_current()
         self.record_writer.write(block.plain_text, block=True)
+
         self.runtime.append_block(
             FragmentBlock(styled_block_fragments(
                 block,
@@ -176,19 +180,32 @@ class TuiOutputControl(OutputControlPort):
     def _commit_current(self) -> bool:
         """把当前动态内容提交为稳定 TUI 内容块并返回提交状态。"""
         self._cancel_stream_render()
+
         if not self.assistant.active:
             self.runtime.clear_active_renderable()
             return False
-        block = _assistant_prefixed_block(render_tui_markdown(self.assistant.text))
+
+        text = self.assistant.text
+
+        try:
+            rendered = render_tui_markdown(text)
+        except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+            rendered = FragmentBlock(styled_block_fragments(
+                StyledBlock(plain_text=text),
+            ))
+
+        block = _assistant_prefixed_block(rendered)
+
         self.runtime.commit_active_renderable(block)
         self.assistant.clear()
+
         return True
 
     def _schedule_stream_render(self) -> None:
         """立即展示首帧，并把后续增量合并到自适应帧预算。"""
-        loop = asyncio.get_running_loop()
-        now = loop.time()
-        elapsed = now - self._stream_rendered_at
+        loop     = asyncio.get_running_loop()
+        now      = loop.time()
+        elapsed  = now - self._stream_rendered_at
         interval = self._stream_render_interval()
 
         if (
@@ -238,9 +255,11 @@ class TuiOutputControl(OutputControlPort):
     def _cancel_stream_render(self) -> None:
         """取消待展示帧并重置流式刷新时钟。"""
         handle = self._stream_render_handle
-        self._stream_render_handle = None
-        self._stream_rendered_at = 0.0
+
+        self._stream_render_handle   = None
+        self._stream_rendered_at     = 0.0
         self._stream_render_cost_sec = 0.0
+
         if handle is not None:
             handle.cancel()
 
@@ -251,9 +270,11 @@ class TuiOutputControl(OutputControlPort):
     ) -> None:
         """刷新当前流式内容并按需附加打字机光标。"""
         block = StyledBlock(plain_text=self.assistant.text)
+
         fragments = _assistant_prefixed_fragments(
             list(styled_block_fragments(block))
         )
+
         if cursor and _cursor_keeps_display_height(
             fragments,
             self._cursor,
@@ -324,7 +345,9 @@ def _assistant_prefixed_fragments(
         out.pop(0)
     if not out:
         return []
+
     prefix_style = ASSISTANT_PREFIX_CLASS
+
     return [
         (prefix_style, "• "),
         *_assistant_continuation_fragments(out, indent_style=prefix_style),
@@ -338,11 +361,13 @@ def _assistant_continuation_fragments(
 ) -> list[tuple[str, str]]:
     """在助手正文每个显式续行前补充两个空格。"""
     out: list[tuple[str, str]] = []
-    continuation = False
+
+    continuation: bool = False
 
     for style, text in fragments:
-        lines = text.split("\n")
+        lines      = text.split("\n")
         last_index = len(lines) - 1
+
         for index, line in enumerate(lines):
             has_newline = index < last_index
             if continuation and (line or has_newline):

@@ -19,6 +19,7 @@ from mind_app.output.content import (
     SourcesOutput,
 )
 from mind_app.presentation.approval_views import build_approval_view
+from mind_app.presentation.lifecycle_views import build_failure_view
 from mind_app.presentation.models import (
     PlanItemView,
     PlanUpdateView,
@@ -835,6 +836,39 @@ async def test_assistant_commit_renders_markdown_without_final_units_bridge() ->
     assert "".join(text for _style, text in fragments) == "• bold and code"
     assert any("bold" in style and text == "bold" for style, text in fragments)
     assert any("fg:" in style and text == "code" for style, text in fragments)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("markdown", ("```\nvalue", "```   \nvalue\n```"))
+async def test_assistant_commit_renders_fenced_code_without_language(markdown: str) -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+
+    await output.append_assistant_delta(markdown)
+    await output.prepare_external_output()
+
+    assert _document_text(runtime.document) == "• value"
+    assert runtime.document.active_block is None
+
+
+@pytest.mark.anyio
+async def test_assistant_commit_falls_back_to_plain_text_after_markdown_failure() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+
+    await output.append_assistant_delta("```\nvalue\n```")
+    with patch(
+        "mind_app.tui.adapters.output.render_tui_markdown",
+        side_effect=IndexError("invalid markdown"),
+    ):
+        await presentation.emit(build_failure_view("turn.failed", "request failed"))
+
+    assert [item.kind for item in runtime.document.blocks] == ["assistant", "notice"]
+    assert runtime.document.active_block is None
+    rendered = _document_text(runtime.document)
+    assert "```\n  value\n  ```" in rendered
+    assert "request failed" in rendered
 
 
 @pytest.mark.anyio

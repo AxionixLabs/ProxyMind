@@ -235,9 +235,10 @@ def _code_lines(text: str, *, language: str) -> list[list[TextSpan]]:
     if not code:
         return [[]]
 
-    lexer = None
+    lexer         = None
+    language_info = str(language or "").strip()
+    lexer_name    = language_info.split(maxsplit=1)[0] if language_info else ""
 
-    lexer_name = str(language or "").strip().split(maxsplit=1)[0]
     if lexer_name:
         try:
             lexer = get_lexer_by_name(lexer_name)
