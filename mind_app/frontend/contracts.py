@@ -18,7 +18,8 @@ ActivityStatusKind = typing.Literal[
     "upload",
     "download",
     "inbuild",
-    "external_mcp"
+    "external_mcp",
+    "compact",
 ]
 
 
@@ -103,6 +104,13 @@ class FrontendRuntime(typing.Protocol):
         """显示外部 MCP 启动状态。"""
         ...
 
+    async def begin_compact_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """显示对话压缩状态。"""
+        ...
+
     async def end_activity_status(
         self,
         kind: ActivityStatusKind | None = None,
@@ -162,6 +170,14 @@ class PassiveFrontendRuntime(object):
         snapshot: typing.Callable[[], dict[str, typing.Any]],
     ) -> None:
         """忽略外部 MCP 状态请求。"""
+        _ = snapshot
+        return None
+
+    async def begin_compact_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """忽略对话压缩状态请求。"""
         _ = snapshot
         return None
 

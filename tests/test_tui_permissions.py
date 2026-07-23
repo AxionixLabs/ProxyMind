@@ -34,6 +34,6 @@ def test_elevated_permissions_use_prominent_footer_style() -> None:
         access_label="Elevated",
     )
 
-    fragments = runtime._footer_fragments()
+    fragments = runtime.screen._footer_fragments()
 
     assert ("class:footer.access.full", "Elevated") in fragments

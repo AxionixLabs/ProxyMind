@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from mind import entry_animation_requested, emit_entry_outro
+from mind import emit_entry_outro, rich_outro_requested
 from mind_app.output.text import (
     ANSI_BOLD,
     ANSI_CYAN,
@@ -104,33 +104,26 @@ async def test_text_output_uses_static_mind_header_and_role_colors() -> None:
     assert stdout.getvalue() == "Mind project.\n"
 
 
-def test_direct_text_commands_disable_entry_animation() -> None:
+def test_only_interactive_rich_modes_request_entry_outro() -> None:
     terminal = SimpleNamespace(isatty=lambda: True)
 
-    assert not entry_animation_requested(
-        ["--chat", "hello"], output_stream=terminal
-    )
-    assert not entry_animation_requested(
-        ["--fast=hello"], output_stream=terminal
-    )
-    assert not entry_animation_requested(
-        ["--xtra", "hello"], output_stream=terminal
-    )
-    assert not entry_animation_requested(
-        ["--chat", "hello", "--code", "a.md"],
+    assert rich_outro_requested(["--agent"], output_stream=terminal)
+    assert rich_outro_requested(["--upgrade"], output_stream=terminal)
+    assert not rich_outro_requested([], output_stream=terminal)
+    assert not rich_outro_requested(["--mcp"], output_stream=terminal)
+    assert not rich_outro_requested(
+        ["--chat", "hello"],
         output_stream=terminal,
     )
-    assert entry_animation_requested([], output_stream=terminal)
-    assert entry_animation_requested(["--agent"], output_stream=terminal)
 
 
-def test_non_interactive_output_disables_entry_animation() -> None:
+def test_non_interactive_rich_mode_disables_entry_outro() -> None:
     output = SimpleNamespace(isatty=lambda: False)
 
-    assert not entry_animation_requested([], output_stream=output)
+    assert not rich_outro_requested(["--agent"], output_stream=output)
 
 
-def test_disabled_entry_animation_does_not_emit_outro() -> None:
+def test_disabled_entry_outro_does_not_emit_view() -> None:
     application = _Application()
 
     emit_entry_outro(application, enabled=False)

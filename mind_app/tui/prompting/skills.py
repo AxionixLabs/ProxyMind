@@ -9,7 +9,6 @@ from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.utils import get_cwidth
 from mind_core.skills import configured_skills
-from .paste import PASTE_PLACEHOLDER_RE
 
 SKILL_EYE_WIDTH = 16
 SKILL_PREFIX_RE = re.compile(r"^\$[A-Za-z0-9_.-]*$")
@@ -17,6 +16,13 @@ SKILL_PREFIX_RE = re.compile(r"^\$[A-Za-z0-9_.-]*$")
 
 class SkillTokenLexer(Lexer):
     """输入框 skill token 高亮。"""
+
+    def __init__(
+        self,
+        paste_placeholders: typing.Callable[[], typing.Iterable[str]] | None = None,
+    ) -> None:
+        """绑定当前输入模型提供的活动粘贴占位符。"""
+        self._paste_placeholders = paste_placeholders or (lambda: ())
 
     @staticmethod
     def _line_offsets(text: str) -> list[int]:
@@ -30,6 +36,7 @@ class SkillTokenLexer(Lexer):
     def lex_document(self, document: Document) -> typing.Callable[[int], StyleAndTextTuples]:
         """返回指定行的格式化文本。"""
         line_offsets = self._line_offsets(document.text)
+        paste_placeholders = tuple(self._paste_placeholders())
 
         def get_line(line_number: int) -> StyleAndTextTuples:
             line        = document.lines[line_number]
@@ -38,7 +45,11 @@ class SkillTokenLexer(Lexer):
             parts: StyleAndTextTuples = []
 
             pos = 0
-            for start, end, style in iter_prompt_tokens(line, offset=line_offset):
+            for start, end, style in iter_prompt_tokens(
+                line,
+                paste_placeholders=paste_placeholders,
+                offset=line_offset,
+            ):
                 line_start = start - line_offset
                 line_end = end - line_offset
                 if line_start > pos:
@@ -110,16 +121,33 @@ def iter_known_skill_tokens(text: str, *, offset: int = 0) -> typing.Iterator[tu
         cursor = end
 
 
-def iter_paste_placeholder_tokens(text: str, *, offset: int = 0) -> typing.Iterator[tuple[int, int, str]]:
+def iter_paste_placeholder_tokens(
+    text: str,
+    *,
+    paste_placeholders: typing.Iterable[str] = (),
+    offset: int = 0,
+) -> typing.Iterator[tuple[int, int, str]]:
     """迭代折叠粘贴内容的可见占位文本。"""
-    for match in PASTE_PLACEHOLDER_RE.finditer(text):
-        yield offset + match.start(), offset + match.end(), "class:paste-placeholder"
+    for placeholder in paste_placeholders:
+        token = str(placeholder or "")
+        start = text.find(token) if token else -1
+        if start >= 0:
+            yield offset + start, offset + start + len(token), "class:paste-placeholder"
 
 
-def iter_prompt_tokens(text: str, *, offset: int = 0) -> typing.Iterator[tuple[int, int, str]]:
+def iter_prompt_tokens(
+    text: str,
+    *,
+    paste_placeholders: typing.Iterable[str] = (),
+    offset: int = 0,
+) -> typing.Iterator[tuple[int, int, str]]:
     """迭代输入框中需要高亮的文本片段。"""
     tokens = [
-        *iter_paste_placeholder_tokens(text, offset=offset),
+        *iter_paste_placeholder_tokens(
+            text,
+            paste_placeholders=paste_placeholders,
+            offset=offset,
+        ),
         *((start, end, "class:skill-token") for start, end, _ in iter_known_skill_tokens(text, offset=offset))
     ]
     if text.startswith("!"):

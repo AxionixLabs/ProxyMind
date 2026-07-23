@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.session.loop import preload_tui_prompt_context
+from mind_app.tui.session.state import preload_tui_prompt_context
 
 
 @pytest.mark.anyio
@@ -32,7 +32,7 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
     )
 
     with patch(
-        "mind_app.tui.session.loop.fetch_runtime_workspace_root",
+        "mind_app.tui.session.state.fetch_runtime_workspace_root",
         AsyncMock(return_value=Path("D:/workspace")),
     ):
         await preload_tui_prompt_context(mind)
@@ -40,29 +40,29 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
     assert not runtime.active
     assert runtime.context.model == "gpt-test high"
     assert runtime.context.access_label
-    assert runtime.process_status.label == "pytest -q"
+    assert runtime.screen.process_status.label == "pytest -q"
     assert workspace_updates == [Path("D:/workspace")]
     mind.fresh_pref_config.assert_awaited_once_with(ttl_sec=0.0)
 
-    preloaded_placeholder = runtime.placeholder_text
-    runtime.message_queue.put_nowait("hello")
+    preloaded_placeholder = runtime.submissions.placeholder_text
+    runtime.submissions.message_queue.put_nowait("hello")
 
     value = await runtime.read_message(runtime.context)
 
     assert value == "hello"
-    assert runtime.placeholder_text == preloaded_placeholder
+    assert runtime.submissions.placeholder_text == preloaded_placeholder
 
 
 def test_successful_submission_prepares_next_placeholder() -> None:
     runtime = TuiRuntime()
-    runtime.input.buffer.text = "hello"
+    runtime.screen.input.buffer.text = "hello"
 
     with patch.object(
         runtime.input_model,
         "new_placeholder",
         return_value="next placeholder",
     ) as new_placeholder:
-        runtime._accept_input(runtime.input.buffer)
+        runtime.submissions.accept_input(runtime.screen.input.buffer)
 
-    assert runtime.placeholder_text == "next placeholder"
+    assert runtime.submissions.placeholder_text == "next placeholder"
     new_placeholder.assert_called_once_with("chat")

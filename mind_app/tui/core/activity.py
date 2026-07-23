@@ -39,23 +39,27 @@ from .status_frames import (
     status_phase_rate
 )
 
-STATUS_MUTED = TextStyle(foreground="#7F8C9A", dim=True)
+STATUS_MUTED   = TextStyle(foreground="#7F8C9A", dim=True)
 STATUS_WARNING = TextStyle(foreground="#FFB86B")
 STATUS_FAILURE = TextStyle(foreground="#FF6B6B")
+
 ACTIVITY_SETTLE_SEC: typing.Final[float] = 0.7
+
 ActivitySlotKey = typing.Literal[
     "foreground",
     "attachment",
     "runtime",
     "external_mcp",
+    "compact"
 ]
 
 _SLOT_KEYS: dict[ActivityStatusKind, ActivitySlotKey] = {
-    "wait": "foreground",
-    "upload": "attachment",
-    "download": "runtime",
-    "inbuild": "runtime",
-    "external_mcp": "external_mcp",
+    "wait"         : "foreground",
+    "upload"       : "attachment",
+    "download"     : "runtime",
+    "inbuild"      : "runtime",
+    "external_mcp" : "external_mcp",
+    "compact"      : "compact",
 }
 
 
@@ -177,6 +181,21 @@ class TuiActivity(object):
             ),
             finalize=lambda: _external_mcp_final_block(
                 snapshot() or {},
+                width=self.get_width(),
+            ),
+        ))
+
+    async def begin_compact(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """启动对话压缩状态动画。"""
+        await self._set_slot(_ActivitySlot(
+            key="compact",
+            kind="compact",
+            render=lambda phase: _compact_activity_block(
+                snapshot() or {},
+                phase=phase,
                 width=self.get_width(),
             ),
         ))
@@ -402,12 +421,28 @@ def _download_block(data: dict[str, typing.Any], *, phase: float) -> FragmentBlo
 
 def _download_final_block(data: dict[str, typing.Any]) -> FragmentBlock | None:
     """生成运行时下载完成后的短暂状态。"""
-    if str(data.get("stage") or "").strip().lower() == "cancelled":
-        return None
     block = download_summary_block(data)
     if block is None:
         return None
     return FragmentBlock(styled_block_fragments(block))
+
+
+def _compact_activity_block(
+    data: dict[str, typing.Any],
+    *,
+    phase: float,
+    width: int,
+) -> FragmentBlock:
+    """生成对话压缩活动区域使用的单行状态。"""
+    summary = str(data.get("summary") or "Context compacting...").strip()
+    summary = _truncate_display_text(summary, limit=max(12, int(width) - 3))
+    return _status_block(
+        summary,
+        family="wait",
+        phase=phase,
+        spinner=True,
+        sweep=False,
+    )
 
 
 def _mcp_activity_block(

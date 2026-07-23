@@ -9,11 +9,23 @@ from dataclasses import dataclass
 PasteKind   = typing.Literal["Text", "Code", "Data", "Diff", "Log"]
 PasteMetric = typing.Literal["chars", "lines"]
 
-PASTE_PLACEHOLDER_RE = re.compile(
-    r"\[(?:Text|Code|Data|Diff|Log) #(?P<index>[1-9]\d*)"
-    r"(?: · [A-Za-z][A-Za-z0-9+#.-]*)?"
-    r" · \d[\d,]* (?:chars|lines)]"
+_PASTE_PLACEHOLDER_RE = re.compile(
+    r"\[(?P<kind>Text|Code|Data|Diff|Log) #(?P<index>[1-9]\d*)"
+    r"(?: · (?P<subtype>[A-Za-z][A-Za-z0-9+#.-]*))?"
+    r" · (?P<count>0|[1-9]\d{0,2}(?:,\d{3})*)"
+    r" (?P<metric>chars|lines)]"
 )
+
+_CODE_LANGUAGES = frozenset({
+    "Go",
+    "HTML",
+    "JavaScript",
+    "Python",
+    "Rust",
+    "SQL",
+    "Shell",
+    "TypeScript",
+})
 
 _CLASSIFY_CHAR_LIMIT = 64 * 1024
 _CLASSIFY_LINE_LIMIT = 200
@@ -46,6 +58,17 @@ class PasteDescriptor(object):
     count: int
 
 
+@dataclass(frozen=True, slots=True)
+class PastePlaceholder(object):
+    """描述经过严格验证的折叠粘贴占位符。"""
+
+    kind: PasteKind
+    index: int
+    subtype: str | None
+    metric: PasteMetric
+    count: int
+
+
 def paste_line_count(text: str) -> int:
     """返回文本缓冲区包含的逻辑行数。"""
     return text.count("\n") + 1 if text else 0
@@ -57,7 +80,7 @@ def describe_paste(text: str) -> PasteDescriptor:
     line_count = paste_line_count(text)
 
     sample = text[:_CLASSIFY_CHAR_LIMIT]
-    lines = tuple(sample.splitlines()[:_CLASSIFY_LINE_LIMIT])
+    lines  = tuple(sample.splitlines()[:_CLASSIFY_LINE_LIMIT])
 
     if _looks_like_diff(sample, lines):
         return PasteDescriptor("Diff", None, "lines", line_count)
@@ -72,6 +95,7 @@ def describe_paste(text: str) -> PasteDescriptor:
         return PasteDescriptor("Text", "Markdown", "lines", line_count)
 
     is_code, language = _code_language(sample, lines)
+
     if is_code:
         return PasteDescriptor("Code", language, "lines", line_count)
 
@@ -87,10 +111,37 @@ def format_paste_placeholder(descriptor: PasteDescriptor, index: int) -> str:
     return f"[{' · '.join(parts)}]"
 
 
-def paste_placeholder_index(value: str) -> int | None:
-    """返回完整占位符中的编号。"""
-    match = PASTE_PLACEHOLDER_RE.fullmatch(str(value or ""))
-    return int(match.group("index")) if match is not None else None
+def parse_paste_placeholder(value: str) -> PastePlaceholder | None:
+    """解析完整占位符，并拒绝非生成器格式的类型组合。"""
+    match = _PASTE_PLACEHOLDER_RE.fullmatch(str(value or ""))
+    if match is None:
+        return None
+
+    kind    = match.group("kind")
+    subtype = match.group("subtype")
+    metric  = match.group("metric")
+
+    valid = (
+        (kind == "Text" and subtype is None and metric == "chars")
+        or (kind == "Text" and subtype == "Markdown" and metric == "lines")
+        or (
+            kind == "Code"
+            and metric == "lines"
+            and (subtype is None or subtype in _CODE_LANGUAGES)
+        )
+        or (kind == "Data" and subtype == "JSON" and metric == "chars")
+        or (kind in {"Diff", "Log"} and subtype is None and metric == "lines")
+    )
+    if not valid:
+        return None
+
+    return PastePlaceholder(
+        kind=kind,
+        index=int(match.group("index")),
+        subtype=subtype,
+        metric=metric,
+        count=int(match.group("count").replace(",", "")),
+    )
 
 
 def _looks_like_diff(sample: str, lines: tuple[str, ...]) -> bool:

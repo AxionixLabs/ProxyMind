@@ -21,26 +21,28 @@ from mind_app.tui.features.summary import (
 def test_process_status_is_a_dedicated_optional_row() -> None:
     runtime = TuiRuntime()
 
-    assert runtime._process_status_height() == 0
+    assert runtime.screen._process_status_height() == 0
 
     runtime.set_process_status_label("pytest -q · +2")
 
-    assert runtime._process_status_height() == 1
-    rendered = fragments_text(runtime.process_status.fragments())
+    assert runtime.screen._process_status_height() == 1
+    rendered = fragments_text(runtime.screen.process_status.fragments())
     assert rendered[0] in {"◦", "•"}
     assert rendered[1:] == " exec pytest -q · +2 · /ps to view"
-    assert "pytest -q" not in fragments_text(runtime._footer_fragments())
-    assert runtime.canvas.children.index(runtime.status_window) < (
-        runtime.canvas.children.index(runtime.process_status_window)
-    ) < runtime.canvas.children.index(runtime.queued_window)
+    assert "pytest -q" not in fragments_text(
+        runtime.screen._footer_fragments()
+    )
+    assert runtime.screen.canvas.children.index(runtime.screen.status_window) < (
+        runtime.screen.canvas.children.index(runtime.screen.process_status_window)
+    ) < runtime.screen.canvas.children.index(runtime.screen.queued_window)
     exec_fragment = next(
         fragment
-        for fragment in runtime.process_status.fragments()
+        for fragment in runtime.screen.process_status.fragments()
         if fragment[1] == "exec"
     )
     command_fragment = next(
         fragment
-        for fragment in runtime.process_status.fragments()
+        for fragment in runtime.screen.process_status.fragments()
         if fragment[1] == "pytest -q · +2"
     )
     assert exec_fragment[0] == "class:process-status.exec"
@@ -48,7 +50,7 @@ def test_process_status_is_a_dedicated_optional_row() -> None:
 
     runtime.set_process_status_label("")
 
-    assert runtime._process_status_height() == 0
+    assert runtime.screen._process_status_height() == 0
 
 
 def test_process_status_summary_respects_terminal_display_width() -> None:
@@ -60,7 +62,7 @@ def test_process_status_summary_respects_terminal_display_width() -> None:
         line_width=20,
     )
 
-    status = TuiRuntime().process_status
+    status = TuiRuntime().screen.process_status
     status._get_width = lambda: 20
     status.set_label(label)
     rendered = fragments_text(status.fragments())
@@ -125,4 +127,4 @@ async def test_process_status_monitor_updates_and_clears_runtime() -> None:
         "pytest -q",
         "",
     ]
-    assert runtime.process_status.label == ""
+    assert runtime.screen.process_status.label == ""

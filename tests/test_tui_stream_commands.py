@@ -9,6 +9,8 @@ import pytest
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.styles import text_block
+from mind_app.tui.session import barriers
+from mind_app.tui.session import dispatch
 from mind_app.tui.session import loop
 
 
@@ -40,6 +42,8 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
         is_service_mcp_linked=lambda: False,
         require_service_runtime_context=lambda: object(),
         external_mcp=None,
+        cancel_service_runtime_startup=AsyncMock(),
+        await_cleanup=lambda awaitable: awaitable,
     )
 
     async def monitor_exec_status(_runtime, _mind) -> None:
@@ -62,24 +66,24 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
         return execute()
 
     monkeypatch.setattr(loop, "monitor_exec_status", monitor_exec_status)
-    monkeypatch.setattr(loop, "link_helix_runtime", link_helix_runtime)
+    monkeypatch.setattr(barriers, "link_helix_runtime", link_helix_runtime)
     monkeypatch.setattr(loop, "run_tui_model_turn", run_model_turn)
     monkeypatch.setattr(
-        loop,
+        barriers,
         "service_runtime_asset_missing",
         lambda _context: False,
     )
 
-    runtime.message_queue.put_nowait("first")
+    runtime.submissions.message_queue.put_nowait("first")
     run_task = asyncio.create_task(loop.run_tui_loop(mind))
     await first_turn_started.wait()
 
-    runtime.input.buffer.text = "/helix-link"
-    runtime._accept_input(runtime.input.buffer)
+    runtime.screen.input.buffer.text = "/helix-link"
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
     await link_started.wait()
 
-    runtime.input.buffer.text = "second"
-    runtime._accept_input(runtime.input.buffer)
+    runtime.screen.input.buffer.text = "second"
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
     release_first_turn.set()
 
     for _ in range(20):
@@ -122,6 +126,8 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
         is_service_mcp_linked=lambda: False,
         require_service_runtime_context=lambda: object(),
         external_mcp=None,
+        cancel_service_runtime_startup=AsyncMock(),
+        await_cleanup=lambda awaitable: awaitable,
     )
 
     async def link_helix_runtime(_mind) -> None:
@@ -143,20 +149,20 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
         "monitor_exec_status",
         AsyncMock(return_value=None),
     )
-    monkeypatch.setattr(loop, "link_helix_runtime", link_helix_runtime)
+    monkeypatch.setattr(barriers, "link_helix_runtime", link_helix_runtime)
     monkeypatch.setattr(loop, "run_tui_model_turn", run_model_turn)
     monkeypatch.setattr(
-        loop,
+        barriers,
         "service_runtime_asset_missing",
         lambda _context: False,
     )
 
-    runtime.message_queue.put_nowait("first")
+    runtime.submissions.message_queue.put_nowait("first")
     run_task = asyncio.create_task(loop.run_tui_loop(mind))
     await turn_started.wait()
 
-    runtime.input.buffer.text = "/helix-link"
-    runtime._accept_input(runtime.input.buffer)
+    runtime.screen.input.buffer.text = "/helix-link"
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
     await link_started.wait()
     release_turn.set()
 
@@ -165,8 +171,8 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
             break
         await asyncio.sleep(0)
 
-    runtime.input.buffer.text = "/quit"
-    runtime._accept_input(runtime.input.buffer)
+    runtime.screen.input.buffer.text = "/quit"
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
     await asyncio.wait_for(run_task, timeout=1.0)
 
     assert task_event.is_set()
@@ -175,7 +181,10 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("command", ["/mcp start", "/mcp force"])
+@pytest.mark.parametrize(
+    "command",
+    ["/mcp start", "/mcp force", "/mcp restart"],
+)
 async def test_idle_mcp_start_queues_query_until_result_is_committed(
     monkeypatch,
     command,
@@ -218,19 +227,19 @@ async def test_idle_mcp_start_queues_query_until_result_is_committed(
         "monitor_exec_status",
         AsyncMock(return_value=None),
     )
-    monkeypatch.setattr(loop, "run_mcp_action", run_mcp_action)
+    monkeypatch.setattr(dispatch, "run_mcp_action", run_mcp_action)
     monkeypatch.setattr(loop, "run_tui_model_turn", run_model_turn)
 
-    runtime.message_queue.put_nowait(command)
+    runtime.submissions.message_queue.put_nowait(command)
     run_task = asyncio.create_task(loop.run_tui_loop(mind))
     await mcp_started.wait()
 
     assert runtime.foreground_active
-    runtime.input.buffer.text = "hi"
-    runtime._accept_input(runtime.input.buffer)
+    runtime.screen.input.buffer.text = "hi"
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
 
-    assert runtime.queued_messages.active
-    assert runtime.message_queue.empty()
+    assert runtime.submissions.queued_messages.active
+    assert runtime.submissions.message_queue.empty()
     assert not model_started.is_set()
 
     release_mcp.set()
@@ -239,3 +248,79 @@ async def test_idle_mcp_start_queues_query_until_result_is_committed(
     document = fragments_text(runtime.document.fragments(width=100))
     assert document.index("External MCP ready") < document.index("> hi")
     assert model_started.is_set()
+
+
+@pytest.mark.anyio
+async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
+    monkeypatch,
+) -> None:
+    runtime = TuiRuntime()
+    task_event = asyncio.Event()
+    link_started = asyncio.Event()
+    link_cancelled = asyncio.Event()
+    cleanup_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    views = []
+    pref_config = {"primary": {"model": "test-model"}}
+
+    async def link_helix_runtime(_mind) -> None:
+        link_started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            link_cancelled.set()
+
+    async def cancel_service_runtime_startup() -> None:
+        cleanup_started.set()
+        await release_cleanup.wait()
+
+    cancel_startup = AsyncMock(side_effect=cancel_service_runtime_startup)
+    mind = SimpleNamespace(
+        task_event=task_event,
+        stop_runtime_on_exit=False,
+        pref=SimpleNamespace(to_config=lambda: pref_config),
+        frontend=SimpleNamespace(
+            runtime=runtime,
+            interaction=runtime,
+            application=SimpleNamespace(emit=views.append),
+        ),
+        fresh_pref_config=AsyncMock(return_value=pref_config),
+        native_coding=SimpleNamespace(reset_patch_diff=Mock()),
+        set_history_workspace=Mock(),
+        cancel_service_runtime_startup=cancel_startup,
+        await_cleanup=lambda awaitable: awaitable,
+    )
+
+    monkeypatch.setattr(
+        loop,
+        "monitor_exec_status",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        dispatch,
+        "link_helix_runtime",
+        link_helix_runtime,
+    )
+
+    runtime.submissions.message_queue.put_nowait("/helix-link")
+    run_task = asyncio.create_task(loop.run_tui_loop(mind))
+    await link_started.wait()
+
+    runtime.submissions.interrupt_input()
+    await link_cancelled.wait()
+    await cleanup_started.wait()
+
+    assert runtime.foreground_active
+    release_cleanup.set()
+    for _ in range(20):
+        if not runtime.foreground_active:
+            break
+        await asyncio.sleep(0)
+
+    assert not runtime.foreground_active
+    assert not run_task.done()
+    cancel_startup.assert_awaited_once_with()
+    assert any(view.type == "tui.helix.interrupted" for view in views)
+
+    runtime.submissions.message_queue.put_nowait("/quit")
+    await asyncio.wait_for(run_task, timeout=1.0)

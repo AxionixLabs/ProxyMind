@@ -612,6 +612,21 @@ class Mind(object):
             lambda stop_event: design.external_mcp_live(stop_event, snapshot)
         )
 
+    async def start_compact_anim(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """启动对话压缩状态动画。"""
+        if not self.animate:
+            return None
+        if self.frontend.runtime.active:
+            await self.frontend.runtime.begin_compact_status(snapshot)
+            return None
+        design = self.require_design()
+        await self.anim_manager.start(
+            lambda stop_event: design.external_mcp_live(stop_event, snapshot)
+        )
+
     async def with_mcp_session(
         self,
         pref_config: dict[str, typing.Any],

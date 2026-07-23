@@ -29,8 +29,8 @@ from ..prompting.ghost import (
 from ..prompting.paste import (
     describe_paste,
     format_paste_placeholder,
-    paste_line_count,
-    paste_placeholder_index,
+    parse_paste_placeholder,
+    paste_line_count
 )
 from ..prompting.skills import SkillTokenLexer
 
@@ -115,10 +115,13 @@ class TuiInputModel(object):
     PASTE_LINE_THRESHOLD: typing.Final[int] = 20
 
     def __init__(self) -> None:
+        self.paste_store: dict[str, str] = {}
+        self._paste_sequence: int = 0
+
         self.history      = TuiInputHistory()
         self.completer    = SlashCommandCompleter()
         self.auto_suggest = TuiAutoSuggest()
-        self.lexer        = SkillTokenLexer()
+        self.lexer        = SkillTokenLexer(self._active_paste_placeholders)
 
         self.interrupt_handler: typing.Callable[[], None] | None      = None
         self.exit_handler: typing.Callable[[], None] | None           = None
@@ -127,14 +130,12 @@ class TuiInputModel(object):
         self.can_rollback_queue: typing.Callable[[], bool] | None     = None
         self.rollback_queue_handler: typing.Callable[[], bool] | None = None
 
-        self.paste_store: dict[str, str] = {}
-        self._paste_sequence: int = 0
-
         self.shell_mode: bool = False
+
         self._history_entries: tuple[str, ...] = ()
-        self._history_index: int | None = None
-        self._history_draft: Document | None = None
-        self._history_draft_shell_mode: bool = False
+        self._history_index: int | None        = None
+        self._history_draft: Document | None   = None
+        self._history_draft_shell_mode: bool   = False
 
         self.key_bindings = self._build_key_bindings()
 
@@ -161,7 +162,8 @@ class TuiInputModel(object):
             "completion-menu.meta.completion.current": "#8FC7EA",
         })
 
-    def theme(self, mode: str) -> dict[str, str]:
+    @staticmethod
+    def theme(mode: str) -> dict[str, str]:
         """返回运行模式对应的 TUI 颜色和标签。"""
         themes = {
             "chat": {"brand": "#4F8FC8", "soft": "#2F6FAD", "label": "Chat"},
@@ -227,14 +229,18 @@ class TuiInputModel(object):
         """返回当前提交文本关联的折叠粘贴状态。"""
         return dict(self.paste_store)
 
+    def _active_paste_placeholders(self) -> tuple[str, ...]:
+        """返回输入框中仍然有效的折叠粘贴占位符。"""
+        return tuple(self.paste_store)
+
     def restore_submission_state(self, state: dict[str, str]) -> None:
         """恢复被撤回提交文本关联的折叠粘贴状态。"""
         self.paste_store = dict(state)
         self._paste_sequence = max(
             (
-                index
+                parsed.index
                 for placeholder in self.paste_store
-                if (index := paste_placeholder_index(placeholder)) is not None
+                if (parsed := parse_paste_placeholder(placeholder)) is not None
             ),
             default=0,
         )
@@ -251,7 +257,7 @@ class TuiInputModel(object):
             key=lambda item: len(item[0]),
             reverse=True,
         ):
-            restored = restored.replace(placeholder, original)
+            restored = restored.replace(placeholder, original, 1)
         return restored.strip()
 
     def clear_submission_state(self) -> None:

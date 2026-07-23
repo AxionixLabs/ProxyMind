@@ -5,11 +5,12 @@ import math
 import typing
 from rich.text import Text
 from rich.cells import cell_len
+from mind_nova import const
 from .elapsed import (
     elapsed_format_key,
     format_elapsed,
     max_elapsed_display_width,
-    pad_elapsed_label,
+    pad_elapsed_label
 )
 from .specs import StatusSpec
 from ..utils import mix_hex_color
@@ -378,7 +379,7 @@ class StatusRenderer(StatusSpec):
             "xtra" : "Xtra Stream",
         }
 
-        return labels.get(normalized, "Mind Stream")
+        return labels.get(normalized, f"{const.APP_DESC} Stream")
 
     @classmethod
     def _breathing_status_dot(
@@ -496,7 +497,11 @@ class StatusRenderer(StatusSpec):
         out = cls._mode_status_indicator(phase)
         out.append(" ", style=colors["edge"])
 
-        text = cls.fit_status_text(text, kind="mode", fallback="Mind Stream")
+        text = cls.fit_status_text(
+            text,
+            kind="mode",
+            fallback=f"{const.APP_DESC} Stream",
+        )
         span = max(1, len(text))
 
         focus = cls._drift_focus(

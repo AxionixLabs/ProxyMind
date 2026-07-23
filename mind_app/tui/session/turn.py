@@ -1,14 +1,83 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import typing
+
+from mind_app.frontend import ApplicationSink, ApplicationView
 from mind_app.mcp.contracts import McpSessionLike
+from mind_app.presentation.models import TextSpan
+from mind_nova import const
 from mind_nova.events import EventReport
 from mind_nova.modes import RunMode
 from ...runtime.support.calling import resolve_mode_runner
+from ..core.runtime import TuiRuntime
+from ..core.styles import (
+    BRIGHT_STYLE,
+    FAILURE_STYLE,
+    MUTED_STYLE,
+    fragment_block,
+)
 
 if typing.TYPE_CHECKING:
     from ...controller import Mind
+
+
+async def execute_tui_model_turn(
+    application: ApplicationSink,
+    runtime: TuiRuntime,
+    turn: typing.Coroutine[typing.Any, typing.Any, None],
+    *,
+    stream_command_handler: typing.Callable[
+        [str, typing.Callable[[], bool]],
+        bool,
+    ] | None = None,
+    show_interrupt_notice: typing.Callable[[], bool] = lambda: True,
+) -> None:
+    """执行可由主输入区定向取消的单个模型轮次。"""
+    task = asyncio.create_task(turn, name="mind tui model turn")
+    interrupted = False
+
+    def cancel_turn() -> bool:
+        """取消模型任务并记录响应中断来源。"""
+        cancelled = task.cancel()
+        if cancelled:
+            runtime.request_turn_interrupt()
+        return cancelled
+
+    runtime.set_execution_active(True)
+    runtime.bind_interrupt_handler(cancel_turn)
+    if stream_command_handler is not None:
+        runtime.bind_stream_command_handler(
+            lambda value: stream_command_handler(value, cancel_turn)
+        )
+    try:
+        await task
+    except asyncio.CancelledError:
+        if not runtime.consume_turn_interrupt():
+            raise
+        interrupted = True
+    else:
+        interrupted = runtime.consume_turn_interrupt()
+    finally:
+        if not interrupted:
+            runtime.consume_turn_interrupt()
+        runtime.bind_stream_command_handler(None)
+        runtime.bind_interrupt_handler(None)
+        runtime.set_execution_active(False)
+
+    if interrupted and show_interrupt_notice():
+        application.emit(ApplicationView(
+            type="tui.interrupted",
+            renderable=fragment_block(
+                TextSpan("■", FAILURE_STYLE),
+                TextSpan(" Response interrupted", BRIGHT_STYLE),
+                TextSpan(
+                    f" · Tell {const.APP_DESC} what to do differently.",
+                    MUTED_STYLE,
+                ),
+            ),
+        ))
 
 
 async def run_tui_model_turn(

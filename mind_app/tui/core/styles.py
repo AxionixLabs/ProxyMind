@@ -6,6 +6,12 @@ from mind_app.presentation.models import (
     TextSpan,
     TextStyle
 )
+from mind_nova import const
+from prompt_toolkit.styles import (
+    BaseStyle,
+    Style,
+    merge_styles,
+)
 from .models import FragmentBlock
 
 MUTED_STYLE   = TextStyle(foreground="#7F8C9A", dim=True)
@@ -15,8 +21,49 @@ BODY_STYLE    = TextStyle(foreground="#DDE7EF")
 SUCCESS_STYLE = TextStyle(foreground="#5FD7AF", bold=True)
 WARNING_STYLE = TextStyle(foreground="#FFB86B", bold=True)
 FAILURE_STYLE = TextStyle(foreground="#FF6B6B", bold=True)
+
 ASSISTANT_PREFIX_CLASS = "class:assistant.prefix"
-ASSISTANT_PREFIX_STYLE = TextStyle(foreground="#7F8C9A", dim=True)
+
+TUI_APPLICATION_OVERRIDES = Style.from_dict({
+    "assistant.prefix": "dim fg:#7F8C9A",
+    "auto-suggestion": "bg:default #5A616A",
+    "completion-menu": "bg:default #B8C0C9",
+    "completion-menu.completion": "bg:default bold #B8C0C9",
+    "completion-menu.completion.current": "bg:default bold #F4F8FB",
+    "completion-menu.meta.completion": "bg:default #707A84",
+    "completion-menu.meta.completion.current": "bg:default #8FC7EA",
+    "queue.label": "bg:default #8A929C bold",
+    "queue.marker": "bg:default #7B838E",
+    "queue.text": "bg:default #DDE7EF dim",
+    "queue.more": "bg:default #7B838E",
+    "input.notice.marker": "bg:default #FF5F5F bold",
+    "input.notice": "bg:default #FF8A8A",
+    "process-status.exec": "fg:#D8B26E",
+    "process-status.separator": "fg:#7B838E",
+    "process-status.action": "fg:#8FC7EA bold",
+    "process-status.hint": "fg:#7B838E dim",
+    "footer.separator": "fg:#7B838E",
+    "footer.model": "fg:#F3F5F8",
+    "footer.access": "fg:#8FC7EA",
+    "footer.access.full": "fg:#D8B26E",
+    "footer.workspace": "fg:#8A929C",
+    "footer.queue-hint": "fg:#7B838E dim",
+    "footer.exit-key": "fg:#C9A86A",
+    "footer.exit-hint": "fg:#8A929C",
+    "shell.title.dot": "fg:#7F8C9A",
+    "shell.title.action": "fg:#8FC7EA bold",
+    "shell.title.command": "fg:#F4F7FA",
+    "shell.title.suffix": "fg:#7F8C9A",
+    "shell.status": "fg:#87919D",
+    "shell.stdout": "fg:#D8DCE2",
+    "shell.stderr": "fg:#B8C1CB",
+    "ps.title": "fg:#F4F7FA bold",
+    "ps.meta": "fg:#87919D",
+    "ps.help": "fg:#69727D",
+    "ps.output": "fg:#D8DCE2",
+    "ps.waiting": "fg:#87919D",
+    "ps.error": "fg:#FF6B6B",
+})
 
 
 def prompt_style(style: TextStyle) -> str:
@@ -39,6 +86,29 @@ def prompt_style(style: TextStyle) -> str:
         parts.append(f"bg:{style.background}")
 
     return " ".join(parts)
+
+
+def build_tui_application_style(
+    input_style: BaseStyle,
+    approval_style: BaseStyle,
+    menu_style: BaseStyle,
+) -> BaseStyle:
+    """组合 TUI 输入、审批、菜单和主画布样式。"""
+    return merge_styles([
+        input_style,
+        approval_style,
+        menu_style,
+        TUI_APPLICATION_OVERRIDES,
+    ])
+
+
+def exit_summary_fragments() -> tuple[tuple[str, str], ...]:
+    """生成 TUI 释放终端后的静态退出摘要。"""
+    return (
+        ("dim fg:#7F8C9A", "■ "),
+        ("fg:#DDE7EF", const.APP_DESC),
+        ("dim fg:#7F8C9A", " · session ended"),
+    )
 
 
 def styled_block_fragments(
@@ -88,9 +158,9 @@ def text_block(text: str, style: TextStyle = TextStyle()) -> FragmentBlock:
 
 def query_block(text: str) -> FragmentBlock:
     """按普通 query 或命令类型生成用户输入块。"""
-    value   = str(text).strip()
-    lines   = value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    command = value.startswith(("/", "!", "$", "\\"))
+    value      = str(text).strip()
+    lines      = value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    command    = value.startswith(("/", "!", "$", "\\"))
     text_style = "class:prompt.command.slash" if value.startswith("/") else "class:prompt"
 
     fragments: list[tuple[str, str]] = []

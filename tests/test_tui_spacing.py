@@ -37,10 +37,8 @@ from mind_app.tui.core.document import (
 )
 from mind_app.tui.core.models import FragmentBlock
 from mind_app.tui.core.render import display_line_count
-from mind_app.tui.core.runtime import (
-    TuiRuntime,
-    _erase_terminal_scrollback,
-)
+from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.tui.core.screen import _erase_terminal_scrollback
 
 
 def _block(text: str) -> FragmentBlock:
@@ -91,15 +89,15 @@ def test_running_command_error_enters_document_after_active_block() -> None:
     runtime.append_block(_block("approved"), kind="approval")
     runtime.set_active_renderable(_block("streaming"), kind="assistant")
     runtime.execution_active = True
-    runtime.input.buffer.text = "/new"
+    runtime.screen.input.buffer.text = "/new"
 
-    runtime._accept_input(runtime.input.buffer)
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
 
     assert _document_text(runtime.document) == (
         "approved\n\nstreaming\n\n"
         "■ '/new' is disabled while a task is in progress."
     )
-    assert runtime._queued_fragments() == []
+    assert runtime.screen._queued_fragments() == []
 
     runtime.commit_active_renderable(_block("completed"))
 
@@ -154,8 +152,8 @@ def test_ctrl_l_clear_is_repeatable_and_keeps_active_block() -> None:
     runtime.append_block(_block("old history"), kind="operation")
     runtime.set_active_renderable(_block("streaming"), kind="assistant")
 
-    with patch.object(runtime.application.renderer, "clear") as clear:
-        runtime._clear_visible_transcript()
+    with patch.object(runtime.screen.application.renderer, "clear") as clear:
+        runtime.viewport.clear_visible()
 
         assert _document_text(runtime.document) == "streaming"
         assert runtime.document.scrollback_prefix_count == 0
@@ -166,7 +164,7 @@ def test_ctrl_l_clear_is_repeatable_and_keeps_active_block() -> None:
 
         assert _document_text(runtime.document) == "completed\n\nnew result"
 
-        runtime._clear_visible_transcript()
+        runtime.viewport.clear_visible()
 
         assert _document_text(runtime.document) == ""
         assert runtime.document.scrollback_prefix_count == 0
@@ -185,19 +183,19 @@ def test_ctrl_l_cancels_pending_scrollback_before_clearing() -> None:
     runtime = TuiRuntime()
     scrollback_task = Mock()
     scrollback_task.done.return_value = False
-    runtime._scrollback_task = scrollback_task
+    runtime.viewport._scrollback_task = scrollback_task
 
     with (
-        patch.object(runtime.application.renderer, "clear") as clear,
+        patch.object(runtime.screen.application.renderer, "clear") as clear,
         patch(
-            "mind_app.tui.core.runtime._erase_terminal_scrollback"
+            "mind_app.tui.core.screen._erase_terminal_scrollback"
         ) as erase_scrollback,
     ):
-        runtime._clear_visible_transcript()
+        runtime.viewport.clear_visible()
 
     scrollback_task.cancel.assert_called_once_with()
     clear.assert_called_once_with()
-    erase_scrollback.assert_called_once_with(runtime.application.output)
+    erase_scrollback.assert_called_once_with(runtime.screen.application.output)
 
 
 def test_terminal_scrollback_uses_vt_erase_sequence() -> None:
@@ -220,7 +218,7 @@ def test_terminal_scrollback_skips_raw_ansi_on_legacy_win32(
         write_raw=Mock(),
         flush=Mock(),
     )
-    monkeypatch.setattr("mind_app.tui.core.runtime.sys.platform", "win32")
+    monkeypatch.setattr("mind_app.tui.core.screen.sys.platform", "win32")
 
     _erase_terminal_scrollback(output)
 
@@ -234,16 +232,16 @@ async def test_idle_turn_keeps_all_transcript_blocks_in_document() -> None:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
         with patch.object(
-            runtime.application.output,
+            runtime.screen.application.output,
             "get_size",
             return_value=Size(rows=10, columns=40),
         ):
             await runtime.open()
             try:
                 with patch.object(
-                    runtime.application,
+                    runtime.screen.application,
                     "print_text",
-                    wraps=runtime.application.print_text,
+                    wraps=runtime.screen.application.print_text,
                 ) as print_text:
                     runtime.set_execution_active(True)
                     for index in range(6):
@@ -278,57 +276,57 @@ async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> 
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
         with patch.object(
-            runtime.application.output,
+            runtime.screen.application.output,
             "get_size",
             return_value=Size(rows=12, columns=40),
         ):
             await runtime.open()
             try:
-                assert not runtime.application.full_screen
-                initial_height = runtime.canvas.preferred_height(40, 12)
+                assert not runtime.screen.application.full_screen
+                initial_height = runtime.screen.canvas.preferred_height(40, 12)
                 assert initial_height.min == 3
                 assert initial_height.preferred == 3
                 assert initial_height.max == 3
 
-                initial_screen = runtime.application.renderer.last_rendered_screen
+                initial_screen = runtime.screen.application.renderer.last_rendered_screen
                 initial_input = initial_screen.visible_windows_to_write_positions[
-                    runtime.input.window
+                    runtime.screen.input.window
                 ]
                 initial_footer = initial_screen.visible_windows_to_write_positions[
-                    runtime.footer_window
+                    runtime.screen.footer_window
                 ]
-                render_count = runtime.application.render_counter
-                runtime.set_activity_renderable(_block("thinking"))
+                render_count = runtime.screen.application.render_counter
+                runtime.screen.set_activity_renderable(_block("thinking"))
                 for _ in range(20):
                     await asyncio.sleep(0)
-                    if runtime.application.render_counter > render_count:
+                    if runtime.screen.application.render_counter > render_count:
                         break
 
-                active_screen = runtime.application.renderer.last_rendered_screen
+                active_screen = runtime.screen.application.renderer.last_rendered_screen
                 active_input = active_screen.visible_windows_to_write_positions[
-                    runtime.input.window
+                    runtime.screen.input.window
                 ]
                 active_footer = active_screen.visible_windows_to_write_positions[
-                    runtime.footer_window
+                    runtime.screen.footer_window
                 ]
                 assert initial_input.ypos == 0
                 assert initial_footer.ypos == 2
                 assert active_input.ypos > initial_input.ypos
                 assert active_footer.ypos > initial_footer.ypos
 
-                render_count = runtime.application.render_counter
+                render_count = runtime.screen.application.render_counter
                 runtime.append_block(_block("answer"), kind="assistant")
                 for _ in range(20):
                     await asyncio.sleep(0)
-                    if runtime.application.render_counter > render_count:
+                    if runtime.screen.application.render_counter > render_count:
                         break
 
-                content_screen = runtime.application.renderer.last_rendered_screen
+                content_screen = runtime.screen.application.renderer.last_rendered_screen
                 content_input = content_screen.visible_windows_to_write_positions[
-                    runtime.input.window
+                    runtime.screen.input.window
                 ]
                 content_footer = content_screen.visible_windows_to_write_positions[
-                    runtime.footer_window
+                    runtime.screen.footer_window
                 ]
 
                 assert content_input.ypos > active_input.ypos
@@ -347,11 +345,11 @@ async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> 
                     for _style, text in runtime.document.all_fragments(width=40)
                 )
 
-                render_count = runtime.application.render_counter
+                render_count = runtime.screen.application.render_counter
                 runtime.append_block(_block("more\n" * 20), kind="operation")
                 for _ in range(20):
                     await asyncio.sleep(0)
-                    if runtime.application.render_counter > render_count:
+                    if runtime.screen.application.render_counter > render_count:
                         break
 
                 assert runtime.document.scrollback_prefix_count > committed_count
@@ -366,26 +364,28 @@ async def test_multiline_input_grows_for_trailing_edit_line() -> None:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
         with patch.object(
-            runtime.application.output,
+            runtime.screen.application.output,
             "get_size",
             return_value=Size(rows=12, columns=40),
         ):
             await runtime.open()
             try:
-                render_count = runtime.application.render_counter
-                runtime.input.buffer.text = "first\nsecond\n"
-                runtime.input.buffer.cursor_position = len(runtime.input.buffer.text)
+                render_count = runtime.screen.application.render_counter
+                runtime.screen.input.buffer.text = "first\nsecond\n"
+                runtime.screen.input.buffer.cursor_position = len(
+                    runtime.screen.input.buffer.text
+                )
                 for _ in range(20):
                     await asyncio.sleep(0)
-                    if runtime.application.render_counter > render_count:
+                    if runtime.screen.application.render_counter > render_count:
                         break
 
-                screen = runtime.application.renderer.last_rendered_screen
+                screen = runtime.screen.application.renderer.last_rendered_screen
                 input_position = screen.visible_windows_to_write_positions[
-                    runtime.input.window
+                    runtime.screen.input.window
                 ]
 
-                assert runtime._input_height() == 3
+                assert runtime.screen._input_height() == 3
                 assert input_position.height == 3
             finally:
                 await runtime.close()
@@ -397,14 +397,14 @@ async def test_ctrl_l_repeatedly_hides_new_transcript_without_losing_archive() -
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
 
         with patch.object(
-            runtime.application.output,
+            runtime.screen.application.output,
             "get_size",
             return_value=Size(rows=12, columns=40),
         ):
             await runtime.open()
             try:
                 runtime.append_block(_block("previous answer"), kind="assistant")
-                runtime.input.buffer.text = "draft input"
+                runtime.screen.input.buffer.text = "draft input"
                 pipe_input.send_text("\x0c")
 
                 for _ in range(100):
@@ -414,7 +414,7 @@ async def test_ctrl_l_repeatedly_hides_new_transcript_without_losing_archive() -
 
                 assert not runtime.document.has_visible_content
                 assert runtime.document.cleared_prefix_count == 1
-                assert runtime.input.buffer.text == "draft input"
+                assert runtime.screen.input.buffer.text == "draft input"
 
                 runtime.append_block(_block("new answer"), kind="assistant")
                 assert runtime.document.has_visible_content
@@ -427,7 +427,7 @@ async def test_ctrl_l_repeatedly_hides_new_transcript_without_losing_archive() -
 
                 assert not runtime.document.has_visible_content
                 assert runtime.document.cleared_prefix_count == 2
-                assert runtime.input.buffer.text == "draft input"
+                assert runtime.screen.input.buffer.text == "draft input"
                 assert "previous answer" in "".join(
                     text
                     for _style, text in runtime.document.all_fragments(width=40)
@@ -770,7 +770,7 @@ def test_typewriter_cursor_does_not_create_a_transient_display_row() -> None:
     output._cursor = "█"
 
     with patch.object(
-        runtime.application.output,
+        runtime.screen.application.output,
         "get_size",
         return_value=Size(rows=24, columns=40),
     ):

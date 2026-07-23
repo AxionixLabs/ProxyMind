@@ -2,7 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -11,7 +11,9 @@ from mind_app.tui.adapters.application import TuiApplicationSink
 from mind_app.tui.core.interrupt import TuiInterruptState
 from mind_app.tui.core.queued import TuiSubmission
 from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.session.loop import _execute_tui_model_turn
+from mind_app.tui.core.submission import TuiInterruptRequested
+from mind_app.tui.session import loop
+from mind_app.tui.session.turn import execute_tui_model_turn
 
 
 def test_interrupt_state_expires_and_consumes_requests() -> None:
@@ -36,20 +38,22 @@ def test_interrupt_state_expires_and_consumes_requests() -> None:
 @pytest.mark.anyio
 async def test_double_ctrl_c_exits_and_precedes_queued_message() -> None:
     runtime = TuiRuntime()
-    runtime.queued_messages.append(TuiSubmission(
+    runtime.submissions.queued_messages.append(TuiSubmission(
         value="queued",
         editable_text="queued",
         paste_store={},
     ))
 
-    runtime._interrupt_input()
-    assert "Ctrl + C again to exit" == _fragments_text(runtime._footer_fragments())
+    runtime.submissions.interrupt_input()
+    assert "Ctrl + C again to exit" == _fragments_text(
+        runtime.screen._footer_fragments()
+    )
 
-    runtime._interrupt_input()
-    with pytest.raises(KeyboardInterrupt):
+    runtime.submissions.interrupt_input()
+    with pytest.raises(TuiInterruptRequested):
         await runtime.read_message(PromptContext(mode="chat", model="test"))
 
-    assert runtime.queued_messages.active
+    assert runtime.submissions.queued_messages.active
 
 
 @pytest.mark.anyio
@@ -59,86 +63,128 @@ async def test_double_ctrl_c_wakes_pending_message_reader() -> None:
     async def read_until_interrupted() -> str:
         try:
             await runtime.read_message(PromptContext(mode="chat", model="test"))
-        except KeyboardInterrupt:
+        except TuiInterruptRequested:
             return "interrupted"
         return "message"
 
     reader = asyncio.create_task(read_until_interrupted())
     await asyncio.sleep(0)
 
-    runtime._interrupt_input()
+    runtime.submissions.interrupt_input()
     await asyncio.sleep(0)
     assert not reader.done()
 
-    runtime._interrupt_input()
+    runtime.submissions.interrupt_input()
     assert await reader == "interrupted"
+
+
+@pytest.mark.anyio
+async def test_double_ctrl_c_returns_normally_from_session_loop(
+    monkeypatch,
+) -> None:
+    runtime = TuiRuntime()
+    task_event = asyncio.Event()
+    pref_config = {"primary": {"model": "test-model"}}
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            runtime=runtime,
+            interaction=runtime,
+            application=SimpleNamespace(emit=Mock()),
+        ),
+        pref=SimpleNamespace(to_config=lambda: pref_config),
+        fresh_pref_config=AsyncMock(return_value=pref_config),
+        task_event=task_event,
+        exit_code=0,
+    )
+    monkeypatch.setattr(
+        loop,
+        "monitor_exec_status",
+        AsyncMock(return_value=None),
+    )
+
+    session_task = asyncio.create_task(loop.run_tui_loop(mind))
+    await asyncio.sleep(0)
+    runtime.submissions.interrupt_input()
+    runtime.submissions.interrupt_input()
+
+    await asyncio.wait_for(session_task, timeout=1.0)
+
+    assert mind.exit_code == 130
+    assert task_event.is_set()
 
 
 @pytest.mark.anyio
 async def test_exit_confirmation_task_expires_footer() -> None:
     runtime = TuiRuntime()
-    runtime.interrupt_state.timeout_sec = 0.01
+    runtime.submissions.interrupt_state.timeout_sec = 0.01
 
-    runtime._interrupt_input()
+    runtime.submissions.interrupt_input()
 
-    assert runtime._exit_expiry_task is not None
-    assert runtime.interrupt_state.exit_armed
+    assert runtime.submissions.exit_expiry_task is not None
+    assert runtime.submissions.interrupt_state.exit_armed
 
     await asyncio.sleep(0.02)
 
-    assert runtime._exit_expiry_task is None
-    assert not runtime.interrupt_state.exit_armed
-    assert "again to exit" not in _fragments_text(runtime._footer_fragments())
+    assert runtime.submissions.exit_expiry_task is None
+    assert not runtime.submissions.interrupt_state.exit_armed
+    assert "again to exit" not in _fragments_text(
+        runtime.screen._footer_fragments()
+    )
 
 
 @pytest.mark.anyio
 async def test_ctrl_d_requests_clean_exit_before_queued_message() -> None:
     runtime = TuiRuntime()
-    runtime.queued_messages.append(TuiSubmission(
+    runtime.submissions.queued_messages.append(TuiSubmission(
         value="queued",
         editable_text="queued",
         paste_store={},
     ))
 
-    runtime._exit_input()
+    runtime.submissions.exit_input()
 
     with pytest.raises(EOFError):
         await runtime.read_message(PromptContext(mode="chat", model="test"))
-    assert runtime.queued_messages.active
+    assert runtime.submissions.queued_messages.active
 
 
 @pytest.mark.anyio
 async def test_editing_clears_exit_confirmation() -> None:
     runtime = TuiRuntime()
 
-    runtime._interrupt_input()
-    runtime.input.buffer.text = "new direction"
+    runtime.submissions.interrupt_input()
+    runtime.screen.input.buffer.text = "new direction"
 
-    assert not runtime.interrupt_state.exit_armed
-    assert runtime._exit_expiry_task is None
-    assert "again to exit" not in _fragments_text(runtime._footer_fragments())
+    assert not runtime.submissions.interrupt_state.exit_armed
+    assert runtime.submissions.exit_expiry_task is None
+    assert "again to exit" not in _fragments_text(
+        runtime.screen._footer_fragments()
+    )
 
 
 def test_first_ctrl_c_clears_idle_draft_and_arms_exit() -> None:
     runtime = TuiRuntime()
-    runtime.input.buffer.text = "unfinished draft"
+    runtime.screen.input.buffer.text = "unfinished draft"
 
-    runtime._interrupt_input()
+    runtime.submissions.interrupt_input()
 
-    assert runtime.input.buffer.text == ""
-    assert runtime.interrupt_state.exit_armed
-    assert _fragments_text(runtime._footer_fragments()) == "Ctrl + C again to exit"
+    assert runtime.screen.input.buffer.text == ""
+    assert runtime.submissions.interrupt_state.exit_armed
+    assert (
+        _fragments_text(runtime.screen._footer_fragments())
+        == "Ctrl + C again to exit"
+    )
 
 
 def test_finished_turn_is_not_marked_as_interrupted() -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)
-    runtime.bind_turn_interrupt(lambda: False)
+    runtime.bind_interrupt_handler(lambda: False)
 
-    runtime._interrupt_input()
+    runtime.submissions.interrupt_input()
 
     assert not runtime.consume_turn_interrupt()
-    assert runtime.interrupt_state.exit_armed
+    assert runtime.submissions.interrupt_state.exit_armed
 
 
 def test_ctrl_c_closes_completion_before_global_interrupt() -> None:
@@ -166,18 +212,18 @@ async def test_user_interrupt_cancels_only_current_turn_and_commits_notice() -> 
         started.set()
         await asyncio.Future()
 
-    task = asyncio.create_task(_execute_tui_model_turn(
+    task = asyncio.create_task(execute_tui_model_turn(
         application,
         runtime,
         turn(),
     ))
     await started.wait()
 
-    runtime._interrupt_input()
+    runtime.submissions.interrupt_input()
     await task
 
     assert not runtime.execution_active
-    assert runtime.interrupt_state.exit_armed
+    assert runtime.submissions.interrupt_state.exit_armed
     view = application.emit.call_args.args[0]
     assert view.type == "tui.interrupted"
     assert _fragments_text(view.renderable.fragments) == (
@@ -199,7 +245,7 @@ async def test_external_cancellation_is_not_swallowed() -> None:
         started.set()
         await asyncio.Future()
 
-    task = asyncio.create_task(_execute_tui_model_turn(
+    task = asyncio.create_task(execute_tui_model_turn(
         application,
         runtime,
         turn(),
@@ -229,7 +275,7 @@ async def test_stream_quit_command_cancels_turn_without_queueing_message() -> No
         cancel_turn()
         return True
 
-    task = asyncio.create_task(_execute_tui_model_turn(
+    task = asyncio.create_task(execute_tui_model_turn(
         application,
         runtime,
         turn(),
@@ -238,13 +284,13 @@ async def test_stream_quit_command_cancels_turn_without_queueing_message() -> No
     ))
     await started.wait()
 
-    runtime.input.buffer.text = "/quit"
-    runtime._accept_input(runtime.input.buffer)
+    runtime.screen.input.buffer.text = "/quit"
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
     await task
 
     assert not runtime.execution_active
-    assert not runtime.queued_messages.active
-    assert runtime.message_queue.empty()
+    assert not runtime.submissions.queued_messages.active
+    assert runtime.submissions.message_queue.empty()
     assert "/quit" in _document_text(runtime)
     application.emit.assert_not_called()
 

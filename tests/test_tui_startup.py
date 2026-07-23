@@ -14,7 +14,7 @@ from mind_app.runtime.mcp.external import ExternalMcpRuntime
 from mind_app.runtime.mcp.tool_runtime import CompositeToolRuntime
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.runtime import TuiRuntime
-from mind_app.tui.features import download
+from mind_app.tui.features import helix
 from mind_app.tui.session import loop
 
 
@@ -49,8 +49,8 @@ async def test_query_is_consumed_while_runtime_download_is_active() -> None:
         mode="chat",
         model="test-model",
     )))
-    runtime.input.buffer.text = "what project is this?"
-    runtime._accept_input(runtime.input.buffer)
+    runtime.screen.input.buffer.text = "what project is this?"
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
 
     assert await asyncio.wait_for(read_task, timeout=0.2) == "what project is this?"
     assert not infrastructure_task.done()
@@ -99,8 +99,8 @@ async def test_tui_loop_reads_query_while_preference_refresh_is_pending(
     run_task = asyncio.create_task(loop.run_tui_loop(MindStub()))
     await refresh_started.wait()
 
-    runtime.input.buffer.text = "show this immediately"
-    runtime._accept_input(runtime.input.buffer)
+    runtime.screen.input.buffer.text = "show this immediately"
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
     for _ in range(20):
         if runtime.document.blocks:
             break
@@ -142,7 +142,7 @@ async def test_tui_starts_external_mcp_before_helix_background(
         async def start_external_mcp_runtime(self):
             calls.append(("external", True))
 
-    monkeypatch.setattr(download, "prepare_tui_service_runtime", prepare_helix)
+    monkeypatch.setattr(helix, "prepare_tui_service_runtime", prepare_helix)
 
     mind = MindStub()
     await entry._start_tui_external_mcp(mind)
@@ -302,6 +302,46 @@ async def test_external_mcp_without_connected_group_can_retry(monkeypatch) -> No
     await runtime.start()
 
     assert enter_count == 2
+    assert not runtime.started
+    assert runtime.group is None
+
+
+@pytest.mark.anyio
+async def test_external_mcp_stop_finishes_cleanup_when_cancelled() -> None:
+    cleanup_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    cleanup_finished = asyncio.Event()
+
+    class ExternalContext(object):
+        async def __aexit__(self, _type, _value, _traceback):
+            cleanup_started.set()
+            await release_cleanup.wait()
+            cleanup_finished.set()
+
+    class MindStub(object):
+        @staticmethod
+        async def await_cleanup(awaitable) -> None:
+            task = asyncio.create_task(awaitable)
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                await task
+                raise
+
+    runtime = ExternalMcpRuntime(MindStub())
+    runtime._context = ExternalContext()
+    runtime._group = object()
+    runtime._started = True
+
+    stop_task = asyncio.create_task(runtime.stop())
+    await cleanup_started.wait()
+    stop_task.cancel()
+    release_cleanup.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await stop_task
+
+    assert cleanup_finished.is_set()
     assert not runtime.started
     assert runtime.group is None
 

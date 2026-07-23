@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import functools
 import sys
+import functools
 from engine.errors import MindError
+from mind_nova import const
 from mind_app.frontend.contracts import Frontend
 from mind_app.interaction import NonInteractiveInteraction
 from mind_app.runtime.design import TerminalDesign
@@ -32,7 +33,8 @@ def _require_tui_terminal() -> None:
     ):
         return None
     raise MindError(
-        "TUI requires interactive stdin and stdout. Run Mind in a terminal "
+        f"TUI requires interactive stdin and stdout. Run {const.APP_DESC} "
+        "in a terminal "
         "or use --chat, --fast, or --xtra for non-interactive execution."
     )
 

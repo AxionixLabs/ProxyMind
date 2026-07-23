@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+import asyncio
 from collections import defaultdict
 from engine.errors import MindError
 from mind_app.frontend import ApplicationView
@@ -26,6 +27,7 @@ from ..core.styles import (
     BRIGHT_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
+    WARNING_STYLE,
     fragment_block,
     text_block
 )
@@ -33,7 +35,14 @@ from ..core.styles import (
 if typing.TYPE_CHECKING:
     from ..core.runtime import TuiRuntime
 
-McpAction = typing.Literal["start", "force", "stop", "restart", "status"]
+McpAction = typing.Literal[
+    "start",
+    "force",
+    "stop",
+    "restart",
+    "status"
+]
+
 _MCP_ACTIONS: typing.Final[frozenset[str]] = frozenset({
     "start",
     "force",
@@ -54,12 +63,14 @@ MCP_MENU_ACTIONS: tuple[tuple[McpAction, str, str], ...] = (
 def parse_mcp_command(value: str) -> tuple[bool, McpAction | None]:
     """解析外部 MCP 命令及其可选动作。"""
     parts = str(value or "").strip().casefold().split()
+
     if not parts or parts[0] != "/mcp":
         return False, None
     if len(parts) == 1:
         return True, None
     if len(parts) == 2 and parts[1] in _MCP_ACTIONS:
         return True, typing.cast(McpAction, parts[1])
+
     return False, None
 
 
@@ -102,11 +113,12 @@ def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
 
     tool_groups: list[dict[str, typing.Any]] = []
     for stats in dict(server_stats or {}).values():
-        server = str(stats.get("server") or "external")
-        transport = str(stats.get("transport") or "external")
-        names = grouped.pop((server, transport), [])
-        exposed = len(names)
+        server     = str(stats.get("server") or "external")
+        transport  = str(stats.get("transport") or "external")
+        names      = grouped.pop((server, transport), [])
+        exposed    = len(names)
         discovered = max(exposed, int(stats.get("discovered") or 0))
+
         tool_groups.append({
             "server"     : server,
             "transport"  : transport,
@@ -130,12 +142,12 @@ def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
     tool_groups.sort(key=lambda item: (str(item["server"]), str(item["transport"])))
 
     return {
-        "started"       : bool(getattr(runtime, "started", False)) if runtime is not None else False,
-        "configured"    : configured,
-        "config_error"  : config_error,
-        "tool_groups"   : tool_groups,
-        "tool_count"    : sum(int(item["exposed"]) for item in tool_groups),
-        "filtered_count": sum(int(item["filtered"]) for item in tool_groups),
+        "started"        : bool(getattr(runtime, "started", False)) if runtime is not None else False,
+        "configured"     : configured,
+        "config_error"   : config_error,
+        "tool_groups"    : tool_groups,
+        "tool_count"     : sum(int(item["exposed"]) for item in tool_groups),
+        "filtered_count" : sum(int(item["filtered"]) for item in tool_groups),
     }
 
 
@@ -172,7 +184,9 @@ async def choose_mcp_action(
     """在主 TUI 中选择外部 MCP 操作。"""
     summary  = summarize_external_runtime(mind)
     actions  = list(MCP_MENU_ACTIONS)
+
     config_error = str(summary.get("config_error") or "")
+
     return await runtime.select_menu(MenuRequest(
         title="External MCP",
         status=external_status_line(summary),
@@ -191,6 +205,7 @@ def external_status_line(summary: dict[str, typing.Any]) -> str:
         return "config=invalid"
 
     configured = summary.get("configured")
+
     return (
         f"started={str(bool(summary.get('started'))).lower()} "
         f"· configured={len(configured) if isinstance(configured, list) else 0} "
@@ -213,11 +228,18 @@ async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> None:
         if action == "stop":
             await mind.stop_external_mcp_runtime()
         elif action == "force":
-            await mind.restart_external_mcp_runtime(include_disabled=True)
+            runtime = getattr(mind, "external_mcp", None)
+            if bool(getattr(runtime, "started", False)):
+                await mind.restart_external_mcp_runtime(include_disabled=True)
+            else:
+                await mind.start_external_mcp_runtime(include_disabled=True)
         elif action == "start":
             await mind.start_external_mcp_runtime()
         else:
             await mind.restart_external_mcp_runtime()
+    except asyncio.CancelledError:
+        render_mcp_action_interrupted(mind, action)
+        raise
     except MindError as error:
         render_external_mcp_start_status(mind, error=error)
         return None
@@ -230,22 +252,17 @@ async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> None:
     return None
 
 
-async def start_mcp_runtime(
-    mind: typing.Any,
-    *,
-    include_disabled: bool = False,
-) -> None:
-    """启动尚未运行的外部 MCP，并展示最终连接状态。"""
-    try:
-        await mind.start_external_mcp_runtime(
-            include_disabled=include_disabled,
-        )
-    except Exception as error:
-        render_external_mcp_start_status(mind, error=error)
-        return None
-
-    if not render_external_mcp_start_status(mind):
-        render_mcp_status(mind)
+def render_mcp_action_interrupted(mind: typing.Any, action: McpAction) -> None:
+    """展示外部 MCP 操作被用户中断的状态。"""
+    _present(
+        mind,
+        fragment_block(
+            TextSpan("External MCP ", ACCENT_STYLE),
+            TextSpan(f"· {action} interrupted", WARNING_STYLE),
+        ),
+        view_type="tui.external_mcp.interrupted",
+    )
+    _present(mind, view_type="tui.gap")
 
 
 def render_external_mcp_start_status(

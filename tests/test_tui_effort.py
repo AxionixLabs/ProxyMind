@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.tui.session import dispatch
 from mind_app.tui.session import loop
 
 
@@ -41,21 +42,21 @@ async def test_effort_command_updates_footer_context_immediately(
 
     monkeypatch.setattr(loop, "monitor_exec_status", monitor_exec_status)
     monkeypatch.setattr(
-        loop,
+        dispatch,
         "choose_model_effort",
         AsyncMock(return_value="high"),
     )
     monkeypatch.setattr(
-        loop,
+        dispatch,
         "persist_primary_pref",
         AsyncMock(return_value={
             "model": "test-model",
             "reasoning_effort": "high",
         }),
     )
-    monkeypatch.setattr(loop, "render_model_effort_status", render_status)
+    monkeypatch.setattr(dispatch, "render_model_effort_status", render_status)
 
-    runtime.message_queue.put_nowait("/effort")
+    runtime.submissions.message_queue.put_nowait("/effort")
     await loop.run_tui_loop(mind)
 
     assert runtime.context.model == "test-model high"

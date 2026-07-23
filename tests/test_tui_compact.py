@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
 
-from mind_app.tui.features import commands
+from mind_app.tui.features import conversation
 
 
 @pytest.mark.anyio
@@ -29,26 +30,27 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
                 application=SimpleNamespace(emit=self.views.append),
             )
 
-        async def start_external_mcp_anim(self, snapshot):
+        async def start_compact_anim(self, snapshot):
             snapshots.append(snapshot)
 
-        async def stop_anim(self, kind=None):
+        async def stop_anim(self, kind=None, *, settle=True):
+            _ = settle
             snapshots.append((kind, snapshots[0]()))
 
         async def await_cleanup(self, awaitable):
             await awaitable
 
-    monkeypatch.setattr(commands, "stream_compact_events", empty_stream)
+    monkeypatch.setattr(conversation, "stream_compact_events", empty_stream)
 
     mind = MindStub()
-    await commands.compact_current_conversation(
+    await conversation.compact_current_conversation(
         mind,
         run_mode="chat",
         pref_config={},
     )
 
     kind, final = snapshots[-1]
-    assert kind == "external_mcp"
+    assert kind == "compact"
     assert final["done"] is True
     assert final["summary"] == "Context compaction failed. Please try again."
     assert final["detail_limit"] == 0
@@ -80,10 +82,10 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
                 application=SimpleNamespace(emit=self.views.append),
             )
 
-    monkeypatch.setattr(commands, "stream_compact_events", completed_stream)
+    monkeypatch.setattr(conversation, "stream_compact_events", completed_stream)
 
     mind = MindStub()
-    await commands.compact_current_conversation(
+    await conversation.compact_current_conversation(
         mind,
         run_mode="chat",
         pref_config={},
@@ -93,6 +95,59 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
     assert status.renderable.plain_text == (
         "■ Context compacted. · 18 -> 6 items"
     )
+
+
+@pytest.mark.anyio
+async def test_compact_cancellation_clears_animation_without_failure(
+    monkeypatch,
+) -> None:
+    started = asyncio.Event()
+
+    async def pending_stream(_payload):
+        started.set()
+        await asyncio.Future()
+        if False:
+            yield {}
+
+    class MindStub(object):
+        animate = True
+        conversation = SimpleNamespace(
+            snapshot=lambda: {"cid": "cid", "sid": "sid"},
+        )
+
+        def __init__(self):
+            self.views = []
+            self.stopped = []
+            self.frontend = SimpleNamespace(
+                application=SimpleNamespace(emit=self.views.append),
+            )
+
+        async def start_compact_anim(self, _snapshot):
+            return None
+
+        async def stop_anim(self, kind=None, *, settle=True):
+            self.stopped.append((kind, settle))
+
+        async def await_cleanup(self, awaitable):
+            await awaitable
+
+    monkeypatch.setattr(conversation, "stream_compact_events", pending_stream)
+
+    mind = MindStub()
+    task = asyncio.create_task(conversation.compact_current_conversation(
+        mind,
+        run_mode="chat",
+        pref_config={},
+    ))
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert mind.stopped == [("compact", False)]
+    assert any(view.type == "tui.compact.interrupted" for view in mind.views)
+    assert not any(view.type == "tui.compact.status" for view in mind.views)
 
 
 if __name__ == '__main__':

@@ -27,21 +27,18 @@ def json_output_requested(arguments: typing.Iterable[str] | None = None) -> bool
     return "--json" in values
 
 
-def entry_animation_requested(
+def rich_outro_requested(
     arguments: typing.Iterable[str] | None = None,
     *,
     output_stream: object | None = None,
 ) -> bool:
-    """判断兼容入口是否需要展示启动和退场动画。"""
+    """判断兼容入口是否需要保留 Rich 模式的退场动画。"""
     values = tuple(sys.argv[1:] if arguments is None else arguments)
-    direct_flags = ("--chat", "--fast", "--xtra", "--code")
-    direct_execution = any(
-        value == flag or value.startswith(f"{flag}=")
-        for value in values
-        for flag in direct_flags
-    )
     stream = sys.stdout if output_stream is None else output_stream
-    return not direct_execution and stream_is_interactive(stream)
+    return bool(
+        any(value in {"--agent", "--upgrade"} for value in values)
+        and stream_is_interactive(stream)
+    )
 
 
 def emit_entry_outro(
@@ -49,7 +46,7 @@ def emit_entry_outro(
     *,
     enabled: bool,
 ) -> None:
-    """仅为动态终端前端发送退场展示。"""
+    """仅为 Rich 入口发送退场展示。"""
     if enabled:
         application.emit(ApplicationView(type="outro"))
 
@@ -118,7 +115,7 @@ async def main(handler: SignalHandler | None = None) -> int:
 if __name__ == "__main__":
     main_loop           = asyncio.new_event_loop()
     json_output_enabled = json_output_requested()
-    entry_animation_enabled = entry_animation_requested()
+    rich_outro_enabled  = rich_outro_requested()
     entry_sink          = entry_application(json_output_enabled)
 
     main_task: asyncio.Task[int] | None = None
@@ -137,7 +134,7 @@ if __name__ == "__main__":
             phase="runtime",
             json_output=json_output_enabled,
         )
-        emit_entry_outro(entry_sink, enabled=entry_animation_enabled)
+        emit_entry_outro(entry_sink, enabled=rich_outro_enabled)
         sys.exit(1)
 
     except KeyboardInterrupt:
@@ -151,7 +148,7 @@ if __name__ == "__main__":
             entry_sink,
             json_output=json_output_enabled,
         )
-        emit_entry_outro(entry_sink, enabled=entry_animation_enabled)
+        emit_entry_outro(entry_sink, enabled=rich_outro_enabled)
         sys.exit(130)
 
     except asyncio.CancelledError:
@@ -159,9 +156,9 @@ if __name__ == "__main__":
             entry_sink,
             json_output=json_output_enabled,
         )
-        emit_entry_outro(entry_sink, enabled=entry_animation_enabled)
+        emit_entry_outro(entry_sink, enabled=rich_outro_enabled)
         sys.exit(130)
 
     else:
-        emit_entry_outro(entry_sink, enabled=entry_animation_enabled)
+        emit_entry_outro(entry_sink, enabled=rich_outro_enabled)
         sys.exit(int(exit_code))

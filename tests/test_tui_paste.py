@@ -4,6 +4,7 @@ from mind_app.tui.core.input import TuiInputModel
 from mind_app.tui.prompting.paste import (
     describe_paste,
     format_paste_placeholder,
+    parse_paste_placeholder,
 )
 from mind_app.tui.prompting.skills import iter_paste_placeholder_tokens
 
@@ -35,8 +36,27 @@ def test_common_paste_content_uses_semantic_exact_labels() -> None:
     for text, expected in cases:
         placeholder = format_paste_placeholder(describe_paste(text), 1)
         assert placeholder == expected
-        token = next(iter_paste_placeholder_tokens(f"before {placeholder} after"))
+        assert parse_paste_placeholder(placeholder) is not None
+        assert not list(iter_paste_placeholder_tokens(
+            f"before {placeholder} after"
+        ))
+        token = next(iter_paste_placeholder_tokens(
+            f"before {placeholder} after",
+            paste_placeholders=(placeholder,),
+        ))
         assert f"before {placeholder} after"[token[0]:token[1]] == placeholder
+
+
+def test_paste_placeholder_parser_rejects_noncanonical_display_text() -> None:
+    invalid = (
+        "[Text #1 · 12,34 chars]",
+        "[Text #1 · 1,,,,2 chars]",
+        "[Diff #1 · Python · 5 chars]",
+        "[Log #1 · JSON · 3 lines]",
+        "[Data #1 · JSON · 3 lines]",
+    )
+
+    assert all(parse_paste_placeholder(value) is None for value in invalid)
 
 
 def test_folded_paste_round_trip_preserves_sequence_after_restore() -> None:
@@ -59,6 +79,7 @@ def test_folded_paste_round_trip_preserves_sequence_after_restore() -> None:
     assert third == "[Log #3 \u00b7 20 lines]"
     assert first not in model.submission_state()
     assert model.restore_submission(f"{second}\n{third}") == f"{code_text}\n{log_text}"
+    assert model.restore_submission(f"{second}\n{second}") == f"{code_text}\n{second}"
 
     restored = TuiInputModel()
     restored.restore_submission_state(model.submission_state())

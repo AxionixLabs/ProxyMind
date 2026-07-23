@@ -200,24 +200,24 @@ def test_selected_session_shortcut_uses_118_style() -> None:
 async def test_approval_fills_width_and_is_not_limited_to_fourteen_rows() -> None:
     runtime = TuiRuntime()
     command = "\n".join(f"echo line-{index}" for index in range(20))
-    task = asyncio.create_task(runtime.approval.request({
+    task = asyncio.create_task(runtime.screen.approval.request({
         "tool": "shell_command",
         "command": command,
         "show_timer": False,
     }))
     await asyncio.sleep(0)
 
-    fragments = runtime.approval.fragments()
+    fragments = runtime.screen.approval.fragments()
     fragment_text = "".join(text for _, text in fragments)
 
     assert fragments[0] == ("class:approval-card", "  ")
     assert fragment_text.count("\n  \n") == 2
     assert not fragment_text.endswith("\n")
-    assert runtime.approval_window.width is None
-    assert not runtime.approval_window.dont_extend_width()
-    assert runtime._approval_height() > 14
+    assert runtime.screen.approval_window.width is None
+    assert not runtime.screen.approval_window.dont_extend_width()
+    assert runtime.screen._approval_height() > 14
 
-    runtime.approval.finish("decline")
+    runtime.screen.approval.finish("decline")
     await task
 
 

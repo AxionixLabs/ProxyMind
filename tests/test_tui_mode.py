@@ -59,8 +59,8 @@ async def test_mode_command_renders_status_and_updates_prompt_context(
 
     monkeypatch.setattr(loop, "monitor_exec_status", monitor_exec_status)
 
-    runtime.message_queue.put_nowait("/fast")
-    runtime.message_queue.put_nowait("/quit")
+    runtime.submissions.message_queue.put_nowait("/fast")
+    runtime.submissions.message_queue.put_nowait("/quit")
     await loop.run_tui_loop(mind)
 
     statuses = [

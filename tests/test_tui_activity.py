@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -22,7 +23,7 @@ from mind_app.tui.core.models import FragmentBlock
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.status_frames import SPINNER_FRAMES
 from mind_app.tui.core.task_state import TuiTaskState
-from mind_app.tui.features.download import TuiUpgradeProgress
+from mind_app.tui.features.helix import TuiUpgradeProgress
 from mind_app.runtime.support.calling import run_mode_lifecycle
 from mind_core.mcp_status import (
     external_mcp_status_view,
@@ -82,14 +83,16 @@ async def test_tui_turn_keeps_one_wait_until_runner_finishes() -> None:
         await output.append_assistant_delta("answer")
         await status.end_status()
 
-        status_text = _block_text(FragmentBlock(tuple(runtime._status_fragments())))
+        status_text = _block_text(
+            FragmentBlock(tuple(runtime.screen._status_fragments()))
+        )
         assert status_text.count("thinking") == 1
         assert "\n" not in status_text
 
     await run_mode_lifecycle(MindStub(), runner)
 
     assert not runtime.activity.active
-    assert runtime._status_fragments() == []
+    assert runtime.screen._status_fragments() == []
 
 
 def test_infrastructure_activities_keep_rotating_spinner() -> None:
@@ -258,7 +261,7 @@ async def test_request_approval_resumes_wait_after_failure() -> None:
 
     runtime = TuiRuntime.__new__(TuiRuntime)
     runtime.activity = ActivityStub()
-    runtime.approval = ApprovalStub()
+    runtime.screen = SimpleNamespace(approval=ApprovalStub())
 
     with pytest.raises(RuntimeError, match="approval failed"):
         await runtime.request_approval({})
@@ -320,15 +323,15 @@ async def test_external_mcp_final_status_settles_without_entering_document() -> 
     with patch("mind_app.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.001):
         await runtime.end_activity_status("external_mcp")
 
-    assert runtime.activity_block is not None
+    assert runtime.screen.activity_block is not None
     assert not runtime.task_running
     assert not runtime.document.blocks
-    final_text = _block_text(runtime.activity_block)
+    final_text = _block_text(runtime.screen.activity_block)
     assert "External MCP ready · 1/2 servers · 7 tools" in final_text
     assert "docs: timeout" not in final_text
 
     await asyncio.sleep(0.1)
-    assert runtime.activity_block is None
+    assert runtime.screen.activity_block is None
 
 
 @pytest.mark.anyio
@@ -347,7 +350,35 @@ async def test_external_mcp_status_can_clear_without_settling() -> None:
 
     await runtime.end_activity_status("external_mcp", settle=False)
 
-    assert runtime.activity_block is None
+    assert runtime.screen.activity_block is None
+
+
+@pytest.mark.anyio
+async def test_compact_activity_does_not_replace_external_mcp_status() -> None:
+    runtime = TuiRuntime()
+    external = {
+        "done": False,
+        "items": [{"name": "docs", "state": "linking"}],
+    }
+    compact = {
+        "summary": "Context compacting...",
+        "done": False,
+    }
+
+    await runtime.begin_external_mcp_status(lambda: dict(external))
+    await runtime.begin_compact_status(lambda: dict(compact))
+
+    active = _block_text(runtime.screen.activity_block)
+    assert "External MCP linking" in active
+    assert "Context compacting..." in active
+
+    await runtime.end_activity_status("compact", settle=False)
+
+    remaining = _block_text(runtime.screen.activity_block)
+    assert "External MCP linking" in remaining
+    assert "Context compacting..." not in remaining
+
+    await runtime.end_activity_status("external_mcp", settle=False)
     assert not runtime.task_running
     assert not runtime.document.blocks
 
@@ -358,6 +389,7 @@ async def test_external_mcp_status_can_clear_without_settling() -> None:
     [
         ("done", "Download complete"),
         ("failed", "Download failed"),
+        ("cancelled", "Download cancelled"),
     ],
 )
 async def test_runtime_download_uses_progress_and_settles_in_activity_region(
@@ -377,14 +409,14 @@ async def test_runtime_download_uses_progress_and_settles_in_activity_region(
 
     await progress.start(state)
 
-    active_text = _block_text(runtime.activity_block)
+    active_text = _block_text(runtime.screen.activity_block)
     assert "downloading" in active_text
     assert "50.0%" in active_text
     assert "5.0 MB / 10.0 MB · 2.0 MB/s" in active_text
     assert "Internal MCP" not in active_text
     assert all(
         "bold" not in style
-        for style, text in runtime.activity_block.fragments
+        for style, text in runtime.screen.activity_block.fragments
         if text.strip()
     )
 
@@ -392,18 +424,18 @@ async def test_runtime_download_uses_progress_and_settles_in_activity_region(
     with patch("mind_app.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.001):
         await progress.stop()
 
-    assert runtime.activity_block is not None
+    assert runtime.screen.activity_block is not None
     assert not runtime.document.blocks
-    final_text = _block_text(runtime.activity_block)
+    final_text = _block_text(runtime.screen.activity_block)
     assert final_label in final_text
     assert "helix-runtime.zip" in final_text
     assert any(
         "bold" in style and text == final_label.removeprefix("Download ")
-        for style, text in runtime.activity_block.fragments
+        for style, text in runtime.screen.activity_block.fragments
     )
 
     await asyncio.sleep(0.1)
-    assert runtime.activity_block is None
+    assert runtime.screen.activity_block is None
 
 
 @pytest.mark.anyio
@@ -458,12 +490,12 @@ async def test_upload_success_settles_without_entering_document() -> None:
     with patch("mind_app.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.001):
         await runtime.end_activity_status("upload")
 
-    assert runtime.activity_block is not None
-    assert "Attach done" in _block_text(runtime.activity_block)
+    assert runtime.screen.activity_block is not None
+    assert "Attach done" in _block_text(runtime.screen.activity_block)
     assert not runtime.document.blocks
 
     await asyncio.sleep(0.1)
-    assert runtime.activity_block is None
+    assert runtime.screen.activity_block is None
 
 
 @pytest.mark.anyio
@@ -480,7 +512,7 @@ async def test_external_mcp_activity_does_not_replace_streaming_content() -> Non
 
     assert runtime.document.active_block is not None
     assert _block_text(runtime.document.active_block) == "streaming answer"
-    assert "External MCP linking" in _block_text(runtime.activity_block)
+    assert "External MCP linking" in _block_text(runtime.screen.activity_block)
 
     await runtime.activity.clear()
 
@@ -535,8 +567,8 @@ def test_download_and_upload_activity_rows_are_single_line() -> None:
     assert "\n" not in _block_text(upload)
 
 
-def test_runtime_body_styles_do_not_use_bold() -> None:
-    style = TuiRuntime()._style()
+def test_tui_application_body_styles_do_not_use_bold() -> None:
+    style = TuiRuntime().screen.application.style
 
     for name in (
         "class:queue.marker",
@@ -554,19 +586,22 @@ def test_activity_completion_does_not_change_input_stack_height() -> None:
     runtime = TuiRuntime()
     line = FragmentBlock((("", "one line"),))
 
-    input_height = runtime._input_stack_height()
-    runtime.set_activity_renderable(line)
-    runtime.clear_activity_renderable()
+    input_height = runtime.screen._input_stack_height()
+    runtime.screen.set_activity_renderable(line)
+    runtime.screen.clear_activity_renderable()
 
-    assert runtime._input_stack_height() == input_height
+    assert runtime.screen._input_stack_height() == input_height
 
 
 def test_footer_reserves_one_blank_row() -> None:
     runtime = TuiRuntime()
 
-    assert runtime.FOOTER_GAP_HEIGHT == 1
-    assert runtime._footer_height() == 2
-    assert runtime._input_stack_height() == runtime._input_height() + 2
+    assert runtime.screen.FOOTER_GAP_HEIGHT == 1
+    assert runtime.screen._footer_height() == 2
+    assert (
+        runtime.screen._input_stack_height()
+        == runtime.screen._input_height() + 2
+    )
 
 
 def test_tiny_window_uses_neutral_fallback_without_warning() -> None:
@@ -574,13 +609,13 @@ def test_tiny_window_uses_neutral_fallback_without_warning() -> None:
     screen = Screen()
 
     with patch.object(
-        runtime.application.output,
+        runtime.screen.application.output,
         "get_size",
         return_value=Size(rows=2, columns=12),
     ):
         assert runtime.terminal_height == 2
 
-    runtime.canvas.write_to_screen(
+    runtime.screen.canvas.write_to_screen(
         screen,
         MouseHandlers(),
         WritePosition(xpos=0, ypos=0, width=12, height=2),

@@ -8,7 +8,7 @@ from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
 from engine.errors import MindError
-from mind_app.tui.features import commands
+from mind_app.tui.features import helix
 from mind_app.tui.prompting.commands import (
     SlashCommandCompleter,
     command_names,
@@ -16,7 +16,7 @@ from mind_app.tui.prompting.commands import (
     stream_command_label,
     stream_command_policy,
 )
-from mind_app.tui.session.loop import (
+from mind_app.tui.session.dispatch import (
     MODE_BY_COMMAND,
 )
 
@@ -112,9 +112,9 @@ async def test_helix_link_result_is_committed_to_tui(
         if error
         else AsyncMock(return_value=result)
     )
-    monkeypatch.setattr(commands, "prepare_tui_service_runtime", prepare)
+    monkeypatch.setattr(helix, "prepare_tui_service_runtime", prepare)
 
-    await commands.link_helix_runtime(mind)
+    await helix.link_helix_runtime(mind)
 
     status = next(view for view in views if view.type == "tui.helix.status")
     assert status.renderable.plain_text == expected

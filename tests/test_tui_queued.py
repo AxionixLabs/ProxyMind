@@ -22,7 +22,7 @@ def test_queue_uses_next_turn_title() -> None:
 
 
 def test_queued_input_candidate_uses_dim_style() -> None:
-    style = TuiRuntime()._style()
+    style = TuiRuntime().screen.application.style
 
     assert style.get_attrs_for_style_str("class:queue.text").dim
 
@@ -61,12 +61,12 @@ def test_running_input_replaces_information_footer_with_queue_hint() -> None:
         workspace_label="ProxyMind",
     )
     runtime.execution_active = True
-    runtime.queued_messages.append(_submission("already queued"))
-    runtime.input.buffer.text = "next task"
+    runtime.submissions.queued_messages.append(_submission("already queued"))
+    runtime.screen.input.buffer.text = "next task"
 
-    text = _fragments_text(runtime._footer_fragments())
+    text = _fragments_text(runtime.screen._footer_fragments())
 
-    assert runtime._footer_visible()
+    assert runtime.screen._footer_visible()
     assert text == "  tab to queue message"
     assert runtime.context.model not in text
     assert runtime.context.access_label not in text
@@ -82,43 +82,46 @@ def test_queued_submission_restores_information_footer() -> None:
         workspace_label="ProxyMind",
     )
     runtime.execution_active = True
-    runtime.input.buffer.text = "queued task"
+    runtime.screen.input.buffer.text = "queued task"
 
-    runtime._accept_input(runtime.input.buffer)
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
 
-    text = _fragments_text(runtime._footer_fragments())
+    text = _fragments_text(runtime.screen._footer_fragments())
 
-    assert runtime._footer_visible()
+    assert runtime.screen._footer_visible()
     assert "tab to queue message" not in text
     assert "gpt-test high" in text
     assert "Full access" in text
     assert "ProxyMind" in text
 
-    runtime.input.buffer.text = "another task"
+    runtime.screen.input.buffer.text = "another task"
 
-    assert _fragments_text(runtime._footer_fragments()) == "  tab to queue message"
+    assert (
+        _fragments_text(runtime.screen._footer_fragments())
+        == "  tab to queue message"
+    )
 
 
 def test_foreground_barrier_keeps_normal_input_in_visible_queue() -> None:
     runtime = TuiRuntime()
     runtime.set_foreground_active(True)
-    runtime.input.buffer.text = "next task"
+    runtime.screen.input.buffer.text = "next task"
 
-    runtime._accept_input(runtime.input.buffer)
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
 
-    assert runtime.queued_messages.active
-    assert runtime.message_queue.empty()
+    assert runtime.submissions.queued_messages.active
+    assert runtime.submissions.message_queue.empty()
 
 
 def test_streaming_rejected_command_never_enters_message_queue() -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)
-    runtime.input.buffer.text = "/compact"
+    runtime.screen.input.buffer.text = "/compact"
 
-    runtime._accept_input(runtime.input.buffer)
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
 
-    assert not runtime.queued_messages.active
-    assert runtime.message_queue.empty()
+    assert not runtime.submissions.queued_messages.active
+    assert runtime.submissions.message_queue.empty()
     assert "'/compact' is disabled while a task is in progress." in (
         _fragments_text(runtime.document.fragments(width=100))
     )
@@ -135,13 +138,13 @@ def test_streaming_background_command_is_dispatched_outside_message_queue() -> N
     handler = Mock(return_value=True)
     runtime.bind_stream_command_handler(handler)
     runtime.set_execution_active(True)
-    runtime.input.buffer.text = "/helix-link"
+    runtime.screen.input.buffer.text = "/helix-link"
 
-    runtime._accept_input(runtime.input.buffer)
+    runtime.submissions.accept_input(runtime.screen.input.buffer)
 
     handler.assert_called_once_with("/helix-link")
-    assert not runtime.queued_messages.active
-    assert runtime.message_queue.empty()
+    assert not runtime.submissions.queued_messages.active
+    assert runtime.submissions.message_queue.empty()
 
     runtime.set_execution_active(False)
 

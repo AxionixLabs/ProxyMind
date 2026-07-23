@@ -7,6 +7,7 @@ import typing
 import asyncio
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from mind_app.presentation.models import TextSpan
+from mind_nova import const
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
@@ -30,12 +31,12 @@ from ..core.styles import (
     fragment_block
 )
 
-PS_PANEL_TICK_SEC: float   = 0.12
-PS_OUTPUT_LIMIT: int       = 60000
-PS_SUMMARY_MAX_LINES: int  = 8
-PS_MENU_VISIBLE_LIMIT: int = 8
+PS_PANEL_TICK_SEC: float         = 0.12
+PS_OUTPUT_LIMIT: int             = 60000
+PS_SUMMARY_MAX_LINES: int        = 8
+PS_MENU_VISIBLE_LIMIT: int       = 8
 PROCESS_STATUS_ACTIVE_SEC: float = 0.5
-PROCESS_STATUS_IDLE_SEC: float = 1.0
+PROCESS_STATUS_IDLE_SEC: float   = 1.0
 
 _STOP_ALL_ACTION = object()
 
@@ -137,7 +138,9 @@ async def stop_all_exec_sessions(
     confirmed = await runtime.select_menu(MenuRequest(
         title="Stop Background Commands",
         status=f"running={count}",
-        body=(f"Stop all {count} Mind-owned background {tree_noun}?",),
+        body=(
+            f"Stop all {count} {const.APP_DESC}-owned background {tree_noun}?",
+        ),
         help_text="Up/Down select · Enter choose · Esc/q cancel",
         options=(
             MenuOption(

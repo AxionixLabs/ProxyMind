@@ -8,7 +8,7 @@ from engine.errors import MindError
 from mind_app.mcp.config import load_mcp_servers_file
 from mind_app.mcp.group import (
     ExternalMcpGroup,
-    open_optional_external_mcp_group,
+    open_optional_external_mcp_group
 )
 from mind_app.mcp.status import (
     ExternalMcpStatus,
@@ -129,7 +129,9 @@ class ExternalMcpRuntime(object):
         self._started = False
 
         if context is not None:
-            await context.__aexit__(None, None, None)
+            await self._mind.await_cleanup(
+                context.__aexit__(None, None, None)
+            )
 
     async def restart(self, *, include_disabled: bool = False) -> None:
         """重新读取配置并刷新外部 MCP 连接。"""

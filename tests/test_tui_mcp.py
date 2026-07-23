@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -165,8 +166,9 @@ def test_parse_mcp_command(command, expected) -> None:
 
 
 @pytest.mark.anyio
-async def test_background_mcp_start_never_restarts_runtime(monkeypatch) -> None:
+async def test_force_uses_start_when_runtime_is_not_running(monkeypatch) -> None:
     mind = SimpleNamespace(
+        external_mcp=None,
         start_external_mcp_runtime=AsyncMock(),
         restart_external_mcp_runtime=AsyncMock(),
     )
@@ -176,12 +178,44 @@ async def test_background_mcp_start_never_restarts_runtime(monkeypatch) -> None:
         lambda _mind, **_kwargs: True,
     )
 
-    await mcp.start_mcp_runtime(mind, include_disabled=True)
+    await mcp.run_mcp_action(mind, "force")
 
     mind.start_external_mcp_runtime.assert_awaited_once_with(
         include_disabled=True,
     )
     mind.restart_external_mcp_runtime.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_mcp_cancellation_is_rendered_as_interrupted() -> None:
+    views = []
+    started = asyncio.Event()
+
+    async def start_runtime() -> None:
+        started.set()
+        await asyncio.Future()
+
+    mind = SimpleNamespace(
+        external_mcp=None,
+        start_external_mcp_runtime=start_runtime,
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+    task = asyncio.create_task(mcp.run_mcp_action(mind, "start"))
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    status = next(
+        view for view in views
+        if view.type == "tui.external_mcp.interrupted"
+    )
+    assert "".join(
+        text for _style, text in status.renderable.fragments
+    ) == "External MCP · start interrupted"
 
 
 @pytest.mark.parametrize(

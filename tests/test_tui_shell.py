@@ -36,10 +36,10 @@ def test_empty_shell_mode_submission_stays_in_input() -> None:
     runtime = TuiRuntime()
     runtime.input_model.set_shell_mode(True)
 
-    handled = runtime._accept_input(runtime.input.buffer)
+    handled = runtime.submissions.accept_input(runtime.screen.input.buffer)
 
     assert not handled
-    assert runtime.message_queue.empty()
+    assert runtime.submissions.message_queue.empty()
     assert runtime.input_model.shell_mode
 
 
@@ -441,12 +441,12 @@ async def test_runtime_process_viewer_replaces_input_area() -> None:
     )))
     await asyncio.sleep(0)
 
-    assert runtime.process_viewer.active
-    assert runtime._process_viewer_height() == 2
-    assert runtime._content_input_gap_height() == 2
-    assert runtime._interaction_height() == 0
-    assert not runtime.input_area.filter()
+    assert runtime.screen.process_viewer.active
+    assert runtime.screen._process_viewer_height() == 2
+    assert runtime.screen._content_input_gap_height() == 2
+    assert runtime.screen._interaction_height() == 0
+    assert not runtime.screen.input_area.filter()
 
     runtime.finish_process_viewer("detach")
     assert await task == "detach"
-    assert runtime.input_area.filter()
+    assert runtime.screen.input_area.filter()

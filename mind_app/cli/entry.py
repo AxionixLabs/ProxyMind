@@ -45,6 +45,7 @@ from .frontend import (
     resolve_cli_frontend
 )
 from .selection import (
+    OutputMode,
     output_mode_uses_animation,
     resolve_cli_output_mode
 )
@@ -121,7 +122,7 @@ async def _start_tui_external_mcp(mind: Mind) -> None:
 
 async def _start_tui_service_runtime(mind: Mind) -> None:
     """在 TUI 后台准备 Helix 服务运行时。"""
-    from ..tui.features.download import prepare_tui_service_runtime
+    from ..tui.features.helix import prepare_tui_service_runtime
 
     try:
         await prepare_tui_service_runtime(
@@ -132,6 +133,25 @@ async def _start_tui_service_runtime(mind: Mind) -> None:
         raise
     except Exception as error:
         _emit_startup_failure(mind, "Helix", error)
+
+
+async def _finalize_mind(
+    mind: Mind,
+    *,
+    output_mode: OutputMode,
+    completed: bool
+) -> None:
+    """关闭前端和运行时资源，并在完整 TUI 会话后打印退出摘要。"""
+    try:
+        await mind.frontend.runtime.close()
+    finally:
+        await mind.close_runtime_resources()
+
+    if completed and output_mode == "tui":
+        from ..tui.core.runtime import require_tui_runtime
+
+        runtime = require_tui_runtime(mind.frontend.runtime)
+        runtime.print_exit_summary()
 
 
 async def _run_main(
@@ -276,9 +296,11 @@ async def _run_main(
     if handler is not None:
         handler.bind_delegate(mind.signal_processor)
 
+    completed: bool = False
+
     try:
         if output_mode == "tui":
-            from ..tui.session.loop import preload_tui_prompt_context
+            from ..tui.session.state import preload_tui_prompt_context
 
             await preload_tui_prompt_context(mind)
         await mind.frontend.runtime.open()
@@ -319,7 +341,7 @@ async def _run_main(
 
         if output_mode == "tui":
             from ..tui.core.runtime import require_tui_runtime
-            from ..tui.features.download import confirm_tui_service_runtime_startup
+            from ..tui.features.helix import confirm_tui_service_runtime_startup
 
             runtime = require_tui_runtime(mind.frontend.runtime)
 
@@ -336,13 +358,17 @@ async def _run_main(
                 )
 
         await run_selected_mode(mind, cmd_lines)
+
+        completed = True
+
         return mind.exit_code
 
     finally:
-        try:
-            await mind.frontend.runtime.close()
-        finally:
-            await mind.close_runtime_resources()
+        await _finalize_mind(
+            mind,
+            output_mode=output_mode,
+            completed=completed,
+        )
 
 
 if __name__ == '__main__':

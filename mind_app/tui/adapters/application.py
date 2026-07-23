@@ -71,9 +71,6 @@ class TuiApplicationSink(ApplicationSink):
         if view.type == "intro":
             self.runtime.append_block(_intro_block())
             return None
-        if view.type == "outro":
-            self.runtime.append_block(_outro_block())
-            return None
         if view.type == "startup_logo":
             self.runtime.append_block(_startup_logo_block())
             return None
@@ -127,14 +124,6 @@ def _intro_block() -> FragmentBlock:
         TextSpan(">_ ", MUTED),
         TextSpan(const.APP_DESC, BRIGHT),
         TextSpan(f" (v{const.APP_VERSION})", MUTED),
-    ])
-
-
-def _outro_block() -> FragmentBlock:
-    """生成 TUI 结束标题。"""
-    return _fragment_block([
-        TextSpan(const.APP_DESC, ACCENT),
-        TextSpan(" session ended", MUTED),
     ])
 
 

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -15,6 +15,7 @@ from mind_app.cli.selection import resolve_cli_output_mode
 from mind_app.cli.dispatch import run_selected_mode
 from mind_app.frontend.contracts import PassiveFrontendRuntime
 from mind_app.frontend.sinks import ConsoleApplicationSink
+from mind_app.tui.core.runtime import TuiRuntime
 from engine.errors import MindError
 from mind_core.parser import Parser
 
@@ -179,3 +180,76 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
     assert kwargs["explicit_upgrade"] is True
     assert kwargs["design"] is design
     assert "progress" not in kwargs
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("exit_code", (0, 130))
+async def test_tui_finalization_prints_summary_after_cleanup(
+    exit_code: int,
+) -> None:
+    events = []
+    runtime = TuiRuntime()
+    runtime.close = AsyncMock(side_effect=lambda: events.append("runtime"))
+    runtime.print_exit_summary = Mock(
+        side_effect=lambda **_kwargs: events.append("summary"),
+    )
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(runtime=runtime),
+        close_runtime_resources=AsyncMock(
+            side_effect=lambda: events.append("resources"),
+        ),
+        exit_code=exit_code,
+    )
+
+    await entry._finalize_mind(
+        mind,
+        output_mode="tui",
+        completed=True,
+    )
+
+    assert events == ["runtime", "resources", "summary"]
+    runtime.print_exit_summary.assert_called_once_with()
+
+
+@pytest.mark.anyio
+async def test_tui_finalization_skips_summary_for_incomplete_session() -> None:
+    runtime = TuiRuntime()
+    runtime.close = AsyncMock()
+    runtime.print_exit_summary = Mock()
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(runtime=runtime),
+        close_runtime_resources=AsyncMock(),
+        exit_code=0,
+    )
+
+    await entry._finalize_mind(
+        mind,
+        output_mode="tui",
+        completed=False,
+    )
+
+    runtime.close.assert_awaited_once_with()
+    mind.close_runtime_resources.assert_awaited_once_with()
+    runtime.print_exit_summary.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_tui_finalization_skips_summary_when_cleanup_fails() -> None:
+    runtime = TuiRuntime()
+    runtime.close = AsyncMock(side_effect=RuntimeError("close failed"))
+    runtime.print_exit_summary = Mock()
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(runtime=runtime),
+        close_runtime_resources=AsyncMock(),
+        exit_code=0,
+    )
+
+    with pytest.raises(RuntimeError, match="close failed"):
+        await entry._finalize_mind(
+            mind,
+            output_mode="tui",
+            completed=True,
+        )
+
+    mind.close_runtime_resources.assert_awaited_once_with()
+    runtime.print_exit_summary.assert_not_called()
