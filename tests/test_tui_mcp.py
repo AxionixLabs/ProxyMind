@@ -271,3 +271,41 @@ def test_external_mcp_start_result_is_committed_to_tui(
         if view.type == "tui.external_mcp.status"
     )
     assert status.renderable.plain_text == expected
+
+
+def test_external_mcp_status_is_one_compact_block(monkeypatch) -> None:
+    views = []
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+    monkeypatch.setattr(
+        mcp,
+        "summarize_external_runtime",
+        lambda _mind: {
+            "started": False,
+            "configured": [
+                {"name": "playwright", "transport": "stdio", "enabled": False},
+                {"name": "docs", "transport": "streamable_http", "enabled": True},
+            ],
+            "config_error": "",
+            "tool_groups": [],
+            "tool_count": 0,
+            "filtered_count": 0,
+        },
+    )
+
+    mcp.render_mcp_status(mind)
+
+    assert [view.type for view in views] == ["tui.mcp", "tui.gap"]
+    assert views[0].renderable.fragments
+    assert "".join(
+        text for _style, text in views[0].renderable.fragments
+    ) == (
+        "External MCP · started=false configured=2 tools=0 filtered=0\n"
+        "Configured servers\n"
+        "  • playwright (stdio · disabled)\n"
+        "  • docs (streamable_http · enabled)\n"
+        "No external MCP servers connected."
+    )

@@ -309,64 +309,62 @@ def render_mcp_status(mind: typing.Any) -> None:
         _present(mind, view_type="tui.gap")
         return None
 
-    _present(
-        mind,
-        fragment_block(
-            TextSpan("External MCP ", ACCENT_STYLE),
-            TextSpan(
-                f"· started={str(summary['started']).lower()} "
-                f"configured={len(configured)} tools={summary['tool_count']} "
-                f"filtered={summary['filtered_count']}",
-                MUTED_STYLE,
-            ),
-        )
-    )
+    parts = [
+        TextSpan("External MCP ", ACCENT_STYLE),
+        TextSpan(
+            f"· started={str(summary['started']).lower()} "
+            f"configured={len(configured)} tools={summary['tool_count']} "
+            f"filtered={summary['filtered_count']}",
+            MUTED_STYLE,
+        ),
+    ]
 
     if configured:
-        _present(mind, text_block("Configured servers", BRIGHT_STYLE))
+        parts.extend([
+            TextSpan("\n"),
+            TextSpan("Configured servers", BRIGHT_STYLE),
+        ])
         for server in configured:
             name      = str(server.get("name") or "server")
             transport = str(server.get("transport") or "streamable_http")
             enabled   = bool(server.get("enabled", True))
             state     = "enabled" if enabled else "disabled"
 
-            _present(
-                mind,
-                fragment_block(
-                    TextSpan("  • ", ACCENT_STYLE),
-                    TextSpan(f"{name} ", BODY_STYLE),
-                    TextSpan(f"({transport} · {state})", MUTED_STYLE),
-                )
-            )
+            parts.extend([
+                TextSpan("\n  • ", ACCENT_STYLE),
+                TextSpan(f"{name} ", BODY_STYLE),
+                TextSpan(f"({transport} · {state})", MUTED_STYLE),
+            ])
     else:
-        _present(
-            mind,
-            text_block("No external MCP servers configured.", MUTED_STYLE),
-        )
+        parts.extend([
+            TextSpan("\n"),
+            TextSpan("No external MCP servers configured.", MUTED_STYLE),
+        ])
 
     if tool_groups:
-        _present(mind, text_block("Connected servers", BRIGHT_STYLE))
+        parts.extend([
+            TextSpan("\n"),
+            TextSpan("Connected servers", BRIGHT_STYLE),
+        ])
         for group in tool_groups:
             names = group["tools"]
-            _present(
-                mind,
-                fragment_block(
-                    TextSpan("  • ", ACCENT_STYLE),
-                    TextSpan(f"{group['server']} ", BODY_STYLE),
-                    TextSpan(
-                        f"({group['transport']} · "
-                        f"discovered={group['discovered']} "
-                        f"exposed={len(names)} filtered={group['filtered']})",
-                        MUTED_STYLE,
-                    ),
-                )
-            )
+            parts.extend([
+                TextSpan("\n  • ", ACCENT_STYLE),
+                TextSpan(f"{group['server']} ", BODY_STYLE),
+                TextSpan(
+                    f"({group['transport']} · "
+                    f"discovered={group['discovered']} "
+                    f"exposed={len(names)} filtered={group['filtered']})",
+                    MUTED_STYLE,
+                ),
+            ])
     else:
-        _present(
-            mind,
-            text_block("No external MCP servers connected.", MUTED_STYLE),
-        )
+        parts.extend([
+            TextSpan("\n"),
+            TextSpan("No external MCP servers connected.", MUTED_STYLE),
+        ])
 
+    _present(mind, fragment_block(*parts))
     _present(mind, view_type="tui.gap")
 
 
