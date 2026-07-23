@@ -70,7 +70,11 @@ def render_presentation_view(
     if isinstance(view, BatchCompletedView):
         return (render_batch_completed_view(view),)
     if isinstance(view, FailureView):
-        return (render_failure_view(view),)
+        return (render_failure_view(
+            view,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        ),)
     if isinstance(view, LifecycleView):
         return (render_lifecycle_view(view),)
     if isinstance(view, ProgressView):

@@ -25,6 +25,7 @@ from mind_nova import const
 DEFAULT_MCP_TRANSPORT = "streamable_http"
 ALLOWED_MCP_TRANSPORT = {"streamable_http", "sse", "stdio"}
 
+DEFAULT_MCP_START_TIMEOUT_SEC = 10.0
 DEFAULT_MCP_REQ_TIMEOUT_SEC = 30 * 60
 DEFAULT_MCP_SSE_TIMEOUT_SEC = 30 * 60
 
@@ -147,11 +148,15 @@ def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
         seen_names.add(unique_slug)
 
         base = {
-            "name"        : unique_slug,
-            "enabled"     : item.get("enabled", True) is not False,
-            "transport"   : transport,
-            "timeout_sec" : timeout_sec,
-            "notes"       : str(item.get("notes", "") or "").strip()
+            "name"                : unique_slug,
+            "enabled"             : item.get("enabled", True) is not False,
+            "transport"           : transport,
+            "startup_timeout_sec" : _positive_float(
+                item.get("startup_timeout_sec"),
+                DEFAULT_MCP_START_TIMEOUT_SEC
+            ),
+            "timeout_sec"         : timeout_sec,
+            "notes"               : str(item.get("notes", "") or "").strip()
         }
 
         if transport == "stdio":
@@ -237,6 +242,14 @@ def truncate_text(value: typing.Any, limit: int) -> str:
 def request_timeout_sec(server: dict[str, typing.Any]) -> float:
     """读取外部 MCP 服务的请求超时时间。"""
     return _positive_float(server.get("timeout_sec"), DEFAULT_MCP_REQ_TIMEOUT_SEC)
+
+
+def startup_timeout_sec(server: dict[str, typing.Any]) -> float:
+    """读取外部 MCP 服务的启动超时时间。"""
+    return _positive_float(
+        server.get("startup_timeout_sec"),
+        DEFAULT_MCP_START_TIMEOUT_SEC
+    )
 
 
 def external_http_client(

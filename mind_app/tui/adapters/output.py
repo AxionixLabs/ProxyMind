@@ -3,6 +3,7 @@
 
 import json
 import random
+import time
 import typing
 import asyncio
 from mind_app.output.contracts import OutputControlPort
@@ -28,6 +29,10 @@ from ..core.styles import (
 from .markdown import render_tui_markdown
 
 TYPEWRITER_CURSOR_STYLE = TextStyle(foreground="#D7E7FF", bold=True)
+STREAM_RENDER_REGULAR_SEC = 1 / 20
+STREAM_RENDER_SLOW_SEC = 1 / 12
+STREAM_RENDER_COST_LIMIT_SEC = STREAM_RENDER_REGULAR_SEC / 4
+STREAM_RENDER_LONG_TEXT_SIZE = 2000
 
 
 class TuiOutputControl(OutputControlPort):
@@ -47,6 +52,9 @@ class TuiOutputControl(OutputControlPort):
         self.assistant     = TuiAssistantStream()
         self.record_writer = StreamRecordWriter(log_file)
         self._cursor = random.choice(("█", "▉", "▋"))
+        self._stream_render_handle: asyncio.TimerHandle | None = None
+        self._stream_rendered_at: float = 0.0
+        self._stream_render_cost_sec: float = 0.0
 
     @property
     def terminal_width(self) -> int | None:
@@ -80,7 +88,8 @@ class TuiOutputControl(OutputControlPort):
         self.record_writer.write(text)
 
         if self.animate:
-            await self._append_typewriter(text)
+            self.assistant.append(text)
+            self._schedule_stream_render()
             return None
 
         self.assistant.append(text)
@@ -93,6 +102,7 @@ class TuiOutputControl(OutputControlPort):
 
     async def settle_stream(self) -> None:
         """立即同步当前流式内容。"""
+        self._cancel_stream_render()
         if self.assistant.active:
             self._render_active(cursor=False)
 
@@ -165,6 +175,7 @@ class TuiOutputControl(OutputControlPort):
 
     def _commit_current(self) -> bool:
         """把当前动态内容提交为稳定 TUI 内容块并返回提交状态。"""
+        self._cancel_stream_render()
         if not self.assistant.active:
             self.runtime.clear_active_renderable()
             return False
@@ -173,24 +184,65 @@ class TuiOutputControl(OutputControlPort):
         self.assistant.clear()
         return True
 
-    async def _append_typewriter(self, text: str) -> None:
-        """按现有打字机节奏分批展示流式文本。"""
-        size = max(1, len(text))
-        for index in range(0, len(text), 2):
-            delta = text[index:index + 2]
-            self.assistant.append(delta)
-            self._render_active(cursor=True)
+    def _schedule_stream_render(self) -> None:
+        """立即展示首帧，并把后续增量合并到自适应帧预算。"""
+        loop = asyncio.get_running_loop()
+        now = loop.time()
+        elapsed = now - self._stream_rendered_at
+        interval = self._stream_render_interval()
 
-            progress = index / max(1, size - 1)
-            delay    = 0.010 + (0.0065 - 0.010) * progress
+        if (
+            self._stream_render_handle is None
+            and (
+                self._stream_rendered_at <= 0.0
+                or elapsed >= interval
+            )
+        ):
+            self._render_stream_frame()
+            self._stream_rendered_at = loop.time()
+            return None
 
-            if any(char in "。.!！?？" for char in delta):
-                delay += 0.035
-            elif any(char in "；;：:" for char in delta):
-                delay += 0.025
-            elif any(char in "，," for char in delta):
-                delay += 0.015
-            await asyncio.sleep(max(0.0015, delay))
+        if self._stream_render_handle is None:
+            self._stream_render_handle = loop.call_later(
+                max(0.0, interval - elapsed),
+                self._flush_stream_render,
+            )
+
+    def _flush_stream_render(self) -> None:
+        """展示帧预算内合并的最新流式正文。"""
+        self._stream_render_handle = None
+        if not self.assistant.active:
+            self._stream_rendered_at = 0.0
+            return None
+        self._render_stream_frame()
+        self._stream_rendered_at = asyncio.get_running_loop().time()
+
+    def _render_stream_frame(self) -> None:
+        """渲染流式帧并记录本帧耗时。"""
+        started_at = time.perf_counter()
+        self._render_active(cursor=True)
+        self._stream_render_cost_sec = max(
+            0.0,
+            time.perf_counter() - started_at,
+        )
+
+    def _stream_render_interval(self) -> float:
+        """按正文规模和上一帧成本返回流式刷新间隔。"""
+        if (
+            len(self.assistant.text) >= STREAM_RENDER_LONG_TEXT_SIZE
+            or self._stream_render_cost_sec >= STREAM_RENDER_COST_LIMIT_SEC
+        ):
+            return STREAM_RENDER_SLOW_SEC
+        return STREAM_RENDER_REGULAR_SEC
+
+    def _cancel_stream_render(self) -> None:
+        """取消待展示帧并重置流式刷新时钟。"""
+        handle = self._stream_render_handle
+        self._stream_render_handle = None
+        self._stream_rendered_at = 0.0
+        self._stream_render_cost_sec = 0.0
+        if handle is not None:
+            handle.cancel()
 
     def _render_active(
         self,

@@ -7,6 +7,7 @@ from mind_app.presentation.models import (
     TextSpan,
     TextStyle
 )
+from mind_app.presentation.text_layout import wrap_styled_line
 
 FAILURE_DOT_STYLE     = TextStyle(foreground="#FF5F5F", bold=True)
 FAILURE_TITLE_STYLE   = TextStyle(foreground="#FF8A8A", bold=True)
@@ -29,7 +30,10 @@ def render_failure_text(phase: str, error: typing.Any) -> str:
 
 def render_failure_display_parts(
     phase: str,
-    error: typing.Any
+    error: typing.Any,
+    *,
+    terminal_width: int | None = None,
+    measure_width: typing.Callable[[str], int] | None = None,
 ) -> list[TextSpan]:
     """把 stream 生命周期失败块转换为显示片段。"""
     title = render_failure_title(phase)
@@ -40,20 +44,41 @@ def render_failure_display_parts(
         TextSpan(title[1:], FAILURE_TITLE_STYLE),
     ]
     if message:
+        message_parts = [TextSpan(message, FAILURE_MESSAGE_STYLE)]
+        if isinstance(terminal_width, int) and terminal_width > 0:
+            message_parts = wrap_styled_line(
+                message_parts,
+                terminal_width=terminal_width,
+                first_prefix="└ ",
+                continuation_prefix=TextSpan("  ", FAILURE_BRANCH_STYLE),
+                measure_width=measure_width,
+            )
         parts.extend([
             TextSpan("\n"),
             TextSpan("└ ", FAILURE_BRANCH_STYLE),
-            TextSpan(message, FAILURE_MESSAGE_STYLE),
+            *message_parts,
         ])
     return parts
 
 
-def render_failure_block(phase: str, error: typing.Any) -> StyledBlock:
+def render_failure_block(
+    phase: str,
+    error: typing.Any,
+    *,
+    terminal_width: int | None = None,
+    measure_width: typing.Callable[[str], int] | None = None,
+) -> StyledBlock:
     """生成中立的 stream 生命周期失败展示块。"""
-    parts = tuple(render_failure_display_parts(phase, error))
+    parts = tuple(render_failure_display_parts(
+        phase,
+        error,
+        terminal_width=terminal_width,
+        measure_width=measure_width,
+    ))
     return StyledBlock(
-        plain_text="".join(part.text for part in parts),
+        plain_text=render_failure_text(phase, error),
         spans=parts,
+        preserve_spans=True,
     )
 
 

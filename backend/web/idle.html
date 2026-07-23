@@ -186,10 +186,9 @@
       overflow:hidden;
     }
     .count-chip{
-      flex:0 0 7ch;
-      width:7ch;
-      min-width:7ch;
-      max-width:7ch;
+      flex:0 0 auto;
+      width:auto;
+      min-width:8ch;
       justify-content:center;
       text-align:center;
       font-variant-numeric:tabular-nums;
@@ -572,20 +571,30 @@
       color:#d7f7ff;
       background:#0b1118;
     }
+    .search:disabled,
+    .select:disabled{
+      opacity:.48;
+      cursor:not-allowed;
+      transform:none;
+    }
     .filter-row{
       display:flex;
       flex-wrap:wrap;
       gap:8px;
       margin-bottom:16px;
     }
+    .filter-row:empty,
+    .filter-row[hidden]{
+      display:none;
+    }
     .filter-chip{
       appearance:none;
       display:inline-flex;
       align-items:center;
       justify-content:center;
-      width:14ch;
-      min-width:14ch;
-      max-width:14ch;
+      gap:8px;
+      min-width:0;
+      max-width:min(24ch, 100%);
       min-height:34px;
       box-sizing:border-box;
       border:1px solid rgba(255,255,255,.08);
@@ -600,14 +609,30 @@
       white-space:nowrap;
       overflow:hidden;
     }
+    .filter-chip:focus-visible{
+      outline:none;
+      border-color:rgba(92,255,214,.36);
+      box-shadow:0 0 0 3px rgba(92,255,214,.10);
+    }
     .filter-chip.active{
       border-color:rgba(92,255,214,.22);
       background:rgba(92,255,214,.10);
       color:var(--accent);
     }
-    .filter-chip b{
+    .filter-chip-label{
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .filter-chip-count{
+      flex:0 0 auto;
+      min-width:2ch;
+      padding-left:8px;
+      border-left:1px solid rgba(255,255,255,.10);
       color:inherit;
       font-weight:600;
+      font-variant-numeric:tabular-nums;
+      text-align:right;
     }
     .stack{
       display:grid;
@@ -903,7 +928,7 @@
             <div class="chip">runtime jobs</div>
           </div>
           <div class="bar-end">
-            <div class="chip count-chip" id="jobs-count">0/0</div>
+            <div class="chip count-chip" id="jobs-count">0 items</div>
           </div>
         </div>
         <div class="section">
@@ -932,7 +957,7 @@
             <div class="chip">runtime sessions</div>
           </div>
           <div class="bar-end">
-            <div class="chip count-chip" id="sessions-count">0/0</div>
+            <div class="chip count-chip" id="sessions-count">0 items</div>
           </div>
         </div>
         <div class="section">
@@ -1023,8 +1048,9 @@
     let refreshTimer = null;
     let refreshTask = null;
     const qs = new URLSearchParams(location.search);
-    let jobsScope = qs.get("jobs_scope") || "all";
-    let sessionsScope = qs.get("sessions_scope") || "all";
+    const ALL_SCOPE = "";
+    let jobsScope = qs.get("jobs_scope") || ALL_SCOPE;
+    let sessionsScope = qs.get("sessions_scope") || ALL_SCOPE;
     const previewIdleData = {
       active_runtime_jobs : 1,
       active_sessions     : 1,
@@ -1144,36 +1170,62 @@
       return head || "uncategorized";
     }
 
-    function renderScopeChips(host, items, selected, onSelect, keyName){
+    function buildScopeState(items, selected, keyName){
       const counts = items.reduce((acc, item) => {
         const cat = categoryOf(item[keyName]);
         acc[cat] = (acc[cat] || 0) + 1;
         return acc;
-      }, {});
-      const cats = Object.keys(counts).sort();
-      const all = ["all", ...cats];
-      host.innerHTML = all.map((cat) => `
-        <button class="filter-chip${cat === selected ? " active" : ""}" type="button" data-scope="${cat}">
-          <span>${cat}</span>
-          <b>${cat === "all" ? items.length : counts[cat]}</b>
-        </button>
-      `).join("");
+      }, Object.create(null));
+      const categories = Object.keys(counts).sort();
+      const hasChoices = categories.length > 1;
+      const scope = hasChoices && categories.includes(selected) ? selected : ALL_SCOPE;
+      return {counts, categories, hasChoices, scope};
+    }
+
+    function renderScopeChips(host, items, state, onSelect, label){
+      host.replaceChildren();
+      host.hidden = !state.hasChoices;
+      host.onclick = null;
+      if(!state.hasChoices) return;
+
+      host.setAttribute("role", "group");
+      host.setAttribute("aria-label", label);
+      [ALL_SCOPE, ...state.categories].forEach((scope) => {
+        const displayName = scope === ALL_SCOPE ? "All" : scope;
+        const count = scope === ALL_SCOPE ? items.length : state.counts[scope];
+        const button = document.createElement("button");
+        button.className = `filter-chip${scope === state.scope ? " active" : ""}`;
+        button.type = "button";
+        button.dataset.scope = scope;
+        button.title = displayName;
+        button.setAttribute("aria-pressed", scope === state.scope ? "true" : "false");
+        button.setAttribute("aria-label", `${displayName}, ${count} ${count === 1 ? "item" : "items"}`);
+
+        const scopeLabel = document.createElement("span");
+        scopeLabel.className = "filter-chip-label";
+        scopeLabel.textContent = displayName;
+        const scopeCount = document.createElement("span");
+        scopeCount.className = "filter-chip-count";
+        scopeCount.textContent = String(count);
+        button.append(scopeLabel, scopeCount);
+        host.append(button);
+      });
       host.onclick = (event) => {
         const button = event.target.closest("button[data-scope]");
         if(!button) return;
-        onSelect(button.getAttribute("data-scope") || "all");
+        onSelect(button.dataset.scope);
       };
     }
 
     function applyScope(items, scope, keyName){
-      if(scope === "all") return items;
+      if(scope === ALL_SCOPE) return items;
       return items.filter((item) => categoryOf(item[keyName]) === scope);
     }
 
     function syncQuery(){
       const next = new URLSearchParams();
-      if (jobsScope !== "all") next.set("jobs_scope", jobsScope);
-      if (sessionsScope !== "all") next.set("sessions_scope", sessionsScope);
+      if (jobsScope !== ALL_SCOPE) next.set("jobs_scope", jobsScope);
+      if (sessionsScope !== ALL_SCOPE) next.set("sessions_scope", sessionsScope);
       if (jobsSearch.value.trim()) next.set("jobs_q", jobsSearch.value.trim());
       if (sessionsSearch.value.trim()) next.set("sessions_q", sessionsSearch.value.trim());
       if (jobsSort.value !== "age-desc") next.set("jobs_sort", jobsSort.value);
@@ -1191,19 +1243,37 @@
       refreshButton.setAttribute("aria-busy", pending ? "true" : "false");
     }
 
+    function updateCollectionControls(search, sort, count){
+      const disabled = count === 0;
+      search.disabled = disabled;
+      sort.disabled = disabled;
+    }
+
+    function updateCollectionCount(targetId, visible, total, filtered, itemName){
+      const target = document.getElementById(targetId);
+      target.textContent = filtered ? `${visible} of ${total}` : `${total} ${total === 1 ? "item" : "items"}`;
+      target.setAttribute("aria-label", `${visible} of ${total} ${itemName} visible`);
+    }
+
     function renderJobs(data){
       const query = searchText(jobsSearch.value).trim();
       const baseJobs = Array.isArray(data.jobs) ? data.jobs : [];
-      renderScopeChips(jobsChips, baseJobs, jobsScope, (scope) => {
+      const scopeState = buildScopeState(baseJobs, jobsScope, "name");
+      if(jobsScope !== scopeState.scope){
+        jobsScope = scopeState.scope;
+        syncQuery();
+      }
+      renderScopeChips(jobsChips, baseJobs, scopeState, (scope) => {
         jobsScope = scope;
         rerenderFilters();
-      }, "name");
+      }, "Filter jobs by category");
       const allJobs = applySort(applyScope(baseJobs, jobsScope, "name"), jobsSort.value, "name");
       const jobs = allJobs.filter((job) => matchesQuery([
         job.id,
         job.name
       ], query));
-      document.getElementById("jobs-count").textContent = `${jobs.length}/${allJobs.length}`;
+      updateCollectionControls(jobsSearch, jobsSort, baseJobs.length);
+      updateCollectionCount("jobs-count", jobs.length, baseJobs.length, jobsScope !== ALL_SCOPE || Boolean(query), "jobs");
       jobsHost.innerHTML = jobs.length ? jobs.map((job) => `
         <div class="item">
           <div class="item-head">
@@ -1214,7 +1284,7 @@
             <div class="pill">${fmtSec(job.age_sec)}</div>
           </div>
         </div>
-      `).join("") : `<div class="empty">${allJobs.length ? "No jobs match current search." : "No active jobs."}</div>`;
+      `).join("") : `<div class="empty">${baseJobs.length ? "No jobs match current filters." : "No active jobs."}</div>`;
     }
 
     function renderSessions(data){
@@ -1222,10 +1292,15 @@
       const allSessionsBase = data.sessions && typeof data.sessions === "object"
         ? Object.entries(data.sessions).map(([key, value]) => ({key, ...(value || {})}))
         : [];
-      renderScopeChips(sessionsChips, allSessionsBase, sessionsScope, (scope) => {
+      const scopeState = buildScopeState(allSessionsBase, sessionsScope, "name");
+      if(sessionsScope !== scopeState.scope){
+        sessionsScope = scopeState.scope;
+        syncQuery();
+      }
+      renderScopeChips(sessionsChips, allSessionsBase, scopeState, (scope) => {
         sessionsScope = scope;
         rerenderFilters();
-      }, "name");
+      }, "Filter sessions by category");
       const allSessions = applySort(
         applyScope(allSessionsBase, sessionsScope, "name"),
         sessionsSort.value,
@@ -1236,7 +1311,14 @@
         value.job_id,
         value.name
       ], query));
-      document.getElementById("sessions-count").textContent = `${sessions.length}/${allSessions.length}`;
+      updateCollectionControls(sessionsSearch, sessionsSort, allSessionsBase.length);
+      updateCollectionCount(
+        "sessions-count",
+        sessions.length,
+        allSessionsBase.length,
+        sessionsScope !== ALL_SCOPE || Boolean(query),
+        "sessions"
+      );
       sessionsHost.innerHTML = sessions.length ? sessions.map((value) => `
         <div class="item">
           <div class="item-head">
@@ -1248,7 +1330,7 @@
           </div>
           <div class="pill">${highlightText(value.name || "unknown session", query)}</div>
         </div>
-      `).join("") : `<div class="empty">${allSessions.length ? "No sessions match current search." : "No mapped sessions."}</div>`;
+      `).join("") : `<div class="empty">${allSessionsBase.length ? "No sessions match current filters." : "No mapped sessions."}</div>`;
     }
 
     async function loadIdle(options = {}){

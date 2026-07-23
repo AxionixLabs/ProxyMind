@@ -105,12 +105,29 @@ async def test_text_output_uses_static_mind_header_and_role_colors() -> None:
 
 
 def test_direct_text_commands_disable_entry_animation() -> None:
-    assert not entry_animation_requested(["--chat", "hello"])
-    assert not entry_animation_requested(["--fast=hello"])
-    assert not entry_animation_requested(["--xtra", "hello"])
-    assert not entry_animation_requested(["--chat", "hello", "--code", "a.md"])
-    assert entry_animation_requested([])
-    assert entry_animation_requested(["--agent"])
+    terminal = SimpleNamespace(isatty=lambda: True)
+
+    assert not entry_animation_requested(
+        ["--chat", "hello"], output_stream=terminal
+    )
+    assert not entry_animation_requested(
+        ["--fast=hello"], output_stream=terminal
+    )
+    assert not entry_animation_requested(
+        ["--xtra", "hello"], output_stream=terminal
+    )
+    assert not entry_animation_requested(
+        ["--chat", "hello", "--code", "a.md"],
+        output_stream=terminal,
+    )
+    assert entry_animation_requested([], output_stream=terminal)
+    assert entry_animation_requested(["--agent"], output_stream=terminal)
+
+
+def test_non_interactive_output_disables_entry_animation() -> None:
+    output = SimpleNamespace(isatty=lambda: False)
+
+    assert not entry_animation_requested([], output_stream=output)
 
 
 def test_disabled_entry_animation_does_not_emit_outro() -> None:

@@ -122,12 +122,23 @@ async def test_tui_starts_external_mcp_before_helix_background(
     monkeypatch,
 ) -> None:
     calls = []
+    views = []
 
     async def prepare_helix(_mind, *, download_confirmed=False):
         calls.append(("helix", download_confirmed))
         return True
 
     class MindStub(object):
+        external_mcp = SimpleNamespace(last_start_snapshot={
+            "done": True,
+            "items": [
+                {"name": "docs", "state": "ready", "tools": 2},
+            ],
+        })
+        frontend = SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        )
+
         async def start_external_mcp_runtime(self):
             calls.append(("external", True))
 
@@ -138,6 +149,13 @@ async def test_tui_starts_external_mcp_before_helix_background(
     await entry._start_tui_service_runtime(mind)
 
     assert calls == [("external", True), ("helix", True)]
+    status = next(
+        view for view in views
+        if view.type == "tui.external_mcp.status"
+    )
+    assert status.renderable.plain_text == (
+        "■ External MCP ready · 1/1 servers · 2 tools"
+    )
 
 
 @pytest.mark.anyio
@@ -199,8 +217,9 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
         async def await_cleanup(self, awaitable):
             await awaitable
 
-    def open_group(_servers, status=None):
+    def open_group(servers, status=None):
         if status is not None:
+            status.mark_ready(servers[0], "docs", 2)
             status.finish()
         return ExternalContext()
 
@@ -223,6 +242,14 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
 
     assert enter_count == 1
     assert runtime.group is not None
+    snapshot = runtime.last_start_snapshot
+    assert snapshot["done"] is True
+    assert snapshot["items"] == [{
+        "name": "docs",
+        "state": "ready",
+        "tools": 2,
+        "detail": "",
+    }]
 
     await runtime.stop()
 

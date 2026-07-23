@@ -300,13 +300,60 @@ class ProcessSessionManager(object):
             if session.finalized and (expired or idle):
                 self.sessions.pop(session.session_id, None)
 
-    async def close(self) -> None:
-        """终止并回收全部进程会话。"""
-        sessions = list(self.sessions.values())
+    async def stop_running_sessions(self) -> dict[str, typing.Any]:
+        """终止并回收当前仍在运行的全部进程会话。"""
+        await self.cleanup()
+
+        sessions = [
+            session
+            for session in self.sessions.values()
+            if session.process.returncode is None
+        ]
+        stopped: list[dict[str, typing.Any]] = []
+        failures: list[dict[str, typing.Any]] = []
 
         for session in sessions:
-            if session.process.returncode is None:
-                await ProcessCapture.terminate_process_tree(session.process, force=False)
+            item = {
+                "session_id" : session.session_id,
+                "command"    : session.command,
+                "pid"        : session.process.pid,
+                "origin"     : session.origin,
+            }
+            try:
+                await ProcessCapture.terminate_process_tree(
+                    session.process,
+                    force=False,
+                )
+                if session.process.returncode is None:
+                    failures.append({**item, "reason": "process_still_running"})
+                    continue
+                await self.finalize_if_exited(session)
+            except (OSError, RuntimeError, ValueError) as exc:
+                failures.append({
+                    **item,
+                    "reason": str(exc).strip() or type(exc).__name__,
+                })
+                continue
+
+            self.sessions.pop(session.session_id, None)
+            stopped.append({
+                **item,
+                "exit_code": session.process.returncode,
+            })
+
+        return {
+            "ok"        : not failures,
+            "requested" : len(sessions),
+            "stopped"   : len(stopped),
+            "failed"    : len(failures),
+            "items"     : stopped,
+            "failures"  : failures,
+        }
+
+    async def close(self) -> None:
+        """终止并回收全部进程会话。"""
+        await self.stop_running_sessions()
+        sessions = list(self.sessions.values())
 
         for session in sessions:
             if session.process.returncode is None:

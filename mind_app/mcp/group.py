@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import time
 import httpx
 import typing
 import asyncio
@@ -26,15 +25,18 @@ from .config import (
     preflight_server,
     request_timeout_sec,
     slugify_mcp_name,
+    startup_timeout_sec,
     tool_name_hook
 )
 from .status import (
     ExternalMcpStatus,
     external_status_detail_from_exception,
-    remaining_budget,
     should_reraise_external,
     summarize_exception
 )
+
+EXTERNAL_MCP_CONNECT_CONCURRENCY = 4
+EXTERNAL_MCP_PREFLIGHT_TIMEOUT_SEC = 2.0
 
 
 class ExternalMcpGroup(object):
@@ -75,8 +77,8 @@ class ExternalMcpGroup(object):
         self,
         server_params: typing.Any,
         session_params: ClientSessionParameters,
-    ) -> tuple[mcp_types.Implementation, ClientSession]:
-        """按服务传输类型建立 MCP 会话，成功后把资源栈转交给 group 管理。"""
+    ) -> tuple[mcp_types.Implementation, ClientSession, contextlib.AsyncExitStack]:
+        """按服务传输类型建立 MCP 会话，并返回尚未转交所有权的资源栈。"""
         session_stack = contextlib.AsyncExitStack()
 
         try:
@@ -127,8 +129,7 @@ class ExternalMcpGroup(object):
             )
 
             result = await session.initialize()
-            await self._exit_stack.enter_async_context(session_stack)
-            return result.serverInfo, session
+            return result.serverInfo, session, session_stack
 
         except BaseException:
             # 建连过程任一步失败，都只清理本次临时栈，不影响 group 中已有连接。
@@ -136,23 +137,22 @@ class ExternalMcpGroup(object):
                 await session_stack.aclose()
             raise
 
-    async def _aggregate_tools(
+    async def _collect_tools(
         self,
         server_info: mcp_types.Implementation,
         session: ClientSession,
         *,
         transport: str | None = None,
-    ) -> int:
-        """读取单个外部服务的工具列表，并登记工具名到对应会话的路由关系。"""
-        tools_temp: dict[str, mcp_types.Tool]          = {}
-        tool_to_session_temp: dict[str, ClientSession] = {}
+    ) -> dict[str, mcp_types.Tool]:
+        """读取单个外部服务的工具列表，并生成待提交的工具映射。"""
+        tools_temp: dict[str, mcp_types.Tool] = {}
 
         alias = slugify_mcp_name(server_info.name, fallback="server")
 
         capabilities = session.get_server_capabilities()
         if capabilities is not None and capabilities.tools is None:
             # 服务明确声明不支持 tools 时，直接跳过，不视为连接失败。
-            return 0
+            return tools_temp
 
         try:
             tools = (await session.list_tools()).tools
@@ -162,7 +162,7 @@ class ExternalMcpGroup(object):
             logger.debug(
                 f"[MCP] external tools skipped {summarize_exception(exc)}"
             )
-            return 0
+            return tools_temp
 
         for tool in tools:
             # 对外展示的工具名会加服务前缀，原始工具名保留在 tool.name 中用于调用。
@@ -174,21 +174,8 @@ class ExternalMcpGroup(object):
                 meta.setdefault("transport", str(transport).strip().lower())
 
             tools_temp[name] = tool.model_copy(update={"meta": meta})
-            tool_to_session_temp[name] = session
 
-        matching_tools = tools_temp.keys() & self.tools.keys()
-        if matching_tools:
-            # 工具名冲突会导致调用无法唯一路由，因此这里直接中止该 group。
-            raise McpError(
-                mcp_types.ErrorData(
-                    code=mcp_types.INVALID_PARAMS,
-                    message=f"{matching_tools} already exist in group tools."
-                )
-            )
-
-        self.tools.update(tools_temp)
-        self._tool_to_session.update(tool_to_session_temp)
-        return len(tools_temp)
+        return tools_temp
 
     async def call_tool(
         self,
@@ -220,26 +207,93 @@ class ExternalMcpGroup(object):
         alias  = slugify_mcp_name(server.get("name"), fallback="server")
         params = build_server_params(server)
 
-        server_info, session = await self._establish_session(
+        server_info, session, session_stack = await self._establish_session(
             params,
             ClientSessionParameters(
                 read_timeout_seconds=timedelta(seconds=request_timeout_sec(server))
             )
         )
 
-        alias_info = mcp_types.Implementation(
-            name=alias,
-            version=server_info.version,
-            websiteUrl=server_info.websiteUrl,
-            icons=server_info.icons
-        )
-        tool_count = await self._aggregate_tools(
-            alias_info,
-            session,
-            transport=str(server.get("transport") or "streamable_http")
-        )
+        try:
+            alias_info = mcp_types.Implementation(
+                name=alias,
+                version=server_info.version,
+                websiteUrl=server_info.websiteUrl,
+                icons=server_info.icons
+            )
+            tools = await self._collect_tools(
+                alias_info,
+                session,
+                transport=str(server.get("transport") or "streamable_http")
+            )
 
-        return alias, tool_count
+            matching_tools = tools.keys() & self.tools.keys()
+            if matching_tools:
+                # 工具名冲突会导致调用无法唯一路由，因此不提交当前连接。
+                raise McpError(
+                    mcp_types.ErrorData(
+                        code=mcp_types.INVALID_PARAMS,
+                        message=f"{matching_tools} already exist in group tools."
+                    )
+                )
+
+            # 从此处开始不再 await，确保资源所有权和工具路由一次性提交。
+            self._exit_stack.push_async_callback(session_stack.aclose)
+            self.tools.update(tools)
+            self._tool_to_session.update({name: session for name in tools})
+            return alias, len(tools)
+        except BaseException:
+            with contextlib.suppress(BaseException):
+                await session_stack.aclose()
+            raise
+
+
+async def _connect_external_server(
+    group: ExternalMcpGroup,
+    server: dict[str, typing.Any],
+    limiter: asyncio.Semaphore,
+    status: ExternalMcpStatus | None,
+) -> bool:
+    """在独立启动时限内连接一个外部 MCP 服务并更新状态。"""
+    name        = str(server.get("name") or "server")
+    transport   = str(server.get("transport") or "streamable_http")
+    start_limit = startup_timeout_sec(server)
+    phase       = "preflight"
+
+    try:
+        preflight_limit = min(start_limit, EXTERNAL_MCP_PREFLIGHT_TIMEOUT_SEC)
+        async with asyncio.timeout(preflight_limit):
+            await preflight_server(server)
+
+        phase = "startup"
+        async with limiter:
+            async with asyncio.timeout(start_limit):
+                alias, tool_count = await group.connect_with_alias(server)
+
+        if status is not None:
+            status.mark_ready(server, alias, tool_count)
+        logger.debug(
+            f"[MCP] external connected name={alias} "
+            f"transport={transport} tools={tool_count}"
+        )
+        return True
+    except BaseException as exc:
+        if should_reraise_external(exc):
+            raise
+
+        if isinstance(exc, asyncio.TimeoutError):
+            limit = preflight_limit if phase == "preflight" else start_limit
+            detail = f"{phase} timed out after {limit:g}s"
+        else:
+            detail = external_status_detail_from_exception(exc)
+
+        logger.debug(
+            f"[MCP] external connect failed name={name} transport={transport} "
+            f"{detail}"
+        )
+        if status is not None:
+            status.mark_failed(server, detail)
+        return False
 
 
 @asynccontextmanager
@@ -263,9 +317,7 @@ async def open_optional_external_mcp_group(
         yield None
         return
 
-    group             = ExternalMcpGroup()
-    connected_servers = 0
-    deadline          = time.monotonic() + 5.0
+    group = ExternalMcpGroup()
 
     try:
         await group.__aenter__()
@@ -281,91 +333,22 @@ async def open_optional_external_mcp_group(
         yield None
         return
 
-    # 先并发做轻量预检，再在总预算内逐个完成真实 MCP 建连与工具聚合。
-    preflight_tasks = {
-        asyncio.create_task(preflight_server(server)): server
+    limiter = asyncio.Semaphore(EXTERNAL_MCP_CONNECT_CONCURRENCY)
+    connect_tasks = [
+        asyncio.create_task(
+            _connect_external_server(
+                group,
+                server,
+                limiter,
+                status,
+            ),
+            name=f"external MCP {server.get('name') or 'server'}",
+        )
         for server in enabled
-    }
-    pending = set(preflight_tasks)
+    ]
 
     try:
-        while pending:
-            remaining = remaining_budget(deadline)
-            if remaining <= 0:
-                logger.debug("[MCP] external connect budget exhausted")
-                if status is not None:
-                    detail = external_status_detail_from_exception(
-                        asyncio.TimeoutError("external connect budget exhausted")
-                    )
-                    for task in pending:
-                        status.mark_failed(preflight_tasks[task], detail)
-                break
-
-            done, pending = await asyncio.wait(
-                pending,
-                timeout=remaining,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if not done:
-                logger.debug("[MCP] external connect budget exhausted")
-                if status is not None:
-                    detail = external_status_detail_from_exception(
-                        asyncio.TimeoutError("external connect budget exhausted")
-                    )
-                    for task in pending:
-                        status.mark_failed(preflight_tasks[task], detail)
-                break
-
-            for task in done:
-                server    = preflight_tasks[task]
-                name      = str(server.get("name") or "server")
-                transport = str(server.get("transport") or "streamable_http")
-
-                try:
-                    await task
-                except BaseException as exc:
-                    # 单个外部服务失败不影响整体启动；记录状态后继续尝试其它服务。
-                    if should_reraise_external(exc):
-                        raise
-                    logger.debug(
-                        f"[MCP] external connect failed name={name} transport={transport} "
-                        f"{summarize_exception(exc)}"
-                    )
-                    if status is not None:
-                        status.mark_failed(server, external_status_detail_from_exception(exc))
-                    continue
-
-                try:
-                    remaining = remaining_budget(deadline)
-                    if remaining <= 0:
-                        raise asyncio.TimeoutError("external connect budget exhausted")
-
-                    # 真实建连也受同一个启动预算约束，避免外部 MCP 阻塞本地会话。
-                    async with asyncio.timeout(remaining):
-                        alias, tool_count = await group.connect_with_alias(server)
-                    connected_servers += 1
-                    if status is not None:
-                        status.mark_ready(server, alias, tool_count)
-                    logger.debug(
-                        f"[MCP] external connected name={alias} "
-                        f"transport={transport} tools={tool_count}"
-                    )
-                except BaseException as exc:
-                    if should_reraise_external(exc):
-                        raise
-                    logger.debug(
-                        f"[MCP] external connect failed name={name} transport={transport} "
-                        f"{summarize_exception(exc)}"
-                    )
-                    if status is not None:
-                        status.mark_failed(server, external_status_detail_from_exception(exc))
-
-        if pending:
-            # 总预算耗尽后取消尚未完成的预检任务，避免后台任务泄漏。
-            for task in pending:
-                task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
-            pending = set()
+        connected_servers = sum(await asyncio.gather(*connect_tasks))
 
         if connected_servers <= 0:
             logger.debug("[MCP] external unavailable, local service only")
@@ -383,10 +366,10 @@ async def open_optional_external_mcp_group(
             status.finish_unresolved()
 
         # 调用方退出上下文时，确保所有未完成任务和外部 MCP 连接都被清理。
-        for task in pending:
-            task.cancel()
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
+        for task in connect_tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*connect_tasks, return_exceptions=True)
 
         try:
             await group.__aexit__(None, None, None)

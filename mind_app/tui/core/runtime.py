@@ -42,6 +42,7 @@ from prompt_toolkit.layout.processors import (
 )
 from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.output.base import Output
+from prompt_toolkit.output.plain_text import PlainTextOutput
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import (
     Style,
@@ -107,11 +108,12 @@ from .styles import (
     query_block
 )
 from .task_state import TuiTaskState
-from ..prompting.commands import running_disabled_commands
+from ..prompting.commands import (
+    stream_command_label,
+    stream_command_policy,
+)
 
 _QUEUE_END = object()
-
-_RUNNING_DISABLED_COMMANDS = running_disabled_commands()
 
 
 class TuiRuntime(object):
@@ -147,6 +149,7 @@ class TuiRuntime(object):
 
         self._exit_expiry_handle: asyncio.TimerHandle | None           = None
         self._turn_interrupt_handler: typing.Callable[[], bool] | None = None
+        self._stream_command_handler: typing.Callable[[str], bool] | None = None
 
         self.task_state = TuiTaskState(
             activity_running=lambda: self.activity.active,
@@ -157,13 +160,13 @@ class TuiRuntime(object):
 
         self.input_model.bind_interrupt(self._interrupt_input)
         self.input_model.bind_exit(
-            lambda: not self.execution_active,
+            lambda: not self.submission_deferred,
             self._exit_input,
         )
-        self.input_model.bind_queue_submission(lambda: self.execution_active)
+        self.input_model.bind_queue_submission(lambda: self.submission_deferred)
 
         self.input_model.bind_queue_rollback(
-            lambda: self.execution_active and self.queued_messages.active,
+            lambda: self.submission_deferred and self.queued_messages.active,
             self._rollback_queued_input,
         )
 
@@ -470,6 +473,16 @@ class TuiRuntime(object):
         self.task_state.set_turn_running(active)
 
     @property
+    def foreground_active(self) -> bool:
+        """返回是否正在等待下一轮开始前的前台屏障。"""
+        return self.task_state.foreground_running
+
+    @property
+    def submission_deferred(self) -> bool:
+        """返回新输入是否需要延迟到下一模型轮次。"""
+        return self.execution_active or self.foreground_active
+
+    @property
     def task_running(self) -> bool:
         """返回模型轮次或运行期活动是否正在执行。"""
         return self.task_state.running
@@ -526,6 +539,7 @@ class TuiRuntime(object):
         self.interrupt_state.clear()
         self._exit_event.clear()
         self._turn_interrupt_handler = None
+        self._stream_command_handler = None
         await self.activity.clear()
         self.task_state.clear()
         self.process_status.clear()
@@ -710,7 +724,7 @@ class TuiRuntime(object):
 
     def queue_background_block(self, block: FragmentBlock) -> None:
         """在不打断流式正文的边界提交后台摘要。"""
-        if self.execution_active or self.document.active_block is not None:
+        if self.submission_deferred or self.document.active_block is not None:
             self._background_blocks.append(block)
             return None
         self.append_block(block, kind="notice")
@@ -783,6 +797,8 @@ class TuiRuntime(object):
 
     async def _flush_scrollback(self) -> None:
         """原子提交溢出的稳定正文并推进文档提交游标。"""
+        current_task = asyncio.current_task()
+        reschedule   = False
         try:
             while self.active and not self._closing:
                 if (
@@ -809,10 +825,16 @@ class TuiRuntime(object):
                     ])
                     self.document.commit_scrollback_prefix(count)
                     self._transcript_view_row = None
+        except asyncio.CancelledError:
+            reschedule = True
+            raise
         except (EOFError, OSError, RuntimeError):
             return None
         finally:
-            self._scrollback_task = None
+            if self._scrollback_task is current_task:
+                self._scrollback_task = None
+                if reschedule:
+                    self._schedule_scrollback_flush()
             self.invalidate()
 
     def _scrollback_prefix_count(self) -> int:
@@ -867,12 +889,32 @@ class TuiRuntime(object):
         if not self.execution_active:
             self._schedule_scrollback_flush()
 
+    def set_foreground_active(self, active: bool) -> None:
+        """更新下一轮开始前的前台屏障状态。"""
+        self.task_state.set_foreground_running(active)
+        if not self.submission_deferred:
+            self._queued_submission_text = None
+            self._flush_background_blocks()
+            self._schedule_scrollback_flush()
+        self.invalidate()
+
     def bind_turn_interrupt(
         self,
         handler: typing.Callable[[], bool] | None,
     ) -> None:
         """绑定或清除当前模型轮次的取消函数。"""
         self._turn_interrupt_handler = handler
+
+    def bind_stream_command_handler(
+        self,
+        handler: typing.Callable[[str], bool] | None,
+    ) -> None:
+        """绑定或清除忙碌期间的命令分派函数。"""
+        self._stream_command_handler = handler
+
+    def request_turn_interrupt(self) -> None:
+        """把当前轮次标记为用户主动中断。"""
+        self.interrupt_state.request_turn_interrupt()
 
     def consume_turn_interrupt(self) -> bool:
         """消费并返回当前轮次是否由用户主动中断。"""
@@ -993,27 +1035,45 @@ class TuiRuntime(object):
             return False
         if shell_mode:
             value = f"! {value}" if value else "!"
-        command = value.casefold()
-        if self.execution_active and command in _RUNNING_DISABLED_COMMANDS:
-            self.input_model.rollback_submission_history(editable_text)
-            self.append_block(FragmentBlock((
-                ("class:input.notice.marker", "■"),
-                (
-                    "class:input.notice",
-                    f" '{command}' is disabled while a task is in progress.",
-                ),
-            )), kind="notice")
-            buffer.text = ""
-            buffer.cursor_position = 0
-            self.input_model.clear_submission_state()
-            return False
         submission = TuiSubmission(
             value=value,
             editable_text=editable_text,
             paste_store=paste_store,
             shell_mode=shell_mode,
         )
-        if self.execution_active:
+        if self.submission_deferred:
+            policy = stream_command_policy(value)
+            if policy is not None:
+                handler = self._stream_command_handler
+                handled = bool(
+                    policy != "reject"
+                    and handler is not None
+                    and handler(value)
+                )
+                if handled:
+                    self.queue_background_block(query_block(submission.visible_text))
+                else:
+                    label = stream_command_label(value)
+                    self.input_model.rollback_submission_history(editable_text)
+                    self.append_block(FragmentBlock((
+                        ("class:input.notice.marker", "■"),
+                        ("class:input.notice", " '"),
+                        (
+                            "class:prompt.command.slash"
+                            if label.startswith("/")
+                            else "class:input.notice",
+                            label,
+                        ),
+                        (
+                            "class:input.notice",
+                            "' is disabled while a task is in progress.",
+                        ),
+                    )), kind="notice")
+                buffer.text = ""
+                buffer.cursor_position = 0
+                self.input_model.clear_submission_state()
+                self.invalidate()
+                return False
             self.queued_messages.append(submission)
             self._queued_submission_text = submission.visible_text
         else:
@@ -1041,7 +1101,7 @@ class TuiRuntime(object):
 
     def _flush_background_blocks(self) -> None:
         """在流式正文结束后提交已完成的后台摘要。"""
-        if self.execution_active or self.document.active_block is not None:
+        if self.submission_deferred or self.document.active_block is not None:
             return None
         blocks = tuple(self._background_blocks)
         self._background_blocks.clear()
@@ -1068,7 +1128,7 @@ class TuiRuntime(object):
             self.invalidate()
             return None
 
-        if not self.execution_active:
+        if not self.submission_deferred:
             buffer = self.input.buffer
             if buffer.text or self.input_model.shell_mode:
                 buffer.text = ""
@@ -1200,7 +1260,7 @@ class TuiRuntime(object):
         """生成单行 TUI 信息栏。"""
         if self.interrupt_state.exit_armed:
             return [
-                ("class:footer.exit-key", "ctrl+c"),
+                ("class:footer.exit-key", "Ctrl + C"),
                 ("class:footer.exit-hint", " again to exit"),
             ]
         if self._queue_submission_hint_visible():
@@ -1211,10 +1271,16 @@ class TuiRuntime(object):
         theme = self.input_model.theme(self.context.mode)
 
         parts: FormattedText = [(f"fg:{theme['brand']}", const.APP_DESC)]
+        access_label = str(self.context.access_label or "").strip()
+        access_style = (
+            "class:footer.access.full"
+            if access_label.lower() == "elevated"
+            else "class:footer.access"
+        )
 
         values = [
             ("class:footer.model", self.context.model or "-"),
-            ("class:footer.access", self.context.access_label),
+            (access_style, access_label),
             ("class:footer.workspace", self.context.workspace_label),
         ]
 
@@ -1264,10 +1330,15 @@ class TuiRuntime(object):
         return bindings
 
     def _clear_visible_transcript(self) -> None:
-        """隐藏当前稳定正文并保留完整会话归档。"""
+        """清理当前终端画布并保留完整会话归档。"""
+        scrollback_task = self._scrollback_task
+        if scrollback_task is not None and not scrollback_task.done():
+            scrollback_task.cancel()
+
         self.document.clear_visible_prefix()
         self._transcript_view_row = None
         self.application.renderer.clear()
+        _erase_terminal_scrollback(self.application.output)
         self.invalidate()
 
     def _scroll_transcript_page(self, direction: int) -> None:
@@ -1396,7 +1467,7 @@ class TuiRuntime(object):
     def _queue_submission_hint_visible(self) -> bool:
         """判断执行期间是否应显示输入排队提示。"""
         return bool(
-            self.execution_active
+            self.submission_deferred
             and self.input.buffer.text != self._queued_submission_text
             and (
                 self.input.buffer.text.strip()
@@ -1590,7 +1661,7 @@ class TuiRuntime(object):
             "completion-menu.meta.completion.current": "bg:default #8FC7EA",
             "queue.label": "bg:default #8A929C bold",
             "queue.marker": "bg:default #7B838E",
-            "queue.text": "bg:default #DDE7EF",
+            "queue.text": "bg:default #DDE7EF dim",
             "queue.more": "bg:default #7B838E",
             "input.notice.marker": "bg:default #FF5F5F bold",
             "input.notice": "bg:default #FF8A8A",
@@ -1600,9 +1671,10 @@ class TuiRuntime(object):
             "footer.separator": "fg:#7B838E",
             "footer.model": "fg:#F3F5F8",
             "footer.access": "fg:#8FC7EA",
+            "footer.access.full": "fg:#D8B26E",
             "footer.workspace": "fg:#8A929C",
             "footer.queue-hint": "fg:#7B838E dim",
-            "footer.exit-key": "fg:#FF6B6B bold",
+            "footer.exit-key": "fg:#C9A86A",
             "footer.exit-hint": "fg:#8A929C",
             "shell.title.dot": "fg:#7F8C9A",
             "shell.title.action": "fg:#8FC7EA bold",
@@ -1625,6 +1697,17 @@ class TuiRuntime(object):
             TUI_MENU_STYLE,
             overrides,
         ])
+
+
+def _erase_terminal_scrollback(output: Output) -> None:
+    """清除支持 VT 擦除指令的终端滚屏缓冲区。"""
+    if isinstance(output, (DummyOutput, PlainTextOutput)):
+        return None
+    if sys.platform == "win32" and not hasattr(output, "vt100_output"):
+        return None
+
+    output.write_raw("\x1b[3J")
+    output.flush()
 
 
 def require_tui_runtime(runtime: FrontendRuntime) -> TuiRuntime:

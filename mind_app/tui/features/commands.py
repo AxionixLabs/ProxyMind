@@ -11,7 +11,11 @@ from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
 )
-from mind_app.presentation.models import TextSpan
+from mind_app.presentation.models import (
+    StyledBlock,
+    TextSpan
+)
+from mind_app.presentation.mcp_status import render_mcp_status_block
 from mind_app.runtime.support.clipboard import (
     ClipboardError,
     copy_text_to_clipboard
@@ -22,6 +26,10 @@ from mind_nova.modes import RunMode
 from mind_nova.requests.compact import (
     build_compact_payload,
     stream_compact_events
+)
+from mind_core.mcp_status import (
+    external_mcp_status_view,
+    inbuild_status_view
 )
 from .context import save_primary_pref_field
 from .download import prepare_tui_service_runtime
@@ -42,7 +50,7 @@ if typing.TYPE_CHECKING:
 
 def _present(
     mind: "Mind",
-    renderable: FragmentBlock | None = None,
+    renderable: FragmentBlock | StyledBlock | None = None,
     *,
     view_type: str = "tui.command",
 ) -> None:
@@ -64,6 +72,48 @@ def _label_detail(label: str, detail: str) -> FragmentBlock:
 def _failure_block(message: str) -> FragmentBlock:
     """生成单行命令错误块。"""
     return text_block(message, FAILURE_STYLE)
+
+
+def _present_mcp_result(
+    mind: "Mind",
+    block: StyledBlock,
+    *,
+    view_type: str,
+) -> None:
+    """把 MCP 最终状态写入稳定 TUI 正文。"""
+    if not block.plain_text:
+        return None
+    _present(mind, block, view_type=view_type)
+    _present(mind, view_type="tui.gap")
+
+
+def _present_compact_result(mind: "Mind", status: "CompactLiveStatus") -> None:
+    """展示上下文压缩的最终状态。"""
+    view = external_mcp_status_view(status.snapshot(), detail_limit=0)
+    _present_mcp_result(
+        mind,
+        render_mcp_status_block(view),
+        view_type="tui.compact.status",
+    )
+
+
+def _present_helix_result(
+    mind: "Mind",
+    *,
+    state: str,
+    error: str = "",
+) -> None:
+    """展示 Helix MCP 的最终状态。"""
+    view = inbuild_status_view({
+        "state": state,
+        "label": "Helix MCP",
+        "error": error,
+    })
+    _present_mcp_result(
+        mind,
+        render_mcp_status_block(view),
+        view_type="tui.helix.status",
+    )
 
 
 class CompactLiveStatus(object):
@@ -195,7 +245,7 @@ async def compact_current_conversation(
     })
 
     animation_running = False
-    received          = False
+    terminal_event    = False
     status            = CompactLiveStatus()
     animation_enabled = compact_animation_enabled(mind)
 
@@ -209,7 +259,6 @@ async def compact_current_conversation(
 
     try:
         async for event in stream_compact_events(payload):
-            received   = True
             event_type = str(event.get("type") or "")
             message    = str(event.get("message") or "").strip()
 
@@ -220,31 +269,37 @@ async def compact_current_conversation(
 
             if event_type == "conversation.compact.failed":
                 status.failed(message)
+                terminal_event = True
                 logger.debug(f"[Compact] failed message={status.snapshot()['summary']}")
-                if animation_running:
-                    await mind.await_cleanup(mind.stop_anim("external_mcp"))
-                    animation_running = False
-                return None
+                break
 
             if event_type == "conversation.compact":
                 detail = compact_event_detail(event)
                 status.completed(message, detail)
+                terminal_event = True
                 logger.debug(f"[Compact] completed message={status.snapshot()['summary']}")
-                if animation_running:
-                    await mind.await_cleanup(mind.stop_anim("external_mcp"))
-                    animation_running = False
-                return None
+                break
 
-        if not received:
+        if not terminal_event:
             status.failed("Context compaction failed. Please try again.")
             logger.debug(f"[Compact] failed message={status.snapshot()['summary']}")
-            if animation_running:
-                await mind.await_cleanup(mind.stop_anim("external_mcp"))
-                animation_running = False
+
+    except Exception as error:
+        message = str(error).strip()
+
+        detail = (
+            f": {type(error).__name__}: {message}"
+            if message
+            else f": {type(error).__name__}"
+        )
+        status.failed(f"Context compaction failed{detail}")
+        logger.debug(f"[Compact] failed message={status.snapshot()['summary']}")
 
     finally:
         if animation_running:
             await mind.await_cleanup(mind.stop_anim("external_mcp"))
+
+    _present_compact_result(mind, status)
 
 
 def compact_event_detail(event: dict[str, typing.Any]) -> str:
@@ -313,20 +368,34 @@ async def link_helix_runtime(mind: "Mind") -> None:
     try:
         helix_linked = await prepare_tui_service_runtime(mind)
     except MindError as error:
-        _present(mind, _failure_block(f"Helix link failed: {error}"))
-        _present(mind, view_type="tui.gap")
+        _present_helix_result(mind, state="failed", error=str(error.message))
+        return None
+    except Exception as error:
+        message = str(error).strip()
+
+        detail = (
+            f"{type(error).__name__}: {message}"
+            if message
+            else type(error).__name__
+        )
+        _present_helix_result(mind, state="failed", error=detail)
         return None
 
     if not helix_linked:
         _present(mind, _label_detail("Helix", "skipped"))
         _present(mind, view_type="tui.gap")
+        return None
+
+    _present_helix_result(mind, state="ready")
 
 
 def unlink_helix_runtime(mind: "Mind") -> None:
     """从当前工具会话移除 Helix MCP，不停止本地服务。"""
     was_linked = mind.is_service_mcp_linked()
     mind.unlink_service_mcp()
+
     state = "unlinked" if was_linked else "already unlinked"
+
     _present(mind, _label_detail("Helix", state))
     _present(mind, view_type="tui.gap")
 
@@ -364,12 +433,14 @@ def helix_runtime_home_url(mind: "Mind") -> str:
 async def stop_helix_runtime(mind: "Mind") -> None:
     """停止 Helix 服务并打印结果。"""
     _present(mind, _label_detail("Helix", "stop"))
+
     try:
         await mind.stop_service_runtime()
     except MindError as error:
         _present(mind, _failure_block(f"Helix stop failed: {error}"))
         _present(mind, view_type="tui.gap")
         return None
+
     _present(mind, view_type="tui.gap")
 
 
@@ -404,7 +475,11 @@ async def print_available_tools(
 
         _present(
             mind,
-            fragment_block(*render_failure_display_parts("tools.failed", error)),
+            fragment_block(*render_failure_display_parts(
+                "tools.failed",
+                error,
+                terminal_width=mind.frontend.application.viewport.width,
+            )),
         )
         _present(mind, view_type="tui.gap")
 

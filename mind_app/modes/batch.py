@@ -727,7 +727,11 @@ async def mind_pack(
         logger.error(f"❌ [Batch] failed: {error}\n")
         mind.frontend.application.emit(ApplicationView(
             type="batch.failed",
-            renderable=render_failure_block("batch.failed", error),
+            renderable=render_failure_block(
+                "batch.failed",
+                error,
+                terminal_width=mind.frontend.application.viewport.width,
+            ),
         ))
         mind.frontend.application.emit(ApplicationView(type="run.gap"))
 

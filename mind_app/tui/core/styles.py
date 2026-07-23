@@ -91,6 +91,7 @@ def query_block(text: str) -> FragmentBlock:
     value   = str(text).strip()
     lines   = value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     command = value.startswith(("/", "!", "$", "\\"))
+    text_style = "class:prompt.command.slash" if value.startswith("/") else "class:prompt"
 
     fragments: list[tuple[str, str]] = []
 
@@ -100,7 +101,7 @@ def query_block(text: str) -> FragmentBlock:
         marker = "" if command else ("> " if index == 0 else "  ")
         if marker:
             fragments.append(("class:prompt.kicker", marker))
-        fragments.append(("class:prompt", line))
+        fragments.append((text_style, line))
 
     return FragmentBlock(tuple(fragments))
 

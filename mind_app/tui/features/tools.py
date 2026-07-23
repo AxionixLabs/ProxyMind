@@ -15,7 +15,6 @@ from ..core.styles import (
     BRIGHT_STYLE,
     MUTED_STYLE,
     fragment_block,
-    text_block,
 )
 
 GROUP_DISPLAY_LIMIT = 12
@@ -79,24 +78,19 @@ def render_tools_summary(
         if item["source"] == "external"
     )
 
-    application.emit(ApplicationView(
-        type="tui.tools.summary",
-        renderable=fragment_block(
-            TextSpan("Tools ", ACCENT_STYLE),
-            TextSpan(
-                f"· mode={mode} total={total} external={external_total}",
-                MUTED_STYLE,
-            ),
+    parts = [
+        TextSpan("Tools ", ACCENT_STYLE),
+        TextSpan(
+            f"· mode={mode} total={total} external={external_total}",
+            MUTED_STYLE,
         ),
-    ))
+    ]
 
     if not groups:
-        application.emit(ApplicationView(
-            type="tui.tools.empty",
-            renderable=text_block("No visible tools.", MUTED_STYLE),
-        ))
-        application.emit(ApplicationView(type="tui.gap"))
-        return None
+        parts.extend([
+            TextSpan("\n"),
+            TextSpan("No visible tools.", MUTED_STYLE),
+        ])
 
     for group in groups:
         names  = group["tools"]
@@ -105,30 +99,26 @@ def render_tools_summary(
         source = group["source"]
         marker = "external" if source == "external" else "local"
 
-        application.emit(ApplicationView(
-            type="tui.tools.group",
-            renderable=fragment_block(
-                TextSpan(f"{label} ", BRIGHT_STYLE),
-                TextSpan(f"({marker} · {detail} · {len(names)})", MUTED_STYLE),
-            ),
-        ))
+        parts.extend([
+            TextSpan("\n"),
+            TextSpan(f"{label} ", BRIGHT_STYLE),
+            TextSpan(f"({marker} · {detail} · {len(names)})", MUTED_STYLE),
+        ])
         for name in names[:limit]:
-            application.emit(ApplicationView(
-                type="tui.tools.item",
-                renderable=fragment_block(
-                    TextSpan("  • ", ACCENT_STYLE),
-                    TextSpan(name, BODY_STYLE),
-                ),
-            ))
+            parts.extend([
+                TextSpan("\n  • ", ACCENT_STYLE),
+                TextSpan(name, BODY_STYLE),
+            ])
         if len(names) > limit:
-            application.emit(ApplicationView(
-                type="tui.tools.more",
-                renderable=text_block(
-                    f"  ... and {len(names) - limit} more",
-                    MUTED_STYLE,
-                ),
+            parts.append(TextSpan(
+                f"\n  ... and {len(names) - limit} more",
+                MUTED_STYLE,
             ))
 
+    application.emit(ApplicationView(
+        type="tui.tools.summary",
+        renderable=fragment_block(*parts),
+    ))
     application.emit(ApplicationView(type="tui.gap"))
     return None
 

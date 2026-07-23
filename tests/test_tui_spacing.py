@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+from types import SimpleNamespace
 from typing import get_args
 from unittest.mock import (
     AsyncMock,
+    Mock,
     patch,
 )
 
@@ -35,7 +37,10 @@ from mind_app.tui.core.document import (
 )
 from mind_app.tui.core.models import FragmentBlock
 from mind_app.tui.core.render import display_line_count
-from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.tui.core.runtime import (
+    TuiRuntime,
+    _erase_terminal_scrollback,
+)
 
 
 def _block(text: str) -> FragmentBlock:
@@ -174,6 +179,53 @@ def test_ctrl_l_clear_is_repeatable_and_keeps_active_block() -> None:
     assert "".join(
         text for _style, text in runtime.document.all_fragments(width=80)
     ) == "old history\n\ncompleted\n\nnew result\n\nafter clear"
+
+
+def test_ctrl_l_cancels_pending_scrollback_before_clearing() -> None:
+    runtime = TuiRuntime()
+    scrollback_task = Mock()
+    scrollback_task.done.return_value = False
+    runtime._scrollback_task = scrollback_task
+
+    with (
+        patch.object(runtime.application.renderer, "clear") as clear,
+        patch(
+            "mind_app.tui.core.runtime._erase_terminal_scrollback"
+        ) as erase_scrollback,
+    ):
+        runtime._clear_visible_transcript()
+
+    scrollback_task.cancel.assert_called_once_with()
+    clear.assert_called_once_with()
+    erase_scrollback.assert_called_once_with(runtime.application.output)
+
+
+def test_terminal_scrollback_uses_vt_erase_sequence() -> None:
+    output = SimpleNamespace(
+        vt100_output=object(),
+        write_raw=Mock(),
+        flush=Mock(),
+    )
+
+    _erase_terminal_scrollback(output)
+
+    output.write_raw.assert_called_once_with("\x1b[3J")
+    output.flush.assert_called_once_with()
+
+
+def test_terminal_scrollback_skips_raw_ansi_on_legacy_win32(
+    monkeypatch,
+) -> None:
+    output = SimpleNamespace(
+        write_raw=Mock(),
+        flush=Mock(),
+    )
+    monkeypatch.setattr("mind_app.tui.core.runtime.sys.platform", "win32")
+
+    _erase_terminal_scrollback(output)
+
+    output.write_raw.assert_not_called()
+    output.flush.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -664,17 +716,52 @@ async def test_animated_stream_uses_the_same_text_done_boundary() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=True)
 
-    with patch(
-        "mind_app.tui.adapters.output.asyncio.sleep",
-        new=AsyncMock(),
-    ):
-        await output.append_assistant_delta("first")
-        output.mark_stream_boundary()
-        await output.append_assistant_delta("second")
+    await output.append_assistant_delta("first")
+    output.mark_stream_boundary()
+    await output.append_assistant_delta("second")
 
     await output.settle_stream()
 
     assert _document_text(runtime.document) == "• first\n  second"
+
+
+@pytest.mark.anyio
+async def test_animated_stream_batches_rendering_to_frame_budget() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=True)
+
+    with patch.object(
+        runtime,
+        "set_active_renderable",
+        wraps=runtime.set_active_renderable,
+    ) as render:
+        await output.append_assistant_delta("first")
+        await output.append_assistant_delta(" second")
+        await output.append_assistant_delta(" third")
+
+        assert output.assistant.text == "first second third"
+        assert render.call_count == 1
+
+        await output.settle_stream()
+        assert render.call_count == 2
+        await asyncio.sleep(0.04)
+        assert render.call_count == 2
+
+    assert _document_text(runtime.document) == "• first second third"
+
+
+def test_stream_render_budget_adapts_to_size_and_render_cost() -> None:
+    output = TuiOutputControl("", runtime=TuiRuntime(), animate=True)
+
+    output.assistant.text = "short"
+    assert output._stream_render_interval() == 1 / 20
+
+    output._stream_render_cost_sec = 1 / 80
+    assert output._stream_render_interval() == 1 / 12
+
+    output._stream_render_cost_sec = 0.0
+    output.assistant.text = "x" * 2000
+    assert output._stream_render_interval() == 1 / 12
 
 
 def test_typewriter_cursor_does_not_create_a_transient_display_row() -> None:

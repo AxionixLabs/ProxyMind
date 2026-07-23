@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 
 from mind_app.mcp.config import McpConfigError, load_mcp_servers_file
@@ -79,3 +82,100 @@ def test_mcp_config_accepts_standard_type_alias(tmp_path) -> None:
     servers = load_mcp_servers_file(tmp_path)
 
     assert servers[0]["transport"] == "streamable_http"
+
+
+def test_mcp_config_accepts_independent_startup_timeout(tmp_path) -> None:
+    target = tmp_path / "mcp_servers.json"
+    target.write_text(
+        '{"mcpServers":{"remote":{"url":"https://example.test/mcp",'
+        '"startup_timeout_sec":24}}}',
+        encoding="utf-8",
+    )
+
+    servers = load_mcp_servers_file(tmp_path)
+
+    assert servers[0]["startup_timeout_sec"] == 24
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("/mcp", (True, None)),
+        ("/MCP START", (True, "start")),
+        ("/mcp force", (True, "force")),
+        ("/mcp restart", (True, "restart")),
+        ("/mcp unknown", (False, None)),
+        ("hello", (False, None)),
+    ],
+)
+def test_parse_mcp_command(command, expected) -> None:
+    assert mcp.parse_mcp_command(command) == expected
+
+
+@pytest.mark.anyio
+async def test_background_mcp_start_never_restarts_runtime(monkeypatch) -> None:
+    mind = SimpleNamespace(
+        start_external_mcp_runtime=AsyncMock(),
+        restart_external_mcp_runtime=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        mcp,
+        "render_external_mcp_start_status",
+        lambda _mind, **_kwargs: True,
+    )
+
+    await mcp.start_mcp_runtime(mind, include_disabled=True)
+
+    mind.start_external_mcp_runtime.assert_awaited_once_with(
+        include_disabled=True,
+    )
+    mind.restart_external_mcp_runtime.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("snapshot", "expected"),
+    [
+        (
+            {
+                "done": True,
+                "items": [
+                    {"name": "docs", "state": "ready", "tools": 4},
+                ],
+            },
+            "■ External MCP ready · 1/1 servers · 4 tools",
+        ),
+        (
+            {
+                "done": True,
+                "items": [
+                    {
+                        "name": "docs",
+                        "state": "failed",
+                        "tools": 0,
+                        "detail": "timeout",
+                    },
+                ],
+            },
+            "■ External MCP failed · 0/1 servers\n└ docs: timeout",
+        ),
+    ],
+)
+def test_external_mcp_start_result_is_committed_to_tui(
+    snapshot,
+    expected,
+) -> None:
+    views = []
+    mind = SimpleNamespace(
+        external_mcp=SimpleNamespace(last_start_snapshot=snapshot),
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+    )
+
+    assert mcp.render_external_mcp_start_status(mind)
+
+    status = next(
+        view for view in views
+        if view.type == "tui.external_mcp.status"
+    )
+    assert status.renderable.plain_text == expected

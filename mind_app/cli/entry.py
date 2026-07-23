@@ -105,12 +105,19 @@ def _emit_startup_failure(mind: Mind, label: str, error: BaseException) -> None:
 
 async def _start_tui_external_mcp(mind: Mind) -> None:
     """在 TUI 进入交互循环前启动外部 MCP。"""
+    from ..tui.features.mcp import render_external_mcp_start_status
+
     try:
         await mind.start_external_mcp_runtime()
     except asyncio.CancelledError:
         raise
+    except MindError as error:
+        render_external_mcp_start_status(mind, error=error)
+        return None
     except Exception as error:
-        _emit_startup_failure(mind, "External MCP", error)
+        render_external_mcp_start_status(mind, error=error)
+        return None
+    render_external_mcp_start_status(mind)
 
 
 async def _start_tui_service_runtime(mind: Mind) -> None:

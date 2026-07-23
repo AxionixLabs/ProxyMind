@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from mind_app.cli import entry
+from mind_app.cli import frontend as cli_frontend
 from mind_app.cli.frontend import (
     resolve_cli_design,
     resolve_cli_frontend,
@@ -12,6 +13,7 @@ from mind_app.cli.frontend import (
 from mind_app.cli.selection import resolve_cli_output_mode
 from mind_app.frontend.contracts import PassiveFrontendRuntime
 from mind_app.frontend.sinks import ConsoleApplicationSink
+from engine.errors import MindError
 from mind_core.parser import Parser
 
 
@@ -43,6 +45,30 @@ def test_upgrade_uses_rich_frontend_without_tui_runtime() -> None:
     assert isinstance(frontend.application, ConsoleApplicationSink)
     assert isinstance(frontend.runtime, PassiveFrontendRuntime)
     assert design is not None
+
+
+@pytest.mark.parametrize(
+    ("stdin_tty", "stdout_tty"),
+    ((False, False), (False, True), (True, False)),
+)
+def test_tui_frontend_requires_interactive_terminal(
+    monkeypatch,
+    stdin_tty: bool,
+    stdout_tty: bool,
+) -> None:
+    monkeypatch.setattr(
+        cli_frontend.sys,
+        "stdin",
+        SimpleNamespace(isatty=lambda: stdin_tty),
+    )
+    monkeypatch.setattr(
+        cli_frontend.sys,
+        "stdout",
+        SimpleNamespace(isatty=lambda: stdout_tty),
+    )
+
+    with pytest.raises(MindError, match="interactive stdin and stdout"):
+        resolve_cli_frontend("tui")
 
 
 @pytest.mark.anyio

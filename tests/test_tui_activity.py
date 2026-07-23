@@ -45,7 +45,6 @@ def test_task_state_aggregates_turn_and_activity_sources() -> None:
 
     assert not state.running
 
-
 def test_tui_output_session_separates_content_and_event_status() -> None:
     runtime = TuiRuntime()
     session = create_tui_output_session("", runtime=runtime, animate=False)

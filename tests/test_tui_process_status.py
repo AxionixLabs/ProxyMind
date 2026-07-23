@@ -57,26 +57,18 @@ def test_process_status_summary_respects_terminal_display_width() -> None:
     assert "/ps to view" in rendered
 
 
-def test_process_status_animates_without_changing_action_hint() -> None:
-    clock = [10.0]
+def test_process_status_remains_static() -> None:
     status = TuiProcessStatus(
         invalidate=lambda: None,
         get_width=lambda: 80,
     )
 
-    with patch(
-        "mind_app.tui.core.process_status.time.monotonic",
-        side_effect=lambda: clock[0],
-    ):
-        status.set_label("adb logcat · +2")
-        first = status.fragments()
-        clock[0] = 11.0
-        second = status.fragments()
+    status.set_label("adb logcat · +2")
+    first = status.fragments()
+    second = status.fragments()
 
     assert fragments_text(first) == "• exec adb logcat · +2 · /ps to view"
-    assert fragments_text(second) == "◦ exec adb logcat · +2 · /ps to view"
-    assert first[:-3] != second[:-3]
-    assert first[-3:] == second[-3:]
+    assert second == first
 
 
 def test_command_summary_bolds_action_but_not_command() -> None:

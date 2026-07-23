@@ -2,6 +2,8 @@
 # Notes: ==== Mind™ ====
 
 import functools
+import sys
+from engine.errors import MindError
 from mind_app.frontend.contracts import Frontend
 from mind_app.interaction import NonInteractiveInteraction
 from mind_app.runtime.design import TerminalDesign
@@ -11,9 +13,35 @@ from .selection import (
 )
 
 
+def stream_is_interactive(stream: object) -> bool:
+    """判断一个标准流是否连接到交互终端。"""
+    isatty = getattr(stream, "isatty", None)
+    if not callable(isatty):
+        return False
+    try:
+        return bool(isatty())
+    except (OSError, ValueError):
+        return False
+
+
+def _require_tui_terminal() -> None:
+    """确保 TUI 运行在具备交互输入输出的终端中。"""
+    if (
+        stream_is_interactive(sys.stdin)
+        and stream_is_interactive(sys.stdout)
+    ):
+        return None
+    raise MindError(
+        "TUI requires interactive stdin and stdout. Run Mind in a terminal "
+        "or use --chat, --fast, or --xtra for non-interactive execution."
+    )
+
+
 def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
     """根据输出模式装配命令行前端。"""
     if output_mode == "tui":
+        _require_tui_terminal()
+
         from mind_app.tui.adapters.application import TuiApplicationSink
         from mind_app.tui.adapters.session import create_tui_output_session
         from mind_app.tui.core.runtime import TuiRuntime

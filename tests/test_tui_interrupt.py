@@ -43,7 +43,7 @@ async def test_double_ctrl_c_exits_and_precedes_queued_message() -> None:
     ))
 
     runtime._interrupt_input()
-    assert "ctrl+c again to exit" == _fragments_text(runtime._footer_fragments())
+    assert "Ctrl + C again to exit" == _fragments_text(runtime._footer_fragments())
 
     runtime._interrupt_input()
     with pytest.raises(KeyboardInterrupt):
@@ -109,7 +109,7 @@ def test_first_ctrl_c_clears_idle_draft_and_arms_exit() -> None:
 
     assert runtime.input.buffer.text == ""
     assert runtime.interrupt_state.exit_armed
-    assert _fragments_text(runtime._footer_fragments()) == "ctrl+c again to exit"
+    assert _fragments_text(runtime._footer_fragments()) == "Ctrl + C again to exit"
 
 
 def test_finished_turn_is_not_marked_as_interrupted() -> None:
@@ -193,6 +193,41 @@ async def test_external_cancellation_is_not_swallowed() -> None:
         await task
 
     assert not runtime.execution_active
+    application.emit.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_stream_quit_command_cancels_turn_without_queueing_message() -> None:
+    runtime = TuiRuntime()
+    application = SimpleNamespace(emit=Mock())
+    started = asyncio.Event()
+
+    async def turn() -> None:
+        started.set()
+        await asyncio.Future()
+
+    def handle(_value, cancel_turn) -> bool:
+        runtime.request_turn_interrupt()
+        cancel_turn()
+        return True
+
+    task = asyncio.create_task(_execute_tui_model_turn(
+        application,
+        runtime,
+        turn(),
+        stream_command_handler=handle,
+        show_interrupt_notice=lambda: False,
+    ))
+    await started.wait()
+
+    runtime.input.buffer.text = "/quit"
+    runtime._accept_input(runtime.input.buffer)
+    await task
+
+    assert not runtime.execution_active
+    assert not runtime.queued_messages.active
+    assert runtime.message_queue.empty()
+    assert "/quit" in _document_text(runtime)
     application.emit.assert_not_called()
 
 

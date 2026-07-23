@@ -97,11 +97,6 @@ class ExternalMcpStatus(object):
         return None
 
 
-def remaining_budget(deadline: float) -> float:
-    """计算距离统一截止时间还剩多少秒，最小返回 0。"""
-    return max(0.0, deadline - time.monotonic())
-
-
 def external_status_detail_from_exception(exc: BaseException | None = None) -> str:
     """返回展示给外部 MCP 状态 UI 的失败摘要。"""
     if exc is None:

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from mind_app.native_coding import NativeCoding
+from mind_app.native_coding.exec.process_session import ProcessSessionManager
 from mind_app.tui.core.process_viewer import (
     ProcessViewerRequest,
     TuiProcessViewer,
@@ -15,7 +16,10 @@ from mind_app.tui.core.process_viewer import (
 from mind_app.tui.core.models import FragmentBlock
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features.shell import run_shell_escape
-from mind_app.tui.features.processes import watch_exec_session
+from mind_app.tui.features.processes import (
+    manage_exec_sessions,
+    watch_exec_session,
+)
 
 
 class _ApplicationStub(object):
@@ -131,6 +135,181 @@ async def test_exec_command_keeps_tool_policy_and_result_flow(tmp_path) -> None:
     assert result["ok"]
     assert result["data"]["status"] == "exited"
     assert "shared-session" in result["data"]["output"]
+
+
+@pytest.mark.anyio
+async def test_process_session_manager_stops_all_running_sessions() -> None:
+    manager = ProcessSessionManager()
+    sessions = [
+        SimpleNamespace(
+            session_id=f"exec_{index}",
+            command=f"command {index}",
+            process=SimpleNamespace(pid=100 + index, returncode=None),
+            origin="tui_shell" if index == 1 else "tool",
+        )
+        for index in range(1, 3)
+    ]
+    manager.sessions = {
+        session.session_id: session
+        for session in sessions
+    }
+    manager.cleanup = AsyncMock()
+    manager.finalize_if_exited = AsyncMock()
+
+    async def terminate(process, *, force) -> None:
+        assert not force
+        process.returncode = -15
+
+    with patch(
+        "mind_app.native_coding.exec.process_session."
+        "ProcessCapture.terminate_process_tree",
+        side_effect=terminate,
+    ):
+        result = await manager.stop_running_sessions()
+
+    assert result == {
+        "ok": True,
+        "requested": 2,
+        "stopped": 2,
+        "failed": 0,
+        "items": [
+            {
+                "session_id": "exec_1",
+                "command": "command 1",
+                "pid": 101,
+                "origin": "tui_shell",
+                "exit_code": -15,
+            },
+            {
+                "session_id": "exec_2",
+                "command": "command 2",
+                "pid": 102,
+                "origin": "tool",
+                "exit_code": -15,
+            },
+        ],
+        "failures": [],
+    }
+    assert not manager.sessions
+    assert manager.finalize_if_exited.await_count == 2
+
+    empty_result = await manager.stop_running_sessions()
+
+    assert empty_result == {
+        "ok": True,
+        "requested": 0,
+        "stopped": 0,
+        "failed": 0,
+        "items": [],
+        "failures": [],
+    }
+
+
+@pytest.mark.anyio
+async def test_ps_stop_all_confirms_and_cancels_background_watchers() -> None:
+    application = _ApplicationStub()
+    snapshot = {
+        "count": 2,
+        "items": [
+            {
+                "session_id": "exec_shell",
+                "command": "shell task",
+                "pid": 101,
+                "origin": "tui_shell",
+            },
+            {
+                "session_id": "exec_tool",
+                "command": "tool task",
+                "pid": 102,
+                "origin": "tool",
+            },
+        ],
+    }
+    stopped = {
+        "ok": True,
+        "requested": 2,
+        "stopped": 2,
+        "failed": 0,
+        "items": snapshot["items"],
+        "failures": [],
+    }
+    native_coding = SimpleNamespace(
+        running_exec_sessions=AsyncMock(side_effect=[snapshot, snapshot]),
+        stop_exec_sessions=AsyncMock(return_value=stopped),
+    )
+    requests = []
+    cancelled = []
+    status_labels = []
+
+    async def select_menu(request):
+        requests.append(request)
+        if len(requests) == 1:
+            return request.options[-1].value
+        return request.options[1].value
+
+    runtime = SimpleNamespace(
+        select_menu=select_menu,
+        cancel_background_session_task=cancelled.append,
+        set_process_status_label=status_labels.append,
+    )
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(application=application),
+        native_coding=native_coding,
+    )
+
+    handled = await manage_exec_sessions(runtime, mind)
+
+    assert handled
+    assert [request.title for request in requests] == [
+        "Background Commands",
+        "Stop Background Commands",
+    ]
+    assert requests[1].selected == 0
+    assert requests[1].options[0].value is False
+    assert cancelled == ["exec_shell", "exec_tool"]
+    assert status_labels == [""]
+    native_coding.stop_exec_sessions.assert_awaited_once_with()
+    text = "".join(
+        value
+        for _style, value in application.views[-1].renderable.fragments
+    )
+    assert "stop all background commands" in text
+    assert "stopped=2" in text
+
+
+@pytest.mark.anyio
+async def test_ps_stop_all_defaults_to_cancel() -> None:
+    application = _ApplicationStub()
+    snapshot = {
+        "count": 1,
+        "items": [{
+            "session_id": "exec_shell",
+            "command": "shell task",
+            "pid": 101,
+            "origin": "tui_shell",
+        }],
+    }
+    native_coding = SimpleNamespace(
+        running_exec_sessions=AsyncMock(side_effect=[snapshot, snapshot]),
+        stop_exec_sessions=AsyncMock(),
+    )
+    requests = []
+
+    async def select_menu(request):
+        requests.append(request)
+        return request.options[-1].value if len(requests) == 1 else None
+
+    runtime = SimpleNamespace(select_menu=select_menu)
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(application=application),
+        native_coding=native_coding,
+    )
+
+    handled = await manage_exec_sessions(runtime, mind)
+
+    assert not handled
+    assert requests[1].selected == 0
+    native_coding.stop_exec_sessions.assert_not_awaited()
 
 
 @pytest.mark.anyio

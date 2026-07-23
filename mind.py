@@ -10,6 +10,7 @@ from engine.signals import (
     install_handler
 )
 from mind_app.cli.entry import main as _main
+from mind_app.cli.frontend import stream_is_interactive
 from mind_app.frontend.contracts import (
     ApplicationSink,
     ApplicationView
@@ -28,15 +29,19 @@ def json_output_requested(arguments: typing.Iterable[str] | None = None) -> bool
 
 def entry_animation_requested(
     arguments: typing.Iterable[str] | None = None,
+    *,
+    output_stream: object | None = None,
 ) -> bool:
     """判断兼容入口是否需要展示启动和退场动画。"""
     values = tuple(sys.argv[1:] if arguments is None else arguments)
     direct_flags = ("--chat", "--fast", "--xtra", "--code")
-    return not any(
+    direct_execution = any(
         value == flag or value.startswith(f"{flag}=")
         for value in values
         for flag in direct_flags
     )
+    stream = sys.stdout if output_stream is None else output_stream
+    return not direct_execution and stream_is_interactive(stream)
 
 
 def emit_entry_outro(

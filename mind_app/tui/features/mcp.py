@@ -3,8 +3,15 @@
 
 import typing
 from collections import defaultdict
+from engine.errors import MindError
 from mind_app.frontend import ApplicationView
+from mind_app.presentation.mcp_status import render_mcp_status_block
 from mind_app.presentation.models import TextSpan
+from mind_core.mcp_status import (
+    McpStatusDetail,
+    McpStatusView,
+    external_mcp_status_view
+)
 from ..core.models import (
     MenuOption,
     MenuRequest
@@ -27,6 +34,13 @@ if typing.TYPE_CHECKING:
     from ..core.runtime import TuiRuntime
 
 McpAction = typing.Literal["start", "force", "stop", "restart", "status"]
+_MCP_ACTIONS: typing.Final[frozenset[str]] = frozenset({
+    "start",
+    "force",
+    "stop",
+    "restart",
+    "status",
+})
 
 MCP_MENU_ACTIONS: tuple[tuple[McpAction, str, str], ...] = (
     ("start", "start", "启动 enabled=true 的外接 MCP 服务；已启动则保持当前连接。"),
@@ -35,6 +49,18 @@ MCP_MENU_ACTIONS: tuple[tuple[McpAction, str, str], ...] = (
     ("restart", "restart", "先断开当前外接 MCP，再重新读取配置并启动 enabled=true 的服务。"),
     ("status", "status", "查看状态，不启动、不停止。"),
 )
+
+
+def parse_mcp_command(value: str) -> tuple[bool, McpAction | None]:
+    """解析外部 MCP 命令及其可选动作。"""
+    parts = str(value or "").strip().casefold().split()
+    if not parts or parts[0] != "/mcp":
+        return False, None
+    if len(parts) == 1:
+        return True, None
+    if len(parts) == 2 and parts[1] in _MCP_ACTIONS:
+        return True, typing.cast(McpAction, parts[1])
+    return False, None
 
 
 def _present(
@@ -170,11 +196,67 @@ async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> None:
             await mind.start_external_mcp_runtime()
         else:
             await mind.restart_external_mcp_runtime()
-    except McpConfigError:
-        pass
+    except MindError as error:
+        render_external_mcp_start_status(mind, error=error)
+        return None
+    except Exception as error:
+        render_external_mcp_start_status(mind, error=error)
+        return None
 
-    render_mcp_status(mind)
+    if action == "stop" or not render_external_mcp_start_status(mind):
+        render_mcp_status(mind)
     return None
+
+
+async def start_mcp_runtime(
+    mind: typing.Any,
+    *,
+    include_disabled: bool = False,
+) -> None:
+    """启动尚未运行的外部 MCP，并展示最终连接状态。"""
+    try:
+        await mind.start_external_mcp_runtime(
+            include_disabled=include_disabled,
+        )
+    except Exception as error:
+        render_external_mcp_start_status(mind, error=error)
+        return None
+
+    if not render_external_mcp_start_status(mind):
+        render_mcp_status(mind)
+
+
+def render_external_mcp_start_status(
+    mind: typing.Any,
+    *,
+    error: BaseException | None = None,
+) -> bool:
+    """展示最近一次外部 MCP 启动的最终状态。"""
+    if error is not None:
+        detail = (
+            str(getattr(error, "message", error)).strip()
+            or type(error).__name__
+        )
+        view = McpStatusView(
+            summary="External MCP failed",
+            level="failed",
+            done=True,
+            details=(McpStatusDetail(f"└ {detail}", "failed"),),
+        )
+    else:
+        runtime  = getattr(mind, "external_mcp", None)
+        snapshot = getattr(runtime, "last_start_snapshot", {})
+        if not isinstance(snapshot, dict) or not snapshot:
+            return False
+        view = external_mcp_status_view(snapshot, detail_limit=5)
+
+    block = render_mcp_status_block(view)
+    if not block.plain_text:
+        return False
+
+    _present(mind, block, view_type="tui.external_mcp.status")
+    _present(mind, view_type="tui.gap")
+    return True
 
 
 def render_mcp_status(mind: typing.Any) -> None:

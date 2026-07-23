@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-from mind_app.stream_events.failure_display import (
-    render_failure_display_parts,
-    render_failure_text
-)
+import typing
+from mind_app.stream_events.failure_display import render_failure_block
 from mind_app.stream_events.lifecycle_display import render_lifecycle_display_parts
 from ..models import (
     FailureView,
@@ -13,12 +11,18 @@ from ..models import (
 )
 
 
-def render_failure_view(view: FailureView) -> StyledBlock:
+def render_failure_view(
+    view: FailureView,
+    *,
+    terminal_width: int | None = None,
+    measure_width: typing.Callable[[str], int] | None = None,
+) -> StyledBlock:
     """把运行失败视图转换为中立展示块。"""
-    return StyledBlock(
-        plain_text=render_failure_text(view.phase, view.error),
-        spans=tuple(render_failure_display_parts(view.phase, view.error)),
-        preserve_spans=True,
+    return render_failure_block(
+        view.phase,
+        view.error,
+        terminal_width=terminal_width,
+        measure_width=measure_width,
     )
 
 

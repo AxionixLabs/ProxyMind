@@ -12,6 +12,8 @@ from .skills import (
     skill_completions
 )
 
+StreamCommandPolicy = typing.Literal["reject", "background_barrier", "interrupt"]
+
 
 @dataclass(frozen=True, slots=True)
 class TuiCommandSpec(object):
@@ -27,7 +29,7 @@ class TuiCommandSpec(object):
     help_usage: str | None = None
     show_in_help: bool = True
     parameterized: bool = False
-    disabled_while_running: bool = False
+    stream_policy: StreamCommandPolicy = "reject"
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -61,12 +63,10 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     TuiCommandSpec(
         "new", "/new", "开始新对话",
         "开始新对话（保留模式、模型和待发送附件）",
-        disabled_while_running=True,
     ),
     TuiCommandSpec(
         "resume", "/resume", "恢复最近会话",
         "从当前模式最近 24 小时会话中恢复",
-        disabled_while_running=True,
     ),
     TuiCommandSpec(
         "attach", "/attach", "添加本轮待发送附件",
@@ -126,8 +126,8 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         "复制最近一次助手回复原文",
     ),
     TuiCommandSpec(
-        "ps", "/ps", "查看运行中的命令",
-        "查看运行中的命令",
+        "ps", "/ps", "管理后台命令",
+        "查看或停止后台命令",
     ),
     TuiCommandSpec(
         "mcp", "/mcp", "管理外部 MCP 服务",
@@ -136,6 +136,7 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     TuiCommandSpec(
         "helix_link", "/helix-link", "接入 Helix MCP",
         "接入 Helix MCP",
+        stream_policy="background_barrier",
     ),
     TuiCommandSpec(
         "helix_unlink", "/helix-unlink", "移除 Helix MCP",
@@ -166,10 +167,12 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     TuiCommandSpec(
         "shutdown", "/shutdown", "停止本地后台服务并退出",
         "关闭前台并停止本地运行时",
+        stream_policy="interrupt",
     ),
     TuiCommandSpec(
         "quit", "/quit", "退出会话", "断开会话（安全退出）",
         aliases=("/q", "quit", "exit"),
+        stream_policy="interrupt",
     ),
 )
 
@@ -179,6 +182,11 @@ _COMMAND_BY_KEY: typing.Final[dict[str, TuiCommandSpec]] = {
 _COMMAND_NAMES_BY_KEY: typing.Final[dict[str, frozenset[str]]] = {
     key: frozenset(command.names)
     for key, command in _COMMAND_BY_KEY.items()
+}
+_COMMAND_BY_NAME: typing.Final[dict[str, TuiCommandSpec]] = {
+    name.casefold(): command
+    for command in TUI_COMMANDS
+    for name in command.names
 }
 
 
@@ -206,14 +214,38 @@ def parameterized_command_texts() -> tuple[str, ...]:
     )
 
 
-def running_disabled_commands() -> frozenset[str]:
-    """返回模型轮次执行期间不可提交的命令名称。"""
-    return frozenset(
-        name
-        for command in TUI_COMMANDS
-        if command.disabled_while_running
-        for name in command.names
-    )
+def stream_command_policy(value: str) -> StreamCommandPolicy | None:
+    """返回输入在流式或前台忙碌期间使用的命令策略。"""
+    normalized = str(value or "").strip().casefold()
+    if not normalized:
+        return None
+    if normalized.startswith("!"):
+        return "reject"
+
+    direct = _COMMAND_BY_NAME.get(normalized)
+    if direct is not None:
+        return direct.stream_policy
+
+    parts = normalized.split()
+    head  = parts[0]
+    if head in command_names("mcp") and len(parts) == 2:
+        if parts[1] in {"start", "force"}:
+            return "background_barrier"
+        return "reject"
+    if head.startswith("/"):
+        return "reject"
+    return None
+
+
+def stream_command_label(value: str) -> str:
+    """返回适合运行期拒绝提示使用的命令标签。"""
+    normalized = str(value or "").strip().casefold()
+    if not normalized:
+        return "command"
+    parts = normalized.split()
+    if parts[0] in command_names("mcp") and len(parts) >= 2:
+        return f"{parts[0]} {parts[1]}"
+    return parts[0]
 
 
 def _completion_items() -> tuple[dict[str, str], ...]:

@@ -33,7 +33,18 @@ def inbuild_status_view(snapshot: dict[str, typing.Any]) -> McpStatusView:
     if state == "ready":
         return McpStatusView(f"{title} ready", "ready", True)
     if state == "failed":
-        return McpStatusView(f"{title} failed", "failed", True)
+        detail = str(snapshot.get("error") or snapshot.get("detail") or "").strip()
+        details = (
+            (McpStatusDetail(f"└ {detail}", "failed"),)
+            if detail
+            else ()
+        )
+        return McpStatusView(
+            f"{title} failed",
+            "failed",
+            True,
+            details,
+        )
     return McpStatusView(f"{title} starting", "running", False)
 
 

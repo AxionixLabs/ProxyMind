@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 
 from prompt_toolkit.utils import get_cwidth
+from unittest.mock import Mock
 
+from mind_app.frontend import ApplicationView
 from mind_app.interaction.contracts import PromptContext
+from mind_app.tui.adapters.application import TuiApplicationSink
 from mind_app.tui.core.queued import TuiQueuedMessages, TuiSubmission
 from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.tui.core.styles import text_block
 
 
 def test_queue_uses_next_turn_title() -> None:
@@ -15,6 +19,12 @@ def test_queue_uses_next_turn_title() -> None:
 
     assert "• Messages queued for the next turn (Esc edits latest)" in text
     assert "  ↳ next task" in text
+
+
+def test_queued_input_candidate_uses_dim_style() -> None:
+    style = TuiRuntime()._style()
+
+    assert style.get_attrs_for_style_str("class:queue.text").dim
 
 
 def test_multiline_message_is_flattened_and_ellipsized() -> None:
@@ -87,6 +97,76 @@ def test_queued_submission_restores_information_footer() -> None:
     runtime.input.buffer.text = "another task"
 
     assert _fragments_text(runtime._footer_fragments()) == "tab to queue message"
+
+
+def test_foreground_barrier_keeps_normal_input_in_visible_queue() -> None:
+    runtime = TuiRuntime()
+    runtime.set_foreground_active(True)
+    runtime.input.buffer.text = "next task"
+
+    runtime._accept_input(runtime.input.buffer)
+
+    assert runtime.queued_messages.active
+    assert runtime.message_queue.empty()
+
+
+def test_streaming_rejected_command_never_enters_message_queue() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    runtime.input.buffer.text = "/compact"
+
+    runtime._accept_input(runtime.input.buffer)
+
+    assert not runtime.queued_messages.active
+    assert runtime.message_queue.empty()
+    assert "'/compact' is disabled while a task is in progress." in (
+        _fragments_text(runtime.document.fragments(width=100))
+    )
+    command_fragment = next(
+        fragment
+        for fragment in runtime.document.blocks[-1].block.fragments
+        if fragment[1] == "/compact"
+    )
+    assert command_fragment[0] == "class:prompt.command.slash"
+
+
+def test_streaming_background_command_is_dispatched_outside_message_queue() -> None:
+    runtime = TuiRuntime()
+    handler = Mock(return_value=True)
+    runtime.bind_stream_command_handler(handler)
+    runtime.set_execution_active(True)
+    runtime.input.buffer.text = "/helix-link"
+
+    runtime._accept_input(runtime.input.buffer)
+
+    handler.assert_called_once_with("/helix-link")
+    assert not runtime.queued_messages.active
+    assert runtime.message_queue.empty()
+
+    runtime.set_execution_active(False)
+
+    assert "/helix-link" in _fragments_text(
+        runtime.document.fragments(width=100)
+    )
+
+
+def test_background_status_waits_for_stream_boundary() -> None:
+    runtime = TuiRuntime()
+    sink = TuiApplicationSink(runtime)
+    runtime.set_execution_active(True)
+
+    sink._emit_active(ApplicationView(
+        type="tui.helix.status",
+        renderable=text_block("Helix ready"),
+    ))
+
+    assert not runtime.document.blocks
+
+    runtime.set_execution_active(False)
+
+    assert "Helix ready" in _fragments_text(
+        runtime.document.fragments(width=100)
+    )
 
 
 def _submission(text: str) -> TuiSubmission:

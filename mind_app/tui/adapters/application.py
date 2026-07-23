@@ -25,6 +25,12 @@ WARNING      = TextStyle(foreground="#FFD75F", bold=True)
 FAILURE      = TextStyle(foreground="#FF6B6B", bold=True)
 FAILURE_BODY = TextStyle(foreground="#FF6B6B")
 
+_BACKGROUND_VIEW_TYPES = frozenset({
+    "tui.background.error",
+    "tui.external_mcp.status",
+    "tui.helix.status",
+})
+
 
 class TuiApplicationSink(ApplicationSink):
     """把运行期应用展示写入 TUI 正文状态树。"""
@@ -75,27 +81,44 @@ class TuiApplicationSink(ApplicationSink):
             self.runtime.append_block(_error_block(str(view.renderable or "")))
             return None
         if view.type == "tui.background.error":
-            self.runtime.queue_background_block(
-                _error_block(str(view.renderable or ""))
-            )
+            block = _error_block(str(view.renderable or ""))
+            self.runtime.queue_background_block(block)
             return None
         block_kind = "notice" if view.type == "tui.interrupted" else "system"
         if isinstance(view.renderable, FragmentBlock):
-            self.runtime.append_block(view.renderable, kind=block_kind)
+            self._commit_block(view.type, view.renderable, block_kind)
             return None
         if isinstance(view.renderable, StyledBlock):
-            self.runtime.append_block(FragmentBlock(
-                styled_block_fragments(view.renderable)
-            ), kind=block_kind)
+            self._commit_block(
+                view.type,
+                FragmentBlock(styled_block_fragments(view.renderable)),
+                block_kind,
+            )
             return None
         if isinstance(view.renderable, str):
-            self.runtime.append_block(text_block(view.renderable), kind=block_kind)
+            self._commit_block(
+                view.type,
+                text_block(view.renderable),
+                block_kind,
+            )
             return None
         if view.renderable is not None:
             raise TypeError(
                 f"unsupported TUI application renderable: "
                 f"{type(view.renderable).__name__}"
             )
+
+    def _commit_block(
+        self,
+        view_type: str,
+        block: FragmentBlock,
+        block_kind: str,
+    ) -> None:
+        """按展示类型提交正文块或延迟后台结果。"""
+        if view_type in _BACKGROUND_VIEW_TYPES:
+            self.runtime.queue_background_block(block)
+            return None
+        self.runtime.append_block(block, kind=block_kind)
 
 
 def _intro_block() -> FragmentBlock:

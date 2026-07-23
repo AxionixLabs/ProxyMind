@@ -27,6 +27,7 @@ from mind_app.presentation.models import (
     TextStyle
 )
 from mind_app.runtime.environment.workspace import fetch_runtime_workspace_root
+from mind_app.runtime.mcp.service_runtime import service_runtime_asset_missing
 from ..features.commands import (
     exchange_pref_value,
     compact_current_conversation,
@@ -50,20 +51,22 @@ from ..features.context import (
 )
 from ..features.mcp import (
     choose_mcp_action,
-    run_mcp_action
+    parse_mcp_command,
+    run_mcp_action,
+    start_mcp_runtime,
 )
 from ..features.model import (
     choose_model_effort,
     render_model_effort_status
 )
+from ..features.mode import render_mode_status
 from ..features.permissions import (
     choose_permissions_mode,
     render_permissions_status
 )
 from ..features.processes import (
-    choose_exec_session,
+    manage_exec_sessions,
     monitor_exec_status,
-    watch_exec_session
 )
 from ..features.shell import (
     parse_shell_escape,
@@ -178,12 +181,22 @@ async def _execute_tui_model_turn(
     application: ApplicationSink,
     runtime: TuiRuntime,
     turn: typing.Coroutine[typing.Any, typing.Any, None],
+    *,
+    stream_command_handler: typing.Callable[
+        [str, typing.Callable[[], bool]],
+        bool,
+    ] | None = None,
+    show_interrupt_notice: typing.Callable[[], bool] = lambda: True,
 ) -> None:
     """执行可由主输入区定向取消的单个模型轮次。"""
     task = asyncio.create_task(turn, name="mind tui model turn")
     interrupted = False
     runtime.set_execution_active(True)
     runtime.bind_turn_interrupt(task.cancel)
+    if stream_command_handler is not None:
+        runtime.bind_stream_command_handler(
+            lambda value: stream_command_handler(value, task.cancel)
+        )
     try:
         await task
     except asyncio.CancelledError:
@@ -195,10 +208,11 @@ async def _execute_tui_model_turn(
     finally:
         if not interrupted:
             runtime.consume_turn_interrupt()
+        runtime.bind_stream_command_handler(None)
         runtime.bind_turn_interrupt(None)
         runtime.set_execution_active(False)
 
-    if interrupted:
+    if interrupted and show_interrupt_notice():
         application.emit(ApplicationView(
             type="tui.interrupted",
             renderable=_interruption_block(),
@@ -252,6 +266,8 @@ async def run_tui_loop(mind: "Mind") -> None:
         name="mind process status",
     )
 
+    stream_barriers: dict[str, asyncio.Task[None]] = {}
+
     async def run_modal(
         factory: typing.Callable[[], typing.Awaitable[typing.Any]],
     ) -> typing.Any:
@@ -270,6 +286,123 @@ async def run_tui_loop(mind: "Mind") -> None:
             type=resolved_type,
             renderable=renderable,
         ))
+
+    def defer_notice(message: str) -> None:
+        """在当前流式正文结束后展示命令状态。"""
+        asyncio.get_running_loop().call_soon(
+            runtime.queue_background_block,
+            text_block(message, MUTED_STYLE),
+        )
+
+    def start_stream_barrier(
+        key: str,
+        factory: typing.Callable[[], typing.Coroutine[typing.Any, typing.Any, None]],
+    ) -> bool:
+        """合并同类后台启动任务并注册下一轮屏障。"""
+        active = stream_barriers.get(key)
+        if active is not None and not active.done():
+            defer_notice(f"{key} startup is already in progress.")
+            return True
+
+        task = runtime.start_background_task(
+            factory(),
+            name=f"mind tui stream {key}",
+        )
+        stream_barriers[key] = task
+
+        def forget(completed: asyncio.Task[None]) -> None:
+            """移除已经完成的同类启动屏障。"""
+            if stream_barriers.get(key) is completed:
+                stream_barriers.pop(key, None)
+
+        task.add_done_callback(forget)
+        return True
+
+    def cancel_stream_barriers() -> None:
+        """取消尚未完成的后台启动屏障。"""
+        for task in tuple(stream_barriers.values()):
+            if not task.done():
+                task.cancel()
+
+    def handle_stream_command(
+        value: str,
+        cancel_turn: typing.Callable[[], bool],
+    ) -> bool:
+        """分派允许在模型流式输出期间执行的命令。"""
+        command = str(value or "").strip().casefold()
+        if matches_command(command, "quit"):
+            runtime.request_turn_interrupt()
+            mind.task_event.set()
+            cancel_stream_barriers()
+            cancel_turn()
+            return True
+        if matches_command(command, "shutdown"):
+            runtime.request_turn_interrupt()
+            mind.stop_runtime_on_exit = True
+            mind.task_event.set()
+            cancel_stream_barriers()
+            cancel_turn()
+            return True
+        if matches_command(command, "helix_link"):
+            if mind.is_service_mcp_linked():
+                defer_notice("Helix MCP is already linked.")
+                return True
+            try:
+                context = mind.require_service_runtime_context()
+            except MindError:
+                return False
+            if service_runtime_asset_missing(context):
+                return False
+            return start_stream_barrier(
+                "Helix MCP",
+                lambda: link_helix_runtime(mind),
+            )
+
+        is_mcp, mcp_action = parse_mcp_command(command)
+        if not is_mcp or mcp_action not in {"start", "force"}:
+            return False
+        external_mcp = getattr(mind, "external_mcp", None)
+        if bool(getattr(external_mcp, "started", False)):
+            if mcp_action == "start":
+                defer_notice("External MCP is already started.")
+                return True
+            return False
+        return start_stream_barrier(
+            "External MCP",
+            lambda: start_mcp_runtime(
+                mind,
+                include_disabled=mcp_action == "force",
+            ),
+        )
+
+    def handle_barrier_command(value: str) -> bool:
+        """在后台屏障等待期间只处理退出类命令。"""
+        command = str(value or "").strip().casefold()
+        if matches_command(command, "quit"):
+            mind.task_event.set()
+        elif matches_command(command, "shutdown"):
+            mind.stop_runtime_on_exit = True
+            mind.task_event.set()
+        else:
+            return False
+        cancel_stream_barriers()
+        return True
+
+    async def wait_stream_barriers() -> None:
+        """等待后台启动完成后再允许下一次模型调用。"""
+        pending = tuple(
+            task for task in stream_barriers.values()
+            if not task.done()
+        )
+        if not pending:
+            return None
+        runtime.set_foreground_active(True)
+        runtime.bind_stream_command_handler(handle_barrier_command)
+        try:
+            await asyncio.gather(*pending, return_exceptions=True)
+        finally:
+            runtime.bind_stream_command_handler(None)
+            runtime.set_foreground_active(False)
 
     doc = _help_block()
 
@@ -298,6 +431,9 @@ async def run_tui_loop(mind: "Mind") -> None:
     refreshed_at    = time.monotonic()
 
     while not mind.task_event.is_set():
+        await wait_stream_barriers()
+        if mind.task_event.is_set():
+            break
         prompt_task = asyncio.create_task(
             mind.frontend.interaction.read_message(PromptContext(
                 mode=mode,
@@ -451,22 +587,28 @@ async def run_tui_loop(mind: "Mind") -> None:
                 field_value=selected_effort
             )
             if saved_primary is not None:
+                updated_primary = dict(pref_config.get("primary") or {})
+                updated_primary.update(saved_primary)
+                updated_primary["reasoning_effort"] = (
+                    saved_primary.get("reasoning_effort") or selected_effort
+                )
+                pref_config = dict(pref_config)
+                pref_config["primary"] = updated_primary
+                model = primary_model_from_config(pref_config, model)
+                runtime.set_prompt_context(PromptContext(
+                    mode=mode,
+                    model=primary_model_prompt_label(pref_config, model),
+                    workspace_label=workspace_label,
+                    access_label=access_mode_label(access_mode),
+                ))
                 render_model_effort_status(
                     application,
-                    saved_primary.get("reasoning_effort") or selected_effort
+                    updated_primary["reasoning_effort"],
                 )
             continue
 
         if matches_command(command, "ps"):
-            session_id = await choose_exec_session(
-                runtime,
-                mind,
-            )
-            if await watch_exec_session(
-                runtime,
-                mind,
-                session_id,
-            ):
+            if await manage_exec_sessions(runtime, mind):
                 present()
             continue
 
@@ -529,11 +671,13 @@ async def run_tui_loop(mind: "Mind") -> None:
             refreshed_at = 0.0
             continue
 
-        if matches_command(command, "mcp"):
-            mcp_action = await choose_mcp_action(
-                runtime,
-                mind,
-            )
+        is_mcp_command, mcp_action = parse_mcp_command(command)
+        if is_mcp_command:
+            if mcp_action is None:
+                mcp_action = await choose_mcp_action(
+                    runtime,
+                    mind,
+                )
             await run_mcp_action(mind, mcp_action)
             continue
 
@@ -569,8 +713,8 @@ async def run_tui_loop(mind: "Mind") -> None:
             continue
 
         if command in MODE_BY_COMMAND:
-            present()
             mode = MODE_BY_COMMAND[command]
+            render_mode_status(application, mode)
             continue
 
         if m := re_attach.match(prompt_text):
@@ -665,6 +809,8 @@ async def run_tui_loop(mind: "Mind") -> None:
                 pref_config=pref_config,
                 access_mode=access_mode
             ),
+            stream_command_handler=handle_stream_command,
+            show_interrupt_notice=lambda: not mind.task_event.is_set(),
         )
         exit_reason = runtime.consume_exit_request()
         if exit_reason is not None:

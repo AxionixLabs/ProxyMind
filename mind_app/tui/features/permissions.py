@@ -21,8 +21,7 @@ from mind_nova.requests.access import (
 from ..core.styles import (
     BRIGHT_STYLE,
     MUTED_STYLE,
-    fragment_block,
-    text_block
+    fragment_block
 )
 
 if typing.TYPE_CHECKING:
@@ -76,11 +75,8 @@ def render_permissions_status(
         renderable=fragment_block(
             TextSpan("Permissions ", title_style),
             TextSpan(f"· {label}", BRIGHT_STYLE),
+            TextSpan(f" · {detail}", MUTED_STYLE),
         ),
-    ))
-    application.emit(ApplicationView(
-        type="tui.permissions.detail",
-        renderable=text_block(f"└ {detail}", MUTED_STYLE),
     ))
     application.emit(ApplicationView(type="tui.gap"))
 

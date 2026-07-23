@@ -117,6 +117,10 @@ class NativeCoding(NativeCodingBase):
         """返回当前仍在运行的本地进程会话摘要。"""
         return await self._process_sessions.running_snapshot()
 
+    async def stop_exec_sessions(self) -> dict[str, typing.Any]:
+        """停止当前仍在运行的全部本地进程会话。"""
+        return await self._process_sessions.stop_running_sessions()
+
     async def exec_session_output_snapshot(
         self,
         *,

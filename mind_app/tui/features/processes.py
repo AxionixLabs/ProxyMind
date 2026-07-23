@@ -37,6 +37,8 @@ PS_MENU_VISIBLE_LIMIT: int = 8
 PROCESS_STATUS_ACTIVE_SEC: float = 0.5
 PROCESS_STATUS_IDLE_SEC: float = 1.0
 
+_STOP_ALL_ACTION = object()
+
 if typing.TYPE_CHECKING:
     from ..core.runtime import TuiRuntime
 
@@ -69,42 +71,134 @@ async def monitor_exec_status(
         runtime.set_process_status_label("")
 
 
-async def choose_exec_session(
+async def manage_exec_sessions(
     runtime: "TuiRuntime",
     mind: typing.Any,
-) -> str | None:
-    """在主 TUI 中选择一个运行中的命令会话。"""
+) -> bool:
+    """在主 TUI 中查看或停止后台命令会话。"""
     application = mind.frontend.application
     snapshot    = await mind.native_coding.running_exec_sessions()
     sessions    = _running_items(snapshot)
 
     if not sessions:
-        application.emit(ApplicationView(
-            type="tui.exec.empty",
-            renderable=fragment_block(
-                TextSpan("Background terminals", BRIGHT_STYLE),
-                TextSpan("\n\n  • ", MUTED_STYLE),
-                TextSpan("No background terminals running.", MUTED_STYLE),
-            ),
-        ))
-        application.emit(ApplicationView(type="tui.gap"))
-        return None
+        render_no_background_commands(application)
+        return True
 
-    return await runtime.select_menu(MenuRequest(
+    selection = await runtime.select_menu(MenuRequest(
         title="Background Commands",
         status=f"running={len(sessions)}",
-        help_text="Up/Down select · Enter view · Esc/q close",
-        options=tuple(
+        help_text="Up/Down select · Enter choose · Esc/q close",
+        options=(
+            *(
+                MenuOption(
+                    value=str(item.get("session_id") or "").strip() or None,
+                    label=_inline_text(item.get("command")) or "(unknown command)",
+                    detail=(
+                        f"{_origin_label(item.get('origin'))} "
+                        f"pid={item.get('pid') or '-'}"
+                    ),
+                )
+                for item in sessions
+            ),
             MenuOption(
-                value=str(item.get("session_id") or "").strip() or None,
-                label=_inline_text(item.get("command")) or "(unknown command)",
+                value=_STOP_ALL_ACTION,
+                label="Stop all background commands",
                 detail=(
-                    f"{_origin_label(item.get('origin'))} "
-                    f"pid={item.get('pid') or '-'}"
+                    f"terminate {len(sessions)} "
+                    f"process {'tree' if len(sessions) == 1 else 'trees'}"
                 ),
-            )
-            for item in sessions
+            ),
         ),
+    ))
+
+    if selection is None:
+        return False
+    if selection is _STOP_ALL_ACTION:
+        return await stop_all_exec_sessions(runtime, mind)
+    return bool(await watch_exec_session(runtime, mind, str(selection)))
+
+
+async def stop_all_exec_sessions(
+    runtime: "TuiRuntime",
+    mind: typing.Any,
+) -> bool:
+    """确认并停止当前全部后台命令会话。"""
+    application = mind.frontend.application
+    snapshot    = await mind.native_coding.running_exec_sessions()
+    sessions    = _running_items(snapshot)
+
+    if not sessions:
+        render_no_background_commands(application)
+        return True
+
+    count        = len(sessions)
+    command_noun = "command" if count == 1 else "commands"
+    tree_noun    = "process tree" if count == 1 else "process trees"
+    confirmed = await runtime.select_menu(MenuRequest(
+        title="Stop Background Commands",
+        status=f"running={count}",
+        body=(f"Stop all {count} Mind-owned background {tree_noun}?",),
+        help_text="Up/Down select · Enter choose · Esc/q cancel",
+        options=(
+            MenuOption(
+                value=False,
+                label="Cancel",
+                detail="keep background commands running",
+            ),
+            MenuOption(
+                value=True,
+                label=f"Stop {count} {command_noun}",
+                detail="terminate every listed process tree",
+            ),
+        ),
+        selected=0,
+    ))
+    if confirmed is not True:
+        return False
+
+    result = await mind.native_coding.stop_exec_sessions()
+    for item in _result_items(result, "items"):
+        runtime.cancel_background_session_task(item.get("session_id"))
+    runtime.set_process_status_label("")
+    render_exec_sessions_stopped(application, result)
+    return True
+
+
+def render_no_background_commands(application: ApplicationSink) -> None:
+    """渲染当前没有后台命令的状态。"""
+    application.emit(ApplicationView(
+        type="tui.exec.empty",
+        renderable=fragment_block(
+            TextSpan("Background commands", BRIGHT_STYLE),
+            TextSpan("\n\n  • ", MUTED_STYLE),
+            TextSpan("No background commands running.", MUTED_STYLE),
+        ),
+    ))
+
+
+def render_exec_sessions_stopped(
+    application: ApplicationSink,
+    result: typing.Any,
+) -> None:
+    """渲染批量停止后台命令的结果。"""
+    data      = result if isinstance(result, dict) else {}
+    requested = int(data.get("requested") or 0)
+    stopped   = int(data.get("stopped") or 0)
+    failed    = int(data.get("failed") or 0)
+    lines = [f"requested={requested} · stopped={stopped} · failed={failed}"]
+
+    lines.extend(
+        "failed "
+        f"pid={item.get('pid') or '-'} "
+        f"{_inline_text(item.get('command')) or '(unknown command)'} · "
+        f"{item.get('reason') or 'stop_failed'}"
+        for item in _result_items(data, "failures")[:5]
+    )
+    render_command_summary(application, CommandSummary(
+        kind="Processes",
+        command="stop all background commands",
+        suffix=" · complete" if failed == 0 else " · partial",
+        lines=tuple(lines),
     ))
 
 
@@ -390,6 +484,19 @@ def _running_items(snapshot: typing.Any) -> list[dict[str, typing.Any]]:
         return []
 
     return [item for item in raw_items if isinstance(item, dict)]
+
+
+def _result_items(
+    result: typing.Any,
+    key: str,
+) -> list[dict[str, typing.Any]]:
+    """从批量操作结果提取结构化项目。"""
+    if not isinstance(result, dict):
+        return []
+    items = result.get(key)
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict)]
 
 
 async def _interrupt_exec_session(

@@ -137,6 +137,7 @@ class TuiInputModel(object):
         self.style = Style.from_dict({
             "prompt": "bold #E2E5EA",
             "prompt.kicker": "bold #7B838E",
+            "prompt.command.slash": "#C4A7E7",
             "prompt.model": "bold #F3F5F8",
             "prompt.muted": "bold #767D87",
             "prompt.access": "bold #8FC7EA",
@@ -425,18 +426,6 @@ class TuiInputModel(object):
             event.app.current_buffer.cancel_completion()
             if self.rollback_queue_handler is not None:
                 self.rollback_queue_handler()
-
-        @bindings.add("/", eager=True)
-        @bindings.add("$", eager=True)
-        def _(event) -> None:
-            buffer = event.app.current_buffer
-            buffer.insert_text(event.data)
-            if self.shell_mode:
-                return None
-            buffer.start_completion(
-                select_first=False,
-                complete_event=CompleteEvent(text_inserted=True),
-            )
 
         @bindings.add("!", eager=True)
         def _(event) -> None:

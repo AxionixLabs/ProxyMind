@@ -10,7 +10,10 @@ from mind_app.mcp.group import (
     ExternalMcpGroup,
     open_optional_external_mcp_group,
 )
-from mind_app.mcp.status import ExternalMcpStatus
+from mind_app.mcp.status import (
+    ExternalMcpStatus,
+    external_status_detail_from_exception
+)
 
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
@@ -27,6 +30,7 @@ class ExternalMcpRuntime(object):
 
         self._context: typing.Any = None
         self._started: bool       = False
+        self._last_start_snapshot: dict[str, typing.Any] = {}
 
         self._lifecycle_lock = asyncio.Lock()
 
@@ -40,6 +44,21 @@ class ExternalMcpRuntime(object):
         """返回外部 MCP 启动流程是否已执行过。"""
         return self._started
 
+    @property
+    def last_start_snapshot(self) -> dict[str, typing.Any]:
+        """返回最近一次外部 MCP 启动的最终状态。"""
+        snapshot = self._last_start_snapshot
+        if not snapshot:
+            return {}
+        return {
+            **snapshot,
+            "items": [
+                dict(item)
+                for item in list(snapshot.get("items") or [])
+                if isinstance(item, dict)
+            ],
+        }
+
     async def start(self, *, include_disabled: bool = False) -> None:
         """读取外部 MCP 配置并启动一次生命周期级连接。"""
         async with self._lifecycle_lock:
@@ -50,6 +69,7 @@ class ExternalMcpRuntime(object):
         if self._started:
             return None
 
+        self._last_start_snapshot = {}
         servers = load_mcp_servers_file(self._mind.src_opera_place)
 
         if include_disabled:
@@ -78,6 +98,7 @@ class ExternalMcpRuntime(object):
             if self._group is None:
                 await self._stop_unlocked()
         except BaseException as exc:
+            status.finish_unresolved(external_status_detail_from_exception(exc))
             await self._stop_unlocked()
             if isinstance(
                 exc,
@@ -89,6 +110,7 @@ class ExternalMcpRuntime(object):
         finally:
             if external_anim_started:
                 await self._mind.await_cleanup(self._mind.stop_anim("external_mcp"))
+            self._last_start_snapshot = status.snapshot()
 
     async def stop(self) -> None:
         """关闭已建立的外部 MCP 连接，并清空运行时状态。"""
