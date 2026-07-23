@@ -529,10 +529,18 @@ class Mind(object):
         await self.stop_keepalive_supervisor()
         await terminate_port_process(self.server_manager.port)
 
-    async def stop_anim(self, kind: ActivityStatusKind | None = None) -> None:
+    async def stop_anim(
+        self,
+        kind: ActivityStatusKind | None = None,
+        *,
+        settle: bool = True,
+    ) -> None:
         """停止指定类型的活动动画。"""
         if self.frontend.runtime.active:
-            await self.frontend.runtime.end_activity_status(kind)
+            await self.frontend.runtime.end_activity_status(
+                kind,
+                settle=settle,
+            )
             return None
         await self.anim_manager.stop()
 

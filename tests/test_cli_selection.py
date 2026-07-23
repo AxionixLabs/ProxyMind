@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -11,6 +12,7 @@ from mind_app.cli.frontend import (
     resolve_cli_frontend,
 )
 from mind_app.cli.selection import resolve_cli_output_mode
+from mind_app.cli.dispatch import run_selected_mode
 from mind_app.frontend.contracts import PassiveFrontendRuntime
 from mind_app.frontend.sinks import ConsoleApplicationSink
 from engine.errors import MindError
@@ -24,6 +26,36 @@ def test_gravity_option_is_removed() -> None:
     assert "--gravity" not in parser.format_help()
     with pytest.raises(SystemExit):
         parser.parse_args(["--gravity", "archive"])
+
+
+def test_attach_option_is_removed() -> None:
+    parser = Parser().parse_engine
+
+    assert parser is not None
+    assert "--attach" not in parser.format_help()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--chat", "hello", "--attach", "report.pdf"])
+
+
+@pytest.mark.anyio
+async def test_direct_cli_mode_does_not_forward_attachments() -> None:
+    mind = SimpleNamespace(calling=AsyncMock())
+    command = SimpleNamespace(
+        access=False,
+        agent=False,
+        chat="hello",
+        fast=None,
+        xtra=None,
+        code=None,
+    )
+
+    await run_selected_mode(mind, command)
+
+    mind.calling.assert_awaited_once_with(
+        message="hello",
+        mode="chat",
+        access_mode="safe",
+    )
 
 
 def test_upgrade_uses_rich_frontend_without_tui_runtime() -> None:

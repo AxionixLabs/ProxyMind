@@ -207,11 +207,13 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
 
     class MindStub(object):
         src_opera_place = ""
+        stop_calls = []
 
         async def start_external_mcp_anim(self, _snapshot):
             return None
 
-        async def stop_anim(self, _kind=None):
+        async def stop_anim(self, _kind=None, *, settle=True):
+            self.stop_calls.append((_kind, settle))
             return None
 
         async def await_cleanup(self, awaitable):
@@ -230,7 +232,8 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
     )
     monkeypatch.setattr(external, "open_optional_external_mcp_group", open_group)
 
-    runtime = ExternalMcpRuntime(MindStub())
+    mind = MindStub()
+    runtime = ExternalMcpRuntime(mind)
     first = asyncio.create_task(runtime.start())
     second = asyncio.create_task(runtime.start())
     await entered.wait()
@@ -248,8 +251,11 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
         "name": "docs",
         "state": "ready",
         "tools": 2,
+        "discovered": 2,
+        "filtered": 0,
         "detail": "",
     }]
+    assert mind.stop_calls == [("external_mcp", False)]
 
     await runtime.stop()
 
@@ -273,7 +279,8 @@ async def test_external_mcp_without_connected_group_can_retry(monkeypatch) -> No
         async def start_external_mcp_anim(self, _snapshot):
             return None
 
-        async def stop_anim(self, _kind=None):
+        async def stop_anim(self, _kind=None, *, settle=True):
+            _ = settle
             return None
 
         async def await_cleanup(self, awaitable):

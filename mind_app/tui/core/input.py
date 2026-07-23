@@ -26,6 +26,12 @@ from ..prompting.ghost import (
     apply_ghost_prompt,
     iter_ghost_templates
 )
+from ..prompting.paste import (
+    describe_paste,
+    format_paste_placeholder,
+    paste_line_count,
+    paste_placeholder_index,
+)
 from ..prompting.skills import SkillTokenLexer
 
 INPUT_BUFFER_NAME = "mind-input"
@@ -44,10 +50,6 @@ class TuiAutoSuggest(AutoSuggest):
     """生成 TUI 输入区的行内命令和模板建议。"""
 
     SLASH_HINTS: typing.Final[dict[str, str]] = {
-        "/attach"  : " <path>",
-        "/attach " : "<path>",
-        "/detach"  : " <index-or-path>",
-        "/detach " : "<index-or-path>",
         "/model"   : " <model-id>",
         "/model "  : "<model-id>",
     }
@@ -88,6 +90,9 @@ class TuiAutoSuggest(AutoSuggest):
 class TuiInputModel(object):
     """提供 TUI 独立的输入编辑、补全、历史和主题状态。"""
 
+    SHELL_COMMAND_HINT: typing.Final[str] = (
+        "Prefix a command with ! to run it locally  Example: !ls"
+    )
     PARAMETERIZED_COMMANDS: typing.Final[tuple[str, ...]] = (
         parameterized_command_texts()
     )
@@ -104,9 +109,7 @@ class TuiInputModel(object):
         "/permissions changes access",
         "/resume restores a session",
         "/new starts fresh",
-        "/attach adds files",
-        "! opens local shell",
-        "! <cmd> runs shell once",
+        SHELL_COMMAND_HINT,
     )
     PASTE_CHAR_THRESHOLD: typing.Final[int] = 1200
     PASTE_LINE_THRESHOLD: typing.Final[int] = 20
@@ -125,6 +128,7 @@ class TuiInputModel(object):
         self.rollback_queue_handler: typing.Callable[[], bool] | None = None
 
         self.paste_store: dict[str, str] = {}
+        self._paste_sequence: int = 0
 
         self.shell_mode: bool = False
         self._history_entries: tuple[str, ...] = ()
@@ -172,6 +176,8 @@ class TuiInputModel(object):
         prompt  = random.choice(self.PLACEHOLDER_PROMPTS)
         command = random.choice(self.PLACEHOLDER_COMMANDS)
 
+        if command == self.SHELL_COMMAND_HINT:
+            return f"{theme['label']}, {command}"
         return f"{theme['label']}, {prompt}, {command}"
 
     def set_mode(self, mode: str) -> None:
@@ -224,6 +230,14 @@ class TuiInputModel(object):
     def restore_submission_state(self, state: dict[str, str]) -> None:
         """恢复被撤回提交文本关联的折叠粘贴状态。"""
         self.paste_store = dict(state)
+        self._paste_sequence = max(
+            (
+                index
+                for placeholder in self.paste_store
+                if (index := paste_placeholder_index(placeholder)) is not None
+            ),
+            default=0,
+        )
 
     def rollback_submission_history(self, text: str) -> None:
         """撤销最近一次匹配的输入历史提交。"""
@@ -242,7 +256,7 @@ class TuiInputModel(object):
 
     def clear_submission_state(self) -> None:
         """清理一次提交关联的临时粘贴状态。"""
-        self.paste_store.clear()
+        self._clear_paste_state()
         self.set_shell_mode(False)
         self._reset_history_navigation()
 
@@ -250,7 +264,7 @@ class TuiInputModel(object):
         """按体积决定直接展示或折叠粘贴内容。"""
         should_fold = (
             len(text) >= self.PASTE_CHAR_THRESHOLD
-            or len(text.splitlines()) >= self.PASTE_LINE_THRESHOLD
+            or paste_line_count(text) >= self.PASTE_LINE_THRESHOLD
         )
         if not should_fold:
             return text
@@ -260,12 +274,26 @@ class TuiInputModel(object):
             if placeholder in current_text
         }
 
-        index       = len(self.paste_store) + 1
-        suffix      = "" if index == 1 else f" #{index}"
-        placeholder = f"[Pasted Content {len(text)} chars]{suffix}"
+        descriptor = describe_paste(text)
+        while True:
+            self._paste_sequence += 1
+            placeholder = format_paste_placeholder(
+                descriptor,
+                self._paste_sequence,
+            )
+            if (
+                placeholder not in self.paste_store
+                and placeholder not in current_text
+            ):
+                break
 
         self.paste_store[placeholder] = text
         return placeholder
+
+    def _clear_paste_state(self) -> None:
+        """清理粘贴内容映射和当前草稿编号。"""
+        self.paste_store.clear()
+        self._paste_sequence = 0
 
     def _reset_history_navigation(self) -> None:
         """重置输入历史导航状态。"""
@@ -391,7 +419,7 @@ class TuiInputModel(object):
             buffer.cancel_completion()
             buffer.text = ""
             buffer.cursor_position = 0
-            self.paste_store.clear()
+            self._clear_paste_state()
             self.set_shell_mode(False)
 
         shell_mode_empty = has_focus(INPUT_BUFFER_NAME) & Condition(

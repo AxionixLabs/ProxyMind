@@ -23,10 +23,12 @@ class ExternalMcpStatus(object):
 
             alias = slugify_mcp_name(server.get("name"), fallback="server")
             self._items[alias] = {
-                "name"   : alias,
-                "state"  : "linking",
-                "tools"  : 0,
-                "detail" : ""
+                "name"      : alias,
+                "state"     : "linking",
+                "tools"     : 0,
+                "discovered": 0,
+                "filtered"  : 0,
+                "detail"    : ""
             }
 
     @property
@@ -42,10 +44,30 @@ class ExternalMcpStatus(object):
         """标记服务连接或工具加载失败。"""
         self._update(server, "failed", detail=reason)
 
-    def mark_ready(self, server: dict[str, typing.Any], alias: str, tool_count: int) -> None:
+    def mark_ready(
+        self,
+        server: dict[str, typing.Any],
+        alias: str,
+        tool_count: int,
+        *,
+        discovered_count: int | None = None,
+    ) -> None:
         """标记服务已连接，并记录最终别名与工具数量。"""
-        state = "ready" if tool_count > 0 else "empty"
-        self._update(server, state, alias=alias, tools=max(0, int(tool_count)), detail="")
+        exposed = max(0, int(tool_count))
+        discovered = max(
+            exposed,
+            int(discovered_count) if discovered_count is not None else exposed,
+        )
+        state = "ready" if exposed > 0 else "empty"
+        self._update(
+            server,
+            state,
+            alias=alias,
+            tools=exposed,
+            discovered=discovered,
+            filtered=discovered - exposed,
+            detail="",
+        )
 
     def finish(self) -> None:
         """标记整个外部 MCP 启动状态已结束。"""
@@ -77,6 +99,8 @@ class ExternalMcpStatus(object):
         *,
         alias: str | None = None,
         tools: int | None = None,
+        discovered: int | None = None,
+        filtered: int | None = None,
         detail: str | None = None
     ) -> None:
         """按配置服务名定位状态项，并更新状态字段与刷新时间。"""
@@ -91,6 +115,10 @@ class ExternalMcpStatus(object):
         item["state"] = str(state or "unknown")
         if tools is not None:
             item["tools"] = max(0, int(tools))
+        if discovered is not None:
+            item["discovered"] = max(0, int(discovered))
+        if filtered is not None:
+            item["filtered"] = max(0, int(filtered))
         if detail is not None:
             item["detail"] = str(detail or "").strip()
         self._updated_at = time.monotonic()

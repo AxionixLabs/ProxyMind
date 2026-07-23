@@ -97,6 +97,58 @@ def test_mcp_config_accepts_independent_startup_timeout(tmp_path) -> None:
     assert servers[0]["startup_timeout_sec"] == 24
 
 
+def test_mcp_config_preserves_tool_filter_semantics(tmp_path) -> None:
+    target = tmp_path / "mcp_servers.json"
+    target.write_text(
+        '{"mcpServers":{"remote":{"url":"https://example.test/mcp",'
+        '"tools":{"allow":[],"deny":["delete_*","delete_*"]}}}}',
+        encoding="utf-8",
+    )
+
+    servers = load_mcp_servers_file(tmp_path)
+
+    assert servers[0]["tools"] == {
+        "allow": [],
+        "deny": ["delete_*"],
+    }
+
+
+def test_mcp_status_uses_discovered_and_exposed_tool_counts(tmp_path) -> None:
+    tool_meta = {"server": "zentao", "transport": "stdio"}
+    group = SimpleNamespace(
+        tools={
+            "mcp__zentao__get_bug": SimpleNamespace(meta=tool_meta),
+            "mcp__zentao__list_bug": SimpleNamespace(meta=tool_meta),
+        },
+        server_stats={
+            "zentao": {
+                "server": "zentao",
+                "transport": "stdio",
+                "discovered": 5,
+                "exposed": 2,
+                "filtered": 3,
+            },
+        },
+    )
+    mind = SimpleNamespace(
+        src_opera_place=tmp_path,
+        external_mcp=SimpleNamespace(started=True, group=group),
+    )
+
+    summary = mcp.summarize_external_runtime(mind)
+
+    assert summary["tool_count"] == 2
+    assert summary["filtered_count"] == 3
+    assert summary["tool_groups"] == [{
+        "server": "zentao",
+        "transport": "stdio",
+        "tools": ["mcp__zentao__get_bug", "mcp__zentao__list_bug"],
+        "discovered": 5,
+        "exposed": 2,
+        "filtered": 3,
+    }]
+
+
 @pytest.mark.parametrize(
     ("command", "expected"),
     [
@@ -139,10 +191,16 @@ async def test_background_mcp_start_never_restarts_runtime(monkeypatch) -> None:
             {
                 "done": True,
                 "items": [
-                    {"name": "docs", "state": "ready", "tools": 4},
+                    {
+                        "name": "docs",
+                        "state": "ready",
+                        "tools": 4,
+                        "discovered": 7,
+                        "filtered": 3,
+                    },
                 ],
             },
-            "■ External MCP ready · 1/1 servers · 4 tools",
+            "■ External MCP ready · 1/1 servers · 4 tools · 3 filtered",
         ),
         (
             {

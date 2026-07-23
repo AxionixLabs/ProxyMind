@@ -85,9 +85,10 @@ def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
         configured = []
         config_error = str(error)
 
-    runtime = getattr(mind, "external_mcp", None)
-    group   = getattr(runtime, "group", None) if runtime is not None else None
-    tools   = getattr(group, "tools", {}) if group is not None else {}
+    runtime      = getattr(mind, "external_mcp", None)
+    group        = getattr(runtime, "group", None) if runtime is not None else None
+    tools        = getattr(group, "tools", {}) if group is not None else {}
+    server_stats = getattr(group, "server_stats", {}) if group is not None else {}
 
     grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
 
@@ -99,22 +100,42 @@ def summarize_external_runtime(mind: typing.Any) -> dict[str, typing.Any]:
 
         grouped[(server, transport)].append(str(name))
 
-    tool_groups = [
+    tool_groups: list[dict[str, typing.Any]] = []
+    for stats in dict(server_stats or {}).values():
+        server = str(stats.get("server") or "external")
+        transport = str(stats.get("transport") or "external")
+        names = grouped.pop((server, transport), [])
+        exposed = len(names)
+        discovered = max(exposed, int(stats.get("discovered") or 0))
+        tool_groups.append({
+            "server"     : server,
+            "transport"  : transport,
+            "tools"      : sorted(names),
+            "discovered" : discovered,
+            "exposed"    : exposed,
+            "filtered"   : max(0, discovered - exposed),
+        })
+
+    tool_groups.extend(
         {
-            "server"    : server,
-            "transport" : transport,
-            "tools"     : sorted(names)
+            "server"     : server,
+            "transport"  : transport,
+            "tools"      : sorted(names),
+            "discovered" : len(names),
+            "exposed"    : len(names),
+            "filtered"   : 0,
         }
         for (server, transport), names in grouped.items()
-    ]
+    )
     tool_groups.sort(key=lambda item: (str(item["server"]), str(item["transport"])))
 
     return {
-        "started"     : bool(getattr(runtime, "started", False)) if runtime is not None else False,
-        "configured"  : configured,
-        "config_error": config_error,
-        "tool_groups" : tool_groups,
-        "tool_count"  : sum(len(item["tools"]) for item in tool_groups)
+        "started"       : bool(getattr(runtime, "started", False)) if runtime is not None else False,
+        "configured"    : configured,
+        "config_error"  : config_error,
+        "tool_groups"   : tool_groups,
+        "tool_count"    : sum(int(item["exposed"]) for item in tool_groups),
+        "filtered_count": sum(int(item["filtered"]) for item in tool_groups),
     }
 
 
@@ -173,7 +194,8 @@ def external_status_line(summary: dict[str, typing.Any]) -> str:
     return (
         f"started={str(bool(summary.get('started'))).lower()} "
         f"· configured={len(configured) if isinstance(configured, list) else 0} "
-        f"· tools={int(summary.get('tool_count') or 0)}"
+        f"· tools={int(summary.get('tool_count') or 0)} "
+        f"· filtered={int(summary.get('filtered_count') or 0)}"
     )
 
 
@@ -276,7 +298,8 @@ def render_mcp_status(mind: typing.Any) -> None:
             TextSpan("External MCP ", ACCENT_STYLE),
             TextSpan(
                 f"· started={str(summary['started']).lower()} "
-                f"configured={len(configured)} tools={summary['tool_count']}",
+                f"configured={len(configured)} tools={summary['tool_count']} "
+                f"filtered={summary['filtered_count']}",
                 MUTED_STYLE,
             ),
         )
@@ -305,7 +328,7 @@ def render_mcp_status(mind: typing.Any) -> None:
         )
 
     if tool_groups:
-        _present(mind, text_block("Connected tools", BRIGHT_STYLE))
+        _present(mind, text_block("Connected servers", BRIGHT_STYLE))
         for group in tool_groups:
             names = group["tools"]
             _present(
@@ -314,7 +337,9 @@ def render_mcp_status(mind: typing.Any) -> None:
                     TextSpan("  • ", ACCENT_STYLE),
                     TextSpan(f"{group['server']} ", BODY_STYLE),
                     TextSpan(
-                        f"({group['transport']} · {len(names)} tools)",
+                        f"({group['transport']} · "
+                        f"discovered={group['discovered']} "
+                        f"exposed={len(names)} filtered={group['filtered']})",
                         MUTED_STYLE,
                     ),
                 )
@@ -322,7 +347,7 @@ def render_mcp_status(mind: typing.Any) -> None:
     else:
         _present(
             mind,
-            text_block("No external MCP tools connected.", MUTED_STYLE),
+            text_block("No external MCP servers connected.", MUTED_STYLE),
         )
 
     _present(mind, view_type="tui.gap")

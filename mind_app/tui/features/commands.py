@@ -312,38 +312,6 @@ def compact_event_detail(event: dict[str, typing.Any]) -> str:
     return ""
 
 
-def print_pending_attachments(mind: "Mind") -> None:
-    """打印当前待发送附件列表。"""
-    attachments = mind.attach.pending_attachments_snapshot()
-    if not attachments:
-        _present(mind, text_block("No pending attachments.", MUTED_STYLE))
-        _present(mind, view_type="tui.gap")
-        return None
-
-    _present(
-        mind,
-        text_block(f"Pending attachments ({len(attachments)}):", ACCENT_STYLE),
-    )
-    for index, attachment in enumerate(attachments, start=1):
-        size = int(attachment.get("size") or 0)
-        _present(
-            mind,
-            fragment_block(
-                TextSpan(f"  {index}. ", ACCENT_STYLE),
-                TextSpan(f"{attachment.get('filename') or '-'} ", BRIGHT_STYLE),
-                TextSpan(
-                    f"({attachment.get('kind') or 'file'} · {size} bytes)",
-                    MUTED_STYLE,
-                ),
-            )
-        )
-        _present(
-            mind,
-            text_block(f"     {attachment.get('local') or '-'}", MUTED_STYLE),
-        )
-    _present(mind, view_type="tui.gap")
-
-
 async def copy_last_assistant_reply(mind: "Mind") -> None:
     """复制最近一次模型回复到剪贴板。"""
     text = mind.last_assistant_reply_snapshot()

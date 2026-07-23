@@ -182,17 +182,15 @@ class Parser(object):
             ''')
         )
 
-        minor_group.add_argument(
-            "--attach", action="append", default=None, metavar="PATH",
-            help=textwrap.dedent(f'''\
-                \033[1;36m^* 共振协议 *^\033[0m
-                -------------------------
-                - 为本次命令行请求挂载本地附件
-                - 可重复传入：--attach a.png --attach "./docs/**/*.md"
-                - 当前仅用于单次 `--chat` / `--fast` / `--xtra` 请求
-
-            ''')
-        )
+        # minor_group.add_argument(
+        #     "--", action="append", default=None, metavar="PATH",
+        #     help=textwrap.dedent(f'''\
+        #         \033[1;36m^* 共振协议 *^\033[0m
+        #         -------------------------
+        #         -
+        #
+        #     ''')
+        # )
 
     @property
     def parse_cmd(self) -> "argparse.Namespace":

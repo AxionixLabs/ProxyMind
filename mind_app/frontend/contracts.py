@@ -106,6 +106,8 @@ class FrontendRuntime(typing.Protocol):
     async def end_activity_status(
         self,
         kind: ActivityStatusKind | None = None,
+        *,
+        settle: bool = True,
     ) -> None:
         """结束当前活动状态。"""
         ...
@@ -166,9 +168,12 @@ class PassiveFrontendRuntime(object):
     async def end_activity_status(
         self,
         kind: ActivityStatusKind | None = None,
+        *,
+        settle: bool = True,
     ) -> None:
         """忽略活动状态结束请求。"""
         _ = kind
+        _ = settle
         return None
 
 

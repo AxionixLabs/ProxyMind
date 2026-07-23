@@ -5,7 +5,6 @@ import re
 import time
 import typing
 import asyncio
-from prompt_toolkit.utils import get_cwidth
 from engine.errors import MindError
 from engine.file_assist import FileAssist
 from mind_nova.modes import (
@@ -22,10 +21,7 @@ from mind_app.frontend import (
     ApplicationSink,
     ApplicationView
 )
-from mind_app.presentation.models import (
-    TextSpan,
-    TextStyle
-)
+from mind_app.presentation.models import TextSpan
 from mind_app.runtime.environment.workspace import fetch_runtime_workspace_root
 from mind_app.runtime.mcp.service_runtime import service_runtime_asset_missing
 from ..features.commands import (
@@ -33,7 +29,6 @@ from ..features.commands import (
     compact_current_conversation,
     persist_primary_pref,
     print_available_tools,
-    print_pending_attachments,
     copy_last_assistant_reply,
     link_helix_runtime,
     open_helix_home,
@@ -69,7 +64,6 @@ from ..features.processes import (
     monitor_exec_status,
 )
 from ..features.shell import (
-    parse_shell_escape,
     run_shell_escape
 )
 from .turn import run_tui_model_turn
@@ -83,15 +77,12 @@ from ..core.styles import (
     BRIGHT_STYLE,
     FAILURE_STYLE,
     MUTED_STYLE,
-    SUCCESS_STYLE,
-    WARNING_STYLE,
     fragment_block,
     text_block,
 )
 from server import config_service_base_url
 from ..features.history import choose_history_session
 from ..prompting.commands import (
-    TUI_COMMANDS,
     command_spec,
     matches_command,
 )
@@ -109,51 +100,6 @@ MODE_BY_COMMAND: dict[str, RunMode] = {
     for key, mode in _MODE_BY_KEY.items()
     for name in command_spec(key).names
 }
-
-_HELP_STYLE_BY_KEY: typing.Final[dict[str, TextStyle]] = {
-    "chat": WARNING_STYLE,
-    "fast": WARNING_STYLE,
-    "xtra": WARNING_STYLE,
-    "resume": SUCCESS_STYLE,
-    "permissions": SUCCESS_STYLE,
-    "model": MUTED_STYLE,
-    "effort": SUCCESS_STYLE,
-    "ps": SUCCESS_STYLE,
-    "mcp": TextStyle(foreground="#87D7FF", bold=True),
-    "helix_link": SUCCESS_STYLE,
-    "helix_unlink": SUCCESS_STYLE,
-    "helix_home": SUCCESS_STYLE,
-    "helix_stop": SUCCESS_STYLE,
-    "license": SUCCESS_STYLE,
-    "shutdown": FAILURE_STYLE,
-    "quit": FAILURE_STYLE,
-}
-HELP_ITEMS: tuple[tuple[str, str, TextStyle], ...] = tuple(
-    (
-        command.usage,
-        command.help_detail,
-        _HELP_STYLE_BY_KEY.get(command.key, ACCENT_STYLE),
-    )
-    for command in TUI_COMMANDS
-    if command.show_in_help
-)
-
-
-def _help_block() -> FragmentBlock:
-    """生成 TUI 命令索引块。"""
-    command_width = max(get_cwidth(command) for command, _detail, _style in HELP_ITEMS) + 3
-    parts: list[TextSpan] = []
-    for index, (command, detail, style) in enumerate(HELP_ITEMS):
-        if index:
-            parts.append(TextSpan("\n"))
-        padding = " " * max(1, command_width - get_cwidth(command))
-        parts.extend([
-            TextSpan(command, style),
-            TextSpan(padding),
-            TextSpan(detail),
-        ])
-    return fragment_block(*parts)
-
 
 def _label_detail(label: str, detail: str) -> FragmentBlock:
     """生成标题和次要详情组成的会话状态块。"""
@@ -267,12 +213,6 @@ async def run_tui_loop(mind: "Mind") -> None:
     )
 
     stream_barriers: dict[str, asyncio.Task[None]] = {}
-
-    async def run_modal(
-        factory: typing.Callable[[], typing.Awaitable[typing.Any]],
-    ) -> typing.Any:
-        """在前端运行期内执行一项独占终端交互。"""
-        return await runtime.run_modal(factory)
 
     def present(
         renderable: FragmentBlock | None = None,
@@ -404,16 +344,6 @@ async def run_tui_loop(mind: "Mind") -> None:
             runtime.bind_stream_command_handler(None)
             runtime.set_foreground_active(False)
 
-    doc = _help_block()
-
-    re_attach = re.compile(
-        rf"^\s*{re.escape(command_spec('attach').command)}(?:\s+(.*))?\s*$",
-        re.IGNORECASE,
-    )
-    re_detach = re.compile(
-        rf"^\s*{re.escape(command_spec('detach').command)}(?:\s+(.*))?\s*$",
-        re.IGNORECASE,
-    )
     re_model = re.compile(
         rf"^\s*{re.escape(command_spec('model').command)}(?:\s+(.+))?\s*$",
         re.IGNORECASE,
@@ -482,13 +412,7 @@ async def run_tui_loop(mind: "Mind") -> None:
 
         if prompt_text.startswith("!"):
             present()
-            shell_request = parse_shell_escape(prompt_text)
-            if shell_request is not None and shell_request.enter_shell:
-                shell_handled = await run_modal(
-                    lambda: run_shell_escape(runtime, mind, prompt_text)
-                )
-            else:
-                shell_handled = await run_shell_escape(runtime, mind, prompt_text)
+            shell_handled = await run_shell_escape(runtime, mind, prompt_text)
             if shell_handled:
                 present()
                 continue
@@ -501,14 +425,6 @@ async def run_tui_loop(mind: "Mind") -> None:
             mind.task_event.set()
             break
 
-        if matches_command(command, "help"):
-            present(doc, view_type="tui.help")
-            continue
-
-        if matches_command(command, "license"):
-            present(view_type="startup_logo")
-            continue
-
         if matches_command(command, "new"):
             new_conversation_metadata = mind.reset_conversation(
                 reason="command:/new",
@@ -518,19 +434,6 @@ async def run_tui_loop(mind: "Mind") -> None:
                 "New conversation",
                 f"cid={new_conversation_metadata['cid']} "
                 f"sid={new_conversation_metadata['sid']}",
-            ))
-            present()
-            continue
-
-        if matches_command(command, "attachments"):
-            print_pending_attachments(mind)
-            continue
-
-        if matches_command(command, "attach_clear"):
-            count = mind.attach.clear_pending_attachments()
-            present(text_block(
-                f"Cleared {count} pending attachment(s).",
-                ACCENT_STYLE,
             ))
             present()
             continue
@@ -678,7 +581,14 @@ async def run_tui_loop(mind: "Mind") -> None:
                     runtime,
                     mind,
                 )
-            await run_mcp_action(mind, mcp_action)
+            if mcp_action in {"start", "force"}:
+                start_stream_barrier(
+                    "External MCP",
+                    lambda: run_mcp_action(mind, mcp_action),
+                )
+                await wait_stream_barriers()
+            else:
+                await run_mcp_action(mind, mcp_action)
             continue
 
         if matches_command(command, "resume"):
@@ -715,84 +625,6 @@ async def run_tui_loop(mind: "Mind") -> None:
         if command in MODE_BY_COMMAND:
             mode = MODE_BY_COMMAND[command]
             render_mode_status(application, mode)
-            continue
-
-        if m := re_attach.match(prompt_text):
-            value = m.group(1).strip() if m.group(1) else ""
-            if not value:
-                present(_failure_block("attach invalid: /attach <path|dir|glob>"))
-                present()
-                continue
-            try:
-                result = mind.attach.add_pending_attachments(value)
-            except MindError as attach_error:
-                present(_failure_block(attach_error))
-                present()
-                continue
-
-            added    = result.get("added") or []
-            existing = result.get("existing") or []
-            skipped  = result.get("skipped") or []
-
-            present(fragment_block(
-                TextSpan("Attach summary ", SUCCESS_STYLE),
-                TextSpan(f"{len(added)} added ", BRIGHT_STYLE),
-                TextSpan(
-                    f"· {len(existing)} existing · {len(skipped)} skipped",
-                    MUTED_STYLE,
-                ),
-            ))
-            for added_attachment in added[:5]:
-                present(fragment_block(
-                    TextSpan("  + ", ACCENT_STYLE),
-                    TextSpan(
-                        f"{added_attachment.get('filename') or '-'} ",
-                        BRIGHT_STYLE,
-                    ),
-                    TextSpan(
-                        f"({added_attachment.get('kind') or 'file'})",
-                        MUTED_STYLE,
-                    ),
-                ))
-            if len(added) > 5:
-                present(text_block(
-                    f"  ... and {len(added) - 5} more added",
-                    MUTED_STYLE,
-                ))
-            if skipped:
-                present(fragment_block(
-                    TextSpan("Skipped ", WARNING_STYLE),
-                    TextSpan(
-                        ", ".join(
-                            str(item.get("filename") or "-")
-                            for item in skipped[:3]
-                        )
-                    ),
-                ))
-            present()
-            continue
-
-        if m := re_detach.match(prompt_text):
-            value = m.group(1).strip() if m.group(1) else ""
-            if not value:
-                present(_failure_block("detach invalid: /detach <index|path>"))
-                present()
-                continue
-            try:
-                removed_attachment = mind.attach.remove_pending_attachment(value)
-            except MindError as detach_error:
-                present(_failure_block(detach_error))
-                present()
-                continue
-
-            present(fragment_block(
-                TextSpan("Detached ", ACCENT_STYLE),
-                TextSpan(
-                    str(removed_attachment.get("filename") or "-"),
-                    BRIGHT_STYLE,
-                ),
-            ))
-            present()
             continue
 
         pref_config = await mind.fresh_pref_config(ttl_sec=0.0)

@@ -11,7 +11,6 @@ if typing.TYPE_CHECKING:
 async def run_selected_mode(
     mind: "Mind",
     cmd_lines: typing.Any,
-    cli_attachments: list[dict[str, typing.Any]] | None,
 ) -> None:
     """按命令行参数分派到直接执行或交互模式。"""
     access_mode = "full" if cmd_lines.access else "safe"
@@ -22,21 +21,18 @@ async def run_selected_mode(
         await mind.calling(
             message=chat,
             mode="chat",
-            attachments=cli_attachments,
             access_mode=access_mode,
         )
     elif fast := cmd_lines.fast:
         await mind.calling(
             message=fast,
             mode="fast",
-            attachments=cli_attachments,
             access_mode=access_mode,
         )
     elif xtra := cmd_lines.xtra:
         await mind.calling(
             message=xtra,
             mode="xtra",
-            attachments=cli_attachments,
             access_mode=access_mode,
         )
     elif code := cmd_lines.code:

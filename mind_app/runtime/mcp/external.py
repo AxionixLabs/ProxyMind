@@ -109,7 +109,10 @@ class ExternalMcpRuntime(object):
             self._group = None
         finally:
             if external_anim_started:
-                await self._mind.await_cleanup(self._mind.stop_anim("external_mcp"))
+                await self._mind.await_cleanup(self._mind.stop_anim(
+                    "external_mcp",
+                    settle=False,
+                ))
             self._last_start_snapshot = status.snapshot()
 
     async def stop(self) -> None:

@@ -52,7 +52,7 @@ def render_tool_start_trace(
 ) -> str:
     """生成工具开始执行时的轨迹标题。"""
     _ = arguments
-    return f"• Tool {str(name or 'tool').strip() or 'tool'}"
+    return f"• Function Calling {str(name or 'tool').strip() or 'tool'}"
 
 
 def render_tool_start_preview(

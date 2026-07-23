@@ -11,6 +11,7 @@ import socket
 import asyncio
 import hashlib
 import contextlib
+from fnmatch import fnmatchcase
 from pathlib import Path
 from datetime import timedelta
 from urllib.parse import urlsplit
@@ -69,6 +70,53 @@ def _string_list(value: typing.Any) -> list[str]:
         for item in value
         if isinstance(item, (str, int, float, bool))
     ]
+
+
+def _tool_patterns(value: typing.Any) -> list[str]:
+    """规范化外接 MCP 工具匹配模式，并保持配置顺序。"""
+    if not isinstance(value, list):
+        return []
+
+    patterns: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        pattern = item.strip()
+        if not pattern or pattern in seen:
+            continue
+        seen.add(pattern)
+        patterns.append(pattern)
+    return patterns
+
+
+def _normalize_tool_rules(value: typing.Any) -> dict[str, list[str]]:
+    """规范化单个外接 MCP 服务的工具允许和拒绝规则。"""
+    if not isinstance(value, dict):
+        return {}
+
+    rules: dict[str, list[str]] = {}
+    for name in ("allow", "deny"):
+        if name in value:
+            rules[name] = _tool_patterns(value.get(name))
+    return rules
+
+
+def is_mcp_tool_allowed(name: str, rules: typing.Any) -> bool:
+    """按原始工具名判断外接 MCP 工具是否允许暴露。"""
+    policy = rules if isinstance(rules, dict) else {}
+    tool_name = str(name)
+
+    allow = policy.get("allow")
+    if "allow" in policy and not any(
+        fnmatchcase(tool_name, pattern) for pattern in list(allow or [])
+    ):
+        return False
+
+    deny = policy.get("deny")
+    return not any(
+        fnmatchcase(tool_name, pattern) for pattern in list(deny or [])
+    )
 
 
 def _safe_tool_component(value: typing.Any, fallback: str) -> str:
@@ -156,7 +204,8 @@ def normalize_mcp_servers(raw: typing.Any) -> list[dict[str, typing.Any]]:
                 DEFAULT_MCP_START_TIMEOUT_SEC
             ),
             "timeout_sec"         : timeout_sec,
-            "notes"               : str(item.get("notes", "") or "").strip()
+            "notes"               : str(item.get("notes", "") or "").strip(),
+            "tools"               : _normalize_tool_rules(item.get("tools")),
         }
 
         if transport == "stdio":

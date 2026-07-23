@@ -75,6 +75,23 @@ async def test_double_ctrl_c_wakes_pending_message_reader() -> None:
 
 
 @pytest.mark.anyio
+async def test_exit_confirmation_task_expires_footer() -> None:
+    runtime = TuiRuntime()
+    runtime.interrupt_state.timeout_sec = 0.01
+
+    runtime._interrupt_input()
+
+    assert runtime._exit_expiry_task is not None
+    assert runtime.interrupt_state.exit_armed
+
+    await asyncio.sleep(0.02)
+
+    assert runtime._exit_expiry_task is None
+    assert not runtime.interrupt_state.exit_armed
+    assert "again to exit" not in _fragments_text(runtime._footer_fragments())
+
+
+@pytest.mark.anyio
 async def test_ctrl_d_requests_clean_exit_before_queued_message() -> None:
     runtime = TuiRuntime()
     runtime.queued_messages.append(TuiSubmission(
@@ -98,6 +115,7 @@ async def test_editing_clears_exit_confirmation() -> None:
     runtime.input.buffer.text = "new direction"
 
     assert not runtime.interrupt_state.exit_armed
+    assert runtime._exit_expiry_task is None
     assert "again to exit" not in _fragments_text(runtime._footer_fragments())
 
 

@@ -9,10 +9,10 @@ from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.utils import get_cwidth
 from mind_core.skills import configured_skills
+from .paste import PASTE_PLACEHOLDER_RE
 
 SKILL_EYE_WIDTH = 16
 SKILL_PREFIX_RE = re.compile(r"^\$[A-Za-z0-9_.-]*$")
-PASTE_PREFIX_RE = re.compile(r"\[Pasted Content \d+ chars](?: #\d+)?")
 
 
 class SkillTokenLexer(Lexer):
@@ -112,7 +112,7 @@ def iter_known_skill_tokens(text: str, *, offset: int = 0) -> typing.Iterator[tu
 
 def iter_paste_placeholder_tokens(text: str, *, offset: int = 0) -> typing.Iterator[tuple[int, int, str]]:
     """迭代折叠粘贴内容的可见占位文本。"""
-    for match in PASTE_PREFIX_RE.finditer(text):
+    for match in PASTE_PLACEHOLDER_RE.finditer(text):
         yield offset + match.start(), offset + match.end(), "class:paste-placeholder"
 
 

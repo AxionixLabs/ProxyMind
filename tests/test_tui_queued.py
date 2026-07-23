@@ -67,7 +67,7 @@ def test_running_input_replaces_information_footer_with_queue_hint() -> None:
     text = _fragments_text(runtime._footer_fragments())
 
     assert runtime._footer_visible()
-    assert text == "tab to queue message"
+    assert text == "  tab to queue message"
     assert runtime.context.model not in text
     assert runtime.context.access_label not in text
     assert runtime.context.workspace_label not in text
@@ -96,7 +96,7 @@ def test_queued_submission_restores_information_footer() -> None:
 
     runtime.input.buffer.text = "another task"
 
-    assert _fragments_text(runtime._footer_fragments()) == "tab to queue message"
+    assert _fragments_text(runtime._footer_fragments()) == "  tab to queue message"
 
 
 def test_foreground_barrier_keeps_normal_input_in_visible_queue() -> None:

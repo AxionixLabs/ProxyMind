@@ -5,6 +5,7 @@ import httpx
 import typing
 import asyncio
 import contextlib
+import logging
 from datetime import timedelta
 from types import TracebackType
 from contextlib import asynccontextmanager
@@ -22,6 +23,7 @@ from mcp.shared.exceptions import McpError
 from .config import (
     build_server_params,
     external_http_client,
+    is_mcp_tool_allowed,
     preflight_server,
     request_timeout_sec,
     slugify_mcp_name,
@@ -37,6 +39,32 @@ from .status import (
 
 EXTERNAL_MCP_CONNECT_CONCURRENCY = 4
 EXTERNAL_MCP_PREFLIGHT_TIMEOUT_SEC = 2.0
+_STREAMABLE_HTTP_LOGGER_NAME = "mcp.client.streamable_http"
+_SESSION_TERMINATION_WARNING = "Session termination failed:"
+
+
+class _SessionTerminationLogFilter(logging.Filter):
+    """把 SDK 已处理的会话关闭失败转入诊断日志。"""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """过滤关闭期 warning，并保留其它 SDK 日志。"""
+        message = record.getMessage()
+        if not message.startswith(_SESSION_TERMINATION_WARNING):
+            return True
+        logger.debug(f"[MCP] external {message}")
+        return False
+
+
+@contextlib.contextmanager
+def _route_session_termination_warnings() -> typing.Iterator[None]:
+    """在外接会话关闭期间临时接管 SDK 关闭 warning。"""
+    sdk_logger = logging.getLogger(_STREAMABLE_HTTP_LOGGER_NAME)
+    log_filter = _SessionTerminationLogFilter()
+    sdk_logger.addFilter(log_filter)
+    try:
+        yield
+    finally:
+        sdk_logger.removeFilter(log_filter)
 
 
 class ExternalMcpGroup(object):
@@ -45,6 +73,7 @@ class ExternalMcpGroup(object):
     def __init__(self) -> None:
         """初始化外部 MCP 工具索引和资源释放栈。"""
         self.tools: dict[str, mcp_types.Tool] = {}
+        self.server_stats: dict[str, dict[str, typing.Any]] = {}
         self._tool_to_session: dict[str, ClientSession] = {}
         self._exit_stack = contextlib.AsyncExitStack()
 
@@ -61,7 +90,8 @@ class ExternalMcpGroup(object):
     ) -> bool | None:
         """退出时关闭所有已建立的外部连接，并清空工具索引。"""
         try:
-            return await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
+            with _route_session_termination_warnings():
+                return await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
         except BaseException as exc:
             if should_reraise_external(exc):
                 raise
@@ -71,10 +101,11 @@ class ExternalMcpGroup(object):
             return None
         finally:
             self.tools.clear()
+            self.server_stats.clear()
             self._tool_to_session.clear()
 
+    @staticmethod
     async def _establish_session(
-        self,
         server_params: typing.Any,
         session_params: ClientSessionParameters,
     ) -> tuple[mcp_types.Implementation, ClientSession, contextlib.AsyncExitStack]:
@@ -137,13 +168,14 @@ class ExternalMcpGroup(object):
                 await session_stack.aclose()
             raise
 
+    @staticmethod
     async def _collect_tools(
-        self,
         server_info: mcp_types.Implementation,
         session: ClientSession,
         *,
         transport: str | None = None,
-    ) -> dict[str, mcp_types.Tool]:
+        rules: dict[str, list[str]] | None = None,
+    ) -> tuple[dict[str, mcp_types.Tool], int]:
         """读取单个外部服务的工具列表，并生成待提交的工具映射。"""
         tools_temp: dict[str, mcp_types.Tool] = {}
 
@@ -152,7 +184,7 @@ class ExternalMcpGroup(object):
         capabilities = session.get_server_capabilities()
         if capabilities is not None and capabilities.tools is None:
             # 服务明确声明不支持 tools 时，直接跳过，不视为连接失败。
-            return tools_temp
+            return tools_temp, 0
 
         try:
             tools = (await session.list_tools()).tools
@@ -162,9 +194,12 @@ class ExternalMcpGroup(object):
             logger.debug(
                 f"[MCP] external tools skipped {summarize_exception(exc)}"
             )
-            return tools_temp
+            return tools_temp, 0
 
         for tool in tools:
+            if not is_mcp_tool_allowed(tool.name, rules):
+                continue
+
             # 对外展示的工具名会加服务前缀，原始工具名保留在 tool.name 中用于调用。
             name = tool_name_hook(tool.name, server_info)
             meta = dict(tool.meta or {})
@@ -175,7 +210,7 @@ class ExternalMcpGroup(object):
 
             tools_temp[name] = tool.model_copy(update={"meta": meta})
 
-        return tools_temp
+        return tools_temp, len(tools)
 
     async def call_tool(
         self,
@@ -202,7 +237,7 @@ class ExternalMcpGroup(object):
     async def connect_with_alias(
         self,
         server: dict[str, typing.Any]
-    ) -> tuple[str, int]:
+    ) -> tuple[str, int, int]:
         """连接单个外部服务，并使用配置名作为稳定别名聚合工具。"""
         alias  = slugify_mcp_name(server.get("name"), fallback="server")
         params = build_server_params(server)
@@ -221,10 +256,11 @@ class ExternalMcpGroup(object):
                 websiteUrl=server_info.websiteUrl,
                 icons=server_info.icons
             )
-            tools = await self._collect_tools(
+            tools, discovered_count = await self._collect_tools(
                 alias_info,
                 session,
-                transport=str(server.get("transport") or "streamable_http")
+                transport=str(server.get("transport") or "streamable_http"),
+                rules=server.get("tools") or {},
             )
 
             matching_tools = tools.keys() & self.tools.keys()
@@ -241,7 +277,17 @@ class ExternalMcpGroup(object):
             self._exit_stack.push_async_callback(session_stack.aclose)
             self.tools.update(tools)
             self._tool_to_session.update({name: session for name in tools})
-            return alias, len(tools)
+            exposed_count = len(tools)
+            self.server_stats[alias] = {
+                "server"     : alias,
+                "transport"  : str(
+                    server.get("transport") or "streamable_http"
+                ),
+                "discovered" : discovered_count,
+                "exposed"    : exposed_count,
+                "filtered"    : max(0, discovered_count - exposed_count),
+            }
+            return alias, exposed_count, discovered_count
         except BaseException:
             with contextlib.suppress(BaseException):
                 await session_stack.aclose()
@@ -258,23 +304,31 @@ async def _connect_external_server(
     name        = str(server.get("name") or "server")
     transport   = str(server.get("transport") or "streamable_http")
     start_limit = startup_timeout_sec(server)
+    preflight_limit = min(start_limit, EXTERNAL_MCP_PREFLIGHT_TIMEOUT_SEC)
     phase       = "preflight"
 
     try:
-        preflight_limit = min(start_limit, EXTERNAL_MCP_PREFLIGHT_TIMEOUT_SEC)
         async with asyncio.timeout(preflight_limit):
             await preflight_server(server)
 
         phase = "startup"
         async with limiter:
             async with asyncio.timeout(start_limit):
-                alias, tool_count = await group.connect_with_alias(server)
+                alias, tool_count, discovered_count = await group.connect_with_alias(
+                    server
+                )
 
         if status is not None:
-            status.mark_ready(server, alias, tool_count)
+            status.mark_ready(
+                server,
+                alias,
+                tool_count,
+                discovered_count=discovered_count,
+            )
         logger.debug(
             f"[MCP] external connected name={alias} "
-            f"transport={transport} tools={tool_count}"
+            f"transport={transport} discovered={discovered_count} "
+            f"exposed={tool_count} filtered={discovered_count - tool_count}"
         )
         return True
     except BaseException as exc:

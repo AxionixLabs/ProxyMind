@@ -185,20 +185,24 @@ def render_exec_sessions_stopped(
     requested = int(data.get("requested") or 0)
     stopped   = int(data.get("stopped") or 0)
     failed    = int(data.get("failed") or 0)
-    lines = [f"requested={requested} · stopped={stopped} · failed={failed}"]
+    details = [f"requested={requested} · stopped={stopped} · failed={failed}"]
 
-    lines.extend(
+    details.extend(
         "failed "
         f"pid={item.get('pid') or '-'} "
         f"{_inline_text(item.get('command')) or '(unknown command)'} · "
         f"{item.get('reason') or 'stop_failed'}"
         for item in _result_items(data, "failures")[:5]
     )
+    lines = tuple(
+        f"{'└' if index == len(details) - 1 else '├'} {line}"
+        for index, line in enumerate(details)
+    )
     render_command_summary(application, CommandSummary(
         kind="Processes",
         command="stop all background commands",
         suffix=" · complete" if failed == 0 else " · partial",
-        lines=tuple(lines),
+        lines=lines,
     ))
 
 
@@ -423,7 +427,7 @@ def render_exec_session_detached(
     render_command_summary(application, CommandSummary(
         kind=_session_kind(snapshot),
         command=str(snapshot.get("command") or session_id or "command"),
-        suffix=f" · background · {session_id}",
+        suffix=f" · {session_id}",
         lines=(),
     ))
 

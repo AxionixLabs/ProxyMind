@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from mind_app.tui.core.runtime import TuiRuntime
+from mind_app.tui.core.render import fragments_text
+from mind_app.tui.core.styles import text_block
 from mind_app.tui.session import loop
 
 
@@ -170,3 +172,70 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
     assert task_event.is_set()
     assert link_cancelled.is_set()
     assert not runtime.foreground_active
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("command", ["/mcp start", "/mcp force"])
+async def test_idle_mcp_start_queues_query_until_result_is_committed(
+    monkeypatch,
+    command,
+) -> None:
+    runtime = TuiRuntime()
+    task_event = asyncio.Event()
+    mcp_started = asyncio.Event()
+    release_mcp = asyncio.Event()
+    model_started = asyncio.Event()
+    pref_config = {"primary": {"model": "test-model"}}
+    mind = SimpleNamespace(
+        task_event=task_event,
+        stop_runtime_on_exit=False,
+        pref=SimpleNamespace(to_config=lambda: pref_config),
+        frontend=SimpleNamespace(
+            runtime=runtime,
+            interaction=runtime,
+            application=SimpleNamespace(emit=Mock()),
+        ),
+        fresh_pref_config=AsyncMock(return_value=pref_config),
+        native_coding=SimpleNamespace(reset_patch_diff=Mock()),
+    )
+
+    async def run_mcp_action(_mind, action) -> None:
+        assert action == command.split()[1]
+        mcp_started.set()
+        await release_mcp.wait()
+        runtime.queue_background_block(text_block("External MCP ready"))
+
+    def run_model_turn(_mind, *, message_text, **_kwargs):
+        async def execute() -> None:
+            assert message_text == "hi"
+            model_started.set()
+            task_event.set()
+
+        return execute()
+
+    monkeypatch.setattr(
+        loop,
+        "monitor_exec_status",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(loop, "run_mcp_action", run_mcp_action)
+    monkeypatch.setattr(loop, "run_tui_model_turn", run_model_turn)
+
+    runtime.message_queue.put_nowait(command)
+    run_task = asyncio.create_task(loop.run_tui_loop(mind))
+    await mcp_started.wait()
+
+    assert runtime.foreground_active
+    runtime.input.buffer.text = "hi"
+    runtime._accept_input(runtime.input.buffer)
+
+    assert runtime.queued_messages.active
+    assert runtime.message_queue.empty()
+    assert not model_started.is_set()
+
+    release_mcp.set()
+    await asyncio.wait_for(run_task, timeout=1.0)
+
+    document = fragments_text(runtime.document.fragments(width=100))
+    assert document.index("External MCP ready") < document.index("> hi")
+    assert model_started.is_set()

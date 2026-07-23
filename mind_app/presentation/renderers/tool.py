@@ -16,7 +16,11 @@ def render_tool_start_view(view: ToolStartView) -> StyledBlock:
     """把普通工具开始视图转换为中立展示块。"""
     return StyledBlock(
         plain_text=view.title,
-        spans=tuple(render_tool_trace_parts(view.title, preview=view.preview)),
+        spans=tuple(render_tool_trace_parts(
+            view.title,
+            preview=view.preview,
+            ok=None,
+        )),
     )
 
 

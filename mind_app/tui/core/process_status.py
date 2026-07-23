@@ -51,13 +51,19 @@ class TuiProcessStatus(object):
         ]
         suffix_width = sum(get_cwidth(text) for _style, text in suffix)
         status_width = max(1, width - suffix_width)
+        label_fragments = render_status_fragments(
+            self.label,
+            family="wait",
+            phase=0.0,
+            animated=False,
+        )
         status = clip_fragments(
-            render_status_fragments(
-                f"exec {self.label}",
-                family="wait",
-                phase=0.0,
-                animated=False,
-            ),
+            [
+                *label_fragments[:2],
+                ("class:process-status.exec", "exec"),
+                (label_fragments[1][0], " "),
+                *label_fragments[2:],
+            ],
             width=status_width,
         )
         return clip_fragments([*status, *suffix], width=width)

@@ -6,8 +6,6 @@ import shlex
 import shutil
 import ctypes
 import typing
-import asyncio
-from dataclasses import dataclass
 from mind_app.frontend import (
     ApplicationSink,
     ApplicationView,
@@ -54,34 +52,24 @@ INTERACTIVE_SHELL_COMMANDS = frozenset({
 })
 
 
-@dataclass(frozen=True, slots=True)
-class ShellEscape(object):
-    """描述 TUI 中的本地 shell escape。"""
-
-    enter_shell: bool
-    command: str = ""
-
-
 async def run_shell_escape(
     runtime: typing.Any,
     mind: typing.Any,
     value: str,
 ) -> bool:
     """执行 TUI shell escape 并管理进程查看状态。"""
-    parsed = parse_shell_escape(value)
-    if parsed is None:
+    command = parse_shell_escape(value)
+    if command is None:
         return False
-
-    application = mind.frontend.application
-    if parsed.enter_shell:
-        await run_interactive_shell(application)
+    if not command:
         return True
 
-    blocked = blocked_interactive_shell_command(parsed.command)
+    application = mind.frontend.application
+    blocked = blocked_interactive_shell_command(command)
     if blocked:
         render_blocked_interactive_shell_command(
             application,
-            parsed.command,
+            command,
             blocked,
         )
         return True
@@ -94,24 +82,24 @@ async def run_shell_escape(
         ))
         return True
 
-    args = direct_command_args(parsed.command)
+    args = direct_command_args(command)
     if args is None:
-        args = shell_command_args(executable, parsed.command)
+        args = shell_command_args(executable, command)
 
     try:
         snapshot = await mind.native_coding.start_user_shell_session(
-            command=parsed.command,
+            command=command,
             args=args,
             timeout_sec=SHELL_COMMAND_TIMEOUT_SEC,
         )
     except (OSError, RuntimeError, ValueError) as exc:
-        render_shell_start_failure(application, parsed.command, exc)
+        render_shell_start_failure(application, command, exc)
         return True
 
     if snapshot.get("ok") is False:
         render_shell_start_failure(
             application,
-            parsed.command,
+            command,
             snapshot.get("reason") or "shell_start_failed",
         )
         return True
@@ -125,33 +113,12 @@ async def run_shell_escape(
     return True
 
 
-async def run_interactive_shell(application: ApplicationSink) -> int:
-    """进入当前平台默认 shell，直到用户退出。"""
-    executable = default_shell_executable()
-    if not executable:
-        application.emit(ApplicationView(
-            type="tui.shell.unavailable",
-            renderable=text_block("Shell unavailable", FAILURE_STYLE),
-        ))
-        return 1
-    try:
-        process = await asyncio.create_subprocess_exec(executable)
-    except (OSError, RuntimeError, ValueError) as exc:
-        application.emit(ApplicationView(
-            type="tui.shell.failed",
-            renderable=text_block(str(exc), FAILURE_STYLE),
-        ))
-        return 1
-    return await process.wait()
-
-
-def parse_shell_escape(value: str) -> ShellEscape | None:
+def parse_shell_escape(value: str) -> str | None:
     """解析 TUI 输入中的 shell escape。"""
     text = str(value or "")
     if not text.startswith("!"):
         return None
-    command = text[1:].strip()
-    return ShellEscape(enter_shell=not command, command=command)
+    return text[1:].strip()
 
 
 def default_shell_executable() -> str:
@@ -219,10 +186,7 @@ def render_blocked_interactive_shell_command(
         kind="Shell",
         command=command,
         suffix=" · blocked",
-        lines=(
-            f"Interactive command blocked: {name}",
-            "Run it in the interactive shell with a bare ! command.",
-        ),
+        lines=(f"Interactive command blocked: {name}",),
     ))
 
 

@@ -18,6 +18,7 @@ from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features.shell import run_shell_escape
 from mind_app.tui.features.processes import (
     manage_exec_sessions,
+    render_exec_sessions_stopped,
     watch_exec_session,
 )
 
@@ -29,6 +30,17 @@ class _ApplicationStub(object):
 
     def emit(self, view) -> None:
         self.views.append(view)
+
+
+def test_empty_shell_mode_submission_stays_in_input() -> None:
+    runtime = TuiRuntime()
+    runtime.input_model.set_shell_mode(True)
+
+    handled = runtime._accept_input(runtime.input.buffer)
+
+    assert not handled
+    assert runtime.message_queue.empty()
+    assert runtime.input_model.shell_mode
 
 
 @pytest.mark.anyio
@@ -275,6 +287,7 @@ async def test_ps_stop_all_confirms_and_cancels_background_watchers() -> None:
     )
     assert "stop all background commands" in text
     assert "stopped=2" in text
+    assert "\n  └ requested=2 · stopped=2 · failed=0" in text
 
 
 @pytest.mark.anyio
@@ -310,6 +323,28 @@ async def test_ps_stop_all_defaults_to_cancel() -> None:
     assert not handled
     assert requests[1].selected == 0
     native_coding.stop_exec_sessions.assert_not_awaited()
+
+
+def test_ps_stop_all_partial_result_uses_tree_branches() -> None:
+    application = _ApplicationStub()
+
+    render_exec_sessions_stopped(application, {
+        "requested": 2,
+        "stopped": 1,
+        "failed": 1,
+        "failures": [{
+            "pid": 102,
+            "command": "adb logcat",
+            "reason": "access_denied",
+        }],
+    })
+
+    text = "".join(
+        value
+        for _style, value in application.views[-1].renderable.fragments
+    )
+    assert "\n  ├ requested=2 · stopped=1 · failed=1" in text
+    assert "\n  └ failed pid=102 adb logcat · access_denied" in text
 
 
 @pytest.mark.anyio
@@ -374,7 +409,7 @@ async def test_detaching_shell_viewer_keeps_session_for_ps() -> None:
     text = "".join(value for _style, value in summary.renderable.fragments)
     assert summary.type == "tui.command_summary"
     assert "Shell" in text
-    assert "background" in text
+    assert " · background · " not in text
     assert "exec_background" in text
 
 

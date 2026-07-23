@@ -184,8 +184,10 @@ class TuiActivity(object):
     async def stop(
         self,
         kind: ActivityStatusKind | None = None,
+        *,
+        settle: bool = True,
     ) -> None:
-        """停止指定活动动画，并短暂保留可用的完成状态。"""
+        """停止指定活动动画，并按需短暂保留完成状态。"""
         targets = tuple(
             (key, slot)
             for key, slot in self._slots.items()
@@ -197,7 +199,11 @@ class TuiActivity(object):
             if slot.kind == "wait":
                 self._reset_wait()
 
-            final = slot.finalize() if slot.finalize is not None else None
+            final = (
+                slot.finalize()
+                if settle and slot.finalize is not None
+                else None
+            )
             if final is None:
                 self._slots.pop(key, None)
                 continue
@@ -415,7 +421,13 @@ def _mcp_activity_block(
         return _mcp_final_block(view, width=width) or FragmentBlock(())
 
     summary = _truncate_display_text(view.summary, limit=max(12, int(width) - 3))
-    return _status_block(summary, family="wait", phase=phase, spinner=True)
+    return _status_block(
+        summary,
+        family="wait",
+        phase=phase,
+        spinner=True,
+        sweep=False,
+    )
 
 
 def _mcp_final_block(view: McpStatusView, *, width: int) -> FragmentBlock | None:
@@ -475,13 +487,14 @@ def _status_block(
     started_at: float = 0.0,
     elapsed_sec: float | None = None,
     spinner: bool = False,
+    sweep: bool = True,
 ) -> FragmentBlock:
     """生成一行 TUI 活动状态。"""
     fragments = render_status_fragments(
         text,
         family=family,
         phase=phase,
-        animated=True,
+        animated=sweep,
     )
     if spinner:
         fragments[0] = spinner_indicator_fragment(phase, family=family)

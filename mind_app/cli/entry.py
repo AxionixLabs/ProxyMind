@@ -39,7 +39,6 @@ from ..paths import (
     mind_reports_dir,
     process_env
 )
-from .attachments import resolve_cli_attachments
 from .dispatch import run_selected_mode
 from .frontend import (
     resolve_cli_design,
@@ -318,8 +317,6 @@ async def _run_main(
                     task.cancel()
             await asyncio.gather(*startup_tasks, return_exceptions=True)
 
-        cli_attachments = await resolve_cli_attachments(mind, cmd_lines)
-
         if output_mode == "tui":
             from ..tui.core.runtime import require_tui_runtime
             from ..tui.features.download import confirm_tui_service_runtime_startup
@@ -338,7 +335,7 @@ async def _run_main(
                     name="mind tui service runtime startup",
                 )
 
-        await run_selected_mode(mind, cmd_lines, cli_attachments)
+        await run_selected_mode(mind, cmd_lines)
         return mind.exit_code
 
     finally:

@@ -33,6 +33,18 @@ def test_process_status_is_a_dedicated_optional_row() -> None:
     assert runtime.canvas.children.index(runtime.status_window) < (
         runtime.canvas.children.index(runtime.process_status_window)
     ) < runtime.canvas.children.index(runtime.queued_window)
+    exec_fragment = next(
+        fragment
+        for fragment in runtime.process_status.fragments()
+        if fragment[1] == "exec"
+    )
+    command_fragment = next(
+        fragment
+        for fragment in runtime.process_status.fragments()
+        if fragment[1] == "pytest -q · +2"
+    )
+    assert exec_fragment[0] == "class:process-status.exec"
+    assert command_fragment[0] != exec_fragment[0]
 
     runtime.set_process_status_label("")
 

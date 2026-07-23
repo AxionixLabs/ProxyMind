@@ -147,7 +147,7 @@ class TuiRuntime(object):
         )
         self._exit_event = asyncio.Event()
 
-        self._exit_expiry_handle: asyncio.TimerHandle | None           = None
+        self._exit_expiry_task: asyncio.Task[None] | None              = None
         self._turn_interrupt_handler: typing.Callable[[], bool] | None = None
         self._stream_command_handler: typing.Callable[[str], bool] | None = None
 
@@ -560,25 +560,6 @@ class TuiRuntime(object):
                 await scrollback_task
         await self._exit_application(erase=False)
 
-    async def run_modal(
-        self,
-        factory: typing.Callable[[], typing.Awaitable[typing.Any]],
-    ) -> typing.Any:
-        """在同一个 Application 任务中暂时让出终端。"""
-        context = self.application.context
-        if not self.active or context is None:
-            return await factory()
-
-        async def invoke() -> typing.Any:
-            async with in_terminal(render_cli_done=False):
-                return await factory()
-
-        task = asyncio.create_task(
-            invoke(),
-            context=context.copy(),
-        )
-        return await task
-
     async def read_message(self, context: PromptContext) -> str:
         """更新输入上下文并按提交顺序读取下一条消息。"""
         self.set_prompt_context(context)
@@ -962,9 +943,11 @@ class TuiRuntime(object):
     async def end_activity_status(
         self,
         kind: ActivityStatusKind | None = None,
+        *,
+        settle: bool = True,
     ) -> None:
         """结束运行期活动动画。"""
-        await self.activity.stop(kind)
+        await self.activity.stop(kind, settle=settle)
 
     def invalidate(self) -> None:
         """请求重新绘制当前稳定画布。"""
@@ -1029,8 +1012,9 @@ class TuiRuntime(object):
         paste_store = self.input_model.submission_state()
         shell_mode = self.input_model.shell_mode
         value = self.input_model.restore_submission(buffer.text)
-        if not value and not shell_mode:
-            self.input_model.clear_submission_state()
+        if not value:
+            if not shell_mode:
+                self.input_model.clear_submission_state()
             self.invalidate()
             return False
         if shell_mode:
@@ -1155,24 +1139,26 @@ class TuiRuntime(object):
         """安排退出确认窗口到期后的界面恢复。"""
         self._cancel_exit_expiry()
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
         except RuntimeError:
             return None
-        self._exit_expiry_handle = loop.call_later(
-            self.EXIT_CONFIRM_TIMEOUT_SEC,
-            self._expire_exit_confirmation,
+
+        self._exit_expiry_task = self.start_background_task(
+            self._expire_exit_confirmation(),
+            name="mind tui exit confirmation expiry",
         )
 
     def _cancel_exit_expiry(self) -> None:
-        """取消尚未触发的退出确认到期回调。"""
-        handle = self._exit_expiry_handle
-        self._exit_expiry_handle = None
-        if handle is not None:
-            handle.cancel()
+        """取消尚未完成的退出确认到期任务。"""
+        task = self._exit_expiry_task
+        self._exit_expiry_task = None
+        if task is not None and not task.done():
+            task.cancel()
 
-    def _expire_exit_confirmation(self) -> None:
+    async def _expire_exit_confirmation(self) -> None:
         """关闭已到期的退出确认并恢复信息栏。"""
-        self._exit_expiry_handle = None
+        await asyncio.sleep(self.interrupt_state.timeout_sec)
+        self._exit_expiry_task = None
         self.interrupt_state.disarm_exit()
         self.invalidate()
 
@@ -1265,7 +1251,7 @@ class TuiRuntime(object):
             ]
         if self._queue_submission_hint_visible():
             return [
-                ("class:footer.queue-hint", "tab to queue message"),
+                ("class:footer.queue-hint", "  tab to queue message"),
             ]
 
         theme = self.input_model.theme(self.context.mode)
@@ -1665,6 +1651,7 @@ class TuiRuntime(object):
             "queue.more": "bg:default #7B838E",
             "input.notice.marker": "bg:default #FF5F5F bold",
             "input.notice": "bg:default #FF8A8A",
+            "process-status.exec": "fg:#D8B26E",
             "process-status.separator": "fg:#7B838E",
             "process-status.action": "fg:#8FC7EA bold",
             "process-status.hint": "fg:#7B838E dim",

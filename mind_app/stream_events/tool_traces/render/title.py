@@ -3,7 +3,11 @@
 
 import re
 import typing
-from mind_app.presentation.models import TextSpan, TextStyle, TracePreview
+from mind_app.presentation.models import (
+    TextSpan,
+    TextStyle,
+    TracePreview
+)
 from mind_app.presentation.styles import (
     DELTA_ADD_STYLE,
     DELTA_REMOVE_STYLE,
@@ -35,7 +39,7 @@ def render_tool_trace_parts(
     title: str,
     *,
     preview: typing.Optional[typing.Union[str, TracePreview]] = None,
-    ok: bool = True,
+    ok: bool | None = True,
     terminal_width: int | None = None,
     measure_width: typing.Callable[[str], int] | None = None,
 ) -> list[TextSpan]:
@@ -112,7 +116,7 @@ def _plain_preview_parts(
 def _preview_parts(
     preview_text: str,
     *,
-    ok: bool,
+    ok: bool | None,
     indent_prefix: str = "  "
 ) -> list[TextSpan]:
     """把预览摘要拆成路径、行号、内容和省略提示片段。"""
@@ -146,7 +150,7 @@ def _preview_line_parts(
     line: str,
     *,
     current_path: str = "",
-    ok: bool = True,
+    ok: bool | None = True,
     tree_error_detail: bool = False,
 ) -> tuple[list[TextSpan], str, bool | None]:
     """拆分单行预览摘要。"""
@@ -159,7 +163,7 @@ def _preview_line_parts(
     if tree_parts is not None:
         return tree_parts
 
-    if not ok:
+    if ok is False:
         error_parts = error_preview_line_parts(line, part=_part)
         if error_parts is not None:
             return error_parts, "", None

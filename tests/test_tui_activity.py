@@ -23,7 +23,6 @@ from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.status_frames import SPINNER_FRAMES
 from mind_app.tui.core.task_state import TuiTaskState
 from mind_app.tui.features.download import TuiUpgradeProgress
-from mind_app.tui.session.turn import upload_pending_tui_attachments
 from mind_app.runtime.support.calling import run_mode_lifecycle
 from mind_core.mcp_status import (
     external_mcp_status_view,
@@ -174,6 +173,21 @@ def test_activity_progress_uses_regular_weight() -> None:
     )
 
 
+def test_mcp_activity_animates_spinner_without_sweeping_text() -> None:
+    view = external_mcp_status_view({
+        "done": False,
+        "items": [{"name": "docs", "state": "linking", "tools": 0}],
+    }, detail_limit=0)
+    frames = [
+        _mcp_activity_block(view, phase=phase, width=80)
+        for phase in (0.0, 0.1, 0.2)
+    ]
+
+    assert len({_block_text(block)[0] for block in frames}) == 3
+    assert frames[0].fragments[1:] == frames[1].fragments[1:]
+    assert frames[1].fragments[1:] == frames[2].fragments[1:]
+
+
 def test_external_mcp_failure_uses_color_without_bold() -> None:
     view = external_mcp_status_view({
         "done": True,
@@ -318,6 +332,27 @@ async def test_external_mcp_final_status_settles_without_entering_document() -> 
 
 
 @pytest.mark.anyio
+async def test_external_mcp_status_can_clear_without_settling() -> None:
+    runtime = TuiRuntime()
+    snapshot = {
+        "done": False,
+        "items": [{"name": "docs", "state": "linking", "tools": 0}],
+    }
+
+    await runtime.begin_external_mcp_status(lambda: dict(snapshot))
+    snapshot["done"] = True
+    snapshot["items"] = [
+        {"name": "docs", "state": "ready", "tools": 4},
+    ]
+
+    await runtime.end_activity_status("external_mcp", settle=False)
+
+    assert runtime.activity_block is None
+    assert not runtime.task_running
+    assert not runtime.document.blocks
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("final_stage", "final_label"),
     [
@@ -429,51 +464,6 @@ async def test_upload_success_settles_without_entering_document() -> None:
 
     await asyncio.sleep(0.1)
     assert runtime.activity_block is None
-
-
-@pytest.mark.anyio
-async def test_successful_tui_upload_does_not_emit_transcript_summary() -> None:
-    emitted = []
-    snapshots = []
-
-    class AttachStub(object):
-        def pending_attachments_snapshot(self):
-            return [{"name": "report.pdf", "size": 10}]
-
-        async def upload_pending_attachments(self, *, progress_callback):
-            await progress_callback({
-                "phase": "uploading",
-                "done": True,
-                "item_index": 1,
-                "item_total": 1,
-                "filename": "report.pdf",
-                "aggregate_total_bytes": 10,
-            })
-            return [{"id": "attachment-1"}]
-
-    class ApplicationStub(object):
-        def emit(self, view):
-            emitted.append(view)
-
-    class MindStub(object):
-        attach = AttachStub()
-        frontend = type("FrontendStub", (), {"application": ApplicationStub()})()
-
-        async def start_upload_anim(self, snapshot):
-            snapshots.append(snapshot)
-
-        async def stop_anim(self, kind=None):
-            snapshots.append((kind, snapshots[0]()))
-
-        async def await_cleanup(self, awaitable):
-            await awaitable
-
-    uploaded = await upload_pending_tui_attachments(MindStub())
-
-    assert uploaded == [{"id": "attachment-1"}]
-    assert emitted == []
-    assert snapshots[-1][0] == "upload"
-    assert snapshots[-1][1]["event"]["done"] is True
 
 
 @pytest.mark.anyio

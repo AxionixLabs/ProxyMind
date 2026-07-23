@@ -17,17 +17,14 @@ StreamCommandPolicy = typing.Literal["reject", "background_barrier", "interrupt"
 
 @dataclass(frozen=True, slots=True)
 class TuiCommandSpec(object):
-    """描述一项 TUI 命令的输入、帮助和别名信息。"""
+    """描述一项 TUI 命令的输入和别名信息。"""
 
     key: str
     command: str
     completion_meta: str
-    help_detail: str
     aliases: tuple[str, ...] = ()
     completion_text: str | None = None
     completion_match: str | None = None
-    help_usage: str | None = None
-    show_in_help: bool = True
     parameterized: bool = False
     stream_policy: StreamCommandPolicy = "reject"
 
@@ -41,136 +38,78 @@ class TuiCommandSpec(object):
         """返回补全选中后写入输入框的文本。"""
         return self.completion_text or self.command
 
-    @property
-    def usage(self) -> str:
-        """返回帮助视图使用的命令格式。"""
-        return self.help_usage or ", ".join(self.names)
-
-
 TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     TuiCommandSpec(
         "chat", "/chat", "切换到 Chat 模式",
-        "对话模式（交互能力协作/自然语言交互）",
     ),
     TuiCommandSpec(
         "fast", "/fast", "切换到 Fast 模式",
-        "高速模式（高吞吐任务流/数据媒体直达）",
     ),
     TuiCommandSpec(
         "xtra", "/xtra", "切换到 Xtra 模式",
-        "外接模式（外部 MCP 工具 + 通用工具 + 编码工具）",
     ),
     TuiCommandSpec(
         "new", "/new", "开始新对话",
-        "开始新对话（保留模式、模型和待发送附件）",
     ),
     TuiCommandSpec(
         "resume", "/resume", "恢复最近会话",
-        "从当前模式最近 24 小时会话中恢复",
-    ),
-    TuiCommandSpec(
-        "attach", "/attach", "添加本轮待发送附件",
-        "添加本轮待发送附件（任意文件）",
-        completion_text="/attach ",
-        help_usage="/attach <path|dir|glob>",
-        parameterized=True,
-    ),
-    TuiCommandSpec(
-        "attachments", "/attachments", "查看待发送附件",
-        "查看当前待发送附件",
-    ),
-    TuiCommandSpec(
-        "detach", "/detach", "移除待发送附件",
-        "移除一个待发送附件",
-        completion_text="/detach ",
-        help_usage="/detach <index|path>",
-        parameterized=True,
-    ),
-    TuiCommandSpec(
-        "attach_clear", "/attach-clear", "清空待发送附件",
-        "清空当前待发送附件",
     ),
     TuiCommandSpec(
         "permissions", "/permissions", "切换权限模式",
-        "切换权限模式",
     ),
     TuiCommandSpec(
         "model", "/model", "设置主模型 ID",
-        "持久化主模型 ID；省略 model-id 表示清空",
         completion_text="/model ",
-        help_usage="/model <model-id>",
         parameterized=True,
     ),
     TuiCommandSpec(
         "effort", "/effort", "设置主模型推理强度",
-        "设置主模型推理强度",
     ),
     TuiCommandSpec(
         "preferences", "/preferences", "打开偏好配置页面",
-        "打开偏好配置页面",
     ),
     TuiCommandSpec(
         "compact", "/compact", "压缩当前对话上下文",
-        "压缩当前对话上下文",
     ),
     TuiCommandSpec(
         "tools", "/tools", "查看可用 MCP 工具",
-        "查看当前可用 MCP 工具",
     ),
     TuiCommandSpec(
         "diff", "/diff", "查看本轮补丁净差异",
-        "查看本轮补丁净差异",
     ),
     TuiCommandSpec(
         "copy", "/copy", "复制最近一次助手回复原文",
-        "复制最近一次助手回复原文",
     ),
     TuiCommandSpec(
         "ps", "/ps", "管理后台命令",
-        "查看或停止后台命令",
     ),
     TuiCommandSpec(
         "mcp", "/mcp", "管理外部 MCP 服务",
-        "管理外部 MCP 服务",
     ),
     TuiCommandSpec(
         "helix_link", "/helix-link", "接入 Helix MCP",
-        "接入 Helix MCP",
         stream_policy="background_barrier",
     ),
     TuiCommandSpec(
         "helix_unlink", "/helix-unlink", "移除 Helix MCP",
-        "移除当前会话的 Helix MCP",
     ),
     TuiCommandSpec(
         "helix_home", "/helix-home", "打开 Helix 首页",
-        "打开 Helix 首页",
     ),
     TuiCommandSpec(
         "helix_stop", "/helix-stop", "停止 Helix 服务",
-        "停止 Helix 服务",
     ),
     TuiCommandSpec(
-        "skills", "/skills", "打开 skills 列表", "",
+        "skills", "/skills", "打开 skills 列表",
         completion_text="$",
         completion_match="/skills",
-        show_in_help=False,
-    ),
-    TuiCommandSpec(
-        "help", "/help", "查看帮助", "指令索引（用法/示例/约定）",
-        aliases=("/h",),
-    ),
-    TuiCommandSpec(
-        "license", "/license", "查看授权", "授权许可（License/特性）",
-        aliases=("/lic",),
     ),
     TuiCommandSpec(
         "shutdown", "/shutdown", "停止本地后台服务并退出",
-        "关闭前台并停止本地运行时",
         stream_policy="interrupt",
     ),
     TuiCommandSpec(
-        "quit", "/quit", "退出会话", "断开会话（安全退出）",
+        "quit", "/quit", "退出会话",
         aliases=("/q", "quit", "exit"),
         stream_policy="interrupt",
     ),
@@ -297,7 +236,7 @@ class SlashCommandCompleter(Completer):
             return
 
         token = stripped.splitlines()[-1]
-        if " " in token and not token.startswith(("/attach", "/detach")):
+        if " " in token:
             return
 
         if token == "/":

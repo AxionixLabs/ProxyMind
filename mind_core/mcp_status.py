@@ -83,11 +83,16 @@ def external_mcp_status_view(
     connected_count: int = 0
     failed_count: int    = 0
     total_tools: int     = 0
+    total_filtered: int  = 0
 
     for item in items:
         state = str(item.get("state") or "").strip().lower()
         if state in {"ready", "empty"}:
             connected_count += 1
+            try:
+                total_filtered += max(0, int(item.get("filtered") or 0))
+            except (TypeError, ValueError, OverflowError):
+                pass
         elif state == "failed":
             failed_count += 1
 
@@ -126,6 +131,8 @@ def external_mcp_status_view(
     ]
     if total_tools > 0:
         parts.append(f"{total_tools} tools")
+    if total_filtered > 0:
+        parts.append(f"{total_filtered} filtered")
 
     details = _failure_details(items, limit=detail_limit) if done else ()
 
