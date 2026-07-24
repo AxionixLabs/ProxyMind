@@ -10,7 +10,7 @@ from .services import service_router
 
 
 def register_routers(app: FastAPI) -> None:
-    """注册 Mind 配置服务路由。"""
+    """注册配置服务路由。"""
     app.include_router(basic_router)
     app.include_router(agent_router)
     app.include_router(code_router)

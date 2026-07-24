@@ -17,7 +17,7 @@ from rich.progress import (
     SpinnerColumn,
     TextColumn
 )
-from engine.errors import MindError
+from engine.errors import ApplicationError
 from engine.terminal import Terminal
 from mind_nova import const
 
@@ -26,7 +26,7 @@ nuitka_version = "2.8.9"  # 编译器版本
 try:
     import nuitka
 except ImportError:
-    raise MindError(f"Use Nuitka {nuitka_version} for stable builds")
+    raise ApplicationError(f"Use Nuitka {nuitka_version} for stable builds")
 
 CONSOLE = Console()
 
@@ -43,7 +43,7 @@ async def is_virtual_env() -> None:
     if sys.prefix != sys.base_prefix:
         return compile_log("[✓] 当前运行在虚拟环境中")
 
-    raise MindError("[!] 当前不是虚拟环境")
+    raise ApplicationError("[!] 当前不是虚拟环境")
 
 
 async def check_architecture(ops: str) -> None:
@@ -61,7 +61,7 @@ async def check_architecture(ops: str) -> None:
     if is_64bit:
         return compile_log(f"✅ 当前 Python 是 64 位，符合 {const.APP_DESC} 打包要求。")
 
-    raise MindError(f"❌ 当前为 32 位 Python，建议更换为 64 位版本。")
+    raise ApplicationError(f"❌ 当前为 32 位 Python，建议更换为 64 位版本。")
 
 
 async def find_site_packages() -> "Path":
@@ -78,7 +78,7 @@ async def find_site_packages() -> "Path":
                 elif sub.name.lower().startswith("python"):
                     return (sub / base_site).resolve()
 
-    raise MindError(f"[!] Site packages path not found in virtual environment")
+    raise ApplicationError(f"[!] Site packages path not found in virtual environment")
 
 
 async def find_vcvars64() -> str:
@@ -87,7 +87,7 @@ async def find_vcvars64() -> str:
     """
     vswhere = Path(r"C:\Program Files (x86)", "Microsoft Visual Studio", "Installer", "vswhere.exe")
     if not vswhere.exists():
-        raise MindError("未找到 vswhere.exe -> 请安装 Visual Studio Build Tools")
+        raise ApplicationError("未找到 vswhere.exe -> 请安装 Visual Studio Build Tools")
 
     cmd = [
         str(vswhere), "-latest", "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
@@ -99,7 +99,7 @@ async def find_vcvars64() -> str:
     vcvars = Path(find_result.strip()) / "VC" / "Auxiliary" / "Build" / "vcvars64.bat"
 
     if not vcvars.exists():
-        raise MindError(f"找不到 vcvars64.bat -> {vcvars}")
+        raise ApplicationError(f"找不到 vcvars64.bat -> {vcvars}")
 
     return str(vcvars)
 
@@ -110,7 +110,7 @@ async def find_dumpbin() -> str:
     """
     vswhere = Path(r"C:\Program Files (x86)", "Microsoft Visual Studio", "Installer", "vswhere.exe")
     if not vswhere.exists():
-        raise MindError("未找到 vswhere.exe -> 请安装 Visual Studio Build Tools")
+        raise ApplicationError("未找到 vswhere.exe -> 请安装 Visual Studio Build Tools")
 
     cmd = [
         str(vswhere), "-latest", "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
@@ -120,13 +120,13 @@ async def find_dumpbin() -> str:
     find_result = await Terminal.cmd_line(cmd)
 
     if not (tools_dir := Path(find_result.strip()) / "VC" / "Tools" / "MSVC").exists():
-        raise MindError("找不到 MSVC 工具目录 -> VC/Tools/MSVC")
+        raise ApplicationError("找不到 MSVC 工具目录 -> VC/Tools/MSVC")
 
     if not (version_dirs := [d for d in tools_dir.iterdir() if d.is_dir()]):
-        raise MindError("未检测到任何 VC 工具版本目录")
+        raise ApplicationError("未检测到任何 VC 工具版本目录")
 
     if not (dumpbin := sorted(version_dirs)[-1] / "bin" / "Hostx64" / "x64" / "dumpbin.exe").exists():
-        raise MindError(f"找不到 dumpbin.exe -> {dumpbin}")
+        raise ApplicationError(f"找不到 dumpbin.exe -> {dumpbin}")
 
     return str(dumpbin)
 
@@ -211,7 +211,7 @@ async def edit_plist_fields(ops: str, app: str, updates: dict[str, str]) -> None
         return None
 
     if not (plist := Path(app) / "Contents" / "Info.plist").exists():
-        raise MindError(f"未找到 Info.plist 文件: {plist}")
+        raise ApplicationError(f"未找到 Info.plist 文件: {plist}")
 
     # 读取原始 plist
     with plist.open("rb") as f:
@@ -293,7 +293,7 @@ async def packaging() -> tuple[
         support = "macos"
 
     else:
-        raise MindError(f"Unsupported platforms {ops}")
+        raise ApplicationError(f"Unsupported platforms {ops}")
 
     compile_cmd += [
         f"--company-name={const.PUBLISHER}",
@@ -317,7 +317,7 @@ async def packaging() -> tuple[
     writer = await Terminal.cmd_line([exe, "-m", "pip", "show", compile_cmd[2]])
     if ver := re.search(r"(?<=Version:\s).*", writer):
         if ver.group().strip() != nuitka_version:
-            raise MindError(f"Use Nuitka {nuitka_version} for stable builds")
+            raise ApplicationError(f"Use Nuitka {nuitka_version} for stable builds")
         compile_log(f"writer={writer}")
 
     return ops, app, site_packages, target, rename, compile_cmd, launch, arch_info, support
@@ -356,7 +356,7 @@ async def post_build() -> None:
                     compile_log(f"[!] Dependency not found -> {src.name}")
 
         if fail_list:
-            raise MindError(f"[!] Incomplete dependencies required {fail_list}")
+            raise ApplicationError(f"[!] Incomplete dependencies required {fail_list}")
 
     async def forward_dependencies() -> None:
         """
@@ -454,7 +454,7 @@ async def post_build() -> None:
 if __name__ == "__main__":
     try:
         asyncio.run(post_build())
-    except MindError as _e:
+    except ApplicationError as _e:
         compile_log(_e)
         CONSOLE.print(f"[bold #FF4444]{const.APP_DESC} build failed[/]")
         sys.exit(1)

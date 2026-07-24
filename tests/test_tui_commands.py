@@ -7,7 +7,7 @@ import pytest
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
-from engine.errors import MindError
+from engine.errors import ApplicationError
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features import helix
 from mind_app.tui.prompting.commands import (
@@ -141,7 +141,7 @@ async def test_dispatcher_never_sends_unknown_slash_command_to_model() -> None:
     ("result", "error", "expected"),
     [
         (True, None, "■ Helix MCP ready"),
-        (None, MindError("startup timeout"), "■ Helix MCP failed\n└ startup timeout"),
+        (None, ApplicationError("startup timeout"), "■ Helix MCP failed\n└ startup timeout"),
         (
             None,
             RuntimeError("process exited"),
@@ -170,7 +170,7 @@ async def test_helix_link_result_is_committed_to_tui(
 
     try:
         linked = await helix.link_helix_runtime(mind)
-    except (MindError, Exception) as captured:
+    except (ApplicationError, Exception) as captured:
         helix.render_helix_link_failure(mind, captured)
     else:
         helix.render_helix_link_result(mind, linked)
@@ -186,7 +186,7 @@ async def test_helix_link_result_is_committed_to_tui(
     [
         (None, "■ Helix MCP stopped"),
         (
-            MindError("port cleanup failed"),
+            ApplicationError("port cleanup failed"),
             "■ Helix MCP stop failed\n└ port cleanup failed",
         ),
     ],
@@ -203,7 +203,7 @@ async def test_helix_stop_commits_one_final_status(error, expected) -> None:
 
     try:
         result = await helix.stop_helix_runtime(mind)
-    except (MindError, Exception) as captured:
+    except (ApplicationError, Exception) as captured:
         await mind.frontend.runtime.end_activity_status(
             "operation",
             settle=False,

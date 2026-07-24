@@ -57,6 +57,10 @@ mind_app -------------> mind_nova
 ### mind_app 目录
 
 - `cli`：命令行参数选择、启动编排和具体前端装配。
+- `cli/entry.py`：进程级事件循环、单次参数解析、入口错误输出和轻量命令路由。
+- `cli/bootstrap.py`：需要 Controller 的普通命令与升级命令的运行时生命周期装配。
+- `cli/help.py`：所有命令层级共用的帮助版式、终端配色和无色输出判断。
+- Doctor 和 MCP Server 各自作为独立组合根，不进入普通应用 bootstrap。
 - `controller.py`：Mind 主控制器，不使用与顶层 `mind_core` 冲突的模块名。
 - `frontend`、`interaction`：跨前端的应用展示与交互契约。
 - `output`、`presentation`：单轮输出控制、内容事件和展示模型。

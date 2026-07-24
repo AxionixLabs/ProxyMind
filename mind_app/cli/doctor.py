@@ -4,10 +4,11 @@
 import os
 import sys
 import shutil
-import tomllib
 import typing
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from engine.errors import ApplicationError
 from mind_app.mcp.config import (
     McpConfigError,
     load_mcp_servers_file
@@ -21,10 +22,25 @@ from mind_app.runtime.environment.shell_tools import (
     SHELL_TOOL_LAYOUT,
     executable_name
 )
-from mind_app.runtime.mcp.service_runtime import ServiceRuntimeSpec
+from mind_app.frontend.contracts import ApplicationView
+from mind_app.paths import (
+    mind_config_path,
+    mind_home,
+    mind_mcp_servers_path
+)
+from mind_app.runtime.mcp.service_runtime import (
+    ServiceRuntimeSpec,
+    resolve_service_runtime
+)
 from mind_core.config import load_config
-from mind_core.application_paths import ApplicationMode
+from mind_core.application_paths import (
+    ApplicationMode,
+    resolve_application_layout
+)
 from mind_nova import const
+from .commands import DoctorCommand
+from .frontend import resolve_cli_frontend
+from .selection import resolve_cli_output_mode
 
 DoctorStatus   = typing.Literal["pass", "warn", "fail"]
 MINIMUM_PYTHON = (3, 11)
@@ -120,7 +136,7 @@ def _platform_check(context: DoctorContext) -> DoctorCheck:
         "Platform",
         "fail",
         f"{context.platform} is not supported",
-        "Mind currently supports Windows and macOS.",
+        f"{const.APP_DESC} currently supports Windows and macOS.",
     )
 
 
@@ -169,12 +185,13 @@ def _entry_layout_check(context: DoctorContext) -> DoctorCheck:
 
 
 def _home_check(context: DoctorContext) -> DoctorCheck:
-    """检查 Mind 用户目录是否存在且可读写。"""
+    """检查应用用户目录是否存在且可读写。"""
     home = context.home
+    label = f"{const.APP_DESC} home"
     if not home.exists():
         return DoctorCheck(
             "mind_home",
-            "Mind home",
+            label,
             "warn",
             "not created yet",
             str(home),
@@ -182,7 +199,7 @@ def _home_check(context: DoctorContext) -> DoctorCheck:
     if not home.is_dir():
         return DoctorCheck(
             "mind_home",
-            "Mind home",
+            label,
             "fail",
             "path is not a directory",
             str(home),
@@ -190,12 +207,12 @@ def _home_check(context: DoctorContext) -> DoctorCheck:
     if not os.access(home, os.R_OK | os.W_OK):
         return DoctorCheck(
             "mind_home",
-            "Mind home",
+            label,
             "fail",
             "directory is not readable and writable",
             str(home),
         )
-    return DoctorCheck("mind_home", "Mind home", "pass", str(home))
+    return DoctorCheck("mind_home", label, "pass", str(home))
 
 
 def _config_check(context: DoctorContext) -> DoctorCheck:
@@ -229,8 +246,14 @@ def _config_check(context: DoctorContext) -> DoctorCheck:
             f"{type(error).__name__}: {error}",
         )
 
-    model = typing.cast(dict[str, object], config.get("model", {}))
-    primary = typing.cast(dict[str, object], model.get("primary", {}))
+    model_value = config.get("model", {})
+    model: dict[str, object] = (
+        model_value if isinstance(model_value, dict) else {}
+    )
+    primary_value = model.get("primary", {})
+    primary: dict[str, object] = (
+        primary_value if isinstance(primary_value, dict) else {}
+    )
     provider = str(primary.get("provider") or "").strip()
     model_name = str(primary.get("model") or "").strip()
     enabled = bool(primary.get("enabled"))
@@ -337,7 +360,7 @@ def _helix_check(context: DoctorContext) -> DoctorCheck:
 
 
 def _tool_check(context: DoctorContext, tool: str) -> DoctorCheck:
-    """检查一个 Mind coding 工具的 bundled 或系统命令。"""
+    """检查一个内置 coding 工具的 bundled 或系统命令。"""
     folder_name, command_name = SHELL_TOOL_LAYOUT[tool]
     bundled = context.supports / folder_name / executable_name(command_name)
     if bundled.is_file():
@@ -389,10 +412,11 @@ def render_doctor_report(report: DoctorReport) -> StyledBlock:
         "warn": TextStyle(foreground="#FFD75F", bold=True),
         "fail": TextStyle(foreground="#FF6B6B", bold=True),
     }
-    plain_parts = [f"Mind doctor {report.version}\n"]
+    title = f"{const.APP_DESC} doctor {report.version}\n"
+    plain_parts = [title]
     spans: list[TextSpan] = [
         TextSpan(
-            f"Mind doctor {report.version}\n",
+            title,
             TextStyle(foreground="#AFC7D8", bold=True),
         )
     ]
@@ -421,6 +445,51 @@ def render_doctor_report(report: DoctorReport) -> StyledBlock:
         plain_text="".join(plain_parts),
         spans=tuple(spans),
     )
+
+
+def run_doctor_command(
+    command: DoctorCommand,
+    *,
+    entry_file: str | None,
+) -> int:
+    """解析只读诊断上下文并输出检查结果。"""
+    output_mode = resolve_cli_output_mode(command)
+    frontend = resolve_cli_frontend(output_mode)
+
+    try:
+        layout = resolve_application_layout(entry_file=entry_file)
+    except ValueError as error:
+        raise ApplicationError(f"Application entry is unsupported: {error}") from error
+
+    runtime_spec = None
+    if layout.platform in {"win32", "darwin"}:
+        runtime_spec = resolve_service_runtime(
+            platform=layout.platform,
+            supports=str(layout.supports),
+            level=const.SHOW_LEVEL,
+            packaged=layout.packaged,
+        )
+
+    report = diagnose(DoctorContext(
+        platform=layout.platform,
+        entry_mode=layout.mode,
+        entry_root=layout.root,
+        home=mind_home(),
+        config_path=mind_config_path(),
+        mcp_config_path=mind_mcp_servers_path(),
+        supports=layout.supports,
+        packaged=layout.packaged,
+        runtime_spec=runtime_spec,
+    ))
+    frontend.application.emit(ApplicationView(
+        type="json" if command.output_format == "json" else "doctor",
+        renderable=(
+            report.to_dict()
+            if command.output_format == "json"
+            else render_doctor_report(report)
+        ),
+    ))
+    return report.exit_code
 
 
 if __name__ == '__main__':

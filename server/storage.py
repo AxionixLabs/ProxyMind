@@ -27,7 +27,7 @@ HOSTED_TOOL_GROUPS  = ("perf_engine", "sandbox_cloud")
 
 
 def load_pref() -> dict[str, typing.Any]:
-    """读取 Mind 模型偏好配置。"""
+    """读取模型偏好配置。"""
     config  = _load_mind_config()
     model   = config.get("model") if isinstance(config, dict) else {}
     primary = model.get("primary") if isinstance(model, dict) else {}
@@ -41,7 +41,7 @@ def load_pref() -> dict[str, typing.Any]:
 
 
 def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
-    """保存 Mind 模型偏好配置。"""
+    """保存模型偏好配置。"""
     payload = raw if isinstance(raw, dict) else {}
     config  = _load_mind_config()
     model   = config.setdefault("model", {})
@@ -57,7 +57,7 @@ def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
 
 
 def load_service_config() -> dict[str, typing.Any]:
-    """读取 Mind 服务域名配置。"""
+    """读取远程服务域名配置。"""
     config  = _load_mind_config()
     service = config.get("service") if isinstance(config, dict) else {}
     domain  = normalize_domain(service.get("domain") if isinstance(service, dict) else "")
@@ -69,7 +69,7 @@ def load_service_config() -> dict[str, typing.Any]:
 
 
 def save_service_config(raw: typing.Any) -> dict[str, typing.Any]:
-    """保存 Mind 服务域名配置。"""
+    """保存远程服务域名配置。"""
     payload = raw if isinstance(raw, dict) else {}
     config  = _load_mind_config()
 
@@ -165,13 +165,13 @@ def clean_text(value: typing.Any, default: str = "") -> str:
 
 
 def _load_mind_config() -> dict[str, typing.Any]:
-    """读取并规范化 Mind 配置文件。"""
+    """读取并规范化应用配置文件。"""
     target = ensure_config(mind_config_path())
     return normalize_config(load_config(target))
 
 
 def _write_mind_config(config: dict[str, typing.Any]) -> None:
-    """写入 Mind 配置文件。"""
+    """写入应用配置文件。"""
     target = ensure_writable_file(mind_config_path())
     write_config(target, config)
 

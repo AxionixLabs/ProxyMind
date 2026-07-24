@@ -124,7 +124,7 @@ def _default_model_slot(*, enabled: bool | None = None) -> dict[str, typing.Any]
 
 
 def default_config() -> dict[str, typing.Any]:
-    """返回 Mind config.toml 的默认配置结构。"""
+    """返回 config.toml 的默认配置结构。"""
     return {
         "service" : {
             "domain" : ""
@@ -152,7 +152,7 @@ def default_config_path() -> Path:
 
 
 def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
-    """把任意 TOML 数据规范化为稳定的 Mind 配置结构。"""
+    """把任意 TOML 数据规范化为稳定的应用配置结构。"""
     data     = _as_dict(raw)
     defaults = default_config()
     service  = _as_dict(data.get("service"))
@@ -210,7 +210,7 @@ def write_config(path: typing.Any, config: dict[str, typing.Any]) -> dict[str, t
 
 
 def format_config(config: dict[str, typing.Any]) -> str:
-    """把 Mind 配置格式化为 TOML 文本。"""
+    """把应用配置格式化为 TOML 文本。"""
     normalized = normalize_config(config)
     service    = normalized["service"]
     model      = normalized["model"]

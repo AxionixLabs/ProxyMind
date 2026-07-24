@@ -9,7 +9,7 @@ import base64
 import typing
 import hashlib
 import secrets
-from engine.errors import MindError
+from engine.errors import ApplicationError
 from mind_nova import const
 
 
@@ -78,9 +78,9 @@ class Messenger(object):
             return response
 
         except httpx.HTTPStatusError as e:
-            raise MindError(f"❌ {e.response.status_code} -> {e.response.text}")
+            raise ApplicationError(f"❌ {e.response.status_code} -> {e.response.text}")
         except httpx.HTTPError as e:
-            raise MindError(f"❌ {e}")
+            raise ApplicationError(f"❌ {e}")
 
 
 if __name__ == '__main__':

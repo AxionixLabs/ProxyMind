@@ -11,7 +11,7 @@ import asyncio
 import hashlib
 from pathlib import Path
 from dataclasses import dataclass
-from engine.errors import MindError
+from engine.errors import ApplicationError
 from mind_nova import const
 from .models import (
     CodeSourcePayload,
@@ -100,7 +100,7 @@ def _normalize_source(item: typing.Any) -> CodeSourcePayload:
 
     entry = str(item or "").strip()
     if not entry:
-        raise MindError("Code source entry is empty")
+        raise ApplicationError("Code source entry is empty")
 
     if entry == "-":
         return CodeSourcePayload.from_input({"kind": "stdin"})
@@ -120,12 +120,12 @@ def _resolve_file(src: CodeSourcePayload) -> CodeSourceResolved:
     """把本地文件路径解析为执行源。"""
     path = Path(str(src.path or "")).expanduser()
     if not path.exists():
-        raise MindError(f"File not found: {path}")
+        raise ApplicationError(f"File not found: {path}")
 
     try:
         content = path.read_text(encoding=const.CHARSET, errors="replace")
     except Exception as exc:
-        raise MindError(exc)
+        raise ApplicationError(exc)
 
     return _build_resolved(
         kind="file",
@@ -207,16 +207,16 @@ async def _resolve_url(src: CodeSourcePayload) -> CodeSourceResolved:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
     except httpx.TimeoutException as exc:
-        raise MindError(f"Code source URL timeout: {url}") from exc
+        raise ApplicationError(f"Code source URL timeout: {url}") from exc
     except httpx.HTTPStatusError as exc:
-        raise MindError(f"Code source URL failed: {url} status={exc.response.status_code}") from exc
+        raise ApplicationError(f"Code source URL failed: {url} status={exc.response.status_code}") from exc
     except httpx.HTTPError as exc:
-        raise MindError(f"Code source URL request failed: {url}") from exc
+        raise ApplicationError(f"Code source URL request failed: {url}") from exc
 
     raw = response.text
     raw_bytes = len(raw.encode(const.CHARSET, errors="replace"))
     if raw_bytes > max_bytes:
-        raise MindError(f"Code source URL too large: {url} bytes={raw_bytes}")
+        raise ApplicationError(f"Code source URL too large: {url} bytes={raw_bytes}")
 
     fetched_at_ms = _now_ms()
     identity = f"sha256:{_hash_content(raw)}"
@@ -243,7 +243,7 @@ async def _resolve_url(src: CodeSourcePayload) -> CodeSourceResolved:
 async def resolve_code_sources(code: list[typing.Any]) -> list[CodeSourceResolved]:
     """把 `--code` 或远端 `source` 输入统一解析为执行源列表。"""
     if not code:
-        raise MindError("Code list is empty")
+        raise ApplicationError("Code list is empty")
 
     normalized = [_normalize_source(item) for item in code]
     resolved: list[CodeSourceResolved] = []
@@ -258,7 +258,7 @@ async def resolve_code_sources(code: list[typing.Any]) -> list[CodeSourceResolve
             if stdin_cache is None:
                 stdin_cache = await asyncio.to_thread(sys.stdin.read)
             if not stdin_cache.strip():
-                raise MindError("STDIN code source is empty")
+                raise ApplicationError("STDIN code source is empty")
             resolved.append(_resolve_stdin(stdin_cache))
             continue
 

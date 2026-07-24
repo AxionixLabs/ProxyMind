@@ -193,7 +193,7 @@ class TuiRuntime(FrontendRuntime):
         previous_render_count = application.render_counter
         self._application_task = asyncio.create_task(
             self._run_application(),
-            name="mind tui",
+            name="tui application",
         )
         while (
             (
@@ -375,7 +375,7 @@ class TuiRuntime(FrontendRuntime):
         self.cancel_background_session_task(sid)
         task = self.start_background_task(
             coroutine,
-            name=f"mind process background {sid}",
+            name=f"process background {sid}",
         )
         self._background_session_tasks[sid] = task
 

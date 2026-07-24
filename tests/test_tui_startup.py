@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from mind_app.cli import entry
+from mind_app.cli import bootstrap
 from mind_app.controller import Mind
 from mind_app.interaction.contracts import PromptContext
 from mind_app.runtime.mcp import external
@@ -158,8 +158,8 @@ async def test_tui_starts_external_mcp_before_helix_background(
     monkeypatch.setattr(helix, "prepare_tui_service_runtime", prepare_helix)
 
     mind = MindStub()
-    await entry._start_tui_external_mcp(mind)
-    await entry._start_tui_service_runtime(mind)
+    await bootstrap.start_tui_external_mcp(mind)
+    await bootstrap.start_tui_service_runtime(mind)
 
     assert calls == [("external", True), ("helix", True)]
     status = next(

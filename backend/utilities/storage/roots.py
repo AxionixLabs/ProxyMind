@@ -15,7 +15,7 @@ STORAGE_ENV_NAME = f"{const.APP_NAME.upper()}_STORAGE_ROOT"
 
 
 def mind_home() -> Path:
-    """返回 Mind 用户级统一目录。"""
+    """返回应用的用户级统一目录。"""
     return Path(os.environ.get(MD_HOME_ENV) or Path.home() / ".mind").expanduser()
 
 

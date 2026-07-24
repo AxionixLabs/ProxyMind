@@ -114,7 +114,7 @@ class TuiTranscriptViewport(object):
 
         self._scrollback_task = asyncio.create_task(
             self._flush_scrollback(),
-            name="mind tui scrollback flush",
+            name="tui scrollback flush",
             context=context.copy(),
         )
 

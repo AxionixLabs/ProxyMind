@@ -35,7 +35,7 @@ async def execute_tui_model_turn(
     show_interrupt_notice: typing.Callable[[], bool] = lambda: True,
 ) -> None:
     """执行可由主输入区定向取消的单个模型轮次。"""
-    task = asyncio.create_task(turn, name="mind tui model turn")
+    task = asyncio.create_task(turn, name="tui model turn")
     interrupted = False
 
     def cancel_turn() -> bool:
@@ -89,12 +89,27 @@ async def run_tui_model_turn(
     access_mode: str = "safe"
 ) -> None:
     """为单轮 TUI 输入建立 MCP 会话并执行模型流程。"""
+    attachments: list[dict[str, typing.Any]] = []
+    if mind.attach.has_pending_attachments():
+        attachments = mind.attach.consume_pending_attachments()
+
+    attachment_names = [
+        str(attachment.get("filename") or "").strip()
+        for attachment in attachments
+        if str(attachment.get("filename") or "").strip()
+    ]
+    session_title = (
+        message_text.strip()
+        or ", ".join(attachment_names)
+        or "Image"
+    )
+
     async def run_turn_with_session(
         session: McpSessionLike,
         tools: list[dict[str, typing.Any]],
     ) -> None:
         runner        = resolve_mode_runner(mind, run_mode)
-        turn_metadata = mind.begin_session(title=message_text, source="tui")
+        turn_metadata = mind.begin_session(title=session_title, source="tui")
         ev_report     = EventReport(run_mode, turn_metadata["cid"], turn_metadata["sid"])
 
         await ev_report.open()
@@ -108,6 +123,7 @@ async def run_tui_model_turn(
                 message=message_text,
                 tools=tools,
                 access_mode=access_mode,
+                attachments=attachments,
                 metadata=turn_metadata,
                 ev_report=ev_report
             )

@@ -7,7 +7,7 @@ import asyncio
 import uvicorn
 import contextlib
 from loguru import logger
-from engine.errors import MindError
+from engine.errors import ApplicationError
 from engine.ports import port_available
 from .app import create_app
 from .endpoints import (
@@ -18,7 +18,7 @@ from .endpoints import (
 
 
 class ConfigServiceRuntime(object):
-    """管理 Mind 进程内配置服务生命周期。"""
+    """管理进程内配置服务生命周期。"""
 
     def __init__(
         self,
@@ -91,17 +91,17 @@ class ConfigServiceRuntime(object):
             task = self.task
             if task is not None and task.done():
                 if task.cancelled():
-                    raise MindError("Config service stopped before ready")
+                    raise ApplicationError("Config service stopped before ready")
                 error = task.exception()
                 if error is not None:
-                    raise MindError(f"Config service stopped: {type(error).__name__}: {error}") from error
-                raise MindError("Config service stopped before ready")
+                    raise ApplicationError(f"Config service stopped: {type(error).__name__}: {error}") from error
+                raise ApplicationError("Config service stopped before ready")
 
             if await self.probe_ready():
                 return None
             await asyncio.sleep(interval)
 
-        raise MindError("Config service not ready")
+        raise ApplicationError("Config service not ready")
 
     async def probe_ready(self) -> bool:
         """探测配置服务是否已响应。"""
@@ -121,7 +121,7 @@ class ConfigServiceRuntime(object):
             if await port_available(port, host=self.host):
                 return port
 
-        raise MindError(
+        raise ApplicationError(
             f"Config service has no available port from "
             f"{self.preferred_port} to {end_port - 1}"
         )

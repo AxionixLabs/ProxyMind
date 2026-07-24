@@ -6,10 +6,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from mind import (
+from mind_app.cli import entry
+from mind_app.cli.commands import (
+    AgentListenCommand,
+    ExecCommand,
+    HelixUpgradeCommand,
+)
+from mind_app.cli.entry import (
+    command_requests_outro,
     emit_entry_outro,
-    mcp_server_requested,
-    rich_outro_requested,
 )
 from mind_app.frontend.contracts import PassiveFrontendRuntime
 from mind_app.output.text import (
@@ -133,15 +138,13 @@ async def test_text_output_strips_external_ansi_and_resets_on_close() -> None:
     assert "\x1b[" not in "".join(record.parts)
 
 
-def test_only_interactive_rich_modes_request_entry_outro() -> None:
+def test_only_interactive_rich_commands_request_entry_outro() -> None:
     terminal = SimpleNamespace(isatty=lambda: True)
 
-    assert rich_outro_requested(["agent", "listen"], output_stream=terminal)
-    assert rich_outro_requested(["helix", "upgrade"], output_stream=terminal)
-    assert not rich_outro_requested([], output_stream=terminal)
-    assert not rich_outro_requested(["exec", "hello"], output_stream=terminal)
-    assert not rich_outro_requested(
-        ["exec", "--mode", "chat", "hello"],
+    assert command_requests_outro(AgentListenCommand(), output_stream=terminal)
+    assert command_requests_outro(HelixUpgradeCommand(), output_stream=terminal)
+    assert not command_requests_outro(
+        ExecCommand(prompt="hello"),
         output_stream=terminal,
     )
 
@@ -149,20 +152,20 @@ def test_only_interactive_rich_modes_request_entry_outro() -> None:
 def test_non_interactive_rich_mode_disables_entry_outro() -> None:
     output = SimpleNamespace(isatty=lambda: False)
 
-    assert not rich_outro_requested(["agent", "listen"], output_stream=output)
+    assert not command_requests_outro(
+        AgentListenCommand(),
+        output_stream=output,
+    )
 
 
-def test_mcp_server_selection() -> None:
-    assert mcp_server_requested(["mcp-server"])
-    assert not mcp_server_requested(["exec", "mcp-server"])
-
-
-def test_disabled_entry_outro_does_not_emit_view() -> None:
+def test_entry_outro_uses_typed_command(monkeypatch) -> None:
     application = _Application()
+    terminal = SimpleNamespace(isatty=lambda: True)
+    monkeypatch.setattr(entry, "_entry_application", lambda _command: application)
 
-    emit_entry_outro(application, enabled=False)
+    emit_entry_outro(AgentListenCommand(), output_stream=terminal)
 
-    assert application.views == []
+    assert [view.type for view in application.views] == ["outro"]
 
 
 @pytest.mark.anyio

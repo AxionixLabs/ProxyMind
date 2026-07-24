@@ -6,7 +6,7 @@ DEFAULT_CONFIG_SERVICE_PORT = 37300
 
 
 class ConfigServiceEndpoints(object):
-    """保存 Mind 配置服务运行时地址。"""
+    """保存配置服务运行时地址。"""
 
     def __init__(
         self,

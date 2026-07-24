@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from engine.animation import AsyncAnimManager
 from engine.manage import ServerManage
 from engine.terminal import Terminal
-from engine.errors import MindError
+from engine.errors import ApplicationError
 from engine.upgrade import UpgradeProgress
 from mind_app.assets import ensure_asset
 from mind_app.runtime.design import TerminalDesign
@@ -65,7 +65,7 @@ def resolve_service_runtime(
     elif platform == "darwin":
         executable = os.path.join(supports, "helix.app", "Contents", "MacOS", "helix")
     else:
-        raise MindError(f"unsupported platform: {platform}")
+        raise ApplicationError(f"unsupported platform: {platform}")
 
     launch_command = [executable, "--level", level] if packaged else [
         sys.executable, "-m", "backend.helix", "--level", level
@@ -116,7 +116,7 @@ def verify_runtime_paths(
 
     target_name = os.path.basename(spec.executable)
     if not Path(spec.executable).is_file():
-        raise MindError(f"{app_desc} missing files {target_name}")
+        raise ApplicationError(f"{app_desc} missing files {target_name}")
 
 
 async def authorize_runtime_files(
@@ -224,7 +224,7 @@ async def prepare_service_runtime(
 async def ensure_runtime_started(server_manager: ServerManage | None) -> None:
     """确认本地服务已经启动并可用。"""
     if server_manager is None:
-        raise MindError("Runtime manager is not bound")
+        raise ApplicationError("Runtime manager is not bound")
     await server_manager.ensure_running()
 
 

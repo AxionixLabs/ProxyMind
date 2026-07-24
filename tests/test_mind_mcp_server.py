@@ -3,6 +3,7 @@
 import os
 import sys
 import typing
+import asyncio
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -41,15 +42,23 @@ def test_mind_mcp_server_exposes_one_structured_tool(tmp_path) -> None:
     properties = tools[0].parameters["properties"]
     assert properties["mode"]["enum"] == ["chat", "fast", "xtra"]
     assert properties["access_mode"]["enum"] == ["safe", "full"]
+    assert properties["timeout_sec"]["default"] == 900.0
+    assert properties["session_id"]["default"] is None
 
 
 @pytest.mark.anyio
 async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
     result = RunResult(status="completed", assistant_text="done")
+    metadata = {
+        "cid": "cid_test_12345678",
+        "sid": "sid_test_1_abcdef",
+    }
     mind = SimpleNamespace(
         history_workspace=str(tmp_path),
         set_history_workspace=Mock(),
-        reset_conversation=Mock(),
+        reset_conversation=Mock(return_value=metadata),
+        recent_conversation_sessions=Mock(return_value=[]),
+        resume_conversation=Mock(),
         calling=AsyncMock(return_value=result),
     )
     runtime = MindMcpRuntime(typing.cast(typing.Any, mind))
@@ -61,7 +70,8 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
         working_directory=str(tmp_path),
     )
 
-    assert actual is result
+    assert actual.run is result
+    assert actual.session_id == metadata["sid"]
     mind.set_history_workspace.assert_called_once_with(tmp_path.resolve())
     mind.reset_conversation.assert_called_once_with(
         reason="mcp_tool_call",
@@ -72,6 +82,164 @@ async def test_mind_mcp_runtime_executes_isolated_call(tmp_path) -> None:
         mode="xtra",
         access_mode="safe",
     )
+
+
+@pytest.mark.anyio
+async def test_mind_mcp_runtime_resumes_workspace_session(tmp_path) -> None:
+    result = RunResult(status="completed", assistant_text="continued")
+    metadata = {
+        "cid": "cid_test_12345678",
+        "sid": "sid_test_1_abcdef",
+    }
+    record = {
+        **metadata,
+        "workspace": str(tmp_path.resolve()),
+    }
+    mind = SimpleNamespace(
+        history_workspace=str(tmp_path),
+        set_history_workspace=Mock(),
+        reset_conversation=Mock(),
+        recent_conversation_sessions=Mock(return_value=[record]),
+        resume_conversation=Mock(return_value=metadata),
+        calling=AsyncMock(return_value=result),
+    )
+    runtime = MindMcpRuntime(typing.cast(typing.Any, mind))
+
+    actual = await runtime.execute(
+        prompt="continue",
+        mode="chat",
+        access_mode="full",
+        working_directory=str(tmp_path),
+        session_id=metadata["sid"],
+    )
+
+    assert actual.run is result
+    assert actual.session_id == metadata["sid"]
+    mind.reset_conversation.assert_not_called()
+    mind.resume_conversation.assert_called_once_with(
+        record,
+        source="mcp_server",
+    )
+
+
+@pytest.mark.anyio
+async def test_mind_mcp_runtime_rejects_unknown_session(tmp_path) -> None:
+    mind = SimpleNamespace(
+        history_workspace=str(tmp_path),
+        set_history_workspace=Mock(),
+        reset_conversation=Mock(),
+        recent_conversation_sessions=Mock(return_value=[]),
+        resume_conversation=Mock(),
+        calling=AsyncMock(),
+    )
+    runtime = MindMcpRuntime(typing.cast(typing.Any, mind))
+
+    actual = await runtime.execute(
+        prompt="continue",
+        mode="chat",
+        access_mode="safe",
+        working_directory=str(tmp_path),
+        session_id="sid_test_1_abcdef",
+    )
+
+    assert actual.run.status == "failed"
+    assert actual.run.error == "session_id is unavailable for this working directory"
+    assert actual.session_id is None
+    mind.calling.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_mind_mcp_runtime_times_out_and_releases_call_lock(tmp_path) -> None:
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+    metadata = {
+        "cid": "cid_test_12345678",
+        "sid": "sid_test_1_abcdef",
+    }
+
+    async def wait_forever(**_kwargs) -> RunResult:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    mind = SimpleNamespace(
+        history_workspace=str(tmp_path),
+        set_history_workspace=Mock(),
+        reset_conversation=Mock(return_value=metadata),
+        recent_conversation_sessions=Mock(return_value=[]),
+        resume_conversation=Mock(),
+        calling=AsyncMock(side_effect=wait_forever),
+    )
+    runtime = MindMcpRuntime(typing.cast(typing.Any, mind))
+
+    timed_out = await runtime.execute(
+        prompt="wait",
+        mode="xtra",
+        access_mode="safe",
+        working_directory=str(tmp_path),
+        timeout_sec=0.01,
+    )
+
+    assert started.is_set()
+    assert cancelled.is_set()
+    assert timed_out.run.status == "failed"
+    assert timed_out.run.error == "request timed out after 0.01 seconds"
+    assert timed_out.session_id == metadata["sid"]
+
+    mind.calling = AsyncMock(
+        return_value=RunResult(status="completed", assistant_text="next")
+    )
+    following = await runtime.execute(
+        prompt="next",
+        mode="xtra",
+        access_mode="safe",
+        working_directory=str(tmp_path),
+    )
+    assert following.run.status == "completed"
+
+
+@pytest.mark.anyio
+async def test_mind_mcp_runtime_propagates_cancellation(tmp_path) -> None:
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+    metadata = {
+        "cid": "cid_test_12345678",
+        "sid": "sid_test_1_abcdef",
+    }
+
+    async def wait_forever(**_kwargs) -> RunResult:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    mind = SimpleNamespace(
+        history_workspace=str(tmp_path),
+        set_history_workspace=Mock(),
+        reset_conversation=Mock(return_value=metadata),
+        recent_conversation_sessions=Mock(return_value=[]),
+        resume_conversation=Mock(),
+        calling=AsyncMock(side_effect=wait_forever),
+    )
+    runtime = MindMcpRuntime(typing.cast(typing.Any, mind))
+
+    task = asyncio.create_task(runtime.execute(
+        prompt="wait",
+        mode="xtra",
+        access_mode="safe",
+        working_directory=str(tmp_path),
+        timeout_sec=None,
+    ))
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert cancelled.is_set()
 
 
 @pytest.mark.anyio

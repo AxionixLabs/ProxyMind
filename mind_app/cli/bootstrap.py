@@ -1,0 +1,433 @@
+# -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
+
+import os
+import typing
+import asyncio
+from pathlib import Path
+from engine.animation import AsyncAnimManager
+from engine.manage import ServerManage
+from engine.errors import ApplicationError
+from engine.observability import (
+    observe,
+    observe_exception
+)
+from mind_core.application_paths import resolve_application_layout
+from mind_core.preference import Preferences
+from mind_core.service_config import ServiceConfig
+from mind_nova import const
+from mind_nova.services import service_endpoints
+from ..controller import Mind
+from ..frontend.contracts import (
+    ApplicationView,
+    Frontend
+)
+from ..paths import (
+    ensure_mcp_servers_file,
+    ensure_mind_home,
+    mind_config_path,
+    mind_reports_dir,
+    process_env
+)
+from ..presentation.models import (
+    StyledBlock,
+    TextSpan,
+    TextStyle
+)
+from ..reporting import RunReport
+from ..runtime.environment.exec_env import clear_exec_env_cache
+from ..runtime.environment.shell_tools import route_shell_tools
+from ..runtime.environment.workspace import fetch_runtime_workspace_root
+from ..runtime.mcp.service_runtime import (
+    ServiceRuntimeContext,
+    ServiceRuntimeSpec,
+    ensure_service_runtime_asset,
+    prepare_and_start_service_runtime,
+    resolve_service_runtime
+)
+from ..runtime.design import TerminalDesign
+from .commands import (
+    ApplicationCommand,
+    HelixUpgradeCommand,
+    RuntimeCommand,
+    command_uses_helix
+)
+from .dispatch import run_selected_mode
+from .frontend import (
+    resolve_cli_design,
+    resolve_cli_frontend
+)
+from .selection import (
+    OutputMode,
+    output_mode_uses_animation,
+    resolve_cli_output_mode
+)
+
+
+async def _await_cleanup(awaitable: typing.Awaitable[None]) -> None:
+    """在取消态下等待清理任务执行完成。"""
+    task = asyncio.ensure_future(awaitable)
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
+        raise
+
+
+def _emit_helix_skipped(controller: Mind) -> None:
+    """输出 Helix 启动被跳过的状态。"""
+    controller.frontend.application.emit(ApplicationView(
+        type="helix.skipped",
+        renderable=StyledBlock(
+            plain_text="Helix · skipped",
+            spans=(
+                TextSpan(
+                    "Helix ",
+                    TextStyle(foreground="#AFC7D8", bold=True),
+                ),
+                TextSpan(
+                    "· skipped",
+                    TextStyle(foreground="#7F8C9A", dim=True),
+                ),
+            ),
+        ),
+    ))
+    controller.frontend.application.emit(ApplicationView(type="spacer"))
+
+
+async def start_tui_external_mcp(controller: Mind) -> None:
+    """在 TUI 进入交互循环前启动外部 MCP。"""
+    from ..tui.features.mcp import (
+        finish_mcp_activity,
+        render_external_mcp_start_status
+    )
+
+    try:
+        await controller.start_external_mcp_runtime(defer_activity_stop=True)
+    except asyncio.CancelledError:
+        await controller.await_cleanup(finish_mcp_activity(controller, "start"))
+        raise
+    except Exception as error:
+        await controller.await_cleanup(finish_mcp_activity(controller, "start"))
+        render_external_mcp_start_status(controller, error=error)
+        return None
+
+    await finish_mcp_activity(controller, "start")
+    render_external_mcp_start_status(controller)
+
+
+async def start_tui_service_runtime(controller: Mind) -> None:
+    """在 TUI 后台准备 Helix 服务运行时。"""
+    from ..tui.features.helix import (
+        finish_helix_activity,
+        link_helix_runtime,
+        render_helix_link_failure,
+        render_helix_link_result
+    )
+
+    try:
+        linked = await link_helix_runtime(controller, download_confirmed=True)
+    except asyncio.CancelledError:
+        await controller.await_cleanup(finish_helix_activity(controller))
+        raise
+    except Exception as error:
+        await controller.await_cleanup(finish_helix_activity(controller))
+        render_helix_link_failure(controller, error)
+        return None
+
+    await finish_helix_activity(controller)
+    render_helix_link_result(controller, linked)
+
+
+async def finalize_application(
+    controller: Mind,
+    *,
+    output_mode: OutputMode,
+    completed: bool,
+) -> None:
+    """关闭前端和运行时资源，并在完整 TUI 会话后打印退出摘要。"""
+    observe(
+        "app.shutdown.start",
+        output_mode=output_mode,
+        completed=completed,
+        exit_code=controller.exit_code,
+    )
+    try:
+        await controller.frontend.runtime.close()
+    except BaseException as error:
+        observe_exception("frontend.close.failed", error)
+        raise
+    finally:
+        await controller.close_runtime_resources()
+
+    if completed and output_mode == "tui":
+        from ..tui.core.runtime import require_tui_runtime
+
+        runtime = require_tui_runtime(controller.frontend.runtime)
+        runtime.print_exit_summary()
+
+
+async def run_application(
+    command: ApplicationCommand,
+    *,
+    entry_file: str | None,
+) -> int:
+    """装配并运行需要本地应用资源的命令。"""
+    animation = AsyncAnimManager()
+    try:
+        return await _run_application(command, entry_file, animation)
+    finally:
+        await _await_cleanup(animation.stop())
+
+
+async def _run_application(
+    command: ApplicationCommand,
+    entry_file: str | None,
+    animation: AsyncAnimManager,
+) -> int:
+    """执行普通应用运行时的完整生命周期。"""
+    output_mode = resolve_cli_output_mode(command)
+    frontend    = resolve_cli_frontend(output_mode)
+    design      = resolve_cli_design(frontend, output_mode)
+
+    if output_mode_uses_animation(output_mode):
+        frontend.application.emit(ApplicationView(type="intro"))
+
+    try:
+        app_layout = resolve_application_layout(entry_file=entry_file)
+    except ValueError as error:
+        raise ApplicationError(f"Application entry is unsupported: {error}") from error
+
+    platform = app_layout.platform
+    supports = str(app_layout.supports)
+    packaged = app_layout.packaged
+
+    runtime_spec = None
+
+    if platform in {"win32", "darwin"}:
+        runtime_spec = resolve_service_runtime(
+            platform=platform,
+            supports=supports,
+            level=const.SHOW_LEVEL,
+            packaged=packaged,
+        )
+    if runtime_spec is None:
+        raise ApplicationError(f"This platform is not supported: {platform}.")
+
+    home    = ensure_mind_home()
+    reports = mind_reports_dir()
+
+    ensure_mcp_servers_file()
+
+    report = RunReport(str(reports))
+    power  = os.cpu_count() or 1
+
+    is_upgrade = isinstance(command, HelixUpgradeCommand)
+
+    observe(
+        "app.start",
+        version=const.APP_VERSION,
+        platform=platform,
+        output_mode=output_mode,
+        cpu_count=power,
+        helix_requested=(
+            False
+            if isinstance(command, HelixUpgradeCommand)
+            else command_uses_helix(command)
+        ),
+        upgrade=is_upgrade,
+    )
+
+    try:
+        preference = Preferences(str(mind_config_path()))
+
+        service_context = ServiceRuntimeContext(
+            spec=runtime_spec,
+            platform=platform,
+            packaged=packaged,
+            env_symbol=os.path.pathsep,
+            app_desc=const.APP_DESC,
+        )
+
+        route_shell_tools(supports)
+        clear_exec_env_cache()
+
+        observe(
+            "runtime.resolved",
+            packaged=packaged,
+            executable=runtime_spec.executable,
+        )
+
+    except BaseException as error:
+        observe_exception("app.bootstrap.failed", error)
+        report.close()
+        raise
+
+    if isinstance(command, HelixUpgradeCommand):
+        try:
+            await ensure_service_runtime_asset(
+                service_context,
+                explicit_upgrade=True,
+                anim_manager=animation,
+                design=design,
+            )
+            observe("upgrade.complete")
+            return 0
+        except BaseException as error:
+            observe_exception("upgrade.failed", error)
+            raise
+        finally:
+            report.close()
+
+    return await _run_controller(
+        command,
+        frontend=frontend,
+        design=design,
+        animation=animation,
+        home=home,
+        reports=reports,
+        preference=preference,
+        report=report,
+        runtime_spec=runtime_spec,
+        service_context=service_context,
+        power=power,
+        output_mode=output_mode,
+    )
+
+
+async def _run_controller(
+    command: RuntimeCommand,
+    *,
+    frontend: Frontend,
+    design: TerminalDesign | None,
+    animation: AsyncAnimManager,
+    home: Path,
+    reports: Path,
+    preference: Preferences,
+    report: RunReport,
+    runtime_spec: ServiceRuntimeSpec,
+    service_context: ServiceRuntimeContext,
+    power: int,
+    output_mode: OutputMode
+) -> int:
+    """创建 Controller 并运行用户命令。"""
+    try:
+        server = ServerManage(runtime_spec.launch_command, env=process_env())
+
+        controller = Mind(
+            const.SHOW_LEVEL,
+            power,
+            {},
+            src_opera_place=str(home),
+            src_total_place=str(reports),
+            pref=preference,
+            anim_manager=animation,
+            animate=output_mode_uses_animation(output_mode),
+            frontend=frontend,
+            design=design,
+            report=report,
+        )
+
+    except BaseException as error:
+        observe_exception("app.initialize.failed", error)
+        report.close()
+        raise
+
+    controller.bind_server_manager(server)
+    controller.bind_service_runtime_context(service_context)
+
+    completed: bool = False
+
+    try:
+        if output_mode == "tui":
+            from ..tui.session.state import preload_tui_prompt_context
+
+            await preload_tui_prompt_context(controller)
+        await controller.frontend.runtime.open()
+        observe("frontend.opened", output_mode=output_mode)
+
+        if command_uses_helix(command) and output_mode != "tui":
+            helix_linked = await prepare_and_start_service_runtime(controller)
+            if not helix_linked:
+                _emit_helix_skipped(controller)
+
+        await controller.start_config_service()
+
+        runtime_workspace_root = await fetch_runtime_workspace_root()
+        if runtime_workspace_root is not None:
+            controller.set_history_workspace(runtime_workspace_root)
+
+        preference_task = asyncio.create_task(
+            preference.load_pref(),
+            name="startup preference",
+        )
+        domain_task = asyncio.create_task(
+            ServiceConfig().load_domain(),
+            name="startup service domain",
+        )
+        startup_tasks = (preference_task, domain_task)
+
+        try:
+            if output_mode == "tui":
+                await start_tui_external_mcp(controller)
+            else:
+                await controller.start_external_mcp_runtime()
+            await preference_task
+            service_endpoints.configure(await domain_task)
+            observe(
+                "startup.ready",
+                external_mcp=bool(
+                    controller.external_mcp is not None
+                    and controller.external_mcp.group is not None
+                ),
+                helix_linked=controller.is_service_mcp_linked(),
+            )
+        finally:
+            for task in startup_tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*startup_tasks, return_exceptions=True)
+
+        if output_mode == "tui":
+            from ..tui.core.runtime import require_tui_runtime
+            from ..tui.features.helix import confirm_tui_service_runtime_startup
+
+            runtime = require_tui_runtime(controller.frontend.runtime)
+
+            start_helix: bool = False
+
+            if command_uses_helix(command):
+                start_helix = await confirm_tui_service_runtime_startup(controller)
+                if not start_helix:
+                    _emit_helix_skipped(controller)
+
+            if start_helix:
+                runtime.start_background_task(
+                    start_tui_service_runtime(controller),
+                    name="tui service runtime startup",
+                )
+
+        await run_selected_mode(controller, command)
+        completed = True
+        observe("app.complete", exit_code=controller.exit_code)
+
+        return controller.exit_code
+
+    except asyncio.CancelledError:
+        observe("app.interrupted", level="WARNING", output_mode=output_mode)
+        raise
+
+    except BaseException as error:
+        observe_exception("app.failed", error, output_mode=output_mode)
+        raise
+
+    finally:
+        await finalize_application(
+            controller,
+            output_mode=output_mode,
+            completed=completed,
+        )
+
+
+if __name__ == '__main__':
+    pass

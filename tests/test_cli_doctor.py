@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from mind_app.cli import entry
+from mind_app.cli import doctor
 from mind_app.cli.commands import DoctorCommand
 from mind_app.cli.doctor import (
     DoctorCheck,
@@ -64,8 +64,7 @@ def test_doctor_fails_for_invalid_mcp_config(tmp_path) -> None:
     assert "invalid" in checks["external_mcp"].summary
 
 
-@pytest.mark.anyio
-async def test_doctor_entry_skips_runtime_bootstrap(monkeypatch, tmp_path) -> None:
+def test_doctor_entry_skips_runtime_bootstrap(monkeypatch, tmp_path) -> None:
     emitted = []
     frontend = SimpleNamespace(
         application=SimpleNamespace(emit=emitted.append),
@@ -88,33 +87,20 @@ async def test_doctor_entry_skips_runtime_bootstrap(monkeypatch, tmp_path) -> No
         supports=tmp_path / "schematic" / "supports" / "windows",
     )
 
-    monkeypatch.setattr(entry.logger, "remove", lambda: None)
-    monkeypatch.setattr(entry, "parse_cli_command", lambda: DoctorCommand())
-    monkeypatch.setattr(entry, "resolve_cli_frontend", lambda _mode: frontend)
-    monkeypatch.setattr(entry, "resolve_cli_design", lambda *_args: object())
-    monkeypatch.setattr(entry, "resolve_application_layout", lambda **_kwargs: app_layout)
-    monkeypatch.setattr(entry, "resolve_service_runtime", lambda **_kwargs: runtime_spec)
-    monkeypatch.setattr(entry, "diagnose", diagnose_mock)
-    monkeypatch.setattr(entry, "mind_home", lambda: tmp_path / ".mind")
-    monkeypatch.setattr(entry, "mind_config_path", lambda: tmp_path / "config.toml")
+    monkeypatch.setattr(doctor, "resolve_cli_frontend", lambda _mode: frontend)
+    monkeypatch.setattr(doctor, "resolve_application_layout", lambda **_kwargs: app_layout)
+    monkeypatch.setattr(doctor, "resolve_service_runtime", lambda **_kwargs: runtime_spec)
+    monkeypatch.setattr(doctor, "diagnose", diagnose_mock)
+    monkeypatch.setattr(doctor, "mind_home", lambda: tmp_path / ".mind")
+    monkeypatch.setattr(doctor, "mind_config_path", lambda: tmp_path / "config.toml")
     monkeypatch.setattr(
-        entry,
+        doctor,
         "mind_mcp_servers_path",
         lambda: tmp_path / "mcp_servers.json",
     )
-    monkeypatch.setattr(
-        entry,
-        "ensure_mind_home",
-        Mock(side_effect=AssertionError("doctor created Mind home")),
-    )
-    monkeypatch.setattr(
-        entry,
-        "RunReport",
-        Mock(side_effect=AssertionError("doctor created a run report")),
-    )
-    result = await entry._run_main(
-        str(tmp_path / "mind.py"),
-        SimpleNamespace(),
+    result = doctor.run_doctor_command(
+        DoctorCommand(),
+        entry_file=str(tmp_path / "mind.py"),
     )
 
     assert result == 0

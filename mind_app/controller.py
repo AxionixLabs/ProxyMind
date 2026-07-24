@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import sys
 import copy
 import time
 import typing
@@ -12,7 +11,7 @@ from pathlib import Path
 from engine.manage import ServerManage
 from engine.animation import AsyncAnimManager
 from engine.ports import terminate_port_process
-from engine.errors import MindError
+from engine.errors import ApplicationError
 from mind_core.preference import Preferences
 from mind_nova.modes import (
     DEFAULT_RUN_MODE,
@@ -62,7 +61,7 @@ if typing.TYPE_CHECKING:
 
 
 class Mind(object):
-    """Mind 核心对象：维护共享状态，并暴露稳定的应用接口。"""
+    """维护共享状态，并暴露稳定的应用接口。"""
 
     __remote: dict = {}
 
@@ -104,8 +103,6 @@ class Mind(object):
 
         self._native_coding_close_tasks: set[asyncio.Task[None]] = set()
 
-        self.runtime_loop: typing.Optional[asyncio.AbstractEventLoop] = None
-        self.root_task: typing.Optional[asyncio.Task[typing.Any]]     = None
         self.server_manager: typing.Optional[ServerManage]            = None
         self.keepalive_stop: typing.Optional[asyncio.Event]           = None
         self.keepalive_task: typing.Optional[asyncio.Task[None]]      = None
@@ -124,8 +121,6 @@ class Mind(object):
         self.tool_runtime: ToolRuntime        = CompositeToolRuntime(self)
 
         self.exit_code: int = 0
-        self.sig_count: int = 0
-
         self.service_mcp_linked: bool   = False
         self.stop_runtime_on_exit: bool = False
 
@@ -173,29 +168,6 @@ class Mind(object):
             await task
             raise
 
-    def signal_processor(self, *_, **__) -> None:
-        """处理终止信号，并优先触发异步清理。"""
-        self.sig_count += 1
-        observe("signal.received", level="WARNING", count=self.sig_count)
-        self.task_event.set()
-        self.exit_code = 130
-
-        if self.sig_count > 1:
-            sys.exit(self.exit_code)
-
-        loop = self.runtime_loop
-        if loop is not None and loop.is_running():
-            self.cancel_root_task()
-            return None
-
-        sys.exit(self.exit_code)
-
-    def cancel_root_task(self) -> None:
-        """取消顶层任务，让退出沿协程栈执行清理逻辑。"""
-        task = self.root_task
-        if task is not None and not task.done():
-            task.cancel()
-
     def begin_session(
         self,
         cid: typing.Optional[str] = None,
@@ -206,13 +178,16 @@ class Mind(object):
     ) -> dict[str, str]:
         """初始化或续用当前会话标识。"""
         metadata = self.conversation.begin(cid=cid, sid=sid)
+
         self._touch_history_session(metadata, title=title, source=source)
+
         observe(
             "conversation.begin",
             cid=metadata.get("cid"),
             sid=metadata.get("sid"),
             source=source,
         )
+
         return metadata
 
     def reset_conversation(
@@ -223,7 +198,9 @@ class Mind(object):
     ) -> dict[str, str]:
         """开始一个新的模型对话。"""
         metadata = self.conversation.reset(reason=reason)
+
         self._touch_history_session(metadata, source=source)
+
         observe(
             "conversation.reset",
             cid=metadata.get("cid"),
@@ -231,6 +208,7 @@ class Mind(object):
             reason=reason,
             source=source,
         )
+
         return metadata
 
     def recent_conversation_sessions(
@@ -261,6 +239,7 @@ class Mind(object):
         """把当前会话绑定到 history 中选中的 cid/sid。"""
         cid = str(record.get("cid") or "").strip()
         sid = str(record.get("sid") or "").strip()
+
         if not valid_session_ids(cid, sid):
             observe(
                 "history.resume.skipped",
@@ -322,7 +301,7 @@ class Mind(object):
             if loop is not None:
                 task = loop.create_task(
                     previous_native_coding.close(),
-                    name="mind native coding workspace close",
+                    name="coding workspace close",
                 )
                 self._native_coding_close_tasks.add(task)
                 task.add_done_callback(self._native_coding_close_done)
@@ -344,15 +323,6 @@ class Mind(object):
             execution_root=self.history_workspace,
         )
 
-    def bind_runtime(
-        self,
-        loop: asyncio.AbstractEventLoop,
-        root_task: typing.Optional[asyncio.Task[typing.Any]]
-    ) -> None:
-        """绑定当前事件循环与顶层任务，用于异步退出。"""
-        self.runtime_loop = loop
-        self.root_task    = root_task
-
     def bind_server_manager(self, server_manager: ServerManage) -> None:
         """绑定本地后台服务管理器。"""
         self.server_manager = server_manager
@@ -364,7 +334,7 @@ class Mind(object):
     def require_service_runtime_context(self) -> "ServiceRuntimeContext":
         """返回已绑定的服务运行时上下文，未绑定时抛出错误。"""
         if self.service_runtime_context is None:
-            raise MindError("Service runtime context is not bound")
+            raise ApplicationError("Service runtime context is not bound")
         return self.service_runtime_context
 
     def link_service_mcp(
@@ -387,8 +357,10 @@ class Mind(object):
     def unlink_service_mcp(self) -> None:
         """从当前工具会话移除本地服务 MCP，不停止后台进程。"""
         was_linked = self.service_mcp_linked
+
         self.service_mcp_linked = False
         self.service_exec_env   = None
+
         if was_linked:
             observe("helix.unlinked")
 
@@ -409,7 +381,7 @@ class Mind(object):
             if task is None:
                 task = asyncio.create_task(
                     operation(),
-                    name="mind service runtime startup",
+                    name="service runtime startup",
                 )
                 self._service_start_task = task
 
@@ -426,10 +398,12 @@ class Mind(object):
         async with self._service_start_lock:
             task = self._service_start_task
             self._service_start_task = None
+
         if task is None:
             return None
         if not task.done():
             task.cancel()
+
         await asyncio.gather(task, return_exceptions=True)
 
     def service_exec_env_snapshot(self) -> dict[str, typing.Any] | None:
@@ -449,11 +423,12 @@ class Mind(object):
         return self.last_assistant_reply
 
     def start_keepalive_supervisor(self) -> None:
-        """启动 Mind 生命周期内的本地后台服务保活任务。"""
+        """启动应用生命周期内的本地后台服务保活任务。"""
         if self.keepalive_task and not self.keepalive_task.done():
             return None
 
         self.keepalive_stop = asyncio.Event()
+
         self.keepalive_task = asyncio.create_task(
             run_keepalive(
                 self.keepalive_stop,
@@ -465,19 +440,21 @@ class Mind(object):
         observe("keepalive.started")
 
     async def start_config_service(self) -> None:
-        """启动 Mind 生命周期内的配置服务。"""
+        """启动应用生命周期内的配置服务。"""
         await self.config_service.start()
         observe("config_service.started")
 
     async def stop_config_service(self) -> None:
-        """停止 Mind 生命周期内的配置服务。"""
+        """停止应用生命周期内的配置服务。"""
         await self.config_service.stop()
         observe("config_service.stopped")
 
     async def refresh_pref_if_stale(self, *, ttl_sec: typing.Optional[float] = None) -> None:
         """按 TTL 从后端刷新偏好配置，用于模型与密钥热更新。"""
         refresh_ttl = self.pref_refresh_ttl_sec if ttl_sec is None else max(0.0, float(ttl_sec))
+
         now = time.monotonic()
+
         if self.pref_refreshed_at and (now - self.pref_refreshed_at) < refresh_ttl:
             return None
 
@@ -500,9 +477,10 @@ class Mind(object):
         include_disabled: bool = False,
         defer_activity_stop: bool = False,
     ) -> None:
-        """启动 Mind 生命周期级外部 MCP 运行时。"""
+        """启动应用生命周期级外部 MCP 运行时。"""
         if self.external_mcp is None:
             self.external_mcp = ExternalMcpRuntime(self)
+
         await self.external_mcp.start(
             include_disabled=include_disabled,
             defer_activity_stop=defer_activity_stop,
@@ -514,28 +492,32 @@ class Mind(object):
         include_disabled: bool = False,
         defer_activity_stop: bool = False,
     ) -> None:
-        """重启 Mind 生命周期级外部 MCP 运行时。"""
+        """重启应用生命周期级外部 MCP 运行时。"""
         if self.external_mcp is None:
             self.external_mcp = ExternalMcpRuntime(self)
+
         await self.external_mcp.restart(
             include_disabled=include_disabled,
             defer_activity_stop=defer_activity_stop,
         )
 
     async def stop_external_mcp_runtime(self) -> None:
-        """停止 Mind 生命周期级外部 MCP 运行时。"""
+        """停止应用生命周期级外部 MCP 运行时。"""
         runtime = self.external_mcp
+
         self.external_mcp = None
+
         if runtime is not None:
             await self.await_cleanup(runtime.stop())
 
     async def stop_keepalive_supervisor(self) -> None:
-        """停止 Mind 生命周期内的本地后台服务保活任务。"""
+        """停止应用生命周期内的本地后台服务保活任务。"""
         was_running = self.keepalive_stop is not None or self.keepalive_task is not None
         if self.keepalive_stop is not None:
             self.keepalive_stop.set()
 
         task = self.keepalive_task
+
         self.keepalive_task = None
         self.keepalive_stop = None
 
@@ -543,11 +525,12 @@ class Mind(object):
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+
         if was_running:
             observe("keepalive.stopped")
 
     async def close_runtime_resources(self) -> None:
-        """关闭 Mind 持有的运行时资源，并按退出策略处理本地后台进程。"""
+        """关闭主控制器持有的运行时资源，并按退出策略处理本地后台进程。"""
         observe("runtime.close.start")
         try:
             await self.cancel_service_runtime_startup()
@@ -585,24 +568,27 @@ class Mind(object):
     async def reboot_runtime(self) -> None:
         """重启已绑定的后台进程，并在完成后恢复保活任务。"""
         if self.server_manager is None:
-            raise MindError("Server manager is not bound")
+            raise ApplicationError("Server manager is not bound")
 
         observe("helix.restart.start")
         await self.stop_keepalive_supervisor()
+
         try:
             await self.server_manager.restart()
             if not await self.server_manager.wait_until_ready(10.0, 0.3):
-                raise MindError("Server not ready after reboot")
+                raise ApplicationError("Server not ready after reboot")
         finally:
             self.start_keepalive_supervisor()
+
         observe("helix.restart.complete")
 
     async def stop_service_runtime(self) -> None:
         """停止已绑定的后台进程，并关闭对应保活任务。"""
         if self.server_manager is None:
-            raise MindError("Server manager is not bound")
+            raise ApplicationError("Server manager is not bound")
 
         observe("helix.stop.start")
+
         self.unlink_service_mcp()
         await self.stop_keepalive_supervisor()
         await terminate_port_process(self.server_manager.port)
@@ -639,7 +625,9 @@ class Mind(object):
         if self.frontend.runtime.active:
             await self.frontend.runtime.begin_wait_status()
             return None
+
         design = self.require_design()
+
         await self.anim_manager.start(
             lambda stop_event: design.stream_mode_live(stop_event, mode)
         )
@@ -654,7 +642,9 @@ class Mind(object):
         if self.frontend.runtime.active:
             await self.frontend.runtime.begin_upload_status(snapshot)
             return None
+
         design = self.require_design()
+
         await self.anim_manager.start(
             lambda stop_event: design.upload_progress_live(stop_event, snapshot)
         )
@@ -669,7 +659,9 @@ class Mind(object):
         if self.frontend.runtime.active:
             await self.frontend.runtime.begin_inbuild_status(snapshot)
             return None
+
         design = self.require_design()
+
         await self.anim_manager.start(
             lambda stop_event: design.inbuild_startup_live(stop_event, snapshot)
         )
@@ -701,7 +693,9 @@ class Mind(object):
         if self.frontend.runtime.active:
             await self.frontend.runtime.begin_compact_status(snapshot)
             return None
+
         design = self.require_design()
+
         await self.anim_manager.start(
             lambda stop_event: design.external_mcp_live(stop_event, snapshot)
         )

@@ -13,7 +13,7 @@ import zipfile
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
-from engine.errors import MindError
+from engine.errors import ApplicationError
 from engine.observability import (
     observe,
     observe_exception
@@ -135,26 +135,26 @@ class Upgrade(object):
         }
 
     @staticmethod
-    def download_error(exc: Exception) -> MindError:
+    def download_error(exc: Exception) -> ApplicationError:
         """将下载阶段异常转换为统一的安装错误。"""
         if isinstance(exc, httpx.HTTPStatusError):
             code = exc.response.status_code
             if code in {401, 403}:
-                return MindError(f"Install failed: download unauthorized status={code}")
+                return ApplicationError(f"Install failed: download unauthorized status={code}")
             if code in {502, 503, 504}:
-                return MindError(f"Install failed: download service unavailable status={code}")
-            return MindError(f"Install failed: download http status={code}")
+                return ApplicationError(f"Install failed: download service unavailable status={code}")
+            return ApplicationError(f"Install failed: download http status={code}")
 
         if isinstance(exc, httpx.TimeoutException):
-            return MindError(f"Install failed: download timeout: {type(exc).__name__}")
+            return ApplicationError(f"Install failed: download timeout: {type(exc).__name__}")
 
         if isinstance(exc, httpx.ConnectError):
-            return MindError("Install failed: download connection failed")
+            return ApplicationError("Install failed: download connection failed")
 
         if isinstance(exc, httpx.HTTPError):
-            return MindError(f"Install failed: download request failed: {type(exc).__name__}")
+            return ApplicationError(f"Install failed: download request failed: {type(exc).__name__}")
 
-        return MindError(f"Install failed: download failed: {type(exc).__name__}: {exc}")
+        return ApplicationError(f"Install failed: download failed: {type(exc).__name__}: {exc}")
 
     @staticmethod
     def backend_runtime_name() -> str:
@@ -163,7 +163,7 @@ class Upgrade(object):
             return "helix.dist"
         if sys.platform == "darwin":
             return "helix.app"
-        raise MindError(f"Install failed: unsupported platform: {sys.platform}")
+        raise ApplicationError(f"Install failed: unsupported platform: {sys.platform}")
 
     @staticmethod
     def safe_extract_zip(archive_path: Path, extract_dir: Path) -> None:
@@ -176,13 +176,13 @@ class Upgrade(object):
                 member = Path(raw_name)
 
                 if member.is_absolute() or ".." in member.parts:
-                    raise MindError(f"Install failed: unsafe archive path: {raw_name}")
+                    raise ApplicationError(f"Install failed: unsafe archive path: {raw_name}")
 
                 target = (extract_root / member).resolve()
                 if target == extract_root:
                     continue
                 if not target.is_relative_to(extract_root):
-                    raise MindError(f"Install failed: unsafe archive path: {raw_name}")
+                    raise ApplicationError(f"Install failed: unsafe archive path: {raw_name}")
 
             zf.extractall(extract_root)
 
@@ -204,7 +204,7 @@ class Upgrade(object):
                 try:
                     bak_dir.rename(dst_dir)
                 except Exception as e:
-                    raise MindError(
+                    raise ApplicationError(
                         f"Install failed: restore stale backup failed: {type(e).__name__}: {e}"
                     ) from e
 
@@ -227,12 +227,12 @@ class Upgrade(object):
                 try:
                     bak_dir.rename(dst_dir)
                 except Exception as restore_error:
-                    raise MindError(
+                    raise ApplicationError(
                         f"Install failed: replace runtime failed: {type(e).__name__}: {e}; "
                         f"restore failed: {type(restore_error).__name__}: {restore_error}"
                     ) from restore_error
 
-            raise MindError(f"Install failed: replace runtime failed: {type(e).__name__}: {e}") from e
+            raise ApplicationError(f"Install failed: replace runtime failed: {type(e).__name__}: {e}") from e
 
     @classmethod
     def backend_runtime_exec(cls, runtime_root: Path) -> Path:
@@ -242,7 +242,7 @@ class Upgrade(object):
         if sys.platform == "darwin":
             return runtime_root / "Contents" / "MacOS" / "helix"
 
-        raise MindError(f"Install failed: unsupported platform: {sys.platform}")
+        raise ApplicationError(f"Install failed: unsupported platform: {sys.platform}")
 
     @classmethod
     def resolve_runtime_root(cls, extract_dir: Path) -> Path:
@@ -263,19 +263,19 @@ class Upgrade(object):
                 elif dirs[0].name == runtime_name:
                     runtime_root = dirs[0]
                 else:
-                    raise MindError("Install failed: invalid backend package layout")
+                    raise ApplicationError("Install failed: invalid backend package layout")
             else:
-                raise MindError("Install failed: invalid backend package layout")
+                raise ApplicationError("Install failed: invalid backend package layout")
 
         runtime_exec = cls.backend_runtime_exec(runtime_root)
         if not runtime_exec.is_file():
-            raise MindError(f"Install failed: backend executable missing: {runtime_exec.name}")
+            raise ApplicationError(f"Install failed: backend executable missing: {runtime_exec.name}")
 
         if sys.platform == "darwin":
             try:
                 runtime_exec.chmod(runtime_exec.stat().st_mode | stat.S_IXUSR)
             except OSError as e:
-                raise MindError(f"Install failed: chmod backend executable failed: {e}") from e
+                raise ApplicationError(f"Install failed: chmod backend executable failed: {e}") from e
 
         return runtime_root
 
@@ -293,7 +293,7 @@ class Upgrade(object):
             return
 
         if sha256_actual != sha256_expect:
-            raise MindError(
+            raise ApplicationError(
                 f"Install failed: sha256 mismatch expect={sha256_expect} actual={sha256_actual}"
             )
 
@@ -309,7 +309,7 @@ class Upgrade(object):
         self.set_stage(state, "extracting")
 
         if archive_path.suffix.lower() != ".zip":
-            raise MindError(f"Install failed: unsupported archive type: {archive_path.suffix}")
+            raise ApplicationError(f"Install failed: unsupported archive type: {archive_path.suffix}")
 
         self.safe_extract_zip(archive_path, extract_dir)
         return self.resolve_runtime_root(extract_dir)
@@ -352,7 +352,7 @@ class Upgrade(object):
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
                 async with client.stream("GET", url) as resp:
                     if resp.status_code == 404:
-                        raise MindError(
+                        raise ApplicationError(
                             f"No backend upgrade package was found: {filename}"
                         )
 
@@ -382,13 +382,13 @@ class Upgrade(object):
                                 state["phase"] = min(1.0, done / total)
 
                     if 0 < total != done:
-                        raise MindError(
+                        raise ApplicationError(
                             f"Install failed: incomplete download expect={total} actual={done}"
                         )
 
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
-        except MindError:
+        except ApplicationError:
             raise
         except Exception as e:
             if signals.task_interrupt_active():
@@ -415,7 +415,7 @@ class Upgrade(object):
         version = str(remote.get("version") or "").strip() or "unknown"
 
         if not url:
-            raise MindError("No backend upgrade package is available for this platform.")
+            raise ApplicationError("No backend upgrade package is available for this platform.")
 
         target_dir = Path(install_dir).expanduser().resolve()
         filename   = Path(urlparse(url).path or "").name.strip() or f"runtime_{version}.zip"
@@ -530,7 +530,7 @@ class Upgrade(object):
             )
             raise
 
-        except MindError as error:
+        except ApplicationError as error:
             failed_stage = state.get("stage")
             if archive_path is not None:
                 self.cancel_download(
@@ -562,7 +562,7 @@ class Upgrade(object):
                 stage=failed_stage,
                 elapsed_ms=int((time.perf_counter() - started) * 1000),
             )
-            raise MindError(f"Install failed: {type(e).__name__}: {e}") from e
+            raise ApplicationError(f"Install failed: {type(e).__name__}: {e}") from e
 
         finally:
             if tmp_path is not None and tmp_path.exists():
@@ -602,7 +602,7 @@ class Upgrade(object):
                 level="ERROR",
                 attempts=max_retries,
             )
-            raise MindError(
+            raise ApplicationError(
                 f"No backend upgrade manifest is available after {max_retries} retries."
             )
 

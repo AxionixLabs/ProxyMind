@@ -194,6 +194,19 @@ class TuiSubmissionFlow(object):
         self._invalidate()
         return False
 
+    def enqueue_message(
+        self,
+        value: str,
+        *,
+        visible_text: str | None = None,
+    ) -> None:
+        """把外部提交的文本写入消息队列。"""
+        self.message_queue.put_nowait(TuiSubmission(
+            value=value,
+            editable_text=value if visible_text is None else visible_text,
+            paste_store={},
+        ))
+
     def _dispatch_stream_command(
         self,
         submission: TuiSubmission,
@@ -380,7 +393,7 @@ class TuiSubmissionFlow(object):
             return None
         self._exit_expiry_task = asyncio.create_task(
             self._expire_exit_confirmation(),
-            name="mind tui exit confirmation expiry",
+            name="tui exit confirmation expiry",
         )
 
     def _cancel_exit_expiry(self) -> None:

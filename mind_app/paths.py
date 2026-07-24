@@ -4,7 +4,7 @@
 import os
 import contextlib
 from pathlib import Path
-from engine.errors import MindError
+from engine.errors import ApplicationError
 from mind_core.config import default_config_path
 from mind_nova import const
 
@@ -13,12 +13,12 @@ HX_HOME_ENV = "HELIX_HOME"
 
 
 def mind_home() -> Path:
-    """返回 Mind 用户级统一目录。"""
+    """返回应用的用户级统一目录。"""
     return Path(os.environ.get(MD_HOME_ENV) or Path.home() / ".mind").expanduser()
 
 
 def helix_home() -> Path:
-    """返回 Helix 在 Mind 统一目录下的数据根。"""
+    """返回 Helix 在应用统一目录下的数据根。"""
     return Path(os.environ.get(HX_HOME_ENV) or mind_home() / "helix").expanduser()
 
 
@@ -28,22 +28,22 @@ def mind_mcp_servers_path() -> Path:
 
 
 def mind_config_path() -> Path:
-    """返回 Mind 主配置文件路径。"""
+    """返回应用主配置文件路径。"""
     return default_config_path()
 
 
 def mind_reports_dir() -> Path:
-    """返回 Mind 报告输出目录。"""
+    """返回应用报告输出目录。"""
     return mind_home() / "reports"
 
 
 def mind_history_dir() -> Path:
-    """返回 Mind 对话历史本地目录。"""
+    """返回对话历史本地目录。"""
     return mind_home() / "history"
 
 
 def mind_history_db_path() -> Path:
-    """返回 Mind 对话历史 SQLite 文件路径。"""
+    """返回对话历史 SQLite 文件路径。"""
     return mind_history_dir() / "history.db"
 
 
@@ -83,7 +83,7 @@ def ensure_mcp_servers_file() -> Path:
 
 
 def ensure_mind_home() -> Path:
-    """确保 Mind 用户级统一目录及常用子路径可写。"""
+    """确保应用的用户级目录及常用子路径可写。"""
     try:
         root = ensure_writable_dir(mind_home())
         ensure_writable_dir(mind_reports_dir())
@@ -91,7 +91,7 @@ def ensure_mind_home() -> Path:
         ensure_mcp_servers_file()
         return root
     except OSError as exc:
-        raise MindError(
+        raise ApplicationError(
             f"Home is not writable: {mind_home()} ({type(exc).__name__}: {exc})"
         ) from exc
 

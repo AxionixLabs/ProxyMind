@@ -2,9 +2,11 @@
 # Notes: ==== Mind™ ====
 
 import os
+import math
 import typing
 import asyncio
 import contextlib
+from dataclasses import dataclass
 from pathlib import Path
 from mcp.server.fastmcp import (
     Context,
@@ -15,6 +17,10 @@ from mind_app.frontend.contracts import Frontend
 from mind_app.frontend.sinks import NullApplicationSink
 from mind_app.interaction import NonInteractiveInteraction
 from mind_app.modes.result import RunResult
+from mind_app.history import (
+    HISTORY_LIMIT,
+    normalize_workspace
+)
 from mind_app.output.silent import create_silent_output_session
 from mind_app.paths import (
     ensure_mind_home,
@@ -41,12 +47,33 @@ from mind_nova.requests.access import (
 from mind_nova.services import service_endpoints
 from mind_nova import const
 
+DEFAULT_MCP_EXEC_TIMEOUT_SEC = 900.0
+
+
+@dataclass(frozen=True, slots=True)
+class MindMcpExecutionResult(object):
+    """描述一次 MCP 工具调用及其可续接会话。"""
+    run: RunResult
+    session_id: str | None = None
+
+    def to_dict(self) -> dict[str, typing.Any]:
+        """返回 MCP structured content 使用的字典。"""
+        result = self.run.to_dict()
+        result["session_id"] = self.session_id
+        return result
+
+
+@dataclass(slots=True)
+class _McpRequestState(object):
+    """记录单次 MCP 请求已经绑定的会话。"""
+    session_id: str | None = None
+
 
 class MindMcpRuntime(object):
-    """管理 stdio MCP 服务持有的长驻 Mind 运行时。"""
+    """管理 stdio MCP 服务持有的长驻应用运行时。"""
 
     def __init__(self, mind: Mind) -> None:
-        """绑定 Mind 实例并初始化串行调用锁。"""
+        """绑定主控制器并初始化串行调用锁。"""
         self.mind              = mind
         self.default_workspace = Path(mind.history_workspace).resolve()
 
@@ -54,7 +81,7 @@ class MindMcpRuntime(object):
 
     @classmethod
     async def open(cls, layout: ApplicationLayout) -> "MindMcpRuntime":
-        """创建并启动 MCP 服务使用的 Mind 运行时。"""
+        """创建并启动 MCP 服务使用的应用运行时。"""
         home   = ensure_mind_home()
         report = RunReport(str(mind_reports_dir()), label="mcp_server")
         pref   = Preferences(str(mind_config_path()))
@@ -82,8 +109,6 @@ class MindMcpRuntime(object):
             workspace_root=Path.cwd(),
         )
 
-        mind.bind_runtime(asyncio.get_running_loop(), asyncio.current_task())
-
         try:
             await pref.load_pref()
             service_endpoints.configure(await ServiceConfig().load_domain())
@@ -95,7 +120,7 @@ class MindMcpRuntime(object):
         return cls(mind)
 
     async def close(self) -> None:
-        """关闭 Mind 持有的外部 MCP、工具和报告资源。"""
+        """关闭主控制器持有的外部 MCP、工具和报告资源。"""
         await self.mind.close_runtime_resources()
 
     async def execute(
@@ -105,53 +130,131 @@ class MindMcpRuntime(object):
         mode: RunMode,
         access_mode: AccessMode,
         working_directory: str | None,
-    ) -> RunResult:
-        """在隔离会话中串行执行一次 Mind 请求。"""
+        timeout_sec: float | None = DEFAULT_MCP_EXEC_TIMEOUT_SEC,
+        session_id: str | None = None
+    ) -> MindMcpExecutionResult:
+        """串行执行一次支持超时和会话续接的模型请求。"""
         message = str(prompt or "").strip()
         if not message:
-            return RunResult(status="failed", error="prompt is empty")
+            return self._failed("prompt is empty")
 
-        async with self._call_lock:
-            try:
-                workspace = (
-                    Path(working_directory).expanduser().resolve()
-                    if working_directory
-                    else self.default_workspace
-                )
-            except (OSError, RuntimeError, ValueError) as error:
-                return RunResult(
-                    status="failed",
-                    error=f"working directory is invalid: {error}",
-                )
-            if not workspace.is_dir():
-                return RunResult(
-                    status="failed",
-                    error=f"working directory is unavailable: {workspace}",
-                )
-            self.mind.set_history_workspace(workspace)
+        if timeout_sec is not None and (
+            not math.isfinite(timeout_sec) or timeout_sec <= 0.0
+        ):
+            return self._failed("timeout_sec must be a positive finite number or null")
 
-            self.mind.reset_conversation(
+        try:
+            workspace = (
+                Path(working_directory).expanduser().resolve()
+                if working_directory
+                else self.default_workspace
+            )
+        except (OSError, RuntimeError, ValueError) as error:
+            return self._failed(f"working directory is invalid: {error}")
+        if not workspace.is_dir():
+            return self._failed(f"working directory is unavailable: {workspace}")
+
+        request = _McpRequestState()
+        try:
+            async with asyncio.timeout(timeout_sec):
+                async with self._call_lock:
+                    return await self._execute_locked(
+                        message=message,
+                        mode=mode,
+                        access_mode=access_mode,
+                        workspace=workspace,
+                        requested_session_id=(session_id or "").strip() or None,
+                        request=request,
+                    )
+        except TimeoutError:
+            assert timeout_sec is not None
+            return self._failed(
+                f"request timed out after {timeout_sec:g} seconds",
+                session_id=request.session_id,
+            )
+
+    async def _execute_locked(
+        self,
+        *,
+        message: str,
+        mode: RunMode,
+        access_mode: AccessMode,
+        workspace: Path,
+        requested_session_id: str | None,
+        request: _McpRequestState
+    ) -> MindMcpExecutionResult:
+        """在持有调用锁时选择会话并执行请求。"""
+        self.mind.set_history_workspace(workspace)
+
+        if requested_session_id is None:
+            metadata = self.mind.reset_conversation(
                 reason="mcp_tool_call",
                 source="mcp_server",
             )
-            return await self.mind.calling(
-                message=message,
-                mode=mode,
-                access_mode=access_mode,
+        else:
+            record = self._find_session(requested_session_id, workspace)
+            if record is None:
+                return self._failed(
+                    "session_id is unavailable for this working directory"
+                )
+            metadata = self.mind.resume_conversation(
+                record,
+                source="mcp_server",
             )
+            if metadata is None:
+                return self._failed("session_id is invalid")
+
+        request.session_id = metadata["sid"]
+
+        run = await self.mind.calling(
+            message=message,
+            mode=mode,
+            access_mode=access_mode,
+        )
+
+        return MindMcpExecutionResult(run=run, session_id=request.session_id)
+
+    def _find_session(
+        self,
+        session_id: str,
+        workspace: Path
+    ) -> dict[str, typing.Any] | None:
+        """查找当前工作区内可恢复的本地会话游标。"""
+        workspace_key = normalize_workspace(workspace)
+
+        for record in self.mind.recent_conversation_sessions(limit=HISTORY_LIMIT):
+            if (
+                record.get("sid") == session_id
+                and normalize_workspace(record.get("workspace")) == workspace_key
+            ):
+                return record
+
+        return None
+
+    @staticmethod
+    def _failed(
+        error: str,
+        *,
+        session_id: str | None = None
+    ) -> MindMcpExecutionResult:
+        """构造 MCP 工具调用的结构化失败结果。"""
+        return MindMcpExecutionResult(
+            run=RunResult(status="failed", error=error),
+            session_id=session_id,
+        )
 
 
 def create_mind_mcp_server(
     *,
     entry_file: str | None = None,
-    layout: ApplicationLayout | None = None,
+    layout: ApplicationLayout | None = None
 ) -> FastMCP[MindMcpRuntime]:
-    """创建提供 Mind agent 工具的 stdio MCP 服务。"""
+    """创建提供 agent 工具的 stdio MCP 服务。"""
     resolved_layout = layout or resolve_application_layout(entry_file=entry_file)
 
     @contextlib.asynccontextmanager
     async def lifespan(
-        _: FastMCP[MindMcpRuntime],
+        _: FastMCP[MindMcpRuntime]
     ) -> typing.AsyncIterator[MindMcpRuntime]:
         runtime = await MindMcpRuntime.open(resolved_layout)
         try:
@@ -162,8 +265,9 @@ def create_mind_mcp_server(
     server: FastMCP[MindMcpRuntime] = FastMCP(
         name=const.APP_DESC,
         instructions=(
-            "Use mind_exec to run one isolated Mind agent task in the configured "
-            "workspace. Calls are serialized by the server."
+            f"Use mind_exec to run {const.APP_DESC} agent tasks in the configured "
+            "workspace. Calls are serialized; pass a returned session_id to "
+            "continue a session."
         ),
         website_url=const.APP_URL,
         log_level="WARNING",
@@ -172,8 +276,10 @@ def create_mind_mcp_server(
 
     @server.tool(
         name="mind_exec",
-        title="Mind Exec",
-        description="执行一次隔离的 Mind agent 任务并返回结构化结果。",
+        title=f"{const.APP_DESC} Exec",
+        description=(
+            f"执行 {const.APP_DESC} agent 任务，并支持超时、取消和可选会话续接。"
+        ),
         structured_output=True,
     )
     async def mind_exec(
@@ -182,14 +288,19 @@ def create_mind_mcp_server(
         mode: RunMode = DEFAULT_RUN_MODE,
         access_mode: AccessMode = DEFAULT_ACCESS_MODE,
         working_directory: str | None = None,
+        timeout_sec: float | None = DEFAULT_MCP_EXEC_TIMEOUT_SEC,
+        session_id: str | None = None
     ) -> dict[str, typing.Any]:
-        """执行一次隔离的 Mind agent 任务并返回结构化结果。"""
+        """执行一次 agent 任务并返回结构化结果。"""
         runtime = context.request_context.lifespan_context
+
         result = await runtime.execute(
             prompt=prompt,
             mode=mode,
             access_mode=access_mode,
             working_directory=working_directory,
+            timeout_sec=timeout_sec,
+            session_id=session_id,
         )
         return result.to_dict()
 
@@ -198,9 +309,9 @@ def create_mind_mcp_server(
 
 async def run_mind_mcp_server(
     *,
-    entry_file: str | None = None,
+    entry_file: str | None = None
 ) -> int:
-    """通过 stdio 运行 Mind MCP 服务直至客户端断开。"""
+    """通过 stdio 运行 MCP 服务直至客户端断开。"""
     server = create_mind_mcp_server(entry_file=entry_file)
     await server.run_stdio_async()
     return 0

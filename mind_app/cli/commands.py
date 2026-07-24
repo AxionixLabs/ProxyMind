@@ -18,6 +18,9 @@ OutputFormat = typing.Literal["text", "json"]
 @dataclass(frozen=True, slots=True)
 class InteractiveCommand(object):
     """描述默认交互式入口。"""
+    prompt: str | None = None
+    images: tuple[str, ...] = ()
+    model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,19 +65,24 @@ class McpServerCommand(object):
     """描述 stdio MCP 服务入口。"""
 
 
-CliCommand: typing.TypeAlias = (
+RuntimeCommand: typing.TypeAlias = (
     InteractiveCommand
     | ExecCommand
     | BatchCommand
     | AgentListenCommand
-    | HelixUpgradeCommand
+)
+
+ApplicationCommand: typing.TypeAlias = RuntimeCommand | HelixUpgradeCommand
+
+CliCommand: typing.TypeAlias = (
+    ApplicationCommand
     | DoctorCommand
 )
 
 ParsedCommand: typing.TypeAlias = CliCommand | McpServerCommand
 
 
-def command_uses_helix(command: CliCommand) -> bool:
+def command_uses_helix(command: RuntimeCommand) -> bool:
     """返回命令是否要求启动并接入 Helix。"""
     if isinstance(command, (ExecCommand, BatchCommand, AgentListenCommand)):
         return command.helix

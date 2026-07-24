@@ -3,7 +3,7 @@
 
 import typing
 import asyncio
-from engine.errors import MindError
+from engine.errors import ApplicationError
 from mind_app.mcp.config import load_mcp_servers_file
 from mind_app.mcp.group import (
     ExternalMcpGroup,
@@ -23,10 +23,10 @@ if typing.TYPE_CHECKING:
 
 
 class ExternalMcpRuntime(object):
-    """管理 Mind 生命周期内的外部 MCP 连接和状态。"""
+    """管理应用生命周期内的外部 MCP 连接和状态。"""
 
     def __init__(self, mind: "Mind") -> None:
-        """绑定 Mind 实例，并初始化外部 MCP 运行时状态。"""
+        """绑定主控制器，并初始化外部 MCP 运行时状态。"""
         self._mind = mind
 
         self._group: typing.Optional[ExternalMcpGroup] = None
@@ -122,7 +122,7 @@ class ExternalMcpRuntime(object):
             await self._stop_unlocked()
             if isinstance(
                 exc,
-                (asyncio.CancelledError, KeyboardInterrupt, SystemExit, MindError),
+                (asyncio.CancelledError, KeyboardInterrupt, SystemExit, ApplicationError),
             ):
                 observe_exception("external_mcp.start.failed", exc)
                 raise

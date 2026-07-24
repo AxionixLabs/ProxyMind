@@ -6,7 +6,10 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from mind_app.cli import entry
+from mind_app.cli import (
+    bootstrap,
+    entry,
+)
 from mind_app.cli import frontend as cli_frontend
 from mind_app.cli.commands import (
     AgentListenCommand,
@@ -21,6 +24,10 @@ from mind_app.cli.frontend import (
     resolve_cli_design,
     resolve_cli_frontend,
 )
+from mind_app.cli.help import (
+    ANSI_ACCENT,
+    ANSI_MUTED,
+)
 from mind_app.cli.parser import (
     create_cli_parser,
     parse_cli_command,
@@ -33,7 +40,7 @@ from mind_app.frontend.sinks import ConsoleApplicationSink
 from mind_app.frontend.sinks import JsonApplicationSink
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_core.application_paths import ApplicationLayout
-from engine.errors import MindError
+from engine.errors import ApplicationError
 
 
 def test_gravity_option_is_removed() -> None:
@@ -96,6 +103,178 @@ def test_cli_parser_returns_typed_commands() -> None:
         output_format="json"
     )
     assert parse_cli_command(["mcp-server"]) == McpServerCommand()
+
+
+def test_cli_help_uses_unified_plain_layout(monkeypatch) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    help_text = create_cli_parser().format_help()
+
+    assert help_text.startswith(
+        "Mind CLI\n\n"
+        "不指定子命令时进入交互式界面。\n\n"
+        "Usage: mind [OPTIONS]\n"
+        "       mind [OPTIONS] <COMMAND> [ARGS]\n"
+    )
+    assert "\nCommands:\n  exec" in help_text
+    assert "\n  help            显示此消息或指定子命令的帮助" in help_text
+    assert "\n    listen" not in help_text
+    assert "\n    upgrade" not in help_text
+    assert "\nOptions:\n  -h, --help" in help_text
+    assert (
+        "\n          显示帮助信息\n\n"
+        "  -V, --version\n"
+    ) in help_text
+    assert "-V, --version" in help_text
+    assert "positional arguments" not in help_text
+    assert "optional arguments" not in help_text
+    assert "\x1b[" not in help_text
+
+
+def test_cli_help_separates_argument_and_option_blocks(
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    with pytest.raises(SystemExit) as exit_info:
+        create_cli_parser().parse_args(["exec", "--help"])
+
+    assert exit_info.value.code == 0
+    exec_help = capsys.readouterr().out
+    assert (
+        "  PROMPT\n"
+        "          任务内容；使用 '-' 或管道时从标准输入读取\n\n"
+        "Options:"
+    ) in exec_help
+    assert (
+        "  --mode MODE\n"
+        "          运行模式，默认 xtra\n\n"
+        "  --access ACCESS_MODE\n"
+    ) in exec_help
+
+
+def test_cli_help_uses_accent_and_muted_terminal_colors(monkeypatch) -> None:
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("FORCE_COLOR", "1")
+
+    help_text = create_cli_parser().format_help()
+
+    assert f"{ANSI_ACCENT}Mind CLI" in help_text
+    assert f"{ANSI_ACCENT}Commands:" in help_text
+    assert f"{ANSI_MUTED}不指定子命令时进入交互式界面。" in help_text
+    assert f"{ANSI_MUTED}执行单次非交互任务" in help_text
+
+
+def test_no_color_overrides_forced_help_color(monkeypatch) -> None:
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    assert "\x1b[" not in create_cli_parser().format_help()
+
+
+@pytest.mark.parametrize("flag", ("-h", "--help"))
+def test_root_help_flags_share_output(monkeypatch, capsys, flag: str) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    with pytest.raises(SystemExit) as exit_info:
+        create_cli_parser().parse_args([flag])
+
+    assert exit_info.value.code == 0
+    assert capsys.readouterr().out.startswith("Mind CLI\n\n")
+
+
+@pytest.mark.parametrize(
+    ("arguments", "usage"),
+    (
+        (("exec", "--help"), "Usage: mind exec [OPTIONS] [PROMPT]"),
+        (("batch", "--help"), "Usage: mind batch [OPTIONS] <SOURCE>..."),
+        (("agent", "--help"), "Usage: mind agent <COMMAND> [ARGS]"),
+        (("agent", "listen", "--help"), "Usage: mind agent listen [OPTIONS]"),
+        (("helix", "--help"), "Usage: mind helix <COMMAND> [ARGS]"),
+        (("helix", "upgrade", "--help"), "Usage: mind helix upgrade [OPTIONS]"),
+        (("doctor", "--help"), "Usage: mind doctor [OPTIONS]"),
+        (("mcp-server", "--help"), "Usage: mind mcp-server [OPTIONS]"),
+        (("help", "--help"), "Usage: mind help [COMMAND]..."),
+    ),
+)
+def test_subcommand_help_uses_stable_usage(
+    monkeypatch,
+    capsys,
+    arguments: tuple[str, ...],
+    usage: str,
+) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    with pytest.raises(SystemExit) as exit_info:
+        create_cli_parser().parse_args(arguments)
+
+    assert exit_info.value.code == 0
+    assert usage in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("arguments", "usage"),
+    (
+        (("help",), "Usage: mind [OPTIONS]"),
+        (("help", "exec"), "Usage: mind exec [OPTIONS] [PROMPT]"),
+        (("help", "agent"), "Usage: mind agent <COMMAND> [ARGS]"),
+        (
+            ("help", "agent", "listen"),
+            "Usage: mind agent listen [OPTIONS]",
+        ),
+        (
+            ("help", "helix", "upgrade"),
+            "Usage: mind helix upgrade [OPTIONS]",
+        ),
+    ),
+)
+def test_help_command_resolves_command_paths(
+    monkeypatch,
+    capsys,
+    arguments: tuple[str, ...],
+    usage: str,
+) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    with pytest.raises(SystemExit) as exit_info:
+        parse_cli_command(arguments)
+
+    assert exit_info.value.code == 0
+    assert usage in capsys.readouterr().out
+
+
+def test_help_command_rejects_unknown_path(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    with pytest.raises(SystemExit) as exit_info:
+        parse_cli_command(["help", "missing"])
+
+    assert exit_info.value.code == 2
+    assert "unknown help topic: missing" in capsys.readouterr().err
+
+
+def test_process_entry_parses_command_once(monkeypatch, tmp_path) -> None:
+    command = ExecCommand(prompt="inspect")
+    parse = Mock(return_value=command)
+    route = AsyncMock(return_value=0)
+    outro = Mock()
+
+    monkeypatch.setattr(entry, "parse_cli_command", parse)
+    monkeypatch.setattr(entry, "main", route)
+    monkeypatch.setattr(entry, "emit_entry_outro", outro)
+
+    result = entry.run(
+        entry_file=str(tmp_path / "mind.py"),
+        arguments=["exec", "inspect"],
+    )
+
+    assert result == 0
+    parse.assert_called_once_with(["exec", "inspect"])
+    route.assert_awaited_once_with(
+        command,
+        entry_file=str(tmp_path / "mind.py"),
+    )
+    outro.assert_called_once_with(command)
 
 
 def test_exec_reads_prompt_from_standard_input() -> None:
@@ -185,7 +364,7 @@ def test_tui_frontend_requires_interactive_terminal(
         SimpleNamespace(isatty=lambda: stdout_tty),
     )
 
-    with pytest.raises(MindError, match="interactive stdin and stdout"):
+    with pytest.raises(ApplicationError, match="interactive stdin and stdout"):
         resolve_cli_frontend("tui")
 
 
@@ -230,27 +409,22 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
         upgrade_calls.append((context, kwargs))
         return True
 
-    monkeypatch.setattr(entry.logger, "remove", lambda: None)
-    monkeypatch.setattr(entry, "observe", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(entry, "RunReport", lambda _path: report)
-    monkeypatch.setattr(
-        entry,
-        "parse_cli_command",
-        lambda: command,
-    )
-    monkeypatch.setattr(entry, "resolve_cli_frontend", lambda _mode: frontend)
-    monkeypatch.setattr(entry, "resolve_cli_design", lambda _frontend, _mode: design)
-    monkeypatch.setattr(entry, "resolve_application_layout", lambda **_kwargs: app_layout)
-    monkeypatch.setattr(entry, "ensure_mind_home", lambda: tmp_path)
-    monkeypatch.setattr(entry, "mind_reports_dir", lambda: tmp_path / "reports")
-    monkeypatch.setattr(entry, "mind_config_path", lambda: tmp_path / "config.json")
-    monkeypatch.setattr(entry, "ensure_mcp_servers_file", lambda: None)
-    monkeypatch.setattr(entry, "Preferences", lambda _path: object())
-    monkeypatch.setattr(entry, "resolve_service_runtime", lambda **_kwargs: runtime_spec)
-    monkeypatch.setattr(entry, "route_shell_tools", lambda _supports: None)
-    monkeypatch.setattr(entry, "clear_exec_env_cache", lambda: None)
-    monkeypatch.setattr(entry, "ensure_service_runtime_asset", ensure_upgrade)
-    result = await entry._run_main(
+    monkeypatch.setattr(bootstrap, "observe", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(bootstrap, "RunReport", lambda _path: report)
+    monkeypatch.setattr(bootstrap, "resolve_cli_frontend", lambda _mode: frontend)
+    monkeypatch.setattr(bootstrap, "resolve_cli_design", lambda _frontend, _mode: design)
+    monkeypatch.setattr(bootstrap, "resolve_application_layout", lambda **_kwargs: app_layout)
+    monkeypatch.setattr(bootstrap, "ensure_mind_home", lambda: tmp_path)
+    monkeypatch.setattr(bootstrap, "mind_reports_dir", lambda: tmp_path / "reports")
+    monkeypatch.setattr(bootstrap, "mind_config_path", lambda: tmp_path / "config.json")
+    monkeypatch.setattr(bootstrap, "ensure_mcp_servers_file", lambda: None)
+    monkeypatch.setattr(bootstrap, "Preferences", lambda _path: object())
+    monkeypatch.setattr(bootstrap, "resolve_service_runtime", lambda **_kwargs: runtime_spec)
+    monkeypatch.setattr(bootstrap, "route_shell_tools", lambda _supports: None)
+    monkeypatch.setattr(bootstrap, "clear_exec_env_cache", lambda: None)
+    monkeypatch.setattr(bootstrap, "ensure_service_runtime_asset", ensure_upgrade)
+    result = await bootstrap._run_application(
+        command,
         str(tmp_path / "mind.py"),
         SimpleNamespace(),
     )
@@ -284,7 +458,7 @@ async def test_tui_finalization_prints_summary_after_cleanup(
         exit_code=exit_code,
     )
 
-    await entry._finalize_mind(
+    await bootstrap.finalize_application(
         mind,
         output_mode="tui",
         completed=True,
@@ -305,7 +479,7 @@ async def test_tui_finalization_skips_summary_for_incomplete_session() -> None:
         exit_code=0,
     )
 
-    await entry._finalize_mind(
+    await bootstrap.finalize_application(
         mind,
         output_mode="tui",
         completed=False,
@@ -328,7 +502,7 @@ async def test_tui_finalization_skips_summary_when_cleanup_fails() -> None:
     )
 
     with pytest.raises(RuntimeError, match="close failed"):
-        await entry._finalize_mind(
+        await bootstrap.finalize_application(
             mind,
             output_mode="tui",
             completed=True,

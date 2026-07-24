@@ -26,7 +26,7 @@ async def api_healthz() -> dict[str, str | bool]:
     """返回配置服务健康状态。"""
     return {
         "ok"        : True,
-        "service"   : "mind config",
+        "service"   : "configuration",
         "transport" : "http"
     }
 
@@ -36,7 +36,7 @@ async def api_version() -> dict[str, str | bool]:
     """返回配置服务版本信息。"""
     return {
         "ok"      : True,
-        "service" : "mind config",
+        "service" : "configuration",
         "version" : const.APP_VERSION
     }
 

@@ -14,7 +14,7 @@ SOURCE_ENTRY_NAME    = f"{const.APP_NAME}.py"
 
 @dataclass(frozen=True, slots=True)
 class ApplicationLayout(object):
-    """描述当前 Mind 入口及其本地资源目录。"""
+    """描述当前应用入口及其本地资源目录。"""
     mode: ApplicationMode
     platform: str
     executable: Path

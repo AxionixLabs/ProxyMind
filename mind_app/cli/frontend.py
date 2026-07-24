@@ -3,7 +3,7 @@
 
 import sys
 import functools
-from engine.errors import MindError
+from engine.errors import ApplicationError
 from mind_nova import const
 from mind_app.frontend.contracts import Frontend
 from mind_app.interaction import NonInteractiveInteraction
@@ -29,10 +29,10 @@ def _require_tui_terminal() -> None:
         and stream_is_interactive(sys.stdout)
     ):
         return None
-    raise MindError(
+    raise ApplicationError(
         f"TUI requires interactive stdin and stdout. Run {const.APP_DESC} "
         "in a terminal "
-        "or use 'mind exec' for non-interactive execution."
+        f"or use '{const.APP_NAME} exec' for non-interactive execution."
     )
 
 

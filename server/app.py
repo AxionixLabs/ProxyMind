@@ -8,7 +8,7 @@ from .routers import register_routers
 
 
 def create_app() -> FastAPI:
-    """创建 Mind 配置服务应用。"""
+    """创建配置服务应用。"""
     app = FastAPI()
     app.state.agent_example = None
     register_routers(app)

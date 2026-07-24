@@ -130,7 +130,7 @@ def normalize_plan_arguments(
 
 
 def planning_tools() -> list[ClientTool]:
-    """返回 Mind 内置规划工具列表。"""
+    """返回内置规划工具列表。"""
 
     async def plan_steps_handler(
         arguments: dict[str, typing.Any],

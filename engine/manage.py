@@ -12,7 +12,7 @@ import subprocess
 import contextlib
 from urllib.parse import urlparse
 from mcp import types as mcp_types
-from engine.errors import MindError
+from engine.errors import ApplicationError
 from engine.observability import (
     observe,
     observe_exception
@@ -262,7 +262,7 @@ class ServerManage(object):
         if await self.wait_until_ready(wait_sec, interval):
             return None
 
-        raise MindError("MCP not ready (bootstrap timeout)")
+        raise ApplicationError("MCP not ready (bootstrap timeout)")
 
     async def ensure_running(self, wait_sec: float = 10.0, interval: float = 0.3) -> None:
         """串行确保本地后台服务可用。"""
@@ -291,7 +291,7 @@ class ServerManage(object):
             process = await asyncio.create_subprocess_exec(*self.cmd, **kwargs)
         except Exception as e:
             observe_exception("server.spawn.failed", e, port=self.port)
-            raise MindError(f"Spawn failed: {type(e).__name__}: {e}") from e
+            raise ApplicationError(f"Spawn failed: {type(e).__name__}: {e}") from e
 
         observe("server.spawn.complete", port=self.port, pid=process.pid)
 

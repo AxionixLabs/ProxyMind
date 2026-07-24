@@ -12,7 +12,7 @@ from mind_nova import const
 
 
 class RemoteServices(object):
-    """读取并验证 Mind 远程服务元数据。"""
+    """读取并验证远程服务元数据。"""
 
     background: list = []
 

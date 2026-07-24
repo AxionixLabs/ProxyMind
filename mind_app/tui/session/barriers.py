@@ -8,7 +8,7 @@ from engine.observability import (
     observe,
     observe_exception
 )
-from engine.errors import MindError
+from engine.errors import ApplicationError
 from mind_app.runtime.mcp.service_runtime import service_runtime_asset_missing
 from ..core.runtime import TuiRuntime
 from ..core.styles import (
@@ -83,7 +83,7 @@ class TuiForegroundTasks(object):
                 on_failed=on_failed,
                 on_cancelled=on_cancelled,
             ),
-            name=f"mind tui foreground {key}",
+            name=f"tui foreground {key}",
         )
         self._tasks[key] = task
         task.add_done_callback(
@@ -167,7 +167,7 @@ class TuiForegroundTasks(object):
                 return True
             try:
                 context = self.mind.require_service_runtime_context()
-            except MindError:
+            except ApplicationError:
                 return False
             if service_runtime_asset_missing(context):
                 return False
@@ -249,7 +249,7 @@ class TuiForegroundTasks(object):
             )
             raise
 
-        except MindError as error:
+        except ApplicationError as error:
             if finish_activity is not None:
                 await self.mind.await_cleanup(finish_activity())
 

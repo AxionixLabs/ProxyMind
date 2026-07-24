@@ -38,10 +38,10 @@ class ToolRuntime(typing.Protocol):
 
 
 class ClientToolProvider(object):
-    """提供 Mind 内置客户端工具注册表。"""
+    """提供内置客户端工具注册表。"""
 
     def __init__(self, mind: "Mind") -> None:
-        """保存 Mind 上下文。"""
+        """保存主控制器上下文。"""
         self._mind = mind
 
     def registry(self) -> typing.Any:
@@ -53,7 +53,7 @@ class ExternalMcpProvider(object):
     """提供已启动的外部 MCP 工具分组。"""
 
     def __init__(self, mind: "Mind") -> None:
-        """保存 Mind 上下文。"""
+        """保存主控制器上下文。"""
         self._mind = mind
 
     def group(self) -> typing.Any:

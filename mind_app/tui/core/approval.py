@@ -75,7 +75,7 @@ class TuiApproval(object):
         self.invalidate()
         self.expiry_task = asyncio.create_task(
             self._expire(),
-            name="mind tui approval expiry",
+            name="tui approval expiry",
         )
 
         try:

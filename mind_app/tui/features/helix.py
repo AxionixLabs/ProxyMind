@@ -3,7 +3,7 @@
 
 import typing
 import functools
-from engine.errors import MindError
+from engine.errors import ApplicationError
 from engine.file_assist import FileAssist
 from mind_app.frontend import ApplicationView
 from mind_app.presentation.mcp_status import render_mcp_status_block
@@ -108,7 +108,7 @@ def _present_helix_result(
 
 def _helix_error_detail(error: BaseException) -> str:
     """返回 Helix 操作失败时使用的简短详情。"""
-    if isinstance(error, MindError):
+    if isinstance(error, ApplicationError):
         return str(error.message)
 
     message = str(error).strip()

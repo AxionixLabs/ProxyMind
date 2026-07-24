@@ -39,11 +39,13 @@ class TuiSessionState(object):
         pref_config: dict[str, typing.Any],
         model: str,
         workspace_label: str,
+        model_override: str | None = None,
         mode: RunMode = DEFAULT_RUN_MODE,
         access_mode: str = DEFAULT_ACCESS_MODE,
     ) -> None:
         self.pref_config     = pref_config
         self.model           = model
+        self.model_override  = model_override
         self.workspace_label = workspace_label
         self.mode            = mode
         self.access_mode     = access_mode
@@ -51,15 +53,42 @@ class TuiSessionState(object):
         self.workspace_refreshed_at = time.monotonic()
 
     @classmethod
-    def create(cls, mind: "Mind", runtime: TuiRuntime) -> "TuiSessionState":
+    def create(
+        cls,
+        mind: "Mind",
+        runtime: TuiRuntime,
+        *,
+        model_override: str | None = None,
+    ) -> "TuiSessionState":
         """根据控制器缓存和已预载的运行时上下文创建会话状态。"""
-        pref_config = mind.pref.to_config()
+        pref_config = cls._apply_model_override(
+            mind.pref.to_config(),
+            model_override,
+        )
 
         return cls(
             pref_config=pref_config,
             model=primary_model_from_config(pref_config),
+            model_override=model_override,
             workspace_label=runtime.context.workspace_label,
         )
+
+    @staticmethod
+    def _apply_model_override(
+        pref_config: dict[str, typing.Any],
+        model: str | None,
+    ) -> dict[str, typing.Any]:
+        """把临时模型选择合并到当前会话配置。"""
+        if model is None:
+            return pref_config
+
+        result = dict(pref_config)
+        current = result.get("primary")
+        primary = dict(current) if isinstance(current, dict) else {}
+        primary["model"] = model
+        primary["enabled"] = True
+        result["primary"] = primary
+        return result
 
     def prompt_context(self) -> PromptContext:
         """生成当前输入区和 footer 使用的上下文。"""
@@ -101,10 +130,13 @@ class TuiSessionState(object):
         else:
             pref_config = await mind.fresh_pref_config(ttl_sec=ttl_sec)
 
-        self.pref_config = pref_config
-        self.model = primary_model_from_config(pref_config, self.model)
+        self.pref_config = self._apply_model_override(
+            pref_config,
+            self.model_override,
+        )
+        self.model = primary_model_from_config(self.pref_config, self.model)
 
-        return pref_config
+        return self.pref_config
 
     def merge_primary(
         self,
@@ -120,6 +152,11 @@ class TuiSessionState(object):
 
         if overrides:
             primary.update(overrides)
+
+        if "model" in saved_primary or (
+            overrides is not None and "model" in overrides
+        ):
+            self.model_override = None
 
         self.pref_config = dict(self.pref_config)
         self.pref_config["primary"] = primary

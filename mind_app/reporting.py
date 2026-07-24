@@ -18,7 +18,7 @@ DEBUG_LOG_FORMAT = (
 
 
 class RunReport(object):
-    """管理单次 Mind 进程的报告和日志目录。"""
+    """管理单次应用进程的报告和日志目录。"""
 
     def __init__(self, total_path: str, label: typing.Optional[str] = None) -> None:
         self.total_path = total_path
