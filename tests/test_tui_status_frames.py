@@ -130,4 +130,5 @@ def test_status_sweep_uses_display_width_and_adaptive_speed() -> None:
     )
 
     assert 0.0 < wait_short_step < tool_short_step < tool_long_step < 1.0
+    assert SWEEP_PROFILES["wait"].tail_span > SWEEP_PROFILES["tool"].tail_span
     assert status_phase_rate("tool") == status_phase_rate("wait") == 1.0

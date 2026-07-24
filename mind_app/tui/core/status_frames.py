@@ -9,30 +9,30 @@ from .models import FormattedText
 
 StatusFamily = typing.Literal["tool", "wait"]
 
-ColorStop = tuple[float, str]
+SWEEP_ENTRY_PAD    = 1.2
+SWEEP_PEAK_RADIUS  = 0.58
+SWEEP_LEAD_SPAN    = 1.25
+SWEEP_TAIL_SPAN    = 5.2
+SWEEP_MIN_DURATION = 1.75
+SWEEP_MAX_DURATION = 2.65
 
-SWEEP_REFRESH_PER_SECOND = 30
-SWEEP_ENTRY_PAD          = 1.2
-SWEEP_PEAK_RADIUS        = 0.58
-SWEEP_LEAD_SPAN          = 1.25
-SWEEP_TAIL_SPAN          = 5.2
-SWEEP_MIN_DURATION       = 1.75
-SWEEP_MAX_DURATION       = 2.65
+SWEEP_REFRESH_PER_SECOND   = 30
 SPINNER_REFRESH_PER_SECOND = 10
+
 SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
 
 @dataclass(frozen=True, slots=True)
 class SweepProfile(object):
     """描述状态族的字符、配色和相对扫光速度。"""
-
     dim_glyph: str
     peak_glyph: str
     speed_factor: float
+    tail_span: float
     breathe_rate: float
     indicator_dim: str
     indicator_peak: str
-    color_stops: tuple[ColorStop, ...]
+    color_stops: tuple[tuple[float, str], ...]
 
 
 SWEEP_PROFILES: dict[StatusFamily, SweepProfile] = {
@@ -40,12 +40,13 @@ SWEEP_PROFILES: dict[StatusFamily, SweepProfile] = {
         dim_glyph="◦",
         peak_glyph="•",
         speed_factor=1.08,
+        tail_span=5.2,
         breathe_rate=4.7,
         indicator_dim="#5A4B42",
         indicator_peak="#DCC8AB",
         color_stops=(
-            (0.00, "#5A4B42"),
-            (0.18, "#755F4E"),
+            (0.00, "#755F4E"),
+            (0.18, "#8D7358"),
             (0.44, "#A48662"),
             (0.72, "#D8B77F"),
             (0.90, "#F6DCA8"),
@@ -55,13 +56,14 @@ SWEEP_PROFILES: dict[StatusFamily, SweepProfile] = {
     "wait": SweepProfile(
         dim_glyph="◦",
         peak_glyph="•",
-        speed_factor=0.92,
+        speed_factor=0.80,
+        tail_span=6.0,
         breathe_rate=3.9,
         indicator_dim="#465652",
         indicator_peak="#B5CAC4",
         color_stops=(
-            (0.00, "#465652"),
-            (0.18, "#667873"),
+            (0.00, "#667873"),
+            (0.18, "#71847E"),
             (0.44, "#7C8F89"),
             (0.72, "#A4B5B0"),
             (0.90, "#C5D4CF"),
@@ -69,18 +71,6 @@ SWEEP_PROFILES: dict[StatusFamily, SweepProfile] = {
         ),
     ),
 }
-
-
-def status_interval(family: StatusFamily) -> float:
-    """返回状态族的统一刷新间隔。"""
-    _profile(family)
-    return 1 / SWEEP_REFRESH_PER_SECOND
-
-
-def status_phase_rate(family: StatusFamily) -> float:
-    """返回以真实秒数推进的动画相位速率。"""
-    _profile(family)
-    return 1.0
 
 
 def render_status_fragments(
@@ -110,6 +100,18 @@ def render_status_fragments(
     return out
 
 
+def status_interval(family: StatusFamily) -> float:
+    """返回状态族的统一刷新间隔。"""
+    _profile(family)
+    return 1 / SWEEP_REFRESH_PER_SECOND
+
+
+def status_phase_rate(family: StatusFamily) -> float:
+    """返回以真实秒数推进的动画相位速率。"""
+    _profile(family)
+    return 1.0
+
+
 def status_indicator_fragment(
     phase: float,
     *,
@@ -134,7 +136,9 @@ def status_indicator_fragment(
         profile.indicator_peak,
         _smoothstep(breathe) * 0.72,
     )
+
     glyph = profile.peak_glyph if breathe >= 0.5 else profile.dim_glyph
+
     return _style(color), glyph
 
 
@@ -156,6 +160,16 @@ def spinner_indicator_fragment(
     return style, frame
 
 
+def _sweep_duration(span: int) -> float:
+    """返回随文本宽度温和增长的基础扫光周期。"""
+    width = max(1, int(span))
+
+    return max(
+        SWEEP_MIN_DURATION,
+        min(SWEEP_MAX_DURATION, 1.55 + (width * 0.035)),
+    )
+
+
 def _sweep_fragments(
     text: str,
     *,
@@ -175,7 +189,12 @@ def _sweep_fragments(
             out.append((_style(dim_color), char))
             continue
 
-        intensity = _sweep_intensity(position, focus=focus)
+        intensity = _sweep_intensity(
+            position,
+            focus=focus,
+            tail_span=profile.tail_span,
+        )
+
         color = _gradient_color(profile.color_stops, intensity)
         out.append((_style(color), char))
 
@@ -190,7 +209,7 @@ def _sweep_focus(
 ) -> float:
     """按文本宽度和真实时间计算循环光头位置。"""
     width    = max(1, int(span))
-    exit_pad = SWEEP_PEAK_RADIUS + SWEEP_TAIL_SPAN
+    exit_pad = SWEEP_PEAK_RADIUS + profile.tail_span
 
     travel = max(
         1.0,
@@ -201,33 +220,28 @@ def _sweep_focus(
     return ((max(0.0, float(elapsed)) * speed) % travel) - SWEEP_ENTRY_PAD
 
 
-def _sweep_duration(span: int) -> float:
-    """返回随文本宽度温和增长的基础扫光周期。"""
-    width = max(1, int(span))
-
-    return max(
-        SWEEP_MIN_DURATION,
-        min(SWEEP_MAX_DURATION, 1.55 + (width * 0.035)),
-    )
-
-
-def _sweep_intensity(position: float, *, focus: float) -> float:
+def _sweep_intensity(
+    position: float,
+    *,
+    focus: float,
+    tail_span: float = SWEEP_TAIL_SPAN
+) -> float:
     """计算带短前沿和长尾迹的连续扫光强度。"""
-    delta = float(position) - float(focus)
-
+    delta    = float(position) - float(focus)
     distance = abs(delta)
+
     if distance <= SWEEP_PEAK_RADIUS:
         core = distance / max(0.001, SWEEP_PEAK_RADIUS)
         return 1.0 - (0.06 * _smoothstep(core))
 
-    span       = SWEEP_LEAD_SPAN if delta >= 0.0 else SWEEP_TAIL_SPAN
+    span       = SWEEP_LEAD_SPAN if delta >= 0.0 else tail_span
     normalized = (distance - SWEEP_PEAK_RADIUS) / max(0.001, span)
     intensity  = 0.94 * (1.0 - _smoothstep(normalized))
 
     return max(0.0, min(1.0, intensity))
 
 
-def _gradient_color(stops: tuple[ColorStop, ...], intensity: float) -> str:
+def _gradient_color(stops: tuple[tuple[float, str], ...], intensity: float) -> str:
     """在颜色停靠点之间插值生成当前强度颜色。"""
     level = max(0.0, min(1.0, float(intensity)))
     if level <= stops[0][0]:
@@ -248,7 +262,7 @@ def _gradient_color(stops: tuple[ColorStop, ...], intensity: float) -> str:
 
 def _character_cells(text: str) -> list[tuple[float, str]]:
     """返回每个字符在终端显示列中的中心位置。"""
-    cursor = 0
+    cursor: int = 0
 
     cells: list[tuple[float, str]] = []
 

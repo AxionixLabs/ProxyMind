@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import pytest
 from prompt_toolkit.utils import get_cwidth
 from unittest.mock import Mock
 
@@ -84,7 +85,7 @@ def test_queued_submission_restores_information_footer() -> None:
     runtime.execution_active = True
     runtime.screen.input.buffer.text = "queued task"
 
-    runtime.submissions.accept_input(runtime.screen.input.buffer)
+    runtime.screen.input.buffer.validate_and_handle()
 
     text = _fragments_text(runtime.screen._footer_fragments())
 
@@ -107,10 +108,63 @@ def test_foreground_barrier_keeps_normal_input_in_visible_queue() -> None:
     runtime.set_foreground_active(True)
     runtime.screen.input.buffer.text = "next task"
 
-    runtime.submissions.accept_input(runtime.screen.input.buffer)
+    runtime.screen.input.buffer.validate_and_handle()
 
     assert runtime.submissions.queued_messages.active
     assert runtime.submissions.message_queue.empty()
+
+
+@pytest.mark.anyio
+async def test_queued_paste_restores_editable_state_and_reuses_number() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    first_text = "a" * 1200
+    second_text = "b" * 1200
+    replacement_text = "c" * 1200
+
+    first = runtime.input_model._display_paste(first_text, "")
+    second = runtime.input_model._display_paste(second_text, first)
+    runtime.screen.input.buffer.text = f"{first}\n{second}"
+
+    runtime.screen.input.buffer.validate_and_handle()
+
+    assert runtime.submissions.queued_messages.active
+    assert runtime.input_model.submission_state() == {}
+    assert runtime.submissions.rollback_queued_input()
+    assert runtime.screen.input.buffer.text == f"{first}\n{second}"
+    assert set(runtime.input_model.submission_state()) == {first, second}
+    assert runtime.input_model.history.get_strings() == []
+
+    replacement = runtime.input_model._display_paste(
+        replacement_text,
+        second,
+    )
+    assert replacement == first
+    runtime.screen.input.buffer.text = f"{second}\n{replacement}"
+    runtime.screen.input.buffer.validate_and_handle()
+
+    value = await runtime.read_message(PromptContext(mode="chat", model="test"))
+
+    assert value == f"{second_text}\n{replacement_text}"
+    assert runtime.input_model.submission_state() == {}
+
+
+@pytest.mark.anyio
+async def test_queued_pastes_keep_independent_placeholder_snapshots() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    contents = ("a" * 1200, "b" * 1200)
+
+    for content in contents:
+        placeholder = runtime.input_model._display_paste(content, "")
+        assert placeholder == "[Pasted Content 1200 chars]"
+        runtime.screen.input.buffer.text = placeholder
+        runtime.screen.input.buffer.validate_and_handle()
+
+    first = await runtime.read_message(PromptContext(mode="chat", model="test"))
+    second = await runtime.read_message(PromptContext(mode="chat", model="test"))
+
+    assert (first, second) == contents
 
 
 def test_streaming_rejected_command_never_enters_message_queue() -> None:

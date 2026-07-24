@@ -37,6 +37,17 @@ def test_deleted_history_entry_is_available_without_submit() -> None:
     assert model.history.get_strings() == ["first input", "second input"]
 
 
+def test_rollback_latest_removes_storage_and_navigation_entry() -> None:
+    model = TuiInputModel()
+    model.history.append_string("first input")
+    model.history.append_string("queued input")
+
+    model.rollback_submission_history("queued input")
+
+    assert model.history.get_strings() == ["first input"]
+    assert list(model.history.load_history_strings()) == ["first input"]
+
+
 def test_history_navigation_restores_draft_and_cursor() -> None:
     model = TuiInputModel()
     model.history.append_string("previous input")

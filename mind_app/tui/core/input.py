@@ -27,14 +27,14 @@ from ..prompting.ghost import (
     iter_ghost_templates
 )
 from ..prompting.paste import (
-    describe_paste,
     format_paste_placeholder,
+    iter_paste_placeholders,
     parse_paste_placeholder,
     paste_line_count
 )
 from ..prompting.skills import SkillTokenLexer
 
-INPUT_BUFFER_NAME = "mind-input"
+INPUT_BUFFER_NAME = "prompt-input"
 
 
 class TuiInputHistory(InMemoryHistory):
@@ -44,14 +44,16 @@ class TuiInputHistory(InMemoryHistory):
         """仅在最后一项匹配时撤销对应历史记录。"""
         if self._storage and self._storage[-1] == text:
             self._storage.pop()
+        if self._loaded_strings and self._loaded_strings[0] == text:
+            self._loaded_strings.pop(0)
 
 
 class TuiAutoSuggest(AutoSuggest):
     """生成 TUI 输入区的行内命令和模板建议。"""
 
     SLASH_HINTS: typing.Final[dict[str, str]] = {
-        "/model"   : " <model-id>",
-        "/model "  : "<model-id>",
+        "/model"  : " <model-id>",
+        "/model " : "<model-id>",
     }
 
     def __init__(self) -> None:
@@ -96,10 +98,6 @@ class TuiInputModel(object):
 
     SHELL_COMMAND_HINT_EXAMPLE: typing.Final[str] = "Example: !ls"
 
-    SHELL_COMMAND_HINT: typing.Final[str] = (
-        f"{SHELL_COMMAND_HINT_TEXT}  {SHELL_COMMAND_HINT_EXAMPLE}"
-    )
-
     PARAMETERIZED_COMMANDS: typing.Final[tuple[str, ...]] = (
         parameterized_command_texts()
     )
@@ -118,7 +116,6 @@ class TuiInputModel(object):
         "/permissions changes access",
         "/resume restores a session",
         "/new starts fresh",
-        SHELL_COMMAND_HINT,
     )
 
     PASTE_CHAR_THRESHOLD: typing.Final[int] = 1200
@@ -126,8 +123,6 @@ class TuiInputModel(object):
 
     def __init__(self) -> None:
         self.paste_store: dict[str, str] = {}
-
-        self._paste_sequence: int = 0
 
         self.history      = TuiInputHistory()
         self.completer    = SlashCommandCompleter()
@@ -189,8 +184,6 @@ class TuiInputModel(object):
         prompt  = random.choice(self.PLACEHOLDER_PROMPTS)
         command = random.choice(self.PLACEHOLDER_COMMANDS)
 
-        if command == self.SHELL_COMMAND_HINT:
-            return f"{theme['label']}, {command}"
         return f"{theme['label']}, {prompt}, {command}"
 
     def set_mode(self, mode: str) -> None:
@@ -247,14 +240,6 @@ class TuiInputModel(object):
     def restore_submission_state(self, state: dict[str, str]) -> None:
         """恢复被撤回提交文本关联的折叠粘贴状态。"""
         self.paste_store = dict(state)
-        self._paste_sequence = max(
-            (
-                parsed.index
-                for placeholder in self.paste_store
-                if (parsed := parse_paste_placeholder(placeholder)) is not None
-            ),
-            default=0,
-        )
 
     def rollback_submission_history(self, text: str) -> None:
         """撤销最近一次匹配的输入历史提交。"""
@@ -285,38 +270,48 @@ class TuiInputModel(object):
         )
         if not should_fold:
             return text
+
+        active_placeholders = {
+            placeholder
+            for _start, _end, placeholder in iter_paste_placeholders(current_text)
+        }
+
         self.paste_store = {
             placeholder: original
             for placeholder, original in self.paste_store.items()
-            if placeholder in current_text
+            if placeholder in active_placeholders
         }
 
-        descriptor = describe_paste(text)
+        occupied = {
+            parsed.index
+            for placeholder in self.paste_store
+            if (parsed := parse_paste_placeholder(placeholder)) is not None
+        }
+
+        index: int = 1
         while True:
-            self._paste_sequence += 1
-            placeholder = format_paste_placeholder(
-                descriptor,
-                self._paste_sequence,
-            )
+            while index in occupied:
+                index += 1
+            placeholder = format_paste_placeholder(text, index)
             if (
                 placeholder not in self.paste_store
-                and placeholder not in current_text
+                and placeholder not in active_placeholders
             ):
                 break
+            occupied.add(index)
 
         self.paste_store[placeholder] = text
         return placeholder
 
     def _clear_paste_state(self) -> None:
-        """清理粘贴内容映射和当前草稿编号。"""
+        """清理粘贴内容映射。"""
         self.paste_store.clear()
-        self._paste_sequence = 0
 
     def _reset_history_navigation(self) -> None:
         """重置输入历史导航状态。"""
-        self._history_entries = ()
-        self._history_index = None
-        self._history_draft = None
+        self._history_entries          = ()
+        self._history_index            = None
+        self._history_draft            = None
         self._history_draft_shell_mode = False
 
     def _start_history_navigation(self, buffer) -> None:
@@ -325,19 +320,22 @@ class TuiInputModel(object):
         if self.shell_mode:
             prefix = f"! {prefix}" if prefix else "!"
 
-        self._history_draft = buffer.document
+        self._history_draft            = buffer.document
         self._history_draft_shell_mode = self.shell_mode
+
         self._history_entries = tuple(
             entry
             for entry in self.history.get_strings()
             if entry.startswith(prefix)
         )
+
         self._history_index = len(self._history_entries)
 
     def _history_navigation_matches_buffer(self, buffer) -> bool:
         """判断输入框是否仍处于当前输入历史位置。"""
         index = self._history_index
         draft = self._history_draft
+
         if index is None or draft is None:
             return False
 
@@ -348,6 +346,7 @@ class TuiInputModel(object):
             )
 
         text, shell_mode = self._history_entry_state(self._history_entries[index])
+
         return buffer.text == text and self.shell_mode == shell_mode
 
     def _navigate_history(self, buffer, *, step: int, count: int) -> None:
@@ -357,6 +356,7 @@ class TuiInputModel(object):
 
         index = self._history_index
         draft = self._history_draft
+
         if index is None or draft is None:
             return None
 
@@ -368,13 +368,16 @@ class TuiInputModel(object):
             return None
 
         self._history_index = target
+
         if target == len(self._history_entries):
             self.set_shell_mode(self._history_draft_shell_mode)
             buffer.document = draft
             return None
 
         text, shell_mode = self._history_entry_state(self._history_entries[target])
+
         self.set_shell_mode(shell_mode)
+
         buffer.document = Document(text, cursor_position=len(text))
 
     @staticmethod
@@ -390,12 +393,15 @@ class TuiInputModel(object):
         state = getattr(buffer, "complete_state", None)
         if state is None or not state.completions:
             return False
+
         current = state.complete_index
         if current is None:
             index = 0 if step > 0 else len(state.completions) - 1
         else:
             index = (current + step) % len(state.completions)
+
         state.go_to_index(index)
+
         buffer.on_completions_changed.fire()
         if buffer.suggestion is not None:
             buffer.suggestion = None

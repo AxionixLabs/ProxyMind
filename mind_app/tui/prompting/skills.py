@@ -9,6 +9,7 @@ from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.utils import get_cwidth
 from mind_core.skills import configured_skills
+from .paste import iter_paste_placeholders
 
 SKILL_EYE_WIDTH = 16
 SKILL_PREFIX_RE = re.compile(r"^\$[A-Za-z0-9_.-]*$")
@@ -105,7 +106,8 @@ def match_known_skill_at(text: str, start: int) -> tuple[int, str] | None:
 
 def iter_known_skill_tokens(text: str, *, offset: int = 0) -> typing.Iterator[tuple[int, int, str]]:
     """迭代文本中的白名单 skill token。"""
-    cursor = 0
+    cursor: int = 0
+
     while True:
         start = text.find("$", cursor)
         if start < 0:
@@ -128,11 +130,17 @@ def iter_paste_placeholder_tokens(
     offset: int = 0,
 ) -> typing.Iterator[tuple[int, int, str]]:
     """迭代折叠粘贴内容的可见占位文本。"""
-    for placeholder in paste_placeholders:
-        token = str(placeholder or "")
-        start = text.find(token) if token else -1
-        if start >= 0:
-            yield offset + start, offset + start + len(token), "class:paste-placeholder"
+    active = {
+        str(placeholder or "")
+        for placeholder in paste_placeholders
+        if placeholder
+    }
+
+    for start, end, placeholder in iter_paste_placeholders(text):
+        if placeholder not in active:
+            continue
+        active.remove(placeholder)
+        yield offset + start, offset + end, "class:paste-placeholder"
 
 
 def iter_prompt_tokens(

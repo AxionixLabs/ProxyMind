@@ -2,64 +2,41 @@
 
 from mind_app.tui.core.input import TuiInputModel
 from mind_app.tui.prompting.paste import (
-    describe_paste,
     format_paste_placeholder,
     parse_paste_placeholder,
 )
 from mind_app.tui.prompting.skills import iter_paste_placeholder_tokens
 
 
-def test_common_paste_content_uses_semantic_exact_labels() -> None:
-    cases = (
-        ('{"ok":true}', "[Data #1 \u00b7 JSON \u00b7 11 chars]"),
-        (
-            "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n+new",
-            "[Diff #1 \u00b7 6 lines]",
-        ),
-        (
-            "2026-07-23 10:00:00 INFO start\n"
-            "2026-07-23 10:00:01 WARN retry\n"
-            "2026-07-23 10:00:02 ERROR failed",
-            "[Log #1 \u00b7 3 lines]",
-        ),
-        (
-            "# Title\n## Part\n- one\n- two\n- three\n[one](a)\n[two](b)",
-            "[Text #1 \u00b7 Markdown \u00b7 7 lines]",
-        ),
-        (
-            "def run(value):\n    value += 1\n    value += 2\n    return value",
-            "[Code #1 \u00b7 Python \u00b7 4 lines]",
-        ),
-        ("plain text", "[Text #1 \u00b7 10 chars]"),
-    )
+def test_paste_content_uses_uniform_character_count_label() -> None:
+    text = "plain text"
+    placeholder = format_paste_placeholder(text, 1)
 
-    for text, expected in cases:
-        placeholder = format_paste_placeholder(describe_paste(text), 1)
-        assert placeholder == expected
-        assert parse_paste_placeholder(placeholder) is not None
-        assert not list(iter_paste_placeholder_tokens(
-            f"before {placeholder} after"
-        ))
-        token = next(iter_paste_placeholder_tokens(
-            f"before {placeholder} after",
-            paste_placeholders=(placeholder,),
-        ))
-        assert f"before {placeholder} after"[token[0]:token[1]] == placeholder
+    assert placeholder == "[Pasted Content 10 chars]"
+    assert parse_paste_placeholder(placeholder) is not None
+    assert not list(iter_paste_placeholder_tokens(
+        f"before {placeholder} after"
+    ))
+    token = next(iter_paste_placeholder_tokens(
+        f"before {placeholder} after",
+        paste_placeholders=(placeholder,),
+    ))
+    assert f"before {placeholder} after"[token[0]:token[1]] == placeholder
 
 
 def test_paste_placeholder_parser_rejects_noncanonical_display_text() -> None:
     invalid = (
-        "[Text #1 · 12,34 chars]",
-        "[Text #1 · 1,,,,2 chars]",
-        "[Diff #1 · Python · 5 chars]",
-        "[Log #1 · JSON · 3 lines]",
-        "[Data #1 · JSON · 3 lines]",
+        "[Pasted Content 01 chars]",
+        "[Pasted Content 1,200 chars]",
+        "[Pasted Content 12 lines]",
+        "[Pasted Content 12 chars] #1",
+        "[Text #1 - 12 chars]",
     )
 
     assert all(parse_paste_placeholder(value) is None for value in invalid)
 
 
-def test_folded_paste_round_trip_preserves_sequence_after_restore() -> None:
+def test_folded_paste_round_trip_reuses_deleted_sequence() -> None:
     model = TuiInputModel()
     first_text = "a" * 1200
     code_text = "def run(value):\n" + "\n".join(
@@ -72,18 +49,68 @@ def test_folded_paste_round_trip_preserves_sequence_after_restore() -> None:
 
     first = model._display_paste(first_text, "")
     second = model._display_paste(code_text, first)
-    third = model._display_paste(log_text, second)
+    third = model._display_paste(log_text, f"{first}\n{second}")
 
-    assert first == "[Text #1 \u00b7 1,200 chars]"
-    assert second == "[Code #2 \u00b7 Python \u00b7 20 lines]"
-    assert third == "[Log #3 \u00b7 20 lines]"
-    assert first not in model.submission_state()
-    assert model.restore_submission(f"{second}\n{third}") == f"{code_text}\n{log_text}"
-    assert model.restore_submission(f"{second}\n{second}") == f"{code_text}\n{second}"
+    assert first == "[Pasted Content 1200 chars]"
+    assert second == f"[Pasted Content {len(code_text)} chars] #2"
+    assert third == f"[Pasted Content {len(log_text)} chars] #3"
+    assert model.restore_submission(
+        f"{first}\n{second}\n{third}"
+    ) == f"{first_text}\n{code_text}\n{log_text}"
+    assert model.restore_submission(f"{second}\n{second}") == (
+        f"{code_text}\n{second}"
+    )
 
     restored = TuiInputModel()
     restored.restore_submission_state(model.submission_state())
-    fourth_text = "plain words " * 110
-    fourth = restored._display_paste(fourth_text, f"{second}\n{third}")
+    replacement_text = "plain words " * 110
+    replacement = restored._display_paste(
+        replacement_text,
+        f"{second}\n{third}",
+    )
 
-    assert fourth == f"[Text #4 \u00b7 {len(fourth_text):,} chars]"
+    assert replacement == f"[Pasted Content {len(replacement_text)} chars]"
+
+
+def test_same_size_paste_reuses_deleted_first_and_middle_numbers() -> None:
+    model = TuiInputModel()
+    first_text = "a" * 1200
+    second_text = "b" * 1200
+    third_text = "c" * 1200
+    replacement_text = "d" * 1200
+
+    first = model._display_paste(first_text, "")
+    second = model._display_paste(second_text, first)
+    third = model._display_paste(third_text, second)
+
+    assert third == "[Pasted Content 1200 chars]"
+    assert set(model.submission_state()) == {second, third}
+    assert model.restore_submission(f"{second}\n{third}") == (
+        f"{second_text}\n{third_text}"
+    )
+
+    model = TuiInputModel()
+    first = model._display_paste(first_text, "")
+    second = model._display_paste(second_text, first)
+    third = model._display_paste(third_text, f"{first}\n{second}")
+    replacement = model._display_paste(
+        replacement_text,
+        f"{first}\n{third}",
+    )
+
+    assert replacement == "[Pasted Content 1200 chars] #2"
+    assert set(model.submission_state()) == {first, third, replacement}
+
+
+def test_same_size_numbered_placeholder_highlights_complete_token() -> None:
+    first = "[Pasted Content 1200 chars]"
+    second = "[Pasted Content 1200 chars] #2"
+    text = f"before {second} after"
+
+    tokens = list(iter_paste_placeholder_tokens(
+        text,
+        paste_placeholders=(first, second),
+    ))
+
+    assert len(tokens) == 1
+    assert text[tokens[0][0]:tokens[0][1]] == second
