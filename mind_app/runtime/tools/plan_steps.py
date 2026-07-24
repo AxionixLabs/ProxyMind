@@ -5,7 +5,7 @@ import time
 import typing
 from dataclasses import dataclass
 from engine.enhance import exchange_arguments
-from loguru import logger
+from engine.observability import observe
 from mind_app.client_tools.planning import normalize_plan_arguments
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.mcp.tool_store import has_tool
@@ -143,8 +143,11 @@ class StepPlanExecutor:
         arguments     = dict(raw_arguments) if isinstance(raw_arguments, dict) else {}
         execution     = step.get("execution") if isinstance(step.get("execution"), dict) else None
 
-        logger.debug(
-            f"[PlanSteps] start run={run_index} step={step_index} tool={name}"
+        observe(
+            "plan_step.start",
+            run=run_index,
+            step=step_index,
+            tool=name,
         )
 
         if not has_tool(self.tools, name):
@@ -352,9 +355,13 @@ class StepPlanExecutor:
     @staticmethod
     def _log_step_result(result: PlanStepResult) -> None:
         """记录计划步骤的调试结果。"""
-        logger.debug(
-            f"[PlanSteps] result run={result.run} step={result.index} "
-            f"tool={result.tool} ok={result.ok} cost_ms={result.cost_ms}"
+        observe(
+            "plan_step.complete",
+            run=result.run,
+            step=result.index,
+            tool=result.tool,
+            ok=result.ok,
+            cost_ms=result.cost_ms,
         )
 
     @staticmethod

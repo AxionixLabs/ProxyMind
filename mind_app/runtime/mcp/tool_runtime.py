@@ -5,10 +5,9 @@ import typing
 import inspect
 import asyncio
 import contextlib
-from loguru import logger
+from engine.observability import observe_exception
 from mind_app.mcp.contracts import McpSessionLike
 from mind_app.mcp.tools import build_tool_context
-from mind_nova import const
 from .local import open_local_mcp_session
 
 if typing.TYPE_CHECKING:
@@ -63,11 +62,6 @@ class ExternalMcpProvider(object):
 
 class ServiceMcpProvider(object):
     """提供可选的 Helix MCP 服务会话。"""
-
-    @staticmethod
-    def url() -> str:
-        """返回服务 MCP 地址。"""
-        return const.BASE_URL + const.MCP_ED
 
     @staticmethod
     def open_session() -> typing.Any:
@@ -145,9 +139,10 @@ class CompositeToolRuntime(object):
             raise
         except Exception as exc:
             await service_stack.aclose()
-            logger.debug(
-                f"[ToolRuntime] service provider skipped url={self.service_provider.url()} "
-                f"{type(exc).__name__}: {exc}"
+            observe_exception(
+                "tool_runtime.service_provider.failed",
+                exc,
+                level="WARNING",
             )
         else:
             async with service_stack:

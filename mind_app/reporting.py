@@ -7,7 +7,7 @@ import typing
 from pathlib import Path
 from loguru import logger
 from mind_nova import const
-from .observability import observe
+from engine.observability import observe
 
 DEBUG_LOG_FILE = f"{const.APP_NAME}.debug.log"
 

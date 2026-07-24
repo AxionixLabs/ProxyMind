@@ -5,7 +5,7 @@ import httpx
 import typing
 import asyncio
 import contextlib
-from loguru import logger
+from engine.observability import observe_exception
 from mind_nova import const
 
 if typing.TYPE_CHECKING:
@@ -27,7 +27,7 @@ async def _recover_local_service(server_manager: "ServerManage | None") -> None:
     except BaseException as exc:
         if _should_raise(exc):
             raise
-        logger.debug(f"[Keepalive] recovery skipped: {type(exc).__name__}: {exc}")
+        observe_exception("keepalive.recovery.failed", exc, level="WARNING")
 
 
 async def run_keepalive(
@@ -74,7 +74,7 @@ async def run_keepalive(
                 raise
 
             except Exception as exc:
-                logger.debug(f"[Keepalive] failed: {type(exc).__name__}: {exc}")
+                observe_exception("keepalive.probe.failed", exc, level="WARNING")
                 await _recover_local_service(server_manager)
 
     finally:

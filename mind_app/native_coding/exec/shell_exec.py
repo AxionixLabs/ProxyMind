@@ -4,15 +4,15 @@
 import os
 import shlex
 import typing
-from loguru import logger
+from engine.observability import observe
 from mind_app.native_coding.base import (
-    NativeCodingBase, NativeCodingComponent
+    NativeCodingBase,
+    NativeCodingComponent
 )
 from mind_app.native_coding.encoding import normalize_process_output_encoding
 from mind_app.native_coding.exec.output_decoder import CapturedOutputDecoder
 from mind_app.native_coding.exec.process_capture import ProcessCapture
 from mind_app.native_coding.exec.shell_runtime import ShellRuntimeResolver
-from mind_app.native_coding.trace import summarize_command
 
 
 class ShellCommandTools(NativeCodingComponent):
@@ -338,9 +338,14 @@ class ShellCommandTools(NativeCodingComponent):
         stdout_truncated = capture.stdout_dropped > 0 or len(raw_stdout) > output_limit
         stderr_truncated = capture.stderr_dropped > 0 or len(raw_stderr) > output_limit
 
-        logger.debug(
-            f"native shell exit ok={ok} rc={exit_code} elapsed_ms={elapsed_ms} "
-            f"cmd={summarize_command(cmd)}"
+        observe(
+            "native_shell.complete",
+            ok=ok,
+            exit_code=exit_code,
+            elapsed_ms=elapsed_ms,
+            timed_out=capture.timed_out,
+            stdout_truncated=stdout_truncated,
+            stderr_truncated=stderr_truncated,
         )
 
         data = {

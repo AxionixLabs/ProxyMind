@@ -4,6 +4,10 @@
 import copy
 import httpx
 import typing
+from engine.observability import (
+    observe,
+    observe_exception
+)
 from mind_core.config import (
     config_to_preferences,
     ensure_config,
@@ -231,15 +235,35 @@ class Preferences(object):
     async def _load_config_pref(self) -> dict[str, typing.Any]:
         """读取本地 config.toml 并转换为运行时偏好结构。"""
         try:
-            target = ensure_config(self.config_file)
-            return config_to_preferences(load_config(target))
-        except (OSError, TypeError, ValueError):
+            target      = ensure_config(self.config_file)
+            preferences = config_to_preferences(load_config(target))
+            observe("preferences.source.loaded", source="local")
+            return preferences
+        except (OSError, TypeError, ValueError) as error:
+            observe_exception(
+                "preferences.source.fallback",
+                error,
+                level="WARNING",
+                source="defaults",
+            )
             return _default_prefs()
 
     async def load_pref(self) -> None:
         """读取本地配置并刷新运行时偏好。"""
         prefs = await self._load_config_pref()
-        self.prefs = self._normalize_pref_payload(prefs)
+
+        self.prefs    = self._normalize_pref_payload(prefs)
+        primary       = self.prefs.get("primary") or {}
+        hosted_groups = (self.prefs.get("hosted_tools") or {}).get("groups") or {}
+
+        observe(
+            "preferences.loaded",
+            provider=primary.get("provider"),
+            route=primary.get("route"),
+            enabled=bool(primary.get("enabled")),
+            model_configured=bool(primary.get("model")),
+            hosted_groups_enabled=sum(bool(value) for value in hosted_groups.values()),
+        )
 
 
 if __name__ == '__main__':

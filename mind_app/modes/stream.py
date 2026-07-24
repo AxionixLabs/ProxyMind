@@ -56,7 +56,7 @@ from ..stream_events.lifecycle import (
 )
 from ..stream_events.assistant_boundary import is_assistant_output_boundary
 from ..stream_state.segment import SegmentTracker
-from ..observability import (
+from engine.observability import (
     observe,
     observe_exception
 )
@@ -285,9 +285,39 @@ async def stream_looper(
                 approval = approval_from_event(event)
                 await status_control.end_status(immediate=True)
 
+                approval_started_at = time.perf_counter()
+
+                approval_id      = approval_id_from_event(event)
+                approval_tool    = str(event.get("name") or event.get("tool") or "")
+                approval_call_id = str(event.get("call_id") or "")
+
+                observe(
+                    "approval.requested",
+                    tool=approval_tool,
+                    call_id=approval_call_id,
+                    approval_id=approval_id,
+                )
+
                 decision = await mind.frontend.interaction.request_approval(approval)
 
+                observe(
+                    "approval.decided",
+                    tool=approval_tool,
+                    call_id=approval_call_id,
+                    approval_id=approval_id,
+                    decision=decision,
+                    elapsed_ms=int((time.perf_counter() - approval_started_at) * 1000),
+                )
+
                 if decision == "expired":
+                    observe(
+                        "approval.expired",
+                        level="WARNING",
+                        tool=approval_tool,
+                        call_id=approval_call_id,
+                        approval_id=approval_id,
+                        source="interaction",
+                    )
                     await presentation.emit(build_approval_view(
                         approval,
                         decision=decision,
@@ -295,9 +325,8 @@ async def stream_looper(
                     await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                     continue
 
-                approved    = decision in {"accept", "acceptForSession"}
-                approval_id = approval_id_from_event(event)
-                reason      = None if approved else "user denied"
+                approved = decision in {"accept", "acceptForSession"}
+                reason   = None if approved else "user denied"
 
                 approvals.mark_decision(
                     call_id=str(event.get("call_id") or ""), approval=approval, decision=decision
@@ -317,7 +346,24 @@ async def stream_looper(
                         reason=reason
                     )
                 except ToolApprovalExpired:
-                    pass
+                    observe(
+                        "approval.expired",
+                        level="WARNING",
+                        tool=approval_tool,
+                        call_id=approval_call_id,
+                        approval_id=approval_id,
+                        source="report",
+                    )
+                except Exception as error:
+                    observe_exception(
+                        "approval.report_failed",
+                        error,
+                        tool=approval_tool,
+                        call_id=approval_call_id,
+                        approval_id=approval_id,
+                        decision=decision,
+                    )
+                    raise
                 if not approved:
                     await status_control.begin_reply_wait_status(delay_sec=0.15, animate_after_sec=0.85)
                 continue
@@ -363,10 +409,23 @@ async def stream_looper(
                 )
 
                 if approval_decision.action == "wait":
+                    observe(
+                        "approval.enforced",
+                        action="wait",
+                        tool=name,
+                        call_id=event.get("call_id"),
+                    )
                     await status_control.begin_reply_wait_status()
                     continue
 
                 if approval_decision.action == "reject":
+                    observe(
+                        "approval.enforced",
+                        level="WARNING",
+                        action="reject",
+                        tool=name,
+                        call_id=event.get("call_id"),
+                    )
                     await post_tool_result(
                         event["cid"],
                         event["sid"],

@@ -6,6 +6,10 @@ import typing
 import asyncio
 import secrets
 from dataclasses import dataclass
+from engine.observability import (
+    observe,
+    observe_exception
+)
 from mind_app.native_coding.encoding import decode_process_output
 from mind_app.native_coding.exec.process_capture import (
     OrderedOutputBuffer,
@@ -122,6 +126,15 @@ class ProcessSessionManager(object):
             self._read_stream(session, "stderr")
         )
         self.sessions[session.session_id] = session
+        observe(
+            "process.started",
+            session_id=session.session_id,
+            pid=process.pid,
+            runtime=session.runtime.get("name"),
+            origin=session.origin,
+            cid=session.owner_cid,
+            sid=session.owner_sid,
+        )
 
         return session
 
@@ -228,6 +241,21 @@ class ProcessSessionManager(object):
 
         process = session.process
 
+        if control != "none":
+            observe(
+                "process.control",
+                session_id=session.session_id,
+                pid=process.pid,
+                control=control,
+            )
+        elif input_text:
+            observe(
+                "process.input",
+                session_id=session.session_id,
+                pid=process.pid,
+                bytes=len(input_text.encode(errors="replace")),
+            )
+
         if control == "terminate":
             await ProcessCapture.terminate_process_tree(process, force=False)
             return None
@@ -289,6 +317,12 @@ class ProcessSessionManager(object):
             idle = now - session.last_activity >= session.idle_timeout_sec
 
             if session.process.returncode is None and (expired or idle):
+                observe(
+                    "process.cleanup",
+                    session_id=session.session_id,
+                    pid=session.process.pid,
+                    reason="expired" if expired else "idle",
+                )
                 await ProcessCapture.terminate_process_tree(
                     session.process,
                     force=expired,
@@ -329,6 +363,12 @@ class ProcessSessionManager(object):
                     continue
                 await self.finalize_if_exited(session)
             except (OSError, RuntimeError, ValueError) as exc:
+                observe_exception(
+                    "process.stop.failed",
+                    exc,
+                    session_id=session.session_id,
+                    pid=session.process.pid,
+                )
                 failures.append({
                     **item,
                     "reason": str(exc).strip() or type(exc).__name__,
@@ -341,7 +381,7 @@ class ProcessSessionManager(object):
                 "exit_code": session.process.returncode,
             })
 
-        return {
+        result = {
             "ok"        : not failures,
             "requested" : len(sessions),
             "stopped"   : len(stopped),
@@ -349,6 +389,13 @@ class ProcessSessionManager(object):
             "items"     : stopped,
             "failures"  : failures,
         }
+        observe(
+            "process.stop_all.complete",
+            requested=result["requested"],
+            stopped=result["stopped"],
+            failed=result["failed"],
+        )
+        return result
 
     async def close(self) -> None:
         """终止并回收全部进程会话。"""
@@ -390,6 +437,16 @@ class ProcessSessionManager(object):
 
         session.finalized = True
 
+        observe(
+            "process.exited",
+            session_id=session.session_id,
+            pid=session.process.pid,
+            exit_code=session.process.returncode,
+            elapsed_ms=int(max(0.0, time.time() - session.started_at) * 1000),
+            stdout_dropped=session.stdout_dropped,
+            stderr_dropped=session.stderr_dropped,
+        )
+
     async def _read_stream(self, session: ProcessSession, name: str) -> None:
         """持续读取会话输出流。"""
         stream = session.process.stdout if name == "stdout" else session.process.stderr
@@ -411,8 +468,10 @@ class ProcessSessionManager(object):
                         session.stdout_dropped += overflow
                     else:
                         session.stderr_dropped += overflow
+
                 await session.output_buffer.append(name, chunk)
                 await session.display_output_buffer.append(name, chunk)
+
                 session.last_activity = time.time()
 
     @staticmethod

@@ -2,7 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from loguru import logger
+from engine.observability import observe
 
 
 def supports_tool_progress(name: str) -> bool:
@@ -32,7 +32,13 @@ async def emit_tool_progress(
         await stream_callback(text)
         return None
 
-    logger.info(text)
+    observe(
+        "tool.progress",
+        tool=tool_name,
+        progress=progress,
+        total=total,
+        message_chars=len(text),
+    )
 
 
 if __name__ == '__main__':

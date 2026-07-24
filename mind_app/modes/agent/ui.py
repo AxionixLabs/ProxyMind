@@ -3,7 +3,10 @@
 
 import httpx
 import typing
-from loguru import logger
+from engine.observability import (
+    observe,
+    observe_exception
+)
 from mind_app.frontend import ApplicationView
 from .models import (
     AgentLiveStatus,
@@ -59,11 +62,11 @@ async def publish_external_access(runtime: AgentSessionRuntime) -> None:
     """把当前会话示例推送到本地页面。"""
     example = runtime.mind_call_example
     if not isinstance(example, dict):
-        logger.debug("[Agent] mind_call example missing")
+        observe("agent.page_sync.skipped", reason="mind_call_example_missing")
         return None
 
     if not runtime.credential:
-        logger.debug("[Agent] credential missing")
+        observe("agent.page_sync.skipped", reason="credential_missing")
 
     try:
         base_url = config_service_base_url()
@@ -79,9 +82,7 @@ async def publish_external_access(runtime: AgentSessionRuntime) -> None:
             )
         response.raise_for_status()
     except (OSError, httpx.HTTPError, ValueError) as exc:
-        logger.debug(
-            f"[Agent] agent page sync failed: {type(exc).__name__}: {exc}"
-        )
+        observe_exception("agent.page_sync.failed", exc, level="WARNING")
         return None
 
 

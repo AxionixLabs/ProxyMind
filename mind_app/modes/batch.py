@@ -6,11 +6,14 @@ import time
 import typing
 import asyncio
 from dataclasses import dataclass
-from loguru import logger
 from mind_app.mcp.contracts import McpSessionLike
 from engine.scaling import (
     PackItem,
     Pack
+)
+from engine.observability import (
+    observe,
+    observe_exception
 )
 from mind_nova.events import EventReport
 from mind_nova.modes import RunMode
@@ -159,8 +162,11 @@ async def _run_virtual_message(
     if not msg.strip():
         return None
 
-    logger.info(
-        f"🧩 [Batch] {name} source={source.display_origin}"
+    observe(
+        "batch.virtual.start",
+        name=name,
+        source=source.name,
+        source_kind=source.kind,
     )
     _emit_diagnostic(
         runtime.event_report,
@@ -202,8 +208,12 @@ async def _run_virtual_message(
         await mind.await_cleanup(mind.stop_anim("wait"))
 
     if failure_error:
-        logger.error(
-            f"❌ [Batch] virtual failed: {name} source={source.display_origin} err={failure_error}\n"
+        observe(
+            "batch.virtual.failed",
+            level="ERROR",
+            name=name,
+            source=source.name,
+            error=failure_error,
         )
 
     _emit_diagnostic(
@@ -243,9 +253,14 @@ async def _run_pack_item(
             item_total=item.loop
         )
 
-        logger.info(
-            f"▶️  [Batch] [{index}/{total}] {item.name} "
-            f"item_run={item_run}/{item.loop} source={source.display_origin}"
+        observe(
+            "batch.item.start",
+            item=item.name,
+            index=index,
+            total=total,
+            item_run=item_run,
+            item_total=item.loop,
+            source=source.name,
         )
 
         last_error: typing.Optional[str] = None
@@ -338,10 +353,15 @@ async def _run_pack_item(
                 await mind.await_cleanup(mind.stop_anim("wait"))
 
             if attempt_error:
-                logger.error(
-                    f"❌ [Batch] item failed: {item.name} "
-                    f"item_run={item_run}/{item.loop} "
-                    f"attempt={attempt}/{config.attempts} err={attempt_error}\n"
+                observe(
+                    "batch.item.attempt_failed",
+                    level="WARNING",
+                    item=item.name,
+                    item_run=item_run,
+                    item_total=item.loop,
+                    attempt=attempt,
+                    max_attempts=config.attempts,
+                    error=attempt_error,
                 )
 
             if retry_backoff is not None:
@@ -362,10 +382,14 @@ async def _run_pack_item(
                 error=last_error
             )
 
-            logger.error(
-                f"🧯 [Batch] giving up: {item.name} "
-                f"item_run={item_run}/{item.loop} "
-                f"attempts={config.attempts} last={last_error}"
+            observe(
+                "batch.item.failed",
+                level="ERROR",
+                item=item.name,
+                item_run=item_run,
+                item_total=item.loop,
+                attempts=config.attempts,
+                error=last_error,
             )
             if config.stop_on_fail:
                 return False
@@ -387,8 +411,11 @@ async def _run_pack_source(
     config = _build_pack_config(raw_cfg)
 
     if not items:
-        logger.warning(
-            f"[Batch] no executable items in pack; running hooks only. source={source.display_origin}"
+        observe(
+            "batch.source.empty",
+            level="WARNING",
+            source=source.name,
+            source_kind=source.kind,
         )
 
     item_total = len(items)
@@ -437,8 +464,12 @@ async def _run_pack_source(
                 **kwargs
             )
 
-            logger.info(
-                f"🧪 [Batch] run {run}/{config.repeat} items={item_total} source={source.display_origin}"
+            observe(
+                "batch.run.start",
+                run=run,
+                total_runs=config.repeat,
+                items=item_total,
+                source=source.name,
             )
 
             for index, item in enumerate(items, start=1):
@@ -454,8 +485,12 @@ async def _run_pack_source(
                         item_total=item.loop,
                         reason="filter"
                     )
-                    logger.debug(
-                        f"⏭️  [Batch] skip [{index}/{item_total}] {item.name} (filter)"
+                    observe(
+                        "batch.item.skipped",
+                        item=item.name,
+                        index=index,
+                        total=item_total,
+                        reason="filter",
                     )
                     continue
 
@@ -603,16 +638,21 @@ async def _open_pack_report_url(
         report_id      = str(report_data.get("report_id") or "").strip()
 
         if not report_url:
-            logger.warning(
-                "[Batch] reports/open succeeded but report_url missing "
-                f"cid={metadata['cid']} sid={metadata['sid']} report_id={report_id or '-'}"
+            observe(
+                "batch.report.missing_url",
+                level="WARNING",
+                cid=metadata["cid"],
+                sid=metadata["sid"],
+                report_id=report_id,
             )
         return report_url
     except Exception as exc:
-        logger.warning(
-            "[Batch] reports/open failed "
-            f"cid={metadata['cid']} sid={metadata['sid']} "
-            f"error_type={type(exc).__name__} error={exc}"
+        observe_exception(
+            "batch.report.failed",
+            exc,
+            level="WARNING",
+            cid=metadata["cid"],
+            sid=metadata["sid"],
         )
         return None
 
@@ -696,11 +736,43 @@ async def mind_pack(
     **kwargs
 ) -> None:
     """批处理入口：绑定会话、事件流和 pack 源执行流程。"""
-    context = await _prepare_pack_context(mind, code, mode, kwargs)
+    started_at = time.perf_counter()
+
+    observe("batch.start", mode=mode, requested_sources=len(code))
+
+    try:
+        context = await _prepare_pack_context(mind, code, mode, kwargs)
+    except (asyncio.CancelledError, KeyboardInterrupt) as error:
+        observe_exception(
+            "batch.interrupted",
+            error,
+            level="WARNING",
+            mode=mode,
+            phase="prepare",
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
+        raise
+    except BaseException as error:
+        observe_exception(
+            "batch.failed",
+            error,
+            mode=mode,
+            phase="prepare",
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
+        raise
+
+    observe(
+        "batch.prepared",
+        mode=mode,
+        sources=len(context.code_sources),
+        cid=context.metadata.get("cid"),
+        sid=context.metadata.get("sid"),
+    )
 
     def before_user_flow() -> None:
         if context.report_url:
-            logger.info(f"🌐 Atlas: {context.report_url}")
+            observe("batch.report.available")
 
     async def function(
         session: McpSessionLike,
@@ -710,13 +782,28 @@ async def mind_pack(
         await _run_pack_sources(mind, context, session, tools, kwargs)
 
     try:
-        return await mind.with_mcp_session(context.pref_config, function, before_user_flow=before_user_flow)
+        await mind.with_mcp_session(context.pref_config, function, before_user_flow=before_user_flow)
 
-    except (asyncio.CancelledError, KeyboardInterrupt):
+    except (asyncio.CancelledError, KeyboardInterrupt) as error:
+        observe_exception(
+            "batch.interrupted",
+            error,
+            level="WARNING",
+            mode=mode,
+            phase="execute",
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
         raise
 
     except BaseException as exc:
         error = Pack.brief_err(exc)
+        observe_exception(
+            "batch.failed",
+            exc,
+            mode=mode,
+            phase="execute",
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
 
         _emit_diagnostic(
             context.event_report,
@@ -724,7 +811,6 @@ async def mind_pack(
             error=error
         )
 
-        logger.error(f"❌ [Batch] failed: {error}\n")
         mind.frontend.application.emit(ApplicationView(
             type="batch.failed",
             renderable=render_failure_block(
@@ -736,6 +822,14 @@ async def mind_pack(
         mind.frontend.application.emit(ApplicationView(type="run.gap"))
 
         return None
+
+    else:
+        observe(
+            "batch.complete",
+            mode=mode,
+            sources=len(context.code_sources),
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
 
     finally:
         await _close_pack_report(mind, context.event_report)

@@ -2,17 +2,15 @@
 # Notes: ==== Mind™ ====
 
 import json
+import time
 import httpx
 import typing
-from loguru import logger
-
-
-async def cap_request(req: httpx.Request) -> None:
-    """记录请求摘要，便于排查鉴权和链路问题。"""
-    a = req.headers.get("Authorization", "")
-    logger.debug(
-        f"[MCP] {req.method} {req.url} auth={'OK' if a.startswith('Bearer ') else 'MISSING'}"
-    )
+import asyncio
+from urllib.parse import urlsplit
+from engine.observability import (
+    observe,
+    observe_exception
+)
 
 
 async def cap_response(response: httpx.Response) -> None:
@@ -32,20 +30,67 @@ async def streaming(
     timeout: float = 60.0
 ) -> typing.AsyncGenerator[dict, None]:
     """按 SSE `data:` 行读取并解析事件流。"""
-    async with httpx.AsyncClient(timeout=timeout, event_hooks={"response": [cap_response]}) as client:
-        async with client.stream("POST", url, headers=headers, json=payload) as resp:
-            resp.raise_for_status()
+    route = urlsplit(url).path or "/"
 
-            async for line in resp.aiter_lines():
-                if not line or not line.startswith("data:"):
-                    continue
+    started_at    = time.perf_counter()
+    event_count   = 0
+    invalid_lines = 0
 
-                try:
-                    event = json.loads(line[len("data:"):].strip())
-                except json.JSONDecodeError:
-                    continue
+    observe("http.stream.start", method="POST", route=route, timeout_sec=timeout)
 
-                yield event
+    try:
+        async with httpx.AsyncClient(timeout=timeout, event_hooks={"response": [cap_response]}) as client:
+            async with client.stream("POST", url, headers=headers, json=payload) as resp:
+                observe(
+                    "http.stream.response",
+                    method="POST",
+                    route=route,
+                    status=resp.status_code,
+                    request_id=resp.headers.get("x-request-id"),
+                )
+                resp.raise_for_status()
+
+                async for line in resp.aiter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+
+                    try:
+                        event = json.loads(line[len("data:"):].strip())
+                    except json.JSONDecodeError:
+                        invalid_lines += 1
+                        continue
+
+                    event_count += 1
+                    yield event
+    except asyncio.CancelledError:
+        observe(
+            "http.stream.interrupted",
+            level="WARNING",
+            method="POST",
+            route=route,
+            events=event_count,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
+        raise
+    except Exception as error:
+        observe_exception(
+            "http.stream.failed",
+            error,
+            method="POST",
+            route=route,
+            events=event_count,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
+        raise
+    else:
+        observe(
+            "http.stream.complete",
+            method="POST",
+            route=route,
+            events=event_count,
+            invalid_lines=invalid_lines,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
 
 
 if __name__ == '__main__':

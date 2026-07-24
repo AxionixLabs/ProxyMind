@@ -4,7 +4,7 @@
 import typing
 import asyncio
 import contextlib
-from loguru import logger
+from engine.observability import observe
 from ...runtime.agent.client import AgentClient
 from mind_nova.requests.payload import empty_primary_request_slot
 from .models import (
@@ -139,57 +139,6 @@ async def sleep_or_stop(delay_sec: float, stop_event: asyncio.Event) -> None:
                     await task
 
 
-def summarize_ws_message(message: dict[str, typing.Any]) -> str:
-    """把 WS 消息压缩成简短摘要，避免日志刷出整包 JSON。"""
-    message_type = str(message.get("type") or "")
-    parts = [f"type={message_type or '-'}"]
-
-    seq = message.get("seq")
-    if isinstance(seq, int):
-        parts.append(f"seq={seq}")
-
-    message_id = message.get("message_id")
-    if isinstance(message_id, str) and message_id:
-        parts.append(f"message_id={message_id}")
-
-    cid = message.get("cid")
-    if isinstance(cid, str) and cid:
-        parts.append(f"cid={cid}")
-
-    sid = message.get("sid")
-    if isinstance(sid, str) and sid:
-        parts.append(f"sid={sid}")
-
-    payload_raw = message.get("payload")
-    payload = payload_raw if isinstance(payload_raw, dict) else {}
-
-    call_id = payload.get("call_id")
-    if isinstance(call_id, str) and call_id:
-        parts.append(f"call_id={call_id}")
-
-    mode = payload.get("mode")
-    if isinstance(mode, str) and mode:
-        parts.append(f"mode={mode}")
-
-    profile = payload.get("profile")
-    if isinstance(profile, list):
-        parts.append(f"profile_count={len(profile)}")
-
-    message = payload.get("message")
-    if isinstance(message, str) and message.strip():
-        parts.append("message=yes")
-
-    status = payload.get("status")
-    if isinstance(status, str) and status:
-        parts.append(f"status={status}")
-
-    code = payload.get("code")
-    if isinstance(code, str) and code:
-        parts.append(f"code={code}")
-
-    return " ".join(parts)
-
-
 async def build_runtime_llm_conf(mind: "Mind") -> dict[str, typing.Any]:
     """基于当前偏好配置生成 `runtime.bind` 所需的 llm_conf。"""
     payload     = await mind.fresh_pref_config(ttl_sec=0.0)
@@ -238,9 +187,7 @@ def parse_forward_request(
     sid     = sid_raw if isinstance(sid_raw, str) else None
 
     if not message_id:
-        logger.debug(
-            "[Agent] mind.forward ignored: message_id missing"
-        )
+        observe("agent.forward.ignored", level="WARNING", reason="message_id_missing")
         return None
     if not session_id or session_id != runtime.session_id:
         raise AgentWsProtocolError(
@@ -249,18 +196,29 @@ def parse_forward_request(
             action="reopen"
         )
     if not call_id:
-        logger.debug(
-            f"[Agent] mind.forward ignored: call_id missing message_id={message_id}"
+        observe(
+            "agent.forward.ignored",
+            level="WARNING",
+            reason="call_id_missing",
+            message_id=message_id,
         )
         return None
     if not cid or not sid:
-        logger.debug(
-            f"[Agent] mind.forward ignored: cid/sid missing call_id={call_id} message_id={message_id}"
+        observe(
+            "agent.forward.ignored",
+            level="WARNING",
+            reason="conversation_ids_missing",
+            call_id=call_id,
+            message_id=message_id,
         )
         return None
 
-    logger.debug(
-        f"[Agent] mind.forward accepted call_id={call_id} message_id={message_id} cid={cid} sid={sid}"
+    observe(
+        "agent.forward.accepted",
+        call_id=call_id,
+        message_id=message_id,
+        cid=cid,
+        sid=sid,
     )
     return AgentForwardRequest(
         message_id=message_id,
@@ -293,18 +251,18 @@ async def handle_server_message(
 
         live_status.update("Subscription Online", "Handshake complete, waiting for tasks")
 
-        logger.debug(
-            "[Agent] ready "
-            f"heartbeat_interval_sec={payload.get('heartbeat_interval_sec')} "
-            f"heartbeat_timeout_sec={payload.get('heartbeat_timeout_sec')} "
-            f"resume_timeout_sec={payload.get('resume_timeout_sec')}"
+        observe(
+            "agent.ws.ready",
+            heartbeat_interval_sec=payload.get("heartbeat_interval_sec"),
+            heartbeat_timeout_sec=payload.get("heartbeat_timeout_sec"),
+            resume_timeout_sec=payload.get("resume_timeout_sec"),
         )
         return current_seq
 
     if message_type == "ping":
         live_status.update("Link Heartbeat", "Ping received, replying with pong")
         await client.send_pong(connection, session_id=runtime.session_id)
-        logger.debug("[Agent] pong sent")
+        observe("agent.ws.pong_sent", session_id=runtime.session_id)
         return current_seq
 
     if message_type == "replay.batch":
@@ -316,9 +274,7 @@ async def handle_server_message(
         live_status.update(
             "Replaying History", f"replay.batch × {len(replayed)}"
         )
-        logger.debug(
-            f"[Agent] replay.batch count={len(replayed)}"
-        )
+        observe("agent.ws.replay", count=len(replayed))
         handled_seq = current_seq
         for replay_message in replayed:
             if isinstance(replay_message, dict):
@@ -339,7 +295,7 @@ async def handle_server_message(
         live_status.update(
             "Resume Confirmed", "Server accepted resume, waiting for replay"
         )
-        logger.debug("[Agent] resume.result accepted")
+        observe("agent.ws.resume.accepted", session_id=runtime.session_id)
         return current_seq
 
     if message_type == "resume.rejected":
@@ -348,8 +304,11 @@ async def handle_server_message(
         code         = str(payload.get("code") or "AGENT_RESUME_REJECTED").strip()
         message_text = str(payload.get("message") or "resume rejected").strip()
 
-        logger.debug(
-            f"[Agent] resume.rejected code={code} message={message_text}"
+        observe(
+            "agent.ws.resume.rejected",
+            level="WARNING",
+            code=code,
+            message=message_text,
         )
         raise AgentWsProtocolError(code, message_text, action="reopen")
 
@@ -379,8 +338,11 @@ async def handle_server_message(
 
         code = str(payload.get("code") or "").strip()
 
-        logger.debug(
-            f"[Agent] server error code={code} message={message_text}"
+        observe(
+            "agent.ws.server_error",
+            level="WARNING",
+            code=code,
+            message=message_text,
         )
         if code in _ABORT_ERROR_CODES:
             raise AgentWsProtocolError(code, message_text, action="abort")
@@ -391,9 +353,7 @@ async def handle_server_message(
     if message_type == "pong":
         return current_seq
 
-    logger.debug(
-        f"[Agent] unsupported ws message type={message_type}"
-    )
+    observe("agent.ws.unsupported", level="WARNING", message_type=message_type)
     return current_seq
 
 
@@ -419,20 +379,19 @@ async def connect_once(
             device_id=runtime.device_id,
             client_version=runtime.client_version,
         )
-        logger.debug("[Agent] hello sent")
+        observe("agent.ws.hello_sent", session_id=runtime.session_id)
 
         await client.send_runtime_bind(
             connection,
             session_id=runtime.session_id,
             llm_conf=await build_runtime_llm_conf(mind)
         )
-        logger.debug("[Agent] runtime.bind sent")
-        logger.debug(
-            "[Agent] connect_once state "
-            f"session_id={runtime.session_id} "
-            f"ready_received={runtime.ready_received} "
-            f"last_acked_seq={runtime.last_acked_seq} "
-            f"resume_token={'yes' if runtime.resume_token else 'no'}"
+        observe(
+            "agent.ws.bound",
+            session_id=runtime.session_id,
+            ready_received=runtime.ready_received,
+            last_acked_seq=runtime.last_acked_seq,
+            resume_available=bool(runtime.resume_token),
         )
 
         if runtime.last_acked_seq > 0:
@@ -444,20 +403,27 @@ async def connect_once(
                 session_id=runtime.session_id,
                 last_acked_seq=runtime.last_acked_seq
             )
-            logger.debug(
-                f"[Agent] resume sent last_acked_seq={runtime.last_acked_seq}"
+            observe(
+                "agent.ws.resume.sent",
+                session_id=runtime.session_id,
+                last_acked_seq=runtime.last_acked_seq,
             )
         else:
-            logger.debug(
-                "[Agent] resume not sent "
-                f"session_id={runtime.session_id} "
-                "reason=last_acked_seq<=0"
+            observe(
+                "agent.ws.resume.skipped",
+                session_id=runtime.session_id,
+                reason="no_acked_sequence",
             )
 
         while True:
             message = await recv_json_or_stop(client, connection, mind.task_event)
-            logger.debug(
-                f"[Agent] recv {summarize_ws_message(message)}"
+            payload = message.get("payload") if isinstance(message.get("payload"), dict) else {}
+            observe(
+                "agent.ws.received",
+                message_type=message.get("type"),
+                seq=message.get("seq"),
+                message_id=message.get("message_id"),
+                call_id=payload.get("call_id"),
             )
             handled_seq = await handle_server_message(
                 mind, client, connection, runtime, message, live_status, forward_handler

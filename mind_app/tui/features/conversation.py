@@ -4,7 +4,7 @@
 import typing
 import asyncio
 from mind_app.frontend import ApplicationView
-from mind_app.observability import (
+from engine.observability import (
     observe,
     observe_exception
 )

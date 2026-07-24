@@ -5,10 +5,13 @@ import json
 import time
 import typing
 import asyncio
-from loguru import logger
+from engine.observability import observe_exception
 from rich.console import Console
 from rich.text import Text
-from mind_app.presentation.models import TextSpan, TextStyle
+from mind_app.presentation.models import (
+    TextSpan,
+    TextStyle
+)
 from mind_app.presentation.rich.styles import rich_style
 from mind_app.output.contracts import (
     BLOCK_OUTPUT,
@@ -333,7 +336,7 @@ class RichOutputControl(OutputPort):
         except asyncio.CancelledError:
             return None
         except Exception as e:
-            logger.debug(f"[RichOutput] status task failed: {type(e).__name__}: {e}")
+            observe_exception("output.status_task.failed", e, level="WARNING")
 
     @staticmethod
     def _tool_arguments_audit_payload(arguments: dict[str, typing.Any]) -> str:

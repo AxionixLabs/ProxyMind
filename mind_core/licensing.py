@@ -12,12 +12,17 @@ import hashlib
 import platform
 from pathlib import Path
 from copy import deepcopy
-from loguru import logger
+from engine.observability import (
+    observe,
+    observe_exception
+)
 from datetime import (
-    datetime, timezone
+    datetime,
+    timezone
 )
 from cryptography.hazmat.primitives import (
-    hashes, serialization
+    hashes,
+    serialization
 )
 from cryptography.hazmat.primitives.asymmetric import padding
 from engine.channel import Channel
@@ -105,7 +110,12 @@ def network_time() -> typing.Optional["datetime"]:
                     t -= ntp_epoch
                     return datetime.fromtimestamp(t, timezone.utc)
         except Exception as e:
-            logger.debug(f"[Authorize] NTP failed server={server}: {type(e).__name__}: {e}")
+            observe_exception(
+                "license.time_probe.failed",
+                e,
+                level="WARNING",
+                server=server,
+            )
             continue
 
     return None
@@ -145,7 +155,7 @@ async def verify_license(
     """
     验证本地授权文件是否合法、未过期，并视情况进行更新续签。
     """
-    logger.info("Initiating license checkpoint ...")
+    observe("license.check.start")
 
     if not lic_file.exists():
         raise MindError(f"❌ 需要申请通行证 ...")
@@ -161,7 +171,7 @@ async def verify_license(
     if now_time > expire:
         raise MindError(f"⚠️ 通行证过期 -> {exp}")
 
-    logger.info(f"License verified. Access granted until {exp}.")
+    observe("license.check.complete", expires=exp)
 
     code, issued, interval = auth_info["code"], auth_info["issued"], auth_info["interval"]
 
@@ -223,7 +233,7 @@ async def receive_license(
         auth_info = verify_signature(lic_file)
         payload["license_id"] = auth_info["license_id"]
 
-    logger.info("Transmitting glyph to central authority ...")
+    observe("license.activation.start")
 
     async with httpx.AsyncClient(headers=headers, timeout=30) as client:
         bs_lic_data = await send(client, "GET", const.BOOTSTRAP_URL, params=params)
@@ -245,7 +255,7 @@ async def receive_license(
 
         await save_lic_file(lic_file, ac_lic_data)
 
-        logger.info("Validation succeeded. activation seal embedded.")
+        observe("license.activation.complete")
         return lic_file
 
 

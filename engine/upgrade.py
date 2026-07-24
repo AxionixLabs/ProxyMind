@@ -14,8 +14,15 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 from engine.errors import MindError
+from engine.observability import (
+    observe,
+    observe_exception
+)
 from engine import signals
-from engine.ports import port_available, terminate_port_process
+from engine.ports import (
+    port_available,
+    terminate_port_process
+)
 from mind_nova.requests.manifest import fetch_manifest
 
 UpgradeProgressStarter = typing.Callable[
@@ -110,6 +117,7 @@ class Upgrade(object):
     ) -> None:
         """更新下载流程的阶段状态。"""
         state["stage"] = stage
+        observe("upgrade.stage", stage=stage)
         if phase is not None:
             state["phase"] = phase
         if speed is not None:
@@ -421,6 +429,12 @@ class Upgrade(object):
         chunk_size: int = 1024 * 256
 
         state = self.download_state(filename)
+        observe(
+            "upgrade.install.start",
+            version=version,
+            filename=filename,
+            checksum=bool(sha256_expect),
+        )
 
         progress_controller = UpgradeProgressController(progress, state)
 
@@ -440,6 +454,12 @@ class Upgrade(object):
                 timeout=timeout,
                 chunk_size=chunk_size,
                 start_progress=progress_controller.start
+            )
+            observe(
+                "upgrade.download.complete",
+                version=version,
+                bytes=done,
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
             )
 
             self.verify_archive(
@@ -475,6 +495,12 @@ class Upgrade(object):
             self.mark_final(
                 state, "complete", icon="✓", style="bold #87FFAF", stage="done"
             )
+            observe(
+                "upgrade.install.complete",
+                version=version,
+                bytes=done,
+                elapsed_ms=int(elapsed * 1000),
+            )
 
             return {
                 "ok"               : True,
@@ -486,31 +512,56 @@ class Upgrade(object):
                 "elapsed_sec"      : round(elapsed, 3)
             }
 
-        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit) as error:
+            interrupted_stage = state.get("stage")
             if archive_path is not None:
                 self.cancel_download(
                     state, archive_path, stage="cancelled"
                 )
             else:
                 state["stage"] = "cancelled"
+            observe_exception(
+                "upgrade.install.interrupted",
+                error,
+                level="WARNING",
+                version=version,
+                stage=interrupted_stage,
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+            )
             raise
 
-        except MindError:
+        except MindError as error:
+            failed_stage = state.get("stage")
             if archive_path is not None:
                 self.cancel_download(
                     state, archive_path, stage="failed"
                 )
             else:
                 state["stage"] = "failed"
+            observe_exception(
+                "upgrade.install.failed",
+                error,
+                version=version,
+                stage=failed_stage,
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+            )
             raise
 
         except Exception as e:
+            failed_stage = state.get("stage")
             if archive_path is not None:
                 self.cancel_download(
                     state, archive_path, stage="failed"
                 )
             else:
                 state["stage"] = "failed"
+            observe_exception(
+                "upgrade.install.failed",
+                e,
+                version=version,
+                stage=failed_stage,
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+            )
             raise MindError(f"Install failed: {type(e).__name__}: {e}") from e
 
         finally:
@@ -525,19 +576,32 @@ class Upgrade(object):
         progress: UpgradeProgress | None = None
     ) -> None:
         """获取远端清单并执行后端运行时升级。"""
+        observe("upgrade.start")
         if not await port_available(port := 3333):
+            observe("upgrade.port.release", port=port)
             await terminate_port_process(port)
 
         remote: typing.Optional[dict] = None
 
         max_retries: int = 3
         for i in range(max_retries):
+            observe("upgrade.manifest.request", attempt=i + 1, max_attempts=max_retries)
             if remote := await fetch_manifest():
+                observe(
+                    "upgrade.manifest.loaded",
+                    attempt=i + 1,
+                    version=remote.get("version"),
+                )
                 break
             if i < 2:
                 await asyncio.sleep(1.0)
 
         if not remote:
+            observe(
+                "upgrade.manifest.failed",
+                level="ERROR",
+                attempts=max_retries,
+            )
             raise MindError(
                 f"No backend upgrade manifest is available after {max_retries} retries."
             )

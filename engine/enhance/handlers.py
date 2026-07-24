@@ -3,7 +3,7 @@
 
 import json
 import typing
-from loguru import logger
+from engine.observability import observe
 from mcp.types import CallToolResult
 from mind_core.remote_services import RemoteServices
 from mind_nova.requests.chat import stream_heal
@@ -102,7 +102,7 @@ async def enhance_heal_element(
                     if reporter:
                         await reporter.display(message)
                     else:
-                        logger.debug(message)
+                        observe("enhance.heal.step", message_chars=len(message))
                 continue
 
             if event_type == "heal.failed":
@@ -110,7 +110,7 @@ async def enhance_heal_element(
                 if reporter:
                     await reporter.display(error)
                 else:
-                    logger.debug(error)
+                    observe("enhance.heal.failed", level="WARNING", error=error)
                 result_data.update({
                     "target" : target,
                     "error"  : heal_event.get("error")

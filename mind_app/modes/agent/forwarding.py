@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import json
+import time
 import typing
 import asyncio
-from loguru import logger
 from engine.errors import MindError
+from engine.observability import (
+    observe,
+    observe_exception
+)
 from mind_nova.modes import (
     RUN_MODE_SET,
     RunMode
@@ -165,12 +168,17 @@ class AgentExecutor(object):
         if intent_summary is not None:
             metadata["intent_summary"] = intent_summary
 
-        logger.debug(
-            f"[Agent] forward start call_id={request.call_id} mode={mode} "
-            f"message={json.dumps(message, ensure_ascii=False)} "
-            f"profile={json.dumps(profile, ensure_ascii=False)} "
-            f"timeout_sec={timeout_sec or 0} "
-            f"metadata={json.dumps(forward_metadata, ensure_ascii=False)}"
+        started_at = time.perf_counter()
+
+        observe(
+            "agent.forward.start",
+            call_id=request.call_id,
+            message_id=request.message_id,
+            mode=mode,
+            message_chars=len(message or ""),
+            profile_items=len(profile or []),
+            timeout_sec=timeout_sec or 0,
+            metadata_fields=len(forward_metadata),
         )
         if live_status is not None:
             live_status.update(
@@ -205,8 +213,11 @@ class AgentExecutor(object):
             call_id=request.call_id
         )
 
-        logger.debug(
-            f"[Agent] forward done call_id={request.call_id} mode={mode}"
+        observe(
+            "agent.forward.complete",
+            call_id=request.call_id,
+            mode=mode,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
 
     def spawn(
@@ -234,8 +245,10 @@ class AgentExecutor(object):
                     live_status
                 )
             except asyncio.CancelledError:
-                logger.debug(
-                    f"[Agent] forward cancelled call_id={request.call_id}"
+                observe(
+                    "agent.forward.interrupted",
+                    level="WARNING",
+                    call_id=request.call_id,
                 )
                 if live_status is not None:
                     live_status.update(
@@ -243,9 +256,7 @@ class AgentExecutor(object):
                     )
                 raise
             except Exception as exc:
-                logger.debug(
-                    f"[Agent] forward failed call_id={request.call_id}: {type(exc).__name__}: {exc}"
-                )
+                observe_exception("agent.forward.failed", exc, call_id=request.call_id)
                 await client.send_mind_failed(
                     connection,
                     session_id=runtime.session_id,
@@ -404,14 +415,18 @@ class AutoForwardHandler(object):
             call_id=request.call_id,
             acked_message_id=request.message_id
         )
-        logger.debug(
-            f"[Agent] mind.received sent call_id={request.call_id} message_id={request.message_id}"
+        observe(
+            "agent.forward.received",
+            call_id=request.call_id,
+            message_id=request.message_id,
         )
 
         seen = get_runtime_message_cache(runtime)
         if request.message_id in seen:
-            logger.debug(
-                f"[Agent] mind.forward replay skipped message_id={request.message_id}"
+            observe(
+                "agent.forward.skipped",
+                message_id=request.message_id,
+                reason="replay",
             )
             return None
 
@@ -472,14 +487,18 @@ class InboxForwardHandler(object):
             call_id=request.call_id,
             acked_message_id=request.message_id
         )
-        logger.debug(
-            f"[Agent] mind.received sent call_id={request.call_id} message_id={request.message_id}"
+        observe(
+            "agent.forward.received",
+            call_id=request.call_id,
+            message_id=request.message_id,
         )
 
         seen = get_runtime_message_cache(runtime)
         if request.message_id in seen:
-            logger.debug(
-                f"[Agent] mind.forward replay skipped message_id={request.message_id}"
+            observe(
+                "agent.forward.skipped",
+                message_id=request.message_id,
+                reason="replay",
             )
             return None
 

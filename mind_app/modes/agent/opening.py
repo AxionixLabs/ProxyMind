@@ -10,7 +10,10 @@ import typing
 import asyncio
 import hashlib
 import platform
-from loguru import logger
+from engine.observability import (
+    observe,
+    observe_exception
+)
 from ...runtime.agent.client import AgentClient
 from .models import AgentConfig
 from mind_nova import const
@@ -19,6 +22,7 @@ from mind_nova import const
 def iter_exception_chain(exc: BaseException) -> typing.Iterator[BaseException]:
     """按因果链展开异常，便于识别被包装过的 TLS 错误。"""
     stack = [exc]
+
     seen: set[int] = set()
 
     while stack:
@@ -157,22 +161,29 @@ async def open_runtime(
             return await open_with_fallback(client, config)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 409:
-                logger.debug(
-                    "[Agent] open conflict persists; "
-                    "the server may still hold another session for this agent. retrying in 5s"
+                observe(
+                    "agent.open.retry",
+                    level="WARNING",
+                    reason="conflict",
+                    retry_after_sec=5,
                 )
                 await asyncio.sleep(5.0)
                 continue
             raise
         except (OSError, httpx.HTTPError, asyncio.TimeoutError) as exc:
             if is_tls_certificate_error(exc):
-                logger.debug(
-                    "[Agent] open failed: non-retriable tls error "
-                    f"{summarize_tls_certificate_error(exc)}"
+                observe_exception(
+                    "agent.open.failed",
+                    exc,
+                    reason="tls",
+                    detail=summarize_tls_certificate_error(exc),
                 )
                 raise
-            logger.debug(
-                f"[Agent] open failed: {type(exc).__name__}: {exc}. retrying in 5s"
+            observe_exception(
+                "agent.open.retry",
+                exc,
+                level="WARNING",
+                retry_after_sec=5,
             )
             await asyncio.sleep(5.0)
             continue
@@ -198,17 +209,18 @@ def extract_http_error_detail(exc: httpx.HTTPStatusError) -> dict[str, typing.An
 
 def log_http_error_detail(prefix: str, exc: httpx.HTTPStatusError) -> None:
     """记录 detail.code / detail.message / detail.extra 以便排查问题。"""
+    _ = prefix
     detail = extract_http_error_detail(exc)
 
     code    = detail.get("code") if isinstance(detail, dict) else None
     message = detail.get("message") if isinstance(detail, dict) else None
-    extra   = detail.get("extra") if isinstance(detail, dict) else None
 
-    extra_text = json.dumps(extra, ensure_ascii=False) if extra is not None else ""
-
-    logger.debug(
-        f"{prefix} status={exc.response.status_code} "
-        f"code={code or ''} message={message or ''} extra={extra_text}"
+    observe(
+        "agent.open.conflict",
+        level="WARNING",
+        status=exc.response.status_code,
+        code=code,
+        message=message,
     )
 
 

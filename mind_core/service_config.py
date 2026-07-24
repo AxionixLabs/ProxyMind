@@ -6,6 +6,10 @@ import typing
 import tomllib
 from urllib.parse import urlparse
 from pathlib import Path
+from engine.observability import (
+    observe,
+    observe_exception
+)
 from mind_core.config import (
     default_config_path,
     ensure_config,
@@ -50,7 +54,13 @@ class ServiceConfig(object):
         try:
             with Path(target).expanduser().open("rb") as file:
                 raw_config = tomllib.load(file)
-        except (OSError, TypeError, ValueError):
+        except (OSError, TypeError, ValueError) as error:
+            observe_exception(
+                "service_domain.local.failed",
+                error,
+                level="WARNING",
+                phase="toml",
+            )
             return ""
 
         raw_service = raw_config.get("service") if isinstance(raw_config, dict) else None
@@ -59,7 +69,13 @@ class ServiceConfig(object):
 
         try:
             config = normalize_config(load_config(target))
-        except (OSError, TypeError, ValueError):
+        except (OSError, TypeError, ValueError) as error:
+            observe_exception(
+                "service_domain.local.failed",
+                error,
+                level="WARNING",
+                phase="normalized_config",
+            )
             return ""
 
         service = config.get("service") if isinstance(config, dict) else None
@@ -75,7 +91,12 @@ class ServiceConfig(object):
                 resp = await client.get(self.service_config_api)
                 resp.raise_for_status()
                 payload = resp.json()
-        except (httpx.HTTPError, TypeError, ValueError):
+        except (httpx.HTTPError, TypeError, ValueError) as error:
+            observe_exception(
+                "service_domain.remote.failed",
+                error,
+                level="WARNING",
+            )
             return ""
 
         if not isinstance(payload, dict):
@@ -89,7 +110,13 @@ class ServiceConfig(object):
 
     async def load_domain(self) -> str:
         """读取本地服务域名配置。"""
-        return self.load_local_domain()
+        domain = self.load_local_domain()
+        observe(
+            "service_domain.loaded",
+            source="local" if domain else "default",
+            configured=bool(domain),
+        )
+        return domain
 
 
 if __name__ == '__main__':

@@ -4,7 +4,7 @@
 import time
 import typing
 import asyncio
-from ..observability import (
+from engine.observability import (
     observe,
     observe_exception
 )

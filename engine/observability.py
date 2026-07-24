@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import json
 import re
+import json
 import typing
 from loguru import logger
 
 _SAFE_VALUE = re.compile(r"^[A-Za-z0-9._:/@+\\-]+$")
+
 _MAX_FIELD_LENGTH = 320
 
 
@@ -61,3 +62,7 @@ def observe_exception(
         error_type=type(error).__name__,
         error=str(error),
     )
+
+
+if __name__ == '__main__':
+    pass

@@ -6,7 +6,7 @@ import pytest
 from loguru import logger
 
 from mind_app.reporting import RunReport
-from mind_app.observability import observe, observe_exception
+from engine.observability import observe, observe_exception
 from mind_app.stream_io.output_record import StreamRecordWriter
 
 

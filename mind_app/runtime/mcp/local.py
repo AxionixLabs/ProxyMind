@@ -5,13 +5,11 @@ import time
 import httpx
 import typing
 from datetime import timedelta
-from loguru import logger
+from engine.observability import observe_exception
 from contextlib import asynccontextmanager
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from mind_app.mcp.errors import (
-    flatten_exceptions, summarize_exception
-)
+from mind_app.mcp.errors import flatten_exceptions
 from ..support.session_policy import is_transport_close_exception
 from mind_nova import const
 from mind_nova.requests.streaming import cap_response
@@ -68,7 +66,11 @@ async def open_local_mcp_session() -> typing.AsyncIterator[ClientSession]:
                 raise user_flow_error from None
 
             if user_flow_error is None and is_transport_close_exception(exc):
-                logger.debug(f"MCP local session close ignored: {summarize_exception(exc)}")
+                observe_exception(
+                    "mcp.local.close_ignored",
+                    exc,
+                    level="WARNING",
+                )
                 return
 
             raise

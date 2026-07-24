@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import time
 import typing
 import asyncio
+from engine.observability import (
+    observe,
+    observe_exception
+)
 from engine.errors import MindError
 from mind_app.runtime.mcp.service_runtime import service_runtime_asset_missing
 from ..core.runtime import TuiRuntime
@@ -64,11 +69,13 @@ class TuiForegroundTasks(object):
         """合并同类前台任务并注册下一轮屏障。"""
         active: asyncio.Task[None] | None = self._tasks.get(key)
         if active is not None and not active.done():
+            observe("operation.skipped", operation=key, reason="already_running")
             self._defer_notice(f"{key} startup is already in progress.")
             return True
 
         task = self.runtime.start_background_task(
             self._run_operation(
+                key,
                 factory,
                 cancel_cleanup=cancel_cleanup,
                 finish_activity=finish_activity,
@@ -205,6 +212,7 @@ class TuiForegroundTasks(object):
 
     async def _run_operation(
         self,
+        key: str,
         factory: typing.Callable[
             [],
             typing.Coroutine[typing.Any, typing.Any, typing.Any],
@@ -217,6 +225,10 @@ class TuiForegroundTasks(object):
         on_cancelled: CancelledHandler | None
     ) -> None:
         """执行前台任务并按统一顺序完成活动状态和结果提交。"""
+        started_at = time.perf_counter()
+
+        observe("operation.start", operation=key)
+
         try:
             result = await factory()
             if finish_activity is not None:
@@ -228,22 +240,53 @@ class TuiForegroundTasks(object):
                 await self.mind.await_cleanup(finish_activity())
             if on_cancelled is not None:
                 on_cancelled()
+
+            observe(
+                "operation.interrupted",
+                level="WARNING",
+                operation=key,
+                elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+            )
             raise
+
         except MindError as error:
             if finish_activity is not None:
                 await self.mind.await_cleanup(finish_activity())
+
+            observe_exception(
+                "operation.failed",
+                error,
+                operation=key,
+                elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+            )
+
             if on_failed is None:
                 raise
             on_failed(error)
+
         except Exception as error:
             if finish_activity is not None:
                 await self.mind.await_cleanup(finish_activity())
+
+            observe_exception(
+                "operation.failed",
+                error,
+                operation=key,
+                elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+            )
+
             if on_failed is None:
                 raise
             on_failed(error)
+
         else:
             if on_succeeded is not None:
                 on_succeeded(result)
+            observe(
+                "operation.complete",
+                operation=key,
+                elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+            )
 
     def _handle_wait_command(self, value: str) -> bool:
         """在后台屏障等待期间只处理退出类命令。"""

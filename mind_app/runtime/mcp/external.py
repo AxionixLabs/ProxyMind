@@ -13,7 +13,7 @@ from mind_app.mcp.status import (
     ExternalMcpStatus,
     external_status_detail_from_exception
 )
-from mind_app.observability import (
+from engine.observability import (
     observe,
     observe_exception
 )

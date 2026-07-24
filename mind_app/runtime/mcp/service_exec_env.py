@@ -3,7 +3,7 @@
 
 import httpx
 import typing
-from loguru import logger
+from engine.observability import observe_exception
 from mind_nova import const
 
 
@@ -15,7 +15,7 @@ async def fetch_service_exec_env(timeout: float = 1.5) -> dict[str, typing.Any] 
             resp.raise_for_status()
             body = resp.json()
     except (httpx.HTTPError, ValueError) as exc:
-        logger.debug(f"[Runtime] service exec_env skipped: {type(exc).__name__}: {exc}")
+        observe_exception("helix.exec_env.failed", exc, level="WARNING")
         return None
 
     if not isinstance(body, dict) or not body.get("ok"):

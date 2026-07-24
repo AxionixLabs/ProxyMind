@@ -3,7 +3,7 @@
 
 import os
 import typing
-from loguru import logger
+from engine.observability import observe_exception
 from mind_nova import const
 from mind_app.stream_state.boundary import OutputBoundaryState
 
@@ -57,9 +57,11 @@ class StreamRecordWriter(object):
             )
         except OSError as exc:
             self.fp = None
-            logger.warning(
-                f"[StreamRecord] disabled file record path={self.log_file!r} "
-                f"reason={type(exc).__name__}: {exc}"
+            observe_exception(
+                "stream_record.disabled",
+                exc,
+                level="WARNING",
+                path=self.log_file,
             )
 
     def write(self, chunk: typing.Optional[str], *, block: bool = False) -> None:

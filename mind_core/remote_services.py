@@ -2,9 +2,10 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from loguru import logger
+from engine.observability import observe_exception
 from engine.channel import (
-    Channel, Messenger
+    Channel,
+    Messenger
 )
 from mind_core.licensing import verify_signature
 from mind_nova import const
@@ -32,7 +33,8 @@ class RemoteServices(object):
             sign_data = await RemoteServices.ask_request_get(const.SPEECH_META_URL)
             auth_info = verify_signature(sign_data)
         except Exception as e:
-            return logger.debug(e)
+            observe_exception("remote_service.failed", e, level="WARNING", service="speech")
+            return None
 
         return auth_info.get("mode", {})
 
@@ -43,7 +45,8 @@ class RemoteServices(object):
             sign_data = await RemoteServices.ask_request_get(const.HEAL_LIC_URL)
             auth_info = verify_signature(sign_data)
         except Exception as e:
-            return logger.debug(e)
+            observe_exception("remote_service.failed", e, level="WARNING", service="heal_license")
+            return None
 
         return auth_info.get("heal_element", {})
 
@@ -54,7 +57,8 @@ class RemoteServices(object):
             sign_data = await RemoteServices.ask_request_get(const.GLOBAL_CF_URL)
             auth_info = verify_signature(sign_data)
         except Exception as e:
-            return logger.debug(e)
+            observe_exception("remote_service.failed", e, level="WARNING", service="global_config")
+            return None
 
         return auth_info.get("configuration", {})
 

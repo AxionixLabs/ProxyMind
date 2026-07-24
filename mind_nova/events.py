@@ -4,7 +4,10 @@
 import time
 import typing
 import asyncio
-from loguru import logger
+from engine.observability import (
+    observe,
+    observe_exception
+)
 from mind_nova.identifiers import short_uid
 from mind_nova.modes import RunMode
 from mind_nova.requests.reports import post_stream_event
@@ -86,9 +89,19 @@ class EventReport(object):
 
             self.q.put_nowait(ev)
         except asyncio.QueueFull:
-            logger.debug(f"[events] drop(queue_full) type={event.get('type')}")
+            observe(
+                "event_report.dropped",
+                level="WARNING",
+                reason="queue_full",
+                event_type=event.get("type"),
+            )
         except RuntimeError:
-            logger.debug(f"[events] drop(no_loop) type={event.get('type')}")
+            observe(
+                "event_report.dropped",
+                level="WARNING",
+                reason="no_loop",
+                event_type=event.get("type"),
+            )
 
     async def open(self) -> None:
         """启动后台发送 worker（建议在 pack_start 前调用）"""
@@ -110,8 +123,12 @@ class EventReport(object):
             try:
                 await post_stream_event(self.mode, self.cid, self.sid, ev, timeout=self.timeout)
             except Exception as e:
-                logger.debug(
-                    f"[events] post fail: {e!r} type={ev.get('type')} seq={ev.get('seq')}"
+                observe_exception(
+                    "event_report.post_failed",
+                    e,
+                    level="WARNING",
+                    event_type=ev.get("type"),
+                    seq=ev.get("seq"),
                 )
             finally:
                 self.q.task_done()

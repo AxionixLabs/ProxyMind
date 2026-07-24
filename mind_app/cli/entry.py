@@ -15,7 +15,7 @@ from mind_core.preference import Preferences
 from mind_core.service_config import ServiceConfig
 from mind_nova import const
 from mind_nova.services import service_endpoints
-from ..observability import (
+from engine.observability import (
     observe,
     observe_exception
 )

@@ -9,15 +9,20 @@ import logging
 from datetime import timedelta
 from types import TracebackType
 from contextlib import asynccontextmanager
-from loguru import logger
 from mcp import ClientSession, types as mcp_types
+from engine.observability import (
+    observe,
+    observe_exception
+)
 from mcp.client.sse import sse_client
 from mcp.client.stdio import (
-    StdioServerParameters, stdio_client
+    StdioServerParameters,
+    stdio_client
 )
 from mcp.client.streamable_http import streamable_http_client
 from mcp.client.session_group import (
-    ClientSessionParameters, SseServerParameters
+    ClientSessionParameters,
+    SseServerParameters
 )
 from mcp.shared.exceptions import McpError
 from .config import (
@@ -33,12 +38,12 @@ from .config import (
 from .status import (
     ExternalMcpStatus,
     external_status_detail_from_exception,
-    should_reraise_external,
-    summarize_exception
+    should_reraise_external
 )
 
-EXTERNAL_MCP_CONNECT_CONCURRENCY = 4
+EXTERNAL_MCP_CONNECT_CONCURRENCY   = 4
 EXTERNAL_MCP_PREFLIGHT_TIMEOUT_SEC = 2.0
+
 _STREAMABLE_HTTP_LOGGER_NAME = "mcp.client.streamable_http"
 _SESSION_TERMINATION_WARNING = "Session termination failed:"
 
@@ -51,7 +56,11 @@ class _SessionTerminationLogFilter(logging.Filter):
         message = record.getMessage()
         if not message.startswith(_SESSION_TERMINATION_WARNING):
             return True
-        logger.debug(f"[MCP] external {message}")
+        observe(
+            "external_mcp.cleanup.warning",
+            level="WARNING",
+            detail=message,
+        )
         return False
 
 
@@ -95,9 +104,7 @@ class ExternalMcpGroup(object):
         except BaseException as exc:
             if should_reraise_external(exc):
                 raise
-            logger.debug(
-                f"[MCP] external cleanup failed {summarize_exception(exc)}"
-            )
+            observe_exception("external_mcp.cleanup.failed", exc, level="WARNING")
             return None
         finally:
             self.tools.clear()
@@ -191,8 +198,11 @@ class ExternalMcpGroup(object):
         except BaseException as exc:
             if should_reraise_external(exc):
                 raise
-            logger.debug(
-                f"[MCP] external tools skipped {summarize_exception(exc)}"
+            observe_exception(
+                "external_mcp.tools.failed",
+                exc,
+                level="WARNING",
+                server=server_info.name,
             )
             return tools_temp, 0
 
@@ -325,10 +335,13 @@ async def _connect_external_server(
                 tool_count,
                 discovered_count=discovered_count,
             )
-        logger.debug(
-            f"[MCP] external connected name={alias} "
-            f"transport={transport} discovered={discovered_count} "
-            f"exposed={tool_count} filtered={discovered_count - tool_count}"
+        observe(
+            "external_mcp.server.connected",
+            server=alias,
+            transport=transport,
+            discovered=discovered_count,
+            exposed=tool_count,
+            filtered=discovered_count - tool_count,
         )
         return True
     except BaseException as exc:
@@ -341,9 +354,14 @@ async def _connect_external_server(
         else:
             detail = external_status_detail_from_exception(exc)
 
-        logger.debug(
-            f"[MCP] external connect failed name={name} transport={transport} "
-            f"{detail}"
+        observe_exception(
+            "external_mcp.server.failed",
+            exc,
+            level="WARNING",
+            server=name,
+            transport=transport,
+            phase=phase,
+            detail=detail,
         )
         if status is not None:
             status.mark_failed(server, detail)
@@ -378,7 +396,7 @@ async def open_optional_external_mcp_group(
     except BaseException as exc:
         if should_reraise_external(exc):
             raise
-        logger.debug(f"[MCP] external group skipped {summarize_exception(exc)}")
+        observe_exception("external_mcp.group.failed", exc, level="WARNING")
         if status is not None:
             detail = external_status_detail_from_exception(exc)
             for item in enabled:
@@ -405,7 +423,11 @@ async def open_optional_external_mcp_group(
         connected_servers = sum(await asyncio.gather(*connect_tasks))
 
         if connected_servers <= 0:
-            logger.debug("[MCP] external unavailable, local service only")
+            observe(
+                "external_mcp.unavailable",
+                level="WARNING",
+                configured=len(enabled),
+            )
             if status is not None:
                 status.finish()
             yield None
@@ -430,9 +452,7 @@ async def open_optional_external_mcp_group(
         except BaseException as exc:
             if should_reraise_external(exc):
                 raise
-            logger.debug(
-                f"[MCP] external cleanup failed {summarize_exception(exc)}"
-            )
+            observe_exception("external_mcp.cleanup.failed", exc, level="WARNING")
 
 
 if __name__ == '__main__':

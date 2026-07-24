@@ -10,7 +10,7 @@ from mind_nova.modes import (
     RunMode
 )
 from ...stream_events.worked import emit_worked_footer
-from ...observability import (
+from engine.observability import (
     observe,
     observe_exception
 )

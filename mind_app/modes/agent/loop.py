@@ -4,7 +4,10 @@
 import httpx
 import typing
 import asyncio
-from loguru import logger
+from engine.observability import (
+    observe,
+    observe_exception
+)
 from websockets.exceptions import (
     ConnectionClosed,
     InvalidStatus,
@@ -140,8 +143,12 @@ class AgentConnection(object):
             forwarded_message_ids=None if previous is None else previous.forwarded_message_ids,
             pending_tasks=None if previous is None else previous.pending_tasks
         )
-        logger.debug(
-            f"[Agent] opened session_id={session_id} agent_id={self.config.agent_id} device_id={device_id}"
+        observe(
+            "agent.session.opened",
+            session_id=session_id,
+            agent_id=self.config.agent_id,
+            device_id=device_id,
+            reopened=previous is not None,
         )
         return runtime
 
@@ -167,8 +174,11 @@ class AgentConnection(object):
         resume_data = self.client.unwrap_data(resume_resp)
         resumable   = bool(resume_data.get("resumable"))
 
-        logger.debug(
-            f"[Agent] resume status resumable={resumable} last_acked_seq={runtime.last_acked_seq}"
+        observe(
+            "agent.session.resume_status",
+            session_id=runtime.session_id,
+            resumable=resumable,
+            last_acked_seq=runtime.last_acked_seq,
         )
 
         if resumable:
@@ -199,8 +209,10 @@ class AgentConnection(object):
         )
 
         reopened = await self.open_session_runtime(previous=runtime)
-        logger.debug(
-            f"[Agent] reopened session_id={reopened.session_id} device_id={reopened.device_id}"
+        observe(
+            "agent.session.reopened",
+            session_id=reopened.session_id,
+            device_id=reopened.device_id,
         )
         return reopened
 
@@ -235,6 +247,7 @@ class AgentSupervisor(object):
         runtime: AgentSessionRuntime | None = None
 
         try:
+            observe("agent.supervisor.start")
             await start_connect_animation(self.mind, self.live_status)
 
             self.live_status.update(
@@ -243,9 +256,7 @@ class AgentSupervisor(object):
 
             runtime = await self.connection.open_session_runtime()
 
-            logger.debug(
-                f"[Agent] {self.connection.config.base_url}"
-            )
+            observe("agent.subscription.ready", session_id=runtime.session_id)
             self.live_status.update(
                 "Subscription Ready", "Rendering external call example"
             )
@@ -285,6 +296,10 @@ class AgentSupervisor(object):
                     continue
 
         finally:
+            observe(
+                "agent.supervisor.stop",
+                session_id=runtime.session_id if runtime is not None else None,
+            )
             self.live_status.update(
                 "Exiting Subscription", "Cleaning tasks and stopping animation"
             )
@@ -298,8 +313,12 @@ class AgentSupervisor(object):
         exc: AgentWsProtocolError
     ) -> AgentSessionRuntime:
         """处理服务端协议错误并返回当前运行态。"""
-        logger.debug(
-            f"[Agent] ws protocol error code={exc.code} action={exc.action} message={exc.message_text}"
+        observe(
+            "agent.protocol.error",
+            level="WARNING",
+            code=exc.code,
+            action=exc.action,
+            message=exc.message_text,
         )
         if exc.action == "abort":
             self.live_status.update(
@@ -321,23 +340,22 @@ class AgentSupervisor(object):
             except (OSError, httpx.HTTPError, asyncio.TimeoutError) as reopen_exc:
                 if is_tls_certificate_error(reopen_exc):
                     detail = summarize_tls_certificate_error(reopen_exc)
-                    logger.debug(
-                        f"[Agent] reopen failed: non-retriable tls error {detail}"
+                    observe_exception(
+                        "agent.reopen.failed",
+                        reopen_exc,
+                        reason="tls",
+                        detail=detail,
                     )
                     self.live_status.update("TLS Verification Failed", detail)
                     raise
-                logger.debug(
-                    f"[Agent] reopen failed: {type(reopen_exc).__name__}: {reopen_exc}"
-                )
+                observe_exception("agent.reopen.retry", reopen_exc, level="WARNING")
                 self.live_status.update(
                     "Reopen Failed", f"{type(reopen_exc).__name__} · retrying in 2s"
                 )
                 await sleep_or_stop(2.0, self.mind.task_event)
                 return runtime
             except Exception as reopen_exc:
-                logger.debug(
-                    f"[Agent] reopen crashed: {type(reopen_exc).__name__}: {reopen_exc}"
-                )
+                observe_exception("agent.reopen.retry", reopen_exc, level="WARNING")
                 self.live_status.update(
                     "Reopen Crashed", f"{type(reopen_exc).__name__} · retrying in 2s"
                 )
@@ -371,47 +389,50 @@ class AgentSupervisor(object):
         """处理连接中断并返回当前运行态。"""
         if is_tls_certificate_error(exc):
             detail = summarize_tls_certificate_error(exc)
-            logger.debug(
-                f"[Agent] disconnected: non-retriable tls error {detail}"
+            observe_exception(
+                "agent.disconnected",
+                exc,
+                reason="tls",
+                detail=detail,
             )
             self.live_status.update("TLS Verification Failed", detail)
             raise exc
 
-        logger.debug(
-            f"[Agent] disconnected: {type(exc).__name__}: {exc}"
-        )
+        observe_exception("agent.disconnected", exc, level="WARNING")
 
         title, detail = summarize_ws_disconnect(exc)
         self.live_status.update(title, detail)
 
         status_code = get_disconnect_status_code(exc)
 
-        logger.debug(
-            "[Agent] recovery state "
-            f"session_id={runtime.session_id} "
-            f"ready_received={runtime.ready_received} "
-            f"last_acked_seq={runtime.last_acked_seq} "
-            f"pre_ready_connect_failures={runtime.pre_ready_connect_failures} "
-            f"resume_token={'yes' if runtime.resume_token else 'no'} "
-            f"status_code={status_code if status_code is not None else '-'}"
+        observe(
+            "agent.recovery.state",
+            session_id=runtime.session_id,
+            ready_received=runtime.ready_received,
+            last_acked_seq=runtime.last_acked_seq,
+            pre_ready_failures=runtime.pre_ready_connect_failures,
+            resume_available=bool(runtime.resume_token),
+            status=status_code,
         )
 
         retry_ws_before_resume = should_retry_ws_before_resume(runtime, exc)
-        logger.debug(
-            "[Agent] recovery decision "
-            f"action={'ws_retry' if retry_ws_before_resume else 'resume_or_reopen'} "
-            f"reason={'pre-ready' if retry_ws_before_resume else 'ready-or-acked'}"
+        observe(
+            "agent.recovery.decision",
+            action="ws_retry" if retry_ws_before_resume else "resume_or_reopen",
+            reason="pre_ready" if retry_ws_before_resume else "ready_or_acked",
         )
 
         if retry_ws_before_resume:
             return await self.handle_pre_ready_disconnect(runtime)
 
         if not runtime.resume_token:
-            logger.debug(
-                "[Agent] resume skipped: resume_token missing "
-                f"session_id={runtime.session_id} "
-                f"ready_received={runtime.ready_received} "
-                f"last_acked_seq={runtime.last_acked_seq}"
+            observe(
+                "agent.resume.skipped",
+                level="WARNING",
+                session_id=runtime.session_id,
+                reason="token_missing",
+                ready_received=runtime.ready_received,
+                last_acked_seq=runtime.last_acked_seq,
             )
             self.live_status.update(
                 "Resume Token Missing", "Retrying session open in 2s"
@@ -428,10 +449,10 @@ class AgentSupervisor(object):
         """处理 ready 前的连接中断。"""
         runtime.pre_ready_connect_failures += 1
 
-        logger.debug(
-            "[Agent] pre-ready ws reconnect "
-            f"session_id={runtime.session_id} "
-            f"attempt={runtime.pre_ready_connect_failures}"
+        observe(
+            "agent.pre_ready.retry",
+            session_id=runtime.session_id,
+            attempt=runtime.pre_ready_connect_failures,
         )
 
         if runtime.pre_ready_connect_failures < 3:
@@ -454,23 +475,22 @@ class AgentSupervisor(object):
         except (OSError, httpx.HTTPError, asyncio.TimeoutError) as reopen_exc:
             if is_tls_certificate_error(reopen_exc):
                 detail = summarize_tls_certificate_error(reopen_exc)
-                logger.debug(
-                    f"[Agent] pre-ready reopen failed: non-retriable tls error {detail}"
+                observe_exception(
+                    "agent.pre_ready.reopen_failed",
+                    reopen_exc,
+                    reason="tls",
+                    detail=detail,
                 )
                 self.live_status.update("TLS Verification Failed", detail)
                 raise
-            logger.debug(
-                f"[Agent] pre-ready reopen failed: {type(reopen_exc).__name__}: {reopen_exc}"
-            )
+            observe_exception("agent.pre_ready.reopen_retry", reopen_exc, level="WARNING")
             self.live_status.update(
                 "Reopen Failed", f"{type(reopen_exc).__name__} · retrying in 2s"
             )
             await sleep_or_stop(2.0, self.mind.task_event)
             return runtime
         except Exception as reopen_exc:
-            logger.debug(
-                f"[Agent] pre-ready reopen crashed: {type(reopen_exc).__name__}: {reopen_exc}"
-            )
+            observe_exception("agent.pre_ready.reopen_retry", reopen_exc, level="WARNING")
             self.live_status.update(
                 "Reopen Crashed", f"{type(reopen_exc).__name__} · retrying in 2s"
             )
@@ -497,19 +517,19 @@ class AgentSupervisor(object):
     ) -> AgentSessionRuntime:
         """处理连接恢复请求。"""
         try:
-            logger.debug(
-                "[Agent] resume_or_reopen start "
-                f"session_id={runtime.session_id} "
-                f"last_acked_seq={runtime.last_acked_seq} "
-                f"ready_received={runtime.ready_received}"
+            observe(
+                "agent.resume.start",
+                session_id=runtime.session_id,
+                last_acked_seq=runtime.last_acked_seq,
+                ready_received=runtime.ready_received,
             )
             runtime = await self.connection.resume_or_open(runtime)
-            logger.debug(
-                "[Agent] resume_or_reopen done "
-                f"session_id={runtime.session_id} "
-                f"last_acked_seq={runtime.last_acked_seq} "
-                f"ready_received={runtime.ready_received} "
-                f"resume_token={'yes' if runtime.resume_token else 'no'}"
+            observe(
+                "agent.resume.complete",
+                session_id=runtime.session_id,
+                last_acked_seq=runtime.last_acked_seq,
+                ready_received=runtime.ready_received,
+                resume_available=bool(runtime.resume_token),
             )
         except asyncio.CancelledError:
             self.live_status.update(
@@ -519,23 +539,22 @@ class AgentSupervisor(object):
         except (OSError, httpx.HTTPError, asyncio.TimeoutError) as resume_exc:
             if is_tls_certificate_error(resume_exc):
                 detail = summarize_tls_certificate_error(resume_exc)
-                logger.debug(
-                    f"[Agent] resume failed: non-retriable tls error {detail}"
+                observe_exception(
+                    "agent.resume.failed",
+                    resume_exc,
+                    reason="tls",
+                    detail=detail,
                 )
                 self.live_status.update("TLS Verification Failed", detail)
                 raise
-            logger.debug(
-                f"[Agent] resume failed: {type(resume_exc).__name__}: {resume_exc}"
-            )
+            observe_exception("agent.resume.retry", resume_exc, level="WARNING")
             self.live_status.update(
                 "Resume Failed", f"{type(resume_exc).__name__} · retrying in 2s"
             )
             await sleep_or_stop(2.0, self.mind.task_event)
             return runtime
         except Exception as resume_exc:
-            logger.debug(
-                f"[Agent] resume crashed: {type(resume_exc).__name__}: {resume_exc}"
-            )
+            observe_exception("agent.resume.retry", resume_exc, level="WARNING")
             self.live_status.update(
                 "Resume Crashed", f"{type(resume_exc).__name__} · retrying in 2s"
             )

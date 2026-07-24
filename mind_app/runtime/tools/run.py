@@ -16,7 +16,7 @@ from ...output import (
 from .enhance_reporter import ToolEnhanceReporter
 from .progress import show_tool_progress
 from .router import execute_tool
-from ...observability import (
+from engine.observability import (
     observe,
     observe_exception
 )

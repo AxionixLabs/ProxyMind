@@ -9,7 +9,6 @@ import asyncio
 import sqlite3
 import contextlib
 from pathlib import Path
-from loguru import logger
 from engine.manage import ServerManage
 from engine.animation import AsyncAnimManager
 from engine.ports import terminate_port_process
@@ -20,7 +19,7 @@ from mind_nova.modes import (
     RunMode
 )
 from .reporting import RunReport
-from .observability import (
+from engine.observability import (
     observe,
     observe_exception
 )
@@ -160,7 +159,7 @@ class Mind(object):
             return None
 
         if error is not None:
-            logger.debug(f"[Keepalive] task stopped: {type(error).__name__}: {error}")
+            observe_exception("keepalive.task.failed", error, level="WARNING")
 
     @staticmethod
     async def await_cleanup(awaitable: typing.Awaitable[None]) -> None:
@@ -244,7 +243,7 @@ class Mind(object):
                 limit=limit
             )
         except (OSError, sqlite3.Error, ValueError) as exc:
-            logger.debug(f"[History] list skipped: {type(exc).__name__}: {exc}")
+            observe_exception("history.list.failed", exc, level="WARNING")
             return []
 
         return [
@@ -262,10 +261,17 @@ class Mind(object):
         cid = str(record.get("cid") or "").strip()
         sid = str(record.get("sid") or "").strip()
         if not valid_session_ids(cid, sid):
-            logger.debug(f"[History] resume skipped: invalid cursor cid={cid} sid={sid}")
+            observe(
+                "history.resume.skipped",
+                level="WARNING",
+                reason="invalid_cursor",
+                cid=cid,
+                sid=sid,
+            )
             return None
 
         self.conversation = ConversationState(cid=cid, sid=sid)
+        observe("history.resumed", cid=cid, sid=sid)
 
         metadata = self.conversation.snapshot()
         self._touch_history_session(metadata, source=source)
@@ -289,7 +295,12 @@ class Mind(object):
                 source=source
             )
         except (OSError, sqlite3.Error, ValueError, KeyError) as exc:
-            logger.debug(f"[History] write skipped: {type(exc).__name__}: {exc}")
+            observe_exception(
+                "history.write.failed",
+                exc,
+                level="WARNING",
+                source=source,
+            )
 
     def set_history_workspace(self, workspace: typing.Any) -> str:
         """更新 history 使用的真实工作区根目录。"""
@@ -472,7 +483,7 @@ class Mind(object):
         try:
             await self.pref.load_pref()
         except Exception as exc:
-            logger.debug(f"[Pref] refresh skipped: {type(exc).__name__}: {exc}")
+            observe_exception("preferences.refresh.failed", exc, level="WARNING")
             return None
 
         self.pref_refreshed_at = time.monotonic()

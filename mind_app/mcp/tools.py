@@ -3,7 +3,7 @@
 
 import typing
 from dataclasses import dataclass
-from loguru import logger
+from engine.observability import observe
 from mcp import ClientSession
 from mcp import types as mcp_types
 from .contracts import McpSessionLike
@@ -37,7 +37,7 @@ def build_wire_tools(
             }
         )
 
-    logger.debug(f"[Tooling] count={len(tools)}")
+    observe("tools.catalog.ready", count=len(tools))
 
     return tools
 

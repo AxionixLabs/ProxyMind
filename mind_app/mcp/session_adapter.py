@@ -2,14 +2,12 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from loguru import logger
+from engine.observability import observe_exception
 from mcp import ClientSession, types as mcp_types
 from mind_app.client_tools import ClientToolRegistry
 from .config import truncate_text
 from .contracts import McpSessionLike
-from .status import (
-    should_reraise_external, summarize_exception
-)
+from .status import should_reraise_external
 
 class CompositeToolSession(McpSessionLike):
     """合并客户端、外部和服务 MCP 会话，并按工具来源分发调用。"""
@@ -90,8 +88,10 @@ class CompositeToolSession(McpSessionLike):
             except BaseException as exc:
                 if should_reraise_external(exc):
                     raise
-                logger.debug(
-                    f"[MCP] external tools skipped {summarize_exception(exc)}"
+                observe_exception(
+                    "external_mcp.tools.failed",
+                    exc,
+                    level="WARNING",
                 )
 
         return mcp_types.ListToolsResult(tools=tools)
