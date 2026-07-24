@@ -145,7 +145,7 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
         upgrade_calls.append((context, kwargs))
         return True
 
-    monkeypatch.setattr(entry.Active, "silent", lambda: None)
+    monkeypatch.setattr(entry.logger, "remove", lambda: None)
     monkeypatch.setattr(
         entry,
         "Parser",

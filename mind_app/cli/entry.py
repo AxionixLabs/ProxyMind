@@ -10,7 +10,6 @@ from engine.animation import AsyncAnimManager
 from engine.signals import SignalHandler
 from engine.manage import ServerManage
 from engine.errors import MindError
-from engine.tinker import Active
 from mind_core.parser import Parser
 from mind_core.preference import Preferences
 from mind_core.service_config import ServiceConfig
@@ -168,7 +167,7 @@ async def _run_main(
     handler: SignalHandler | None = None
 ) -> int:
     """执行入口主流程。"""
-    Active.silent()
+    logger.remove()
 
     # 解析命令行参数
     parser = Parser()

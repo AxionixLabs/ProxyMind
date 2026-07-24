@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -9,28 +7,6 @@ from loguru import logger
 
 from mind_app.reporting import RunReport
 from mind_app.stream_io.output_record import StreamRecordWriter
-
-
-def test_silent_logging_does_not_write_to_terminal() -> None:
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            (
-                "from engine.tinker import Active; "
-                "from loguru import logger; "
-                "Active.silent(); "
-                "logger.error('terminal-log-marker')"
-            ),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert result.returncode == 0
-    assert result.stdout == ""
-    assert result.stderr == ""
 
 
 @pytest.mark.anyio
