@@ -29,7 +29,10 @@ class Active(object):
             return None
 
         from rich.console import Console
-        from rich.logging import LogRecord, RichHandler
+        from rich.logging import (
+            LogRecord,
+            RichHandler
+        )
         from rich.text import Text
 
         class RichSink(RichHandler):

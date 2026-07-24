@@ -9,15 +9,16 @@ import typing
 import asyncio
 import plistlib
 from pathlib import Path
-from loguru import logger
+from rich.console import Console
 from rich.progress import (
-    BarColumn, TimeElapsedColumn,
-    Progress, SpinnerColumn, TextColumn,
+    BarColumn,
+    TimeElapsedColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn
 )
 from engine.errors import MindError
-from engine.tinker import Active
 from engine.terminal import Terminal
-from mind_core.design import Design
 from mind_nova import const
 
 nuitka_version = "2.8.9"  # 编译器版本
@@ -27,9 +28,12 @@ try:
 except ImportError:
     raise MindError(f"Use Nuitka {nuitka_version} for stable builds")
 
+CONSOLE = Console()
+
+
 def compile_log(value: typing.Any) -> None:
     """输出一条构建日志。"""
-    logger.info(str(value))
+    CONSOLE.print(str(value), markup=False)
 
 
 async def is_virtual_env() -> None:
@@ -312,7 +316,7 @@ async def packaging() -> tuple[
     return ops, app, site_packages, target, rename, compile_cmd, launch, arch_info, support
 
 
-async def post_build(design: Design) -> None:
+async def post_build() -> None:
     """
     应用打包后的自动依赖检查与部署流程。
     """
@@ -351,16 +355,14 @@ async def post_build(design: Design) -> None:
         """
         拷贝所有依赖文件与目录至编译产物路径，并执行重命名与缓存清理。
         """
-        bar_width = int(design.console.width * 0.3)
-
         with Progress(
                 TextColumn(text_format=f"[bold #80C0FF]{const.APP_DESC} | {{task.description}}", justify="right"),
                 SpinnerColumn(style="bold #FFA07A", speed=1, finished_text="[bold #7CFC00]✓"),
-                BarColumn(bar_width, style="bold #ADD8E6", complete_style="bold #90EE90", finished_style="bold #00CED1"),
+                BarColumn(bar_width=None, style="bold #ADD8E6", complete_style="bold #90EE90", finished_style="bold #00CED1"),
                 TimeElapsedColumn(),
                 TextColumn(
                     "[progress.percentage][bold #F0E68C]{task.completed:>2.0f}[/]/[bold #FFD700]{task.total}[/]"
-                ), expand=False
+                ), expand=False, console=CONSOLE
         ) as progress:
 
             task = progress.add_task(description="Dependencies", total=len(done_list))
@@ -390,8 +392,6 @@ async def post_build(design: Design) -> None:
         await edit_plist_fields(ops, rename[-1], {"CFBundleExecutable": launch[0].name})
 
     build_start_time = time.time()
-
-    Active.active("INFO", console=design.console)
 
     compiles = await packaging()
     ops, app, site_packages, target, rename, *_ = compiles
@@ -432,14 +432,15 @@ async def post_build(design: Design) -> None:
 
 
 if __name__ == "__main__":
-    build_design = Design()
     try:
-        asyncio.run(post_build(build_design))
+        asyncio.run(post_build())
     except MindError as _e:
         compile_log(_e)
-        build_design.show_fail()
+        CONSOLE.print(f"[bold #FF4444]{const.APP_DESC} build failed[/]")
         sys.exit(1)
     except KeyboardInterrupt:
-        sys.exit(build_design.show_exit())
+        CONSOLE.print(f"[bold #FFEE55]{const.APP_DESC} build interrupted[/]")
+        sys.exit(130)
     else:
-        sys.exit(build_design.show_done())
+        CONSOLE.print(f"[bold #00FF88]{const.APP_DESC} build completed[/]")
+        sys.exit(0)
