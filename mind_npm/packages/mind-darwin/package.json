@@ -11,7 +11,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "prepublishOnly": "node ../../scripts/require-runtime.js applications/Mind.app/Contents/MacOS/mind applications/Mind.app/Contents/MacOS/Mind"
+    "prepublishOnly": "node ../../scripts/require-runtime.js applications/Mind.app/Contents/MacOS/mind"
   },
   "license": "UNLICENSED",
   "private": false

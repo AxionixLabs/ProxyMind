@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -7,51 +8,118 @@ import pytest
 
 from mind_app.cli import entry
 from mind_app.cli import frontend as cli_frontend
+from mind_app.cli.commands import (
+    AgentListenCommand,
+    BatchCommand,
+    DoctorCommand,
+    ExecCommand,
+    HelixUpgradeCommand,
+    InteractiveCommand,
+    McpServerCommand,
+)
 from mind_app.cli.frontend import (
     resolve_cli_design,
     resolve_cli_frontend,
 )
+from mind_app.cli.parser import (
+    create_cli_parser,
+    parse_cli_command,
+)
 from mind_app.cli.selection import resolve_cli_output_mode
 from mind_app.cli.dispatch import run_selected_mode
+from mind_app.modes.result import RunResult
 from mind_app.frontend.contracts import PassiveFrontendRuntime
 from mind_app.frontend.sinks import ConsoleApplicationSink
+from mind_app.frontend.sinks import JsonApplicationSink
 from mind_app.tui.core.runtime import TuiRuntime
+from mind_core.application_paths import ApplicationLayout
 from engine.errors import MindError
-from mind_core.parser import Parser
 
 
 def test_gravity_option_is_removed() -> None:
-    parser = Parser().parse_engine
+    parser = create_cli_parser()
 
-    assert parser is not None
     assert "--gravity" not in parser.format_help()
     with pytest.raises(SystemExit):
         parser.parse_args(["--gravity", "archive"])
 
 
 def test_attach_option_is_removed() -> None:
-    parser = Parser().parse_engine
+    parser = create_cli_parser()
 
-    assert parser is not None
     assert "--attach" not in parser.format_help()
     with pytest.raises(SystemExit):
-        parser.parse_args(["--chat", "hello", "--attach", "report.pdf"])
+        parser.parse_args(["exec", "hello", "--attach", "report.pdf"])
+
+
+@pytest.mark.parametrize("option", ("--chat", "--fast", "--xtra", "--agent"))
+def test_legacy_entry_options_are_removed(option: str) -> None:
+    parser = create_cli_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args([option])
+
+
+def test_cli_parser_returns_typed_commands() -> None:
+    assert parse_cli_command([]) == InteractiveCommand()
+    assert parse_cli_command(["exec", "hello"]) == ExecCommand(prompt="hello")
+    assert parse_cli_command([
+        "exec",
+        "hello",
+        "--mode",
+        "fast",
+        "--access",
+        "full",
+        "--json",
+        "--helix",
+    ]) == ExecCommand(
+        prompt="hello",
+        mode="fast",
+        access_mode="full",
+        output_format="json",
+        helix=True,
+    )
+    assert parse_cli_command([
+        "batch",
+        "first.md",
+        "second.md",
+        "--mode",
+        "chat",
+    ]) == BatchCommand(
+        sources=("first.md", "second.md"),
+        mode="chat",
+    )
+    assert parse_cli_command(["agent", "listen"]) == AgentListenCommand()
+    assert parse_cli_command(["helix", "upgrade"]) == HelixUpgradeCommand()
+    assert parse_cli_command(["doctor"]) == DoctorCommand()
+    assert parse_cli_command(["doctor", "--json"]) == DoctorCommand(
+        output_format="json"
+    )
+    assert parse_cli_command(["mcp-server"]) == McpServerCommand()
+
+
+def test_exec_reads_prompt_from_standard_input() -> None:
+    command = parse_cli_command(
+        ["exec", "-"],
+        input_stream=StringIO("inspect the workspace\n"),
+    )
+
+    assert command == ExecCommand(prompt="inspect the workspace")
 
 
 @pytest.mark.anyio
 async def test_direct_cli_mode_does_not_forward_attachments() -> None:
-    mind = SimpleNamespace(calling=AsyncMock())
-    command = SimpleNamespace(
-        access=False,
-        agent=False,
-        chat="hello",
-        fast=None,
-        xtra=None,
-        code=None,
+    run_result = RunResult(status="completed", assistant_text="done")
+    mind = SimpleNamespace(
+        calling=AsyncMock(return_value=run_result),
+        exit_code=99,
     )
+    command = ExecCommand(prompt="hello", mode="chat")
 
-    await run_selected_mode(mind, command)
+    result = await run_selected_mode(mind, command)
 
+    assert result is run_result
+    assert mind.exit_code == 0
     mind.calling.assert_awaited_once_with(
         message="hello",
         mode="chat",
@@ -59,16 +127,22 @@ async def test_direct_cli_mode_does_not_forward_attachments() -> None:
     )
 
 
-def test_upgrade_uses_rich_frontend_without_tui_runtime() -> None:
-    command = SimpleNamespace(
-        upgrade=True,
-        json=False,
-        agent=False,
-        chat=None,
-        fast=None,
-        xtra=None,
-        code=None,
+@pytest.mark.anyio
+async def test_failed_exec_sets_nonzero_exit_code() -> None:
+    run_result = RunResult(status="failed", error="request failed")
+    mind = SimpleNamespace(
+        calling=AsyncMock(return_value=run_result),
+        exit_code=0,
     )
+
+    result = await run_selected_mode(mind, ExecCommand(prompt="hello"))
+
+    assert result is run_result
+    assert mind.exit_code == 1
+
+
+def test_upgrade_uses_rich_frontend_without_tui_runtime() -> None:
+    command = HelixUpgradeCommand()
 
     output_mode = resolve_cli_output_mode(command)
     frontend = resolve_cli_frontend(output_mode)
@@ -78,6 +152,17 @@ def test_upgrade_uses_rich_frontend_without_tui_runtime() -> None:
     assert isinstance(frontend.application, ConsoleApplicationSink)
     assert isinstance(frontend.runtime, PassiveFrontendRuntime)
     assert design is not None
+
+
+def test_doctor_json_uses_application_json_sink(monkeypatch) -> None:
+    stream = StringIO()
+    monkeypatch.setattr(cli_frontend.sys, "stdout", stream)
+
+    frontend = resolve_cli_frontend(
+        resolve_cli_output_mode(DoctorCommand(output_format="json"))
+    )
+
+    assert isinstance(frontend.application, JsonApplicationSink)
 
 
 @pytest.mark.parametrize(
@@ -109,15 +194,7 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
     monkeypatch,
     tmp_path,
 ) -> None:
-    command = SimpleNamespace(
-        upgrade=True,
-        json=False,
-        agent=False,
-        chat=None,
-        fast=None,
-        xtra=None,
-        code=None,
-    )
+    command = HelixUpgradeCommand()
     application_views = []
     upgrade_calls = []
     design = object()
@@ -141,6 +218,13 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
         supports=str(tmp_path),
         launch_command=[],
     )
+    app_layout = ApplicationLayout(
+        mode="source",
+        platform="win32",
+        executable=tmp_path / "mind.py",
+        root=tmp_path,
+        supports=tmp_path / "schematic" / "supports" / "windows",
+    )
 
     async def ensure_upgrade(context, **kwargs) -> bool:
         upgrade_calls.append((context, kwargs))
@@ -151,11 +235,12 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
     monkeypatch.setattr(entry, "RunReport", lambda _path: report)
     monkeypatch.setattr(
         entry,
-        "Parser",
-        lambda: SimpleNamespace(parse_cmd=command),
+        "parse_cli_command",
+        lambda: command,
     )
     monkeypatch.setattr(entry, "resolve_cli_frontend", lambda _mode: frontend)
     monkeypatch.setattr(entry, "resolve_cli_design", lambda _frontend, _mode: design)
+    monkeypatch.setattr(entry, "resolve_application_layout", lambda **_kwargs: app_layout)
     monkeypatch.setattr(entry, "ensure_mind_home", lambda: tmp_path)
     monkeypatch.setattr(entry, "mind_reports_dir", lambda: tmp_path / "reports")
     monkeypatch.setattr(entry, "mind_config_path", lambda: tmp_path / "config.json")
@@ -165,12 +250,6 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
     monkeypatch.setattr(entry, "route_shell_tools", lambda _supports: None)
     monkeypatch.setattr(entry, "clear_exec_env_cache", lambda: None)
     monkeypatch.setattr(entry, "ensure_service_runtime_asset", ensure_upgrade)
-    monkeypatch.setattr(
-        entry.sys,
-        "argv",
-        [str(tmp_path / "mind.py"), "--upgrade"],
-    )
-
     result = await entry._run_main(
         str(tmp_path / "mind.py"),
         SimpleNamespace(),

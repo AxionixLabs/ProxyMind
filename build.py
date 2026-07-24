@@ -232,8 +232,15 @@ async def edit_plist_fields(ops: str, app: str, updates: dict[str, str]) -> None
 
 
 async def packaging() -> tuple[
-    str, "Path", "Path", typing.Union["Path"],
-    typing.Union[tuple["Path", "Path"]], list[str], tuple["Path", "Path"], list, str
+    str,
+    Path,
+    Path,
+    Path,
+    tuple[Path, Path],
+    list[str],
+    tuple[Path, Path],
+    list[str],
+    str,
 ]:
     """
     构建独立应用的打包编译命令与目录结构信息。
@@ -244,7 +251,7 @@ async def packaging() -> tuple[
 
     site_packages = await find_site_packages()
 
-    launch = app.parent / const.SCHEMATIC / "resources" / "automation"
+    launcher_root = app.parent / const.SCHEMATIC / "resources" / "automation"
 
     compile_cmd = [exe := sys.executable, "-m", "nuitka"]
 
@@ -252,7 +259,7 @@ async def packaging() -> tuple[
         await check_architecture(ops)
         _, dumpbin = await asyncio.gather(find_vcvars64(), find_dumpbin())
 
-        target = app / f"{const.APP_DESC}.dist"
+        target = app / f"{const.APP_NAME}.dist"
         rename = target, app / f"{const.APP_DESC}Engine"
 
         compile_cmd += [
@@ -262,14 +269,14 @@ async def packaging() -> tuple[
             f"--windows-icon-from-ico=schematic/resources/icons/mind_windows_icn.ico",
         ]
 
-        launch = launch / f"{const.APP_NAME}.bat", target.parent
+        launch = launcher_root / f"{const.APP_NAME}.bat", target.parent
         binary_file = rename[1] / f"{const.APP_NAME}.exe"
         arch_info = [dumpbin, "/headers", f"{str(Path(__file__).parent / binary_file)}"]
 
         support = "windows"
 
     elif ops == "darwin":
-        target = app / f"{const.APP_DESC}.app" / f"Contents" / f"MacOS"
+        target = app / f"{const.APP_NAME}.app" / f"Contents" / f"MacOS"
         rename = target.parent.parent, app / f"{const.APP_DESC}.app"
 
         compile_cmd += [
@@ -279,8 +286,8 @@ async def packaging() -> tuple[
             f"--macos-app-icon=schematic/resources/images/macos/mind_macos_icn.png",
         ]
 
-        launch = launch / f"{const.APP_NAME}.sh", target
-        binary_file = target / f"{const.APP_NAME}"
+        launch = launcher_root / f"{const.APP_NAME}.sh", target
+        binary_file = rename[1] / "Contents" / "MacOS" / const.APP_NAME
         arch_info = ["file", f"{str(Path(__file__).parent / binary_file)}"]
 
         support = "macos"
@@ -382,8 +389,13 @@ async def post_build() -> None:
         await rename_sensitive(*rename)
         await sweep_cache_tree(app)
 
+        structure_parent = (
+            rename[-1] / "Contents"
+            if ops == "darwin"
+            else rename[-1].parent
+        )
         for folder in [const.SRC_OPERA_PLACE]:
-            if not (child := target.parent / const.STRUCTURE / folder).exists():
+            if not (child := structure_parent / const.STRUCTURE / folder).exists():
                 await asyncio.to_thread(child.mkdir, parents=True, exist_ok=True)
 
         if Path(arch_info[-1]).exists():
@@ -393,9 +405,17 @@ async def post_build() -> None:
 
     build_start_time = time.time()
 
-    compiles = await packaging()
-    ops, app, site_packages, target, rename, *_ = compiles
-    *_, compile_cmd, launch, arch_info, support = compiles
+    (
+        ops,
+        app,
+        _site_packages,
+        target,
+        rename,
+        compile_cmd,
+        launch,
+        arch_info,
+        support,
+    ) = await packaging()
 
     done_list, fail_list = [], []
 

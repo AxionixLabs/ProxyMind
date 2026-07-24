@@ -45,32 +45,15 @@ function resolveMindBinary() {
     };
   }
 
-  const candidates = process.platform === "win32"
-    ? [
-        {
-          binary: path.join(runtimeRoot, "applications", "MindEngine", "mind.exe"),
-          cwd: process.cwd()
-        },
-        {
-          binary: path.join(runtimeRoot, "applications", "MindEngine", "Mind.exe"),
-          cwd: process.cwd()
-        }
-      ]
-    : [
-        {
-          binary: path.join(runtimeRoot, "applications", "Mind.app", "Contents", "MacOS", "mind"),
-          cwd: process.cwd()
-        },
-        {
-          binary: path.join(runtimeRoot, "applications", "Mind.app", "Contents", "MacOS", "Mind"),
-          cwd: process.cwd()
-        }
-      ];
+  const binary = process.platform === "win32"
+    ? path.join(runtimeRoot, "applications", "MindEngine", "mind.exe")
+    : path.join(runtimeRoot, "applications", "Mind.app", "Contents", "MacOS", "mind");
 
-  for (const candidate of candidates) {
-    if (existsSync(candidate.binary)) {
-      return candidate;
-    }
+  if (existsSync(binary)) {
+    return {
+      binary,
+      cwd: process.cwd()
+    };
   }
 
   return {

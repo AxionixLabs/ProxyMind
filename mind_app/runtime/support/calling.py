@@ -9,6 +9,7 @@ from mind_nova.modes import (
     DEFAULT_RUN_MODE,
     RunMode
 )
+from ...modes.result import RunResult
 from ...stream_events.worked import emit_worked_footer
 from engine.observability import (
     observe,
@@ -23,7 +24,7 @@ if typing.TYPE_CHECKING:
 def resolve_mode_runner(
     mind: "Mind",
     mode: RunMode
-) -> typing.Callable[..., typing.Awaitable[None]]:
+) -> typing.Callable[..., typing.Awaitable[RunResult]]:
     """根据单次调用模式选择底层执行器。"""
     if mode in {"chat", "fast", "xtra"}:
         return mind.stream_looper
@@ -32,11 +33,11 @@ def resolve_mode_runner(
 
 async def run_mode_lifecycle(
     mind: "Mind",
-    runner: typing.Callable[..., typing.Awaitable[None]],
+    runner: typing.Callable[..., typing.Awaitable[RunResult]],
     *,
     mode: RunMode = DEFAULT_RUN_MODE,
     **kwargs
-) -> None:
+) -> RunResult:
     """为模式执行增加动画生命周期和耗时输出。"""
     started_at = time.perf_counter()
 
@@ -46,7 +47,7 @@ async def run_mode_lifecycle(
     try:
         await mind.start_anim(mode)
         try:
-            await runner(mode=mode, **kwargs)
+            result = await runner(mode=mode, **kwargs)
         finally:
             await mind.await_cleanup(mind.stop_anim("wait"))
     finally:
@@ -57,6 +58,7 @@ async def run_mode_lifecycle(
             mind.frontend.application,
             time.perf_counter() - started_at,
         )
+    return result
 
 
 async def calling(
@@ -66,10 +68,10 @@ async def calling(
     message: str,
     mode: RunMode = DEFAULT_RUN_MODE,
     **kwargs
-) -> None:
+) -> RunResult:
     """统一包装一次用户调用，并由 mode 决定底层执行器。"""
     if not str(message or "").strip():
-        return None
+        return RunResult(status="failed", error="message is empty")
 
     if pref_config is None:
         pref_config = await mind.fresh_pref_config(ttl_sec=0.0)
@@ -108,9 +110,9 @@ async def calling(
     async def function(
         session: "McpSessionLike",
         tools: list[dict[str, typing.Any]],
-    ) -> None:
+    ) -> RunResult:
         """在共享 MCP 会话中执行单次请求。"""
-        await run_mode_lifecycle(
+        return await run_mode_lifecycle(
             mind,
             runner,
             session=session,
@@ -122,7 +124,7 @@ async def calling(
         )
 
     try:
-        await mind.with_mcp_session(pref_config, function)
+        result = await mind.with_mcp_session(pref_config, function)
     except asyncio.CancelledError:
         observe(
             "call.interrupted",
@@ -149,8 +151,10 @@ async def calling(
             mode=mode,
             cid=meta["cid"],
             sid=meta["sid"],
+            outcome=result.status,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
+        return result
     finally:
         if owns_event_report:
             await event_report.flush()

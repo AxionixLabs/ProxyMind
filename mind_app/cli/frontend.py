@@ -8,10 +8,7 @@ from mind_nova import const
 from mind_app.frontend.contracts import Frontend
 from mind_app.interaction import NonInteractiveInteraction
 from mind_app.runtime.design import TerminalDesign
-from .selection import (
-    OutputMode,
-    output_mode_uses_animation
-)
+from .selection import OutputMode
 
 
 def stream_is_interactive(stream: object) -> bool:
@@ -35,7 +32,7 @@ def _require_tui_terminal() -> None:
     raise MindError(
         f"TUI requires interactive stdin and stdout. Run {const.APP_DESC} "
         "in a terminal "
-        "or use --chat, --fast, or --xtra for non-interactive execution."
+        "or use 'mind exec' for non-interactive execution."
     )
 
 
@@ -64,29 +61,27 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
 
     from mind_app.frontend.sinks import (
         ConsoleApplicationSink,
-        SilentApplicationSink
+        JsonApplicationSink,
     )
     from mind_app.output.jsonl import create_json_output_session
     from mind_app.output.rich import create_rich_output_session
     from mind_app.output.text import create_text_output_session
 
-    session_factory = {
-        "rich": create_rich_output_session,
-        "text": create_text_output_session,
-        "json": create_json_output_session,
-    }[output_mode]
-
-    application = (
-        SilentApplicationSink()
-        if output_mode == "json"
-        else ConsoleApplicationSink()
-    )
-
-    if output_mode_uses_animation(output_mode):
-        session_factory = functools.partial(
-            session_factory,
-            console=application.console
+    if output_mode == "json":
+        return Frontend(
+            application=JsonApplicationSink(sys.stdout),
+            interaction=NonInteractiveInteraction(),
+            session_factory=create_json_output_session,
         )
+
+    application = ConsoleApplicationSink()
+    if output_mode == "rich":
+        session_factory = functools.partial(
+            create_rich_output_session,
+            console=application.console,
+        )
+    else:
+        session_factory = create_text_output_session
 
     return Frontend(
         application=application,

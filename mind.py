@@ -4,6 +4,7 @@
 import sys
 import typing
 import asyncio
+from rich.console import Console
 from engine.errors import MindError
 from engine.signals import (
     SignalHandler,
@@ -27,6 +28,12 @@ def json_output_requested(arguments: typing.Iterable[str] | None = None) -> bool
     return "--json" in values
 
 
+def mcp_server_requested(arguments: typing.Iterable[str] | None = None) -> bool:
+    """判断当前命令是否启动 stdio MCP 服务。"""
+    values = tuple(sys.argv[1:] if arguments is None else arguments)
+    return values[:1] == ("mcp-server",)
+
+
 def rich_outro_requested(
     arguments: typing.Iterable[str] | None = None,
     *,
@@ -36,7 +43,7 @@ def rich_outro_requested(
     values = tuple(sys.argv[1:] if arguments is None else arguments)
     stream = sys.stdout if output_stream is None else output_stream
     return bool(
-        any(value in {"--agent", "--upgrade"} for value in values)
+        values[:2] in {("agent", "listen"), ("helix", "upgrade")}
         and stream_is_interactive(stream)
     )
 
@@ -63,8 +70,14 @@ def emit_json_failure(error: typing.Any, *, phase: str) -> None:
     ))
 
 
-def entry_application(json_output: bool) -> ApplicationSink:
+def entry_application(
+    json_output: bool,
+    *,
+    stdio_server: bool = False,
+) -> ApplicationSink:
     """创建兼容入口使用的应用级输出端。"""
+    if stdio_server:
+        return ConsoleApplicationSink(Console(file=sys.stderr))
     if json_output:
         return JsonApplicationSink(sys.stdout)
     return ConsoleApplicationSink()
@@ -115,8 +128,12 @@ async def main(handler: SignalHandler | None = None) -> int:
 if __name__ == "__main__":
     main_loop           = asyncio.new_event_loop()
     json_output_enabled = json_output_requested()
+    stdio_server_enabled = mcp_server_requested()
     rich_outro_enabled  = rich_outro_requested()
-    entry_sink          = entry_application(json_output_enabled)
+    entry_sink          = entry_application(
+        json_output_enabled,
+        stdio_server=stdio_server_enabled,
+    )
 
     main_task: asyncio.Task[int] | None = None
 

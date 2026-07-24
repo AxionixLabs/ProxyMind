@@ -2,8 +2,15 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from engine.errors import MindError
-from mind_nova.modes import RunMode
+from .commands import (
+    AgentListenCommand,
+    BatchCommand,
+    CliCommand,
+    DoctorCommand,
+    ExecCommand,
+    HelixUpgradeCommand,
+    InteractiveCommand,
+)
 
 OutputMode = typing.Literal[
     "tui",
@@ -13,47 +20,19 @@ OutputMode = typing.Literal[
 ]
 
 
-def resolve_code_mode(cmd_lines: typing.Any) -> RunMode:
-    """返回批处理命令选择的运行模式。"""
-    if cmd_lines.chat is not None:
-        return "chat"
-    if cmd_lines.fast is not None:
-        return "fast"
-    if cmd_lines.xtra is not None:
-        return "xtra"
-
-    raise MindError("--code requires --chat, --fast, or --xtra")
-
-
-def direct_execution_selected(cmd_lines: typing.Any) -> bool:
-    """判断当前命令是否包含直接执行任务。"""
-    return bool(
-        cmd_lines.chat
-        or cmd_lines.fast
-        or cmd_lines.xtra
-        or cmd_lines.code
-    )
-
-
-def direct_stream_selected(cmd_lines: typing.Any) -> bool:
-    """判断当前命令是否包含直接流式请求。"""
-    return bool(cmd_lines.chat or cmd_lines.fast or cmd_lines.xtra)
-
-
-def resolve_cli_output_mode(cmd_lines: typing.Any) -> OutputMode:
+def resolve_cli_output_mode(command: CliCommand) -> OutputMode:
     """根据命令入口选择输出模式。"""
-    if cmd_lines.upgrade:
+    if isinstance(command, DoctorCommand):
+        return command.output_format
+    if isinstance(command, (HelixUpgradeCommand, AgentListenCommand)):
         return "rich"
-    if cmd_lines.json:
-        if cmd_lines.code or not direct_stream_selected(cmd_lines):
-            raise MindError("--json requires --chat, --fast, or --xtra")
-        return "json"
-    if cmd_lines.agent:
-        return "rich"
-    if direct_execution_selected(cmd_lines):
+    if isinstance(command, ExecCommand):
+        return command.output_format
+    if isinstance(command, BatchCommand):
         return "text"
-
-    return "tui"
+    if isinstance(command, InteractiveCommand):
+        return "tui"
+    typing.assert_never(command)
 
 
 def output_mode_uses_animation(mode: OutputMode) -> bool:

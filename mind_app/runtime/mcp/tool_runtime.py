@@ -13,12 +13,14 @@ from .local import open_local_mcp_session
 if typing.TYPE_CHECKING:
     from mind_app.controller import Mind
 
+SessionResult = typing.TypeVar("SessionResult")
+
 SessionCallback = typing.Callable[
     [
         McpSessionLike,
         list[dict[str, typing.Any]],
     ],
-    typing.Awaitable[None]
+    typing.Awaitable[SessionResult]
 ]
 
 
@@ -28,9 +30,9 @@ class ToolRuntime(typing.Protocol):
     async def with_session(
         self,
         pref_config: dict[str, typing.Any],
-        function: SessionCallback,
+        function: SessionCallback[SessionResult],
         before_user_flow: typing.Optional[typing.Callable[[], typing.Any]] = None
-    ) -> None:
+    ) -> SessionResult:
         """建立工具会话并执行回调。"""
         ...
 
@@ -95,9 +97,9 @@ class CompositeToolRuntime(object):
     async def run_with_context(
         self,
         service_session: typing.Any,
-        function: SessionCallback,
+        function: SessionCallback[SessionResult],
         before_user_flow: typing.Optional[typing.Callable[[], typing.Any]]
-    ) -> None:
+    ) -> SessionResult:
         """构建组合工具上下文并执行用户回调。"""
         tool_context = await build_tool_context(
             service_session,
@@ -107,7 +109,7 @@ class CompositeToolRuntime(object):
 
         await self.run_before_user_flow(before_user_flow)
 
-        await function(
+        return await function(
             tool_context.session,
             tool_context.tools
         )
@@ -115,19 +117,18 @@ class CompositeToolRuntime(object):
     async def with_session(
         self,
         pref_config: dict[str, typing.Any],
-        function: SessionCallback,
+        function: SessionCallback[SessionResult],
         before_user_flow: typing.Optional[typing.Callable[[], typing.Any]] = None
-    ) -> None:
+    ) -> SessionResult:
         """建立工具会话并执行回调。"""
         _ = pref_config
 
         if not self._mind.is_service_mcp_linked():
-            await self.run_with_context(
+            return await self.run_with_context(
                 None,
                 function,
                 before_user_flow
             )
-            return None
 
         service_stack = contextlib.AsyncExitStack()
 
@@ -146,14 +147,13 @@ class CompositeToolRuntime(object):
             )
         else:
             async with service_stack:
-                await self.run_with_context(
+                return await self.run_with_context(
                     service_session,
                     function,
                     before_user_flow
                 )
-                return None
 
-        await self.run_with_context(
+        return await self.run_with_context(
             None,
             function,
             before_user_flow

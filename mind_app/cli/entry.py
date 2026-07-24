@@ -2,7 +2,6 @@
 # Notes: ==== Mind™ ====
 
 import os
-import sys
 import typing
 import asyncio
 from loguru import logger
@@ -10,8 +9,8 @@ from engine.animation import AsyncAnimManager
 from engine.signals import SignalHandler
 from engine.manage import ServerManage
 from engine.errors import MindError
-from mind_core.parser import Parser
 from mind_core.preference import Preferences
+from mind_core.application_paths import resolve_application_layout
 from mind_core.service_config import ServiceConfig
 from mind_nova import const
 from mind_nova.services import service_endpoints
@@ -40,10 +39,23 @@ from ..paths import (
     ensure_mcp_servers_file,
     ensure_mind_home,
     mind_config_path,
+    mind_home,
+    mind_mcp_servers_path,
     mind_reports_dir,
     process_env
 )
 from .dispatch import run_selected_mode
+from .commands import (
+    DoctorCommand,
+    HelixUpgradeCommand,
+    McpServerCommand,
+    command_uses_helix,
+)
+from .doctor import (
+    DoctorContext,
+    diagnose,
+    render_doctor_report,
+)
 from .frontend import (
     resolve_cli_design,
     resolve_cli_frontend
@@ -53,6 +65,7 @@ from .selection import (
     output_mode_uses_animation,
     resolve_cli_output_mode
 )
+from .parser import parse_cli_command
 
 
 async def main(
@@ -183,11 +196,13 @@ async def _run_main(
     """执行入口主流程。"""
     logger.remove()
 
-    # 解析命令行参数
-    parser = Parser()
+    command = parse_cli_command()
+    if isinstance(command, McpServerCommand):
+        from mind_app.mcp.server import run_mind_mcp_server
 
-    cmd_lines   = parser.parse_cmd
-    output_mode = resolve_cli_output_mode(cmd_lines)
+        return await run_mind_mcp_server(entry_file=entry_file)
+
+    output_mode = resolve_cli_output_mode(command)
     frontend    = resolve_cli_frontend(output_mode)
     design      = resolve_cli_design(frontend, output_mode)
 
@@ -195,32 +210,54 @@ async def _run_main(
     if output_mode_uses_animation(output_mode):
         frontend.application.emit(ApplicationView(type="intro"))
 
-    # 获取命令行参数
-    wires = sys.argv[1:]
+    # 获取当前入口对应的源码或打包资源布局
+    try:
+        app_layout = resolve_application_layout(entry_file=entry_file)
+    except ValueError as error:
+        raise MindError(
+            f"{const.APP_DESC} compatible with {const.APP_NAME} command"
+        ) from error
 
-    # 获取当前操作系统平台和应用名称
-    platform = sys.platform.strip().lower()
-    software = os.path.basename(os.path.abspath(sys.argv[0])).strip().lower()
-
-    sys_symbol = os.sep
+    platform = app_layout.platform
     env_symbol = os.path.pathsep
+    supports = str(app_layout.supports)
+    packaged = app_layout.packaged
+    level = const.SHOW_LEVEL
+    runtime_spec = None
+    if platform in {"win32", "darwin"}:
+        runtime_spec = resolve_service_runtime(
+            platform=platform,
+            supports=supports,
+            level=level,
+            packaged=packaged,
+        )
 
-    # 根据应用名称确定工作目录和配置目录
-    if software == f"{const.APP_NAME}.exe":
-        mind_work = os.path.dirname(os.path.abspath(sys.argv[0]))
-        mind_feasible = os.path.dirname(mind_work)
-    elif software == f"{const.APP_NAME}":
-        mind_work = os.path.dirname(sys.executable)
-        mind_feasible = os.path.dirname(mind_work)
-    elif software == f"{const.APP_NAME}.py":
-        mind_work = os.path.dirname(os.path.abspath(entry_file or __file__))
-        mind_feasible = mind_work
-    else:
-        raise MindError(f"{const.APP_DESC} compatible with {const.APP_NAME} command")
+    if isinstance(command, DoctorCommand):
+        doctor_report = diagnose(DoctorContext(
+            platform=platform,
+            entry_mode=app_layout.mode,
+            entry_root=app_layout.root,
+            home=mind_home(),
+            config_path=mind_config_path(),
+            mcp_config_path=mind_mcp_servers_path(),
+            supports=app_layout.supports,
+            packaged=packaged,
+            runtime_spec=runtime_spec,
+        ))
+        frontend.application.emit(ApplicationView(
+            type="json" if command.output_format == "json" else "doctor",
+            renderable=(
+                doctor_report.to_dict()
+                if command.output_format == "json"
+                else render_doctor_report(doctor_report)
+            ),
+        ))
+        return doctor_report.exit_code
 
-    # Notes: ========== 路径初始化 ==========
-    _ = mind_feasible
-    turbo = os.path.join(mind_work, const.SCHEMATIC, const.SUPPORTS).format()
+    if runtime_spec is None:
+        raise MindError(
+            f"{const.APP_DESC} is not supported on this platform: {platform}."
+        )
 
     home = ensure_mind_home()
 
@@ -237,32 +274,14 @@ async def _run_main(
         platform=platform,
         output_mode=output_mode,
         cpu_count=power,
-        mcp_requested=bool(getattr(cmd_lines, "mcp", False)),
-        upgrade=bool(getattr(cmd_lines, "upgrade", False)),
+        helix_requested=command_uses_helix(command),
+        upgrade=isinstance(command, HelixUpgradeCommand),
     )
-
-    # Notes: ========== 激活日志 ==========
-    level = const.SHOW_LEVEL
 
     try:
         pref = Preferences(str(mind_config_path()))
 
         # Notes: ========== 工具路径 ==========
-        if platform == "win32":
-            supports = os.path.join(turbo, "windows").format()
-        elif platform == "darwin":
-            supports = os.path.join(turbo, "macos").format()
-        else:
-            raise MindError(f"{const.APP_DESC} is not supported on this platform: {platform}.")
-
-        packaged = not software.endswith(".py")
-
-        runtime_spec = resolve_service_runtime(
-            platform=platform,
-            supports=supports,
-            level=level,
-            packaged=packaged
-        )
         service_runtime_context = ServiceRuntimeContext(
             spec=runtime_spec,
             platform=platform,
@@ -284,7 +303,7 @@ async def _run_main(
         raise
 
     # Notes: ========== 升级流程 ==========
-    if cmd_lines.upgrade:
+    if isinstance(command, HelixUpgradeCommand):
         try:
             await ensure_service_runtime_asset(
                 service_runtime_context,
@@ -319,7 +338,7 @@ async def _run_main(
             runtime_spec.launch_command,
             env=process_env(),
         )
-        mind = Mind(wires, level, power, remote, **keywords)
+        mind = Mind(level, power, remote, **keywords)
     except BaseException as error:
         observe_exception("app.initialize.failed", error)
         report.close()
@@ -342,7 +361,7 @@ async def _run_main(
         await mind.frontend.runtime.open()
         observe("frontend.opened", output_mode=output_mode)
 
-        if cmd_lines.mcp and output_mode != "tui":
+        if command_uses_helix(command) and output_mode != "tui":
             helix_linked = await prepare_and_start_service_runtime(mind)
             if not helix_linked:
                 _emit_helix_skipped(mind)
@@ -391,7 +410,7 @@ async def _run_main(
             runtime = require_tui_runtime(mind.frontend.runtime)
 
             start_helix = False
-            if cmd_lines.mcp:
+            if command_uses_helix(command):
                 start_helix = await confirm_tui_service_runtime_startup(mind)
                 if not start_helix:
                     _emit_helix_skipped(mind)
@@ -402,7 +421,7 @@ async def _run_main(
                     name="mind tui service runtime startup",
                 )
 
-        await run_selected_mode(mind, cmd_lines)
+        await run_selected_mode(mind, command)
 
         completed = True
         observe("app.complete", exit_code=mind.exit_code)

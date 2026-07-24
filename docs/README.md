@@ -8,19 +8,19 @@
 - [交互模式](interactive-mode.md)  
   适合看 REPL 指令、CHAT / FAST / XTRA 状态切换和输入约束。
 - [订阅模式](agent-mode.md)  
-  适合看 --agent 的会话、长链路监听、任务下发和恢复链路。
+  适合看 agent listen 的会话、长链路监听、任务下发和恢复链路。
 
 ### 编排与协议
-适合处理 `--code`、协议校验、模板层和批量执行结构。
+适合处理 `mind batch`、协议校验、模板层和批量执行结构。
 
 - [星图协议](cli-code.md)  
-  适合看 --code 的字段、层级、前后置和规则结构。
+  适合看 mind batch 的字段、层级、前后置和规则结构。
 - [星图深入说明](cli-code-advanced.md)  
   适合看覆盖优先级、执行顺序、批跑控制语义和常见误写。
 - [星图样例](code-blueprints.md)  
-  适合看跨域 --code 编排的高层自然语言样例，以及什么时候该写星图。
+  适合看跨域 mind batch 编排的高层自然语言样例，以及什么时候该写星图。
 - [星图源抽象设计](cli-code-source-design.md)  
-  适合看 --code 当前如何解析本地文件、stdin、inline 和 URL source。
+  适合看 mind batch 当前如何解析本地文件、stdin、inline 和 URL source。
 - [接口实战](playbook.api.md)  
   适合看协议边界、提取、断言和批量请求。
 - [模板能力](playbook.template.md)  
@@ -32,9 +32,9 @@
 - [设备域实战](playbook.device.md)  
   适合看设备能力分层、多设备广播模型和稳定执行建议。
 - [Playwright 外接工具实战](playbook.playwright.md)  
-  适合看 --xtra 下浏览器协作、页面取证、交互动作和网络诊断。
+  适合看 exec --mode xtra 下浏览器协作、页面取证、交互动作和网络诊断。
 - [DBHub 外接工具实战](playbook.dbhub.md)  
-  适合看 --xtra 下数据库搜索、只读查询、固定查询和 SQL Server 场景建议。
+  适合看 exec --mode xtra 下数据库搜索、只读查询、固定查询和 SQL Server 场景建议。
 - [原生 coding 链路](playbook.nativecoding.md)  
   适合看 shell 诊断、工作区写文件、unified diff patch 和验证收束。
 - [Monkey 扰动](playbook.monkey.md)  

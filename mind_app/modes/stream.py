@@ -28,6 +28,10 @@ from ..output import (
 )
 from ..output.rich import create_rich_output_session
 from ..output.session import OutputSession
+from .result import (
+    RunResult,
+    RunStatus,
+)
 from ..presentation.approval_views import build_approval_view
 from ..presentation.run_views import (
     build_run_completed_view,
@@ -74,7 +78,7 @@ async def stream_looper(
     tools: list[dict[str, typing.Any]],
     *_,
     **kwargs
-) -> None:
+) -> RunResult:
     """流式模式执行器：处理流式事件、工具调用和输出上报。"""
     if mode not in {"chat", "fast", "xtra"}:
         raise ValueError(f"Invalid mode: {mode}")
@@ -128,8 +132,11 @@ async def stream_looper(
     turn_failed: bool    = False
 
     turn_usage: dict[str, typing.Any] = {}
+    failure_error: str | None = None
+    result_status: RunStatus = "incomplete"
 
     approvals: ApprovalStore = ApprovalStore()
+    tracker = SegmentTracker()
 
     idle_wait = IdleStatusTimer(
         lambda: status_control.begin_reply_wait_status(delay_sec=0.0), delay_sec=0.9
@@ -138,7 +145,6 @@ async def stream_looper(
     try:
         await output_control.open()
 
-        tracker  = SegmentTracker()
         metadata = kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {}
 
         observe(
@@ -225,19 +231,19 @@ async def stream_looper(
 
             if event_type == "turn.failed":
                 turn_failed = True
-                error = str(event.get("error") or "unknown error")
+                failure_error = str(event.get("error") or "unknown error")
                 observe(
                     "stream.turn_failed",
                     level="ERROR",
                     mode=mode,
-                    error=error,
+                    error=failure_error,
                 )
                 await finish_failure(
                     status_control,
                     presentation,
                     None,
                     phase="turn.failed",
-                    error=error,
+                    error=failure_error,
                 )
                 continue
 
@@ -518,6 +524,7 @@ async def stream_looper(
         raise
 
     except Exception as e:
+        result_status = "failed"
         observe_exception(
             "stream.failed",
             e,
@@ -525,7 +532,7 @@ async def stream_looper(
             events=event_count,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
-        error = friendly_exception_text(e)
+        failure_error = friendly_exception_text(e)
 
         await mind.await_cleanup(mind.stop_anim("wait"))
         await finish_failure(
@@ -533,10 +540,24 @@ async def stream_looper(
             presentation,
             ev_report,
             phase="turn.failed",
-            error=error
+            error=failure_error
         )
 
     else:
+        if turn_failed:
+            result_status = "failed"
+        elif turn_completed:
+            result_status = "completed"
+        else:
+            failure_error = "stream ended before turn completion"
+            await finish_failure(
+                status_control,
+                presentation,
+                ev_report,
+                phase="turn.incomplete",
+                error=failure_error,
+            )
+
         if turn_completed:
             mind.remember_last_assistant_reply(tracker.latest_assistant_output_text())
 
@@ -558,6 +579,13 @@ async def stream_looper(
     finally:
         await idle_wait.cancel()
         await mind.await_cleanup(output_control.stop(blink=not interrupted))
+
+    return RunResult(
+        status=result_status,
+        assistant_text=tracker.latest_assistant_output_text(),
+        usage=dict(turn_usage),
+        error=failure_error,
+    )
 
 
 if __name__ == '__main__':

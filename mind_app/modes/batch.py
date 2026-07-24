@@ -24,6 +24,7 @@ from .code_sources import (
     CodeSourceResolved,
     resolve_code_sources
 )
+from .result import RunResult
 from ..runtime.support.calling import resolve_mode_runner
 from mind_nova import const
 
@@ -55,7 +56,8 @@ class PackRuntime:
     mode: RunMode
     pref_config: dict[str, typing.Any]
     event_report: EventReport
-    runner: typing.Callable[..., typing.Awaitable[None]]
+    runner: typing.Callable[..., typing.Awaitable[RunResult]]
+    failures: int = 0
 
 
 @dataclass(slots=True)
@@ -181,7 +183,7 @@ async def _run_virtual_message(
     failure_error: typing.Optional[str] = None
 
     try:
-        await runtime.runner(
+        result = await runtime.runner(
             session,
             runtime.mode,
             runtime.pref_config,
@@ -189,6 +191,18 @@ async def _run_virtual_message(
             tools,
             **kwargs
         )
+        if not result.ok:
+            failure_error = result.error or f"run {result.status}"
+            _emit_diagnostic(
+                runtime.event_report,
+                event_type="virtual.failed",
+                file=source.display_origin,
+                source=source.display_origin,
+                total=item_count,
+                error=failure_error,
+                name=name,
+                run=run,
+            )
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except BaseException as exc:
@@ -208,6 +222,7 @@ async def _run_virtual_message(
         await mind.await_cleanup(mind.stop_anim("wait"))
 
     if failure_error:
+        runtime.failures += 1
         observe(
             "batch.virtual.failed",
             level="ERROR",
@@ -290,7 +305,7 @@ async def _run_pack_item(
             await mind.start_anim(runtime.mode)
 
             try:
-                await runtime.runner(
+                result = await runtime.runner(
                     session,
                     runtime.mode,
                     runtime.pref_config,
@@ -298,6 +313,8 @@ async def _run_pack_item(
                     tools,
                     **kwargs
                 )
+                if not result.ok:
+                    raise RuntimeError(result.error or f"run {result.status}")
 
                 _emit_diagnostic(
                     runtime.event_report,
@@ -391,6 +408,7 @@ async def _run_pack_item(
                 attempts=config.attempts,
                 error=last_error,
             )
+            runtime.failures += 1
             if config.stop_on_fail:
                 return False
 
@@ -734,7 +752,7 @@ async def mind_pack(
     mode: RunMode,
     *_,
     **kwargs
-) -> None:
+) -> RunResult:
     """批处理入口：绑定会话、事件流和 pack 源执行流程。"""
     started_at = time.perf_counter()
 
@@ -821,18 +839,43 @@ async def mind_pack(
         ))
         mind.frontend.application.emit(ApplicationView(type="run.gap"))
 
-        return None
+        run_result = RunResult(
+            status="failed",
+            assistant_text=mind.last_assistant_reply_snapshot(),
+            error=error,
+        )
 
     else:
-        observe(
-            "batch.complete",
-            mode=mode,
-            sources=len(context.code_sources),
-            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
-        )
+        if context.runtime.failures:
+            observe(
+                "batch.failed",
+                level="ERROR",
+                mode=mode,
+                sources=len(context.code_sources),
+                failures=context.runtime.failures,
+                elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+            )
+            run_result = RunResult(
+                status="failed",
+                assistant_text=mind.last_assistant_reply_snapshot(),
+                error=f"{context.runtime.failures} batch step(s) failed",
+            )
+        else:
+            observe(
+                "batch.complete",
+                mode=mode,
+                sources=len(context.code_sources),
+                elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+            )
+            run_result = RunResult(
+                status="completed",
+                assistant_text=mind.last_assistant_reply_snapshot(),
+            )
 
     finally:
         await _close_pack_report(mind, context.event_report)
+
+    return run_result
 
 
 if __name__ == '__main__':

@@ -201,9 +201,12 @@ class AgentExecutor(object):
             runner = mind.calling(message=message, mode=mode, metadata=metadata)
 
         if timeout_sec is not None:
-            await asyncio.wait_for(runner, timeout=timeout_sec)
+            result = await asyncio.wait_for(runner, timeout=timeout_sec)
         else:
-            await runner
+            result = await runner
+
+        if not result.ok:
+            raise MindError(result.error or f"mind run {result.status}")
 
         await client.send_mind_completed(
             connection,

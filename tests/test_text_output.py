@@ -6,7 +6,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from mind import emit_entry_outro, rich_outro_requested
+from mind import (
+    emit_entry_outro,
+    mcp_server_requested,
+    rich_outro_requested,
+)
 from mind_app.frontend.contracts import PassiveFrontendRuntime
 from mind_app.output.text import (
     ANSI_BOLD,
@@ -132,12 +136,12 @@ async def test_text_output_strips_external_ansi_and_resets_on_close() -> None:
 def test_only_interactive_rich_modes_request_entry_outro() -> None:
     terminal = SimpleNamespace(isatty=lambda: True)
 
-    assert rich_outro_requested(["--agent"], output_stream=terminal)
-    assert rich_outro_requested(["--upgrade"], output_stream=terminal)
+    assert rich_outro_requested(["agent", "listen"], output_stream=terminal)
+    assert rich_outro_requested(["helix", "upgrade"], output_stream=terminal)
     assert not rich_outro_requested([], output_stream=terminal)
-    assert not rich_outro_requested(["--mcp"], output_stream=terminal)
+    assert not rich_outro_requested(["exec", "hello"], output_stream=terminal)
     assert not rich_outro_requested(
-        ["--chat", "hello"],
+        ["exec", "--mode", "chat", "hello"],
         output_stream=terminal,
     )
 
@@ -145,7 +149,12 @@ def test_only_interactive_rich_modes_request_entry_outro() -> None:
 def test_non_interactive_rich_mode_disables_entry_outro() -> None:
     output = SimpleNamespace(isatty=lambda: False)
 
-    assert not rich_outro_requested(["--agent"], output_stream=output)
+    assert not rich_outro_requested(["agent", "listen"], output_stream=output)
+
+
+def test_mcp_server_selection() -> None:
+    assert mcp_server_requested(["mcp-server"])
+    assert not mcp_server_requested(["exec", "mcp-server"])
 
 
 def test_disabled_entry_outro_does_not_emit_view() -> None:

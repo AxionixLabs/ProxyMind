@@ -11,7 +11,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "prepublishOnly": "node ../../scripts/require-runtime.js applications/MindEngine/mind.exe applications/MindEngine/Mind.exe && node ../../scripts/require-runtime.js applications/mind.bat && node ../../scripts/require-runtime.js applications/Structure"
+    "prepublishOnly": "node ../../scripts/require-runtime.js applications/MindEngine/mind.exe && node ../../scripts/require-runtime.js applications/mind.bat && node ../../scripts/require-runtime.js applications/Structure"
   },
   "license": "UNLICENSED",
   "private": false

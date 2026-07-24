@@ -54,7 +54,10 @@ from .history import (
 from .history.ids import valid_session_ids
 from .mcp.contracts import McpSessionLike
 
+SessionResult = typing.TypeVar("SessionResult")
+
 if typing.TYPE_CHECKING:
+    from .modes.result import RunResult
     from .runtime.mcp.service_runtime import ServiceRuntimeContext
 
 
@@ -63,8 +66,7 @@ class Mind(object):
 
     __remote: dict = {}
 
-    def __init__(self, wires: list, level: str, power: int, remote: dict, **kwargs):
-        self.wires = wires
+    def __init__(self, level: str, power: int, remote: dict, **kwargs):
         self.level = level
         self.power = power
 
@@ -712,10 +714,10 @@ class Mind(object):
                 McpSessionLike,
                 list[dict[str, typing.Any]],
             ],
-            typing.Awaitable[None],
+            typing.Awaitable[SessionResult],
         ],
         before_user_flow: typing.Optional[typing.Callable[[], typing.Any]] = None
-    ) -> None:
+    ) -> SessionResult:
         """通过工具运行时建立会话并执行回调。"""
         return await self.tool_runtime.with_session(
             pref_config,
@@ -725,11 +727,11 @@ class Mind(object):
 
     async def run_mode_lifecycle(
         self,
-        runner: typing.Callable[..., typing.Awaitable[None]],
+        runner: typing.Callable[..., typing.Awaitable["RunResult"]],
         *,
         mode: RunMode = DEFAULT_RUN_MODE,
         **kwargs
-    ) -> None:
+    ) -> "RunResult":
         """模式执行生命周期入口：统一委托运行时模块处理动画和耗时输出。"""
         return await run_mode_lifecycle_wrapper(self, runner, mode=mode, **kwargs)
 
@@ -740,7 +742,7 @@ class Mind(object):
         message: str,
         mode: RunMode = DEFAULT_RUN_MODE,
         **kwargs
-    ) -> None:
+    ) -> "RunResult":
         """调用入口：统一委托运行时模块按 mode 执行单次请求。"""
         return await run_calling(
             self,
@@ -759,7 +761,7 @@ class Mind(object):
         tools: list[dict[str, typing.Any]],
         *_,
         **kwargs
-    ) -> None:
+    ) -> "RunResult":
         """流式执行入口：委托给流式模式模块。"""
         from .modes.stream import stream_looper as run_stream_looper
 
@@ -779,7 +781,7 @@ class Mind(object):
         mode: RunMode,
         *_,
         **kwargs
-    ) -> None:
+    ) -> "RunResult":
         """批处理入口：委托给批处理模块。"""
         from .modes.batch import mind_pack as run_mind_pack
 

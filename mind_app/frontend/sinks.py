@@ -85,8 +85,8 @@ class JsonApplicationSink(ApplicationSink):
         self.stream.flush()
 
 
-class SilentApplicationSink(ApplicationSink):
-    """忽略不属于单轮事件流的应用级展示。"""
+class NullApplicationSink(ApplicationSink):
+    """忽略无终端前端的应用级展示。"""
 
     @property
     def viewport(self) -> Viewport:

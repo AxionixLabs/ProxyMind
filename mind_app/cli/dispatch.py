@@ -8,7 +8,14 @@ from engine.observability import (
     observe,
     observe_exception
 )
-from .selection import resolve_code_mode
+from .commands import (
+    AgentListenCommand,
+    BatchCommand,
+    CliCommand,
+    ExecCommand,
+    InteractiveCommand,
+)
+from ..modes.result import RunResult
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind
@@ -16,55 +23,43 @@ if typing.TYPE_CHECKING:
 
 async def run_selected_mode(
     mind: "Mind",
-    cmd_lines: typing.Any,
-) -> None:
+    command: CliCommand,
+) -> RunResult | None:
     """按命令行参数分派到直接执行或交互模式。"""
-    access_mode = "full" if cmd_lines.access else "safe"
-
-    if cmd_lines.agent:
+    if isinstance(command, AgentListenCommand):
         selected_mode = "agent"
-    elif cmd_lines.chat:
-        selected_mode = "chat"
-    elif cmd_lines.fast:
-        selected_mode = "fast"
-    elif cmd_lines.xtra:
-        selected_mode = "xtra"
-    elif cmd_lines.code:
-        selected_mode = resolve_code_mode(cmd_lines)
-    else:
+        access_mode = "safe"
+    elif isinstance(command, (ExecCommand, BatchCommand)):
+        selected_mode = command.mode
+        access_mode = command.access_mode
+    elif isinstance(command, InteractiveCommand):
         selected_mode = "tui"
+        access_mode = "safe"
+    else:
+        raise TypeError(f"unsupported runtime command: {type(command).__name__}")
 
     started_at = time.perf_counter()
     observe("mode.start", mode=selected_mode, access_mode=access_mode)
+    run_result: RunResult | None = None
 
     try:
-        if cmd_lines.agent:
+        if isinstance(command, AgentListenCommand):
             await mind.agent_loop()
-        elif chat := cmd_lines.chat:
-            await mind.calling(
-                message=chat,
-                mode="chat",
+        elif isinstance(command, ExecCommand):
+            run_result = await mind.calling(
+                message=command.prompt,
+                mode=command.mode,
                 access_mode=access_mode,
             )
-        elif fast := cmd_lines.fast:
-            await mind.calling(
-                message=fast,
-                mode="fast",
+            mind.exit_code = run_result.exit_code
+        elif isinstance(command, BatchCommand):
+            run_result = await mind.mind_pack(
+                list(command.sources),
+                command.mode,
                 access_mode=access_mode,
             )
-        elif xtra := cmd_lines.xtra:
-            await mind.calling(
-                message=xtra,
-                mode="xtra",
-                access_mode=access_mode,
-            )
-        elif code := cmd_lines.code:
-            await mind.mind_pack(
-                code,
-                selected_mode,
-                access_mode=access_mode,
-            )
-        else:
+            mind.exit_code = run_result.exit_code
+        elif isinstance(command, InteractiveCommand):
             from ..tui.session.loop import run_tui_loop
 
             await run_tui_loop(mind)
@@ -88,8 +83,10 @@ async def run_selected_mode(
         observe(
             "mode.complete",
             mode=selected_mode,
+            outcome=run_result.status if run_result is not None else None,
             elapsed_ms=int((time.perf_counter() - started_at) * 1000),
         )
+    return run_result
 
 
 if __name__ == '__main__':
