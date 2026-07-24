@@ -91,8 +91,8 @@ async def test_text_output_uses_static_mind_header_and_role_colors() -> None:
     recorded = "".join(record.parts)
     assert visible.startswith("Mind v1.1.9\n")
     assert f"{ANSI_BOLD}workdir:{ANSI_RESET}" in visible
-    assert f"{ANSI_CYAN}user\n{ANSI_RESET}" in visible
-    assert f"{ANSI_MAGENTA}mind\n{ANSI_RESET}" in visible
+    assert f"{ANSI_CYAN}user{ANSI_RESET}\n" in visible
+    assert f"{ANSI_MAGENTA}mind{ANSI_RESET}\n" in visible
     assert "provider: OpenAI" in recorded
     assert "approval: never" in recorded
     assert "sandbox: workspace-write [workdir, /tmp, $TMPDIR]" in recorded
@@ -102,6 +102,30 @@ async def test_text_output_uses_static_mind_header_and_role_colors() -> None:
     assert "codex" not in visible.lower()
     assert "\x1b[" not in recorded
     assert stdout.getvalue() == "Mind project.\n"
+
+
+@pytest.mark.anyio
+async def test_text_output_strips_external_ansi_and_resets_on_close() -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    record = _RecordWriter()
+    state = TextOutputState(
+        record_writer=record,
+        stdout=stdout,
+        stderr=stderr,
+        color=True,
+    )
+
+    state.process("\x1b[31mtool output\x1b[0m\n")
+    state.assistant("\x1b[35massistant output\x1b[0m\n")
+    await state.close()
+
+    assert "tool output\n" in stderr.getvalue()
+    assert stdout.getvalue() == "assistant output\n"
+    assert stderr.getvalue().endswith(ANSI_RESET)
+    assert "\x1b[31m" not in stderr.getvalue()
+    assert "\x1b[35m" not in stdout.getvalue()
+    assert "\x1b[" not in "".join(record.parts)
 
 
 def test_only_interactive_rich_modes_request_entry_outro() -> None:

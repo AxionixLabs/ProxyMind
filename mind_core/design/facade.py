@@ -21,6 +21,10 @@ from .fx import (
     download_animation as design_download_animation
 )
 from .upload import upload_progress_live as design_upload_progress_live
+from .intro import (
+    IntroFrame,
+    intro_frames
+)
 from mind_nova import const
 
 
@@ -84,59 +88,37 @@ class Design(DesignStatusLiveDriver):
         """显示启动标识并保留最终版本行。"""
         title = const.APP_DESC
 
-        def frame(*, prompt_on: bool, title_visible: int, version_visible: bool) -> Text:
+        def render_frame(frame_spec: IntroFrame) -> Text:
             out = Text()
-            out.append(">_" if prompt_on else "> ", style="dim")
+            out.append(">_" if frame_spec.prompt_on else "> ", style="dim")
 
-            if title_visible:
+            if frame_spec.title_visible:
                 out.append(" ")
-                out.append(title[:title_visible], style="bold bright_white")
+                out.append(
+                    title[:frame_spec.title_visible],
+                    style="bold bright_white",
+                )
 
-            if version_visible:
+            if frame_spec.version_visible:
                 out.append(f" (v{const.APP_VERSION})", style="dim")
 
             return out
 
+        frames = intro_frames(title)
+        first = frames[0]
+
         with Live(
-            frame(prompt_on=True, title_visible=0, version_visible=False),
+            render_frame(first),
             console=console,
             refresh_per_second=30,
             transient=True
         ) as live:
-            time.sleep(0.050)
-            live.update(frame(
-                prompt_on=False,
-                title_visible=0,
-                version_visible=False
-            ))
-            time.sleep(0.045)
-            live.update(frame(
-                prompt_on=True,
-                title_visible=0,
-                version_visible=False
-            ))
-            time.sleep(0.060)
+            time.sleep(first.delay_after)
+            for next_frame in frames[1:]:
+                live.update(render_frame(next_frame))
+                time.sleep(next_frame.delay_after)
 
-            for visible in range(1, len(title) + 1):
-                live.update(frame(
-                    prompt_on=True,
-                    title_visible=visible,
-                    version_visible=False
-                ))
-                time.sleep(0.045 if visible < len(title) else 0.080)
-
-            live.update(frame(
-                prompt_on=True,
-                title_visible=len(title),
-                version_visible=True
-            ))
-            time.sleep(0.180)
-
-        final = frame(
-            prompt_on=True,
-            title_visible=len(title),
-            version_visible=True
-        )
+        final = render_frame(frames[-1])
         console.print(final)
         console.print()
 

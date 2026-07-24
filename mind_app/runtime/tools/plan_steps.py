@@ -8,6 +8,7 @@ from engine.enhance import exchange_arguments
 from engine.observability import observe
 from mind_app.client_tools.planning import normalize_plan_arguments
 from mind_app.mcp.contracts import McpSessionLike
+from mind_app.mcp.tool_result import normalize_call_tool_result
 from mind_app.mcp.tool_store import has_tool
 from .execution_policy import (
     is_execution_ignored,
@@ -367,17 +368,7 @@ class StepPlanExecutor:
     @staticmethod
     def _result_text(result: typing.Any) -> str:
         """从 MCP 工具结果中读取文本摘要。"""
-        structured = getattr(result, "structuredContent", None)
-        if isinstance(structured, dict) and structured.get("text") is not None:
-            return str(structured.get("text") or "")
-
-        content = getattr(result, "content", None)
-        if isinstance(content, list):
-            for item in content:
-                text = getattr(item, "text", None)
-                if text is not None:
-                    return str(text)
-        return ""
+        return normalize_call_tool_result(result).display_text
 
     @staticmethod
     def _bounded_text(value: typing.Any) -> str:

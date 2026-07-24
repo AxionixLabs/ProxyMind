@@ -23,6 +23,12 @@ def test_non_slash_input_keeps_existing_transcript_style() -> None:
     )
 
 
+def test_query_transcript_uses_regular_font_weight() -> None:
+    style = TuiRuntime().input_model.style
+
+    assert not style.get_attrs_for_style_str("class:prompt").bold
+
+
 def test_unknown_slash_text_is_not_styled_as_a_command() -> None:
     block = query_block("/今天天气")
 

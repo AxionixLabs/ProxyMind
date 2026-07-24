@@ -37,6 +37,15 @@ from ..prompting.skills import SkillTokenLexer
 INPUT_BUFFER_NAME = "prompt-input"
 
 
+def _ignore_action() -> None:
+    """忽略尚未绑定的输入动作。"""
+
+
+def _deny_action() -> bool:
+    """拒绝尚未绑定的输入条件。"""
+    return False
+
+
 class TuiInputHistory(InMemoryHistory):
     """保存输入历史并允许撤销最近一次匹配的提交。"""
 
@@ -129,12 +138,12 @@ class TuiInputModel(object):
         self.auto_suggest = TuiAutoSuggest()
         self.lexer        = SkillTokenLexer(self._active_paste_placeholders)
 
-        self.interrupt_handler: typing.Callable[[], None] | None      = None
-        self.exit_handler: typing.Callable[[], None] | None           = None
-        self.can_exit: typing.Callable[[], bool] | None               = None
-        self.can_submit_queue: typing.Callable[[], bool] | None       = None
-        self.can_rollback_queue: typing.Callable[[], bool] | None     = None
-        self.rollback_queue_handler: typing.Callable[[], bool] | None = None
+        self.interrupt_handler: typing.Callable[[], None]      = _ignore_action
+        self.exit_handler: typing.Callable[[], None]           = _ignore_action
+        self.can_exit: typing.Callable[[], bool]               = _deny_action
+        self.can_submit_queue: typing.Callable[[], bool]       = _deny_action
+        self.can_rollback_queue: typing.Callable[[], bool]     = _deny_action
+        self.rollback_queue_handler: typing.Callable[[], bool] = _deny_action
 
         self.shell_mode: bool = False
 
@@ -146,7 +155,7 @@ class TuiInputModel(object):
         self.key_bindings = self._build_key_bindings()
 
         self.style = Style.from_dict({
-            "prompt": "bold #E2E5EA",
+            "prompt": "#E2E5EA",
             "prompt.kicker": "bold #7B838E",
             "prompt.command.slash": "#C4A7E7",
             "prompt.model": "bold #F3F5F8",
@@ -204,8 +213,7 @@ class TuiInputModel(object):
         if buffer.complete_state is not None:
             buffer.cancel_completion()
             return None
-        if self.interrupt_handler is not None:
-            self.interrupt_handler()
+        self.interrupt_handler()
 
     def bind_exit(
         self,
@@ -422,8 +430,7 @@ class TuiInputModel(object):
 
         direct_exit = has_focus(INPUT_BUFFER_NAME) & Condition(
             lambda: bool(
-                self.can_exit is not None
-                and self.can_exit()
+                self.can_exit()
                 and not get_app().current_buffer.text
                 and get_app().current_buffer.complete_state is None
                 and not self.shell_mode
@@ -433,8 +440,7 @@ class TuiInputModel(object):
         @bindings.add("c-d", eager=True, filter=direct_exit)
         def _(event) -> None:
             _ = event
-            if self.exit_handler is not None:
-                self.exit_handler()
+            self.exit_handler()
 
         @bindings.add("c-u", eager=True)
         def _(event) -> None:
@@ -465,18 +471,14 @@ class TuiInputModel(object):
             event.app.current_buffer.insert_text("\n")
 
         queue_rollback = has_focus(INPUT_BUFFER_NAME) & Condition(
-            lambda: bool(
-                self.can_rollback_queue is not None
-                and self.can_rollback_queue()
-            )
+            lambda: bool(self.can_rollback_queue())
         )
 
         @bindings.add(Keys.Escape, eager=True, filter=queue_rollback)
         @bindings.add(Keys.ControlLeft, eager=True, filter=queue_rollback)
         def _(event) -> None:
             event.app.current_buffer.cancel_completion()
-            if self.rollback_queue_handler is not None:
-                self.rollback_queue_handler()
+            self.rollback_queue_handler()
 
         @bindings.add("!", eager=True)
         def _(event) -> None:
@@ -492,8 +494,7 @@ class TuiInputModel(object):
         def _(event) -> None:
             buffer = event.app.current_buffer
             if (
-                self.can_submit_queue is not None
-                and self.can_submit_queue()
+                self.can_submit_queue()
                 and (buffer.text.strip() or self.shell_mode)
             ):
                 buffer.cancel_completion()

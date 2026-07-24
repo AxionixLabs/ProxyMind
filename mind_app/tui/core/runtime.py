@@ -38,6 +38,10 @@ from .submission import (
 from .task_state import TuiTaskState
 from .viewport import TuiTranscriptViewport
 
+StartupAnimation: typing.TypeAlias = typing.Callable[
+    [], typing.Awaitable[None]
+]
+
 
 class TuiRuntime(object):
     """协调 TUI Application 生命周期、正文输出和前端交互能力。"""
@@ -63,7 +67,9 @@ class TuiRuntime(object):
         self._background_tasks: set[asyncio.Task[None]]               = set()
         self._background_session_tasks: dict[str, asyncio.Task[None]] = {}
         self._background_blocks: list[FragmentBlock]                  = []
-        self._open_callbacks: list[typing.Callable[[], None]]         = []
+
+        self._open_callbacks: list[typing.Callable[[], None]] = []
+        self._startup_animations: list[StartupAnimation]      = []
 
         self._closing = False
 
@@ -191,8 +197,26 @@ class TuiRuntime(object):
         application_error = self._application_task_exception()
         if application_error is not None:
             raise application_error
+        await self._play_startup_animation()
         for callback in tuple(self._open_callbacks):
             callback()
+
+    def set_startup_animation(
+        self,
+        animation: StartupAnimation,
+    ) -> None:
+        """注册在 Application 首帧后播放的一次性启动动画。"""
+        if self.active:
+            raise RuntimeError("TUI startup animation requires an inactive runtime")
+        if not self._startup_animations:
+            self._startup_animations.append(animation)
+
+    async def _play_startup_animation(self) -> None:
+        """播放并清除当前注册的启动动画。"""
+        animations = tuple(self._startup_animations)
+        self._startup_animations.clear()
+        for animation in animations:
+            await animation()
 
     def add_open_callback(self, callback: typing.Callable[[], None]) -> None:
         """注册主应用首帧完成后的同步回调。"""
@@ -203,6 +227,7 @@ class TuiRuntime(object):
     async def close(self) -> None:
         """停止输入应用和全部动态任务。"""
         self._closing = True
+        self._startup_animations.clear()
 
         await self.submissions.close()
         await self.activity.clear()

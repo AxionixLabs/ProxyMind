@@ -44,10 +44,8 @@ def _record_title(record: dict[str, typing.Any]) -> str:
 
 
 def _record_prefix(record: dict[str, typing.Any]) -> str:
-    """返回历史会话的时间和工作区信息。"""
-    workspace = _workspace_label(record.get("workspace"))
-    updated_at = _format_updated_at(record.get("updated_at"))
-    return f"{updated_at} · {workspace}" if workspace else updated_at
+    """返回历史会话的更新时间。"""
+    return _format_updated_at(record.get("updated_at"))
 
 
 def _format_updated_at(value: typing.Any) -> str:
@@ -57,15 +55,6 @@ def _format_updated_at(value: typing.Any) -> str:
     except (TypeError, ValueError):
         return "-"
     return time.strftime("%m-%d %H:%M", time.localtime(timestamp))
-
-
-def _workspace_label(value: typing.Any) -> str:
-    """返回历史会话中的短工作区名称。"""
-    text = str(value or "").replace("\\", "/").rstrip("/")
-    if not text:
-        return ""
-    tail = text.rsplit("/", 1)[-1]
-    return tail or text
 
 
 if __name__ == '__main__':

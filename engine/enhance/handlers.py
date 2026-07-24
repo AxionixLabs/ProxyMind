@@ -4,12 +4,9 @@
 import json
 import typing
 from engine.observability import observe
-from mcp.types import CallToolResult
 from mind_core.remote_services import RemoteServices
 from mind_nova.requests.chat import stream_heal
 from .fields import (
-    fields,
-    fields_map,
     tool_payload,
     tool_target
 )
@@ -19,33 +16,29 @@ async def enhance_result(
     *,
     pref_config: dict[str, typing.Any],
     name: str,
-    result: CallToolResult,
+    result_fields: dict[str, typing.Any],
     ok: bool,
     reporter: typing.Optional[EnhanceReporter] = None
-) -> typing.Union[str, dict[str, typing.Any]]:
+) -> dict[str, typing.Any]:
     """按工具名称增强成功结果。"""
-    result_fields = fields(result)
-
     if not ok:
         return result_fields
 
     if name.startswith("nexus_"):
-        return await enhance_nexus(result, reporter)
+        return await enhance_nexus(result_fields, reporter)
 
     if name == "heal_element":
-        return await enhance_heal_element(result, pref_config, reporter)
+        return await enhance_heal_element(result_fields, pref_config, reporter)
 
     return result_fields
 
 
 async def enhance_nexus(
-    result: CallToolResult,
+    result_fields: dict[str, typing.Any],
     reporter: typing.Optional[EnhanceReporter] = None
-) -> typing.Union[str, dict[str, typing.Any]]:
+) -> dict[str, typing.Any]:
     """Nexus: 全量静默落盘并返回原始 fields。"""
-    result_fields = fields(result)
-
-    if reporter and isinstance(result_fields, dict):
+    if reporter:
         await reporter.record(
             json.dumps(result_fields, ensure_ascii=False, indent=2) + "\n"
         )
@@ -54,13 +47,11 @@ async def enhance_nexus(
 
 
 async def enhance_heal_element(
-    result: CallToolResult,
+    result_fields: dict[str, typing.Any],
     pref_config: dict[str, typing.Any],
     reporter: typing.Optional[EnhanceReporter] = None
-) -> typing.Optional[dict[str, typing.Any]]:
+) -> dict[str, typing.Any]:
     """调用远程元素自愈服务并汇总定位结果。"""
-    result_fields = fields_map(result)
-
     attachments: list[dict[str, str]] = []
 
     heal_status = await RemoteServices.heal_license() or {}

@@ -16,7 +16,7 @@ from mind_app.presentation.renderers.upload import (
 )
 from mind_app.presentation.renderers.download import (
     download_progress_block,
-    download_summary_block,
+    download_summary_block
 )
 from mind_core.mcp_status import (
     McpStatusView,
@@ -65,14 +65,18 @@ _SLOT_KEYS: dict[ActivityStatusKind, ActivitySlotKey] = {
 }
 
 
+def _no_final_block() -> FragmentBlock | None:
+    """返回缺省的空最终帧。"""
+    return None
+
+
 @dataclass(slots=True)
 class _ActivitySlot(object):
     """保存一项活动动画的渲染和完成状态。"""
-
     key: ActivitySlotKey
     kind: ActivityStatusKind
     render: typing.Callable[[float], FragmentBlock]
-    finalize: typing.Callable[[], FragmentBlock | None] | None = None
+    finalize: typing.Callable[[], FragmentBlock | None] = _no_final_block
     phase: float = 0.0
 
 
@@ -97,7 +101,7 @@ class TuiActivity(object):
         self._wait_phase: float             = 0.0
         self._wait_paused: bool             = False
 
-        self._slots: dict[ActivitySlotKey, _ActivitySlot] = {}
+        self._slots: dict[ActivitySlotKey, _ActivitySlot]    = {}
         self._settle_deadlines: dict[ActivitySlotKey, float] = {}
 
     @property
@@ -225,22 +229,20 @@ class TuiActivity(object):
     ) -> None:
         """停止指定活动动画，并按需短暂保留完成状态。"""
         target_key = _SLOT_KEYS.get(kind) if kind is not None else None
+
         targets = tuple(
             (key, slot)
             for key, slot in self._slots.items()
             if kind is None or key == target_key
         )
+
         expires_at = asyncio.get_running_loop().time() + ACTIVITY_SETTLE_SEC
 
         for key, slot in targets:
             if slot.kind == "wait":
                 self._reset_wait()
 
-            final = (
-                slot.finalize()
-                if settle and slot.finalize is not None
-                else None
-            )
+            final = slot.finalize() if settle else None
             if final is None:
                 self._slots.pop(key, None)
                 self._settle_deadlines.pop(key, None)
@@ -262,15 +264,17 @@ class TuiActivity(object):
     async def hold(self, kind: ActivityStatusKind) -> None:
         """把指定活动槽位保持在最终状态直至后续替换或清除。"""
         key = _SLOT_KEYS[kind]
+
         slot = self._slots.get(key)
         if slot is None or slot.kind != kind:
             return None
 
-        final = slot.finalize() if slot.finalize is not None else None
+        final = slot.finalize()
         if final is None:
             self._slots.pop(key, None)
         else:
             slot.render = lambda _phase, block=final: block
+
         self._settle_deadlines.pop(key, None)
         await self._refresh_task()
 
@@ -361,22 +365,28 @@ class TuiActivity(object):
             while self._slots:
                 await asyncio.sleep(interval)
                 current_tick = loop.time()
+
                 step = (
                     max(0.0, current_tick - previous_tick)
                     * status_phase_rate("wait")
                 )
+
                 previous_tick = current_tick
+
                 expired = tuple(
                     key
                     for key, deadline in self._settle_deadlines.items()
                     if current_tick >= deadline
                 )
+
                 for key in expired:
                     self._slots.pop(key, None)
                     self._settle_deadlines.pop(key, None)
                 for slot in self._slots.values():
                     slot.phase += step
+
                 self._render_slots()
+
         finally:
             if asyncio.current_task() is self.task:
                 self.task = None
@@ -384,12 +394,14 @@ class TuiActivity(object):
     def _render_slots(self) -> None:
         """把全部活动槽位合成为一个多行展示块。"""
         fragments: list[tuple[str, str]] = []
+
         for slot in self._slots.values():
             block = slot.render(slot.phase)
             if not block.fragments:
                 continue
             if fragments:
                 fragments.append(("", "\n"))
+
             fragments.extend(_clip_activity_fragments(
                 list(block.fragments),
                 width=max(1, int(self.get_width())),
@@ -493,6 +505,7 @@ def _operation_activity_block(
     """生成通用前台操作使用的单行状态。"""
     summary = str(data.get("summary") or "working...").strip()
     summary = _truncate_display_text(summary, limit=max(12, int(width) - 3))
+
     return _status_block(
         summary,
         family="wait",
@@ -513,6 +526,7 @@ def _mcp_activity_block(
         return _mcp_final_block(view, width=width) or FragmentBlock(())
 
     summary = _truncate_display_text(view.summary, limit=max(12, int(width) - 3))
+
     return _status_block(
         summary,
         family="wait",
@@ -588,6 +602,7 @@ def _status_block(
         phase=phase,
         animated=sweep,
     )
+
     if spinner:
         fragments[0] = spinner_indicator_fragment(phase, family=family)
     if started_at or elapsed_sec is not None:
@@ -622,7 +637,7 @@ def _truncate_display_text(text: str, *, limit: int) -> str:
     if get_cwidth(value) <= width_limit:
         return value
 
-    out = ""
+    out: str = ""
 
     for char in value:
         if get_cwidth(out + char + "…") > width_limit:
@@ -639,16 +654,19 @@ def _clip_activity_fragments(
 ) -> list[tuple[str, str]]:
     """把活动状态裁成单行，并对不完整内容补充省略符。"""
     limit = max(1, int(width))
+
     single_line = [
         (style, str(text).replace("\n", " "))
         for style, text in fragments
         if text
     ]
+
     if get_cwidth("".join(text for _, text in single_line)) <= limit:
         return single_line
 
-    clipped = clip_fragments(single_line, width=max(0, limit - 1))
+    clipped        = clip_fragments(single_line, width=max(0, limit - 1))
     ellipsis_style = clipped[-1][0] if clipped else ""
+
     return [*clipped, (ellipsis_style, "…")]
 
 

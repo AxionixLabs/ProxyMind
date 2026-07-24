@@ -20,10 +20,20 @@ from ..prompting.commands import (
     is_unrecognized_slash_command,
     stream_command_label,
     stream_command_policy,
-    unrecognized_slash_command_message,
+    unrecognized_slash_command_message
 )
 
 _INPUT_CLOSED = object()
+
+
+def _ignore_interrupt() -> bool:
+    """忽略未绑定的中断请求。"""
+    return False
+
+
+def _ignore_stream_command(_command: str) -> bool:
+    """忽略未绑定的流式命令。"""
+    return False
 
 
 class TuiInputClosed(EOFError):
@@ -57,7 +67,7 @@ class TuiSubmissionFlow(object):
         self.queued_messages = TuiQueuedMessages()
 
         self.interrupt_state = TuiInterruptState(
-            timeout_sec=self.EXIT_CONFIRM_TIMEOUT_SEC,
+            timeout_sec=self.EXIT_CONFIRM_TIMEOUT_SEC
         )
 
         self.placeholder_text = self.input_model.new_placeholder(mode)
@@ -74,9 +84,12 @@ class TuiSubmissionFlow(object):
         self._invalidate = invalidate
         self._exit_event = asyncio.Event()
 
-        self._exit_expiry_task: asyncio.Task[None] | None                 = None
-        self._interrupt_handler: typing.Callable[[], bool] | None         = None
-        self._stream_command_handler: typing.Callable[[str], bool] | None = None
+        self._exit_expiry_task: asyncio.Task[None] | None  = None
+        self._interrupt_handler: typing.Callable[[], bool] = _ignore_interrupt
+
+        self._stream_command_handler: typing.Callable[[str], bool] = (
+            _ignore_stream_command
+        )
 
         self.input_model.bind_interrupt(self.interrupt_input)
 
@@ -85,6 +98,7 @@ class TuiSubmissionFlow(object):
             self.exit_input,
         )
         self.input_model.bind_queue_submission(self._is_submission_deferred)
+
         self.input_model.bind_queue_rollback(
             lambda: (
                 self._is_submission_deferred()
@@ -187,12 +201,9 @@ class TuiSubmissionFlow(object):
         policy: StreamCommandPolicy,
     ) -> None:
         """按流式期间策略分派命令或生成拒绝提示。"""
-        handler = self._stream_command_handler
-
         handled = bool(
             policy != "reject"
-            and handler is not None
-            and handler(submission.value)
+            and self._stream_command_handler(submission.value)
         )
         if handled:
             self._queue_command_block(query_block(submission.visible_text))
@@ -295,14 +306,18 @@ class TuiSubmissionFlow(object):
         handler: typing.Callable[[], bool] | None,
     ) -> None:
         """绑定或清除当前可中断生命周期的取消函数。"""
-        self._interrupt_handler = handler
+        self._interrupt_handler = (
+            handler if handler is not None else _ignore_interrupt
+        )
 
     def bind_stream_command_handler(
         self,
         handler: typing.Callable[[str], bool] | None,
     ) -> None:
         """绑定或清除忙碌期间的命令分派函数。"""
-        self._stream_command_handler = handler
+        self._stream_command_handler = (
+            handler if handler is not None else _ignore_stream_command
+        )
 
     def request_turn_interrupt(self) -> None:
         """把当前轮次标记为用户主动中断。"""
@@ -338,9 +353,7 @@ class TuiSubmissionFlow(object):
         self.interrupt_state.arm_exit()
         self._schedule_exit_expiry()
 
-        handler = self._interrupt_handler
-        if handler is not None:
-            handler()
+        self._interrupt_handler()
         self._invalidate()
 
     def exit_input(self) -> None:
@@ -404,8 +417,8 @@ class TuiSubmissionFlow(object):
         self.interrupt_state.clear()
         self._exit_event.clear()
 
-        self._interrupt_handler      = None
-        self._stream_command_handler = None
+        self._interrupt_handler      = _ignore_interrupt
+        self._stream_command_handler = _ignore_stream_command
 
 
 if __name__ == '__main__':

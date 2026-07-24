@@ -7,6 +7,10 @@ import asyncio
 import functools
 from dataclasses import dataclass
 from mind_app.mcp.contracts import McpSessionLike
+from mind_app.mcp.tool_result import (
+    normalize_call_tool_result,
+    normalize_tool_fields
+)
 from mind_app.presentation.contracts import PresentationSink
 from engine.enhance import enhance_result
 from ...output import (
@@ -81,20 +85,10 @@ class ToolRunResult:
     """统一描述单次工具执行的收束结果。"""
     result: typing.Any
     ok: bool
-    fields: typing.Union[str, dict[str, typing.Any]]
+    fields: dict[str, typing.Any]
     text: str
     data: typing.Any
     cost_ms: int
-
-
-def _tool_result_text(fields: typing.Union[str, dict[str, typing.Any], typing.Any]) -> str:
-    """从工具结果字段中提取文本摘要。"""
-    if isinstance(fields, dict):
-        value = fields.get("text")
-        return "" if value is None else str(value)
-    if fields is None:
-        return ""
-    return str(fields)
 
 
 def _tool_result_data(fields: typing.Union[str, dict[str, typing.Any], typing.Any]) -> typing.Any:
@@ -128,12 +122,9 @@ def _promote_if_present(
 
 def normalize_tool_result_fields(
     name: str,
-    fields: typing.Union[str, dict[str, typing.Any]]
-) -> typing.Union[str, dict[str, typing.Any]]:
+    fields: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
     """为 synthetic 原生工具调用补充稳定的顶层结果字段。"""
-    if not isinstance(fields, dict):
-        return fields
-
     payload = _tool_payload(fields)
     if not payload:
         return fields
@@ -161,17 +152,17 @@ def server_tool_output_result(
     event: dict[str, typing.Any]
 ) -> ToolRunResult:
     """把服务端回灌的 tool.output 事件转换成展示层结果对象。"""
-    fields = _server_output_fields(event)
-    fields = normalize_tool_result_fields(name, fields)
-
-    ok      = _server_output_ok(event, fields)
+    raw_fields = _server_output_fields(event)
+    ok         = _server_output_ok(event, raw_fields)
+    normalized = normalize_tool_fields(raw_fields, ok=ok)
+    fields     = normalize_tool_result_fields(name, normalized.fields)
     cost_ms = _server_output_cost_ms(event)
 
     return ToolRunResult(
         result=fields,
         ok=ok,
         fields=fields,
-        text=_tool_result_text(fields),
+        text=normalized.display_text,
         data=_tool_result_data(fields),
         cost_ms=cost_ms
     )
@@ -320,10 +311,12 @@ async def run_tool_step(
             )
             ok = not result.isError
 
+            normalized = normalize_call_tool_result(result)
+
             fields = await enhance_result(
                 pref_config=pref_config,
                 name=name,
-                result=result,
+                result_fields=normalized.fields,
                 ok=ok,
                 reporter=ToolEnhanceReporter(
                     output_control,
@@ -332,7 +325,14 @@ async def run_tool_step(
                     tool_name=name,
                 )
             )
-            fields = normalize_tool_result_fields(name, fields)
+            if isinstance(fields.get("ok"), bool):
+                ok = bool(fields["ok"])
+            normalized = normalize_tool_fields(
+                fields,
+                ok=ok,
+                display_fallback=normalized.display_text,
+            )
+            fields = normalize_tool_result_fields(name, normalized.fields)
 
         finally:
             await status_control.end_status()
@@ -369,7 +369,7 @@ async def run_tool_step(
         result=result,
         ok=ok,
         fields=fields,
-        text=_tool_result_text(fields),
+        text=normalized.display_text,
         data=_tool_result_data(fields),
         cost_ms=cost_ms
     )

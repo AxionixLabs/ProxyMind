@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
+from mind_core.design.intro import (
+    IntroFrame,
+    intro_frames
+)
 from mind_app.frontend.contracts import (
     ApplicationSink,
     ApplicationView,
@@ -55,9 +60,29 @@ class TuiApplicationSink(ApplicationSink):
     def emit(self, view: ApplicationView) -> None:
         """缓存启动前事件，并在运行期统一写入正文画布。"""
         if not self.runtime.active:
+            if view.type == "intro":
+                self.runtime.set_startup_animation(self._animate_intro)
+                return None
             self.pending_views.append(view)
             return None
         self._emit_active(view)
+
+    async def _animate_intro(self) -> None:
+        """在主 TUI Application 中播放并定格启动标题。"""
+        frames = intro_frames(const.APP_DESC)
+        try:
+            for frame in frames:
+                self.runtime.set_active_renderable(
+                    _intro_frame_block(frame),
+                    kind="system",
+                )
+                await asyncio.sleep(frame.delay_after)
+        except BaseException:
+            self.runtime.clear_active_renderable()
+            raise
+        self.runtime.commit_active_renderable(
+            _intro_frame_block(frames[-1])
+        )
 
     def flush_pending(self) -> None:
         """按接收顺序提交启动前缓存的应用展示。"""
@@ -124,11 +149,20 @@ class TuiApplicationSink(ApplicationSink):
 
 def _intro_block() -> FragmentBlock:
     """生成 TUI 启动标题。"""
-    return _fragment_block([
-        TextSpan(">_ ", MUTED),
-        TextSpan(const.APP_DESC, BRIGHT),
-        TextSpan(f" (v{const.APP_VERSION})", MUTED),
-    ])
+    return _intro_frame_block(intro_frames(const.APP_DESC)[-1])
+
+
+def _intro_frame_block(frame: IntroFrame) -> FragmentBlock:
+    """把中立启动帧转换为 TUI 标题块。"""
+    spans = [TextSpan(">_" if frame.prompt_on else "> ", MUTED)]
+    if frame.title_visible:
+        spans.extend([
+            TextSpan(" "),
+            TextSpan(const.APP_DESC[:frame.title_visible], BRIGHT),
+        ])
+    if frame.version_visible:
+        spans.append(TextSpan(f" (v{const.APP_VERSION})", MUTED))
+    return _fragment_block(spans)
 
 
 def _startup_logo_block() -> FragmentBlock:

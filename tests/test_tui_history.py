@@ -6,7 +6,7 @@ from mind_app.tui.features import history
 
 
 @pytest.mark.anyio
-async def test_history_menu_displays_date_workspace_then_query(monkeypatch) -> None:
+async def test_history_menu_displays_date_then_query(monkeypatch) -> None:
     record = {
         "cid": "conversation-id",
         "title": "explain the current architecture",
@@ -30,5 +30,5 @@ async def test_history_menu_displays_date_workspace_then_query(monkeypatch) -> N
 
     assert selected is record
     option = requests[0].options[0]
-    assert option.label == "07-21 14:30 · ProxyMind"
+    assert option.label == "07-21 14:30"
     assert option.detail == "explain the current architecture"

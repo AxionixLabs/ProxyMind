@@ -236,10 +236,9 @@ class Mind(object):
         *,
         limit: int = HISTORY_LIMIT
     ) -> list[dict[str, typing.Any]]:
-        """返回当前 workspace 下可恢复的本地会话游标。"""
+        """返回可恢复的本地会话游标。"""
         try:
             records = self.history_store.list_sessions(
-                workspace=self.history_workspace,
                 limit=limit
             )
         except (OSError, sqlite3.Error, ValueError) as exc:

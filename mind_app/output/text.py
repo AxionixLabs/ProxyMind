@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import os
+import re
 import sys
 import typing
 from dataclasses import dataclass
@@ -43,6 +44,10 @@ ANSI_BOLD    = "\x1b[1m"
 ANSI_CYAN    = "\x1b[1;96m"
 ANSI_MAGENTA = "\x1b[1;95m"
 
+ANSI_ESCAPE_RE = re.compile(
+    r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))"
+)
+
 
 def _write(stream: typing.TextIO, text: str) -> None:
     """写入并刷新一个文本块。"""
@@ -50,6 +55,21 @@ def _write(stream: typing.TextIO, text: str) -> None:
         return None
     stream.write(text)
     stream.flush()
+
+
+def _terminal_text(value: typing.Any) -> str:
+    """移除外部文本中的终端控制序列。"""
+    text = ANSI_ESCAPE_RE.sub("", str(value or ""))
+    return text.replace("\x1b", "").replace("\x9b", "")
+
+
+def _styled_text(text: str, style: str) -> str:
+    """生成在末尾换行前复位的 ANSI 文本。"""
+    body = text.rstrip("\r\n")
+    trailing = text[len(body):]
+    if not body:
+        return trailing
+    return f"{style}{body}{ANSI_RESET}{trailing}"
 
 
 def _supports_color(stream: typing.TextIO) -> bool:
@@ -111,17 +131,20 @@ class TextOutputState:
 
     async def close(self) -> None:
         """关闭文本记录。"""
+        if self.color:
+            _write(self.stderr, ANSI_RESET)
         await self.record_writer.close()
 
     def process(self, text: str, *, style: str = "") -> None:
         """输出面向操作者的过程文本。"""
+        plain = _terminal_text(text)
         visible = (
-            f"{style}{text}{ANSI_RESET}"
+            _styled_text(plain, style)
             if style and self.color
-            else text
+            else plain
         )
         _write(self.stderr, visible)
-        self.record_writer.write(text, block=True)
+        self.record_writer.write(plain, block=True)
 
     def metadata(self, label: str, value: typing.Any) -> None:
         """输出一行带高亮字段名的启动元数据。"""
@@ -130,13 +153,14 @@ class TextOutputState:
 
     def assistant(self, text: str) -> None:
         """输出 assistant 正文。"""
-        if not text:
+        plain = _terminal_text(text)
+        if not plain:
             return None
         if not self.assistant_open:
             self.process(f"{const.APP_DESC.lower()}\n", style=ANSI_MAGENTA)
             self.assistant_open = True
-        _write(self.stdout, text)
-        self.record_writer.write(text)
+        _write(self.stdout, plain)
+        self.record_writer.write(plain)
 
     def settle_assistant(self) -> None:
         """结束一段 assistant 正文。"""
