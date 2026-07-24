@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import time
 import typing
 import asyncio
 from mind_app.mcp.contracts import McpSessionLike
@@ -55,6 +56,10 @@ from ..stream_events.lifecycle import (
 )
 from ..stream_events.assistant_boundary import is_assistant_output_boundary
 from ..stream_state.segment import SegmentTracker
+from ..observability import (
+    observe,
+    observe_exception
+)
 
 if typing.TYPE_CHECKING:
     from ..controller import Mind
@@ -73,6 +78,10 @@ async def stream_looper(
     """流式模式执行器：处理流式事件、工具调用和输出上报。"""
     if mode not in {"chat", "fast", "xtra"}:
         raise ValueError(f"Invalid mode: {mode}")
+
+    started_at = time.perf_counter()
+
+    event_count = 0
 
     ev_report: typing.Optional[EventReport] = kwargs.pop("ev_report", None)
 
@@ -132,6 +141,16 @@ async def stream_looper(
         tracker  = SegmentTracker()
         metadata = kwargs.get("metadata") if isinstance(kwargs.get("metadata"), dict) else {}
 
+        observe(
+            "stream.start",
+            mode=mode,
+            cid=metadata.get("cid"),
+            sid=metadata.get("sid"),
+            turn_id=kwargs.get("turn_id"),
+            tools=len(tools),
+            skills=len(kwargs.get("skills") or []),
+        )
+
         await presentation.emit(build_run_started_view(
             metadata=metadata,
             message=message,
@@ -174,12 +193,19 @@ async def stream_looper(
         )
 
         async for event in stream_chat(mode, pref_config, message, tools, **kwargs):
+            event_count += 1
             await idle_wait.cancel()
 
             if ev_report:
                 ev_report.bind_event(event)
 
             if first_frame:
+                observe(
+                    "stream.first_event",
+                    mode=mode,
+                    event_type=event.get("type"),
+                    latency_ms=int((time.perf_counter() - started_at) * 1000),
+                )
                 if not mind.frontend.runtime.active:
                     await mind.stop_anim("wait")
                 first_frame = False
@@ -200,6 +226,12 @@ async def stream_looper(
             if event_type == "turn.failed":
                 turn_failed = True
                 error = str(event.get("error") or "unknown error")
+                observe(
+                    "stream.turn_failed",
+                    level="ERROR",
+                    mode=mode,
+                    error=error,
+                )
                 await finish_failure(
                     status_control,
                     presentation,
@@ -417,10 +449,25 @@ async def stream_looper(
 
     except asyncio.CancelledError:
         interrupted = True
+        observe(
+            "stream.interrupted",
+            level="WARNING",
+            mode=mode,
+            events=event_count,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
         raise
 
     except Exception as e:
+        observe_exception(
+            "stream.failed",
+            e,
+            mode=mode,
+            events=event_count,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
         error = friendly_exception_text(e)
+
         await mind.await_cleanup(mind.stop_anim("wait"))
         await finish_failure(
             status_control,
@@ -439,6 +486,15 @@ async def stream_looper(
 
         if turn_completed and not turn_failed:
             await presentation.emit(build_run_completed_view(turn_usage))
+
+        observe(
+            "stream.complete",
+            mode=mode,
+            outcome="failed" if turn_failed else ("complete" if turn_completed else "incomplete"),
+            events=event_count,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+            usage=turn_usage or None,
+        )
 
     finally:
         await idle_wait.cancel()

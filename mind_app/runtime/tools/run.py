@@ -3,6 +3,7 @@
 
 import time
 import typing
+import asyncio
 import functools
 from dataclasses import dataclass
 from mind_app.mcp.contracts import McpSessionLike
@@ -15,6 +16,10 @@ from ...output import (
 from .enhance_reporter import ToolEnhanceReporter
 from .progress import show_tool_progress
 from .router import execute_tool
+from ...observability import (
+    observe,
+    observe_exception
+)
 
 _COMMON_PROMOTED_RESULT_KEYS = (
     "path",
@@ -281,47 +286,84 @@ async def run_tool_step(
     """统一执行工具、处理状态动画和结果增强。"""
     started_at = time.time()
 
-    if status_text:
-        await status_control.begin_custom_tool_status(status_text)
-    else:
-        await status_control.begin_tool_status()
+    observe(
+        "tool.start",
+        tool=name,
+        call_id=call_id,
+        cid=cid,
+        sid=sid,
+    )
+
     try:
-        result = await execute_tool(
-            session,
-            tools=tools,
-            name=name,
-            arguments=arguments,
-            meta=meta,
-            enable_progress_notify=enable_progress_notify,
-            stream_callback=functools.partial(
-                show_tool_progress,
-                presentation,
-                source="tool",
-                tool_name=name,
-            ),
-            execution=execution,
-            cid=cid,
-            sid=sid,
-            call_id=call_id,
-        )
-        ok = not result.isError
-
-        fields = await enhance_result(
-            pref_config=pref_config,
-            name=name,
-            result=result,
-            ok=ok,
-            reporter=ToolEnhanceReporter(
-                output_control,
-                status_control,
-                presentation,
-                tool_name=name,
+        if status_text:
+            await status_control.begin_custom_tool_status(status_text)
+        else:
+            await status_control.begin_tool_status()
+        try:
+            result = await execute_tool(
+                session,
+                tools=tools,
+                name=name,
+                arguments=arguments,
+                meta=meta,
+                enable_progress_notify=enable_progress_notify,
+                stream_callback=functools.partial(
+                    show_tool_progress,
+                    presentation,
+                    source="tool",
+                    tool_name=name,
+                ),
+                execution=execution,
+                cid=cid,
+                sid=sid,
+                call_id=call_id,
             )
-        )
-        fields = normalize_tool_result_fields(name, fields)
+            ok = not result.isError
 
-    finally:
-        await status_control.end_status()
+            fields = await enhance_result(
+                pref_config=pref_config,
+                name=name,
+                result=result,
+                ok=ok,
+                reporter=ToolEnhanceReporter(
+                    output_control,
+                    status_control,
+                    presentation,
+                    tool_name=name,
+                )
+            )
+            fields = normalize_tool_result_fields(name, fields)
+
+        finally:
+            await status_control.end_status()
+    except asyncio.CancelledError:
+        observe(
+            "tool.interrupted",
+            level="WARNING",
+            tool=name,
+            call_id=call_id,
+            elapsed_ms=int((time.time() - started_at) * 1000),
+        )
+        raise
+    except BaseException as error:
+        observe_exception(
+            "tool.failed",
+            error,
+            tool=name,
+            call_id=call_id,
+            elapsed_ms=int((time.time() - started_at) * 1000),
+        )
+        raise
+
+    cost_ms = int((time.time() - started_at) * 1000)
+
+    observe(
+        "tool.complete",
+        tool=name,
+        call_id=call_id,
+        ok=ok,
+        elapsed_ms=cost_ms,
+    )
 
     return ToolRunResult(
         result=result,
@@ -329,7 +371,7 @@ async def run_tool_step(
         fields=fields,
         text=_tool_result_text(fields),
         data=_tool_result_data(fields),
-        cost_ms=int((time.time() - started_at) * 1000)
+        cost_ms=cost_ms
     )
 
 

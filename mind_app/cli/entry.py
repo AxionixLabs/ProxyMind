@@ -15,6 +15,11 @@ from mind_core.preference import Preferences
 from mind_core.service_config import ServiceConfig
 from mind_nova import const
 from mind_nova.services import service_endpoints
+from ..observability import (
+    observe,
+    observe_exception
+)
+from ..reporting import RunReport
 from mind_app.presentation.models import (
     StyledBlock,
     TextSpan,
@@ -149,8 +154,17 @@ async def _finalize_mind(
     completed: bool
 ) -> None:
     """关闭前端和运行时资源，并在完整 TUI 会话后打印退出摘要。"""
+    observe(
+        "app.shutdown.start",
+        output_mode=output_mode,
+        completed=completed,
+        exit_code=mind.exit_code,
+    )
     try:
         await mind.frontend.runtime.close()
+    except BaseException as error:
+        observe_exception("frontend.close.failed", error)
+        raise
     finally:
         await mind.close_runtime_resources()
 
@@ -215,66 +229,76 @@ async def _run_main(
 
     ensure_mcp_servers_file()
 
+    report = RunReport(src_total_place)
+    power = os.cpu_count() or 1
+    observe(
+        "app.start",
+        version=const.APP_VERSION,
+        platform=platform,
+        output_mode=output_mode,
+        cpu_count=power,
+        mcp_requested=bool(getattr(cmd_lines, "mcp", False)),
+        upgrade=bool(getattr(cmd_lines, "upgrade", False)),
+    )
+
     # Notes: ========== 激活日志 ==========
     level = const.SHOW_LEVEL
 
-    pref = Preferences(str(mind_config_path()))
+    try:
+        pref = Preferences(str(mind_config_path()))
 
-    # Notes: ========== 工具路径 ==========
-    if platform == "win32":
-        supports = os.path.join(turbo, "windows").format()
-    elif platform == "darwin":
-        supports = os.path.join(turbo, "macos").format()
-    else:
-        raise MindError(f"{const.APP_DESC} is not supported on this platform: {platform}.")
+        # Notes: ========== 工具路径 ==========
+        if platform == "win32":
+            supports = os.path.join(turbo, "windows").format()
+        elif platform == "darwin":
+            supports = os.path.join(turbo, "macos").format()
+        else:
+            raise MindError(f"{const.APP_DESC} is not supported on this platform: {platform}.")
 
-    packaged = not software.endswith(".py")
+        packaged = not software.endswith(".py")
 
-    runtime_spec = resolve_service_runtime(
-        platform=platform,
-        supports=supports,
-        level=level,
-        packaged=packaged
-    )
-    service_runtime_context = ServiceRuntimeContext(
-        spec=runtime_spec,
-        platform=platform,
-        packaged=packaged,
-        env_symbol=env_symbol,
-        app_desc=const.APP_DESC
-    )
+        runtime_spec = resolve_service_runtime(
+            platform=platform,
+            supports=supports,
+            level=level,
+            packaged=packaged
+        )
+        service_runtime_context = ServiceRuntimeContext(
+            spec=runtime_spec,
+            platform=platform,
+            packaged=packaged,
+            env_symbol=env_symbol,
+            app_desc=const.APP_DESC
+        )
 
-    route_shell_tools(supports)
-    clear_exec_env_cache()
+        route_shell_tools(supports)
+        clear_exec_env_cache()
+        observe(
+            "runtime.resolved",
+            packaged=packaged,
+            executable=runtime_spec.executable,
+        )
+    except BaseException as error:
+        observe_exception("app.bootstrap.failed", error)
+        report.close()
+        raise
 
     # Notes: ========== 升级流程 ==========
     if cmd_lines.upgrade:
-        await ensure_service_runtime_asset(
-            service_runtime_context,
-            explicit_upgrade=True,
-            anim_manager=entry_anim_manager,
-            design=design,
-        )
-        return 0
-
-    logger.debug(f"{'=' * 15} 系统调试 {'=' * 15}")
-    logger.debug(f"操作系统: {platform}")
-    logger.debug(f"核心数量: {(power := os.cpu_count())}")
-    logger.debug(f"应用名称: {software}")
-    logger.debug(f"系统路径: {sys_symbol}")
-    logger.debug(f"环境变量: {env_symbol}")
-    logger.debug(f"日志等级: {level}")
-    logger.debug(f"工具目录: {turbo}")
-    logger.debug(f"{'=' * 15} 系统调试 {'=' * 15}\n")
-
-    logger.debug(f"{'=' * 15} 环境变量 {'=' * 15}")
-    for env in os.environ["PATH"].split(env_symbol):
-        logger.debug(f"ENV: {env}")
-    logger.debug(f"{'=' * 15} 环境变量 {'=' * 15}\n")
-
-    logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}")
-    logger.debug(f"TLS: {runtime_spec.executable}")
-    logger.debug(f"{'=' * 15} 工具路径 {'=' * 15}\n")
+        try:
+            await ensure_service_runtime_asset(
+                service_runtime_context,
+                explicit_upgrade=True,
+                anim_manager=entry_anim_manager,
+                design=design,
+            )
+            observe("upgrade.complete")
+            return 0
+        except BaseException as error:
+            observe_exception("upgrade.failed", error)
+            raise
+        finally:
+            report.close()
 
     keywords = {
         "src_opera_place" : src_opera_place,
@@ -284,17 +308,22 @@ async def _run_main(
         "animate"         : output_mode_uses_animation(output_mode),
         "frontend"        : frontend,
         "design"          : design,
+        "report"          : report,
     }
 
     # remote = await global_config_task
     remote = {}
 
-    server: ServerManage = ServerManage(
-        runtime_spec.launch_command,
-        env=process_env(),
-    )
-
-    mind = Mind(wires, level, power, remote, **keywords)
+    try:
+        server: ServerManage = ServerManage(
+            runtime_spec.launch_command,
+            env=process_env(),
+        )
+        mind = Mind(wires, level, power, remote, **keywords)
+    except BaseException as error:
+        observe_exception("app.initialize.failed", error)
+        report.close()
+        raise
 
     mind.bind_runtime(asyncio.get_running_loop(), asyncio.current_task())
     mind.bind_server_manager(server)
@@ -311,6 +340,7 @@ async def _run_main(
 
             await preload_tui_prompt_context(mind)
         await mind.frontend.runtime.open()
+        observe("frontend.opened", output_mode=output_mode)
 
         if cmd_lines.mcp and output_mode != "tui":
             helix_linked = await prepare_and_start_service_runtime(mind)
@@ -340,6 +370,14 @@ async def _run_main(
                 await mind.start_external_mcp_runtime()
             await pref_task
             service_endpoints.configure(await domain_task)
+            observe(
+                "startup.ready",
+                external_mcp=bool(
+                    mind.external_mcp is not None
+                    and mind.external_mcp.group is not None
+                ),
+                helix_linked=mind.is_service_mcp_linked(),
+            )
         finally:
             for task in startup_tasks:
                 if not task.done():
@@ -367,8 +405,16 @@ async def _run_main(
         await run_selected_mode(mind, cmd_lines)
 
         completed = True
+        observe("app.complete", exit_code=mind.exit_code)
 
         return mind.exit_code
+
+    except asyncio.CancelledError:
+        observe("app.interrupted", level="WARNING", output_mode=output_mode)
+        raise
+    except BaseException as error:
+        observe_exception("app.failed", error, output_mode=output_mode)
+        raise
 
     finally:
         await _finalize_mind(

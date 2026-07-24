@@ -7,6 +7,7 @@ import typing
 from pathlib import Path
 from loguru import logger
 from mind_nova import const
+from .observability import observe
 
 DEBUG_LOG_FILE = f"{const.APP_NAME}.debug.log"
 
@@ -50,6 +51,8 @@ class RunReport(object):
             backtrace=False,
             diagnose=False,
         )
+        self.run_id = tender
+        observe("report.open", run_id=self.run_id)
 
         # 创建分类文件夹：截图
         self.__cap_path: str = os.path.join(self.total_path, "caps")
@@ -81,6 +84,7 @@ class RunReport(object):
         sink_id = self.__log_sink_id
         if sink_id is None:
             return None
+        observe("report.close", run_id=self.run_id)
         self.__log_sink_id = None
         logger.remove(sink_id)
 

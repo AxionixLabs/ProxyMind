@@ -3,8 +3,11 @@
 
 import typing
 import asyncio
-from loguru import logger
 from mind_app.frontend import ApplicationView
+from mind_app.observability import (
+    observe,
+    observe_exception
+)
 from mind_app.presentation.mcp_status import render_mcp_status_block
 from mind_app.presentation.models import (
     StyledBlock,
@@ -126,13 +129,16 @@ async def compact_current_conversation(
     terminal_event: bool = False
 
     status = CompactLiveStatus()
+    observe(
+        "compact.start",
+        mode=run_mode,
+        cid=metadata["cid"],
+        sid=metadata["sid"],
+    )
 
     try:
         if compact_animation_enabled(mind):
-            logger.debug(
-                f"[Compact] animation start "
-                f"cid={metadata['cid']} sid={metadata['sid']}"
-            )
+            observe("compact.animation.start")
             await mind.start_compact_anim(status.snapshot)
 
         async for event in stream_compact_events(payload):
@@ -141,34 +147,30 @@ async def compact_current_conversation(
 
             if event_type == "conversation.compact.started":
                 status.running(message)
-                logger.debug(
-                    f"[Compact] started message={status.snapshot()['summary']}"
-                )
+                observe("compact.remote.started")
                 continue
 
             if event_type == "conversation.compact.failed":
                 status.failed(message)
                 terminal_event = True
-                logger.debug(
-                    f"[Compact] failed message={status.snapshot()['summary']}"
-                )
+                observe("compact.failed", level="ERROR", reason=message or "remote_failed")
                 break
 
             if event_type == "conversation.compact":
                 status.completed(message, compact_event_detail(event))
                 terminal_event = True
-                logger.debug(
-                    f"[Compact] completed message={status.snapshot()['summary']}"
+                observe(
+                    "compact.complete",
+                    before_items=event.get("before_items"),
+                    after_items=event.get("after_items"),
                 )
                 break
 
         if not terminal_event:
             status.failed("Context compaction failed. Please try again.")
-            logger.debug(
-                f"[Compact] failed message={status.snapshot()['summary']}"
-            )
+            observe("compact.failed", level="ERROR", reason="missing_terminal_event")
     except asyncio.CancelledError:
-        logger.debug("[Compact] interrupted")
+        observe("compact.interrupted", level="WARNING")
         raise
     except Exception as error:
         message = str(error).strip()
@@ -178,7 +180,7 @@ async def compact_current_conversation(
             else f": {type(error).__name__}"
         )
         status.failed(f"Context compaction failed{detail}")
-        logger.debug(f"[Compact] failed message={status.snapshot()['summary']}")
+        observe_exception("compact.failed", error)
 
     return status
 

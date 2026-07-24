@@ -3,11 +3,17 @@
 
 import time
 import typing
+import asyncio
 from mind_nova.events import EventReport
 from mind_nova.modes import (
-    DEFAULT_RUN_MODE, RunMode
+    DEFAULT_RUN_MODE,
+    RunMode
 )
 from ...stream_events.worked import emit_worked_footer
+from ...observability import (
+    observe,
+    observe_exception
+)
 
 if typing.TYPE_CHECKING:
     from mind_app.mcp.contracts import McpSessionLike
@@ -74,6 +80,17 @@ async def calling(
         **mind.begin_session(cid=cid, sid=sid, title=message, source="calling")
     }
 
+    started_at = time.perf_counter()
+
+    observe(
+        "call.start",
+        mode=mode,
+        cid=meta["cid"],
+        sid=meta["sid"],
+        message_chars=len(message),
+        access_mode=kwargs.get("access_mode"),
+    )
+
     owns_event_report = False
 
     event_report = kwargs.get("ev_report")
@@ -100,7 +117,35 @@ async def calling(
         )
 
     try:
-        return await mind.with_mcp_session(pref_config, function)
+        await mind.with_mcp_session(pref_config, function)
+    except asyncio.CancelledError:
+        observe(
+            "call.interrupted",
+            level="WARNING",
+            mode=mode,
+            cid=meta["cid"],
+            sid=meta["sid"],
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
+        raise
+    except BaseException as error:
+        observe_exception(
+            "call.failed",
+            error,
+            mode=mode,
+            cid=meta["cid"],
+            sid=meta["sid"],
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
+        raise
+    else:
+        observe(
+            "call.complete",
+            mode=mode,
+            cid=meta["cid"],
+            sid=meta["sid"],
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
     finally:
         if owns_event_report:
             await event_report.flush()

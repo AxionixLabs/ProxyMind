@@ -121,6 +121,7 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
     application_views = []
     upgrade_calls = []
     design = object()
+    report = SimpleNamespace(close=Mock(), run_id="test-run")
 
     class RuntimeStub(object):
         async def open(self) -> None:
@@ -146,6 +147,8 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
         return True
 
     monkeypatch.setattr(entry.logger, "remove", lambda: None)
+    monkeypatch.setattr(entry, "observe", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(entry, "RunReport", lambda _path: report)
     monkeypatch.setattr(
         entry,
         "Parser",
@@ -180,6 +183,7 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
     assert kwargs["explicit_upgrade"] is True
     assert kwargs["design"] is design
     assert "progress" not in kwargs
+    report.close.assert_called_once_with()
 
 
 @pytest.mark.anyio

@@ -3,7 +3,6 @@
 
 import typing
 import asyncio
-from loguru import logger
 from engine.errors import MindError
 from mind_app.mcp.config import load_mcp_servers_file
 from mind_app.mcp.group import (
@@ -13,6 +12,10 @@ from mind_app.mcp.group import (
 from mind_app.mcp.status import (
     ExternalMcpStatus,
     external_status_detail_from_exception
+)
+from mind_app.observability import (
+    observe,
+    observe_exception
 )
 
 if typing.TYPE_CHECKING:
@@ -80,6 +83,7 @@ class ExternalMcpRuntime(object):
     ) -> None:
         """在生命周期锁内启动外部 MCP。"""
         if self._started:
+            observe("external_mcp.start.skipped", reason="already_started")
             return None
 
         self._last_start_snapshot = {}
@@ -93,8 +97,11 @@ class ExternalMcpRuntime(object):
                 }
                 for server in servers
             ]
-        if servers:
-            logger.debug(f"[MCP] external configured count={len(servers)}")
+        observe(
+            "external_mcp.start",
+            configured=len(servers),
+            include_disabled=include_disabled,
+        )
 
         status = ExternalMcpStatus(servers)
 
@@ -117,8 +124,9 @@ class ExternalMcpRuntime(object):
                 exc,
                 (asyncio.CancelledError, KeyboardInterrupt, SystemExit, MindError),
             ):
+                observe_exception("external_mcp.start.failed", exc)
                 raise
-            logger.debug(f"[MCP] external runtime skipped {type(exc).__name__}: {exc}")
+            observe_exception("external_mcp.start.failed", exc, level="WARNING")
             self._group = None
         finally:
             if external_anim_started and not defer_activity_stop:
@@ -127,6 +135,19 @@ class ExternalMcpRuntime(object):
                     settle=False,
                 ))
             self._last_start_snapshot = status.snapshot()
+            items = list(self._last_start_snapshot.get("items") or [])
+            states: dict[str, int] = {}
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                state = str(item.get("state") or "unknown")
+                states[state] = states.get(state, 0) + 1
+            observe(
+                "external_mcp.start.complete",
+                configured=len(servers),
+                connected=self._group is not None,
+                states=states,
+            )
 
     async def stop(self) -> None:
         """关闭已建立的外部 MCP 连接，并清空运行时状态。"""
@@ -136,6 +157,7 @@ class ExternalMcpRuntime(object):
     async def _stop_unlocked(self) -> None:
         """在生命周期锁内关闭外部 MCP。"""
         context = self._context
+        was_started = self._started
 
         self._context = None
         self._group   = None
@@ -145,6 +167,8 @@ class ExternalMcpRuntime(object):
             await self._mind.await_cleanup(
                 context.__aexit__(None, None, None)
             )
+        if was_started or context is not None:
+            observe("external_mcp.stopped")
 
     async def restart(
         self,
@@ -153,6 +177,7 @@ class ExternalMcpRuntime(object):
         defer_activity_stop: bool = False,
     ) -> None:
         """重新读取配置并刷新外部 MCP 连接。"""
+        observe("external_mcp.restart")
         async with self._lifecycle_lock:
             await self._stop_unlocked()
             await self._start_unlocked(

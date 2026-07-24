@@ -20,6 +20,10 @@ from mind_nova.modes import (
     RunMode
 )
 from .reporting import RunReport
+from .observability import (
+    observe,
+    observe_exception
+)
 from .attach import Attach
 from .runtime.support.calling import (
     calling as run_calling,
@@ -89,7 +93,7 @@ class Mind(object):
         self.conversation: ConversationState         = ConversationState()
         self.history_store: ConversationHistoryStore = ConversationHistoryStore()
 
-        self.report: RunReport = RunReport(self.src_total_place)
+        self.report: RunReport = kwargs.get("report") or RunReport(self.src_total_place)
 
         self.attach: Attach = Attach()
 
@@ -125,6 +129,14 @@ class Mind(object):
         self.stop_runtime_on_exit: bool = False
 
         self.last_assistant_reply: str = ""
+
+        observe(
+            "controller.ready",
+            run_id=getattr(self.report, "run_id", None),
+            workspace=self.history_workspace,
+            animate=self.animate,
+            client_tools=len(self.client_tools.list_tools().tools),
+        )
 
     @property
     def remote(self) -> dict:
@@ -163,6 +175,7 @@ class Mind(object):
     def signal_processor(self, *_, **__) -> None:
         """处理终止信号，并优先触发异步清理。"""
         self.sig_count += 1
+        observe("signal.received", level="WARNING", count=self.sig_count)
         self.task_event.set()
         self.exit_code = 130
 
@@ -193,6 +206,12 @@ class Mind(object):
         """初始化或续用当前会话标识。"""
         metadata = self.conversation.begin(cid=cid, sid=sid)
         self._touch_history_session(metadata, title=title, source=source)
+        observe(
+            "conversation.begin",
+            cid=metadata.get("cid"),
+            sid=metadata.get("sid"),
+            source=source,
+        )
         return metadata
 
     def reset_conversation(
@@ -204,6 +223,13 @@ class Mind(object):
         """开始一个新的模型对话。"""
         metadata = self.conversation.reset(reason=reason)
         self._touch_history_session(metadata, source=source)
+        observe(
+            "conversation.reset",
+            cid=metadata.get("cid"),
+            sid=metadata.get("sid"),
+            reason=reason,
+            source=source,
+        )
         return metadata
 
     def recent_conversation_sessions(
@@ -289,6 +315,8 @@ class Mind(object):
                 self._native_coding_close_tasks.add(task)
                 task.add_done_callback(self._native_coding_close_done)
 
+            observe("workspace.changed", workspace=self.history_workspace)
+
         return self.history_workspace
 
     def _native_coding_close_done(self, task: asyncio.Task[None]) -> None:
@@ -339,11 +367,18 @@ class Mind(object):
             if isinstance(exec_env, dict)
             else None
         )
+        observe(
+            "helix.linked",
+            exec_env=bool(self.service_exec_env),
+        )
 
     def unlink_service_mcp(self) -> None:
         """从当前工具会话移除本地服务 MCP，不停止后台进程。"""
+        was_linked = self.service_mcp_linked
         self.service_mcp_linked = False
         self.service_exec_env   = None
+        if was_linked:
+            observe("helix.unlinked")
 
     def is_service_mcp_linked(self) -> bool:
         """判断当前工具会话是否挂载本地服务 MCP。"""
@@ -415,14 +450,17 @@ class Mind(object):
             name="local service keepalive"
         )
         self.keepalive_task.add_done_callback(self.keepalive_task_done)
+        observe("keepalive.started")
 
     async def start_config_service(self) -> None:
         """启动 Mind 生命周期内的配置服务。"""
         await self.config_service.start()
+        observe("config_service.started")
 
     async def stop_config_service(self) -> None:
         """停止 Mind 生命周期内的配置服务。"""
         await self.config_service.stop()
+        observe("config_service.stopped")
 
     async def refresh_pref_if_stale(self, *, ttl_sec: typing.Optional[float] = None) -> None:
         """按 TTL 从后端刷新偏好配置，用于模型与密钥热更新。"""
@@ -481,6 +519,7 @@ class Mind(object):
 
     async def stop_keepalive_supervisor(self) -> None:
         """停止 Mind 生命周期内的本地后台服务保活任务。"""
+        was_running = self.keepalive_stop is not None or self.keepalive_task is not None
         if self.keepalive_stop is not None:
             self.keepalive_stop.set()
 
@@ -492,9 +531,12 @@ class Mind(object):
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        if was_running:
+            observe("keepalive.stopped")
 
     async def close_runtime_resources(self) -> None:
         """关闭 Mind 持有的运行时资源，并按退出策略处理本地后台进程。"""
+        observe("runtime.close.start")
         try:
             await self.cancel_service_runtime_startup()
 
@@ -520,6 +562,11 @@ class Mind(object):
                     if self.stop_runtime_on_exit:
                         with contextlib.suppress(Exception):
                             await terminate_port_process(server_manager.port)
+        except BaseException as error:
+            observe_exception("runtime.close.failed", error)
+            raise
+        else:
+            observe("runtime.close.complete")
         finally:
             self.report.close()
 
@@ -528,6 +575,7 @@ class Mind(object):
         if self.server_manager is None:
             raise MindError("Server manager is not bound")
 
+        observe("helix.restart.start")
         await self.stop_keepalive_supervisor()
         try:
             await self.server_manager.restart()
@@ -535,15 +583,18 @@ class Mind(object):
                 raise MindError("Server not ready after reboot")
         finally:
             self.start_keepalive_supervisor()
+        observe("helix.restart.complete")
 
     async def stop_service_runtime(self) -> None:
         """停止已绑定的后台进程，并关闭对应保活任务。"""
         if self.server_manager is None:
             raise MindError("Server manager is not bound")
 
+        observe("helix.stop.start")
         self.unlink_service_mcp()
         await self.stop_keepalive_supervisor()
         await terminate_port_process(self.server_manager.port)
+        observe("helix.stop.complete")
 
     async def stop_anim(
         self,

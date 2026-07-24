@@ -4,11 +4,11 @@
 import os
 import sys
 import stat
+import time
 import typing
 import asyncio
 from pathlib import Path
 from dataclasses import dataclass
-from loguru import logger
 from engine.animation import AsyncAnimManager
 from engine.manage import ServerManage
 from engine.terminal import Terminal
@@ -16,6 +16,10 @@ from engine.errors import MindError
 from engine.upgrade import UpgradeProgress
 from mind_app.assets import ensure_asset
 from mind_app.runtime.design import TerminalDesign
+from mind_app.observability import (
+    observe,
+    observe_exception
+)
 from .service_exec_env import fetch_service_exec_env
 
 if typing.TYPE_CHECKING:
@@ -135,13 +139,13 @@ async def authorize_runtime_files(
         return None
 
     for item in pending:
-        logger.debug(f"Authorizing: {item}")
+        observe("helix.authorize.start", path=item)
 
     for result in await asyncio.gather(
         *(Terminal.cmd_line(["chmod", "+x", item]) for item in pending),
         return_exceptions=True
     ):
-        logger.debug(f"Authorize: {result}")
+        observe("helix.authorize.complete", result=result)
 
 
 async def ensure_runtime_asset(
@@ -233,6 +237,10 @@ async def start_service_runtime(
     """启动服务运行时并维护状态动画。"""
     status: dict[str, typing.Any] = {"state": "starting", "error": "", "label": label}
 
+    started_at = time.perf_counter()
+
+    observe("helix.start", label=label)
+
     await mind.start_inbuild_startup_anim(lambda: dict(status))
 
     try:
@@ -241,12 +249,21 @@ async def start_service_runtime(
     except Exception as error:
         status["state"] = "failed"
         status["error"] = str(error)
+        observe_exception(
+            "helix.start.failed",
+            error,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
         raise
     finally:
         if not defer_activity_stop:
             await mind.await_cleanup(mind.stop_anim("inbuild", settle=False))
 
     mind.start_keepalive_supervisor()
+    observe(
+        "helix.start.complete",
+        elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+    )
 
 
 async def prepare_and_start_service_runtime(
@@ -262,12 +279,19 @@ async def prepare_and_start_service_runtime(
     defer_activity_stop: bool = False
 ) -> bool:
     """确认下载授权后准备并启动服务运行时。"""
+    started_at = time.perf_counter()
+    observe(
+        "helix.prepare.start",
+        download_confirmed=download_confirmed,
+    )
+
     async def prepare() -> bool:
         """在串行边界内完成本地服务准备和发布。"""
         context = mind.require_service_runtime_context()
 
         if service_runtime_asset_missing(context) and not download_confirmed:
             if confirm_download is None or not await confirm_download(context):
+                observe("helix.download.declined", level="WARNING")
                 return False
 
         prepared = await prepare_service_runtime(
@@ -287,7 +311,29 @@ async def prepare_and_start_service_runtime(
         mind.link_service_mcp(await fetch_service_exec_env())
         return True
 
-    return await mind.run_service_runtime_startup(prepare)
+    try:
+        linked = await mind.run_service_runtime_startup(prepare)
+    except asyncio.CancelledError:
+        observe(
+            "helix.prepare.interrupted",
+            level="WARNING",
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
+        raise
+    except BaseException as error:
+        observe_exception(
+            "helix.prepare.failed",
+            error,
+            elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+        )
+        raise
+
+    observe(
+        "helix.prepare.complete",
+        linked=linked,
+        elapsed_ms=int((time.perf_counter() - started_at) * 1000),
+    )
+    return linked
 
 
 if __name__ == '__main__':
