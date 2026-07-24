@@ -8,6 +8,10 @@ from prompt_toolkit.application.current import create_app_session
 from prompt_toolkit.input.base import Input
 from prompt_toolkit.output.base import Output
 from prompt_toolkit.patch_stdout import patch_stdout
+from mind_core.design.terminal_progress import (
+    PassiveTerminalProgress,
+    TerminalProgress
+)
 from mind_app.approval.models import ApprovalDecisionValue
 from mind_app.frontend.contracts import (
     ActivityStatusKind,
@@ -43,7 +47,7 @@ StartupAnimation: typing.TypeAlias = typing.Callable[
 ]
 
 
-class TuiRuntime(object):
+class TuiRuntime(FrontendRuntime):
     """协调 TUI Application 生命周期、正文输出和前端交互能力。"""
 
     def __init__(
@@ -52,6 +56,7 @@ class TuiRuntime(object):
         *,
         input_obj: Input | None = None,
         output_obj: Output | None = None,
+        terminal_progress: TerminalProgress | None = None,
     ) -> None:
         self.input_model = input_model or TuiInputModel()
         self.context     = PromptContext(mode="chat", model="")
@@ -72,6 +77,10 @@ class TuiRuntime(object):
         self._startup_animations: list[StartupAnimation]      = []
 
         self._closing = False
+
+        self.terminal_progress = (
+            terminal_progress or PassiveTerminalProgress()
+        )
 
         self.submissions = TuiSubmissionFlow(
             input_model=self.input_model,
@@ -228,6 +237,7 @@ class TuiRuntime(object):
         """停止输入应用和全部动态任务。"""
         self._closing = True
         self._startup_animations.clear()
+        self.terminal_progress.clear()
 
         await self.submissions.close()
         await self.activity.clear()
@@ -301,11 +311,21 @@ class TuiRuntime(object):
     ) -> ApprovalDecisionValue:
         """在唯一审批区域中读取工具执行决策。"""
         wait_paused = await self.activity.pause_wait()
+        self.terminal_progress.warning()
         try:
             return await self.screen.approval.request(approval)
         finally:
+            self.terminal_progress.begin()
             if wait_paused:
                 await self.activity.resume_wait()
+
+    def begin_terminal_progress(self) -> None:
+        """启动终端窗口的不确定进度。"""
+        self.terminal_progress.begin()
+
+    def end_terminal_progress(self) -> None:
+        """清除终端窗口进度。"""
+        self.terminal_progress.clear()
 
     async def select_menu(self, request: MenuRequest) -> typing.Any:
         """在主 Application 画布内读取菜单选择。"""

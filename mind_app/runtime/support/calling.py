@@ -40,12 +40,17 @@ async def run_mode_lifecycle(
     """为模式执行增加动画生命周期和耗时输出。"""
     started_at = time.perf_counter()
 
-    await mind.start_anim(mode)
+    frontend_runtime = mind.frontend.runtime
+    frontend_runtime.begin_terminal_progress()
 
     try:
-        await runner(mode=mode, **kwargs)
+        await mind.start_anim(mode)
+        try:
+            await runner(mode=mode, **kwargs)
+        finally:
+            await mind.await_cleanup(mind.stop_anim("wait"))
     finally:
-        await mind.await_cleanup(mind.stop_anim("wait"))
+        frontend_runtime.end_terminal_progress()
 
     if mind.animate:
         emit_worked_footer(

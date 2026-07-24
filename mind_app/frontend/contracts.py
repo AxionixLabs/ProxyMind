@@ -65,6 +65,14 @@ class FrontendRuntime(typing.Protocol):
         """返回前端运行期是否正在接管终端。"""
         ...
 
+    def begin_terminal_progress(self) -> None:
+        """启动终端窗口的运行进度。"""
+        ...
+
+    def end_terminal_progress(self) -> None:
+        """清除终端窗口的运行进度。"""
+        ...
+
     async def open(self) -> None:
         """启动交互前端运行期。"""
         ...
@@ -129,7 +137,7 @@ class FrontendRuntime(typing.Protocol):
         ...
 
 
-class PassiveFrontendRuntime(object):
+class PassiveFrontendRuntime(FrontendRuntime):
     """提供无需常驻前端运行期时的空实现。"""
 
     @property
@@ -143,6 +151,14 @@ class PassiveFrontendRuntime(object):
 
     async def close(self) -> None:
         """忽略停止请求。"""
+        return None
+
+    def begin_terminal_progress(self) -> None:
+        """忽略终端窗口进度开始请求。"""
+        return None
+
+    def end_terminal_progress(self) -> None:
+        """忽略终端窗口进度清理请求。"""
         return None
 
     async def begin_wait_status(self) -> None:

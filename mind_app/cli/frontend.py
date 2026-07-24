@@ -47,8 +47,11 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
         from mind_app.tui.adapters.application import TuiApplicationSink
         from mind_app.tui.adapters.session import create_tui_output_session
         from mind_app.tui.core.runtime import TuiRuntime
+        from mind_core.design.terminal_progress import create_terminal_progress
 
-        runtime = TuiRuntime()
+        runtime = TuiRuntime(
+            terminal_progress=create_terminal_progress(sys.stdout),
+        )
         return Frontend(
             application=TuiApplicationSink(runtime),
             interaction=runtime,
@@ -61,7 +64,7 @@ def resolve_cli_frontend(output_mode: OutputMode) -> Frontend:
 
     from mind_app.frontend.sinks import (
         ConsoleApplicationSink,
-        SilentApplicationSink,
+        SilentApplicationSink
     )
     from mind_app.output.jsonl import create_json_output_session
     from mind_app.output.rich import create_rich_output_session

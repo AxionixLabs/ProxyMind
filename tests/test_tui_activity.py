@@ -89,7 +89,10 @@ async def test_tui_turn_keeps_one_wait_until_runner_finishes() -> None:
         assert status_text.count("thinking") == 1
         assert "\n" not in status_text
 
-    await run_mode_lifecycle(MindStub(), runner)
+    mind = MindStub()
+    mind.frontend = SimpleNamespace(runtime=runtime)
+
+    await run_mode_lifecycle(mind, runner)
 
     assert not runtime.activity.active
     assert runtime.screen._status_fragments() == []
@@ -262,11 +265,15 @@ async def test_request_approval_resumes_wait_after_failure() -> None:
     runtime = TuiRuntime.__new__(TuiRuntime)
     runtime.activity = ActivityStub()
     runtime.screen = SimpleNamespace(approval=ApprovalStub())
+    runtime.terminal_progress = SimpleNamespace(
+        warning=lambda: calls.append("warning"),
+        begin=lambda: calls.append("progress"),
+    )
 
     with pytest.raises(RuntimeError, match="approval failed"):
         await runtime.request_approval({})
 
-    assert calls == ["pause", "approval", "resume"]
+    assert calls == ["pause", "warning", "approval", "progress", "resume"]
 
 
 @pytest.mark.anyio

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from mind import emit_entry_outro, rich_outro_requested
+from mind_app.frontend.contracts import PassiveFrontendRuntime
 from mind_app.output.text import (
     ANSI_BOLD,
     ANSI_CYAN,
@@ -164,7 +165,10 @@ async def test_non_animated_mode_does_not_emit_worked_footer() -> None:
 
     mind = SimpleNamespace(
         animate=False,
-        frontend=SimpleNamespace(application=application),
+        frontend=SimpleNamespace(
+            application=application,
+            runtime=PassiveFrontendRuntime(),
+        ),
         start_anim=AsyncMock(),
         stop_anim=AsyncMock(),
         await_cleanup=await_cleanup,
