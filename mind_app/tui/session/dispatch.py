@@ -27,13 +27,21 @@ from ..core.styles import (
 from ..features.context import ignored_tui_input
 from ..features.conversation import (
     compact_current_conversation,
-    copy_last_assistant_reply
+    copy_last_assistant_reply,
+    finish_compact_activity,
+    render_compact_failure,
+    render_compact_interrupted,
+    render_compact_result
 )
 from ..features.diff import print_current_apply_patch_diff
 from ..features.helix import (
-    link_helix_runtime,
+    finish_helix_activity,
     open_helix_home,
+    render_helix_home_failure,
+    render_helix_home_result,
     render_helix_interrupted,
+    render_helix_stop_failure,
+    render_helix_stop_result,
     stop_helix_runtime,
     unlink_helix_runtime
 )
@@ -42,7 +50,7 @@ from ..features.mcp import (
     McpAction,
     choose_mcp_action,
     parse_mcp_command,
-    run_mcp_action
+    render_mcp_status,
 )
 from ..features.mode import render_mode_status
 from ..features.model import (
@@ -206,9 +214,9 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "preferences"):
-            url = f"{config_service_base_url()}/pref"
-            self._present(_label_detail("Preferences", url))
-            await FileAssist.open_url(url)
+            preferences_url = f"{config_service_base_url()}/pref"
+            self._present(_label_detail("Preferences", preferences_url))
+            await FileAssist.open_url(preferences_url)
             self._present()
             return DispatchAction.HANDLED
 
@@ -221,17 +229,22 @@ class TuiCommandDispatcher(object):
                     run_mode=self.state.mode,
                     pref_config=self.state.pref_config,
                 ),
+                finish_activity=lambda: finish_compact_activity(self.mind),
+                on_succeeded=lambda status: render_compact_result(
+                    self.mind,
+                    status,
+                ),
+                on_failed=lambda error: render_compact_failure(
+                    self.mind,
+                    error,
+                ),
+                on_cancelled=lambda: render_compact_interrupted(self.mind),
             )
             await self.foreground_tasks.wait()
             return DispatchAction.HANDLED
 
         if matches_command(command, "helix_link"):
-            self.foreground_tasks.start(
-                "Helix MCP",
-                lambda: link_helix_runtime(self.mind),
-                cancel_cleanup=self.mind.cancel_service_runtime_startup,
-                on_cancelled=lambda: render_helix_interrupted(self.mind),
-            )
+            self.foreground_tasks.start_helix_link()
             await self.foreground_tasks.wait()
             self.state.invalidate_workspace()
             return DispatchAction.HANDLED
@@ -246,6 +259,15 @@ class TuiCommandDispatcher(object):
                 "Helix Home",
                 lambda: open_helix_home(self.mind),
                 cancel_cleanup=self.mind.cancel_service_runtime_startup,
+                finish_activity=lambda: finish_helix_activity(self.mind),
+                on_succeeded=lambda home_url: render_helix_home_result(
+                    self.mind,
+                    home_url,
+                ),
+                on_failed=lambda error: render_helix_home_failure(
+                    self.mind,
+                    error,
+                ),
                 on_cancelled=lambda: render_helix_interrupted(
                     self.mind,
                     label="Helix Home",
@@ -256,7 +278,27 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         if matches_command(command, "helix_stop"):
-            await stop_helix_runtime(self.mind)
+            self.foreground_tasks.start(
+                "Helix MCP stop",
+                lambda: stop_helix_runtime(self.mind),
+                finish_activity=lambda: self.runtime.end_activity_status(
+                    "operation",
+                    settle=False,
+                ),
+                on_succeeded=lambda result: render_helix_stop_result(
+                    self.mind,
+                    result,
+                ),
+                on_failed=lambda error: render_helix_stop_failure(
+                    self.mind,
+                    error,
+                ),
+                on_cancelled=lambda: render_helix_interrupted(
+                    self.mind,
+                    label="Helix MCP stop",
+                ),
+            )
+            await self.foreground_tasks.wait()
             self.state.invalidate_workspace()
             return DispatchAction.HANDLED
 
@@ -344,14 +386,14 @@ class TuiCommandDispatcher(object):
             action = await choose_mcp_action(self.runtime, self.mind)
 
         if action in {"start", "force", "restart", "stop"}:
-            self.foreground_tasks.start(
-                "External MCP",
-                lambda: run_mcp_action(self.mind, action),
-            )
+            self.foreground_tasks.start_external_mcp(action)
             await self.foreground_tasks.wait()
             return None
 
-        await run_mcp_action(self.mind, action)
+        if action == "status":
+            render_mcp_status(self.mind)
+        else:
+            self._present()
 
     async def _resume_conversation(self) -> None:
         """选择并恢复最近的会话。"""

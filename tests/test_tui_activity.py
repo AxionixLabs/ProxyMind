@@ -335,6 +335,35 @@ async def test_external_mcp_final_status_settles_without_entering_document() -> 
 
 
 @pytest.mark.anyio
+async def test_new_activity_replaces_settling_status_without_old_expiration() -> None:
+    runtime = TuiRuntime()
+    snapshot = {
+        "done": False,
+        "items": [{"name": "docs", "state": "linking", "tools": 0}],
+    }
+
+    await runtime.begin_external_mcp_status(lambda: dict(snapshot))
+    snapshot["done"] = True
+    snapshot["items"] = [
+        {"name": "docs", "state": "ready", "tools": 4},
+    ]
+
+    with patch("mind_app.tui.core.activity.ACTIVITY_SETTLE_SEC", 0.001):
+        await runtime.end_activity_status("external_mcp")
+
+    snapshot["done"] = False
+    snapshot["items"] = [
+        {"name": "github", "state": "linking", "tools": 0},
+    ]
+    await runtime.begin_external_mcp_status(lambda: dict(snapshot))
+    await asyncio.sleep(0.1)
+
+    assert runtime.activity.active
+    assert "External MCP linking" in _block_text(runtime.screen.activity_block)
+    await runtime.activity.clear()
+
+
+@pytest.mark.anyio
 async def test_external_mcp_status_can_clear_without_settling() -> None:
     runtime = TuiRuntime()
     snapshot = {
@@ -388,7 +417,7 @@ async def test_compact_activity_does_not_replace_external_mcp_status() -> None:
     "final_stage",
     ["done", "failed", "cancelled"],
 )
-async def test_runtime_download_clears_without_transient_final_status(
+async def test_runtime_download_holds_final_status_for_inbuild_handoff(
     final_stage: str,
 ) -> None:
     runtime = TuiRuntime()
@@ -418,7 +447,9 @@ async def test_runtime_download_clears_without_transient_final_status(
     state["stage"] = final_stage
     await progress.stop()
 
-    assert runtime.screen.activity_block is None
+    assert runtime.screen.activity_block is not None
+    expected = "complete" if final_stage == "done" else final_stage
+    assert expected in _block_text(runtime.screen.activity_block)
     assert not runtime.document.blocks
 
 

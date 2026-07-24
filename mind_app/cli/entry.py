@@ -97,26 +97,50 @@ def _emit_helix_skipped(mind: Mind) -> None:
 
 async def _start_tui_external_mcp(mind: Mind) -> None:
     """在 TUI 进入交互循环前启动外部 MCP。"""
-    from ..tui.features.mcp import render_external_mcp_start_status
+    from ..tui.features.mcp import (
+        finish_mcp_activity,
+        render_external_mcp_start_status,
+    )
 
     try:
-        await mind.start_external_mcp_runtime()
+        await mind.start_external_mcp_runtime(defer_activity_stop=True)
     except asyncio.CancelledError:
+        await mind.await_cleanup(finish_mcp_activity(mind, "start"))
         raise
     except MindError as error:
+        await mind.await_cleanup(finish_mcp_activity(mind, "start"))
         render_external_mcp_start_status(mind, error=error)
         return None
     except Exception as error:
+        await mind.await_cleanup(finish_mcp_activity(mind, "start"))
         render_external_mcp_start_status(mind, error=error)
         return None
+
+    await finish_mcp_activity(mind, "start")
     render_external_mcp_start_status(mind)
 
 
 async def _start_tui_service_runtime(mind: Mind) -> None:
     """在 TUI 后台准备 Helix 服务运行时。"""
-    from ..tui.features.helix import link_helix_runtime
+    from ..tui.features.helix import (
+        finish_helix_activity,
+        link_helix_runtime,
+        render_helix_link_failure,
+        render_helix_link_result
+    )
 
-    await link_helix_runtime(mind, download_confirmed=True)
+    try:
+        linked = await link_helix_runtime(mind, download_confirmed=True)
+    except asyncio.CancelledError:
+        await mind.await_cleanup(finish_helix_activity(mind))
+        raise
+    except (MindError, Exception) as error:
+        await mind.await_cleanup(finish_helix_activity(mind))
+        render_helix_link_failure(mind, error)
+        return None
+
+    await finish_helix_activity(mind)
+    render_helix_link_result(mind, linked)
 
 
 async def _finalize_mind(

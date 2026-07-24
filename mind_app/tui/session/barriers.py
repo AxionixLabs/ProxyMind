@@ -11,11 +11,19 @@ from ..core.styles import (
     text_block
 )
 from ..features.helix import (
+    finish_helix_activity,
     link_helix_runtime,
-    render_helix_interrupted
+    render_helix_interrupted,
+    render_helix_link_failure,
+    render_helix_link_result
 )
 from ..features.mcp import (
+    McpAction,
+    finish_mcp_activity,
     parse_mcp_command,
+    render_mcp_action_cancelled,
+    render_mcp_action_failure,
+    render_mcp_action_result,
     run_mcp_action
 )
 from ..prompting.commands import matches_command
@@ -24,6 +32,9 @@ if typing.TYPE_CHECKING:
     from ...controller import Mind
 
 CancelCleanup    = typing.Callable[[], typing.Awaitable[None]]
+ActivityFinisher = typing.Callable[[], typing.Awaitable[None]]
+SucceededHandler = typing.Callable[[typing.Any], None]
+FailedHandler    = typing.Callable[[BaseException], None]
 CancelledHandler = typing.Callable[[], None]
 
 
@@ -41,11 +52,14 @@ class TuiForegroundTasks(object):
         key: str,
         factory: typing.Callable[
             [],
-            typing.Coroutine[typing.Any, typing.Any, None],
+            typing.Coroutine[typing.Any, typing.Any, typing.Any],
         ],
         *,
         cancel_cleanup: CancelCleanup | None = None,
-        on_cancelled: CancelledHandler | None = None,
+        finish_activity: ActivityFinisher | None = None,
+        on_succeeded: SucceededHandler | None = None,
+        on_failed: FailedHandler | None = None,
+        on_cancelled: CancelledHandler | None = None
     ) -> bool:
         """合并同类前台任务并注册下一轮屏障。"""
         active: asyncio.Task[None] | None = self._tasks.get(key)
@@ -57,6 +71,9 @@ class TuiForegroundTasks(object):
             self._run_operation(
                 factory,
                 cancel_cleanup=cancel_cleanup,
+                finish_activity=finish_activity,
+                on_succeeded=on_succeeded,
+                on_failed=on_failed,
                 on_cancelled=on_cancelled,
             ),
             name=f"mind tui foreground {key}",
@@ -74,6 +91,49 @@ class TuiForegroundTasks(object):
             if not task.done():
                 cancelled = task.cancel() or cancelled
         return cancelled
+
+    def start_helix_link(self) -> bool:
+        """按统一生命周期启动 Helix 接入任务。"""
+        return self.start(
+            "Helix MCP",
+            lambda: link_helix_runtime(self.mind),
+            cancel_cleanup=self.mind.cancel_service_runtime_startup,
+            finish_activity=lambda: finish_helix_activity(self.mind),
+            on_succeeded=lambda linked: render_helix_link_result(
+                self.mind,
+                linked,
+            ),
+            on_failed=lambda error: render_helix_link_failure(
+                self.mind,
+                error,
+            ),
+            on_cancelled=lambda: render_helix_interrupted(self.mind),
+        )
+
+    def start_external_mcp(self, action: McpAction) -> bool:
+        """按统一生命周期启动外部 MCP 任务。"""
+        return self.start(
+            "External MCP",
+            lambda: run_mcp_action(self.mind, action),
+            finish_activity=lambda: finish_mcp_activity(
+                self.mind,
+                action,
+            ),
+            on_succeeded=lambda was_started: render_mcp_action_result(
+                self.mind,
+                action,
+                was_started,
+            ),
+            on_failed=lambda error: render_mcp_action_failure(
+                self.mind,
+                action,
+                error,
+            ),
+            on_cancelled=lambda: render_mcp_action_cancelled(
+                self.mind,
+                action,
+            ),
+        )
 
     def handle_stream_command(
         self,
@@ -104,12 +164,8 @@ class TuiForegroundTasks(object):
                 return False
             if service_runtime_asset_missing(context):
                 return False
-            return self.start(
-                "Helix MCP",
-                lambda: link_helix_runtime(self.mind),
-                cancel_cleanup=self.mind.cancel_service_runtime_startup,
-                on_cancelled=lambda: render_helix_interrupted(self.mind),
-            )
+
+            return self.start_helix_link()
 
         is_mcp, mcp_action = parse_mcp_command(command)
 
@@ -124,10 +180,7 @@ class TuiForegroundTasks(object):
                 return True
             return False
 
-        return self.start(
-            "External MCP",
-            lambda: run_mcp_action(self.mind, mcp_action),
-        )
+        return self.start_external_mcp(mcp_action)
 
     async def wait(self) -> None:
         """等待后台启动完成后再允许下一次模型调用。"""
@@ -154,21 +207,43 @@ class TuiForegroundTasks(object):
         self,
         factory: typing.Callable[
             [],
-            typing.Coroutine[typing.Any, typing.Any, None],
+            typing.Coroutine[typing.Any, typing.Any, typing.Any],
         ],
         *,
         cancel_cleanup: CancelCleanup | None,
-        on_cancelled: CancelledHandler | None,
+        finish_activity: ActivityFinisher | None,
+        on_succeeded: SucceededHandler | None,
+        on_failed: FailedHandler | None,
+        on_cancelled: CancelledHandler | None
     ) -> None:
-        """执行前台任务，并在主动取消后等待专属清理完成。"""
+        """执行前台任务并按统一顺序完成活动状态和结果提交。"""
         try:
-            await factory()
+            result = await factory()
+            if finish_activity is not None:
+                await finish_activity()
         except asyncio.CancelledError:
             if cancel_cleanup is not None:
                 await self.mind.await_cleanup(cancel_cleanup())
+            if finish_activity is not None:
+                await self.mind.await_cleanup(finish_activity())
             if on_cancelled is not None:
                 on_cancelled()
             raise
+        except MindError as error:
+            if finish_activity is not None:
+                await self.mind.await_cleanup(finish_activity())
+            if on_failed is None:
+                raise
+            on_failed(error)
+        except Exception as error:
+            if finish_activity is not None:
+                await self.mind.await_cleanup(finish_activity())
+            if on_failed is None:
+                raise
+            on_failed(error)
+        else:
+            if on_succeeded is not None:
+                on_succeeded(result)
 
     def _handle_wait_command(self, value: str) -> bool:
         """在后台屏障等待期间只处理退出类命令。"""

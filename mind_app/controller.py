@@ -444,17 +444,33 @@ class Mind(object):
         await self.refresh_pref_if_stale(ttl_sec=ttl_sec)
         return self.pref.to_config()
 
-    async def start_external_mcp_runtime(self, *, include_disabled: bool = False) -> None:
+    async def start_external_mcp_runtime(
+        self,
+        *,
+        include_disabled: bool = False,
+        defer_activity_stop: bool = False,
+    ) -> None:
         """启动 Mind 生命周期级外部 MCP 运行时。"""
         if self.external_mcp is None:
             self.external_mcp = ExternalMcpRuntime(self)
-        await self.external_mcp.start(include_disabled=include_disabled)
+        await self.external_mcp.start(
+            include_disabled=include_disabled,
+            defer_activity_stop=defer_activity_stop,
+        )
 
-    async def restart_external_mcp_runtime(self, *, include_disabled: bool = False) -> None:
+    async def restart_external_mcp_runtime(
+        self,
+        *,
+        include_disabled: bool = False,
+        defer_activity_stop: bool = False,
+    ) -> None:
         """重启 Mind 生命周期级外部 MCP 运行时。"""
         if self.external_mcp is None:
             self.external_mcp = ExternalMcpRuntime(self)
-        await self.external_mcp.restart(include_disabled=include_disabled)
+        await self.external_mcp.restart(
+            include_disabled=include_disabled,
+            defer_activity_stop=defer_activity_stop,
+        )
 
     async def stop_external_mcp_runtime(self) -> None:
         """停止 Mind 生命周期级外部 MCP 运行时。"""

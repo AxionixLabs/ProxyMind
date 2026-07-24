@@ -27,7 +27,11 @@ FAILURE_BODY = TextStyle(foreground="#FF6B6B")
 
 _BACKGROUND_VIEW_TYPES = frozenset({
     "tui.background.error",
+    "tui.compact.interrupted",
+    "tui.compact.status",
+    "tui.external_mcp.interrupted",
     "tui.external_mcp.status",
+    "tui.helix.interrupted",
     "tui.helix.status",
 })
 

@@ -345,7 +345,7 @@ class TuiRuntime(object):
 
     def queue_background_block(self, block: FragmentBlock) -> None:
         """在不打断流式正文的边界提交后台摘要。"""
-        if self.submission_deferred or self.document.active_block is not None:
+        if self.execution_active or self.document.active_block is not None:
             self._background_blocks.append(block)
             return None
         self.append_block(block, kind="notice")
@@ -471,6 +471,17 @@ class TuiRuntime(object):
     ) -> None:
         """启动对话压缩状态动画。"""
         await self.activity.begin_compact(snapshot)
+
+    async def begin_operation_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """启动通用前台操作动画。"""
+        await self.activity.begin_operation(snapshot)
+
+    async def hold_activity_status(self, kind: ActivityStatusKind) -> None:
+        """保持指定活动的最终状态直至后续替换或清除。"""
+        await self.activity.hold(kind)
 
     async def end_activity_status(
         self,

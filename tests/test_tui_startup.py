@@ -141,8 +141,19 @@ async def test_tui_starts_external_mcp_before_helix_background(
             application=SimpleNamespace(emit=views.append),
         )
 
-        async def start_external_mcp_runtime(self):
+        async def start_external_mcp_runtime(
+            self,
+            *,
+            defer_activity_stop=False,
+        ):
+            assert defer_activity_stop
             calls.append(("external", True))
+
+        async def stop_anim(self, _kind=None, *, settle=True):
+            assert not settle
+
+        async def await_cleanup(self, awaitable):
+            await awaitable
 
     monkeypatch.setattr(helix, "prepare_tui_service_runtime", prepare_helix)
 

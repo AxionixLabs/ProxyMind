@@ -8,6 +8,7 @@ from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
 from engine.errors import MindError
+from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features import helix
 from mind_app.tui.prompting.commands import (
     SlashCommandCompleter,
@@ -167,7 +168,12 @@ async def test_helix_link_result_is_committed_to_tui(
     )
     monkeypatch.setattr(helix, "prepare_tui_service_runtime", prepare)
 
-    await helix.link_helix_runtime(mind)
+    try:
+        linked = await helix.link_helix_runtime(mind)
+    except (MindError, Exception) as captured:
+        helix.render_helix_link_failure(mind, captured)
+    else:
+        helix.render_helix_link_result(mind, linked)
 
     prepare.assert_awaited_once_with(mind, download_confirmed=False)
     status = next(view for view in views if view.type == "tui.helix.status")
@@ -190,11 +196,25 @@ async def test_helix_stop_commits_one_final_status(error, expected) -> None:
     mind = SimpleNamespace(
         stop_service_runtime=AsyncMock(side_effect=error),
         frontend=SimpleNamespace(
+            runtime=TuiRuntime(),
             application=SimpleNamespace(emit=views.append),
         ),
     )
 
-    await helix.stop_helix_runtime(mind)
+    try:
+        result = await helix.stop_helix_runtime(mind)
+    except (MindError, Exception) as captured:
+        await mind.frontend.runtime.end_activity_status(
+            "operation",
+            settle=False,
+        )
+        helix.render_helix_stop_failure(mind, captured)
+    else:
+        await mind.frontend.runtime.end_activity_status(
+            "operation",
+            settle=False,
+        )
+        helix.render_helix_stop_result(mind, result)
 
     statuses = [view for view in views if view.type == "tui.helix.status"]
     assert len(statuses) == 1

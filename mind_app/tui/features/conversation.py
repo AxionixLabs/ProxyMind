@@ -48,7 +48,7 @@ def _present(
     ))
 
 
-def _present_compact_result(mind: "Mind", status: "CompactLiveStatus") -> None:
+def render_compact_result(mind: "Mind", status: "CompactLiveStatus") -> None:
     """展示上下文压缩的最终状态。"""
     view  = external_mcp_status_view(status.snapshot(), detail_limit=0)
     block = render_mcp_status_block(view)
@@ -111,7 +111,7 @@ async def compact_current_conversation(
     *,
     run_mode: RunMode,
     pref_config: dict[str, typing.Any],
-) -> None:
+) -> CompactLiveStatus:
     """压缩当前会话上下文。"""
     metadata = mind.conversation.snapshot()
 
@@ -123,9 +123,7 @@ async def compact_current_conversation(
         "strategy": "memento",
     })
 
-    animation_running = False
-    interrupted       = False
-    terminal_event    = False
+    terminal_event: bool = False
 
     status = CompactLiveStatus()
 
@@ -136,7 +134,6 @@ async def compact_current_conversation(
                 f"cid={metadata['cid']} sid={metadata['sid']}"
             )
             await mind.start_compact_anim(status.snapshot)
-            animation_running = True
 
         async for event in stream_compact_events(payload):
             event_type = str(event.get("type") or "")
@@ -171,7 +168,6 @@ async def compact_current_conversation(
                 f"[Compact] failed message={status.snapshot()['summary']}"
             )
     except asyncio.CancelledError:
-        interrupted = True
         logger.debug("[Compact] interrupted")
         raise
     except Exception as error:
@@ -183,21 +179,39 @@ async def compact_current_conversation(
         )
         status.failed(f"Context compaction failed{detail}")
         logger.debug(f"[Compact] failed message={status.snapshot()['summary']}")
-    finally:
-        if animation_running:
-            await mind.await_cleanup(mind.stop_anim("compact", settle=False))
-        if interrupted:
-            _present(
-                mind,
-                fragment_block(
-                    TextSpan("Context compaction ", ACCENT_STYLE),
-                    TextSpan("· interrupted", WARNING_STYLE),
-                ),
-                view_type="tui.compact.interrupted",
-            )
-            _present(mind, view_type="tui.gap")
 
-    _present_compact_result(mind, status)
+    return status
+
+
+async def finish_compact_activity(mind: "Mind") -> None:
+    """结束上下文压缩活动状态。"""
+    await mind.stop_anim("compact", settle=False)
+
+
+def render_compact_failure(mind: "Mind", error: BaseException) -> None:
+    """展示上下文压缩未处理异常的最终状态。"""
+    message = str(error).strip()
+    detail = (
+        f": {type(error).__name__}: {message}"
+        if message
+        else f": {type(error).__name__}"
+    )
+    status = CompactLiveStatus()
+    status.failed(f"Context compaction failed{detail}")
+    render_compact_result(mind, status)
+
+
+def render_compact_interrupted(mind: "Mind") -> None:
+    """展示上下文压缩被用户中断的状态。"""
+    _present(
+        mind,
+        fragment_block(
+            TextSpan("Context compaction ", ACCENT_STYLE),
+            TextSpan("· interrupted", WARNING_STYLE),
+        ),
+        view_type="tui.compact.interrupted",
+    )
+    _present(mind, view_type="tui.gap")
 
 
 def compact_event_detail(event: dict[str, typing.Any]) -> str:

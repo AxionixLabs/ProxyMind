@@ -10,8 +10,45 @@ from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.render import fragments_text
 from mind_app.tui.core.styles import text_block
 from mind_app.tui.session import barriers
-from mind_app.tui.session import dispatch
 from mind_app.tui.session import loop
+
+
+@pytest.mark.anyio
+async def test_foreground_result_is_rendered_before_barrier_release() -> None:
+    runtime = TuiRuntime()
+    events = []
+    mind = SimpleNamespace(
+        await_cleanup=lambda awaitable: awaitable,
+    )
+    foreground = barriers.TuiForegroundTasks(runtime, mind)
+    await runtime.begin_operation_status(
+        lambda: {"summary": "Operation running"},
+    )
+
+    async def operation() -> str:
+        events.append("business")
+        return "ready"
+
+    async def finish() -> None:
+        events.append("finish")
+        await runtime.end_activity_status("operation", settle=False)
+
+    def render(result: str) -> None:
+        assert result == "ready"
+        assert runtime.foreground_active
+        assert runtime.screen.activity_block is None
+        events.append("render")
+
+    foreground.start(
+        "operation",
+        operation,
+        finish_activity=finish,
+        on_succeeded=render,
+    )
+    await foreground.wait()
+
+    assert events == ["business", "finish", "render"]
+    assert not runtime.foreground_active
 
 
 @pytest.mark.anyio
@@ -43,6 +80,7 @@ async def test_helix_link_stream_command_blocks_only_the_next_model_turn(
         require_service_runtime_context=lambda: object(),
         external_mcp=None,
         cancel_service_runtime_startup=AsyncMock(),
+        stop_anim=AsyncMock(),
         await_cleanup=lambda awaitable: awaitable,
     )
 
@@ -127,6 +165,7 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
         require_service_runtime_context=lambda: object(),
         external_mcp=None,
         cancel_service_runtime_startup=AsyncMock(),
+        stop_anim=AsyncMock(),
         await_cleanup=lambda awaitable: awaitable,
     )
 
@@ -206,6 +245,8 @@ async def test_idle_mcp_start_queues_query_until_result_is_committed(
         ),
         fresh_pref_config=AsyncMock(return_value=pref_config),
         native_coding=SimpleNamespace(reset_patch_diff=Mock()),
+        external_mcp=None,
+        stop_anim=AsyncMock(),
     )
 
     async def run_mcp_action(_mind, action) -> None:
@@ -227,7 +268,7 @@ async def test_idle_mcp_start_queues_query_until_result_is_committed(
         "monitor_exec_status",
         AsyncMock(return_value=None),
     )
-    monkeypatch.setattr(dispatch, "run_mcp_action", run_mcp_action)
+    monkeypatch.setattr(barriers, "run_mcp_action", run_mcp_action)
     monkeypatch.setattr(loop, "run_tui_model_turn", run_model_turn)
 
     runtime.submissions.message_queue.put_nowait(command)
@@ -288,6 +329,7 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
         native_coding=SimpleNamespace(reset_patch_diff=Mock()),
         set_history_workspace=Mock(),
         cancel_service_runtime_startup=cancel_startup,
+        stop_anim=AsyncMock(),
         await_cleanup=lambda awaitable: awaitable,
     )
 
@@ -297,7 +339,7 @@ async def test_ctrl_c_cancels_helix_foreground_task_without_exiting(
         AsyncMock(return_value=None),
     )
     monkeypatch.setattr(
-        dispatch,
+        barriers,
         "link_helix_runtime",
         link_helix_runtime,
     )

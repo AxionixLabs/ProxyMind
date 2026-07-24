@@ -2,9 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-import asyncio
 from collections import defaultdict
-from engine.errors import MindError
 from mind_app.frontend import ApplicationView
 from mind_app.presentation.mcp_status import render_mcp_status_block
 from mind_app.presentation.models import TextSpan
@@ -32,8 +30,7 @@ from ..core.styles import (
     text_block
 )
 
-if typing.TYPE_CHECKING:
-    from ..core.runtime import TuiRuntime
+from ..core.runtime import TuiRuntime, require_tui_runtime
 
 McpAction = typing.Literal[
     "start",
@@ -214,51 +211,82 @@ def external_status_line(summary: dict[str, typing.Any]) -> str:
     )
 
 
-async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> None:
-    """执行外部 MCP 菜单动作。"""
+async def run_mcp_action(
+    mind: typing.Any,
+    action: McpAction | None,
+) -> bool:
+    """执行外部 MCP 动作并返回操作前是否已经启动。"""
     if action is None:
-        _present(mind, view_type="tui.gap")
-        return None
+        return False
 
     if action == "status":
-        render_mcp_status(mind)
-        return None
+        return False
 
     external_runtime = getattr(mind, "external_mcp", None)
     was_started      = bool(getattr(external_runtime, "started", False))
 
-    try:
-        if action == "stop":
-            await mind.stop_external_mcp_runtime()
-        elif action == "force":
-            runtime = getattr(mind, "external_mcp", None)
-            if bool(getattr(runtime, "started", False)):
-                await mind.restart_external_mcp_runtime(include_disabled=True)
-            else:
-                await mind.start_external_mcp_runtime(include_disabled=True)
-        elif action == "start":
-            await mind.start_external_mcp_runtime()
+    if action == "stop":
+        runtime = require_tui_runtime(mind.frontend.runtime)
+        if bool(getattr(mind, "animate", True)):
+            await runtime.begin_operation_status(
+                lambda: {"summary": "External MCP stopping"},
+            )
+        await mind.stop_external_mcp_runtime()
+    elif action == "force":
+        runtime = getattr(mind, "external_mcp", None)
+        if bool(getattr(runtime, "started", False)):
+            await _begin_external_mcp_restart_activity(mind)
+            await mind.restart_external_mcp_runtime(
+                include_disabled=True,
+                defer_activity_stop=True,
+            )
         else:
-            await mind.restart_external_mcp_runtime()
-    except asyncio.CancelledError:
-        if action == "stop" and getattr(mind, "external_mcp", None) is None:
-            render_external_mcp_stop_status(mind)
-        else:
-            render_mcp_action_interrupted(mind, action)
-        raise
-    except MindError as error:
-        if action == "stop":
-            render_external_mcp_stop_status(mind, error=error)
-        else:
-            render_external_mcp_start_status(mind, error=error)
+            await mind.start_external_mcp_runtime(
+                include_disabled=True,
+                defer_activity_stop=True,
+            )
+    elif action == "start":
+        await mind.start_external_mcp_runtime(defer_activity_stop=True)
+    else:
+        await _begin_external_mcp_restart_activity(mind)
+        await mind.restart_external_mcp_runtime(defer_activity_stop=True)
+
+    return was_started
+
+
+async def _begin_external_mcp_restart_activity(mind: typing.Any) -> None:
+    """在断开旧连接前启动外部 MCP 重启活动状态。"""
+    if not bool(getattr(mind, "animate", True)):
         return None
-    except Exception as error:
-        if action == "stop":
-            render_external_mcp_stop_status(mind, error=error)
-        else:
-            render_external_mcp_start_status(mind, error=error)
+    runtime = require_tui_runtime(mind.frontend.runtime)
+    await runtime.begin_external_mcp_status(
+        lambda: {
+            "summary": "External MCP restarting",
+            "done": False,
+            "items": [],
+        },
+    )
+
+
+async def finish_mcp_activity(mind: typing.Any, action: McpAction) -> None:
+    """结束外部 MCP 操作对应的活动状态。"""
+    if action == "stop":
+        runtime = require_tui_runtime(mind.frontend.runtime)
+        await runtime.end_activity_status(
+            "operation",
+            settle=False,
+        )
         return None
 
+    await mind.stop_anim("external_mcp", settle=False)
+
+
+def render_mcp_action_result(
+    mind: typing.Any,
+    action: McpAction,
+    was_started: bool,
+) -> None:
+    """展示外部 MCP 操作的最终结果。"""
     if action == "stop":
         render_external_mcp_stop_status(
             mind,
@@ -268,7 +296,26 @@ async def run_mcp_action(mind: typing.Any, action: McpAction | None) -> None:
 
     if not render_external_mcp_start_status(mind):
         render_mcp_status(mind)
-    return None
+
+
+def render_mcp_action_failure(
+    mind: typing.Any,
+    action: McpAction,
+    error: BaseException,
+) -> None:
+    """展示外部 MCP 操作失败的最终结果。"""
+    if action == "stop":
+        render_external_mcp_stop_status(mind, error=error)
+    else:
+        render_external_mcp_start_status(mind, error=error)
+
+
+def render_mcp_action_cancelled(mind: typing.Any, action: McpAction) -> None:
+    """展示外部 MCP 操作取消后的最终结果。"""
+    if action == "stop" and getattr(mind, "external_mcp", None) is None:
+        render_external_mcp_stop_status(mind)
+        return None
+    render_mcp_action_interrupted(mind, action)
 
 
 def render_mcp_action_interrupted(mind: typing.Any, action: McpAction) -> None:

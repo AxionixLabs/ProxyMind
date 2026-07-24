@@ -445,6 +445,17 @@ def test_background_completion_waits_for_stream_boundary() -> None:
     assert not runtime._background_blocks
 
 
+def test_foreground_completion_commits_before_barrier_release() -> None:
+    runtime = TuiRuntime()
+    block = FragmentBlock((("class:ps.title", "Operation ready"),))
+    runtime.set_foreground_active(True)
+
+    runtime.queue_background_block(block)
+
+    assert runtime.document.blocks[-1].block == block
+    assert not runtime._background_blocks
+
+
 @pytest.mark.anyio
 async def test_runtime_process_viewer_replaces_input_area() -> None:
     runtime = TuiRuntime()

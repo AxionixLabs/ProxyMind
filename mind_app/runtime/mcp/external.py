@@ -59,12 +59,25 @@ class ExternalMcpRuntime(object):
             ],
         }
 
-    async def start(self, *, include_disabled: bool = False) -> None:
+    async def start(
+        self,
+        *,
+        include_disabled: bool = False,
+        defer_activity_stop: bool = False,
+    ) -> None:
         """读取外部 MCP 配置并启动一次生命周期级连接。"""
         async with self._lifecycle_lock:
-            await self._start_unlocked(include_disabled=include_disabled)
+            await self._start_unlocked(
+                include_disabled=include_disabled,
+                defer_activity_stop=defer_activity_stop,
+            )
 
-    async def _start_unlocked(self, *, include_disabled: bool = False) -> None:
+    async def _start_unlocked(
+        self,
+        *,
+        include_disabled: bool = False,
+        defer_activity_stop: bool = False,
+    ) -> None:
         """在生命周期锁内启动外部 MCP。"""
         if self._started:
             return None
@@ -108,7 +121,7 @@ class ExternalMcpRuntime(object):
             logger.debug(f"[MCP] external runtime skipped {type(exc).__name__}: {exc}")
             self._group = None
         finally:
-            if external_anim_started:
+            if external_anim_started and not defer_activity_stop:
                 await self._mind.await_cleanup(self._mind.stop_anim(
                     "external_mcp",
                     settle=False,
@@ -133,11 +146,19 @@ class ExternalMcpRuntime(object):
                 context.__aexit__(None, None, None)
             )
 
-    async def restart(self, *, include_disabled: bool = False) -> None:
+    async def restart(
+        self,
+        *,
+        include_disabled: bool = False,
+        defer_activity_stop: bool = False,
+    ) -> None:
         """重新读取配置并刷新外部 MCP 连接。"""
         async with self._lifecycle_lock:
             await self._stop_unlocked()
-            await self._start_unlocked(include_disabled=include_disabled)
+            await self._start_unlocked(
+                include_disabled=include_disabled,
+                defer_activity_stop=defer_activity_stop,
+            )
 
 
 if __name__ == '__main__':

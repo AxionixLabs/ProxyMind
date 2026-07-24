@@ -8,6 +8,7 @@ import pytest
 
 from engine.errors import MindError
 from mind_app.mcp.config import McpConfigError, load_mcp_servers_file
+from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features import mcp
 
 
@@ -173,16 +174,11 @@ async def test_force_uses_start_when_runtime_is_not_running(monkeypatch) -> None
         start_external_mcp_runtime=AsyncMock(),
         restart_external_mcp_runtime=AsyncMock(),
     )
-    monkeypatch.setattr(
-        mcp,
-        "render_external_mcp_start_status",
-        lambda _mind, **_kwargs: True,
-    )
-
     await mcp.run_mcp_action(mind, "force")
 
     mind.start_external_mcp_runtime.assert_awaited_once_with(
         include_disabled=True,
+        defer_activity_stop=True,
     )
     mind.restart_external_mcp_runtime.assert_not_awaited()
 
@@ -192,7 +188,7 @@ async def test_mcp_cancellation_is_rendered_as_interrupted() -> None:
     views = []
     started = asyncio.Event()
 
-    async def start_runtime() -> None:
+    async def start_runtime(**_kwargs) -> None:
         started.set()
         await asyncio.Future()
 
@@ -209,6 +205,8 @@ async def test_mcp_cancellation_is_rendered_as_interrupted() -> None:
 
     with pytest.raises(asyncio.CancelledError):
         await task
+
+    mcp.render_mcp_action_cancelled(mind, "start")
 
     status = next(
         view for view in views
@@ -233,11 +231,14 @@ async def test_mcp_stop_commits_compact_final_status(started, expected) -> None:
         external_mcp=(SimpleNamespace(started=True) if started else None),
         stop_external_mcp_runtime=AsyncMock(),
         frontend=SimpleNamespace(
+            runtime=TuiRuntime(),
             application=SimpleNamespace(emit=views.append),
         ),
     )
 
-    await mcp.run_mcp_action(mind, "stop")
+    was_started = await mcp.run_mcp_action(mind, "stop")
+    await mcp.finish_mcp_activity(mind, "stop")
+    mcp.render_mcp_action_result(mind, "stop", was_started)
 
     status = next(
         view for view in views
@@ -259,11 +260,15 @@ async def test_mcp_stop_failure_has_stop_specific_status() -> None:
             side_effect=MindError("cleanup failed"),
         ),
         frontend=SimpleNamespace(
+            runtime=TuiRuntime(),
             application=SimpleNamespace(emit=views.append),
         ),
     )
 
-    await mcp.run_mcp_action(mind, "stop")
+    with pytest.raises(MindError) as captured:
+        await mcp.run_mcp_action(mind, "stop")
+    await mcp.finish_mcp_activity(mind, "stop")
+    mcp.render_mcp_action_failure(mind, "stop", captured.value)
 
     status = next(
         view for view in views
@@ -299,6 +304,7 @@ async def test_completed_mcp_stop_is_not_reported_as_interrupted() -> None:
         external_mcp=SimpleNamespace(started=True),
         stop_external_mcp_runtime=stop_runtime,
         frontend=SimpleNamespace(
+            runtime=TuiRuntime(),
             application=SimpleNamespace(emit=views.append),
         ),
     )
@@ -310,6 +316,9 @@ async def test_completed_mcp_stop_is_not_reported_as_interrupted() -> None:
 
     with pytest.raises(asyncio.CancelledError):
         await task
+
+    await mcp.finish_mcp_activity(mind, "stop")
+    mcp.render_mcp_action_cancelled(mind, "stop")
 
     assert cleanup_finished.is_set()
     status = next(

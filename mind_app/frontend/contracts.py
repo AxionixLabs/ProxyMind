@@ -20,6 +20,7 @@ ActivityStatusKind = typing.Literal[
     "inbuild",
     "external_mcp",
     "compact",
+    "operation",
 ]
 
 
@@ -111,6 +112,13 @@ class FrontendRuntime(typing.Protocol):
         """显示对话压缩状态。"""
         ...
 
+    async def begin_operation_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """显示通用前台操作状态。"""
+        ...
+
     async def end_activity_status(
         self,
         kind: ActivityStatusKind | None = None,
@@ -178,6 +186,14 @@ class PassiveFrontendRuntime(object):
         snapshot: typing.Callable[[], dict[str, typing.Any]],
     ) -> None:
         """忽略对话压缩状态请求。"""
+        _ = snapshot
+        return None
+
+    async def begin_operation_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """忽略通用前台操作状态请求。"""
         _ = snapshot
         return None
 

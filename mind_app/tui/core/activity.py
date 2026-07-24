@@ -50,7 +50,8 @@ ActivitySlotKey = typing.Literal[
     "attachment",
     "runtime",
     "external_mcp",
-    "compact"
+    "compact",
+    "operation",
 ]
 
 _SLOT_KEYS: dict[ActivityStatusKind, ActivitySlotKey] = {
@@ -60,6 +61,7 @@ _SLOT_KEYS: dict[ActivityStatusKind, ActivitySlotKey] = {
     "inbuild"      : "runtime",
     "external_mcp" : "external_mcp",
     "compact"      : "compact",
+    "operation"    : "operation",
 }
 
 
@@ -72,7 +74,6 @@ class _ActivitySlot(object):
     render: typing.Callable[[float], FragmentBlock]
     finalize: typing.Callable[[], FragmentBlock | None] | None = None
     phase: float = 0.0
-    expires_at: float | None = None
 
 
 class TuiActivity(object):
@@ -97,11 +98,12 @@ class TuiActivity(object):
         self._wait_paused: bool             = False
 
         self._slots: dict[ActivitySlotKey, _ActivitySlot] = {}
+        self._settle_deadlines: dict[ActivitySlotKey, float] = {}
 
     @property
     def active(self) -> bool:
         """返回当前是否存在运行期活动槽位。"""
-        return any(slot.expires_at is None for slot in self._slots.values())
+        return any(key not in self._settle_deadlines for key in self._slots)
 
     async def begin_wait(self) -> None:
         """启动覆盖当前交互周期的等待动画。"""
@@ -200,6 +202,21 @@ class TuiActivity(object):
             ),
         ))
 
+    async def begin_operation(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]],
+    ) -> None:
+        """启动通用前台操作动画。"""
+        await self._set_slot(_ActivitySlot(
+            key="operation",
+            kind="operation",
+            render=lambda phase: _operation_activity_block(
+                snapshot() or {},
+                phase=phase,
+                width=self.get_width(),
+            ),
+        ))
+
     async def stop(
         self,
         kind: ActivityStatusKind | None = None,
@@ -207,10 +224,11 @@ class TuiActivity(object):
         settle: bool = True,
     ) -> None:
         """停止指定活动动画，并按需短暂保留完成状态。"""
+        target_key = _SLOT_KEYS.get(kind) if kind is not None else None
         targets = tuple(
             (key, slot)
             for key, slot in self._slots.items()
-            if kind is None or slot.kind == kind
+            if kind is None or key == target_key
         )
         expires_at = asyncio.get_running_loop().time() + ACTIVITY_SETTLE_SEC
 
@@ -225,19 +243,36 @@ class TuiActivity(object):
             )
             if final is None:
                 self._slots.pop(key, None)
+                self._settle_deadlines.pop(key, None)
                 continue
 
             slot.render = lambda _phase, block=final: block
-            slot.expires_at = expires_at
+            self._settle_deadlines[key] = expires_at
 
         await self._refresh_task()
 
     async def clear(self) -> None:
         """停止全部活动动画且不生成最终状态。"""
         self._slots.clear()
+        self._settle_deadlines.clear()
         self._reset_wait()
         await self._cancel_task()
         self.clear_renderable()
+
+    async def hold(self, kind: ActivityStatusKind) -> None:
+        """把指定活动槽位保持在最终状态直至后续替换或清除。"""
+        key = _SLOT_KEYS[kind]
+        slot = self._slots.get(key)
+        if slot is None or slot.kind != kind:
+            return None
+
+        final = slot.finalize() if slot.finalize is not None else None
+        if final is None:
+            self._slots.pop(key, None)
+        else:
+            slot.render = lambda _phase, block=final: block
+        self._settle_deadlines.pop(key, None)
+        await self._refresh_task()
 
     async def pause_wait(self) -> bool:
         """暂停当前等待动画和耗时统计。"""
@@ -245,6 +280,7 @@ class TuiActivity(object):
         if slot is None or slot.kind != "wait":
             return False
         self._slots.pop("foreground", None)
+        self._settle_deadlines.pop("foreground", None)
 
         started_at = self._wait_started_at
         if started_at is not None:
@@ -289,6 +325,7 @@ class TuiActivity(object):
     async def _set_slot(self, slot: _ActivitySlot) -> None:
         """添加或替换一项活动动画。"""
         self._slots[slot.key] = slot
+        self._settle_deadlines.pop(slot.key, None)
         self._render_slots()
         if self.task is None:
             self.task = asyncio.create_task(self._render_loop())
@@ -299,6 +336,7 @@ class TuiActivity(object):
         slot = self._slots.get(key)
         if slot is not None and slot.kind == kind:
             self._slots.pop(key, None)
+            self._settle_deadlines.pop(key, None)
         await self._refresh_task()
 
     async def _refresh_task(self) -> None:
@@ -330,11 +368,12 @@ class TuiActivity(object):
                 previous_tick = current_tick
                 expired = tuple(
                     key
-                    for key, slot in self._slots.items()
-                    if slot.expires_at is not None and current_tick >= slot.expires_at
+                    for key, deadline in self._settle_deadlines.items()
+                    if current_tick >= deadline
                 )
                 for key in expired:
                     self._slots.pop(key, None)
+                    self._settle_deadlines.pop(key, None)
                 for slot in self._slots.values():
                     slot.phase += step
                 self._render_slots()
@@ -435,6 +474,24 @@ def _compact_activity_block(
 ) -> FragmentBlock:
     """生成对话压缩活动区域使用的单行状态。"""
     summary = str(data.get("summary") or "Context compacting...").strip()
+    summary = _truncate_display_text(summary, limit=max(12, int(width) - 3))
+    return _status_block(
+        summary,
+        family="wait",
+        phase=phase,
+        spinner=True,
+        sweep=False,
+    )
+
+
+def _operation_activity_block(
+    data: dict[str, typing.Any],
+    *,
+    phase: float,
+    width: int,
+) -> FragmentBlock:
+    """生成通用前台操作使用的单行状态。"""
+    summary = str(data.get("summary") or "working...").strip()
     summary = _truncate_display_text(summary, limit=max(12, int(width) - 3))
     return _status_block(
         summary,

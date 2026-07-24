@@ -82,15 +82,18 @@ def prepend_runtime_paths(
 ) -> None:
     """把运行时依赖目录加入 PATH。"""
     current = os.environ.get("PATH", "")
+
     existing = {
         os.path.normcase(os.path.normpath(item))
         for item in current.split(env_symbol)
         if item
     }
+
     missing = [
         entry for entry in spec.path_entries
         if os.path.normcase(os.path.normpath(entry)) not in existing
     ]
+
     if not missing:
         return None
 
@@ -148,7 +151,7 @@ async def ensure_runtime_asset(
     explicit_upgrade: bool,
     anim_manager: AsyncAnimManager,
     design: TerminalDesign | None,
-    progress: UpgradeProgress | None = None,
+    progress: UpgradeProgress | None = None
 ) -> bool:
     """复用入口升级流程确认运行时资产。"""
     return await ensure_asset(
@@ -168,7 +171,7 @@ async def ensure_service_runtime_asset(
     explicit_upgrade: bool,
     anim_manager: AsyncAnimManager,
     design: TerminalDesign | None,
-    progress: UpgradeProgress | None = None,
+    progress: UpgradeProgress | None = None
 ) -> bool:
     """确认当前服务运行时资产存在，必要时执行升级流程。"""
     return await ensure_runtime_asset(
@@ -191,7 +194,7 @@ async def prepare_service_runtime(
     *,
     anim_manager: AsyncAnimManager,
     design: TerminalDesign | None,
-    progress: UpgradeProgress | None = None,
+    progress: UpgradeProgress | None = None
 ) -> bool:
     """准备服务运行时资产、环境变量和执行权限。"""
     await ensure_service_runtime_asset(
@@ -224,11 +227,14 @@ async def ensure_runtime_started(server_manager: ServerManage | None) -> None:
 async def start_service_runtime(
     mind: "Mind",
     *,
-    label: str = "Helix MCP"
+    label: str = "Helix MCP",
+    defer_activity_stop: bool = False
 ) -> None:
     """启动服务运行时并维护状态动画。"""
     status: dict[str, typing.Any] = {"state": "starting", "error": "", "label": label}
+
     await mind.start_inbuild_startup_anim(lambda: dict(status))
+
     try:
         await ensure_runtime_started(mind.server_manager)
         status["state"] = "ready"
@@ -237,7 +243,8 @@ async def start_service_runtime(
         status["error"] = str(error)
         raise
     finally:
-        await mind.await_cleanup(mind.stop_anim("inbuild", settle=False))
+        if not defer_activity_stop:
+            await mind.await_cleanup(mind.stop_anim("inbuild", settle=False))
 
     mind.start_keepalive_supervisor()
 
@@ -252,6 +259,7 @@ async def prepare_and_start_service_runtime(
     ] | None = None,
     progress: UpgradeProgress | None = None,
     download_confirmed: bool = False,
+    defer_activity_stop: bool = False
 ) -> bool:
     """确认下载授权后准备并启动服务运行时。"""
     async def prepare() -> bool:
@@ -271,7 +279,11 @@ async def prepare_and_start_service_runtime(
         if not prepared:
             return False
 
-        await start_service_runtime(mind, label=label)
+        await start_service_runtime(
+            mind,
+            label=label,
+            defer_activity_stop=defer_activity_stop,
+        )
         mind.link_service_mcp(await fetch_service_exec_env())
         return True
 

@@ -43,11 +43,13 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
     monkeypatch.setattr(conversation, "stream_compact_events", empty_stream)
 
     mind = MindStub()
-    await conversation.compact_current_conversation(
+    status = await conversation.compact_current_conversation(
         mind,
         run_mode="chat",
         pref_config={},
     )
+    await conversation.finish_compact_activity(mind)
+    conversation.render_compact_result(mind, status)
 
     kind, final = snapshots[-1]
     assert kind == "compact"
@@ -85,11 +87,12 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
     monkeypatch.setattr(conversation, "stream_compact_events", completed_stream)
 
     mind = MindStub()
-    await conversation.compact_current_conversation(
+    result = await conversation.compact_current_conversation(
         mind,
         run_mode="chat",
         pref_config={},
     )
+    conversation.render_compact_result(mind, result)
 
     status = next(view for view in mind.views if view.type == "tui.compact.status")
     assert status.renderable.plain_text == (
@@ -144,6 +147,9 @@ async def test_compact_cancellation_clears_animation_without_failure(
 
     with pytest.raises(asyncio.CancelledError):
         await task
+
+    await conversation.finish_compact_activity(mind)
+    conversation.render_compact_interrupted(mind)
 
     assert mind.stopped == [("compact", False)]
     assert any(view.type == "tui.compact.interrupted" for view in mind.views)
