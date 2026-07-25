@@ -203,7 +203,7 @@ class ConversationHistoryStore(object):
             raise ValueError("mode, valid cid/sid, and request_id are required")
 
         now = _now_ms() if now_ms is None else int(now_ms)
-        row: sqlite3.Row | None = None
+
         conn = self._connect()
         try:
             with conn:
