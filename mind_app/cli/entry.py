@@ -5,15 +5,21 @@ import sys
 import typing
 import asyncio
 from engine.errors import ApplicationError
+from mind_core.config import ConfigOverride
 from .commands import (
     AgentListenCommand,
     DoctorCommand,
     ExecCommand,
     HelixUpgradeCommand,
+    McpAddCommand,
+    McpGetCommand,
+    McpListCommand,
+    McpRemoveCommand,
     McpServerCommand,
+    McpSetEnabledCommand,
     ParsedCommand
 )
-from .parser import parse_cli_command
+from .parser import parse_cli_invocation
 
 if typing.TYPE_CHECKING:
     from mind_app.frontend.contracts import ApplicationSink
@@ -22,7 +28,12 @@ if typing.TYPE_CHECKING:
 def command_requests_json(command: ParsedCommand) -> bool:
     """判断命令是否要求入口错误使用 JSON 输出。"""
     return (
-        isinstance(command, (ExecCommand, DoctorCommand))
+        isinstance(command, (
+            ExecCommand,
+            DoctorCommand,
+            McpListCommand,
+            McpGetCommand,
+        ))
         and command.output_format == "json"
     )
 
@@ -106,21 +117,44 @@ async def main(
     command: ParsedCommand,
     *,
     entry_file: str | None = None,
+    config_overrides: tuple[ConfigOverride, ...] = (),
 ) -> int:
     """把已解析命令路由到对应的应用组合根。"""
     if isinstance(command, McpServerCommand):
         from mind_app.mcp.server import run_mind_mcp_server
 
-        return await run_mind_mcp_server(entry_file=entry_file)
+        return await run_mind_mcp_server(
+            entry_file=entry_file,
+            config_overrides=config_overrides,
+        )
 
     if isinstance(command, DoctorCommand):
         from .doctor import run_doctor_command
 
-        return run_doctor_command(command, entry_file=entry_file)
+        return run_doctor_command(
+            command,
+            entry_file=entry_file,
+            config_overrides=config_overrides,
+        )
+
+    if isinstance(command, (
+        McpListCommand,
+        McpGetCommand,
+        McpAddCommand,
+        McpRemoveCommand,
+        McpSetEnabledCommand,
+    )):
+        from .mcp_registry import run_mcp_registry_command
+
+        return run_mcp_registry_command(command)
 
     from .bootstrap import run_application
 
-    return await run_application(command, entry_file=entry_file)
+    return await run_application(
+        command,
+        entry_file=entry_file,
+        config_overrides=config_overrides,
+    )
 
 
 def run(
@@ -129,14 +163,19 @@ def run(
     arguments: typing.Sequence[str] | None = None,
 ) -> int:
     """解析命令并运行统一的进程级异步生命周期。"""
-    command = parse_cli_command(arguments)
+    invocation = parse_cli_invocation(arguments)
+    command = invocation.command
 
     from loguru import logger
 
     logger.remove()
     try:
         with asyncio.Runner() as runner:
-            exit_code = runner.run(main(command, entry_file=entry_file))
+            exit_code = runner.run(main(
+                command,
+                entry_file=entry_file,
+                config_overrides=invocation.config_overrides,
+            ))
     except ApplicationError as error:
         emit_entry_failure(command, error, phase="runtime")
         emit_entry_outro(command)

@@ -8,6 +8,9 @@ from pathlib import Path
 from engine.animation import AsyncAnimManager
 from engine.manage import ServerManage
 from engine.errors import ApplicationError
+from mind_core.config import ConfigOverride
+from mind_core.config_session import ConfigSession
+from mind_core.config_store import ConfigStore
 from engine.observability import (
     observe,
     observe_exception
@@ -171,11 +174,17 @@ async def run_application(
     command: ApplicationCommand,
     *,
     entry_file: str | None,
+    config_overrides: tuple[ConfigOverride, ...] = (),
 ) -> int:
     """装配并运行需要本地应用资源的命令。"""
     animation = AsyncAnimManager()
     try:
-        return await _run_application(command, entry_file, animation)
+        return await _run_application(
+            command,
+            entry_file,
+            animation,
+            config_overrides,
+        )
     finally:
         await _await_cleanup(animation.stop())
 
@@ -184,6 +193,7 @@ async def _run_application(
     command: ApplicationCommand,
     entry_file: str | None,
     animation: AsyncAnimManager,
+    config_overrides: tuple[ConfigOverride, ...],
 ) -> int:
     """执行普通应用运行时的完整生命周期。"""
     output_mode = resolve_cli_output_mode(command)
@@ -218,6 +228,10 @@ async def _run_application(
     reports = mind_reports_dir()
 
     ensure_mcp_servers_file()
+    config_session = ConfigSession(
+        ConfigStore(mind_config_path()),
+        config_overrides,
+    )
 
     report = RunReport(str(reports))
     power  = os.cpu_count() or 1
@@ -239,7 +253,7 @@ async def _run_application(
     )
 
     try:
-        preference = Preferences(str(mind_config_path()))
+        preference = Preferences(config_session)
 
         service_context = ServiceRuntimeContext(
             spec=runtime_spec,
@@ -287,6 +301,7 @@ async def _run_application(
         home=home,
         reports=reports,
         preference=preference,
+        config_session=config_session,
         report=report,
         runtime_spec=runtime_spec,
         service_context=service_context,
@@ -304,6 +319,7 @@ async def _run_controller(
     home: Path,
     reports: Path,
     preference: Preferences,
+    config_session: ConfigSession,
     report: RunReport,
     runtime_spec: ServiceRuntimeSpec,
     service_context: ServiceRuntimeContext,
@@ -321,6 +337,7 @@ async def _run_controller(
             src_opera_place=str(home),
             src_total_place=str(reports),
             pref=preference,
+            config_session=config_session,
             anim_manager=animation,
             animate=output_mode_uses_animation(output_mode),
             frontend=frontend,
@@ -362,16 +379,22 @@ async def _run_controller(
             name="startup preference",
         )
         domain_task = asyncio.create_task(
-            ServiceConfig().load_domain(),
+            ServiceConfig(config_session).load_domain(),
             name="startup service domain",
         )
         startup_tasks = (preference_task, domain_task)
 
         try:
-            if output_mode == "tui":
-                await start_tui_external_mcp(controller)
+            if config_session.feature_enabled("external_mcp"):
+                if output_mode == "tui":
+                    await start_tui_external_mcp(controller)
+                else:
+                    await controller.start_external_mcp_runtime()
             else:
-                await controller.start_external_mcp_runtime()
+                observe(
+                    "external_mcp.start.skipped",
+                    reason="feature_disabled",
+                )
             await preference_task
             service_endpoints.configure(await domain_task)
             observe(

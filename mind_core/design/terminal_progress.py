@@ -3,21 +3,25 @@
 
 import os
 import typing
+import asyncio
+from mind_nova import const
 
-TerminalKind = typing.Literal[
-    "windows_terminal",
-    "iterm2",
-    "apple_terminal",
-    "unknown",
-]
+TERMINAL_TITLE_SPINNER_FRAMES = (
+    "⠋", "⠙", "⠹", "⠸", "⠼",
+    "⠴", "⠦", "⠧", "⠇", "⠏",
+)
 
-OSC_PROGRESS_CLEAR         = "\x1b]9;4;0\x07"
-OSC_PROGRESS_INDETERMINATE = "\x1b]9;4;3\x07"
-OSC_PROGRESS_WARNING       = "\x1b]9;4;4;100\x07"
+TERMINAL_TITLE_SPINNER_INTERVAL = 0.1
+TERMINAL_TITLE_ACTION_INTERVAL  = 1.0
+
+TERMINAL_TITLE_ACTION_PREFIXES  = (
+    "[ ! ] Action Required",
+    "[ . ] Action Required",
+)
 
 
 class TerminalProgress(typing.Protocol):
-    """描述终端窗口进度状态。"""
+    """描述终端标题中的运行状态。"""
 
     def begin(self) -> None:
         """进入不确定进度状态。"""
@@ -28,95 +32,152 @@ class TerminalProgress(typing.Protocol):
         ...
 
     def clear(self) -> None:
-        """清除终端窗口进度状态。"""
+        """清除终端标题中的运行状态。"""
         ...
 
 
 class PassiveTerminalProgress(object):
-    """提供不支持窗口进度的空实现。"""
+    """提供不支持标题状态的空实现。"""
 
-    def begin(self) -> None:
+    @staticmethod
+    def begin() -> None:
         """忽略进度开始请求。"""
         return None
 
-    def warning(self) -> None:
+    @staticmethod
+    def warning() -> None:
         """忽略警告状态请求。"""
         return None
 
-    def clear(self) -> None:
+    @staticmethod
+    def clear() -> None:
         """忽略进度清理请求。"""
         return None
 
 
 class OscTerminalProgress(object):
-    """通过 OSC 9;4 维护终端窗口进度状态。"""
+    """通过 OSC 0 维护终端标题中的运行状态。"""
 
     def __init__(self, stream: typing.TextIO) -> None:
         self.stream = stream
-        self._sequence: str | None = None
+
+        self._mode: typing.Literal["spinner", "action"] | None = None
+        self._frame_index: int                                 = 0
+        self._title: str | None                                = None
+        self._animation_task: asyncio.Task[None] | None        = None
 
     def begin(self) -> None:
         """进入不确定进度状态。"""
-        self._write(OSC_PROGRESS_INDETERMINATE)
+        if self._mode == "spinner":
+            return None
+        self._start("spinner")
 
     def warning(self) -> None:
-        """进入完整警告进度状态。"""
-        self._write(OSC_PROGRESS_WARNING)
+        """进入等待用户处理的标题状态。"""
+        if self._mode == "action":
+            return None
+        self._start("action")
 
     def clear(self) -> None:
-        """清除已设置的终端窗口进度状态。"""
-        if self._sequence is None:
+        """清除已设置的终端标题状态。"""
+        if self._mode is None:
             return None
-        self._write(OSC_PROGRESS_CLEAR)
-        self._sequence = None
+        self._cancel_animation()
+        self._mode = None
+        self._write_title("")
 
-    def _write(self, sequence: str) -> None:
-        """写入发生变化的控制序列。"""
-        if sequence == self._sequence:
+    def _start(self, mode: typing.Literal["spinner", "action"]) -> None:
+        """切换标题动画并立即写入首帧。"""
+        self._cancel_animation()
+
+        self._mode        = mode
+        self._frame_index = 0
+
+        self._write_frame()
+        self._start_animation(mode)
+
+    async def _animate(
+        self,
+        mode: typing.Literal["spinner", "action"],
+    ) -> None:
+        """持续推进当前标题动画。"""
+        interval = (
+            TERMINAL_TITLE_SPINNER_INTERVAL
+            if mode == "spinner"
+            else TERMINAL_TITLE_ACTION_INTERVAL
+        )
+        try:
+            while self._mode == mode:
+                await asyncio.sleep(interval)
+                if self._mode != mode:
+                    break
+                self._frame_index += 1
+                self._write_frame()
+        except asyncio.CancelledError:
             return None
-        self.stream.write(sequence)
+
+    def _write_frame(self) -> None:
+        """写入当前动画状态对应的标题。"""
+        if self._mode == "spinner":
+            prefix = TERMINAL_TITLE_SPINNER_FRAMES[
+                self._frame_index % len(TERMINAL_TITLE_SPINNER_FRAMES)
+            ]
+            title = f"{prefix} {const.APP_DESC}"
+        else:
+            title = TERMINAL_TITLE_ACTION_PREFIXES[
+                self._frame_index % len(TERMINAL_TITLE_ACTION_PREFIXES)
+            ]
+
+        self._write_title(title)
+
+    def _start_animation(
+        self,
+        mode: typing.Literal["spinner", "action"],
+    ) -> None:
+        """在事件循环可用时启动标题动画任务。"""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+        self._animation_task = loop.create_task(self._animate(mode))
+
+    def _cancel_animation(self) -> None:
+        """取消正在运行的标题动画任务。"""
+        if self._animation_task is not None:
+            self._animation_task.cancel()
+            self._animation_task = None
+
+    def _write_title(self, title: str) -> None:
+        """写入发生变化的终端标题。"""
+        if title == self._title:
+            return None
+        self.stream.write(f"\x1b]0;{title}\x07")
         self.stream.flush()
-        self._sequence = sequence
+        self._title = title
 
 
-def terminal_kind(
-    environ: typing.Mapping[str, str] | None = None,
-) -> TerminalKind:
-    """根据终端环境变量识别已知终端。"""
-    env = os.environ if environ is None else environ
-    if env.get("WT_SESSION"):
-        return "windows_terminal"
-
-    term_program = env.get("TERM_PROGRAM")
-    if term_program == "iTerm.app":
-        return "iterm2"
-    if term_program == "Apple_Terminal":
-        return "apple_terminal"
-    return "unknown"
-
-
-def supports_osc_progress(
+def supports_osc_title(
     stream: typing.TextIO,
     environ: typing.Mapping[str, str] | None = None,
 ) -> bool:
-    """判断输出流和终端是否支持 OSC 9;4。"""
+    """判断输出流是否适合写入 OSC 0 标题。"""
     isatty = getattr(stream, "isatty", None)
+
     try:
         interactive = bool(callable(isatty) and isatty())
     except (OSError, ValueError):
         interactive = False
-    return interactive and terminal_kind(environ) in {
-        "windows_terminal",
-        "iterm2",
-    }
+
+    env = os.environ if environ is None else environ
+    return interactive and env.get("TERM", "").lower() != "dumb"
 
 
 def create_terminal_progress(
     stream: typing.TextIO,
     environ: typing.Mapping[str, str] | None = None,
 ) -> TerminalProgress:
-    """为当前终端创建窗口进度实现。"""
-    if supports_osc_progress(stream, environ):
+    """为当前终端创建标题状态实现。"""
+    if supports_osc_title(stream, environ):
         return OscTerminalProgress(stream)
     return PassiveTerminalProgress()
 

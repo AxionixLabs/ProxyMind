@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import os
 import sys
 import typing
 from dataclasses import dataclass
@@ -10,6 +11,15 @@ from mind_nova import const
 ApplicationMode      = typing.Literal["source", "packaged"]
 PACKAGED_ENTRY_NAMES = {const.APP_NAME, f"{const.APP_NAME}.exe"}
 SOURCE_ENTRY_NAME    = f"{const.APP_NAME}.py"
+APP_HOME_ENV         = f"{const.APP_NAME.upper()}_HOME"
+
+
+def default_application_home() -> Path:
+    """返回默认应用数据目录。"""
+    configured = os.environ.get(APP_HOME_ENV)
+    return Path(
+        configured or Path.home() / f".{const.APP_NAME}"
+    ).expanduser()
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +57,17 @@ def resolve_application_layout(
     """根据源码或打包入口解析统一的应用资源布局。"""
     entry_path = Path(sys.argv[0] if argv0 is None else argv0)
     entry_name = entry_path.name.strip().lower()
+
+    if (
+        argv0 is None
+        and entry_name != SOURCE_ENTRY_NAME
+        and entry_name not in PACKAGED_ENTRY_NAMES
+        and entry_file is not None
+    ):
+        source_entry = Path(entry_file)
+        if source_entry.name.strip().lower() == SOURCE_ENTRY_NAME:
+            entry_path = source_entry
+            entry_name = SOURCE_ENTRY_NAME
 
     current_platform = (sys.platform if platform is None else platform).strip().lower()
 

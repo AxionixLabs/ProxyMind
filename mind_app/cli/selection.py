@@ -10,6 +10,11 @@ from .commands import (
     ExecCommand,
     HelixUpgradeCommand,
     InteractiveCommand,
+    McpAddCommand,
+    McpGetCommand,
+    McpListCommand,
+    McpRemoveCommand,
+    McpSetEnabledCommand,
 )
 
 OutputMode = typing.Literal[
@@ -24,6 +29,14 @@ def resolve_cli_output_mode(command: CliCommand) -> OutputMode:
     """根据命令入口选择输出模式。"""
     if isinstance(command, DoctorCommand):
         return command.output_format
+    if isinstance(command, (McpListCommand, McpGetCommand)):
+        return command.output_format
+    if isinstance(command, (
+        McpAddCommand,
+        McpRemoveCommand,
+        McpSetEnabledCommand,
+    )):
+        return "text"
     if isinstance(command, (HelixUpgradeCommand, AgentListenCommand)):
         return "rich"
     if isinstance(command, ExecCommand):

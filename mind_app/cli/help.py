@@ -177,16 +177,16 @@ class CliHelpFormatter(argparse.HelpFormatter):
         ]
 
         if action.help and action.help.strip():
-            help_lines = self._split_lines(
-                self._expand_help(action),
-                help_width,
-            )
-            for line in help_lines:
-                parts.append(
-                    " " * help_position
-                    + _styled(line, ANSI_MUTED, enabled=self.color)
-                    + "\n"
-                )
+            paragraphs = self._expand_help(action).split("\n\n")
+            for index, paragraph in enumerate(paragraphs):
+                if index:
+                    parts.append("\n")
+                for line in self._split_lines(paragraph, help_width):
+                    parts.append(
+                        " " * help_position
+                        + _styled(line, ANSI_MUTED, enabled=self.color)
+                        + "\n"
+                    )
         return "".join(parts) + "\n"
 
     def _fill_text(self, text: str, width: int, indent: str) -> str:

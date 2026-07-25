@@ -105,7 +105,16 @@ async def stream_looper(
     if request_skills is None or (
         isinstance(request_skills, (list, tuple)) and not request_skills
     ):
-        kwargs["skills"] = skills_payload()
+        try:
+            skill_config = mind.config_session.load()
+        except (OSError, TypeError, ValueError) as error:
+            observe_exception(
+                "skills.config.failed",
+                error,
+                level="WARNING",
+            )
+            skill_config = {}
+        kwargs["skills"] = skills_payload(skill_config)
 
     session_factory = kwargs.pop("session_factory", None)
 

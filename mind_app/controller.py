@@ -13,6 +13,7 @@ from engine.animation import AsyncAnimManager
 from engine.ports import terminate_port_process
 from engine.errors import ApplicationError
 from mind_core.preference import Preferences
+from mind_core.config_session import ConfigSession
 from mind_nova.modes import (
     DEFAULT_RUN_MODE,
     RunMode
@@ -79,6 +80,7 @@ class Mind(object):
         )
 
         self.pref: Preferences           = kwargs["pref"]
+        self.config_session: ConfigSession = kwargs["config_session"]
         self.pref_refreshed_at: float    = time.monotonic()
         self.pref_refresh_ttl_sec: float = 1.0
 

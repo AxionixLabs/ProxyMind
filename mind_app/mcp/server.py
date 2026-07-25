@@ -34,6 +34,9 @@ from mind_core.application_paths import (
     ApplicationLayout,
     resolve_application_layout
 )
+from mind_core.config import ConfigOverride
+from mind_core.config_session import ConfigSession
+from mind_core.config_store import ConfigStore
 from mind_core.preference import Preferences
 from mind_core.service_config import ServiceConfig
 from mind_nova.modes import (
@@ -80,11 +83,19 @@ class MindMcpRuntime(object):
         self._call_lock = asyncio.Lock()
 
     @classmethod
-    async def open(cls, layout: ApplicationLayout) -> "MindMcpRuntime":
+    async def open(
+        cls,
+        layout: ApplicationLayout,
+        config_overrides: tuple[ConfigOverride, ...] = (),
+    ) -> "MindMcpRuntime":
         """创建并启动 MCP 服务使用的应用运行时。"""
         home   = ensure_mind_home()
         report = RunReport(str(mind_reports_dir()), label="mcp_server")
-        pref   = Preferences(str(mind_config_path()))
+        config_session = ConfigSession(
+            ConfigStore(mind_config_path()),
+            config_overrides,
+        )
+        pref = Preferences(config_session)
 
         route_shell_tools(layout.supports)
         clear_exec_env_cache()
@@ -102,6 +113,7 @@ class MindMcpRuntime(object):
             src_opera_place=str(home),
             src_total_place=str(mind_reports_dir()),
             pref=pref,
+            config_session=config_session,
             animate=False,
             frontend=frontend,
             design=None,
@@ -111,8 +123,11 @@ class MindMcpRuntime(object):
 
         try:
             await pref.load_pref()
-            service_endpoints.configure(await ServiceConfig().load_domain())
-            await mind.start_external_mcp_runtime()
+            service_endpoints.configure(
+                await ServiceConfig(config_session).load_domain()
+            )
+            if config_session.feature_enabled("external_mcp"):
+                await mind.start_external_mcp_runtime()
         except BaseException:
             await mind.close_runtime_resources()
             raise
@@ -247,7 +262,8 @@ class MindMcpRuntime(object):
 def create_mind_mcp_server(
     *,
     entry_file: str | None = None,
-    layout: ApplicationLayout | None = None
+    layout: ApplicationLayout | None = None,
+    config_overrides: tuple[ConfigOverride, ...] = (),
 ) -> FastMCP[MindMcpRuntime]:
     """创建提供 agent 工具的 stdio MCP 服务。"""
     resolved_layout = layout or resolve_application_layout(entry_file=entry_file)
@@ -256,7 +272,10 @@ def create_mind_mcp_server(
     async def lifespan(
         _: FastMCP[MindMcpRuntime]
     ) -> typing.AsyncIterator[MindMcpRuntime]:
-        runtime = await MindMcpRuntime.open(resolved_layout)
+        runtime = await MindMcpRuntime.open(
+            resolved_layout,
+            config_overrides,
+        )
         try:
             yield runtime
         finally:
@@ -309,10 +328,14 @@ def create_mind_mcp_server(
 
 async def run_mind_mcp_server(
     *,
-    entry_file: str | None = None
+    entry_file: str | None = None,
+    config_overrides: tuple[ConfigOverride, ...] = (),
 ) -> int:
     """通过 stdio 运行 MCP 服务直至客户端断开。"""
-    server = create_mind_mcp_server(entry_file=entry_file)
+    server = create_mind_mcp_server(
+        entry_file=entry_file,
+        config_overrides=config_overrides,
+    )
     await server.run_stdio_async()
     return 0
 

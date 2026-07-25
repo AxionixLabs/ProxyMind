@@ -12,6 +12,17 @@
 - 拆模块不要用 mixin。
 - 非测试模块里的函数 docstring 使用中文中性描述，不绑定具体业务。
 
+## 品牌与命名
+
+- `Mind`、`mind` 是应用品牌和既有包名，不得当作领域语义写入新增或修改的代码。
+- 展示字符串不得硬编码 `Mind` 或 `mind`，应用名称统一引用
+  `mind_nova.const.APP_DESC` 或 `mind_nova.const.APP_NAME`。
+- docstring 使用中性能力描述，不得出现硬编码的 `Mind` 或 `mind`。
+- 新增或重命名的类名、函数名、方法名、属性名和常量名不得包含 `Mind` 或
+  `mind`，应按实际职责命名。
+- 既有包路径、稳定入口和外部契约中的 `Mind` 或 `mind` 保持不动；引用这些名称
+  不算新增硬编码，但不得据此继续扩散品牌命名。
+
 ## 测试原则
 
 - 所有测试用例使用 pytest 风格，不使用 `unittest.TestCase` 或 `unittest.main()`。

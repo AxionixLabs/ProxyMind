@@ -5,16 +5,19 @@ import os
 import contextlib
 from pathlib import Path
 from engine.errors import ApplicationError
-from mind_core.config import default_config_path
+from mind_core.application_paths import (
+    APP_HOME_ENV,
+    default_application_home,
+)
+from mind_core.config_store import default_config_path
 from mind_nova import const
 
-MD_HOME_ENV = "MIND_HOME"
 HX_HOME_ENV = "HELIX_HOME"
 
 
 def mind_home() -> Path:
     """返回应用的用户级统一目录。"""
-    return Path(os.environ.get(MD_HOME_ENV) or Path.home() / ".mind").expanduser()
+    return default_application_home()
 
 
 def helix_home() -> Path:
@@ -102,7 +105,7 @@ def process_env() -> dict[str, str]:
     hx   = helix_home()
 
     return {
-        MD_HOME_ENV          : str(root),
+        APP_HOME_ENV         : str(root),
         HX_HOME_ENV          : str(hx),
         "HELIX_STORAGE_ROOT" : str(hx)
     }

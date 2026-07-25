@@ -1,40 +1,29 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import os
 import copy
-import json
 import typing
 import tomllib
-from pathlib import Path
+from dataclasses import dataclass
 from mind_core.provider_config import (
     DEFAULT_PROVIDER_NAME,
     DEFAULT_REASONING_EFFORT,
     DEFAULT_ROUTE_NAME,
     SUPPORTED_REASONING_EFFORTS
 )
-from mind_nova import const
+from mind_core.features import FEATURE_REGISTRY
 
-DEFAULT_CONFIG_TEXT = f"""[service]
-domain = ""
 
-[model.primary]
-provider = "{DEFAULT_PROVIDER_NAME}"
-route = "{DEFAULT_ROUTE_NAME}"
-model = ""
-apikey = ""
-base_url = ""
-reasoning_effort = "{DEFAULT_REASONING_EFFORT}"
-enabled = false
+@dataclass(frozen=True, slots=True)
+class ConfigOverride(object):
+    """描述一次点路径配置覆盖。"""
 
-[skills]
-enabled = []
-disabled = []
+    path: tuple[str, ...]
+    value: typing.Any
 
-[hosted_tools.groups]
-perf_engine = false
-sandbox_cloud = false
-"""
+
+class ConfigValidationError(ValueError):
+    """表示配置字段或覆盖值不符合 schema。"""
 
 
 def _as_str(value: typing.Any, default: str = "") -> str:
@@ -83,6 +72,11 @@ def _normalize_hosted_tools(raw: typing.Any) -> dict[str, typing.Any]:
             "sandbox_cloud" : _as_bool(groups.get("sandbox_cloud"), False)
         }
     }
+
+
+def _normalize_features(raw: typing.Any) -> dict[str, bool]:
+    """规范化可扩展功能开关。"""
+    return FEATURE_REGISTRY.resolve(raw)
 
 
 def _normalize_model_slot(
@@ -136,6 +130,7 @@ def default_config() -> dict[str, typing.Any]:
             "enabled"  : [],
             "disabled" : []
         },
+        "features": {},
         "hosted_tools": {
             "groups": {
                 "perf_engine": False,
@@ -145,19 +140,15 @@ def default_config() -> dict[str, typing.Any]:
     }
 
 
-def default_config_path() -> Path:
-    """返回默认配置文件路径。"""
-    root = Path(os.environ.get("MIND_HOME") or Path.home() / ".mind").expanduser()
-    return root / "config.toml"
-
-
 def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
     """把任意 TOML 数据规范化为稳定的应用配置结构。"""
     data     = _as_dict(raw)
+    _validate_known_config(data)
     defaults = default_config()
     service  = _as_dict(data.get("service"))
     model    = _as_dict(data.get("model"))
     skills   = _as_dict(data.get("skills"))
+    features = _as_dict(data.get("features"))
     hosted   = _as_dict(data.get("hosted_tools"))
 
     return {
@@ -177,81 +168,151 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
             "enabled"  : _as_str_list(skills.get("enabled")),
             "disabled" : _as_str_list(skills.get("disabled"))
         },
+        "features": _normalize_features(features),
         "hosted_tools": _normalize_hosted_tools(hosted)
     }
 
 
-def load_config(path: typing.Any) -> dict[str, typing.Any]:
-    """读取并规范化 config.toml。"""
-    target = Path(path).expanduser()
-    with target.open("rb") as file:
-        return normalize_config(tomllib.load(file))
+STRING_CONFIG_PATHS = frozenset({
+    ("service", "domain"),
+    ("model", "primary", "provider"),
+    ("model", "primary", "route"),
+    ("model", "primary", "model"),
+    ("model", "primary", "apikey"),
+    ("model", "primary", "base_url"),
+    ("model", "primary", "reasoning_effort"),
+})
+BOOL_CONFIG_PATHS = frozenset({
+    ("model", "primary", "enabled"),
+    ("hosted_tools", "groups", "perf_engine"),
+    ("hosted_tools", "groups", "sandbox_cloud"),
+})
+STRING_LIST_CONFIG_PATHS = frozenset({
+    ("skills", "enabled"),
+    ("skills", "disabled"),
+})
+TABLE_CONFIG_PATHS = (
+    ("service",),
+    ("model",),
+    ("model", "primary"),
+    ("skills",),
+    ("features",),
+    ("hosted_tools",),
+    ("hosted_tools", "groups"),
+)
 
 
-def ensure_config(path: typing.Any) -> Path:
-    """确保 config.toml 存在；已存在时不改写。"""
-    target = Path(path).expanduser()
-    target.parent.mkdir(parents=True, exist_ok=True)
-
-    if not target.exists():
-        target.write_text(DEFAULT_CONFIG_TEXT, encoding=const.CHARSET)
-
-    return target
-
-
-def write_config(path: typing.Any, config: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """规范化并写入 config.toml。"""
-    target     = ensure_config(path)
-    normalized = normalize_config(config)
-
-    target.write_text(format_config(normalized), encoding=const.CHARSET)
-
-    return normalized
+def _raw_path_value(
+    config: dict[str, typing.Any],
+    path: tuple[str, ...],
+) -> tuple[bool, typing.Any]:
+    """读取原始配置路径，并区分不存在和值为空。"""
+    current: typing.Any = config
+    for component in path:
+        if not isinstance(current, dict) or component not in current:
+            return False, None
+        current = current[component]
+    return True, current
 
 
-def format_config(config: dict[str, typing.Any]) -> str:
-    """把应用配置格式化为 TOML 文本。"""
-    normalized = normalize_config(config)
-    service    = normalized["service"]
-    model      = normalized["model"]
-    skills     = normalized["skills"]
-    hosted     = normalized["hosted_tools"]
-    primary    = model["primary"]
-    groups     = _as_dict(hosted.get("groups"))
+def validate_config_value(
+    path: tuple[str, ...],
+    value: typing.Any,
+) -> None:
+    """按照应用配置 schema 校验一个点路径值。"""
+    dotted = ".".join(path)
+    if path in STRING_CONFIG_PATHS:
+        if not isinstance(value, str):
+            raise ConfigValidationError(f"{dotted} must be a string")
+        if path[-1] == "reasoning_effort" and (
+            value.strip().lower() not in SUPPORTED_REASONING_EFFORTS
+        ):
+            choices = ", ".join(sorted(SUPPORTED_REASONING_EFFORTS))
+            raise ConfigValidationError(
+                f"{dotted} must be one of: {choices}"
+            )
+        return None
 
-    return "\n".join([
-        "[service]",
-        f"domain = {toml_string(service.get('domain'))}",
-        "",
-        "[model.primary]",
-        f"provider = {toml_string(primary.get('provider'))}",
-        f"route = {toml_string(primary.get('route'))}",
-        f"model = {toml_string(primary.get('model'))}",
-        f"apikey = {toml_string(primary.get('apikey'))}",
-        f"base_url = {toml_string(primary.get('base_url'))}",
-        f"reasoning_effort = {toml_string(primary.get('reasoning_effort'))}",
-        f"enabled = {'true' if primary.get('enabled') else 'false'}",
-        "",
-        "[skills]",
-        f"enabled = {toml_string_list(skills.get('enabled'))}",
-        f"disabled = {toml_string_list(skills.get('disabled'))}",
-        "",
-        "[hosted_tools.groups]",
-        f"perf_engine = {'true' if groups.get('perf_engine') else 'false'}",
-        f"sandbox_cloud = {'true' if groups.get('sandbox_cloud') else 'false'}",
-        ""
-    ])
+    if path in BOOL_CONFIG_PATHS:
+        if not isinstance(value, bool):
+            raise ConfigValidationError(f"{dotted} must be a boolean")
+        return None
+
+    if path in STRING_LIST_CONFIG_PATHS:
+        if not isinstance(value, list) or not all(
+            isinstance(item, str) for item in value
+        ):
+            raise ConfigValidationError(f"{dotted} must be an array of strings")
+        return None
+
+    if len(path) == 2 and path[0] == "features":
+        FEATURE_REGISTRY.require(path[1])
+        if not isinstance(value, bool):
+            raise ConfigValidationError(f"{dotted} must be a boolean")
+        return None
+
+    raise ConfigValidationError(f"unknown config key: {dotted or '<empty>'}")
 
 
-def toml_string(value: typing.Any) -> str:
-    """返回 TOML 字符串字面量。"""
-    return json.dumps(str(value or ""), ensure_ascii=False)
+def _validate_known_config(config: dict[str, typing.Any]) -> None:
+    """校验文件中已经出现的受支持配置字段。"""
+    for path in TABLE_CONFIG_PATHS:
+        present, value = _raw_path_value(config, path)
+        if present and not isinstance(value, dict):
+            raise ConfigValidationError(
+                f"{'.'.join(path)} must be a table"
+            )
+
+    for path in (
+        *STRING_CONFIG_PATHS,
+        *BOOL_CONFIG_PATHS,
+        *STRING_LIST_CONFIG_PATHS,
+    ):
+        present, value = _raw_path_value(config, path)
+        if present:
+            validate_config_value(path, value)
 
 
-def toml_string_list(value: typing.Any) -> str:
-    """返回 TOML 字符串列表字面量。"""
-    items = value if isinstance(value, list) else []
-    return "[" + ", ".join(toml_string(item) for item in items) + "]"
+def config_override(
+    path: tuple[str, ...],
+    value: typing.Any,
+) -> ConfigOverride:
+    """创建经过 schema 校验的配置覆盖。"""
+    validate_config_value(path, value)
+    return ConfigOverride(path=path, value=value)
+
+
+def parse_config_override(expression: str) -> ConfigOverride:
+    """解析 key=value 形式的 TOML 配置覆盖。"""
+    key, separator, raw_value = str(expression or "").partition("=")
+    path = tuple(part.strip() for part in key.split("."))
+    if not separator or not path or any(not part for part in path):
+        raise ValueError("config override must use a non-empty dotted key=value")
+
+    try:
+        value = tomllib.loads(f"value = {raw_value}")["value"]
+    except tomllib.TOMLDecodeError:
+        value = raw_value
+    return config_override(path, value)
+
+
+def apply_config_overrides(
+    config: typing.Any,
+    overrides: typing.Iterable[ConfigOverride],
+) -> dict[str, typing.Any]:
+    """按给定顺序把点路径覆盖应用到配置副本。"""
+    result = copy.deepcopy(config) if isinstance(config, dict) else {}
+    for override in overrides:
+        validate_config_value(override.path, override.value)
+        target = result
+        for component in override.path[:-1]:
+            child = target.get(component)
+            if not isinstance(child, dict):
+                child = {}
+                target[component] = child
+            target = child
+        target[override.path[-1]] = copy.deepcopy(override.value)
+    return result
 
 
 def config_to_preferences(config: dict[str, typing.Any]) -> dict[str, typing.Any]:

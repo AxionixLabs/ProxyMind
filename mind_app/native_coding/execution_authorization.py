@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-# Notes: ==== Mind(TM) ====
+# Notes: ==== Mind™ ====
 
 import time
 import typing
 from datetime import (
-    datetime, timezone
+    datetime,
+    timezone
 )
 
 EXECUTION_ALLOWED_STATES = {"allowed", "approved"}

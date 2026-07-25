@@ -3,6 +3,7 @@
 
 import typing
 from dataclasses import dataclass
+from mind_core.config import ConfigOverride
 from mind_nova.modes import (
     DEFAULT_RUN_MODE,
     RunMode
@@ -13,6 +14,7 @@ from mind_nova.requests.access import (
 )
 
 OutputFormat = typing.Literal["text", "json"]
+McpTransport = typing.Literal["streamable_http", "sse"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +67,50 @@ class McpServerCommand(object):
     """描述 stdio MCP 服务入口。"""
 
 
+@dataclass(frozen=True, slots=True)
+class McpListCommand(object):
+    """描述外部 MCP 服务列表命令。"""
+
+    output_format: OutputFormat = "text"
+
+
+@dataclass(frozen=True, slots=True)
+class McpGetCommand(object):
+    """描述外部 MCP 服务查询命令。"""
+
+    name: str
+    output_format: OutputFormat = "text"
+
+
+@dataclass(frozen=True, slots=True)
+class McpAddCommand(object):
+    """描述外部 MCP 服务添加命令。"""
+
+    name: str
+    url: str | None = None
+    transport: McpTransport | None = None
+    stdio_command: tuple[str, ...] = ()
+    env: tuple[tuple[str, str], ...] = ()
+    headers: tuple[tuple[str, str], ...] = ()
+    cwd: str | None = None
+    enabled: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class McpRemoveCommand(object):
+    """描述外部 MCP 服务删除命令。"""
+
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class McpSetEnabledCommand(object):
+    """描述外部 MCP 服务启用状态命令。"""
+
+    name: str
+    enabled: bool
+
+
 RuntimeCommand: typing.TypeAlias = (
     InteractiveCommand
     | ExecCommand
@@ -74,12 +120,29 @@ RuntimeCommand: typing.TypeAlias = (
 
 ApplicationCommand: typing.TypeAlias = RuntimeCommand | HelixUpgradeCommand
 
+McpRegistryCommand: typing.TypeAlias = (
+    McpListCommand
+    | McpGetCommand
+    | McpAddCommand
+    | McpRemoveCommand
+    | McpSetEnabledCommand
+)
+
 CliCommand: typing.TypeAlias = (
     ApplicationCommand
     | DoctorCommand
+    | McpRegistryCommand
 )
 
 ParsedCommand: typing.TypeAlias = CliCommand | McpServerCommand
+
+
+@dataclass(frozen=True, slots=True)
+class CliInvocation(object):
+    """描述一次命令及其进程级配置覆盖。"""
+
+    command: ParsedCommand
+    config_overrides: tuple[ConfigOverride, ...] = ()
 
 
 def command_uses_helix(command: RuntimeCommand) -> bool:

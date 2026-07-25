@@ -3,19 +3,13 @@
 
 import httpx
 import typing
-import tomllib
 from urllib.parse import urlparse
-from pathlib import Path
 from engine.observability import (
     observe,
     observe_exception
 )
-from mind_core.config import (
-    default_config_path,
-    ensure_config,
-    load_config,
-    normalize_config
-)
+from mind_core.config_session import ConfigSession
+from mind_core.config_store import ConfigStore, default_config_path
 from mind_nova import const
 
 
@@ -37,10 +31,12 @@ class ServiceConfig(object):
 
     def __init__(
         self,
-        config_file: typing.Any | None = None
+        config_session: ConfigSession | None = None,
     ) -> None:
-        """初始化配置文件路径。"""
-        self.config_file = config_file or default_config_path()
+        """初始化配置来源。"""
+        self.config_session = config_session or ConfigSession(
+            ConfigStore(default_config_path())
+        )
 
     @property
     def service_config_api(self) -> str:
@@ -49,32 +45,14 @@ class ServiceConfig(object):
 
     def load_local_domain(self) -> str:
         """读取本地配置中的服务域名。"""
-        target = ensure_config(self.config_file)
-
         try:
-            with Path(target).expanduser().open("rb") as file:
-                raw_config = tomllib.load(file)
+            config = self.config_session.load()
         except (OSError, TypeError, ValueError) as error:
             observe_exception(
                 "service_domain.local.failed",
                 error,
                 level="WARNING",
-                phase="toml",
-            )
-            return ""
-
-        raw_service = raw_config.get("service") if isinstance(raw_config, dict) else None
-        if isinstance(raw_service, dict) and "domain" in raw_service:
-            return normalize_domain(raw_service.get("domain"))
-
-        try:
-            config = normalize_config(load_config(target))
-        except (OSError, TypeError, ValueError) as error:
-            observe_exception(
-                "service_domain.local.failed",
-                error,
-                level="WARNING",
-                phase="normalized_config",
+                phase="config",
             )
             return ""
 

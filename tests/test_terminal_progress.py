@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -9,13 +10,11 @@ import pytest
 from mind_app.runtime.support.calling import run_mode_lifecycle
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_core.design.terminal_progress import (
-    OSC_PROGRESS_CLEAR,
-    OSC_PROGRESS_INDETERMINATE,
-    OSC_PROGRESS_WARNING,
     OscTerminalProgress,
     PassiveTerminalProgress,
+    TERMINAL_TITLE_ACTION_PREFIXES,
+    TERMINAL_TITLE_SPINNER_FRAMES,
     create_terminal_progress,
-    terminal_kind,
 )
 
 
@@ -34,24 +33,13 @@ class TerminalStream(StringIO):
 
 
 @pytest.mark.parametrize(
-    ("environ", "kind"),
-    (
-        ({"WT_SESSION": "1"}, "windows_terminal"),
-        ({"TERM_PROGRAM": "iTerm.app"}, "iterm2"),
-        ({"TERM_PROGRAM": "Apple_Terminal"}, "apple_terminal"),
-        ({"TERM_PROGRAM": "vscode"}, "unknown"),
-    ),
-)
-def test_terminal_kind_uses_terminal_environment(environ, kind: str) -> None:
-    assert terminal_kind(environ) == kind
-
-
-@pytest.mark.parametrize(
     ("environ", "interactive", "expected_type"),
     (
         ({"WT_SESSION": "1"}, True, OscTerminalProgress),
         ({"TERM_PROGRAM": "iTerm.app"}, True, OscTerminalProgress),
-        ({"TERM_PROGRAM": "Apple_Terminal"}, True, PassiveTerminalProgress),
+        ({"TERM_PROGRAM": "Apple_Terminal"}, True, OscTerminalProgress),
+        ({"TERM": "xterm-256color"}, True, OscTerminalProgress),
+        ({"TERM": "dumb"}, True, PassiveTerminalProgress),
         ({"WT_SESSION": "1"}, False, PassiveTerminalProgress),
     ),
 )
@@ -80,12 +68,48 @@ def test_osc_terminal_progress_writes_state_changes() -> None:
     progress.clear()
 
     assert stream.getvalue() == (
-        OSC_PROGRESS_INDETERMINATE
-        + OSC_PROGRESS_WARNING
-        + OSC_PROGRESS_INDETERMINATE
-        + OSC_PROGRESS_CLEAR
+        f"\x1b]0;{TERMINAL_TITLE_SPINNER_FRAMES[0]} Mind\x07"
+        f"\x1b]0;{TERMINAL_TITLE_ACTION_PREFIXES[0]}\x07"
+        f"\x1b]0;{TERMINAL_TITLE_SPINNER_FRAMES[0]} Mind\x07"
+        "\x1b]0;\x07"
     )
     assert stream.flush_count == 4
+
+
+@pytest.mark.anyio
+async def test_osc_terminal_progress_animates_title() -> None:
+    stream = TerminalStream()
+    progress = OscTerminalProgress(stream)
+
+    progress.begin()
+    await asyncio.sleep(0.12)
+    progress.clear()
+
+    assert stream.getvalue().startswith(
+        f"\x1b]0;{TERMINAL_TITLE_SPINNER_FRAMES[0]} Mind\x07"
+        f"\x1b]0;{TERMINAL_TITLE_SPINNER_FRAMES[1]} Mind\x07"
+    )
+    assert stream.getvalue().endswith("\x1b]0;\x07")
+
+
+@pytest.mark.anyio
+async def test_osc_terminal_progress_blinks_action_title(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mind_core.design.terminal_progress.TERMINAL_TITLE_ACTION_INTERVAL",
+        0.01,
+    )
+    stream = TerminalStream()
+    progress = OscTerminalProgress(stream)
+
+    progress.warning()
+    await asyncio.sleep(0.02)
+    progress.clear()
+
+    assert stream.getvalue().startswith(
+        f"\x1b]0;{TERMINAL_TITLE_ACTION_PREFIXES[0]}\x07"
+        f"\x1b]0;{TERMINAL_TITLE_ACTION_PREFIXES[1]}\x07"
+    )
+    assert stream.getvalue().endswith("\x1b]0;\x07")
 
 
 @pytest.mark.anyio

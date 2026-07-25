@@ -2,16 +2,9 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.paths import (
-    ensure_writable_file,
-    mind_config_path
-)
-from mind_core.config import (
-    ensure_config,
-    load_config,
-    normalize_config,
-    write_config
-)
+from mind_app.paths import mind_config_path
+from mind_core.config_session import ConfigSession
+from mind_core.config_store import ConfigStore
 from mind_core.provider_config import (
     DEFAULT_PROVIDER_NAME,
     DEFAULT_REASONING_EFFORT,
@@ -43,16 +36,22 @@ def load_pref() -> dict[str, typing.Any]:
 def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
     """保存模型偏好配置。"""
     payload = raw if isinstance(raw, dict) else {}
-    config  = _load_mind_config()
-    model   = config.setdefault("model", {})
-
-    model["primary"] = pref_to_config_slot(
+    primary = pref_to_config_slot(
         payload.get("primary"),
         enabled=pref_slot_enabled(payload.get("primary"))
     )
-    config["hosted_tools"] = pref_to_hosted_tools(payload.get("hosted_tools"))
+    hosted = pref_to_hosted_tools(payload.get("hosted_tools"))
+    groups = hosted["groups"]
 
-    _write_mind_config(config)
+    values = {
+        ("model", "primary", name): value
+        for name, value in primary.items()
+    }
+    values.update({
+        ("hosted_tools", "groups", name): value
+        for name, value in groups.items()
+    })
+    _config_session().update(values)
     return load_pref()
 
 
@@ -71,12 +70,9 @@ def load_service_config() -> dict[str, typing.Any]:
 def save_service_config(raw: typing.Any) -> dict[str, typing.Any]:
     """保存远程服务域名配置。"""
     payload = raw if isinstance(raw, dict) else {}
-    config  = _load_mind_config()
-
-    service = config.setdefault("service", {})
-    service["domain"] = normalize_domain(payload.get("domain"))
-
-    _write_mind_config(config)
+    _config_session().update({
+        ("service", "domain"): normalize_domain(payload.get("domain")),
+    })
 
     return load_service_config()
 
@@ -166,14 +162,12 @@ def clean_text(value: typing.Any, default: str = "") -> str:
 
 def _load_mind_config() -> dict[str, typing.Any]:
     """读取并规范化应用配置文件。"""
-    target = ensure_config(mind_config_path())
-    return normalize_config(load_config(target))
+    return _config_session().load()
 
 
-def _write_mind_config(config: dict[str, typing.Any]) -> None:
-    """写入应用配置文件。"""
-    target = ensure_writable_file(mind_config_path())
-    write_config(target, config)
+def _config_session() -> ConfigSession:
+    """返回本地配置服务使用的配置会话。"""
+    return ConfigSession(ConfigStore(mind_config_path()))
 
 
 if __name__ == "__main__":

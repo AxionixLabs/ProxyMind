@@ -18,15 +18,26 @@ from mind_nova.requests.access import (
 from .commands import (
     AgentListenCommand,
     BatchCommand,
+    CliInvocation,
     DoctorCommand,
     ExecCommand,
     HelixUpgradeCommand,
     InteractiveCommand,
+    McpAddCommand,
+    McpGetCommand,
+    McpListCommand,
+    McpRemoveCommand,
     McpServerCommand,
+    McpSetEnabledCommand,
+    McpTransport,
     OutputFormat,
     ParsedCommand
 )
 from .help import CliArgumentParser
+from .invocation import (
+    add_invocation_options,
+    extract_config_overrides,
+)
 
 EXEC_HELP          = "Run a task non-interactively"
 BATCH_HELP         = "Run one or more schematics"
@@ -35,6 +46,7 @@ AGENT_LISTEN_HELP  = "Listen for remotely dispatched tasks"
 HELIX_HELP         = "Manage the Helix provider"
 HELIX_UPGRADE_HELP = "Update Helix runtime components"
 DOCTOR_HELP        = "Diagnose the local runtime environment"
+MCP_HELP           = "Manage external MCP servers"
 MCP_SERVER_HELP    = "Start the MCP server over stdio"
 HELP_HELP          = "Print this message or the help of the given subcommand(s)"
 ROOT_COMMANDS      = frozenset({
@@ -43,6 +55,7 @@ ROOT_COMMANDS      = frozenset({
     "agent",
     "helix",
     "doctor",
+    "mcp",
     "mcp-server",
     "help",
 })
@@ -266,6 +279,242 @@ def create_cli_parser() -> CliArgumentParser:
     )
 
     mcp_parser = subparsers.add_parser(
+        "mcp",
+        prog=f"{const.APP_NAME} mcp",
+        help=MCP_HELP,
+        description="Manage external MCP server registrations.",
+        help_title=f"{const.APP_DESC} MCP",
+        usage="%(prog)s [OPTIONS] <COMMAND>",
+        add_help=False,
+    )
+    mcp_subparsers = mcp_parser.add_subparsers(
+        title="Commands",
+        dest="mcp_command",
+        metavar="",
+    )
+
+    mcp_list_parser = mcp_subparsers.add_parser(
+        "list",
+        prog=f"{const.APP_NAME} mcp list",
+        help="List configured MCP servers",
+        description="List configured external MCP servers.",
+        help_title=f"{const.APP_DESC} MCP List",
+        usage="%(prog)s [OPTIONS]",
+        add_help=False,
+    )
+    mcp_list_options = mcp_list_parser.add_argument_group("Options")
+    mcp_list_options.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the server list as JSON",
+    )
+    mcp_list_options.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        help="Print help (see more with '--help')",
+    )
+
+    mcp_get_parser = mcp_subparsers.add_parser(
+        "get",
+        prog=f"{const.APP_NAME} mcp get",
+        help="Show one configured MCP server",
+        description="Show one external MCP server registration.",
+        help_title=f"{const.APP_DESC} MCP Get",
+        usage="%(prog)s [OPTIONS] <NAME>",
+        add_help=False,
+    )
+    mcp_get_arguments = mcp_get_parser.add_argument_group("Arguments")
+    mcp_get_arguments.add_argument(
+        "name",
+        metavar="NAME",
+        help="Name of the MCP server",
+    )
+    mcp_get_options = mcp_get_parser.add_argument_group("Options")
+    mcp_get_options.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the server configuration as JSON",
+    )
+    mcp_get_options.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        help="Print help (see more with '--help')",
+    )
+
+    mcp_add_parser = mcp_subparsers.add_parser(
+        "add",
+        prog=f"{const.APP_NAME} mcp add",
+        help="Add an MCP server registration",
+        description=(
+            "Register a remote URL or a local stdio command as an external "
+            "MCP server."
+        ),
+        help_title=f"{const.APP_DESC} MCP Add",
+        usage=(
+            "%(prog)s [OPTIONS] <NAME> --url <URL>\n"
+            "       %(prog)s [OPTIONS] <NAME> -- <COMMAND>..."
+        ),
+        add_help=False,
+    )
+    mcp_add_arguments = mcp_add_parser.add_argument_group("Arguments")
+    mcp_add_arguments.add_argument(
+        "name",
+        metavar="NAME",
+        help="Name of the MCP server",
+    )
+    mcp_add_arguments.add_argument(
+        "stdio_command",
+        nargs="*",
+        metavar="COMMAND",
+        help="Local command and arguments after '--'",
+    )
+    mcp_add_options = mcp_add_parser.add_argument_group("Options")
+    mcp_add_options.add_argument(
+        "--url",
+        metavar="URL",
+        help="URL of a streamable HTTP or SSE server",
+    )
+    mcp_add_options.add_argument(
+        "--transport",
+        choices=("streamable-http", "sse"),
+        metavar="TRANSPORT",
+        help="Remote transport; inferred from the URL when omitted",
+    )
+    mcp_add_options.add_argument(
+        "--env",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Environment variable for a stdio server (repeatable)",
+    )
+    mcp_add_options.add_argument(
+        "--header",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="HTTP header for a remote server (repeatable)",
+    )
+    mcp_add_options.add_argument(
+        "--cwd",
+        metavar="DIR",
+        help="Working directory for a stdio server",
+    )
+    mcp_add_options.add_argument(
+        "--disabled",
+        action="store_true",
+        help="Register the server without enabling it",
+    )
+    mcp_add_options.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        help="Print help (see more with '--help')",
+    )
+
+    mcp_remove_parser = mcp_subparsers.add_parser(
+        "remove",
+        prog=f"{const.APP_NAME} mcp remove",
+        help="Remove an MCP server registration",
+        description="Remove an external MCP server registration.",
+        help_title=f"{const.APP_DESC} MCP Remove",
+        usage="%(prog)s [OPTIONS] <NAME>",
+        add_help=False,
+    )
+    mcp_remove_arguments = mcp_remove_parser.add_argument_group("Arguments")
+    mcp_remove_arguments.add_argument(
+        "name",
+        metavar="NAME",
+        help="Name of the MCP server",
+    )
+    mcp_remove_options = mcp_remove_parser.add_argument_group("Options")
+    mcp_remove_options.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        help="Print help (see more with '--help')",
+    )
+
+    mcp_enable_parser = mcp_subparsers.add_parser(
+        "enable",
+        prog=f"{const.APP_NAME} mcp enable",
+        help="Enable an MCP server",
+        description="Enable a configured external MCP server.",
+        help_title=f"{const.APP_DESC} MCP Enable",
+        usage="%(prog)s [OPTIONS] <NAME>",
+        add_help=False,
+    )
+    mcp_enable_arguments = mcp_enable_parser.add_argument_group("Arguments")
+    mcp_enable_arguments.add_argument(
+        "name",
+        metavar="NAME",
+        help="Name of the MCP server",
+    )
+    mcp_enable_options = mcp_enable_parser.add_argument_group("Options")
+    mcp_enable_options.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        help="Print help (see more with '--help')",
+    )
+
+    mcp_disable_parser = mcp_subparsers.add_parser(
+        "disable",
+        prog=f"{const.APP_NAME} mcp disable",
+        help="Disable an MCP server",
+        description="Disable a configured external MCP server.",
+        help_title=f"{const.APP_DESC} MCP Disable",
+        usage="%(prog)s [OPTIONS] <NAME>",
+        add_help=False,
+    )
+    mcp_disable_arguments = mcp_disable_parser.add_argument_group("Arguments")
+    mcp_disable_arguments.add_argument(
+        "name",
+        metavar="NAME",
+        help="Name of the MCP server",
+    )
+    mcp_disable_options = mcp_disable_parser.add_argument_group("Options")
+    mcp_disable_options.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        help="Print help (see more with '--help')",
+    )
+
+    mcp_help_parser = mcp_subparsers.add_parser(
+        "help",
+        prog=f"{const.APP_NAME} mcp help",
+        help=HELP_HELP,
+        description="Print help for the MCP command or one of its subcommands.",
+        help_title=f"{const.APP_DESC} MCP Help",
+        usage="%(prog)s [COMMAND]",
+        add_help=False,
+    )
+    mcp_help_arguments = mcp_help_parser.add_argument_group("Arguments")
+    mcp_help_arguments.add_argument(
+        "mcp_help_topic",
+        nargs="?",
+        metavar="COMMAND",
+        help="MCP subcommand to show",
+    )
+    mcp_help_options = mcp_help_parser.add_argument_group("Options")
+    mcp_help_options.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        help="Print help (see more with '--help')",
+    )
+
+    mcp_options = mcp_parser.add_argument_group("Options")
+    mcp_options.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        help="Print help (see more with '--help')",
+    )
+
+    mcp_server_parser = subparsers.add_parser(
         "mcp-server",
         prog=f"{const.APP_NAME} mcp-server",
         help=MCP_SERVER_HELP,
@@ -274,8 +523,8 @@ def create_cli_parser() -> CliArgumentParser:
         usage="%(prog)s [OPTIONS]",
         add_help=False,
     )
-    mcp_options = mcp_parser.add_argument_group("Options")
-    mcp_options.add_argument(
+    mcp_server_options = mcp_server_parser.add_argument_group("Options")
+    mcp_server_options.add_argument(
         "-h",
         "--help",
         action="help",
@@ -315,6 +564,7 @@ def create_cli_parser() -> CliArgumentParser:
     )
 
     root_options = parser.add_argument_group("Options")
+    add_invocation_options(root_options)
     root_options.add_argument(
         "-i",
         "--image",
@@ -356,7 +606,15 @@ def create_cli_parser() -> CliArgumentParser:
         ("helix",): helix_parser,
         ("helix", "upgrade"): upgrade_parser,
         ("doctor",): doctor_parser,
-        ("mcp-server",): mcp_parser,
+        ("mcp",): mcp_parser,
+        ("mcp", "list"): mcp_list_parser,
+        ("mcp", "get"): mcp_get_parser,
+        ("mcp", "add"): mcp_add_parser,
+        ("mcp", "remove"): mcp_remove_parser,
+        ("mcp", "enable"): mcp_enable_parser,
+        ("mcp", "disable"): mcp_disable_parser,
+        ("mcp", "help"): mcp_help_parser,
+        ("mcp-server",): mcp_server_parser,
         ("help",): help_parser,
     }
     for path, command_parser in command_parsers.items():
@@ -405,6 +663,88 @@ def _optional_string(
     if value is None or isinstance(value, str):
         return value
     parser.error(f"invalid {key}: expected string")
+
+
+def _required_string(
+    parser: argparse.ArgumentParser,
+    values: dict[str, object],
+    key: str,
+) -> str:
+    """读取并验证一个非空字符串参数。"""
+    value = _optional_string(parser, values, key)
+    normalized = str(value or "").strip()
+    if normalized:
+        return normalized
+    parser.error(f"invalid {key}: expected non-empty string")
+
+
+def _string_sequence(
+    parser: argparse.ArgumentParser,
+    values: dict[str, object],
+    key: str,
+) -> tuple[str, ...]:
+    """读取并验证一个字符串序列参数。"""
+    value = values.get(key)
+    if not isinstance(value, list):
+        parser.error(f"invalid {key}: expected strings")
+    if not all(isinstance(item, str) for item in value):
+        parser.error(f"invalid {key}: expected strings")
+    return tuple(value)
+
+
+def _key_value_pairs(
+    parser: argparse.ArgumentParser,
+    values: dict[str, object],
+    key: str,
+) -> tuple[tuple[str, str], ...]:
+    """解析可重复的 KEY=VALUE 参数并拒绝重复键。"""
+    items = _string_sequence(parser, values, key)
+    pairs: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    option = f"--{key.rstrip('s')}"
+
+    for item in items:
+        name, separator, value = item.partition("=")
+        name = name.strip()
+        if not separator or not name:
+            parser.error(f"{option} requires KEY=VALUE")
+        if name in seen:
+            parser.error(f"duplicate {option} key: {name}")
+        seen.add(name)
+        pairs.append((name, value))
+
+    return tuple(pairs)
+
+
+def _stdio_command(
+    parser: argparse.ArgumentParser,
+    values: dict[str, object],
+) -> tuple[str, ...]:
+    """读取 stdio 服务命令并移除可选分隔符。"""
+    command = list(_string_sequence(parser, values, "stdio_command"))
+    if command and command[0] == "--":
+        command.pop(0)
+    if command and command[0].strip():
+        return tuple(command)
+    if command:
+        parser.error("stdio command executable must not be empty")
+    return ()
+
+
+def _mcp_transport(
+    parser: argparse.ArgumentParser,
+    values: dict[str, object],
+    url: str,
+) -> McpTransport:
+    """读取远程 MCP transport，缺省时按 URL 推断。"""
+    value = _optional_string(parser, values, "transport")
+    if value == "streamable-http":
+        return "streamable_http"
+    if value == "sse":
+        return "sse"
+    if value is None:
+        return "sse" if url.lower().rstrip("/").endswith("/sse") else "streamable_http"
+    parser.error(f"invalid MCP transport: {value}")
 
 
 def _run_mode(
@@ -512,23 +852,40 @@ def _interactive_command(
     )
 
 
-def parse_cli_command(
-    arguments: typing.Sequence[str] | None = None,
+def _split_mcp_stdio_command(
+    arguments: tuple[str, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...], bool]:
+    """从 MCP add 参数中分离双横线后的 stdio 命令。"""
+    if arguments[:2] != ("mcp", "add"):
+        return arguments, (), False
+    try:
+        separator = arguments.index("--", 2)
+    except ValueError:
+        return arguments, (), False
+    return arguments[:separator], arguments[separator + 1:], True
+
+
+def _parse_cli_command(
+    parser: CliArgumentParser,
+    arguments: typing.Sequence[str],
     *,
     input_stream: typing.TextIO | None = None,
 ) -> ParsedCommand:
     """解析参数并返回强类型命令。"""
-    parser = create_cli_parser()
-    raw_arguments = tuple(
-        sys.argv[1:] if arguments is None else arguments
-    )
+    raw_arguments = tuple(arguments)
     interactive_command = _interactive_command(parser, raw_arguments)
     if interactive_command is not None:
         return interactive_command
 
-    namespace = parser.parse_args(raw_arguments)
+    parser_arguments, stdio_command, stdio_separated = (
+        _split_mcp_stdio_command(raw_arguments)
+    )
+    namespace = parser.parse_args(parser_arguments)
 
     values: dict[str, object] = vars(namespace)
+    values["stdio_separated"] = stdio_separated
+    if stdio_command:
+        values["stdio_command"] = list(stdio_command)
 
     command = _optional_string(parser, values, "command")
     if command is None:
@@ -569,6 +926,83 @@ def parse_cli_command(
         output_format: OutputFormat = "json" if bool(values["json"]) else "text"
         return DoctorCommand(output_format=output_format)
 
+    if command == "mcp":
+        mcp_command = _optional_string(parser, values, "mcp_command")
+        if mcp_command is None:
+            parser.print_command_help(("mcp",))
+
+        if mcp_command == "list":
+            output_format: OutputFormat = (
+                "json" if bool(values["json"]) else "text"
+            )
+            return McpListCommand(output_format=output_format)
+
+        if mcp_command == "get":
+            output_format: OutputFormat = (
+                "json" if bool(values["json"]) else "text"
+            )
+            return McpGetCommand(
+                name=_required_string(parser, values, "name"),
+                output_format=output_format,
+            )
+
+        if mcp_command == "add":
+            name = _required_string(parser, values, "name")
+            raw_url = _optional_string(parser, values, "url")
+            url = str(raw_url or "").strip() or None
+            stdio_command = _stdio_command(parser, values)
+            env = _key_value_pairs(parser, values, "env")
+            headers = _key_value_pairs(parser, values, "header")
+            cwd_value = _optional_string(parser, values, "cwd")
+            cwd = str(cwd_value or "").strip() or None
+            raw_transport = _optional_string(parser, values, "transport")
+
+            if stdio_command and not bool(values["stdio_separated"]):
+                parser.error("stdio commands must follow the '--' separator")
+            if url is not None and stdio_command:
+                parser.error("--url and a stdio command cannot be used together")
+            if url is None and not stdio_command:
+                parser.error("mcp add requires --url or a stdio command after '--'")
+
+            if url is not None:
+                if env or cwd is not None:
+                    parser.error("--env and --cwd are only valid for stdio servers")
+                return McpAddCommand(
+                    name=name,
+                    url=url,
+                    transport=_mcp_transport(parser, values, url),
+                    headers=headers,
+                    enabled=not bool(values["disabled"]),
+                )
+
+            if raw_transport is not None or headers:
+                parser.error(
+                    "--transport and --header are only valid for remote servers"
+                )
+            return McpAddCommand(
+                name=name,
+                stdio_command=stdio_command,
+                env=env,
+                cwd=cwd,
+                enabled=not bool(values["disabled"]),
+            )
+
+        if mcp_command == "remove":
+            return McpRemoveCommand(
+                name=_required_string(parser, values, "name"),
+            )
+
+        if mcp_command in {"enable", "disable"}:
+            return McpSetEnabledCommand(
+                name=_required_string(parser, values, "name"),
+                enabled=mcp_command == "enable",
+            )
+
+        if mcp_command == "help":
+            topic = _optional_string(parser, values, "mcp_help_topic")
+            path = ("mcp",) if topic is None else ("mcp", topic)
+            parser.print_command_help(path)
+
     if command == "mcp-server":
         return McpServerCommand()
 
@@ -576,6 +1010,42 @@ def parse_cli_command(
         parser.print_command_help(_help_topics(parser, values))
 
     parser.error(f"unsupported command: {command}")
+
+
+def parse_cli_invocation(
+    arguments: typing.Sequence[str] | None = None,
+    *,
+    input_stream: typing.TextIO | None = None,
+) -> CliInvocation:
+    """解析命令及其进程级配置覆盖。"""
+    raw_arguments = tuple(
+        sys.argv[1:] if arguments is None else arguments
+    )
+    parser = create_cli_parser()
+    command_arguments, overrides = extract_config_overrides(
+        parser,
+        raw_arguments,
+    )
+    return CliInvocation(
+        command=_parse_cli_command(
+            parser,
+            command_arguments,
+            input_stream=input_stream,
+        ),
+        config_overrides=overrides,
+    )
+
+
+def parse_cli_command(
+    arguments: typing.Sequence[str] | None = None,
+    *,
+    input_stream: typing.TextIO | None = None,
+) -> ParsedCommand:
+    """解析参数并返回强类型命令。"""
+    return parse_cli_invocation(
+        arguments,
+        input_stream=input_stream,
+    ).command
 
 
 if __name__ == '__main__':

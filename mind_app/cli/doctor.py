@@ -5,7 +5,6 @@ import os
 import sys
 import shutil
 import typing
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from engine.errors import ApplicationError
@@ -32,7 +31,11 @@ from mind_app.runtime.mcp.service_runtime import (
     ServiceRuntimeSpec,
     resolve_service_runtime
 )
-from mind_core.config import load_config
+from mind_core.config import (
+    ConfigOverride,
+)
+from mind_core.config_session import ConfigSession
+from mind_core.config_store import ConfigStore
 from mind_core.application_paths import (
     ApplicationMode,
     resolve_application_layout
@@ -60,6 +63,7 @@ class DoctorContext(object):
     supports: Path
     packaged: bool
     runtime_spec: ServiceRuntimeSpec | None
+    config_overrides: tuple[ConfigOverride, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,8 +240,11 @@ def _config_check(context: DoctorContext) -> DoctorCheck:
         )
 
     try:
-        config = load_config(target)
-    except (OSError, tomllib.TOMLDecodeError) as error:
+        config = ConfigSession(
+            ConfigStore(target),
+            context.config_overrides,
+        ).load(create=False)
+    except (TypeError, ValueError) as error:
         return DoctorCheck(
             "config",
             "Config",
@@ -451,6 +458,7 @@ def run_doctor_command(
     command: DoctorCommand,
     *,
     entry_file: str | None,
+    config_overrides: tuple[ConfigOverride, ...] = (),
 ) -> int:
     """解析只读诊断上下文并输出检查结果。"""
     output_mode = resolve_cli_output_mode(command)
@@ -480,6 +488,7 @@ def run_doctor_command(
         supports=layout.supports,
         packaged=layout.packaged,
         runtime_spec=runtime_spec,
+        config_overrides=config_overrides,
     ))
     frontend.application.emit(ApplicationView(
         type="json" if command.output_format == "json" else "doctor",

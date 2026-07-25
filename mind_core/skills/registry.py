@@ -4,11 +4,10 @@
 from pathlib import Path
 from functools import lru_cache
 from mind_core.config import (
-    default_config_path,
-    ensure_config,
-    load_config,
     normalize_config
 )
+from mind_core.config_session import ConfigSession
+from mind_core.config_store import ConfigStore, default_config_path
 from .models import SkillSpec
 from .parser import parse_skill_frontmatter
 from .paths import (
@@ -107,7 +106,9 @@ def _configured_skill_filters(config: dict | None = None) -> dict[str, list[str]
     """读取配置中的 skills 过滤规则。"""
     if config is None:
         try:
-            config = load_config(ensure_config(default_config_path()))
+            config = ConfigSession(
+                ConfigStore(default_config_path())
+            ).load()
         except (OSError, TypeError, ValueError):
             config = {}
 

@@ -8,12 +8,9 @@ from pathlib import (
 )
 from prompt_toolkit.utils import get_cwidth
 from mind_app.paths import mind_config_path
-from mind_core.config import (
-    config_to_preferences,
-    ensure_config,
-    load_config,
-    write_config
-)
+from mind_core.config import config_to_preferences
+from mind_core.config_session import ConfigSession
+from mind_core.config_store import ConfigStore
 from mind_core.provider_config import (
     DEFAULT_REASONING_EFFORT,
     SUPPORTED_REASONING_EFFORTS
@@ -203,22 +200,14 @@ async def save_primary_pref_field(
     if field != "model" and not normalized:
         raise ValueError(f"{field} is empty")
 
-    target       = ensure_config(mind_config_path())
-    config       = load_config(target)
-    model_config = config.setdefault("model", {})
-
-    primary = dict(model_config.get("primary") or {})
-
     if field == "reasoning_effort":
         normalized = normalize_reasoning_effort(normalized)
 
-    primary[field]     = normalized
-    primary["enabled"] = True
-
-    model_config["primary"] = primary
-
-    written = write_config(target, config)
-    return config_to_preferences(written)
+    config = ConfigSession(ConfigStore(mind_config_path())).update({
+        ("model", "primary", field): normalized,
+        ("model", "primary", "enabled"): True,
+    })
+    return config_to_preferences(config)
 
 
 if __name__ == '__main__':

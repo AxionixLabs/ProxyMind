@@ -10,9 +10,8 @@ from engine.observability import (
 )
 from mind_core.config import (
     config_to_preferences,
-    ensure_config,
-    load_config
 )
+from mind_core.config_session import ConfigSession
 from mind_core.provider_config import (
     DEFAULT_PROVIDER_NAME,
     DEFAULT_REASONING_EFFORT,
@@ -92,11 +91,11 @@ class Preferences(object):
 
     def __init__(
         self,
-        config_file: typing.Any
+        config_session: ConfigSession,
     ):
-        """初始化配置文件路径和默认配置。"""
-        self.config_file = config_file
-        self.prefs       = _default_prefs()
+        """初始化配置来源和默认配置。"""
+        self.config_session = config_session
+        self.prefs          = _default_prefs()
 
     def __getstate__(self):
         """提供序列化时的状态导出。"""
@@ -235,8 +234,7 @@ class Preferences(object):
     async def _load_config_pref(self) -> dict[str, typing.Any]:
         """读取本地 config.toml 并转换为运行时偏好结构。"""
         try:
-            target      = ensure_config(self.config_file)
-            preferences = config_to_preferences(load_config(target))
+            preferences = config_to_preferences(self.config_session.load())
             observe("preferences.source.loaded", source="local")
             return preferences
         except (OSError, TypeError, ValueError) as error:
