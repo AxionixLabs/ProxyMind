@@ -302,7 +302,7 @@ async def test_inline_canvas_grows_until_bottom_pane_reaches_terminal_edge() -> 
                     runtime.screen.footer_window
                 ]
                 render_count = runtime.screen.application.render_counter
-                runtime.screen.set_activity_renderable(_block("thinking"))
+                runtime.screen.set_activity_renderable(_block("Thinking"))
                 for _ in range(20):
                     await asyncio.sleep(0)
                     if runtime.screen.application.render_counter > render_count:

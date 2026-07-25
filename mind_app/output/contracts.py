@@ -78,7 +78,7 @@ class OutputStatusPort(ABC):
     @abstractmethod
     async def begin_reply_wait_status(
         self,
-        text: typing.Optional[str] = "thinking",
+        text: typing.Optional[str] = "Thinking",
         *,
         delay_sec: float = 0.28,
         animate_after_sec: float | None = None,

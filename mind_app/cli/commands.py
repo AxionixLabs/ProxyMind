@@ -60,6 +60,7 @@ class ExecCommand(object):
     """描述单次无头执行入口。"""
     prompt: str
     images: tuple[str, ...] = ()
+    model: str | None = None
     mode: RunMode = DEFAULT_RUN_MODE
     access_mode: AccessMode = DEFAULT_ACCESS_MODE
     output_format: OutputFormat = "text"

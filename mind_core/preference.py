@@ -86,6 +86,24 @@ def _normalize_reasoning_effort(value: typing.Any) -> str:
     return text if text in SUPPORTED_REASONING_EFFORTS else DEFAULT_REASONING_EFFORT
 
 
+def apply_primary_model_override(
+    pref_config: dict[str, typing.Any],
+    model: str | None,
+) -> dict[str, typing.Any]:
+    """把临时模型选择合并到偏好配置副本。"""
+    normalized = str(model or "").strip()
+    if not normalized:
+        return pref_config
+
+    result = copy.deepcopy(pref_config)
+    current = result.get("primary")
+    primary = dict(current) if isinstance(current, dict) else {}
+    primary["model"] = normalized
+    primary["enabled"] = True
+    result["primary"] = primary
+    return result
+
+
 class Preferences(object):
     """管理偏好配置的读取、规范化与落盘。"""
 

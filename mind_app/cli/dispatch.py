@@ -5,6 +5,7 @@ import time
 import typing
 import asyncio
 from engine.errors import ApplicationError
+from mind_core.preference import apply_primary_model_override
 from engine.observability import (
     observe,
     observe_exception
@@ -60,11 +61,19 @@ async def run_selected_mode(
                     mind.attach.add_pending_attachments(image)
                 attachments = mind.attach.consume_pending_attachments()
 
+            calling_kwargs: dict[str, typing.Any] = {}
+            if command.model is not None:
+                calling_kwargs["pref_config"] = apply_primary_model_override(
+                    await mind.fresh_pref_config(ttl_sec=0.0),
+                    command.model,
+                )
+
             run_result = await mind.calling(
                 message=command.prompt,
                 mode=command.mode,
                 access_mode=access_mode,
                 attachments=attachments,
+                **calling_kwargs,
             )
             mind.exit_code = run_result.exit_code
         elif isinstance(command, BatchCommand):

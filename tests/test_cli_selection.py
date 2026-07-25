@@ -107,9 +107,12 @@ def test_cli_parser_returns_typed_commands() -> None:
         "--helix",
         "--image",
         "screen.png",
+        "--model",
+        "exec-model",
     ]) == ExecCommand(
         prompt="hello",
         images=("screen.png",),
+        model="exec-model",
         mode="fast",
         access_mode="full",
         output_format="json",
@@ -132,6 +135,54 @@ def test_cli_parser_returns_typed_commands() -> None:
         output_format="json"
     )
     assert parse_cli_command(["mcp-server"]) == McpServerCommand()
+
+
+def test_shared_runtime_options_merge_across_exec_command_boundary() -> None:
+    assert parse_cli_command([
+        "--image",
+        "root.png",
+        "--model",
+        "root-model",
+        "exec",
+        "inspect",
+        "--image",
+        "first.png,second.png",
+        "--model",
+        "exec-model",
+    ]) == ExecCommand(
+        prompt="inspect",
+        images=("root.png", "first.png", "second.png"),
+        model="exec-model",
+    )
+
+
+def test_exec_alias_and_image_before_prompt_are_supported() -> None:
+    assert parse_cli_command([
+        "e",
+        "--image",
+        "screen.png",
+        "inspect",
+    ]) == ExecCommand(
+        prompt="inspect",
+        images=("screen.png",),
+    )
+
+
+def test_shared_runtime_options_propagate_to_resume() -> None:
+    assert parse_cli_command([
+        "--image",
+        "screen.png",
+        "--model",
+        "review-model",
+        "resume",
+        "--last",
+        "continue",
+    ]) == ResumeCommand(
+        prompt="continue",
+        images=("screen.png",),
+        model="review-model",
+        last=True,
+    )
 
 
 def test_cli_help_uses_unified_plain_layout(monkeypatch) -> None:
@@ -324,6 +375,22 @@ def test_exec_reads_prompt_from_standard_input() -> None:
     assert command == ExecCommand(prompt="inspect the workspace")
 
 
+def test_exec_appends_piped_stdin_to_prompt_argument() -> None:
+    command = parse_cli_command(
+        ["exec", "summarize this"],
+        input_stream=StringIO("command output\n"),
+    )
+
+    assert command == ExecCommand(
+        prompt=(
+            "summarize this\n\n"
+            "<stdin>\n"
+            "command output\n"
+            "</stdin>"
+        ),
+    )
+
+
 @pytest.mark.anyio
 async def test_direct_cli_mode_forwards_images_to_initial_request() -> None:
     run_result = RunResult(status="completed", assistant_text="done")
@@ -354,6 +421,42 @@ async def test_direct_cli_mode_forwards_images_to_initial_request() -> None:
         mode="chat",
         access_mode="safe",
         attachments=attachments,
+    )
+
+
+@pytest.mark.anyio
+async def test_direct_cli_mode_applies_temporary_model_override() -> None:
+    run_result = RunResult(status="completed", assistant_text="done")
+    fresh_pref_config = AsyncMock(return_value={
+        "primary": {
+            "model": "configured-model",
+            "enabled": True,
+        },
+    })
+    mind = SimpleNamespace(
+        calling=AsyncMock(return_value=run_result),
+        fresh_pref_config=fresh_pref_config,
+        exit_code=99,
+    )
+
+    result = await run_selected_mode(
+        mind,
+        ExecCommand(prompt="hello", model="exec-model", mode="chat"),
+    )
+
+    assert result is run_result
+    fresh_pref_config.assert_awaited_once_with(ttl_sec=0.0)
+    mind.calling.assert_awaited_once_with(
+        pref_config={
+            "primary": {
+                "model": "exec-model",
+                "enabled": True,
+            },
+        },
+        message="hello",
+        mode="chat",
+        access_mode="safe",
+        attachments=[],
     )
 
 

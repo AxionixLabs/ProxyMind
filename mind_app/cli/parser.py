@@ -35,12 +35,12 @@ from .commands import (
     McpSetEnabledCommand,
     OutputFormat,
     ParsedCommand,
-    ResumeCommand,
+    ResumeCommand
 )
 from .help import CliArgumentParser
 from .invocation import (
     add_invocation_options,
-    extract_invocation_options,
+    extract_invocation_options
 )
 
 EXEC_HELP          = "Run a task non-interactively"
@@ -59,6 +59,7 @@ OPTION_HELP        = "Print help (see a summary with '-h')"
 
 ROOT_COMMANDS = frozenset({
     "exec",
+    "e",
     "resume",
     "completion",
     "batch",
@@ -94,6 +95,7 @@ def create_cli_parser() -> CliArgumentParser:
 
     exec_parser = subparsers.add_parser(
         "exec",
+        aliases=["e"],
         prog=f"{const.APP_NAME} exec",
         help=EXEC_HELP,
         description=(
@@ -139,12 +141,17 @@ def create_cli_parser() -> CliArgumentParser:
     exec_options.add_argument(
         "-i",
         "--image",
-        action="extend",
-        nargs="+",
+        action="append",
         default=[],
         dest="images",
         metavar="FILE",
-        help="Optional image(s) to attach to the initial prompt",
+        help="Image(s) to attach; repeat the option or separate paths with commas",
+    )
+    exec_options.add_argument(
+        "-m",
+        "--model",
+        metavar="MODEL",
+        help="Model the agent should use",
     )
     exec_options.add_argument(
         "-h",
@@ -198,12 +205,11 @@ def create_cli_parser() -> CliArgumentParser:
     resume_options.add_argument(
         "-i",
         "--image",
-        action="extend",
-        nargs="+",
+        action="append",
         default=[],
         dest="images",
         metavar="FILE",
-        help="Optional image(s) to attach to the initial prompt",
+        help="Image(s) to attach; repeat the option or separate paths with commas",
     )
     resume_options.add_argument(
         "-m",
@@ -734,16 +740,16 @@ def create_cli_parser() -> CliArgumentParser:
     root_options.add_argument(
         "-i",
         "--image",
-        action="extend",
-        nargs="+",
+        action="append",
         default=[],
-        dest="images",
+        dest="root_images",
         metavar="FILE",
-        help="Optional image(s) to attach to the initial prompt",
+        help="Image(s) to attach; repeat the option or separate paths with commas",
     )
     root_options.add_argument(
         "-m",
         "--model",
+        dest="root_model",
         metavar="MODEL",
         help="Model the agent should use",
     )
@@ -766,6 +772,7 @@ def create_cli_parser() -> CliArgumentParser:
         CliArgumentParser,
     ] = {
         ("exec",): exec_parser,
+        ("e",): exec_parser,
         ("resume",): resume_parser,
         ("batch",): batch_parser,
         ("agent",): agent_parser,
@@ -805,20 +812,36 @@ def _read_exec_prompt(
     input_stream: typing.TextIO,
 ) -> str:
     """解析位置参数或标准输入中的单次任务内容。"""
-    should_read = prompt == "-" or (
-        prompt is None
-        and not _stream_is_interactive(input_stream)
-    )
+    stdin_is_interactive = _stream_is_interactive(input_stream)
 
-    value = input_stream.read() if should_read else prompt
+    if prompt == "-" or (prompt is None and not stdin_is_interactive):
+        value = input_stream.read()
+        normalized = str(value or "").strip()
+        if normalized:
+            return normalized
+        parser.error(
+            f"{const.APP_NAME} exec requires PROMPT or non-empty stdin"
+        )
 
-    normalized = str(value or "").strip()
-    if normalized:
-        return normalized
+    normalized_prompt = str(prompt or "").strip()
+    if not normalized_prompt:
+        parser.error(
+            f"{const.APP_NAME} exec requires PROMPT or non-empty stdin"
+        )
 
-    parser.error(
-        f"{const.APP_NAME} exec requires PROMPT or non-empty stdin"
-    )
+    if not stdin_is_interactive:
+        try:
+            stdin_text = str(input_stream.read() or "")
+        except (OSError, ValueError):
+            stdin_text = ""
+
+        if stdin_text.strip():
+            combined = f"{normalized_prompt}\n\n<stdin>\n{stdin_text}"
+            if not stdin_text.endswith("\n"):
+                combined += "\n"
+            return combined + "</stdin>"
+
+    return normalized_prompt
 
 
 def _optional_string(
@@ -836,14 +859,45 @@ def _optional_string(
 def _image_paths(
     parser: argparse.ArgumentParser,
     values: dict[str, object],
+    key: str = "images",
 ) -> tuple[str, ...]:
     """读取并验证图片附件路径。"""
-    images = values.get("images")
+    images = values.get(key, [])
     if not isinstance(images, list) or not all(
         isinstance(image, str) for image in images
     ):
         parser.error("invalid image arguments")
-    return tuple(images)
+
+    paths: list[str] = []
+    for image in images:
+        for item in image.split(","):
+            path = item.strip()
+            if not path:
+                parser.error("invalid image arguments")
+            paths.append(path)
+    return tuple(paths)
+
+
+def _merged_image_paths(
+    parser: argparse.ArgumentParser,
+    values: dict[str, object],
+) -> tuple[str, ...]:
+    """按根选项和子命令选项的顺序合并图片路径。"""
+    return (
+        *_image_paths(parser, values, "root_images"),
+        *_image_paths(parser, values),
+    )
+
+
+def _selected_model(
+    parser: argparse.ArgumentParser,
+    values: dict[str, object],
+) -> str | None:
+    """优先返回子命令模型，否则返回根命令模型。"""
+    model = _optional_string(parser, values, "model")
+    if model is None:
+        model = _optional_string(parser, values, "root_model")
+    return str(model or "").strip() or None
 
 
 def _completion_shell(
@@ -1039,7 +1093,7 @@ def _interactive_command(
     arguments: tuple[str, ...],
 ) -> InteractiveCommand | None:
     """解析不含子命令的交互入口参数。"""
-    if arguments and arguments[0] in ROOT_COMMANDS:
+    if _contains_root_command(arguments):
         return None
     if any(argument in {"-h", "--help", "-V", "--version"} for argument in arguments):
         return None
@@ -1051,8 +1105,7 @@ def _interactive_command(
     interactive_parser.add_argument(
         "-i",
         "--image",
-        action="extend",
-        nargs="+",
+        action="append",
         default=[],
         dest="images",
         metavar="FILE",
@@ -1072,6 +1125,32 @@ def _interactive_command(
         images=_image_paths(parser, values),
         model=(model.strip() or None) if model is not None else None,
     )
+
+
+def _contains_root_command(arguments: tuple[str, ...]) -> bool:
+    """判断参数中的首个位置项是否为已注册根命令。"""
+    value_options = {"-i", "--image", "-m", "--model"}
+    value_prefixes = ("--image=", "--model=")
+
+    index = 0
+    while index < len(arguments):
+        token = arguments[index]
+        if token == "--":
+            return False
+        if token in value_options:
+            index += 2
+            continue
+        if token.startswith(value_prefixes) or (
+            token.startswith(("-i", "-m")) and len(token) > 2
+        ):
+            index += 1
+            continue
+        if token.startswith("-"):
+            index += 1
+            continue
+        return token in ROOT_COMMANDS
+
+    return False
 
 
 def _split_mcp_stdio_command(
@@ -1117,9 +1196,11 @@ def _parse_cli_command(
     if command is None:
         return InteractiveCommand(
             prompt=_optional_string(parser, values, "root_prompt"),
+            images=_image_paths(parser, values, "root_images"),
+            model=_selected_model(parser, values),
         )
 
-    if command == "exec":
+    if command in {"exec", "e"}:
         prompt = _read_exec_prompt(
             parser,
             _optional_string(parser, values, "prompt"),
@@ -1130,7 +1211,8 @@ def _parse_cli_command(
 
         return ExecCommand(
             prompt=prompt,
-            images=_image_paths(parser, values),
+            images=_merged_image_paths(parser, values),
+            model=_selected_model(parser, values),
             mode=_run_mode(parser, values),
             access_mode=_access_mode(parser, values),
             output_format=output_format,
@@ -1140,7 +1222,7 @@ def _parse_cli_command(
     if command == "resume":
         session_id = _optional_string(parser, values, "session_id")
         prompt     = _optional_string(parser, values, "resume_prompt")
-        model      = _optional_string(parser, values, "model")
+        model      = _selected_model(parser, values)
         last       = bool(values["last"])
 
         if last and session_id is not None:
@@ -1151,12 +1233,11 @@ def _parse_cli_command(
 
         session_id = str(session_id or "").strip() or None
         prompt     = str(prompt or "").strip() or None
-        model      = str(model or "").strip() or None
 
         return ResumeCommand(
             session_id=session_id,
             prompt=prompt,
-            images=_image_paths(parser, values),
+            images=_merged_image_paths(parser, values),
             model=model,
             last=last,
             all_workspaces=bool(values["all_workspaces"]),

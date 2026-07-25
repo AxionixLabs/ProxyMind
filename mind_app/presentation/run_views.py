@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import re
 import typing
 from mind_core.provider_config import SUPPORTED_PROVIDER_OPTIONS
 from mind_nova.requests.access import normalize_access_mode
@@ -10,6 +11,14 @@ from .models import (
 )
 
 SANDBOX_LABEL = "workspace-write [workdir, /tmp, $TMPDIR]"
+
+
+def _display_workdir(value: typing.Any) -> str:
+    """返回适合终端展示的工作区路径。"""
+    workdir = str(value or "")
+    if re.match(r"^[a-zA-Z]:[\\/]", workdir):
+        return workdir[0].upper() + workdir[1:]
+    return workdir
 
 
 def build_run_started_view(
@@ -38,7 +47,7 @@ def build_run_started_view(
         model=str(model or ""),
         provider=provider,
         approval="never" if access == "full" else "on-request",
-        workdir=str(workdir or ""),
+        workdir=_display_workdir(workdir),
         sandbox=SANDBOX_LABEL,
         reasoning_effort=str(primary.get("reasoning_effort") or "none"),
         reasoning_summaries=str(

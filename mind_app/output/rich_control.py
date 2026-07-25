@@ -155,7 +155,7 @@ class RichOutputControl(OutputPort):
 
     async def begin_tool_status(self) -> None:
         """启动通用工具调用状态。"""
-        await self.begin_custom_tool_status("function calling")
+        await self.begin_custom_tool_status("Function Calling")
 
     async def begin_custom_tool_status(self, text: typing.Optional[str]) -> None:
         """启动自定义工具状态显示。"""
@@ -175,7 +175,7 @@ class RichOutputControl(OutputPort):
 
     async def begin_reply_wait_status(
         self,
-        text: typing.Optional[str] = "thinking",
+        text: typing.Optional[str] = "Thinking",
         *,
         delay_sec: float = 0.28,
         animate_after_sec: float | None = None

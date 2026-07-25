@@ -20,8 +20,8 @@ from mind_app.tui.core.status_frames import (
 @pytest.mark.parametrize(
     ("family", "text"),
     (
-        ("tool", "function calling"),
-        ("wait", "thinking"),
+        ("tool", "Function Calling"),
+        ("wait", "Thinking"),
         ("tool", "运行"),
         ("wait", "处理中"),
     ),
@@ -91,11 +91,11 @@ def test_explicit_spinner_keeps_one_cell_and_rotates() -> None:
 
 
 def test_status_sweep_uses_display_width_and_adaptive_speed() -> None:
-    short_span = _display_span(_character_cells("thinking"))
+    short_span = _display_span(_character_cells("Thinking"))
     long_span = _display_span(_character_cells("waiting for external tool response"))
     wide_span = _display_span(_character_cells("处理中"))
 
-    assert short_span == get_cwidth("thinking")
+    assert short_span == get_cwidth("Thinking")
     assert long_span == get_cwidth("waiting for external tool response")
     assert wide_span == get_cwidth("处理中") == 6
     assert _sweep_duration(short_span) < _sweep_duration(long_span)

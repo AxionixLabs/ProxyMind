@@ -5,10 +5,6 @@ import sys
 import json
 import math
 import typing
-from dataclasses import (
-    dataclass,
-    field
-)
 from mind_app.presentation.contracts import (
     PresentationSink,
     PresentationView
@@ -89,16 +85,22 @@ def _tool_item_type(name: str) -> str:
     return "mcp_tool_call"
 
 
-@dataclass(slots=True)
 class JsonOutputState:
     """保存逐行结构化输出状态。"""
 
-    record_writer: StreamRecordWriter
-    stdout: typing.TextIO
-    next_item: int = 0
-    assistant_buffer: str = ""
-    preferred_item_ids: dict[str, str] = field(default_factory=dict)
-    reserved_item_ids: set[str] = field(default_factory=set)
+    def __init__(
+        self,
+        record_writer: StreamRecordWriter,
+        stdout: typing.TextIO
+    ) -> None:
+        self.record_writer = record_writer
+        self.stdout        = stdout
+
+        self.next_item: int                     = 0
+        self.preferred_item_ids: dict[str, str] = {}
+        self.reserved_item_ids: set[str]        = set()
+
+        self._assistant_parts: list[str] = []
 
     async def open(self) -> None:
         """打开输出记录。"""
@@ -145,19 +147,28 @@ class JsonOutputState:
         self.stdout.flush()
         self.record_writer.write_raw(line + "\n")
 
+    def append_assistant(self, text: str) -> None:
+        """追加一段 assistant 正文。"""
+        if text:
+            self._assistant_parts.append(str(text))
+
     def flush_assistant(self) -> None:
         """把 assistant 增量合并为一个完成项目。"""
-        if not self.assistant_buffer:
+        if not self._assistant_parts:
             return None
+
+        text = "".join(self._assistant_parts)
+
+        self._assistant_parts.clear()
+
         self.emit({
             "type": "item.completed",
             "item": {
                 "id": self.item_id(),
                 "type": "agent_message",
-                "text": self.assistant_buffer,
+                "text": text,
             },
         })
-        self.assistant_buffer = ""
 
 
 class JsonOutputControl(OutputControlPort, OutputStatusPort):
@@ -191,10 +202,10 @@ class JsonOutputControl(OutputControlPort, OutputStatusPort):
 
     async def begin_reply_wait_status(
         self,
-        text: typing.Optional[str] = "thinking",
+        text: typing.Optional[str] = "Thinking",
         *,
         delay_sec: float = 0.28,
-        animate_after_sec: float | None = None,
+        animate_after_sec: float | None = None
     ) -> None:
         """忽略回复等待状态。"""
         _ = text, delay_sec, animate_after_sec
@@ -223,13 +234,15 @@ class JsonOutputControl(OutputControlPort, OutputStatusPort):
         name: str,
         arguments: dict[str, typing.Any],
         *,
-        call_id: typing.Optional[str] = None,
+        call_id: typing.Optional[str] = None
     ) -> None:
         """写出工具项目开始事件。"""
         self.state.flush_assistant()
-        tool = str(name or "tool")
-        args = dict(arguments) if isinstance(arguments, dict) else {}
+
+        tool    = str(name or "tool")
+        args    = dict(arguments) if isinstance(arguments, dict) else {}
         item_id = self.state.item_id(str(call_id or ""))
+
         if tool in {"shell_command", "exec_command", "write_stdin"}:
             item = {
                 "id": item_id,
@@ -270,7 +283,7 @@ class JsonContentSink(ContentSink):
     async def emit(self, output: ContentOutput) -> None:
         """接收正文增量。"""
         if isinstance(output, AssistantTextDelta):
-            self.state.assistant_buffer += output.text
+            self.state.append_assistant(output.text)
             return None
         if isinstance(output, SourcesOutput):
             return None

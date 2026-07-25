@@ -7,6 +7,7 @@ import asyncio
 from mind_app.interaction import PromptContext
 from mind_app.runtime.environment.workspace import fetch_runtime_workspace_root
 from mind_core.skills import configured_skills
+from mind_core.preference import apply_primary_model_override
 from mind_nova.modes import (
     DEFAULT_RUN_MODE,
     RunMode
@@ -62,7 +63,7 @@ class TuiSessionState(object):
         model_override: str | None = None,
     ) -> "TuiSessionState":
         """根据控制器缓存和已预载的运行时上下文创建会话状态。"""
-        pref_config = cls._apply_model_override(
+        pref_config = apply_primary_model_override(
             mind.pref.to_config(),
             model_override,
         )
@@ -73,23 +74,6 @@ class TuiSessionState(object):
             model_override=model_override,
             workspace_label=runtime.context.workspace_label,
         )
-
-    @staticmethod
-    def _apply_model_override(
-        pref_config: dict[str, typing.Any],
-        model: str | None,
-    ) -> dict[str, typing.Any]:
-        """把临时模型选择合并到当前会话配置。"""
-        if model is None:
-            return pref_config
-
-        result = dict(pref_config)
-        current = result.get("primary")
-        primary = dict(current) if isinstance(current, dict) else {}
-        primary["model"] = model
-        primary["enabled"] = True
-        result["primary"] = primary
-        return result
 
     def prompt_context(self) -> PromptContext:
         """生成当前输入区和 footer 使用的上下文。"""
@@ -131,7 +115,7 @@ class TuiSessionState(object):
         else:
             pref_config = await mind.fresh_pref_config(ttl_sec=ttl_sec)
 
-        self.pref_config = self._apply_model_override(
+        self.pref_config = apply_primary_model_override(
             pref_config,
             self.model_override,
         )

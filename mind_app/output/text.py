@@ -5,7 +5,6 @@ import os
 import re
 import sys
 import typing
-from dataclasses import dataclass
 from mind_nova import const
 from mind_app.presentation.contracts import (
     PresentationSink,
@@ -115,15 +114,22 @@ def _tool_output(data: typing.Any) -> str:
     return "\n".join(values)
 
 
-@dataclass(slots=True)
 class TextOutputState:
     """保存文本输出所需的流和记录状态。"""
 
-    record_writer: StreamRecordWriter
-    stdout: typing.TextIO
-    stderr: typing.TextIO
-    color: bool = False
-    assistant_open: bool = False
+    def __init__(
+        self,
+        record_writer: StreamRecordWriter,
+        stdout: typing.TextIO,
+        stderr: typing.TextIO,
+        color: bool = False,
+    ) -> None:
+        self.record_writer = record_writer
+        self.stdout = stdout
+        self.stderr = stderr
+        self.color = color
+        self.assistant_open = False
+        self._assistant_parts: list[str] = []
 
     async def open(self) -> None:
         """打开文本记录。"""
@@ -162,8 +168,22 @@ class TextOutputState:
         _write(self.stdout, plain)
         self.record_writer.write(plain)
 
+    def append_assistant(self, text: str) -> None:
+        """追加一段 assistant 正文。"""
+        if text:
+            self._assistant_parts.append(str(text))
+
+    def flush_assistant(self) -> None:
+        """一次输出当前 assistant 增量。"""
+        if not self._assistant_parts:
+            return None
+        text = "".join(self._assistant_parts)
+        self._assistant_parts.clear()
+        self.assistant(text)
+
     def settle_assistant(self) -> None:
         """结束一段 assistant 正文。"""
+        self.flush_assistant()
         if not self.assistant_open:
             return None
         if self.record_writer.trailing_newlines < 1:
@@ -203,7 +223,7 @@ class TextOutputControl(OutputControlPort, OutputStatusPort):
 
     async def begin_reply_wait_status(
         self,
-        text: typing.Optional[str] = "thinking",
+        text: typing.Optional[str] = "Thinking",
         *,
         delay_sec: float = 0.28,
         animate_after_sec: float | None = None,
@@ -266,7 +286,7 @@ class TextContentSink(ContentSink):
     async def emit(self, output: ContentOutput) -> None:
         """输出正文或忽略来源元数据。"""
         if isinstance(output, AssistantTextDelta):
-            self.state.assistant(output.text)
+            self.state.append_assistant(output.text)
             return None
         if isinstance(output, SourcesOutput):
             return None
@@ -312,6 +332,7 @@ class TextPresentationSink(PresentationSink):
             self.state.process(f"{_tool_label(view.name)} {status}:\n{view.text}\n")
             return None
         if isinstance(view, FailureView):
+            self.state.settle_assistant()
             self.state.process(f"ERROR:\n{view.error}\n")
             return None
         if isinstance(view, LifecycleView):

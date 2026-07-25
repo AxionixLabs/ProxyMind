@@ -122,7 +122,7 @@ class TuiActivity(object):
             key="foreground",
             kind="wait",
             render=lambda phase: _status_block(
-                "thinking",
+                "Thinking",
                 family="wait",
                 phase=phase,
                 elapsed_sec=self._wait_elapsed(),
@@ -310,7 +310,7 @@ class TuiActivity(object):
             kind="wait",
             phase=self._wait_phase,
             render=lambda phase: _status_block(
-                "thinking",
+                "Thinking",
                 family="wait",
                 phase=phase,
                 elapsed_sec=self._wait_elapsed(),

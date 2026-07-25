@@ -86,7 +86,7 @@ async def test_tui_turn_keeps_one_wait_until_runner_finishes() -> None:
         status_text = _block_text(
             FragmentBlock(tuple(runtime.screen._status_fragments()))
         )
-        assert status_text.count("thinking") == 1
+        assert status_text.count("Thinking") == 1
         assert "\n" not in status_text
 
     mind = MindStub()

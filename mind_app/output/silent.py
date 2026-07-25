@@ -68,7 +68,7 @@ class SilentOutputControl(OutputControlPort, OutputStatusPort):
 
     async def begin_reply_wait_status(
         self,
-        text: str | None = "thinking",
+        text: str | None = "Thinking",
         *,
         delay_sec: float = 0.28,
         animate_after_sec: float | None = None,

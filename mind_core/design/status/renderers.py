@@ -447,7 +447,7 @@ class StatusRenderer(StatusSpec):
             "text_dim"  : "bold #5A4B42"
         }
 
-        text = cls.fit_status_text(text, kind="tool", fallback="function calling")
+        text = cls.fit_status_text(text, kind="tool", fallback="Function Calling")
         span = max(1, len(text))
 
         focus = cls._drift_focus(
@@ -544,7 +544,7 @@ class StatusRenderer(StatusSpec):
             "text_dim"  : "bold #465652"
         }
 
-        text = cls.fit_status_text(text, kind="wait", fallback="thinking")
+        text = cls.fit_status_text(text, kind="wait", fallback="Thinking")
 
         out = cls._breathing_status_dot(
             phase,

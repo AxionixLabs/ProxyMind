@@ -22,11 +22,15 @@ from mind_app.output.text import (
     ANSI_CYAN,
     ANSI_MAGENTA,
     ANSI_RESET,
+    TextContentSink,
+    TextOutputControl,
     TextOutputState,
     TextPresentationSink,
 )
+from mind_app.output.content import AssistantTextDelta
 from mind_app.presentation.run_views import build_run_started_view
 from mind_app.runtime.support.calling import run_mode_lifecycle
+from mind_app.stream_events.worked import worked_footer_text
 
 
 class _RecordWriter(object):
@@ -80,6 +84,20 @@ def _run_view():
         access_mode="full",
         turn_id="turn-test",
     )
+
+
+def test_run_view_uppercases_windows_drive_letter_for_display() -> None:
+    view = build_run_started_view(
+        metadata={},
+        message="inspect",
+        mode="chat",
+        pref_config={},
+        workdir="d:/PycharmProjects/ProxyMind",
+        access_mode="safe",
+        turn_id="",
+    )
+
+    assert view.workdir == "D:/PycharmProjects/ProxyMind"
 
 
 @pytest.mark.anyio
@@ -138,6 +156,26 @@ async def test_text_output_strips_external_ansi_and_resets_on_close() -> None:
     assert "\x1b[" not in "".join(record.parts)
 
 
+@pytest.mark.anyio
+async def test_text_output_emits_assistant_text_after_stream_settles() -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    state = TextOutputState(
+        record_writer=_RecordWriter(),
+        stdout=stdout,
+        stderr=stderr,
+    )
+    content = TextContentSink(state)
+    control = TextOutputControl(state)
+
+    await content.emit(AssistantTextDelta("first "))
+    await content.emit(AssistantTextDelta("second"))
+
+    assert stdout.getvalue() == ""
+    await control.settle_stream()
+    assert stdout.getvalue() == "first second\n"
+
+
 def test_only_interactive_rich_commands_request_entry_outro() -> None:
     terminal = SimpleNamespace(isatty=lambda: True)
 
@@ -147,6 +185,13 @@ def test_only_interactive_rich_commands_request_entry_outro() -> None:
         ExecCommand(prompt="hello"),
         output_stream=terminal,
     )
+
+
+def test_elapsed_footer_uses_finished_label() -> None:
+    footer = worked_footer_text(1.25, width=40)
+
+    assert "Finished in 1.2s" in footer
+    assert "Worked for" not in footer
 
 
 def test_non_interactive_rich_mode_disables_entry_outro() -> None:

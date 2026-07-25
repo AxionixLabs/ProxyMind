@@ -17,7 +17,7 @@ WORKED_RULE_CHAR   = "─"
 def worked_footer_text(elapsed_sec: float, *, width: int | None = None) -> str:
     """生成单行耗时页脚文本。"""
     elapsed      = format_elapsed(max(0.0, float(elapsed_sec or 0.0)))
-    label        = f" Worked for {elapsed} "
+    label        = f" Finished in {elapsed} "
     target_width = worked_footer_width(label, terminal_width=width)
     right        = WORKED_RULE_CHAR * max(1, target_width - len(label) - 1)
     return f"{WORKED_RULE_CHAR}{label}{right}"
@@ -37,7 +37,7 @@ def render_worked_footer(
 ) -> StyledBlock:
     """渲染耗时页脚。"""
     line  = worked_footer_text(elapsed_sec, width=width)
-    label = f" Worked for {format_elapsed(max(0.0, float(elapsed_sec or 0.0)))} "
+    label = f" Finished in {format_elapsed(max(0.0, float(elapsed_sec or 0.0)))} "
     start = line.find(label)
 
     if start < 0:
