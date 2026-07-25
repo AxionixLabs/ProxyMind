@@ -5,16 +5,11 @@ function mindHome() {
   return path.resolve(process.env.MIND_HOME || path.join(os.homedir(), ".mind"));
 }
 
-function updateStateDir() {
-  return path.join(mindHome(), "state");
-}
-
-function updateStatePath() {
-  return path.join(updateStateDir(), "update-check.json");
+function versionPath() {
+  return path.join(mindHome(), "version.json");
 }
 
 export {
   mindHome,
-  updateStateDir,
-  updateStatePath
+  versionPath
 };

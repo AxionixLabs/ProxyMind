@@ -375,7 +375,8 @@ async def _run_controller(
             if not helix_linked:
                 _emit_helix_skipped(controller)
 
-        await controller.start_config_service()
+        if output_mode == "tui":
+            await controller.start_config_service()
 
         runtime_workspace_root = await fetch_runtime_workspace_root()
         if runtime_workspace_root is not None:

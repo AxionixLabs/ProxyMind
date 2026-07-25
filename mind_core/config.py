@@ -12,7 +12,6 @@ from mind_core.provider_config import (
     DEFAULT_ROUTE_NAME,
     SUPPORTED_REASONING_EFFORTS
 )
-from mind_core.features import FEATURE_REGISTRY
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,17 +73,13 @@ def _normalize_hosted_tools(raw: typing.Any) -> dict[str, typing.Any]:
     }
 
 
-def _normalize_features(raw: typing.Any) -> dict[str, bool]:
-    """规范化可扩展功能开关。"""
-    return FEATURE_REGISTRY.resolve(raw)
-
-
 def _normalize_model_slot(data: dict[str, typing.Any]) -> dict[str, typing.Any]:
     """把外部模型配置转换为稳定的 primary 槽位。"""
     provider = (
         _as_str(data.get("model_provider"), DEFAULT_PROVIDER_NAME).strip()
         or DEFAULT_PROVIDER_NAME
     )
+
     providers       = _as_dict(data.get("model_providers"))
     provider_config = _as_dict(providers.get(provider))
     model           = _as_str(data.get("model")).strip()
@@ -140,7 +135,6 @@ def _default_effective_config() -> dict[str, typing.Any]:
             "enabled"  : [],
             "disabled" : []
         },
-        "features": {},
         "mcp_servers": {},
         "hosted_tools": {
             "groups": {
@@ -159,7 +153,6 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
     defaults    = _default_effective_config()
     service     = _as_dict(data.get("service"))
     skills      = _as_dict(data.get("skills"))
-    features    = _as_dict(data.get("features"))
     hosted      = _as_dict(data.get("hosted_tools"))
     mcp_servers = _as_dict(data.get("mcp_servers"))
 
@@ -177,7 +170,6 @@ def normalize_config(raw: typing.Any) -> dict[str, typing.Any]:
             "enabled": _as_str_list(skills.get("enabled")),
             "disabled": _as_str_list(skills.get("disabled"))
         },
-        "features": _normalize_features(features),
         "mcp_servers": copy.deepcopy(mcp_servers),
         "hosted_tools": _normalize_hosted_tools(hosted)
     }
@@ -213,12 +205,31 @@ TABLE_CONFIG_PATHS = (
     ("service",),
     ("model_providers",),
     ("skills",),
-    ("features",),
     ("hosted_tools",),
     ("hosted_tools", "groups"),
     ("mcp_servers",),
     ("projects",),
 )
+
+ROOT_CONFIG_FIELDS = frozenset({
+    "model",
+    "model_provider",
+    "model_reasoning_effort",
+    "model_enabled",
+    "model_providers",
+    "project_root_markers",
+    "service",
+    "skills",
+    "hosted_tools",
+    "mcp_servers",
+    "projects",
+})
+
+SERVICE_FIELDS           = frozenset({"domain"})
+SKILL_FIELDS             = frozenset({"enabled", "disabled"})
+HOSTED_TOOL_FIELDS       = frozenset({"groups"})
+HOSTED_TOOL_GROUP_FIELDS = frozenset({"perf_engine", "sandbox_cloud"})
+PROJECT_FIELDS           = frozenset({"trust_level"})
 
 MODEL_PROVIDER_STRING_FIELDS = frozenset({
     "route",
@@ -340,17 +351,13 @@ def validate_config_value(
             raise ConfigValidationError(f"{dotted} must be an array of strings")
         return None
 
-    if len(path) == 2 and path[0] == "features":
-        FEATURE_REGISTRY.require(path[1])
-        if not isinstance(value, bool):
-            raise ConfigValidationError(f"{dotted} must be a boolean")
-        return None
-
     raise ConfigValidationError(f"unknown config key: {dotted or '<empty>'}")
 
 
 def _validate_known_config(config: dict[str, typing.Any]) -> None:
     """校验文件中已经出现的受支持配置字段。"""
+    _validate_known_fields(config, ROOT_CONFIG_FIELDS, "config")
+
     for path in TABLE_CONFIG_PATHS:
         present, value = _raw_path_value(config, path)
         if present and not isinstance(value, dict):
@@ -378,6 +385,11 @@ def _validate_known_config(config: dict[str, typing.Any]) -> None:
                 raise ConfigValidationError(
                     f"model_providers.{name} must be a table"
                 )
+            _validate_known_fields(
+                provider,
+                MODEL_PROVIDER_STRING_FIELDS,
+                f"model_providers.{name}",
+            )
             for field in MODEL_PROVIDER_STRING_FIELDS:
                 if field in provider:
                     validate_config_value(
@@ -400,11 +412,47 @@ def _validate_known_config(config: dict[str, typing.Any]) -> None:
                 raise ConfigValidationError(
                     f"projects.{path} must be a table"
                 )
+            _validate_known_fields(
+                project,
+                PROJECT_FIELDS,
+                f"projects.{path}",
+            )
             trust_level = project.get("trust_level")
             if trust_level not in {"trusted", "untrusted"}:
                 raise ConfigValidationError(
                     f"projects.{path}.trust_level must be trusted or untrusted"
                 )
+
+    nested_fields = (
+        (config.get("service"), SERVICE_FIELDS, "service"),
+        (config.get("skills"), SKILL_FIELDS, "skills"),
+        (config.get("hosted_tools"), HOSTED_TOOL_FIELDS, "hosted_tools"),
+    )
+    for value, allowed, dotted in nested_fields:
+        if isinstance(value, dict):
+            _validate_known_fields(value, allowed, dotted)
+
+    hosted = config.get("hosted_tools")
+    groups = hosted.get("groups") if isinstance(hosted, dict) else None
+    if isinstance(groups, dict):
+        _validate_known_fields(
+            groups,
+            HOSTED_TOOL_GROUP_FIELDS,
+            "hosted_tools.groups",
+        )
+
+
+def _validate_known_fields(
+    value: dict[str, typing.Any],
+    allowed: typing.AbstractSet[str],
+    dotted: str,
+) -> None:
+    """拒绝配置表中未声明的字段。"""
+    unknown = sorted(set(value).difference(allowed))
+    if unknown:
+        raise ConfigValidationError(
+            f"unknown config key: {dotted}.{unknown[0]}"
+        )
 
 
 def _validate_mcp_servers(value: typing.Any) -> None:
@@ -421,6 +469,7 @@ def _validate_mcp_server(name: str, value: typing.Any) -> None:
         raise ConfigValidationError("MCP server name must be non-empty")
     if not isinstance(value, dict):
         raise ConfigValidationError(f"mcp_servers.{name} must be a table")
+
     unknown = sorted(set(value).difference(MCP_FIELDS))
     if unknown:
         raise ConfigValidationError(
@@ -437,8 +486,10 @@ def _validate_effective_mcp_servers(
     for name, value in servers.items():
         if not isinstance(value, dict):
             continue
+
         command = str(value.get("command") or "").strip()
-        url = str(value.get("url") or "").strip()
+        url     = str(value.get("url") or "").strip()
+
         if bool(command) == bool(url):
             raise ConfigValidationError(
                 f"mcp_servers.{name} must define exactly one of command or url"
@@ -482,6 +533,7 @@ def _validate_mcp_field(
         ):
             raise ConfigValidationError(f"{dotted} must be a positive number")
         return None
+
     raise ConfigValidationError(f"unknown MCP server key: {dotted}")
 
 

@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import sys
+import math
 import typing
 import argparse
 from mind_nova import const
@@ -396,6 +397,14 @@ def create_cli_parser() -> CliArgumentParser:
         help="HTTP header for a remote server (repeatable)",
     )
     mcp_add_options.add_argument(
+        "--env-http-header",
+        action="append",
+        default=[],
+        dest="env_http_headers",
+        metavar="HEADER=ENV_VAR",
+        help="HTTP header sourced from an environment variable (repeatable)",
+    )
+    mcp_add_options.add_argument(
         "--cwd",
         metavar="DIR",
         help="Working directory for a stdio server",
@@ -404,6 +413,37 @@ def create_cli_parser() -> CliArgumentParser:
         "--disabled",
         action="store_true",
         help="Register the server without enabling it",
+    )
+    mcp_add_options.add_argument(
+        "--required",
+        action="store_true",
+        help="Fail startup when this server cannot be initialized",
+    )
+    mcp_add_options.add_argument(
+        "--allow",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="Allow a tool name or glob pattern (repeatable)",
+    )
+    mcp_add_options.add_argument(
+        "--deny",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="Deny a tool name or glob pattern (repeatable)",
+    )
+    mcp_add_options.add_argument(
+        "--startup-timeout-sec",
+        type=float,
+        metavar="SECONDS",
+        help="Startup and discovery timeout in seconds",
+    )
+    mcp_add_options.add_argument(
+        "--tool-timeout-sec",
+        type=float,
+        metavar="SECONDS",
+        help="Tool request timeout in seconds",
     )
     mcp_add_options.add_argument(
         "-h",
@@ -698,9 +738,11 @@ def _key_value_pairs(
 ) -> tuple[tuple[str, str], ...]:
     """解析可重复的 KEY=VALUE 参数并拒绝重复键。"""
     items = _string_sequence(parser, values, key)
+
     pairs: list[tuple[str, str]] = []
-    seen: set[str] = set()
-    option = f"--{key.rstrip('s')}"
+    seen: set[str]               = set()
+
+    option = f"--{key.replace('_', '-').removesuffix('s')}"
 
     for item in items:
         name, separator, value = item.partition("=")
@@ -715,6 +757,47 @@ def _key_value_pairs(
     return tuple(pairs)
 
 
+def _patterns(
+    parser: argparse.ArgumentParser,
+    values: dict[str, object],
+    key: str,
+) -> tuple[str, ...]:
+    """读取并去重一个非空匹配模式序列。"""
+    patterns: list[str] = []
+    seen: set[str]      = set()
+
+    for raw in _string_sequence(parser, values, key):
+        pattern = raw.strip()
+        if not pattern:
+            parser.error(f"--{key} pattern must not be empty")
+        if pattern in seen:
+            continue
+        seen.add(pattern)
+        patterns.append(pattern)
+
+    return tuple(patterns)
+
+
+def _positive_number(
+    parser: argparse.ArgumentParser,
+    values: dict[str, object],
+    key: str,
+) -> float | None:
+    """读取一个可选的正有限浮点数。"""
+    value = values.get(key)
+    if value is None:
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        parser.error(f"--{key.replace('_', '-')} must be a positive number")
+
+    return float(value)
+
+
 def _stdio_command(
     parser: argparse.ArgumentParser,
     values: dict[str, object],
@@ -727,6 +810,7 @@ def _stdio_command(
         return tuple(command)
     if command:
         parser.error("stdio command executable must not be empty")
+
     return ()
 
 
@@ -742,6 +826,7 @@ def _run_mode(
         return "fast"
     if value == "xtra":
         return "xtra"
+
     parser.error(f"invalid mode: {value}")
 
 
@@ -755,6 +840,7 @@ def _access_mode(
         return "safe"
     if value == "full":
         return "full"
+
     parser.error(f"invalid access mode: {value}")
 
 
@@ -772,6 +858,7 @@ def _sources(
         if not isinstance(item, str):
             parser.error("invalid sources: expected one or more strings")
         sources.append(item)
+
     return tuple(sources)
 
 
@@ -789,6 +876,7 @@ def _help_topics(
         if not isinstance(item, str):
             parser.error("invalid help topic: expected command path")
         topics.append(item)
+
     return tuple(topics)
 
 
@@ -817,7 +905,9 @@ def _interactive_command(
     )
     interactive_parser.add_argument("-m", "--model", metavar="MODEL")
     interactive_parser.add_argument("prompt", nargs="?")
+
     namespace = interactive_parser.parse_args(arguments)
+
     values: dict[str, object] = vars(namespace)
 
     images = values.get("images")
@@ -827,7 +917,8 @@ def _interactive_command(
         parser.error("invalid image arguments")
 
     prompt = _optional_string(parser, values, "prompt")
-    model = _optional_string(parser, values, "model")
+    model  = _optional_string(parser, values, "model")
+
     return InteractiveCommand(
         prompt=(prompt.strip() or None) if prompt is not None else None,
         images=tuple(images),
@@ -845,6 +936,7 @@ def _split_mcp_stdio_command(
         separator = arguments.index("--", 2)
     except ValueError:
         return arguments, (), False
+
     return arguments[:separator], arguments[separator + 1:], True
 
 
@@ -855,18 +947,21 @@ def _parse_cli_command(
     input_stream: typing.TextIO | None = None,
 ) -> ParsedCommand:
     """解析参数并返回强类型命令。"""
-    raw_arguments = tuple(arguments)
+    raw_arguments       = tuple(arguments)
     interactive_command = _interactive_command(parser, raw_arguments)
+
     if interactive_command is not None:
         return interactive_command
 
     parser_arguments, stdio_command, stdio_separated = (
         _split_mcp_stdio_command(raw_arguments)
     )
+
     namespace = parser.parse_args(parser_arguments)
 
     values: dict[str, object] = vars(namespace)
     values["stdio_separated"] = stdio_separated
+
     if stdio_command:
         values["stdio_command"] = list(stdio_command)
 
@@ -882,7 +977,9 @@ def _parse_cli_command(
             _optional_string(parser, values, "prompt"),
             sys.stdin if input_stream is None else input_stream,
         )
+
         output_format: OutputFormat = "json" if bool(values["json"]) else "text"
+
         return ExecCommand(
             prompt=prompt,
             mode=_run_mode(parser, values),
@@ -930,14 +1027,37 @@ def _parse_cli_command(
             )
 
         if mcp_command == "add":
-            name = _required_string(parser, values, "name")
-            raw_url = _optional_string(parser, values, "url")
-            url = str(raw_url or "").strip() or None
+            name          = _required_string(parser, values, "name")
+            raw_url       = _optional_string(parser, values, "url")
+            url           = str(raw_url or "").strip() or None
             stdio_command = _stdio_command(parser, values)
-            env = _key_value_pairs(parser, values, "env")
-            headers = _key_value_pairs(parser, values, "header")
+            env           = _key_value_pairs(parser, values, "env")
+            headers       = _key_value_pairs(parser, values, "header")
+
+            env_http_headers = _key_value_pairs(
+                parser,
+                values,
+                "env_http_headers",
+            )
+
+            allow = _patterns(parser, values, "allow")
+            deny  = _patterns(parser, values, "deny")
+
+            startup_timeout_sec = _positive_number(
+                parser,
+                values,
+                "startup_timeout_sec",
+            )
+
+            tool_timeout_sec = _positive_number(
+                parser,
+                values,
+                "tool_timeout_sec",
+            )
+
             cwd_value = _optional_string(parser, values, "cwd")
-            cwd = str(cwd_value or "").strip() or None
+            cwd       = str(cwd_value or "").strip() or None
+
             bearer_value = _optional_string(
                 parser,
                 values,
@@ -960,13 +1080,19 @@ def _parse_cli_command(
                     url=url,
                     bearer_token_env_var=bearer_token_env_var,
                     headers=headers,
+                    env_http_headers=env_http_headers,
                     enabled=not bool(values["disabled"]),
+                    required=bool(values["required"]),
+                    allow=allow,
+                    deny=deny,
+                    startup_timeout_sec=startup_timeout_sec,
+                    tool_timeout_sec=tool_timeout_sec,
                 )
 
-            if headers or bearer_token_env_var is not None:
+            if headers or env_http_headers or bearer_token_env_var is not None:
                 parser.error(
-                    "--header and --bearer-token-env-var are only valid "
-                    "for remote servers"
+                    "--header, --env-http-header and --bearer-token-env-var "
+                    "are only valid for remote servers"
                 )
             return McpAddCommand(
                 name=name,
@@ -974,6 +1100,11 @@ def _parse_cli_command(
                 env=env,
                 cwd=cwd,
                 enabled=not bool(values["disabled"]),
+                required=bool(values["required"]),
+                allow=allow,
+                deny=deny,
+                startup_timeout_sec=startup_timeout_sec,
+                tool_timeout_sec=tool_timeout_sec,
             )
 
         if mcp_command == "remove":

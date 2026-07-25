@@ -46,19 +46,38 @@ class ConfigSession(object):
         """返回当前参与解析的配置来源。"""
         return self.resolve(create=create).layers
 
-    def update(
+    def update_user(
         self,
         values: dict[tuple[str, ...], object]
     ) -> dict[str, typing.Any]:
-        """校验并持久化多个配置字段，再返回有效快照。"""
-        self.resolve()
-
+        """完整校验后更新用户级配置并返回有效快照。"""
         validated = {
             path: config_override(path, value).value
             for path, value in values.items()
         }
-        self.store.update(validated)
+        self.store.update(
+            validated,
+            validate=self._validate_user_candidate,
+        )
         return self.load()
+
+    def delete_user(
+        self,
+        paths: typing.Iterable[tuple[str, ...]]
+    ) -> dict[str, typing.Any]:
+        """完整校验后删除用户级配置路径并返回有效快照。"""
+        self.store.delete(
+            paths,
+            validate=self._validate_user_candidate,
+        )
+        return self.load()
+
+    def _validate_user_candidate(
+        self,
+        candidate: dict[str, object],
+    ) -> None:
+        """验证候选用户配置在当前分层上下文中有效。"""
+        self.resolver.resolve_user_config(dict(candidate))
 
 
 if __name__ == "__main__":

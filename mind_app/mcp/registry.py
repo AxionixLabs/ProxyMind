@@ -35,7 +35,7 @@ class McpServerRegistry(object):
         key = self._name(name)
         if key in self._effective_servers():
             raise McpConfigError(f"MCP server already exists: {key}")
-        self.session.update({("mcp_servers", key): dict(value)})
+        self.session.update_user({("mcp_servers", key): dict(value)})
 
     def remove(self, name: str) -> dict[str, typing.Any]:
         """从用户配置删除并返回指定服务。"""
@@ -47,21 +47,7 @@ class McpServerRegistry(object):
                 f"MCP server is not defined in user config: {key}"
             )
 
-        try:
-            self.session.store.delete((("mcp_servers", key),))
-            self.session.load()
-        except (OSError, TypeError, ValueError) as error:
-            try:
-                self.session.store.update({
-                    ("mcp_servers", key): dict(value),
-                })
-            except (OSError, TypeError, ValueError) as restore_error:
-                raise McpConfigError(
-                    f"MCP server removal failed and could not be restored: "
-                    f"{restore_error}"
-                ) from error
-
-            raise McpConfigError(str(error)) from error
+        self.session.delete_user((("mcp_servers", key),))
 
         return dict(value)
 
@@ -72,7 +58,7 @@ class McpServerRegistry(object):
             raise McpConfigError(
                 f"MCP server is not defined in user config: {key}"
             )
-        self.session.update({
+        self.session.update_user({
             ("mcp_servers", key, "enabled"): bool(enabled),
         })
 

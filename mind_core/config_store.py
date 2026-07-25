@@ -6,7 +6,10 @@ import typing
 import tomlkit
 import tempfile
 import contextlib
-from collections.abc import MutableMapping
+from collections.abc import (
+    Callable,
+    MutableMapping
+)
 from pathlib import Path
 from tomlkit.toml_document import TOMLDocument
 from mind_nova import const
@@ -33,8 +36,6 @@ domain = ""
 [skills]
 enabled = []
 disabled = []
-
-[features]
 
 [mcp_servers]
 
@@ -88,21 +89,45 @@ class ConfigStore(object):
         """读取不丢失未知字段的普通配置字典。"""
         return dict(self.read_document(create=create).unwrap())
 
-    def update(self, values: dict[tuple[str, ...], object]) -> dict[str, object]:
-        """更新指定点路径并保留其他格式和字段。"""
+    def update(
+        self,
+        values: dict[tuple[str, ...], object],
+        *,
+        validate: Callable[[dict[str, object]], None] | None = None,
+    ) -> dict[str, object]:
+        """校验候选文档后更新指定点路径并保留其他格式。"""
         document = self.read_document()
+
         for path, value in values.items():
             self._set_path(document, path, value)
-        self._write_text(tomlkit.dumps(document))
-        return dict(document.unwrap())
 
-    def delete(self, paths: typing.Iterable[tuple[str, ...]]) -> dict[str, object]:
-        """删除指定点路径并保留其他格式和字段。"""
+        candidate = dict(document.unwrap())
+
+        if validate is not None:
+            validate(candidate)
+        self._write_text(tomlkit.dumps(document))
+
+        return candidate
+
+    def delete(
+        self,
+        paths: typing.Iterable[tuple[str, ...]],
+        *,
+        validate: Callable[[dict[str, object]], None] | None = None,
+    ) -> dict[str, object]:
+        """校验候选文档后删除指定点路径并保留其他格式。"""
         document = self.read_document()
+
         for path in paths:
             self._delete_path(document, path)
+
+        candidate = dict(document.unwrap())
+
+        if validate is not None:
+            validate(candidate)
         self._write_text(tomlkit.dumps(document))
-        return dict(document.unwrap())
+
+        return candidate
 
     @staticmethod
     def _set_path(

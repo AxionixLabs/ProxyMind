@@ -211,7 +211,7 @@ async def save_primary_pref_field(
     primary = dict(preferences.get("primary") or {})
     primary[field] = normalized
 
-    config = session.update(model_config_field_values(primary, field))
+    config = session.update_user(model_config_field_values(primary, field))
 
     return config_to_preferences(config)
 

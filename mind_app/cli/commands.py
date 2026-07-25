@@ -87,8 +87,14 @@ class McpAddCommand(object):
     stdio_command: tuple[str, ...] = ()
     env: tuple[tuple[str, str], ...] = ()
     headers: tuple[tuple[str, str], ...] = ()
+    env_http_headers: tuple[tuple[str, str], ...] = ()
     cwd: str | None = None
     enabled: bool = True
+    required: bool = False
+    allow: tuple[str, ...] = ()
+    deny: tuple[str, ...] = ()
+    startup_timeout_sec: float | None = None
+    tool_timeout_sec: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

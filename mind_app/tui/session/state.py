@@ -6,6 +6,7 @@ import typing
 import asyncio
 from mind_app.interaction import PromptContext
 from mind_app.runtime.environment.workspace import fetch_runtime_workspace_root
+from mind_core.skills import configured_skills
 from mind_nova.modes import (
     DEFAULT_RUN_MODE,
     RunMode
@@ -172,6 +173,10 @@ class TuiSessionState(object):
 async def preload_tui_prompt_context(mind: "Mind") -> None:
     """在 TUI 首帧前加载输入上下文和后台进程状态。"""
     runtime = require_tui_runtime(mind.frontend.runtime)
+
+    runtime.input_model.set_skills(configured_skills(
+        mind.config_session.load()
+    ))
 
     pref_result, workspace_result, exec_result = await asyncio.gather(
         mind.fresh_pref_config(ttl_sec=0.0),

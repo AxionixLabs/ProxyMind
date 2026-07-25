@@ -8,7 +8,7 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.utils import get_cwidth
-from mind_core.skills import configured_skills
+from mind_core.skills import SkillSpec
 from .paste import iter_paste_placeholders
 
 SKILL_EYE_WIDTH = 16
@@ -21,9 +21,12 @@ class SkillTokenLexer(Lexer):
     def __init__(
         self,
         paste_placeholders: typing.Callable[[], typing.Iterable[str]] | None = None,
+        skills: typing.Callable[[], tuple[SkillSpec, ...]] | None = None
     ) -> None:
         """绑定当前输入模型提供的活动粘贴占位符。"""
         self._paste_placeholders = paste_placeholders or (lambda: ())
+
+        self._skills = skills or (lambda: ())
 
     @staticmethod
     def _line_offsets(text: str) -> list[int]:
@@ -49,6 +52,7 @@ class SkillTokenLexer(Lexer):
             for start, end, style in iter_prompt_tokens(
                 line,
                 paste_placeholders=paste_placeholders,
+                skills=self._skills(),
                 offset=line_offset,
             ):
                 line_start = start - line_offset
@@ -66,14 +70,18 @@ class SkillTokenLexer(Lexer):
         return get_line
 
 
-def known_skill_names() -> frozenset[str]:
+def known_skill_names(
+    skills: typing.Iterable[SkillSpec] = ()
+) -> frozenset[str]:
     """返回当前可用 skill 名称白名单。"""
-    return frozenset(skill.name.lower() for skill in configured_skills())
+    return frozenset(skill.name.lower() for skill in skills)
 
 
-def sorted_known_skill_names() -> tuple[str, ...]:
+def sorted_known_skill_names(
+    skills: typing.Iterable[SkillSpec] = ()
+) -> tuple[str, ...]:
     """返回按长度优先匹配的 skill 名称白名单。"""
-    return tuple(sorted(known_skill_names(), key=len, reverse=True))
+    return tuple(sorted(known_skill_names(skills), key=len, reverse=True))
 
 
 def is_skill_boundary(text: str, index: int) -> bool:
@@ -85,7 +93,12 @@ def is_skill_boundary(text: str, index: int) -> bool:
     return not (char.isalnum() or char in "_-")
 
 
-def match_known_skill_at(text: str, start: int) -> tuple[int, str] | None:
+def match_known_skill_at(
+    text: str,
+    start: int,
+    *,
+    skills: typing.Iterable[SkillSpec] = ()
+) -> tuple[int, str] | None:
     """在指定位置匹配一个白名单 skill token。"""
     if start < 0 or start >= len(text) or text[start] != "$":
         return None
@@ -94,7 +107,7 @@ def match_known_skill_at(text: str, start: int) -> tuple[int, str] | None:
 
     lower_text = text.lower()
 
-    for name in sorted_known_skill_names():
+    for name in sorted_known_skill_names(skills):
         token = f"${name}"
         end   = start + len(token)
 
@@ -104,7 +117,12 @@ def match_known_skill_at(text: str, start: int) -> tuple[int, str] | None:
     return None
 
 
-def iter_known_skill_tokens(text: str, *, offset: int = 0) -> typing.Iterator[tuple[int, int, str]]:
+def iter_known_skill_tokens(
+    text: str,
+    *,
+    skills: typing.Iterable[SkillSpec] = (),
+    offset: int = 0
+) -> typing.Iterator[tuple[int, int, str]]:
     """迭代文本中的白名单 skill token。"""
     cursor: int = 0
 
@@ -113,7 +131,7 @@ def iter_known_skill_tokens(text: str, *, offset: int = 0) -> typing.Iterator[tu
         if start < 0:
             return
 
-        matched = match_known_skill_at(text, start)
+        matched = match_known_skill_at(text, start, skills=skills)
         if matched is None:
             cursor = start + 1
             continue
@@ -147,7 +165,8 @@ def iter_prompt_tokens(
     text: str,
     *,
     paste_placeholders: typing.Iterable[str] = (),
-    offset: int = 0,
+    skills: typing.Iterable[SkillSpec] = (),
+    offset: int = 0
 ) -> typing.Iterator[tuple[int, int, str]]:
     """迭代输入框中需要高亮的文本片段。"""
     tokens = [
@@ -156,7 +175,11 @@ def iter_prompt_tokens(
             paste_placeholders=paste_placeholders,
             offset=offset,
         ),
-        *((start, end, "class:skill-token") for start, end, _ in iter_known_skill_tokens(text, offset=offset))
+        *((start, end, "class:skill-token") for start, end, _ in iter_known_skill_tokens(
+            text,
+            skills=skills,
+            offset=offset,
+        ))
     ]
     if text.startswith("!"):
         tokens.append((offset, offset + 1, "class:shell-escape"))
@@ -169,7 +192,10 @@ def iter_prompt_tokens(
         cursor = end
 
 
-def is_skill_token(text: str) -> bool:
+def is_skill_token(
+    text: str,
+    skills: typing.Iterable[SkillSpec] = ()
+) -> bool:
     """判断当前光标是否位于 skill token。"""
     current_line = text.splitlines()[-1] if text.splitlines() else text
     if not current_line or current_line[-1].isspace():
@@ -185,26 +211,29 @@ def is_skill_token(text: str) -> bool:
     if not query:
         return True
 
-    names = known_skill_names()
+    names = known_skill_names(skills)
     if query in names:
         return False
 
     return any(name.startswith(query) for name in names)
 
 
-def skill_completions(text: str) -> typing.Iterator[Completion]:
+def skill_completions(
+    text: str,
+    skills: typing.Iterable[SkillSpec] = ()
+) -> typing.Iterator[Completion]:
     """生成 skill 补全项。"""
     current_line = text.splitlines()[-1] if text.splitlines() else text
 
     token = current_line.split()[-1] if current_line.split() else current_line
     query = token[1:].strip().lower()
 
-    skills = [
-        skill for skill in configured_skills()
+    matches = [
+        skill for skill in skills
         if not query or skill.name.lower().startswith(query)
     ]
 
-    for skill in skills[:8]:
+    for skill in matches[:8]:
         yield Completion(
             f"${skill.name} ",
             start_position=-len(token),

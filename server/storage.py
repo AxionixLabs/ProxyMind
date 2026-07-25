@@ -2,10 +2,8 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from mind_app.paths import mind_config_path
 from mind_core.config import model_config_values
 from mind_core.config_session import ConfigSession
-from mind_core.config_store import ConfigStore
 from mind_core.provider_config import (
     DEFAULT_PROVIDER_NAME,
     DEFAULT_REASONING_EFFORT,
@@ -20,9 +18,9 @@ DEFAULT_MODEL_TYPE  = "Auto"
 HOSTED_TOOL_GROUPS  = ("perf_engine", "sandbox_cloud")
 
 
-def load_pref() -> dict[str, typing.Any]:
+def load_pref(config_session: ConfigSession) -> dict[str, typing.Any]:
     """读取模型偏好配置。"""
-    config  = _load_mind_config()
+    config  = config_session.load()
     model   = config.get("model") if isinstance(config, dict) else {}
     primary = model.get("primary") if isinstance(model, dict) else {}
 
@@ -34,16 +32,20 @@ def load_pref() -> dict[str, typing.Any]:
     }
 
 
-def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
+def save_pref(
+    config_session: ConfigSession,
+    raw: typing.Any
+) -> dict[str, typing.Any]:
     """保存模型偏好配置。"""
     payload = raw if isinstance(raw, dict) else {}
+
     primary = pref_to_config_slot(
         payload.get("primary"),
         enabled=pref_slot_enabled(payload.get("primary"))
     )
+
     hosted = pref_to_hosted_tools(payload.get("hosted_tools"))
     groups = hosted["groups"]
-
     values = model_config_values(primary)
 
     values.update({
@@ -51,14 +53,16 @@ def save_pref(raw: typing.Any) -> dict[str, typing.Any]:
         for name, value in groups.items()
     })
 
-    _config_session().update(values)
+    config_session.update_user(values)
 
-    return load_pref()
+    return load_pref(config_session)
 
 
-def load_service_config() -> dict[str, typing.Any]:
+def load_service_config(
+    config_session: ConfigSession
+) -> dict[str, typing.Any]:
     """读取远程服务域名配置。"""
-    config  = _load_mind_config()
+    config  = config_session.load()
     service = config.get("service") if isinstance(config, dict) else {}
     domain  = normalize_domain(service.get("domain") if isinstance(service, dict) else "")
 
@@ -68,20 +72,23 @@ def load_service_config() -> dict[str, typing.Any]:
     }
 
 
-def save_service_config(raw: typing.Any) -> dict[str, typing.Any]:
+def save_service_config(
+    config_session: ConfigSession,
+    raw: typing.Any
+) -> dict[str, typing.Any]:
     """保存远程服务域名配置。"""
     payload = raw if isinstance(raw, dict) else {}
-    _config_session().update({
+
+    config_session.update_user({
         ("service", "domain"): normalize_domain(payload.get("domain")),
     })
 
-    return load_service_config()
+    return load_service_config(config_session)
 
 
 def config_slot_to_pref(slot: typing.Any) -> dict[str, typing.Any]:
     """把 config.toml 模型槽位转换为偏好接口结构。"""
-    data = slot if isinstance(slot, dict) else {}
-
+    data       = slot if isinstance(slot, dict) else {}
     is_enabled = bool(data.get("enabled"))
 
     return {
@@ -99,8 +106,7 @@ def config_slot_to_pref(slot: typing.Any) -> dict[str, typing.Any]:
 
 def pref_to_config_slot(slot: typing.Any, *, enabled: bool | None) -> dict[str, typing.Any]:
     """把偏好接口结构转换为 config.toml 模型槽位。"""
-    data = slot if isinstance(slot, dict) else {}
-
+    data       = slot if isinstance(slot, dict) else {}
     is_enabled = bool(enabled)
 
     result: dict[str, typing.Any] = {
@@ -159,16 +165,6 @@ def clean_text(value: typing.Any, default: str = "") -> str:
     """把输入转换为去空白字符串。"""
     text = str(value if value is not None else default).strip()
     return text or default
-
-
-def _load_mind_config() -> dict[str, typing.Any]:
-    """读取并规范化应用配置文件。"""
-    return _config_session().load()
-
-
-def _config_session() -> ConfigSession:
-    """返回本地配置服务使用的配置会话。"""
-    return ConfigSession(ConfigStore(mind_config_path()))
 
 
 if __name__ == "__main__":

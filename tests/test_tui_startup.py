@@ -242,6 +242,11 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
     class MindStub(object):
         src_opera_place = ""
         stop_calls = []
+        config_session = SimpleNamespace(load=lambda: {
+            "mcp_servers": {
+                "docs": {"command": "docs-server"},
+            },
+        })
 
         async def start_external_mcp_anim(self, _snapshot):
             return None
@@ -259,11 +264,6 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
             status.finish()
         return ExternalContext()
 
-    monkeypatch.setattr(
-        external,
-        "load_mcp_servers_file",
-        lambda _root: [{"name": "docs", "enabled": True}],
-    )
     monkeypatch.setattr(external, "open_optional_external_mcp_group", open_group)
 
     mind = MindStub()
@@ -309,6 +309,11 @@ async def test_external_mcp_without_connected_group_can_retry(monkeypatch) -> No
 
     class MindStub(object):
         src_opera_place = ""
+        config_session = SimpleNamespace(load=lambda: {
+            "mcp_servers": {
+                "docs": {"command": "docs-server"},
+            },
+        })
 
         async def start_external_mcp_anim(self, _snapshot):
             return None
@@ -320,11 +325,6 @@ async def test_external_mcp_without_connected_group_can_retry(monkeypatch) -> No
         async def await_cleanup(self, awaitable):
             await awaitable
 
-    monkeypatch.setattr(
-        external,
-        "load_mcp_servers_file",
-        lambda _root: [{"name": "docs", "enabled": True}],
-    )
     monkeypatch.setattr(
         external,
         "open_optional_external_mcp_group",

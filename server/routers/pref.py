@@ -6,6 +6,7 @@ from fastapi import (
     APIRouter, Request
 )
 from fastapi.responses import Response
+from mind_core.config_session import ConfigSession
 from ..page import render_page
 from ..storage import (
     load_pref, save_pref
@@ -21,22 +22,24 @@ async def api_pref_page() -> Response:
 
 
 @pref_router.get(path="/api/pref", include_in_schema=False)
-async def api_pref_load() -> dict[str, typing.Any]:
+async def api_pref_load(request: Request) -> dict[str, typing.Any]:
     """读取偏好配置。"""
+    config_session: ConfigSession = request.app.state.config_session
     return {
         "ok"   : True,
-        "data" : load_pref()
+        "data" : load_pref(config_session)
     }
 
 
 @pref_router.put(path="/api/pref", include_in_schema=False)
 async def api_pref_save(request: Request) -> dict[str, typing.Any]:
     """保存偏好配置。"""
-    payload = await request.json()
+    payload                       = await request.json()
+    config_session: ConfigSession = request.app.state.config_session
 
     return {
         "ok"   : True,
-        "data" : save_pref(payload)
+        "data" : save_pref(config_session, payload)
     }
 
 

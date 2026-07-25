@@ -18,6 +18,7 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
+from mind_core.skills import SkillSpec
 from ..prompting.commands import (
     SlashCommandCompleter,
     parameterized_command_texts
@@ -131,18 +132,25 @@ class TuiInputModel(object):
     PASTE_LINE_THRESHOLD: typing.Final[int] = 20
 
     def __init__(self) -> None:
-        self.paste_store: dict[str, str] = {}
+        self.paste_store: dict[str, str]   = {}
+        self.skills: tuple[SkillSpec, ...] = ()
 
-        self.history      = TuiInputHistory()
-        self.completer    = SlashCommandCompleter()
+        self.history   = TuiInputHistory()
+        self.completer = SlashCommandCompleter(lambda: self.skills)
+
         self.auto_suggest = TuiAutoSuggest()
-        self.lexer        = SkillTokenLexer(self._active_paste_placeholders)
 
-        self.interrupt_handler: typing.Callable[[], None]      = _ignore_action
-        self.exit_handler: typing.Callable[[], None]           = _ignore_action
-        self.can_exit: typing.Callable[[], bool]               = _deny_action
-        self.can_submit_queue: typing.Callable[[], bool]       = _deny_action
-        self.can_rollback_queue: typing.Callable[[], bool]     = _deny_action
+        self.lexer = SkillTokenLexer(
+            self._active_paste_placeholders,
+            lambda: self.skills,
+        )
+
+        self.interrupt_handler: typing.Callable[[], None]  = _ignore_action
+        self.exit_handler: typing.Callable[[], None]       = _ignore_action
+        self.can_exit: typing.Callable[[], bool]           = _deny_action
+        self.can_submit_queue: typing.Callable[[], bool]   = _deny_action
+        self.can_rollback_queue: typing.Callable[[], bool] = _deny_action
+
         self.rollback_queue_handler: typing.Callable[[], bool] = _deny_action
 
         self.shell_mode: bool = False
@@ -198,6 +206,10 @@ class TuiInputModel(object):
     def set_mode(self, mode: str) -> None:
         """更新输入建议使用的运行模式。"""
         self.auto_suggest.set_mode(mode)
+
+    def set_skills(self, skills: typing.Iterable[SkillSpec]) -> None:
+        """更新输入补全和高亮使用的 skill 快照。"""
+        self.skills = tuple(skills)
 
     def set_shell_mode(self, active: bool) -> None:
         """更新输入框的 Shell 前缀模式。"""

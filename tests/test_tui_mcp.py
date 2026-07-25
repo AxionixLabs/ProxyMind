@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from engine.errors import ApplicationError
-from mind_app.mcp.config import McpConfigError, load_mcp_servers_file
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.features import mcp
 
@@ -57,65 +56,6 @@ async def test_mcp_menu_keeps_complete_actions_without_configuration(monkeypatch
     assert "stdio" in runtime.request.options[2].detail
 
 
-def test_invalid_mcp_config_reports_location_without_content(tmp_path) -> None:
-    target = tmp_path / "mcp_servers.json"
-    target.write_text(
-        '{"mcpServers":{"remote":{"transport":"streamable_http" '
-        '"url":"https://example.test/secret"}}}',
-        encoding="utf-8",
-    )
-
-    with pytest.raises(McpConfigError) as captured:
-        load_mcp_servers_file(tmp_path)
-
-    message = str(captured.value)
-    assert "mcp_servers.json" in message
-    assert "line 1, column" in message
-    assert "secret" not in message
-
-
-def test_mcp_config_accepts_standard_type_alias(tmp_path) -> None:
-    target = tmp_path / "mcp_servers.json"
-    target.write_text(
-        '{"mcpServers":{"remote":{"type":"streamable-http",'
-        '"url":"https://example.test/mcp"}}}',
-        encoding="utf-8",
-    )
-
-    servers = load_mcp_servers_file(tmp_path)
-
-    assert servers[0]["transport"] == "streamable_http"
-
-
-def test_mcp_config_accepts_independent_startup_timeout(tmp_path) -> None:
-    target = tmp_path / "mcp_servers.json"
-    target.write_text(
-        '{"mcpServers":{"remote":{"url":"https://example.test/mcp",'
-        '"startup_timeout_sec":24}}}',
-        encoding="utf-8",
-    )
-
-    servers = load_mcp_servers_file(tmp_path)
-
-    assert servers[0]["startup_timeout_sec"] == 24
-
-
-def test_mcp_config_preserves_tool_filter_semantics(tmp_path) -> None:
-    target = tmp_path / "mcp_servers.json"
-    target.write_text(
-        '{"mcpServers":{"remote":{"url":"https://example.test/mcp",'
-        '"tools":{"allow":[],"deny":["delete_*","delete_*"]}}}}',
-        encoding="utf-8",
-    )
-
-    servers = load_mcp_servers_file(tmp_path)
-
-    assert servers[0]["tools"] == {
-        "allow": [],
-        "deny": ["delete_*"],
-    }
-
-
 def test_mcp_status_uses_discovered_and_exposed_tool_counts(tmp_path) -> None:
     tool_meta = {"server": "zentao", "transport": "stdio"}
     group = SimpleNamespace(
@@ -135,6 +75,11 @@ def test_mcp_status_uses_discovered_and_exposed_tool_counts(tmp_path) -> None:
     )
     mind = SimpleNamespace(
         src_opera_place=tmp_path,
+        config_session=SimpleNamespace(load=lambda: {
+            "mcp_servers": {
+                "zentao": {"command": "zentao-server"},
+            },
+        }),
         external_mcp=SimpleNamespace(started=True, group=group),
     )
 

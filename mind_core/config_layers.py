@@ -33,6 +33,20 @@ PROJECT_RESTRICTED_ROOTS = frozenset({
     "service",
 })
 
+MCP_STDIO_FIELDS = frozenset({
+    "command",
+    "args",
+    "env",
+    "cwd"
+})
+
+MCP_REMOTE_FIELDS = frozenset({
+    "url",
+    "bearer_token_env_var",
+    "http_headers",
+    "env_http_headers",
+})
+
 
 @dataclass(frozen=True, slots=True)
 class ConfigLayer(object):
@@ -73,7 +87,15 @@ class ConfigResolver(object):
 
     def resolve(self, *, create: bool = True) -> ConfigResolution:
         """解析配置层并返回有效配置。"""
-        user   = _read_config(self.store, create=create)
+        user = _read_config(self.store, create=create)
+        return self.resolve_user_config(user)
+
+    def resolve_user_config(
+        self,
+        user: dict[str, typing.Any],
+    ) -> ConfigResolution:
+        """基于候选用户配置解析全部配置层。"""
+        validate_config(user)
         merged = copy.deepcopy(user)
 
         layers: list[ConfigLayer] = [ConfigLayer("user", self.store.path)]
@@ -156,16 +178,45 @@ def _read_config(
 def _merge_config(
     base: dict[str, typing.Any],
     overlay: dict[str, typing.Any],
+    path: tuple[str, ...] = (),
 ) -> dict[str, typing.Any]:
     """递归合并配置表，标量和列表由高优先级层替换。"""
     result = copy.deepcopy(base)
+
     for key, value in overlay.items():
-        current = result.get(key)
+        child_path = (*path, key)
+        current    = result.get(key)
+
         if isinstance(current, dict) and isinstance(value, dict):
-            result[key] = _merge_config(current, value)
+            if len(child_path) == 2 and child_path[0] == "mcp_servers":
+                current = _mcp_transport_base(current, value)
+            result[key] = _merge_config(current, value, child_path)
         else:
             result[key] = copy.deepcopy(value)
+
     return result
+
+
+def _mcp_transport_base(
+    base: dict[str, typing.Any],
+    overlay: dict[str, typing.Any],
+) -> dict[str, typing.Any]:
+    """切换 MCP 传输目标时清除另一类传输字段。"""
+    command = str(overlay.get("command") or "").strip()
+    url     = str(overlay.get("url") or "").strip()
+
+    if command and not url:
+        removed = MCP_REMOTE_FIELDS
+    elif url and not command:
+        removed = MCP_STDIO_FIELDS
+    else:
+        return base
+
+    return {
+        key: copy.deepcopy(value)
+        for key, value in base.items()
+        if key not in removed
+    }
 
 
 def _project_root_markers(config: dict[str, typing.Any]) -> tuple[str, ...]:
@@ -173,6 +224,7 @@ def _project_root_markers(config: dict[str, typing.Any]) -> tuple[str, ...]:
     raw = config.get("project_root_markers", [".git"])
     if not isinstance(raw, list):
         return (".git",)
+
     return tuple(
         marker
         for value in raw
@@ -184,9 +236,11 @@ def _find_project_root(workspace: Path, markers: tuple[str, ...]) -> Path:
     """从工作目录向上查找最近的项目根。"""
     if not markers:
         return workspace
+
     for candidate in (workspace, *workspace.parents):
         if any((candidate / marker).exists() for marker in markers):
             return candidate
+
     return workspace
 
 
@@ -198,7 +252,9 @@ def _project_is_trusted(
     projects = user_config.get("projects")
     if not isinstance(projects, dict):
         return False
+
     root_key = _path_key(project_root)
+
     for raw_path, value in projects.items():
         if not isinstance(value, dict):
             continue
@@ -208,6 +264,7 @@ def _project_is_trusted(
             continue
         if _path_key(configured) == root_key:
             return value.get("trust_level") == "trusted"
+
     return False
 
 

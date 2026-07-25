@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 
-import { updateStateDir, updateStatePath } from "./paths.js";
+import { mindHome, versionPath } from "./paths.js";
 import { isVersionGreater } from "./version.js";
 
 const updateCheckIntervalMs = 24 * 60 * 60 * 1000;
@@ -20,7 +20,7 @@ const color = {
 
 function loadUpdateState() {
   try {
-    return JSON.parse(readFileSync(updateStatePath(), "utf8"));
+    return JSON.parse(readFileSync(versionPath(), "utf8"));
   } catch {
     return {};
   }
@@ -28,8 +28,8 @@ function loadUpdateState() {
 
 function saveUpdateState(state) {
   try {
-    mkdirSync(updateStateDir(), { recursive: true });
-    writeFileSync(updateStatePath(), JSON.stringify(state, null, 2), "utf8");
+    mkdirSync(mindHome(), { recursive: true });
+    writeFileSync(versionPath(), JSON.stringify(state, null, 2), "utf8");
   } catch {
     // Update state is best-effort and should never block application startup.
   }
@@ -260,5 +260,5 @@ export {
   maybeCheckPackageUpdate,
   saveUpdateState,
   shouldSkipUpdateCheck,
-  updateStatePath
+  versionPath
 };

@@ -25,6 +25,9 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
     workspace_updates = []
     mind = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
+        config_session=SimpleNamespace(load=lambda: {
+            "skills": {"enabled": [], "disabled": []},
+        }),
         fresh_pref_config=AsyncMock(return_value={
             "primary": {
                 "model": "gpt-test",

@@ -5,7 +5,6 @@ import typing
 import argparse
 from mind_core.config import (
     ConfigOverride,
-    config_override,
     parse_config_override
 )
 from mind_core.config_layers import normalize_profile_name
@@ -13,14 +12,10 @@ from mind_nova import const
 
 CONFIG_FLAGS  = ("-c", "--config")
 PROFILE_FLAGS = ("-p", "--profile")
-ENABLE_FLAG   = "--enable"
-DISABLE_FLAG  = "--disable"
 
 VALUE_OPTIONS = frozenset((
     *CONFIG_FLAGS,
     *PROFILE_FLAGS,
-    ENABLE_FLAG,
-    DISABLE_FLAG,
 ))
 
 
@@ -61,24 +56,6 @@ def add_invocation_options(container: ArgumentContainer) -> None:
             "the base user configuration"
         ),
     )
-    container.add_argument(
-        ENABLE_FLAG,
-        action="append",
-        metavar="FEATURE",
-        help=(
-            "Enable a feature (repeatable). Equivalent to "
-            "`-c features.<name>=true`"
-        ),
-    )
-    container.add_argument(
-        DISABLE_FLAG,
-        action="append",
-        metavar="FEATURE",
-        help=(
-            "Disable a feature (repeatable). Equivalent to "
-            "`-c features.<name>=false`"
-        ),
-    )
 
 
 def extract_invocation_options(
@@ -112,14 +89,6 @@ def extract_invocation_options(
                 if profile is not None:
                     raise ValueError("profile may only be specified once")
                 profile = normalize_profile_name(value)
-            else:
-                feature = value.strip()
-                if not feature:
-                    raise ValueError(f"argument {option}: feature name is empty")
-                overrides.append(config_override(
-                    ("features", feature),
-                    option == ENABLE_FLAG,
-                ))
         except ValueError as error:
             parser.error(str(error))
         index += consumed
@@ -138,7 +107,7 @@ def _option_value(
             return token, None, 1
         return token, arguments[index + 1], 2
 
-    for option in ("--config", "--profile", ENABLE_FLAG, DISABLE_FLAG):
+    for option in ("--config", "--profile"):
         prefix = f"{option}="
         if token.startswith(prefix):
             return option, token[len(prefix):], 1

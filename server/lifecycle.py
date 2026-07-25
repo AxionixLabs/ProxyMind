@@ -9,6 +9,7 @@ import contextlib
 from loguru import logger
 from engine.errors import ApplicationError
 from engine.ports import port_available
+from mind_core.config_session import ConfigSession
 from .app import create_app
 from .endpoints import (
     DEFAULT_CONFIG_SERVICE_HOST,
@@ -22,12 +23,14 @@ class ConfigServiceRuntime(object):
 
     def __init__(
         self,
+        config_session: ConfigSession,
         *,
         host: str = DEFAULT_CONFIG_SERVICE_HOST,
         preferred_port: int = DEFAULT_CONFIG_SERVICE_PORT,
         port_scan_limit: int = 50,
         log_level: str = "INFO"
     ) -> None:
+        self.config_session  = config_session
         self.host            = str(host or DEFAULT_CONFIG_SERVICE_HOST)
         self.preferred_port  = int(preferred_port)
         self.port_scan_limit = max(1, int(port_scan_limit))
@@ -44,25 +47,29 @@ class ConfigServiceRuntime(object):
             return None
 
         self.port = await self._find_available_port()
+
         self.base_url = config_service_endpoints.configure(
             host=self.host,
             port=self.port
         )
 
         config = uvicorn.Config(
-            app=create_app(),
+            app=create_app(self.config_session),
             host=self.host,
             port=self.port,
             log_level="critical",
             access_log=False,
             lifespan="on"
         )
+
         self.server = uvicorn.Server(config)
+
         self.task = asyncio.create_task(
             self.server.serve(),
             name="config service"
         )
         self.task.add_done_callback(self._task_done)
+
         await self.wait_until_ready()
 
     async def stop(self) -> None:

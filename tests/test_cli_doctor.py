@@ -31,7 +31,6 @@ def _doctor_context(tmp_path, *, packaged: bool = False) -> DoctorContext:
         entry_root=tmp_path,
         home=home,
         config_path=home / "config.toml",
-        mcp_config_path=home / "mcp_servers.json",
         supports=tmp_path / "supports",
         packaged=packaged,
         runtime_spec=runtime_spec,
@@ -54,7 +53,10 @@ def test_doctor_does_not_create_missing_home(tmp_path) -> None:
 def test_doctor_fails_for_invalid_mcp_config(tmp_path) -> None:
     context = _doctor_context(tmp_path)
     context.home.mkdir()
-    context.mcp_config_path.write_text("{invalid", encoding="utf-8")
+    context.config_path.write_text(
+        "[mcp_servers.remote]\nenabled = true\n",
+        encoding="utf-8",
+    )
 
     report = diagnose(context)
 
@@ -93,11 +95,6 @@ def test_doctor_entry_skips_runtime_bootstrap(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(doctor, "diagnose", diagnose_mock)
     monkeypatch.setattr(doctor, "mind_home", lambda: tmp_path / ".mind")
     monkeypatch.setattr(doctor, "mind_config_path", lambda: tmp_path / "config.toml")
-    monkeypatch.setattr(
-        doctor,
-        "mind_mcp_servers_path",
-        lambda: tmp_path / "mcp_servers.json",
-    )
     result = doctor.run_doctor_command(
         DoctorCommand(),
         entry_file=str(tmp_path / "mind.py"),

@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import re
 import sys
 import json
 import typing
 import subprocess
 from pathlib import Path
+from urllib.parse import (
+    urlsplit,
+    urlunsplit
+)
 from engine.errors import ApplicationError
 from mind_app.mcp.registry import McpServerRegistry
 from mind_app.paths import mind_config_path
@@ -20,6 +25,8 @@ from mind_app.cli.commands import (
     McpRemoveCommand,
     McpSetEnabledCommand
 )
+
+SENSITIVE_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9_-]{24,}$")
 
 
 def _server_transport(config: dict[str, typing.Any]) -> str:
@@ -42,7 +49,48 @@ def _server_target(config: dict[str, typing.Any]) -> str:
             else []
         )
         return subprocess.list2cmdline([command, *args])
-    return str(config.get("url") or "").strip() or "-"
+    return _redact_url(config.get("url")) or "-"
+
+
+def _redact_url(value: object) -> str:
+    """隐藏 URL 中可能包含凭据的查询串和片段。"""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+
+    parsed = urlsplit(text)
+
+    path = "/".join(
+        "<redacted>" if SENSITIVE_PATH_COMPONENT.fullmatch(part) else part
+        for part in parsed.path.split("/")
+    )
+
+    return urlunsplit((
+        parsed.scheme,
+        parsed.netloc,
+        path,
+        "<redacted>" if parsed.query else "",
+        "<redacted>" if parsed.fragment else "",
+    ))
+
+
+def _public_server_config(
+    config: dict[str, typing.Any],
+) -> dict[str, typing.Any]:
+    """返回适合终端展示的脱敏服务配置。"""
+    public = dict(config)
+
+    if "url" in public:
+        public["url"] = _redact_url(public.get("url"))
+    for field in ("env", "http_headers"):
+        value = public.get(field)
+        if isinstance(value, dict):
+            public[field] = {
+                str(name): "<redacted>"
+                for name in value
+            }
+
+    return public
 
 
 def _write_json(value: object, stream: typing.TextIO) -> None:
@@ -103,20 +151,32 @@ def _add_config(command: McpAddCommand) -> dict[str, typing.Any]:
         if command.cwd is not None:
             config["cwd"] = command.cwd
 
-        return config
+    else:
+        if command.url is None:
+            raise ApplicationError("MCP server target is incomplete")
 
-    if command.url is None:
-        raise ApplicationError("MCP server target is incomplete")
+        config = {
+            "url"     : command.url,
+            "enabled" : command.enabled
+        }
 
-    config = {
-        "url"     : command.url,
-        "enabled" : command.enabled
-    }
+        if command.bearer_token_env_var is not None:
+            config["bearer_token_env_var"] = command.bearer_token_env_var
+        if command.headers:
+            config["http_headers"] = dict(command.headers)
+        if command.env_http_headers:
+            config["env_http_headers"] = dict(command.env_http_headers)
 
-    if command.bearer_token_env_var is not None:
-        config["bearer_token_env_var"] = command.bearer_token_env_var
-    if command.headers:
-        config["http_headers"] = dict(command.headers)
+    if command.required:
+        config["required"] = True
+    if command.allow:
+        config["allow"] = list(command.allow)
+    if command.deny:
+        config["deny"] = list(command.deny)
+    if command.startup_timeout_sec is not None:
+        config["startup_timeout_sec"] = command.startup_timeout_sec
+    if command.tool_timeout_sec is not None:
+        config["tool_timeout_sec"] = command.tool_timeout_sec
 
     return config
 
@@ -145,7 +205,10 @@ def run_mcp_registry_command(
                 _write_json(
                     {
                         "servers": [
-                            {"name": name, "config": config}
+                            {
+                                "name": name,
+                                "config": _public_server_config(config),
+                            }
                             for name, config in servers
                         ]
                     },
@@ -156,7 +219,7 @@ def run_mcp_registry_command(
             return 0
 
         if isinstance(command, McpGetCommand):
-            config = registry.get(command.name)
+            config = _public_server_config(registry.get(command.name))
             value  = {"name": command.name, "config": config}
 
             if command.output_format == "json":

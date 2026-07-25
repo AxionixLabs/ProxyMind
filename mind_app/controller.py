@@ -30,7 +30,6 @@ from .runtime.support.calling import (
 )
 from .runtime.mcp.keepalive import run_keepalive
 from .runtime.mcp.external import ExternalMcpRuntime
-from server import ConfigServiceRuntime
 from .runtime.support.conversation import ConversationState
 from .runtime.mcp.tool_runtime import (
     CompositeToolRuntime,
@@ -59,6 +58,7 @@ SessionResult = typing.TypeVar("SessionResult")
 if typing.TYPE_CHECKING:
     from .modes.result import RunResult
     from .runtime.mcp.service_runtime import ServiceRuntimeContext
+    from server import ConfigServiceRuntime
 
 
 class Mind(object):
@@ -115,7 +115,7 @@ class Mind(object):
 
         self._service_start_lock: asyncio.Lock = asyncio.Lock()
 
-        self.config_service: ConfigServiceRuntime = ConfigServiceRuntime(log_level=self.level)
+        self.config_service: ConfigServiceRuntime | None = None
 
         self.external_mcp: typing.Optional[ExternalMcpRuntime] = None
 
@@ -443,12 +443,25 @@ class Mind(object):
 
     async def start_config_service(self) -> None:
         """启动应用生命周期内的配置服务。"""
+        if self.config_service is None:
+            from server import ConfigServiceRuntime
+
+            self.config_service = ConfigServiceRuntime(
+                self.config_session,
+                log_level=self.level,
+            )
         await self.config_service.start()
         observe("config_service.started")
 
     async def stop_config_service(self) -> None:
         """停止应用生命周期内的配置服务。"""
-        await self.config_service.stop()
+        config_service      = self.config_service
+        self.config_service = None
+
+        if config_service is None:
+            return None
+
+        await config_service.stop()
         observe("config_service.stopped")
 
     async def refresh_pref_if_stale(self, *, ttl_sec: typing.Optional[float] = None) -> None:

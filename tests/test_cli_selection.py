@@ -14,6 +14,7 @@ from mind_app.cli import frontend as cli_frontend
 from mind_app.cli.commands import (
     AgentListenCommand,
     BatchCommand,
+    CliInvocation,
     DoctorCommand,
     ExecCommand,
     HelixUpgradeCommand,
@@ -26,6 +27,7 @@ from mind_app.cli.frontend import (
 )
 from mind_app.cli.help import (
     ANSI_ACCENT,
+    ANSI_HEADER,
     ANSI_MUTED,
 )
 from mind_app.cli.parser import (
@@ -111,19 +113,17 @@ def test_cli_help_uses_unified_plain_layout(monkeypatch) -> None:
 
     assert help_text.startswith(
         "Mind CLI\n\n"
-        "不指定子命令时进入交互式界面。\n\n"
-        "Usage: mind [OPTIONS]\n"
+        "If no subcommand is specified, options will be forwarded to the "
+        "interactive CLI.\n\n"
+        "Usage: mind [OPTIONS] [PROMPT]\n"
         "       mind [OPTIONS] <COMMAND> [ARGS]\n"
     )
     assert "\nCommands:\n  exec" in help_text
-    assert "\n  help            显示此消息或指定子命令的帮助" in help_text
+    assert "\n  help            Print this message or the help" in help_text
     assert "\n    listen" not in help_text
     assert "\n    upgrade" not in help_text
-    assert "\nOptions:\n  -h, --help" in help_text
-    assert (
-        "\n          显示帮助信息\n\n"
-        "  -V, --version\n"
-    ) in help_text
+    assert "\nOptions:\n  -c, --config <key=value>" in help_text
+    assert "\n          Print version\n" in help_text
     assert "-V, --version" in help_text
     assert "positional arguments" not in help_text
     assert "optional arguments" not in help_text
@@ -142,14 +142,14 @@ def test_cli_help_separates_argument_and_option_blocks(
     assert exit_info.value.code == 0
     exec_help = capsys.readouterr().out
     assert (
-        "  PROMPT\n"
+        "  [PROMPT]\n"
         "          任务内容；使用 '-' 或管道时从标准输入读取\n\n"
         "Options:"
     ) in exec_help
     assert (
-        "  --mode MODE\n"
+        "  --mode <MODE>\n"
         "          运行模式，默认 xtra\n\n"
-        "  --access ACCESS_MODE\n"
+        "  --access <ACCESS_MODE>\n"
     ) in exec_help
 
 
@@ -160,9 +160,9 @@ def test_cli_help_uses_accent_and_muted_terminal_colors(monkeypatch) -> None:
     help_text = create_cli_parser().format_help()
 
     assert f"{ANSI_ACCENT}Mind CLI" in help_text
-    assert f"{ANSI_ACCENT}Commands:" in help_text
-    assert f"{ANSI_MUTED}不指定子命令时进入交互式界面。" in help_text
-    assert f"{ANSI_MUTED}执行单次非交互任务" in help_text
+    assert f"{ANSI_HEADER}Commands:" in help_text
+    assert f"{ANSI_MUTED}If no subcommand is specified" in help_text
+    assert f"{ANSI_MUTED}Run a task non-interactively" in help_text
 
 
 def test_no_color_overrides_forced_help_color(monkeypatch) -> None:
@@ -255,11 +255,12 @@ def test_help_command_rejects_unknown_path(monkeypatch, capsys) -> None:
 
 def test_process_entry_parses_command_once(monkeypatch, tmp_path) -> None:
     command = ExecCommand(prompt="inspect")
-    parse = Mock(return_value=command)
+    invocation = CliInvocation(command=command)
+    parse = Mock(return_value=invocation)
     route = AsyncMock(return_value=0)
     outro = Mock()
 
-    monkeypatch.setattr(entry, "parse_cli_command", parse)
+    monkeypatch.setattr(entry, "parse_cli_invocation", parse)
     monkeypatch.setattr(entry, "main", route)
     monkeypatch.setattr(entry, "emit_entry_outro", outro)
 
@@ -273,6 +274,8 @@ def test_process_entry_parses_command_once(monkeypatch, tmp_path) -> None:
     route.assert_awaited_once_with(
         command,
         entry_file=str(tmp_path / "mind.py"),
+        config_overrides=(),
+        config_profile=None,
     )
     outro.assert_called_once_with(command)
 
@@ -416,8 +419,7 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
     monkeypatch.setattr(bootstrap, "resolve_application_layout", lambda **_kwargs: app_layout)
     monkeypatch.setattr(bootstrap, "ensure_mind_home", lambda: tmp_path)
     monkeypatch.setattr(bootstrap, "mind_reports_dir", lambda: tmp_path / "reports")
-    monkeypatch.setattr(bootstrap, "mind_config_path", lambda: tmp_path / "config.json")
-    monkeypatch.setattr(bootstrap, "ensure_mcp_servers_file", lambda: None)
+    monkeypatch.setattr(bootstrap, "mind_config_path", lambda: tmp_path / "config.toml")
     monkeypatch.setattr(bootstrap, "Preferences", lambda _path: object())
     monkeypatch.setattr(bootstrap, "resolve_service_runtime", lambda **_kwargs: runtime_spec)
     monkeypatch.setattr(bootstrap, "route_shell_tools", lambda _supports: None)
@@ -427,6 +429,8 @@ async def test_upgrade_entry_downloads_and_exits_without_opening_runtime(
         command,
         str(tmp_path / "mind.py"),
         SimpleNamespace(),
+        (),
+        None,
     )
 
     assert result == 0

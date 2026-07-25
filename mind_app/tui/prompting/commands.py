@@ -3,6 +3,7 @@
 
 import typing
 from dataclasses import dataclass
+from mind_core.skills import SkillSpec
 from prompt_toolkit.completion import (
     Completer,
     Completion
@@ -18,7 +19,6 @@ StreamCommandPolicy = typing.Literal["reject", "background_barrier", "interrupt"
 @dataclass(frozen=True, slots=True)
 class TuiCommandSpec(object):
     """描述一项 TUI 命令的输入和别名信息。"""
-
     key: str
     command: str
     completion_meta: str
@@ -38,6 +38,7 @@ class TuiCommandSpec(object):
     def insertion_text(self) -> str:
         """返回补全选中后写入输入框的文本。"""
         return self.completion_text or self.command
+
 
 TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     TuiCommandSpec(
@@ -120,10 +121,12 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
 _COMMAND_BY_KEY: typing.Final[dict[str, TuiCommandSpec]] = {
     command.key: command for command in TUI_COMMANDS
 }
+
 _COMMAND_NAMES_BY_KEY: typing.Final[dict[str, frozenset[str]]] = {
     key: frozenset(command.names)
     for key, command in _COMMAND_BY_KEY.items()
 }
+
 _COMMAND_BY_NAME: typing.Final[dict[str, TuiCommandSpec]] = {
     name.casefold(): command
     for command in TUI_COMMANDS
@@ -229,15 +232,18 @@ def stream_command_label(value: str) -> str:
     normalized = str(value or "").strip().casefold()
     if not normalized:
         return "command"
+
     parts = normalized.split()
     if parts[0] in command_names("mcp") and len(parts) >= 2:
         return f"{parts[0]} {parts[1]}"
+
     return parts[0]
 
 
 def _completion_items() -> tuple[dict[str, str], ...]:
     """生成补全器使用的有序命令条目。"""
     items: list[dict[str, str]] = []
+
     for command in TUI_COMMANDS:
         item = {
             "text"    : command.insertion_text,
@@ -271,13 +277,20 @@ class SlashCommandCompleter(Completer):
         command.command for command in TUI_COMMANDS
     )
 
+    def __init__(
+        self,
+        skills: typing.Callable[[], tuple[SkillSpec, ...]] | None = None,
+    ) -> None:
+        self._skills = skills or (lambda: ())
+
     def get_completions(self, document, complete_event):
         """根据当前输入内容生成补全项。"""
         text     = document.text_before_cursor
         stripped = text.lstrip()
+        skills   = self._skills()
 
-        if is_skill_token(text):
-            yield from skill_completions(text)
+        if is_skill_token(text, skills):
+            yield from skill_completions(text, skills)
             return
 
         if not stripped.startswith("/"):

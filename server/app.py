@@ -3,14 +3,17 @@
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from mind_core.config_session import ConfigSession
 from .page import web_dir
 from .routers import register_routers
 
 
-def create_app() -> FastAPI:
+def create_app(config_session: ConfigSession) -> FastAPI:
     """创建配置服务应用。"""
     app = FastAPI()
     app.state.agent_example = None
+    app.state.config_session = config_session
+
     register_routers(app)
 
     static_dir = web_dir() / "static"
