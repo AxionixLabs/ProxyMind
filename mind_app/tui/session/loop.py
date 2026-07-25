@@ -102,11 +102,14 @@ async def run_tui_loop(
 
             prompt_text = prompt_task.result()
 
-            action = (
-                DispatchAction.MODEL_TURN
-                if not prompt_text.strip() and runtime.has_pending_attachments
-                else await dispatcher.dispatch(prompt_text)
-            )
+            try:
+                action = (
+                    DispatchAction.MODEL_TURN
+                    if not prompt_text.strip() and runtime.has_pending_attachments
+                    else await dispatcher.dispatch(prompt_text)
+                )
+            finally:
+                runtime.discard_pending_submission()
 
         if action is DispatchAction.EXIT:
             break

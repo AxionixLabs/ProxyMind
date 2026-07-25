@@ -37,7 +37,14 @@ class TuiDocument(object):
         self.active_block: FragmentBlock | None  = None
         self.active_kind: TuiBlockKind | None    = None
         self.active_gap_before: bool             = False
-        self._active_tail: list[TranscriptBlock] = []
+
+        self._active_tail: list[TranscriptBlock]       = []
+        self._pending_submission: FragmentBlock | None = None
+
+    @property
+    def has_pending_submission(self) -> bool:
+        """返回是否存在尚未决定展示方式的用户输入。"""
+        return self._pending_submission is not None
 
     @property
     def visible_prefix_count(self) -> int:
@@ -69,6 +76,64 @@ class TuiDocument(object):
     def visible_blocks(self) -> list[TranscriptBlock]:
         """返回尚未进入滚屏区且未被用户清除的稳定正文块。"""
         return self.blocks[self.visible_prefix_count:]
+
+    @staticmethod
+    def _trim_block_fragments(parts: FormattedText) -> FormattedText:
+        """移除正文块外侧换行并保留块内原始结构。"""
+        out = [(style, text) for style, text in parts if text]
+        while out:
+            style, text = out[0]
+            trimmed = text.lstrip("\r\n")
+            if trimmed:
+                out[0] = style, trimmed
+                break
+            out.pop(0)
+        while out:
+            style, text = out[-1]
+            trimmed = text.rstrip("\r\n")
+            if trimmed:
+                out[-1] = style, trimmed
+                break
+            out.pop()
+        return out
+
+    def _reset_active(self) -> None:
+        """重置当前动态正文状态。"""
+        self.active_block      = None
+        self.active_kind       = None
+        self.active_gap_before = False
+
+    def _render_blocks(self, blocks: list[TranscriptBlock]) -> FormattedText:
+        """统一渲染一组正文块及其前置间距。"""
+        out: FormattedText = []
+        for block in blocks:
+            parts = self._trim_block_fragments(list(block.block.fragments))
+            if not parts:
+                continue
+            if out:
+                out.append(("", "\n\n" if block.gap_before else "\n"))
+            out.extend(parts)
+        return out
+
+    def stage_submission(self, block: FragmentBlock) -> None:
+        """暂存等待命令分派决定展示方式的用户输入。"""
+        if self._pending_submission is not None:
+            raise RuntimeError("cannot stage multiple TUI submissions")
+        self._pending_submission = block
+
+    def commit_submission(self) -> FragmentBlock | None:
+        """把暂存用户输入提交为稳定正文块。"""
+        block = self._pending_submission
+        self._pending_submission = None
+        if block is not None:
+            self.append_block(block, kind="user")
+        return block
+
+    def discard_submission(self) -> bool:
+        """丢弃由临时交互表面接管的暂存用户输入。"""
+        changed = self._pending_submission is not None
+        self._pending_submission = None
+        return changed
 
     def append_block(self, block: FragmentBlock, *, kind: TuiBlockKind) -> bool:
         """追加一个稳定正文块并统一保留块间空行。"""
@@ -126,12 +191,6 @@ class TuiDocument(object):
         self._active_tail.clear()
         self._reset_active()
 
-    def _reset_active(self) -> None:
-        """重置当前动态正文状态。"""
-        self.active_block      = None
-        self.active_kind       = None
-        self.active_gap_before = False
-
     def fragments(self, *, width: int) -> FormattedText:
         """生成统一处理块边界后的正文片段。"""
         _ = width
@@ -180,38 +239,6 @@ class TuiDocument(object):
             ))
         blocks.extend(self._active_tail)
         return self._render_blocks(blocks)
-
-    def _render_blocks(self, blocks: list[TranscriptBlock]) -> FormattedText:
-        """统一渲染一组正文块及其前置间距。"""
-        out: FormattedText = []
-        for block in blocks:
-            parts = self._trim_block_fragments(list(block.block.fragments))
-            if not parts:
-                continue
-            if out:
-                out.append(("", "\n\n" if block.gap_before else "\n"))
-            out.extend(parts)
-        return out
-
-    @staticmethod
-    def _trim_block_fragments(parts: FormattedText) -> FormattedText:
-        """移除正文块外侧换行并保留块内原始结构。"""
-        out = [(style, text) for style, text in parts if text]
-        while out:
-            style, text = out[0]
-            trimmed = text.lstrip("\r\n")
-            if trimmed:
-                out[0] = style, trimmed
-                break
-            out.pop(0)
-        while out:
-            style, text = out[-1]
-            trimmed = text.rstrip("\r\n")
-            if trimmed:
-                out[-1] = style, trimmed
-                break
-            out.pop()
-        return out
 
 
 if __name__ == '__main__':

@@ -60,17 +60,27 @@ class TuiProcessViewer(object):
 
     async def request(self, request: ProcessViewerRequest) -> typing.Any:
         """显示进程内容并等待用户动作。"""
-        future = asyncio.get_running_loop().create_future()
-
-        self.state = ProcessViewerState(request=request, future=future)
-        self.focus_viewer()
-        self.invalidate()
+        future = self.begin(request)
 
         try:
             return await future
         except BaseException:
             self.settle()
             raise
+
+    def begin(self, request: ProcessViewerRequest) -> asyncio.Future[typing.Any]:
+        """同步激活进程查看器并返回等待结果。"""
+        if self.state is not None:
+            raise RuntimeError("process viewer is already active")
+
+        future = asyncio.get_running_loop().create_future()
+
+        self.state = ProcessViewerState(request=request, future=future)
+
+        self.focus_viewer()
+        self.invalidate()
+
+        return future
 
     def resolve(self, value: typing.Any) -> None:
         """提交当前查看动作并解除等待。"""

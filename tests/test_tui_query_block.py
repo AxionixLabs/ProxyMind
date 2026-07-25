@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 import pytest
 
 from mind_app.interaction.contracts import PromptContext
+from mind_app.tui.core.models import MenuOption, MenuRequest
 from mind_app.tui.core.runtime import TuiRuntime
 from mind_app.tui.core.styles import query_block
 
@@ -101,6 +103,18 @@ def test_empty_message_without_attachments_is_rejected_with_hint() -> None:
     ) == "• Enter a message or attach a file before sending."
 
 
+def test_surface_command_blanks_footer_as_soon_as_it_is_submitted() -> None:
+    runtime = TuiRuntime()
+    runtime.screen.input.buffer.text = "/ps"
+
+    runtime.screen.input.buffer.validate_and_handle()
+
+    assert runtime.submissions.surface_submission_pending
+    assert runtime.screen._footer_visible()
+    assert runtime.screen._footer_fragments() == []
+    assert not runtime.document.blocks
+
+
 @pytest.mark.anyio
 async def test_empty_message_with_attachments_skips_empty_query_block() -> None:
     runtime = TuiRuntime()
@@ -111,3 +125,55 @@ async def test_empty_message_with_attachments_skips_empty_query_block() -> None:
 
     assert value == ""
     assert not runtime.document.blocks
+
+
+@pytest.mark.anyio
+async def test_surface_command_is_staged_without_showing_default_footer() -> None:
+    runtime = TuiRuntime()
+    runtime.submissions.message_queue.put_nowait("/ps")
+
+    value = await runtime.read_message(PromptContext(mode="chat", model="test"))
+
+    assert value == "/ps"
+    assert runtime.document.has_pending_submission
+    assert not runtime.document.blocks
+    assert runtime.screen._footer_visible()
+    assert runtime.screen._footer_fragments() == []
+    assert runtime.screen._footer_height() == runtime.screen.FOOTER_GAP_HEIGHT + 1
+
+
+@pytest.mark.anyio
+async def test_menu_discards_staged_command_before_activating() -> None:
+    runtime = TuiRuntime()
+    runtime.submissions.message_queue.put_nowait("/mcp")
+    await runtime.read_message(PromptContext(mode="chat", model="test"))
+
+    task = asyncio.create_task(runtime.select_menu(
+        MenuRequest(
+            title="External MCP",
+            options=(MenuOption(value="status", label="status"),),
+        )
+    ))
+    await asyncio.sleep(0)
+
+    assert not runtime.document.has_pending_submission
+    assert not runtime.document.blocks
+    assert runtime.screen.bottom_pane.active_surface == "menu"
+    assert not runtime.screen._footer_visible()
+
+    runtime.finish_menu("status")
+    assert await task == "status"
+
+
+@pytest.mark.anyio
+async def test_mcp_action_keeps_normal_transcript_submission() -> None:
+    runtime = TuiRuntime()
+    runtime.submissions.message_queue.put_nowait("/mcp status")
+
+    await runtime.read_message(PromptContext(mode="chat", model="test"))
+
+    assert not runtime.document.has_pending_submission
+    assert runtime.document.blocks[-1].kind == "user"
+    assert "".join(
+        text for _style, text in runtime.document.blocks[-1].block.fragments
+    ) == "/mcp status"

@@ -18,6 +18,7 @@ from .styles import query_block
 from ..prompting.commands import (
     StreamCommandPolicy,
     is_unrecognized_slash_command,
+    submission_uses_transient_surface,
     stream_command_label,
     stream_command_policy,
     unrecognized_slash_command_message
@@ -86,6 +87,7 @@ class TuiSubmissionFlow(object):
         self.placeholder_text = self.input_model.new_placeholder(mode)
 
         self.queued_submission_text: str | None = None
+        self.surface_submission_pending: bool   = False
 
         self._mode = mode
 
@@ -143,8 +145,10 @@ class TuiSubmissionFlow(object):
         """拒绝无效输入并显示一项输入提示。"""
         self.input_model.rollback_submission_history(editable_text)
         self.input_model.clear_submission_state()
+
         buffer.text = ""
         buffer.cursor_position = 0
+
         self._append_notice(FragmentBlock((
             ("class:input.notice.hint", "• "),
             ("class:input.notice.hint", message),
@@ -159,6 +163,7 @@ class TuiSubmissionFlow(object):
             asyncio.get_running_loop()
         except RuntimeError:
             return None
+
         self._exit_expiry_task = asyncio.create_task(
             self._expire_exit_confirmation(),
             name="tui exit confirmation expiry",
@@ -197,6 +202,7 @@ class TuiSubmissionFlow(object):
         label = stream_command_label(submission.value)
 
         self.input_model.rollback_submission_history(submission.editable_text)
+
         self._append_notice(FragmentBlock((
             ("class:input.notice.marker", "■"),
             ("class:input.notice", " '"),
@@ -219,6 +225,7 @@ class TuiSubmissionFlow(object):
         visible_text: str | None = None
     ) -> None:
         """把外部提交的文本写入消息队列。"""
+        self.surface_submission_pending = submission_uses_transient_surface(value)
         self.message_queue.put_nowait(TuiSubmission(
             value=value,
             editable_text=value if visible_text is None else visible_text,
@@ -227,7 +234,12 @@ class TuiSubmissionFlow(object):
 
     def finish_input(self) -> None:
         """通知等待方主输入应用已经停止。"""
+        self.surface_submission_pending = False
         self.message_queue.put_nowait(_INPUT_CLOSED)
+
+    def clear_surface_submission_pending(self) -> None:
+        """清除等待临时交互表面接管的提交标记。"""
+        self.surface_submission_pending = False
 
     def rollback_queued_input(self) -> bool:
         """撤回最近一条待提交消息并恢复到主输入框。"""
@@ -414,6 +426,9 @@ class TuiSubmissionFlow(object):
             self.queued_messages.append(submission)
             self.queued_submission_text = submission.visible_text
         else:
+            self.surface_submission_pending = submission_uses_transient_surface(
+                submission.value
+            )
             self.message_queue.put_nowait(submission)
 
         self.placeholder_text = self.input_model.new_placeholder(self._mode)
@@ -423,6 +438,7 @@ class TuiSubmissionFlow(object):
 
         self.input_model.clear_submission_state()
         self._invalidate()
+
         return False
 
     def bind_pending_attachment_check(
@@ -482,6 +498,7 @@ class TuiSubmissionFlow(object):
     async def close(self) -> None:
         """清理提交状态和退出确认任务。"""
         task = self._exit_expiry_task
+
         self.interrupt_state.disarm_exit()
         self._cancel_exit_expiry()
 
@@ -491,8 +508,8 @@ class TuiSubmissionFlow(object):
         self.interrupt_state.clear()
         self._exit_event.clear()
 
-        self._interrupt_handler      = _ignore_interrupt
-        self._stream_command_handler = _ignore_stream_command
+        self._interrupt_handler       = _ignore_interrupt
+        self._stream_command_handler  = _ignore_stream_command
         self._has_pending_attachments = _no_pending_attachments
 
 

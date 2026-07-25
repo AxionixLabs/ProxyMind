@@ -4,7 +4,9 @@ import asyncio
 from unittest.mock import patch
 
 import pytest
+from prompt_toolkit.completion import Completion
 from prompt_toolkit.data_structures import Size
+from prompt_toolkit.document import Document
 from prompt_toolkit.input.defaults import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
@@ -67,6 +69,36 @@ def rendered_window_line(runtime: TuiRuntime, window) -> str:
         row[column].char
         for column in range(position.xpos + position.width)
     ).rstrip()
+
+
+def test_command_completion_discards_text_after_cursor() -> None:
+    runtime = TuiRuntime()
+    buffer  = runtime.screen.input.buffer
+    buffer.document = Document("/mc xxxx", cursor_position=3)
+
+    runtime.input_model.apply_completion(
+        buffer,
+        Completion("/mcp", start_position=-3),
+    )
+
+    assert buffer.text == "/mcp"
+    assert buffer.cursor_position == len("/mcp")
+
+
+def test_completion_surface_has_no_async_footer_gap() -> None:
+    runtime = TuiRuntime()
+    buffer  = runtime.screen.input.buffer
+    buffer.document = Document("/mc", cursor_position=3)
+
+    assert buffer.complete_state is None
+    assert runtime.screen._completion_visible()
+    assert runtime.screen._completion_height() == 1
+    assert not runtime.screen._footer_visible()
+
+    buffer.document = Document("/mcp", cursor_position=4)
+
+    assert not runtime.screen._completion_visible()
+    assert runtime.screen._footer_visible()
 
 
 @pytest.mark.anyio

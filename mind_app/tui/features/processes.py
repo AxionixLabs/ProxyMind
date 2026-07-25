@@ -121,18 +121,36 @@ async def manage_exec_sessions(
     if selection is None:
         return False
     if selection is _STOP_ALL_ACTION:
-        return await stop_all_exec_sessions(runtime, mind)
-    return bool(await watch_exec_session(runtime, mind, str(selection)))
+        return await stop_all_exec_sessions(runtime, mind, sessions=sessions)
+
+    selected_session = next(
+        (
+            item for item in sessions
+            if str(item.get("session_id") or "").strip() == str(selection)
+        ),
+        None,
+    )
+
+    return bool(await watch_exec_session(
+        runtime,
+        mind,
+        str(selection),
+        initial_snapshot=selected_session,
+        activate_immediately=True,
+    ))
 
 
 async def stop_all_exec_sessions(
     runtime: "TuiRuntime",
     mind: typing.Any,
+    *,
+    sessions: list[dict[str, typing.Any]] | None = None,
 ) -> bool:
     """确认并停止当前全部后台命令会话。"""
     application = mind.frontend.application
-    snapshot    = await mind.native_coding.running_exec_sessions()
-    sessions    = _running_items(snapshot)
+    if sessions is None:
+        snapshot = await mind.native_coding.running_exec_sessions()
+        sessions = _running_items(snapshot)
 
     if not sessions:
         render_no_background_commands(application)
@@ -141,6 +159,7 @@ async def stop_all_exec_sessions(
     count        = len(sessions)
     command_noun = "command" if count == 1 else "commands"
     tree_noun    = "process tree" if count == 1 else "process trees"
+
     confirmed = await runtime.select_menu(MenuRequest(
         title="Stop Background Commands",
         status=f"running={count}",
@@ -162,12 +181,15 @@ async def stop_all_exec_sessions(
         ),
         selected=0,
     ))
+
     if confirmed is not True:
         return False
 
     result = await mind.native_coding.stop_exec_sessions()
+
     for item in _result_items(result, "items"):
         runtime.cancel_background_session_task(item.get("session_id"))
+
     runtime.set_process_status_label("")
     render_exec_sessions_stopped(application, result)
     return True
@@ -221,6 +243,8 @@ async def watch_exec_session(
     session_id: str | None,
     *,
     announce_detach: bool = False,
+    initial_snapshot: dict[str, typing.Any] | None = None,
+    activate_immediately: bool = False
 ) -> bool | str:
     """在主 TUI 中持续查看命令会话输出。"""
     sid = str(session_id or "").strip()
@@ -229,10 +253,16 @@ async def watch_exec_session(
 
     application = mind.frontend.application
 
-    initial = await mind.native_coding.exec_session_output_snapshot(
-        session_id=sid,
-        max_output_chars=PS_OUTPUT_LIMIT,
-    )
+    if initial_snapshot is None:
+        initial = await mind.native_coding.exec_session_output_snapshot(
+            session_id=sid,
+            max_output_chars=PS_OUTPUT_LIMIT,
+        )
+    else:
+        initial = dict(initial_snapshot)
+        initial.setdefault("ok", True)
+        initial.setdefault("status", "running")
+        initial.setdefault("output_lines", [])
 
     runtime.cancel_background_session_task(sid)
 
@@ -256,6 +286,7 @@ async def watch_exec_session(
         state,
         runtime=runtime,
         announce_detach=announce_detach,
+        activate_immediately=activate_immediately,
     )
 
 
@@ -266,17 +297,26 @@ async def _watch_exec_session(
     *,
     runtime: "TuiRuntime",
     announce_detach: bool,
+    activate_immediately: bool
 ) -> bool | str:
     """轮询并更新主 TUI 中的命令会话面板。"""
     application = mind.frontend.application
 
-    viewer_task = asyncio.create_task(runtime.view_process(
-        PROCESS_VIEWER_FOCUS_REQUEST,
-        exec_session_live_block(
-            state.get("snapshot"),
-            terminal_width=application.viewport.width,
-        ),
-    ))
+    live_block = exec_session_live_block(
+        state.get("snapshot"),
+        terminal_width=application.viewport.width,
+    )
+
+    if activate_immediately:
+        viewer_task = runtime.begin_process_viewer(
+            PROCESS_VIEWER_FOCUS_REQUEST,
+            live_block,
+        )
+    else:
+        viewer_task = asyncio.create_task(runtime.view_process(
+            PROCESS_VIEWER_FOCUS_REQUEST,
+            live_block,
+        ))
 
     async def poll() -> None:
         while not viewer_task.done():
@@ -306,12 +346,17 @@ async def _watch_exec_session(
 
     try:
         result = await viewer_task
+    except BaseException:
+        runtime.dismiss_process_viewer()
+        raise
+
     finally:
         if not poll_task.done():
             poll_task.cancel()
         await asyncio.gather(poll_task, return_exceptions=True)
 
-    settled = False
+    settled: bool = False
+
     try:
         if result == "interrupt":
             result = await _interrupt_exec_session(mind, session_id)

@@ -108,6 +108,7 @@ class TuiScreen(object):
         get_placeholder_text: typing.Callable[[], str],
         get_submission_deferred: typing.Callable[[], bool],
         get_queued_submission_text: typing.Callable[[], str | None],
+        get_surface_submission_pending: typing.Callable[[], bool],
         get_transcript_view_row: typing.Callable[[], int | None],
         accept_input: typing.Callable[[Buffer], bool],
         on_input_text_changed: typing.Callable[[Buffer], None],
@@ -115,21 +116,23 @@ class TuiScreen(object):
         clear_visible_transcript: typing.Callable[[], None],
         scroll_transcript_page: typing.Callable[[int], None],
         input_obj: Input | None = None,
-        output_obj: Output | None = None,
+        output_obj: Output | None = None
     ) -> None:
         self.input_model     = input_model
         self.document        = document
         self.queued_messages = queued_messages
         self.interrupt_state = interrupt_state
 
-        self._get_context                = get_context
-        self._get_placeholder_text       = get_placeholder_text
-        self._get_submission_deferred    = get_submission_deferred
-        self._get_queued_submission_text = get_queued_submission_text
-        self._get_transcript_view_row    = get_transcript_view_row
-        self._clear_exit_confirmation    = clear_exit_confirmation
-        self._clear_visible_transcript   = clear_visible_transcript
-        self._scroll_transcript_page     = scroll_transcript_page
+        self._get_context                    = get_context
+        self._get_placeholder_text           = get_placeholder_text
+        self._get_submission_deferred        = get_submission_deferred
+        self._get_queued_submission_text     = get_queued_submission_text
+        self._get_surface_submission_pending = get_surface_submission_pending
+        self._get_transcript_view_row        = get_transcript_view_row
+
+        self._clear_exit_confirmation  = clear_exit_confirmation
+        self._clear_visible_transcript = clear_visible_transcript
+        self._scroll_transcript_page   = scroll_transcript_page
 
         self.activity_block: FragmentBlock | None = None
 
@@ -423,6 +426,17 @@ class TuiScreen(object):
         """返回当前渲染输出的终端行数。"""
         return max(1, self._output_size()[1])
 
+    @staticmethod
+    def _transcript_continuation_widths(
+        fragments: FormattedText,
+    ) -> tuple[int, ...]:
+        """返回正文每个逻辑行的自动折行前缀宽度。"""
+        return fragment_continuation_widths(
+            fragments,
+            prefix_style=ASSISTANT_PREFIX_CLASS,
+            prefix_width=2,
+        )
+
     def invalidate(self) -> None:
         """请求重新绘制当前稳定画布。"""
         application = getattr(self, "application", None)
@@ -505,23 +519,23 @@ class TuiScreen(object):
             return [("class:prompt.kicker", "› ")]
         return [("class:prompt.kicker", ". ")]
 
-    def _placeholder_fragments(self) -> StyleAndTextTuples:
-        """返回当前输入轮次固定的占位文案。"""
-        return [("class:placeholder", self._get_placeholder_text())]
-
-    def _transcript_fragments(self) -> FormattedText:
-        """返回正文控件使用的格式化片段。"""
-        return self.transcript_fragments()
-
     def _transcript_line_prefix(
         self,
         line_number: int,
-        wrap_count: int,
+        wrap_count: int
     ) -> StyleAndTextTuples:
         """让助手正文自动折行后继续与首行正文对齐。"""
         if wrap_count <= 0 or not self._assistant_line(line_number):
             return []
         return [(ASSISTANT_PREFIX_CLASS, "  ")]
+
+    def _transcript_fragments(self) -> FormattedText:
+        """返回正文控件使用的格式化片段。"""
+        return self.transcript_fragments()
+
+    def _placeholder_fragments(self) -> StyleAndTextTuples:
+        """返回当前输入轮次固定的占位文案。"""
+        return [("class:placeholder", self._get_placeholder_text())]
 
     def _assistant_line(self, target_line: int) -> bool:
         """判断指定正文逻辑行是否属于助手正文块。"""
@@ -565,6 +579,11 @@ class TuiScreen(object):
             ]
         if self._queue_submission_hint_visible():
             return [("class:footer.queue-hint", "  tab to queue message")]
+        if (
+            self.document.has_pending_submission
+            or self._get_surface_submission_pending()
+        ):
+            return []
 
         context = self._get_context()
         theme   = self.input_model.theme(context.mode)
@@ -652,17 +671,6 @@ class TuiScreen(object):
         )
         return Dimension.exact(min(rows, self.transcript_available_height()))
 
-    @staticmethod
-    def _transcript_continuation_widths(
-        fragments: FormattedText,
-    ) -> tuple[int, ...]:
-        """返回正文每个逻辑行的自动折行前缀宽度。"""
-        return fragment_continuation_widths(
-            fragments,
-            prefix_style=ASSISTANT_PREFIX_CLASS,
-            prefix_width=2,
-        )
-
     def _status_dimension(self) -> Dimension:
         """返回动画区域的精确高度。"""
         return Dimension.exact(self._status_height())
@@ -749,16 +757,27 @@ class TuiScreen(object):
         state = self.input.buffer.complete_state
         return bool(
             self.bottom_pane.input_visible
-            and state is not None
-            and state.completions
+            and (
+                (state is not None and state.completions)
+                or self._expected_completion_count()
+            )
         )
+
+    def _expected_completion_count(self) -> int:
+        """同步计算当前输入应展示的补全项数量。"""
+        if not self.bottom_pane.input_visible:
+            return 0
+        return len(self.input_model.completer.matching_completions(
+            self.input.buffer.document
+        ))
 
     def _completion_height(self) -> int:
         """计算无边框补全列表占用行数。"""
         if not self._completion_visible():
             return 0
         state = self.input.buffer.complete_state
-        count = len(state.completions) if state is not None else 0
+        loaded_count = len(state.completions) if state is not None else 0
+        count = max(loaded_count, self._expected_completion_count())
         available = max(1, self.terminal_height - self._input_height() - 1)
         return min(self.COMPLETION_MAX_HEIGHT, count, available)
 
@@ -897,6 +916,7 @@ class TuiScreen(object):
                 return int(size.columns), int(size.rows)
         fallback = shutil.get_terminal_size(fallback=(100, 24))
         return fallback.columns, fallback.lines
+
 
 def _erase_terminal_scrollback(output: Output) -> None:
     """清除支持 VT 擦除指令的终端滚屏缓冲区。"""

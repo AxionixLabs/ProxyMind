@@ -8,7 +8,10 @@ from prompt_toolkit.auto_suggest import (
     Suggestion
 )
 from prompt_toolkit.application.current import get_app
-from prompt_toolkit.completion import CompleteEvent
+from prompt_toolkit.completion import (
+    CompleteEvent,
+    Completion
+)
 from prompt_toolkit.document import Document
 from prompt_toolkit.filters import (
     Condition,
@@ -96,6 +99,7 @@ class TuiAutoSuggest(AutoSuggest):
         candidate = apply_ghost_prompt(current_line, self.ghost_templates)
         if candidate != current_line:
             return Suggestion(candidate[len(current_line):])
+
         return None
 
 
@@ -195,6 +199,52 @@ class TuiInputModel(object):
         }
         return dict(themes[mode])
 
+    @staticmethod
+    def apply_completion(buffer, completion: Completion) -> None:
+        """应用补全，并让斜杠命令替换光标后的剩余输入。"""
+        state    = buffer.complete_state
+        document = state.original_document if state is not None else buffer.document
+        cursor   = document.cursor_position
+        start    = cursor + completion.start_position
+        command  = document.text_before_cursor.lstrip().startswith("/")
+        suffix   = "" if command else document.text_after_cursor
+        text     = document.text[:start] + completion.text + suffix
+
+        buffer.complete_state = None
+
+        buffer.document = Document(
+            text,
+            cursor_position=start + len(completion.text),
+        )
+
+    @staticmethod
+    def _history_entry_state(entry: str) -> tuple[str, bool]:
+        """把历史条目转换为输入文本和 Shell 前缀状态。"""
+        if entry.startswith("!"):
+            return entry[1:].lstrip(" "), True
+        return entry, False
+
+    @staticmethod
+    def _select_completion(buffer, step: int) -> bool:
+        """只移动补全高亮，不提前改写输入内容。"""
+        state = getattr(buffer, "complete_state", None)
+        if state is None or not state.completions:
+            return False
+
+        current = state.complete_index
+        if current is None:
+            index = 0 if step > 0 else len(state.completions) - 1
+        else:
+            index = (current + step) % len(state.completions)
+
+        state.go_to_index(index)
+
+        buffer.on_completions_changed.fire()
+        if buffer.suggestion is not None:
+            buffer.suggestion = None
+            buffer.on_suggestion_set.fire()
+        return True
+
     def new_placeholder(self, mode: str) -> str:
         """为新的输入轮次生成一次占位文案。"""
         theme   = self.theme(mode)
@@ -230,7 +280,7 @@ class TuiInputModel(object):
     def bind_exit(
         self,
         can_exit: typing.Callable[[], bool],
-        handler: typing.Callable[[], None],
+        handler: typing.Callable[[], None]
     ) -> None:
         """绑定空输入状态下的直接退出判断和处理函数。"""
         self.can_exit = can_exit
@@ -239,7 +289,7 @@ class TuiInputModel(object):
     def bind_queue_rollback(
         self,
         can_rollback: typing.Callable[[], bool],
-        handler: typing.Callable[[], bool],
+        handler: typing.Callable[[], bool]
     ) -> None:
         """绑定执行期待提交消息的可用状态和撤回处理。"""
         self.can_rollback_queue     = can_rollback
@@ -252,10 +302,6 @@ class TuiInputModel(object):
     def submission_state(self) -> dict[str, str]:
         """返回当前提交文本关联的折叠粘贴状态。"""
         return dict(self.paste_store)
-
-    def _active_paste_placeholders(self) -> tuple[str, ...]:
-        """返回输入框中仍然有效的折叠粘贴占位符。"""
-        return tuple(self.paste_store)
 
     def restore_submission_state(self, state: dict[str, str]) -> None:
         """恢复被撤回提交文本关联的折叠粘贴状态。"""
@@ -281,6 +327,10 @@ class TuiInputModel(object):
         self._clear_paste_state()
         self.set_shell_mode(False)
         self._reset_history_navigation()
+
+    def _active_paste_placeholders(self) -> tuple[str, ...]:
+        """返回输入框中仍然有效的折叠粘贴占位符。"""
+        return tuple(self.paste_store)
 
     def _display_paste(self, text: str, current_text: str) -> str:
         """按体积决定直接展示或折叠粘贴内容。"""
@@ -399,34 +449,6 @@ class TuiInputModel(object):
         self.set_shell_mode(shell_mode)
 
         buffer.document = Document(text, cursor_position=len(text))
-
-    @staticmethod
-    def _history_entry_state(entry: str) -> tuple[str, bool]:
-        """把历史条目转换为输入文本和 Shell 前缀状态。"""
-        if entry.startswith("!"):
-            return entry[1:].lstrip(" "), True
-        return entry, False
-
-    @staticmethod
-    def _select_completion(buffer, step: int) -> bool:
-        """只移动补全高亮，不提前改写输入内容。"""
-        state = getattr(buffer, "complete_state", None)
-        if state is None or not state.completions:
-            return False
-
-        current = state.complete_index
-        if current is None:
-            index = 0 if step > 0 else len(state.completions) - 1
-        else:
-            index = (current + step) % len(state.completions)
-
-        state.go_to_index(index)
-
-        buffer.on_completions_changed.fire()
-        if buffer.suggestion is not None:
-            buffer.suggestion = None
-            buffer.on_suggestion_set.fire()
-        return True
 
     def _build_key_bindings(self) -> KeyBindings:
         """创建 TUI 输入区按键绑定。"""
@@ -567,7 +589,7 @@ class TuiInputModel(object):
             state = buffer.complete_state
             if state is not None and state.current_completion is not None:
                 completion = state.current_completion
-                buffer.apply_completion(completion)
+                self.apply_completion(buffer, completion)
                 if (
                     completion.text == "$"
                     or completion.text.startswith("$")

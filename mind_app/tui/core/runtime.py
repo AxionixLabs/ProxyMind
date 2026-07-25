@@ -34,6 +34,7 @@ from .process_viewer import ProcessViewerRequest
 from .queued import TuiSubmission
 from .screen import TuiScreen
 from .styles import query_block
+from ..prompting.commands import submission_uses_transient_surface
 from .submission import (
     TuiInputClosed,
     TuiInterruptRequested,
@@ -125,6 +126,9 @@ class TuiRuntime(FrontendRuntime):
             get_queued_submission_text=(
                 lambda: self.submissions.queued_submission_text
             ),
+            get_surface_submission_pending=(
+                lambda: self.submissions.surface_submission_pending
+            ),
             get_transcript_view_row=lambda: self.viewport.view_row,
             accept_input=self.submissions.accept_input,
             on_input_text_changed=self.submissions.on_input_text_changed,
@@ -152,11 +156,6 @@ class TuiRuntime(FrontendRuntime):
         """返回模型轮次是否正在运行。"""
         return self.task_state.turn_running
 
-    @execution_active.setter
-    def execution_active(self, active: bool) -> None:
-        """更新模型轮次运行状态。"""
-        self.task_state.set_turn_running(active)
-
     @property
     def foreground_active(self) -> bool:
         """返回是否正在等待下一轮开始前的前台屏障。"""
@@ -182,37 +181,19 @@ class TuiRuntime(FrontendRuntime):
         """返回当前渲染输出的终端行数。"""
         return self.screen.terminal_height
 
-    async def open(self) -> None:
-        """启动持久 inline 输入应用并等待首帧完成。"""
-        if self.active:
-            return None
+    @property
+    def has_pending_attachments(self) -> bool:
+        """返回当前是否存在可随空消息发送的附件。"""
+        return self.submissions.has_pending_attachments
 
-        self._closing = False
-        self._application_error = None
-        application = self.screen.application
-        previous_render_count = application.render_counter
-        self._application_task = asyncio.create_task(
-            self._run_application(),
-            name="tui application",
-        )
-        while (
-            (
-                not application.is_running
-                or application.render_counter == previous_render_count
-            )
-            and not self._application_task.done()
-        ):
-            await asyncio.sleep(0)
-        application_error = self._application_task_exception()
-        if application_error is not None:
-            raise application_error
-        await self._play_startup_animation()
-        for callback in tuple(self._open_callbacks):
-            callback()
+    @execution_active.setter
+    def execution_active(self, active: bool) -> None:
+        """更新模型轮次运行状态。"""
+        self.task_state.set_turn_running(active)
 
     def set_startup_animation(
         self,
-        animation: StartupAnimation,
+        animation: StartupAnimation
     ) -> None:
         """注册在 Application 首帧后播放的一次性启动动画。"""
         if self.active:
@@ -220,51 +201,12 @@ class TuiRuntime(FrontendRuntime):
         if not self._startup_animations:
             self._startup_animations.append(animation)
 
-    async def _play_startup_animation(self) -> None:
-        """播放并清除当前注册的启动动画。"""
-        animations = tuple(self._startup_animations)
-        self._startup_animations.clear()
-        for animation in animations:
-            await animation()
-
-    def add_open_callback(self, callback: typing.Callable[[], None]) -> None:
-        """注册主应用首帧完成后的同步回调。"""
-        self._open_callbacks.append(callback)
-        if self.active:
-            callback()
-
-    async def close(self) -> None:
-        """停止输入应用和全部动态任务。"""
-        self._closing = True
-        self._startup_animations.clear()
-        self.terminal_progress.clear()
-
-        await self.submissions.close()
-        await self.activity.clear()
-
-        self.task_state.clear()
-        self.screen.process_status.clear()
-
-        await self.screen.approval.close()
-        await self.screen.menu.close()
-        await self.screen.process_viewer.close()
-
-        if self.document.active_kind == "operation":
-            self.document.clear_active()
-
-        self.screen.bottom_pane.clear()
-        background_tasks = tuple(self._background_tasks)
-        self._background_tasks.clear()
-        self._background_session_tasks.clear()
-
-        for task in background_tasks:
-            task.cancel()
-
-        if background_tasks:
-            await asyncio.gather(*background_tasks, return_exceptions=True)
-
-        await self.viewport.close()
-        await self._exit_application(erase=False)
+    def bind_pending_attachment_check(
+        self,
+        check: typing.Callable[[], bool] | None
+    ) -> None:
+        """绑定或清除待发送附件状态判断。"""
+        self.submissions.bind_pending_attachment_check(check)
 
     def print_exit_summary(self) -> None:
         """在 TUI 释放终端后打印静态退出摘要。"""
@@ -272,45 +214,11 @@ class TuiRuntime(FrontendRuntime):
             raise RuntimeError("TUI exit summary requires a closed Application")
         self.screen.print_exit_summary()
 
-    async def read_message(self, context: PromptContext) -> str:
-        """更新输入上下文并按提交顺序读取下一条消息。"""
-        self.set_prompt_context(context)
-
-        try:
-            submission = await self.submissions.read_submission()
-        except TuiInputClosed:
-            application_error = self._application_task_exception()
-            if application_error is not None:
-                if isinstance(application_error, KeyboardInterrupt):
-                    raise TuiInterruptRequested from application_error
-                raise application_error
-            raise EOFError
-
-        if isinstance(submission, TuiSubmission):
-            value = submission.value
-            visible = submission.visible_text.strip() or value
-        else:
-            value = str(submission)
-            visible = value
-
-        self.viewport.reset_view()
-        if visible:
-            block = query_block(visible)
-            self.append_block(block, kind="user")
-            self.viewport.mark_submitted_query(block)
-        return value
-
-    @property
-    def has_pending_attachments(self) -> bool:
-        """返回当前是否存在可随空消息发送的附件。"""
-        return self.submissions.has_pending_attachments
-
-    def bind_pending_attachment_check(
-        self,
-        check: typing.Callable[[], bool] | None,
-    ) -> None:
-        """绑定或清除待发送附件状态判断。"""
-        self.submissions.bind_pending_attachment_check(check)
+    def add_open_callback(self, callback: typing.Callable[[], None]) -> None:
+        """注册主应用首帧完成后的同步回调。"""
+        self._open_callbacks.append(callback)
+        if self.active:
+            callback()
 
     def set_prompt_context(self, context: PromptContext) -> None:
         """在首帧或输入轮次前更新输入区展示上下文。"""
@@ -321,19 +229,41 @@ class TuiRuntime(FrontendRuntime):
         """更新动画区域下方的后台进程摘要。"""
         self.screen.process_status.set_label(label)
 
-    async def request_approval(
-        self,
-        approval: dict[str, typing.Any],
-    ) -> ApprovalDecisionValue:
-        """在唯一审批区域中读取工具执行决策。"""
-        wait_paused = await self.activity.pause_wait()
-        self.terminal_progress.warning()
-        try:
-            return await self.screen.approval.request(approval)
-        finally:
-            self.terminal_progress.begin()
-            if wait_paused:
-                await self.activity.resume_wait()
+    def _discard_submitted_query(self) -> None:
+        """在二级菜单接管交互时撤下刚提交的输入块。"""
+        if self.document.discard_submission():
+            self.invalidate()
+            return None
+        self.viewport.discard_submitted_query()
+
+    def _application_task_exception(self) -> BaseException | None:
+        """返回输入应用已经产生的终止异常。"""
+        if self._application_error is not None:
+            return self._application_error
+        task = self._application_task
+        if task is None or not task.done() or task.cancelled():
+            return None
+        return task.exception()
+
+    def _flush_background_blocks(self) -> None:
+        """在流式正文结束后提交已完成的后台摘要。"""
+        if self.submission_deferred or self.document.active_block is not None:
+            return None
+        blocks = tuple(self._background_blocks)
+        self._background_blocks.clear()
+        for block in blocks:
+            self.append_block(block, kind="notice")
+
+    def _background_task_done(self, task: asyncio.Task[None]) -> None:
+        """回收已完成的 TUI 后台任务。"""
+        self._background_tasks.discard(task)
+        for session_id, session_task in tuple(
+            self._background_session_tasks.items()
+        ):
+            if session_task is task:
+                self._background_session_tasks.pop(session_id, None)
+        if not task.cancelled():
+            task.exception()
 
     def begin_terminal_progress(self) -> None:
         """启动终端窗口的不确定进度。"""
@@ -343,11 +273,6 @@ class TuiRuntime(FrontendRuntime):
         """清除终端窗口进度。"""
         self.terminal_progress.clear()
 
-    async def select_menu(self, request: MenuRequest) -> typing.Any:
-        """在主 Application 画布内读取菜单选择。"""
-        self._discard_submitted_query()
-        return await self.screen.menu.request(request)
-
     def update_menu(self, request: MenuRequest) -> None:
         """更新主画布中的菜单或只读面板。"""
         self.screen.menu.update(request)
@@ -356,19 +281,15 @@ class TuiRuntime(FrontendRuntime):
         """结束主画布中的菜单或只读面板。"""
         self.screen.menu.finish(value)
 
-    async def view_process(
+    def begin_process_viewer(
         self,
         request: ProcessViewerRequest,
         block: FragmentBlock,
-    ) -> typing.Any:
-        """显示动态进程正文并等待查看器动作。"""
+    ) -> asyncio.Future[typing.Any]:
+        """同步激活进程查看器并返回等待结果。"""
         self._discard_submitted_query()
         self.set_active_renderable(block, kind="operation")
-        try:
-            return await self.screen.process_viewer.request(request)
-        except BaseException:
-            self.dismiss_process_viewer()
-            raise
+        return self.screen.process_viewer.begin(request)
 
     def update_process_viewer(self, block: FragmentBlock) -> None:
         """替换当前动态进程正文。"""
@@ -457,19 +378,24 @@ class TuiRuntime(FrontendRuntime):
         if self.document.append_block(block, kind=kind):
             self.viewport.content_appended()
 
-    def _discard_submitted_query(self) -> None:
-        """在二级菜单接管交互时撤下刚提交的输入块。"""
-        self.viewport.discard_submitted_query()
+    def discard_pending_submission(self) -> None:
+        """清理由命令分派结束后仍未接管的暂存输入。"""
+        if self.document.discard_submission():
+            self.invalidate()
 
     def set_active_renderable(
         self,
         block: FragmentBlock,
         *,
-        kind: TuiBlockKind = "assistant",
+        kind: TuiBlockKind = "assistant"
     ) -> None:
         """替换当前流式展示块。"""
         self.document.set_active(block, kind=kind)
         self.invalidate()
+
+    def invalidate(self) -> None:
+        """请求重新绘制当前稳定画布。"""
+        self.screen.invalidate()
 
     def commit_active_renderable(self, block: FragmentBlock) -> None:
         """把当前动态正文替换为同位置的稳定块。"""
@@ -530,69 +456,6 @@ class TuiRuntime(FrontendRuntime):
         """消费并返回主输入区是否已请求退出。"""
         return self.submissions.consume_exit_request()
 
-    async def begin_wait_status(self) -> None:
-        """启动覆盖当前交互周期的等待动画。"""
-        await self.activity.begin_wait()
-
-    async def begin_upload_status(
-        self,
-        snapshot: typing.Callable[[], dict[str, typing.Any]],
-    ) -> None:
-        """启动附件上传动画。"""
-        await self.activity.begin_upload(snapshot)
-
-    async def begin_download_status(
-        self,
-        snapshot: typing.Callable[[], dict[str, typing.Any]],
-    ) -> None:
-        """启动运行时下载动画。"""
-        await self.activity.begin_download(snapshot)
-
-    async def begin_inbuild_status(
-        self,
-        snapshot: typing.Callable[[], dict[str, typing.Any]],
-    ) -> None:
-        """启动内置运行时状态动画。"""
-        await self.activity.begin_inbuild(snapshot)
-
-    async def begin_external_mcp_status(
-        self,
-        snapshot: typing.Callable[[], dict[str, typing.Any]],
-    ) -> None:
-        """启动外部 MCP 状态动画。"""
-        await self.activity.begin_external_mcp(snapshot)
-
-    async def begin_compact_status(
-        self,
-        snapshot: typing.Callable[[], dict[str, typing.Any]],
-    ) -> None:
-        """启动对话压缩状态动画。"""
-        await self.activity.begin_compact(snapshot)
-
-    async def begin_operation_status(
-        self,
-        snapshot: typing.Callable[[], dict[str, typing.Any]],
-    ) -> None:
-        """启动通用前台操作动画。"""
-        await self.activity.begin_operation(snapshot)
-
-    async def hold_activity_status(self, kind: ActivityStatusKind) -> None:
-        """保持指定活动的最终状态直至后续替换或清除。"""
-        await self.activity.hold(kind)
-
-    async def end_activity_status(
-        self,
-        kind: ActivityStatusKind | None = None,
-        *,
-        settle: bool = True,
-    ) -> None:
-        """结束运行期活动动画。"""
-        await self.activity.stop(kind, settle=settle)
-
-    def invalidate(self) -> None:
-        """请求重新绘制当前稳定画布。"""
-        self.screen.invalidate()
-
     async def _run_application(self) -> None:
         """运行输入应用并传播终端结束状态。"""
         application = self.screen.application
@@ -611,15 +474,6 @@ class TuiRuntime(FrontendRuntime):
             if not self._closing:
                 self.submissions.finish_input()
 
-    def _application_task_exception(self) -> BaseException | None:
-        """返回输入应用已经产生的终止异常。"""
-        if self._application_error is not None:
-            return self._application_error
-        task = self._application_task
-        if task is None or not task.done() or task.cancelled():
-            return None
-        return task.exception()
-
     async def _exit_application(self, *, erase: bool) -> None:
         """结束当前应用任务并按需清除画布。"""
         task = self._application_task
@@ -635,25 +489,201 @@ class TuiRuntime(FrontendRuntime):
         self._application_task = None
         application.erase_when_done = False
 
-    def _flush_background_blocks(self) -> None:
-        """在流式正文结束后提交已完成的后台摘要。"""
-        if self.submission_deferred or self.document.active_block is not None:
-            return None
-        blocks = tuple(self._background_blocks)
-        self._background_blocks.clear()
-        for block in blocks:
-            self.append_block(block, kind="notice")
+    async def _play_startup_animation(self) -> None:
+        """播放并清除当前注册的启动动画。"""
+        animations = tuple(self._startup_animations)
+        self._startup_animations.clear()
+        for animation in animations:
+            await animation()
 
-    def _background_task_done(self, task: asyncio.Task[None]) -> None:
-        """回收已完成的 TUI 后台任务。"""
-        self._background_tasks.discard(task)
-        for session_id, session_task in tuple(
-            self._background_session_tasks.items()
+    async def open(self) -> None:
+        """启动持久 inline 输入应用并等待首帧完成。"""
+        if self.active:
+            return None
+
+        self._closing = False
+        self._application_error = None
+        application = self.screen.application
+        previous_render_count = application.render_counter
+        self._application_task = asyncio.create_task(
+            self._run_application(),
+            name="tui application",
+        )
+        while (
+            (
+                not application.is_running
+                or application.render_counter == previous_render_count
+            )
+            and not self._application_task.done()
         ):
-            if session_task is task:
-                self._background_session_tasks.pop(session_id, None)
-        if not task.cancelled():
-            task.exception()
+            await asyncio.sleep(0)
+        application_error = self._application_task_exception()
+        if application_error is not None:
+            raise application_error
+        await self._play_startup_animation()
+        for callback in tuple(self._open_callbacks):
+            callback()
+
+    async def close(self) -> None:
+        """停止输入应用和全部动态任务。"""
+        self._closing = True
+        self._startup_animations.clear()
+        self.terminal_progress.clear()
+
+        await self.submissions.close()
+        await self.activity.clear()
+
+        self.task_state.clear()
+        self.screen.process_status.clear()
+
+        await self.screen.approval.close()
+        await self.screen.menu.close()
+        await self.screen.process_viewer.close()
+
+        if self.document.active_kind == "operation":
+            self.document.clear_active()
+
+        self.document.discard_submission()
+        self.screen.bottom_pane.clear()
+        background_tasks = tuple(self._background_tasks)
+        self._background_tasks.clear()
+        self._background_session_tasks.clear()
+
+        for task in background_tasks:
+            task.cancel()
+
+        if background_tasks:
+            await asyncio.gather(*background_tasks, return_exceptions=True)
+
+        await self.viewport.close()
+        await self._exit_application(erase=False)
+
+    async def read_message(self, context: PromptContext) -> str:
+        """更新输入上下文并按提交顺序读取下一条消息。"""
+        self.set_prompt_context(context)
+
+        try:
+            submission = await self.submissions.read_submission()
+        except TuiInputClosed:
+            application_error = self._application_task_exception()
+            if application_error is not None:
+                if isinstance(application_error, KeyboardInterrupt):
+                    raise TuiInterruptRequested from application_error
+                raise application_error
+            raise EOFError
+
+        if isinstance(submission, TuiSubmission):
+            value = submission.value
+            visible = submission.visible_text.strip() or value
+        else:
+            value = str(submission)
+            visible = value
+
+        self.viewport.reset_view()
+        if visible:
+            block = query_block(visible)
+            self.document.stage_submission(block)
+            if submission_uses_transient_surface(value):
+                self.invalidate()
+            else:
+                committed = self.document.commit_submission()
+                if committed is not None:
+                    self.viewport.content_appended()
+                    self.viewport.mark_submitted_query(committed)
+        self.submissions.clear_surface_submission_pending()
+        return value
+
+    async def select_menu(self, request: MenuRequest) -> typing.Any:
+        """在主 Application 画布内读取菜单选择。"""
+        self._discard_submitted_query()
+        return await self.screen.menu.request(request)
+
+    async def request_approval(
+        self,
+        approval: dict[str, typing.Any]
+    ) -> ApprovalDecisionValue:
+        """在唯一审批区域中读取工具执行决策。"""
+        wait_paused = await self.activity.pause_wait()
+        self.terminal_progress.warning()
+        try:
+            return await self.screen.approval.request(approval)
+        finally:
+            self.terminal_progress.begin()
+            if wait_paused:
+                await self.activity.resume_wait()
+
+    async def view_process(
+        self,
+        request: ProcessViewerRequest,
+        block: FragmentBlock
+    ) -> typing.Any:
+        """显示动态进程正文并等待查看器动作。"""
+        future = self.begin_process_viewer(request, block)
+        try:
+            return await future
+        except BaseException:
+            self.dismiss_process_viewer()
+            raise
+
+    async def begin_wait_status(self) -> None:
+        """启动覆盖当前交互周期的等待动画。"""
+        await self.activity.begin_wait()
+
+    async def begin_upload_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]]
+    ) -> None:
+        """启动附件上传动画。"""
+        await self.activity.begin_upload(snapshot)
+
+    async def begin_download_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]]
+    ) -> None:
+        """启动运行时下载动画。"""
+        await self.activity.begin_download(snapshot)
+
+    async def begin_inbuild_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]]
+    ) -> None:
+        """启动内置运行时状态动画。"""
+        await self.activity.begin_inbuild(snapshot)
+
+    async def begin_external_mcp_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]]
+    ) -> None:
+        """启动外部 MCP 状态动画。"""
+        await self.activity.begin_external_mcp(snapshot)
+
+    async def begin_compact_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]]
+    ) -> None:
+        """启动对话压缩状态动画。"""
+        await self.activity.begin_compact(snapshot)
+
+    async def begin_operation_status(
+        self,
+        snapshot: typing.Callable[[], dict[str, typing.Any]]
+    ) -> None:
+        """启动通用前台操作动画。"""
+        await self.activity.begin_operation(snapshot)
+
+    async def hold_activity_status(self, kind: ActivityStatusKind) -> None:
+        """保持指定活动的最终状态直至后续替换或清除。"""
+        await self.activity.hold(kind)
+
+    async def end_activity_status(
+        self,
+        kind: ActivityStatusKind | None = None,
+        *,
+        settle: bool = True
+    ) -> None:
+        """结束运行期活动动画。"""
+        await self.activity.stop(kind, settle=settle)
+
 
 def require_tui_runtime(runtime: FrontendRuntime) -> TuiRuntime:
     """验证前端运行期为 TUI 具体实现。"""

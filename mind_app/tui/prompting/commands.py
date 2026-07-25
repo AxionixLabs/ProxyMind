@@ -13,7 +13,11 @@ from .skills import (
     skill_completions
 )
 
-StreamCommandPolicy = typing.Literal["reject", "background_barrier", "interrupt"]
+StreamCommandPolicy = typing.Literal[
+    "reject",
+    "background_barrier",
+    "interrupt"
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +31,7 @@ class TuiCommandSpec(object):
     completion_match: str | None = None
     parameterized: bool = False
     subcommands: tuple[str, ...] = ()
+    surface_on_bare: bool = False
     stream_policy: StreamCommandPolicy = "reject"
 
     @property
@@ -55,12 +60,14 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     ),
     TuiCommandSpec(
         "resume", "/resume", "恢复最近会话",
+        surface_on_bare=True,
     ),
     TuiCommandSpec(
         "fork", "/fork", "复制当前对话上下文",
     ),
     TuiCommandSpec(
         "permissions", "/permissions", "切换权限模式",
+        surface_on_bare=True,
     ),
     TuiCommandSpec(
         "model", "/model", "设置主模型 ID",
@@ -69,6 +76,7 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     ),
     TuiCommandSpec(
         "effort", "/effort", "设置主模型推理强度",
+        surface_on_bare=True,
     ),
     TuiCommandSpec(
         "preferences", "/preferences", "打开偏好配置页面",
@@ -87,13 +95,16 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     ),
     TuiCommandSpec(
         "ps", "/ps", "管理后台命令",
+        surface_on_bare=True,
     ),
     TuiCommandSpec(
         "mcp", "/mcp", "管理外部 MCP 服务",
         subcommands=("start", "force", "stop", "restart", "status"),
+        surface_on_bare=True,
     ),
     TuiCommandSpec(
         "helix_link", "/helix-link", "接入 Helix MCP",
+        surface_on_bare=True,
         stream_policy="background_barrier",
     ),
     TuiCommandSpec(
@@ -243,6 +254,14 @@ def stream_command_label(value: str) -> str:
     return parts[0]
 
 
+def submission_uses_transient_surface(value: str) -> bool:
+    """判断完整命令是否会用临时交互表面接管输入区。"""
+    normalized = str(value or "").strip().casefold()
+    command    = _COMMAND_BY_NAME.get(normalized)
+
+    return bool(command is not None and command.surface_on_bare)
+
+
 def _completion_items() -> tuple[dict[str, str], ...]:
     """生成补全器使用的有序命令条目。"""
     items: list[dict[str, str]] = []
@@ -288,20 +307,24 @@ class SlashCommandCompleter(Completer):
 
     def get_completions(self, document, complete_event):
         """根据当前输入内容生成补全项。"""
+        _ = complete_event
+        yield from self.matching_completions(document)
+
+    def matching_completions(self, document) -> tuple[Completion, ...]:
+        """返回当前文档可以实际改写输入内容的补全项。"""
         text     = document.text_before_cursor
         stripped = text.lstrip()
         skills   = self._skills()
 
         if is_skill_token(text, skills):
-            yield from skill_completions(text, skills)
-            return
+            return tuple(skill_completions(text, skills))
 
         if not stripped.startswith("/"):
-            return
+            return ()
 
         token = stripped.splitlines()[-1]
         if " " in token:
-            return
+            return ()
 
         if token == "/":
             candidates = [
@@ -317,13 +340,29 @@ class SlashCommandCompleter(Completer):
             ]
             visible_limit = 7
 
-        for item in candidates[:visible_limit]:
-            yield Completion(
+        completions = tuple(
+            Completion(
                 item["text"],
                 start_position=-len(token),
                 display=item["display"],
                 display_meta=item["meta"]
             )
+            for item in candidates[:visible_limit]
+        )
+
+        return tuple(
+            completion
+            for completion in completions
+            if _completion_changes_input(document, completion)
+        )
+
+
+def _completion_changes_input(document, completion: Completion) -> bool:
+    """判断补全项是否会改写光标前的匹配文本。"""
+    before = document.text_before_cursor
+    start  = len(before) + completion.start_position
+
+    return before[start:] != completion.text
 
 
 if __name__ == '__main__':

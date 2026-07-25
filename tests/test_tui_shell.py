@@ -298,6 +298,7 @@ async def test_ps_stop_all_confirms_and_cancels_background_watchers() -> None:
     assert requests[1].options[0].value is False
     assert cancelled == ["exec_shell", "exec_tool"]
     assert status_labels == [""]
+    native_coding.running_exec_sessions.assert_awaited_once_with()
     native_coding.stop_exec_sessions.assert_awaited_once_with()
     text = "".join(
         value
@@ -341,6 +342,51 @@ async def test_ps_stop_all_defaults_to_cancel() -> None:
     assert not handled
     assert requests[1].selected == 0
     native_coding.stop_exec_sessions.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_ps_selection_activates_viewer_before_loading_output() -> None:
+    application = _ApplicationStub()
+    output_requested = asyncio.Event()
+    release_output = asyncio.Event()
+    session = {
+        "session_id": "exec_shell",
+        "command": "long task",
+        "pid": 101,
+        "origin": "tui_shell",
+    }
+
+    async def output_snapshot(**_kwargs):
+        output_requested.set()
+        await release_output.wait()
+        return {**session, "ok": True, "status": "running", "output_lines": []}
+
+    runtime = TuiRuntime()
+    mind = SimpleNamespace(
+        frontend=SimpleNamespace(application=application),
+        native_coding=SimpleNamespace(
+            running_exec_sessions=AsyncMock(return_value={
+                "count": 1,
+                "items": [session],
+            }),
+            exec_session_output_snapshot=output_snapshot,
+        ),
+    )
+
+    task = asyncio.create_task(manage_exec_sessions(runtime, mind))
+    while not runtime.screen.menu.active:
+        await asyncio.sleep(0)
+
+    runtime.finish_menu("exec_shell")
+    await output_requested.wait()
+
+    assert runtime.screen.process_viewer.active
+    assert runtime.screen.bottom_pane.active_surface == "process_viewer"
+    assert not runtime.screen.input_area.filter()
+
+    runtime.resolve_process_viewer("detach")
+    release_output.set()
+    assert await task
 
 
 def test_ps_stop_all_partial_result_uses_tree_branches() -> None:

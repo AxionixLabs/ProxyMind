@@ -18,6 +18,7 @@ from mind_app.tui.prompting.commands import (
     resolve_slash_command,
     stream_command_label,
     stream_command_policy,
+    submission_uses_transient_surface,
 )
 from mind_app.tui.session.dispatch import (
     DispatchAction,
@@ -66,6 +67,24 @@ def test_helix_prefix_keeps_command_order() -> None:
         "/helix-home",
         "/helix-stop",
     ]
+
+
+def test_complete_command_does_not_leave_a_noop_completion() -> None:
+    assert [item.display_text for item in _completions("/mc")] == ["/mcp"]
+    assert _completions("/mcp") == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["/permissions", "/effort", "/resume", "/ps", "/mcp", "/helix-link"],
+)
+def test_bare_surface_commands_stage_their_submission(value) -> None:
+    assert submission_uses_transient_surface(value)
+
+
+@pytest.mark.parametrize("value", ["hello", "/mcp status", "/model gpt-test", "/q"])
+def test_non_surface_inputs_commit_directly(value) -> None:
+    assert not submission_uses_transient_surface(value)
 
 
 def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
